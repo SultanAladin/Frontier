@@ -1,0 +1,194 @@
+#version 450
+
+// 🧩 The exact signed-distance bake (accurate / realistic — matches the CPU ExactBoundingVolume). One invocation per voxel of the
+//    Resolution³ grid walks the whole uploaded triangle list with the Eberly closest-point-to-triangle test, keeps the nearest point,
+//    signs the unsigned distance by the side of the resolved triangle's pseudonormal, then writes clamp(signed / MaximumDistance, -1, 1)
+//    × 32767 as an int32 the host narrows to the R16_SNORM voxel. Brute force over triangles (no BVH this slice) — correct on any mesh,
+//    heaviest on dense ones. Byte-comparable to DistanceVolumeBaker.cpp's exact fill.
+// 📝 Bindings: 0 the triangle list (readonly), 1 the int32-per-voxel output, 2 the packed int16-per-voxel output. Push carries the padded
+//    AABB lower corner, per-voxel span, resolution, triangle count, the R16_SNORM decode scale, and PackedMode. PackedMode == 0 writes the
+//    int32 store at binding 1 (the host narrows it — CPU narrow / GPU-narrow-shader paths); PackedMode == 1 packs two int16 voxels per uint
+//    straight into binding 2 with atomicOr (Fix 6 approach b — no int32 intermediate, voxels never touch the CPU). Exactly one output is
+//    written per dispatch; the other binding points at a small dummy buffer.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+// std430, byte-identical to GpuBakeTriangle (GpuBakeDispatch.cpp).
+struct BakeTriangle
+{
+    vec4 CornerA;
+    vec4 CornerB;
+    vec4 CornerC;
+    vec4 FaceNormal;
+    vec4 CornerNormalA;
+    vec4 CornerNormalB;
+    vec4 CornerNormalC;
+    vec4 EdgeNormalAB;
+    vec4 EdgeNormalBC;
+    vec4 EdgeNormalCA;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TriangleList { BakeTriangle Triangles[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer VoxelList   { int  Voxels[]; };
+layout(std430, set = 0, binding = 2)          buffer VoxelPacked  { uint VoxelsPacked[]; };
+
+layout(push_constant) uniform DistanceConstant
+{
+    vec4 BoundaryMinimum;   // [cm] - xyz padded AABB lower corner
+    vec4 VoxelSize;         // [cm] - xyz per-voxel span
+    uint ResolutionX;       // [-]  - per-axis grid voxel count (three scalars keep uvec4 BoxMinimum 16-aligned)
+    uint ResolutionY;
+    uint ResolutionZ;
+    uint TriangleCount;
+    float MaximumDistance;  // [cm] - R16_SNORM decode scale
+    uint PackedMode;        // [-]  - 0 write int32 at binding 1, 1 pack int16 into binding 2 via atomicOr (Fix 6 approach b)
+    uint Pad0;              // [-]  - pad to the 16-byte boundary before uvec4 BoxMinimum
+    uint Pad1;
+    uvec4 BoxMinimum;       // [-]  - xyz first dirty voxel (ABSOLUTE grid coords); dispatch is offset by this
+    uvec4 BoxExtent;        // [-]  - xyz dirty voxel count (whole grid = per-axis Resolution)
+} Distance;
+
+// The pseudonormal to sign against for a closest point on triangle ABC — verbatim from DistanceVolumeBaker.cpp ResolveSignedNormal.
+// Barycentric coordinates classify the resolved feature (vertex / edge / face interior); signing by that feature's angle-weighted
+// pseudonormal — not the flat FaceNormal — keeps the inside/outside test exact at sharp low-poly corners.
+vec3 ResolveSignedNormal(BakeTriangle Triangle, vec3 ClosestPoint)
+{
+    vec3 EdgeAB = Triangle.CornerB.xyz - Triangle.CornerA.xyz;
+    vec3 EdgeAC = Triangle.CornerC.xyz - Triangle.CornerA.xyz;
+    vec3 ToPoint = ClosestPoint - Triangle.CornerA.xyz;
+    float Dot00 = dot(EdgeAC, EdgeAC);
+    float Dot01 = dot(EdgeAC, EdgeAB);
+    float Dot02 = dot(EdgeAC, ToPoint);
+    float Dot11 = dot(EdgeAB, EdgeAB);
+    float Dot12 = dot(EdgeAB, ToPoint);
+    float Determinant = Dot00 * Dot11 - Dot01 * Dot01;
+    if (abs(Determinant) < 1e-20) return Triangle.FaceNormal.xyz;
+
+    float Inverse = 1.0 / Determinant;
+    float WeightC = (Dot11 * Dot02 - Dot01 * Dot12) * Inverse;   // toward CornerC
+    float WeightB = (Dot00 * Dot12 - Dot01 * Dot02) * Inverse;   // toward CornerB
+    float WeightA = 1.0 - WeightB - WeightC;                     // toward CornerA
+    float Threshold = 1e-4;
+
+    // Vertex features: one barycentric weight dominates.
+    if (WeightA >= 1.0 - Threshold) return Triangle.CornerNormalA.xyz;
+    if (WeightB >= 1.0 - Threshold) return Triangle.CornerNormalB.xyz;
+    if (WeightC >= 1.0 - Threshold) return Triangle.CornerNormalC.xyz;
+
+    // Edge features: the opposite-corner weight vanishes. Edge AB=0 (C~0), BC=1 (A~0), CA=2 (B~0).
+    if (WeightC <= Threshold) return Triangle.EdgeNormalAB.xyz;
+    if (WeightA <= Threshold) return Triangle.EdgeNormalBC.xyz;
+    if (WeightB <= Threshold) return Triangle.EdgeNormalCA.xyz;
+
+    // Face interior.
+    return Triangle.FaceNormal.xyz;
+}
+
+// Eberly closest-point-on-triangle (regions 0-6), verbatim from the SDF baker / TriangleRayVolume.
+vec3 ClosestPointOnTriangle(vec3 Point, vec3 CornerA, vec3 CornerB, vec3 CornerC)
+{
+    vec3 EdgeAB = CornerB - CornerA;
+    vec3 EdgeAC = CornerC - CornerA;
+    vec3 PointA = Point - CornerA;
+
+    float DistanceOne = dot(EdgeAB, PointA);
+    float DistanceTwo = dot(EdgeAC, PointA);
+    if (DistanceOne <= 0.0 && DistanceTwo <= 0.0) return CornerA;
+
+    vec3 PointB = Point - CornerB;
+    float DistanceThree = dot(EdgeAB, PointB);
+    float DistanceFour  = dot(EdgeAC, PointB);
+    if (DistanceThree >= 0.0 && DistanceFour <= DistanceThree) return CornerB;
+
+    float EdgeRegionC = DistanceOne * DistanceFour - DistanceThree * DistanceTwo;
+    if (EdgeRegionC <= 0.0 && DistanceOne >= 0.0 && DistanceThree <= 0.0)
+    {
+        float Parameter = DistanceOne / (DistanceOne - DistanceThree);
+        return CornerA + EdgeAB * Parameter;
+    }
+
+    vec3 PointC = Point - CornerC;
+    float DistanceFive = dot(EdgeAB, PointC);
+    float DistanceSix  = dot(EdgeAC, PointC);
+    if (DistanceSix >= 0.0 && DistanceFive <= DistanceSix) return CornerC;
+
+    float EdgeRegionB = DistanceFive * DistanceTwo - DistanceOne * DistanceSix;
+    if (EdgeRegionB <= 0.0 && DistanceTwo >= 0.0 && DistanceSix <= 0.0)
+    {
+        float Parameter = DistanceTwo / (DistanceTwo - DistanceSix);
+        return CornerA + EdgeAC * Parameter;
+    }
+
+    float EdgeRegionA = DistanceThree * DistanceSix - DistanceFive * DistanceFour;
+    if (EdgeRegionA <= 0.0 && (DistanceFour - DistanceThree) >= 0.0 && (DistanceFive - DistanceSix) >= 0.0)
+    {
+        float Parameter = (DistanceFour - DistanceThree) / ((DistanceFour - DistanceThree) + (DistanceFive - DistanceSix));
+        return CornerB + (CornerC - CornerB) * Parameter;
+    }
+
+    float Denominator = 1.0 / (EdgeRegionA + EdgeRegionB + EdgeRegionC);
+    float ParameterV = EdgeRegionB * Denominator;
+    float ParameterW = EdgeRegionC * Denominator;
+    return CornerA + EdgeAB * ParameterV + EdgeAC * ParameterW;
+}
+
+void main()
+{
+    // 🔍 The dispatch is sized to BoxExtent (the dirty sub-box), so the invocation id is BOX-LOCAL. Reject past the extent, then offset by
+    //    BoxMinimum to land on the absolute grid voxel. Whole-grid bakes pass BoxMinimum={0,0,0}, BoxExtent={Resolution,...} — identical result.
+    ivec3 Local = ivec3(gl_GlobalInvocationID.xyz);
+    if (Local.x >= int(Distance.BoxExtent.x) || Local.y >= int(Distance.BoxExtent.y) || Local.z >= int(Distance.BoxExtent.z)) return;
+    ivec3 Voxel = ivec3(Distance.BoxMinimum.xyz) + Local;
+    if (Voxel.x >= int(Distance.ResolutionX) || Voxel.y >= int(Distance.ResolutionY) || Voxel.z >= int(Distance.ResolutionZ)) return;
+
+    // 🔴 Grid-CORNER sample point, byte-identical to DistanceVolumeBaker.cpp's WorldPointAt (minimum + index * voxel span — NO +0.5).
+    //    The resident sampler3D places texel X's centre at UVW (X + 0.5)/Resolution, so the shadow march adds a +0.5/Resolution half-texel
+    //    offset to land world BoxMinimum on texel-0's centre. That correction only holds if voxel X stores the value sampled AT the corner;
+    //    sampling at the centre here would double-offset the field by half a voxel and speckle the cast shadow.
+    vec3 Point = Distance.BoundaryMinimum.xyz + vec3(Voxel) * Distance.VoxelSize.xyz;
+
+    float BestDistanceSquared = 3.4e38;
+    vec3  BestPoint = vec3(0.0);
+    uint  BestTriangle = 0u;
+
+    for (uint TriangleIndex = 0u; TriangleIndex < Distance.TriangleCount; ++TriangleIndex)
+    {
+        BakeTriangle Triangle = Triangles[TriangleIndex];
+        vec3 Candidate = ClosestPointOnTriangle(Point, Triangle.CornerA.xyz, Triangle.CornerB.xyz, Triangle.CornerC.xyz);
+        vec3 Offset = Point - Candidate;
+        float DistanceSquared = dot(Offset, Offset);
+        if (DistanceSquared < BestDistanceSquared)
+        {
+            BestDistanceSquared = DistanceSquared;
+            BestPoint = Candidate;
+            BestTriangle = TriangleIndex;
+        }
+    }
+
+    float Unsigned = sqrt(BestDistanceSquared);
+    // Sign by the angle-weighted pseudonormal of whichever feature (vertex / edge / face) the closest point resolved on the nearest
+    // triangle — the same test the CPU exact bake runs, so the inside/outside sign stays exact at sharp low-poly corners.
+    vec3 SignedNormal = ResolveSignedNormal(Triangles[BestTriangle], BestPoint);
+    float Sign = dot(Point - BestPoint, SignedNormal) >= 0.0 ? 1.0 : -1.0;
+    float Signed = Unsigned * Sign;
+
+    float Normalized = clamp(Signed / Distance.MaximumDistance, -1.0, 1.0);
+    int   FlatIndex  = (Voxel.z * int(Distance.ResolutionY) + Voxel.y) * int(Distance.ResolutionX) + Voxel.x;
+
+    if (Distance.PackedMode == 0u)
+    {
+        // Mode 0 (CPU narrow / GPU-narrow-shader path): write the raw int32; the host or the DistanceVolumeNarrow pass packs it.
+        Voxels[FlatIndex] = int(Normalized * 32767.0);
+    }
+    else
+    {
+        // 📝 Mode 1 (Fix 6 approach b): pack the int16 straight into the shared uint word. Two voxels share VoxelsPacked[FlatIndex>>1] —
+        //    the low voxel occupies bits 0-15, the high voxel bits 16-31. The two invocations writing the same word race, so accumulate
+        //    with atomicOr into a zero-cleared buffer (host issues vkCmdFillBuffer before dispatch). Only wired for the whole-grid path:
+        //    a region/box dispatch on an odd start voxel would share a word with an out-of-box voxel, so the C++ side forces CPU narrow
+        //    for region edits under this mode (see GpuBakeDispatch.cpp).
+        int  Half   = clamp(int(Normalized * 32767.0), -32768, 32767);
+        uint Packed = (uint(Half) & 0xffffu) << ((uint(FlatIndex) & 1u) * 16u);
+        atomicOr(VoxelsPacked[uint(FlatIndex) >> 1], Packed);
+    }
+}

@@ -1,0 +1,158 @@
+#version 450
+
+// 🧩 The curvature encoder. One invocation per texel of the Edge × Edge map. For each covered texel it gathers the signed angular
+//    divergence of the shading normal from its neighbours across a SamplingRadius texel window — signed by whether the offset to the
+//    neighbour leans along the normal (concave positive) or against it (convex negative) — then maps the signal about mid-grey with
+//    Contrast into a grayscale R8G8B8A8 pixel (mid-grey flat, bright convex, dark concave). Gutter texels take the neutral mid-grey
+//    background. Mirrors EncodeCurvatureMap (NormalMapBaker.cpp) exactly for the fixed-reference path.
+// 📝 The SAME gather also feeds the curvature-mask family — Cavity (7) / Convexity (8) / Concavity (9) / Pointiness (10) — selected by the
+//    push Identity, each a different remap of the one signed signal (mirrors EncodeCurvatureMaskMap). Curvature (5) is the raw signed grey.
+//    PositionNormalize carries the InvertMask bit for the Cavity remap. Kept in lock-step with the CPU encoder byte for byte.
+// 📝 A single per-texel dispatch cannot see the whole-map peak that the CPU auto-tonemap stretches to, so this shader always encodes
+//    against the fixed π/4 reference (the CPU non-auto scale). AutoTonemapEnabled is therefore a no-op on the GPU path — the result is the
+//    CPU EncodeCurvatureMap output with auto-tonemap off, a near-match for the auto case (the shape is identical; only the range scale
+//    differs). Alpha is always opaque.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct TexelSample
+{
+    vec4 WorldPosition;
+    vec4 SurfaceNormal;
+    vec4 TangentBasisT;
+    vec4 TangentBasisB;
+    int  TriangleIndex;
+    uint CoverageMask;
+    uint Pad0;
+    uint Pad1;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TexelField
+{
+    TexelSample Texels[];
+};
+
+layout(std430, set = 0, binding = 1) writeonly buffer PixelImage
+{
+    uint Pixels[];
+};
+
+layout(push_constant) uniform SurfaceConstant
+{
+    uint  Edge;
+    uint  Identity;
+    uint  TriangleCount;
+    uint  ElementCount;
+    int   SecondaryRays;
+    float SpreadAngle;
+    float OcclusionMaximum;
+    float SamplingRadius;
+    float Contrast;
+    uint  PositionNormalize;
+    uint  AutoTonemapEnabled;
+    vec4  BoundsMinimum;
+    vec4  BoundsMaximum;
+} Surface;
+
+const float PiValue = 3.14159265358979323846;
+
+uint EncodeUnitScalar(float Value)
+{
+    return uint(clamp(Value, 0.0, 1.0) * 255.0 + 0.5);
+}
+
+uint PackPixel(uint R, uint G, uint B, uint A)
+{
+    return (R & 0xFFu) | ((G & 0xFFu) << 8) | ((B & 0xFFu) << 16) | ((A & 0xFFu) << 24);
+}
+
+void main()
+{
+    uvec2 Coordinate = gl_GlobalInvocationID.xy;
+    if (Coordinate.x >= Surface.Edge || Coordinate.y >= Surface.Edge) return;
+    uint TexelIndex = Coordinate.y * Surface.Edge + Coordinate.x;
+
+    TexelSample Texel = Texels[TexelIndex];
+    if (Texel.CoverageMask == 0u)
+    {
+        Pixels[TexelIndex] = PackPixel(128u, 128u, 128u, 255u);
+        return;
+    }
+
+    int Radius = int(Surface.SamplingRadius + 0.5);
+    if (Radius < 1) Radius = 1;
+
+    vec3 Normal = Texel.SurfaceNormal.xyz;
+    float NormalLength = length(Normal);
+    if (NormalLength > 1e-8) Normal /= NormalLength;
+
+    float Accum = 0.0;
+    int   Neighbours = 0;
+    int   Row    = int(Coordinate.y);
+    int   Column = int(Coordinate.x);
+
+    for (int OffsetRow = -Radius; OffsetRow <= Radius; ++OffsetRow)
+    {
+        for (int OffsetColumn = -Radius; OffsetColumn <= Radius; ++OffsetColumn)
+        {
+            if (OffsetRow == 0 && OffsetColumn == 0) continue;
+            int NeighbourRow    = Row + OffsetRow;
+            int NeighbourColumn = Column + OffsetColumn;
+            if (NeighbourRow < 0 || NeighbourColumn < 0) continue;
+            if (NeighbourRow >= int(Surface.Edge) || NeighbourColumn >= int(Surface.Edge)) continue;
+
+            uint NeighbourIndex = uint(NeighbourRow) * Surface.Edge + uint(NeighbourColumn);
+            TexelSample Neighbour = Texels[NeighbourIndex];
+            if (Neighbour.CoverageMask == 0u) continue;
+
+            vec3 ToNeighbour = Neighbour.WorldPosition.xyz - Texel.WorldPosition.xyz;
+            float ToLength = length(ToNeighbour);
+            if (ToLength < 1e-8) continue;
+            ToNeighbour /= ToLength;
+
+            vec3 NeighbourNormal = Neighbour.SurfaceNormal.xyz;
+            float NeighbourLength = length(NeighbourNormal);
+            if (NeighbourLength > 1e-8) NeighbourNormal /= NeighbourLength;
+
+            float NormalDot = clamp(dot(Normal, NeighbourNormal), -1.0, 1.0);
+            float Bend = acos(NormalDot);
+            float LeanAlongNormal = dot(ToNeighbour, Normal);
+            float Sign = LeanAlongNormal >= 0.0 ? 1.0 : -1.0;
+
+            Accum += Bend * Sign;
+            ++Neighbours;
+        }
+    }
+
+    float Value = Neighbours > 0 ? Accum / float(Neighbours) : 0.0;
+
+    // Fixed-reference encode (the CPU non-auto path): a quarter-turn maps to the ±1 extent before contrast about mid-grey.
+    float ScaleReference = PiValue * 0.25;
+    float ContrastScale = Surface.Contrast > 1e-4 ? Surface.Contrast : 1.0;
+    float Signed = Value / ScaleReference * ContrastScale;   // roughly [-1,1], convex positive / concave negative
+
+    // 📝 Identity selects the remap (mirrors EncodeCurvatureMaskMap). Curvature = raw signed grey; the mask family isolates one side or
+    //    keeps the full signed range. PositionNormalize carries InvertMask for Cavity. Identity ordinals: Curvature 5, Cavity 7,
+    //    Convexity 8, Concavity 9, Pointiness 10.
+    float Grey;
+    if (Surface.Identity == 7u)          // Cavity — concave side isolated; invert flips crevice-bright ↔ crevice-dark
+    {
+        Grey = Signed < 0.0 ? -Signed : 0.0;
+        if (Surface.PositionNormalize != 0u) Grey = 1.0 - Grey;
+    }
+    else if (Surface.Identity == 9u)     // Concavity — concave side, never inverted (its own map)
+    {
+        Grey = Signed < 0.0 ? -Signed : 0.0;
+    }
+    else if (Surface.Identity == 8u)     // Convexity — convex side isolated
+    {
+        Grey = Signed > 0.0 ? Signed : 0.0;
+    }
+    else                                 // Curvature (5) + Pointiness (10) — full signed range about mid-grey
+    {
+        Grey = Signed * 0.5 + 0.5;
+    }
+
+    uint Encoded = EncodeUnitScalar(Grey);
+    Pixels[TexelIndex] = PackPixel(Encoded, Encoded, Encoded, 255u);
+}

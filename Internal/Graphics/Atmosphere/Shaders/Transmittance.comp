@@ -1,0 +1,50 @@
+#version 450 core
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+//                                                     TRANSMITTANCE LUT 🧩
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Bakes T(r, μ) — the transmittance from an altitude toward the top of the atmosphere along view-zenith cosine μ — via Beer-Lambert optical-depth
+// integration (Hillaire 2020). Output: 256×64 RGBA16F, sun-independent, baked once at boot. X axis = μ (grazing→up), Y axis = altitude 0→top.
+
+#include "AtmosphereCommon.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(rgba16f, binding = 1) uniform writeonly image2D TransmittanceOutput;
+
+void main()
+{
+    ivec2 Texel   = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 Extent  = imageSize(TransmittanceOutput);
+    if (Texel.x >= Extent.x || Texel.y >= Extent.y)
+        return;
+
+    vec2 Uv = (vec2(Texel) + 0.5) / vec2(Extent);
+
+    // Map: Y → altitude [0, atmosphere thickness]; X → view-zenith cosine μ, biased toward the horizon for resolution.
+    float Altitude         = Uv.y * (Atmosphere.TopRadius - Atmosphere.BottomRadius);
+    float ViewZenithCosine = 2.0 * Uv.x - 1.0;   // [-1, 1]
+
+    float RadiusFromCentre = Atmosphere.BottomRadius + Altitude;
+    float PathLength       = IntersectSphere(RadiusFromCentre, ViewZenithCosine, Atmosphere.TopRadius);
+
+    vec3 OpticalDepth = vec3(0.0);
+    if (PathLength > 0.0)
+    {
+        const int StepCount = 40;
+        float StepSize = PathLength / float(StepCount);
+        for (int Step = 0; Step < StepCount; Step++)
+        {
+            float SampleDistance = (float(Step) + 0.5) * StepSize;
+            float SampleRadius   = AdvanceRadius(RadiusFromCentre, ViewZenithCosine, SampleDistance);
+            float SampleAltitude = SampleRadius - Atmosphere.BottomRadius;
+
+            vec3 Scattering;
+            vec3 Extinction;
+            EvaluateScatterExtinction(SampleAltitude, Scattering, Extinction);
+            OpticalDepth += Extinction * StepSize;
+        }
+    }
+
+    // Extinction bases are 1/m and the march is in km → convert (× 1000) so the exponent is dimensionless.
+    imageStore(TransmittanceOutput, Texel, vec4(exp(-OpticalDepth * 1000.0), 1.0));
+}

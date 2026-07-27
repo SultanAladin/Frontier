@@ -1,0 +1,85 @@
+#version 450
+
+// 🧩 The world-position encoder. One invocation per texel of the Edge × Edge map. Reads the rasterized SurfaceSampleField and normalizes
+//    each covered texel's world XYZ into the specimen bounding volume carried in the push constant (already sphere-equalized on the host
+//    when PositionNormalize is set) so the darkest corner reads 0 and the far corner 1, writing that into an R8G8B8A8 pixel. Gutter texels
+//    take the neutral mid-grey background (128,128,128,255). Byte-for-byte identical to EncodePositionMap (NormalMapBaker.cpp).
+// 📝 Bindings: 0 the texel field (readonly), 1 the packed RGBA pixel buffer. Push carries the edge + the normalization AABB.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct TexelSample
+{
+    vec4 WorldPosition;
+    vec4 SurfaceNormal;
+    vec4 TangentBasisT;
+    vec4 TangentBasisB;
+    int  TriangleIndex;
+    uint CoverageMask;
+    uint Pad0;
+    uint Pad1;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TexelField
+{
+    TexelSample Texels[];
+};
+
+layout(std430, set = 0, binding = 1) writeonly buffer PixelImage
+{
+    uint Pixels[];
+};
+
+layout(push_constant) uniform SurfaceConstant
+{
+    uint  Edge;
+    uint  Identity;
+    uint  TriangleCount;
+    uint  ElementCount;
+    int   SecondaryRays;
+    float SpreadAngle;
+    float OcclusionMaximum;
+    float SamplingRadius;
+    float Contrast;
+    uint  PositionNormalize;
+    uint  AutoTonemapEnabled;
+    vec4  BoundsMinimum;
+    vec4  BoundsMaximum;
+} Surface;
+
+uint EncodeUnitScalar(float Value)
+{
+    return uint(clamp(Value, 0.0, 1.0) * 255.0 + 0.5);
+}
+
+uint PackPixel(uint R, uint G, uint B, uint A)
+{
+    return (R & 0xFFu) | ((G & 0xFFu) << 8) | ((B & 0xFFu) << 16) | ((A & 0xFFu) << 24);
+}
+
+void main()
+{
+    uvec2 Coordinate = gl_GlobalInvocationID.xy;
+    if (Coordinate.x >= Surface.Edge || Coordinate.y >= Surface.Edge) return;
+    uint TexelIndex = Coordinate.y * Surface.Edge + Coordinate.x;
+
+    TexelSample Texel = Texels[TexelIndex];
+    if (Texel.CoverageMask == 0u)
+    {
+        Pixels[TexelIndex] = PackPixel(128u, 128u, 128u, 255u);   // gutter: neutral mid-grey
+        return;
+    }
+
+    vec3 Centre = 0.5 * (Surface.BoundsMinimum.xyz + Surface.BoundsMaximum.xyz);
+    vec3 Extent = 0.5 * (Surface.BoundsMaximum.xyz - Surface.BoundsMinimum.xyz);
+    vec3 Safe   = vec3(Extent.x > 1e-8 ? Extent.x : 1.0,
+                       Extent.y > 1e-8 ? Extent.y : 1.0,
+                       Extent.z > 1e-8 ? Extent.z : 1.0);
+
+    vec3 Normalized = (Texel.WorldPosition.xyz - Centre) / Safe * 0.5 + 0.5;
+
+    uint R = EncodeUnitScalar(Normalized.x);
+    uint G = EncodeUnitScalar(Normalized.y);
+    uint B = EncodeUnitScalar(Normalized.z);
+    Pixels[TexelIndex] = PackPixel(R, G, B, 255u);
+}

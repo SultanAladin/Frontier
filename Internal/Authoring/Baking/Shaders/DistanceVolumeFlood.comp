@@ -1,0 +1,75 @@
+#version 450
+
+// 🧩 The Jump-Flooding propagation pass (fast / realtime SDF). One invocation per voxel, invoked log₂(Resolution) times with a halving
+//    StepSize (Resolution/2 down to 1). Each pass reads the 26 neighbour voxels offset by ±StepSize on each axis (plus self), keeps the
+//    seed whose recorded surface point is nearest this voxel's world centre, and writes it to the destination buffers — so after the full
+//    sequence every voxel carries the nearest seed's exact surface point. The host ping-pongs the source / destination bindings between
+//    passes. Pairs with DistanceVolumeSeed / DistanceVolumeResolve.
+// 📝 Bindings: 0/1 the source seed-point (vec4) + seed-valid (uint) buffers, 2/3 the destination seed-point + seed-valid buffers. Push
+//    carries the padded AABB lower corner + per-voxel span (to reconstruct this voxel's world centre), the resolution, and the jump step.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(std430, set = 0, binding = 0) readonly  buffer SeedPointSrc { vec4 SeedPointsSrc[]; };
+layout(std430, set = 0, binding = 1) readonly  buffer SeedValidSrc { uint SeedValidsSrc[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer SeedPointDst { vec4 SeedPointsDst[]; };
+layout(std430, set = 0, binding = 3) writeonly buffer SeedValidDst { uint SeedValidsDst[]; };
+
+layout(push_constant) uniform FloodConstant
+{
+    vec4 BoundaryMinimum;   // [cm] - xyz padded AABB lower corner
+    vec4 VoxelSize;         // [cm] - xyz per-voxel span
+    uint ResolutionX;       // [-] - per-axis grid voxel count
+    uint ResolutionY;
+    uint ResolutionZ;
+    int  StepSize;
+    uint Pad0;
+    uint Pad1;
+} Flood;
+
+void main()
+{
+    ivec3 Voxel = ivec3(gl_GlobalInvocationID.xyz);
+    ivec3 Resolution = ivec3(Flood.ResolutionX, Flood.ResolutionY, Flood.ResolutionZ);
+    if (Voxel.x >= Resolution.x || Voxel.y >= Resolution.y || Voxel.z >= Resolution.z) return;
+    uint VoxelIndex = (Voxel.z * Resolution.y + Voxel.y) * Resolution.x + Voxel.x;
+
+    // This voxel's world sample point — the fixed reference every candidate seed's stored surface point is measured against. Grid CORNER
+    //    (minimum + index * span — NO +0.5), matching the seed / resolve passes + DistanceVolumeBaker.cpp WorldPointAt.
+    vec3 Centre = Flood.BoundaryMinimum.xyz + vec3(Voxel) * Flood.VoxelSize.xyz;
+
+    vec4  BestPoint = SeedPointsSrc[VoxelIndex];
+    uint  BestValid = SeedValidsSrc[VoxelIndex];
+    float BestDistanceSquared = 3.4e38;
+    if (BestValid != 0u)
+    {
+        vec3 Offset = BestPoint.xyz - Centre;
+        BestDistanceSquared = dot(Offset, Offset);
+    }
+
+    for (int OffsetZ = -1; OffsetZ <= 1; ++OffsetZ)
+    for (int OffsetY = -1; OffsetY <= 1; ++OffsetY)
+    for (int OffsetX = -1; OffsetX <= 1; ++OffsetX)
+    {
+        if (OffsetX == 0 && OffsetY == 0 && OffsetZ == 0) continue;
+        ivec3 Neighbour = Voxel + ivec3(OffsetX, OffsetY, OffsetZ) * Flood.StepSize;
+        if (Neighbour.x < 0 || Neighbour.y < 0 || Neighbour.z < 0) continue;
+        if (Neighbour.x >= Resolution.x || Neighbour.y >= Resolution.y || Neighbour.z >= Resolution.z) continue;
+
+        uint NeighbourIndex = (Neighbour.z * Resolution.y + Neighbour.y) * Resolution.x + Neighbour.x;
+        if (SeedValidsSrc[NeighbourIndex] == 0u) continue;
+
+        vec4 Candidate = SeedPointsSrc[NeighbourIndex];
+        vec3 Offset = Candidate.xyz - Centre;
+        float DistanceSquared = dot(Offset, Offset);
+        if (BestValid == 0u || DistanceSquared < BestDistanceSquared)
+        {
+            BestDistanceSquared = DistanceSquared;
+            BestPoint = Candidate;
+            BestValid = 1u;
+        }
+    }
+
+    SeedPointsDst[VoxelIndex] = BestPoint;
+    SeedValidsDst[VoxelIndex] = BestValid;
+}

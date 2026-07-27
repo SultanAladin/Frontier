@@ -1,0 +1,109 @@
+#version 450
+
+// 🧩 The world / tangent normal encoder. One invocation per texel of the Edge × Edge map. Reads the rasterized SurfaceSampleField from a
+//    storage buffer and, branching on the push-constant Identity (WorldNormal or TangentNormal), maps the texel's shading normal — either
+//    raw or expressed in its own (T, B, N) frame — from [-1,1] into an R8G8B8A8 pixel. Gutter texels are left at the neutral flat-blue
+//    background (128,128,255,255). Byte-for-byte identical to EncodeWorldNormalMap / EncodeTangentNormalMap (NormalMapBaker.cpp).
+// 📝 Bindings: 0 the texel field (readonly), 1 the packed RGBA pixel buffer (uint per pixel). Push carries the map edge + identity.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// std430, byte-identical to GpuTexelSample (GpuBakeDispatch.cpp).
+struct TexelSample
+{
+    vec4 WorldPosition;
+    vec4 SurfaceNormal;
+    vec4 TangentBasisT;
+    vec4 TangentBasisB;
+    int  TriangleIndex;
+    uint CoverageMask;
+    uint Pad0;
+    uint Pad1;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TexelField
+{
+    TexelSample Texels[];
+};
+
+layout(std430, set = 0, binding = 1) writeonly buffer PixelImage
+{
+    uint Pixels[];
+};
+
+layout(push_constant) uniform SurfaceConstant
+{
+    uint  Edge;
+    uint  Identity;           // 0 WorldNormal, 1 TangentNormal (SurfaceMapIdentity)
+    uint  TriangleCount;
+    uint  ElementCount;
+    int   SecondaryRays;
+    float SpreadAngle;
+    float OcclusionMaximum;
+    float SamplingRadius;
+    float Contrast;
+    uint  PositionNormalize;
+    uint  AutoTonemapEnabled;
+    vec4  BoundsMinimum;
+    vec4  BoundsMaximum;
+} Surface;
+
+const uint IdentityWorldNormal   = 0u;
+const uint IdentityTangentNormal = 1u;
+
+uint EncodeSignedChannel(float Component)
+{
+    float Mapped = clamp(Component * 0.5 + 0.5, 0.0, 1.0);
+    return uint(Mapped * 255.0 + 0.5);
+}
+
+uint PackPixel(uint R, uint G, uint B, uint A)
+{
+    return (R & 0xFFu) | ((G & 0xFFu) << 8) | ((B & 0xFFu) << 16) | ((A & 0xFFu) << 24);
+}
+
+void main()
+{
+    uvec2 Coordinate = gl_GlobalInvocationID.xy;
+    if (Coordinate.x >= Surface.Edge || Coordinate.y >= Surface.Edge) return;
+    uint TexelIndex = Coordinate.y * Surface.Edge + Coordinate.x;
+
+    TexelSample Texel = Texels[TexelIndex];
+
+    // The host output buffer is zeroed, so every texel (covered or gutter) must be written — gutter texels take the neutral flat-blue
+    // background (128,128,255,255) so the map matches the CPU encoder's PrepareNeutralBuffer prefill exactly.
+    uint R = 128u, G = 128u, B = 255u;
+    if (Texel.CoverageMask == 0u)
+    {
+        Pixels[TexelIndex] = PackPixel(R, G, B, 255u);
+        return;
+    }
+
+    if (Surface.Identity == IdentityWorldNormal)
+    {
+        vec3 Normal = Texel.SurfaceNormal.xyz;
+        float Length = length(Normal);
+        if (Length > 1e-8) Normal /= Length;
+        R = EncodeSignedChannel(Normal.x);
+        G = EncodeSignedChannel(Normal.y);
+        B = EncodeSignedChannel(Normal.z);
+    }
+    else
+    {
+        vec3 Normal    = Texel.SurfaceNormal.xyz;
+        vec3 TangentT  = Texel.TangentBasisT.xyz;
+        vec3 TangentB  = Texel.TangentBasisB.xyz;
+        float ComponentT = dot(Normal, TangentT);
+        float ComponentB = dot(Normal, TangentB);
+        vec3  FrameN     = cross(TangentT, TangentB);   // the frame's own N is T × B
+        float ComponentN = dot(Normal, FrameN);
+        vec3  Local = vec3(ComponentT, ComponentB, ComponentN);
+        float Length = length(Local);
+        if (Length > 1e-8) Local /= Length;
+        R = EncodeSignedChannel(Local.x);
+        G = EncodeSignedChannel(Local.y);
+        B = EncodeSignedChannel(Local.z);
+    }
+
+    Pixels[TexelIndex] = PackPixel(R, G, B, 255u);
+}

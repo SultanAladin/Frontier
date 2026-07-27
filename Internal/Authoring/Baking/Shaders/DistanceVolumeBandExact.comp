@@ -1,0 +1,166 @@
+#version 450
+
+// 🧩 The narrow-band exact refine pass (coarse-JFA + narrow-exact composition). The Jump-Flooding resolve pass has already filled the WHOLE
+//    grid with a near-exact signed distance (int32 store) cheaply. This pass runs ONE invocation per voxel over that store: it decodes the
+//    JFA distance, and ONLY for voxels inside the narrow band (|jfaDistance| ≤ BandRadius) does it walk the triangle list with the exact
+//    Eberly closest-point test and OVERWRITE the voxel with the exact signed value. Voxels outside the band keep their JFA value untouched —
+//    the expensive triangle loop never runs for them, so the total cost is (whole-grid JFA) + (exact only on the thin band shell) instead of
+//    (exact on the whole grid). The band is where cast shadows / contact / GI read the field, so it is exact there; far voxels stay JFA-accurate
+//    which is all a distance query needs at range. Output layout is byte-identical to DistanceVolumeBakeExact so the readback path is shared.
+// 📝 Bindings: 0 the triangle list (readonly), 1 the int32-per-voxel store the JFA resolve wrote (read-write, patched in place). Push carries
+//    the padded AABB lower corner, per-voxel span, per-axis resolution, triangle count, the R16_SNORM decode scale, and the band radius [cm].
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+// std430, byte-identical to GpuBakeTriangle (GpuBakeDispatch.cpp) — the same layout the exact / seed / resolve passes bind.
+struct BakeTriangle
+{
+    vec4 CornerA;
+    vec4 CornerB;
+    vec4 CornerC;
+    vec4 FaceNormal;
+    vec4 CornerNormalA;
+    vec4 CornerNormalB;
+    vec4 CornerNormalC;
+    vec4 EdgeNormalAB;
+    vec4 EdgeNormalBC;
+    vec4 EdgeNormalCA;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TriangleList { BakeTriangle Triangles[]; };
+layout(std430, set = 0, binding = 1)          buffer VoxelList    { int  Voxels[]; };
+
+layout(push_constant) uniform BandConstant
+{
+    vec4  BoundaryMinimum;   // [cm] - xyz padded AABB lower corner
+    vec4  VoxelSize;         // [cm] - xyz per-voxel span
+    uint  ResolutionX;       // [-]  - per-axis grid voxel count X
+    uint  ResolutionY;       // [-]  - per-axis grid voxel count Y
+    uint  ResolutionZ;       // [-]  - per-axis grid voxel count Z
+    uint  TriangleCount;     // [-]  - triangles the closest-point loop walks
+    float MaximumDistance;   // [cm] - R16_SNORM decode scale (JFA value = voxel / 32767 * MaximumDistance)
+    float BandRadius;        // [cm] - refine exactly only where |jfaDistance| ≤ BandRadius
+    uint  Pad0;
+    uint  Pad1;
+} Band;
+
+// The pseudonormal to sign against for a closest point on triangle ABC — verbatim from DistanceVolumeBakeExact.comp / the CPU baker.
+vec3 ResolveSignedNormal(BakeTriangle Triangle, vec3 ClosestPoint)
+{
+    vec3 EdgeAB = Triangle.CornerB.xyz - Triangle.CornerA.xyz;
+    vec3 EdgeAC = Triangle.CornerC.xyz - Triangle.CornerA.xyz;
+    vec3 ToPoint = ClosestPoint - Triangle.CornerA.xyz;
+    float Dot00 = dot(EdgeAC, EdgeAC);
+    float Dot01 = dot(EdgeAC, EdgeAB);
+    float Dot02 = dot(EdgeAC, ToPoint);
+    float Dot11 = dot(EdgeAB, EdgeAB);
+    float Dot12 = dot(EdgeAB, ToPoint);
+    float Determinant = Dot00 * Dot11 - Dot01 * Dot01;
+    if (abs(Determinant) < 1e-20) return Triangle.FaceNormal.xyz;
+
+    float Inverse = 1.0 / Determinant;
+    float WeightC = (Dot11 * Dot02 - Dot01 * Dot12) * Inverse;   // toward CornerC
+    float WeightB = (Dot00 * Dot12 - Dot01 * Dot02) * Inverse;   // toward CornerB
+    float WeightA = 1.0 - WeightB - WeightC;                     // toward CornerA
+    float Threshold = 1e-4;
+
+    if (WeightA >= 1.0 - Threshold) return Triangle.CornerNormalA.xyz;
+    if (WeightB >= 1.0 - Threshold) return Triangle.CornerNormalB.xyz;
+    if (WeightC >= 1.0 - Threshold) return Triangle.CornerNormalC.xyz;
+
+    if (WeightC <= Threshold) return Triangle.EdgeNormalAB.xyz;
+    if (WeightA <= Threshold) return Triangle.EdgeNormalBC.xyz;
+    if (WeightB <= Threshold) return Triangle.EdgeNormalCA.xyz;
+
+    return Triangle.FaceNormal.xyz;
+}
+
+// Eberly closest-point-on-triangle (regions 0-6), verbatim from the SDF baker / TriangleRayVolume.
+vec3 ClosestPointOnTriangle(vec3 Point, vec3 CornerA, vec3 CornerB, vec3 CornerC)
+{
+    vec3 EdgeAB = CornerB - CornerA;
+    vec3 EdgeAC = CornerC - CornerA;
+    vec3 PointA = Point - CornerA;
+
+    float DistanceOne = dot(EdgeAB, PointA);
+    float DistanceTwo = dot(EdgeAC, PointA);
+    if (DistanceOne <= 0.0 && DistanceTwo <= 0.0) return CornerA;
+
+    vec3 PointB = Point - CornerB;
+    float DistanceThree = dot(EdgeAB, PointB);
+    float DistanceFour  = dot(EdgeAC, PointB);
+    if (DistanceThree >= 0.0 && DistanceFour <= DistanceThree) return CornerB;
+
+    float EdgeRegionC = DistanceOne * DistanceFour - DistanceThree * DistanceTwo;
+    if (EdgeRegionC <= 0.0 && DistanceOne >= 0.0 && DistanceThree <= 0.0)
+    {
+        float Parameter = DistanceOne / (DistanceOne - DistanceThree);
+        return CornerA + EdgeAB * Parameter;
+    }
+
+    vec3 PointC = Point - CornerC;
+    float DistanceFive = dot(EdgeAB, PointC);
+    float DistanceSix  = dot(EdgeAC, PointC);
+    if (DistanceSix >= 0.0 && DistanceFive <= DistanceSix) return CornerC;
+
+    float EdgeRegionB = DistanceFive * DistanceTwo - DistanceOne * DistanceSix;
+    if (EdgeRegionB <= 0.0 && DistanceTwo >= 0.0 && DistanceSix <= 0.0)
+    {
+        float Parameter = DistanceTwo / (DistanceTwo - DistanceSix);
+        return CornerA + EdgeAC * Parameter;
+    }
+
+    float EdgeRegionA = DistanceThree * DistanceSix - DistanceFive * DistanceFour;
+    if (EdgeRegionA <= 0.0 && (DistanceFour - DistanceThree) >= 0.0 && (DistanceFive - DistanceSix) >= 0.0)
+    {
+        float Parameter = (DistanceFour - DistanceThree) / ((DistanceFour - DistanceThree) + (DistanceFive - DistanceSix));
+        return CornerB + (CornerC - CornerB) * Parameter;
+    }
+
+    float Denominator = 1.0 / (EdgeRegionA + EdgeRegionB + EdgeRegionC);
+    float ParameterV = EdgeRegionB * Denominator;
+    float ParameterW = EdgeRegionC * Denominator;
+    return CornerA + EdgeAB * ParameterV + EdgeAC * ParameterW;
+}
+
+void main()
+{
+    ivec3 Voxel = ivec3(gl_GlobalInvocationID.xyz);
+    if (Voxel.x >= int(Band.ResolutionX) || Voxel.y >= int(Band.ResolutionY) || Voxel.z >= int(Band.ResolutionZ)) return;
+    int FlatIndex = (Voxel.z * int(Band.ResolutionY) + Voxel.y) * int(Band.ResolutionX) + Voxel.x;
+
+    // Decode the JFA distance the resolve pass wrote. Outside the band the exact refine adds nothing a distance query resolves, so early-out
+    //    and leave the JFA value in place — the whole point of the composition is to skip the triangle loop for the vast majority of voxels.
+    float JfaSigned = (float(Voxels[FlatIndex]) / 32767.0) * Band.MaximumDistance;
+    if (abs(JfaSigned) > Band.BandRadius) return;
+
+    // 🔴 Grid-CORNER sample point (minimum + index * span — NO +0.5), byte-identical to DistanceVolumeBaker.cpp WorldPointAt + the exact bake.
+    vec3 Point = Band.BoundaryMinimum.xyz + vec3(Voxel) * Band.VoxelSize.xyz;
+
+    float BestDistanceSquared = 3.4e38;
+    vec3  BestPoint = vec3(0.0);
+    uint  BestTriangle = 0u;
+
+    for (uint TriangleIndex = 0u; TriangleIndex < Band.TriangleCount; ++TriangleIndex)
+    {
+        BakeTriangle Triangle = Triangles[TriangleIndex];
+        vec3 Candidate = ClosestPointOnTriangle(Point, Triangle.CornerA.xyz, Triangle.CornerB.xyz, Triangle.CornerC.xyz);
+        vec3 Offset = Point - Candidate;
+        float DistanceSquared = dot(Offset, Offset);
+        if (DistanceSquared < BestDistanceSquared)
+        {
+            BestDistanceSquared = DistanceSquared;
+            BestPoint = Candidate;
+            BestTriangle = TriangleIndex;
+        }
+    }
+
+    float Unsigned = sqrt(BestDistanceSquared);
+    // Sign by the angle-weighted pseudonormal of the resolved feature on the nearest triangle — the exact bake's test, exact at sharp corners.
+    vec3 SignedNormal = ResolveSignedNormal(Triangles[BestTriangle], BestPoint);
+    float Sign = dot(Point - BestPoint, SignedNormal) >= 0.0 ? 1.0 : -1.0;
+    float Signed = Unsigned * Sign;
+
+    float Normalized = clamp(Signed / Band.MaximumDistance, -1.0, 1.0);
+    Voxels[FlatIndex] = int(Normalized * 32767.0);
+}

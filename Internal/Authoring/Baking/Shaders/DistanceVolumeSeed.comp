@@ -1,0 +1,137 @@
+#version 450
+
+// 🧩 The Jump-Flooding seed pass (fast / realtime SDF). One invocation per voxel: if the voxel lies within one voxel of any triangle's
+//    AABB it is a seed — it records the exact closest surface point (Eberly) + the signed side of the nearest triangle's face normal into
+//    the ping-pong seed buffers. Non-seed voxels are left invalid for the flood to fill. Seeding only the near-surface band keeps the flood
+//    cheap; the seed's stored point is exact, so the resolved field is near-exact after propagation. Pairs with DistanceVolumeFlood /
+//    DistanceVolumeResolve.
+// 📝 Bindings: 0 the triangle list (readonly), 1 the seed-point buffer (vec4: xyz nearest surface point, w the nearest triangle index as
+//    a float), 2 the seed-valid buffer (uint: 1 seeded, 0 empty). Push mirrors the exact bake's constant.
+// 🔴 The seed stores the triangle INDEX, not a precomputed sign. A flooded voxel adopts a neighbour seed's surface point but its own sign
+//    depends on ITS position relative to that triangle's feature — so DistanceVolumeResolve recomputes the sign per-voxel (ResolveSignedNormal
+//    at the resolve voxel), exactly like the exact bake. Freezing the sign at seed time gave interior voxels a neighbour's sign and speckled
+//    the field.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+struct BakeTriangle
+{
+    vec4 CornerA;
+    vec4 CornerB;
+    vec4 CornerC;
+    vec4 FaceNormal;
+    vec4 CornerNormalA;
+    vec4 CornerNormalB;
+    vec4 CornerNormalC;
+    vec4 EdgeNormalAB;
+    vec4 EdgeNormalBC;
+    vec4 EdgeNormalCA;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TriangleList { BakeTriangle Triangles[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer SeedPoint   { vec4 SeedPoints[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer SeedValid   { uint SeedValids[]; };
+
+layout(push_constant) uniform DistanceConstant
+{
+    vec4 BoundaryMinimum;
+    vec4 VoxelSize;
+    uint ResolutionX;   // [-] - per-axis grid voxel count
+    uint ResolutionY;
+    uint ResolutionZ;
+    uint TriangleCount;
+    float MaximumDistance;
+    uint Pad;
+} Distance;
+
+vec3 ClosestPointOnTriangle(vec3 Point, vec3 CornerA, vec3 CornerB, vec3 CornerC)
+{
+    vec3 EdgeAB = CornerB - CornerA;
+    vec3 EdgeAC = CornerC - CornerA;
+    vec3 PointA = Point - CornerA;
+
+    float DistanceOne = dot(EdgeAB, PointA);
+    float DistanceTwo = dot(EdgeAC, PointA);
+    if (DistanceOne <= 0.0 && DistanceTwo <= 0.0) return CornerA;
+
+    vec3 PointB = Point - CornerB;
+    float DistanceThree = dot(EdgeAB, PointB);
+    float DistanceFour  = dot(EdgeAC, PointB);
+    if (DistanceThree >= 0.0 && DistanceFour <= DistanceThree) return CornerB;
+
+    float EdgeRegionC = DistanceOne * DistanceFour - DistanceThree * DistanceTwo;
+    if (EdgeRegionC <= 0.0 && DistanceOne >= 0.0 && DistanceThree <= 0.0)
+    {
+        float Parameter = DistanceOne / (DistanceOne - DistanceThree);
+        return CornerA + EdgeAB * Parameter;
+    }
+
+    vec3 PointC = Point - CornerC;
+    float DistanceFive = dot(EdgeAB, PointC);
+    float DistanceSix  = dot(EdgeAC, PointC);
+    if (DistanceSix >= 0.0 && DistanceFive <= DistanceSix) return CornerC;
+
+    float EdgeRegionB = DistanceFive * DistanceTwo - DistanceOne * DistanceSix;
+    if (EdgeRegionB <= 0.0 && DistanceTwo >= 0.0 && DistanceSix <= 0.0)
+    {
+        float Parameter = DistanceTwo / (DistanceTwo - DistanceSix);
+        return CornerA + EdgeAC * Parameter;
+    }
+
+    float EdgeRegionA = DistanceThree * DistanceSix - DistanceFive * DistanceFour;
+    if (EdgeRegionA <= 0.0 && (DistanceFour - DistanceThree) >= 0.0 && (DistanceFive - DistanceSix) >= 0.0)
+    {
+        float Parameter = (DistanceFour - DistanceThree) / ((DistanceFour - DistanceThree) + (DistanceFive - DistanceSix));
+        return CornerB + (CornerC - CornerB) * Parameter;
+    }
+
+    float Denominator = 1.0 / (EdgeRegionA + EdgeRegionB + EdgeRegionC);
+    float ParameterV = EdgeRegionB * Denominator;
+    float ParameterW = EdgeRegionC * Denominator;
+    return CornerA + EdgeAB * ParameterV + EdgeAC * ParameterW;
+}
+
+void main()
+{
+    ivec3 Voxel = ivec3(gl_GlobalInvocationID.xyz);
+    if (Voxel.x >= int(Distance.ResolutionX) || Voxel.y >= int(Distance.ResolutionY) || Voxel.z >= int(Distance.ResolutionZ)) return;
+    uint VoxelIndex = (Voxel.z * int(Distance.ResolutionY) + Voxel.y) * int(Distance.ResolutionX) + Voxel.x;
+
+    // 🔴 Grid-CORNER sample point (minimum + index * span — NO +0.5), matching DistanceVolumeBaker.cpp WorldPointAt + the exact bake.
+    vec3 Point = Distance.BoundaryMinimum.xyz + vec3(Voxel) * Distance.VoxelSize.xyz;
+    // The near-surface band: within this world radius of a triangle a voxel becomes a seed. One-voxel diagonal covers straddling voxels.
+    float BandRadius = length(Distance.VoxelSize.xyz);
+    float BandRadiusSquared = BandRadius * BandRadius;
+
+    float BestDistanceSquared = 3.4e38;
+    vec3  BestPoint = vec3(0.0);
+    uint  BestTriangle = 0u;
+    bool  Found = false;
+
+    for (uint TriangleIndex = 0u; TriangleIndex < Distance.TriangleCount; ++TriangleIndex)
+    {
+        BakeTriangle Triangle = Triangles[TriangleIndex];
+        vec3 Candidate = ClosestPointOnTriangle(Point, Triangle.CornerA.xyz, Triangle.CornerB.xyz, Triangle.CornerC.xyz);
+        vec3 Offset = Point - Candidate;
+        float DistanceSquared = dot(Offset, Offset);
+        if (DistanceSquared < BestDistanceSquared)
+        {
+            BestDistanceSquared = DistanceSquared;
+            BestPoint = Candidate;
+            BestTriangle = TriangleIndex;
+            Found = true;
+        }
+    }
+
+    if (Found && BestDistanceSquared <= BandRadiusSquared)
+    {
+        // Store the surface point + the nearest triangle index (as a float in w). The resolve pass recomputes the sign per-voxel.
+        SeedPoints[VoxelIndex] = vec4(BestPoint, float(BestTriangle));
+        SeedValids[VoxelIndex] = 1u;
+    }
+    else
+    {
+        SeedPoints[VoxelIndex] = vec4(0.0);
+        SeedValids[VoxelIndex] = 0u;
+    }
+}

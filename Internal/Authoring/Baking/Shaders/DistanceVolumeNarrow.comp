@@ -1,0 +1,47 @@
+#version 450
+
+// 🧩 Fix 6 approach (a): the standalone GPU narrow pass. Reads the full int32-per-voxel distance buffer the exact bake wrote
+//    (PackedMode 0) and packs two int16 voxels into each uint32 word of the device-local packed buffer, one invocation per word.
+//    Runs as its own dispatch after the exact bake — batched into the SAME command buffer + fence on the compute queue — so the
+//    int32 voxels are narrowed to R16_SNORM-ready int16 on the GPU and never touch the CPU. The packed buffer is then copied
+//    straight into the resident 3D image (CopyPackedBufferToResident). The alternative (approach b) folds this into the exact
+//    shader's final write; this pass keeps the exact bake unchanged at the cost of an 8MB int32 intermediate.
+// 📝 Bindings: 0 the int32 source voxels (readonly), 1 the packed uint output (writeonly). Push carries VoxelTotal so the last
+//    word of an odd-count grid packs only its low voxel (the high half stays zero — a benign 0 distance the resident never reads).
+
+layout(local_size_x = 64) in;
+
+layout(std430, set = 0, binding = 0) readonly  buffer VoxelSource { int  Voxels[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer VoxelPacked { uint VoxelsPacked[]; };
+
+layout(push_constant) uniform NarrowConstant
+{
+    uint VoxelTotal;   // [-] - total voxel count (Resolution³); pack ceil(VoxelTotal/2) words, guard the odd tail
+    uint Pad0;
+    uint Pad1;
+    uint Pad2;
+} Narrow;
+
+void main()
+{
+    // One invocation per PACKED WORD. Word W holds voxel (2W) in bits 0-15 and voxel (2W+1) in bits 16-31.
+    uint Word = gl_GlobalInvocationID.x;
+    uint WordTotal = (Narrow.VoxelTotal + 1u) >> 1u;
+    if (Word >= WordTotal) return;
+
+    uint LowIndex  = Word * 2u;
+    uint HighIndex = LowIndex + 1u;
+
+    // Each source int32 already holds int(clamp(Signed / MaximumDistance, -1, 1) * 32767) from the exact bake — the R16_SNORM
+    // code, just widened to 32 bits. Re-clamp to the int16 range before masking so a stray out-of-range word can't corrupt its neighbour.
+    int  LowHalf  = clamp(Voxels[LowIndex], -32768, 32767);
+    uint Packed   = uint(LowHalf) & 0xffffu;
+
+    if (HighIndex < Narrow.VoxelTotal)
+    {
+        int HighHalf = clamp(Voxels[HighIndex], -32768, 32767);
+        Packed |= (uint(HighHalf) & 0xffffu) << 16u;
+    }
+
+    VoxelsPacked[Word] = Packed;
+}

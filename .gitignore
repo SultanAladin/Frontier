@@ -1,0 +1,23 @@
+# Vendored dependencies (Vulkan, volk, VMA, glm, imgui, slang, stb, etc.) — not our source.
+ExternalPackages/
+
+# Build outputs and intermediates.
+Build/
+Binaries/
+
+# Sample meshes / textures / assets — tracked separately.
+EngineContent/
+
+# Agent scratch space.
+_ClaudeScratch/
+
+# Diagnostic logs dropped beside built exes.
+*.log
+
+# Compiled shader blobs (hand-run glslangValidator output).
+*.spv
+
+# OS / editor cruft.
+.DS_Store
+Thumbs.db
+*.swp

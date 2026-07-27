@@ -1,0 +1,109 @@
+#version 450
+
+// 🧩 The Jump-Flooding resolve pass (fast / realtime SDF). One invocation per voxel of the Resolution³ grid, run once after the flood
+//    sequence converges. It reconstructs the voxel's grid-corner sample point, measures the Euclidean distance to the propagated nearest
+//    seed's surface point, then RECOMPUTES the inside/outside sign at this voxel against the seed's triangle feature (ResolveSignedNormal,
+//    the same test the exact bake runs) — NOT a sign frozen at seed time — and writes clamp(signed / MaximumDistance, -1, 1) × 32767 as
+//    the int32 the host narrows to the R16_SNORM voxel. Identical output layout to DistanceVolumeBakeExact so the readback path is shared.
+//    A voxel the flood never reached (no valid seed) writes the far clamp (+32767). Pairs with DistanceVolumeSeed / DistanceVolumeFlood.
+// 📝 Bindings: 0 the resolved seed-point buffer (vec4: xyz surface point, w the nearest triangle index as a float), 1 the seed-valid buffer
+//    (uint), 2 the int32 voxel output, 3 the triangle list (readonly, for the per-voxel sign). Push carries the padded AABB lower corner,
+//    per-voxel span, resolution, and the R16_SNORM decode scale.
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+// std430, byte-identical to GpuBakeTriangle (GpuBakeDispatch.cpp) — same layout the seed / exact passes bind.
+struct BakeTriangle
+{
+    vec4 CornerA;
+    vec4 CornerB;
+    vec4 CornerC;
+    vec4 FaceNormal;
+    vec4 CornerNormalA;
+    vec4 CornerNormalB;
+    vec4 CornerNormalC;
+    vec4 EdgeNormalAB;
+    vec4 EdgeNormalBC;
+    vec4 EdgeNormalCA;
+};
+
+layout(std430, set = 0, binding = 0) readonly  buffer SeedPoint    { vec4 SeedPoints[]; };
+layout(std430, set = 0, binding = 1) readonly  buffer SeedValid    { uint SeedValids[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer VoxelList    { int  Voxels[]; };
+layout(std430, set = 0, binding = 3) readonly  buffer TriangleList { BakeTriangle Triangles[]; };
+
+layout(push_constant) uniform ResolveConstant
+{
+    vec4 BoundaryMinimum;   // [cm] - xyz padded AABB lower corner
+    vec4 VoxelSize;         // [cm] - xyz per-voxel span
+    uint ResolutionX;       // [-] - per-axis grid voxel count
+    uint ResolutionY;
+    uint ResolutionZ;
+    float MaximumDistance;  // [cm] - R16_SNORM decode scale
+    uint Pad0;
+    uint Pad1;
+} Resolve;
+
+// The pseudonormal to sign against for a closest point on triangle ABC — verbatim from DistanceVolumeBakeExact.comp / the CPU baker.
+// Barycentric coordinates classify the resolved feature (vertex / edge / face interior); signing by that feature's angle-weighted
+// pseudonormal — not the flat FaceNormal — keeps the inside/outside test exact at sharp low-poly corners.
+vec3 ResolveSignedNormal(BakeTriangle Triangle, vec3 ClosestPoint)
+{
+    vec3 EdgeAB = Triangle.CornerB.xyz - Triangle.CornerA.xyz;
+    vec3 EdgeAC = Triangle.CornerC.xyz - Triangle.CornerA.xyz;
+    vec3 ToPoint = ClosestPoint - Triangle.CornerA.xyz;
+    float Dot00 = dot(EdgeAC, EdgeAC);
+    float Dot01 = dot(EdgeAC, EdgeAB);
+    float Dot02 = dot(EdgeAC, ToPoint);
+    float Dot11 = dot(EdgeAB, EdgeAB);
+    float Dot12 = dot(EdgeAB, ToPoint);
+    float Determinant = Dot00 * Dot11 - Dot01 * Dot01;
+    if (abs(Determinant) < 1e-20) return Triangle.FaceNormal.xyz;
+
+    float Inverse = 1.0 / Determinant;
+    float WeightC = (Dot11 * Dot02 - Dot01 * Dot12) * Inverse;   // toward CornerC
+    float WeightB = (Dot00 * Dot12 - Dot01 * Dot02) * Inverse;   // toward CornerB
+    float WeightA = 1.0 - WeightB - WeightC;                     // toward CornerA
+    float Threshold = 1e-4;
+
+    if (WeightA >= 1.0 - Threshold) return Triangle.CornerNormalA.xyz;
+    if (WeightB >= 1.0 - Threshold) return Triangle.CornerNormalB.xyz;
+    if (WeightC >= 1.0 - Threshold) return Triangle.CornerNormalC.xyz;
+
+    if (WeightC <= Threshold) return Triangle.EdgeNormalAB.xyz;
+    if (WeightA <= Threshold) return Triangle.EdgeNormalBC.xyz;
+    if (WeightB <= Threshold) return Triangle.EdgeNormalCA.xyz;
+
+    return Triangle.FaceNormal.xyz;
+}
+
+void main()
+{
+    ivec3 Voxel = ivec3(gl_GlobalInvocationID.xyz);
+    ivec3 Resolution = ivec3(Resolve.ResolutionX, Resolve.ResolutionY, Resolve.ResolutionZ);
+    if (Voxel.x >= Resolution.x || Voxel.y >= Resolution.y || Voxel.z >= Resolution.z) return;
+    uint VoxelIndex = (Voxel.z * Resolution.y + Voxel.y) * Resolution.x + Voxel.x;
+
+    if (SeedValids[VoxelIndex] == 0u)
+    {
+        // The flood never reached this voxel (no seeds within reach) — treat it as maximally far outside.
+        Voxels[VoxelIndex] = 32767;
+        return;
+    }
+
+    // 🔴 Grid-CORNER sample point (minimum + index * span — NO +0.5), matching DistanceVolumeBaker.cpp WorldPointAt + the exact bake.
+    vec3 Point = Resolve.BoundaryMinimum.xyz + vec3(Voxel) * Resolve.VoxelSize.xyz;
+    vec4 Seed  = SeedPoints[VoxelIndex];
+    vec3 SurfacePoint = Seed.xyz;
+
+    float Unsigned = length(Point - SurfacePoint);
+    // 🔴 Sign recomputed HERE, at this voxel — the propagated seed only tells us WHICH triangle is nearest (w = index). Signing by the
+    //    resolved feature's pseudonormal against (Point − SurfacePoint) is the exact bake's test, so the fast field's sign matches it.
+    uint TriangleIndex = uint(Seed.w + 0.5);
+    vec3 SignedNormal = ResolveSignedNormal(Triangles[TriangleIndex], SurfacePoint);
+    float Sign = dot(Point - SurfacePoint, SignedNormal) >= 0.0 ? 1.0 : -1.0;
+    float Signed = Unsigned * Sign;
+
+    float Normalized = clamp(Signed / Resolve.MaximumDistance, -1.0, 1.0);
+    Voxels[VoxelIndex] = int(Normalized * 32767.0);
+}

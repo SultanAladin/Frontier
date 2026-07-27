@@ -1,0 +1,89 @@
+#version 450
+
+// 🧩 The dust encoder. One invocation per texel of the Edge × Edge map. For each covered texel it takes the shading normal's up component,
+//    thresholds it by DustUpBias over a DustFalloff band, raises the result to DustPower, and writes it as grayscale — up-facing surfaces
+//    read bright (dust settles), steep / downward faces read dark. No ray tracing. InvertMask flips the mask; gutter texels take the neutral
+//    mid-grey background. Mirrors EncodeDustMap (NormalMapBaker.cpp) exactly.
+// 📝 Bindings: 0 the texel field, 1 the RGBA pixel output (same 2-buffer layout as SurfaceCurvatureEncode). Push packs DustUpBias into
+//    SamplingRadius, DustFalloff into Contrast, DustPower into SpreadAngle, and the InvertMask bit into PositionNormalize (FillSurfacePush).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct TexelSample
+{
+    vec4 WorldPosition;
+    vec4 SurfaceNormal;
+    vec4 TangentBasisT;
+    vec4 TangentBasisB;
+    int  TriangleIndex;
+    uint CoverageMask;
+    uint Pad0;
+    uint Pad1;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TexelField
+{
+    TexelSample Texels[];
+};
+
+layout(std430, set = 0, binding = 1) writeonly buffer PixelImage
+{
+    uint Pixels[];
+};
+
+layout(push_constant) uniform SurfaceConstant
+{
+    uint  Edge;
+    uint  Identity;           // 11 Dust (SurfaceMapIdentity)
+    uint  TriangleCount;
+    uint  ElementCount;
+    int   SecondaryRays;
+    float SpreadAngle;        // ← DustPower
+    float OcclusionMaximum;
+    float SamplingRadius;     // ← DustUpBias
+    float Contrast;           // ← DustFalloff
+    uint  PositionNormalize;  // ← InvertMask
+    uint  AutoTonemapEnabled;
+    vec4  BoundsMinimum;
+    vec4  BoundsMaximum;
+} Surface;
+
+uint EncodeUnitScalar(float Value)
+{
+    return uint(clamp(Value, 0.0, 1.0) * 255.0 + 0.5);
+}
+
+uint PackPixel(uint R, uint G, uint B, uint A)
+{
+    return (R & 0xFFu) | ((G & 0xFFu) << 8) | ((B & 0xFFu) << 16) | ((A & 0xFFu) << 24);
+}
+
+void main()
+{
+    uvec2 Coordinate = gl_GlobalInvocationID.xy;
+    if (Coordinate.x >= Surface.Edge || Coordinate.y >= Surface.Edge) return;
+    uint TexelIndex = Coordinate.y * Surface.Edge + Coordinate.x;
+
+    TexelSample Texel = Texels[TexelIndex];
+    if (Texel.CoverageMask == 0u)
+    {
+        Pixels[TexelIndex] = PackPixel(128u, 128u, 128u, 255u);
+        return;
+    }
+
+    float UpBias  = Surface.SamplingRadius;
+    float Falloff = Surface.Contrast > 1e-4 ? Surface.Contrast : 1e-4;
+    float Power   = Surface.SpreadAngle > 1e-4 ? Surface.SpreadAngle : 1.0;
+
+    // The up component (y) normalized before thresholding, matching the CPU path (only the up component is divided by the normal length).
+    float Ny = Texel.SurfaceNormal.y;
+    float NormalLength = length(Texel.SurfaceNormal.xyz);
+    if (NormalLength > 1e-8) Ny /= NormalLength;
+
+    float Up = clamp((Ny - UpBias) / Falloff, 0.0, 1.0);
+    float Value = pow(Up, Power);
+    if (Surface.PositionNormalize != 0u) Value = 1.0 - Value;
+
+    uint Grey = EncodeUnitScalar(Value);
+    Pixels[TexelIndex] = PackPixel(Grey, Grey, Grey, 255u);
+}

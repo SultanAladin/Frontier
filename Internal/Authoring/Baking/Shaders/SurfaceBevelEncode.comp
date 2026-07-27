@@ -1,0 +1,261 @@
+#version 450
+
+// 🧩 The bevel-rounded normal encoder (a ray-traced surface pass), Cycles Bevel-node algorithm (svm_node_bevel). One invocation per texel
+//    of the Edge × Edge map. For each covered texel it fires a deterministic golden-angle full hemisphere cone of SecondaryRays within
+//    OcclusionMaximum about +N, traces each ray against the uploaded triangle ray volume with an explicit-stack Möller–Trumbore descent
+//    (GLSL has no recursion), and averages the outcomes at EQUAL weight — a MISS accumulates the ray's own direction, a HIT the hit
+//    triangle's barycentric-interpolated shading normal. The hemisphere is symmetric about N, so on a flat face every miss direction
+//    averages back to N (no rounding); only where nearby geometry replaces some miss directions with their hit normals does the mean bend,
+//    so convex edges round while flat interiors stay exactly at the geometric normal. The averaged direction encodes [-1,1]→[0,1] into RGB;
+//    gutter texels take the neutral (128,128,255). Mirrors EncodeBevelNormalMap (NormalMapBaker.cpp) byte-for-byte — same golden-angle fan
+//    (ConeLimit = 0, full hemisphere), origin bias, equal-weight accumulate, and traversal.
+// 📝 Bindings match SurfaceOcclusionEncode: 0 the texel field, 1 the ray triangles, 2 the tree elements, 3 the leaf-ordered index list,
+//    4 the RGBA pixel output. Push packs BevelSamples into SecondaryRays and BevelRadius into OcclusionMaximum (FillSurfacePush).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct TexelSample
+{
+    vec4 WorldPosition;
+    vec4 SurfaceNormal;
+    vec4 TangentBasisT;
+    vec4 TangentBasisB;
+    int  TriangleIndex;
+    uint CoverageMask;
+    uint Pad0;
+    uint Pad1;
+};
+
+// std430, byte-identical to GpuRayTriangle (GpuBakeDispatch.cpp).
+struct RayTriangle
+{
+    vec4 CornerA;
+    vec4 CornerB;
+    vec4 CornerC;
+    vec4 FaceNormal;
+    vec4 VertexNormalA;
+    vec4 VertexNormalB;
+    vec4 VertexNormalC;
+    vec4 BoundaryMinimum;
+    vec4 BoundaryMaximum;
+};
+
+// std430, byte-identical to GpuRayElement (GpuBakeDispatch.cpp).
+struct RayElement
+{
+    vec4 BoundaryMinimum;
+    vec4 BoundaryMaximum;
+    int  FirstTriangle;
+    int  TriangleCount;
+    int  LeftChild;
+    int  RightChild;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer TexelField      { TexelSample Texels[]; };
+layout(std430, set = 0, binding = 1) readonly buffer TriangleList    { RayTriangle Triangles[]; };
+layout(std430, set = 0, binding = 2) readonly buffer ElementList     { RayElement  Elements[]; };
+layout(std430, set = 0, binding = 3) readonly buffer OrderedList     { int         OrderedIndices[]; };
+layout(std430, set = 0, binding = 4) writeonly buffer PixelImage     { uint        Pixels[]; };
+
+layout(push_constant) uniform SurfaceConstant
+{
+    uint  Edge;
+    uint  Identity;           // 6 Bevel (SurfaceMapIdentity)
+    uint  TriangleCount;
+    uint  ElementCount;
+    int   SecondaryRays;      // ← BevelSamples
+    float SpreadAngle;
+    float OcclusionMaximum;   // ← BevelRadius (the cone-trace reach)
+    float SamplingRadius;
+    float Contrast;
+    uint  PositionNormalize;
+    uint  AutoTonemapEnabled;
+    vec4  BoundsMinimum;
+    vec4  BoundsMaximum;
+} Surface;
+
+const float PiValue = 3.14159265358979323846;
+const int   StackDepth = 64;   // ample for a median-split tree over any bake mesh (leaf threshold 8)
+
+uint EncodeSignedChannel(float Component)
+{
+    return uint(clamp(Component * 0.5 + 0.5, 0.0, 1.0) * 255.0 + 0.5);
+}
+
+uint PackPixel(uint R, uint G, uint B, uint A)
+{
+    return (R & 0xFFu) | ((G & 0xFFu) << 8) | ((B & 0xFFu) << 16) | ((A & 0xFFu) << 24);
+}
+
+vec3 ReciprocalDirection(vec3 Direction)
+{
+    vec3 Result;
+    Result.x = abs(Direction.x) < 1e-20 ? sign(Direction.x == 0.0 ? 1.0 : Direction.x) * 1e20 : 1.0 / Direction.x;
+    Result.y = abs(Direction.y) < 1e-20 ? sign(Direction.y == 0.0 ? 1.0 : Direction.y) * 1e20 : 1.0 / Direction.y;
+    Result.z = abs(Direction.z) < 1e-20 ? sign(Direction.z == 0.0 ? 1.0 : Direction.z) * 1e20 : 1.0 / Direction.z;
+    return Result;
+}
+
+float IntersectRayBoundary(vec3 Origin, vec3 InverseDirection, vec3 Minimum, vec3 Maximum, float MaximumDistance)
+{
+    float NearParameter = 0.0;
+    float FarParameter  = MaximumDistance;
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        float EntryParameter = (Minimum[Axis] - Origin[Axis]) * InverseDirection[Axis];
+        float ExitParameter  = (Maximum[Axis] - Origin[Axis]) * InverseDirection[Axis];
+        if (EntryParameter > ExitParameter) { float Swap = EntryParameter; EntryParameter = ExitParameter; ExitParameter = Swap; }
+        NearParameter = max(NearParameter, EntryParameter);
+        FarParameter  = min(FarParameter, ExitParameter);
+        if (NearParameter > FarParameter) return 3.4e38;
+    }
+    return NearParameter;
+}
+
+// Möller–Trumbore ray / triangle, two-sided. On a forward hit in (1e-6, MaximumDistance] returns the distance and writes the barycentric
+// weights (A = 1 - B - C) into OutWeights; returns -1 on a miss. Mirrors IntersectRayTriangle but carries the barycentrics out for the
+// normal interpolation the bevel needs.
+float IntersectRayTriangleBary(vec3 Origin, vec3 Direction, uint TriangleIndex, float MaximumDistance, out vec3 OutWeights)
+{
+    OutWeights = vec3(0.0);
+    RayTriangle Triangle = Triangles[TriangleIndex];
+    vec3 CornerA = Triangle.CornerA.xyz;
+    vec3 EdgeAB  = Triangle.CornerB.xyz - CornerA;
+    vec3 EdgeAC  = Triangle.CornerC.xyz - CornerA;
+    vec3 PVector = cross(Direction, EdgeAC);
+    float Determinant = dot(EdgeAB, PVector);
+    if (abs(Determinant) < 1e-12) return -1.0;
+
+    float InverseDeterminant = 1.0 / Determinant;
+    vec3  TVector = Origin - CornerA;
+    float WeightB = dot(TVector, PVector) * InverseDeterminant;
+    if (WeightB < -1e-6 || WeightB > 1.0 + 1e-6) return -1.0;
+
+    vec3  QVector = cross(TVector, EdgeAB);
+    float WeightC = dot(Direction, QVector) * InverseDeterminant;
+    if (WeightC < -1e-6 || WeightB + WeightC > 1.0 + 1e-6) return -1.0;
+
+    float Distance = dot(EdgeAC, QVector) * InverseDeterminant;
+    if (Distance <= 1e-6 || Distance > MaximumDistance) return -1.0;
+    OutWeights = vec3(1.0 - WeightB - WeightC, WeightB, WeightC);
+    return Distance;
+}
+
+// Nearest forward hit within (0, MaximumDistance]. Writes the hit triangle index (-1 on a miss) and its barycentric weights. Explicit-stack
+// descent shrinking the working distance as it finds closer hits (mirrors TraverseClosestHit, extended to carry the hit identity out).
+float TraverseClosestHitBary(vec3 Origin, vec3 Direction, vec3 InverseDirection, float MaximumDistance, out int OutTriangle, out vec3 OutWeights)
+{
+    float BestDistance = MaximumDistance;
+    OutTriangle = -1;
+    OutWeights  = vec3(0.0);
+    if (Surface.ElementCount == 0u) return BestDistance;
+    int Stack[StackDepth];
+    int StackTop = 0;
+    Stack[StackTop++] = 0;
+    while (StackTop > 0)
+    {
+        int ElementIndex = Stack[--StackTop];
+        RayElement Element = Elements[ElementIndex];
+        if (IntersectRayBoundary(Origin, InverseDirection, Element.BoundaryMinimum.xyz, Element.BoundaryMaximum.xyz, BestDistance) >= BestDistance)
+            continue;
+        if (Element.LeftChild < 0)
+        {
+            for (int Local = 0; Local < Element.TriangleCount; ++Local)
+            {
+                uint TriangleIndex = uint(OrderedIndices[Element.FirstTriangle + Local]);
+                vec3 Weights;
+                float Distance = IntersectRayTriangleBary(Origin, Direction, TriangleIndex, BestDistance, Weights);
+                if (Distance > 0.0 && Distance < BestDistance)
+                {
+                    BestDistance = Distance;
+                    OutTriangle  = int(TriangleIndex);
+                    OutWeights   = Weights;
+                }
+            }
+            continue;
+        }
+        if (StackTop + 2 <= StackDepth)
+        {
+            Stack[StackTop++] = Element.LeftChild;
+            Stack[StackTop++] = Element.RightChild;
+        }
+    }
+    return BestDistance;
+}
+
+void main()
+{
+    uvec2 Coordinate = gl_GlobalInvocationID.xy;
+    if (Coordinate.x >= Surface.Edge || Coordinate.y >= Surface.Edge) return;
+    uint TexelIndex = Coordinate.y * Surface.Edge + Coordinate.x;
+
+    TexelSample Texel = Texels[TexelIndex];
+    if (Texel.CoverageMask == 0u)
+    {
+        Pixels[TexelIndex] = PackPixel(128u, 128u, 255u, 255u);   // neutral flat-blue gutter
+        return;
+    }
+
+    int   RayCount = Surface.SecondaryRays < 1 ? 1 : Surface.SecondaryRays;
+    float Radius   = Surface.OcclusionMaximum > 1e-5 ? Surface.OcclusionMaximum : 0.05;
+    float GoldenAngle = PiValue * (3.0 - sqrt(5.0));
+    float ConeLimit  = 0.0;   // full hemisphere — a ray can reach an adjacent face across a sharp edge
+    float OriginBias = Radius * 1e-3 + 1e-4;
+
+    vec3 Normal = Texel.SurfaceNormal.xyz;
+    float NormalLength = length(Normal);
+    if (NormalLength > 1e-8) Normal /= NormalLength;
+
+    vec3 TangentT = Texel.TangentBasisT.xyz;
+    vec3 TangentB = Texel.TangentBasisB.xyz;
+    vec3 Origin = Texel.WorldPosition.xyz + Normal * OriginBias;
+
+    // Average the hemisphere outcomes at EQUAL weight: a miss contributes its own ray direction, a hit the hit surface normal. The
+    // symmetric hemisphere of miss directions averages back to N on a flat face (no rounding); only hit normals bend the mean.
+    vec3 Accum = vec3(0.0);
+
+    for (int Sample = 0; Sample < RayCount; ++Sample)
+    {
+        float Fraction01 = (float(Sample) + 0.5) / float(RayCount);
+        float CosineTheta = 1.0 - Fraction01 * (1.0 - ConeLimit);
+        float SineTheta = sqrt(max(0.0, 1.0 - CosineTheta * CosineTheta));
+        float Phi = float(Sample) * GoldenAngle;
+
+        float LocalX = cos(Phi) * SineTheta;
+        float LocalY = sin(Phi) * SineTheta;
+        float LocalZ = CosineTheta;
+
+        vec3 Direction = TangentT * LocalX + TangentB * LocalY + Normal * LocalZ;
+        float DirLength = length(Direction);
+        if (DirLength > 1e-8) Direction /= DirLength;
+        vec3 InverseDirection = ReciprocalDirection(Direction);
+
+        int  HitTriangle;
+        vec3 Weights;
+        float Distance = TraverseClosestHitBary(Origin, Direction, InverseDirection, Radius, HitTriangle, Weights);
+        if (HitTriangle < 0)
+        {
+            // Miss: the ray reached open space — accumulate its own direction (the symmetric-hemisphere identity term).
+            Accum += Direction;
+            continue;
+        }
+
+        // Hit: interpolate the hit triangle's shading normal at the barycentric hit point and accumulate it at equal weight.
+        RayTriangle Triangle = Triangles[HitTriangle];
+        vec3 HitNormal = Triangle.VertexNormalA.xyz * Weights.x +
+                         Triangle.VertexNormalB.xyz * Weights.y +
+                         Triangle.VertexNormalC.xyz * Weights.z;
+        float HitLength = length(HitNormal);
+        if (HitLength > 1e-8) HitNormal /= HitLength;
+        Accum += HitNormal;
+    }
+
+    vec3 Rounded = Normal;
+    float RoundedLength = length(Accum);
+    if (RoundedLength > 1e-6) Rounded = Accum / RoundedLength;
+
+    uint R = EncodeSignedChannel(Rounded.x);
+    uint G = EncodeSignedChannel(Rounded.y);
+    uint B = EncodeSignedChannel(Rounded.z);
+    Pixels[TexelIndex] = PackPixel(R, G, B, 255u);
+}
