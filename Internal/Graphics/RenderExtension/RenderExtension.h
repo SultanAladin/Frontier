@@ -11,6 +11,14 @@
 #define FRONTIER_GRAPHICS_RENDEREXTENSION_RENDEREXTENSION_H
 
 #include "Graphics/RenderExtension/Device/WindowSubstrate.h"
+#include "Graphics/RenderSchedule/RenderSchedule.h"
+#include "Graphics/Visibility/VisibilityDepth.h"
+#include "Graphics/Visibility/VisibilityImage.h"
+#include "Graphics/Visibility/VisibilityRasterization.h"
+#include "Graphics/Visibility/VisibilityInscription.h"
+#include "Graphics/Scene/SuzanneScene.h"
+#include "Graphics/Render/Resources/BufferAllocation.h"
+#include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
 #include "Graphics/Grid/GroundGridPass.h"
 #include "Graphics/Atmosphere/SkyAtmosphere.h"
 #include "EngineContext/Navigation/Camera/CameraConfiguration.h"
@@ -64,6 +72,19 @@ struct RenderExtension
 
     GroundGridPass          GridPass;              // [-] - GPU ground-grid draw (lines + dots), built once
     SkyAtmospherePass       SkyPass;               // [-] - Hillaire 2020 sky/atmosphere, drawn behind the grid
+    RenderSchedule          Schedule;              // [-] - Ordered spine of record steps; default-OFF (legacy inline path until flipped)
+    VisibilityDepth         DepthTarget;           // [-] - Renderer-owned D32 scene depth (offscreen; written by the visibility raster, reduced by HiZ)
+    VisibilityImage         VisibilityTarget;      // [-] - Renderer-owned R32_UINT visibility buffer (offscreen; the raster's id write target)
+    VisibilityRasterization VisibilityRaster;      // [-] - Hardware visibility raster of the Suzanne scene into VisibilityTarget + DepthTarget
+    VisibilityInscription   VisibilityResolve;     // [-] - Fullscreen composite of the visibility buffer to the swapchain (the on-screen A/B)
+    PolygonBufferAllocation SceneMesh;             // [-] - The uploaded Suzanne reference geometry the raster instances (device-local)
+    VkCommandPool           UploadPool = VK_NULL_HANDLE; // [-] - One-shot transfer pool for the mesh upload (freed at finalize)
+    SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::RadialArray; // [-] - Which authored scene the raster draws
+    bool                    VisibilityResolveEnabled = false; // [-] - When true, the resolve composites the id buffer over sky+grid (F2 toggles); default OFF = plain forward view
+    bool                    VisibilityResolveKeyLatch = false; // [-] - Edge latch so one F2 press toggles the resolve once
+    uint32_t                VisibilityResolveExtentWidth  = 0; // [px] - Extent the resolve descriptor was last refreshed against (re-Refresh on change)
+    uint32_t                VisibilityResolveExtentHeight = 0; // [px] - Paired height for the refresh-on-resize guard
+    HierarchicalDepthPyramid DepthPyramid;         // [-] - HiZ mip chain (max-reduce of DepthTarget); produced in the preamble, no cull consumer yet
     ViewportCamera          ViewCamera;            // [-] - Orbit / fly camera spec the grid is rendered through
     double                  PreviousTimestamp = 0.0; // [s] - Last frame's clock reading, for the per-frame delta
     float                   FlySpeedScale     = 1.0f; // [-] - Scroll-adjusted fly-speed multiplier (Unreal-style)

@@ -42,10 +42,14 @@ if errorlevel 1 (
 
 REM --- Include roots + compiler configuration ---------------------------------
 set "IMGUI=%ROOT%\ExternalPackages\imgui"
+set "THORVG=%ROOT%\ExternalPackages\thorvg\inc"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include""
-set "DEFINES=/DUNICODE /D_UNICODE /DFRONTIER_ENGINECONTEXT"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVG%" /I"%VULKAN%\Include""
+REM  TVG_STATIC switches the vendored thorvg.h from its default __declspec(dllimport)
+REM  API to plain static linkage, matching the static ExternalPackages\thorvg\lib\thorvg.lib.
+REM  Without it SvgRasterizer.obj emits __imp_ dllimport references no static lib can satisfy.
+set "DEFINES=/DUNICODE /D_UNICODE /DFRONTIER_ENGINECONTEXT /DTVG_STATIC"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
 REM --- Collect this pillar's own sources (recursive, no manual list) ----------

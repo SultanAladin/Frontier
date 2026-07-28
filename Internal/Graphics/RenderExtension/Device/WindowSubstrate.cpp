@@ -262,6 +262,11 @@ void RecordAttachedSequence(WindowSubstrate& Substrate, VkCommandBuffer Commands
     BeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(Commands, &BeginInfo);
 
+    // 📝 Offscreen preamble first: depth prepass / visibility raster / HiZ reduce each open and close their OWN scopes here, before the
+    //    swapchain colour scope opens (nesting rendering scopes is illegal). Runs inside the command buffer but outside any active scope.
+    if (Substrate.RecordPreamble)
+        Substrate.RecordPreamble(Commands, Substrate.Extent);
+
     VkImageSubresourceRange ColorRange = {};
     ColorRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     ColorRange.levelCount = 1;

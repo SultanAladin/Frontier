@@ -66,6 +66,13 @@ struct WindowSubstrate
     int                        FrameSlot            = 0;                          // [-]  - Round-robin cursor into the in-flight slots
 
     FrameRecorder              RecordSequence;                                    // [-]  - Optional per-frame draw recorder (empty = transfer-clear only)
+
+    // 📝 Optional per-frame PREAMBLE recorder, invoked after the command buffer begins but BEFORE the swapchain colour scope opens (and
+    //    before the UNDEFINED→COLOR_ATTACHMENT transition). This is where offscreen work that manages its OWN rendering scopes / compute
+    //    dispatches belongs — a depth prepass, the visibility raster, the HiZ reduce, the shadow atlas — because Vulkan forbids nesting one
+    //    dynamic-rendering scope inside another, so those cannot run inside RecordSequence. The substrate stays draw-agnostic: it only knows
+    //    "run this before the colour scope". Left empty, nothing runs here. Same signature + no-heap-per-frame contract as RecordSequence.
+    FrameRecorder              RecordPreamble;                                    // [-]  - Optional offscreen preamble, run before the colour scope opens
 };
 
 //------------------------------------------------------------------------------------------------------------------------

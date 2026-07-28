@@ -77,7 +77,14 @@ REM  the ImGui + Vulkan roots are all on the path.
 set "IMGUI=%ROOT%\ExternalPackages\imgui"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include""
+REM  The RenderExtension header now reaches the visibility raster -> BufferAllocation ->
+REM  Authoring's PolygonCluster.h, which bare-includes LinearAlgebra_Float64.h
+REM  (EngineContext\Math) and VertexField.h / PolygonDescriptor.h (Authoring\Geometry\
+REM  Modeling). Those two dirs go on the path as include roots so the bare names resolve
+REM  from this entry unit (mirrors the Graphics pillar's MATHROOT / GEOMROOT).
+set "MATHROOT=%ROOT%\Internal\EngineContext\Math"
+set "GEOMROOT=%ROOT%\Internal\Authoring\Geometry\Modeling"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%MATHROOT%" /I"%GEOMROOT%" /I"%VULKAN%\Include""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
 REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
 set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE"
@@ -118,7 +125,20 @@ set "SHADEROUT=%OUTDIR%\Shaders"
 if not exist "%SHADEROUT%" mkdir "%SHADEROUT%"
 copy /Y "%ROOT%\Internal\Graphics\Grid\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Atmosphere\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\HierarchicalDepth\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\Visibility\Shaders\*.spv" "%SHADEROUT%" >nul
 echo [%NAME%] staged shaders -^> %SHADEROUT%
+
+REM --- Stage the reference-geometry assets beside the exe ---------------------
+REM  The visibility raster loads the Suzanne JSON the chosen scene expects from a
+REM  relative "Assets" dir (FRONTIER_SCENE_ASSET_DIR in RenderExtension.cpp). The
+REM  source assets live in the docs repo at Documentation\Assets; copy the two
+REM  Suzanne meshes beside the exe so it finds them when launched from its own dir.
+set "ASSETOUT=%OUTDIR%\Assets"
+if not exist "%ASSETOUT%" mkdir "%ASSETOUT%"
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneMesh.json" "%ASSETOUT%" >nul
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneMeshSub2.json" "%ASSETOUT%" >nul
+echo [%NAME%] staged assets -^> %ASSETOUT%
 
 echo [%NAME%] OK -^> %OUTPUT%
 endlocal & exit /b 0

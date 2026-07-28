@@ -1,0 +1,50 @@
+#version 450
+// ============================================================================================================================================
+//                                                        HIERARCHICALDEPTHREDUCE.COMP
+// ============================================================================================================================================
+// 🧩 One mip reduce of the hierarchical depth pyramid. Each invocation writes one destination texel by taking the CONSERVATIVE-FARTHEST (max)
+//    of the 2x2 source texels beneath it. Standard depth here is 0 = near, 1 = far (the VisibilityDepth clear is 1.0), so max is the farthest
+//    occluder in the footprint — the value a later occlusion test compares a partition's nearest depth against. Dispatched once per destination
+//    mip: level 0 reduces the sampled D32 scene depth; every higher level reduces the storage image one level below it. Odd source extents are
+//    handled by clamping the sample coordinates so the extra row/column folds into the edge texel (no out-of-bounds, conservative at the seam).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// The source level. For destination mip 0 this is the scene depth (D32, sampled); for higher mips it is the pyramid level below, also sampled.
+// A single sampled input keeps one code path — the host binds whichever image is the level below the destination.
+layout(set = 0, binding = 0) uniform sampler2D SourceLevel;
+
+// The destination level: an R32_SFLOAT storage image view of the mip being written this dispatch.
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D DestinationLevel;
+
+// Push data: the destination extent (so out-of-range invocations early-out) and the source extent (so odd-size clamping folds the seam).
+layout(push_constant) uniform ReduceConstants
+{
+    ivec2 DestinationExtent;   // [px] - width/height of the mip being written
+    ivec2 SourceExtent;        // [px] - width/height of the level being read
+} Constants;
+
+void main()
+{
+    ivec2 DestinationTexel = ivec2(gl_GlobalInvocationID.xy);
+    if (DestinationTexel.x >= Constants.DestinationExtent.x || DestinationTexel.y >= Constants.DestinationExtent.y)
+        return;
+
+    // The 2x2 source footprint under this destination texel. Clamp to the last valid source texel so an odd source extent folds the
+    // trailing row/column into the edge rather than sampling out of bounds — conservative (keeps the farther value) at the seam.
+    ivec2 Base = DestinationTexel * 2;
+    ivec2 Last = Constants.SourceExtent - ivec2(1);
+
+    ivec2 S00 = min(Base + ivec2(0, 0), Last);
+    ivec2 S10 = min(Base + ivec2(1, 0), Last);
+    ivec2 S01 = min(Base + ivec2(0, 1), Last);
+    ivec2 S11 = min(Base + ivec2(1, 1), Last);
+
+    float D00 = texelFetch(SourceLevel, S00, 0).r;
+    float D10 = texelFetch(SourceLevel, S10, 0).r;
+    float D01 = texelFetch(SourceLevel, S01, 0).r;
+    float D11 = texelFetch(SourceLevel, S11, 0).r;
+
+    float Farthest = max(max(D00, D10), max(D01, D11));
+    imageStore(DestinationLevel, DestinationTexel, vec4(Farthest, 0.0, 0.0, 0.0));
+}
