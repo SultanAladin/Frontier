@@ -1,0 +1,211 @@
+#version 450
+// ============================================================================================================================================
+//                                                        INSTANCECULLSUBMISSION.COMP
+// ============================================================================================================================================
+// 🧩 One pass of the GPU-driven two-pass visibility cull, at per-instance granularity (one SuzanneSceneInstance == one cull record). Each
+//    invocation tests one instance's world-space bounding sphere against three rejections — the view frustum (six planes), a backface normal
+//    cone (the whole instance faces away), and last frame's hierarchical-depth pyramid (the sphere is fully behind the nearest recorded
+//    occluder) — and appends every survivor's instance index to a survivor list, bumping an indirect-draw argument's instanceCount by one via
+//    an atomic. The pass runs twice a frame: the EARLY pass (LatePassEnabled = 0) tests against last frame's pyramid and records every instance
+//    it REJECTS on occlusion into a re-test list; the LATE pass (LatePassEnabled = 1) walks only that re-test list against THIS frame's freshly
+//    rebuilt pyramid, recovering instances that last frame's stale depth wrongly hid. Frustum + cone rejects are final in the early pass (they do
+//    not depend on depth), so the late pass never revisits them. Dispatched one workgroup edge over the record count; the host zeroes the argument
+//    buffer's instanceCount and the survivor counters before the early pass.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// 📝 The per-instance cull record, mirroring the C++ PartitionCullRecord (two vec4s, 32 bytes): world-space bounding sphere (centre + radius) and
+//    normal cone (axis + cosine of the half-angle, or -1 when non-coneable). At per-instance granularity the host fits one record per instance —
+//    the instance's mesh-local sphere transformed by its Model matrix, and its mesh-local normal cone rotated by the same basis.
+struct CullRecord
+{
+    vec4 SphereCentreRadius;   // xyz = centre (world), w = radius (world)
+    vec4 ConeAxisCosine;       // xyz = axis (unit, world), w = cosine of half-angle (-1 = non-coneable)
+};
+
+// One indirect-draw argument matching VkDrawIndexedIndirectCommand. instanceCount is the field the cull grows; the host seeds IndexCount /
+// FirstIndex / VertexOffset / FirstInstance and zeroes instanceCount before the early pass.
+struct DrawIndexedIndirectArgument
+{
+    uint IndexCount;
+    uint InstanceCount;
+    uint FirstIndex;
+    int  VertexOffset;
+    uint FirstInstance;
+};
+
+// set 0, binding 0 — the per-instance cull records (one per instance), read-only this pass.
+layout(set = 0, binding = 0, std430) readonly buffer CullRecordBuffer
+{
+    CullRecord Records[];
+};
+
+// set 0, binding 1 — the survivor instance-index list the raster reads back. The early pass writes visible instances here; entry [SurvivorCount]
+// is the append cursor. The raster's indirect draw walks Survivors[0 .. instanceCount) as its per-instance index (via gl_InstanceIndex remap).
+layout(set = 0, binding = 2, std430) buffer SurvivorBuffer
+{
+    uint Survivors[];
+};
+
+// set 0, binding 3 — the atomic counters. Counter[0] = survivor append cursor (also the indirect instanceCount); Counter[1] = occlusion-reject
+// append cursor (the late pass's re-test list length). Kept separate from the argument buffer so the host can read them back for validation.
+layout(set = 0, binding = 3, std430) buffer CounterBuffer
+{
+    uint Counters[];
+};
+
+// set 0, binding 4 — the occlusion re-test list the early pass fills (instances it hid on last frame's pyramid) and the late pass consumes.
+layout(set = 0, binding = 4, std430) buffer RetestBuffer
+{
+    uint Retest[];
+};
+
+// set 0, binding 5 — the indirect-draw argument the raster consumes with vkCmdDrawIndexedIndirect. Its InstanceCount is grown atomically here.
+layout(set = 0, binding = 5, std430) buffer ArgumentBuffer
+{
+    DrawIndexedIndirectArgument Argument;
+};
+
+// set 0, binding 6 — last frame's (early) / this frame's (late) hierarchical-depth pyramid, sampled at the coarsest mip covering the sphere's
+// screen footprint. Standard depth: 0 = near, 1 = far; a texel holds the CONSERVATIVE-FARTHEST occluder depth of its footprint.
+layout(set = 0, binding = 6) uniform sampler2D DepthPyramid;
+
+// Push data: the camera the sphere projects through, the frustum planes, the viewport extent + pyramid level count for the HiZ lookup, the record
+// count, and the pass selector.
+layout(push_constant) uniform CullConstants
+{
+    mat4  ViewProjection;      // [-]  - world -> clip (column-major, matches Matrix4f)
+    vec4  FrustumPlanes[6];    // [-]  - xyz = unit normal (points inward), w = distance; a sphere is out when centre.n + w < -radius
+    vec4  CameraOrigin;        // [-]  - xyz = world-space camera position (for the cone view direction); w unused
+    vec2  ViewportExtent;      // [px] - level-0 pyramid extent
+    int   PyramidLevelCount;   // [-]  - mip count, so the occlusion lookup clamps its chosen level
+    uint  RecordCount;         // [-]  - number of cull records (early pass bound) / re-test entries (late pass bound)
+    uint  LatePassEnabled;     // [-]  - 0 = early pass (test all vs last pyramid, record occlusion-rejects); 1 = late pass (re-test rejects)
+    uint  Padding0;
+    uint  Padding1;
+    uint  Padding2;
+} Constants;
+
+// A sphere is inside the frustum when it sits on the inward side of all six planes within its radius. Planes point inward, so the signed distance
+// centre·normal + w is >= -radius for a sphere that is at least partially inside. Conservative: a sphere straddling a plane is kept.
+bool SphereInsideFrustum(vec3 Centre, float Radius)
+{
+    for (int Plane = 0; Plane < 6; ++Plane)
+    {
+        float Distance = dot(Constants.FrustumPlanes[Plane].xyz, Centre) + Constants.FrustumPlanes[Plane].w;
+        if (Distance < -Radius)
+            return false;
+    }
+    return true;
+}
+
+// The whole instance is back-facing when its normal cone points away from every view direction to its bounding sphere. With a cone (axis A,
+// half-angle α) and the view vector V from the camera toward the centre, the instance is entirely back-facing when the angle between -V and A
+// exceeds the sum of α and the angular radius the sphere subtends — the standard Nanite cone-reject inequality. Non-coneable records (cosine -1)
+// are never rejected. ViewToCentre need not be normalized for the sign test used here; the caller passes the normalized direction.
+bool ConeBackfacing(vec3 ConeAxis, float ConeCosine, vec3 ViewDirection)
+{
+    if (ConeCosine <= -1.0)
+        return false;   // non-coneable — never backface-rejected
+    // The instance is back-facing when the view direction agrees with the cone axis beyond the half-angle: dot(V, A) > cos(α) means every face
+    // normal (within α of A) has a non-negative dot with V, i.e. points away from the camera.
+    return dot(ViewDirection, ConeAxis) > ConeCosine;
+}
+
+// Project the world-space bounding sphere to a screen-space extent and test it against the pyramid: the instance is occluded when its NEAREST
+// depth (the sphere's front) is farther than the conservative-farthest occluder recorded across its screen footprint. Returns false (visible)
+// whenever the projection is unreliable (behind / straddling the near plane), so the cull never wrongly hides a near instance.
+bool SphereOccluded(vec3 Centre, float Radius)
+{
+    vec4 Clip = Constants.ViewProjection * vec4(Centre, 1.0);
+    // Straddling or behind the near plane — the screen extent is undefined; keep it (visible).
+    if (Clip.w <= Radius)
+        return false;
+
+    vec3 Ndc = Clip.xyz / Clip.w;
+    // Nearest depth of the sphere (front point along view), mapped to NDC z. A crude but conservative bound: pull the centre's depth toward near
+    // by the sphere's projected depth extent. Radius/Clip.w approximates the sphere's half-extent in NDC.
+    float NdcHalf   = Radius / Clip.w;
+    float NearDepth = Ndc.z - NdcHalf;   // standard Z: smaller = nearer
+    if (NearDepth <= 0.0)
+        return false;   // crosses the near plane in depth — keep
+
+    // Screen-space AABB of the sphere in [0,1] UV. NDC xy is [-1,1]; map to [0,1] and clamp.
+    vec2 CentreUv = Ndc.xy * 0.5 + 0.5;
+    vec2 HalfUv   = vec2(NdcHalf);
+    vec2 MinUv    = clamp(CentreUv - HalfUv, vec2(0.0), vec2(1.0));
+    vec2 MaxUv    = clamp(CentreUv + HalfUv, vec2(0.0), vec2(1.0));
+
+    // Choose the pyramid mip whose texel covers the footprint in one fetch: the level where the footprint spans <= 1 texel.
+    vec2  ExtentPixels = (MaxUv - MinUv) * Constants.ViewportExtent;
+    float FootprintMax = max(ExtentPixels.x, ExtentPixels.y);
+    float Level        = clamp(ceil(log2(max(FootprintMax, 1.0))), 0.0, float(Constants.PyramidLevelCount - 1));
+
+    // Sample the four footprint corners at that level (conservative: the farthest occluder over the footprint).
+    vec2  SampleUv = CentreUv;
+    float Occluder = textureLod(DepthPyramid, SampleUv, Level).r;
+    float O00 = textureLod(DepthPyramid, MinUv, Level).r;
+    float O10 = textureLod(DepthPyramid, vec2(MaxUv.x, MinUv.y), Level).r;
+    float O01 = textureLod(DepthPyramid, vec2(MinUv.x, MaxUv.y), Level).r;
+    float O11 = textureLod(DepthPyramid, MaxUv, Level).r;
+    float Farthest = max(max(max(O00, O10), max(O01, O11)), Occluder);
+
+    // Occluded when the sphere's nearest point is still behind the farthest occluder across its footprint.
+    return NearDepth > Farthest;
+}
+
+// Append an instance index to the survivor list and grow the indirect draw's instanceCount by one.
+void RecordSurvivor(uint InstanceIndex)
+{
+    uint Slot = atomicAdd(Counters[0], 1u);
+    Survivors[Slot] = InstanceIndex;
+    atomicAdd(Argument.InstanceCount, 1u);
+}
+
+// Append an instance index to the occlusion re-test list (early pass only).
+void RecordRetest(uint InstanceIndex)
+{
+    uint Slot = atomicAdd(Counters[1], 1u);
+    Retest[Slot] = InstanceIndex;
+}
+
+void main()
+{
+    uint Lane = gl_GlobalInvocationID.x;
+    if (Lane >= Constants.RecordCount)
+        return;
+
+    // Early pass indexes the record array directly; late pass indexes through the re-test list the early pass filled.
+    uint InstanceIndex = (Constants.LatePassEnabled == 0u) ? Lane : Retest[Lane];
+
+    CullRecord Record = Records[InstanceIndex];
+    vec3  Centre = Record.SphereCentreRadius.xyz;
+    float Radius = Record.SphereCentreRadius.w;
+
+    // Frustum + cone are depth-independent, so both passes could apply them — but the early pass already settled them for the late pass's list
+    // (the late list holds only instances that PASSED frustum + cone yet failed occlusion). Re-testing them in the late pass is harmless and keeps
+    // one code path, so both passes run the full sequence.
+    if (!SphereInsideFrustum(Centre, Radius))
+        return;
+
+    vec3 ViewDirection = normalize(Centre - Constants.CameraOrigin.xyz);
+    if (ConeBackfacing(Record.ConeAxisCosine.xyz, Record.ConeAxisCosine.w, ViewDirection))
+        return;
+
+    bool Occluded = SphereOccluded(Centre, Radius);
+
+    if (Constants.LatePassEnabled == 0u)
+    {
+        // Early pass: survivors draw now; occlusion-rejects go to the re-test list for the late pass against this frame's pyramid.
+        if (Occluded)
+            RecordRetest(InstanceIndex);
+        else
+            RecordSurvivor(InstanceIndex);
+    }
+    else
+    {
+        // Late pass: an instance that is no longer occluded by THIS frame's pyramid is recovered into the survivor list.
+        if (!Occluded)
+            RecordSurvivor(InstanceIndex);
+    }
+}

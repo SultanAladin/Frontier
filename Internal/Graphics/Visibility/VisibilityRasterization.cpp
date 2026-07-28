@@ -139,15 +139,21 @@ bool ConstructDescriptorPlumbing(VisibilityRasterization& Raster)
 {
     VkDevice Device = Raster.Host->Device;
 
-    VkDescriptorSetLayoutBinding InstanceBinding = {};
-    InstanceBinding.binding         = 0;
-    InstanceBinding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    InstanceBinding.descriptorCount = 1;
-    InstanceBinding.stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+    // b0 = the per-instance storage buffer; b1 = the GPU cull's survivor list (both read in the vertex stage). b1 is always present so one pipeline /
+    // set layout serves both the plain draw (CullActive 0, b1 unread) and the indirect draw (CullActive 1, gl_InstanceIndex remapped through b1).
+    VkDescriptorSetLayoutBinding Bindings[2] = {};
+    Bindings[0].binding         = 0;
+    Bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Bindings[0].descriptorCount = 1;
+    Bindings[0].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+    Bindings[1].binding         = 1;
+    Bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Bindings[1].descriptorCount = 1;
+    Bindings[1].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
 
     VkDescriptorSetLayoutCreateInfo SetLayoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-    SetLayoutInfo.bindingCount = 1;
-    SetLayoutInfo.pBindings    = &InstanceBinding;
+    SetLayoutInfo.bindingCount = 2;
+    SetLayoutInfo.pBindings    = Bindings;
     if (vkCreateDescriptorSetLayout(Device, &SetLayoutInfo, Raster.Host->Allocator, &Raster.SetLayout) != VK_SUCCESS)
     {
         Raster.SetLayout = VK_NULL_HANDLE;
@@ -172,7 +178,7 @@ bool ConstructDescriptorPlumbing(VisibilityRasterization& Raster)
 
     VkDescriptorPoolSize PoolSize = {};
     PoolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSize.descriptorCount = 1;
+    PoolSize.descriptorCount = 2;   // b0 instance + b1 survivor
 
     VkDescriptorPoolCreateInfo PoolInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
     PoolInfo.maxSets       = 1;
@@ -349,18 +355,27 @@ bool InitializeVisibilityRasterization(VisibilityRasterization& Raster,
     }
     Raster.InstanceCapacity = Capacity;
 
-    // Point the descriptor at the whole instance buffer once; Upload only rewrites its bytes, never rebinds.
+    // Point b0 at the whole instance buffer once; Upload only rewrites its bytes, never rebinds. Seed b1 (survivor) at the instance buffer too so the
+    // set is fully written and legal to bind before the cull exists — it is never READ while CullActive is 0, and BindVisibilitySurvivorBuffer repoints
+    // it at the cull's real survivor buffer once that is built.
     VkDescriptorBufferInfo BufferInfo = {};
     BufferInfo.buffer = Raster.InstanceBuffer;
     BufferInfo.offset = 0;
     BufferInfo.range  = Capacity;
-    VkWriteDescriptorSet Write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    Write.dstSet          = Raster.InstanceSet;
-    Write.dstBinding      = 0;
-    Write.descriptorCount = 1;
-    Write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Write.pBufferInfo     = &BufferInfo;
-    vkUpdateDescriptorSets(Host.Device, 1, &Write, 0, nullptr);
+    VkWriteDescriptorSet Writes[2] = {};
+    Writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Writes[0].dstSet          = Raster.InstanceSet;
+    Writes[0].dstBinding      = 0;
+    Writes[0].descriptorCount = 1;
+    Writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Writes[0].pBufferInfo     = &BufferInfo;
+    Writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Writes[1].dstSet          = Raster.InstanceSet;
+    Writes[1].dstBinding      = 1;
+    Writes[1].descriptorCount = 1;
+    Writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Writes[1].pBufferInfo     = &BufferInfo;
+    vkUpdateDescriptorSets(Host.Device, 2, Writes, 0, nullptr);
 
     if (!ConstructRasterPipeline(Raster, ColourFormat, DepthFormat, ShaderDirectory))
     {
@@ -399,18 +414,14 @@ void UploadVisibilityScene(VisibilityRasterization& Raster, const std::vector<Su
     Raster.InstanceCount = Count;
 }
 
-void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
-                                   VisibilityImage&                 Image,
-                                   VisibilityDepth&                 Depth,
-                                   const PolygonBufferAllocation&   Mesh,
-                                   const VisibilityRasterConstants& Constants,
-                                   VkCommandBuffer                  CommandBuffer)
+void BeginVisibilityScope(VisibilityRasterization& Raster,
+                          VisibilityImage&         Image,
+                          VisibilityDepth&         Depth,
+                          VkCommandBuffer          CommandBuffer)
 {
     if (!Raster.ReadyCondition || Raster.Host == nullptr)
         return;
     if (!Image.ReadyCondition || !Depth.ReadyCondition)
-        return;
-    if (Mesh.IndexCount == 0 || Mesh.IndexBuffer == VK_NULL_HANDLE || Raster.InstanceCount == 0)
         return;
 
     // Transition the visibility image to COLOR_ATTACHMENT (from UNDEFINED on the first frame, or SHADER_READ_ONLY after a prior resolve).
@@ -451,7 +462,8 @@ void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
                          VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &ToDepth);
 
-    // Open a colour(visibility)+depth dynamic-rendering scope. Clear the id buffer to the empty sentinel and depth to the far plane, then draw.
+    // Open a colour(visibility)+depth dynamic-rendering scope. CLEAR the id buffer to the empty sentinel and depth to the far plane ONCE — every mesh
+    // the caller draws after this shares the cleared buffer and depth-tests against what earlier meshes wrote (the modern one-clear / N-mesh pattern).
     VkRenderingAttachmentInfoKHR ColourAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
     ColourAttachment.imageView   = Image.IdView;
     ColourAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -467,11 +479,11 @@ void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
     DepthAttachment.clearValue.depthStencil = { 1.0f, 0 };
 
     VkRenderingInfoKHR RenderingInformation = { VK_STRUCTURE_TYPE_RENDERING_INFO_KHR };
-    RenderingInformation.renderArea.extent   = { Image.Width, Image.Height };
-    RenderingInformation.layerCount          = 1;
+    RenderingInformation.renderArea.extent    = { Image.Width, Image.Height };
+    RenderingInformation.layerCount           = 1;
     RenderingInformation.colorAttachmentCount = 1;
-    RenderingInformation.pColorAttachments   = &ColourAttachment;
-    RenderingInformation.pDepthAttachment    = &DepthAttachment;
+    RenderingInformation.pColorAttachments    = &ColourAttachment;
+    RenderingInformation.pDepthAttachment     = &DepthAttachment;
 
     Raster.Host->CmdBeginRendering(CommandBuffer, &RenderingInformation);
 
@@ -485,20 +497,115 @@ void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
     VkRect2D Scissor = {};
     Scissor.extent = { Image.Width, Image.Height };
     vkCmdSetScissor(CommandBuffer, 0, 1, &Scissor);
+}
+
+void DrawVisibilityMesh(VisibilityRasterization&         Raster,
+                        VkDescriptorSet                  InstanceSet,
+                        const PolygonBufferAllocation&   Mesh,
+                        uint32_t                         InstanceCount,
+                        const VisibilityRasterConstants& Constants,
+                        bool                             Indirect,
+                        VkBuffer                         ArgumentBuffer,
+                        VkCommandBuffer                  CommandBuffer)
+{
+    if (!Raster.ReadyCondition || Raster.Host == nullptr)
+        return;
+    if (Mesh.IndexCount == 0 || Mesh.IndexBuffer == VK_NULL_HANDLE)
+        return;
+    if (!Indirect && InstanceCount == 0)
+        return;
+    if (Indirect && ArgumentBuffer == VK_NULL_HANDLE)
+        return;
 
     vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Raster.Pipeline);
-    vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Raster.PipelineLayout, 0, 1, &Raster.InstanceSet, 0, nullptr);
+    vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Raster.PipelineLayout, 0, 1, &InstanceSet, 0, nullptr);
     vkCmdPushConstants(CommandBuffer, Raster.PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(VisibilityRasterConstants), &Constants);
 
     VkDeviceSize VertexOffset = 0;
     vkCmdBindVertexBuffers(CommandBuffer, 0, 1, &Mesh.VertexBuffer, &VertexOffset);
     vkCmdBindIndexBuffer(CommandBuffer, Mesh.IndexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(CommandBuffer, Mesh.IndexCount, Raster.InstanceCount, 0, 0, 0);
+    if (Indirect)
+        // The cull's ArgumentBuffer holds one VkDrawIndexedIndirectCommand at offset 0; its instanceCount == the survivor count the vertex stage remaps.
+        vkCmdDrawIndexedIndirect(CommandBuffer, ArgumentBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+    else
+        vkCmdDrawIndexed(CommandBuffer, Mesh.IndexCount, InstanceCount, 0, 0, 0);
+}
+
+void EndVisibilityScope(VisibilityRasterization& Raster,
+                        VisibilityImage&         Image,
+                        VisibilityDepth&         Depth,
+                        VkCommandBuffer          CommandBuffer)
+{
+    if (!Raster.ReadyCondition || Raster.Host == nullptr)
+        return;
+    if (!Image.ReadyCondition || !Depth.ReadyCondition)
+        return;
 
     Raster.Host->CmdEndRendering(CommandBuffer);
 
     Image.CurrentLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     Depth.CurrentLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+}
+
+void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
+                                   VisibilityImage&                 Image,
+                                   VisibilityDepth&                 Depth,
+                                   const PolygonBufferAllocation&   Mesh,
+                                   const VisibilityRasterConstants& Constants,
+                                   VkCommandBuffer                  CommandBuffer)
+{
+    if (!Raster.ReadyCondition || Raster.Host == nullptr)
+        return;
+    if (!Image.ReadyCondition || !Depth.ReadyCondition)
+        return;
+    if (Mesh.IndexCount == 0 || Mesh.IndexBuffer == VK_NULL_HANDLE || Raster.InstanceCount == 0)
+        return;
+
+    BeginVisibilityScope(Raster, Image, Depth, CommandBuffer);
+    DrawVisibilityMesh(Raster, Raster.InstanceSet, Mesh, Raster.InstanceCount, Constants, false, VK_NULL_HANDLE, CommandBuffer);
+    EndVisibilityScope(Raster, Image, Depth, CommandBuffer);
+}
+
+void BindVisibilitySurvivorBuffer(VisibilityRasterization& Raster, VkBuffer SurvivorBuffer, VkDeviceSize SurvivorBytes)
+{
+    if (!Raster.ReadyCondition || Raster.Host == nullptr || SurvivorBuffer == VK_NULL_HANDLE)
+        return;
+    if (Raster.BoundSurvivorBuffer == SurvivorBuffer)
+        return;
+
+    VkDescriptorBufferInfo SurvivorInfo = {};
+    SurvivorInfo.buffer = SurvivorBuffer;
+    SurvivorInfo.offset = 0;
+    SurvivorInfo.range  = SurvivorBytes;
+    VkWriteDescriptorSet Write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    Write.dstSet          = Raster.InstanceSet;
+    Write.dstBinding      = 1;
+    Write.descriptorCount = 1;
+    Write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Write.pBufferInfo     = &SurvivorInfo;
+    vkUpdateDescriptorSets(Raster.Host->Device, 1, &Write, 0, nullptr);
+
+    Raster.BoundSurvivorBuffer = SurvivorBuffer;
+}
+
+void RecordVisibilityRasterizationIndirect(VisibilityRasterization&         Raster,
+                                           VisibilityImage&                 Image,
+                                           VisibilityDepth&                 Depth,
+                                           const PolygonBufferAllocation&   Mesh,
+                                           const VisibilityRasterConstants& Constants,
+                                           VkBuffer                         ArgumentBuffer,
+                                           VkCommandBuffer                  CommandBuffer)
+{
+    if (!Raster.ReadyCondition || Raster.Host == nullptr)
+        return;
+    if (!Image.ReadyCondition || !Depth.ReadyCondition)
+        return;
+    if (Mesh.IndexCount == 0 || Mesh.IndexBuffer == VK_NULL_HANDLE || ArgumentBuffer == VK_NULL_HANDLE)
+        return;
+
+    BeginVisibilityScope(Raster, Image, Depth, CommandBuffer);
+    DrawVisibilityMesh(Raster, Raster.InstanceSet, Mesh, Raster.InstanceCount, Constants, true, ArgumentBuffer, CommandBuffer);
+    EndVisibilityScope(Raster, Image, Depth, CommandBuffer);
 }
 
 void FinalizeVisibilityRasterization(VisibilityRasterization& Raster)

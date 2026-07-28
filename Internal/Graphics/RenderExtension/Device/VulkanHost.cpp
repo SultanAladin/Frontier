@@ -242,6 +242,12 @@ bool InitializeVulkanHost(VulkanHost&  Host,
     DynamicRenderingFeatures.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
     DynamicRenderingFeatures.dynamicRendering = VK_TRUE;
 
+    // 📝 The visibility raster's fragment stage reads gl_PrimitiveID to write the packed surface identity; glslang lowers that
+    //    read to SPIR-V OpCapability Geometry, which vkCreateShaderModule rejects unless the geometryShader feature is enabled at
+    //    device creation. Every Pascal-and-newer part (GTX-1060 floor) advertises it, so we turn it on unconditionally here.
+    VkPhysicalDeviceFeatures EnabledFeatures = {};
+    EnabledFeatures.geometryShader = VK_TRUE;
+
     VkDeviceCreateInfo DeviceInfo = {};
     DeviceInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     DeviceInfo.pNext                   = Host.DynamicRenderingEnabled ? &DynamicRenderingFeatures : nullptr;
@@ -249,6 +255,7 @@ bool InitializeVulkanHost(VulkanHost&  Host,
     DeviceInfo.pQueueCreateInfos       = &QueueInfo;
     DeviceInfo.enabledExtensionCount   = (uint32_t)DeviceExtensions.size();
     DeviceInfo.ppEnabledExtensionNames = DeviceExtensions.data();
+    DeviceInfo.pEnabledFeatures        = &EnabledFeatures;
 
     Outcome = vkCreateDevice(Host.PhysicalDevice, &DeviceInfo, Host.Allocator, &Host.Device);
     if (Outcome != VK_SUCCESS)

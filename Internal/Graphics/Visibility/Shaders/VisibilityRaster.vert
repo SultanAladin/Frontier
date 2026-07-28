@@ -25,9 +25,21 @@ layout(std140, set = 0, binding = 0) readonly buffer InstanceBlock
     SceneInstance Instances[];
 };
 
+// set 0, binding 1 — the GPU cull's survivor list (one instance index per survivor). When culling is active the indirect draw issues
+// gl_InstanceIndex 0 .. instanceCount, i.e. a survivor SLOT, so the real instance index is Survivors[gl_InstanceIndex]. When culling is off
+// this buffer is bound (to keep one pipeline / set layout) but never read — gl_InstanceIndex indexes Instances directly.
+layout(std430, set = 0, binding = 1) readonly buffer SurvivorBlock
+{
+    uint Survivors[];
+};
+
 layout(push_constant) uniform RasterConstants
 {
     mat4 ViewProjection;   // world -> clip (orbit camera)
+    uint CullActive;       // 0 = gl_InstanceIndex is the instance (plain draw); 1 = it is a survivor slot to remap through Survivors[]
+    uint Pad0;
+    uint Pad1;
+    uint Pad2;
 } Constants;
 
 layout(location = 0) in vec3 InPosition;
@@ -38,7 +50,8 @@ layout(location = 0) flat out uint FragPartitionId;
 
 void main()
 {
-    SceneInstance Instance = Instances[gl_InstanceIndex];
+    uint InstanceIndex = (Constants.CullActive != 0u) ? Survivors[gl_InstanceIndex] : uint(gl_InstanceIndex);
+    SceneInstance Instance = Instances[InstanceIndex];
     vec4 WorldPosition = Instance.Model * vec4(InPosition, 1.0);
     FragPartitionId = Instance.PartitionId;
     gl_Position = Constants.ViewProjection * WorldPosition;

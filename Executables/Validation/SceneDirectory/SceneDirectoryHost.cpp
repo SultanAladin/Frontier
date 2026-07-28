@@ -1,107 +1,53 @@
 /*==============================================================================================================================================
                                                             SCENEDIRECTORYHOST.CPP
 ==============================================================================================================================================*/
-// 🧩 The whole standalone window for the SceneDirectoryPanel (Outliner) validation surface. Win32 + Direct3D 11 host (both backends vendored in
-//    ExternalPackages/imgui, so NOTHING outside imgui + EngineContext.lib + system D3D11 is linked — this app is fully decoupled from
-//    Editor / TexturePaint / TextureBake / etc.). Each frame it resolves the active theme, mirrors it into ImGui's style, and draws
-//    ConstructSceneDirectoryPanel inside one full-viewport window. Deliberately minimal: no RootSystem, no ApplicationConfiguration, no
-//    engine spine — just enough Win32 + D3D11 to open a window and draw. Validation hosts keep the proven D3D11 backend for quick eyeballing;
-//    the editors run on the native Vulkan substrate. The panel's data types live in namespace SceneDirectoryValidation so they never collide
-//    with the pillar's Frontier::RecordEntry.
+// 🧩 Standalone Vulkan validation host for the SceneDirectoryPanel (Outliner). It stands up the shared Vulkan spine (PlatformWindow + VulkanHost +
+//    presentation surface + VulkanImguiInterface + the Win32 ImGui relay) exactly as the SketchOutliner validation does, then — once the ImGui
+//    Vulkan backend and its font texture exist — brings up the SvgIconRegistry against the same host and registers the global (g-) + scene (scene-)
+//    icon tiers so every row draws its real multi-colour SVG glyph. It builds one caller-owned SceneDirectoryState through
+//    InitializeSceneDirectorySample, then each frame drives ConstructSceneDirectoryPanel inside one full-viewport window so a human can exercise
+//    selection, twisties, inline rename, the eye toggle, drag relocation, and the search + chip filters. Bring-up and teardown are the reverse of
+//    each other, every Vulkan step gated on device-idle. It writes its own Binaries\Validation\SceneDirectory.exe.
+//
+//    NOTE: this host was ported from a Win32 + D3D11 backend to native Vulkan so it could reuse the Vulkan-only SvgIconRegistry — the same registry
+//    the CAD outliner uses — instead of re-drawing procedural line art. That is why the real SVG icons now render as brightly as IconGallery.html.
+
+#include "Platform/Windowing/PlatformWindow.h"
+#include "Graphics/RenderExtension/Device/VulkanHost.h"
+#include "Graphics/RenderExtension/Device/VulkanImguiInterface.h"
+
+#include "EngineContext/Interface/WorkspaceHost/ImguiPlatformRelay.h"
+#include "EngineContext/Interface/Theme/ThemeResolver.h"
+
+#include "EngineContext/Interface/Icons/SvgIconRegistry.h"
+#include "EngineContext/Interface/Icons/IconPackGlobal.h"
+#include "EngineContext/Interface/Icons/IconPackScene.h"
 
 #include "SceneDirectoryPanel.h"
 
-#include "EngineContext/Interface/Theme/ThemeResolver.h"
-
 #include "imgui.h"
-#include "backends/imgui_impl_win32.h"
-#include "backends/imgui_impl_dx11.h"
+#include "backends/imgui_impl_vulkan.h"
 
-#include <d3d11.h>
-#include <tchar.h>
-
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
+#include <cstdint>
+#include <cstdio>
 
 using namespace Frontier;
 using SceneDirectoryValidation::SceneDirectoryState;
 using SceneDirectoryValidation::InitializeSceneDirectorySample;
 using SceneDirectoryValidation::ConstructSceneDirectoryPanel;
 
-
 //------------------------------------------------------------------------------------------------------------------------
-//                                                      INTERNAL STATE
+//                                                        INTERNAL HELPERS
 //------------------------------------------------------------------------------------------------------------------------
 
 namespace
 {
-    ID3D11Device*           g_Device          = nullptr;
-    ID3D11DeviceContext*    g_DeviceContext   = nullptr;
-    IDXGISwapChain*         g_SwapChain       = nullptr;
-    ID3D11RenderTargetView* g_RenderTarget    = nullptr;
-
-    void CreateRenderTarget()
+    void ReportVkResult(VkResult Outcome)
     {
-        ID3D11Texture2D* BackBuffer = nullptr;
-        g_SwapChain->GetBuffer(0, IID_PPV_ARGS(&BackBuffer));
-        if (BackBuffer != nullptr)
+        if (Outcome != VK_SUCCESS && Outcome != VK_SUBOPTIMAL_KHR)
         {
-            g_Device->CreateRenderTargetView(BackBuffer, nullptr, &g_RenderTarget);
-            BackBuffer->Release();
+            fprintf(stderr, "[vulkan] reported VkResult %d\n", (int)Outcome);
         }
-    }
-
-    void CleanupRenderTarget()
-    {
-        if (g_RenderTarget != nullptr) { g_RenderTarget->Release(); g_RenderTarget = nullptr; }
-    }
-
-    bool CreateDeviceD3D(HWND Window)
-    {
-        DXGI_SWAP_CHAIN_DESC Description = {};
-        Description.BufferCount                        = 2;
-        Description.BufferDesc.Width                   = 0;
-        Description.BufferDesc.Height                  = 0;
-        Description.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
-        Description.BufferDesc.RefreshRate.Numerator   = 60;
-        Description.BufferDesc.RefreshRate.Denominator = 1;
-        Description.Flags                              = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-        Description.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        Description.OutputWindow                       = Window;
-        Description.SampleDesc.Count                   = 1;
-        Description.SampleDesc.Quality                 = 0;
-        Description.Windowed                           = TRUE;
-        Description.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
-
-        UINT               Flags        = 0;
-        D3D_FEATURE_LEVEL  FeatureLevel = D3D_FEATURE_LEVEL_11_0;
-        const D3D_FEATURE_LEVEL LevelArray[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
-
-        HRESULT Result = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, Flags, LevelArray, 2, D3D11_SDK_VERSION,
-            &Description, &g_SwapChain, &g_Device, &FeatureLevel, &g_DeviceContext);
-        if (Result == DXGI_ERROR_UNSUPPORTED)   // fall back to WARP for machines without a hardware D3D11 device
-        {
-            Result = D3D11CreateDeviceAndSwapChain(
-                nullptr, D3D_DRIVER_TYPE_WARP, nullptr, Flags, LevelArray, 2, D3D11_SDK_VERSION,
-                &Description, &g_SwapChain, &g_Device, &FeatureLevel, &g_DeviceContext);
-        }
-        if (Result != S_OK)
-        {
-            return false;
-        }
-
-        CreateRenderTarget();
-        return true;
-    }
-
-    void CleanupDeviceD3D()
-    {
-        CleanupRenderTarget();
-        if (g_SwapChain     != nullptr) { g_SwapChain->Release();     g_SwapChain     = nullptr; }
-        if (g_DeviceContext != nullptr) { g_DeviceContext->Release(); g_DeviceContext = nullptr; }
-        if (g_Device        != nullptr) { g_Device->Release();        g_Device        = nullptr; }
     }
 
     // 📝 Unpack a straight-alpha ImU32 into a 4-float RGBA clear colour (0-1). Used to clear with the theme's desk background.
@@ -114,139 +60,153 @@ namespace
     }
 }
 
-// 📝 The Win32 backend's message handler is declared inside a #if 0 block in imgui_impl_win32.h (to keep <windows.h> out of that header);
-//    the canonical usage is to forward-declare it here in the app .cpp. It handles ImGui's share of the message pump.
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-static LRESULT WINAPI WindowProc(HWND Window, UINT Message, WPARAM WParam, LPARAM LParam)
-{
-    if (ImGui_ImplWin32_WndProcHandler(Window, Message, WParam, LParam))
-    {
-        return true;
-    }
-
-    switch (Message)
-    {
-    case WM_SIZE:
-        if (g_Device != nullptr && WParam != SIZE_MINIMIZED)
-        {
-            CleanupRenderTarget();
-            g_SwapChain->ResizeBuffers(0, (UINT)LOWORD(LParam), (UINT)HIWORD(LParam), DXGI_FORMAT_UNKNOWN, 0);
-            CreateRenderTarget();
-        }
-        return 0;
-    case WM_SYSCOMMAND:
-        if ((WParam & 0xFFF0) == SC_KEYMENU)   // swallow the Alt "application menu" beep
-        {
-            return 0;
-        }
-        break;
-    case WM_DESTROY:
-        ::PostQuitMessage(0);
-        return 0;
-    }
-    return ::DefWindowProc(Window, Message, WParam, LParam);
-}
-
-
 //------------------------------------------------------------------------------------------------------------------------
-//                                                      ENTRY POINT
+//                                                              MAIN
 //------------------------------------------------------------------------------------------------------------------------
 
-int main(int, char**)
+int main(int ArgumentCount, char** ArgumentValues)
 {
-    // -- Window --------------------------------------------------------------------------------------------------------
-    WNDCLASSEXW WindowClass = { sizeof(WindowClass), CS_CLASSDC, WindowProc, 0L, 0L,
-                                GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr,
-                                L"FrontierSceneDirectory", nullptr };
-    ::RegisterClassExW(&WindowClass);
-    HWND Window = ::CreateWindowW(WindowClass.lpszClassName, L"Frontier - Scene Directory",
-                                  WS_OVERLAPPEDWINDOW, 100, 100, 520, 1000,
-                                  nullptr, nullptr, WindowClass.hInstance, nullptr);
+    (void)ArgumentCount;
+    (void)ArgumentValues;
 
-    if (!CreateDeviceD3D(Window))
+    // -- Window ---------------------------------------------------------------------------------------------------------
+    PlatformWindow Window;
+    if (!InitializePlatformWindow(Window, "Frontier \xE2\x80\x94 Scene Directory", 520, 1000))
     {
-        CleanupDeviceD3D();
-        ::UnregisterClassW(WindowClass.lpszClassName, WindowClass.hInstance);
+        fprintf(stderr, "[scene-directory] window creation failed\n");
         return 1;
     }
 
-    ::ShowWindow(Window, SW_SHOWDEFAULT);
-    ::UpdateWindow(Window);
+    // -- Vulkan host ----------------------------------------------------------------------------------------------------
+    uint32_t     ExtensionCount     = 0;
+    const char** RequiredExtensions = QueryRequiredInstanceExtensions(ExtensionCount);
 
-    // -- ImGui ---------------------------------------------------------------------------------------------------------
+    VulkanHost Host;
+    if (!InitializeVulkanHost(Host, RequiredExtensions, ExtensionCount))
+    {
+        FinalizePlatformWindow(Window);
+        return 1;
+    }
+    if (!ConstructPresentationSurface(Window, Host.Instance))
+    {
+        fprintf(stderr, "[scene-directory] surface creation failed\n");
+        FinalizeVulkanHost(Host);
+        FinalizePlatformWindow(Window);
+        return 1;
+    }
+
+    // -- ImGui interface (owns the swapchain + render pass the backend pipeline binds to) --------------------------------
+    VulkanImguiInterface Interface;
+    if (!InitializeVulkanImguiInterface(Interface, Host, Window))
+    {
+        vkDestroySurfaceKHR(Host.Instance, Window.PresentationSurface, Host.Allocator);
+        FinalizeVulkanHost(Host);
+        FinalizePlatformWindow(Window);
+        return 1;
+    }
+
+    // -- ImGui context + backends ---------------------------------------------------------------------------------------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& Io = ImGui::GetIO();
     Io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     Io.IniFilename = nullptr;   // don't litter an imgui.ini next to the exe — this is a throwaway validation
 
-    ImGui_ImplWin32_Init(Window);
-    ImGui_ImplDX11_Init(g_Device, g_DeviceContext);
+    AttachImguiPlatform(Window);
+
+    ImGui_ImplVulkan_InitInfo InitInfo = {};
+    InitInfo.ApiVersion                   = Host.ApiVersion;
+    InitInfo.Instance                     = Host.Instance;
+    InitInfo.PhysicalDevice               = Host.PhysicalDevice;
+    InitInfo.Device                       = Host.Device;
+    InitInfo.QueueFamily                  = Host.GraphicsQueueFamily;
+    InitInfo.Queue                        = Host.GraphicsQueue;
+    InitInfo.DescriptorPool               = Host.ImguiDescriptorPool;
+    InitInfo.MinImageCount                = Interface.MinimumImageCount;
+    InitInfo.ImageCount                   = Interface.Window.ImageCount;
+    InitInfo.PipelineInfoMain.RenderPass  = Interface.Window.RenderPass;
+    InitInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    InitInfo.Allocator                    = Host.Allocator;
+    InitInfo.CheckVkResultFn              = &ReportVkResult;
+    ImGui_ImplVulkan_Init(&InitInfo);
 
     // 📝 Resolve the shared theme once and mirror it into ImGui's style so nested raw widgets inherit the palette.
     const ThemeConfiguration Theme = ResolveActiveTheme();
     EnforceThemeStyle(Theme);
 
+    // 📝 Clear to the theme desk background; the outliner window draws over it.
+    UnpackClearColor(Theme.Palette.DeskBackground, Interface.Window.ClearValue.color.float32);
+
+    // -- Icon registry (needs the ImGui Vulkan backend live: it uploads through ImGui_ImplVulkan_AddTexture) --------------
+    SvgIconRegistry Icons;
+    bool IconsReady = InitializeSvgIconRegistry(Icons, Host);
+    if (!IconsReady)
+    {
+        fprintf(stderr, "[scene-directory] SVG icon registry failed to start (falling back to procedural glyphs)\n");
+    }
+    else
+    {
+        const bool GlobalOk = RegisterGlobalIconPack(Icons);
+        const bool SceneOk  = RegisterSceneIconPack(Icons);
+        if (!GlobalOk || !SceneOk)
+        {
+            fprintf(stderr, "[scene-directory] icon pack registration incomplete (global=%d scene=%d)\n",
+                    (int)GlobalOk, (int)SceneOk);
+        }
+    }
+    const SvgIconRegistry* IconRegistry = IconsReady ? &Icons : nullptr;
+
+    // -- The caller-owned panel state + its default demonstration tree ---------------------------------------------------
     SceneDirectoryState State;
     InitializeSceneDirectorySample(State);
 
-    // -- Frame loop ----------------------------------------------------------------------------------------------------
-    bool Running = true;
-    while (Running)
+    // -- Frame loop -----------------------------------------------------------------------------------------------------
+    while (!QueryWindowCloseRequested(Window))
     {
-        MSG Message;
-        while (::PeekMessage(&Message, nullptr, 0U, 0U, PM_REMOVE))
+        PollPlatformEvents(Window);
+
+        if (!BeginImguiFrame(Interface, Host, Window))
         {
-            ::TranslateMessage(&Message);
-            ::DispatchMessage(&Message);
-            if (Message.message == WM_QUIT)
-            {
-                Running = false;
-            }
-        }
-        if (!Running)
-        {
-            break;
+            continue;   // minimized / zero-extent / stale swapchain — the interface already flagged any rebuild
         }
 
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
+        ImGui_ImplVulkan_NewFrame();
+        AdvanceImguiPlatform();
         ImGui::NewFrame();
 
         // 📝 One full-viewport window hosting the outliner so it reads like a real docked panel.
         const ImGuiViewport* Viewport = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(Viewport->WorkPos);
         ImGui::SetNextWindowSize(Viewport->WorkSize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, Theme.Palette.DeskBackground);
         const ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                            ImGuiWindowFlags_NoBringToFrontOnFocus;
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, Theme.Palette.DeskBackground);
         if (ImGui::Begin("Scene Directory", nullptr, HostFlags))
         {
-            ConstructSceneDirectoryPanel(Theme, State);
+            ConstructSceneDirectoryPanel(Theme, State, IconRegistry);
         }
         ImGui::End();
         ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
 
         ImGui::Render();
-
-        float ClearColor[4];
-        UnpackClearColor(Theme.Palette.DeskBackground, ClearColor);
-        g_DeviceContext->OMSetRenderTargets(1, &g_RenderTarget, nullptr);
-        g_DeviceContext->ClearRenderTargetView(g_RenderTarget, ClearColor);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-        g_SwapChain->Present(1, 0);   // vsync
+        SubmitAndPresentImguiFrame(Interface, Host, ImGui::GetDrawData());
     }
 
-    // -- Teardown ------------------------------------------------------------------------------------------------------
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
+    // -- Teardown (reverse of bring-up, each Vulkan step gated on device-idle) -------------------------------------------
+    vkDeviceWaitIdle(Host.Device);
+
+    if (IconsReady) { FinalizeSvgIconRegistry(Icons); }
+
+    ImGui_ImplVulkan_Shutdown();
+    DetachImguiPlatform(Window);
     ImGui::DestroyContext();
 
-    CleanupDeviceD3D();
-    ::DestroyWindow(Window);
-    ::UnregisterClassW(WindowClass.lpszClassName, WindowClass.hInstance);
+    FinalizeVulkanImguiInterface(Interface, Host);
+    vkDestroySurfaceKHR(Host.Instance, Window.PresentationSurface, Host.Allocator);
+    FinalizeVulkanHost(Host);
+    FinalizePlatformWindow(Window);
     return 0;
 }

@@ -14,12 +14,15 @@
 
 #include "../Theme/ThemeConfiguration.h"
 #include "../Components/Controls/InlineTextEditor.h"
+#include "SketchOutliner/SketchOutlinerPanel.h"
 
 #include <vector>
 #include <cstdint>
 
 namespace Frontier
 {
+
+struct SvgIconRegistry;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                          ENUMS
@@ -113,16 +116,26 @@ enum class WorkspacePanelDockSide
     Centre   = 5,   // [-] - fills the middle the docked sides leave
 };
 
+// 📝 What a panel box actually shows in its body. Placeholder = the blank "Panel N" chrome (a plain dark body). SketchOutliner = the box hosts the
+//    parametric-sketch modeling tree (ConstructSketchOutlinerPanel drawn into the body). A tab may hold at most ONE SketchOutliner box (the (V)
+//    dropdown greys its row once the tab already carries one). New categories (a real 3D viewport, a property inspector, …) append here.
+enum class WorkspacePanelContent
+{
+    Placeholder    = 0,   // [-] - blank "Panel N" chrome (dark body, no content)
+    SketchOutliner = 1,   // [-] - the parametric-sketch modeling tree (one per tab)
+};
+
 // 📝 One panel box dropped inside a tab's body: a rectangle with a black header strip ("Panel N" + close (x)), a dark-grey body, and a footer
 //    strip. It is FLOATING (a free overlay positioned by Offset* / sized by Width / Height) until dragged onto an edge / centre band, which DOCKS
 //    it to that side (see WorkspacePanelDockSide). Offset* is relative to the tab body's top-left so a floating box tracks the body on move / resize.
 //    DockExtent is the docked BAND's depth (a fraction of the body span — column width for Left / Right, row height for Top / Bottom; the band takes
 //    the first member's DockExtent). SlotFraction is this panel's share of its band's long axis when several panels share the side (normalised across
-//    the side each frame). Both are unused while Floating / Centre.
+//    the side each frame). Both are unused while Floating / Centre. Content selects what fills the body — see WorkspacePanelContent.
 struct WorkspacePanelBox
 {
     uint32_t               Identifier   = 0;                           // [-] - unique-within-its-tab box key
     char                   Title[64]    = {};                          // [-] - header label, e.g. "Panel 1"
+    WorkspacePanelContent  Content      = WorkspacePanelContent::Placeholder; // [-] - what the body draws (blank chrome or the sketch outliner)
     WorkspacePanelDockSide Dock         = WorkspacePanelDockSide::Floating; // [-] - anchor: floating overlay or a reserved body side
     float                  OffsetX      = 0.0f;                        // [px] - floating top-left x, relative to the tab body's top-left
     float                  OffsetY      = 0.0f;                        // [px] - floating top-left y, relative to the tab body's top-left
@@ -181,6 +194,12 @@ struct WorkspaceDocument
     std::vector<WorkspacePanelRegion> PanelRegions;                         // [-] - this body's panel split-tree pool (index pool; freed slots reused)
     int                               PanelRoot  = -1;                      // [-] - PanelRegions index of the tree top (-1 = no docked panels)
     uint32_t                          NextPanel  = 1;                       // [-] - monotonic panel-box id / "Panel N" number source
+
+    // 📝 This tab's own parametric-sketch tree, edited in place by its SketchOutliner box (if any). Independent per tab — each tab holds a distinct
+    //    part. Lazily seeded the first time the tab spawns its outliner (OutlinerReady gates the one-time InitializeSketchOutlinerSample). At most one
+    //    box in the tab draws it (the (V) row is greyed once present), so this state has a single writer.
+    SketchOutlinerUi::SketchOutlinerState OutlinerState;                    // [-] - this tab's sketch-outliner tree (one per tab)
+    bool                              OutlinerReady = false;                // [-] - true once the sample tree has been seeded for this tab
 };
 
 // 📝 One region in the dock tree. A LEAF holds an ordered list of document ids drawn as a trapezoid tab bar over a body. A PARTITION owns
@@ -298,6 +317,10 @@ struct WorkspacePanelDock
     //    that list-order slot and its successor), reflowing their SlotFraction. DragPanelDocument selects the owning tab.
     WorkspacePanelDockSide               BandGutterSide = WorkspacePanelDockSide::Floating;   // [-] - band whose gutter is held (Floating = none)
     int                                  BandGutterSlot = -1;     // [-]  - inner-gutter slot index within the side (-1 = the outer band gutter)
+
+    // 📝 The parametric-sketch icon registry for this frame, set at the top of ConstructWorkspacePanelDock from its IconRegistry argument and read by
+    //    any SketchOutliner box when it draws its tree. Transient (frame-scoped, not persisted) — null falls the outliner back to procedural glyphs.
+    const SvgIconRegistry*               FrameIconRegistry = nullptr;   // [-] - this frame's sketch-glyph registry (null = procedural fallback)
 };
 
 
@@ -316,8 +339,9 @@ void ConfigureWorkspaceCatalogue(WorkspacePanelDock& State, const WorkspaceDocum
 
 // 📝 Construct the whole interior dock for one frame: lay out + paint the dock tree, floating windows, dock preview, then resolve input
 //    (activate / tear-off / dock / rename / resize / split-drag). Everything is drawn on the foreground draw list — the host does NOT wrap it in
-//    a Begin. Call once per frame from the WorkspaceDockHost.
-void ConstructWorkspacePanelDock(const ThemeConfiguration& Theme, WorkspacePanelDock& State);
+//    a Begin. Call once per frame from the WorkspaceDockHost. IconRegistry (optional) supplies the parametric-sketch SVG glyphs any SketchOutliner
+//    box in a tab body resolves; a null registry falls back to procedural strokes so the outliner still renders.
+void ConstructWorkspacePanelDock(const ThemeConfiguration& Theme, WorkspacePanelDock& State, const SvgIconRegistry* IconRegistry = nullptr);
 
 }   // namespace Frontier
 

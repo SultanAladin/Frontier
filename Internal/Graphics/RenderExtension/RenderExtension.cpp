@@ -9,7 +9,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "Graphics/RenderExtension/RenderExtension.h"
 #include "Graphics/RenderExtension/Diagnostics/DiagnosticArchive.h"
-#include "Graphics/Scene/MeshAsset.h"
 
 #include "EngineContext/Input/InputPacket.h"
 
@@ -156,7 +155,7 @@ void DriveViewportCamera(RenderExtension& Extension, float DeltaSeconds)
         // -- Unreal fly. Mouse-look turns the view; scroll tunes the persistent walk speed; WASD/QE walk the camera. ------
         float YawIncrement = 0.0f, PitchIncrement = 0.0f;
         ResolveLookIncrement(Extension, LookDrag, LookX, LookY, OrbitSensitivity, DeltaSeconds, YawIncrement, PitchIncrement);
-        OrbitViewportCamera(Camera, -YawIncrement, PitchIncrement);   // +pitch: drag up looks up (Vulkan Y-down clip is flipped at the projection)
+        OrbitViewportCamera(Camera, -YawIncrement, -PitchIncrement);   // -pitch: drag up looks up (ResolveOrbitRotation negates pitch so -Pitch lifts the eye)
 
         if (std::fabs(Scroll) > 1e-5f)
         {
@@ -187,7 +186,7 @@ void DriveViewportCamera(RenderExtension& Extension, float DeltaSeconds)
         {
             float YawIncrement = 0.0f, PitchIncrement = 0.0f;
             ResolveLookIncrement(Extension, LookDrag, LookX, LookY, OrbitSensitivity, DeltaSeconds, YawIncrement, PitchIncrement);
-            OrbitViewportCamera(Camera, -YawIncrement, PitchIncrement);   // +pitch: drag up looks up (Vulkan Y-down clip is flipped at the projection)
+            OrbitViewportCamera(Camera, -YawIncrement, -PitchIncrement);   // -pitch: drag up looks up (ResolveOrbitRotation negates pitch so -Pitch lifts the eye)
         }
     }
     else
@@ -257,6 +256,110 @@ void AssembleVisibilityConstants(const ViewportCamera& Subject, VisibilityRaster
     for (int Column = 0; Column < 4; ++Column)
         for (int Row = 0; Row < 4; ++Row)
             Constants.ViewProjection[Column * 4 + Row] = ViewProjection.Column[Column][Row];
+}
+
+// Fill the GPU cull's push data from the same camera the raster uses: the world -> clip matrix, the six INWARD frustum planes extracted from it, the
+// world-space camera origin (the cone view direction), the HiZ extent + level count, and the record count / pass selector (filled by the caller). The
+// plane extraction is Gribb-Hartmann for a column-major matrix with the point on the right (clip = M * vec4(world,1)): each plane's (a,b,c,d) is a
+// combination of the matrix ROWS, where row i = (Column[0][i], Column[1][i], Column[2][i], Column[3][i]). The planes are normalized so the shader's
+// signed distance centre.n + d is a true world-space distance (its radius test relies on that). ViewportExtent + PyramidLevelCount come from the pyramid.
+void AssembleCullConstants(const ViewportCamera&          Subject,
+                           const HierarchicalDepthPyramid& Pyramid,
+                           uint32_t                        RecordCount,
+                           uint32_t                        LatePassEnabled,
+                           InstanceCullConstants&          Constants)
+{
+    const FocalOrientation Frame          = SolveOrbitOrientation(Subject);
+    const Matrix4f         Projection     = EvaluateProjectionFrame(Subject);
+    const Matrix4f         ViewProjection = MultiplyMatrix(Projection, Frame.ViewMatrix);
+
+    for (int Column = 0; Column < 4; ++Column)
+        for (int Row = 0; Row < 4; ++Row)
+            Constants.ViewProjection[Column * 4 + Row] = ViewProjection.Column[Column][Row];
+
+    // Matrix rows (Column[c][r] indexing): Row[r] = (Column[0][r], Column[1][r], Column[2][r], Column[3][r]).
+    const float Row0[4] = { ViewProjection.Column[0][0], ViewProjection.Column[1][0], ViewProjection.Column[2][0], ViewProjection.Column[3][0] };
+    const float Row1[4] = { ViewProjection.Column[0][1], ViewProjection.Column[1][1], ViewProjection.Column[2][1], ViewProjection.Column[3][1] };
+    const float Row2[4] = { ViewProjection.Column[0][2], ViewProjection.Column[1][2], ViewProjection.Column[2][2], ViewProjection.Column[3][2] };
+    const float Row3[4] = { ViewProjection.Column[0][3], ViewProjection.Column[1][3], ViewProjection.Column[2][3], ViewProjection.Column[3][3] };
+
+    // Six inward planes: left = w+x, right = w-x, bottom = w+y, top = w-y, near = w+z (standard-Z / GL clip -w..w in z here is w+z), far = w-z.
+    // (Gribb-Hartmann; each row-sum yields an inward-pointing plane before normalization.)
+    float Planes[6][4];
+    for (int Component = 0; Component < 4; ++Component)
+    {
+        Planes[0][Component] = Row3[Component] + Row0[Component];   // left
+        Planes[1][Component] = Row3[Component] - Row0[Component];   // right
+        Planes[2][Component] = Row3[Component] + Row1[Component];   // bottom
+        Planes[3][Component] = Row3[Component] - Row1[Component];   // top
+        Planes[4][Component] = Row3[Component] + Row2[Component];   // near
+        Planes[5][Component] = Row3[Component] - Row2[Component];   // far
+    }
+
+    for (int Plane = 0; Plane < 6; ++Plane)
+    {
+        const float NormalLength = std::sqrt(Planes[Plane][0] * Planes[Plane][0] +
+                                             Planes[Plane][1] * Planes[Plane][1] +
+                                             Planes[Plane][2] * Planes[Plane][2]);
+        const float Inverse = (NormalLength > 1e-8f) ? (1.0f / NormalLength) : 0.0f;
+        Constants.FrustumPlanes[Plane * 4 + 0] = Planes[Plane][0] * Inverse;
+        Constants.FrustumPlanes[Plane * 4 + 1] = Planes[Plane][1] * Inverse;
+        Constants.FrustumPlanes[Plane * 4 + 2] = Planes[Plane][2] * Inverse;
+        Constants.FrustumPlanes[Plane * 4 + 3] = Planes[Plane][3] * Inverse;
+    }
+
+    Constants.CameraOrigin[0] = Frame.EyePosition.XCoord;
+    Constants.CameraOrigin[1] = Frame.EyePosition.YCoord;
+    Constants.CameraOrigin[2] = Frame.EyePosition.ZCoord;
+    Constants.CameraOrigin[3] = 0.0f;
+
+    Constants.ViewportExtentX   = (float)Pyramid.Width;
+    Constants.ViewportExtentY   = (float)Pyramid.Height;
+    Constants.PyramidLevelCount = (int32_t)Pyramid.LevelCount;
+    Constants.RecordCount       = RecordCount;
+    Constants.LatePassEnabled   = LatePassEnabled;
+}
+
+// Fit the shared mesh's local bounding sphere over its CPU vertex positions (centroid centre + farthest-point radius — loose but always enclosing,
+// which is all the cull needs) into LocalSphere = { cx, cy, cz, radius }. The normal cone is left non-coneable (LocalCone.w = -1): the Suzanne heads are
+// closed solids whose face normals span every direction, so a whole-mesh cone can never be uniformly back-facing — backface rejection belongs to P4's
+// per-partition cones, not this per-instance record. A degenerate (empty) stream yields a zero sphere, which the cull treats as always-visible.
+void FitMeshLocalBounds(const RenderVertexStream& Stream, float LocalSphere[4], float LocalCone[4])
+{
+    LocalSphere[0] = LocalSphere[1] = LocalSphere[2] = LocalSphere[3] = 0.0f;
+    LocalCone[0] = LocalCone[1] = LocalCone[2] = 0.0f;
+    LocalCone[3] = -1.0f;   // non-coneable
+
+    const size_t Count = Stream.Vertices.size();
+    if (Count == 0)
+        return;
+
+    double SumX = 0.0, SumY = 0.0, SumZ = 0.0;
+    for (const RenderVertex& Vertex : Stream.Vertices)
+    {
+        SumX += Vertex.Position[0];
+        SumY += Vertex.Position[1];
+        SumZ += Vertex.Position[2];
+    }
+    const float CentreX = (float)(SumX / (double)Count);
+    const float CentreY = (float)(SumY / (double)Count);
+    const float CentreZ = (float)(SumZ / (double)Count);
+
+    float RadiusSquared = 0.0f;
+    for (const RenderVertex& Vertex : Stream.Vertices)
+    {
+        const float OffsetX = Vertex.Position[0] - CentreX;
+        const float OffsetY = Vertex.Position[1] - CentreY;
+        const float OffsetZ = Vertex.Position[2] - CentreZ;
+        const float DistanceSquared = OffsetX * OffsetX + OffsetY * OffsetY + OffsetZ * OffsetZ;
+        if (DistanceSquared > RadiusSquared)
+            RadiusSquared = DistanceSquared;
+    }
+
+    LocalSphere[0] = CentreX;
+    LocalSphere[1] = CentreY;
+    LocalSphere[2] = CentreZ;
+    LocalSphere[3] = std::sqrt(RadiusSquared);
 }
 
 } // namespace
@@ -377,6 +480,19 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                       VisibilityImageFormat, VisibilityDepthFormat,
                                       1024, FRONTIER_VISIBILITY_SHADER_DIR);
 
+    // -- Floor raster (checkered floor): a SECOND visibility raster whose own pipeline + instance set draw the floor slab into the SAME visibility
+    //    buffer + depth as the heads. Byte-identical pipeline; a separate object only so the floor carries its own one-instance storage buffer + set.
+    //    Capacity 1 (the floor doc holds one object). Drawn inside the shared Begin/End scope in the preamble so the heads occlude / rest on it.
+    InitializeVisibilityRasterization(Extension.FloorRaster, Extension.Substrate.Host,
+                                      VisibilityImageFormat, VisibilityDepthFormat,
+                                      1, FRONTIER_VISIBILITY_SHADER_DIR);
+
+    // -- Instance cull (Phase 3, P3): the GPU-driven per-instance two-pass cull whose survivor list + indirect argument drive the raster when the
+    //    VisibilityScaling toggle is on. Same MaxInstances capacity as the raster. Built once (pipeline size-independent); the record SSBO is uploaded
+    //    with the scene below, and the raster's survivor binding is re-pointed at this cull's SurvivorBuffer once both are live. Skipped gracefully —
+    //    a failed build leaves ReadyCondition false, so the preamble falls back to the plain instanced draw regardless of the toggle.
+    InitializeInstanceCullSubmission(Extension.InstanceCull, Extension.Substrate.Host, 1024, FRONTIER_VISIBILITY_SHADER_DIR);
+
     // -- Visibility resolve (Phase 2b): the fullscreen composite that reads the id buffer and writes a debug colour over sky + grid — the on-screen
     //    A/B for the raster. Built against the SWAPCHAIN colour format (it composites into the presented image, not the R32_UINT target). Default
     //    OFF (VisibilityResolveEnabled = false); F2 flips it live. Its descriptor is pointed at the visibility image's view once here and re-pointed
@@ -387,9 +503,11 @@ bool InitializeRenderExtension(RenderExtension& Extension,
     Extension.VisibilityResolveExtentWidth  = Extension.VisibilityTarget.Width;
     Extension.VisibilityResolveExtentHeight = Extension.VisibilityTarget.Height;
 
-    // -- Scene geometry (Phase 2b): a one-shot transfer pool, then load the reference-mesh JSON the chosen scene expects and stage it into a
-    //    device-local vertex/index buffer, and build + upload the placed-instance list. All best-effort — a missing asset leaves an empty mesh and
-    //    the raster records nothing (ReadyCondition/InstanceCount gate it), so the colour path is unaffected.
+    // -- Scene geometry (Phase 2b): a one-shot transfer pool, then LOAD the saved scene document (.wsdoc) the chosen scene names — decode it, derive
+    //    the shared geometry block's GPU stream through the engine's own ConstructRenderVertexStream, upload it device-local, recompose the placed
+    //    objects into raster instances, and REGISTER the document into the scene directory (one outliner row per placed head). The renderer no longer
+    //    constructs the scene in C++ (no BuildSuzanneScene / reference-JSON) — it loads it. All best-effort: a missing / malformed document leaves an
+    //    empty geometry and the raster records nothing (ReadyCondition/InstanceCount gate it), so the colour path is unaffected.
     if (Extension.VisibilityRaster.ReadyCondition)
     {
         VkCommandPoolCreateInfo PoolInformation = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
@@ -400,22 +518,73 @@ bool InitializeRenderExtension(RenderExtension& Extension,
 #ifndef FRONTIER_SCENE_ASSET_DIR
 #define FRONTIER_SCENE_ASSET_DIR "Assets"
 #endif
-            const char* RelativePath = SuzanneSceneMeshPath(Extension.SceneChoice);
-            std::string AssetPath = std::string(FRONTIER_SCENE_ASSET_DIR) + "/" +
-                                    (std::strrchr(RelativePath, '/') ? std::strrchr(RelativePath, '/') + 1 : RelativePath);
+            const char* DocumentName = (Extension.SceneChoice == SuzanneSceneChoice::PyramidStress)
+                                     ? "SuzannePyramid.wsdoc"
+                                     : "SuzanneRadial.wsdoc";
+            const std::string DocumentPath = std::string(FRONTIER_SCENE_ASSET_DIR) + "/" + DocumentName;
+
             RenderVertexStream Stream;
-            if (LoadReferenceMeshAsset(AssetPath.c_str(), Stream) &&
-                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool, Stream, Extension.SceneMesh))
+            std::vector<SuzanneSceneInstance> Instances;
+            std::vector<uint32_t> TriangleSourceFace;
+            WorkspaceDocument LoadedDocument;
+            if (LoadWorkspaceScene(DocumentPath.c_str(), Stream, Instances, &LoadedDocument, &TriangleSourceFace) &&
+                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool, Stream, Extension.SceneGeometry))
             {
-                std::vector<SuzanneSceneInstance> Instances;
-                BuildSuzanneScene(Extension.SceneChoice, 0, Instances);
                 UploadVisibilityScene(Extension.VisibilityRaster, Instances);
-                ISSUE_NOTICE("render-extension", "visibility scene ready: %u instances, %u triangles/mesh",
-                             (unsigned)Instances.size(), (unsigned)(Extension.SceneMesh.IndexCount / 3));
+
+                // GPU cull (P3): fit the shared mesh's local bounding sphere / cone once, upload one per-instance cull record (the sphere transformed
+                // by each instance's Model), then point the raster's survivor binding at this cull's SurvivorBuffer. UploadInstanceCullRecords stages
+                // the records device-local through the same one-shot pool. InstanceCullRecordCount is the early-pass lane bound the preamble pushes.
+                // A no-op (leaves the count 0 / survivor binding at its placeholder) when the cull did not build — the preamble then draws plainly.
+                if (Extension.InstanceCull.ReadyCondition)
+                {
+                    float LocalSphere[4];
+                    float LocalCone[4];
+                    FitMeshLocalBounds(Stream, LocalSphere, LocalCone);
+                    UploadInstanceCullRecords(Extension.InstanceCull, Extension.UploadPool, Instances,
+                                              LocalSphere, LocalCone, Extension.SceneGeometry.IndexCount);
+                    Extension.InstanceCullRecordCount = Extension.InstanceCull.RecordCount;
+                    BindVisibilitySurvivorBuffer(Extension.VisibilityRaster, Extension.InstanceCull.SurvivorBuffer,
+                                                 (VkDeviceSize)Extension.InstanceCull.RecordCapacity * sizeof(uint32_t));
+                }
+
+                // Hand the resolve the per-triangle → authored-source-face table so the topology wireframe (Numpad-0) can collapse
+                // internal triangulation diagonals. One entry per emitted triangle, parallel to the primitive ordinals the raster
+                // packs into the id buffer. A no-op when the table is empty (topology mode then reads as the per-triangle wireframe).
+                UploadInscriptionSourceFaces(Extension.VisibilityResolve, TriangleSourceFace);
+
+                // Register the loaded document into the scene directory so every placed head becomes an outliner row carrying its title +
+                // placement. The registry is a plain data store here (no per-frame advance yet); classification 0 == unclassified until a
+                // PolygonComplex classification is registered.
+                InitializeScene(Extension.SceneRegistry, (uint32_t)LoadedDocument.Objects.size());
+                const WorkspaceRegistration Registration =
+                    RegisterWorkspaceDocument(Extension.SceneRegistry, LoadedDocument, NullRecordToken, 0u);
+
+                ISSUE_NOTICE("render-extension", "visibility scene loaded: %u instances, %u triangles/head, %u outliner rows (from '%s')",
+                             (unsigned)Instances.size(), (unsigned)(Extension.SceneGeometry.IndexCount / 3),
+                             (unsigned)Registration.SpawnedCount, DocumentName);
             }
             else
             {
-                ISSUE_CAUTION("render-extension", "visibility scene geometry unavailable (asset '%s') — raster idle", AssetPath.c_str());
+                ISSUE_CAUTION("render-extension", "visibility scene document unavailable ('%s') — raster idle", DocumentPath.c_str());
+            }
+
+            // Checkered floor: load its standalone document (one slab block + one grey object), upload the slab into its own device-local geometry, and
+            // upload the single floor instance into the floor raster. Drawn as a second mesh into the shared visibility buffer in the preamble. All
+            // best-effort — a missing CheckerFloor.wsdoc leaves FloorGeometry empty and the floor draw a no-op (the heads-only scene is unaffected).
+            const std::string FloorPath = std::string(FRONTIER_SCENE_ASSET_DIR) + "/CheckerFloor.wsdoc";
+            RenderVertexStream FloorStream;
+            std::vector<SuzanneSceneInstance> FloorInstances;
+            if (LoadFloorDocument(FloorPath.c_str(), FloorStream, FloorInstances) &&
+                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool, FloorStream, Extension.FloorGeometry))
+            {
+                UploadVisibilityScene(Extension.FloorRaster, FloorInstances);
+                ISSUE_NOTICE("render-extension", "checkered floor loaded: %u instances, %u triangles",
+                             (unsigned)FloorInstances.size(), (unsigned)(Extension.FloorGeometry.IndexCount / 3));
+            }
+            else
+            {
+                ISSUE_CAUTION("render-extension", "checkered floor document unavailable ('%s') — floor not drawn", FloorPath.c_str());
             }
         }
     }
@@ -454,11 +623,26 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
     Extension.Substrate.RecordPreamble =
         [&Extension](VkCommandBuffer CommandBuffer, VkExtent2D Extent)
         {
+            // 🔴 Resize fail-safe. All three offscreen render targets (depth, id image, HiZ pyramid) are extent-sized, so a window resize must
+            //    rebuild every one of them. Reconfiguring destroys the old images/views/descriptors IMMEDIATELY (no deferred free), yet this preamble
+            //    runs INSIDE the current frame's command recording and a PRIOR frame may still be reading the old resources on the GPU — and worse, this
+            //    frame's own cull dispatch (below) samples the pyramid, so the pyramid MUST be rebuilt here, before anything records against it, never
+            //    afterwards. Do all the size-dependent rebuilds together, once, under a single device-idle that fires ONLY on a genuine extent change
+            //    (the Reconfigure* calls no-op when the extent already matches). The idle stalls just the rare resize frame; steady state never waits.
+            //    Without this the pyramid was reconfigured AFTER the cull recorded a sampler read of it, destroying images the submitted command buffer
+            //    still referenced — a use-after-free that crashed on resize.
+            const bool ExtentChanged = !Extension.DepthPyramid.ReadyCondition
+                                    || Extension.DepthPyramid.Width  != Extent.width
+                                    || Extension.DepthPyramid.Height != Extent.height;
+            if (ExtentChanged)
+                vkDeviceWaitIdle(Extension.Substrate.Host.Device);
+
             ReconfigureVisibilityDepth(Extension.DepthTarget, Extent.width, Extent.height);
             ReconfigureVisibilityImage(Extension.VisibilityTarget, Extent.width, Extent.height);
+            ReconfigureHierarchicalDepthPyramid(Extension.DepthPyramid, Extent.width, Extent.height);
 
             // A resize rebuilt the visibility image's view, so the resolve's descriptor now points at a stale handle — re-point it. The device is
-            // idle at the resize boundary (the substrate rebuilt the swapchain), so the update is safe. Guarded to the size-changed frame only.
+            // already idle above on a genuine extent change, so this rewrite of the (possibly in-flight) resolve set is safe.
             if (Extension.VisibilityResolveExtentWidth  != Extension.VisibilityTarget.Width ||
                 Extension.VisibilityResolveExtentHeight != Extension.VisibilityTarget.Height)
             {
@@ -473,30 +657,97 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             // depth target is left UNDEFINED; the depth clear then supplies a far-plane depth so the reduce still has a defined source.
             const bool RasterRan = Extension.VisibilityRaster.ReadyCondition
                                 && Extension.VisibilityRaster.InstanceCount > 0
-                                && Extension.SceneMesh.IndexCount > 0;
-            if (RasterRan)
+                                && Extension.SceneGeometry.IndexCount > 0;
+
+            // GPU-driven cull path (P3, early-only first cut): active when the VisibilityScaling toggle is on, the cull is built with records, AND the
+            // HiZ pyramid has been reduced at least once (CurrentLayout SHADER_READ_ONLY) so the occlusion test has a legal sampled source. On the very
+            // first frame the pyramid is still UNDEFINED, so the cull stands down and the plain instanced draw fills the buffer + seeds the pyramid; from
+            // the next frame the cull samples LAST frame's pyramid (the design's stale-depth early pass) and the raster draws only the survivors indirectly.
+            const bool CullActive = RasterRan
+                                 && Extension.VisibilityScalingEnabled
+                                 && Extension.InstanceCull.ReadyCondition
+                                 && Extension.InstanceCullRecordCount > 0
+                                 && Extension.DepthPyramid.ReadyCondition
+                                 && Extension.DepthPyramid.CurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            // The floor is a distinct mesh drawn into the SAME visibility buffer as the heads: one cleared buffer, N meshes, each depth-testing against
+            // what the others wrote (the modern one-clear / N-mesh path via BeginVisibilityScope → DrawVisibilityMesh… → EndVisibilityScope). The floor
+            // is always a plain single-instance draw (no cull — it is one object); the heads draw indirect (cull) or plain per the toggle. The floor push
+            // constants share the same camera; CullActive stays 0 for the floor so its gl_InstanceIndex is direct.
+            const bool FloorReady = Extension.FloorRaster.ReadyCondition
+                                 && Extension.FloorRaster.InstanceCount > 0
+                                 && Extension.FloorGeometry.IndexCount > 0;
+
+            if (CullActive)
+            {
+                // Early cull runs OUTSIDE the rendering scope: reset the counters + argument, then dispatch one lane per record against last frame's
+                // pyramid. The pass leaves the survivor list + indirect argument barriered for the raster (indirect + vertex read).
+                InstanceCullConstants CullConstants;
+                AssembleCullConstants(Extension.ViewCamera, Extension.DepthPyramid, Extension.InstanceCullRecordCount, 0u, CullConstants);
+                ResetInstanceCullFrame(Extension.InstanceCull, CommandBuffer);
+                RecordInstanceCullPass(Extension.InstanceCull, Extension.DepthPyramid, CullConstants, CommandBuffer);
+
+                VisibilityRasterConstants RasterConstants;
+                AssembleVisibilityConstants(Extension.ViewCamera, RasterConstants);
+
+                // One shared scope: clear once, indirect-draw the head survivors (CullActive 1 remaps gl_InstanceIndex through the survivor list), then
+                // plain-draw the floor. Both write depth so the heads occlude / rest on the floor.
+                BeginVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
+                RasterConstants.CullActive = 1u;
+                DrawVisibilityMesh(Extension.VisibilityRaster, Extension.VisibilityRaster.InstanceSet, Extension.SceneGeometry,
+                                   Extension.VisibilityRaster.InstanceCount, RasterConstants, true, Extension.InstanceCull.ArgumentBuffer, CommandBuffer);
+                if (FloorReady)
+                {
+                    VisibilityRasterConstants FloorConstants = RasterConstants;
+                    FloorConstants.CullActive = 0u;
+                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
+                                       Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                }
+                EndVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
+            }
+            else if (RasterRan)
             {
                 VisibilityRasterConstants RasterConstants;
                 AssembleVisibilityConstants(Extension.ViewCamera, RasterConstants);
-                RecordVisibilityRasterization(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget,
-                                              Extension.SceneMesh, RasterConstants, CommandBuffer);
+
+                // One shared scope: clear once, plain-draw every head instance, then plain-draw the floor.
+                BeginVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
+                DrawVisibilityMesh(Extension.VisibilityRaster, Extension.VisibilityRaster.InstanceSet, Extension.SceneGeometry,
+                                   Extension.VisibilityRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                if (FloorReady)
+                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
+                                       Extension.FloorRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                EndVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
+            }
+            else if (FloorReady)
+            {
+                // No heads this frame, but the floor is a real mesh: draw it alone into the cleared buffer so the ground still shows + seeds the pyramid.
+                VisibilityRasterConstants FloorConstants;
+                AssembleVisibilityConstants(Extension.ViewCamera, FloorConstants);
+                BeginVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
+                DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
+                                   Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                EndVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
             }
             else
             {
                 RecordVisibilityDepthClear(Extension.DepthTarget, CommandBuffer);
             }
 
+            // The id buffer was written (and left in COLOR_ATTACHMENT) whenever any mesh drew this frame — heads OR the floor. The depth-clear-only
+            // branch leaves it untouched. This gates the sample-transition + the resolve read below so neither samples an undefined image.
+            const bool VisibilityWritten = CullActive || RasterRan || FloorReady;
+
             // Hand depth to the HiZ compute reduce as a sampled source: it leaves the depth in SHADER_READ_ONLY, which the reduce requires.
             TransitionVisibilityDepthForSampling(Extension.DepthTarget, CommandBuffer);
-            // Reduce the depth into the HiZ pyramid (max = conservative-farthest, standard-Z). Kept sized to the live extent, then one
-            // compute dispatch per mip fills the chain. No cull consumer yet — the apex is the P1 gate; this exercises the whole path.
-            ReconfigureHierarchicalDepthPyramid(Extension.DepthPyramid, Extent.width, Extent.height);
+            // Reduce the depth into the HiZ pyramid (max = conservative-farthest, standard-Z). The pyramid was already refit to the live
+            // extent at the top of the preamble (before the cull sampled it), so here it is just one compute dispatch per mip to fill the chain.
             ReduceHierarchicalDepthPyramid(Extension.DepthPyramid, Extension.DepthTarget, CommandBuffer);
 
             // Hand the visibility id buffer to the resolve as a sampled source (COLOR_ATTACHMENT → SHADER_READ_ONLY), so the inscription in the
             // colour scope can texelFetch it. Only when the raster actually wrote it this frame — the idle path never transitions it to
             // COLOR_ATTACHMENT, so sampling it would read undefined contents; the resolve's own readiness guard skips it then.
-            if (RasterRan)
+            if (VisibilityWritten)
                 TransitionVisibilityImageForSampling(Extension.VisibilityTarget, CommandBuffer);
         };
 
@@ -542,6 +793,30 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             }
             Extension.VisibilityResolveKeyLatch = ResolveKeyDown;
 
+            // Numpad-0 toggles the resolve wireframe between per-triangle (every triangulation edge) and per-source-face topology
+            // (only the authored ngon/quad/tri boundaries — internal fan diagonals collapse away). Edge-latched like F2; takes
+            // effect the moment the resolve is on.
+            const bool WireframeKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::Numpad0);
+            if (WireframeKeyDown && !Extension.WireframeModeKeyLatch)
+            {
+                Extension.TopologyWireframeEnabled = !Extension.TopologyWireframeEnabled;
+                printf("[visibility] wireframe -> %s\n", Extension.TopologyWireframeEnabled ? "TOPOLOGY (authored ngons/quads/tris)" : "TRIANGLES (triangulation)");
+                fflush(stdout);
+            }
+            Extension.WireframeModeKeyLatch = WireframeKeyDown;
+
+            // Numpad-2 toggles the GPU-driven visibility-scaling path (the two-pass cull -> indirect raster). Default ON: the raster draws only the
+            // survivors the cull kept. OFF: the plain instanced draw of every instance. Edge-latched; either path writes the same id buffer, so the
+            // resolve / wireframe are unaffected — this only changes HOW the buffer is filled (all instances vs cull survivors).
+            const bool ScalingKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::Numpad2);
+            if (ScalingKeyDown && !Extension.VisibilityScalingKeyLatch)
+            {
+                Extension.VisibilityScalingEnabled = !Extension.VisibilityScalingEnabled;
+                printf("[visibility] scaling (GPU cull) -> %s\n", Extension.VisibilityScalingEnabled ? "ON (cull -> indirect draw)" : "OFF (plain instanced draw)");
+                fflush(stdout);
+            }
+            Extension.VisibilityScalingKeyLatch = ScalingKeyDown;
+
             DriveViewportCamera(Extension, Delta);
 
             // 📝 Pass recording, two equivalent paths. The schedule path (EnabledCondition, default-OFF at Phase 0) walks the
@@ -565,14 +840,16 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
 
             // Visibility resolve (Phase 2b A/B): composite the id buffer over the forward view when toggled on. Records inside this same colour
             // scope (over sky + grid), reading the visibility image the preamble transitioned to SHADER_READ_ONLY. Gated on the raster having run
-            // this frame (InstanceCount > 0 + mesh present) so it never samples an undefined image. Default OFF — the presented pixels are then
+            // this frame (InstanceCount > 0 + geometry present) so it never samples an undefined image. Default OFF — the presented pixels are then
             // exactly the forward view, holding the phase gate until the user flips F2.
+            const bool HeadsPresent = Extension.VisibilityRaster.InstanceCount > 0 && Extension.SceneGeometry.IndexCount > 0;
+            const bool FloorPresent = Extension.FloorRaster.InstanceCount > 0 && Extension.FloorGeometry.IndexCount > 0;
             if (Extension.VisibilityResolveEnabled
                 && Extension.VisibilityResolve.ReadyCondition
-                && Extension.VisibilityRaster.InstanceCount > 0
-                && Extension.SceneMesh.IndexCount > 0)
+                && (HeadsPresent || FloorPresent))
             {
                 VisibilityInscriptionConstants ResolveConstants;
+                ResolveConstants.WireframeMode = Extension.TopologyWireframeEnabled ? 1u : 0u;
                 RecordVisibilityInscription(Extension.VisibilityResolve, Extent, ResolveConstants, CommandBuffer);
             }
         };
@@ -592,8 +869,12 @@ void FinalizeRenderExtension(RenderExtension& Extension)
     FinalizeRenderSchedule(Extension.Schedule);
     FinalizeHierarchicalDepthPyramid(Extension.DepthPyramid);
     FinalizeVisibilityInscription(Extension.VisibilityResolve);
+    FinalizeInstanceCullSubmission(Extension.InstanceCull);
     FinalizeVisibilityRasterization(Extension.VisibilityRaster);
-    ReleasePolygonBufferAllocation(Extension.Substrate.Host, Extension.SceneMesh);
+    FinalizeVisibilityRasterization(Extension.FloorRaster);
+    FinalizeScene(Extension.SceneRegistry);
+    ReleasePolygonBufferAllocation(Extension.Substrate.Host, Extension.SceneGeometry);
+    ReleasePolygonBufferAllocation(Extension.Substrate.Host, Extension.FloorGeometry);
     if (Extension.UploadPool != VK_NULL_HANDLE)
     {
         vkDestroyCommandPool(Extension.Substrate.Host.Device, Extension.UploadPool, Extension.Substrate.Host.Allocator);

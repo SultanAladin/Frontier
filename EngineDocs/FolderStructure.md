@@ -279,6 +279,8 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       │   ├── Cards/    ActionToolbar, SectionHeader, ContentSection, ContentCarousel
 │       │   └── Controls/ ValueSlider, VectorEntry, ScalarEntry, BooleanEntry, ColorEntry,
 │       │                 SelectionEntry, PathEntry, Dropdown, ControlLayout
+│       ├── Icons/        SvgRasterizer (thorvg), SvgIconRegistry (Vulkan textures),   // keyed SVG glyph store, content-hash deduped
+│       │                 IconPackGlobal (g-), IconPackCad (cad-), IconPackScene (scene-)
 │       ├── Dialogues/      ValidationDialogue, ConfirmDialogue   // ← retired
 │       ├── Settings/       RootPanel, SettingsPanel, GeneralPanel, AppearancePanel, AppearancePersistence,
 │       │                   LibraryPanel, NotificationPanel, PerformancePanel   // ← retired

@@ -12,6 +12,7 @@
 #include "Graphics/RenderExtension/Diagnostics/DiagnosticArchive.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,75 @@ std::vector<char> RetrieveShaderBytes(const std::string& FilePath)
     }
     std::fclose(Handle);
     return Bytes;
+}
+
+// First memory type satisfying the compatible-type bitmask and every required property flag. FoundEnabled is false when none matches. Mirrors the
+// per-component helper the other visibility units carry (VisibilityImage / VisibilityDepth) — no shared home exists yet.
+uint32_t SelectMemoryTypeIndex(VkPhysicalDevice      PhysicalDevice,
+                               uint32_t              CompatibleTypesBitmask,
+                               VkMemoryPropertyFlags RequiredProperties,
+                               bool&                 FoundEnabled)
+{
+    VkPhysicalDeviceMemoryProperties MemoryProperties = {};
+    vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemoryProperties);
+    for (uint32_t IndexIterator = 0; IndexIterator < MemoryProperties.memoryTypeCount; ++IndexIterator)
+    {
+        const bool TypeCompatible = (CompatibleTypesBitmask & (1u << IndexIterator)) != 0;
+        const bool PropertyMatch  = (MemoryProperties.memoryTypes[IndexIterator].propertyFlags & RequiredProperties) == RequiredProperties;
+        if (TypeCompatible && PropertyMatch) { FoundEnabled = true; return IndexIterator; }
+    }
+    FoundEnabled = false;
+    return 0;
+}
+
+// Allocate a host-visible + host-coherent storage buffer of ByteCapacity. On any failure both out handles are null. The source-face table is tiny
+// and static, so host-visible + mapped (written once) is the right shape — no staging transfer, matching the raster's instance buffer.
+bool ConstructSourceFaceBuffer(VulkanHost&     Host,
+                               VkDeviceSize    ByteCapacity,
+                               VkBuffer&       OutBuffer,
+                               VkDeviceMemory& OutMemory)
+{
+    OutBuffer = VK_NULL_HANDLE;
+    OutMemory = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo BufferInformation = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    BufferInformation.size        = ByteCapacity;
+    BufferInformation.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    BufferInformation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(Host.Device, &BufferInformation, Host.Allocator, &OutBuffer) != VK_SUCCESS)
+    {
+        OutBuffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryRequirements MemoryRequirements = {};
+    vkGetBufferMemoryRequirements(Host.Device, OutBuffer, &MemoryRequirements);
+
+    bool MemoryTypeFound = false;
+    const uint32_t MemoryTypeIndex = SelectMemoryTypeIndex(Host.PhysicalDevice,
+                                                           MemoryRequirements.memoryTypeBits,
+                                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                                           MemoryTypeFound);
+    if (!MemoryTypeFound)
+    {
+        vkDestroyBuffer(Host.Device, OutBuffer, Host.Allocator);
+        OutBuffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryAllocateInfo AllocateInformation = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    AllocateInformation.allocationSize  = MemoryRequirements.size;
+    AllocateInformation.memoryTypeIndex = MemoryTypeIndex;
+    if (vkAllocateMemory(Host.Device, &AllocateInformation, Host.Allocator, &OutMemory) != VK_SUCCESS ||
+        vkBindBufferMemory(Host.Device, OutBuffer, OutMemory, 0) != VK_SUCCESS)
+    {
+        if (OutMemory != VK_NULL_HANDLE) vkFreeMemory(Host.Device, OutMemory, Host.Allocator);
+        vkDestroyBuffer(Host.Device, OutBuffer, Host.Allocator);
+        OutBuffer = VK_NULL_HANDLE;
+        OutMemory = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
 }
 
 // Wrap a SPIR-V byte buffer in a VkShaderModule. VK_NULL_HANDLE on failure.
@@ -94,17 +164,21 @@ bool InitializeVisibilityInscription(VisibilityInscription& Inscription,
         return false;
     }
 
-    // -- Descriptor set layout: binding 0 = combined image sampler (fragment stage) -------------------------------------
-    VkDescriptorSetLayoutBinding SamplerBinding = {};
-    SamplerBinding.binding         = 0;
-    SamplerBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    SamplerBinding.descriptorCount = 1;
-    SamplerBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // -- Descriptor set layout: binding 0 = combined image sampler, binding 1 = source-face storage buffer (both fragment stage) --------------
+    VkDescriptorSetLayoutBinding Bindings[2] = {};
+    Bindings[0].binding         = 0;
+    Bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Bindings[0].descriptorCount = 1;
+    Bindings[0].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    Bindings[1].binding         = 1;
+    Bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Bindings[1].descriptorCount = 1;
+    Bindings[1].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo SetLayoutInfo = {};
     SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    SetLayoutInfo.bindingCount = 1;
-    SetLayoutInfo.pBindings    = &SamplerBinding;
+    SetLayoutInfo.bindingCount = 2;
+    SetLayoutInfo.pBindings    = Bindings;
     if (vkCreateDescriptorSetLayout(Host.Device, &SetLayoutInfo, Host.Allocator, &Inscription.SetLayout) != VK_SUCCESS)
     {
         vkDestroyShaderModule(Host.Device, VertexModule, Host.Allocator);
@@ -113,16 +187,18 @@ bool InitializeVisibilityInscription(VisibilityInscription& Inscription,
         return false;
     }
 
-    // -- Descriptor pool + set (one combined image sampler) -------------------------------------------------------------
-    VkDescriptorPoolSize PoolSize = {};
-    PoolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    PoolSize.descriptorCount = 1;
+    // -- Descriptor pool + set (one combined image sampler + one storage buffer) ----------------------------------------
+    VkDescriptorPoolSize PoolSizes[2] = {};
+    PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    PoolSizes[0].descriptorCount = 1;
+    PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    PoolSizes[1].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo PoolInfo = {};
     PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     PoolInfo.maxSets       = 1;
-    PoolInfo.poolSizeCount = 1;
-    PoolInfo.pPoolSizes    = &PoolSize;
+    PoolInfo.poolSizeCount = 2;
+    PoolInfo.pPoolSizes    = PoolSizes;
     if (vkCreateDescriptorPool(Host.Device, &PoolInfo, Host.Allocator, &Inscription.DescriptorPool) != VK_SUCCESS)
     {
         vkDestroyShaderModule(Host.Device, VertexModule, Host.Allocator);
@@ -286,6 +362,13 @@ void RefreshVisibilityInscription(VisibilityInscription& Inscription, const Visi
     if (!Image.ReadyCondition || Image.IdView == VK_NULL_HANDLE)
         return;
 
+    // Idempotent: the set already points at this exact view, so rewriting it would be a no-op change that still trips the
+    // "descriptor in use by a pending command buffer" rule (the set is bound every frame the resolve composites). Only the
+    // handful of frames where the view actually changed (first bring-up, each resize) do the write — and the caller idles the
+    // device first on those. Steady state issues zero vkUpdateDescriptorSets, so no in-flight set is ever rewritten.
+    if (Inscription.BoundIdView == Image.IdView)
+        return;
+
     VkDescriptorImageInfo ImageInfo = {};
     ImageInfo.sampler     = Inscription.PointSampler;
     ImageInfo.imageView   = Image.IdView;
@@ -299,6 +382,59 @@ void RefreshVisibilityInscription(VisibilityInscription& Inscription, const Visi
     Write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     Write.pImageInfo      = &ImageInfo;
     vkUpdateDescriptorSets(Inscription.Host->Device, 1, &Write, 0, nullptr);
+    Inscription.BoundIdView = Image.IdView;
+}
+
+void UploadInscriptionSourceFaces(VisibilityInscription& Inscription, const std::vector<uint32_t>& TriangleSourceFace)
+{
+    if (!Inscription.ReadyCondition || Inscription.Host == nullptr || Inscription.ImageSet == VK_NULL_HANDLE)
+        return;
+    if (TriangleSourceFace.empty())
+        return;
+
+    VulkanHost& Host = *Inscription.Host;
+    const VkDeviceSize RequiredBytes = (VkDeviceSize)TriangleSourceFace.size() * sizeof(uint32_t);
+
+    // Grow the buffer only when the current one cannot hold the table (first upload, or a larger scene). The device must be idle at upload — the
+    // caller uploads once at scene-load, before the render loop begins, so destroying the old buffer here references nothing in flight.
+    if (RequiredBytes > Inscription.SourceFaceCapacity)
+    {
+        if (Inscription.SourceFaceBuffer != VK_NULL_HANDLE) vkDestroyBuffer(Host.Device, Inscription.SourceFaceBuffer, Host.Allocator);
+        if (Inscription.SourceFaceMemory != VK_NULL_HANDLE) vkFreeMemory(Host.Device, Inscription.SourceFaceMemory, Host.Allocator);
+        Inscription.SourceFaceBuffer   = VK_NULL_HANDLE;
+        Inscription.SourceFaceMemory   = VK_NULL_HANDLE;
+        Inscription.SourceFaceCapacity = 0;
+        if (!ConstructSourceFaceBuffer(Host, RequiredBytes, Inscription.SourceFaceBuffer, Inscription.SourceFaceMemory))
+        {
+            ISSUE_CAUTION("visibility-inscription", "source-face table allocation failed — topology wireframe unavailable");
+            return;
+        }
+        Inscription.SourceFaceCapacity = RequiredBytes;
+    }
+
+    void* Mapped = nullptr;
+    if (vkMapMemory(Host.Device, Inscription.SourceFaceMemory, 0, RequiredBytes, 0, &Mapped) != VK_SUCCESS)
+    {
+        ISSUE_CAUTION("visibility-inscription", "source-face table map failed — topology wireframe unavailable");
+        return;
+    }
+    std::memcpy(Mapped, TriangleSourceFace.data(), (size_t)RequiredBytes);
+    vkUnmapMemory(Host.Device, Inscription.SourceFaceMemory);
+    Inscription.SourceFaceCount = (uint32_t)TriangleSourceFace.size();
+
+    // Point binding 1 at the table. Written once at scene load with no frame in flight, so the pending-set rule does not apply here.
+    VkDescriptorBufferInfo BufferInfo = {};
+    BufferInfo.buffer = Inscription.SourceFaceBuffer;
+    BufferInfo.offset = 0;
+    BufferInfo.range  = RequiredBytes;
+
+    VkWriteDescriptorSet Write = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+    Write.dstSet          = Inscription.ImageSet;
+    Write.dstBinding      = 1;
+    Write.descriptorCount = 1;
+    Write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Write.pBufferInfo     = &BufferInfo;
+    vkUpdateDescriptorSets(Host.Device, 1, &Write, 0, nullptr);
 }
 
 void RecordVisibilityInscription(const VisibilityInscription&          Inscription,
@@ -348,6 +484,10 @@ void FinalizeVisibilityInscription(VisibilityInscription& Inscription)
         vkDestroyDescriptorPool(Device, Inscription.DescriptorPool, Allocator);   // frees ImageSet
     if (Inscription.SetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(Device, Inscription.SetLayout, Allocator);
+    if (Inscription.SourceFaceBuffer != VK_NULL_HANDLE)
+        vkDestroyBuffer(Device, Inscription.SourceFaceBuffer, Allocator);
+    if (Inscription.SourceFaceMemory != VK_NULL_HANDLE)
+        vkFreeMemory(Device, Inscription.SourceFaceMemory, Allocator);
 
     Inscription = VisibilityInscription{};
 }

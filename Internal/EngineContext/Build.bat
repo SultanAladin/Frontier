@@ -45,7 +45,14 @@ set "IMGUI=%ROOT%\ExternalPackages\imgui"
 set "THORVG=%ROOT%\ExternalPackages\thorvg\inc"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVG%" /I"%VULKAN%\Include""
+REM  Scene\WorkspaceDocumentRegister.cpp includes the Authoring WorkspaceDocumentEncoder.h, which
+REM  bare-includes PolygonCluster.h / VertexField.h / PolygonDescriptor.h (Authoring\Geometry\
+REM  Modeling) and LinearAlgebra_Float64.h (EngineContext\Math). Those dirs go on the path as
+REM  include roots so the bare names resolve; the register itself pulls no toml (encode/decode
+REM  live in AuthoringGeometry.lib), so no tomlpp root is needed here.
+set "MATHROOT=%ROOT%\Internal\EngineContext\Math"
+set "GEOMROOT=%ROOT%\Internal\Authoring\Geometry\Modeling"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVG%" /I"%MATHROOT%" /I"%GEOMROOT%" /I"%VULKAN%\Include""
 REM  TVG_STATIC switches the vendored thorvg.h from its default __declspec(dllimport)
 REM  API to plain static linkage, matching the static ExternalPackages\thorvg\lib\thorvg.lib.
 REM  Without it SvgRasterizer.obj emits __imp_ dllimport references no static lib can satisfy.

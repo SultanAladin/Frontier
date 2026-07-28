@@ -20,10 +20,15 @@ namespace
 
 // The orbit orientation: yaw about world up (+Z), then pitch about the yawed right axis. Composed yaw · pitch so pitch stays
 // about the eye's own right after the yaw turns it. At zero angles this is identity, so forward is the base -Y direction.
+//
+// The pitch angle is NEGATED into the +X rotation. Base forward is -Y; a right-handed turn about +X takes +Y→+Z, so a raw
+// +Pitch would send forward toward -Z and place the eye BELOW the ground (Eye.z = Target.z + Distance·sin Pitch) — the
+// inverted pose the default -0.6 pitch produced (eye at z ≈ -8.6, looking up through the floor). Negating restores the DCC
+// convention this spec documents: NEGATIVE pitch lifts the eye ABOVE the ground looking down, positive drops it below.
 [[nodiscard]] Quaternionf ResolveOrbitRotation(float Yaw, float Pitch) noexcept
 {
     const Quaternionf YawRotation   = QuaternionFromAxisAngle(ReferenceUpAxis(), Yaw);
-    const Quaternionf PitchRotation = QuaternionFromAxisAngle(ReferenceRightAxis(), Pitch);
+    const Quaternionf PitchRotation = QuaternionFromAxisAngle(ReferenceRightAxis(), -Pitch);
     return NormalizeQuaternion(MultiplyQuaternion(YawRotation, PitchRotation));
 }
 

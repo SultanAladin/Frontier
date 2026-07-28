@@ -13,6 +13,9 @@
 #include "EngineContext/Interface/WorkspaceHost/WorkspacePanelDock.h"
 #include "EngineContext/Interface/WorkspaceHost/ImguiPlatformRelay.h"
 #include "EngineContext/Interface/Theme/ThemeResolver.h"
+#include "EngineContext/Interface/Icons/SvgIconRegistry.h"
+#include "EngineContext/Interface/Icons/IconPackGlobal.h"
+#include "EngineContext/Interface/Icons/IconPackCad.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -117,6 +120,24 @@ int main(int ArgumentCount, char** ArgumentValues)
     const ThemeConfiguration Theme = ResolveActiveTheme();
     EnforceThemeStyle(Theme);
 
+    // 📝 The parametric-sketch icon registry — brought up AFTER ImGui_ImplVulkan_Init (it uploads glyph textures through the live Vulkan backend).
+    //    Both tiers register: the global g- pack + the cad- pack the outliner rows resolve. Threaded into the dock so any tab's Sketch Outliner box
+    //    draws real SVG glyphs; a failed bring-up leaves the pointer usable (the outliner falls back to procedural strokes).
+    SvgIconRegistry Icons;
+    const bool IconsReady = InitializeSvgIconRegistry(Icons, Host);
+    if (!IconsReady)
+    {
+        fprintf(stderr, "[sketcher] SVG icon registry failed to start — outliner rows fall back to procedural glyphs\n");
+    }
+    else
+    {
+        const bool GlobalOk = RegisterGlobalIconPack(Icons);
+        const bool CadOk    = RegisterCadIconPack(Icons);
+        if (!GlobalOk || !CadOk)
+            fprintf(stderr, "[sketcher] icon pack registration incomplete (global=%d cad=%d)\n", (int)GlobalOk, (int)CadOk);
+    }
+    const SvgIconRegistry* IconRegistry = IconsReady ? &Icons : nullptr;
+
     // -- The shared interior dock (owns its own host window + partition tree + trapezoid strip) --------------------------
     WorkspacePanelDock Dock;
     InitializeWorkspacePanelDock(Dock);
@@ -137,8 +158,9 @@ int main(int ArgumentCount, char** ArgumentValues)
         AdvanceImguiPlatform();
         ImGui::NewFrame();
 
-        // 📝 The whole UI: the shared dock, driven once per frame. It owns the host window + DockSpace + strip itself.
-        ConstructWorkspacePanelDock(Theme, Dock);
+        // 📝 The whole UI: the shared dock, driven once per frame. It owns the host window + DockSpace + strip itself. The icon registry lets any
+        //    tab's Sketch Outliner box resolve real CAD SVG glyphs.
+        ConstructWorkspacePanelDock(Theme, Dock, IconRegistry);
 
         ImGui::Render();
         SubmitAndPresentImguiFrame(Interface, Host, ImGui::GetDrawData());
@@ -146,6 +168,9 @@ int main(int ArgumentCount, char** ArgumentValues)
 
     // -- Teardown (reverse of bring-up, each Vulkan step gated on device-idle) -------------------------------------------
     vkDeviceWaitIdle(Host.Device);
+
+    if (IconsReady)
+        FinalizeSvgIconRegistry(Icons);
 
     ImGui_ImplVulkan_Shutdown();
     DetachImguiPlatform(Window);

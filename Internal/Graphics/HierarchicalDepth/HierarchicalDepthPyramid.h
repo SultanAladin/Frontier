@@ -55,6 +55,7 @@ struct HierarchicalDepthPyramid
     VkPipeline                   ReducePipeline   = VK_NULL_HANDLE;  // [-]  - the HierarchicalDepthReduce.comp compute pipeline
     VkDescriptorPool             DescriptorPool   = VK_NULL_HANDLE;  // [-]  - sized for one set per level
     std::vector<VkDescriptorSet> LevelSets;                          // [-]  - per-level { source = level-1 (or depth), destination = level }
+    VkImageView                  BoundDepthView   = VK_NULL_HANDLE;  // [-]  - the external depth view LevelSets[0] binding 0 points at; the reduce rewrites only on change
 
     uint32_t                     Width           = 0;                // [px] - level-0 extent width
     uint32_t                     Height          = 0;                // [px] - level-0 extent height

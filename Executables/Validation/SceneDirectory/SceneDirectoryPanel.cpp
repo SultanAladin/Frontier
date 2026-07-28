@@ -9,6 +9,8 @@
 
 #include "SceneDirectoryPanel.h"
 
+#include "EngineContext/Interface/Icons/SvgIconRegistry.h"
+
 #include "imgui.h"
 #include "imgui_internal.h"
 
@@ -299,9 +301,9 @@ namespace
 
 namespace
 {
-    // 📝 Draw a small classification glyph centred in an 18px box at Origin, tinted by TintColor. Each branch is a compact ImDrawList
-    //    rendition of the matching SVG in Outliner.html — enough to read the item type at a glance without shipping an icon atlas.
-    void ConstructGlyph(ImDrawList* DrawList, const char* Glyph, ImVec2 Origin, ImU32 TintColor)
+    // 📝 The procedural stroke fallback: draw a small classification glyph centred in an 18px box at Origin, tinted by TintColor. Each branch is
+    //    a compact ImDrawList rendition of the matching SVG in IconGallery.html — used only when the registry is null or a key has not uploaded.
+    void ConstructFallbackGlyph(ImDrawList* DrawList, const char* Glyph, ImVec2 Origin, ImU32 TintColor)
     {
         const float Box = 18.0f;
         ImVec2 Centre = ImVec2(Origin.x + Box * 0.5f, Origin.y + Box * 0.5f);
@@ -384,6 +386,42 @@ namespace
         {
             DrawList->AddCircle(Centre, 5.0f, TintColor, 0, Thickness);
         }
+    }
+
+    // 📝 Map a row's IconGlyph token to its registry key. Scene concepts resolve to the "scene-" tier; the two folder variants reuse the shared
+    //    global "g-folder" glyph. Anything unmapped returns an empty key so ConstructIcon takes the procedural fallback.
+    const char* ResolveIconKey(const char* Glyph)
+    {
+        if (Glyph == nullptr)                                                        { return ""; }
+        if (std::strcmp(Glyph, "scene") == 0)                                        { return "scene-root"; }
+        if (std::strcmp(Glyph, "mesh") == 0)                                         { return "scene-mesh"; }
+        if (std::strcmp(Glyph, "sun") == 0 || std::strcmp(Glyph, "lights") == 0)     { return "scene-sun"; }
+        if (std::strcmp(Glyph, "area") == 0)                                         { return "scene-area"; }
+        if (std::strcmp(Glyph, "camera") == 0 || std::strcmp(Glyph, "cameras") == 0) { return "scene-camera"; }
+        if (std::strcmp(Glyph, "hdri") == 0 || std::strcmp(Glyph, "environment") == 0) { return "scene-environment"; }
+        if (std::strcmp(Glyph, "folder") == 0 || std::strcmp(Glyph, "geometry") == 0) { return "g-folder"; }
+        return "";
+    }
+
+    // 📝 Draw the row's icon at Origin: prefer the real uploaded SVG texture resolved from the registry by the mapped key. The SVG is authored in
+    //    full house colour, so it is drawn with a WHITE tint (ImGui multiplies the texture by the tint — a white tint keeps the icon's own colour,
+    //    matching IconGallery.html). A dimmed row lowers only the alpha so it fades without shifting hue. Falls back to the procedural stroke glyph
+    //    (tinted by the classification colour) when the registry is null or the key has not uploaded.
+    void ConstructIcon(ImDrawList* DrawList, const Frontier::SvgIconRegistry* Registry, const char* Glyph, ImVec2 Origin,
+                       ImU32 FallbackTint, bool Concealed)
+    {
+        const float Box = 18.0f;
+        const char* IconKey = ResolveIconKey(Glyph);
+        ImTextureID Texture = (Registry != nullptr && IconKey[0] != '\0')
+                                  ? Frontier::ResolveIconTexture(*Registry, IconKey)
+                                  : (ImTextureID)0;
+        if (Texture != 0)
+        {
+            const ImU32 ImageTint = Concealed ? IM_COL32(0xff, 0xff, 0xff, 100) : IM_COL32_WHITE;
+            DrawList->AddImage(Texture, Origin, ImVec2(Origin.x + Box, Origin.y + Box), ImVec2(0, 0), ImVec2(1, 1), ImageTint);
+            return;
+        }
+        ConstructFallbackGlyph(DrawList, Glyph, Origin, FallbackTint);
     }
 }
 
@@ -809,13 +847,14 @@ namespace
     //    reaching back into ImGui window scope repeatedly.
     struct RowContext
     {
-        const ThemeConfiguration* Theme;
-        SceneDirectoryState*      State;
-        ImDrawList*               DrawList;
-        float                     RowHeight;
-        float                     IndentWidth;
-        float                     ContentLeft;
-        float                     ContentRight;
+        const ThemeConfiguration*        Theme;
+        SceneDirectoryState*             State;
+        ImDrawList*                      DrawList;
+        const Frontier::SvgIconRegistry* IconRegistry;   // [-] - borrowed; null => procedural fallback glyphs
+        float                            RowHeight;
+        float                            IndentWidth;
+        float                            ContentLeft;
+        float                            ContentRight;
     };
 
     void ConstructRow(RowContext& Context, RecordEntry& Entry, int IndentDepth);
@@ -1027,11 +1066,11 @@ namespace
         }
         PenX += 16.0f + 7.0f;
 
-        // -- Classification icon --
+        // -- Classification icon (real SVG texture at native colour, procedural fallback) --
         const bool Concealed = Entry.ConcealedState;
-        ImU32 IconTint = Entry.TintColor;
-        if (Concealed) { IconTint = (IconTint & 0x00FFFFFF) | (100 << 24); }
-        ConstructGlyph(DrawList, Entry.IconGlyph, ImVec2(PenX, CentreY - 9.0f), IconTint);
+        ImU32 FallbackTint = Entry.TintColor;
+        if (Concealed) { FallbackTint = (FallbackTint & 0x00FFFFFF) | (100 << 24); }
+        ConstructIcon(DrawList, Context.IconRegistry, Entry.IconGlyph, ImVec2(PenX, CentreY - 9.0f), FallbackTint, Concealed);
         PenX += 18.0f + 7.0f;
 
         // -- Label (or inline rename box) --
@@ -1210,7 +1249,7 @@ namespace
         }
         else if (Glyph != nullptr)
         {
-            ConstructGlyph(Draw, Glyph, ImVec2(PenX, CentreY - 9.0f), GlyphTint);
+            ConstructFallbackGlyph(Draw, Glyph, ImVec2(PenX, CentreY - 9.0f), GlyphTint);
             PenX += 24.0f;
         }
 
@@ -1444,7 +1483,8 @@ namespace
 //                                                      PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-void ConstructSceneDirectoryPanel(const ThemeConfiguration& Theme, SceneDirectoryState& State)
+void ConstructSceneDirectoryPanel(const ThemeConfiguration& Theme, SceneDirectoryState& State,
+                                  const Frontier::SvgIconRegistry* IconRegistry)
 {
     ImDrawList* DrawList = ImGui::GetWindowDrawList();
     ImVec2 PanelMin = ImGui::GetCursorScreenPos();
@@ -1585,6 +1625,7 @@ void ConstructSceneDirectoryPanel(const ThemeConfiguration& Theme, SceneDirector
     Context.Theme        = &Theme;
     Context.State        = &State;
     Context.DrawList     = ImGui::GetWindowDrawList();
+    Context.IconRegistry = IconRegistry;
     Context.RowHeight    = RowHeight;
     Context.IndentWidth  = IndentWidth;
     Context.ContentLeft  = TreeMin.x;

@@ -53,6 +53,8 @@ REM  Platform (window + surface), Graphics (Vulkan host + RenderExtension + grid
 REM  + sky), EngineContext (camera navigation + ImGui core the pillar carries).
 call "%ROOT%\Internal\Platform\Build.bat"
 if errorlevel 1 goto :fail
+call "%ROOT%\Internal\Authoring\Geometry\Build.bat"
+if errorlevel 1 goto :fail
 call "%ROOT%\Internal\Graphics\Build.bat"
 if errorlevel 1 goto :fail
 call "%ROOT%\Internal\EngineContext\Build.bat"
@@ -67,6 +69,10 @@ if not exist "%LIBDIR%\EngineContext.lib" (
 )
 if not exist "%LIBDIR%\Platform.lib" (
     echo [%NAME%] Platform.lib missing after build - aborting.
+    goto :fail
+)
+if not exist "%LIBDIR%\AuthoringGeometry.lib" (
+    echo [%NAME%] AuthoringGeometry.lib missing after build - aborting.
     goto :fail
 )
 
@@ -105,7 +111,7 @@ for /R "%APPDIR%" %%F in (*.cpp) do (
 )
 
 REM --- Link the shared libs + Vulkan / system libs (no GLFW) -------------------
-set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib""
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\AuthoringGeometry.lib" "%LIBDIR%\Platform.lib""
 set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
 
 echo [%NAME%] linking -^> %OUTPUT%
@@ -129,16 +135,19 @@ copy /Y "%ROOT%\Internal\Graphics\HierarchicalDepth\Shaders\*.spv" "%SHADEROUT%"
 copy /Y "%ROOT%\Internal\Graphics\Visibility\Shaders\*.spv" "%SHADEROUT%" >nul
 echo [%NAME%] staged shaders -^> %SHADEROUT%
 
-REM --- Stage the reference-geometry assets beside the exe ---------------------
-REM  The visibility raster loads the Suzanne JSON the chosen scene expects from a
-REM  relative "Assets" dir (FRONTIER_SCENE_ASSET_DIR in RenderExtension.cpp). The
-REM  source assets live in the docs repo at Documentation\Assets; copy the two
-REM  Suzanne meshes beside the exe so it finds them when launched from its own dir.
+REM --- Stage the saved scene documents beside the exe -------------------------
+REM  The visibility raster now LOADS the saved scene document (.wsdoc) the chosen
+REM  scene names from a relative "Assets" dir (FRONTIER_SCENE_ASSET_DIR in
+REM  RenderExtension.cpp) - it no longer reads the raw Suzanne JSON (that is the
+REM  writer tool's bake-time input). The .wsdoc are produced by
+REM  WorkspaceDocumentWriter into the docs repo's Documentation\Assets; copy the
+REM  two beside the exe so it finds them when launched from its own dir.
 set "ASSETOUT=%OUTDIR%\Assets"
 if not exist "%ASSETOUT%" mkdir "%ASSETOUT%"
-copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneMesh.json" "%ASSETOUT%" >nul
-copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneMeshSub2.json" "%ASSETOUT%" >nul
-echo [%NAME%] staged assets -^> %ASSETOUT%
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneRadial.wsdoc" "%ASSETOUT%" >nul
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzannePyramid.wsdoc" "%ASSETOUT%" >nul
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\CheckerFloor.wsdoc" "%ASSETOUT%" >nul
+echo [%NAME%] staged scene documents -^> %ASSETOUT%
 
 echo [%NAME%] OK -^> %OUTPUT%
 endlocal & exit /b 0

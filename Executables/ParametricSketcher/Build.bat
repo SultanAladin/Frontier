@@ -93,8 +93,13 @@ for /R "%APPDIR%" %%F in (*.cpp) do (
     echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
 )
 
-REM --- Link the shared libs + Vulkan / system libs (no GLFW) -------------------
-set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib""
+REM --- Link the shared libs + thorvg + Vulkan / system libs (no GLFW) ----------
+REM  thorvg.lib is the vendored static SVG rasterizer that SvgRasterizer.obj (inside
+REM  EngineContext.lib) calls into for the outliner's icon glyphs. The Sketch Outliner
+REM  panel now brings up the SvgIconRegistry, so this exe references SvgRasterizer.obj
+REM  and must carry thorvg on the link line (same seam as SketchOutlinerValidation).
+set "THORVGLIB=%ROOT%\ExternalPackages\thorvg\lib\thorvg.lib"
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%THORVGLIB%""
 set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
 
 echo [%NAME%] linking -^> %OUTPUT%

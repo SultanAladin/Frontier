@@ -350,6 +350,9 @@ void ReleaseSizedResources(HierarchicalDepthPyramid& Pyramid)
         vkDestroyDescriptorPool(Device, Pyramid.DescriptorPool, Allocator);   // frees its sets
     Pyramid.DescriptorPool = VK_NULL_HANDLE;
     Pyramid.LevelSets.clear();
+    // The sets this cache described are gone, so the next reduce must write binding 0 again. Clearing it matters beyond bookkeeping: Vulkan may
+    // hand back a recycled view handle equal to the old one, and a stale cache would then skip the write and leave level 0 sampling a dead view.
+    Pyramid.BoundDepthView = VK_NULL_HANDLE;
 
     for (VkImageView View : Pyramid.StorageViews)
         if (View != VK_NULL_HANDLE) vkDestroyImageView(Device, View, Allocator);
@@ -446,20 +449,30 @@ void ReduceHierarchicalDepthPyramid(HierarchicalDepthPyramid& Pyramid, const Vis
 
     VulkanHost& Host = *Pyramid.Host;
 
-    // Bind level 0's source to the external scene depth now (its view lives in the VisibilityDepth, not the pyramid). Higher levels' sources were
-    // pre-bound at build time. The write is safe here because the sets are not in flight — the reduce for this frame has not been submitted yet.
-    VkDescriptorImageInfo DepthSource = {};
-    DepthSource.sampler     = Pyramid.PointSampler;
-    DepthSource.imageView   = Depth.DepthView;
-    DepthSource.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Bind level 0's source to the external scene depth (its view lives in the VisibilityDepth, not the pyramid). Higher levels' sources were
+    // pre-bound at build time.
+    //
+    // 🔴 Idempotent by design. This runs INSIDE the current frame's recording, and with two in-flight slots the PREVIOUS frame's command buffer
+    //    is still pending while it does — that buffer bound LevelSets[0]. Rewriting a descriptor set referenced by any pending command buffer is
+    //    illegal without UPDATE_AFTER_BIND / UPDATE_UNUSED_WHILE_PENDING, and validation flags it on the set HANDLE alone: writing the identical
+    //    view back is still a violation, not a no-op. The depth view only ever changes when ReconfigureVisibilityDepth rebuilds it (bring-up, each
+    //    resize) — and the caller idles the device on those — so the guard collapses steady state to zero writes and keeps the rare real write safe.
+    if (Pyramid.BoundDepthView != Depth.DepthView)
+    {
+        VkDescriptorImageInfo DepthSource = {};
+        DepthSource.sampler     = Pyramid.PointSampler;
+        DepthSource.imageView   = Depth.DepthView;
+        DepthSource.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    VkWriteDescriptorSet DepthSourceWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-    DepthSourceWrite.dstSet          = Pyramid.LevelSets[0];
-    DepthSourceWrite.dstBinding      = 0;
-    DepthSourceWrite.descriptorCount = 1;
-    DepthSourceWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    DepthSourceWrite.pImageInfo      = &DepthSource;
-    vkUpdateDescriptorSets(Host.Device, 1, &DepthSourceWrite, 0, nullptr);
+        VkWriteDescriptorSet DepthSourceWrite = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        DepthSourceWrite.dstSet          = Pyramid.LevelSets[0];
+        DepthSourceWrite.dstBinding      = 0;
+        DepthSourceWrite.descriptorCount = 1;
+        DepthSourceWrite.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        DepthSourceWrite.pImageInfo      = &DepthSource;
+        vkUpdateDescriptorSets(Host.Device, 1, &DepthSourceWrite, 0, nullptr);
+        Pyramid.BoundDepthView = Depth.DepthView;
+    }
 
     // Move the whole mip chain to GENERAL for storage writes. UNDEFINED source discards the prior frame's contents (every texel is rewritten).
     VkImageSubresourceRange WholeChain = {};

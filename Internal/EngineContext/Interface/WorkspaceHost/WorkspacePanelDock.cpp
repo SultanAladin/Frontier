@@ -101,13 +101,29 @@ namespace
         return &GenericDocumentType;
     }
 
-    // 📝 The (V) panel dropdown. Choosing a row DROPS a fresh free-floating "Panel N" box into the active tab's body (a rectangle with a header +
-    //    close (x)). One row for now — "New Panel"; the list is here so more spawn presets can be added later without touching the overlay code.
-    const char* PanelMenuEntries[] =
+    // 📝 One row the (V) panel dropdown offers: a caption plus the content the spawned box carries. "New Panel" drops blank chrome; "Outliner" drops
+    //    a parametric-sketch tree docked to the body's Left. The list drives the overlay so new spawn presets add here without touching the draw code.
+    struct PanelMenuEntry
     {
-        "New Panel",
+        const char*           Label;     // [-] - dropdown row caption
+        WorkspacePanelContent Content;   // [-] - what the spawned box's body draws
+    };
+    const PanelMenuEntry PanelMenuEntries[] =
+    {
+        { "New Panel", WorkspacePanelContent::Placeholder    },
+        { "Outliner",  WorkspacePanelContent::SketchOutliner },
     };
     constexpr int PanelMenuEntryCount = (int)(sizeof(PanelMenuEntries) / sizeof(PanelMenuEntries[0]));
+
+    // 📝 True when this tab already hosts a SketchOutliner box — the one-per-tab cap. The (V) "Outliner" row greys / blocks once this holds, and a
+    //    respawn is refused. Scans PanelBoxes (both floating overlays and docked members live there).
+    bool DocumentHostsOutliner(const WorkspaceDocument& Document)
+    {
+        for (const WorkspacePanelBox& Box : Document.PanelBoxes)
+            if (Box.Content == WorkspacePanelContent::SketchOutliner)
+                return true;
+        return false;
+    }
 
     const char* CategoryLabel(WorkspaceCategory Category)
     {
@@ -1463,11 +1479,11 @@ namespace
         const ImU32 FooterGrey  = IM_COL32(30, 31, 35, 255);       // footer a touch darker than the body
 
         DrawList->AddRectFilled(ImVec2(Left, Top), ImVec2(Right, Bottom), BodyGrey, Round);
-        DrawList->AddRectFilled(ImVec2(Left, Top), ImVec2(Right, std::min(Bottom, Top + PanelBoxHeader)), HeaderBlack,
-                                Round, ImDrawFlags_RoundCornersTop);
         if (Bottom - PanelBoxFooter > Top + PanelBoxHeader)
             DrawList->AddRectFilled(ImVec2(Left, Bottom - PanelBoxFooter), ImVec2(Right, Bottom), FooterGrey,
                                     Round, ImDrawFlags_RoundCornersBottom);
+        DrawList->AddRectFilled(ImVec2(Left, Top), ImVec2(Right, std::min(Bottom, Top + PanelBoxHeader)), HeaderBlack,
+                                Round, ImDrawFlags_RoundCornersTop);
         DrawList->AddRect(ImVec2(Left + 0.5f, Top + 0.5f), ImVec2(Right - 0.5f, Bottom - 0.5f), Theme.Palette.PanelBorder, Round);
 
         DrawList->AddText(ImVec2(Left + 8.0f, Top + (PanelBoxHeader - ImGui::GetTextLineHeight()) * 0.5f), IM_COL32(255, 255, 255, 255), Box.Title);
@@ -1894,6 +1910,12 @@ namespace
         if (Document == nullptr || Document->PanelBoxes.empty())
             return;
 
+        // 📝 A content-hosting box (the Sketch Outliner) is NOT drawn inside this raw-clip scope: its real ImGui child window is emitted after the
+        //    PopClipRect below, so the dock's own clip stack on this draw list stays perfectly balanced and the child lands ABOVE the box chrome.
+        //    One outliner per tab is guaranteed by the (V) menu, so a single slot is enough.
+        const WorkspacePanelBox* OutlinerBox = nullptr;
+        WorkspaceRect            OutlinerRect;
+
         DrawList->PushClipRect(ImVec2(Body.PositionX, Body.PositionY),
                                ImVec2(Body.PositionX + Body.Width, Body.PositionY + Body.Height), true);
 
@@ -1912,6 +1934,13 @@ namespace
                 const bool  CloseHovered = !BlockInput &&
                                            Inside(CloseLeft, CloseTop, CloseLeft + PanelBoxClose, CloseTop + PanelBoxClose);
                 PaintPanelBox(DrawList, Theme, Box, Rect, CloseHovered);
+
+                // Remember a content box's final geometry; its body is filled after this clip scope closes (see the note above).
+                if (Box.Content == WorkspacePanelContent::SketchOutliner)
+                {
+                    OutlinerBox  = &Box;
+                    OutlinerRect = Rect;
+                }
             }
         }
 
@@ -1974,6 +2003,45 @@ namespace
         }
 
         DrawList->PopClipRect();
+
+        // -- A content box's body: a REAL ImGui window over the box's body rect ------------------------------------------
+        // 📝 The chrome above paints on the BACKGROUND draw list, which sits under every ordinary window — so this content window layers over it
+        //    naturally, with NO front-pinning. That matters: pinning it forward each frame also re-fronted it above its OWN menus (ImGui display-
+        //    fronts a menu once when it opens, so a per-frame pin here wins every later frame and buries it), and with several content boxes open
+        //    the pins would fight for the top slot. It needs a real window regardless: its search field, rename editor and scrolling tree are
+        //    genuine ImGui widgets, which a bare draw-list call cannot host.
+        if (OutlinerBox != nullptr)
+        {
+            const float BodyTop    = OutlinerRect.PositionY + PanelBoxHeader;
+            const float BodyBottom = OutlinerRect.PositionY + OutlinerRect.Height - PanelBoxFooter;
+            if (BodyBottom > BodyTop + 1.0f && OutlinerRect.Width > 1.0f)
+            {
+                char WindowTitle[64];
+                std::snprintf(WindowTitle, sizeof(WindowTitle), "##outliner-%u-%u", DocumentIdentifier, OutlinerBox->Identifier);
+                ImGui::SetNextWindowPos(ImVec2(OutlinerRect.PositionX, BodyTop));
+                ImGui::SetNextWindowSize(ImVec2(OutlinerRect.Width, BodyBottom - BodyTop));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                               ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
+                                               ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings |
+                                               ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+                if (ImGui::Begin(WindowTitle, nullptr, Flags))
+                {
+                    // 📝 The box body is the outliner's confinement rect: its menus clamp inside this band instead of ImGui's default whole-viewport
+                    //    clamp, so a dropdown opened near the box edge can never spill out over a neighbouring panel.
+                    SketchOutlinerUi::ConfineSketchOutlinerMenus(Document->OutlinerState,
+                                                                 OutlinerRect.PositionX,
+                                                                 BodyTop,
+                                                                 OutlinerRect.PositionX + OutlinerRect.Width,
+                                                                 BodyBottom);
+                    SketchOutlinerUi::ConstructSketchOutlinerPanel(Theme, Document->OutlinerState, State.FrameIconRegistry);
+                }
+                ImGui::End();
+                ImGui::PopStyleVar(3);
+            }
+        }
     }
 
     // Resolve INPUT for every panel box a tab hosts against that tab's body rect (the area below its BarHeight header): press resolution
@@ -2653,36 +2721,61 @@ namespace
         DrawList->AddRectFilled(ImVec2(Left, Top), ImVec2(Right, Bottom), Theme.Palette.PanelBackground, 4.0f);
         DrawList->AddRect(ImVec2(Left + 0.5f, Top + 0.5f), ImVec2(Right - 0.5f, Bottom - 0.5f), Theme.Palette.PanelBorder, 4.0f);
 
+        // A row is BLOCKED when it is the one-per-tab Outliner row and the target tab already carries an outliner — it greys and refuses the click.
+        const WorkspaceDocument* MenuTarget = ResolveDocument(State, State.PanelMenuTargetDocument);
+        const bool TargetHasOutliner = MenuTarget != nullptr && DocumentHostsOutliner(*MenuTarget);
+
         int Chosen = -1;
         for (int Index = 0; Index < PanelMenuEntryCount; ++Index)
         {
+            const PanelMenuEntry& Entry = PanelMenuEntries[Index];
+            const bool  Blocked = Entry.Content == WorkspacePanelContent::SketchOutliner && TargetHasOutliner;
             const float RowTop = Top + AddMenuPadY + (float)Index * AddMenuRowHeight;
-            const bool  Hovered = Inside(Left, RowTop, Right, RowTop + AddMenuRowHeight);
+            const bool  Hovered = !Blocked && Inside(Left, RowTop, Right, RowTop + AddMenuRowHeight);
             if (Hovered)
                 DrawList->AddRectFilled(ImVec2(Left + 3.0f, RowTop), ImVec2(Right - 3.0f, RowTop + AddMenuRowHeight), Theme.Palette.ControlHovered, 3.0f);
+            const ImU32 MarkTint  = Blocked ? Theme.Palette.TextMuted : (Hovered ? Theme.Palette.AccentPrimary : Theme.Palette.TextMuted);
+            const ImU32 LabelTint = Blocked ? Theme.Palette.TextMuted : Theme.Palette.TextPrimary;
             DrawList->AddRectFilled(ImVec2(Left + 10.0f, RowTop + AddMenuRowHeight * 0.5f - 5.0f),
                                     ImVec2(Left + 20.0f, RowTop + AddMenuRowHeight * 0.5f + 5.0f),
-                                    Hovered ? Theme.Palette.AccentPrimary : Theme.Palette.TextMuted, 2.0f);
+                                    MarkTint, 2.0f);
             DrawList->AddText(ImVec2(Left + 30.0f, RowTop + (AddMenuRowHeight - ImGui::GetTextLineHeight()) * 0.5f),
-                              Theme.Palette.TextPrimary, PanelMenuEntries[Index]);
+                              LabelTint, Entry.Label);
             if (Hovered && Clicked())
                 Chosen = Index;
         }
 
         if (Chosen >= 0)
         {
-            // Drop a fresh "Panel N" box into the current tab's body. Its title (e.g. "Tab 1") is untouched; no tab is added. Successive spawns
-            //    cascade down-right so a new box never lands exactly on the last one.
+            // Drop a fresh box into the current tab's body. Its title (e.g. "Tab 1") is untouched; no tab is added. A Placeholder box floats + cascades
+            //    down-right so it never lands exactly on the last one; an Outliner box docks Left by default and seeds the tab's sketch tree once.
             WorkspaceDocument* Target = ResolveDocument(State, State.PanelMenuTargetDocument);
             if (Target != nullptr)
             {
+                const PanelMenuEntry& Entry = PanelMenuEntries[Chosen];
                 WorkspacePanelBox Box;
                 Box.Identifier = Target->NextPanel;
-                std::snprintf(Box.Title, sizeof(Box.Title), "Panel %u", Target->NextPanel);
-                const float Step = 26.0f;
-                const int   Cascade = (int)(Target->NextPanel - 1) % 6;
-                Box.OffsetX = 24.0f + Step * (float)Cascade;
-                Box.OffsetY = 24.0f + Step * (float)Cascade;
+                Box.Content    = Entry.Content;
+                if (Entry.Content == WorkspacePanelContent::SketchOutliner)
+                {
+                    std::snprintf(Box.Title, sizeof(Box.Title), "Outliner");
+                    Box.Dock   = WorkspacePanelDockSide::Left;   // outliner opens docked to the body's left, like the mockup
+                    Box.Width  = 300.0f;
+                    Box.Height = 420.0f;
+                    if (!Target->OutlinerReady)
+                    {
+                        SketchOutlinerUi::InitializeSketchOutlinerSample(Target->OutlinerState);
+                        Target->OutlinerReady = true;
+                    }
+                }
+                else
+                {
+                    std::snprintf(Box.Title, sizeof(Box.Title), "Panel %u", Target->NextPanel);
+                    const float Step = 26.0f;
+                    const int   Cascade = (int)(Target->NextPanel - 1) % 6;
+                    Box.OffsetX = 24.0f + Step * (float)Cascade;
+                    Box.OffsetY = 24.0f + Step * (float)Cascade;
+                }
                 Target->PanelBoxes.push_back(Box);
                 ++Target->NextPanel;
             }
@@ -2750,13 +2843,21 @@ void ConfigureWorkspaceCatalogue(WorkspacePanelDock& State, const WorkspaceDocum
     SeedRootDocument(State, Default);
 }
 
-void ConstructWorkspacePanelDock(const ThemeConfiguration& Theme, WorkspacePanelDock& State)
+void ConstructWorkspacePanelDock(const ThemeConfiguration& Theme, WorkspacePanelDock& State, const SvgIconRegistry* IconRegistry)
 {
+    State.FrameIconRegistry = IconRegistry;   // frame-scoped: any SketchOutliner box reads it while painting this frame
     const ImGuiViewport* Viewport = ImGui::GetMainViewport();
-    ImDrawList*          DrawList = ImGui::GetForegroundDrawList();
+    // 🔴 The chrome paints on the BACKGROUND draw list, not the foreground one. A panel box may host real ImGui content (the Sketch Outliner lives in
+    //    its own borderless window over the box body), and the foreground list renders above EVERY ordinary window — chrome drawn there buried that
+    //    content under the leaf's opaque body fill no matter how the window was ordered. The background list sits under all windows instead, so the
+    //    chrome still covers the cleared frame while any content window layers correctly on top of it.
+    ImDrawList*          DrawList = ImGui::GetBackgroundDrawList();
     // While either the (+) or the (V) overlay is open, the strip / dock / floating layers ignore clicks (a menu click must not fall through to a
-    //    tab beneath it).
-    const bool           BlockInput = State.AddMenuOpen || State.PanelMenuOpen;
+    //    tab beneath it). An ImGui popup counts too: the dock resolves its own presses from RAW mouse coordinates rather than ImGui hover, so a click
+    //    on a panel content menu (the Sketch Outliner's right-click / add / filter dropdowns) would otherwise ALSO land on whatever box chrome sits
+    //    under that menu and start a spurious header drag.
+    const bool           MenuCapturing = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    const bool           BlockInput = State.AddMenuOpen || State.PanelMenuOpen || MenuCapturing;
 
     // Desk fill behind the central area. With no root leaf and no floating windows the desk is FULL BLACK (Chrome: no workspaces = empty).
     const WorkspaceRect Central = CentralRect();
@@ -2802,11 +2903,12 @@ void ConstructWorkspacePanelDock(const ThemeConfiguration& Theme, WorkspacePanel
     ConstructFloating(DrawList, Theme, State, BlockInput);
     PaintDockPreview(DrawList, Theme, State);
 
-    // The (+) and (V) overlays are painted LAST so they sit on top of the strip / dock / windows on the same foreground layer (fixes the old
-    //    popup-behind-tabs Z-order). They resolve their own clicks; BlockInput above already froze the layers beneath them this frame. Only one is
-    //    ever open at a time (opening one closes the other), so their click resolution never collides.
-    ConstructAddMenu(DrawList, Theme, State);
-    ConstructPanelMenu(DrawList, Theme, State);
+    // The (+) and (V) overlays are painted LAST and on the FOREGROUND list — the one layer above everything, including a box's content window (an
+    //    open dropdown that spills over a docked Sketch Outliner must still read on top). They resolve their own clicks; BlockInput above already
+    //    froze the layers beneath them this frame. Only one is ever open at a time (opening one closes the other), so their clicks never collide.
+    ImDrawList* OverlayList = ImGui::GetForegroundDrawList();
+    ConstructAddMenu(OverlayList, Theme, State);
+    ConstructPanelMenu(OverlayList, Theme, State);
 
     ResolveRename(State);
 }

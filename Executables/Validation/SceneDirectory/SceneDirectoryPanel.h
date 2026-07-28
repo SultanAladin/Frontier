@@ -20,6 +20,8 @@
 #include <string>
 #include <vector>
 
+namespace Frontier { struct SvgIconRegistry; }
+
 namespace SceneDirectoryValidation
 {
 
@@ -123,7 +125,10 @@ struct SceneDirectoryState
 void InitializeSceneDirectorySample(SceneDirectoryState& State);
 
 // 📝 Draw the whole outliner inside the current ImGui window. Handles selection, rename, visibility, drag relocation, filters, and both menus.
-void ConstructSceneDirectoryPanel(const Frontier::ThemeConfiguration& Theme, SceneDirectoryState& State);
+//    IconRegistry supplies the resolved scene-tier SVG textures (keys "scene-" / "g-"); pass a registry whose scene + global packs are registered
+//    for real multi-colour glyphs, or nullptr to fall back to the procedural stroke art. When present, glyphs draw at their native SVG colour.
+void ConstructSceneDirectoryPanel(const Frontier::ThemeConfiguration& Theme, SceneDirectoryState& State,
+                                  const Frontier::SvgIconRegistry* IconRegistry);
 
 }   // namespace SceneDirectoryValidation
 

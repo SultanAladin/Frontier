@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier — Viewport Context Menu</title>
+<style>
+  /* ═════════════════════════════════════════════════════════════════════════
+     Design tokens — mirrored from ToolOptionsWidget.html (same theme)
+     ═════════════════════════════════════════════════════════════════════════ */
+  :root{
+    --desk-bg:      #16171a;
+    --panel-bg:     #131315;
+    --panel-head:   #1b1b1e;
+    --value-bg:     #232326;
+    --value-focus:  #303035;
+    --value-unit:   #33333a;
+    --outline:      rgba(255,255,255,.10);
+    --border-soft:  rgba(255,255,255,.06);
+    --accent:       #4a90e2;
+    --accent-soft:  rgba(74,144,226,.16);
+    --text-primary: #e9e9ec;
+    --text-muted:   #7b7b82;
+    --text-faint:   #56565d;
+
+    --panel-radius: 18px;
+    --item-radius:  11px;
+    --slide-ease:   cubic-bezier(.4,0,.2,1);
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:var(--desk-bg);
+    color:var(--text-primary);
+    font:15px/1 "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+    user-select:none;
+  }
+
+  /* viewport backdrop so right-click has somewhere to land */
+  .viewport{
+    position:fixed; inset:0;
+    background:
+      radial-gradient(1200px 800px at 50% 42%, #202126 0%, #121316 60%, #0c0d0f 100%);
+  }
+  .viewport::before{
+    content:""; position:absolute; inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
+    background-size:44px 44px; background-position:center center;
+  }
+  .hint{
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    color:var(--text-faint); font-size:14px; letter-spacing:.3px; text-align:center;
+    pointer-events:none;
+  }
+  .hint kbd{
+    background:var(--value-bg); border:1px solid var(--outline); border-radius:7px;
+    padding:2px 8px; font:inherit; font-size:12px; color:var(--text-muted);
+  }
+
+  .icon{ width:1em; height:1em; flex:0 0 auto; display:inline-block; vertical-align:-.12em; }
+  .icon svg{ display:block; width:100%; height:100%; }
+
+  /* ═════════════════════════════════════ CONTEXT MENU ═════════════════════════════════════
+     Carousel-style sectioning (borrowed from CadModellingInterface inspector):
+     a tab strip on top + a sliding track of category panes underneath.
+     ═══════════════════════════════════════════════════════════════════════════════════════ */
+  .ctx{
+    position:fixed; z-index:60; width:248px; overflow:hidden;
+    display:none; flex-direction:column; max-height:calc(100vh - 20px);
+    background:var(--panel-bg); border:1px solid var(--outline);
+    border-radius:var(--panel-radius);
+    box-shadow:0 24px 60px rgba(0,0,0,.62), 0 2px 0 rgba(255,255,255,.03) inset;
+    transform-origin:top left;
+  }
+  .ctx.open{ display:flex; }
+  .ctx.open{ animation:ctxPop .16s cubic-bezier(.16,1,.3,1); }
+  @keyframes ctxPop{ from{ opacity:0; transform:scale(.95) translateY(-6px); } to{ opacity:1; transform:none; } }
+
+  /* ── header: [ Tools ] label above the category tab strip ── */
+  .ctx-head{
+    flex:0 0 auto; padding:9px 12px 4px;
+    font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase;
+    color:var(--text-faint);
+  }
+
+  /* ── category tab strip: horizontally scrollable, underline-active ── */
+  .ctx-tabs{
+    flex:0 0 auto;
+    display:flex; gap:2px; padding:2px 8px 0;
+    background:#08080a; border-bottom:1px solid var(--border-soft);
+    overflow-x:auto; scrollbar-width:none;
+  }
+  .ctx-tabs::-webkit-scrollbar{ display:none; }
+  .ctx-tab{
+    position:relative; flex:0 0 auto; display:flex; align-items:center; gap:6px;
+    height:36px; padding:0 11px; margin-bottom:-1px;
+    background:none; border:0; border-bottom:2px solid transparent;
+    color:var(--text-muted); font:inherit; font-size:12.5px; font-weight:500;
+    letter-spacing:.2px; cursor:pointer; white-space:nowrap;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .ctx-tab .icon{ width:16px; height:16px; opacity:.75; transition:opacity .15s ease, transform .18s var(--slide-ease); }
+  .ctx-tab:hover{ color:var(--text-primary); }
+  .ctx-tab:hover .icon{ opacity:1; transform:translateY(-1px); }
+  .ctx-tab.active{ color:var(--text-primary); font-weight:600; border-bottom-color:var(--accent); }
+  .ctx-tab.active .icon{ opacity:1; }
+
+  /* ── sliding track: category panes side-by-side, translated horizontally.
+        the viewport scrolls vertically when a pane is taller than the space. ── */
+  .ctx-viewport{
+    position:relative; flex:1 1 auto; min-height:0;
+    overflow-x:hidden; overflow-y:auto;
+    scrollbar-width:thin; scrollbar-color:var(--value-focus) transparent;
+  }
+  .ctx-viewport::-webkit-scrollbar{ width:9px; }
+  .ctx-viewport::-webkit-scrollbar-thumb{
+    background:var(--value-focus); border-radius:9px;
+    border:2px solid var(--panel-bg); background-clip:padding-box;
+  }
+  .ctx-viewport::-webkit-scrollbar-thumb:hover{ background:#3c3c44; background-clip:padding-box; }
+  .ctx-track{
+    display:flex; align-items:flex-start; overflow:hidden;
+    transition:transform .3s var(--slide-ease), height .3s var(--slide-ease);
+  }
+  .ctx-pane{ flex:0 0 100%; width:100%; min-width:0; padding:8px; align-self:flex-start; }
+
+  /* ── per-pane category caption: < Category name > so you always know the section ── */
+  .ctx-cap{
+    display:flex; align-items:center; gap:8px; padding:4px 6px 8px;
+    font-size:11px; font-weight:600; letter-spacing:.8px; text-transform:uppercase;
+    color:var(--text-muted);
+  }
+  .ctx-cap .chev{ color:var(--text-faint); font-weight:700; }
+
+  /* ── tool rows inside a pane ── */
+  .ctx-item{
+    position:relative; display:flex; align-items:center; gap:12px;
+    height:42px; padding:0 10px; border-radius:var(--item-radius);
+    color:var(--text-primary); font-size:14px; cursor:pointer;
+    transition:background .12s ease, transform .12s ease;
+  }
+  .ctx-item:hover{ background:var(--value-bg); }
+  .ctx-item:active{ transform:scale(.975); }
+  /* icon chip — echoes the widget's rounded value-bg tiles */
+  .ctx-item .chip{
+    width:30px; height:30px; flex:0 0 30px; display:grid; place-items:center;
+    background:var(--value-bg); border-radius:9px;
+    transition:background .12s ease, transform .16s var(--slide-ease);
+  }
+  .ctx-item:hover .chip{ background:var(--value-focus); transform:scale(1.06) rotate(-2deg); }
+  .ctx-item .chip .icon{ width:20px; height:20px; }
+  .ctx-item .label{ flex:1; }
+  .ctx-item .kbd{ color:var(--text-faint); font-size:12px; font-variant-numeric:tabular-nums; }
+  .ctx-sep{ height:1px; background:var(--outline); margin:6px 10px; }
+
+  /* ── staggered entrance: items rise + fade when their pane becomes active ── */
+  .ctx-pane .ctx-item{ opacity:0; transform:translateY(6px); }
+  .ctx-pane.live .ctx-item{ animation:itemIn .26s var(--slide-ease) both; }
+  @keyframes itemIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+
+  <div class="viewport" id="viewport"></div>
+  <div class="hint"><kbd>Right-click</kbd> anywhere to open the tool menu</div>
+
+  <!-- context menu is populated from CTX_GROUPS at runtime -->
+  <div class="ctx" id="ctxMenu"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════════
+   OBJECT ICON SET  (ported verbatim from Object Icon Set.html — self-contained)
+   icon(name) → an <svg> string. Geometry authored from primitive coordinates.
+   ════════════════════════════════════════════════════════════════════════════ */
+const C = {
+  ink:"#e8e8f0", dim:"#8a8a99", blue:"#5b8cff", cyan:"#37d6d6", green:"#4fd18b",
+  amber:"#ffb24d", red:"#ff6b6b", violet:"#b98bff", pink:"#ff7ab8", sky:"#7ec8ff",
+  earth:"#c99b6a", mud:"#8a6a45", glass:"#2a2a33"
+};
+const P  = (d,s,w=1.6,f="none")=>`<path d="${d}" stroke="${s}" stroke-width="${w}" fill="${f}"/>`;
+const PF = (d,f,s="none",w=0)=>`<path d="${d}" fill="${f}" ${s!=="none"?`stroke="${s}" stroke-width="${w}"`:""}/>`;
+const L  = (x1,y1,x2,y2,s,w=1.6)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${s}" stroke-width="${w}"/>`;
+const CI = (cx,cy,r,s,w=1.6,f="none")=>`<circle cx="${cx}" cy="${cy}" r="${r}" stroke="${s}" stroke-width="${w}" fill="${f}"/>`;
+const CF = (cx,cy,r,f)=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${f}"/>`;
+const R  = (x,y,w,h,rx,s,sw=1.6,f="none")=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" stroke="${s}" stroke-width="${sw}" fill="${f}"/>`;
+const RF = (x,y,w,h,rx,f)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${f}"/>`;
+function ngon(cx,cy,r,n,rot=-Math.PI/2){
+  let pts=[]; for(let i=0;i<n;i++){const a=rot+i*2*Math.PI/n;pts.push([+(cx+r*Math.cos(a)).toFixed(2),+(cy+r*Math.sin(a)).toFixed(2)]);}
+  return "M"+pts.map(p=>p.join(" ")).join("L")+"Z";
+}
+
+/* accent (variation 3) draw functions for the icons we use in the menu */
+const DRAW = {
+  "Line Segment":()=>[L(5,19,19,5,C.blue,2),CF(5,19,2,C.green),CF(19,5,2,C.red)],
+  "Rectangle":()=>[RF(4,7,16,10,0,C.blue),L(4,12,20,12,C.cyan,1.2)],
+  "Circle":()=>[CF(12,12,8,C.blue),PF("M12 4a8 8 0 0 1 0 16z",C.violet)],
+  "Arc":()=>[P("M4 18a10 10 0 0 1 16 0",C.blue,2),CF(4,18,1.6,C.green),CF(12,10,1.4,C.amber),CF(20,18,1.6,C.red)],
+  "Spline":()=>[P("M4 16c3-8 6 6 8-1s5 4 8-3",C.blue,2),CF(4,16,1.6,C.green),CF(12,15,1.4,C.amber),CF(20,12,1.6,C.red)],
+  "Sketch Point":()=>[CI(12,12,4,C.cyan,1.2),CF(12,12,2,C.blue)],
+  "Constraint Coincident":()=>[CI(12,12,4,C.cyan,1.4),CF(12,12,2.2,C.blue),CF(12,12,1,"#000")],
+  "Constraint Parallel":()=>[L(6,18,14,4,C.blue,2),L(10,20,18,6,C.cyan,2)],
+  "Constraint Perpendicular":()=>[L(6,4,6,18,C.blue,2),L(6,18,20,18,C.cyan,2),R(6,15,3,3,0,C.amber,1.2)],
+  "Constraint Tangent":()=>[CF(9,13,5,C.blue),L(3,6,21,6,C.cyan,2)],
+  "Dimension Linear":()=>[L(4,14,20,14,C.blue,1.8),L(4,10,4,18,C.cyan,1.6),L(20,10,20,18,C.cyan,1.6),PF("M4 14l3-1.5v3zM20 14l-3-1.5v3z",C.amber)],
+  "Dimension Radius":()=>[CI(12,12,8,C.dim,1.2),L(12,12,18.5,7.5,C.blue,1.8),CF(12,12,1.6,C.red),PF("M18.5 7.5l-3 .4 1.6 2z",C.amber)],
+  "Dimension Angular":()=>[L(4,20,20,20,C.green,1.8),L(4,20,17,7,C.blue,1.8),P("M10 20A6 6 0 0 0 8.7 16",C.amber,1.6),CF(4,20,1.4,C.red)],
+  "Select Object":()=>[PF("M5 3l0 15 4-4 2.5 5 2.5-1-2.5-5 5.5 0z",C.blue),P("M5 3l0 15 4-4 2.5 5 2.5-1-2.5-5 5.5 0z",C.ink,1)],
+  "Select Vertex":()=>[R(4,4,16,16,2,C.dim,1),CF(12,12,3,C.blue),CI(12,12,3,C.cyan,1.2)],
+  "Select Edge":()=>[R(4,4,16,16,2,C.dim,1),L(6,18,18,6,C.blue,2.2),CF(6,18,1.8,C.green),CF(18,6,1.8,C.red)],
+  "Select Face":()=>[R(4,4,16,16,2,C.dim,1),PF("M7 7h10v10H7z",C.blue),R(7,7,10,10,0,C.cyan,1.2)],
+  "Hexagonal Prism":()=>[PF(ngon(12,8,6,6,0),C.cyan),PF("M6 8v6l6 3.5V11.5z",C.blue),PF("M18 8v6l-6 3.5V11.5z",C.violet)],
+  "Cylinder":()=>[PF("M6 6a6 3 0 0 1 12 0v12a6 3 0 0 1-12 0z",C.blue),`<ellipse cx="12" cy="6" rx="6" ry="3" fill="${C.cyan}"/>`],
+  "Square Pyramid":()=>[PF("M12 3L5 18h14z",C.blue),PF("M12 3L5 18l7-3z",C.cyan),PF("M12 3l7 15-7-3z",C.violet)],
+  "Frustum":()=>[PF("M8 6h8l3 12H5z",C.blue),PF("M8 6h8l1.5 6H6.5z",C.cyan),`<ellipse cx="12" cy="6" rx="4" ry="1.3" fill="${C.sky}"/>`],
+  "Sphere":()=>[CF(12,12,8,C.blue),PF("M7 7a7 7 0 0 0 8 11 8 8 0 0 1-8-11z",C.cyan+"88"),CF(9,9,1.6,"#ffffff88")],
+  "Torus Knot":()=>[P("M6 8C3 12 9 18 14 15s4-9 0-11-11 1-8 4z",C.blue,2.4),P("M8 7c-2 3 3 8 7 6",C.violet,1.8)],
+  "Beveled Solid":()=>[PF("M8 4h8l4 4v8l-4 4H8l-4-4V8z",C.blue),PF("M8 4h8l4 4-6 3-6-3z",C.cyan),PF("M4 8l6 3v9l-6-4z",C.violet)],
+  "Sketch Plane":()=>[PF("M4 9l8-4 8 4-8 4z",C.blue),PF("M4 9l8 4v6l-8-4z",C.cyan+"88"),L(12,13,12,19,C.sky,1.2)],
+  "Copy":()=>[R(8,3,10,12,1.5,C.cyan,1.6),RF(4,7,12,13,1.5,C.blue)],
+  "Trash":()=>[PF("M6 8h12l-1 11a2 2 0 0 1-2 1.8H9A2 2 0 0 1 7 19z",C.red),P("M4.5 8h15M9.5 8V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V8",C.ink,1.4)],
+  "Mirror":()=>[L(12,3,12,21,C.amber,1.6),PF("M9 7L4 12l5 5z",C.blue),PF("M15 7l5 5-5 5z",C.violet)]
+};
+function icon(name){
+  const fn = DRAW[name] || DRAW["Select Object"];
+  return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+    stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+    ${fn().join("")}</svg>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CAD tool taxonomy — one carousel section (tab + pane) per category
+   ════════════════════════════════════════════════════════════════════════════ */
+const CTX_GROUPS = [
+  { label:"Create Shape", glyph:"Beveled Solid", tools:[
+    { glyph:"Rectangle",       name:"Cube",       kbd:"1" },
+    { glyph:"Sphere",          name:"Sphere",     kbd:"2" },
+    { glyph:"Cylinder",        name:"Cylinder",   kbd:"3" },
+    { glyph:"Square Pyramid",  name:"Cone",       kbd:"4" },
+    { glyph:"Hexagonal Prism", name:"Prism",      kbd:"5" },
+    { glyph:"Frustum",         name:"Frustum",    kbd:"6" },
+    { glyph:"Torus Knot",      name:"Torus",      kbd:"7" },
+    { glyph:"Sketch Plane",    name:"Plane",      kbd:"8" },
+  ]},
+  { label:"Sketch", glyph:"Spline", tools:[
+    { glyph:"Line Segment", name:"Line",       kbd:"L" },
+    { glyph:"Rectangle",    name:"Rectangle",  kbd:"R" },
+    { glyph:"Circle",       name:"Circle",     kbd:"C" },
+    { glyph:"Arc",          name:"Arc",        kbd:"A" },
+    { glyph:"Spline",       name:"Spline",     kbd:"S" },
+    { glyph:"Sketch Point", name:"Point",      kbd:"." },
+  ]},
+  { label:"Constrain", glyph:"Constraint Parallel", tools:[
+    { glyph:"Constraint Coincident",    name:"Coincident" },
+    { glyph:"Constraint Parallel",      name:"Parallel" },
+    { glyph:"Constraint Perpendicular", name:"Perpendicular" },
+    { glyph:"Constraint Tangent",       name:"Tangent" },
+  ]},
+  { label:"Dimension", glyph:"Dimension Linear", tools:[
+    { glyph:"Dimension Linear",  name:"Linear",  kbd:"D" },
+    { glyph:"Dimension Radius",  name:"Radius" },
+    { glyph:"Dimension Angular", name:"Angular" },
+  ]},
+  { label:"Create 3D", glyph:"Hexagonal Prism", tools:[
+    { glyph:"Hexagonal Prism", name:"Extrude",  kbd:"E" },
+    { glyph:"Cylinder",        name:"Revolve",  kbd:"V" },
+    { glyph:"Frustum",         name:"Loft",     kbd:"O" },
+    { glyph:"Torus Knot",      name:"Sweep" },
+  ]},
+  { label:"Modify", glyph:"Beveled Solid", tools:[
+    { glyph:"Beveled Solid", name:"Fillet",  kbd:"F" },
+    { glyph:"Beveled Solid", name:"Chamfer", kbd:"H" },
+    { glyph:"Mirror",        name:"Mirror",  kbd:"M" },
+    { glyph:"Sphere",        name:"Shell" },
+  ]},
+  { label:"Select", glyph:"Select Object", tools:[
+    { glyph:"Select Object", name:"Object" },
+    { glyph:"Select Face",   name:"Face" },
+    { glyph:"Select Edge",   name:"Edge" },
+    { glyph:"Select Vertex", name:"Vertex" },
+  ]},
+];
+
+/* quick single-shot actions — appended to every pane below a separator */
+const CTX_ACTIONS = [
+  { glyph:"Copy",  name:"Duplicate", kbd:"Ctrl+D" },
+  { glyph:"Trash", name:"Delete",    kbd:"Del", danger:true },
+];
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Build + carousel navigation + open / close
+   ════════════════════════════════════════════════════════════════════════════ */
+const ctx = document.getElementById("ctxMenu");
+let activeIdx = 0;          // which category pane is showing
+let tabsEl, trackEl, vpEl, paneEls = [];
+
+function chip(glyph){ return `<span class="chip"><span class="icon">${icon(glyph)}</span></span>`; }
+
+function toolRow(group, t){
+  const it = document.createElement("div");
+  it.className = "ctx-item";
+  it.innerHTML = chip(t.glyph) + `<span class="label">${t.name}</span>`+
+                 (t.kbd?`<span class="kbd">${t.kbd}</span>`:"");
+  it.addEventListener("click", ev=>{ ev.stopPropagation(); run(group, t.name); });
+  return it;
+}
+
+function build(){
+  ctx.innerHTML = "";
+
+  ctx.insertAdjacentHTML("beforeend", `<div class="ctx-head">Tools</div>`);
+
+  /* tab strip */
+  tabsEl = document.createElement("div");
+  tabsEl.className = "ctx-tabs";
+  CTX_GROUPS.forEach((grp,i)=>{
+    const tab = document.createElement("button");
+    tab.className = "ctx-tab" + (i===activeIdx?" active":"");
+    tab.innerHTML = `<span class="icon">${icon(grp.glyph)}</span><span>${grp.label}</span>`;
+    tab.addEventListener("click", ev=>{ ev.stopPropagation(); goTo(i); });
+    tabsEl.appendChild(tab);
+  });
+  ctx.appendChild(tabsEl);
+
+  /* sliding track of panes */
+  const vp = vpEl = document.createElement("div"); vp.className = "ctx-viewport";
+  trackEl = document.createElement("div"); trackEl.className = "ctx-track";
+  paneEls = [];
+  CTX_GROUPS.forEach((grp,i)=>{
+    const pane = document.createElement("div"); pane.className = "ctx-pane";
+    pane.insertAdjacentHTML("beforeend",
+      `<div class="ctx-cap"><span class="chev">&lt;</span>${grp.label}<span class="chev">&gt;</span></div>`);
+    grp.tools.forEach(t=> pane.appendChild(toolRow(grp.label, t)) );
+    const sep = document.createElement("div"); sep.className="ctx-sep"; pane.appendChild(sep);
+    CTX_ACTIONS.forEach(a=>{
+      const it = document.createElement("div");
+      it.className = "ctx-item";
+      it.innerHTML = chip(a.glyph) +
+        `<span class="label" ${a.danger?'style="color:#ff6b6b"':''}>${a.name}</span>`+
+        (a.kbd?`<span class="kbd">${a.kbd}</span>`:"");
+      it.addEventListener("click", ev=>{ ev.stopPropagation(); run("Action", a.name); });
+      pane.appendChild(it);
+    });
+    trackEl.appendChild(pane);
+    paneEls.push(pane);
+  });
+  vp.appendChild(trackEl);
+  ctx.appendChild(vp);
+
+  applyActive(false);
+}
+
+/* slide the track + stagger the newly-visible pane's rows */
+function applyActive(animate){
+  trackEl.style.transform = `translateX(${-activeIdx*100}%)`;
+  if(vpEl) vpEl.scrollTop = 0;               // reset vertical scroll on section change
+  tabsEl.querySelectorAll(".ctx-tab").forEach((t,i)=> t.classList.toggle("active", i===activeIdx));
+  paneEls.forEach((p,i)=>{
+    p.classList.remove("live");
+    if(i===activeIdx){
+      // restart the staggered entrance
+      void p.offsetWidth;                       // reflow so the animation replays
+      p.classList.add("live");
+      p.querySelectorAll(".ctx-item").forEach((it,k)=>{
+        it.style.animationDelay = animate ? (k*26)+"ms" : (k*22)+"ms";
+      });
+    }
+  });
+  sizeTrack();
+}
+
+/* size the track to the active pane so short sections don't leave blank scroll space.
+   only meaningful once the menu is visible (scrollHeight is 0 while display:none). */
+function sizeTrack(){
+  const act = paneEls[activeIdx];
+  if(act && ctx.classList.contains("open")) trackEl.style.height = act.scrollHeight + "px";
+}
+
+function goTo(i){
+  if(i===activeIdx || i<0 || i>=CTX_GROUPS.length) return;
+  activeIdx = i;
+  applyActive(true);
+  // keep the active tab scrolled into view within the strip
+  const tab = tabsEl.children[i];
+  if(tab) tab.scrollIntoView({block:"nearest", inline:"nearest"});
+}
+
+function openAt(x,y){
+  activeIdx = 0;
+  build();
+  ctx.classList.add("open");        // must be visible before measuring pane heights
+  sizeTrack();
+  const pad=10, w=ctx.offsetWidth||248, h=ctx.offsetHeight||360;
+  if(x+w>innerWidth-pad)  x=innerWidth-w-pad;
+  if(y+h>innerHeight-pad) y=Math.max(pad, innerHeight-h-pad);
+  ctx.style.left=x+"px"; ctx.style.top=y+"px";
+}
+function close(){ ctx.classList.remove("open"); }
+
+function run(group, name){
+  console.log(`[ctx] ${group} → ${name}`);
+  close();
+}
+
+/* right-click opens; anything else closes.  Left/right arrows page the carousel. */
+window.addEventListener("contextmenu", e=>{ e.preventDefault(); openAt(e.clientX, e.clientY); });
+window.addEventListener("mousedown", e=>{ if(!e.target.closest("#ctxMenu")) close(); });
+window.addEventListener("keydown", e=>{
+  if(e.key==="Escape"){ close(); return; }
+  if(!ctx.classList.contains("open")) return;
+  if(e.key==="ArrowRight"){ e.preventDefault(); goTo(activeIdx+1); }
+  if(e.key==="ArrowLeft"){  e.preventDefault(); goTo(activeIdx-1); }
+});
+window.addEventListener("blur", close);
+
+build();
+</script>
+</body>
+</html>

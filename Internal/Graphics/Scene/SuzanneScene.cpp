@@ -93,8 +93,8 @@ void BuildRadialArray(uint32_t RingCount, std::vector<SuzanneSceneInstance>& Res
         const float Theta   = ((float)HeadIterator / (float)RingCount) * Pi * 2.0f;
         const float PosX    = std::cos(Theta) * RingRadius;
         const float PosY    = std::sin(Theta) * RingRadius;
-        // Local +Y must point toward the centre. Outward direction is Theta; facing in is Theta + Pi, and the head's local +Y is +90 deg from +X.
-        const float Facing  = Theta + Pi - (Pi * 0.5f);
+        // Local +Y points radially outward. Outward direction is Theta and the head's local +Y is +90 deg from +X, so Facing = Theta - 90 deg.
+        const float Facing  = Theta - (Pi * 0.5f);
         Result.push_back(MakeInstance(HeadScale, Facing, PosX, PosY, HeadLift, HeadIterator));
     }
 }

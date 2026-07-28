@@ -16,8 +16,12 @@
 #include "Graphics/Visibility/VisibilityImage.h"
 #include "Graphics/Visibility/VisibilityRasterization.h"
 #include "Graphics/Visibility/VisibilityInscription.h"
+#include "Graphics/Visibility/InstanceCullSubmission.h"
 #include "Graphics/Scene/SuzanneScene.h"
+#include "Graphics/Scene/WorkspaceDocumentDecoder.h"
 #include "Graphics/Render/Resources/BufferAllocation.h"
+#include "EngineContext/Scene/SceneExtension.h"
+#include "EngineContext/Scene/WorkspaceDocumentRegister.h"
 #include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
 #include "Graphics/Grid/GroundGridPass.h"
 #include "Graphics/Atmosphere/SkyAtmosphere.h"
@@ -76,12 +80,21 @@ struct RenderExtension
     VisibilityDepth         DepthTarget;           // [-] - Renderer-owned D32 scene depth (offscreen; written by the visibility raster, reduced by HiZ)
     VisibilityImage         VisibilityTarget;      // [-] - Renderer-owned R32_UINT visibility buffer (offscreen; the raster's id write target)
     VisibilityRasterization VisibilityRaster;      // [-] - Hardware visibility raster of the Suzanne scene into VisibilityTarget + DepthTarget
+    InstanceCullSubmission  InstanceCull;          // [-] - GPU-driven per-instance two-pass cull; its survivor list + indirect arg drive the raster (P3)
     VisibilityInscription   VisibilityResolve;     // [-] - Fullscreen composite of the visibility buffer to the swapchain (the on-screen A/B)
-    PolygonBufferAllocation SceneMesh;             // [-] - The uploaded Suzanne reference geometry the raster instances (device-local)
-    VkCommandPool           UploadPool = VK_NULL_HANDLE; // [-] - One-shot transfer pool for the mesh upload (freed at finalize)
-    SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::RadialArray; // [-] - Which authored scene the raster draws
+    PolygonBufferAllocation SceneGeometry;         // [-] - The uploaded Suzanne shared geometry (from the .wsdoc block) the raster instances (device-local)
+    VisibilityRasterization FloorRaster;           // [-] - Second raster (own pipeline + instance set) for the checkered floor mesh, drawn into the SHARED visibility buffer
+    PolygonBufferAllocation FloorGeometry;         // [-] - The uploaded floor slab geometry (from CheckerFloor.wsdoc block 0), device-local
+    VkCommandPool           UploadPool = VK_NULL_HANDLE; // [-] - One-shot transfer pool for the geometry upload (freed at finalize)
+    SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::RadialArray; // [-] - Which saved .wsdoc scene the raster loads
+    SceneExtension          SceneRegistry;         // [-] - The scene directory the loaded WorkspaceDocument registers into (one outliner row per head)
     bool                    VisibilityResolveEnabled = false; // [-] - When true, the resolve composites the id buffer over sky+grid (F2 toggles); default OFF = plain forward view
     bool                    VisibilityResolveKeyLatch = false; // [-] - Edge latch so one F2 press toggles the resolve once
+    bool                    TopologyWireframeEnabled = false; // [-] - When true, the resolve wireframe follows authored ngon/quad/tri boundaries (Numpad-0 toggles); default OFF = per-triangle
+    bool                    WireframeModeKeyLatch = false;    // [-] - Edge latch so one Numpad-0 press toggles the wireframe mode once
+    bool                    VisibilityScalingEnabled = true;  // [-] - When true, the preamble runs the GPU-driven cull -> indirect raster (Numpad-2 toggles); default ON. OFF = plain instanced draw
+    bool                    VisibilityScalingKeyLatch = false; // [-] - Edge latch so one Numpad-2 press toggles the cull path once
+    uint32_t                InstanceCullRecordCount  = 0;     // [-] - live per-instance cull-record count (the early-pass lane bound), set at scene upload
     uint32_t                VisibilityResolveExtentWidth  = 0; // [px] - Extent the resolve descriptor was last refreshed against (re-Refresh on change)
     uint32_t                VisibilityResolveExtentHeight = 0; // [px] - Paired height for the refresh-on-resize guard
     HierarchicalDepthPyramid DepthPyramid;         // [-] - HiZ mip chain (max-reduce of DepthTarget); produced in the preamble, no cull consumer yet

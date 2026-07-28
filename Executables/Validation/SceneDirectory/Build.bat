@@ -2,14 +2,20 @@
 REM ============================================================================
 REM  SceneDirectory\Build.bat - build SceneDirectory.exe, a STANDALONE validation
 REM  window reproducing Outliner.html: a self-contained scene tree with rows,
-REM  twisties, tinted icons, filter chips, rename + context/add menus.
+REM  twisties, real SVG classification icons, filter chips, rename + context/add
+REM  menus.
 REM
-REM  Win32 + Direct3D 11 host. It links ONLY EngineContext.lib (for the shared
-REM  theme) + the vendored ImGui core it compiles itself (core + Win32/DX11
-REM  backends) + system D3D11. The panel is app-local (its own RecordEntry tree
-REM  in namespace SceneDirectoryValidation), NOT the thin shared OutlinerPanel.
-REM  No Graphics / Platform / Vulkan. Validation hosts keep the proven D3D11
-REM  backend; the editors run on native Vulkan.
+REM  Native Vulkan host. Ported from the old Win32 + D3D11 backend so it can reuse
+REM  the Vulkan-only SvgIconRegistry (the same icon store the CAD outliner uses)
+REM  and draw the real IconGallery SVGs at full colour instead of procedural line
+REM  art. The outliner panel is app-local (its own RecordEntry tree in namespace
+REM  SceneDirectoryValidation), NOT the thin shared OutlinerPanel.
+REM
+REM  The Vulkan host + ImGui interface live in Graphics.lib; the window + surface +
+REM  relay live in Platform.lib; the theme + icon registry + packs + vendored ImGui
+REM  core/Vulkan backend live in EngineContext.lib. So this app rebuilds the shared
+REM  pillar libs first via their own Build.bat, compiles ONLY its own units, and
+REM  links EngineContext + Graphics + Platform + thorvg + vulkan-1.lib + OS libs.
 REM
 REM  Run this through the PowerShell tool, never Bash.
 REM ============================================================================
@@ -22,13 +28,10 @@ set "NAME=SceneDirectory"
 set "OUTDIR=%ROOT%\Binaries\Validation"
 set "LIBDIR=%ROOT%\Build\lib"
 set "OBJ=%ROOT%\Build\obj\App_%NAME%"
-set "IMGUIOBJ=%ROOT%\Build\obj\imgui_dx11"
-set "IMGUI=%ROOT%\ExternalPackages\imgui"
 set "OUTPUT=%OUTDIR%\%NAME%.exe"
 
-if not exist "%OUTDIR%"   mkdir "%OUTDIR%"
-if not exist "%OBJ%"      mkdir "%OBJ%"
-if not exist "%IMGUIOBJ%" mkdir "%IMGUIOBJ%"
+if not exist "%OUTDIR%" mkdir "%OUTDIR%"
+if not exist "%OBJ%"    mkdir "%OBJ%"
 
 REM --- Activate MSVC if cl.exe is not already visible --------------------------
 where cl >nul 2>nul
@@ -48,54 +51,60 @@ if errorlevel 1 (
     call "!VCVARS!" >nul
 )
 
-REM --- Ensure the shared EngineContext pillar lib exists + is current ----------
-REM  EngineContext carries the shared theme this app reads.
+REM --- Ensure the shared pillar libs exist + are current ----------------------
+REM  Platform (window + surface + relay), Graphics (Vulkan host + ImGui interface),
+REM  EngineContext (theme + icon registry/packs + vendored ImGui core/Vulkan backend).
+call "%ROOT%\Internal\Platform\Build.bat"
+if errorlevel 1 goto :fail
+call "%ROOT%\Internal\Graphics\Build.bat"
+if errorlevel 1 goto :fail
 call "%ROOT%\Internal\EngineContext\Build.bat"
 if errorlevel 1 goto :fail
 if not exist "%LIBDIR%\EngineContext.lib" (
     echo [%NAME%] EngineContext.lib missing after build - aborting.
     goto :fail
 )
-
-REM --- Compiler configuration (match EngineContext.lib: /MD /std:c++17 /EHsc) --
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends""
-set "DEFINES=/DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX"
-set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
-
-REM --- Compile vendored ImGui core + Win32/DX11 backends once (cached) ---------
-REM  Distinct dir from the pillar's Vulkan-backend imgui objects so the two
-REM  backend sets never clash. Delete Build\obj\imgui_dx11 to force a rebuild.
-set "IMGUI_UNITS=imgui imgui_draw imgui_tables imgui_widgets backends\imgui_impl_win32 backends\imgui_impl_dx11"
-for %%U in (%IMGUI_UNITS%) do (
-    for %%N in ("%%U") do set "BASE=%%~nN"
-    set "OBJF=%IMGUIOBJ%\!BASE!.obj"
-    if exist "!OBJF!" (
-        echo [skip]    %%~nxU.cpp
-    ) else (
-        echo [compile] %%~nxU.cpp
-        cl %CXXFLAGS% %DEFINES% %INCLUDES% "%IMGUI%\%%U.cpp" /Fo"!OBJF!" /Fd"%IMGUIOBJ%\imgui.pdb"
-        if errorlevel 1 goto :fail
-    )
+if not exist "%LIBDIR%\Graphics.lib" (
+    echo [%NAME%] Graphics.lib missing after build - aborting.
+    goto :fail
+)
+if not exist "%LIBDIR%\Platform.lib" (
+    echo [%NAME%] Platform.lib missing after build - aborting.
+    goto :fail
 )
 
-REM --- Compile this app's own sources every time (they are the files under edit)
+REM --- Include roots (pillar-rooted headers + ImGui + Vulkan; no GLFW) ---------
+set "IMGUI=%ROOT%\ExternalPackages\imgui"
+set "VULKAN=%VULKAN_SDK%"
+if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include""
+REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
+REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
+set "DEFINES=/DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /DFRONTIER_DEVELOPMENT_PROFILE"
+set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
+
+REM --- Compile this app's own units every time (they are the files under edit) -
 set "OBJRSP=%OBJ%\link_objs.rsp"
 if exist "%OBJRSP%" del /Q "%OBJRSP%"
 for %%U in (SceneDirectoryPanel SceneDirectoryHost) do (
     echo [compile] %%U.cpp
     cl %CXXFLAGS% %DEFINES% %INCLUDES% "%APPDIR%\%%U.cpp" /Fo"%OBJ%\%%U.obj" /Fd"%OBJ%\%NAME%.pdb"
-    if errorlevel 1 goto :fail
+    if errorlevel 1 (
+        echo [%NAME%] COMPILE FAILED
+        goto :fail
+    )
     echo "%OBJ%\%%U.obj">>"%OBJRSP%"
 )
 
-REM --- Link EngineContext.lib + vendored ImGui + system D3D11 -----------------
+REM --- Link the shared libs + thorvg + Vulkan / system libs (no GLFW) ----------
+REM  thorvg.lib is the vendored static SVG rasterizer that SvgRasterizer.obj (inside
+REM  EngineContext.lib) calls into for the icon glyphs.
+set "THORVGLIB=%ROOT%\ExternalPackages\thorvg\lib\thorvg.lib"
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%THORVGLIB%""
+set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
+
 echo [%NAME%] linking -^> %OUTPUT%
-link /nologo /SUBSYSTEM:CONSOLE /DEBUG @"%OBJRSP%" ^
-    "%IMGUIOBJ%\imgui.obj" "%IMGUIOBJ%\imgui_draw.obj" "%IMGUIOBJ%\imgui_tables.obj" ^
-    "%IMGUIOBJ%\imgui_widgets.obj" "%IMGUIOBJ%\imgui_impl_win32.obj" "%IMGUIOBJ%\imgui_impl_dx11.obj" ^
-    "%LIBDIR%\EngineContext.lib" ^
-    d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib ^
-    /OUT:"%OUTPUT%"
+link /nologo /DEBUG /SUBSYSTEM:CONSOLE @"%OBJRSP%" %LINKLIBS% %SYSLIBS% /OUT:"%OUTPUT%"
 if errorlevel 1 (
     echo [%NAME%] LINK FAILED
     goto :fail

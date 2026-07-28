@@ -4,6 +4,32 @@ Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---
 
+## Hair / fur shading — deliberately excluded from the material plan (2026-07-28)
+
+`Documentation/PLAN-UnifiedMaterialModels.md` covers 9 shading models + emissive; **hair/fur is out of
+scope on purpose**, not overlooked. It is not a channel slot — it needs its own **geometry pipeline**:
+strands or cards, sorted transparency, and deep opacity maps. Unreal spends a whole shading model on it
+(`SHADINGMODELID_HAIR`) whose graph inputs **replace** Normal/Metallic with **Tangent, Scatter, Backlit**.
+
+Math when picked up: **Marschner 2003** R / TT / TRT single-fibre lobes + **Zinke 2008 dual scattering**
+for multiple scattering (global + local, accelerated by a deep opacity map; ~2 orders of magnitude faster
+than unbiased path tracing). Industry practice is still hair cards with dual specular highlights
+(primary + tinted secondary) plus a transmission term. Research and full citations →
+`Documentation/RESEARCH-MaterialModels2026.md` §6.
+
+⚠️ Do not budget a material channel for this now. Revisit only if a character-authoring consumer lands.
+
+## SSS needs TAA before Burley can be the default integrator (2026-07-28)
+
+`RESEARCH-MaterialModels2026.md` §7 verified that all three major engines use **Burley normalized
+diffusion** for subsurface, and that Unreal states Burley **"requires Temporal Anti-Aliasing to display
+properly"** — it importance-samples the *profile*, not the *lighting*, so undersampled lighting shows as
+stochastic noise. Frontier has **no TAA**.
+
+Consequence for the M6 milestone: ship **Jimenez separable SSSS** (deterministic 7-tap) as the default,
+with Burley behind a toggle, until TAA exists. Keep **Penner pre-integrated** as the zero-dispatch
+forward/low-end tier. Revisit the default once TAA lands.
+
 ## FlowNetwork — deferred; blocks Terrain/TerrainFieldProgram (2026-07-27)
 
 During the Authoring migration, `Graphics/Terrain/TerrainFieldProgram.{h,cpp}` was found to include

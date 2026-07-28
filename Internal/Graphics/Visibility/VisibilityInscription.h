@@ -19,6 +19,7 @@
 
 #include <vulkan/vulkan.h>
 #include <cstdint>
+#include <vector>
 
 namespace Frontier
 {
@@ -32,7 +33,7 @@ namespace Frontier
 struct VisibilityInscriptionConstants
 {
     uint32_t ColourByPrimitive = 0;   // [-] - 0 → colour by partition (per-head), 1 → colour by primitive (per-triangle)
-    uint32_t Pad0              = 0;    // [-] - padding
+    uint32_t WireframeMode     = 0;    // [-] - 0 → per-triangle wireframe, 1 → per-source-face wireframe (authored ngon/quad/tri topology)
     uint32_t Pad1              = 0;    // [-] - padding
     uint32_t Pad2              = 0;    // [-] - padding
 };
@@ -48,8 +49,13 @@ struct VisibilityInscription
     VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE;   // [-] - one sampler set + the InscriptionConstants push range
     VkDescriptorSetLayout SetLayout      = VK_NULL_HANDLE;   // [-] - set 0: binding 0 = combined image sampler (fragment stage)
     VkDescriptorPool      DescriptorPool = VK_NULL_HANDLE;   // [-] - pool sized for one image-sampler set
-    VkDescriptorSet       ImageSet       = VK_NULL_HANDLE;   // [-] - the bound visibility-image sampler set
+    VkDescriptorSet       ImageSet       = VK_NULL_HANDLE;   // [-] - the bound set: binding 0 = image sampler, binding 1 = source-face table
     VkSampler             PointSampler   = VK_NULL_HANDLE;   // [-] - nearest / clamp; the id must not be filtered
+    VkImageView           BoundIdView    = VK_NULL_HANDLE;   // [-] - the view ImageSet binding 0 currently points at; Refresh writes only on change
+    VkBuffer              SourceFaceBuffer = VK_NULL_HANDLE; // [-] - host-visible storage buffer: primitive ordinal -> authored source-face ordinal
+    VkDeviceMemory        SourceFaceMemory = VK_NULL_HANDLE; // [-] - backing allocation for SourceFaceBuffer (host-visible, mapped once at upload)
+    VkDeviceSize          SourceFaceCapacity = 0;            // [B] - allocated source-face-buffer size
+    uint32_t              SourceFaceCount  = 0;              // [-] - live entries in the source-face table (one per emitted triangle)
     bool                  ReadyCondition = false;            // [-] - true once pipeline + layout + descriptors are live
 };
 
@@ -69,6 +75,12 @@ bool InitializeVisibilityInscription(VisibilityInscription& Inscription,
 // (ReconfigureVisibilityImage rebuilds the view). A no-op when either side is not ready. The device must be idle (an in-flight frame may still read
 // the set). Cheap — one vkUpdateDescriptorSets.
 void RefreshVisibilityInscription(VisibilityInscription& Inscription, const VisibilityImage& Image);
+
+// Upload the primitive-ordinal → source-face-ordinal table the topology wireframe reads (SourceFace[t] is the authored editable face display
+// triangle t was fan-triangulated from). One entry per emitted triangle, indexed by the primitive ordinal the raster packs into the visibility
+// buffer. Written once per scene into a host-visible storage buffer (binding 1) and bound to the set. A no-op when not ready or the table is empty
+// (the topology mode then falls back to the per-triangle wireframe, since binding 1 carries nothing). Call once after the scene loads.
+void UploadInscriptionSourceFaces(VisibilityInscription& Inscription, const std::vector<uint32_t>& TriangleSourceFace);
 
 // Record one composite into an already-open dynamic-rendering colour scope: set viewport + scissor, bind the pipeline + image set, push the
 // constants, and draw the three-vertex fullscreen triangle. The visibility image must already be in SHADER_READ_ONLY (see

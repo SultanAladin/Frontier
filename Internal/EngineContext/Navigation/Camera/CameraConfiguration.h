@@ -55,15 +55,16 @@ struct ViewportCamera
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-// A sensible default perspective orbit camera: target at the world origin, eye pulled back and tilted slightly down over the
-// Z-up ground plane. The starting pose the RenderExtension boots into.
+// A sensible default perspective orbit camera: the eye starts ABOVE the Z-up ground grid, pulled well back and pitched down so the
+// whole radial scene (heads on a ring ~6.5 m out, lifted ~1.7 m) is framed from a raised three-quarter vantage. Target sits a little
+// above the floor at the ring centre; Distance clears the ring and Pitch tilts the eye down onto the scene. The pose the RenderExtension boots into.
 [[nodiscard]] inline ViewportCamera ResolveDefaultPerspectiveCamera() noexcept
 {
     ViewportCamera Camera;
-    Camera.Target                = Vector3f{ 0.0f, 0.0f, 0.0f };
-    Camera.Distance              = 6.0f;
+    Camera.Target                = Vector3f{ 0.0f, 0.0f, 1.5f };
+    Camera.Distance              = 18.0f;
     Camera.Yaw                   = 0.0f;
-    Camera.Pitch                 = -0.35f;
+    Camera.Pitch                 = -0.6f;
     Camera.Projection            = ProjectionMode::Perspective;
     Camera.FieldOfView           = 1.0471976f;
     return Camera;
