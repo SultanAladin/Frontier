@@ -16,7 +16,14 @@
 #include "Graphics/Visibility/VisibilityImage.h"
 #include "Graphics/Visibility/VisibilityRasterization.h"
 #include "Graphics/Visibility/VisibilityInscription.h"
+#include "Graphics/Visibility/SurfaceShadeInscription.h"
+#ifdef FRONTIER_POLYGON_AUTHORING
+#include "Graphics/Visibility/ComponentOverlayInscription.h"
+#include "Graphics/Visibility/ObjectPickReadback.h"
+#include "Graphics/Visibility/SelectionOutlineInscription.h"
+#endif
 #include "Graphics/Visibility/InstanceCullSubmission.h"
+#include "Graphics/Visibility/SoftwareRasterization.h"
 #include "Graphics/Scene/SuzanneScene.h"
 #include "Graphics/Scene/WorkspaceDocumentDecoder.h"
 #include "Graphics/Render/Resources/BufferAllocation.h"
@@ -24,6 +31,9 @@
 #include "EngineContext/Scene/WorkspaceDocumentRegister.h"
 #include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
 #include "Graphics/Grid/GroundGridPass.h"
+#include "Graphics/Clipmap/ClipmapFieldInspection.h"
+#include "EngineContext/SpatialAcceleration/ToroidalClipmapField.h"
+#include "EngineContext/SpatialAcceleration/TriangleCellOverlap.h"
 #include "Graphics/Atmosphere/SkyAtmosphere.h"
 #include "EngineContext/Navigation/Camera/CameraConfiguration.h"
 #include "EngineContext/Navigation/Camera/CameraNavigation/CameraNavigation.h"
@@ -31,6 +41,7 @@
 #include "EngineContext/Navigation/Camera/CameraProjection/ProjectionEvaluator.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace Frontier
 {
@@ -81,12 +92,53 @@ struct RenderExtension
     VisibilityImage         VisibilityTarget;      // [-] - Renderer-owned R32_UINT visibility buffer (offscreen; the raster's id write target)
     VisibilityRasterization VisibilityRaster;      // [-] - Hardware visibility raster of the Suzanne scene into VisibilityTarget + DepthTarget
     InstanceCullSubmission  InstanceCull;          // [-] - GPU-driven per-instance two-pass cull; its survivor list + indirect arg drive the raster (P3)
+    SoftwareRasterization   SoftwareRaster;        // [-] - Compute micro-raster (P4): atomicMax packed (depth|id) into the R64 target, then resolve into the same id+depth (Numpad-3 A/B against the hardware raster)
     VisibilityInscription   VisibilityResolve;     // [-] - Fullscreen composite of the visibility buffer to the swapchain (the on-screen A/B)
+
+    // 📝 Deferred surface shade (the material slice). Reads the SAME id buffer the raster already wrote and reconstructs every shading input from it
+    //    (partition -> instance -> MaterialId -> preset; primitive -> triangle -> barycentrics by ray intersection), so genuinely lit materials cost
+    //    no extra geometry pass and no fat G-buffer. F4 toggles it; Numpad-5/6 walk the Composite record's lobe mask.
+    SurfaceShadeInscription SurfaceShade;                     // [-] - The shade pass (fullscreen composite over the forward view)
+    bool      SurfaceShadeEnabled     = true;                 // [-] - When true, the shade composites over sky+grid (F4 toggles); default ON = the materials are the point
+    bool      SurfaceShadeKeyLatch    = false;                // [-] - Edge latch so one F4 press toggles the shade once
+    uint32_t  CompositeFeatureMask    = 0u;                    // [-] - Live lobe mask for the Composite record only (0 = use the record's own); Numpad-5/6 cycle
+    uint32_t  CompositeLobeCursor     = 0u;                    // [-] - Which lobe Numpad-6 toggles; Numpad-5 advances the cursor
+    bool      CompositeLobeKeyLatch   = false;                // [-] - Edge latch so one Numpad-5 press advances the cursor once
+    bool      CompositeToggleKeyLatch = false;                // [-] - Edge latch so one Numpad-6 press flips the selected lobe once
+
+    // 📝 Object selection (P3a). Both units read the SAME id buffer the raster already writes, so selection costs no extra geometry pass: the readback
+    //    copies one texel at the cursor, the outline composites a ring where the selected partition ordinal borders a different one. Because that
+    //    buffer was written under hardware depth test, an occluder in front of the selected object owns those pixels and the ring is clipped by it
+    //    automatically — the depth-correctness the "re-draw the silhouette" approach cannot achieve. Left-click selects, Escape clears, F3 toggles.
+    //    Compiled out unless FRONTIER_POLYGON_AUTHORING is set: selection serves the modelling tools, so a runtime-only renderer carries none of it.
+#ifdef FRONTIER_POLYGON_AUTHORING
+    ObjectPickReadback          ObjectPick;                   // [-] - One-texel id copy-back ring (cursor -> partition ordinal)
+    SelectionOutlineInscription SelectionOutline;             // [-] - Fullscreen ring composite over the selected partition's silhouette
+    uint32_t  SelectedPartition       = NoSelectionSentinel;  // [-] - Committed selection (the outlined object); sentinel = nothing selected
+    uint32_t  HoveredPartition        = NoSelectionSentinel;  // [-] - Partition under the cursor this frame; sentinel = empty pixel
+    uint32_t  ReportedHoverPartition  = NoSelectionSentinel;  // [-] - Last hover ordinal actually logged, so the trace fires on CHANGE not per frame
+    bool      ObjectSelectionEnabled  = true;                 // [-] - When true, picking runs and the outline composites (F3 toggles); default ON
+    bool      ObjectSelectionKeyLatch = false;                // [-] - Edge latch so one F3 press toggles selection once
+    bool      SelectPointerLatch      = false;                // [-] - Edge latch so one left-click commits one selection
+    bool      SelectClearKeyLatch     = false;                // [-] - Edge latch so one Escape press clears the selection once
+    int32_t   PickCursorX             = -1;                   // [px] - Cursor the pick copy is recorded at this frame (framebuffer space)
+    int32_t   PickCursorY             = -1;                   // [px] - Paired cursor Y
+
+    // 📝 Component (sub-object) selection. Same id buffer again, one step finer: the overlay reconstructs the triangle the id names and draws the
+    //    vertex / edge / face handles of it, so the modes cost no geometry pass either. Numpad-7 cycles Object -> Vertex -> Edge -> Face; in Object mode
+    //    the overlay records nothing and the outline above owns the frame. Hover is resolved INSIDE the shader from PickCursorX/Y (see the push-block
+    //    note in ComponentOverlayInscription.h) — there is deliberately no HoveredComponent member here, because the host cannot compute one.
+    ComponentOverlayInscription ComponentOverlay;             // [-] - Fullscreen handle composite (vertex dots / edge lines / face tints)
+    ComponentSelectionMode ComponentMode = ComponentSelectionMode::Object; // [-] - Which component class the authoring tools address; Object = overlay off
+    uint32_t  SelectedPrimitive        = NoSelectionSentinel; // [-] - Committed primitive (triangle) ordinal, for the component modes
+    uint32_t  SelectedComponent        = NoSelectionSentinel; // [-] - Committed component key (mesh vertex index / edge key); sentinel = whole primitive
+    bool      ComponentModeKeyLatch    = false;               // [-] - Edge latch so one Numpad-7 press advances the mode once
+#endif // FRONTIER_POLYGON_AUTHORING
     PolygonBufferAllocation SceneGeometry;         // [-] - The uploaded Suzanne shared geometry (from the .wsdoc block) the raster instances (device-local)
     VisibilityRasterization FloorRaster;           // [-] - Second raster (own pipeline + instance set) for the checkered floor mesh, drawn into the SHARED visibility buffer
     PolygonBufferAllocation FloorGeometry;         // [-] - The uploaded floor slab geometry (from CheckerFloor.wsdoc block 0), device-local
     VkCommandPool           UploadPool = VK_NULL_HANDLE; // [-] - One-shot transfer pool for the geometry upload (freed at finalize)
-    SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::RadialArray; // [-] - Which saved .wsdoc scene the raster loads
+    SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::MaterialRings; // [-] - Which saved .wsdoc scene the raster loads (MaterialRings = the 13 shaded heads the shade pass exists for)
     SceneExtension          SceneRegistry;         // [-] - The scene directory the loaded WorkspaceDocument registers into (one outliner row per head)
     bool                    VisibilityResolveEnabled = false; // [-] - When true, the resolve composites the id buffer over sky+grid (F2 toggles); default OFF = plain forward view
     bool                    VisibilityResolveKeyLatch = false; // [-] - Edge latch so one F2 press toggles the resolve once
@@ -94,10 +146,31 @@ struct RenderExtension
     bool                    WireframeModeKeyLatch = false;    // [-] - Edge latch so one Numpad-0 press toggles the wireframe mode once
     bool                    VisibilityScalingEnabled = true;  // [-] - When true, the preamble runs the GPU-driven cull -> indirect raster (Numpad-2 toggles); default ON. OFF = plain instanced draw
     bool                    VisibilityScalingKeyLatch = false; // [-] - Edge latch so one Numpad-2 press toggles the cull path once
+    bool                    SoftwareRasterEnabled    = false; // [-] - When true (and int64 atomics are available), the heads are rasterized by the compute micro-raster instead of the hardware raster (Numpad-3 toggles); default OFF
+    bool                    SoftwareRasterKeyLatch   = false; // [-] - Edge latch so one Numpad-3 press toggles the software-raster path once
     uint32_t                InstanceCullRecordCount  = 0;     // [-] - live per-instance cull-record count (the early-pass lane bound), set at scene upload
     uint32_t                VisibilityResolveExtentWidth  = 0; // [px] - Extent the resolve descriptor was last refreshed against (re-Refresh on change)
     uint32_t                VisibilityResolveExtentHeight = 0; // [px] - Paired height for the refresh-on-resize guard
     HierarchicalDepthPyramid DepthPyramid;         // [-] - HiZ mip chain (max-reduce of DepthTarget); produced in the preamble, no cull consumer yet
+
+    // 📝 Clipmap spine (P5c). The field itself is unconditional — it is the shared addressing primitive the sun-shadow clipmap (P6) and the GI
+    //    irradiance probes (P7b) will both stand on, advanced from the camera every frame so its scroll/residency path runs live. Today nothing
+    //    consumes its payload (the per-cell ramp is a STUB), so the only observer is the development-only GPU visualization below.
+    ToroidalClipmapField    ClipmapField;          // [-] - camera-tracked 3D voxel clipmap; scrolled each frame, residency filled around the camera
+
+    // 📝 Occupancy is PREBAKED, not recomputed per frame. Every loaded instance is voxelized once at load through the exact triangle-cell
+    //    overlap predicate (TriangleCellOverlap), so a concave object marks only the cells its surface actually crosses — the reason this is
+    //    not a bounding box is that an AABB lights empty cells for an L-shaped object, which a GI / shadow consumer reads as real geometry.
+    //    Per-frame the cells are only replayed into the field, never re-derived: per-triangle voxelization measures in milliseconds per ten
+    //    thousand triangles, far too slow for a frame budget, and every shipping engine prebakes it for the same reason.
+    std::vector<CellCoordinate> OccupiedWorldCells; // [cell] - prebaked cells the loaded scene's surfaces occupy, at ClipmapOccupancyLevel
+    uint32_t                ClipmapOccupancyLevel = 0; // [-] - which clipmap level OccupiedWorldCells was voxelized against
+#ifdef FRONTIER_DEVELOPMENT_PROFILE
+    ClipmapFieldInspection  ClipmapInspection;     // [-] - instanced wire-cube lattice + probe markers over the field (Numpad-4 toggles)
+    bool                    ClipmapInspectionEnabled  = false; // [-] - When true, the clipmap lattice + probes composite over the view; default OFF
+    bool                    ClipmapInspectionKeyLatch = false; // [-] - Edge latch so one Numpad-4 press toggles the visualization once
+#endif
+
     ViewportCamera          ViewCamera;            // [-] - Orbit / fly camera spec the grid is rendered through
     double                  PreviousTimestamp = 0.0; // [s] - Last frame's clock reading, for the per-frame delta
     float                   FlySpeedScale     = 1.0f; // [-] - Scroll-adjusted fly-speed multiplier (Unreal-style)
