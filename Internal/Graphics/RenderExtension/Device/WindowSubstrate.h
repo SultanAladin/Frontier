@@ -45,7 +45,7 @@ struct WindowSubstrate
     VulkanHost                 Host;                                              // [-]  - Instance / device / graphics queue
 
     VkSwapchainKHR             Swapchain            = VK_NULL_HANDLE;             // [-]  - Current swapchain
-    VkFormat                   SurfaceFormat        = VK_FORMAT_B8G8R8A8_UNORM;   // [-]  - Chosen image format
+    VkFormat                   SurfaceFormat        = VK_FORMAT_B8G8R8A8_SRGB;    // [-]  - Chosen image format (_SRGB: hardware owns the transfer function)
     VkColorSpaceKHR            SurfaceColorSpace    = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; // [-] - Chosen colour space
     VkExtent2D                 Extent               = { 0, 0 };                   // [px] - Current swapchain extent
     std::vector<VkImage>       Images;                                            // [-]  - Swapchain images (owned by the swapchain)

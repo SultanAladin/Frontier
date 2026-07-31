@@ -32,6 +32,9 @@ struct VulkanHost
     const VkAllocationCallbacks* Allocator        = nullptr;          // [-] - Default host allocator
     uint32_t                 ApiVersion           = 0;                // [-] - Instance API version passed to the ImGui backend
     bool                     DynamicRenderingEnabled = false;         // [-] - VK_KHR_dynamic_rendering active (grid pass renders without render-pass objects)
+    bool                     ShaderImageInt64AtomicsEnabled  = false; // [-] - shaderImageInt64Atomics turned ON at device creation (software micro-raster depth+id atomicMax path)
+    bool                     ShaderBufferInt64AtomicsEnabled = false; // [-] - shaderBufferInt64Atomics turned ON at device creation (fallback packing path for the software raster)
+    bool                     FragmentStoresAndAtomicsEnabled = false; // [-] - fragmentStoresAndAtomics turned ON at device creation (fragment-stage SSBO / storage-image writes: shadow tile tag + page-atlas raster)
     PFN_vkCmdBeginRenderingKHR CmdBeginRendering    = nullptr;        // [-] - Loaded entry point (1.2 instance, KHR extension)
     PFN_vkCmdEndRenderingKHR   CmdEndRendering      = nullptr;        // [-] - Loaded entry point (1.2 instance, KHR extension)
     VkDebugUtilsMessengerEXT ValidationSignalBroadcaster = VK_NULL_HANDLE; // [-] - Validation-layer signal route (development profile only)

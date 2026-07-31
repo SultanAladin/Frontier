@@ -417,14 +417,27 @@ void UploadVisibilityScene(VisibilityRasterization& Raster, const std::vector<Su
 void BeginVisibilityScope(VisibilityRasterization& Raster,
                           VisibilityImage&         Image,
                           VisibilityDepth&         Depth,
-                          VkCommandBuffer          CommandBuffer)
+                          VkCommandBuffer          CommandBuffer,
+                          bool                     PreserveContents)
 {
     if (!Raster.ReadyCondition || Raster.Host == nullptr)
         return;
     if (!Image.ReadyCondition || !Depth.ReadyCondition)
         return;
 
-    // Transition the visibility image to COLOR_ATTACHMENT (from UNDEFINED on the first frame, or SHADER_READ_ONLY after a prior resolve).
+    // When PreserveContents is true the images are already in their attachment layouts from an earlier fill this frame, and the barrier's job flips
+    // from a plain layout move to a write-after-write fence: the LOAD must not begin until the earlier fill's attachment writes are complete and
+    // available, or this scope's draws would race the contents they mean to preserve. So the source side names the producing stage + write access
+    // instead of TOP_OF_PIPE / 0. On the ordinary (clear) path the source stays TOP_OF_PIPE / 0 — nothing this frame wrote the image yet.
+    const VkPipelineStageFlags ColourSourceStage  = PreserveContents ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    const VkAccessFlags        ColourSourceAccess  = PreserveContents ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0;
+    const VkPipelineStageFlags DepthSourceStage    = PreserveContents
+                                                   ? (VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
+                                                   : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    const VkAccessFlags        DepthSourceAccess   = PreserveContents ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0;
+
+    // Transition the visibility image to COLOR_ATTACHMENT (from UNDEFINED on the first frame, SHADER_READ_ONLY after a prior resolve, or already
+    // COLOR_ATTACHMENT when re-opened with PreserveContents — a same-layout WAW fence in that case).
     VkImageSubresourceRange ColourRange = {};
     ColourRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     ColourRange.levelCount = 1;
@@ -436,14 +449,15 @@ void BeginVisibilityScope(VisibilityRasterization& Raster,
     ToColour.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     ToColour.image               = Image.IdImage;
     ToColour.subresourceRange    = ColourRange;
-    ToColour.srcAccessMask       = 0;
-    ToColour.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    ToColour.srcAccessMask       = ColourSourceAccess;
+    ToColour.dstAccessMask       = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
     vkCmdPipelineBarrier(CommandBuffer,
-                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         ColourSourceStage,
                          VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &ToColour);
 
-    // Transition the depth image to DEPTH_STENCIL_ATTACHMENT (from its tracked layout — UNDEFINED first frame, SHADER_READ_ONLY after a reduce).
+    // Transition the depth image to DEPTH_STENCIL_ATTACHMENT (from UNDEFINED first frame, SHADER_READ_ONLY after a reduce, or already the attachment
+    // layout when re-opened with PreserveContents). The dst side names both write + read: a preserved-depth scope depth-tests against the loaded values.
     VkImageSubresourceRange DepthRange = {};
     DepthRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     DepthRange.levelCount = 1;
@@ -455,26 +469,30 @@ void BeginVisibilityScope(VisibilityRasterization& Raster,
     ToDepth.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     ToDepth.image               = Depth.DepthImage;
     ToDepth.subresourceRange    = DepthRange;
-    ToDepth.srcAccessMask       = 0;
-    ToDepth.dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    ToDepth.srcAccessMask       = DepthSourceAccess;
+    ToDepth.dstAccessMask       = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
     vkCmdPipelineBarrier(CommandBuffer,
-                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         DepthSourceStage,
                          VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &ToDepth);
 
-    // Open a colour(visibility)+depth dynamic-rendering scope. CLEAR the id buffer to the empty sentinel and depth to the far plane ONCE — every mesh
-    // the caller draws after this shares the cleared buffer and depth-tests against what earlier meshes wrote (the modern one-clear / N-mesh pattern).
+    // Open a colour(visibility)+depth dynamic-rendering scope. When PreserveContents is false CLEAR the id buffer to the empty sentinel and depth to
+    // the far plane ONCE — every mesh the caller draws after this shares the cleared buffer and depth-tests against what earlier meshes wrote (the
+    // modern one-clear / N-mesh pattern). When PreserveContents is true LOAD both instead, re-opening the scope over an id + depth an earlier fill this
+    // frame already wrote, so the meshes drawn here append and depth-test against those contents (late-survivor append / software-floor composite).
+    const VkAttachmentLoadOp ContentLoadOp = PreserveContents ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+
     VkRenderingAttachmentInfoKHR ColourAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
     ColourAttachment.imageView   = Image.IdView;
     ColourAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    ColourAttachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    ColourAttachment.loadOp      = ContentLoadOp;
     ColourAttachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
     ColourAttachment.clearValue.color.uint32[0] = VisibilityEmptySentinel;
 
     VkRenderingAttachmentInfoKHR DepthAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
     DepthAttachment.imageView               = Depth.DepthView;
     DepthAttachment.imageLayout             = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    DepthAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    DepthAttachment.loadOp                  = ContentLoadOp;
     DepthAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
     DepthAttachment.clearValue.depthStencil = { 1.0f, 0 };
 

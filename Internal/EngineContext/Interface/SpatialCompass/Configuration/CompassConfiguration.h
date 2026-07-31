@@ -17,29 +17,32 @@ namespace Frontier
 //                                                            STRUCTS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Every geometric + timing constant the overlay needs, one field per mockup CSS token. Defaults reproduce the mockup at
-//    1.0 scale; the caller scales UiScale-wise by multiplying WidgetPixels / CubeHalfExtent before record time if desired.
+// 📝 Every geometric + timing constant the overlay needs, one field per mockup CSS token. The defaults sit at TWO THIRDS of the
+//    mockup's own pixel sizes — the mockup was authored against a browser page, and at 1:1 the widget eats too much of a real
+//    viewport canvas. The three rig quantities (CubeHalfExtent, RigPushBack, and both focal lengths) are scaled by the SAME
+//    factor, which keeps the perspective divide self-similar: the cube is smaller but identically shaped, not flattened.
+//    ⚠️ Rescaling later means rescaling all four together; changing one alone changes the cube's apparent depth.
 struct CompassConfiguration
 {
-    // widget placement (mockup #gizmo)
+    // widget placement (mockup #gizmo) — margins stay at mockup size; they are standoff, not rig geometry
     float MarginRight   = 26.0f;    // [px] - Gap from the surface right edge
     float MarginTop     = 26.0f;    // [px] - Gap from the surface top edge
-    float WidgetPixels  = 170.0f;   // [px] - The square cube stage side (.stage 170px)
+    float WidgetPixels  = 114.0f;   // [px] - The square cube stage side (.stage 170px * 2/3)
 
     // cube geometry (mockup .cube / .face)
-    float CubeHalfExtent = 48.0f;   // [px] - Half a face edge (.cube 96px -> half 48px)
-    float RigPushBack    = 60.0f;   // [px] - translateZ(-60px) on the rig before rotation
+    float CubeHalfExtent = 32.0f;   // [px] - Half a face edge (.cube 96px -> half 48px, * 2/3)
+    float RigPushBack    = 40.0f;   // [px] - translateZ(-60px) on the rig before rotation, * 2/3
 
-    // projection focal lengths (mockup perspective)
-    float FocalPerspective  = 640.0f;   // [px] - perspective:640px  (persp)
-    float FocalOrthographic = 4000.0f;  // [px] - perspective:4000px (near-parallel ortho)
+    // projection focal lengths (mockup perspective) — scaled with the rig so the foreshortening is unchanged
+    float FocalPerspective  = 427.0f;   // [px] - perspective:640px  (persp),                 * 2/3
+    float FocalOrthographic = 2667.0f;  // [px] - perspective:4000px (near-parallel ortho),    * 2/3
 
     // control row (mockup .ctlRow: Home + projection toggle share one pill)
-    float ControlRowGap    = 12.0f;   // [px] - Gap between the cube stage and the control row
-    float ControlButton    = 36.0f;   // [px] - .ctlBtn diameter
+    float ControlRowGap    = 10.0f;   // [px] - Gap between the cube stage and the control row
+    float ControlButton    = 26.0f;   // [px] - .ctlBtn diameter (36px * 2/3, rounded up to stay tappable)
     float ControlPadding   = 3.0f;    // [px] - .ctlRow inner padding
     float ControlSeparator = 1.0f;    // [px] - .ctlSep width
-    float ControlRounding   = 22.0f;  // [px] - .ctlRow border-radius (rounded pill)
+    float ControlRounding   = 16.0f;  // [px] - .ctlRow border-radius (rounded pill)
 
     // interaction
     float DragThreshold  = 4.0f;    // [px] - Pointer travel before a press becomes an orbit drag (mockup >4)

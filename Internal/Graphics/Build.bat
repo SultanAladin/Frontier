@@ -55,7 +55,12 @@ REM  from a Graphics .cpp that is not their sibling.
 set "MATHROOT=%ROOT%\Internal\EngineContext\Math"
 set "GEOMROOT=%ROOT%\Internal\Authoring\Geometry\Modeling"
 set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%STB%" /I"%MATHROOT%" /I"%GEOMROOT%" /I"%VULKAN%\Include""
-set "DEFINES=/DUNICODE /D_UNICODE /DFRONTIER_GRAPHICS"
+REM  FRONTIER_POLYGON_AUTHORING compiles in the polygon-authoring (modelling) path:
+REM  the object-selection pick readback + the depth-correct selection outline.
+REM  ⚠️ ABI-AFFECTING - it adds members to RenderExtension, so EVERY exe linking
+REM  Graphics.lib must define it identically or the struct layout disagrees across
+REM  the lib boundary. Keep it in sync with the Executables\**\Build.bat DEFINES.
+set "DEFINES=/DUNICODE /D_UNICODE /DFRONTIER_GRAPHICS /DFRONTIER_POLYGON_AUTHORING"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
 REM --- Collect this pillar's own sources (recursive, no manual list) ----------
@@ -121,9 +126,10 @@ set "KIND=%~1"
 set "UNIT=%~2"
 set "ARG=%~3"
 set "OBJF=%OBJ%\%UNIT%.obj"
-echo "%OBJF%">>"%OBJRSP%"
 
+REM  An unchanged unit keeps its existing .obj, so it joins the archive list untouched.
 if /I "%KIND%"=="SKIP" (
+    echo "%OBJF%">>"%OBJRSP%"
     echo [SKIP] %UNIT% : %ARG%
     goto :eof
 )
@@ -134,5 +140,12 @@ cl %CXXFLAGS% %DEFINES% %INCLUDES% "%ARG%" /Fo"%OBJF%" /Fd"%OBJ%\%NAME%.pdb" /so
 if errorlevel 1 (
     echo [compile failed] %UNIT%
     set "COMPILE_FAILED=1"
+    goto :eof
 )
+
+REM  Recorded ONLY after cl succeeded. Appending before the compile (the previous shape) meant a FAILED
+REM  unit still contributed its name to the archive response file, so `lib` was asked for an .obj that was
+REM  never written and answered with `LNK1181: cannot open input file` - which reads as a link/archive
+REM  problem and sends you hunting through the wrong layer. The real compile error is what should surface.
+echo "%OBJF%">>"%OBJRSP%"
 goto :eof

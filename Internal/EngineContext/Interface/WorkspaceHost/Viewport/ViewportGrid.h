@@ -11,7 +11,7 @@
 
 #include "imgui.h"
 
-#include "ViewportCamera.h"
+#include "../../../Navigation/Camera/CameraConfiguration.h"
 
 #include "../../Theme/ThemeConfiguration.h"
 
@@ -37,7 +37,7 @@ struct ViewportGridDescriptor
 //------------------------------------------------------------------------------------------------------------------------
 
 // 📝 Record the reference grid onto the current window's draw list, clipped to the surface. Camera pans/zooms the grid so it reads as ground.
-void ConstructViewportGrid(const ThemeConfiguration& Theme, const PanelViewportCamera& Camera, const ViewportGridDescriptor& Descriptor);
+void ConstructViewportGrid(const ThemeConfiguration& Theme, const ViewportCamera& Camera, const ViewportGridDescriptor& Descriptor);
 
 }   // namespace Frontier
 

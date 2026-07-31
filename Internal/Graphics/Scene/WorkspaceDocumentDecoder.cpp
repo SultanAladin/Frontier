@@ -9,11 +9,13 @@
 
 #include "Graphics/Scene/WorkspaceDocumentDecoder.h"
 
+#include "Authoring/Geometry/Adjacency/AdjacencyIndex.h"
 #include "Authoring/Geometry/Modeling/Display/DisplayPolygonAssembly.h"
 #include "LinearAlgebra_Float64.h"
 
 #include <cmath>
 #include <cstdio>
+#include <unordered_map>
 
 namespace Frontier
 {
@@ -84,6 +86,89 @@ void ComposeNormalBasis(const LocalPlacement& Placement, float OutBasis[12])
     OutBasis[8]  = static_cast<float>( CosZ * SinY * CosX + SinZ * SinX); OutBasis[9]  = static_cast<float>( SinZ * SinY * CosX - CosZ * SinX); OutBasis[10] = static_cast<float>( CosY * CosX); OutBasis[11] = 0.0f;
 }
 
+// Fill the authored-topology provenance for an already-triangulated cluster. Walks the provenance map ConstructDisplayPolygons produced and, per
+// triangle, records the authored face, the three CLUSTER vertex indices its corners expanded from, and the authored edge ordinal of each of its three
+// sides — InvalidAuthoredEdge where a side is a triangulation artifact rather than a real loop edge.
+//
+// 💡 WHY THE ADJACENCY IS BUILT HERE AND NOT IN THE SHADER. Deciding "is this triangle side a real edge" is a set-membership test against every loop
+//    edge in the mesh, which is a hash lookup on the CPU and would be a linear scan over an edge table per pixel on the GPU. Resolving it once at load
+//    collapses the whole question to a table read: the shader just tests a slot against a sentinel. The verdict is a property of the mesh, not of the
+//    view, so recomputing it per frame would be paying a per-pixel cost for an answer that never changes.
+bool ResolveAuthoredTopology(const PolygonCluster& Cluster, const DisplayPolygons& Display, AuthoredTopologyMap& Result,
+                             uint32_t& OutEdgeCount)
+{
+    Result       = AuthoredTopologyMap{};
+    OutEdgeCount = 0;
+
+    AdjacencyIndex Adjacency = {};
+    if (!ResolveAdjacencyIndex(Cluster, Adjacency))
+        return false;
+    OutEdgeCount = (uint32_t)Adjacency.EdgeKeys.size();
+
+    // 📝 Edge KEY -> edge ORDINAL. The engine keys edges by a packed 64-bit vertex pair, but a push/SSBO component identity wants a compact uint, and
+    //    EdgeKeys is already the canonical enumeration of every unique loop edge — so its position in that array IS the ordinal. Inverting the array
+    //    once here is what lets the shader compare a bare uint instead of a 64-bit pair (which GLSL would need a uvec2 and manual compare for).
+    std::unordered_map<uint64_t, uint32_t> EdgeOrdinalForKey;
+    EdgeOrdinalForKey.reserve(Adjacency.EdgeKeys.size() * 2u);
+    for (size_t EdgeIterator = 0; EdgeIterator < Adjacency.EdgeKeys.size(); ++EdgeIterator)
+        EdgeOrdinalForKey.emplace(Adjacency.EdgeKeys[EdgeIterator], (uint32_t)EdgeIterator);
+
+    const size_t TriangleCount = Display.TriangleOrigins.size();
+    Result.SourceFace.reserve(TriangleCount);
+    Result.CornerVertex.reserve(TriangleCount * 3u);
+    Result.SideEdge.reserve(TriangleCount * 3u);
+
+    for (size_t TriangleIterator = 0; TriangleIterator < TriangleCount; ++TriangleIterator)
+    {
+        const TriangleOrigin& Origin = Display.TriangleOrigins[TriangleIterator];
+        Result.SourceFace.push_back(Origin.SourceFace);
+
+        // Resolve the three corner cursors to cluster vertex indices (the same lookup the CPU picker performs, inlined — it is one indexed read).
+        uint32_t CornerVertex[3] = { InvalidAuthoredEdge, InvalidAuthoredEdge, InvalidAuthoredEdge };
+        for (int Slot = 0; Slot < 3; ++Slot)
+        {
+            const uint32_t Cursor = Origin.SourceCorner[Slot];
+            if (Cursor < Cluster.FaceVertexIndices.size())
+                CornerVertex[Slot] = Cluster.FaceVertexIndices[Cursor];
+            Result.CornerVertex.push_back(CornerVertex[Slot]);
+        }
+
+        // Side S joins corner S to corner (S+1)%3. A side is a real authored edge only when its packed key is a known loop edge; an ngon's interior
+        // fan diagonal joins two corners that are NOT adjacent in the face loop, so its key is absent and the slot stays the sentinel.
+        for (int Slot = 0; Slot < 3; ++Slot)
+        {
+            const uint32_t EndpointA = CornerVertex[Slot];
+            const uint32_t EndpointB = CornerVertex[(Slot + 1) % 3];
+
+            uint32_t EdgeOrdinal = InvalidAuthoredEdge;
+            if (EndpointA != InvalidAuthoredEdge && EndpointB != InvalidAuthoredEdge && EndpointA != EndpointB)
+            {
+                const auto Found = EdgeOrdinalForKey.find(EncodeEdgeKey(EndpointA, EndpointB));
+                if (Found != EdgeOrdinalForKey.end())
+                    EdgeOrdinal = Found->second;
+            }
+            Result.SideEdge.push_back(EdgeOrdinal);
+        }
+    }
+    return true;
+}
+
+// Report the authored face-arity distribution once at load, so the topology modes can be judged against what the scene actually contains: if every
+// authored face were already a triangle, the authored and triangulated views would be identical and an "it looks the same" observation would mean the
+// scene, not a broken rekey.
+void ReportFaceArityHistogram(const PolygonCluster& Cluster, uint32_t EdgeCount, size_t TriangleCount)
+{
+    uint32_t TriangleFaces = 0, QuadFaces = 0, NgonFaces = 0;
+    for (uint32_t CornerCount : Cluster.FaceVertexCounts)
+    {
+        if      (CornerCount == 3u) ++TriangleFaces;
+        else if (CornerCount == 4u) ++QuadFaces;
+        else if (CornerCount  > 4u) ++NgonFaces;
+    }
+    std::printf("[topology] authored faces %zu (tri %u, quad %u, ngon %u), loop edges %u -> %zu display triangles\n",
+                Cluster.FaceVertexCounts.size(), TriangleFaces, QuadFaces, NgonFaces, EdgeCount, TriangleCount);
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -94,7 +179,9 @@ bool LoadWorkspaceScene(const char*                        Path,
                         RenderVertexStream&                Geometry,
                         std::vector<SuzanneSceneInstance>& Instances,
                         WorkspaceDocument*                 Document,
-                        std::vector<uint32_t>*             TriangleSourceFace)
+                        std::vector<uint32_t>*             TriangleSourceFace,
+                        uint32_t                           PartitionBase,
+                        AuthoredTopologyMap*               Topology)
 {
     Geometry = RenderVertexStream{};
     Instances.clear();
@@ -102,6 +189,8 @@ bool LoadWorkspaceScene(const char*                        Path,
         *Document = WorkspaceDocument{};
     if (TriangleSourceFace != nullptr)
         TriangleSourceFace->clear();
+    if (Topology != nullptr)
+        *Topology = AuthoredTopologyMap{};
 
     WorkspaceDocument Decoded;
     if (!DecodeWorkspaceDocument(Path, Decoded))
@@ -135,6 +224,18 @@ bool LoadWorkspaceScene(const char*                        Path,
             TriangleSourceFace->push_back(Display.TriangleOrigins[TriangleIterator].SourceFace);
     }
 
+    // 📝 The fuller authored provenance, for consumers that address the ngons/quads the model was built with rather than the triangles it is drawn with
+    //    (the component overlay). A failure here is NOT fatal to the load: the raster stream is already valid, so a malformed adjacency costs the
+    //    authored-topology modes and nothing else — the caller sees an empty map and degrades to drawing no handles.
+    if (Topology != nullptr)
+    {
+        uint32_t EdgeCount = 0;
+        if (ResolveAuthoredTopology(Decoded.Geometry[0].Geometry, Display, *Topology, EdgeCount))
+            ReportFaceArityHistogram(Decoded.Geometry[0].Geometry, EdgeCount, Display.TriangleOrigins.size());
+        else
+            std::fprintf(stderr, "[workspace-scene] authored topology unresolved (component modes disabled): %s\n", Path);
+    }
+
     Instances.reserve(Decoded.Objects.size());
     for (size_t ObjectIterator = 0; ObjectIterator < Decoded.Objects.size(); ++ObjectIterator)
     {
@@ -149,7 +250,12 @@ bool LoadWorkspaceScene(const char*                        Path,
         Instance.Tint[1] = Object.Tint[1];
         Instance.Tint[2] = Object.Tint[2];
         Instance.Tint[3] = 1.0f;
-        Instance.PartitionId = static_cast<uint32_t>(Instances.size());
+        // The authored surface-material reference, carried straight through to the shade pass (which indexes the SurfacePresetTable with it). Tint
+        // still rides alongside for the id-view debug colour — the two feed different passes rather than replacing one another.
+        Instance.MaterialId = Object.MaterialId;
+        // Identity = PartitionBase + running ordinal. The base keeps meshes that share one visibility buffer in disjoint partition ranges, so a
+        // consumer can tell whose instance buffer to index; within a range the ordinal still equals the index into THIS Instances vector.
+        Instance.PartitionId = PartitionBase + static_cast<uint32_t>(Instances.size());
         Instances.push_back(Instance);
     }
 
@@ -171,8 +277,9 @@ bool LoadFloorDocument(const char*                        Path,
 {
     // The floor decode is exactly the main scene decode — triangulate block 0, recompose its objects into instances — only the caller's intent differs
     // (a second mesh in the shared buffer, not more heads). Delegate rather than duplicate: the floor doc needs no document registration and no
-    // per-triangle provenance (there is no topology-wireframe view of the floor), so both optional outputs are dropped.
-    return LoadWorkspaceScene(Path, Geometry, Instances, nullptr, nullptr);
+    // per-triangle provenance (there is no topology-wireframe view of the floor), so both optional outputs are dropped. Identities are based high
+    // (FloorPartitionBase) so the floor's partition range cannot overlap the heads' — both meshes write into the one shared visibility buffer.
+    return LoadWorkspaceScene(Path, Geometry, Instances, nullptr, nullptr, FloorPartitionBase);
 }
 
 } // namespace Frontier

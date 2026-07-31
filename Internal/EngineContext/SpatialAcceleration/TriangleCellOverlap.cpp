@@ -316,4 +316,38 @@ CellOverlapOutcome VoxelizeTriangleStream(const float*                 PositionS
     return Outcome;
 }
 
+uint32_t ReduceCellsToOuterShell(std::vector<CellCoordinate>& MarkedCells)
+{
+    if (MarkedCells.size() < 7)
+        return 0;   // fewer than seven cells cannot enclose one on all six sides
+
+    const std::unordered_set<CellCoordinate, CellCoordinateHash, CellCoordinateMatch>
+        Occupied(MarkedCells.begin(), MarkedCells.end());
+
+    const int32_t NeighbourOffset[6][3] = { { 1, 0, 0 }, { -1, 0, 0 },
+                                           { 0, 1, 0 }, { 0, -1, 0 },
+                                           { 0, 0, 1 }, { 0, 0, -1 } };
+
+    // Compact in place: a kept cell is written forward over the discarded ones, so no second container is allocated.
+    size_t KeptCount = 0;
+    for (const CellCoordinate& Cell : MarkedCells)
+    {
+        bool ExposedCondition = false;
+        for (uint32_t Direction = 0; Direction < 6 && !ExposedCondition; ++Direction)
+        {
+            const CellCoordinate Neighbour{ Cell.XCell + NeighbourOffset[Direction][0],
+                                            Cell.YCell + NeighbourOffset[Direction][1],
+                                            Cell.ZCell + NeighbourOffset[Direction][2] };
+            ExposedCondition = (Occupied.find(Neighbour) == Occupied.end());
+        }
+
+        if (ExposedCondition)
+            MarkedCells[KeptCount++] = Cell;
+    }
+
+    const uint32_t RemovedCount = (uint32_t)(MarkedCells.size() - KeptCount);
+    MarkedCells.resize(KeptCount);
+    return RemovedCount;
+}
+
 } // namespace Frontier

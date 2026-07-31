@@ -40,12 +40,21 @@ struct ProjectionContext
 //------------------------------------------------------------------------------------------------------------------------
 
 // 📝 Rotate a cube-space point exactly as the CSS rig does. CSS composes outer→inner, so a point sees rotateY (azimuth) first,
-//    then rotateX (elevation) — a direct port of the mockup's `rotatePoint(p, elevDeg, azimDeg)`. Returns the rotated point.
+//    then rotateX (elevation) — a port of the mockup's `rotatePoint(p, elevDeg, azimDeg)`. Returns the rotated point.
+//
+// 🐞 The ELEVATION IS NEGATED against that mockup function, and the negation is load-bearing. In the mockup `rotatePoint` had
+//    exactly ONE caller — the little three-axis gizmo — while the six cube FACES were placed by CSS (`rotateX(ax)` on the rig).
+//    A CSS rotateX(+a) turns the opposite screen direction from this matrix at the same +a, so the two disagreed by a sign that
+//    the mockup never had to reconcile: nothing projected a face through rotatePoint. The port DID, for all six faces, and so
+//    inherited the mismatch — the rig then tilted the wrong way and the far face won the depth sort. With TOP's normal (0,1,0)
+//    at the rig's documented ax = -90, the un-negated form yields Z = sin(-90) = -1 (facing AWAY), so rotating the view up
+//    presented BOTTOM and rotating down presented TOP. Negating here restores the mockup's `ax` meaning rather than editing the
+//    VIEWS table or the display mapping, both of which are faithful and are relied on by the preset snap.
 inline CubeSpacePoint RotateCubePoint(const CubeSpacePoint& Point, float ElevationDeg, float AzimuthDeg)
 {
     const float DegToRad = 0.01745329252f;
-    const float Elev = ElevationDeg * DegToRad;
-    const float Azim = AzimuthDeg   * DegToRad;
+    const float Elev = -ElevationDeg * DegToRad;
+    const float Azim =  AzimuthDeg   * DegToRad;
 
     // rotateY (azimuth) — spins around the vertical axis
     const float X1 =  Point.X * cosf(Azim) + Point.Z * sinf(Azim);

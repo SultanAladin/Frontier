@@ -17,7 +17,7 @@ layout(push_constant) uniform SkyPush
     mat4  InverseViewProjection;   // clip → world
     vec4  CameraPosition;          // world eye xyz; w unused
     float SunAngularRadius;        // [rad] half-angle of the solar disc
-    float Exposure;                // [-]   linear exposure multiplier before tonemap
+    float ExposureUnused;          // [-]   inert hole — the resolve owns exposure. Never read here (see the 🔴 note below)
     float SunIntensity;            // [-]   brightness of the disc itself
     float DomeEnabled;             // 1 draw sky, 0 leave cleared
 } Push;
@@ -48,14 +48,20 @@ vec2 DirectionToSkyViewUv(vec3 Direction)
     return vec2(U, V);
 }
 
-vec3 Tonemap(vec3 Colour)
-{
-    // ACES-ish filmic curve, then gamma to sRGB.
-    Colour *= Push.Exposure;
-    vec3 Mapped = (Colour * (2.51 * Colour + 0.03)) / (Colour * (2.43 * Colour + 0.59) + 0.14);
-    Mapped = clamp(Mapped, 0.0, 1.0);
-    return pow(Mapped, vec3(1.0 / 2.2));
-}
+// 🔴 THERE IS NO TONEMAP IN THIS SHADER, AND NONE MAY BE ADDED. The dome writes LINEAR SKY RADIANCE, unbounded above 1.0, into
+//    the linear HDR radiance target; `RadianceResolve.frag` is the single site that applies exposure and the tone curve.
+//    The ACES-ish curve that used to live here was removed in the P5.9b completion pass. It was doing two kinds of damage:
+//      • DOUBLE MAP — it ran against the radiance target, which the resolve then mapped again, and its curve DIFFERED from the
+//        shade pass's Khronos PBR Neutral, so sky and geometry rolled off differently and could never match at the horizon.
+//        (This file's own comment claimed that defect was already "fixed in P5.9b" while the curve was still executing.)
+//      • HDR CLIPPED AT SOURCE — it ended in clamp(Mapped, 0.0, 1.0), so every sky value above 1.0 was destroyed BEFORE reaching
+//        the float target. The sun disc and bright horizon carry radiance far above 1.0; clamping here threw away exactly the
+//        headroom the HDR target exists to hold, and no downstream exposure could recover it.
+// ⚠️ Exposure is applied at the resolve, not here. Push.ExposureUnused is an inert hole kept for layout compatibility and must stay
+//    unread in this shader — applying it twice would scale the sky against the geometry.
+// ⚠️ Removing the curve also removed the 8x multiply that used to precede it, which left the sky measurably dark against every
+//    earlier image. That calibration was NOT restored here; it belongs in the profile's SolarIlluminance, which scales the baked
+//    sky-view LUT and this disc together. Re-adding a multiply in this shader would brighten the disc away from the sky behind it.
 
 void main()
 {
@@ -90,5 +96,7 @@ void main()
         SkyRadiance += SunTransmit * Push.SunIntensity * Limb * Atmosphere.SolarIlluminance.rgb;
     }
 
-    OutColour = vec4(Tonemap(SkyRadiance), 1.0);
+    // Linear sky radiance out, unbounded above 1.0 (the sun disc is far brighter than 1.0 and must stay that way). The resolve owns
+    // exposure and the tone curve. See the 🔴 note where the curve used to live.
+    OutColour = vec4(SkyRadiance, 1.0);
 }

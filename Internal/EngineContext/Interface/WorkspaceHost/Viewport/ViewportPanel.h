@@ -13,7 +13,7 @@
 
 #include "imgui.h"
 
-#include "ViewportCamera.h"
+#include "../../../Navigation/Camera/CameraConfiguration.h"
 
 #include "../../Theme/ThemeConfiguration.h"
 #include "../../SpatialCompass/SpatialCompassContext.h"
@@ -39,9 +39,9 @@ enum class ViewportProjection
 // 📝 Persistent per-viewport state a workspace owns across cycles. Initialize once with InitializeViewportPanelState.
 struct ViewportPanelState
 {
-    PanelViewportCamera Camera;        // [-] - Orbit/pan/dolly camera
+    ViewportCamera     Camera;         // [-] - Orbit/pan/dolly camera (the render-canonical spec; Navigation verbs drive it)
     ViewportProjection Projection;     // [-] - 2D or 3D behaviour
-    unsigned           RenderedTexture;// [-] - Renderer output handle to blit (0 -> draw the placeholder grid only)
+    ImTextureID        RenderedTexture;// [-] - Renderer output handle to blit (0 -> draw the placeholder grid only); ImGui's 64-bit texture id (a VkDescriptorSet) so it does not truncate
     bool               GridEnabled;    // [-] - Show the reference grid
     bool               AxisEnabled;    // [-] - Show the origin axis cross
 

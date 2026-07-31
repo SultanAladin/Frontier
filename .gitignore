@@ -14,8 +14,9 @@ _ClaudeScratch/
 # Diagnostic logs dropped beside built exes.
 *.log
 
-# Compiled shader blobs (hand-run glslangValidator output).
+# Compiled shader blobs (ShaderPlan.ps1 / glslc output) and the make-style include depfiles glslc -MD writes beside them.
 *.spv
+*.spv.d
 
 # OS / editor cruft.
 .DS_Store

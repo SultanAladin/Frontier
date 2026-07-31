@@ -271,6 +271,94 @@ void InspectSweepContract()
     }
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    OUTER-SHELL REDUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 The display-side reduction. Its danger is over-eagerness: a SURFACE shell is already hollow, so if the predicate were inverted or the
+//    neighbour offsets wrong it would eat the very cells the overlay exists to show. Both directions are asserted — a solid loses exactly its
+//    buried middle, a hollow surface loses nothing.
+void InspectOuterShellReduction()
+{
+    std::printf("\n-- outer shell: cull buried cells, keep exposed ones ---------------------------\n");
+
+    // A 3x3x3 solid block. Exactly one cell — the centre (1,1,1) — has all six neighbours occupied.
+    {
+        std::vector<CellCoordinate> Cells;
+        for (int32_t ZCell = 0; ZCell < 3; ++ZCell)
+        for (int32_t YCell = 0; YCell < 3; ++YCell)
+        for (int32_t XCell = 0; XCell < 3; ++XCell)
+            Cells.push_back(CellCoordinate{ XCell, YCell, ZCell });
+
+        const uint32_t RemovedCount = ReduceCellsToOuterShell(Cells);
+        Expect(RemovedCount == 1, "3x3x3 solid: exactly the one buried centre cell removed");
+        Expect(Cells.size() == 26, "3x3x3 solid: 26 shell cells kept");
+        Expect(!CellMarked(Cells, 1, 1, 1), "3x3x3 solid: the centre cell is gone");
+        Expect(CellMarked(Cells, 0, 0, 0), "3x3x3 solid: a corner cell survives");
+        Expect(CellMarked(Cells, 1, 1, 0), "3x3x3 solid: a face-centre cell survives");
+    }
+
+    // A 5x5x5 solid has a 3x3x3 buried interior — 27 cells removed, 98 kept. Confirms the rule is not accidentally "remove the single centre".
+    {
+        std::vector<CellCoordinate> Cells;
+        for (int32_t ZCell = 0; ZCell < 5; ++ZCell)
+        for (int32_t YCell = 0; YCell < 5; ++YCell)
+        for (int32_t XCell = 0; XCell < 5; ++XCell)
+            Cells.push_back(CellCoordinate{ XCell, YCell, ZCell });
+
+        const uint32_t RemovedCount = ReduceCellsToOuterShell(Cells);
+        Expect(RemovedCount == 27, "5x5x5 solid: the whole 3x3x3 interior removed");
+        Expect(Cells.size() == 98, "5x5x5 solid: 98 shell cells kept");
+    }
+
+    // THE regression guard. A real voxelized surface is a hollow shell already; every one of its cells is exposed, so the reduction must be a
+    // no-op. If this ever removes anything, the overlay is deleting cells that carry information.
+    {
+        ToroidalClipmapField Field;
+        ConfigureClipmapField(Field, 1, 32, 1.0f);
+
+        // A flat 4x4 sheet of quads at z = 0.5 — one cell layer thick, so nothing can be buried in z.
+        std::vector<float>    Positions;
+        std::vector<uint32_t> Indices;
+        for (int32_t YCell = 0; YCell < 4; ++YCell)
+        for (int32_t XCell = 0; XCell < 4; ++XCell)
+        {
+            const float MinimumX = (float)XCell + 0.1f;
+            const float MinimumY = (float)YCell + 0.1f;
+            const float MaximumX = (float)XCell + 0.9f;
+            const float MaximumY = (float)YCell + 0.9f;
+            const uint32_t Base = (uint32_t)(Positions.size() / 3);
+
+            Positions.insert(Positions.end(), { MinimumX, MinimumY, 0.5f });
+            Positions.insert(Positions.end(), { MaximumX, MinimumY, 0.5f });
+            Positions.insert(Positions.end(), { MaximumX, MaximumY, 0.5f });
+            Positions.insert(Positions.end(), { MinimumX, MaximumY, 0.5f });
+            Indices.insert(Indices.end(), { Base + 0, Base + 1, Base + 2 });
+            Indices.insert(Indices.end(), { Base + 0, Base + 2, Base + 3 });
+        }
+
+        std::vector<CellCoordinate> Cells;
+        VoxelizeTriangleStream(Positions.data(), 3, (uint32_t)(Positions.size() / 3),
+                               Indices.data(), (uint32_t)Indices.size(),
+                               IdentityModel, Field, 0, CellOverlapSeparation::Supercover26, 1000000, Cells);
+
+        const size_t   BeforeCount  = Cells.size();
+        const uint32_t RemovedCount = ReduceCellsToOuterShell(Cells);
+        std::printf("  (sheet voxelized to %u cells, %u removed)\n", (unsigned)BeforeCount, (unsigned)RemovedCount);
+        Expect(BeforeCount == 16, "one-cell-thick sheet voxelizes to 16 cells");
+        Expect(RemovedCount == 0, "a HOLLOW surface loses nothing to the shell reduction");
+    }
+
+    // Degenerate inputs must not trip the early-out or the in-place compaction.
+    {
+        std::vector<CellCoordinate> Empty;
+        Expect(ReduceCellsToOuterShell(Empty) == 0 && Empty.empty(), "empty set reduces to nothing, no crash");
+
+        std::vector<CellCoordinate> Single{ CellCoordinate{ 4, 5, 6 } };
+        Expect(ReduceCellsToOuterShell(Single) == 0 && Single.size() == 1, "a lone cell is all shell");
+    }
+}
+
 } // namespace
 
 int main()
@@ -282,6 +370,7 @@ int main()
     InspectOverlapPredicate();
     InspectConcaveFootprint();
     InspectSweepContract();
+    InspectOuterShellReduction();
 
     std::printf("\n================================================================================\n");
     if (FailureCount == 0)

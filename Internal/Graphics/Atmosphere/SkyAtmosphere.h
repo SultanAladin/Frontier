@@ -31,8 +31,14 @@ struct SkyDomeConstants
     float InverseViewProjection[16];                 // [-]   - Clip → world (column-major, matches Matrix4f)
     float CameraPosition[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // [m] - World eye xyz; w unused
     float SunAngularRadius  = 0.0047f;               // [rad] - Solar disc half-angle (~0.27°, real sun)
-    float Exposure          = 8.0f;                  // [-]   - Linear exposure before tonemap
-    float SunIntensity      = 20.0f;                 // [-]   - Brightness of the disc itself
+
+    // 🔴 DEAD, AND KEPT ONLY TO HOLD THE PUSH BLOCK'S SHAPE. SkyDome.frag no longer reads this — it writes linear radiance and
+    //    RadianceResolve owns exposure and the tone curve. Removing the float would shrink the 96-byte block and shift DomeEnabled,
+    //    so it stays as an explicit hole. Set to zero, NOT to its old 8.0: a live-looking value here is how the sky's real
+    //    calibration got lost once already (it now lives in AtmosphereProfile.h::SolarIlluminanceCalibration). Writing anything
+    //    here changes nothing on screen.
+    float ExposureUnused    = 0.0f;                  // [-]   - inert push-block hole; see above
+    float SunIntensity      = 20.0f;                 // [-]   - Brightness of the disc itself, RELATIVE to SolarIlluminance
     float DomeEnabled       = 1.0f;                  // [-]   - 1 draws the sky, 0 leaves the clear
 };
 

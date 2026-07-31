@@ -42,7 +42,7 @@ enum class KeyIdentity : uint8_t
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
 
     // Numpad (debug view toggles).
-    Numpad0, Numpad1, Numpad2,
+    Numpad0, Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7,
 
     // Miscellaneous.
     Space, Escape,

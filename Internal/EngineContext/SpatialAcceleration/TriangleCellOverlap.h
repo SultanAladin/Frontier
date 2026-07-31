@@ -122,6 +122,16 @@ CellOverlapOutcome VoxelizeTriangleStream(const float*                 PositionS
                                           uint32_t                     CellBudget,
                                           std::vector<CellCoordinate>& MarkedCells);
 
+// Reduce a marked cell set to its OUTER SHELL: keep only cells that have at least one vacant 6-neighbour, discarding those buried on all six
+// sides. Order is not preserved. Returns the number of interior cells removed.
+//
+// 📝 This is a VIEWING reduction, not an occupancy one. A solid slab's interior cells are geometrically real but visually unreachable — they sit
+//    behind their own outer faces, so a wire-cube overlay that draws them pays their whole vertex cost for pixels no observer can distinguish.
+//    A thick voxelized floor is the pathological case: nearly every cell is interior, and the overlay spends most of its frame on cages hidden
+//    inside the slab. A GI or shadow consumer must read the UNCULLED set — vacancy there means "no geometry", and hollowing a solid would report
+//    empty space inside it. So call this on a copy destined for display and keep the full set for the consumers.
+uint32_t ReduceCellsToOuterShell(std::vector<CellCoordinate>& MarkedCells);
+
 } // namespace Frontier
 
 #endif

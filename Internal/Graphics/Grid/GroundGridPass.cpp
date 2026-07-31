@@ -1,10 +1,15 @@
 /*==============================================================================================================================================
                                                              GROUNDGRIDPASS.CPP
 ==============================================================================================================================================*/
-// 🧩 Implementation of the analytic ground-grid pass. Initialize reads the two SPIR-V modules, builds a push-constant-only pipeline layout and
-//    an alpha-blended fullscreen-triangle graphics pipeline configured for dynamic rendering (VkPipelineRenderingCreateInfoKHR carries the
-//    swapchain colour format — no VkRenderPass object). Record binds it, pushes the per-frame constants, and issues a three-vertex draw with
-//    no vertex buffer (the vertex shader synthesizes the triangle from gl_VertexIndex). Finalize destroys the pipeline and layout.
+// 🧩 Implementation of the analytic ground-grid pass. Initialize reads the two SPIR-V modules, builds the depth-sampler set layout + pool +
+//    sampler, a pipeline layout carrying that set plus the push block, and an alpha-blended fullscreen-triangle graphics pipeline configured for
+//    dynamic rendering (VkPipelineRenderingCreateInfoKHR carries the swapchain colour format — no VkRenderPass object). Refresh points the set at
+//    the renderer-owned scene depth. Record binds both, pushes the per-frame constants, and issues a three-vertex draw with no vertex buffer (the
+//    vertex shader synthesizes the triangle from gl_VertexIndex). Finalize destroys all of it.
+//
+// 📝 The pass reads depth but still writes NONE and owns no depth attachment: the occlusion test is a manual compare in the fragment shader
+//    against the depth the visibility raster already produced. That keeps the grid a pure colour composite (so it needs no depth attachment in
+//    the swapchain scope, which has none) while still respecting the geometry standing in front of it.
 
 #define _CRT_SECURE_NO_WARNINGS
 #include "Graphics/Grid/GroundGridPass.h"
@@ -92,7 +97,80 @@ bool InitializeGroundGridPass(GroundGridPass& Pass,
         return false;
     }
 
-    // -- Pipeline layout: one push-constant range covering the whole GroundGridConstants block -------------------------
+    // Unwind helper so every failure path below releases the modules exactly once.
+    auto ReleaseModules = [&]()
+    {
+        vkDestroyShaderModule(Host.Device, VertexModule, Host.Allocator);
+        vkDestroyShaderModule(Host.Device, FragmentModule, Host.Allocator);
+    };
+
+    // -- Descriptor set layout: set 0 b0 = the scene depth the occlusion test samples --------------------------------------
+    VkDescriptorSetLayoutBinding DepthBinding = {};
+    DepthBinding.binding         = 0;
+    DepthBinding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    DepthBinding.descriptorCount = 1;
+    DepthBinding.stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo SetLayoutInfo = {};
+    SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    SetLayoutInfo.bindingCount = 1;
+    SetLayoutInfo.pBindings    = &DepthBinding;
+    if (vkCreateDescriptorSetLayout(Host.Device, &SetLayoutInfo, Host.Allocator, &Pass.SetLayout) != VK_SUCCESS)
+    {
+        ReleaseModules();
+        ISSUE_FAULT("ground-grid", "descriptor set layout creation failed");
+        return false;
+    }
+
+    // 📝 NEAREST + CLAMP_TO_EDGE, and the filtering is INERT by design: the shader texelFetches, which ignores sampler filtering
+    //    entirely. It is specified as nearest anyway so that the descriptor never disagrees with how the shader reads it — a linear
+    //    depth sampler would silently become wrong the moment someone switched to texture(), because averaging two depths produces a
+    //    distance where no surface exists.
+    VkSamplerCreateInfo SamplerInfo = {};
+    SamplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    SamplerInfo.magFilter    = VK_FILTER_NEAREST;
+    SamplerInfo.minFilter    = VK_FILTER_NEAREST;
+    SamplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.maxLod       = 0.0f;
+    if (vkCreateSampler(Host.Device, &SamplerInfo, Host.Allocator, &Pass.PointSampler) != VK_SUCCESS)
+    {
+        ReleaseModules();
+        ISSUE_FAULT("ground-grid", "depth sampler creation failed");
+        return false;
+    }
+
+    VkDescriptorPoolSize PoolSize = {};
+    PoolSize.type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    PoolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo PoolInfo = {};
+    PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    PoolInfo.maxSets       = 1;
+    PoolInfo.poolSizeCount = 1;
+    PoolInfo.pPoolSizes    = &PoolSize;
+    if (vkCreateDescriptorPool(Host.Device, &PoolInfo, Host.Allocator, &Pass.DescriptorPool) != VK_SUCCESS)
+    {
+        ReleaseModules();
+        ISSUE_FAULT("ground-grid", "descriptor pool creation failed");
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo SetAllocation = {};
+    SetAllocation.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    SetAllocation.descriptorPool     = Pass.DescriptorPool;
+    SetAllocation.descriptorSetCount = 1;
+    SetAllocation.pSetLayouts        = &Pass.SetLayout;
+    if (vkAllocateDescriptorSets(Host.Device, &SetAllocation, &Pass.DepthSet) != VK_SUCCESS)
+    {
+        ReleaseModules();
+        ISSUE_FAULT("ground-grid", "descriptor set allocation failed");
+        return false;
+    }
+
+    // -- Pipeline layout: the push-constant block plus the depth set ------------------------------------------------------
     VkPushConstantRange PushRange = {};
     PushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     PushRange.offset     = 0;
@@ -100,12 +178,13 @@ bool InitializeGroundGridPass(GroundGridPass& Pass,
 
     VkPipelineLayoutCreateInfo LayoutInfo = {};
     LayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    LayoutInfo.setLayoutCount         = 1;
+    LayoutInfo.pSetLayouts            = &Pass.SetLayout;
     LayoutInfo.pushConstantRangeCount = 1;
     LayoutInfo.pPushConstantRanges    = &PushRange;
     if (vkCreatePipelineLayout(Host.Device, &LayoutInfo, Host.Allocator, &Pass.PipelineLayout) != VK_SUCCESS)
     {
-        vkDestroyShaderModule(Host.Device, VertexModule, Host.Allocator);
-        vkDestroyShaderModule(Host.Device, FragmentModule, Host.Allocator);
+        ReleaseModules();
         ISSUE_FAULT("ground-grid", "pipeline layout creation failed");
         return false;
     }
@@ -203,6 +282,32 @@ bool InitializeGroundGridPass(GroundGridPass& Pass,
     return true;
 }
 
+void RefreshGroundGridPass(GroundGridPass& Pass, const VulkanHost& Host, const VisibilityDepth& Depth)
+{
+    if (!Pass.ReadyCondition || Pass.DepthSet == VK_NULL_HANDLE)
+        return;
+    if (!Depth.ReadyCondition || Depth.DepthView == VK_NULL_HANDLE)
+        return;
+    if (Pass.BoundDepthView == Depth.DepthView)
+        return;   // idempotent: the set already points at this view, so a per-frame call costs one compare
+
+    VkDescriptorImageInfo DepthInfo = {};
+    DepthInfo.sampler     = Pass.PointSampler;
+    DepthInfo.imageView   = Depth.DepthView;
+    DepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet Write = {};
+    Write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Write.dstSet          = Pass.DepthSet;
+    Write.dstBinding      = 0;
+    Write.descriptorCount = 1;
+    Write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Write.pImageInfo      = &DepthInfo;
+
+    vkUpdateDescriptorSets(Host.Device, 1, &Write, 0, nullptr);
+    Pass.BoundDepthView = Depth.DepthView;
+}
+
 void RecordGroundGridPass(const GroundGridPass&      Pass,
                           VkCommandBuffer            CommandBuffer,
                           VkExtent2D                 Extent,
@@ -210,6 +315,23 @@ void RecordGroundGridPass(const GroundGridPass&      Pass,
 {
     if (!Pass.ReadyCondition)
         return;
+
+    // 🔴 The depth test is forced OFF when the set was never pointed at a real view (Refresh not yet called, or the depth target
+    //    failed to build). Without this the shader would sample an unwritten descriptor and occlude the grid by garbage — and the
+    //    symptom would be a MISSING grid, which reads as "the grid pass is broken" rather than "the depth wiring is missing". The
+    //    local copy also keeps the caller's constants untouched, so the caller's own DepthTestEnabled intent is never silently edited.
+    const bool DepthReadable = Pass.DepthSet != VK_NULL_HANDLE && Pass.BoundDepthView != VK_NULL_HANDLE;
+
+    GroundGridConstants Effective = Constants;
+    if (!DepthReadable)
+        Effective.DepthTestEnabled = 0.0f;
+
+    // ⚠️ The set is bound whenever it is valid, even when DepthTestEnabled is 0: the fragment shader holds a static reference to the
+    //    sampler, and a driver may treat that as accessed regardless of the branch guarding it, so an unbound set 0 risks a
+    //    validation error on a draw that never reads depth.
+    if (DepthReadable)
+        vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pass.PipelineLayout,
+                                0, 1, &Pass.DepthSet, 0, nullptr);
 
     VkViewport ViewportRegion = {};
     ViewportRegion.width    = (float)Extent.width;
@@ -225,7 +347,7 @@ void RecordGroundGridPass(const GroundGridPass&      Pass,
     vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pass.Pipeline);
     vkCmdPushConstants(CommandBuffer, Pass.PipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(GroundGridConstants), &Constants);
+                       0, sizeof(GroundGridConstants), &Effective);
     vkCmdDraw(CommandBuffer, 3, 1, 0, 0);
 }
 
@@ -241,6 +363,24 @@ void FinalizeGroundGridPass(GroundGridPass& Pass, const VulkanHost& Host)
         vkDestroyPipelineLayout(Host.Device, Pass.PipelineLayout, Host.Allocator);
         Pass.PipelineLayout = VK_NULL_HANDLE;
     }
+    // The pool owns DepthSet, so destroying it frees the set — no explicit vkFreeDescriptorSets.
+    if (Pass.DescriptorPool != VK_NULL_HANDLE)
+    {
+        vkDestroyDescriptorPool(Host.Device, Pass.DescriptorPool, Host.Allocator);
+        Pass.DescriptorPool = VK_NULL_HANDLE;
+        Pass.DepthSet       = VK_NULL_HANDLE;
+    }
+    if (Pass.SetLayout != VK_NULL_HANDLE)
+    {
+        vkDestroyDescriptorSetLayout(Host.Device, Pass.SetLayout, Host.Allocator);
+        Pass.SetLayout = VK_NULL_HANDLE;
+    }
+    if (Pass.PointSampler != VK_NULL_HANDLE)
+    {
+        vkDestroySampler(Host.Device, Pass.PointSampler, Host.Allocator);
+        Pass.PointSampler = VK_NULL_HANDLE;
+    }
+    Pass.BoundDepthView = VK_NULL_HANDLE;
     Pass.ReadyCondition = false;
 }
 

@@ -8,6 +8,7 @@
 #include "Graphics/RenderExtension/Device/WindowSubstrate.h"
 
 #include <cstdio>
+#include <cstdlib>   // getenv / atoll — the FRONTIER_FRAME_BUDGET validation hook in RunWindowSubstrate
 
 namespace Frontier
 {
@@ -19,7 +20,16 @@ namespace Frontier
 namespace
 {
 
-// Select a straightforward BGRA8 / sRGB surface format when the surface offers it, otherwise take whatever it reports first.
+// Select a BGRA8 _SRGB surface format when the surface offers it, otherwise take whatever it reports first.
+//
+// 📝 _SRGB, not _UNORM: with an _SRGB format the presentation engine applies the EXACT piecewise sRGB OETF in fixed-function
+//    hardware on every write, so no shader encodes gamma. The previous _UNORM choice forced each shader to encode by hand, and
+//    both did it with pow(x, 1/2.2) — a pure-power approximation that misses the real curve's linear toe by up to ~6% in the low
+//    end, precisely where the ambient fill (0.10–0.16) lives. So the shadowed side of every surface was systematically wrong.
+// ⚠️ The colour space stays SRGB_NONLINEAR either way — that names what the DISPLAY expects, not what the format does. The
+//    format is what decides whether the hardware encodes for us. Do not read the two as redundant.
+// ⚠️ Every shader writing this swapchain must therefore output LINEAR radiance. A shader that still encodes gamma will be
+//    double-encoded (washed out). See SurfaceShade.frag / SkyDome.frag.
 void ResolveSurfaceFormat(WindowSubstrate& Substrate)
 {
     uint32_t FormatCount = 0;
@@ -32,13 +42,19 @@ void ResolveSurfaceFormat(WindowSubstrate& Substrate)
 
     Substrate.SurfaceFormat     = Formats[0].format;
     Substrate.SurfaceColorSpace = Formats[0].colorSpace;
-    for (const VkSurfaceFormatKHR& Candidate : Formats)
+
+    // Preference order: BGRA8_SRGB, then RGBA8_SRGB (channel order is immaterial to the encode), then leave the reported first.
+    const VkFormat PreferredFormats[2] = { VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB };
+    for (VkFormat Preferred : PreferredFormats)
     {
-        if (Candidate.format == VK_FORMAT_B8G8R8A8_UNORM && Candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        for (const VkSurfaceFormatKHR& Candidate : Formats)
         {
-            Substrate.SurfaceFormat     = Candidate.format;
-            Substrate.SurfaceColorSpace = Candidate.colorSpace;
-            return;
+            if (Candidate.format == Preferred && Candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            {
+                Substrate.SurfaceFormat     = Candidate.format;
+                Substrate.SurfaceColorSpace = Candidate.colorSpace;
+                return;
+            }
         }
     }
 }
@@ -366,12 +382,45 @@ bool InitializeWindowSubstrate(WindowSubstrate& Substrate,
 
 void RunWindowSubstrate(WindowSubstrate& Substrate)
 {
+    // 📝 Optional frame budget for automated validation: FRONTIER_FRAME_BUDGET=N presents N frames and then requests exit through the SAME
+    //    close path an interactive quit takes, so the caller's Finalize still runs. Unset (the default) leaves the loop unbounded and the
+    //    interactive behaviour bit-identical — the budget is only ever read here, and zero/garbage parses to unlimited.
+    // 🔴 The point is that a validation run must exercise TEARDOWN. Killing the process instead (taskkill) skips every Finalize, which is
+    //    precisely where a leaked image, an unfreed allocation, or a destroy-order fault would surface — the run would look clean by omission.
+    // _dupenv_s rather than getenv: the CRT deprecates the latter and this substrate is already Win32-only. It ALLOCATES on success, so the
+    // buffer is freed immediately after parsing.
+    uint64_t FrameBudget = 0;
+    uint64_t FramesRun   = 0;
+    {
+        char*  BudgetText   = nullptr;
+        size_t BudgetLength = 0;
+        if (_dupenv_s(&BudgetText, &BudgetLength, "FRONTIER_FRAME_BUDGET") == 0 && BudgetText != nullptr)
+        {
+            const long long Parsed = std::atoll(BudgetText);
+            if (Parsed > 0)
+            {
+                FrameBudget = (uint64_t)Parsed;
+                printf("[window] frame budget: %llu frames, then a clean shutdown\n", (unsigned long long)FrameBudget);
+            }
+            free(BudgetText);
+        }
+    }
+
     printf("[window] up. %ux%u, clearing each frame. Close the window to exit.\n", Substrate.Extent.width, Substrate.Extent.height);
 
     // -- Frame loop. Acquire → clear → present, rebuilding the swapchain whenever the window flags a resize or a present goes stale. --
     while (!QueryWindowCloseRequested(Substrate.Window))
     {
         PollPlatformEvents(Substrate.Window);
+
+        // Budget check sits AFTER the poll so the window is fully serviced, and breaks rather than setting a flag so the exit path is the
+        // loop's own — the caller's Finalize runs exactly as it does on an interactive close.
+        if (FrameBudget != 0 && FramesRun >= FrameBudget)
+        {
+            printf("[window] frame budget reached (%llu frames) — shutting down\n", (unsigned long long)FramesRun);
+            break;
+        }
+        ++FramesRun;
 
         if (Substrate.Window.MinimizedCondition)
             continue;

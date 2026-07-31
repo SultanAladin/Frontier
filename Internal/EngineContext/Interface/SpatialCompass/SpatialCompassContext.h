@@ -17,7 +17,7 @@
 #include "AuxiliaryTriggers/CameraResetTrigger.h"
 #include "AuxiliaryTriggers/ProjectionModeToggle.h"
 
-#include "../WorkspaceHost/Viewport/ViewportCamera.h"
+#include "../../Navigation/Camera/CameraConfiguration.h"
 #include "../Theme/ThemeConfiguration.h"
 
 #include "imgui.h"
@@ -38,7 +38,7 @@ struct SpatialCompassContext
     ImDrawList*                DrawList       = nullptr;  // [-]  - hosting window's draw list (borrowed)
     ImVec2                     SurfaceMin;                // [px] - viewport surface top-left (screen space)
     ImVec2                     SurfaceMax;                // [px] - viewport surface bottom-right (screen space)
-    PanelViewportCamera*       Camera         = nullptr;  // [-]  - live orbit camera (read + written)
+    ViewportCamera*            Camera         = nullptr;  // [-]  - live orbit camera (read + written)
     const ThemeConfiguration*  Theme          = nullptr;  // [-]  - resolved palette (borrowed)
     float                      DeltaSeconds   = 0.0f;     // [s]  - frame delta for the eased snap
     bool                       SurfaceHovered = true;     // [-]  - pointer is over the surface (gates input)
@@ -67,6 +67,13 @@ struct SpatialCompassState
     CameraResetTrigger    ResetTrigger;                           // [-]  - Home button
     ProjectionModeToggle  ProjectionToggle;                       // [-]  - Perspective/Orthographic toggle
     bool                  Initialized = false;                    // [-]  - Partition built yet?
+
+    // 📝 Last values the sync trace reported, so it fires on CHANGE rather than every frame (a 60fps line buries the
+    //    transitions it exists to show). Diagnostic only — nothing in the projection or interaction path reads these.
+    float TracedYaw       = 0.0f;    // [rad]- camera Yaw at the last emitted trace line
+    float TracedPitch     = 0.0f;    // [rad]- camera Pitch at the last emitted trace line
+    bool  TracedOrthographic = false; // [-] - lens at the last emitted trace line
+    bool  TraceReported   = false;    // [-] - false until the first line is emitted (so the opening pose always prints)
 };
 
 }   // namespace Frontier

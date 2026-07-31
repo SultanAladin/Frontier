@@ -51,15 +51,23 @@ inline const AlignmentEntry& ResolveAlignmentEntry(AlignmentPreset Preset)
     return Table[static_cast<int>(Preset)];
 }
 
-// 📝 The RIG angles the cube itself should display for the live camera. The rig is the inverse of the orbit view, so a camera
-//    Yaw/Pitch (radians) reads back as Elevation = -Pitch, Azimuth = -Yaw (degrees) — the mockup's `ax` / `ay`.
+// 📝 The RIG angles the cube itself should display for the live camera — the EXACT inverse of ResolvePresetCameraPose below, so a
+//    preset snap and the cube's own display agree on every axis. Azimuth = -Yaw (the yaw axis inverts: turning the camera right
+//    spins the cube left). Elevation = +Pitch does NOT invert, because this orbit camera already reads negative Pitch as an
+//    ELEVATED eye (CameraViewMatrixSolver negates Pitch into its +X rotation) — the rig's -90 "looking down from above" and the
+//    camera's -90 pitch are the SAME sign, not opposites.
+//
+// 🐞 This previously read Elevation = -Pitch, which contradicted ResolvePresetCameraPose's Pitch = +Elevation: the two were
+//    inverses of each other, so every non-zero elevation displayed FLIPPED. Clicking TOP snapped the camera overhead correctly
+//    but drew the cube as if seen from below (BOTTOM toward the viewer), and a drag-orbit release then snapped to the mirrored
+//    preset. Only Front/Back/Right/Left (elevation 0) were unaffected, which is why the break read as "the cube is out of sync".
 inline void ResolveDisplayAngles(float CameraYawRadians,
                                  float CameraPitchRadians,
                                  float& ElevationDegrees,
                                  float& AzimuthDegrees)
 {
     const float RadToDeg = 57.2957795f;
-    ElevationDegrees     = -CameraPitchRadians * RadToDeg;
+    ElevationDegrees     =  CameraPitchRadians * RadToDeg;
     AzimuthDegrees       = -CameraYawRadians   * RadToDeg;
 }
 

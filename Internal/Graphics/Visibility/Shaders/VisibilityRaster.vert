@@ -7,17 +7,19 @@
 //    ViewProjection into clip space. The partition ordinal is passed flat to the fragment stage, which packs it with gl_PrimitiveID.
 #version 450
 
-// One placed head: column-major model matrix, a normal basis (unused at this phase), a tint (unused here), the partition identity, and std140 tail
-// pad — laid out to match SuzanneSceneInstance so the CPU list uploads straight into this buffer.
+// One placed head: column-major model matrix, a normal basis (unused at this phase), a tint (unused here), the partition identity, the material the
+// shade pass resolves through, and std140 tail pad — laid out to match SuzanneSceneInstance so the CPU list uploads straight into this buffer.
+// MaterialId is not read HERE (this stage only writes identity); it is read by SurfaceShade.comp off the same buffer, so it must still occupy the
+// right slot or every member after it shifts.
 struct SceneInstance
 {
     mat4 Model;          // column-major world transform
     vec4 NormalBasis[3]; // rotation-only basis (3x vec3 padded to vec4) — unused at this phase
     vec4 Tint;           // linear RGB (+pad) — unused here
     uint PartitionId;    // instance identity
+    uint MaterialId;     // index into the SurfacePresetTable — unused here, read by the shade pass
     uint Pad0;
     uint Pad1;
-    uint Pad2;
 };
 
 layout(std140, set = 0, binding = 0) readonly buffer InstanceBlock

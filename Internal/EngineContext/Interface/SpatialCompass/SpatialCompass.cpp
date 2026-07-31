@@ -14,7 +14,11 @@
 #include "Intersection/DepthEvaluation.h"
 #include "Intersection/RayIntersectionSolver.h"
 
+#include "../../Navigation/Camera/CameraProjection/ProjectionEvaluator.h"
+#include "../../Navigation/Camera/CameraProjection/CameraViewMatrixSolver.h"
+
 #include <math.h>
+#include <stdio.h>
 
 namespace Frontier
 {
@@ -49,15 +53,60 @@ namespace
                               WidgetMin.y + Configuration.WidgetPixels * 0.5f);
     }
 
+    // 📝 The roll arrows scale with the widget the same 2/3 the rig does, so the four chevrons stay proportionate to the cube.
+    const float RollArrowRadius = 8.0f;   // [px] - .roll radius (mockup ~11px * 2/3)
+
     // 📝 The four roll-arrow centres (up/down/left/right) hugging the cube stage edges — the mockup's `.roll.up/.down/.left/.right`.
     void ResolveRollCentres(const ImVec2& WidgetMin, float WidgetPixels, ImVec2 OutCentre[4])
     {
         const float Mid = WidgetPixels * 0.5f;
-        const float Inset = 11.0f;                                   // .roll radius ~11px, hugging the edge
+        const float Inset = RollArrowRadius;                         // the chevron discs hug the stage edge
         OutCentre[0] = ImVec2(WidgetMin.x + Mid,             WidgetMin.y + Inset);                 // up
         OutCentre[1] = ImVec2(WidgetMin.x + Mid,             WidgetMin.y + WidgetPixels - Inset);  // down
         OutCentre[2] = ImVec2(WidgetMin.x + Inset,           WidgetMin.y + Mid);                   // left
         OutCentre[3] = ImVec2(WidgetMin.x + WidgetPixels - Inset, WidgetMin.y + Mid);              // right
+    }
+
+    // 📝 The compass ⇄ viewport synchronization trace. Prints the SHARED camera spec, the eye the viewport actually renders
+    //    from (derived through the same solver the scene uses, so it is the real thing and not a restatement of the angles),
+    //    and the rig angles the cube is drawn at. A mapping fault shows up as the two halves disagreeing; a solver fault shows
+    //    up as the eye contradicting the angles. Gated on the camera or lens actually changing.
+    void TraceCompassSynchronization(SpatialCompassState& State,
+                                    const ViewportCamera& Camera,
+                                    float ElevationDeg,
+                                    float AzimuthDeg,
+                                    bool  OrthographicDrawn)
+    {
+        const float AngleEpsilon = 1e-5f;   // [rad] - below this the pose is unchanged for reporting purposes
+        if (State.TraceReported
+            && fabsf(Camera.Yaw   - State.TracedYaw)   < AngleEpsilon
+            && fabsf(Camera.Pitch - State.TracedPitch) < AngleEpsilon
+            && OrthographicDrawn == State.TracedOrthographic)
+        {
+            return;
+        }
+
+        State.TracedYaw          = Camera.Yaw;
+        State.TracedPitch        = Camera.Pitch;
+        State.TracedOrthographic = OrthographicDrawn;
+        State.TraceReported      = true;
+
+        const Vector3f Eye = EvaluateObserverPosition(Camera);
+
+        // 📝 The expected round-trip: the rig angles fed back through the preset mapping must return the camera pose they were
+        //    derived from. Printing the reconstruction next to the source makes an asymmetric mapping self-evident.
+        const float BackYaw   = -AzimuthDeg   * DegToRad;
+        const float BackPitch =  ElevationDeg * DegToRad;
+
+        fprintf(stderr,
+                "[compass-sync] viewport{yaw=%+8.3fdeg pitch=%+8.3fdeg dist=%7.3f eye=(%+8.3f,%+8.3f,%+8.3f) lens=%-5s} "
+                "cube{elev=%+8.3fdeg azim=%+8.3fdeg} roundtrip{yaw=%+8.3fdeg pitch=%+8.3fdeg}%s\n",
+                Camera.Yaw * RadToDeg, Camera.Pitch * RadToDeg, Camera.Distance,
+                Eye.XCoord, Eye.YCoord, Eye.ZCoord,
+                OrthographicDrawn ? "ortho" : "persp",
+                ElevationDeg, AzimuthDeg,
+                BackYaw * RadToDeg, BackPitch * RadToDeg,
+                (fabsf(BackYaw - Camera.Yaw) > 1e-4f || fabsf(BackPitch - Camera.Pitch) > 1e-4f) ? "  <== MISMATCH" : "");
     }
 
     // 📝 Free-orbit release snap-to-nearest — ports the mockup's snapNearest(): find the named view whose (Elevation,Azimuth)
@@ -107,7 +156,6 @@ void InitializeSpatialCompass(SpatialCompassState& State)
     State.PointerHeld           = false;
     State.DragEngaged           = false;
     State.Transition.Engaged    = false;
-    State.ProjectionToggle.OrthographicEnabled = false;
     State.Initialized           = true;
 }
 
@@ -127,7 +175,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
     }
 
     const CompassConfiguration&   Configuration = State.Configuration;
-    PanelViewportCamera&          Camera        = *Context.Camera;
+    ViewportCamera&               Camera        = *Context.Camera;
     const ColorPaletteDescriptor& Palette       = Context.Theme->Palette;
     ImDrawList*                   DrawList      = Context.DrawList;
     ImGuiIO&                      Io            = ImGui::GetIO();
@@ -152,12 +200,16 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
     ResolveWidgetRect(Context, Configuration, WidgetMin, WidgetCentre);
     const ImVec2 WidgetMax(WidgetMin.x + Configuration.WidgetPixels, WidgetMin.y + Configuration.WidgetPixels);
 
+    // 📝 The lens is read from the live camera, never from a copy held here — that is what keeps the cube's own projection, its
+    //    toggle glyph, and the rendered viewport showing the same mode.
+    const bool OrthographicActive = (Camera.Projection == ProjectionMode::Orthographic);
+
     ProjectionContext Projection = {};
     ResolveDisplayAngles(Camera.Yaw, Camera.Pitch, Projection.ElevationDeg, Projection.AzimuthDeg);
     Projection.WidgetCentre = WidgetCentre;
     Projection.RigPushBack  = Configuration.RigPushBack;
-    Projection.FocalLength  = State.ProjectionToggle.OrthographicEnabled ? Configuration.FocalOrthographic
-                                                                         : Configuration.FocalPerspective;
+    Projection.FocalLength  = OrthographicActive ? Configuration.FocalOrthographic
+                                                 : Configuration.FocalPerspective;
 
     for (int Index = 0; Index < CompassPartition::FaceCount; ++Index)
     {
@@ -209,7 +261,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
     //--------------------------------------------------------------------------------------------------------------------
     ImVec2 RollCentre[4];
     ResolveRollCentres(WidgetMin, Configuration.WidgetPixels, RollCentre);
-    const float RollRadius = 11.0f;
+    const float RollRadius = RollArrowRadius;
     int RollHovered = -1;
     if (WidgetHovered)
     {
@@ -248,19 +300,22 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
         }
         else if (State.ProjectionToggle.Hovered)
         {
-            // Perspective <-> Orthographic (mockup #projToggle): flip both the overlay focal length and the live camera.
-            State.ProjectionToggle.OrthographicEnabled = !State.ProjectionToggle.OrthographicEnabled;
-            Camera.Orthographic = State.ProjectionToggle.OrthographicEnabled;
+            // Perspective <-> Orthographic (mockup #projToggle). Routed through AlignProjectionMode so the ortho extent is
+            // refitted from the current Distance in the same edit — the scene keeps its framing across the flip instead of
+            // rescaling. The overlay's own focal length re-derives from Camera.Projection below, so there is nothing to mirror.
+            AlignProjectionMode(Camera, OrthographicActive ? ProjectionMode::Perspective
+                                                           : ProjectionMode::Orthographic);
             Result.CameraChanged = true;
             WidgetConsumesPress  = true;
         }
         else if (RollHovered >= 0)
         {
             // 90deg rolls (mockup roll arrows): up/down change elevation (Pitch), left/right change azimuth (Yaw).
-            // Display Elevation = -Pitch, Azimuth = -Yaw, so an up-arrow (ax-=90) is Pitch+=90deg, etc.
+            // 📝 The vertical pair follows the drag convention above — an up-arrow turns the view up exactly as dragging up
+            //    does, which under Elevation = +Pitch and the solver's negated pitch means Pitch -= 90 lifts the eye overhead.
             const float Ninety = 90.0f * DegToRad;
-            if (RollHovered == 0) { Camera.Pitch += Ninety; }   // up:    ax -= 90 -> Pitch += 90
-            if (RollHovered == 1) { Camera.Pitch -= Ninety; }   // down:  ax += 90 -> Pitch -= 90
+            if (RollHovered == 0) { Camera.Pitch -= Ninety; }   // up:   turn the view up   -> eye lifts overhead
+            if (RollHovered == 1) { Camera.Pitch += Ninety; }   // down: turn the view down -> eye drops below
             if (RollHovered == 2) { Camera.Yaw   -= Ninety; }   // left:  ay += 90 -> Yaw   -= 90
             if (RollHovered == 3) { Camera.Yaw   += Ninety; }   // right: ay -= 90 -> Yaw   += 90
             Camera.Pitch = ClampValue(Camera.Pitch, -PitchLimitRadians, PitchLimitRadians);
@@ -303,8 +358,14 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
         }
         if (State.DragEngaged)
         {
-            // Mockup: ay = say + dx*0.6 ; ax = clamp(sax + dy*0.6). Display Azimuth = -Yaw, Elevation = -Pitch, so:
-            //   Yaw   = PressYaw   - dx*0.6deg ;  Pitch = PressPitch - dy*0.6deg (clamped to the poles).
+            // Mockup: ay = say + dx*0.6 ; ax = clamp(sax + dy*0.6). Display Azimuth = -Yaw, Elevation = +Pitch, so yaw
+            // inverts the travel and pitch follows the SAME sign the viewport's own left-drag orbit applies:
+            //   Yaw = PressYaw - dx*0.6deg ;  Pitch = PressPitch - dy*0.6deg (clamped to the poles).
+            //
+            // 🐞 The pitch term was +dy, which is the OPPOSITE of the viewport's orbit (ViewportPanel passes -Drag.y into
+            //    OrbitViewportCamera). Both drags write the one shared Camera.Pitch, so the widget and the surface it
+            //    overlays disagreed on which way "up" turns: rotating the view up rolled the cube down. Only the vertical
+            //    axis was affected, because yaw already inverted identically on both paths.
             const float NewYaw   = State.PressYaw   - TravelX * Configuration.OrbitSpeed * DegToRad;
             const float NewPitch = State.PressPitch - TravelY * Configuration.OrbitSpeed * DegToRad;
             Camera.Yaw   = NewYaw;
@@ -351,9 +412,21 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
     //--------------------------------------------------------------------------------------------------------------------
     //  7. DRAW — re-project (the camera may have moved this cycle), depth-order, then paint back-to-front.
     //--------------------------------------------------------------------------------------------------------------------
+    // ⚠️ Re-read the lens here rather than reusing OrthographicActive: the toggle above may have flipped it THIS cycle, and the
+    //    glyph + focal length below must show the mode the viewport is about to render, not the one it had on entry.
+    const bool OrthographicDrawn = (Camera.Projection == ProjectionMode::Orthographic);
+
     ResolveDisplayAngles(Camera.Yaw, Camera.Pitch, Projection.ElevationDeg, Projection.AzimuthDeg);
-    Projection.FocalLength = State.ProjectionToggle.OrthographicEnabled ? Configuration.FocalOrthographic
-                                                                        : Configuration.FocalPerspective;
+    Projection.FocalLength = OrthographicDrawn ? Configuration.FocalOrthographic
+                                               : Configuration.FocalPerspective;
+
+    // 📝 Sync trace: this is the ONE point that holds both sides of the comparison — the shared ViewportCamera the surface
+    //    renders through, and the rig angles the cube is about to be drawn at. Emitting here (after every mutation, at the
+    //    moment the display angles are derived) is what makes a discrepancy attributable: if the two columns ever disagree
+    //    the mapping is at fault, whereas a probe at either call site alone could only show one of them.
+    //    Change-gated, not per frame: at 60fps an unconditional line floods the console and buries the transitions.
+    TraceCompassSynchronization(State, Camera, Projection.ElevationDeg, Projection.AzimuthDeg, OrthographicDrawn);
+
     for (int Index = 0; Index < CompassPartition::FaceCount; ++Index)
     {
         ProjectSurfacePatch(State.Partition.Face[Index], Projection);
@@ -423,7 +496,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
             DrawList->AddCircleFilled(C, RollRadius, IM_COL32(22, 22, 22, 210), 16);
             DrawList->AddCircle(C, RollRadius, IM_COL32(38, 38, 38, 220), 16, 1.0f);
             // A small chevron pointing outward in the arrow's direction.
-            const float S = 4.0f;
+            const float S = RollRadius * 0.36f;   // [px] - chevron half-span, proportional to the disc
             ImVec2 A, B, D;
             if (Index == 0)      { A = ImVec2(C.x - S, C.y + S*0.5f); B = ImVec2(C.x, C.y - S*0.6f); D = ImVec2(C.x + S, C.y + S*0.5f); }
             else if (Index == 1) { A = ImVec2(C.x - S, C.y - S*0.5f); B = ImVec2(C.x, C.y + S*0.6f); D = ImVec2(C.x + S, C.y - S*0.5f); }
@@ -453,7 +526,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
                 DrawList->AddCircleFilled(C, ButtonRadius, IM_COL32(34, 34, 34, 255), 20);
             }
             const ImU32 Ink = State.ResetTrigger.Hovered ? IM_COL32(237, 237, 237, 255) : IM_COL32(138, 138, 138, 255);
-            const float H = 7.0f;
+            const float H = ButtonRadius * 0.39f;   // [px] - house half-span, kept proportional to the button
             // roof
             DrawList->AddLine(ImVec2(C.x - H, C.y - 1.0f), ImVec2(C.x, C.y - H), Ink, 1.7f);
             DrawList->AddLine(ImVec2(C.x, C.y - H), ImVec2(C.x + H, C.y - 1.0f), Ink, 1.7f);
@@ -466,7 +539,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
         // Projection toggle — cube glyph (perspective) or square-with-cross (orthographic); filled pill when orthographic.
         {
             const ImVec2 C = State.ProjectionToggle.Centre;
-            const bool Ortho = State.ProjectionToggle.OrthographicEnabled;
+            const bool Ortho = OrthographicDrawn;
             if (Ortho)
             {
                 DrawList->AddCircleFilled(C, ButtonRadius, Palette.AccentPrimary, 20);
@@ -478,7 +551,7 @@ IntersectionResult ConstructSpatialCompass(const SpatialCompassContext& Context,
             const ImU32 Ink = Ortho ? IM_COL32(0, 0, 0, 255)
                                     : (State.ProjectionToggle.Hovered ? IM_COL32(237, 237, 237, 255)
                                                                       : IM_COL32(138, 138, 138, 255));
-            const float G = 6.5f;
+            const float G = ButtonRadius * 0.36f;   // [px] - cube/square half-span, proportional to the button
             if (Ortho)
             {
                 // square with a centred cross (parallel projection)

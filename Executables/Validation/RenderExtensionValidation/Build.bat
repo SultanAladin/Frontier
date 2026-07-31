@@ -93,7 +93,10 @@ set "GEOMROOT=%ROOT%\Internal\Authoring\Geometry\Modeling"
 set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%MATHROOT%" /I"%GEOMROOT%" /I"%VULKAN%\Include""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
 REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
-set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE"
+REM  FRONTIER_POLYGON_AUTHORING turns on the object-selection path (pick readback +
+REM  outline). ⚠️ ABI-AFFECTING: it adds RenderExtension members, so it MUST match the
+REM  Graphics pillar's DEFINES in Internal\Graphics\Build.bat.
+set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE /DFRONTIER_POLYGON_AUTHORING"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
 REM --- Compile this app's own entry unit --------------------------------------
@@ -121,6 +124,19 @@ if errorlevel 1 (
     goto :fail
 )
 
+REM --- Compile GLSL -> SPIR-V before staging ------------------------------------
+REM  Until this ran, the block below only COPIED *.spv - nothing compiled them - so
+REM  editing a .frag silently staged the PREVIOUS binary and the shader's bindings
+REM  drifted out of step with the C++ feeding it, with no build-time signal at all.
+REM  ShaderPlan recompiles only what is stale and owns the per-shader target env
+REM  (most of the tree is SPIR-V 1.0; the device rejects 1.6 outright).
+echo [%NAME%] compiling shaders
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\Automation\ShaderPlan.ps1" -Quiet
+if errorlevel 1 (
+    echo [%NAME%] SHADER COMPILE FAILED
+    goto :fail
+)
+
 REM --- Stage SPIR-V shaders beside the exe -------------------------------------
 REM  The grid + sky loaders resolve their modules from a relative "Shaders" dir
 REM  (see FRONTIER_GRID_SHADER_DIR / FRONTIER_SKY_SHADER_DIR in RenderExtension.cpp),
@@ -133,6 +149,9 @@ copy /Y "%ROOT%\Internal\Graphics\Grid\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Atmosphere\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\HierarchicalDepth\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Visibility\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\Clipmap\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\Render\Radiance\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\Shadow\Shaders\*.spv" "%SHADEROUT%" >nul
 echo [%NAME%] staged shaders -^> %SHADEROUT%
 
 REM --- Stage the saved scene documents beside the exe -------------------------
@@ -140,12 +159,13 @@ REM  The visibility raster now LOADS the saved scene document (.wsdoc) the chose
 REM  scene names from a relative "Assets" dir (FRONTIER_SCENE_ASSET_DIR in
 REM  RenderExtension.cpp) - it no longer reads the raw Suzanne JSON (that is the
 REM  writer tool's bake-time input). The .wsdoc are produced by
-REM  WorkspaceDocumentWriter into the docs repo's Documentation\Assets; copy the
-REM  two beside the exe so it finds them when launched from its own dir.
+REM  WorkspaceDocumentWriter into the docs repo's Documentation\Assets; copy them
+REM  beside the exe so it finds them when launched from its own dir.
 set "ASSETOUT=%OUTDIR%\Assets"
 if not exist "%ASSETOUT%" mkdir "%ASSETOUT%"
 copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneRadial.wsdoc" "%ASSETOUT%" >nul
 copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzannePyramid.wsdoc" "%ASSETOUT%" >nul
+copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\SuzanneMaterialRings.wsdoc" "%ASSETOUT%" >nul
 copy /Y "C:\Users\OS\Documents\Frontier\Documentation\Assets\CheckerFloor.wsdoc" "%ASSETOUT%" >nul
 echo [%NAME%] staged scene documents -^> %ASSETOUT%
 

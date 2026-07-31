@@ -13,6 +13,8 @@
 
 #include "../../Math/LinearAlgebra_Float32.h"
 
+#include <cmath>
+
 namespace Frontier
 {
 
@@ -70,13 +72,16 @@ struct ViewportCamera
     return Camera;
 }
 
-// The same orbit pose in an orthographic lens for CAD / ortho views. HalfHeight is derived from the default distance so the
-// framing matches the perspective default at boot; the caller re-fits it when framing a specific extent.
+// The same orbit pose in an orthographic lens for CAD / ortho views. HalfHeight is derived from the default distance through the
+// SAME identity ProjectionEvaluator uses — Distance · tan(FOV/2) — so this boots framing exactly what the perspective default
+// frames. (A plain Distance · 0.5 was used here once; it disagrees with the 60° FOV, whose tan(30°) is 0.577, so the two defaults
+// framed ~15% differently and a lens toggle visibly rescaled the scene.) Kept inline rather than calling ProjectionEvaluator so
+// this spec header stays dependency-free; ConformOrthographicExtent is the runtime path and computes the identical value.
 [[nodiscard]] inline ViewportCamera ResolveDefaultOrthographicCamera() noexcept
 {
     ViewportCamera Camera         = ResolveDefaultPerspectiveCamera();
     Camera.Projection             = ProjectionMode::Orthographic;
-    Camera.OrthographicHalfHeight = Camera.Distance * 0.5f;
+    Camera.OrthographicHalfHeight = Camera.Distance * std::tan(Camera.FieldOfView * 0.5f);
     return Camera;
 }
 

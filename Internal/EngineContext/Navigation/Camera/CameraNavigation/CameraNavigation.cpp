@@ -7,6 +7,7 @@
 
 #include "CameraNavigation.h"
 #include "../CameraProjection/CameraViewMatrixSolver.h"
+#include "../CameraProjection/ProjectionEvaluator.h"
 #include "../CameraConstraint/PitchBoundary.h"
 #include "../CameraConstraint/DistanceBoundary.h"
 #include "../../../MetricSpace/CoordinateSpace.h"
@@ -36,6 +37,12 @@ void PanViewportCamera(ViewportCamera& Camera, float RightDelta, float UpDelta) 
 void DollyViewportCamera(ViewportCamera& Camera, float DistanceDelta) noexcept
 {
     Camera.Distance = ConstrainDistance(Camera.Distance + DistanceDelta);
+
+    // 🐞 Distance alone is INVISIBLE to a parallel projection — the ortho matrix reads OrthographicHalfHeight and nothing else,
+    //    so before this refit a wheel dolly in orthographic moved the eye along the view axis and changed the picture not at all
+    //    (the lens has no foreshortening to reveal it). Refitting the extent from the new Distance is what makes zoom mean the
+    //    same thing in both lenses, and it holds the two framings in agreement so a later toggle still does not jump.
+    ConformOrthographicExtent(Camera);
 }
 
 void FlyViewportCamera(ViewportCamera& Camera, float ForwardDelta, float RightDelta, float UpDelta) noexcept

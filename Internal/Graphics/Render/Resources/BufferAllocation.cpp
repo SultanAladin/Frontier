@@ -236,7 +236,9 @@ bool ConstructPolygonBufferAllocation(VulkanHost&               Host,
     if (!AllocateBackedBuffer(Host.PhysicalDevice,
                               Host.Device,
                               VertexByteSize,
-                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                              // STORAGE lets the software micro-raster (SoftwareRasterization.comp) read this geometry as an SSBO, the same
+                              // device-local buffer the hardware raster binds as a vertex buffer — one upload, both raster paths.
+                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                               Claimed.VertexBuffer,
                               Claimed.VertexMemory))
@@ -249,7 +251,8 @@ bool ConstructPolygonBufferAllocation(VulkanHost&               Host,
     if (!AllocateBackedBuffer(Host.PhysicalDevice,
                               Host.Device,
                               IndexByteSize,
-                              VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                              // STORAGE lets the software micro-raster fetch triangle indices as an SSBO alongside the vertex buffer above.
+                              VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                               Claimed.IndexBuffer,
                               Claimed.IndexMemory))

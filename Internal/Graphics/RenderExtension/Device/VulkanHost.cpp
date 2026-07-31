@@ -242,15 +242,89 @@ bool InitializeVulkanHost(VulkanHost&  Host,
     DynamicRenderingFeatures.sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
     DynamicRenderingFeatures.dynamicRendering = VK_TRUE;
 
+    // 📝 int64 shader atomics for the software micro-raster (Phase 4). The path packs a 64-bit (depth|id) word and resolves it
+    //    with atomicMax — image atomics are the primary route, buffer atomics the fallback. Detection alone (InspectHardwareFeatures)
+    //    is not enough: the feature must be ENABLED at device creation or SPIR-V using OpCapability Int64Atomics is rejected. We
+    //    probe the same two feature structs the inspector uses, add VK_EXT_shader_image_atomic_int64 when advertised, and chain the
+    //    structs into pNext with only the supported bits set. A device without either bit leaves both flags false and the software
+    //    path gates itself off, falling back to the hardware raster (Phase 4 gate, PLAN §12).
+    VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT ImageAtomicProbe = {};
+    ImageAtomicProbe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT;
+    VkPhysicalDeviceShaderAtomicInt64Features BufferAtomicProbe = {};
+    BufferAtomicProbe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
+    BufferAtomicProbe.pNext = &ImageAtomicProbe;
+    VkPhysicalDeviceFeatures2 AtomicProbe = {};
+    AtomicProbe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    AtomicProbe.pNext = &BufferAtomicProbe;
+    vkGetPhysicalDeviceFeatures2(Host.PhysicalDevice, &AtomicProbe);
+
+    const bool ImageAtomicExtensionAvailable =
+        DeviceExtensionAvailable(Host.PhysicalDevice, VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME);
+    Host.ShaderImageInt64AtomicsEnabled  = ImageAtomicProbe.shaderImageInt64Atomics == VK_TRUE && ImageAtomicExtensionAvailable;
+    Host.ShaderBufferInt64AtomicsEnabled = BufferAtomicProbe.shaderBufferInt64Atomics == VK_TRUE;
+    if (Host.ShaderImageInt64AtomicsEnabled)
+        DeviceExtensions.push_back(VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME);
+
+    VkPhysicalDeviceShaderImageAtomicInt64FeaturesEXT ImageAtomicFeatures = {};
+    ImageAtomicFeatures.sType                   = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_IMAGE_ATOMIC_INT64_FEATURES_EXT;
+    ImageAtomicFeatures.shaderImageInt64Atomics = Host.ShaderImageInt64AtomicsEnabled ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceShaderAtomicInt64Features BufferAtomicFeatures = {};
+    BufferAtomicFeatures.sType                    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES;
+    BufferAtomicFeatures.shaderBufferInt64Atomics = Host.ShaderBufferInt64AtomicsEnabled ? VK_TRUE : VK_FALSE;
+
     // 📝 The visibility raster's fragment stage reads gl_PrimitiveID to write the packed surface identity; glslang lowers that
     //    read to SPIR-V OpCapability Geometry, which vkCreateShaderModule rejects unless the geometryShader feature is enabled at
     //    device creation. Every Pascal-and-newer part (GTX-1060 floor) advertises it, so we turn it on unconditionally here.
     VkPhysicalDeviceFeatures EnabledFeatures = {};
     EnabledFeatures.geometryShader = VK_TRUE;
 
+    // 📝 fragmentStoresAndAtomics is a CORE VkPhysicalDeviceFeatures bit, unrelated to the int64 atomic chain above: that chain widens
+    //    the atomic OPERAND to 64 bits, whereas this bit grants the fragment stage permission to WRITE to storage buffers and storage
+    //    images at all. The sun-shadow chain needs it twice — tile marking tags visible pages from a fragment shader, and the page
+    //    atlas raster resolves caster depth with imageAtomicMin. One bit covers both stores and atomics; vertexPipelineStoresAndAtomics
+    //    is deliberately NOT requested, because no vertex stage in the engine writes.
+    // 🔴 Queried, never assumed. Every Pascal-and-newer part advertises it, so the false branch is not expected to be taken on any
+    //    supported GPU — but requesting an unsupported feature makes vkCreateDevice fail outright with FEATURE_NOT_PRESENT, which would
+    //    take the WHOLE renderer down rather than only the shadows. Recording the verdict on the host lets the shadow passes gate
+    //    themselves off and everything else keep working.
+    VkPhysicalDeviceFeatures SupportedFeatures = {};
+    vkGetPhysicalDeviceFeatures(Host.PhysicalDevice, &SupportedFeatures);
+    Host.FragmentStoresAndAtomicsEnabled = SupportedFeatures.fragmentStoresAndAtomics == VK_TRUE;
+    if (Host.FragmentStoresAndAtomicsEnabled)
+        EnabledFeatures.fragmentStoresAndAtomics = VK_TRUE;
+
+    // 📝 The software micro-raster packs a 64-bit (depth|id) word and does atomicMax on it. The atomic capability structs enabled
+    //    above cover the atomic OP, but the packed uint64_t arithmetic itself makes glslang emit the BASE OpCapability Int64 — a
+    //    SEPARATE capability from Int64Atomics, gated on VkPhysicalDeviceFeatures::shaderInt64. Without this the software-raster and
+    //    resolve shader modules are rejected at creation (Int64 declared but shaderInt64 not enabled) and the whole P4 path silently
+    //    goes dark. Enable it whenever either atomics route is live — every device that advertises the atomics also advertises int64.
+    if (Host.ShaderImageInt64AtomicsEnabled || Host.ShaderBufferInt64AtomicsEnabled)
+        EnabledFeatures.shaderInt64 = VK_TRUE;
+
+    // Assemble the pNext feature chain in a fixed order, splicing in only the structs whose feature is being enabled: dynamic
+    // rendering (if present) → buffer int64 atomics (if enabled) → image int64 atomics (if enabled). FeatureChainHead walks to the
+    // current tail so each link appends without assuming the previous one is present.
+    void** FeatureChainTail = nullptr;
+    const void* FeatureChainHead = nullptr;
+    auto AppendFeature = [&](void* Structure, void** StructureNext)
+    {
+        if (FeatureChainTail == nullptr)
+            FeatureChainHead = Structure;
+        else
+            *FeatureChainTail = Structure;
+        FeatureChainTail = StructureNext;
+        *StructureNext = nullptr;
+    };
+    if (Host.DynamicRenderingEnabled)
+        AppendFeature(&DynamicRenderingFeatures, (void**)&DynamicRenderingFeatures.pNext);
+    if (Host.ShaderBufferInt64AtomicsEnabled)
+        AppendFeature(&BufferAtomicFeatures, (void**)&BufferAtomicFeatures.pNext);
+    if (Host.ShaderImageInt64AtomicsEnabled)
+        AppendFeature(&ImageAtomicFeatures, (void**)&ImageAtomicFeatures.pNext);
+
     VkDeviceCreateInfo DeviceInfo = {};
     DeviceInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    DeviceInfo.pNext                   = Host.DynamicRenderingEnabled ? &DynamicRenderingFeatures : nullptr;
+    DeviceInfo.pNext                   = FeatureChainHead;
     DeviceInfo.queueCreateInfoCount    = 1;
     DeviceInfo.pQueueCreateInfos       = &QueueInfo;
     DeviceInfo.enabledExtensionCount   = (uint32_t)DeviceExtensions.size();
@@ -277,6 +351,11 @@ bool InitializeVulkanHost(VulkanHost&  Host,
         }
     }
     ISSUE_NOTICE("vulkan", "dynamic rendering: %s", Host.DynamicRenderingEnabled ? "enabled" : "unavailable (grid pass will be skipped)");
+    ISSUE_NOTICE("vulkan", "int64 atomics enabled — image: %s, buffer: %s (software micro-raster %s)",
+                 Host.ShaderImageInt64AtomicsEnabled  ? "yes" : "no",
+                 Host.ShaderBufferInt64AtomicsEnabled ? "yes" : "no",
+                 (Host.ShaderImageInt64AtomicsEnabled || Host.ShaderBufferInt64AtomicsEnabled)
+                     ? "available" : "gated off — hardware raster only");
 
     // -- ImGui descriptor pool ------------------------------------------------------------------------------------------
     // 📝 Sized generously enough for the ImGui font atlas + any AddTexture calls a workspace makes. This ImGui version's
@@ -284,16 +363,21 @@ bool InitializeVulkanHost(VulkanHost&  Host,
     //    only the classic combined-image-sampler, so the pool must advertise all three types — otherwise the driver logs a
     //    validation CAUTION that the pool has no matching pool size for the SAMPLER / SAMPLED_IMAGE bindings it hands out.
     //    FREE_DESCRIPTOR_SET_BIT is required by the backend.
+    // 🔴 maxSets is sized against the ICON REGISTRY, not the font atlas: every distinct icon content-hash costs one descriptor
+    //    set, and an icon pack that carries a glyph in two inks (live + gated, because a rasterized SVG cannot be recoloured
+    //    after upload) costs two. The ToolMenu pack alone is 291 textures — at the former ceiling of 64 the pool ran dry partway
+    //    through registration and every later upload returned VK_ERROR_OUT_OF_POOL_MEMORY, which surfaced as a card drawn with
+    //    NO glyphs plus a per-frame null-ImTextureID assertion. 1024 leaves room for the CAD + texture-paint packs beside it.
     VkDescriptorPoolSize PoolSizes[] =
     {
-        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64 },
-        { VK_DESCRIPTOR_TYPE_SAMPLER,                 64 },
-        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,           64 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024 },
+        { VK_DESCRIPTOR_TYPE_SAMPLER,                1024 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          1024 },
     };
     VkDescriptorPoolCreateInfo PoolInfo = {};
     PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     PoolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    PoolInfo.maxSets       = 64;
+    PoolInfo.maxSets       = 1024;
     PoolInfo.poolSizeCount = (uint32_t)(sizeof(PoolSizes) / sizeof(PoolSizes[0]));
     PoolInfo.pPoolSizes    = PoolSizes;
 

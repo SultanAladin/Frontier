@@ -34,18 +34,22 @@ namespace
 //                                                      PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-void ConstructViewportGrid(const ThemeConfiguration& Theme, const PanelViewportCamera& Camera, const ViewportGridDescriptor& Descriptor)
+void ConstructViewportGrid(const ThemeConfiguration& Theme, const ViewportCamera& Camera, const ViewportGridDescriptor& Descriptor)
 {
     ImDrawList* DrawList = ImGui::GetWindowDrawList();
     DrawList->PushClipRect(Descriptor.SurfaceMin, Descriptor.SurfaceMax, true);
 
-    // 📝 Zoom scales cell size inversely with camera distance so the grid breathes with dolly; pan offsets the origin.
-    const float ZoomScale = 400.0f / (Camera.Distance > 1.0f ? Camera.Distance : 1.0f);
-    const float Cell      = (Descriptor.CellPixels > 1.0f ? Descriptor.CellPixels : 16.0f) * ZoomScale;
+    // 📝 Zoom scales cell size inversely with camera distance so the grid breathes with dolly; pan offsets the origin. The camera
+    //    spec is metric (Distance + Target in metres), so the cell multiplier is 4 / Distance and the origin offset resolves
+    //    through 400 px per metre at unit distance — the same on-screen behaviour the previous centimetre form produced.
+    const float SafeDistance   = Camera.Distance > 0.01f ? Camera.Distance : 0.01f;
+    const float ZoomScale      = 4.0f   / SafeDistance;
+    const float PixelsPerMetre = 400.0f / SafeDistance;
+    const float Cell           = (Descriptor.CellPixels > 1.0f ? Descriptor.CellPixels : 16.0f) * ZoomScale;
 
     const ImVec2 Center(
-        (Descriptor.SurfaceMin.x + Descriptor.SurfaceMax.x) * 0.5f - Camera.TargetX * ZoomScale,
-        (Descriptor.SurfaceMin.y + Descriptor.SurfaceMax.y) * 0.5f + Camera.TargetZ * ZoomScale);
+        (Descriptor.SurfaceMin.x + Descriptor.SurfaceMax.x) * 0.5f - Camera.Target.XCoord * PixelsPerMetre,
+        (Descriptor.SurfaceMin.y + Descriptor.SurfaceMax.y) * 0.5f + Camera.Target.ZCoord * PixelsPerMetre);
 
     const ImU32 MinorColor = BlendColor(Theme.Palette.PanelBackground, Theme.Palette.PanelBorder, 0.6f);
     const ImU32 MajorColor = BlendColor(Theme.Palette.PanelBackground, Theme.Palette.TextMuted, 0.5f);

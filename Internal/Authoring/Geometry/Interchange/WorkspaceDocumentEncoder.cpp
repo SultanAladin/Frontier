@@ -185,6 +185,7 @@ bool EncodeWorkspaceDocument(const char* Path, const WorkspaceDocument& Document
         ObjectTable.insert("rotation",  toml::array{ Object.Placement.Rotation[0], Object.Placement.Rotation[1], Object.Placement.Rotation[2] });
         ObjectTable.insert("scale",     toml::array{ Object.Placement.Scale[0],    Object.Placement.Scale[1],    Object.Placement.Scale[2] });
         ObjectTable.insert("tint",      toml::array{ Object.Tint[0], Object.Tint[1], Object.Tint[2] });
+        ObjectTable.insert("material",  static_cast<int64_t>(Object.MaterialId));
         ObjectRows.push_back(std::move(ObjectTable));
     }
     Root.insert("object", std::move(ObjectRows));
@@ -258,6 +259,9 @@ bool DecodeWorkspaceDocument(const char* Path, WorkspaceDocument& Result)
         Object.Title          = ObjectTable->get("title") ? ObjectTable->get("title")->value_or(std::string{}) : std::string{};
         Object.GeometryIndex  = static_cast<uint32_t>((*ObjectTable)["geometry"].value_or<int64_t>(0));
         Object.EnclosureIndex = static_cast<int32_t>((*ObjectTable)["enclosure"].value_or<int64_t>(-1));
+        // Optional by design: documents baked before the material channel existed carry no "material" key and must still decode. Defaulting to 0
+        // (the flat Standard record) is the same thing a missing material means at shade time, so an old document needs no migration.
+        Object.MaterialId     = static_cast<uint32_t>((*ObjectTable)["material"].value_or<int64_t>(0));
 
         std::vector<double> Location;
         std::vector<double> Rotation;

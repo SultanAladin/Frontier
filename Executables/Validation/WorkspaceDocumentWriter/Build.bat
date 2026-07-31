@@ -1,15 +1,17 @@
 @echo off
 REM ============================================================================
 REM  WorkspaceDocumentWriter\Build.bat - build WorkspaceDocumentWriter.exe:
-REM  a one-shot authoring tool that bakes the two hardcoded Suzanne scenes into
-REM  loadable .wsdoc WorkspaceDocument files, then RUNS it so the .wsdoc land in
-REM  the docs Assets dir beside their source JSON.
+REM  a one-shot authoring tool that bakes the hardcoded Suzanne scenes (radial,
+REM  pyramid, material-rings) plus the checkered floor into loadable .wsdoc
+REM  WorkspaceDocument files, then RUNS it so the .wsdoc land in the docs Assets
+REM  dir beside their source JSON.
 REM
-REM  Self-contained: it compiles ONLY the three sources it needs directly, and
+REM  Self-contained: it compiles ONLY the four sources it needs directly, and
 REM  links no pillar lib.
 REM    - WorkspaceDocumentSerializer.cpp (entry: JSON scanner + TRS decompose)
 REM    - WorkspaceDocumentEncoder.cpp     (the TOML encoder; needs tomlpp)
 REM    - SuzanneScene.cpp                 (BuildSuzanneScene - the hardcoded layout)
+REM    - SurfacePresetTable.cpp           (SurfacePresetName - material row titles)
 REM  WorkspaceDocumentEncoder.cpp is not yet folded into any pillar lib and Build
 REM  SuzanneScene lives in Graphics.lib, so pulling both .cpp in directly keeps the tool
 REM  free of a Vulkan/link dependency (it touches no GPU).
@@ -53,14 +55,17 @@ REM  toml++ compiled no-throw (parse errors arrive in the parse_result, never th
 set "DEFINES=/DTOML_EXCEPTIONS=0"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
-REM --- The three sources this tool compiles directly --------------------------
+REM --- The four sources this tool compiles directly ---------------------------
+REM  SurfacePresetTable.cpp supplies SurfacePresetName, which titles each placed
+REM  head by its material ("Suzanne Chrome") in the material-rings bake.
 set "SRC_ENTRY=%APPDIR%\WorkspaceDocumentSerializer.cpp"
 set "SRC_FORMAT=%ROOT%\Internal\Authoring\Geometry\Interchange\WorkspaceDocumentEncoder.cpp"
 set "SRC_SCENE=%ROOT%\Internal\Graphics\Scene\SuzanneScene.cpp"
+set "SRC_PRESET=%ROOT%\Internal\Graphics\Scene\SurfacePresetTable.cpp"
 
 set "OBJRSP=%OBJ%\link_objs.rsp"
 if exist "%OBJRSP%" del /Q "%OBJRSP%"
-for %%F in ("%SRC_ENTRY%" "%SRC_FORMAT%" "%SRC_SCENE%") do (
+for %%F in ("%SRC_ENTRY%" "%SRC_FORMAT%" "%SRC_SCENE%" "%SRC_PRESET%") do (
     set "UNIT=%%~nF"
     echo [compile] !UNIT!
     cl %CXXFLAGS% %DEFINES% %INCLUDES% "%%~F" /Fo"%OBJ%\!UNIT!.obj" /Fd"%OBJ%\%NAME%.pdb"

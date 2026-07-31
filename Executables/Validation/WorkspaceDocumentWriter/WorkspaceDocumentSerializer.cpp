@@ -12,6 +12,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "Authoring/Geometry/Interchange/WorkspaceDocumentEncoder.h"
+#include "Graphics/Scene/SurfacePresetTable.h"
 #include "Graphics/Scene/SuzanneScene.h"
 
 #include "LinearAlgebra_Float64.h"
@@ -445,11 +446,16 @@ bool BakeScene(SuzanneSceneChoice Choice, const char* GeometryPath, bool SourceI
         const SuzanneSceneInstance& Instance = Instances[InstanceIterator];
         WorkspaceObject Object;
         Object.GeometryIndex  = 0u;
-        Object.Title          = std::string(BlockTitle) + " " + std::to_string(InstanceIterator);
+        // A head carrying a real preset is titled by its MATERIAL ("Suzanne Chrome"), not its ordinal — the outliner then reads as the material list,
+        // which is the whole point of the rings scene. MaterialId 0 keeps the plain ordinal title the two debug-hash scenes already had.
+        Object.Title          = (Instance.MaterialId != 0u)
+                              ? std::string(BlockTitle) + " " + SurfacePresetName(Instance.MaterialId)
+                              : std::string(BlockTitle) + " " + std::to_string(InstanceIterator);
         Object.Placement      = DecomposePlacement(Instance.Model);
         Object.Tint[0]        = Instance.Tint[0];
         Object.Tint[1]        = Instance.Tint[1];
         Object.Tint[2]        = Instance.Tint[2];
+        Object.MaterialId     = Instance.MaterialId;   // 0 for the two debug-hash scenes; the material rings carry a real preset per head
         Object.EnclosureIndex = -1;
         Document.Objects.push_back(std::move(Object));
     }
@@ -506,6 +512,13 @@ int main(int ArgumentCount, char** ArgumentValues)
     bool AllSucceeded = true;
     AllSucceeded &= BakeAndWrite(SuzanneSceneChoice::RadialArray,   RadialObj,           true,  "Suzanne", RadialOut);
     AllSucceeded &= BakeAndWrite(SuzanneSceneChoice::PyramidStress, PyramidJson.c_str(), false, "Suzanne", PyramidOut);
+
+    // The material-slice scene: the same authored .obj head placed in two concentric rings (inner 5 + outer 8), each placement carrying ONE
+    // SurfacePresetTable record so the deferred shade pass has every shading model on screen at once. It bakes from the same BuildSuzanneScene
+    // path as the two scenes above — the only difference is that its instances carry a non-zero MaterialId, which the new per-object "material"
+    // key now preserves through encode/decode. Each row is titled with its preset name so the outliner reads as the material list.
+    const std::string MaterialOut = OutputDir + "/SuzanneMaterialRings.wsdoc";
+    AllSucceeded &= BakeAndWrite(SuzanneSceneChoice::MaterialRings, RadialObj, true, "Suzanne", MaterialOut);
 
     // The checkered floor is a standalone document: a single 100 x 100 m slab, 0.5 m thick, its top on the ground plane. Baked as a real mesh (one
     // geometry block + one placed object) exactly like the Suzanne heads, so the renderer LOADS it — no in-C++ floor. Grey now; the checker pattern

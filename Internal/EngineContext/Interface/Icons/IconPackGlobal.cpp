@@ -69,6 +69,23 @@ constexpr const char* GlyphChevronRight =
     "<path d=\"M12 8L20 16L12 24\" stroke=\"#64748b\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
     "</svg>";
 
+// The eight-spoke gear — the settings affordance on a chrome band. Transcribed from IconGallery.html's `settings` symbol.
+constexpr const char* GlyphSettingsGear =
+    "<svg viewBox=\"0 0 32 32\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">"
+    "<path d=\"M16 3V8M16 24V29M3 16H8M24 16H29M6.8 6.8L10.3 10.3M21.7 21.7L25.2 25.2M25.2 6.8L21.7 10.3M10.3 21.7L6.8 25.2\" stroke=\"#3b82f6\" stroke-width=\"2\" stroke-linecap=\"round\"/>"
+    "<circle cx=\"16\" cy=\"16\" r=\"7\" fill=\"#3b82f6\" fill-opacity=\"0.15\" stroke=\"#3b82f6\" stroke-width=\"2\"/>"
+    "<circle cx=\"16\" cy=\"16\" r=\"2.6\" fill=\"#ec4899\"/>"
+    "</svg>";
+
+// The wireframe view cube — the leading glyph of a viewport band, standing for the framed 3D volume itself. Transcribed from
+// the `.vp-ic` inline SVG in CadModellingInterface.html's `.vp-topbar`.
+constexpr const char* GlyphViewVolume =
+    "<svg viewBox=\"0 0 32 32\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\">"
+    "<path d=\"M16 4L26.7 10V22L16 28L5.3 22V10L16 4Z\" fill=\"#3b82f6\" fill-opacity=\"0.15\" stroke=\"#3b82f6\" stroke-width=\"2\" stroke-linejoin=\"round\"/>"
+    "<path d=\"M16 4V16M5.3 10L16 16L26.7 10\" stroke=\"#3b82f6\" stroke-width=\"1.7\" stroke-linejoin=\"round\"/>"
+    "<path d=\"M16 16V28\" stroke=\"#ec4899\" stroke-width=\"1.7\"/>"
+    "</svg>";
+
 constexpr GlyphEntry GlobalGlyphs[] =
 {
     { "g-folder",         GlyphFolderClosed },
@@ -77,6 +94,8 @@ constexpr GlyphEntry GlobalGlyphs[] =
     { "g-eye-closed",     GlyphEyeClosed    },
     { "g-chevron-down",   GlyphChevronDown  },
     { "g-chevron-right",  GlyphChevronRight },
+    { "g-settings-gear",  GlyphSettingsGear },
+    { "g-view-volume",    GlyphViewVolume   },
 };
 
 } // namespace

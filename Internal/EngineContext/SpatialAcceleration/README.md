@@ -3,17 +3,20 @@
 Spatial acceleration structures and broadphase queries for the engine — the partitioning that turns
 "test against everything" into "test against the few that matter." Built on the world conventions
 from `../MetricSpace/` (right-handed, Z-up, metres) and the float types from
-`../Math/LinearAlgebra_Float32.h`; struct + free-function house style, no glm.
+`EngineContext/Math/LinearAlgebra_Float32.h`; struct + free-function house style, no glm.
 
-## Status
+## Contents
 
-**Placeholder — no source yet.** This directory is reserved; nothing is ported here today.
+| Component | Owns | Status |
+|---|---|---|
+| `ToroidalClipmapField.{h,cpp}` | Camera-tracked 3D voxel clipmap: radius-doubling level ladder, the toroidal wrap (`PhysicalCell = (WorldCell + Origin) mod Resolution`), per-level scroll evaluation into exposed L-slabs, residency invalidation, relight-ramp stub. Pure math, no Vulkan. | live |
+| `SpatialPartition.{h,cpp}` | Octree / BVH broadphase partitioning over `SpatialExtent` regions. | planned |
 
-## Planned contents
+## Notes
 
-| Component | Owns |
-|---|---|
-| `SpatialPartition.{h,cpp}` | Octree / BVH broadphase partitioning over `SpatialExtent` regions. |
-| Toroidal structures | Wrap-around (periodic) spatial layout for streaming / infinite domains. |
-
-Both are future work; this note marks the home so the folder is not mistaken for missing.
+- Headers here are included **pillar-rooted** — `#include "EngineContext/SpatialAcceleration/..."` —
+  matching the single `/I Internal` root that `EngineContext\Build.bat` sets.
+- `ToroidalClipmapField` is the shared spine the sun-shadow clipmap (P6) and the GI irradiance-probe
+  clipmap (P7b) will both stand on. Its `RelightRamp` is a **stub** payload for visualising the
+  scroll-in transition — it carries no irradiance.
+- Unit gate: `Executables\Validation\ClipmapFieldValidation` (no Vulkan; non-zero exit on regression).

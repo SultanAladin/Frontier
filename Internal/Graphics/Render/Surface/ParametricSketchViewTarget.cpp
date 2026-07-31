@@ -21,7 +21,9 @@ namespace Frontier
 
 namespace
 {
-    constexpr VkFormat ColorFormat = VK_FORMAT_B8G8R8A8_UNORM;   // [-] - matches the swapchain colour format
+    // 📝 Deliberately _UNORM and deliberately NOT tied to the swapchain format (which is _SRGB). This target is never presented —
+    //    it finishes in SHADER_READ_ONLY and ImGui::Image samples it, so no presentation-engine transfer function applies to it.
+    constexpr VkFormat ColorFormat = VK_FORMAT_B8G8R8A8_UNORM;   // [-] - offscreen ImGui-sampled colour; independent of the swapchain
     constexpr VkFormat DepthFormat = VK_FORMAT_D32_SFLOAT;       // [-] - transient depth, cleared per frame
 
     void ReportViewTarget(const char* MessageText)

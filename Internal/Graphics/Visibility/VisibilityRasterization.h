@@ -100,10 +100,16 @@ void RecordVisibilityRasterization(VisibilityRasterization&         Raster,
 // caller issues one or more DrawVisibilityMesh calls (heads, floor, …), each depth-testing against the shared buffer so every mesh occludes and is
 // occluded correctly, then closes with EndVisibilityScope. A no-op when the raster / image / depth is not ready. CommandBuffer must be recording,
 // OUTSIDE any rendering scope. This is how a modern renderer fills one visibility buffer: the clear is a frame event, not a per-mesh event.
+//   PreserveContents == false (default) CLEARs both id + depth, opening a fresh buffer — the ordinary first-fill of the frame.
+//   PreserveContents == true instead LOADs both, re-opening a scope over id + depth a prior fill already wrote, so the meshes drawn here append and
+//   depth-test against what is already there. This is the single primitive the two-pass late cull (append late survivors onto the early buffer) and
+//   the software-raster floor (composite the hardware floor onto the compute-written id + depth) both stand on. The caller guarantees the images are
+//   already in their attachment layouts from an earlier fill this frame — the layout barriers stay identical either way.
 void BeginVisibilityScope(VisibilityRasterization& Raster,
                           VisibilityImage&         Image,
                           VisibilityDepth&         Depth,
-                          VkCommandBuffer          CommandBuffer);
+                          VkCommandBuffer          CommandBuffer,
+                          bool                     PreserveContents = false);
 
 // Draw ONE mesh into the already-open shared scope: bind the pipeline, the given instance descriptor set, the borrowed mesh, push Constants, and issue
 // the draw. Indirect == false issues vkCmdDrawIndexed of InstanceCount instances; Indirect == true issues vkCmdDrawIndexedIndirect from ArgumentBuffer

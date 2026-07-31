@@ -11,6 +11,10 @@
 
 #include "../../SpatialCompass/SpatialCompass.h"
 
+#include "../../../Navigation/Camera/CameraNavigation/CameraNavigation.h"
+
+#include <cmath>
+
 namespace Frontier
 {
 
@@ -20,8 +24,15 @@ namespace Frontier
 
 namespace
 {
+    // 📝 Pixel-delta → camera-verb scaling. The Navigation verbs take angle / world deltas, so the panel converts raw pointer
+    //    pixels into them here (the sensitivities the old panel camera carried, folded in at the one call site that needs them).
+    const float OrbitRadiansPerPixel = 0.008f;   // [rad/px] - Drag → orbit angle
+    const float PanFractionPerPixel  = 0.0015f;  // [-/px]   - Drag → pan (scaled by Distance so the drag tracks the cursor)
+    const float DollyFractionPerNotch = 0.10f;   // [-/notch]- Wheel → fraction of Distance
+
     // 📝 Apply the standard viewport navigation binds to the camera from ImGui input while the surface is hovered/active.
-    //    Left-drag orbits (3D) / does nothing planar; middle-drag pans; wheel dollies. Returns whether the camera moved.
+    //    Left-drag orbits (3D) / does nothing planar; middle- (or shift-left-) drag pans; wheel dollies. Returns whether the
+    //    camera moved. Drives the render-canonical ViewportCamera through the shared Navigation verbs — one camera, one convention.
     bool ApplyViewportNavigation(ViewportPanelState& State, bool Hovered, bool Active)
     {
         bool Changed = false;
@@ -34,15 +45,30 @@ namespace
             {
                 if (Drag.x != 0.0f || Drag.y != 0.0f)
                 {
-                    PanPanelViewportCamera(State.Camera, Drag.x, Drag.y);
+                    // Pan slides Target in the view plane, scaled so a drag covers the same screen span at any zoom.
+                    // 📝 The scale must track whatever actually sets the on-screen world extent, and that differs by lens: a
+                    //    perspective frustum widens with Distance, while a parallel one is fixed by OrthographicHalfHeight and
+                    //    ignores Distance entirely. Using Distance in ortho made the pan speed unrelated to the visible extent,
+                    //    so the scene slid faster or slower than the cursor. Both branches are expressed against the perspective
+                    //    reference (HalfHeight = Distance · tan(FOV/2)) so the feel is identical across a lens toggle.
+                    const float ExtentReference = (State.Camera.Projection == ProjectionMode::Orthographic)
+                                                      ? State.Camera.OrthographicHalfHeight / std::tan(State.Camera.FieldOfView * 0.5f)
+                                                      : State.Camera.Distance;
+                    const float PanScale = PanFractionPerPixel * ExtentReference;
+                    PanViewportCamera(State.Camera, -Drag.x * PanScale, Drag.y * PanScale);
                     Changed = true;
                 }
             }
-            else if (Io.MouseDown[0] && State.Projection == ViewportProjection::Perspective)
+            else if (Io.MouseDown[0] && State.Projection != ViewportProjection::Planar)
             {
                 if (Drag.x != 0.0f || Drag.y != 0.0f)
                 {
-                    OrbitPanelViewportCamera(State.Camera, Drag.x, Drag.y);
+                    // Orbit: drag-right turns the view right (−Yaw), drag-down raises the eye. ConstrainPitch is applied inside.
+                    // 💡 Gated on the viewport being a 3D one (not Planar), NOT on the LENS. ViewportProjection is the panel's
+                    //    kind — 3D orbit vs 2D UV/sketch — and happens to spell its 3D case "Perspective", so testing it for
+                    //    equality silently killed orbit the moment a 3D viewport switched to an orthographic lens. Orbiting in
+                    //    ortho is standard DCC behaviour (Blender's "User Ortho"), so only a genuinely planar view opts out.
+                    OrbitViewportCamera(State.Camera, -Drag.x * OrbitRadiansPerPixel, -Drag.y * OrbitRadiansPerPixel);
                     Changed = true;
                 }
             }
@@ -50,7 +76,8 @@ namespace
 
         if (Hovered && Io.MouseWheel != 0.0f)
         {
-            DollyPanelViewportCamera(State.Camera, Io.MouseWheel);
+            // Wheel up pulls the eye in (negative Distance delta). ConstrainDistance is applied inside the verb.
+            DollyViewportCamera(State.Camera, -Io.MouseWheel * DollyFractionPerNotch * State.Camera.Distance);
             Changed = true;
         }
 
@@ -67,8 +94,8 @@ void InitializeViewportPanelState(ViewportPanelState& State, ViewportProjection 
 {
     State.Projection      = Projection;
     State.Camera          = (Projection == ViewportProjection::Perspective)
-                                ? ResolveDefaultPerspectivePanelCamera()
-                                : ResolveDefaultOrthographicPanelCamera();
+                                ? ResolveDefaultPerspectiveCamera()
+                                : ResolveDefaultOrthographicCamera();
     State.RenderedTexture = 0;
     State.GridEnabled     = true;
     State.AxisEnabled     = true;
@@ -99,9 +126,9 @@ ViewportPanelResult ConstructViewportPanel(const ThemeConfiguration& Theme, View
 
     if (State.RenderedTexture != 0)
     {
-        // 📝 Renderer path: blit its output over the surface. (Wired once the render extension lands.)
-        const ImTextureID Texture = static_cast<ImTextureID>(static_cast<intptr_t>(State.RenderedTexture));
-        DrawList->AddImage(Texture, SurfaceMin, SurfaceMax);
+        // 📝 Renderer path: blit its output over the surface. RenderedTexture already IS an ImTextureID (a VkDescriptorSet handle
+        //    on the Vulkan backend), so it goes straight to AddImage with no width-losing cast.
+        DrawList->AddImage(State.RenderedTexture, SurfaceMin, SurfaceMax);
     }
     else
     {
@@ -120,8 +147,9 @@ ViewportPanelResult ConstructViewportPanel(const ThemeConfiguration& Theme, View
         }
     }
 
-    // 📝 A hairline border frames the surface regardless of path.
-    DrawList->AddRect(SurfaceMin, SurfaceMax, Theme.Palette.PanelBorder);
+    // 📝 No hairline frames the surface. The mockup's canvas stage is a bare dark rectangle: the tone step between the chrome
+    //    bands and the scene is the only separator it needs, and a border here would draw a grey line ACROSS the rendered image
+    //    (the blit fills the surface edge to edge), which reads as the viewport being boxed in rather than framed by its bands.
 
     // 📝 The CAD spatial compass — drawn ON TOP of the scene (after the surface + grid), reading + writing the same camera.
     //    When the cursor is over the widget (or a snap is running) it owns the interaction, so the viewport's own orbit is

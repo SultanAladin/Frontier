@@ -23,28 +23,77 @@ namespace Frontier
 {
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                                            CONSTANTS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 "This triangle side is a fan diagonal, not an authored edge." Triangulating an ngon invents interior sides that exist only in the display mesh, and
+//    a component overlay must never let one be selected — picking a diagonal would hand the modelling tools an edge the model does not have. The CPU
+//    picker states the same rule at RayPickIntersection.cpp:126 (a side is real only if its key is in AdjacencyIndex.EdgeFaces); this sentinel is how
+//    that verdict is carried to the GPU, one slot per triangle side.
+constexpr uint32_t InvalidAuthoredEdge = 0xFFFFFFFFu;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                            STRUCTS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 The authored-topology provenance of a triangulated scene: for every emitted display triangle, WHICH authored face / corner vertices / loop edges it
+//    came from. This is what lets a component overlay address the ngons and quads the model was BUILT with instead of the triangles it is drawn with —
+//    hovering a quad highlights the whole quad, and its interior fan diagonal is neither drawn nor selectable.
+//
+// ⚠️ CornerVertex is in a DIFFERENT INDEX SPACE from the render stream's indices, and conflating the two is the bug this struct exists to prevent.
+//    ConstructDisplayPolygons expands vertices PER CORNER (DisplayPolygonAssembly.cpp: one Stream.Vertices entry per face corner), so a cluster vertex
+//    shared by four quads becomes four distinct render vertices. The render index is therefore a corner slot, useless as a component identity — the
+//    same authored vertex wears several of them, so keying on it lights only one face's copy. CornerVertex is the CLUSTER vertex index
+//    (FaceVertexIndices[SourceCorner]), which is shared, stable, and the thing a modeller means by "that vertex".
+//
+// 📝 All three tables are parallel to the triangle list: entry T describes the triangle whose render indices are Indices[3T .. 3T+2]. SourceFace holds
+//    one entry per triangle; CornerVertex and SideEdge hold THREE per triangle (slot S of triangle T at [3T + S]). SideEdge slot S is the side joining
+//    corner S to corner (S+1)%3, matching the winding order, so a shader walking sides in that order indexes it directly.
+struct AuthoredTopologyMap
+{
+    std::vector<uint32_t> SourceFace   = {};   // [-] - per triangle: authored face ordinal it tessellates part of
+    std::vector<uint32_t> CornerVertex = {};   // [-] - per triangle corner (3 per triangle): CLUSTER vertex index, winding order
+    std::vector<uint32_t> SideEdge     = {};   // [-] - per triangle side  (3 per triangle): authored edge ordinal, or InvalidAuthoredEdge for a fan diagonal
+};
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
+// 📝 First partition identity the floor mesh's instances take. Every mesh drawn into the SHARED visibility buffer must occupy a DISJOINT partition
+//    range, because a consumer unpacks the identity's partition ordinal and indexes that mesh's instance buffer with it — two meshes both starting at
+//    0 would make "partition 0" ambiguous (head 0 or floor slab 0?) and shade one with the other's record. The heads take the low range from 0; the
+//    floor is based high, far above any plausible head count (the pyramid-stress worst case is 910). The partition field is 12 bits
+//    (VisibilityRaster.frag), so identities must stay under 4096 — 2048 leaves both ranges ample room.
+constexpr uint32_t FloorPartitionBase = 2048u;
+
 // Decode the .wsdoc at Path and produce the two things the raster needs: the shared geometry block's triangulated GPU stream (Geometry, from
 // block 0 via ConstructDisplayPolygons) and one SuzanneSceneInstance per placed object referencing block 0 (Instances — TRS recomposed into a
-// column-major model matrix + a rotation-only normal basis, tinted, identity = placement ordinal). Document, when non-null, receives the whole
-// decoded document so the caller can register it into the SceneDirectory. TriangleSourceFace, when non-null, receives one entry per emitted triangle
-// (parallel to Geometry.Indices in groups of three): the ORIGINATING editable-face ordinal from the triangulation provenance, so a debug view can
-// tell an added triangulation diagonal (same face on both sides) from a real topology edge (differing faces) — the ngon/quad/tri the head was
-// authored with. Returns false (all outputs cleared) on a missing / malformed file, an empty document, or a geometry block that fails to
-// triangulate. Objects referencing a block other than 0 are skipped (single-block runtime path).
+// column-major model matrix + a rotation-only normal basis, tinted, identity = PartitionBase + placement ordinal). Document, when non-null, receives
+// the whole decoded document so the caller can register it into the SceneDirectory. TriangleSourceFace, when non-null, receives one entry per emitted
+// triangle (parallel to Geometry.Indices in groups of three): the ORIGINATING editable-face ordinal from the triangulation provenance, so a debug view
+// can tell an added triangulation diagonal (same face on both sides) from a real topology edge (differing faces) — the ngon/quad/tri the head was
+// authored with. PartitionBase offsets every emitted identity so meshes sharing one visibility buffer stay in disjoint ranges (see
+// FloorPartitionBase); pass 0 for the primary scene. Topology, when non-null, receives the fuller authored-topology provenance the component overlay
+// needs (per-triangle authored face + corner vertices + loop-edge ordinals — see AuthoredTopologyMap); it supersedes TriangleSourceFace, whose
+// SourceFace table it also carries, and resolving it additionally builds the adjacency so fan diagonals can be told from real edges. Returns false (all
+// outputs cleared) on a missing / malformed file, an empty document, or a geometry block that fails to triangulate. Objects referencing a block other
+// than 0 are skipped (single-block runtime path).
 bool LoadWorkspaceScene(const char*                        Path,
                         RenderVertexStream&                Geometry,
                         std::vector<SuzanneSceneInstance>& Instances,
                         WorkspaceDocument*                 Document,
-                        std::vector<uint32_t>*             TriangleSourceFace = nullptr);
+                        std::vector<uint32_t>*             TriangleSourceFace = nullptr,
+                        uint32_t                           PartitionBase      = 0u,
+                        AuthoredTopologyMap*               Topology           = nullptr);
 
 // Decode a STANDALONE document whose single geometry block is drawn as a second mesh alongside the main scene (the checkered floor). Identical to
 // LoadWorkspaceScene in mechanics — triangulate block 0 into Geometry, recompose every block-0 object into a SuzanneSceneInstance — but named apart
 // because the caller draws it into the SHARED visibility buffer as a distinct mesh (its own vertex/index buffers + instance set), not as more heads.
-// The floor doc holds one grey object at identity, so Instances is normally length 1. Returns false (outputs cleared) on a missing / malformed file,
-// an empty document, or a block that fails to triangulate. This is the runtime side of "the floor is a real mesh baked into its own .wsdoc".
+// The floor doc holds one grey object at identity, so Instances is normally length 1. Identities are based at FloorPartitionBase so they cannot
+// collide with the heads' low range in the shared visibility buffer — a consumer that unpacks a partition ordinal subtracts the base before indexing
+// this mesh's instance buffer. Returns false (outputs cleared) on a missing / malformed file, an empty document, or a block that fails to
+// triangulate. This is the runtime side of "the floor is a real mesh baked into its own .wsdoc".
 bool LoadFloorDocument(const char*                        Path,
                        RenderVertexStream&                Geometry,
                        std::vector<SuzanneSceneInstance>& Instances);

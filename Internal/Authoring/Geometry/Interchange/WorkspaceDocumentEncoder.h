@@ -36,14 +36,20 @@ struct WorkspaceGeometryBlock
 };
 
 // 📝 One placed object: a reference into the shared geometry table plus everything that makes it a distinct outliner row — its own title, local
-//    placement (TRS in enclosure space, reused from RecordEntry), a debug tint, and the source nesting (EnclosureIndex names another object's slot,
-//    or -1 for a document-root object). One WorkspaceObject becomes one RecordEntry when the document is registered into the scene.
+//    placement (TRS in enclosure space, reused from RecordEntry), a debug tint, a surface-material reference, and the source nesting
+//    (EnclosureIndex names another object's slot, or -1 for a document-root object). One WorkspaceObject becomes one RecordEntry when the document
+//    is registered into the scene.
+//
+//    Tint and MaterialId are NOT alternatives — they feed different passes. Tint is the flat debug colour the visibility resolve's id view reads;
+//    MaterialId names the SurfacePresetTable record the deferred shade pass evaluates a real BRDF from. A document authored before materials
+//    existed simply carries 0 (the flat Standard record), which is why the key decodes with a default rather than being required.
 struct WorkspaceObject
 {
     uint32_t       GeometryIndex  = 0u;                  // [idx] - slot in WorkspaceDocument.Geometry this object instances
     std::string    Title          = {};                 // [-]   - outliner row title
     LocalPlacement Placement       = {};                // [-]   - TRS in enclosure space (reused from EngineContext/Scene)
     float          Tint[3]         = { 1.0f, 1.0f, 1.0f };// [-]  - linear-RGB debug tint the visibility resolve reads
+    uint32_t       MaterialId      = 0u;                // [idx] - SurfacePresetTable record the shade pass evaluates (0 = flat Standard)
     int32_t        EnclosureIndex  = -1;                // [-]   - enclosing object's slot in Objects, or -1 for a document-root object
 };
 
