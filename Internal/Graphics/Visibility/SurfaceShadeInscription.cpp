@@ -2,11 +2,10 @@
                                                        SURFACESHADEINSCRIPTION.CPP
 ==============================================================================================================================================*/
 // 🧩 Implementation of the surface shade. Initialize reads the two SPIR-V modules (the fullscreen-triangle vertex stage is VisibilityInscription's,
-//    reused verbatim), builds an eleven-binding descriptor set layout + pool + set, two nearest samplers, the owned material and sun-shadow-trace UBOs,
-//    a pipeline layout carrying that set and the ShadeConstants push range, and a graphics pipeline configured for dynamic rendering against the
-//    swapchain colour format (alpha-over blend, no depth, no vertex input). Refresh points the set at the borrowed visibility image view, the mesh /
-//    instance buffers, and the sun shadow atlas + page mapping. Record binds the pipeline + set, pushes the constants, and draws the three-vertex
-//    triangle inside the caller's open colour scope.
+//    reused verbatim), builds an eight-binding descriptor set layout + pool + set, one nearest sampler, the owned material UBO, a pipeline layout
+//    carrying that set and the ShadeConstants push range, and a graphics pipeline configured for dynamic rendering against the swapchain colour format
+//    (alpha-over blend, no depth, no vertex input). Refresh points the set at the borrowed visibility image view and the mesh / instance buffers.
+//    Record binds the pipeline + set, pushes the constants, and draws the three-vertex triangle inside the caller's open colour scope.
 //
 //    The structure deliberately mirrors VisibilityInscription.cpp — same helper shapes, same failure-unwind pattern, same idempotent-Refresh rule —
 //    so the two units read as one family rather than two dialects. What differs is only the binding count and the owned UBO.
@@ -39,11 +38,7 @@ constexpr uint32_t BindingMaterials       = 4;
 constexpr uint32_t BindingFloorVertices   = 5;
 constexpr uint32_t BindingFloorIndices    = 6;
 constexpr uint32_t BindingFloorInstances  = 7;
-constexpr uint32_t BindingShadowAtlas     = 8;
-constexpr uint32_t BindingShadowMapping   = 9;
-constexpr uint32_t BindingShadowTrace     = 10;
-constexpr uint32_t BindingShadowCoverage  = 11;
-constexpr uint32_t BindingCount           = 12;
+constexpr uint32_t BindingCount           = 8;
 
 // Read a whole SPIR-V file into a byte buffer. Empty on failure (missing / unreadable), which the caller treats as "skip".
 std::vector<char> RetrieveShaderBytes(const std::string& FilePath)
@@ -193,8 +188,7 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     };
 
     // -- Descriptor set layout: b0 = id sampler, b1/b2/b3 = head vertices / indices / instances, b4 = material table,
-    //    b5/b6/b7 = the floor's own vertices / indices / instances, b8 = sun shadow atlas, b9 = tile->page mapping,
-    //    b10 = the per-image trace block, b11 = the per-page coverage words (all fragment stage) ---------------------------
+    //    b5/b6/b7 = the floor's own vertices / indices / instances (all fragment stage) ------------------------------------
     VkDescriptorSetLayoutBinding Bindings[BindingCount] = {};
     Bindings[0].binding         = BindingVisibilityImage;
     Bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -228,22 +222,6 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     Bindings[7].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     Bindings[7].descriptorCount = 1;
     Bindings[7].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    Bindings[8].binding         = BindingShadowAtlas;
-    Bindings[8].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    Bindings[8].descriptorCount = 1;
-    Bindings[8].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    Bindings[9].binding         = BindingShadowMapping;
-    Bindings[9].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Bindings[9].descriptorCount = 1;
-    Bindings[9].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    Bindings[10].binding         = BindingShadowTrace;
-    Bindings[10].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    Bindings[10].descriptorCount = 1;
-    Bindings[10].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
-    Bindings[11].binding         = BindingShadowCoverage;
-    Bindings[11].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Bindings[11].descriptorCount = 1;
-    Bindings[11].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo SetLayoutInfo = {};
     SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -256,17 +234,16 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         return false;
     }
 
-    // -- Descriptor pool + set. TWO samplers (id + shadow atlas), EIGHT storage buffers (three head + three floor + the page mapping + the page
-    //    coverage) and TWO uniform buffers (the material table + the trace block). ⚠️ These counts must track the binding list above exactly: an
-    //    undersized pool fails allocation outright rather than degrading, which is the good outcome, but it fails at bring-up far from the binding
-    //    that caused it. -------------------------------------------------------------------------------------------------------------------------
+    // -- Descriptor pool + set. ONE sampler (the id image), SIX storage buffers (three head + three floor) and ONE uniform buffer (the material
+    //    table). ⚠️ These counts must track the binding list above exactly: an undersized pool fails allocation outright rather than degrading, which
+    //    is the good outcome, but it fails at bring-up far from the binding that caused it. -------------------------------------------------------
     VkDescriptorPoolSize PoolSizes[3] = {};
     PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    PoolSizes[0].descriptorCount = 2;
+    PoolSizes[0].descriptorCount = 1;
     PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSizes[1].descriptorCount = 8;
+    PoolSizes[1].descriptorCount = 6;
     PoolSizes[2].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    PoolSizes[2].descriptorCount = 2;
+    PoolSizes[2].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo PoolInfo = {};
     PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -310,53 +287,6 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         FinalizeSurfaceShadeInscription(Shade);
         ISSUE_FAULT("surface-shade", "point sampler creation failed");
         return false;
-    }
-
-    // -- The shadow atlas sampler. 🔴 NEAREST IS A CORRECTNESS REQUIREMENT, NOT A QUALITY CHOICE. The atlas holds a monotonic uint depth ENCODING, so
-    //    the average of two encoded depths is not the depth of anything, and a bilinear tap across a PAGE boundary averages depth from two unrelated
-    //    regions of the world. That reads as a shadow with soft wrong fringes rather than as a filtering mistake. Softness comes from multiple discrete
-    //    taps (the SMRT follow-up), never from the sampler. A separate sampler from PointSampler only because the two are conceptually independent —
-    //    the settings happen to coincide today, and collapsing them would silently couple two unrelated correctness rules. -------------------------
-    VkSamplerCreateInfo ShadowSamplerInfo = {};
-    ShadowSamplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    ShadowSamplerInfo.magFilter    = VK_FILTER_NEAREST;
-    ShadowSamplerInfo.minFilter    = VK_FILTER_NEAREST;
-    ShadowSamplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    ShadowSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    ShadowSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    ShadowSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(Host.Device, &ShadowSamplerInfo, Host.Allocator, &Shade.ShadowSampler) != VK_SUCCESS)
-    {
-        ReleaseModules();
-        FinalizeSurfaceShadeInscription(Shade);
-        ISSUE_FAULT("surface-shade", "shadow atlas sampler creation failed");
-        return false;
-    }
-
-    // -- The owned trace UBO (b10), mapped once and left mapped: it is rewritten every image, so a map/unmap pair per image would be pure overhead.
-    //    HOST_COHERENT, so no explicit flush is needed — see the struct's note on why that is a bug class avoided rather than a shortcut. -----------
-    if (!ConstructHostBuffer(Host, (VkDeviceSize)sizeof(SunShadowTraceBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                             Shade.TraceBuffer, Shade.TraceMemory))
-    {
-        ReleaseModules();
-        FinalizeSurfaceShadeInscription(Shade);
-        ISSUE_FAULT("surface-shade", "sun shadow trace uniform buffer allocation failed");
-        return false;
-    }
-    if (vkMapMemory(Host.Device, Shade.TraceMemory, 0, (VkDeviceSize)sizeof(SunShadowTraceBlock), 0, &Shade.TraceMapping) != VK_SUCCESS)
-    {
-        Shade.TraceMapping = nullptr;
-        ReleaseModules();
-        FinalizeSurfaceShadeInscription(Shade);
-        ISSUE_FAULT("surface-shade", "sun shadow trace uniform buffer map failed");
-        return false;
-    }
-
-    // ⚠️ Seed the mapping with a DEFAULT-CONSTRUCTED block rather than leaving it undefined. LevelCount is 0 there, so a shade that records before the
-    //    first upload walks no levels and reads fully lit — the safe direction. Undefined memory could name a level count of anything.
-    {
-        const SunShadowTraceBlock SeedBlock;
-        std::memcpy(Shade.TraceMapping, &SeedBlock, sizeof(SunShadowTraceBlock));
     }
 
     // -- The owned material UBO (14 records; immutable after upload) -----------------------------------------------------
@@ -529,12 +459,7 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
                                     VkBuffer                 FloorIndexBuffer,
                                     VkDeviceSize             FloorIndexBytes,
                                     VkBuffer                 FloorInstanceBuffer,
-                                    VkDeviceSize             FloorInstanceBytes,
-                                    VkImageView              ShadowAtlasView,
-                                    VkBuffer                 ShadowMappingBuffer,
-                                    VkDeviceSize             ShadowMappingBytes,
-                                    VkBuffer                 ShadowCoverageBuffer,
-                                    VkDeviceSize             ShadowCoverageBytes)
+                                    VkDeviceSize             FloorInstanceBytes)
 {
     if (!Shade.ReadyCondition || Shade.ShadeSet == VK_NULL_HANDLE)
         return;
@@ -557,24 +482,6 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     const VkBuffer     FloorInstanceTarget = FloorPresent ? FloorInstanceBuffer : InstanceBuffer;
     const VkDeviceSize FloorInstanceRange  = FloorPresent ? FloorInstanceBytes  : InstanceBytes;
 
-    // 🔴 Both shadow handles or neither, for the floor triple's reason and one more: a resident atlas with no mapping is unaddressable (the mapping IS
-    //    the addressing — there is no affine map from a world position to an atlas texel), and a mapping with no atlas has nothing to read. The alias
-    //    targets are chosen for TYPE compatibility: the visibility image is R32_UINT exactly as the atlas is, so b8's usampler2D is satisfied, and the
-    //    index buffer is a uint SSBO exactly as the mapping is. ⚠️ Both aliases READ CLEANLY AND MEAN NOTHING, which is why SunShadowEnabled — not a
-    //    handle or a length test — has to be what the shader branches on.
-    // 🔴 The COVERAGE buffer joins the same all-or-nothing group, and it is load-bearing rather than a third handle to keep tidy: it is what the tracer
-    //    tests to decide a page was actually drawn into, so binding a real atlas against an aliased coverage array would make every page read as
-    //    never-drawn (the alias holds vertex indices, some of which are zero) and the walk would fall out of every level into fully lit.
-    const bool ShadowPresent = ShadowAtlasView      != VK_NULL_HANDLE
-                            && ShadowMappingBuffer  != VK_NULL_HANDLE
-                            && ShadowCoverageBuffer != VK_NULL_HANDLE;
-
-    const VkImageView  ShadowAtlasTarget   = ShadowPresent ? ShadowAtlasView     : Image.IdView;
-    const VkBuffer     ShadowMappingTarget = ShadowPresent ? ShadowMappingBuffer : IndexBuffer;
-    const VkDeviceSize ShadowMappingRange  = ShadowPresent ? ShadowMappingBytes  : IndexBytes;
-    const VkBuffer     ShadowCoverageTarget = ShadowPresent ? ShadowCoverageBuffer : IndexBuffer;
-    const VkDeviceSize ShadowCoverageRange  = ShadowPresent ? ShadowCoverageBytes  : IndexBytes;
-
     // Idempotent, for the same reason VisibilityInscription's Refresh is: this set is bound every frame the shade records, so rewriting it when
     // nothing changed would trip the "descriptor in use by a pending command buffer" rule for no benefit. Only bring-up and resize actually differ,
     // and the caller idles the device on those. Steady state issues zero vkUpdateDescriptorSets.
@@ -585,11 +492,7 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
                         && Shade.BoundFloorVertexBuffer    == FloorVertexTarget
                         && Shade.BoundFloorIndexBuffer     == FloorIndexTarget
                         && Shade.BoundFloorInstanceBuffer  == FloorInstanceTarget
-                        && Shade.FloorGeometryBound        == FloorPresent
-                        && Shade.BoundShadowAtlasView      == ShadowAtlasTarget
-                        && Shade.BoundShadowMappingBuffer  == ShadowMappingTarget
-                        && Shade.BoundShadowCoverageBuffer == ShadowCoverageTarget
-                        && Shade.ShadowAtlasBound          == ShadowPresent;
+                        && Shade.FloorGeometryBound        == FloorPresent;
     if (Unchanged)
         return;
 
@@ -606,19 +509,7 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     VkDescriptorBufferInfo FloorIndexInfo    = { FloorIndexTarget,    0, FloorIndexRange };
     VkDescriptorBufferInfo FloorInstanceInfo = { FloorInstanceTarget, 0, FloorInstanceRange };
 
-    // ⚠️ The shadow atlas is SAMPLED, so this layout must be what the atlas is actually in when the shade executes — TransitionShadowPageAtlas to
-    //    SHADER_READ_ONLY_OPTIMAL after S7 and before the radiance scope opens. A descriptor naming a layout the image is not in is undefined, and the
-    //    validation layer is the only thing that will say so.
-    VkDescriptorImageInfo ShadowAtlasInfo = {};
-    ShadowAtlasInfo.sampler     = Shade.ShadowSampler;
-    ShadowAtlasInfo.imageView   = ShadowAtlasTarget;
-    ShadowAtlasInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorBufferInfo ShadowMappingInfo  = { ShadowMappingTarget,  0, ShadowMappingRange };
-    VkDescriptorBufferInfo ShadowCoverageInfo = { ShadowCoverageTarget, 0, ShadowCoverageRange };
-    VkDescriptorBufferInfo TraceInfo          = { Shade.TraceBuffer,    0, (VkDeviceSize)sizeof(SunShadowTraceBlock) };
-
-    VkWriteDescriptorSet Writes[11] = {};
+    VkWriteDescriptorSet Writes[7] = {};
     Writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     Writes[0].dstSet          = Shade.ShadeSet;
     Writes[0].dstBinding      = BindingVisibilityImage;
@@ -668,37 +559,7 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     Writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     Writes[6].pBufferInfo     = &FloorInstanceInfo;
 
-    Writes[7].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    Writes[7].dstSet          = Shade.ShadeSet;
-    Writes[7].dstBinding      = BindingShadowAtlas;
-    Writes[7].descriptorCount = 1;
-    Writes[7].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    Writes[7].pImageInfo      = &ShadowAtlasInfo;
-
-    Writes[8].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    Writes[8].dstSet          = Shade.ShadeSet;
-    Writes[8].dstBinding      = BindingShadowMapping;
-    Writes[8].descriptorCount = 1;
-    Writes[8].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Writes[8].pBufferInfo     = &ShadowMappingInfo;
-
-    // b10 points at a buffer this unit OWNS, so it never changes handle — but it is written here anyway rather than at Initialize, because the set is
-    // only allocated by then and an unwritten binding is undefined memory rather than a safely empty one.
-    Writes[9].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    Writes[9].dstSet          = Shade.ShadeSet;
-    Writes[9].dstBinding      = BindingShadowTrace;
-    Writes[9].descriptorCount = 1;
-    Writes[9].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    Writes[9].pBufferInfo     = &TraceInfo;
-
-    Writes[10].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    Writes[10].dstSet          = Shade.ShadeSet;
-    Writes[10].dstBinding      = BindingShadowCoverage;
-    Writes[10].descriptorCount = 1;
-    Writes[10].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    Writes[10].pBufferInfo     = &ShadowCoverageInfo;
-
-    vkUpdateDescriptorSets(Shade.Host->Device, 11, Writes, 0, nullptr);
+    vkUpdateDescriptorSets(Shade.Host->Device, 7, Writes, 0, nullptr);
 
     Shade.BoundIdView                = Image.IdView;
     Shade.BoundVertexBuffer          = VertexBuffer;
@@ -708,64 +569,6 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     Shade.BoundFloorIndexBuffer      = FloorIndexTarget;
     Shade.BoundFloorInstanceBuffer   = FloorInstanceTarget;
     Shade.FloorGeometryBound         = FloorPresent;
-    Shade.BoundShadowAtlasView       = ShadowAtlasTarget;
-    Shade.BoundShadowMappingBuffer   = ShadowMappingTarget;
-    Shade.BoundShadowCoverageBuffer  = ShadowCoverageTarget;
-    Shade.ShadowAtlasBound           = ShadowPresent;
-}
-
-void UploadSurfaceShadeTraceBlock(SurfaceShadeInscription& Shade, const SunShadowTraceBlock& Block)
-{
-    if (!Shade.ReadyCondition || Shade.TraceMapping == nullptr)
-        return;
-
-    // One memcpy into coherent memory. No descriptor write (b10's handle never changes) and no flush, so this is safe to call every image even while a
-    // previous frame is in flight — the buffer's CONTENTS are what change, which is the same hazard class as any per-image uniform update.
-    std::memcpy(Shade.TraceMapping, &Block, sizeof(SunShadowTraceBlock));
-}
-
-SunShadowTraceBlock SolveSurfaceShadeTraceBlock(const SunShadowClipmap& Clipmap,
-                                                float                   DepthOriginMetres,
-                                                float                   DepthRangeMetres,
-                                                float                   DepthBias,
-                                                SunShadowDebugView      DebugView)
-{
-    SunShadowTraceBlock Block;
-
-    Block.LightRightAxis[0]   = Clipmap.Basis.RightAxis.XCoord;
-    Block.LightRightAxis[1]   = Clipmap.Basis.RightAxis.YCoord;
-    Block.LightRightAxis[2]   = Clipmap.Basis.RightAxis.ZCoord;
-    Block.LightUpAxis[0]      = Clipmap.Basis.UpAxis.XCoord;
-    Block.LightUpAxis[1]      = Clipmap.Basis.UpAxis.YCoord;
-    Block.LightUpAxis[2]      = Clipmap.Basis.UpAxis.ZCoord;
-    Block.LightForwardAxis[0] = Clipmap.Basis.ForwardAxis.XCoord;
-    Block.LightForwardAxis[1] = Clipmap.Basis.ForwardAxis.YCoord;
-    Block.LightForwardAxis[2] = Clipmap.Basis.ForwardAxis.ZCoord;
-
-    // 🔴 COPIED VERBATIM, NOT NEGATED. ToroidalOrigin is already in ADD form (the negated window corner), and the shader adds it — matching
-    //    ResolveSunShadowPhysicalTile, which does WrapToroidalIndex(LightTile + ToroidalOrigin, Modulus). Flipping the sign here still produces
-    //    in-range, distinct, plausible slots, so nothing looks broken; the reader would simply disagree with S7 about which tile owns which slot.
-    const uint32_t LevelCount = (uint32_t)Clipmap.Levels.size() < ShadowTilemapLodCount
-                              ? (uint32_t)Clipmap.Levels.size()
-                              : ShadowTilemapLodCount;
-    for (uint32_t Level = 0; Level < LevelCount; ++Level)
-    {
-        Block.ToroidalOrigins[Level][0] = Clipmap.Levels[Level].ToroidalOrigin.XTile;
-        Block.ToroidalOrigins[Level][1] = Clipmap.Levels[Level].ToroidalOrigin.YTile;
-    }
-    // Levels beyond the clipmap's own count keep the zero-initialized origin, and LevelCount below stops the walk before it reaches them.
-
-    // 📝 Taken from level 0 rather than the ShadowBaseTileMetres constant, so a clipmap built with a non-default base still traces correctly. The
-    //    shader derives every coarser level as `BaseTileMetres * (1 << Level)`, which the differential probe confirmed matches each level's TileMetres.
-    if (!Clipmap.Levels.empty())
-        Block.BaseTileMetres = Clipmap.Levels[0].TileMetres;
-
-    Block.DepthOriginMetres   = DepthOriginMetres;
-    Block.DepthRangeMetres    = DepthRangeMetres;
-    Block.DepthBias           = DepthBias;
-    Block.LevelCount          = LevelCount;
-    Block.SunShadowDebugMode  = (uint32_t)DebugView;
-    return Block;
 }
 
 void RecordSurfaceShadeInscription(const SurfaceShadeInscription& Shade,
@@ -814,8 +617,6 @@ void FinalizeSurfaceShadeInscription(SurfaceShadeInscription& Shade)
         vkDestroyPipelineLayout(Device, Shade.PipelineLayout, Allocator);
     if (Shade.PointSampler != VK_NULL_HANDLE)
         vkDestroySampler(Device, Shade.PointSampler, Allocator);
-    if (Shade.ShadowSampler != VK_NULL_HANDLE)
-        vkDestroySampler(Device, Shade.ShadowSampler, Allocator);
     if (Shade.DescriptorPool != VK_NULL_HANDLE)
         vkDestroyDescriptorPool(Device, Shade.DescriptorPool, Allocator);   // frees ShadeSet
     if (Shade.SetLayout != VK_NULL_HANDLE)
@@ -824,16 +625,6 @@ void FinalizeSurfaceShadeInscription(SurfaceShadeInscription& Shade)
         vkDestroyBuffer(Device, Shade.MaterialBuffer, Allocator);
     if (Shade.MaterialMemory != VK_NULL_HANDLE)
         vkFreeMemory(Device, Shade.MaterialMemory, Allocator);
-
-    // ⚠️ Unmap BEFORE freeing. The trace buffer is persistently mapped, and freeing memory that is still mapped is undefined — it happens to work on
-    //    most drivers, which is exactly what makes it a latent defect rather than a visible one. The material UBO needs no counterpart: it maps and
-    //    unmaps inside its upload.
-    if (Shade.TraceMapping != nullptr && Shade.TraceMemory != VK_NULL_HANDLE)
-        vkUnmapMemory(Device, Shade.TraceMemory);
-    if (Shade.TraceBuffer != VK_NULL_HANDLE)
-        vkDestroyBuffer(Device, Shade.TraceBuffer, Allocator);
-    if (Shade.TraceMemory != VK_NULL_HANDLE)
-        vkFreeMemory(Device, Shade.TraceMemory, Allocator);
 
     Shade = SurfaceShadeInscription{};
 }

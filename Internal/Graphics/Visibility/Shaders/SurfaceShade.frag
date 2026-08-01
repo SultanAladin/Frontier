@@ -62,11 +62,6 @@ const float Pi = 3.14159265359;
 // becomes NaN / fireflies — Chrome at Roughness 0.05 sits close enough to the floor that this clamp is what keeps it finite.
 const float MinimumRoughness = 0.089;
 
-// 📝 The sun shadow read chain (P6.5). Declares NO bindings of its own — the atlas sampler and the mapping array arrive as macro arguments — so it is
-//    safe to include here alongside this unit's own eleven bindings. See its banner for why a shared include that names its own bindings can only ever
-//    have one consumer. ⚠️ ShaderPlan.ps1 gates recompilation on SOURCE mtime, so editing SunShadowTrace.glsl alone can ship a stale .spv of this file.
-#include "SunShadowTrace.glsl"
-
 layout(location = 0) in  vec2 FragTexCoord;
 layout(location = 0) out vec4 OutColour;
 
@@ -143,51 +138,6 @@ layout(std140, set = 0, binding = 7) readonly buffer FloorInstanceBlock
     SceneInstance FloorInstances[];
 };
 
-// 🧩 P6.5 — the sun shadow atlas and the addressing it is read through. b8 is the atlas's sampled view, b9 the tile->page mapping the tracer resolves
-//    every texel through, and b10 this image's light basis + toroidal origins + depth encoding.
-// 🔴 WHEN NO ATLAS EXISTS b8 IS ALIASED ONTO THE VISIBILITY IMAGE AND b9 ONTO THE INDEX BUFFER. Both are type-correct (the atlas and the id image are
-//    both R32_UINT), so both sample cleanly and mean nothing — visibility IDs are small integers, i.e. depths hard against the sun, so tracing the alias
-//    would read almost every surface as occluded and black the scene out. SunShadowEnabled, not a length or handle test, is the only thing that
-//    distinguishes real from aliased. Same trap FloorShadeEnabled exists for.
-layout(set = 0, binding = 8) uniform usampler2D SunShadowAtlas;
-
-layout(std430, set = 0, binding = 9) readonly buffer ShadowPageMappingBlock
-{
-    uint TilePage[];
-} ShadowPageMapping;
-
-// ⚠️ std140, and the origins are ivec4 rather than ivec2 because std140 rounds every array element up to 16 bytes. Mirrors SunShadowTraceBlock in
-//    SurfaceShadeInscription.h field for field; drift there produces shadows in the wrong place rather than a build failure.
-layout(std140, set = 0, binding = 10) uniform SunShadowTraceBlock
-{
-    vec4  LightRightAxis;
-    vec4  LightUpAxis;
-    vec4  LightForwardAxis;
-    ivec4 ToroidalOrigins[ShadowTraceLodCount];
-    float BaseTileMetres;
-    float DepthOriginMetres;
-    float DepthRangeMetres;
-    float DepthBias;
-    uint  LevelCount;
-    uint  SunShadowDebugMode;   // [-] - SunShadowDebugView; 0 shades normally. Mirrors the field in SurfaceShadeInscription.h.
-} Trace;
-
-// 🧩 One word per PHYSICAL page, raised by ShadowDepthRaster.frag's atomicOr wherever a caster fragment landed and zeroed by ClearShadowPageCoverage
-//    at the top of every image. The tracer tests this instead of probing the atlas for non-identity texels — see ShadowPageHoldsDepth.
-// 🔴 ALIASED ONTO THE INDEX BUFFER WHEN NO ATLAS EXISTS, exactly as b9 is, so SunShadowEnabled remains the only safe gate. The alias holds vertex
-//    indices, which are mostly non-zero, so tracing it would report almost every page as drawn and read the id image as depth.
-// ⚠️ readonly here and read-WRITE in S7: the same buffer, two consumers, and only the writer needs the atomic.
-layout(std430, set = 0, binding = 11) readonly buffer ShadowPageCoverageBlock
-{
-    uint PageDrawn[];
-} ShadowPageCoverage;
-
-// The SunShadowDebugView values, mirroring the enum in SurfaceShadeInscription.h. Drift here paints the wrong view, not a build failure.
-const uint SunShadowDebugDisabled      = 0u;
-const uint SunShadowDebugResolvedLevel = 1u;
-const uint SunShadowDebugDepthMargin   = 2u;
-const uint SunShadowDebugOcclusion     = 3u;
-
 layout(push_constant) uniform ShadeConstants
 {
     mat4 InverseViewProjection;   // [-] - clip -> world
@@ -196,85 +146,7 @@ layout(push_constant) uniform ShadeConstants
     uint CompositeFeatureMask;    // [-] - overrides the Composite record's own mask only
     uint FloorPartitionBase;      // [-] - partition ordinals >= this belong to the floor mesh
     uint FloorShadeEnabled;       // [-] - 1 shades the floor from b5-b7, 0 discards it (the b5-b7 alias is not real floor data)
-    uint SunShadowEnabled;        // [-] - 1 traces b8/b9, 0 leaves every surface fully lit (the b8/b9 alias is not real shadow data)
 } Constants;
-
-// Sun visibility in [0,1] for one world position: 1 fully lit, 0 fully occluded. Returns 1 when shadowing is disabled, which is what makes the alias
-// case safe and also what keeps the Phase-0 pixel-identity gate reachable — with the flag at 0 this pass shades byte-identically to before P6.5.
-// 📝 OutResolvedLevel and OutDepthMargin exist for the debug views only; shading itself reads the return value alone. They are reported even when the
-//    gate is off, so the debug view distinguishes "shadowing is disabled" from "shadowing is on but nothing is resident" — those paint identically
-//    otherwise, and that ambiguity is precisely what made the fully-lit scene so hard to attribute.
-// 📝 WorldNormal is the receiver's geometric normal, already flipped toward the viewer by the caller. It sizes the normal-offset that keeps a grazing
-//    surface from shadowing itself — see ShadowTraceNormalOffsetTexels.
-float ResolveSunVisibility(vec3 WorldPosition, vec3 WorldNormal, out uint OutResolvedLevel, out float OutDepthMargin)
-{
-    OutResolvedLevel = uint(ShadowTraceLodCount);
-    OutDepthMargin   = 1.0;
-
-    if (Constants.SunShadowEnabled == 0u)
-        return 1.0;
-
-    const vec3 LightPosition = ProjectShadowTraceLightSpace(WorldPosition,
-                                                            Trace.LightRightAxis.xyz,
-                                                            Trace.LightUpAxis.xyz,
-                                                            Trace.LightForwardAxis.xyz);
-
-    // 🔴 THE NORMAL GOES THROUGH THE SAME PROJECTION AS THE POSITION, which is what makes the offset addable to LightPosition inside the walk. The light
-    //    basis is ORTHONORMAL (SunShadowClipmap builds it that way), so the three dot products rotate the normal without scaling or shearing it and the
-    //    result stays unit length — no renormalize needed, and none is harmless. ⚠️ Projecting the position but not the normal, or offsetting in WORLD
-    //    space and projecting the sum, both put the offset along a different direction than the texel grid it is meant to step across.
-    const vec3 LightNormal = ProjectShadowTraceLightSpace(WorldNormal,
-                                                          Trace.LightRightAxis.xyz,
-                                                          Trace.LightUpAxis.xyz,
-                                                          Trace.LightForwardAxis.xyz);
-
-    // The walk macro indexes an ivec2 array, so unpack the std140-padded ivec4s into one. A local copy rather than a cast: the two have different
-    // strides, and reinterpreting would read halves of two different origins for every level above 0.
-    ivec2 Origins[ShadowTraceLodCount];
-    for (uint Level = 0u; Level < uint(ShadowTraceLodCount); ++Level)
-        Origins[Level] = Trace.ToroidalOrigins[Level].xy;
-
-    float Visibility;
-    TraceSunShadowVisibility(Visibility, OutResolvedLevel, OutDepthMargin,
-                             SunShadowAtlas, ShadowPageMapping.TilePage, ShadowPageCoverage.PageDrawn,
-                             Trace.LevelCount, LightPosition,
-                             Origins, Trace.BaseTileMetres,
-                             Trace.DepthOriginMetres, Trace.DepthRangeMetres, Trace.DepthBias, LightNormal);
-    return Visibility;
-}
-
-// 📝 The debug view's colour for one traced pixel. Split out of main() so the shading path stays one straight line with a single early return.
-// ⚠️ Fully saturated primaries on purpose — these are read off a screenshot, not blended with anything, so mid-tones would be ambiguous.
-vec3 ResolveSunShadowDebugColour(uint DebugMode, float Visibility, uint ResolvedLevel, float DepthMargin)
-{
-    if (DebugMode == SunShadowDebugResolvedLevel)
-    {
-        // 🔴 MAGENTA means no level was resident, and it is the single most important reading in this whole view: it says the walk found no page at
-        //    any level, so no depth was ever consulted and the pixel is lit by default rather than by evidence.
-        if (ResolvedLevel >= uint(ShadowTraceLodCount))
-            return vec3(1.0, 0.0, 1.0);
-
-        // Coarse-to-fine ramp, one hue per level, so page-pool pressure shows up as the image drifting toward the coarse end.
-        const vec3 LevelPalette[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(1.0, 0.5, 0.0), vec3(1.0, 1.0, 0.0),
-                                             vec3(0.0, 1.0, 0.0), vec3(0.0, 0.6, 1.0), vec3(0.4, 0.0, 1.0));
-        return LevelPalette[min(ResolvedLevel, 5u)];
-    }
-
-    if (DebugMode == SunShadowDebugDepthMargin)
-    {
-        // 📝 WHITE now means a page that resolved with the receiver at the far end of the encoded range, which is a legitimate (if unusual) reading —
-        //    it no longer means "the page is empty". An empty page is reported as NOT resident by the tap, so it paints magenta in the level view and
-        //    falls through to a coarser level here. Kept as a distinct colour because a margin pinned to exactly +1.0 is still worth seeing.
-        if (ResolvedLevel < uint(ShadowTraceLodCount) && DepthMargin >= 1.0)
-            return vec3(1.0);
-
-        // Occluded runs red, lit runs green, both scaled so a near-zero margin (the acne-prone band) reads as near-black in either direction.
-        return (DepthMargin < 0.0) ? vec3(min(-DepthMargin * 32.0, 1.0), 0.0, 0.0)
-                                   : vec3(0.0, min(DepthMargin * 32.0, 1.0), 0.0);
-    }
-
-    return vec3(Visibility);   // SunShadowDebugOcclusion
-}
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     RECONSTRUCTION
@@ -565,15 +437,6 @@ void main()
         // No sphere texture is bound yet, so the UV lookup a real matcap would do is not computed here — the studio ramp below
         // stands in for it. When the texture lands, the normal must first be taken to VIEW space (a matcap is indexed by the
         // view-space normal, which is what makes the lighting stick to the camera); world space would rotate the highlight.
-        // 🔴 A matcap is UNSHADOWED BY DESIGN and this return is what makes it so — but under a debug view that silently reads as a broken surface,
-        //    because grey appears in no palette. Painting it flat blue says "this surface never consults the atlas", which is a true reading rather
-        //    than a missing one. Costs nothing in the shading path: the branch is only taken when a view is active.
-        if (Trace.SunShadowDebugMode != SunShadowDebugDisabled)
-        {
-            OutColour = vec4(0.0, 0.15, 0.5, 1.0);
-            return;
-        }
-
         float Key   = pow(clamp(dot(Normal, normalize(vec3(0.4, 0.3, 0.9))), 0.0, 1.0), 2.0);
         float Rim   = pow(1.0 - clamp(dot(Normal, ViewVector), 0.0, 1.0), 2.5);
         vec3  Studio = BaseColour * (0.35 + 0.75 * Key) + vec3(0.9) * Rim * 0.35;
@@ -599,19 +462,10 @@ void main()
     float Alpha2 = Roughness * Roughness;
     vec3  Radiance = vec3(0.0);
 
-    // ---- Sun shadow ----
-    // 🔴 FOLDED INTO LightEnergy RATHER THAN APPLIED PER LOBE, and that is a correctness choice rather than brevity. Every sun-driven lobe below —
-    //    diffuse, wrapped subsurface, specular, sheen, coat — is scaled by LightEnergy, so attenuating it once shadows all five and CANNOT miss one as
-    //    a lobe is added later. Five separate multiplications would each be a place to forget.
-    // 🔴 THE AMBIENT FILL MUST NOT BE SHADOWED. It uses AmbientColour, not LightEnergy, so it is untouched here by construction — which is the point.
-    //    Ambient stands in for sky and bounce, i.e. light that arrives from everywhere except the sun; multiplying it by sun visibility would drive
-    //    shadowed surfaces to pure black instead of the dim blue an unlit side should read as, and no amount of bias tuning recovers that. The glass rim
-    //    at the bottom is likewise LightColour-driven and deliberately left lit.
-    // ⚠️ Matcap never reaches here — it returns above, bypassing the light loop entirely, so a matcap surface is unshadowed by design.
-    uint  ShadowResolvedLevel;
-    float ShadowDepthMargin;
-    float SunVisibility = ResolveSunVisibility(WorldPosition, Normal, ShadowResolvedLevel, ShadowDepthMargin);
-    vec3  LightEnergy   = LightColour * LightIntensity * SunVisibility;
+    // ---- Key light energy ----
+    // Every sun-driven lobe below — diffuse, wrapped subsurface, specular, sheen, coat — is scaled by LightEnergy. The ambient fill uses AmbientColour
+    // instead, so it stands in for sky and bounce and is deliberately left untouched by the key light's direction.
+    vec3  LightEnergy = LightColour * LightIntensity;
 
     // ---- Diffuse ----
     if ((FeatureMask & FeatureDiffuse) != 0u)
@@ -699,16 +553,6 @@ void main()
         float Rim = pow(1.0 - NoV, 3.0);
         Radiance += vec3(Rim) * 0.6 * LightColour;
         OutputAlpha = clamp(Alpha + Rim, 0.0, 1.0);
-    }
-
-    // 🧩 P6.5 diagnostic — REPLACES the shaded radiance rather than tinting it, and sits after every lobe so the trace states it reports are the same
-    //    ones the shading actually consumed. ⚠️ Deliberately BEFORE the alpha write: a transmissive surface must show its debug colour opaquely, or
-    //    the reading is blended with whatever is behind it.
-    if (Trace.SunShadowDebugMode != SunShadowDebugDisabled)
-    {
-        OutColour = vec4(ResolveSunShadowDebugColour(Trace.SunShadowDebugMode, SunVisibility,
-                                                     ShadowResolvedLevel, ShadowDepthMargin), 1.0);
-        return;
     }
 
     // Linear radiance out, unbounded above 1.0 — the resolve owns exposure + the tone curve, the _SRGB swapchain owns the transfer

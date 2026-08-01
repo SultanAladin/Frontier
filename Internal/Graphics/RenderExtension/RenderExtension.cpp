@@ -854,85 +854,6 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                  (unsigned)(Extension.ClipmapField.LevelCount - 1),
                  (double)(ClipmapDefaultResolution * Extension.ClipmapField.Levels.back().CellMetres));
 
-    // -- Sun shadows (P6.3b): the light-space tile window + the physical page pool behind it. -----------------------------------------------
-    // 📝 The window is pure CPU math and cannot fail, so it is configured unconditionally. The atlas allocates a real 4096² R32_UINT image and
-    //    CAN fail (out of device memory, no device-local type) — on failure ReadyCondition stays false and every shadow step downstream no-ops,
-    //    which degrades to the pre-P6 image rather than taking the renderer down.
-    InitializeSunShadowClipmap(Extension.SunWindow, ShadowTilemapLodCount, ShadowTilemapResolution, ShadowBaseTileMetres);
-    if (InitializeShadowPageAtlas(Extension.ShadowAtlas, Extension.Substrate.Host, ShadowTilemapLodCount, ShadowTilemapResolution))
-    {
-        ISSUE_NOTICE("render-extension",
-                     "sun shadows: %u levels x %u^2 tiles (level 0 tile %.2f m); atlas %ux%u R32_UINT = %u MiB, %u pages vs %u tiles (%u:1)",
-                     (unsigned)ShadowTilemapLodCount, (unsigned)ShadowTilemapResolution, (double)ShadowBaseTileMetres,
-                     (unsigned)ShadowPageAtlasEdge, (unsigned)ShadowPageAtlasEdge,
-                     (unsigned)((ShadowPageAtlasEdge * ShadowPageAtlasEdge * 4u) / (1024u * 1024u)),
-                     (unsigned)ShadowPageCapacity,
-                     (unsigned)(ShadowTilemapResolution * ShadowTilemapResolution * ShadowTilemapLodCount),
-                     (unsigned)((ShadowTilemapResolution * ShadowTilemapResolution * ShadowTilemapLodCount) / ShadowPageCapacity));
-    }
-    else
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: page atlas did NOT build — shadow steps bypass, image is pre-P6");
-    }
-
-    // -- The marking chain (P6.3c): the virtual tile table, then the three GPU passes that raise demand bits in it. -----------------------
-    // 📝 Ordered after the atlas because the marking chain is what will FEED the allocator — but it does not depend on it: marking states what the
-    //    image wants, allocation decides what it gets. So the table + pipelines build even when the atlas did not, and the tally still reports.
-    // 🔴 The chain writes DEMAND only. Nothing here allocates a page or rasterizes depth into one (S4/S5 are CPU mirrors, S7 is P6.4), so the marked
-    //    table cannot change the presented image — the Phase-0 pixel-identity gate still holds through this whole step.
-#ifndef FRONTIER_SHADOW_SHADER_DIR
-#define FRONTIER_SHADOW_SHADER_DIR "Shaders"
-#endif
-    if (InitializeShadowTileStore(Extension.TileStore, Extension.Substrate.Host, ShadowTilemapLodCount, ShadowTilemapResolution) &&
-        InitializeShadowTileMarkingSubmission(Extension.TileMarking, Extension.Substrate.Host, Extension.TileStore,
-                                              FRONTIER_SHADOW_SHADER_DIR))
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: marking chain live — %u-word table, S1%s + S3 recorded per image",
-                     (unsigned)ShadowTileStoreCapacity,
-                     Extension.TileMarking.TagPipelineEnabled ? " + S2" : " (S2 OFF: no fragment SSBO writes)");
-    }
-    else
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: marking chain did NOT build — no tile demand is produced, tally stays zero");
-    }
-
-    // -- S6 (P6.4): the page clear pass. ------------------------------------------------------------------------------------------
-    // 🔴 Depends on the atlas because its descriptor bakes in the atlas storage view, so it is built only when the atlas did. It still cannot change the
-    //    presented image: it writes the identity value into pages nothing samples yet (S7 is the next step, the tracer is P6.5), so the Phase-0
-    //    pixel-identity gate holds through this step too.
-    if (Extension.ShadowAtlas.ReadyCondition &&
-        InitializeShadowPageClearSubmission(Extension.ShadowPageClear, Extension.Substrate.Host, Extension.ShadowAtlas,
-                                            FRONTIER_SHADOW_SHADER_DIR))
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: S6 page clear live — clears only the pages wanted AND stale (0x%08X identity)",
-                     (unsigned)ShadowPageClearIdentity);
-    }
-    else if (Extension.ShadowAtlas.ReadyCondition)
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: S6 page clear did NOT build — pages keep the previous owner's depth, S7 would resolve garbage");
-    }
-
-    // -- S7 (P6.4): the caster depth raster. --------------------------------------------------------------------------------------
-    // 🔴 Requires fragmentStoresAndAtomics, exactly as S2 does: the whole pass IS a fragment-stage imageAtomicMin, so without the feature the pipeline
-    //    would be a validation error rather than merely slow. Degrading to no shadows is the only option, hence the explicit else.
-    // 📝 Built after S6 because it rasterizes into the pages S6 primes, and like S6 it still cannot change the presented image — it writes depth into an
-    //    atlas nothing samples until the P6.5 tracer lands, so the Phase-0 pixel-identity gate holds through this step too.
-    if (Extension.ShadowAtlas.ReadyCondition && Extension.Substrate.Host.FragmentStoresAndAtomicsEnabled &&
-        InitializeShadowDepthRasterSubmission(Extension.ShadowDepthRaster, Extension.Substrate.Host, Extension.ShadowAtlas,
-                                              FRONTIER_SHADOW_SHADER_DIR))
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: S7 caster depth raster live — %.0f m depth span from %.0f m, atomic-min resolve",
-                     (double)ShadowDepthRangeMetres, (double)ShadowDepthOriginMetres);
-    }
-    else if (Extension.ShadowAtlas.ReadyCondition && !Extension.Substrate.Host.FragmentStoresAndAtomicsEnabled)
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: S7 depth raster SKIPPED — host lacks fragmentStoresAndAtomics, no caster depth is produced");
-    }
-    else if (Extension.ShadowAtlas.ReadyCondition)
-    {
-        ISSUE_NOTICE("render-extension", "sun shadows: S7 depth raster did NOT build — pages stay at the identity, every receiver reads as unshadowed");
-    }
-
     // 📝 Which level occupancy is voxelized and displayed at. This is the knob that decides whether the voxelization is LEGIBLE: at level 2 (4 m
     //    cells) a whole head plus the floor under it collapse into a single cage, so the shell reads as one uniform box and there is no way to see
     //    that the per-triangle predicate is doing anything. Level 0's 1 m cells resolve a head into a cluster of cages that follows its silhouette,
@@ -1017,13 +938,6 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                     BindSoftwarePackedTarget(Extension.SoftwareRaster, Extension.VisibilityTarget);
                 }
 
-                // S7 (P6.4): acquire the heads' caster set. 📝 Here rather than beside Initialize because the instance buffer only exists once the scene
-                //    has been uploaded. The SAME buffer the hardware raster draws from, so a head cannot be placed differently for its shadow than for
-                //    its shading — one transform source, two consumers.
-                Extension.ShadowCasterSceneSet =
-                    AcquireShadowCasterSet(Extension.ShadowDepthRaster, Extension.VisibilityRaster.InstanceBuffer,
-                                           (VkDeviceSize)Extension.VisibilityRaster.InstanceCount * sizeof(SuzanneSceneInstance));
-
                 // Deferred shade: point its set at the id image plus the three buffers the reconstruction reads — the shared mesh vertex/index SSBOs (to
                 // fetch the unpacked triangle's three corners) and the raster's instance SSBO (to reach the model transform, normal basis, and
                 // MaterialId behind a partition ordinal). This is the earliest point all three exist, which is why the Refresh lives here rather than
@@ -1038,17 +952,7 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                                    Extension.SceneGeometry.VertexBuffer, Extension.SceneGeometry.VertexByteCapacity,
                                                    Extension.SceneGeometry.IndexBuffer,  Extension.SceneGeometry.IndexByteCapacity,
                                                    Extension.VisibilityRaster.InstanceBuffer,
-                                                   (VkDeviceSize)Instances.size() * sizeof(SuzanneSceneInstance),
-                                                   VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, 0,
-                                                   // 🔴 The shadow pair must be passed at EVERY Refresh, not just the last one. Refresh rewrites the
-                                                   //    WHOLE set, so omitting them here would re-alias b8/b9 onto the visibility image even though the
-                                                   //    atlas is live — and ShadowAtlasBound would go false, silently disabling shadows rather than
-                                                   //    breaking anything visibly.
-                                                   Extension.ShadowAtlas.AtlasSampledView,
-                                                   Extension.ShadowAtlas.MappingBuffer,
-                                                   (VkDeviceSize)Extension.ShadowAtlas.TilePageMapping.size() * sizeof(uint32_t),
-                                                   Extension.ShadowAtlas.CoverageBuffer,
-                                                   (VkDeviceSize)ShadowPageCapacity * sizeof(uint32_t));
+                                                   (VkDeviceSize)Instances.size() * sizeof(SuzanneSceneInstance));
                 }
 
                 // The component overlay reads the SAME three buffers as the shade pass above (it reconstructs the same triangle, then measures screen
@@ -1102,15 +1006,6 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                 ISSUE_NOTICE("render-extension", "checkered floor loaded: %u instances, %u triangles",
                              (unsigned)FloorInstances.size(), (unsigned)(Extension.FloorGeometry.IndexCount / 3));
 
-                // S7 (P6.4): the floor's own caster set. 🔴 The slab is a CASTER as well as the receiver, and giving it its own set rather than reusing
-                //    the heads' is what makes that possible — re-pointing one shared set between the two draws would mutate a descriptor the queued head
-                //    draw still references. Without this the slab would receive shadows but cast none, losing its own contact shadow.
-                // ⚠️ Face culling is off in S7's pipeline precisely for this mesh: the slab is single-sided, so culling from the light's view could
-                //    discard its only face and it would stop casting entirely.
-                Extension.ShadowCasterFloorSet =
-                    AcquireShadowCasterSet(Extension.ShadowDepthRaster, Extension.FloorRaster.InstanceBuffer,
-                                           (VkDeviceSize)FloorInstances.size() * sizeof(SuzanneSceneInstance));
-
                 // The floor is scene geometry too, so it belongs in the clipmap occupancy alongside the heads — previously it was loaded into
                 // its own local stream and never voxelized, which is why the slab showed no occupied cells at all. Its triangles are large
                 // enough to each propose a wide candidate box, so this is the sweep the cell budget above exists for.
@@ -1131,12 +1026,7 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                                    Extension.FloorGeometry.VertexBuffer, Extension.FloorGeometry.VertexByteCapacity,
                                                    Extension.FloorGeometry.IndexBuffer,  Extension.FloorGeometry.IndexByteCapacity,
                                                    Extension.FloorRaster.InstanceBuffer,
-                                                   (VkDeviceSize)FloorInstances.size() * sizeof(SuzanneSceneInstance),
-                                                   Extension.ShadowAtlas.AtlasSampledView,   // see the shadow-pair note at the first Refresh
-                                                   Extension.ShadowAtlas.MappingBuffer,
-                                                   (VkDeviceSize)Extension.ShadowAtlas.TilePageMapping.size() * sizeof(uint32_t),
-                                                   Extension.ShadowAtlas.CoverageBuffer,
-                                                   (VkDeviceSize)ShadowPageCapacity * sizeof(uint32_t));
+                                                   (VkDeviceSize)FloorInstances.size() * sizeof(SuzanneSceneInstance));
                 }
             }
             else
@@ -1195,411 +1085,17 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
     Extension.Substrate.RecordPreamble =
         [&Extension](VkCommandBuffer CommandBuffer, VkExtent2D Extent)
         {
-            // ================================================================================================================================
-            //  C1-C4 / C6 — the CPU sun-window advance (P6.3b)
-            // ================================================================================================================================
-            // 📝 Runs at the very TOP of the preamble, before the early cull, because every GPU shadow step below reads the window this advances:
-            //    which tiles are resident, which just went stale, and which pages back them. Host-side integer work on a 32² x 6 tile lattice.
-            //
             // 🔴 The observer is CACHED here for RecordSequence to reuse rather than each recomputing it. The preamble runs first and the sequence
             //    second within ONE command buffer, but the sequence drives the camera before it advances the GI field — so recomputing there would
-            //    hand the two spines observers a frame of camera motion apart, and the sun window and the GI field would disagree about where the
-            //    viewer is. One evaluation, one cache, both read it.
+            //    hand the two spines observers a frame of camera motion apart, and the GI field would disagree with itself about where the viewer
+            //    is. One evaluation, one cache, both read it.
             //
-            // ⚠️ Deliberately NOT moving DriveViewportCamera ahead of the preamble (the sketch in PLAN §4.1 suggested it). The visibility raster
-            //    below depends on using this frame's NOT-yet-advanced camera — the shade reconstructs geometry from the id buffer that raster
-            //    wrote, so it must read the camera that wrote it. Advancing the camera first would invert that invariant and perturb the settled
-            //    P5.9b image to solve a problem the shadows do not have: a half-frame of camera lag shifts WHICH TILES are resident, not where any
-            //    geometry lands. Tile residency is self-correcting on the next image; the raster/shade camera agreement is not.
+            // ⚠️ Deliberately NOT moving DriveViewportCamera ahead of the preamble. The visibility raster below depends on using this frame's
+            //    NOT-yet-advanced camera — the shade reconstructs geometry from the id buffer that raster wrote, so it must read the camera that
+            //    wrote it. Advancing the camera first would invert that invariant and perturb the settled P5.9b image.
             Extension.CachedObserverPosition = EvaluateObserverPosition(Extension.ViewCamera);
             Extension.ObserverCacheSeeded    = true;
 
-            // 🔴 THE SUN WINDOW CENTRES ON THE ORBIT TARGET, NOT THE EYE, AND THAT IS THE FIX FOR THE ROTATION FLICKER. EvaluateObserverPosition
-            //    returns Target - Forward * Distance (CameraViewMatrixSolver.cpp:48) — the EYE, which orbits. Centring the clipmap there makes the
-            //    lattice origin a function of camera ORIENTATION: at Distance = 18 m a yaw sweep swings the centre around an 18 m circle in light
-            //    space, so every receiver's offset-from-centre changes, its analytic level changes, origins scroll, and pages are evicted and
-            //    re-rendered — while the geometry and the sun both stood still. Measured as debug-level colours flashing on every left/right/up/down
-            //    rotate, and as shadow flicker from pages caught mid-redraw. The orbit TARGET is invariant under both rotation and zoom, so the
-            //    lattice moves only when the viewer actually translates, which is the only motion a clipmap should react to.
-            // ⚠️ NOT folded into CachedObserverPosition, which the GI clipmap field also reads (IntegrateClipmapField below). That field's
-            //    behaviour is settled against the eye and is not what this fixes; widening the change would perturb a working subsystem.
-            // 📝 Zoom therefore no longer rebuilds the window either. Distance still drives nothing here — level follows the receiver's own
-            //    light-space offset (MarkVisibleShadowPages.comp / SunShadowTrace.glsl), never the viewer's distance.
-            Extension.CachedShadowCentre = Extension.ViewCamera.Target;
-
-            {
-                // C1-C4: rebuild the light basis, scroll every level to the observer, and commit residency. A sun that ROTATED invalidates whole
-                // windows instead of exposing strips — that coarse path lives inside Refresh and is not merged with scrolling.
-                // 🔴 CONVERTED OUT OF THE ATMOSPHERE'S Y-UP FRAME, not read raw. The profile stores the sun with .y as elevation; the clipmap's basis
-                //    and every other scene consumer are Z-up. Reading the three floats in order — which this did until 2026-07-30 — puts the sun on
-                //    the HORIZON at the default 45° profile, because (0.707, 0.707, 0) has zero Z. It produced no error and no warning: the sky drew a
-                //    45° sun while the shadow basis pointed sideways, so shadows raked to infinity from a light nothing else agreed with.
-                float SunX = 0.0f, SunY = 0.0f, SunZ = 1.0f;
-                Atmosphere::ResolveSolarDirectionSceneFrame(Extension.SkyPass.Profile, SunX, SunY, SunZ);
-                const Vector3f SolarDirection{ SunX, SunY, SunZ };
-
-                // 🔴 THE PER-LEVEL SCROLL IS DRIVEN HERE RATHER THAN THROUGH RefreshSunShadowClipmap BECAUSE THE ATLAS MUST SEE EACH RESULT. Refresh
-                //    evaluates and commits every level internally and returns nothing, so the exposed strips — the only record of which tiles just
-                //    changed which ground they address — were discarded before anything could act on them. IntegrateSunShadowResidency zeroes the
-                //    clipmap's CPU ResidencyTable for those tiles, but the tracer reads depth through the atlas's TilePageMapping, which kept pointing
-                //    at pages holding the PREVIOUS ground's depth. That is why a static camera looked perfect and any camera motion produced offset,
-                //    flickering, grid-aligned shadows: standing still exposes no strips, so nothing went stale.
-                // ⚠️ ORDER IS LOAD-BEARING THREE WAYS: Evaluate reads the pre-scroll origin, Integrate advances it, and the atlas release must run
-                //    AFTER Integrate because a tile's slot is resolved through the CURRENT origin. Releasing first would unmap the slots the window is
-                //    about to reuse while sparing the ones actually holding stale depth.
-                // 📝 The basis/previous-direction bookkeeping Refresh used to own is reproduced below the loop, unchanged in order: every level is
-                //    evaluated against the PREVIOUS image's sun so the rotation test stays meaningful.
-                uint32_t ScrollReleasedPages = 0;
-
-                if (Extension.SunWindow.ReadyCondition && !Extension.SunWindow.Levels.empty())
-                {
-                    for (uint32_t LevelIterator = 0; LevelIterator < (uint32_t)Extension.SunWindow.Levels.size(); ++LevelIterator)
-                    {
-                        const SunShadowScrollResult Scroll = EvaluateSunShadowScroll(Extension.SunWindow,
-                                                                                    LevelIterator,
-                                                                                    Extension.CachedShadowCentre,
-                                                                                    SolarDirection);
-                        IntegrateSunShadowResidency(Extension.SunWindow, Scroll);
-                        ScrollReleasedPages += InvalidateScrolledShadowPages(Extension.ShadowAtlas, Extension.SunWindow, Scroll);
-                    }
-
-                    Extension.SunWindow.Basis                  = SolveSunShadowBasis(SolarDirection);
-                    Extension.SunWindow.SolarDirectionPrevious = NormalizeVector(SolarDirection);
-                    Extension.SunWindow.SolarDirectionSeeded   = true;
-                }
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                // 📝 Change-triggered: a still camera releases nothing, so an unconditional print would be silent noise and then a flood on motion.
-                if (ScrollReleasedPages != 0)
-                    printf("[shadow] scroll released %u stale pages\n", ScrollReleasedPages);
-#else
-                (void)ScrollReleasedPages;
-#endif
-
-                // 🔴 The marking chain's per-level origin uniform block is refreshed HERE — immediately after the scroll above and before any of the
-                //    three passes is recorded. All of S1/S2/S3 resolve a tile through this ToroidalOrigin, so handing them a window the clipmap has
-                //    not yet scrolled would make every pass address the PREVIOUS image's lattice: every mark lands off by the frame's scroll, which
-                //    presents as shadows lagging the camera rather than as a stale upload. Cheap (a 96-byte coherent write), so unconditional.
-                RefreshShadowTileOrigins(Extension.TileMarking, Extension.SunWindow);
-
-                if (Extension.TileStore.ReadyCondition)
-                {
-                    // 🔴 RESOLVE THE PREVIOUS IMAGE'S DOWNLOAD FIRST, BEFORE THE RESET AND UPLOAD BELOW. Upload and download share ONE staging
-                    //    buffer, so the memcpy inside UploadShadowTileStore overwrites exactly the bytes the previous image's download landed in.
-                    //    Resolving afterwards therefore reads back the freshly-RESET mirror and every count reads zero — which looks like "the GPU
-                    //    marked nothing", not like a read-ordering mistake. Observed as counts alternating real / zero across the two frame slots.
-                    // ⚠️ Still one image stale by design: this reads what the PREVIOUS submission's copy produced. Reading it fresh needs a stall.
-                    ResolveShadowTileDownload(Extension.TileStore);
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                    // 📝 P6.3c gate instrumentation. Change-triggered on the Used count, because standing still marks the same tiles every image and
-                    //    a per-frame print would bury every other notice.
-                    // 🔴 These counts CANNOT see an origin-sign error. `Slot − Origin` and `Origin + Slot` both enumerate all 32 slots bijectively, so
-                    //    every number below is byte-identical either way. Only a word-for-word CPU-mirror cross-check pins the convention.
-                    RefreshShadowTileTally(Extension.TileStore);
-                    if (Extension.TileStore.Tally.TileUsedCount != Extension.ReportedTileUsedCount)
-                    {
-                        Extension.ReportedTileUsedCount = Extension.TileStore.Tally.TileUsedCount;
-                        ISSUE_NOTICE("render-extension",
-                                     "shadow tiles: used %u of %u — direct %u, coarse-only %u, update %u, to render %u, masked %u",
-                                     (unsigned)Extension.TileStore.Tally.TileUsedCount,
-                                     (unsigned)ShadowTileStoreCapacity,
-                                     (unsigned)Extension.TileStore.Tally.TileDirectCount,
-                                     (unsigned)Extension.TileStore.Tally.TileCoarseCount,
-                                     (unsigned)Extension.TileStore.Tally.TileUpdateCount,
-                                     (unsigned)Extension.TileStore.Tally.TileRenderCount,
-                                     (unsigned)Extension.TileStore.Tally.TileMaskedCount);
-                    }
-#endif
-
-                }
-
-                // Open the page image: every page claimed last image demotes Used -> Cached so it becomes reclaimable again. Without this the pool
-                // leaks into a permanently-Used state and exhausts in blocks that never recover.
-                if (Extension.ShadowAtlas.ReadyCondition)
-                {
-                    OpenShadowPageImage(Extension.ShadowAtlas);
-
-                    // S5 (CPU): claim a page for every tile the marking chain says still wants one, then push the resulting mapping to the device for
-                    // S6/S7 to address through.
-                    // 🔴 STRICTLY AFTER OpenShadowPageImage. The open demotes every page Used -> Cached; allocating first would have this image's fresh
-                    //    claims immediately demoted to reclaimable, so the pool would hand the same pages out twice within one image and two tiles would
-                    //    point at one page.
-                    // 🔴 AND STRICTLY BEFORE ResetShadowTileDemand, which is why the reset moved BELOW this block. The allocator's only input is
-                    //    ShadowTileRequestsPage — i.e. the mirror's Used bit — and the reset clears exactly that bit. Running the reset first (which it
-                    //    did until 2026-07-30) left the allocator reading an all-zero demand table, so it requested ZERO pages every image forever. That
-                    //    is silent all the way down: S1/S2/S3 keep marking on the GPU and the tile tally keeps reporting real demand (`used 134 of
-                    //    6144`), but the page census stays pinned at `used 0 of 256`, S6 clears nothing, S7 draws nothing, and the tracer reads the clear
-                    //    identity everywhere — a fully-lit scene with a complete, healthy-looking marking chain in front of it. Nothing between the two
-                    //    calls writes TileWords: S1/S2/S3's atomicOr lands in the DEVICE SSBO, and the mirror only ever receives it through
-                    //    ResolveShadowTileDownload above.
-                    // ⚠️ The demand it reads is ONE IMAGE STALE — Store.TileWords holds what the previous submission's download produced, which is the
-                    //    only demand the CPU can see without a device stall. A tile that became visible this image therefore gets its page next image;
-                    //    the shadow appears one frame late rather than wrong, and the alternative (stalling to read fresh demand) costs more than the
-                    //    frame it saves. 📝 This is also why the allocation cannot simply move to the GPU without porting S5 wholesale.
-                    if (Extension.TileStore.ReadyCondition)
-                    {
-                        const uint32_t AllocationRequestCount =
-                            DriveShadowPageAllocation(Extension.ShadowAtlas, Extension.TileStore, Extension.SunWindow);
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                        // 📝 The allocator's return value was DISCARDED here, and that is why the zero-page defect was un-diagnosable from the log: every
-                        //    other number in the chain is read either side of it, so "the allocator was never reached", "it returned early on a ready
-                        //    condition", and "it requested pages but every request failed" all present identically as a silent census of zero.
-                        // 🔴 Latched on the value, not change-triggered on a counter starting at zero. The page/S6/S7 notices below are change-triggered,
-                        //    so a PERMANENT zero prints once at boot and then goes silent — absence of a line became the only signal, which is exactly
-                        //    how this hid. This prints on every transition INCLUDING the transition into zero.
-                        if (AllocationRequestCount != Extension.ReportedAllocationRequestCount)
-                        {
-                            Extension.ReportedAllocationRequestCount = AllocationRequestCount;
-                            ISSUE_NOTICE("render-extension",
-                                         "shadow pages: S5 requested %u page(s) from %u tile(s) of standing demand (atlas %s, store %s, window %s)",
-                                         (unsigned)AllocationRequestCount,
-                                         (unsigned)Extension.TileStore.Tally.TileUsedCount,
-                                         Extension.ShadowAtlas.ReadyCondition ? "ready" : "NOT READY",
-                                         Extension.TileStore.ReadyCondition   ? "ready" : "NOT READY",
-                                         Extension.SunWindow.ReadyCondition   ? "ready" : "NOT READY");
-                        }
-#endif
-
-                        // Per-image demand reset, then push the cleared mirror to the device so this image's S1/S2/S3 atomicOr into a table carrying
-                        // only the page indices + surviving Update bits.
-                        // 🔴 Demand (Used/Direct/Coarse/Masked) is THIS image's statement and must not persist; Update is a statement about page CONTENT
-                        //    and survives until something redraws it. ResetShadowTileDemand encodes exactly that asymmetry — and it operates on the
-                        //    mirror ResolveShadowTileDownload refreshed, so the Update bits it preserves are the GPU's, not a stale copy's.
-                        // 🔴 AFTER DriveShadowPageAllocation, NEVER BEFORE IT. The allocator's sole input is the Used bit this clears; running the reset
-                        //    first starves it of every request while the tile tally keeps reporting healthy demand. See the note on the allocation above.
-                        // ⚠️ The two uploads are ordered allocation-mapping THEN tile-store deliberately: both are transfers into buffers the same
-                        //    submission's shaders read, and the mapping must describe the pages this image's S6/S7 address through.
-                        ResetShadowTileDemand(Extension.TileStore);
-
-                        UploadShadowPageMapping(Extension.ShadowAtlas, CommandBuffer);
-                        UploadShadowTileStore(Extension.TileStore, CommandBuffer);
-                    }
-
-                    // C6: read the census and warn ONCE on genuine starvation. Latched because a shortfall persists for as long as the viewer
-                    // stands there, and a per-frame print would bury every other notice. Over-subscription is not itself the fault — the pool is
-                    // 24:1 over-subscribed by design — a request that got NO page is.
-                    RefreshShadowPageCensus(Extension.ShadowAtlas);
-                    const bool Starved = ShadowPageOverSubscribed(Extension.ShadowAtlas);
-                    if (Starved && !Extension.ReportedPageShortfall)
-                    {
-                        Extension.ReportedPageShortfall = true;
-                        ISSUE_NOTICE("render-extension",
-                                     "sun shadows: page pool STARVED — %u requests unserved (used %u, cached %u, free %u). Shadow blocks will be missing",
-                                     (unsigned)Extension.ShadowAtlas.Census.PageStarvedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageUsedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageCachedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageFreeCount);
-                    }
-                    else if (!Starved)
-                    {
-                        Extension.ReportedPageShortfall = false;   // re-arm, so a later genuine shortfall is reported again
-                    }
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                    // 📝 P6.4 gate instrumentation. Change-triggered on the Used count, like the tile tally above — standing still allocates the same
-                    //    pages every image. `render` is the number S7 must actually rasterize; it should fall to ~0 once a static scene has been drawn
-                    //    once, and that decay is the evidence the cache works rather than an assertion that it does.
-                    // 🔴 `starved` IS ON THIS LINE DELIBERATELY, even though the latched notice above also reports it. That notice fires ONCE per
-                    //    shortfall episode, so in any log window that does not contain the transition, a pool serving 256 of 759 requests looked
-                    //    indistinguishable from a healthy one — `used`/`cached`/`free` alone are all consistent with a pool that is simply busy. The
-                    //    unserved count is the only number that separates "working hard" from "dropping shadow blocks on the floor", so it belongs in
-                    //    the per-image census and not only in an episode notice.
-                    if (Extension.ShadowAtlas.Census.PageUsedCount != Extension.ReportedPageUsedCount)
-                    {
-                        Extension.ReportedPageUsedCount = Extension.ShadowAtlas.Census.PageUsedCount;
-                        ISSUE_NOTICE("render-extension",
-                                     "shadow pages: used %u of %u — cached %u, free %u, requests %u, starved %u, evicted %u, stale %u, to render %u",
-                                     (unsigned)Extension.ShadowAtlas.Census.PageUsedCount,
-                                     (unsigned)ShadowPageCapacity,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageCachedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageFreeCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageRequestCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageStarvedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageEvictedCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageStaleCount,
-                                     (unsigned)Extension.ShadowAtlas.Census.PageRenderCount);
-                    }
-#endif
-
-                    // S6: prime the pages S7 will rasterize into. 🔴 The atlas must be in GENERAL for a storage-image write, and the transition is
-                    //    recorded here rather than inside the pass so a later S7 in the same image does not transition twice.
-                    // 📝 A no-op once a static scene has been drawn: the clear list is exactly ShadowPageNeedsRender's selection, which decays to empty.
-                    //    That decay IS the cache working — a whole-atlas clear would look identical on screen and silently redraw all 1024 pages forever.
-                    if (Extension.ShadowPageClear.ReadyCondition)
-                    {
-                        TransitionShadowPageAtlas(Extension.ShadowAtlas, CommandBuffer, VK_IMAGE_LAYOUT_GENERAL);
-                        const uint32_t ClearedPages = RecordShadowPageClear(Extension.ShadowPageClear, Extension.ShadowAtlas, CommandBuffer);
-
-                        // 🔴 IMMEDIATELY AFTER S6 AND OVER THE SAME PAGE SET, which is why it is not folded into the transition above or hoisted to the
-                        //    top of the image. Coverage is a statement about what is IN a page, so it must be discarded exactly when that page's depth
-                        //    is — see ClearShadowPageCoverage. Both are no-ops together on a static scene.
-                        const uint32_t ResetCoveragePages = ClearShadowPageCoverage(Extension.ShadowAtlas, CommandBuffer);
-
-                        // 🔴 THE SAME PAGE SET AGAIN, THIS TIME CARRIED TO S7's FRAGMENT STAGE. S7 rasterizes whole tile windows and cannot know which
-                        //    pages S6 primed, so without this mask it writes every MAPPED page while S6 cleared only the STALE ones — measured 1024
-                        //    against 12. Those 1012 cached pages then take this image's imageAtomicMin on top of depth they already held, and min never
-                        //    releases, so a caster's old silhouette is permanent: a second shadow standing where the object no longer is, spread over
-                        //    the allocated span of the atlas. Every count in the chain stays healthy while it happens, which is why it survived six
-                        //    diagnoses. The three sets — S6's clear, coverage's reset, this mask — are one predicate and must never diverge.
-                        const uint32_t AuthorizedPages = UploadShadowPageRenderMask(Extension.ShadowAtlas, CommandBuffer);
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                        // ⚠️ Change-triggered, and it must AGREE with the census's `to render` above every image — the two are computed from the same
-                        //    predicate by different code, so a divergence means one of them is reading a stale record set.
-                        if (ClearedPages != Extension.ReportedPageClearCount)
-                        {
-                            Extension.ReportedPageClearCount = ClearedPages;
-                            ISSUE_NOTICE("render-extension", "shadow pages: S6 cleared %u page(s) this image (census said %u to render)",
-                                         (unsigned)ClearedPages,
-                                         (unsigned)Extension.ShadowAtlas.Census.PageRenderCount);
-                        }
-                        // 🔴 THE THREE SETS ARE ONE PREDICATE AND A DIVERGENCE IS THE BUG ITSELF, so it is asserted every image rather than sampled. S6's
-                        //    clear, coverage's reset and S7's authorization mask are all built from ShadowPageNeedsRender by three separate loops; if
-                        //    they ever disagree, either a page was primed that S7 will not draw (a fully-lit hole at the clear identity) or a page S7
-                        //    will draw was never primed (this image's casters min'd into retained depth — the duplicate-shadow bug). Neither shows up in
-                        //    any census count, which is precisely why it needs its own check.
-                        if (ClearedPages != AuthorizedPages || ClearedPages != ResetCoveragePages)
-                        {
-                            ISSUE_NOTICE("render-extension",
-                                         "shadow page set divergence: S6 cleared %u, coverage reset %u, S7 authorized %u — these must be equal",
-                                         (unsigned)ClearedPages, (unsigned)ResetCoveragePages, (unsigned)AuthorizedPages);
-                        }
-#else
-                        (void)ClearedPages;
-                        (void)ResetCoveragePages;
-                        (void)AuthorizedPages;
-#endif
-
-                        // S7: rasterize caster depth into the pages S6 just primed. 🔴 STRICTLY AFTER the clear, and in the same GENERAL layout the
-                        //    transition above established — rasterizing into an un-primed page resolves imageAtomicMin against uninitialized memory,
-                        //    which is garbage depth rather than "no caster". RecordShadowPageClear already left the barrier that orders the two.
-                        //
-                        // 🔴 BOTH caster meshes, each through its OWN descriptor set. The heads are what the shadow is of; the slab is a caster as well
-                        //    as the receiver, so omitting it would lose its contact shadow. Order between them is irrelevant — imageAtomicMin is
-                        //    commutative, which is exactly what lets two independent draws share a page with no ordering between them.
-                        // 📝 Both are no-ops when their set was never acquired (no scene / no floor document) or the page census says nothing needs
-                        //    redrawing, which on a static scene is the steady state.
-                        if (Extension.ShadowDepthRaster.ReadyCondition)
-                        {
-                            const uint32_t SceneLevels =
-                                RecordShadowDepthRaster(Extension.ShadowDepthRaster, Extension.ShadowAtlas, Extension.SunWindow,
-                                                        Extension.ShadowCasterSceneSet, Extension.SceneGeometry,
-                                                        Extension.VisibilityRaster.InstanceCount, CommandBuffer);
-
-                            const uint32_t FloorLevels =
-                                RecordShadowDepthRaster(Extension.ShadowDepthRaster, Extension.ShadowAtlas, Extension.SunWindow,
-                                                        Extension.ShadowCasterFloorSet, Extension.FloorGeometry,
-                                                        Extension.FloorRaster.InstanceCount, CommandBuffer);
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                            // ⚠️ Change-triggered on the PAIR, so a floor that silently stopped casting (its set lost, its instance count zeroed) shows
-                            //    up as a changed line rather than as a shadow that merely looks slightly wrong.
-                            const uint32_t DrawSignature = (SceneLevels << 8) | FloorLevels;
-                            if (DrawSignature != Extension.ReportedDepthRasterSignature)
-                            {
-                                Extension.ReportedDepthRasterSignature = DrawSignature;
-                                ISSUE_NOTICE("render-extension",
-                                             "shadow pages: S7 drew %u level(s) of heads + %u level(s) of floor (%u page(s) needed redrawing)",
-                                             (unsigned)SceneLevels, (unsigned)FloorLevels,
-                                             (unsigned)Extension.ShadowAtlas.Census.PageRenderCount);
-                            }
-#else
-                            (void)SceneLevels;
-                            (void)FloorLevels;
-#endif
-
-                            // #19: declare the drawn pages clean. 🔴 HERE, after BOTH meshes, and exactly once — this is the call that makes S6's cache
-                            //    real. Without it nothing on the device path ever clears staleness, so S6 re-clears and S7 redraws the same pages every
-                            //    image forever and the "static scene costs nothing" property is a property of the predicate only, never of the pipeline.
-                            // 🔴 Placing it after the FIRST mesh instead would cache a half-drawn page — heads shadowing, floor not — which the cache
-                            //    would then never redraw. That is why it sits outside the two record calls rather than inside a helper beside each.
-                            // ⚠️ Gated on a draw having actually been recorded. If both meshes drew nothing (no scene, no sets, or the census already
-                            //    said zero) then nothing rasterized, and lowering the flags would declare depth valid for pages still holding the clear
-                            //    identity — every receiver over them would read as fully lit.
-                            if (SceneLevels > 0 || FloorLevels > 0)
-                            {
-                                const uint32_t MarkedPages =
-                                    MarkShadowDepthPagesRendered(Extension.ShadowAtlas, Extension.TileStore, Extension.SunWindow);
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                                // ⚠️ This count MUST equal the S6 clear count traced above — both are the same ShadowPageNeedsRender selection, taken
-                                //    before and after the same draws. A divergence means one of them is reading a record set the other already mutated.
-                                if (MarkedPages != Extension.ReportedPageMarkedCount)
-                                {
-                                    Extension.ReportedPageMarkedCount = MarkedPages;
-                                    ISSUE_NOTICE("render-extension",
-                                                 "shadow pages: S7 marked %u page(s) rendered (S6 cleared %u) — the cache is now live",
-                                                 (unsigned)MarkedPages, (unsigned)Extension.ReportedPageClearCount);
-                                }
-#else
-                                (void)MarkedPages;
-#endif
-                            }
-                        }
-                    }
-                }
-
-                // 🔴 P6.5: hand the atlas to the tracer as a SAMPLED image. S6/S7 wrote it in GENERAL (imageAtomicMin needs a storage image); the shade
-                //    texelFetches it through a combined-image-sampler, whose descriptor names SHADER_READ_ONLY_OPTIMAL. Sampling an image that is
-                //    actually in GENERAL is undefined — it commonly WORKS, which is what makes the omission a latent defect rather than a visible one,
-                //    and only the validation layer would say otherwise.
-                // 🔴 HERE, outside every rendering scope and after the last S7 draw is recorded. The transition is a pipeline barrier, which cannot be
-                //    recorded inside a dynamic-rendering scope at all — and the radiance scope that the shade records into opens further down, so this
-                //    is the last point where a barrier is legal. It also carries the execution dependency that makes S7's writes visible to the shade's
-                //    reads; without it the tracer could sample texels whose atomics have not landed.
-                // ⚠️ Unconditional rather than gated on a draw having happened. A cleared-but-undrawn atlas still needs the layout change, because the
-                //    descriptor was written naming SHADER_READ_ONLY_OPTIMAL either way; and the transition self-guards on the current layout, so an
-                //    image already in the target layout costs nothing.
-                if (Extension.ShadowAtlas.ReadyCondition)
-                {
-                    TransitionShadowPageAtlas(Extension.ShadowAtlas, CommandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-                    // ⚠️ The coverage buffer needs its OWN barrier for the same edge: the image transition above orders the atlas image and says nothing
-                    //    about this allocation, so without it the tracer can read coverage words whose atomicOrs have not landed — a genuinely drawn page
-                    //    reading as never-drawn, which is precisely the artefact the buffer exists to eliminate.
-                    BarrierShadowPageCoverageForRead(Extension.ShadowAtlas, CommandBuffer);
-                }
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                // 📝 P6.3b gate instrumentation: trace the level-0 toroidal ORIGIN, which is what actually moves when the camera crosses a tile
-                //    boundary. Change-triggered, so standing still prints nothing and walking prints one line per tile crossed.
-                // 🔴 THE VACANT COUNT IS COUNTED, NOT ASSUMED. Until 2026-07-30 both %u arguments here were the SAME expression, so this line printed
-                //    "6144 tiles vacant of 6144" unconditionally without ever inspecting the residency table — a placeholder from before S7 existed
-                //    that then read as hard evidence of an empty window and cost a diagnosis session. A tautological log line is worse than no line:
-                //    it cannot fail, so it looks like a measurement. If a count here is not walked out of real state, do not print it.
-                {
-                    const TileCoordinate Origin = Extension.SunWindow.Levels.empty() ? TileCoordinate{}
-                                                                                     : Extension.SunWindow.Levels.front().ToroidalOrigin;
-                    if (Origin.XTile != Extension.ReportedOriginX || Origin.YTile != Extension.ReportedOriginY)
-                    {
-                        Extension.ReportedOriginX = Origin.XTile;
-                        Extension.ReportedOriginY = Origin.YTile;
-
-                        uint32_t VacantTiles = 0;
-                        uint32_t TotalTiles  = 0;
-                        for (const SunShadowLevel& Level : Extension.SunWindow.Levels)
-                        {
-                            TotalTiles += (uint32_t)Level.ResidencyTable.size();
-                            for (const uint8_t Resident : Level.ResidencyTable)
-                                if (Resident == 0)
-                                    ++VacantTiles;
-                        }
-
-                        ISSUE_NOTICE("render-extension",
-                                     // 📝 Reports the SHADOW CENTRE, which is what SolveCenteredOrigin actually consumed. Printing the observer here
-                                     //    would show a position the origin does not follow, making a correct window look wrong under camera rotation.
-                                     "sun window: L0 origin (%d, %d), centre (%.2f, %.2f, %.2f), %u tiles vacant of %u",
-                                     (int)Origin.XTile, (int)Origin.YTile,
-                                     (double)Extension.CachedShadowCentre.XCoord,
-                                     (double)Extension.CachedShadowCentre.YCoord,
-                                     (double)Extension.CachedShadowCentre.ZCoord,
-                                     (unsigned)VacantTiles,
-                                     (unsigned)TotalTiles);
-                    }
-                }
-#endif
-            }
 
             // 🔴 Resize fail-safe. All three offscreen render targets (depth, id image, HiZ pyramid) are extent-sized, so a window resize must
             //    rebuild every one of them. Reconfiguring destroys the old images/views/descriptors IMMEDIATELY (no deferred free), yet this preamble
@@ -1661,15 +1157,7 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                                Extension.SurfaceShade.FloorGeometryBound ? Extension.FloorGeometry.IndexBuffer : VK_NULL_HANDLE,
                                                Extension.FloorGeometry.IndexByteCapacity,
                                                Extension.SurfaceShade.FloorGeometryBound ? Extension.FloorRaster.InstanceBuffer : VK_NULL_HANDLE,
-                                               (VkDeviceSize)Extension.FloorRaster.InstanceCount * sizeof(SuzanneSceneInstance),
-                                               // ⚠️ And the shadow pair, for exactly the floor triple's reason: shadows would stop the first time the
-                                               //    window was resized. The atlas view is extent-independent (a fixed 4096² image), so this hands back
-                                               //    the same handles rather than re-deriving them.
-                                               Extension.SurfaceShade.ShadowAtlasBound ? Extension.ShadowAtlas.AtlasSampledView : VK_NULL_HANDLE,
-                                               Extension.SurfaceShade.ShadowAtlasBound ? Extension.ShadowAtlas.MappingBuffer    : VK_NULL_HANDLE,
-                                               (VkDeviceSize)Extension.ShadowAtlas.TilePageMapping.size() * sizeof(uint32_t),
-                                               Extension.SurfaceShade.ShadowAtlasBound ? Extension.ShadowAtlas.CoverageBuffer  : VK_NULL_HANDLE,
-                                               (VkDeviceSize)ShadowPageCapacity * sizeof(uint32_t));
+                                               (VkDeviceSize)Extension.FloorRaster.InstanceCount * sizeof(SuzanneSceneInstance));
 
 #ifdef FRONTIER_POLYGON_AUTHORING
                 // The outline samples the same rebuilt view, so its descriptor is equally stale — re-point it under the same device-idle. Refresh
@@ -1893,74 +1381,6 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             if (VisibilityWritten)
                 TransitionVisibilityImageForSampling(Extension.VisibilityTarget, CommandBuffer);
 
-            // ================================================================================================================================
-            //  S1 / S2 / S3 — the GPU marking chain (P6.3c)
-            // ================================================================================================================================
-            // 📝 Recorded HERE and nowhere else, because this is the one point in the image where both of S1's inputs are simultaneously legal to
-            //    sample: the id buffer just reached SHADER_READ_ONLY on the line above, and the depth reached it at the HiZ hand-off (and again
-            //    after the late re-raster). Earlier and the id buffer is still a colour attachment; later and the radiance scope has opened, which
-            //    forbids the dispatches outright — Vulkan will not nest one dynamic-rendering scope inside another, and S2 opens its own.
-            //
-            // 🔴 The chain writes DEMAND ONLY. S1 raises Used|Direct where a receiver samples, S2 raises Update where a caster's depth is now
-            //    wrong, S3 carries demand fine → coarse as Used|Coarse. NOTHING reads those bits to allocate a page or to rasterize shadow depth
-            //    yet, so the presented image is byte-identical with the chain on or off. That is the Phase-0 gate, and it is what makes it safe to
-            //    run this live rather than behind a toggle.
-            //
-            // ⚠️ Gated on VisibilityWritten for the same reason the resolve is: on the depth-clear-only path the id buffer was never written, so
-            //    its bytes are undefined and S1 would manufacture demand for whatever tiles that garbage decodes to.
-            if (Extension.TileMarking.ReadyCondition && Extension.TileStore.ReadyCondition && VisibilityWritten)
-            {
-                // Re-point the bindings this unit does not own. Idempotent — the reconfigures above rebuild both views on a resize, and the cull's
-                // record buffer only appears once the scene loads, so this is the call that closes both gaps. The caster bounds ARE the cull records
-                // (PartitionCullRecord already carries the world-space sphere S2 needs); passing 0 records simply records no tag draw.
-                RefreshShadowTileMarkingBindings(Extension.TileMarking,
-                                                 Extension.VisibilityTarget.IdView,
-                                                 Extension.DepthTarget.DepthView,
-                                                 Extension.InstanceCull.RecordBuffer,
-                                                 Extension.InstanceCullRecordCount);
-
-                // S1's push data. The inverse view-projection unprojects each id-buffer pixel back to a world receiver point, so it must be derived
-                // from the SAME not-yet-advanced camera the raster above used — otherwise the reconstruction lands on the wrong surface and the marked
-                // tile belongs to a point nothing was drawn at.
-                ShadowMarkConstants MarkConstants;
-                {
-                    const FocalOrientation Frame          = SolveOrbitOrientation(Extension.ViewCamera);
-                    const Matrix4f         Projection     = EvaluateProjectionFrame(Extension.ViewCamera);
-                    const Matrix4f         ViewProjection = MultiplyMatrix(Projection, Frame.ViewMatrix);
-                    const Matrix4f         Inverse        = InvertMatrix(ViewProjection);
-                    for (int Column = 0; Column < 4; Column++)
-                        for (int Row = 0; Row < 4; Row++)
-                            MarkConstants.InverseViewProjection[Column * 4 + Row] = Inverse.Column[Column][Row];
-
-                    MarkConstants.LightRightAxis[0] = Extension.SunWindow.Basis.RightAxis.XCoord;
-                    MarkConstants.LightRightAxis[1] = Extension.SunWindow.Basis.RightAxis.YCoord;
-                    MarkConstants.LightRightAxis[2] = Extension.SunWindow.Basis.RightAxis.ZCoord;
-                    MarkConstants.LightUpAxis[0]    = Extension.SunWindow.Basis.UpAxis.XCoord;
-                    MarkConstants.LightUpAxis[1]    = Extension.SunWindow.Basis.UpAxis.YCoord;
-                    MarkConstants.LightUpAxis[2]    = Extension.SunWindow.Basis.UpAxis.ZCoord;
-
-                    // ⚠️ DEAD FIELD, kept only so this struct still mirrors the shader's std140 push block. MarkVisibleShadowPages.comp no longer
-                    //    reads ObserverPosition at all: the level now follows the receiver's own light-space offset from the window centre, which the
-                    //    shader recovers from the toroidal origin. Fed the SHADOW CENTRE rather than the observer so that if anything ever revives
-                    //    this field it lands on the same lattice the scroll solve above used, instead of silently reintroducing the eye.
-                    MarkConstants.ObserverPosition[0] = Extension.CachedShadowCentre.XCoord;
-                    MarkConstants.ObserverPosition[1] = Extension.CachedShadowCentre.YCoord;
-                    MarkConstants.ObserverPosition[2] = Extension.CachedShadowCentre.ZCoord;
-
-                    MarkConstants.ScreenExtentX = (int32_t)Extension.VisibilityTarget.Width;
-                    MarkConstants.ScreenExtentY = (int32_t)Extension.VisibilityTarget.Height;
-                    MarkConstants.LevelCount    = (uint32_t)Extension.SunWindow.Levels.size();
-                }
-
-                RecordShadowReceiverMarking(Extension.TileMarking, MarkConstants, CommandBuffer);
-                RecordShadowCasterTagging(Extension.TileMarking, Extension.SunWindow, CommandBuffer);
-                RecordShadowTilePropagation(Extension.TileMarking, (uint32_t)Extension.SunWindow.Levels.size(), CommandBuffer);
-
-                // Pull the marked table back into staging for the NEXT image to resolve. ⚠️ The resolve deliberately lives at the TOP of the preamble,
-                //    not here: staging is shared with the upload, so reading it after this line but before the copy has executed would return the reset
-                //    mirror this image just pushed. One image stale, and that staleness is what makes it free.
-                DownloadShadowTileStore(Extension.TileStore, CommandBuffer);
-            }
 
             // ================================================================================================================================
             //  THE RADIANCE SCOPE (P5.9b) — the scene, in linear light
@@ -2037,54 +1457,6 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     //    absent those bindings are aliased onto the HEAD buffers, so enabling the shade would reconstruct floor pixels from head
                     //    triangles — a plausible-looking surface built from the wrong mesh, which is far harder to spot than a missing one.
                     ShadeConstants.FloorShadeEnabled = FloorShadeable ? 1u : 0u;
-
-                    // 🔴 P6.5: gated on ShadowAtlasBound for the same reason FloorShadeEnabled is gated on FloorGeometryBound. When no atlas exists b8 is
-                    //    aliased onto the VISIBILITY IMAGE — type-correct (both R32_UINT) and therefore silent — and visibility IDs read as depths hard
-                    //    against the sun, so tracing the alias would report almost every surface occluded and black the scene out.
-                    // ⚠️ ContentValid, not merely bound: the atlas must also have had depth rasterized into it this image. Tracing a freshly-cleared
-                    //    atlas is harmless (every texel is the clear identity, which reads as unoccluded) but tracing one whose layout was never
-                    //    transitioned for sampling is undefined, so the transition below is part of this gate's contract.
-                    const bool ShadowTraceable = Extension.SunShadowTraceEnabled
-                                              && Extension.SurfaceShade.ShadowAtlasBound
-                                              && Extension.ShadowAtlas.ReadyCondition
-                                              && Extension.SunWindow.ReadyCondition;
-                    ShadeConstants.SunShadowEnabled = ShadowTraceable ? 1u : 0u;
-
-                    if (ShadowTraceable)
-                    {
-                        // Built from the clipmap's CURRENT state (scrolled earlier this image) and the writer's own depth-encoding constants, so the
-                        // reader's chain is the exact inverse of what S7 rasterized. 📝 The differential probe proved these two chains agree.
-                        const SunShadowTraceBlock TraceBlock =
-                            SolveSurfaceShadeTraceBlock(Extension.SunWindow,
-                                                        ShadowDepthOriginMetres,
-                                                        ShadowDepthRangeMetres,
-                                                        SunShadowDepthBiasMetres,
-                                                        (SunShadowDebugView)Extension.SunShadowDebugMode);
-                        UploadSurfaceShadeTraceBlock(Extension.SurfaceShade, TraceBlock);
-                    }
-
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-                    // 📝 THE READ SIDE, which had no instrumentation at all while every write-side stage had its own notice. That asymmetry is why the
-                    //    producer could be proven healthy (S5 requests, S6 clears, S7 draws) with the scene still fully lit: ResolveSunVisibility returns
-                    //    1.0 unconditionally when SunShadowEnabled is 0, so ONE false conjunct below disables shadowing with no error anywhere.
-                    // 🔴 Reports each conjunct separately rather than the conjunction. A single "traceable: no" would restate the symptom; the whole
-                    //    diagnostic value is in WHICH of the four is false, since each has a different cause and three of them are set far from here.
-                    const int32_t TraceableState = ShadowTraceable ? 1 : 0;
-                    if (TraceableState != Extension.ReportedShadowTraceable)
-                    {
-                        Extension.ReportedShadowTraceable = TraceableState;
-                        ISSUE_NOTICE("render-extension",
-                                     "sun shadows: TRACE %s — flag %u, atlas bound %u, atlas ready %u, window ready %u (levels %u, tile %.2f m, bias %.3f m)",
-                                     ShadowTraceable ? "ON" : "OFF",
-                                     (unsigned)Extension.SunShadowTraceEnabled,
-                                     (unsigned)Extension.SurfaceShade.ShadowAtlasBound,
-                                     (unsigned)Extension.ShadowAtlas.ReadyCondition,
-                                     (unsigned)Extension.SunWindow.ReadyCondition,
-                                     (unsigned)Extension.SunWindow.Levels.size(),
-                                     Extension.SunWindow.Levels.empty() ? 0.0 : (double)Extension.SunWindow.Levels[0].TileMetres,
-                                     (double)SunShadowDepthBiasMetres);
-                    }
-#endif
 
                     RecordSurfaceShadeInscription(Extension.SurfaceShade, Extent, ShadeConstants, CommandBuffer);
                 }
@@ -2281,32 +1653,6 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             }
             Extension.RadianceOperatorKeyLatch = OperatorKeyDown;
 
-            // 🧩 P6.5 — F6 cycles the sun-shadow diagnostic view: off -> resolved level -> depth margin -> occlusion -> off. Each view answers a
-            // different question about a scene that renders fully lit, and the ORDER is the order the chain fails in: whether any page resolves at
-            // all, then whether a resolved page holds real depth, then whether that depth occludes. Edge-latched like F5.
-            // ⚠️ Refuses to arm unless the trace is actually reachable, because every view would otherwise paint the "no level resident" colour for a
-            //    reason that has nothing to do with the atlas — the gate being shut — and that reading would send the search in the wrong direction.
-            const bool ShadowDebugKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F6);
-            if (ShadowDebugKeyDown && !Extension.SunShadowDebugKeyLatch)
-            {
-                if (!Extension.SunShadowTraceEnabled || !Extension.SurfaceShade.ShadowAtlasBound)
-                    printf("[shadow] debug view unavailable — trace %s, atlas %s\n",
-                           Extension.SunShadowTraceEnabled ? "on" : "OFF",
-                           Extension.SurfaceShade.ShadowAtlasBound ? "bound" : "NOT BOUND");
-                else
-                {
-                    static const char* const ShadowDebugViewNames[4] =
-                        { "OFF (normal shading)",
-                          "RESOLVED LEVEL (magenta = no page resident at any level)",
-                          "DEPTH MARGIN (white = page holds the clear identity, red = occluded, green = lit)",
-                          "OCCLUSION (black = shadowed, white = lit)" };
-
-                    Extension.SunShadowDebugMode = (Extension.SunShadowDebugMode + 1u) % 4u;
-                    printf("[shadow] debug view -> %s\n", ShadowDebugViewNames[Extension.SunShadowDebugMode]);
-                }
-                fflush(stdout);
-            }
-            Extension.SunShadowDebugKeyLatch = ShadowDebugKeyDown;
 
             // Numpad-2 toggles the GPU-driven visibility-scaling path (the two-pass cull -> indirect raster). Default ON: the raster draws only the
             // survivors the cull kept. OFF: the plain instanced draw of every instance. Edge-latched; either path writes the same id buffer, so the
@@ -2609,22 +1955,6 @@ void FinalizeRenderExtension(RenderExtension& Extension)
     FinalizeClipmapFieldInspection(Extension.ClipmapInspection);
 #endif
     FinalizeHierarchicalDepthPyramid(Extension.DepthPyramid);
-    // Sun shadows: the atlas owns an image + memory + two views, so it tears down with the other device resources under the same idle. The window
-    // is host-only and merely releases vectors.
-    // ⚠️ Marking before the store: the submission's descriptor set holds a binding pointing at the store's table buffer, so destroying the buffer
-    //    first would leave a live set referencing freed memory for the duration of these two calls.
-    // ⚠️ Same argument for S6 before the ATLAS: its descriptor set holds a storage-image binding pointing at Atlas.AtlasStorageView, so the view must
-    //    outlive the set that references it.
-    // 🔴 S7 before the atlas: its descriptor sets hold a storage-image binding on Atlas.AtlasStorageView, so destroying the atlas first would leave the
-    //    pool referencing a dead view.
-    FinalizeShadowDepthRasterSubmission(Extension.ShadowDepthRaster);
-    Extension.ShadowCasterSceneSet = VK_NULL_HANDLE;   // 📝 Freed with S7's pool, not individually.
-    Extension.ShadowCasterFloorSet = VK_NULL_HANDLE;
-    FinalizeShadowPageClearSubmission(Extension.ShadowPageClear);
-    FinalizeShadowTileMarkingSubmission(Extension.TileMarking);
-    FinalizeShadowTileStore(Extension.TileStore);
-    FinalizeShadowPageAtlas(Extension.ShadowAtlas);
-    FinalizeSunShadowClipmap(Extension.SunWindow);
     // Object selection torn down before the resolve, mirroring the reverse-of-creation order it was built in (readback + outline came after it).
 #ifdef FRONTIER_POLYGON_AUTHORING
     FinalizeComponentOverlayInscription(Extension.ComponentOverlay);

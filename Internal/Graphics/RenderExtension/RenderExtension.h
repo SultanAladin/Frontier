@@ -37,12 +37,6 @@
 #include "EngineContext/SpatialAcceleration/ToroidalClipmapField.h"
 #include "EngineContext/SpatialAcceleration/TriangleCellOverlap.h"
 #include "Graphics/Atmosphere/SkyAtmosphere.h"
-#include "Graphics/Shadow/SunShadowClipmap.h"
-#include "Graphics/Shadow/ShadowPageAtlas.h"
-#include "Graphics/Shadow/ShadowTileStore.h"
-#include "Graphics/Shadow/ShadowTileMarkingSubmission.h"
-#include "Graphics/Shadow/ShadowPageClearSubmission.h"
-#include "Graphics/Shadow/ShadowDepthRasterSubmission.h"
 #include "EngineContext/Navigation/Camera/CameraConfiguration.h"
 #include "EngineContext/Navigation/Camera/CameraNavigation/CameraNavigation.h"
 #include "EngineContext/Navigation/Camera/CameraProjection/CameraViewMatrixSolver.h"
@@ -121,18 +115,6 @@ struct RenderExtension
     SurfaceShadeInscription SurfaceShade;                     // [-] - The shade pass (fullscreen composite over the forward view)
     bool      SurfaceShadeEnabled     = true;                 // [-] - When true, the shade composites over sky+grid (F4 toggles); default ON = the materials are the point
 
-    // 📝 P6.5: whether the shade traces the sun shadow atlas. Separate from SurfaceShadeEnabled so shadows can be toggled against an otherwise identical
-    //    image — which is the only practical way to tell a shadow bug from a shading one, and what keeps the Phase-0 pixel-identity comparison reachable.
-    // ⚠️ Necessary but NOT sufficient: the record path also requires ShadowAtlasBound, because b8 is aliased onto the visibility image when no atlas
-    //    exists. This flag alone must never reach SunShadowEnabled.
-    bool      SunShadowTraceEnabled   = true;                 // [-] - When true (and the atlas is really bound), sun-driven lobes are shadowed
-
-    // 📝 P6.5 diagnostic view cycle (F6): Disabled -> ResolvedLevel -> DepthMargin -> Occlusion -> Disabled. Exists because a fully lit scene has three
-    //    different causes that the shaded image cannot distinguish — see SunShadowDebugView for what each view proves.
-    // ⚠️ Held as the enum's underlying type rather than the enum so the cycle is plain modular arithmetic; the cast happens once, at the call site.
-    uint32_t  SunShadowDebugMode      = 0u;                   // [-] - SunShadowDebugView; 0 shades normally
-    bool      SunShadowDebugKeyLatch  = false;                // [-] - Edge latch so one F6 press advances the view once
-
     bool      SurfaceShadeKeyLatch    = false;                // [-] - Edge latch so one F4 press toggles the shade once
     uint32_t  CompositeFeatureMask    = 0u;                    // [-] - Live lobe mask for the Composite record only (0 = use the record's own); Numpad-5/6 cycle
     uint32_t  CompositeLobeCursor     = 0u;                    // [-] - Which lobe Numpad-6 toggles; Numpad-5 advances the cursor
@@ -191,49 +173,6 @@ struct RenderExtension
     //    consumes its payload (the per-cell ramp is a STUB), so the only observer is the development-only GPU visualization below.
     ToroidalClipmapField    ClipmapField;          // [-] - camera-tracked 3D voxel clipmap; scrolled each frame, residency filled around the camera
 
-    // 📝 Sun shadows (P6). Two units, deliberately separate: SunWindow is pure CPU tile math in LIGHT space (it rotates with the sun, which is why
-    //    it is NOT another ClipmapField level), ShadowAtlas is the physical R32_UINT page pool the depth raster will write into.
-    // ⚠️ The atlas is 24:1 over-subscribed by construction (256 pages against 6144 addressable tiles), so eviction is the steady state rather than
-    //    an error path — the census is how a genuine shortfall is distinguished from healthy churn.
-    SunShadowClipmap        SunWindow;             // [-] - light-space tile window, advanced from the cached observer at the top of the preamble
-    ShadowPageAtlas         ShadowAtlas;           // [-] - 4096² page pool backing the sun window's resident tiles
-    bool                    ReportedPageShortfall = false; // [-] - latch so the over-subscription warning states its onset once, not per frame
-
-    // 📝 The marking chain (P6.3c): the virtual tile table plus the three GPU passes that raise bits in it. TileStore is the SSBO; TileMarking owns
-    //    the S1/S2/S3 pipelines and the shared descriptor set. Split because the table is also read by the CPU-side S4/S5 mirrors and every probe,
-    //    while the pipelines are purely a recording concern.
-    // 🔴 The chain writes DEMAND, S5 CONSUMES it on the CPU (DriveShadowPageAllocation) to claim pages and upload the tile->page mapping, S6 PRIMES those
-    //    pages to the atomic-min identity, and S7 now RASTERIZES caster depth into them. The atlas therefore holds real depth as of this step — but
-    //    NOTHING SAMPLES IT YET (the tracer is P6.5), so the presented image is still unchanged and the Phase-0 pixel-identity gate continues to hold.
-    //    ⚠️ The demand S5 reads is ONE IMAGE STALE by construction (see the preamble).
-    ShadowTileStore              TileStore;        // [-] - 32² x 6 word table the marking passes atomicOr
-    ShadowTileMarkingSubmission  TileMarking;      // [-] - S1/S2/S3 pipelines + the shared set; recorded in the preamble
-    ShadowPageClearSubmission    ShadowPageClear;  // [-] - S6: clears the wanted-and-stale pages to the identity, recorded in the preamble
-    ShadowDepthRasterSubmission  ShadowDepthRaster; // [-] - S7: rasterizes caster depth into the primed pages, recorded in the preamble
-
-    // 📝 S7's per-caster-mesh descriptor sets, acquired once the scene geometry loads. 🔴 BOTH meshes must cast: the heads are the casters the shadow is
-    //    of, and the floor slab is a caster as well as the receiver (a slab that only receives loses its own contact shadow). One set each, because
-    //    re-pointing a single set between the two draws would mutate a descriptor a queued draw still references.
-    VkDescriptorSet              ShadowCasterSceneSet = VK_NULL_HANDLE; // [-] - b2 -> VisibilityRaster.InstanceBuffer (the heads)
-    VkDescriptorSet              ShadowCasterFloorSet = VK_NULL_HANDLE; // [-] - b2 -> FloorRaster.InstanceBuffer (the slab)
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-    uint32_t                ReportedTileUsedCount = UINT32_MAX; // [tile] - last traced Used count, so the P6.3c gate fires on CHANGE not per frame
-    uint32_t                ReportedPageUsedCount = UINT32_MAX; // [page] - last traced Used PAGE count, so the P6.4 gate fires on CHANGE not per frame
-    // 🔴 S5's RETURN VALUE, which the call site used to discard. Without it the log cannot tell "the allocator returned early on a ready condition" from
-    //    "it requested pages and every request failed" — both leave the census at zero, and every neighbouring counter keeps reading healthy.
-    uint32_t                ReportedAllocationRequestCount = UINT32_MAX; // [page] - last S5 request count, traced on CHANGE including change INTO zero
-    // 🔴 TRI-STATE, not a bool, and the initial value is what makes it work. The interesting report is "trace OFF at boot and never on"; a bool seeded
-    //    false would compare equal on the first image and suppress exactly that line, leaving the read side as silent as it was before it had a trace.
-    int32_t                 ReportedShadowTraceable = -1;   // [-] - last traced gate state; -1 unreported, so image one always prints whichever way it went
-    uint32_t                ReportedPageClearCount = UINT32_MAX; // [page] - last S6 clear count, so the S6 gate fires on CHANGE not per frame
-    uint32_t                ReportedDepthRasterSignature = UINT32_MAX; // [-] - last S7 (heads<<8|floor) level counts, so the S7 gate fires on CHANGE
-    uint32_t                ReportedPageMarkedCount = UINT32_MAX; // [page] - last count declared rendered; ⚠️ must track ReportedPageClearCount exactly
-#endif
-#ifdef FRONTIER_DEVELOPMENT_PROFILE
-    int32_t                 ReportedOriginX = INT32_MIN;   // [tile] - last L0 toroidal origin traced, so the P6.3b gate fires on CHANGE not per frame
-    int32_t                 ReportedOriginY = INT32_MIN;   // [tile] - paired Y of the traced origin
-#endif
-
     // 📝 Occupancy is PREBAKED, not recomputed per frame. Every loaded instance is voxelized once at load through the exact triangle-cell
     //    overlap predicate (TriangleCellOverlap), so a concave object marks only the cells its surface actually crosses — the reason this is
     //    not a bounding box is that an AABB lights empty cells for an L-shaped object, which a GI / shadow consumer reads as real geometry.
@@ -268,14 +207,6 @@ struct RenderExtension
     //    would disagree about where the viewer is, by one frame of camera motion.
     Vector3f                CachedObserverPosition{ 0.0f, 0.0f, 0.0f }; // [m] - observer the preamble used this frame
     bool                    ObserverCacheSeeded = false;                // [-] - false until the first preamble fills the cache
-
-    // 🔴 THE SUN CLIPMAP'S CENTRE, AND IT IS THE ORBIT TARGET RATHER THAN THE EYE ON PURPOSE. Held separately from CachedObserverPosition because
-    //    the two answer different questions: the GI field wants where the VIEWER is, the shadow lattice wants what the viewer is LOOKING AT. The eye
-    //    orbits under mere rotation, so centring the lattice on it makes level selection, origin scrolling, and page residency all functions of
-    //    camera ORIENTATION — pages churn and levels flash while the world stands still. The target is invariant under orbit and zoom.
-    // ⚠️ Anything that centres, scrolls, or levels the sun window reads THIS, never CachedObserverPosition. Mixing the two would put the marking pass
-    //    and the scroll solve on different lattices, which presents as shadows offset from their casters rather than as an obvious fault.
-    Vector3f                CachedShadowCentre{ 0.0f, 0.0f, 0.0f };     // [m] - sun-window centre the preamble used this frame (orbit target)
 
     double                  PreviousTimestamp = 0.0; // [s] - Last frame's clock reading, for the per-frame delta
     float                   FlySpeedScale     = 1.0f; // [-] - Scroll-adjusted fly-speed multiplier (Unreal-style)
