@@ -728,7 +728,10 @@ SunShadowTraceBlock SolveSurfaceShadeTraceBlock(const SunShadowClipmap& Clipmap,
                                                 float                   DepthOriginMetres,
                                                 float                   DepthRangeMetres,
                                                 float                   DepthBias,
-                                                SunShadowDebugView      DebugView)
+                                                SunShadowDebugView      DebugView,
+                                                float                   ShadowAngleRadians,
+                                                uint32_t                SoftRayCount,
+                                                uint32_t                SoftStepCount)
 {
     SunShadowTraceBlock Block;
 
@@ -765,6 +768,12 @@ SunShadowTraceBlock SolveSurfaceShadeTraceBlock(const SunShadowClipmap& Clipmap,
     Block.DepthBias           = DepthBias;
     Block.LevelCount          = LevelCount;
     Block.SunShadowDebugMode  = (uint32_t)DebugView;
+
+    // 🔴 CLAMPED HERE, ON THE HOST, AS WELL AS IN THE SHADER'S LOOP BOUND. The shader's `&&` guards keep it correct either way, but a caller passing 64
+    //    rays would silently get 4 with no way to tell — so the clamp lives where the value is authored and the shader's is the backstop, not the policy.
+    Block.ShadowAngleRadians  = ShadowAngleRadians > 0.0f ? ShadowAngleRadians : 0.0f;
+    Block.SoftRayCount        = SoftRayCount  > 4u  ? 4u  : SoftRayCount;
+    Block.SoftStepCount       = SoftStepCount > 16u ? 16u : SoftStepCount;
     return Block;
 }
 

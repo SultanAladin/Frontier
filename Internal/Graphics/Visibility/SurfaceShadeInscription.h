@@ -108,8 +108,14 @@ struct SunShadowTraceBlock
     //    the 112 bytes its own note describes, with SunShadowEnabled holding the last tail pad. Growing it would carry the pass toward the 128-byte
     //    guaranteed push-constant minimum for the sake of a diagnostic. This block is a UBO with three spare pads, so the field costs zero bytes.
     uint32_t SunShadowDebugMode = 0;             // [-]     - SunShadowDebugView; 0 shades normally (see the enum for what each view paints)
+
+    // 🧩 P6.6 SMRT. ⚠️ ShadowAngle is the sun's angular RADIUS (half-angle) in RADIANS, never its diameter — the physical sun is 0.526 deg ACROSS, so
+    //    the radius is 4.59e-3. Passing the diameter doubles every penumbra, and it reads as "too soft" rather than as a unit error.
+    // 📝 SoftRayCount = 0 disables SMRT and leaves the hard single-tap path, which is what makes the A/B free.
+    float    ShadowAngleRadians = 0.0f;          // [rad]   - sun angular RADIUS; 0 disables SMRT
+    uint32_t SoftRayCount       = 0;             // [-]     - rays through the cone, clamped to ShadowTraceMaxRay (4)
+    uint32_t SoftStepCount      = 0;             // [-]     - steps per ray, clamped to ShadowTraceMaxStep (16)
     uint32_t Pad1               = 0;             // [-]     - std140 tail pad to a 16-byte boundary
-    uint32_t Pad2               = 0;
 };
 
 // 📝 The shade pass's owned device resources. Pipeline + layout, the descriptor plumbing for everything the reconstruction reads (the sampled
@@ -217,11 +223,16 @@ void UploadSurfaceShadeTraceBlock(SurfaceShadeInscription& Shade, const SunShado
 // Build a trace block from the clipmap's CURRENT state plus the depth-encoding parameters the writer used. Convenience over hand-filling the struct at
 // the call site, and the single place the ADD-form origin convention is transcribed — 🔴 getting that sign backwards still yields in-range, distinct,
 // plausible slots, so it produces shadows in the wrong place rather than any detectable error (proved by the differential probe, not merely asserted).
+// 📝 The SMRT trio defaults to OFF (angle 0 / 0 rays), so every existing caller keeps the hard single-tap path byte-for-byte and the soft path is opt-in.
+//    ⚠️ ShadowAngleRadians is the sun's angular RADIUS — see the field's note.
 [[nodiscard]] SunShadowTraceBlock SolveSurfaceShadeTraceBlock(const SunShadowClipmap& Clipmap,
                                                              float                   DepthOriginMetres,
                                                              float                   DepthRangeMetres,
                                                              float                   DepthBias,
-                                                             SunShadowDebugView      DebugView = SunShadowDebugView::Disabled);
+                                                             SunShadowDebugView      DebugView = SunShadowDebugView::Disabled,
+                                                             float                   ShadowAngleRadians = 0.0f,
+                                                             uint32_t                SoftRayCount = 0,
+                                                             uint32_t                SoftStepCount = 0);
 
 // Record one shade into an already-open dynamic-rendering colour scope: set viewport + scissor, bind the pipeline + set, push the constants, and draw
 // the three-vertex fullscreen triangle. The visibility image must already be in SHADER_READ_ONLY (see TransitionVisibilityImageForSampling). A no-op

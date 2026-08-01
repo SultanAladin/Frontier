@@ -131,7 +131,31 @@ struct RenderExtension
     //    different causes that the shaded image cannot distinguish — see SunShadowDebugView for what each view proves.
     // ⚠️ Held as the enum's underlying type rather than the enum so the cycle is plain modular arithmetic; the cast happens once, at the call site.
     uint32_t  SunShadowDebugMode      = 0u;                   // [-] - SunShadowDebugView; 0 shades normally
+
+    // 🧩 P6.6 SMRT (soft shadows), cycled at run time so the hard tap and the soft march can be compared against one identical view.
+    // 🔴 THE ANGLE IS THE SUN'S ANGULAR RADIUS (HALF-ANGLE), NOT ITS DIAMETER. The physical sun subtends 0.526 deg ACROSS, so the radius is
+    //    0.263 deg = 4.59e-3 rad — the value EEVEE's `shadow_angle` carries after eevee_light.cc halves the user-facing angle. Passing the diameter
+    //    doubles every penumbra and reads as "SMRT is too soft" rather than as a unit error.
+    // ⚠️ AT THE PHYSICAL ANGLE THE PENUMBRA IS SUB-TEXEL FOR NEAR CONTACT, and that is correct rather than a failed port: 4.59e-3 rad at 0.1 m of
+    //    occluder distance is 0.92 mm against L0's 3.9 mm texel. Visible softening starts around 1 m (2.35 texels). To SEE the effect while porting,
+    //    raise the angle 10-50x — that is a diagnostic, not a tuning default.
+    // 📝 Ray/step defaults are EEVEE's own (1 ray, 6 steps). The ray count is what costs; the step count is nearly free by comparison because the
+    //    quadratic distribution puts the samples where they matter.
+    float     SoftShadowAngleRadians  = 4.59e-3f;             // [rad] - sun angular RADIUS; 0 disables SMRT
+    uint32_t  SoftShadowRayCount      = 1u;                   // [-] - rays through the cone, host-clamped to 4
+    uint32_t  SoftShadowStepCount     = 6u;                   // [-] - steps per ray, host-clamped to 16
     bool      SunShadowDebugKeyLatch  = false;                // [-] - Edge latch so one F6 press advances the view once
+    bool      SoftShadowKeyLatch      = false;                // [-] - Edge latch so one F7 press advances the SMRT rung once
+    uint32_t  SoftShadowRungIndex     = 2u;                   // [-] - index into the F7 ladder; 2 == PHYSICAL, matching the field defaults below
+
+    // 🧩 P6.6 — Ctrl + drag moves the sun, so a penumbra can be watched sweeping instead of inferred from one still frame. A static image cannot
+    //    distinguish "the soft path is running" from "the soft path is a no-op": both look like a hard shadow. Motion can.
+    // ⚠️ CTRL, not Alt or Shift: DriveViewportCamera already claims Alt (orbit) and Shift (boost) and consumes PointerDelta unconditionally, so
+    //    either of those would move the sun and the camera on one drag. Ctrl was unclaimed across all of Internal/Graphics.
+    // 📝 Seeded from AtmosphereProfile's own 45 deg / 0 deg default so the first drag continues from the lit scene rather than snapping the sun.
+    bool      SunDragKeyLatch         = false;                // [-] - Was Ctrl down last frame (edge detect for the notice only)
+    float     SunElevationRadians     = 0.7853982f;           // [rad] - 45 deg, matching AssignFloat4's seeded SolarDirection
+    float     SunAzimuthRadians       = 0.0f;                 // [rad] - 0 deg, ditto
 
     bool      SurfaceShadeKeyLatch    = false;                // [-] - Edge latch so one F4 press toggles the shade once
     uint32_t  CompositeFeatureMask    = 0u;                    // [-] - Live lobe mask for the Composite record only (0 = use the record's own); Numpad-5/6 cycle

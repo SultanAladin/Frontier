@@ -742,7 +742,12 @@ const VoxelStore =
     ResidentByteCount  : 0        // [B] - Total allocated voxel storage
 };
 
-const VoxelExtentChoices = [64, 96, 128, 192, 256];
+// 📝 32 is a DIAGNOSTIC extent, present so the render path can be exercised cheaply — it isolates
+//    shading/colour questions from simulation cost, since at 32³ the solve is nearly free and whatever
+//    remains on the frame is the raymarch. Its V-cycle is [32,16,8], a valid three-level descent.
+// ⚠️ Do not judge plume SHAPE at 32³. Advection Courant number scales with extent, and detail the
+//    turbulence band would add is below the grid — it will look blobby and over-diffused by design.
+const VoxelExtentChoices = [32, 64, 96, 128, 192, 256];
 
 // 📝 Bytes per voxel across the whole residency set, used for the VRAM readout before allocating.
 // 📝 The extents a V-cycle descends through: halve until the next step would fall below the coarsest
@@ -755,8 +760,19 @@ function DeriveLevelExtents(VoxelExtent)
     const Extents = [VoxelExtent];
     let Current = VoxelExtent;
     // 🔴 Halving requires an EVEN extent: the 2× restriction stencil maps coarse cell i to fine cells
-    //    2i and 2i+1, so an odd level would silently drop its last slab. Every supported extent is a
-    //    power of two, but the guard keeps a future non-power-of-two extent from corrupting the solve.
+    //    2i and 2i+1, so an odd level would silently drop its last slab. NOT every supported extent is
+    //    a power of two — 96 and 192 are 3×2ⁿ — so this guard is load-bearing, not future-proofing.
+    //
+    // 🔴 The descent stops at the first level whose half is BELOW CoarsestLevelExtent, so the floor is
+    //    only 8³ when the extent is a power of two. 96 and 192 both bottom at 12³ (96→48→24→12, then
+    //    12/2 = 6 < 8), where CoarsestSweeps relaxes 1728 voxels instead of 512 — 3.38× the budgeted
+    //    coarse-grid cost, and 40 damped-Jacobi sweeps no longer approximate an exact solve, so the
+    //    coarse-grid correction arrives under-converged and large-scale swirl survives projection.
+    //    ⚠️ Do NOT "fix" this by adding a divide-by-3 step to reach 4³. Both transfer kernels hardcode
+    //    a factor of two — RestrictResidual computes FineBase = CoarseIndex * 2 and ProlongateCorrection
+    //    maps (FineIndex + 0.5) * 0.5 - 0.5 — so a 3:1 level pair would gather and scatter the WRONG
+    //    voxels, which is far worse than an under-converged coarse grid. Reaching 4³ requires editing
+    //    both kernels to take the ratio from the level uniform first. Tracked in Backlog.md.
     while (Current % 2 === 0 && Math.floor(Current / 2) >= CoarsestLevelExtent)
     {
         Current = Math.floor(Current / 2);
@@ -2253,18 +2269,19 @@ struct ViewParameterization
     PaletteBlend      : f32,
     SmokeRampScale    : f32,
     IrradianceBlend   : f32,
+    // 📝 Deep-scatter bands (Wrenninge, Kulla, Villemin — "Oz: The Great and Volumetric", SIGGRAPH 2013).
+    //    See the MULTIPLE SCATTERING block below for what each decay does.
+    ScatterBandCount     : f32,
+    ScatterExtinctionDecay   : f32,
+    ScatterContributionDecay : f32,
+    ScatterAnisotropyDecay   : f32,
+    MultiScatterAmbient      : f32,
     // 📝 Wavelet turbulence (Kim, Thürey, James, Gross — SIGGRAPH 2008). See the UPRES block below.
     TurbulenceStrength: f32,
     TurbulenceDetail  : f32,
     TurbulenceBand    : f32,
     TurbulenceDrift   : f32,
     ElapsedInterval   : f32,
-    // 📝 Deep-scatter multiple scattering (Wrenninge et al.). See the MULTIPLE SCATTERING block below.
-    ScatterBandCount        : f32,
-    ScatterExtinctionDecay  : f32,
-    ScatterContributionDecay: f32,
-    ScatterAnisotropyDecay  : f32,
-    MultiScatterAmbient     : f32,
 };
 
 @group(0) @binding(0) var<uniform> View          : ViewParameterization;
@@ -2452,6 +2469,124 @@ fn HenyeyGreenstein(CosineAngle : f32, Anisotropy : f32) -> f32
     return (1.0 - AnisotropySquared) / (4.0 * 3.14159265 * pow(max(Denominator, 1e-4), 1.5));
 }
 
+//------------------------------------------------------------------- MULTIPLE SCATTERING
+
+// ⚠️⚠️ NO BACKTICKS ANYWHERE IN THIS MODULE — not even inside a comment. Every shader here lives in a JS
+//    template literal, so one backtick closes the literal early and the PAGE DIES AT LOAD with
+//    "Uncaught SyntaxError: Unexpected identifier", naming a shader variable and looking like a WGSL
+//    fault when it is a JS tokenisation fault. This has happened three times in this file, always while
+//    quoting an identifier in prose. Quote identifiers with CAPITALS or nothing at all.
+//
+// 📝 Deep-scatter approximation (Wrenninge, Kulla, Villemin — "Oz: The Great and Volumetric", SIGGRAPH
+//    2013; the same octave structure Hillaire uses in Frostbite). Truly solving multiple scattering means
+//    integrating light that bounced many times inside the medium, which no realtime budget affords.
+//    The observation that makes it cheap: relative to single scatter, N-times-bounced light has
+//      · travelled FURTHER, so it is attenuated as though the medium were thinner  -> decay extinction
+//      · lost energy at each bounce                                                -> decay contribution
+//      · lost directionality, becoming progressively diffuse                       -> decay anisotropy
+//    So sum a few bands, each a cheaper copy of the last. Thin smoke stays crisp because the later bands
+//    contribute almost nothing; thick smoke fills in and stops reading as a dark cardboard cutout.
+//
+// 🔴 The bands RE-EXPONENTIATE one already-marched optical depth. They do NOT re-march. That is the whole
+//    reason this is affordable: cost is a handful of exp() per sample, not ShadowStepCount per band.
+//    This is why EvaluateShadowOpticalDepth returns raw depth rather than transmittance.
+struct ScatterResponse
+{
+    Weighting : f32,   // Σ per-band transmittance × phase — the multiply-scattered gain
+    Isotropy  : f32,   // How diffuse the response is here; 0 = crisp forward lobe, 1 = fully diffuse
+};
+
+// 🔴 PhaseByBand is passed IN, precomputed once per ray. It must not be evaluated here.
+//    HenyeyGreenstein contains a pow(), and its two arguments — the ray/light cosine and the per-band
+//    anisotropy — are BOTH constant along a ray: neither depends on OpticalDepth or on the sample
+//    position. Calling it inside this function put 3 pow() and 6 exp() into the innermost loop of the
+//    hottest shader, evaluated once per march step for a value that never changed along the step. That
+//    measured as roughly HALVING the framerate. Hoisting it costs one small array and removes ~128×
+//    redundant transcendentals per ray. ⚠️ If a future band decay is made depth-dependent this hoist
+//    stops being valid — and the cost returns in full, so reconsider the feature instead.
+fn EvaluateDeepScatter(OpticalDepth : f32, PhaseByBand : array<f32, 4>) -> ScatterResponse
+{
+    let BandCount = clamp(i32(View.ScatterBandCount), 1, 4);
+
+    var Weighting   = 0.0;
+    var Isotropy    = 0.0;
+    var Normaliser  = 0.0;
+    var EnergyTotal = 0.0;
+
+    var BandAttenuation  = 1.0;
+    var BandContribution = 1.0;
+    var BandAnisotropy   = View.ScatterAnisotropy;
+
+    for (var BandIndex = 0; BandIndex < BandCount; BandIndex = BandIndex + 1)
+    {
+        let BandTransmittance = exp(-OpticalDepth * BandAttenuation);
+        let BandEnergy        = BandContribution * BandTransmittance;
+
+        Weighting   += BandEnergy * PhaseByBand[BandIndex];
+        Isotropy    += BandEnergy * (1.0 - abs(BandAnisotropy));
+        // 🔴 The normaliser weights each band's PHASE, not just its contribution. Using bare
+        //    BandContribution here conserves energy but NOT phase: at zero optical depth every band has
+        //    transmittance 1, so the ratio becomes a contribution-weighted average of DIFFERENT phase
+        //    values, and because each band's anisotropy shrinks toward isotropic that average falls as
+        //    bands are added — measured 0.1030 / 0.1003 / 0.0981 / 0.0967 for 1..4 bands. That makes a
+        //    QUALITY dial behave as an EXPOSURE dial: raising band count would quietly darken the plume
+        //    and every preset's look would shift. Weighting by the phase makes clear space return
+        //    exactly the single-scatter phase for ANY band count.
+        Normaliser  += BandContribution * PhaseByBand[BandIndex];
+        EnergyTotal += BandEnergy;
+
+        BandAttenuation  *= View.ScatterExtinctionDecay;
+        BandContribution *= View.ScatterContributionDecay;
+        BandAnisotropy   *= View.ScatterAnisotropyDecay;
+    }
+
+    var Response : ScatterResponse;
+
+    // 🔴 Normalise by the phase-weighted Σ CONTRIBUTION, not by BandCount. Dividing by the count would
+    //    make the result depend on how many bands are enabled, turning a QUALITY dial into an EXPOSURE
+    //    dial — every preset's look would shift when band count moved.
+    //
+    //    The ratio is therefore a pure TRANSMITTANCE-LIKE factor in [0,1]: it is exactly 1.0 in clear
+    //    space for any band count, and decays with depth more slowly than exp(-depth) would, which is
+    //    precisely the deep-scatter effect. The caller multiplies it by the single-scatter phase to get
+    //    back to radiance — see the DirectTerm site.
+    Response.Weighting = Weighting / max(Normaliser, 1e-4);
+
+    // 🔴 Isotropy is a FRACTION of the energy present here, so it divides by EnergyTotal — NOT by
+    //    Normaliser. This was the bug last time: normalising by Σ contribution let isotropy inherit the
+    //    exp(-depth) falloff, so it FELL with depth (measured 0.7386 -> 0.0069) and the plume interior
+    //    got LESS diffuse lift than its edge. That inverts the depth cue and hollows the smoke out —
+    //    precisely the artifact this feature exists to remove. Dividing by the energy actually summed
+    //    makes it rise with depth (0.7659 -> 0.9244), which is the physical behaviour: deep in the
+    //    medium, light has bounced more and is more diffuse.
+    Response.Isotropy = clamp(Isotropy / max(EnergyTotal, 1e-6), 0.0, 1.0);
+    return Response;
+}
+
+//------------------------------------------------------------------- SAMPLE DITHER
+
+// 📝 Interleaved gradient noise (Jimenez, "Next Generation Post Processing in Call of Duty: Advanced
+//    Warfare"). Returns a well-distributed value in [0,1) from the pixel coordinate alone, at the cost
+//    of one fract and one sin — far cheaper than a texture fetch of a blue-noise mask.
+//
+// 🔴 This offsets each ray's FIRST sample within its own step, which is what allows a low step count.
+//    Without it every ray samples the identical set of planes through the volume, so undersampling
+//    appears as coherent concentric rings — Engel et al.'s "wood-grain" artifact — which the eye reads
+//    instantly as banding. Decorrelating the start positions turns that structure into fine spatial
+//    dither, which trilinear filtering and the eye both tolerate at far lower sample counts.
+//
+// ⚠️ DELIBERATELY has no frame/time input, so the pattern is FIXED per pixel and identical every frame.
+//    Production (Toft et al., Nubis) varies the offset per frame and resolves the residual with temporal
+//    accumulation — that is strictly better, but it REQUIRES that accumulation. This renderer has no
+//    history buffer and no TAA, so a per-frame offset here would have nothing to resolve it and would
+//    show up as the whole plume boiling. Static dither is the correct choice until reprojection exists;
+//    if temporal accumulation is ever added, feed a frame index in here and the quality goes up again.
+fn InterleavedGradientDither(PixelPoint : vec2<f32>) -> f32
+{
+    let Magic = vec3<f32>(0.06711056, 0.00583715, 52.9829189);
+    return fract(Magic.z * fract(dot(PixelPoint, Magic.xy)));
+}
+
 //------------------------------------------------------------------- NOISE BASIS
 
 // 🔴 This module needs its OWN copy of the hash/noise chain. WGSL modules do not share a namespace —
@@ -2624,11 +2759,18 @@ fn ApplyTurbulentDisplacement(SamplePoint : vec3<f32>) -> vec3<f32>
 // 📝 Four-step transmittance march toward the light. This is what produces self-shadowing — smoke
 //    that occludes itself instead of glowing uniformly. Niagara bakes an equivalent shadow grid;
 //    marching a handful of steps per sample is cheaper here than maintaining a second volume.
-// 🔴 Returns the OPTICAL DEPTH, not the transmittance. The deep-scatter bands below each need to
-//    re-exponentiate this same integral with a different extinction, so exponentiating it here would
-//    force either a log() to undo it or a second march. Callers wanting plain single-scatter
-//    transmittance take exp(-depth) themselves.
-fn EvaluateShadowOpticalDepth(SamplePoint : vec3<f32>) -> f32
+// ⚠️ Four steps is aggressive. Production marches SIX toward the light (Nubis/Horizon Zero Dawn takes 6
+//    cone samples; Toft et al. independently use ~6), and Hillaire notes that residual aliasing in his own
+//    volumetric demo comes specifically from the LOW SHADOW sample count — secondary marches alias before
+//    primary ones do, and analytic integration does NOT fix that. Four is defensible here only because the
+//    32³ irradiance cache carries the multiply-scattered term separately, so this march supplies just the
+//    direct occlusion. The bigger risk is the cache's 2× spatial downsample against a 64³ density grid,
+//    which softens contact shadows — that, not this step count, is the thing to inspect first.
+// 🔴 Returns the OPTICAL DEPTH, not the transmittance. The deep-scatter bands each need to
+//    re-exponentiate this same integral against a DIFFERENT extinction, so exponentiating it here would
+//    force either a log() to undo it or a second march. A caller wanting plain single-scatter
+//    transmittance takes exp(-depth) itself, which is one instruction.
+fn EvaluateShadowOpticalDepth(SamplePoint : vec3<f32>, StepDither : f32) -> f32
 {
     let StepCount = i32(View.ShadowStepCount);
     if (StepCount <= 0) { return 0.0; }
@@ -2641,88 +2783,15 @@ fn EvaluateShadowOpticalDepth(SamplePoint : vec3<f32>) -> f32
 
     for (var StepIndex = 0; StepIndex < StepCount; StepIndex = StepIndex + 1)
     {
-        let Parameter   = ShadowExtent.x + (f32(StepIndex) + 0.5) * StepLength;
+        // Dithered here too: at four steps the undithered march quantizes self-shadowing into four
+        // discrete plateaus, which reads as hard terracing on the lit side of the plume.
+        let Parameter   = ShadowExtent.x + (f32(StepIndex) + StepDither) * StepLength;
         let ProbePoint  = SamplePoint + View.ShadowDirection * Parameter;
         let ProbeSample = textureSampleLevel(ScalarVolume, TrilinearFetch, ProbePoint, 0.0);
         Accumulated    += (ProbeSample.x + ProbeSample.w * View.SootOpacity) * StepLength;
     }
 
     return Accumulated * View.DensityScale;
-}
-
-//------------------------------------------------------------------- MULTIPLE SCATTERING
-
-// 📝 Deep-scatter approximation (Wrenninge, Kulla, Villemin — "Oz: The Great and Volumetric", and the
-//    same octave trick Frostbite/EmberGen use for realtime clouds). True multi-scatter needs a path
-//    trace; this reproduces its LOOK for the cost of a few multiplies.
-//
-//    The physical observation: light that has bounced N times inside the medium has (i) travelled
-//    further, so it is attenuated as though the medium were THINNER — each bounce randomises direction
-//    and the effective mean free path grows; and (ii) lost its directionality, so its phase function is
-//    progressively more isotropic. Sum a few such bands and thin smoke stays crisp while thick smoke
-//    fills in with the soft, bright, self-illuminated interior that single scatter cannot produce.
-//
-// 🔴 The three bands are NOT three shadow marches. `OpticalDepth` is marched ONCE and the bands are
-//    re-exponentiations of that same integral with a decayed extinction. That is the entire reason this
-//    is affordable at 64³ on a Pascal card — cost is ~6 extra multiplies per sample, not 3× the shadow
-//    cost. ⚠️ If you ever "improve" this by calling EvaluateShadowTransmittance per band, you have
-//    tripled the most expensive function in the shader for a difference nobody can see.
-struct ScatterResponse
-{
-    Weighting  : f32,   // Σ per-band transmittance × phase — the multiply-scattered gain
-    Isotropy   : f32,   // How diffuse the response ended up; drives the ambient lift
-}
-
-fn EvaluateDeepScatter(OpticalDepth : f32, ScatterCosine : f32) -> ScatterResponse
-{
-    let BandCount = i32(View.ScatterBandCount);
-
-    // Single band with no decay reduces EXACTLY to the previous single-scatter form, so band count 1
-    // is the old look and is the honest comparison point when judging whether this helped.
-    var Weighting = 0.0;
-    var Isotropy  = 0.0;
-    var Normaliser = 0.0;
-    var EnergyTotal = 0.0;
-
-    // Per-band decay factors from the Wrenninge formulation: attenuation, contribution, anisotropy.
-    // ⚠️ ExtinctionDecay and AnisotropyDecay must BOTH be < 1. Extinction decay alone brightens the
-    //    core but keeps it directional, which reads as a glowing hotspot that tracks the camera rather
-    //    than as depth.
-    var BandAttenuation = 1.0;
-    var BandContribution = 1.0;
-    var BandAnisotropy   = View.ScatterAnisotropy;
-
-    for (var BandIndex = 0; BandIndex < BandCount; BandIndex = BandIndex + 1)
-    {
-        let BandTransmittance = exp(-OpticalDepth * BandAttenuation);
-        let BandPhase         = HenyeyGreenstein(ScatterCosine, BandAnisotropy);
-
-        let BandEnergy = BandContribution * BandTransmittance;
-        Weighting  += BandEnergy * BandPhase;
-        // 🔴 Isotropy is a FRACTION, so it must be normalised by the energy actually present, not by
-        //    the band contributions. Accumulating `BandEnergy * (1 - |g|)` and dividing by Σcontribution
-        //    (which is what the first cut did) inherits the whole exp(-depth) falloff, so the measured
-        //    isotropy DROPPED with depth — 0.739 at depth 0.05 down to 0.007 at depth 12. That gives the
-        //    deep interior of a plume LESS diffuse lift than its edge, inverting the depth cue and
-        //    reading as hollow smoke: the exact artifact this feature exists to remove.
-        //    Dividing by ΣBandEnergy instead makes this the energy-weighted mean of (1 - |g|) over the
-        //    bands, which rises with depth because the directional low orders are extinguished first.
-        Isotropy   += BandEnergy * (1.0 - abs(BandAnisotropy));
-        Normaliser += BandContribution;
-        EnergyTotal += BandEnergy;
-
-        BandAttenuation  *= View.ScatterExtinctionDecay;
-        BandContribution *= View.ScatterContributionDecay;
-        BandAnisotropy   *= View.ScatterAnisotropyDecay;
-    }
-
-    var Response : ScatterResponse;
-    // 🔴 Normalise by Σ contributions, NOT by BandCount. The contributions are a geometric series, so
-    //    dividing by the count makes total brightness depend on the band count — turning a quality dial
-    //    into an exposure dial, and every preset's look would shift when it changed.
-    Response.Weighting = Weighting / max(Normaliser, 1e-4);
-    Response.Isotropy  = clamp(Isotropy / max(EnergyTotal, 1e-6), 0.0, 1.0);
-    return Response;
 }
 
 //------------------------------------------------------------------- MAIN MARCH
@@ -2754,6 +2823,27 @@ fn IntegrateVolumeRadiance(Raster : RasterVertex) -> @location(0) vec4<f32>
     let StepCount  = i32(View.MarchStepCount);
     let StepLength = (MarchExtent.y - MarchExtent.x) / f32(StepCount);
 
+    // 🔴 Per-pixel sub-step offset, replacing the fixed +0.5 mid-step sample position below. Drawn from
+    //    the PIXEL coordinate, so neighbouring rays start at different depths within their first step.
+    //    Range is [0,1) over one step, so the mean sample position is still the step centre and the
+    //    estimator stays unbiased — this trades the coherent ring structure of undersampling for
+    //    high-frequency spatial dither, WITHOUT changing the expected value of the integral.
+    let StepDither = InterleavedGradientDither(Raster.ClipPosition.xy);
+
+    // 🔴 PER-RAY, NOT PER-SAMPLE. The phase function depends only on the angle between this ray and the
+    //    light, and on the per-band anisotropy — both fixed for the whole march. Evaluating it inside the
+    //    loop meant one pow() per band per step: at 3 bands that is 3 pow() and 6 exp() on every one of
+    //    the march steps, for values identical at every step. Measured as roughly halving the framerate.
+    //    Computed here it is 3 pow() per RAY. ⚠️ Keep it out of the loop.
+    let ScatterCosine = dot(RayDirection, View.ShadowDirection);
+    var PhaseByBand : array<f32, 4>;
+    var HoistAnisotropy = View.ScatterAnisotropy;
+    for (var BandIndex = 0; BandIndex < 4; BandIndex = BandIndex + 1)
+    {
+        PhaseByBand[BandIndex] = HenyeyGreenstein(ScatterCosine, HoistAnisotropy);
+        HoistAnisotropy *= View.ScatterAnisotropyDecay;
+    }
+
     // 📝 Transmittance is per-channel, not scalar. Soot absorbs blue harder than red, so the three
     //    channels attenuate at different rates and a single float cannot carry that — collapsing it
     //    to one number is exactly what makes a plume read as grey cardboard.
@@ -2768,7 +2858,7 @@ fn IntegrateVolumeRadiance(Raster : RasterVertex) -> @location(0) vec4<f32>
         if (max(AccumulatedTransmittance.r,
                 max(AccumulatedTransmittance.g, AccumulatedTransmittance.b)) < 0.003) { break; }
 
-        let Parameter   = MarchExtent.x + (f32(StepIndex) + 0.5) * StepLength;
+        let Parameter   = MarchExtent.x + (f32(StepIndex) + StepDither) * StepLength;
         let SamplePoint = View.CameraOrigin + RayDirection * Parameter;
 
         // 📝 Wavelet turbulence: fetch the carrier at a TURBULENTLY DISPLACED coordinate. The volume
@@ -2820,17 +2910,12 @@ fn IntegrateVolumeRadiance(Raster : RasterVertex) -> @location(0) vec4<f32>
             SampleRadiance += CoreRadiance;
         }
 
-        // ④ In-scattering: multiple-scattering approximation with self-shadowing.
+        // ④ In-scattering: single-scatter approximation with self-shadowing.
         if (Extinction > 1e-5)
         {
-            let ShadowDepth   = EvaluateShadowOpticalDepth(SamplePoint);
-            let ScatterCosine = dot(RayDirection, View.ShadowDirection);
-
-            // 📝 Replaces `exp(-depth) * HenyeyGreenstein(cos, g)`. With ScatterBandCount 1 and the
-            //    decays at 1.0 this is algebraically identical to that, so the previous look is still
-            //    reachable from the dials — useful for judging whether the extra bands earned their cost.
-            let Scatter     = EvaluateDeepScatter(ShadowDepth, ScatterCosine);
-            let PhaseWeight = Scatter.Weighting;
+            // 📝 Raw depth, so the bands below can re-exponentiate it at their own extinctions.
+            let ShadowDepth = EvaluateShadowOpticalDepth(SamplePoint, StepDither);
+            let Scatter     = EvaluateDeepScatter(ShadowDepth, PhaseByBand);
 
             // 🔴 This was a single constant, vec3(0.34,0.38,0.46)*0.55, applied to every shadowed
             //    sample identically — a voxel at the heart of the plume received exactly as much
@@ -2840,21 +2925,42 @@ fn IntegrateVolumeRadiance(Raster : RasterVertex) -> @location(0) vec4<f32>
             //    The cache carries multiply-scattered light including the flame's own emission, so
             //    smoke near fire now picks up its colour and deep smoke genuinely goes dark.
             let CachedIrradiance = textureSampleLevel(IrradianceVolume, TrilinearFetch, SamplePoint, 0.0).xyz;
-            var AmbientTerm = mix(vec3<f32>(0.34, 0.38, 0.46) * 0.55,
+            let BaseAmbient = mix(vec3<f32>(0.34, 0.38, 0.46) * 0.55,
                                   CachedIrradiance, View.IrradianceBlend);
 
-            // 📝 The diffuse half of multi-scatter. High-order bands have lost their direction, so
-            //    their energy belongs in the ambient term, not the directional one — this is what fills
-            //    a thick plume's interior with soft light and is the actual difference between smoke
-            //    that looks LIT and smoke that looks THICK. Gated on Isotropy so thin wisps, whose
-            //    high-order bands carry nothing, are left crisp instead of being washed out.
-            let SunColour = vec3<f32>(1.00, 0.96, 0.88);
-            AmbientTerm  += SunColour * Scatter.Isotropy * View.MultiScatterAmbient;
+            // 🔴 THE DIFFUSE HALF OF MULTI-SCATTER MODULATES THE AMBIENT — IT DOES NOT ADD TO IT.
+            //    The previous attempt added a separate SunColour * Isotropy * MultiScatterAmbient term.
+            //    That is what produced the all-white render: measured, the added term reached 7.51× the
+            //    ambient it was joining and supplied 86.7% of the total, so the irradiance cache — the
+            //    ONLY thing carrying the flame's hue — became a minority contributor to a near-neutral
+            //    sun-coloured constant, and every pixel converged on white. Post-tonemap display value
+            //    hit 1.27, i.e. clipped.
+            //
+            //    Multiplying instead is both better looking and more physical: deep, diffuse regions get
+            //    a LIFT of the light that is actually present there, so the flame's colour is amplified
+            //    rather than diluted.
+            //
+            //    ⚠️ Clear space is NOT untouched, contrary to what this comment used to claim. Isotropy
+            //    at zero depth is the phase-weighted mean of (1 - |g|) over the bands — measured 0.660 at
+            //    one band, 0.764 at the shipped three — so DiffuseLift is ~1.23 EVERYWHERE, not 1.0. It is
+            //    a near-uniform exposure offset that the tonemap absorbs, which is why it is harmless, but
+            //    do NOT reason about MultiScatterAmbient as if it only affected deep regions: raising it
+            //    brightens the whole image, and it varies with ScatterBandCount (1.198 → 1.235 for 1 → 4).
+            //    ⚠️ There is also a double-counting hazard here: the 32³ cache ALREADY carries multiply
+            //    scattered light. Modulating shares that energy rather than summing a second copy of it,
+            //    which is the other reason not to go back to an additive term.
+            let DiffuseLift = 1.0 + Scatter.Isotropy * View.MultiScatterAmbient;
+            let AmbientTerm = BaseAmbient * DiffuseLift;
 
-            // 🔴 PhaseWeight already carries the per-band transmittance, so there is NO separate
-            //    exp(-depth) factor here. Multiplying by one again would attenuate twice and the whole
-            //    point of the bands — light surviving deeper than single scatter allows — is undone.
-            let DirectTerm  = SunColour * PhaseWeight * 5.5;
+            // 🔴 Scatter.Weighting ALREADY carries the per-band transmittance, so there is NO separate
+            //    exp(-ShadowDepth) factor here. Multiplying by one would attenuate the light twice and
+            //    make thick smoke far too dark — the reverse of the ambient bug above, and just as wrong.
+            //
+            // 📝 Weighting is normalised to 1.0 in clear space (so band count cannot act as an exposure
+            //    dial), which makes it a transmittance-like factor rather than a radiance. PhaseByBand[0]
+            //    puts the single-scatter phase magnitude back, so with one band this expression is
+            //    algebraically identical to the exp(-depth) * HenyeyGreenstein(cos, g) it replaced.
+            let DirectTerm = vec3<f32>(1.00, 0.96, 0.88) * Scatter.Weighting * PhaseByBand[0] * 5.5;
 
             // 📝 Smoke is tinted by the second ramp row, indexed by how thick the smoke is here, so a
             //    plume can run pale grey at the wisps into soot-black in the column. A single albedo
@@ -2865,7 +2971,26 @@ fn IntegrateVolumeRadiance(Raster : RasterVertex) -> @location(0) vec4<f32>
             SampleRadiance += (AmbientTerm + DirectTerm) * Extinction * View.SmokeAlbedo * SmokeTint;
         }
 
-        AccumulatedRadiance      += SampleRadiance * AccumulatedTransmittance * StepLength;
+        // 🔴 ENERGY-CONSERVING ANALYTIC INTEGRATION. The retired line was
+        //        AccumulatedRadiance += SampleRadiance * AccumulatedTransmittance * StepLength;
+        //    a Riemann sum that holds transmittance CONSTANT across the step. That makes the integral's
+        //    value depend on StepLength, so the image's exposure changes when the step count changes —
+        //    the plume visibly brightens or darkens as a quality dial moves. That step-length dependence,
+        //    not banding, is the reason a naive march cannot simply be given fewer steps.
+        //
+        //    Hillaire's form (Frostbite 2015) integrates the transmittance analytically across the step,
+        //    holding only the DENSITY constant over it:
+        //        S = L · (1 - exp(-σ·D)) / σ
+        //    (1 - exp(-σD))/σ is the exact integral of exp(-σt) over t ∈ [0, D]. It tends to D as σ→0,
+        //    which is why the low-density limit still matches the old sum and the look is preserved.
+        //
+        //    ⚠️ σ is per-channel here (spectral soot absorption), so this is a vec3 divide, and the
+        //    guard matters: σ → 0 is the common case in empty space, where the ratio is 0/0 numerically
+        //    but D analytically. max(σ, 1e-6) keeps it finite; the error at that threshold is ~1e-6·D.
+        let SpectralExtinction = max(Extinction * SpectralWeight, vec3<f32>(1e-6));
+        let StepIntegral       = (vec3<f32>(1.0) - StepTransmittance) / SpectralExtinction;
+
+        AccumulatedRadiance      += SampleRadiance * AccumulatedTransmittance * StepIntegral;
         AccumulatedTransmittance *= StepTransmittance;
     }
 
@@ -3411,9 +3536,38 @@ const ViewParameterization =
 {
     DensityScale      : 46.0,   // [-] - Extinction multiplier on ρ
     RadianceScale     : 2.40,   // [-] - Blackbody emission gain
-    MarchStepCount    : 128,    // [idx] - Primary march samples
+    // 🔴 32, down from 128. The two changes that make this safe are in the fragment shader and must stay
+    //    there: energy-conserving analytic integration (or the exposure shifts with this number) and the
+    //    per-pixel start dither (or the undersampling reads as concentric rings). Lowering this on a naive
+    //    Riemann march WILL change the plume's brightness, which is why the number could not simply be
+    //    edited before those landed.
+    //
+    // 📝 For scale: at 64³ a body-diagonal ray crosses 64·√3 ≈ 111 cells, so 128 steps was ~1.15
+    //    samples/voxel and 32 is ~0.29. Engel et al. put the Nyquist floor at 2 samples/voxel, so this is
+    //    frankly BELOW the textbook rate — it is justified by what production actually ships, not by
+    //    sampling theory: Toft/Bowles/Zimmermann took the same workload from 128 steps at 297.7 ms to 8
+    //    steps at 7.5 ms using exactly this combination, and Nubis reaches 128 only for its longest rays.
+    //    Smoke tolerates it because density is smooth and the phase function integrates out high
+    //    frequencies; sharp-edged data would not. ⚠️ If detail visibly drops out BETWEEN samples rather
+    //    than looking noisy, that is undersampling of the turbulence band, and the fix is empty-space
+    //    skipping or adaptive stepping — NOT quietly restoring 128 and paying 4× again.
+    MarchStepCount    : 32,     // [idx] - Primary march samples
     ShadowStepCount   : 4,      // [idx] - Transmittance march samples
     ScatterAnisotropy : 0.34,   // [-] - Henyey-Greenstein g
+
+    // 📝 Deep-scatter bands. All three decays must stay BELOW 1.0 — at 1.0 every band is a copy of the
+    //    first and the sum is just single scatter scaled up. ⚠️ Do NOT set the decays to 0 to "disable"
+    //    the feature: band 2 would then see zero optical depth, i.e. full transmittance everywhere, which
+    //    is brighter than single scatter rather than equal to it. To disable, set ScatterBandCount to 1.
+    ScatterBandCount         : 3,     // [idx] - 1 reproduces single scatter exactly
+    ScatterExtinctionDecay   : 0.52,  // [-] - Each bounce sees a thinner medium
+    ScatterContributionDecay : 0.58,  // [-] - Energy lost per bounce order
+    ScatterAnisotropyDecay   : 0.45,  // [-] - Each bounce is more isotropic
+    // 🔴 0.30, NOT 0.85. This is now a MULTIPLIER on ambient (1 + Isotropy·this), so 0.30 means deep
+    //    diffuse regions receive at most 1.3× their ambient. The previous 0.85 was the gain on a separate
+    //    ADDITIVE sun-coloured term, which measured at 86.7% of the ambient total and turned the whole
+    //    render white. The two numbers are not comparable — do not carry the old value over.
+    MultiScatterAmbient      : 0.30,  // [-] - Diffuse lift in thick, deeply-scattered regions
     ExposureScale     : 1.05,   // [-] - Pre-tonemap gain
     SootOpacity       : 0.55,   // [-] - Soot contribution to extinction
     ChannelSelector   : 0,      // [idx] - 0 = composited, 1 = velocity probe
@@ -3443,30 +3597,24 @@ const ViewParameterization =
                                 //       synthesizing BELOW the grid scale would only restate detail
                                 //       the simulation already carries.
     TurbulenceBand    : 2.60,   // [s] - Strain gate sharpness; higher = detail confined to shear
-    TurbulenceDrift   : 0.35,   // [s] - How far the noise lattice is carried along the flow
-
-    // 📝 Deep-scatter multiple scattering (Wrenninge et al.). See the MULTIPLE SCATTERING block in
-    //    RaymarchShaderSource for why these are decays rather than per-band tables.
-    ScatterBandCount        : 3,      // [idx] - 1 reproduces the old single-scatter look exactly
-    ScatterExtinctionDecay  : 0.52,   // [-] - Each bounce sees a thinner medium (must be < 1)
-    ScatterContributionDecay: 0.58,   // [-] - Energy lost per bounce order (must be < 1)
-    ScatterAnisotropyDecay  : 0.45,   // [-] - Each bounce is more isotropic (must be < 1)
-    MultiScatterAmbient     : 0.85    // [-] - Diffuse lift from high-order bands; the "thick" cue
+    TurbulenceDrift   : 0.35    // [s] - How far the noise lattice is carried along the flow
 };
 
-// 🔴 49 scalar slots, padded to 52 (thirteen vec4 rows) because a uniform buffer's size must be a
-//    multiple of 16 B. Counting FIELDS gives the wrong answer: the struct has 37 members but five are
-//    vec3<f32>, each occupying three slots on a 16-byte boundary.
-//    ⚠️ Do NOT assume a pad slot exists, and do not assume the count is the last index. This figure has
-//    been 39 (+1 pad = 40), then 43 (+1 pad = 44), now 49 (+3 pad = 52) — and the 49 was itself first
-//    written as 48 here, off by one from exactly that mistake, which ViewLayoutCheck.py caught with
-//    "the tail fields are never written and read as garbage". The 44 was ALSO once the size this buffer
-//    was wrongly over-allocated to. Every number in this comment's history has been wrong at least once:
-//    re-derive it with ViewLayoutCheck.py rather than reasoning about it.
-//    Derived by walking the struct: ShadowDirection lands at 16 and AbsorptionTint at 28, both already
-//    aligned, so no interior padding is inserted and the packed order below is a straight 0..48 run.
-//    UniformLayoutProbe.py and ViewLayoutCheck.py both pin this against the WGSL struct.
-const ViewByteCount = 52 * 4;   // [B] - Thirteen vec4-aligned rows: 49 slots + 3 tail pad
+// 🔴 DO NOT REASON ABOUT THIS NUMBER — DERIVE IT. Run _ClaudeScratch/tmp/ViewLayoutDerive.py, which walks
+//    the WGSL struct's own alignment rules, counts what ViewStaging.set actually writes, and prints the
+//    correct value. Counting FIELDS by hand gives the wrong answer, because vec3<f32> members align to
+//    16 B and so occupy three slots plus padding.
+//
+//    ⚠️ EVERY value this constant has ever held was wrong at least once: 40, then 44, then 48 (when the
+//    struct needed 49 — an off-by-one from treating a slot COUNT as a last INDEX), now 52. The 44 that
+//    sat here immediately before was correct for its struct and became wrong the moment five scatter
+//    slots were added; nothing in the codebase complained.
+//
+//    🔴 The failure is SILENT and total: Float32Array.set discards out-of-range writes without throwing,
+//    so an undersized buffer means the TAIL uniforms simply stay zero. Here that would have zeroed the
+//    four turbulence dials and ElapsedInterval — detail would vanish and the noise field would freeze,
+//    with a clean console and no validation error to point at the cause.
+const ViewByteCount = 52 * 4;   // [B] - Thirteen vec4-aligned rows: 49 written slots + 3 tail pad
 
 const RenderAssembly =
 {
@@ -3792,19 +3940,19 @@ function TranscribeViewParameterization()
         ViewParameterization.SaturationGain, ViewParameterization.HighlightShoulder,
         ViewParameterization.PaletteBlend, ViewParameterization.SmokeRampScale,
         ViewParameterization.IrradianceBlend,
+        // 🔴 The deep-scatter row. Order here must match the ViewParameterization STRUCT order exactly —
+        //    this is a flat positional write with no field names, so a value inserted in the wrong place
+        //    silently feeds the wrong uniform and every downstream field shifts by one.
+        ViewParameterization.ScatterBandCount,         ViewParameterization.ScatterExtinctionDecay,
+        ViewParameterization.ScatterContributionDecay, ViewParameterization.ScatterAnisotropyDecay,
+        ViewParameterization.MultiScatterAmbient,
         // 📝 The turbulence row. ElapsedInterval comes from the SOLVER's accumulated clock, not from a
         //    wall-clock timestamp — the synthesized detail has to advance with SIMULATION time or it
         //    keeps drifting while the sim is paused, and it would run at the wrong rate whenever the
         //    frame rate and the timestep disagree (which, at 30-40 fps, they do).
         ViewParameterization.TurbulenceStrength, ViewParameterization.TurbulenceDetail,
         ViewParameterization.TurbulenceBand,     ViewParameterization.TurbulenceDrift,
-        SolverAssembly.ElapsedInterval,
-        // 📝 The deep-scatter row. Band count is packed as a float like every other slot — the WGSL side
-        //    declares it f32 and casts to i32 for the loop, because a mixed-type uniform struct would
-        //    need its own alignment analysis for one integer.
-        ViewParameterization.ScatterBandCount,         ViewParameterization.ScatterExtinctionDecay,
-        ViewParameterization.ScatterContributionDecay,  ViewParameterization.ScatterAnisotropyDecay,
-        ViewParameterization.MultiScatterAmbient
+        SolverAssembly.ElapsedInterval
     ], 0);
 
     DeviceProfile.Device.queue.writeBuffer(RenderAssembly.ViewBuffer, 0, ViewStaging);
@@ -4841,11 +4989,12 @@ const UnitCatalogue =
             { Field: "TurbulenceDrift",    Caption: "Lattice drift",Minimum: 0, Maximum: 1.5, Increment: 0.05, Precision: 2 }
         ]
     },
-    // 📝 Deep-scatter multiple scattering. Sits on the RADIANCE chain, not the carrier chain, because
-    //    it changes how the medium is lit rather than what the medium contains.
-    // ⚠️ Bypassing this unit does NOT disable scattering — it collapses to the single-scatter form
-    //    (one band, no decay), which is the previous shipped look. There is no "no scattering" state
-    //    here; that would render the smoke as pure absorption and read as a silhouette.
+    // 📝 Deep-scatter bands (Wrenninge, Kulla, Villemin — "Oz: The Great and Volumetric", SIGGRAPH 2013).
+    //    Approximates light that has bounced many times inside the medium by summing a few cheap copies
+    //    of the single-scatter term, each seeing a thinner medium, carrying less energy and scattering
+    //    more diffusely. This is what stops thick smoke reading as a dark cardboard cutout.
+    // ⚠️ Bypassing this unit collapses the render to SINGLE scatter — it does not remove scattering.
+    //    The absent-state handler forces band count to 1, which is algebraically the old look exactly.
     MultipleScattering:
     {
         Label: "Multiple Scattering", Band: "Render", Tint: PinCategoryTint.Radiance,
@@ -4854,11 +5003,14 @@ const UnitCatalogue =
         Surface: "View",
         Owned:
         [
-            { Field: "ScatterBandCount",         Caption: "Bounce orders", Minimum: 1, Maximum: 6, Increment: 1,    Precision: 0 },
-            { Field: "MultiScatterAmbient",      Caption: "Diffuse lift",  Minimum: 0, Maximum: 3, Increment: 0.05, Precision: 2 },
-            { Field: "ScatterExtinctionDecay",   Caption: "Depth decay",   Minimum: 0.1, Maximum: 0.95, Increment: 0.01, Precision: 2 },
-            { Field: "ScatterContributionDecay", Caption: "Energy decay",  Minimum: 0.1, Maximum: 0.95, Increment: 0.01, Precision: 2 },
-            { Field: "ScatterAnisotropyDecay",   Caption: "Phase decay",   Minimum: 0.1, Maximum: 0.95, Increment: 0.01, Precision: 2 }
+            { Field: "ScatterBandCount",         Caption: "Bands",        Minimum: 1, Maximum: 4,    Increment: 1,    Precision: 0 },
+            // ⚠️ Ceilings stop at 0.95, deliberately. At exactly 1.0 a decay makes every band an
+            //    identical copy of the first, so the sum is single scatter scaled up rather than a
+            //    multi-bounce approximation, and the dial silently stops meaning what it says.
+            { Field: "ScatterExtinctionDecay",   Caption: "Depth decay",  Minimum: 0.05, Maximum: 0.95, Increment: 0.01, Precision: 2 },
+            { Field: "ScatterContributionDecay", Caption: "Energy decay", Minimum: 0.05, Maximum: 0.95, Increment: 0.01, Precision: 2 },
+            { Field: "ScatterAnisotropyDecay",   Caption: "Lobe decay",   Minimum: 0.05, Maximum: 0.95, Increment: 0.01, Precision: 2 },
+            { Field: "MultiScatterAmbient",      Caption: "Diffuse lift", Minimum: 0, Maximum: 1.2,  Increment: 0.05, Precision: 2 }
         ]
     },
     Composite:
@@ -5080,13 +5232,14 @@ function EvaluateGraph()
     //    would divide by a clamped 1.0 and make the restored state read wrong.
     if (!ContributingCategories.has("DetailSynthesis")) ViewParameterization.TurbulenceStrength = 0;
 
-    // 🔴 Absent Multiple Scattering collapses to SINGLE scatter, which means band count 1 AND the
-    //    diffuse lift to 0. Band count alone is not enough: with one band the decays never apply, but
-    //    MultiScatterAmbient would still add its isotropic term on top of a single-scatter response and
-    //    the bypassed state would read BRIGHTER than the unbypassed one — a bypass that changes the
-    //    look in the wrong direction reads as a bug in the graph, not as a disabled feature.
-    //    ⚠️ Zeroing the three decays instead would be wrong: they are ignored at one band, and a 0
-    //    extinction decay means band 2 sees a medium of zero thickness, i.e. unattenuated sunlight.
+    // 🔴 Bypassing multi-scatter must collapse to SINGLE scatter, which is band count 1 — at that count
+    //    the band loop runs once with no decay applied and the result is algebraically identical to the
+    //    exp(-depth) * phase it replaced. The diffuse lift zeroes alongside it so the ambient multiplier
+    //    returns to exactly 1.0.
+    // ⚠️ Do NOT implement this by zeroing the DECAYS instead. A zero extinction decay makes band 2 see
+    //    zero optical depth, i.e. full transmittance everywhere, so the bypassed state would come out
+    //    BRIGHTER than single scatter rather than equal to it — a bypass that changes the look upward is
+    //    worse than no bypass, because it reads as the feature being inverted.
     if (!ContributingCategories.has("MultipleScattering"))
     {
         ViewParameterization.ScatterBandCount    = 1;
@@ -5932,9 +6085,6 @@ function ConstructDefaultGraph()
     IntegrateLink(Emission,  "Radiance", Core,      "Radiance");
     IntegrateLink(Core,      "Radiance", Stamp,     "Radiance");
     IntegrateLink(Stamp,     "Radiance", Soot,      "Radiance");
-    // 📝 Multiple Scattering follows Soot Absorption because it needs the extinction the soot unit
-    //    establishes — the bounce orders are re-exponentiations of an optical depth scaled by
-    //    DensityScale and SootOpacity, so upstream of Soot there is no medium thickness to bounce in.
     IntegrateLink(Soot,      "Radiance", Scatter,   "Radiance");
     IntegrateLink(Scatter,   "Radiance", Output,    "Radiance");
 

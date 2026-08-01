@@ -4,27 +4,167 @@ Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---
 
-## VolumetricFlowSolver — multiple scattering shipped, two follow-ups (2026-07-31)
+## VolumetricFlowSolver — full pipeline audit 2026-08-01
 
-Deep-scatter approximation (Wrenninge et al.) is in: `EvaluateDeepScatter` in `RaymarchShaderSource`,
-three bands, with a `MultipleScattering` graph unit. Gated by `_ClaudeScratch/tmp/DeepScatterProbe.py`.
-Measured gain over single scatter by optical depth: `0.05 → 1.04×` · `1.0 → 1.42×` · `3.0 → 3.51×` ·
-`8.0 → 77.9×`. Band count 1 reduces to the previous single-scatter form to **0.000e+00**, so the
-bypass state is exactly the old look.
+End-to-end verification of `Documentation/Prototypes/VolumetricFlowSolver.html`: solver stages ①–⑧,
+both uniform paths, and the irradiance→raymarch render chain. Three parallel audits, every finding
+then re-verified against source by an independent probe. **Two audit claims were WRONG and are
+recorded here so they are not "rediscovered" later.**
 
-⚠️ **Unmeasured on hardware.** The dials (`ExtinctionDecay 0.52`, `ContributionDecay 0.58`,
-`AnisotropyDecay 0.45`, `MultiScatterAmbient 0.85`) are physically-motivated but **not** art-directed
-against a render, and the ambient lift interacts with the irradiance cache — both add to the ambient
-term, so the plume may now read too bright. First thing to check when the render is next observed.
+| Area | Verdict |
+|---|---|
+| Read/write aliasing, all 8 stages | ✔️ clean — `DivergenceIdle`/`ResidualStore` companions correct |
+| Carrier ping-pong parity, incl. variable substep counts | ✔️ clean — symmetric read→write per stage, K-parity is a non-issue |
+| Boundary handling | ✔️ consistent Neumann (clamp) in both advection and projection |
+| Multigrid level indexing, restriction/prolongation | ✔️ correct, incl. the half-cell shift |
+| Solver + view uniform layout, 47 + 49 fields | ✔️ zero offset mismatches; all vec3+scalar packing correct |
+| Analytic integration, order + σ→0 limit | ✔️ correct Hillaire; ratio 0.999999 at σ=1e-4 |
+| Multi-scatter: no double attenuation, band-1 == single scatter, phase-weighted normaliser | ✔️ all confirmed numerically |
+| Phase hoist, dither range/staticness | ✔️ all hoisted inputs genuinely ray-constant; dither mean 0.49979 |
+| Blend/format | ✔️ α=1, no blending, opaque surface — consistent |
 
-📝 Deferred, both cheap and both real:
-- **Per-channel deep scatter.** `Scatter.Weighting` is scalar, so all three bands share one extinction.
-  Soot's blue absorption is already spectral in the main march (`AbsorptionTint`), so multi-scattered
-  light *should* redden with bounce order and currently does not. Making `ScatterResponse.Weighting` a
-  `vec3` is a few lines; it was left scalar to keep the first version's cost provable.
-- **Presets do not set the scatter dials.** All five presets predate the unit, so they inherit the
-  defaults. `Smouldering` and `Explosion` in particular want different bounce counts — thick cold smoke
-  is where deep scatter earns the most, a thin fast fireball where it earns least.
+### ❌ Claim that did NOT survive: "the irradiance cache whites out the render"
+
+An audit reported the cache sits at ~1.19 vs the retired constant's 0.187 (5.6×), producing a flat
+~0.92 sRGB plume. **Not reproduced.** The error: it evaluated the cache at ONE fixed brightness and
+applied it at every density. The cache is *seeded from the density field* — `LocalExtinction` drives
+the `SeedIrradiance` shadow march — so denser smoke self-shadows it down. Measured
+(`_ClaudeScratch/tmp/WhiteoutProbe.py`):
+
+| ρ | cache vs retired constant | final sRGB (cache) | final sRGB (old) |
+|---|---|---|---|
+| 0.02 | 3.36× | 0.808 | 0.623 |
+| 0.10 | 1.19× | 0.685 | 0.649 |
+| 0.30 | 0.48× | 0.408 | 0.590 |
+| 1.00 | 0.24× | 0.241 | 0.577 |
+
+Density contrast is **0.567 with the cache vs 0.0997 without** — 5.7× MORE contrast. The cache path
+is working as designed; it is the retired constant that was flat.
+
+### ⚠️ Real finding: clear-space isotropy is 0.764, not a floor
+
+The comment at the `DiffuseLift` site claimed clear space is "untouched". False: `Isotropy` at zero
+depth is the phase-weighted mean of (1−|g|) across bands — 0.660 at one band, **0.764 at the shipped
+three** — so `DiffuseLift` ≈ **1.23 everywhere**, and it drifts 1.198→1.235 as `ScatterBandCount` goes
+1→4. Harmless (a near-uniform offset the tonemap absorbs) but it makes `MultiScatterAmbient` a
+whole-image brightness dial, not a deep-region one. **Comment corrected in source.**
+
+### ⚠️ Real finding: 96³ and 192³ bottom out at 12³, not 8³
+
+`DeriveLevelExtents` halves while the next step stays ≥ `CoarsestLevelExtent` (8). For the two 3×2ⁿ
+extents: `96→48→24→12` and `192→96→48→24→12`, then 12/2 = 6 < 8 halts. `CoarsestSweeps = 40` then
+relaxes 1728 voxels instead of 512 — **3.38× the budgeted coarse cost**, and 40 damped-Jacobi sweeps
+no longer approximate an exact solve, so the coarse-grid correction is under-converged and
+large-scale swirl survives projection. Power-of-two extents (32/64/128/256) all reach 8³ correctly.
+
+**Not fixed, and the obvious fix is a trap** — I attempted a divide-by-3 descent to reach 4³ and had
+to revert it. `RestrictResidual` hardcodes `FineBase = CoarseIndex * 2` and `ProlongateCorrection`
+maps `(FineIndex + 0.5) * 0.5 - 0.5`; a 3:1 level pair gathers and scatters the **wrong voxels**,
+which is far worse than under-convergence. Reaching 4³ requires both kernels to read the ratio from
+the level uniform first. A ⚠️ warning to this effect is now in the source at the halving loop.
+
+### 📝 Benign: level-0 pressure swap count is odd (5 = Pre + prolongate + Post)
+
+So `VoxelStore.PressureRead`'s texture identity flips with the `ProjectionIterations` dial. Stage ⑦
+`SubtractGradient` is **correct regardless** — `SmoothLevel` always exchanges after each relax, so the
+newest pressure is always in `PressureRead`. The only consequence is that the never-cleared level-0
+warm start alternates between the true last iterate and its companion. Both hold a recent iterate, so
+this is initial-guess quality, not corruption. Probe: `_ClaudeScratch/tmp/PressureParityProbe.py`.
+
+**Still never observed on hardware.** Every figure above is numpy transcription or static analysis.
+
+---
+
+## VolumetricFlowSolver — march cost + multi-scatter ✔️ SHIPPED 2026-08-01
+
+`Documentation/Prototypes/VolumetricFlowSolver.html`. Four changes, in dependency order. The first two
+are **prerequisites** for the third and must not be removed while the step count stays low.
+
+| Change | Was | Now |
+|---|---|---|
+| Primary march integration | Riemann, `L·T·StepLength` | **analytic**, `L·T·(1−e^(−σD))/σ` |
+| Ray start offset | fixed `+0.5` mid-step | **per-pixel interleaved gradient dither** |
+| `MarchStepCount` | 128 | **32** |
+| Multiple scattering | single scatter | **3 deep-scatter bands** |
+
+🔴 **Why 128 could not simply be edited down.** Naive Riemann integration holds transmittance constant
+across a step, so the integral's value — and therefore the plume's **exposure** — depends on step
+length. Lowering the count on the old code changes the image's brightness, not just its sample density.
+Hillaire's analytic form removes that dependence; the dither converts the residual undersampling from
+coherent rings (Engel et al.'s "wood-grain") into spatial noise. Only then is 32 safe.
+
+📝 **32 is below the textbook rate, deliberately.** At 64³ a body-diagonal ray crosses 64·√3 ≈ 111
+cells, so 128 steps was ~1.15 samples/voxel and 32 is ~0.29, against Engel et al.'s 2/voxel Nyquist
+floor. It is justified by shipped practice, not sampling theory: Toft/Bowles/Zimmermann took the same
+workload from 128 steps @ 297.7 ms to 8 steps @ 7.5 ms with exactly this combination (jitter + analytic
+integration + TAA), and Nubis/Horizon Zero Dawn reaches 128 only for its longest rays, starting at 64.
+⚠️ If detail drops out **between** samples rather than looking noisy, that is turbulence-band
+undersampling — fix with empty-space skipping or adaptive stepping, do not restore 128.
+
+⚠️ **The dither is static per pixel, on purpose.** Production varies it per frame and resolves the
+residue with temporal accumulation. This renderer has **no history buffer and no TAA**, so a per-frame
+offset would have nothing to resolve it and the plume would boil. Adding reprojection later is the
+single biggest remaining quality lever — feed a frame index into `InterleavedGradientDither` at that
+point.
+
+### Multiple scattering — deep-scatter bands
+
+Wrenninge/Kulla/Villemin ("Oz: The Great and Volumetric", SIGGRAPH 2013). Each band re-exponentiates
+**one already-marched optical depth** at a decayed extinction — it does **not** re-march, which is what
+makes it affordable. Measured gain at depth 8: single scatter transmits `e^(−8)` = 0.00034, the banded
+sum gives **0.0228**, i.e. **67× more light** reaching deep smoke. That is the "thick media glow".
+
+🔴 **Three bugs were caught by `DeepScatterProbe.py` before shipping; two had shipped once before.**
+
+| Bug | Symptom | Fix |
+|---|---|---|
+| Isotropy normalised by Σcontribution | inherited `e^(−depth)`, so isotropy **fell** with depth (0.7386 → 0.0069) — plume interior got *less* diffuse lift than its edge, hollowing it out | normalise by Σ**energy**; now rises 0.7642 → 0.9286 |
+| Ambient lift **added** as a neutral sun-coloured term | reached **86.7%** of the ambient total, drowning the irradiance cache that carries the flame's hue → **everything white**, display value 1.27 (clipped) | lift **multiplies** ambient (`1 + Isotropy·gain`); now a **21.8%** minority, cache keeps 78% |
+| Normaliser weighted by contribution only | conserved energy but not phase, so clear-space weighting drifted 0.1030→0.0967 as bands were added — a **quality** dial acting as an **exposure** dial | weight the normaliser by phase; clear space is now exactly 1.0 for any band count |
+
+⚠️ `MultiScatterAmbient` is **0.30**, not the old 0.85. The two are not comparable: 0.85 was the gain on
+a separate additive term, 0.30 is a multiplier ceiling. Do not carry the old value forward.
+
+🔴 **The phase function must stay hoisted out of the march loop.** `HenyeyGreenstein` contains a
+`pow()`, and its arguments — the ray/light cosine and the per-band anisotropy — are **both constant
+along a ray**. Evaluating it per band per sample put 3 `pow` + 6 `exp` into the innermost loop, which
+measured as roughly **halving the framerate** (~10-12 fps, user-reported). It is now computed once per
+ray into a `PhaseByBand` array. If a future band decay is made depth-dependent this hoist becomes
+invalid and the cost returns in full — reconsider the feature rather than un-hoisting.
+
+📝 Bypassing the graph node collapses to **single** scatter (band count 1), not "no scattering".
+⚠️ Do not implement that bypass by zeroing the decays: a zero extinction decay makes band 2 see zero
+optical depth, so the bypassed state comes out **brighter** than single scatter.
+
+### Probe/tooling repairs made in the same pass
+
+- 🔴 **`ViewByteCount` was 44 for a struct needing 52.** `Float32Array.set` discards out-of-range writes
+  **silently**, so the four turbulence dials and `ElapsedInterval` would have read as zero — detail gone,
+  noise field frozen, clean console, no validation error. Every value this constant has ever held (40,
+  44, 48, 52) was wrong at least once. `ViewLayoutDerive.py` now derives it; **do not reason about it**.
+- **`PageSyntaxProbe.py`** rewritten (the old one was lost with the working tree). Runs `node --check` on
+  the inline script and walks shader literals for stray backticks. Verified by sabotage: reproduced
+  `SyntaxError: Unexpected identifier 'exp'` at the correct page line, then restored byte-clean.
+- **`VerifyTuning.py` had five false positives**, all of which had to be fixed before it was usable:
+  crashed on derived `Float32Array(X / 4)` sizing; demanded `UniformByteCount == fieldCount` *and* that
+  the count be a multiple of 4 (unsatisfiable — it reported the required tail padding as a fault);
+  counted brackets **inside prose comments**; read preset **names** as field names via a lazy
+  `Flow:\s*\{(.*?)\}`; and reported `ElapsedInterval` unstaged because it comes from `SolverAssembly`.
+  ⚠️ A gate that cries wolf is worse than no gate — six simultaneous false positives are exactly what
+  hides a genuine seventh.
+
+### Open / not done
+
+- ⚠️ **Not observed on hardware.** Every figure above is from numpy transcription or static analysis.
+  No GPU timestamp queries exist, so stage-level attribution remains inference. **This is the
+  prerequisite for any Vulkan port** — measure before porting.
+- Temporal reprojection + per-frame dither (the largest remaining quality/perf lever).
+- Empty-space skipping / adaptive stepping — the principled way to go below 32 steps.
+- Per-channel (vec3) deep scatter; presets do not set the scatter dials.
+- Shadow march is 4 steps against production's 6; the 32³ cache's 2× downsample versus a 64³ density
+  grid is the more likely artifact source (soft contact shadows).
+
+---
 
 ## VolumetricFlowSolver — projection stencil inconsistency ✔️ FIXED 2026-07-31
 
@@ -510,18 +650,6 @@ rebuild a `.cpp`, so a push-constant / struct change needs the dependent `.obj` 
 `Documentation/Prototypes/RockFormation/` (WebGPU, SDF, node-based). M1 renders an arch; these were
 deliberately deferred rather than forgotten.
 
-📝 **The prototype's own running notes live at `RockFormation/RockFormationNotes.md`** — confirmed-working
-species, the full deferred list with reasoning, hazards, and the verified Blender-addon findings. Kept
-beside the code because it is prototype-local detail; this section holds only what outlives the prototype.
-
-**Deferred as of 2026-07-31** (detail in that document): strata/colour warping — the banding is too
-uniform, and `DomainWarp` is the wrong tool because it smears bed thickness incoherently, so bedding needs
-an anisotropic warp linked to **both** `StratumBand` and `StratumTint`; `TunnelMass` needs more shape
-control plus a **carver visualisation** in the editor (an invisible carver is why a 2.4× body-scale error
-survived a whole session of clean compiles); surface cracks (aperture is sub-voxel at 256³, so cracks must
-enter as a resistance field, not subtracted geometry); rock colouring research (deferred by the author);
-erosion rate UI; and wiring the finished `ErosionTimeline.js` into the host.
-
 **Detached pieces need voxel connectivity (M2).** A Voronoi joint can cut clean through a ligament and
 leave a chunk floating in midair. This is correct SDF behaviour — a distance field has no notion of "a
 piece", so nothing in the field can tell attached rock from a floating fragment. Detection needs the M2
@@ -545,3 +673,37 @@ lane. It undersized the buffer (848 B vs 880 B) *and* wrote entry dials over the
 shader compiled and the pipeline validated throughout, because the mismatch lives between the shader and
 a JS-side byte count that no compile probe touches. `_ClaudeScratch/tmp/CheckUniformLanes.py` now derives
 the lane count from WGSL alignment rules and cross-checks the constant, the struct and the writer.
+
+🔍 **Volume raymarching findings that generalise past this prototype** (2026-07-31, cited in
+`RockFormation/RockFormationNotes.md` ⑧):
+
+- 🔴 **A march that gives up must not return the same outcome as a march that missed.** `TraceDensityGrid`
+  returns `Contact = false` both when the ray misses the domain and when the step budget runs out, so a
+  truncated ray shades as *background* — it punches a hole rather than degrading. Any budget-limited
+  traversal wants a distinct "exhausted" outcome, or the failure renders as legitimate empty space.
+  Corollary: a step ceiling stored as a constant silently decouples from grid size and stride; derive it.
+- 🔴 **The Nyquist limit for a step over a sampled grid is 0.5 cell, not 1.0** — it is set by the
+  reconstruction filter, not by feature size (Engel et al., *Real-Time Volume Graphics*, SIGGRAPH Course
+  28). The tempting geometric argument — "a stride under one cell must sample a one-cell feature" — is
+  **false**: fixed strides have no phase guarantee.
+- 💡 **Under a dynamic field, an acceleration structure survives only if its *topology* is fixed at build
+  time.** Fixed-block min–max mips recompute as a cheap reduction; sparse octrees need full rebuilds
+  because node existence changes. Distance transforms (JFA/EDT) buy variable step length *only near the
+  surface*, which is exactly where Nyquist forbids long steps — 8 passes for acceleration where it is not
+  permitted. Published ESS gain is 2–5× (arXiv 2407.21552), which bounds the affordable rebuild.
+- 📝 **`r16float` is filterable in core WebGPU; `r32float` needs the optional `float32-filterable`.** For
+  any [0,1] field, r16 halves bandwidth and buys *hardware* trilinear — turning each manual 8-tap fetch
+  into 1. Worth checking wherever a storage buffer is being trilinearly sampled by hand.
+- ⚠️ **Ambient occlusion must not multiply direct light.** Applying AO to the whole radiance accumulator
+  double-darkens an already-shadowed sun term (Quilez, *multiresolution AO*). Easy to introduce by
+  accumulating all terms before the occlusion multiply.
+- 🔴 **SDF shading one-liners do not port to density grids.** The classic AO (`occ += (h-d)*sca`) and soft
+  shadow (`res = min(res, k*h/t)`) both require `h` to be a Euclidean distance; against occupancy they
+  compare metres to a unitless ratio. Same class of error as the units bug that survived 8 compiles.
+- 💡 **Voxel resolution limits geometry, not detail — keep the analytic field.** The representable limit is
+  ~3 voxels, not 1 (Nyquist plus trilinear attenuation, which can stop a 1-voxel slab reaching the
+  isolevel at all, making it absent rather than blurry). Procedural fields that seeded a grid remain
+  evaluable at any scale, so sampling them *continuously* at the hit point recovers sub-voxel detail for
+  free. Sampling the voxelised copy instead throws that away.
+- 🚩 **Ray compaction is a trap**: 5× fewer warps for ~16% gain, because the compaction adds divergence
+  (arXiv 2506.11273).

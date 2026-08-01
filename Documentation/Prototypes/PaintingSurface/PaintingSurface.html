@@ -49,7 +49,7 @@ import { StrokeDriver }                                         from "./Instrume
 import { ResolveObjectRadius, DefaultSpacing }                  from "./Deposit/DabFootprint.js";
 import { ToolMenu }                                            from "./Interface/ToolMenu.js";
 import { LayerInspector }                                     from "./Interface/LayerInspector.js";
-import { SeedLayerStack }                                      from "./Layers/LayerStack.js";
+import { SeedLayerStack, MakeMask }                            from "./Layers/LayerStack.js";
 import { LayerComposite }                                      from "./Layers/LayerComposite.js";
 import { CHANNEL_ATLASES, CHANNEL_SLOTS, CHANNEL_ORDER,
          CHANNEL_LABEL, ResolveAtlasWrite }                     from "./Layers/ChannelSet.js";
@@ -105,7 +105,16 @@ const State = {
     // Height-to-normal strength. 📝 Exposed as state rather than a constant because it is the one
     //    parameter that has to be tuned against the model, not derived from it.
     NormalStrength: 6.0,
-    StackRevision:  -1
+    StackRevision:  -1,
+
+    // 🔴 Dabs laid since load, and the ONLY signal that a layer's contents changed by painting. The stack's
+    //    Revision deliberately does not move for a stroke — it tracks the stack's SHAPE (order, focus,
+    //    blend, channels), which a dab does not alter, and every Touch() call site is a structural
+    //    mutation. Anything that caches per-layer content therefore has to watch this counter as well, or
+    //    it will serve a pre-stroke result forever: the channel previews did exactly that, returning the
+    //    "no storage yet" null from before the first dab even after the atlas had been allocated and
+    //    painted. Incremented wherever FlushToLayer reports dabs landed.
+    PaintTally: 0
 };
 
 // The live brush. 📝 PixelRadius is the authored quantity because that is what the pointer feels like;
@@ -383,7 +392,7 @@ function Present()
     // 🔴 A stroke changes a layer's CONTENTS without changing the stack's Revision, so the composite is
     //    forced here rather than left to the revision check. Relying on the revision alone would paint
     //    into the layer and never show it — the atlas would fill up invisibly.
-    if (Laid > 0) { RefreshComposite(true); }
+    if (Laid > 0) { State.PaintTally += Laid; RefreshComposite(true); }
     else          { RefreshComposite(false); }
 
     if (State.Redraw)
@@ -720,6 +729,9 @@ window.PaintStroke = async function (Path, Overrides)
     const Drawn = State.Driver.FlushToLayer(
         State.Stack.Focus, State.Surface, Brush, ResolveAtlasWrite, CHANNEL_ATLASES);
 
+    // Same content signal as the interactive path in Present(); see the PaintTally note on State.
+    if (Drawn > 0) { State.PaintTally += Drawn; }
+
     State.Driver.Finish();
     RefreshComposite(true);
     await State.Device.queue.onSubmittedWorkDone();
@@ -925,17 +937,42 @@ window.ReadLayerChannel = async function (Token, AtlasKey)
 
     if (!Texture) { return { Fault: `no atlas ${AtlasKey} on ${Token ?? "resolved"}` }; }
 
+    // 🔴 The extent of the texture actually being read, which since the resolution control is per-layer is no
+    //    longer the document's. The resolved stack keeps the document extent; a layer carries its own. Reading
+    //    a 2K layer at 1024 would copy a quarter of it and every coverage fraction would be wrong by 4x while
+    //    still looking like a plausible number.
+    const Extent = Token === null
+        ? State.Composite.Extent
+        : (State.Stack.Resolve(Token)?.Extent ?? AtlasExtent);
+
     const Encoder       = Device.createCommandEncoder({ label: "LayerReadback" });
-    const ReadbackStore = EncodeCapture(Device, Encoder, Texture, AtlasExtent, AtlasExtent);
+    const ReadbackStore = EncodeCapture(Device, Encoder, Texture, Extent, Extent);
     Device.queue.submit([Encoder.finish()]);
 
-    const Capture = await ResolveCapture(ReadbackStore, AtlasExtent, AtlasExtent, AtlasFormat);
+    const Capture = await ResolveCapture(ReadbackStore, Extent, Extent, AtlasFormat);
     // 🔴 WithAlpha, NOT Straightened. Straightened forces alpha to 255 so its PNG is viewable, which
     //    makes the coverage test below true for every texel in the atlas.
     const Pixels  = Capture.WithAlpha;
 
     let Covered = 0;
     const Total = [0, 0, 0];
+
+    // 🔴 WeightedTotal accumulates colour times COVERAGE, and WeightSum the coverage. This is the
+    //    measurement that survives a resolution change; MeanValue below does not, and the difference is
+    //    not a rounding detail.
+    //
+    //    MeanValue gates on alpha > 8 and then weights every surviving texel EQUALLY. A soft brush has a
+    //    wide antialiased skirt, and a skirt texel at alpha 20 is ~92% clear-grey — yet it counts for as
+    //    much as an opaque core texel. Resampling 1K -> 2K turns each source edge texel into several, so
+    //    the skirt's share of the population grows while the picture does not change at all, and the
+    //    unweighted mean slides toward grey (measured: 0.886 -> 0.832 red, with green and blue rising
+    //    symmetrically). That reads exactly like the premultiply bug the resample shader was written to
+    //    avoid, which is the trap: the filter is correct and the INSTRUMENT is what moved.
+    //
+    //    Weighting by coverage makes a 92%-transparent texel contribute 8% of a vote, so the mean tracks
+    //    the visible colour and is invariant under resampling. Assert resolution changes on this one.
+    const WeightedTotal = [0, 0, 0];
+    let   WeightSum     = 0;
 
     for (let Offset = 0; Offset < Pixels.length; Offset += 4)
     {
@@ -945,6 +982,12 @@ window.ReadLayerChannel = async function (Token, AtlasKey)
         Total[0] += Pixels[Offset + 0];
         Total[1] += Pixels[Offset + 1];
         Total[2] += Pixels[Offset + 2];
+
+        const Weight = Pixels[Offset + 3] / 255;
+        WeightSum        += Weight;
+        WeightedTotal[0] += Pixels[Offset + 0] * Weight;
+        WeightedTotal[1] += Pixels[Offset + 1] * Weight;
+        WeightedTotal[2] += Pixels[Offset + 2] * Weight;
     }
 
     return {
@@ -954,7 +997,12 @@ window.ReadLayerChannel = async function (Token, AtlasKey)
         CoveredFraction: Covered / Capture.PixelTotal,
         // The mean of the COVERED texels only. Averaging the whole atlas would drown a small stroke in
         // the clear value and make every channel look like its default.
+        //
+        // 📝 Unweighted, so it is sensitive to how much SKIRT a stroke has. Fine for "is this red or
+        //    blue", wrong for comparing one extent against another — use MeanCovered for that.
         MeanValue: Covered > 0 ? Total.map(V => V / Covered / 255) : [0, 0, 0],
+        // The coverage-weighted mean: what the surface actually shows, invariant under resampling.
+        MeanCovered: WeightSum > 0 ? WeightedTotal.map(V => V / WeightSum / 255) : [0, 0, 0],
         DistinctColourCount: Capture.DistinctColourCount
     };
 };
@@ -976,14 +1024,21 @@ window.ReadLayerRegion = async function (Token, AtlasKey)
     const Resolved = State.Composite.Resolved[AtlasKey];
     if (!Mask || !Resolved) { return { Fault: `no atlas ${AtlasKey}` }; }
 
+    // 🔴 TWO extents, because the layer's own atlas and the resolved stack no longer have to match — the
+    //    resolution control is per-layer. The old single-offset walk assumed one size for both, so a resized
+    //    layer would gate resolved texel N on the coverage of a completely different part of the surface: the
+    //    means would still look like plausible colours, just measured over the wrong region.
+    const LayerExtent = Layer.Extent ?? AtlasExtent;
+    const ValueExtent = State.Composite.Extent;
+
     // Both readbacks ride one encoder so they capture the same submission.
     const Encoder    = Device.createCommandEncoder({ label: "LayerRegionReadback" });
-    const MaskStore  = EncodeCapture(Device, Encoder, Mask,     AtlasExtent, AtlasExtent);
-    const ValueStore = EncodeCapture(Device, Encoder, Resolved, AtlasExtent, AtlasExtent);
+    const MaskStore  = EncodeCapture(Device, Encoder, Mask,     LayerExtent, LayerExtent);
+    const ValueStore = EncodeCapture(Device, Encoder, Resolved, ValueExtent, ValueExtent);
     Device.queue.submit([Encoder.finish()]);
 
-    const MaskCapture  = await ResolveCapture(MaskStore,  AtlasExtent, AtlasExtent, AtlasFormat);
-    const ValueCapture = await ResolveCapture(ValueStore, AtlasExtent, AtlasExtent, AtlasFormat);
+    const MaskCapture  = await ResolveCapture(MaskStore,  LayerExtent, LayerExtent, AtlasFormat);
+    const ValueCapture = await ResolveCapture(ValueStore, ValueExtent, ValueExtent, AtlasFormat);
 
     const Coverage = MaskCapture.WithAlpha;
     const Pixels   = ValueCapture.WithAlpha;
@@ -991,14 +1046,26 @@ window.ReadLayerRegion = async function (Token, AtlasKey)
     let Covered = 0;
     const Total = [0, 0, 0];
 
-    for (let Offset = 0; Offset < Pixels.length; Offset += 4)
+    // Walked in RESOLVED texels, with the coverage looked up at the matching normalized position. Walking the
+    // layer instead would visit each resolved texel a variable number of times when the two sizes differ.
+    const Ratio = LayerExtent / ValueExtent;
+
+    for (let Row = 0; Row < ValueExtent; Row += 1)
     {
-        // Gate on the LAYER's alpha, and read the RESOLVED colour there.
-        if (Coverage[Offset + 3] <= 8) { continue; }
-        Covered  += 1;
-        Total[0] += Pixels[Offset + 0];
-        Total[1] += Pixels[Offset + 1];
-        Total[2] += Pixels[Offset + 2];
+        const MaskRow = Math.min(LayerExtent - 1, Math.floor(Row * Ratio));
+        for (let Column = 0; Column < ValueExtent; Column += 1)
+        {
+            const MaskColumn = Math.min(LayerExtent - 1, Math.floor(Column * Ratio));
+
+            // Gate on the LAYER's alpha, and read the RESOLVED colour there.
+            if (Coverage[(MaskRow * LayerExtent + MaskColumn) * 4 + 3] <= 8) { continue; }
+
+            const Offset = (Row * ValueExtent + Column) * 4;
+            Covered  += 1;
+            Total[0] += Pixels[Offset + 0];
+            Total[1] += Pixels[Offset + 1];
+            Total[2] += Pixels[Offset + 2];
+        }
     }
 
     return {
@@ -1025,16 +1092,21 @@ window.ReadLayerTexel = async function (Token, AtlasKey, U, V)
         : State.Stack.Resolve(Token)?.Atlas[AtlasKey];
     if (!Texture) { return { Fault: `no atlas ${AtlasKey} on ${Token ?? "resolved"}` }; }
 
+    // The texture's OWN extent — per-layer since the resolution control moved to the layer.
+    const Extent = Token === null
+        ? State.Composite.Extent
+        : (State.Stack.Resolve(Token)?.Extent ?? AtlasExtent);
+
     const Encoder       = Device.createCommandEncoder({ label: "LayerTexelReadback" });
-    const ReadbackStore = EncodeCapture(Device, Encoder, Texture, AtlasExtent, AtlasExtent);
+    const ReadbackStore = EncodeCapture(Device, Encoder, Texture, Extent, Extent);
     Device.queue.submit([Encoder.finish()]);
 
-    const Capture = await ResolveCapture(ReadbackStore, AtlasExtent, AtlasExtent, AtlasFormat);
+    const Capture = await ResolveCapture(ReadbackStore, Extent, Extent, AtlasFormat);
     const Pixels  = Capture.WithAlpha;
 
-    const X = Math.min(AtlasExtent - 1, Math.max(0, Math.round(U * (AtlasExtent - 1))));
-    const Y = Math.min(AtlasExtent - 1, Math.max(0, Math.round(V * (AtlasExtent - 1))));
-    const Offset = (Y * AtlasExtent + X) * 4;
+    const X = Math.min(Extent - 1, Math.max(0, Math.round(U * (Extent - 1))));
+    const Y = Math.min(Extent - 1, Math.max(0, Math.round(V * (Extent - 1))));
+    const Offset = (Y * Extent + X) * 4;
 
     return {
         Texel: [X, Y],
@@ -1065,11 +1137,16 @@ window.CHANNEL_LABEL     = CHANNEL_LABEL;
 //    would re-render and map-read six tiles per repaint, and a repaint happens on every slider tick. The
 //    cache turns that into one capture per channel per actual content change.
 //
-// 🔴 Keyed on Stack.Revision and NOT on the layer alone: a stroke changes a layer's CONTENTS without
-//    changing its identity, and the compositor already relies on Touch() to signal exactly that. Keying on
-//    the token only would freeze every thumbnail at whatever it showed when first drawn, so painting would
-//    visibly do nothing to the previews — the one thing they exist to show.
+// 🔴 The stamp is Stack.Revision AND State.PaintTally together, because NEITHER alone identifies a
+//    layer's content. Revision moves when the stack's shape changes (add, reorder, blend, channels) but
+//    deliberately does not move for a dab; PaintTally moves per dab but not when a generator re-runs.
+//    Keyed on Revision alone — which is what this first shipped as — a preview captured before the first
+//    stroke was served back after it: the panel kept reporting "not painted yet, no storage allocated"
+//    for a layer whose atlas was allocated and visibly painted, because the cached null still matched.
+//    That is worse than a stale image, since the note actively contradicts the surface.
 const PreviewCache = new Map();
+
+const PreviewStamp = () => `${State.Stack.Revision}:${State.PaintTally}`;
 
 window.CapturePreview = async function (Token, ChannelKey)
 {
@@ -1077,21 +1154,83 @@ window.CapturePreview = async function (Token, ChannelKey)
     if (!Layer || !State.Preview) { return null; }
 
     const Key   = `${Token}:${ChannelKey}`;
-    const Stamp = State.Stack.Revision;
+    const Stamp = PreviewStamp();
     const Held  = PreviewCache.get(Key);
-    if (Held && Held.Stamp === Stamp) { return Held.Tile; }
 
-    // 🔴 An in-flight capture is shared rather than started twice. Six channel panels rendering at once
-    //    each await this, and without the promise being cached the first render fires six captures per
-    //    channel before any of them resolves and writes its result.
-    if (Held && Held.Pending && Held.Stamp === Stamp) { return Held.Pending; }
+    if (Held && Held.Stamp === Stamp)
+    {
+        // 🔴 The in-flight promise is returned rather than a second capture started. Six channel panels
+        //    render at once and each awaits this; without sharing, the first paint of the pane fires a
+        //    duplicate readback per channel before any of them resolves. Checked BEFORE Tile because a
+        //    pending entry has no Tile yet and `undefined` is not the same answer as `null`.
+        if (Held.Pending) { return Held.Pending; }
+        return Held.Tile;
+    }
 
-    const Pending = State.Preview.Capture(Layer, ChannelKey, AtlasExtent)
-        .then((Tile) => { PreviewCache.set(Key, { Stamp, Tile }); return Tile; })
+    // 🔴 The LAYER's own extent, not the document's. Since the resolution control became per-layer these can
+    //    differ, and Capture copies the atlas into its mip pyramid with an explicit size — so passing the
+    //    document extent for a 2K layer is a copyTextureToTexture size mismatch, which is a validation error
+    //    naming the copy rather than the caller that lied about the size.
+    const Pending = State.Preview.Capture(Layer, ChannelKey, Layer.Extent ?? AtlasExtent)
+        .then((Tile) => {
+            // Only publish if nothing has changed since this capture began; otherwise a slow readback
+            // would install a result that is already out of date under the current stamp.
+            if (PreviewCache.get(Key)?.Stamp === Stamp) { PreviewCache.set(Key, { Stamp, Tile }); }
+            return Tile;
+        })
         .catch((Fault) => { console.error(`CapturePreview ${Key} failed`, Fault); return null; });
 
     PreviewCache.set(Key, { Stamp, Pending });
     return Pending;
+};
+
+// Read a layer's MASK atlas and report how much of it is black versus white.
+//
+// 🔴 Separates "the mask covers part of the layer" from "the mask multiplies weakly everywhere". Those two
+//    are indistinguishable in any average taken over the resolved surface — both pull the mean the same
+//    direction by the same amount — so a partial stroke and a broken strength term produce identical
+//    numbers there. The histogram below is the only reading that tells them apart.
+//
+// 🔴 Reads .r, matching what the compositor samples. The mask is written greyscale across rgb, so reading
+//    alpha instead would report the clear's opaque 1.0 everywhere and every mask would look fully white.
+window.ReadLayerMask = async function (Token)
+{
+    const Device = State.Device;
+    const Layer  = State.Stack.Resolve(Token);
+    if (!Layer)           { return { Fault: `no layer ${Token}` }; }
+    if (!Layer.MaskAtlas) { return { Fault: "no mask atlas", Allocated: false }; }
+
+    const Extent  = Layer.Extent ?? AtlasExtent;
+    const Encoder = Device.createCommandEncoder({ label: "LayerMaskReadback" });
+
+    const ReadbackStore = EncodeCapture(Device, Encoder, Layer.MaskAtlas, Extent, Extent);
+    Device.queue.submit([Encoder.finish()]);
+
+    const Capture = await ResolveCapture(ReadbackStore, Extent, Extent, AtlasFormat);
+    const Pixels  = Capture.WithAlpha;
+
+    let Dark = 0, Light = 0, Total = 0, Sum = 0;
+
+    for (let Offset = 0; Offset < Pixels.length; Offset += 4)
+    {
+        const Level = Pixels[Offset] / 255;
+        Sum   += Level;
+        Total += 1;
+        if (Level < 0.25) { Dark  += 1; }
+        if (Level > 0.75) { Light += 1; }
+    }
+
+    return {
+        Allocated:     true,
+        Extent,
+        MeanLevel:     Total > 0 ? Sum / Total : 0,
+        DarkFraction:  Total > 0 ? Dark  / Total : 0,
+        LightFraction: Total > 0 ? Light / Total : 0,
+        // 🔴 Anything that is neither near-black nor near-white. A correct mask is mostly the two poles
+        //    with a soft brush skirt between them; a large midtone share means the deposit is landing at
+        //    partial strength, which is the failure this hook exists to distinguish.
+        MidFraction:   Total > 0 ? (Total - Dark - Light) / Total : 0
+    };
 };
 
 window.ReadLayerStack = function ()
@@ -1113,6 +1252,12 @@ window.ReadLayerStack = function ()
             Modes:     L.Modes,
             // Which atlases actually hold storage — the observable side of lazy allocation.
             Allocated: Object.keys(L.Atlas),
+            // The layer's own atlas side in texels, which the resolution control changes per layer.
+            Extent: L.Extent,
+            Tag:   L.Tag,
+            // 🔴 Copied, not aliased. Handing out the live mask lets a caller mutate the layer without
+            //    bumping the revision, so the row would redraw against a composite that never re-ran.
+            Mask:  L.Mask ? { ...L.Mask, Components: L.Mask.Components.map((C) => ({ ...C })) } : null,
             Shown: L.Shown, Blend: L.Blend, Opacity: L.Opacity,
             Channels: [...L.Enabled],
             Values:   L.Values
@@ -1130,7 +1275,7 @@ function SeedLayerContent(Layer)
 {
     if (Layer.Generator)
     {
-        State.Generator.Run(Layer, Layer.Generator, Layer.Params, AtlasExtent);
+        State.Generator.Run(Layer, Layer.Generator, Layer.Params, Layer.Extent);
         return;
     }
 
@@ -1156,7 +1301,8 @@ window.LayerCommand = function (Command, Payload)
                 Argument.Name ?? "NEW_Layer", Kind,
                 Argument.Channels ?? DefaultChannels(Kind, Argument.Preset, Argument.Generator),
                 undefined,
-                { Preset: Argument.Preset ?? null, Generator: Argument.Generator ?? null });
+                { Preset: Argument.Preset ?? null, Generator: Argument.Generator ?? null,
+                  Tag:    Argument.Tag    ?? null });
 
             if (Added) { SeedLayerContent(Added); }
             Result = Boolean(Added);
@@ -1169,7 +1315,7 @@ window.LayerCommand = function (Command, Payload)
             if (Layer && Layer.Generator)
             {
                 if (Argument.Params) { Object.assign(Layer.Params, Argument.Params); }
-                Result = State.Generator.Run(Layer, Layer.Generator, Layer.Params, AtlasExtent);
+                Result = State.Generator.Run(Layer, Layer.Generator, Layer.Params, Layer.Extent);
                 Stack.Touch();
             }
             break;
@@ -1180,11 +1326,15 @@ window.LayerCommand = function (Command, Payload)
             const Layer = Stack.Resolve(Argument.Token);
             if (Layer)
             {
+                // 🔴 Recording the mode is ALL this does — no re-flood. Switching to Value used to call
+                //    Flood(), which is a loadOp:"clear" over the whole atlas, so the mode switch destroyed
+                //    whatever was stored. That makes the switch one-way: flip to Value and the strokes or
+                //    generated pattern are gone, and flipping back to Texture finds a flat fill. The
+                //    authored value is one number and costs nothing to re-derive; the paint is the
+                //    expensive artifact. So the atlas is left intact and the compositor substitutes the
+                //    value at resolve time instead (ResolveModeOverride), which is both reversible and
+                //    instant.
                 Layer.Modes[Argument.Channel] = Argument.Mode;
-                // 🔴 Switching a channel to Value on a flooded layer has to RE-FLOOD, not just record the
-                //    mode. The atlas still holds whatever was there before, so without this the panel says
-                //    "Value" while the surface keeps showing the old painted or generated content.
-                if (Argument.Mode === "Value" && LAYER_KINDS[Layer.Kind]?.Flooded) { Layer.Flood(State.Device); }
                 Stack.Touch();
                 Result = true;
             }
@@ -1207,6 +1357,17 @@ window.LayerCommand = function (Command, Payload)
             if (Layer) { Layer.Shown = Argument.Shown; Stack.Touch(); Result = true; }
             break;
         }
+        // The row's identification hue. Purely an authoring aid — no texel depends on it.
+        //
+        // 🔴 Still calls Touch(), even though the tag reaches no shader. Touch() is what makes the panel
+        //    rebuild, and without it the swatch would be recorded on the layer while the row kept showing
+        //    its old colour until some unrelated edit happened to refresh the stack.
+        case "tag": {
+            const Layer = Stack.Resolve(Argument.Token);
+            // A null tag clears back to the kind's own tint rather than painting the row black.
+            if (Layer) { Layer.Tag = Argument.Tag ?? null; Stack.Touch(); Result = true; }
+            break;
+        }
         case "blend": {
             const Layer = Stack.Resolve(Argument.Token);
             if (Layer) { Layer.Blend = Argument.Blend; Stack.Touch(); Result = true; }
@@ -1217,12 +1378,74 @@ window.LayerCommand = function (Command, Payload)
             if (Layer) { Layer.Opacity = Argument.Opacity; Stack.Touch(); Result = true; }
             break;
         }
+        // The layer's own atlas size. Per-LAYER, not per-document.
+        //
+        // 🔴 The painted content is CARRIED ACROSS, not discarded — Resize resamples rather than reallocating
+        //    and clearing. Clearing is what the size change literally requires and is three lines shorter, but
+        //    it would destroy every stroke the instant the user opened the dropdown to look at it, which is
+        //    the same one-way trap the Value/Texture switch had.
+        //
+        // 🔴 A generator layer is RE-RUN at the new extent instead of keeping the resample. Resampling a
+        //    procedural pattern up to 4K gives a blurred 1K pattern — the layer would report 4K and look
+        //    exactly as soft as before, so the control would read as broken. The resample inside Resize is
+        //    then redundant work for this one case, and that is the right trade: it keeps Resize's contract
+        //    ("content survives") true for every layer, rather than making the preservation conditional.
+        case "resolution": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer && Layer.Resize(State.Device, Argument.Extent))
+            {
+                if (Layer.Generator)
+                {
+                    State.Generator.Run(Layer, Layer.Generator, Layer.Params, Layer.Extent);
+                }
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
         case "channel": {
             const Layer = Stack.Resolve(Argument.Token);
             if (Layer)
             {
                 if (Argument.On) { Layer.Enabled.add(Argument.Channel); }
                 else             { Layer.Enabled.delete(Argument.Channel); }
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+        // Every field of the layer mask, through one verb.
+        //
+        // 🔴 `Target` is exclusive across the whole stack, not just set on this layer. The stroke router
+        //    asks the FOCUSED layer whether its mask is targeted, so two layers flagged at once is not
+        //    directly harmful — but the flag also drives the "you are painting a mask" affordance, and two
+        //    layers claiming it makes the panel lie about where the next stroke will land.
+        //
+        // 🔴 Only the fields actually PRESENT in the payload are written. Assigning the whole object would
+        //    make `{Enabled:true}` silently reset Opacity to undefined, and the mask would composite as a
+        //    NaN weight — every masked layer would vanish, from a call that looks like it only touched one
+        //    flag.
+        case "mask": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                const Mask = Layer.Mask ?? (Layer.Mask = MakeMask());
+
+                if (Argument.Enabled !== undefined) { Mask.Enabled = Boolean(Argument.Enabled); }
+                if (Argument.Fill    !== undefined) { Mask.Fill    = Argument.Fill; }
+                if (Argument.Invert  !== undefined) { Mask.Invert  = Boolean(Argument.Invert); }
+                if (Argument.Opacity !== undefined) { Mask.Opacity = Argument.Opacity; }
+
+                if (Argument.Target !== undefined)
+                {
+                    const Aim = Boolean(Argument.Target);
+                    for (const Other of Stack.Layers)
+                    {
+                        if (Other.Mask) { Other.Mask.Target = false; }
+                    }
+                    Mask.Target = Aim;
+                }
+
                 Stack.Touch();
                 Result = true;
             }

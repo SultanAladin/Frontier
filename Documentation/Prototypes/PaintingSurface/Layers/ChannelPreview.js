@@ -37,8 +37,11 @@ const RowAlignment = 256;                       // [B] copyTextureToBuffer row b
 const PreviewShaderSource = `
 struct PreviewUniform
 {
-    // x = component index (-1 = pass RGB through), y = checker size in preview texels, zw = unused
+    // x = component index (-1 = pass RGB through), y = checker size in preview texels,
+    // z = 1 when this channel is showing its authored value instead of its stored texels, w = unused
     Control : vec4f,
+    // The already-display-ready substitute: RGB for a colour channel, the scalar splatted for a scalar one.
+    Substitute : vec4f,
 };
 
 @group(0) @binding(0) var<uniform> Preview : PreviewUniform;
@@ -85,6 +88,14 @@ fn PreviewFragment(In : PreviewVarying) -> @location(0) vec4f
     if (Component == 0) { Value = vec3f(Sampled.r); }
     if (Component == 1) { Value = vec3f(Sampled.g); }
     if (Component == 2) { Value = vec3f(Sampled.b); }
+
+    // 🔴 A channel in VALUE mode shows its authored value here, because the thumbnail has to agree with the
+    //    surface. The compositor substitutes that value at resolve time and never touches the atlas, so a
+    //    preview that kept reading the atlas would show the user's strokes on a channel the model is
+    //    rendering as a flat colour — the panel would then be actively lying about which mode is live, which
+    //    is worse than showing nothing. The stored texels are still there and come straight back when the
+    //    mode returns to Texture.
+    if (Preview.Control.z > 0.5) { Value = Preview.Substitute.rgb; }
 
     // The checkerboard the coverage is composited over.
     let Cell   = Preview.Control.y;
@@ -147,9 +158,10 @@ export class ChannelPreview
         });
         this.TargetView = this.Target.createView();
 
+        // Two vec4f: Control + Substitute.
         this.Uniform = Device.createBuffer({
             label: "ChannelPreviewUniform",
-            size:  16,
+            size:  32,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
 
@@ -263,6 +275,13 @@ fn ReduceFragment(In : ReduceVarying) -> @location(0) vec4f
 
         const Encoder = Device.createCommandEncoder({ label: "ChannelPreviewMipChain" });
 
+        // 🔴 The pyramid is REBUILT on every call, and only the texture allocation is cached. It is the
+        //    layer's live atlas contents that change (a stroke does not replace the texture object), so
+        //    caching the reduced levels as well — the obvious saving here — would freeze every thumbnail at
+        //    whatever the atlas held the first time it was previewed. Freshness is the caller's decision:
+        //    CapturePreview already caches its finished tiles against a content stamp, so this is only
+        //    reached when the content is believed to have changed.
+        //
         // Level 0 is a straight copy of the live atlas; every level below is a reduction of the one above.
         Encoder.copyTextureToTexture(
             { texture: Source }, { texture: Entry.Texture }, [Extent, Extent]);
@@ -304,15 +323,32 @@ fn ReduceFragment(In : ReduceVarying) -> @location(0) vec4f
         const Slot = CHANNEL_SLOTS[ChannelKey];
         if (!Slot || !Slot.Atlas) { return null; }
 
+        // 🔴 Still null when there is no atlas, EVEN in Value mode, and that is not an oversight. The
+        //    compositor weights every contribution by the layer's own coverage and skips an atlas the layer
+        //    never allocated, so a Value-mode channel on an untouched layer genuinely puts nothing on the
+        //    surface. Painting a solid tile here would advertise a flat colour the model does not show.
         const Source = Layer.Atlas?.[Slot.Atlas];
         if (!Source) { return null; }
 
         const Device = this.Device;
         const Mipped = this.EnsureMipped(Source, Extent);
 
+        // 📝 Resolved here rather than in the shader, because the substitute is already in display form: a
+        //    colour channel passes its triple through, a scalar splats to the same grey the component path
+        //    would produce, so the shader needs one branch instead of the component switch a second time.
+        //    The `Enabled` test mirrors ResolveModeOverride exactly. A disabled channel is not substituted by
+        //    the compositor, so substituting it here would put a colour in the tile that reaches no texel.
+        const Value = (Layer.Modes?.[ChannelKey] ?? "Value") === "Value"
+                   && (Layer.Enabled?.has(ChannelKey) ?? true);
+        const Authored = Layer.Values?.[ChannelKey] ?? Slot.Default;
+        const Substitute = (Slot.Kind === "colour")
+            ? [Authored[0], Authored[1], Authored[2]]
+            : [Authored, Authored, Authored];
+
         // Component -1 means "pass RGB through"; 0/1/2 splat that component to grey.
         Device.queue.writeBuffer(this.Uniform, 0, new Float32Array(
-            [Slot.Component ?? -1, 8.0, 0.0, 0.0]));
+            [Slot.Component ?? -1, 8.0, Value ? 1.0 : 0.0, 0.0,
+             Substitute[0], Substitute[1], Substitute[2], 0.0]));
 
         const Encoder = Device.createCommandEncoder({ label: "ChannelPreview" });
         const Pass = Encoder.beginRenderPass({
@@ -357,6 +393,7 @@ fn ReduceFragment(In : ReduceVarying) -> @location(0) vec4f
         //    preview correct if PreviewExtent ever changes to a value whose row is not 256-aligned.
         const Packed = new Uint8ClampedArray(PreviewExtent * PreviewExtent * 4);
         let   Ink    = 0;
+        const Sum    = [0, 0, 0];
 
         for (let Row = 0; Row < PreviewExtent; Row += 1)
         {
@@ -369,6 +406,7 @@ fn ReduceFragment(In : ReduceVarying) -> @location(0) vec4f
                 Packed[To + 2] = Raw[From + 2];
                 Packed[To + 3] = 255;
                 Ink += Raw[From + 0] + Raw[From + 1] + Raw[From + 2];
+                Sum[0] += Raw[From + 0]; Sum[1] += Raw[From + 1]; Sum[2] += Raw[From + 2];
             }
         }
 
@@ -387,6 +425,11 @@ fn ReduceFragment(In : ReduceVarying) -> @location(0) vec4f
             // A probe assertion needs something numeric: the mean ink over the tile. Two previews of
             // different content cannot both be flat at the same value unless the pass did nothing.
             MeanInk: Ink / (PreviewExtent * PreviewExtent * 3) / 255,
+            // 🔴 The PER-COMPONENT mean as well, because MeanInk is blind to HUE — it sums R+G+B, so a red
+            //    tile and a blue tile of similar total brightness report the same number. That is exactly the
+            //    comparison a Value/Texture switch needs to make (painted red vs authored blue), and MeanInk
+            //    alone called the two identical to four decimal places.
+            MeanColour: Sum.map(V => V / (PreviewExtent * PreviewExtent) / 255),
             Image:   Canvas.toDataURL("image/png")
         };
     }

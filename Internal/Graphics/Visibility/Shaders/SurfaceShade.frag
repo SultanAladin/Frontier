@@ -170,6 +170,10 @@ layout(std140, set = 0, binding = 10) uniform SunShadowTraceBlock
     float DepthBias;
     uint  LevelCount;
     uint  SunShadowDebugMode;   // [-] - SunShadowDebugView; 0 shades normally. Mirrors the field in SurfaceShadeInscription.h.
+    float ShadowAngleRadians;   // [rad] - P6.6 SMRT: the sun's angular RADIUS (half-angle), NOT its diameter. 0 disables the soft path.
+    uint  SoftRayCount;         // [-] - rays through the cone; 0 disables SMRT and leaves the hard single tap
+    uint  SoftStepCount;        // [-] - steps per ray
+    uint  Pad1;
 } Trace;
 
 // 🧩 One word per PHYSICAL page, raised by ShadowDepthRaster.frag's atomicOr wherever a caster fragment landed and zeroed by ClearShadowPageCoverage
@@ -234,12 +238,18 @@ float ResolveSunVisibility(vec3 WorldPosition, vec3 WorldNormal, out uint OutRes
     for (uint Level = 0u; Level < uint(ShadowTraceLodCount); ++Level)
         Origins[Level] = Trace.ToroidalOrigins[Level].xy;
 
+    // 🧩 P6.6 — the SOFT path. Degenerates to the hard single tap by construction when SoftRayCount or ShadowAngleRadians is 0 (the macro's own gate),
+    //    so this one call site serves both and the A/B costs no branch here.
+    // 📝 gl_FragCoord.xy seeds the per-ray jitter. 🔴 It must be the PIXEL coordinate, not a UV: interleaved gradient noise is defined on integer pixel
+    //    steps, and feeding it a 0..1 UV collapses the hash to a near-constant across the screen — every pixel then samples the same point on the sun
+    //    disc and the penumbra reverts to N hard edges.
     float Visibility;
-    TraceSunShadowVisibility(Visibility, OutResolvedLevel, OutDepthMargin,
-                             SunShadowAtlas, ShadowPageMapping.TilePage, ShadowPageCoverage.PageDrawn,
-                             Trace.LevelCount, LightPosition,
-                             Origins, Trace.BaseTileMetres,
-                             Trace.DepthOriginMetres, Trace.DepthRangeMetres, Trace.DepthBias, LightNormal);
+    TraceSunShadowVisibilitySoft(Visibility, OutResolvedLevel, OutDepthMargin,
+                                 SunShadowAtlas, ShadowPageMapping.TilePage, ShadowPageCoverage.PageDrawn,
+                                 Trace.LevelCount, LightPosition,
+                                 Origins, Trace.BaseTileMetres,
+                                 Trace.DepthOriginMetres, Trace.DepthRangeMetres, Trace.DepthBias, LightNormal,
+                                 Trace.ShadowAngleRadians, Trace.SoftRayCount, Trace.SoftStepCount, gl_FragCoord.xy);
     return Visibility;
 }
 

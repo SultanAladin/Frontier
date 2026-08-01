@@ -858,3 +858,957 @@ const ConstructionSpecificationTable =
 };
 
 const CatalogueFamilyOrder = ["Mass", "Resistance", "Warp", "Combination", "Tint", "Resolve"];
+
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                              DISTANCE EXPRESSION LIBRARY
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 The WGSL preamble. Every entry's Transcribe() emits a call into this library, so the library is
+//    fixed and only the straight-line evaluation body is regenerated on a topology edit.
+//
+//    🔴 Distance-bound discipline, since this is the thing most often gotten wrong:
+//      - Union min(a,b) is EXACT for true distance fields.
+//      - Subtraction max(a,-b) and intersection max(a,b) are LOWER BOUNDS only, and only OUTSIDE the
+//        surface. Inside, they are meaningless.
+//      - Smooth-min, non-uniform scale, and additive displacement all BREAK the Euclidean metric.
+//      - Adding a displacement of amplitude A to the field raises the Lipschitz constant, so the
+//        sphere trace must shorten each step. The march multiplies by StepScale for exactly this.
+const DistanceExpressionPreamble = /* wgsl */`
+
+const Tau : f32 = 6.28318530718;
+
+struct ViewProfile
+{
+    Origin        : vec3f,
+    StepScale     : f32,
+    Forward       : vec3f,
+    StepCeiling   : f32,
+    Rightward     : vec3f,
+    HitTolerance  : f32,
+    Upward        : vec3f,
+    FarDistance   : f32,
+    SolarBearing  : vec3f,
+    AmbientWeight : f32,
+    Viewport      : vec2f,
+    CavityWeight  : f32,
+    SlopeWeight   : f32,
+    ResolveMode   : f32,
+    ShadowWeight  : f32,
+    Exposure      : f32
+};
+
+//------------------------------------------------------------- noise basis
+
+fn HashToUnit(Lattice : vec3f) -> f32
+{
+    let Folded = fract(Lattice * 0.3183099 + vec3f(0.1, 0.2, 0.3));
+    let Mixed  = Folded * 17.0;
+    return fract(Mixed.x * Mixed.y * Mixed.z * (Mixed.x + Mixed.y + Mixed.z));
+}
+
+fn HashToVector(Lattice : vec3f) -> vec3f
+{
+    return vec3f(HashToUnit(Lattice),
+                 HashToUnit(Lattice + vec3f(37.1, 11.7, 5.3)),
+                 HashToUnit(Lattice + vec3f(19.3, 71.9, 23.1)));
+}
+
+// 📝 Value noise with a quintic fade. Quintic is C2, so derived normals stay smooth where a cubic
+//    fade would show faceting along the lattice planes.
+fn EvaluateValueNoise(Sample : vec3f) -> f32
+{
+    let Cell     = floor(Sample);
+    let Fraction = Sample - Cell;
+    let Fade     = Fraction * Fraction * Fraction * (Fraction * (Fraction * 6.0 - 15.0) + 10.0);
+
+    let C000 = HashToUnit(Cell + vec3f(0.0, 0.0, 0.0));
+    let C100 = HashToUnit(Cell + vec3f(1.0, 0.0, 0.0));
+    let C010 = HashToUnit(Cell + vec3f(0.0, 1.0, 0.0));
+    let C110 = HashToUnit(Cell + vec3f(1.0, 1.0, 0.0));
+    let C001 = HashToUnit(Cell + vec3f(0.0, 0.0, 1.0));
+    let C101 = HashToUnit(Cell + vec3f(1.0, 0.0, 1.0));
+    let C011 = HashToUnit(Cell + vec3f(0.0, 1.0, 1.0));
+    let C111 = HashToUnit(Cell + vec3f(1.0, 1.0, 1.0));
+
+    let X00 = mix(C000, C100, Fade.x);
+    let X10 = mix(C010, C110, Fade.x);
+    let X01 = mix(C001, C101, Fade.x);
+    let X11 = mix(C011, C111, Fade.x);
+    return mix(mix(X00, X10, Fade.y), mix(X01, X11, Fade.y), Fade.z) * 2.0 - 1.0;
+}
+
+fn EvaluateFractalNoise(Sample : vec3f, OctaveCount : i32, Lacunarity : f32) -> f32
+{
+    var Accumulation = 0.0;
+    var Weight       = 0.5;
+    var Scaled       = Sample;
+    for (var Octave : i32 = 0; Octave < OctaveCount; Octave = Octave + 1)
+    {
+        Accumulation = Accumulation + Weight * EvaluateValueNoise(Scaled);
+        Scaled       = Scaled * Lacunarity;
+        Weight       = Weight * 0.5;
+    }
+    return Accumulation;
+}
+
+// 📝 Ridged multifractal. The "ridged" part is the transform r = (1 - |n|)^2 — squaring after the fold
+//    sharpens the crease. Each octave is weighted by the previous, which is what makes it
+//    multiplicative (multifractal) rather than a plain sum.
+fn EvaluateRidgedNoise(Sample : vec3f, OctaveCount : i32, Lacunarity : f32) -> f32
+{
+    var Accumulation = 0.0;
+    var Weight       = 0.5;
+    var Carry        = 1.0;
+    var Scaled       = Sample;
+    for (var Octave : i32 = 0; Octave < OctaveCount; Octave = Octave + 1)
+    {
+        var Folded   = 1.0 - abs(EvaluateValueNoise(Scaled));
+        Folded       = Folded * Folded;
+        Accumulation = Accumulation + Weight * Folded * Carry;
+        Carry        = clamp(Folded, 0.0, 1.0);
+        Scaled       = Scaled * Lacunarity;
+        Weight       = Weight * 0.5;
+    }
+    return Accumulation * 2.0 - 1.0;
+}
+
+// 📝 Voronoi CELL-BOUNDARY distance, the key to angular rock. Smooth noise gives clay; the distance
+//    to the bisector between the two nearest seeds gives flat faces meeting at sharp arrises, which
+//    is how joint-bounded blocks actually read.
+fn EvaluateJointCellDistance(Sample : vec3f, Jitter : f32) -> f32
+{
+    let Cell     = floor(Sample);
+    let Fraction = Sample - Cell;
+
+    var NearestOffset = vec3f(0.0);
+    var NearestRange  = 1e9;
+
+    // ① First sweep: locate the nearest seed.
+    for (var Zi : i32 = -1; Zi <= 1; Zi = Zi + 1) {
+    for (var Yi : i32 = -1; Yi <= 1; Yi = Yi + 1) {
+    for (var Xi : i32 = -1; Xi <= 1; Xi = Xi + 1) {
+        let Neighbour = vec3f(f32(Xi), f32(Yi), f32(Zi));
+        let Seed      = Neighbour + HashToVector(Cell + Neighbour) * Jitter - Fraction;
+        let Range     = dot(Seed, Seed);
+        if (Range < NearestRange) { NearestRange = Range; NearestOffset = Seed; }
+    }}}
+
+    // ② Second sweep: distance to the bisecting plane between the nearest seed and each other seed.
+    var BoundaryRange = 1e9;
+    for (var Zi : i32 = -2; Zi <= 2; Zi = Zi + 1) {
+    for (var Yi : i32 = -2; Yi <= 2; Yi = Yi + 1) {
+    for (var Xi : i32 = -2; Xi <= 2; Xi = Xi + 1) {
+        let Neighbour  = vec3f(f32(Xi), f32(Yi), f32(Zi));
+        let Seed       = Neighbour + HashToVector(Cell + Neighbour) * Jitter - Fraction;
+        let Separation = Seed - NearestOffset;
+        let Spread     = dot(Separation, Separation);
+        if (Spread > 1e-5)
+        {
+            let Reach     = dot(0.5 * (NearestOffset + Seed), normalize(Separation));
+            BoundaryRange = min(BoundaryRange, Reach);
+        }
+    }}}
+    return BoundaryRange;
+}
+
+//------------------------------------------------------------- primitive distances
+
+fn DistanceToSphere(Probe : vec3f, Radius : f32) -> f32
+{
+    return length(Probe) - Radius;
+}
+
+// 📝 Rounded box (IQ). Exact outside; the min(max(...)) term keeps it usable at interior points too.
+fn DistanceToRoundedBox(Probe : vec3f, HalfExtent : vec3f, Arris : f32) -> f32
+{
+    let Outward = abs(Probe) - HalfExtent + vec3f(Arris);
+    return length(max(Outward, vec3f(0.0))) + min(max(Outward.x, max(Outward.y, Outward.z)), 0.0) - Arris;
+}
+
+// 📝 Exact capsule — this is the arch carver. A capsule swept horizontally and subtracted from a mass
+//    is precisely how a sea arch or a fin window reads, and unlike an ellipsoid it is a TRUE distance
+//    (sdEllipsoid is a lower bound only, which is why no ellipsoid appears in this library).
+fn DistanceToCapsule(Probe : vec3f, Head : vec3f, Tail : vec3f, Radius : f32) -> f32
+{
+    let Along  = Probe - Head;
+    let Axis   = Tail - Head;
+    let Travel = clamp(dot(Along, Axis) / dot(Axis, Axis), 0.0, 1.0);
+    return length(Along - Axis * Travel) - Radius;
+}
+
+//------------------------------------------------------------- combination
+
+// 📝 Polynomial smooth minimum (IQ). Reduces to exact min() as Softness goes to zero. The result is a
+//    BOUND, not a distance — hence the step clamp in the march.
+fn SmoothMinimum(Left : f32, Right : f32, Softness : f32) -> f32
+{
+    if (Softness <= 1e-5) { return min(Left, Right); }
+    let Blend = clamp(0.5 + 0.5 * (Right - Left) / Softness, 0.0, 1.0);
+    return mix(Right, Left, Blend) - Softness * Blend * (1.0 - Blend);
+}
+
+fn SmoothMaximum(Left : f32, Right : f32, Softness : f32) -> f32
+{
+    if (Softness <= 1e-5) { return max(Left, Right); }
+    let Blend = clamp(0.5 - 0.5 * (Right - Left) / Softness, 0.0, 1.0);
+    return mix(Right, Left, Blend) + Softness * Blend * (1.0 - Blend);
+}
+
+fn SmoothSubtraction(Mass : f32, Carver : f32, Softness : f32) -> f32
+{
+    return SmoothMaximum(Mass, -Carver, Softness);
+}
+
+//------------------------------------------------------------- resistance field
+
+// 📝 Paris 2019 GeoStrata, adapted: Wyvill cubic falloff (1 - d^2/r^2)^3 on the SQUARED vertical
+//    distance to a bed plane. Bed thicknesses default from measured NPS values (Claron pink member
+//    122-213 m, Slick Rock 61-107 m), rescaled to this prototype's metre-scale scene.
+//    Dials: x = Thickness, y = Dip, z = Contrast, w = Offset
+fn EvaluateStratumBand(Probe : vec3f, Beneath : f32, Dials : vec4f) -> f32
+{
+    let BedThickness = max(Dials.x, 0.02);
+    let DipPlane     = Probe.y + Probe.x * Dials.y + Probe.z * Dials.y * 0.6 + Dials.w;
+
+    // ① Which bed are we in, and where within it?
+    let BedIndex  = floor(DipPlane / BedThickness);
+    let WithinBed = DipPlane / BedThickness - BedIndex;
+
+    // ② Alternate hard and soft beds, with a per-bed hash so the sequence is not a strict alternation.
+    let BedHash   = HashToUnit(vec3f(BedIndex, 0.0, 0.0));
+    let BedIsHard = step(0.5, fract(BedIndex * 0.5 + BedHash * 0.34));
+
+    // ③ Wyvill cubic falloff toward the bed centre, so the transition is C1 rather than a step.
+    let Centred = (WithinBed - 0.5) * 2.0;
+    let Falloff = 1.0 - Centred * Centred;
+    let Shaped  = Falloff * Falloff * Falloff;
+
+    let BedStrength = mix(1.0 - Dials.z, 1.0, BedIsHard * 0.5 + Shaped * 0.5);
+    return clamp(mix(Beneath, BedStrength, 0.82), 0.0, 1.0);
+}
+
+// 📝 Joint network. Spacing defaults to the measured spacing-to-bed-thickness ratio S/T ~= 1.0
+//    (Ji 2022, 16 sandstone localities, median 0.99; Bai & Pollard 2000 critical value 0.976).
+//    Two joint sets crossed at Bearing, matching the Arches field geometry where sets meet at 35 deg.
+//    Dials: x = Spacing, y = Aperture, z = Bearing, w = Weakening
+fn EvaluateJointNetwork(Probe : vec3f, Beneath : f32, Dials : vec4f) -> f32
+{
+    let Spacing = max(Dials.x, 0.05);
+    let Cosine  = cos(Dials.z);
+    let Sine    = sin(Dials.z);
+    let Turned  = vec3f(Probe.x * Cosine - Probe.z * Sine,
+                        Probe.y,
+                        Probe.x * Sine   + Probe.z * Cosine);
+
+    let CellRange = EvaluateJointCellDistance(Turned / Spacing, 0.85) * Spacing;
+    let Fracture  = 1.0 - smoothstep(0.0, max(Dials.y, 1e-3), CellRange);
+    return clamp(Beneath - Fracture * Dials.w, 0.0, 1.0);
+}
+
+//------------------------------------------------------------- warp
+
+// 📝 Domain warp (IQ). Amplitude is the Lipschitz hazard: displacing the domain by A raises the
+//    gradient bound, so the host reports the resulting bound and scales the march step rather than
+//    leaving it to chance.
+//    Dials: x = Amplitude, y = Frequency, z = Octaves, w = Twist
+fn ApplyDomainWarp(Probe : vec3f, Dials : vec4f) -> vec3f
+{
+    let OctaveCount  = max(i32(Dials.z), 1);
+    let Displacement = vec3f(
+        EvaluateFractalNoise(Probe * Dials.y + vec3f(0.0, 0.0, 0.0), OctaveCount, 2.0),
+        EvaluateFractalNoise(Probe * Dials.y + vec3f(5.2, 1.3, 7.1), OctaveCount, 2.0),
+        EvaluateFractalNoise(Probe * Dials.y + vec3f(2.7, 8.3, 3.9), OctaveCount, 2.0));
+
+    var Warped = Probe + Displacement * Dials.x;
+
+    // ② Twist about the vertical, which reads as the helical fluting in a slot canyon wall.
+    if (Dials.w > 1e-4)
+    {
+        let Angle  = Probe.y * Dials.w;
+        let Cosine = cos(Angle);
+        let Sine   = sin(Angle);
+        Warped = vec3f(Warped.x * Cosine - Warped.z * Sine,
+                       Warped.y,
+                       Warped.x * Sine   + Warped.z * Cosine);
+    }
+    return Warped;
+}
+
+// Dials: x = Amplitude, y = Frequency, z = Octaves, w = Lacunarity
+fn ApplyRidgedRelief(Probe : vec3f, Dials : vec4f) -> vec3f
+{
+    let OctaveCount = max(i32(Dials.z), 1);
+    let Relief      = EvaluateRidgedNoise(Probe * Dials.y, OctaveCount, max(Dials.w, 1.2));
+    return Probe + vec3f(0.0, Relief * Dials.x, 0.0);
+}
+
+// 📝 Limited domain repetition (IQ). An unbounded modulo would tile to infinity and destroy the
+//    bounding-sphere early-out, so the lattice index is clamped to a finite extent.
+//    Dials: x = Spacing, y = Extent, z = Jitter, w = Axis
+fn ApplyLateralRepeat(Probe : vec3f, Dials : vec4f) -> vec3f
+{
+    let Spacing = max(Dials.x, 0.1);
+    let Extent  = floor(Dials.y);
+    var Folded  = Probe;
+
+    if (Dials.w < 0.5)
+    {
+        let Lattice = clamp(round(Probe.x / Spacing), -Extent, Extent);
+        Folded.x    = Probe.x - Spacing * Lattice;
+        Folded.z    = Probe.z + (HashToUnit(vec3f(Lattice, 3.0, 7.0)) - 0.5) * Spacing * Dials.z;
+    }
+    else if (Dials.w < 1.5)
+    {
+        let Lattice = clamp(round(Probe.z / Spacing), -Extent, Extent);
+        Folded.z    = Probe.z - Spacing * Lattice;
+        Folded.x    = Probe.x + (HashToUnit(vec3f(Lattice, 5.0, 2.0)) - 0.5) * Spacing * Dials.z;
+    }
+    else
+    {
+        let LatticeX = clamp(round(Probe.x / Spacing), -Extent, Extent);
+        let LatticeZ = clamp(round(Probe.z / Spacing), -Extent, Extent);
+        Folded.x = Probe.x - Spacing * LatticeX;
+        Folded.z = Probe.z - Spacing * LatticeZ;
+        Folded.y = Probe.y + (HashToUnit(vec3f(LatticeX, 1.0, LatticeZ)) - 0.5) * Dials.z;
+    }
+    return Folded;
+}
+
+//------------------------------------------------------------- rock masses
+
+// 📝 Angular boulder — a sphere intersected with a set of half-spaces, smoothly. This is the
+//    joint-controlled blocky boulder of Joshua Tree: three orthogonal joint sets cut rectangular
+//    blocks, then subsurface weathering rounds the corners (the Arris term).
+//    Dials: x = Radius, y = FaceCount, z = FaceBias, w = Rounding
+fn EvaluateAngularBoulder(Probe : vec3f, Dials : vec4f) -> f32
+{
+    var Field = DistanceToSphere(Probe, Dials.x);
+
+    let FaceCount = i32(clamp(Dials.y, 0.0, 14.0));
+    for (var Face : i32 = 0; Face < FaceCount; Face = Face + 1)
+    {
+        // ① A deterministic direction per cut face, spread over the sphere.
+        let Seed   = HashToVector(vec3f(f32(Face) * 3.7, 1.9, 4.3)) * 2.0 - vec3f(1.0);
+        let Normal = normalize(Seed + vec3f(1e-4));
+        let Reach  = Dials.x * mix(1.0, 0.42, Dials.z)
+                   * (0.7 + 0.3 * HashToUnit(vec3f(f32(Face), 2.0, 6.0)));
+        Field = SmoothMaximum(Field, dot(Probe, Normal) - Reach, Dials.w);
+    }
+    return Field;
+}
+
+// 📝 Battered mesa — caprock over a slope, the batter angle standing in for the talus apron.
+//    Ward & Anderson: a strong caprock plus vertical fractures keeps the scarp near-vertical while it
+//    retreats, which is why the batter is small by default.
+//    Dials: x = Radius, y = Height, z = Batter, w = Rounding
+fn EvaluateBatteredMesa(Probe : vec3f, Dials : vec4f) -> f32
+{
+    let Rise       = max(Dials.y, 0.05);
+    let Elevation  = clamp((Probe.y + Rise) / (2.0 * Rise), 0.0, 1.0);
+    let PlanRadius = Dials.x * (1.0 + Dials.z * (1.0 - Elevation));
+
+    let Radial  = length(vec2f(Probe.x, Probe.z)) - PlanRadius;
+    let Cap     = abs(Probe.y) - Rise;
+    let Outward = vec2f(max(Radial, 0.0), max(Cap, 0.0));
+    return length(Outward) + min(max(Radial, Cap), 0.0) - Dials.w;
+}
+
+// 📝 Hoodoo column. The radius profile r(y) is MODULATED BY THE RESISTANCE FIELD — that is the actual
+//    mechanism (differential recession of alternating-resistance beds), not a cosmetic wobble.
+//    Bryce heights are measured (under 12 m to over 61 m). ⚠️ Waist and CapFlare have no published
+//    measurement anywhere found, so those two defaults are my own tuning, not sourced values.
+//    Dials: x = Height, y = Waist, z = CapFlare, w = Lean
+fn EvaluateHoodooColumn(Probe : vec3f, Resistance : f32, Dials : vec4f) -> f32
+{
+    let Rise = max(Dials.x, 0.1);
+
+    // ① Lean the column off vertical, so a field of them does not read as a picket fence.
+    let Elevation = clamp((Probe.y + Rise * 0.5) / Rise, 0.0, 1.0);
+    let Leaned    = vec3f(Probe.x + Dials.w * Elevation * Elevation,
+                          Probe.y,
+                          Probe.z + Dials.w * 0.4 * Elevation);
+
+    // ② Resistant beds stand proud, weak beds recede. This is the whole silhouette.
+    let Profile = Dials.y * (0.55 + 0.45 * clamp(Resistance, 0.0, 1.0) * (1.0 + Dials.z));
+
+    let Radial  = length(vec2f(Leaned.x, Leaned.z)) - Profile;
+    let Cap     = abs(Leaned.y) - Rise * 0.5;
+    let Outward = vec2f(max(Radial, 0.0), max(Cap, 0.0));
+    return length(Outward) + min(max(Radial, Cap), 0.0) - 0.04;
+}
+
+// 📝 Fin wall. Arches NP: salt-anticline flexure opens closely spaced parallel vertical joints, the
+//    joints widen into fins, and only then does a fin get perforated into an arch. So the fin is a
+//    primitive here and the arch is a CARVE applied to it — matching the real formation sequence.
+//    Dials: x = Length, y = Thickness, z = Height, w = Bearing
+fn EvaluateFinWall(Probe : vec3f, Dials : vec4f) -> f32
+{
+    let Cosine = cos(Dials.w);
+    let Sine   = sin(Dials.w);
+    let Turned = vec3f(Probe.x * Cosine - Probe.z * Sine,
+                       Probe.y,
+                       Probe.x * Sine   + Probe.z * Cosine);
+
+    // ① Taper toward the ends and the crest, which is how a weathering fin actually stands.
+    let Along = clamp(abs(Turned.x) / max(Dials.x, 0.1), 0.0, 1.0);
+    let Taper = 1.0 - Along * Along * 0.55;
+    let Crest = 1.0 - clamp((Turned.y + Dials.z * 0.5) / max(Dials.z, 0.1), 0.0, 1.0) * 0.3;
+
+    let HalfExtent = vec3f(Dials.x, Dials.z * 0.5, Dials.y * 0.5 * Taper * Crest);
+    return DistanceToRoundedBox(Turned, HalfExtent, 0.06);
+}
+
+//------------------------------------------------------------- aperture
+
+// 📝 The arch carver. A horizontal capsule, positioned by Elevation and sized by Aperture/Span, then
+//    biased toward WEAK rock by the resistance field. Paris 2019's sea arches work exactly this way:
+//    a negative-energy stratum marks soft rock and successive erosion passes carve it preferentially.
+//    Landscape Arch measures 93 m span over a 1.8-6 m ligament, hence the aperture-to-ligament ratio.
+//    Dials: x = Aperture, y = Span, z = Elevation, w = Softness
+fn EvaluateApertureCapsule(Probe : vec3f, Resistance : f32, Dials : vec4f) -> f32
+{
+    // ① Soft rock carves more: the aperture opens where resistance is low.
+    let Softness = 1.0 - clamp(Resistance, 0.0, 1.0);
+    let Aperture = Dials.x * (0.55 + 0.75 * Softness);
+
+    let Head = vec3f(-Dials.y * 0.5, Dials.z, 0.0);
+    let Tail = vec3f( Dials.y * 0.5, Dials.z, 0.0);
+    return DistanceToCapsule(Probe, Head, Tail, Aperture);
+}
+
+// 📝 Resistance-driven surface recession. Paris 2019's erosion OPERATOR, verbatim in form:
+//        f_E(p) = f(p) - alpha_D * (1 - psi(p))       psi = resistance
+//    This is the cheapest, highest-value erosion cue and the reason differential hardness ranked
+//    first in the research: it costs one field evaluation and no iteration.
+//    Dials: x = Depth, y = Threshold, z = Sharpness, w = Undercut
+fn ApplyResistanceCarve(Mass : f32, Resistance : f32, Dials : vec4f) -> f32
+{
+    let Clamped  = clamp(Resistance, 0.0, 1.0);
+    let Margin   = 1.0 / max(Dials.z, 0.2);
+    let Weakness = 1.0 - smoothstep(Dials.y - Margin, Dials.y + Margin, Clamped);
+    return Mass + Dials.x * Weakness * (1.0 + Dials.w);
+}
+
+//------------------------------------------------------------- tint
+
+// 📝 Munsell chips converted renotation -> xyY -> XYZ -> Bradford C-to-D65 -> sRGB. All landed inside
+//    the sRGB gamut, so none are clipped approximations.
+//    Palette 0 = Bryce Claron · 1 = Entrada/Aztec · 2 = weathered granite · 3 = varnished canyon wall.
+//    Dials: x = Palette, y = Saturation, z = Mottling, w = Varnish
+fn EvaluateStratumTint(Probe : vec3f, Resistance : f32, Dials : vec4f) -> vec3f
+{
+    let Clamped = clamp(Resistance, 0.0, 1.0);
+    let Palette = i32(clamp(Dials.x, 0.0, 3.0));
+
+    var Weak   = vec3f(0.604, 0.282, 0.196);   // hematite fine   #9A4832  10R 4/8
+    var Strong = vec3f(0.839, 0.776, 0.686);   // calcite white   #D6C6AF  10YR 8/2
+
+    if (Palette == 1)
+    {
+        Weak   = vec3f(0.702, 0.396, 0.239);   // Aztec orange    #B3653D  2.5YR 5/8
+        Strong = vec3f(0.812, 0.780, 0.737);   // Aztec bleached  #CFC7BC  10YR 8/1
+    }
+    else if (Palette == 2)
+    {
+        Weak   = vec3f(0.631, 0.435, 0.247);   // goethite fine   #A16F3F  7.5YR 5/6
+        Strong = vec3f(0.863, 0.773, 0.643);   // gypsum pale     #DCC5A4  10YR 8/3
+    }
+    else if (Palette == 3)
+    {
+        Weak   = vec3f(0.216, 0.188, 0.161);   // Mn varnish      #373029  10YR 2/1
+        Strong = vec3f(0.820, 0.490, 0.384);   // Aztec red       #D17D62  10R 6/8
+    }
+
+    // ① Resistance indexes the ramp, because the cement sets both hue and strength.
+    var Tint = mix(Weak, Strong, Clamped);
+
+    // ② Mineral mottling from a mid-frequency field — patchy goethite, not a uniform wash.
+    let Mottle = EvaluateFractalNoise(Probe * 2.3, 3, 2.0) * 0.5 + 0.5;
+    Tint = mix(Tint, Tint * (0.66 + 0.68 * Mottle), Dials.z);
+
+    // ③ Desert varnish streaks. Mn oxide accumulates on faces shielded from runoff, so it reads as
+    //    vertical streaking; growth is 1-15 um/ky, so it is a slow patchy overlay, not a coating.
+    let Streak  = clamp(EvaluateFractalNoise(vec3f(Probe.x * 5.5, Probe.y * 0.7, Probe.z * 5.5), 3, 2.0), -1.0, 1.0);
+    let Varnish = smoothstep(0.1, 0.75, Streak) * Dials.w;
+    Tint = mix(Tint, vec3f(0.216, 0.188, 0.161), Varnish * 0.72);
+
+    // ④ Desaturate toward luminance rather than scaling, so Saturation 0 gives true grey.
+    let Luminance = dot(Tint, vec3f(0.2126, 0.7152, 0.0722));
+    return clamp(mix(vec3f(Luminance), Tint, Dials.y), vec3f(0.0), vec3f(1.0));
+}
+`;
+
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                 SPHERE TRACE RESOLVE
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 The march, shading and screen quad. This half of the shader is also fixed; the transcribed tree
+//    is spliced in between as EvaluateConstructionTree() and EvaluateConstructionTint().
+const SphereTraceResolve = /* wgsl */`
+
+//------------------------------------------------------------- differential geometry
+
+// 📝 Central differences. The tetrahedron trick saves one evaluation but couples the axes, and with a
+//    voxel bake landing in M2 the extra clarity is worth more than one texture fetch.
+fn EvaluateSurfaceNormal(Probe : vec3f) -> vec3f
+{
+    let Delta = 0.0016;
+    let Dx = vec3f(Delta, 0.0, 0.0);
+    let Dy = vec3f(0.0, Delta, 0.0);
+    let Dz = vec3f(0.0, 0.0, Delta);
+    return normalize(vec3f(
+        EvaluateConstructionTree(Probe + Dx) - EvaluateConstructionTree(Probe - Dx),
+        EvaluateConstructionTree(Probe + Dy) - EvaluateConstructionTree(Probe - Dy),
+        EvaluateConstructionTree(Probe + Dz) - EvaluateConstructionTree(Probe - Dz)));
+}
+
+// 📝 Discrete Laplacian of the field = mean curvature up to a factor. Concave (cavity) reads negative,
+//    convex (arris) positive. This is what darkens undercuts: shadow, moisture retention and varnish
+//    all accumulate in concavities, and wetting lowers Munsell value while holding chroma.
+fn EvaluateFieldCurvature(Probe : vec3f) -> f32
+{
+    let Delta  = 0.028;
+    let Centre = EvaluateConstructionTree(Probe);
+    var Sum    = 0.0;
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f( Delta, 0.0, 0.0));
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f(-Delta, 0.0, 0.0));
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f(0.0,  Delta, 0.0));
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f(0.0, -Delta, 0.0));
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f(0.0, 0.0,  Delta));
+    Sum = Sum + EvaluateConstructionTree(Probe + vec3f(0.0, 0.0, -Delta));
+    return (Sum - 6.0 * Centre) / (Delta * Delta);
+}
+
+//------------------------------------------------------------- march
+
+struct TraceOutcome
+{
+    Range      : f32,
+    StepTally  : f32,
+    Contact    : bool
+};
+
+// 📝 Sphere tracing with a Lipschitz step scale. 🔴 The field is NOT a true distance once smooth-min,
+//    additive relief or domain warp enter the tree, so a full d-sized step overshoots and punches
+//    through thin ligaments — exactly the arch ligaments this prototype exists to show. StepScale
+//    below 1.0 is the correction, and the panel exposes it because getting it wrong is silent.
+fn TraceConstructionTree(Origin : vec3f, Bearing : vec3f) -> TraceOutcome
+{
+    var Outcome = TraceOutcome(0.0, 0.0, false);
+
+    // ① Bounding-sphere entry. The scene is authored inside a fixed radius, so skip the empty run-up
+    //    instead of stepping through it.
+    let SceneRadius   = 14.0;
+    let ToCentre      = -Origin;
+    let Projection    = dot(ToCentre, Bearing);
+    let PerpendicularSq = dot(ToCentre, ToCentre) - Projection * Projection;
+    if (PerpendicularSq > SceneRadius * SceneRadius) { return Outcome; }
+    let HalfChord = sqrt(max(SceneRadius * SceneRadius - PerpendicularSq, 0.0));
+    var Range     = max(Projection - HalfChord, 0.0);
+
+    let StepCeiling = i32(U.StepCeiling);
+    for (var Step : i32 = 0; Step < StepCeiling; Step = Step + 1)
+    {
+        let Probe = Origin + Bearing * Range;
+        let Field = EvaluateConstructionTree(Probe);
+
+        // ② Tolerance widens with range so distant pixels stop early — a cheap cone-march surrogate.
+        let Tolerance = U.HitTolerance * (1.0 + Range * 0.11);
+        if (Field < Tolerance)
+        {
+            Outcome.Range     = Range;
+            Outcome.StepTally = f32(Step);
+            Outcome.Contact   = true;
+            return Outcome;
+        }
+
+        Range = Range + max(Field * U.StepScale, U.HitTolerance * 0.4);
+        if (Range > U.FarDistance || Range > Projection + HalfChord) { break; }
+        Outcome.StepTally = f32(Step);
+    }
+    return Outcome;
+}
+
+// 📝 Hard shadow by re-marching toward the sun. A soft-shadow variant would accumulate min(1, d/(k*t))
+//    but doubles the field evaluations; at this tree depth the hard version already dominates cost.
+fn TraceShadowRatio(Origin : vec3f, Bearing : vec3f) -> f32
+{
+    var Range      = 0.05;
+    var Occlusion  = 1.0;
+    for (var Step : i32 = 0; Step < 40; Step = Step + 1)
+    {
+        let Field = EvaluateConstructionTree(Origin + Bearing * Range);
+        if (Field < 0.001) { return 0.0; }
+        Occlusion = min(Occlusion, 14.0 * Field / Range);
+        Range     = Range + max(Field * U.StepScale, 0.012);
+        if (Range > 9.0) { break; }
+    }
+    return clamp(Occlusion, 0.0, 1.0);
+}
+
+// 📝 IQ's five-tap ambient occlusion: walk out along the normal and compare the field against the
+//    distance actually travelled. Where the field lags behind, geometry is nearby.
+fn EvaluateAmbientOcclusion(Probe : vec3f, Normal : vec3f) -> f32
+{
+    var Occlusion = 0.0;
+    var Weight    = 1.0;
+    for (var Step : i32 = 0; Step < 5; Step = Step + 1)
+    {
+        let Offset = 0.014 + 0.12 * f32(Step) / 4.0;
+        let Field  = EvaluateConstructionTree(Probe + Normal * Offset);
+        Occlusion  = Occlusion + (Offset - Field) * Weight;
+        Weight     = Weight * 0.72;
+    }
+    return clamp(1.0 - 2.6 * Occlusion, 0.0, 1.0);
+}
+
+//------------------------------------------------------------- illumination
+
+// 📝 Rock is close to Lambertian, so there is no specular lobe here. The sky term is deliberately blue
+//    and the bounce term deliberately warm-red: on a sunlit desert wall the fill light really is
+//    reflected ground, and neutral fill is what makes procedural rock read as plastic.
+fn ShadeContactPoint(Probe : vec3f, Normal : vec3f, Tint : vec3f, StepTally : f32) -> vec3f
+{
+    let Solar = normalize(U.SolarBearing);
+
+    // ① Direct sun, shadowed.
+    let Incidence = clamp(dot(Normal, Solar), 0.0, 1.0);
+    var Shadow    = 1.0;
+    if (U.ShadowWeight > 0.01 && Incidence > 0.001)
+    {
+        Shadow = mix(1.0, TraceShadowRatio(Probe, Solar), U.ShadowWeight);
+    }
+    let SunColour = vec3f(1.0, 0.93, 0.82);
+    var Radiance  = Tint * SunColour * Incidence * Shadow * 2.35;
+
+    // ② Sky dome from above, cool.
+    let SkyFacing = clamp(0.5 + 0.5 * Normal.y, 0.0, 1.0);
+    Radiance = Radiance + Tint * vec3f(0.34, 0.44, 0.62) * SkyFacing * U.AmbientWeight;
+
+    // ③ Ground bounce from below, warm.
+    let GroundFacing = clamp(0.5 - 0.5 * Normal.y, 0.0, 1.0);
+    Radiance = Radiance + Tint * vec3f(0.40, 0.26, 0.17) * GroundFacing * U.AmbientWeight * 0.62;
+
+    // ④ Ambient occlusion and cavity darkening. Curvature drives the cavity term because concavities
+    //    hold moisture and varnish as well as shadow.
+    let Occlusion = EvaluateAmbientOcclusion(Probe, Normal);
+    Radiance = Radiance * mix(1.0, Occlusion, 0.85);
+
+    let Curvature = EvaluateFieldCurvature(Probe);
+    let Cavity    = clamp(-Curvature * 0.011, 0.0, 1.0);
+    Radiance = Radiance * mix(1.0, 1.0 - Cavity, U.CavityWeight);
+
+    // ⑤ Slope masking. Ledges catch pale dust and spalled debris; steep faces stay clean and darker.
+    let Ledge = clamp(Normal.y, 0.0, 1.0);
+    Radiance = mix(Radiance, Radiance * vec3f(1.16, 1.10, 0.99), Ledge * U.SlopeWeight * 0.55);
+
+    return Radiance;
+}
+
+// 📝 ACES-style filmic curve (Narkowicz approximation). Reinhard washes out the sunlit face; this
+//    holds the highlight while keeping the shadow chroma the Munsell palette is there to provide.
+fn ResolveTonemap(Radiance : vec3f) -> vec3f
+{
+    let Exposed = Radiance * U.Exposure;
+    let Shaped  = (Exposed * (2.51 * Exposed + vec3f(0.03)))
+                / (Exposed * (2.43 * Exposed + vec3f(0.59)) + vec3f(0.14));
+    let Clamped = clamp(Shaped, vec3f(0.0), vec3f(1.0));
+    return pow(Clamped, vec3f(1.0 / 2.2));
+}
+
+fn ResolveSkyBackdrop(Bearing : vec3f) -> vec3f
+{
+    let Elevation = clamp(Bearing.y * 0.5 + 0.5, 0.0, 1.0);
+    let Horizon   = vec3f(0.30, 0.33, 0.38);
+    let Vault     = vec3f(0.055, 0.075, 0.115);
+    var Backdrop  = mix(Horizon, Vault, pow(Elevation, 0.62));
+
+    // ① A faint solar bloom, so the sun bearing dial is legible against the backdrop.
+    let Solar = normalize(U.SolarBearing);
+    let Glow  = pow(clamp(dot(Bearing, Solar), 0.0, 1.0), 128.0);
+    Backdrop  = Backdrop + vec3f(0.85, 0.72, 0.52) * Glow * 0.55;
+    return Backdrop;
+}
+
+//------------------------------------------------------------- entry points
+
+struct QuadYield
+{
+    @builtin(position) Coordinate : vec4f,
+    @location(0)       Screen     : vec2f
+};
+
+@vertex
+fn TranscribeQuadVertex(@builtin(vertex_index) VertexIndex : u32) -> QuadYield
+{
+    // 📝 Two triangles as a strip-free list, so no vertex buffer is bound at all.
+    var Corners = array<vec2f, 6>(
+        vec2f(-1.0, -1.0), vec2f( 1.0, -1.0), vec2f(-1.0,  1.0),
+        vec2f(-1.0,  1.0), vec2f( 1.0, -1.0), vec2f( 1.0,  1.0));
+
+    let Corner = Corners[VertexIndex];
+    var Result : QuadYield;
+    Result.Coordinate = vec4f(Corner, 0.0, 1.0);
+    Result.Screen     = Corner;
+    return Result;
+}
+
+@fragment
+fn InscribeSurfaceFragment(Stream : QuadYield) -> @location(0) vec4f
+{
+    // ① Build the ray. Aspect correction on x keeps the field of view square.
+    let Aspect  = U.Viewport.x / max(U.Viewport.y, 1.0);
+    let Plane   = vec2f(Stream.Screen.x * Aspect, Stream.Screen.y);
+    let Bearing = normalize(U.Forward + U.Rightward * Plane.x + U.Upward * Plane.y);
+
+    let Outcome = TraceConstructionTree(U.Origin, Bearing);
+
+    // ② Step-count resolve, for diagnosing where the march is expensive.
+    if (U.ResolveMode > 2.5)
+    {
+        let Load = Outcome.StepTally / max(U.StepCeiling, 1.0);
+        return vec4f(Load, 1.0 - Load, 0.14, 1.0);
+    }
+
+    if (!Outcome.Contact)
+    {
+        return vec4f(ResolveSkyBackdrop(Bearing), 1.0);
+    }
+
+    let Probe  = U.Origin + Bearing * Outcome.Range;
+    let Normal = EvaluateSurfaceNormal(Probe);
+
+    // ③ Normal resolve.
+    if (U.ResolveMode > 1.5)
+    {
+        return vec4f(Normal * 0.5 + vec3f(0.5), 1.0);
+    }
+
+    // ④ Resistance resolve — the field that drives both shape and colour, shown directly.
+    if (U.ResolveMode > 0.5)
+    {
+        let Resistance = clamp(EvaluateConstructionResistance(Probe), 0.0, 1.0);
+        let Ramp = mix(vec3f(0.72, 0.22, 0.16), vec3f(0.86, 0.84, 0.76), Resistance);
+        let Occlusion = EvaluateAmbientOcclusion(Probe, Normal);
+        return vec4f(pow(Ramp * mix(0.45, 1.0, Occlusion), vec3f(1.0 / 2.2)), 1.0);
+    }
+
+    // ⑤ Full resolve.
+    let Tint     = EvaluateConstructionTint(Probe);
+    let Radiance = ShadeContactPoint(Probe, Normal, Tint, Outcome.StepTally);
+
+    // ⑥ Distance haze, so depth reads without a depth buffer.
+    let Haze     = 1.0 - exp(-Outcome.Range * 0.020);
+    let Hazed    = mix(Radiance, vec3f(0.30, 0.33, 0.38) * 1.5, Haze * 0.42);
+    return vec4f(ResolveTonemap(Hazed), 1.0);
+}
+`;
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                              CONSTRUCTION TRANSCRIBER
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Flattens the tree into straight-line WGSL. 🔴 The whole reason for transcribing rather than
+//    interpreting: an interpreter would need a stack and dynamic indexing in the innermost loop of the
+//    march, which is the single hottest code path in the prototype. Emitting `let` bindings lets the
+//    shader compiler inline, constant-fold and reorder freely.
+//
+//    Topology edit  -> retranscribe + recompile pipeline (tens of ms)
+//    Dial turn      -> uniform write only, no recompile (sub-millisecond)
+const ConstructionTranscriber =
+{
+    // ① Resolve which entry feeds a given intake port.
+    ResolveOperand(TreeState, EntryIdentifier, IntakeNaming)
+    {
+        const Link = TreeState.Links.find(Candidate =>
+            Candidate.TargetEntry === EntryIdentifier && Candidate.TargetIntake === IntakeNaming);
+        return Link ? Link.SourceEntry : null;
+    },
+
+    // ② Depth-first emit with memoisation, so a high-fanout entry is evaluated once and reused.
+    EmitEntry(TreeState, EntryIdentifier, Emitted, Lines, Visiting)
+    {
+        if (Emitted.has(EntryIdentifier)) return Emitted.get(EntryIdentifier);
+
+        // 🔴 Cycle guard. A cycle would recurse until the stack dies, so bail to a far constant.
+        if (Visiting.has(EntryIdentifier)) return "1e9";
+        Visiting.add(EntryIdentifier);
+
+        const Entry         = TreeState.Entries.get(EntryIdentifier);
+        const Specification = ConstructionSpecificationTable[Entry.Species];
+        const Operands      = {};
+
+        for (const Intake of Specification.Intakes)
+        {
+            const SourceIdentifier = this.ResolveOperand(TreeState, EntryIdentifier, Intake.Naming);
+            if (SourceIdentifier !== null && TreeState.Entries.has(SourceIdentifier))
+            {
+                const SourceEntry = TreeState.Entries.get(SourceIdentifier);
+                if (!SourceEntry.Bypassed)
+                {
+                    Operands[Intake.Naming] =
+                        this.EmitEntry(TreeState, SourceIdentifier, Emitted, Lines, Visiting);
+                }
+            }
+        }
+
+        Visiting.delete(EntryIdentifier);
+
+        // ③ A bypassed entry forwards its first same-category operand rather than vanishing, which is
+        //    what makes bypass useful for A/B comparison instead of just deleting a branch.
+        if (Entry.Bypassed)
+        {
+            const Passthrough = Specification.Intakes.find(Intake =>
+                Intake.Category === Specification.Yields && Operands[Intake.Naming]);
+            const Forwarded = Passthrough
+                ? Operands[Passthrough.Naming]
+                : (Specification.Yields === "Warp" ? "Probe"
+                :  Specification.Yields === "Resistance" ? "0.5"
+                :  Specification.Yields === "Tint" ? "vec3f(0.5)" : "1e9");
+            Emitted.set(EntryIdentifier, Forwarded);
+            return Forwarded;
+        }
+
+        const Expression = Specification.Transcribe(Operands, Entry.Dials, Entry.Slot);
+        const Binding    = `Value${EntryIdentifier}`;
+        const TypeNaming = Specification.Yields === "Warp" ? "vec3f"
+                         : Specification.Yields === "Tint" ? "vec3f" : "f32";
+
+        Lines.push(`    let ${Binding} : ${TypeNaming} = ${Expression};`);
+        Emitted.set(EntryIdentifier, Binding);
+        return Binding;
+    },
+
+    // ④ Emit the three tree entry points the resolve half expects.
+    Transcribe(TreeState)
+    {
+        const RootIdentifier = [...TreeState.Entries.keys()].find(Identifier =>
+            TreeState.Entries.get(Identifier).Species === "SurfaceResolve");
+
+        if (RootIdentifier === undefined)
+        {
+            return {
+                Source: this.ComposeFallback("no Surface Resolve entry"),
+                LineTally: 0
+            };
+        }
+
+        const DistanceSource = this.ResolveOperand(TreeState, RootIdentifier, "distance");
+        const TintSource     = this.ResolveOperand(TreeState, RootIdentifier, "tint");
+
+        if (DistanceSource === null || !TreeState.Entries.has(DistanceSource))
+        {
+            return {
+                Source: this.ComposeFallback("Surface Resolve has no distance operand"),
+                LineTally: 0
+            };
+        }
+
+        // ⑤ Distance body.
+        const DistanceLines = [];
+        const DistanceBinding = this.EmitEntry(
+            TreeState, DistanceSource, new Map(), DistanceLines, new Set());
+
+        // ⑥ Resistance body. Walk the tree for the deepest resistance-yielding entry so the resolve
+        //    view and the tint have something to read even when nothing is explicitly wired to tint.
+        const ResistanceIdentifier = this.DiscoverResistanceSource(TreeState, DistanceSource);
+        const ResistanceLines = [];
+        let ResistanceBinding = "0.5";
+        if (ResistanceIdentifier !== null)
+        {
+            ResistanceBinding = this.EmitEntry(
+                TreeState, ResistanceIdentifier, new Map(), ResistanceLines, new Set());
+        }
+
+        // ⑦ Tint body.
+        const TintLines = [];
+        let TintBinding = null;
+        if (TintSource !== null && TreeState.Entries.has(TintSource))
+        {
+            TintBinding = this.EmitEntry(TreeState, TintSource, new Map(), TintLines, new Set());
+        }
+
+        const TintBody = TintBinding !== null
+            ? `${TintLines.join("\n")}\n    return ${TintBinding};`
+            : `${ResistanceLines.join("\n")}\n    return EvaluateStratumTint(Probe, ${ResistanceBinding}, vec4f(0.0, 1.0, 0.34, 0.42));`;
+
+        const Source =
+`
+fn EvaluateConstructionTree(Probe : vec3f) -> f32
+{
+${DistanceLines.join("\n")}
+    return ${DistanceBinding};
+}
+
+fn EvaluateConstructionResistance(Probe : vec3f) -> f32
+{
+${ResistanceLines.join("\n")}
+    return ${ResistanceBinding};
+}
+
+fn EvaluateConstructionTint(Probe : vec3f) -> vec3f
+{
+${TintBody}
+}
+`;
+        return {
+            Source,
+            LineTally: DistanceLines.length + ResistanceLines.length + TintLines.length
+        };
+    },
+
+    // 📝 Find a resistance-yielding entry reachable from the shape branch. Prefers the one furthest
+    //    from the root, since that is the fully-composed resistance field rather than a partial one.
+    DiscoverResistanceSource(TreeState, StartIdentifier)
+    {
+        const Frontier = [StartIdentifier];
+        const Seen     = new Set();
+        let   Deepest  = null;
+
+        while (Frontier.length > 0)
+        {
+            const Identifier = Frontier.pop();
+            if (Seen.has(Identifier)) continue;
+            Seen.add(Identifier);
+            if (!TreeState.Entries.has(Identifier)) continue;
+
+            const Entry = TreeState.Entries.get(Identifier);
+            const Specification = ConstructionSpecificationTable[Entry.Species];
+            if (Specification.Yields === "Resistance" && !Entry.Bypassed) Deepest = Identifier;
+
+            for (const Link of TreeState.Links)
+            {
+                if (Link.TargetEntry === Identifier) Frontier.push(Link.SourceEntry);
+            }
+        }
+        return Deepest;
+    },
+
+    // 📝 A visible fallback rather than a compile failure, so an incomplete tree still renders and the
+    //    reason is legible on screen instead of only in the console.
+    ComposeFallback(Reason)
+    {
+        return `
+// fallback — ${Reason}
+fn EvaluateConstructionTree(Probe : vec3f) -> f32
+{
+    return DistanceToSphere(Probe, 1.6);
+}
+
+fn EvaluateConstructionResistance(Probe : vec3f) -> f32
+{
+    return EvaluateStratumBand(Probe, 0.5, vec4f(0.62, 0.07, 0.62, 0.0));
+}
+
+fn EvaluateConstructionTint(Probe : vec3f) -> vec3f
+{
+    return vec3f(0.30, 0.31, 0.34);
+}
+`;
+    }
+};

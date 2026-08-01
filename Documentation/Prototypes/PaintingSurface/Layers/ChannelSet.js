@@ -88,6 +88,57 @@ export function IsStoredChannel(Key)
     return Boolean(Slot) && Slot.Atlas !== null;
 }
 
+// What the compositor should substitute for one atlas's stored texels, given each channel's Value /
+// Texture / Generator mode. Returns null when nothing is overridden and the atlas can be sampled as-is.
+//
+// 🔴 This is what makes a mode switch NON-DESTRUCTIVE. The mode used to be applied by re-flooding the
+//    atlas, which overwrote the painted texels with the authored colour — so switching to Value and back
+//    returned a flat fill instead of the user's strokes, with no way to recover them. The paint is the
+//    expensive, unreproducible artifact here; an authored value is one number. So the atlas is left alone
+//    and the substitution happens at composite time, which also makes switching instant and reversible.
+//
+// 🔴 Resolved PER COMPONENT, not per atlas, because Material packs metallic, roughness and height into one
+//    RGB. Overriding a whole atlas would force all three to the same mode: setting roughness to Value would
+//    silently flatten the painted height living next to it in the same texel.
+// 🔴 `Enabled` gates the whole thing. A channel the layer does not author must not be substituted even when
+//    its mode reads "Value" — every layer carries a mode for all six channels whether it uses them or not,
+//    so without this gate a paint layer that only authors colour would still push a default metallic and
+//    roughness over the Material atlas wherever it has coverage, wiping out the material layer beneath it.
+export function ResolveModeOverride(AtlasKey, Modes, Values, Enabled)
+{
+    const Descriptor = CHANNEL_ATLASES.find(A => A.Key === AtlasKey);
+    if (!Descriptor) { return null; }
+
+    const Value = [0, 0, 0];
+    const Mask  = [0, 0, 0];
+    let   Any   = false;
+
+    for (const Key of Descriptor.Channels)
+    {
+        if (Enabled && !Enabled.has(Key)) { continue; }
+
+        // Texture and Generator both mean "use what is stored"; only Value substitutes.
+        if ((Modes?.[Key] ?? "Value") !== "Value") { continue; }
+
+        const Slot     = CHANNEL_SLOTS[Key];
+        const Authored = Values?.[Key] ?? Slot.Default;
+
+        if (Slot.Kind === "colour")
+        {
+            Value[0] = Authored[0]; Value[1] = Authored[1]; Value[2] = Authored[2];
+            Mask[0]  = 1;           Mask[1]  = 1;           Mask[2]  = 1;
+        }
+        else
+        {
+            Value[Slot.Component] = Authored;
+            Mask[Slot.Component]  = 1;
+        }
+        Any = true;
+    }
+
+    return Any ? { Value, Mask } : null;
+}
+
 // Which atlases a stroke must be laid into, given the channels it is enabled for.
 //
 // 📝 Returned as a Set of atlas keys rather than a list of channels, because the paint pass runs once

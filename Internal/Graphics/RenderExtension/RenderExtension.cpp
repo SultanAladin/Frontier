@@ -149,7 +149,13 @@ void DriveViewportCamera(RenderExtension& Extension, float DeltaSeconds)
 
     // Is a look-drag (as opposed to pan) engaged this frame? Fly = RMB look; orbit = Alt + LMB. Pan (Alt+MMB) is NOT a look.
     const bool  OrbitLookDrag = OrbitMode && PacketButtonHeld(Input, PointerButton::Left) && !PacketButtonHeld(Input, PointerButton::Middle);
-    const bool  LookDrag      = FlyMode || OrbitLookDrag;
+
+    // 🔴 P6.6: Ctrl+LMB is the SUN drag, and the camera must yield the pointer for that frame. Without this the one drag steers the sun and the view
+    //    together, and a moving camera re-scrolls the shadow clipmap — which is the trigger for the movement-only artefact (#15). The sun test would
+    //    then be read against a known-faulty background, so the whole point of a stationary-camera sweep is lost.
+    const bool  SunDragHeld   = (PacketKeyHeld(Input, KeyIdentity::LeftControl) || PacketKeyHeld(Input, KeyIdentity::RightControl))
+                             && PacketButtonHeld(Input, PointerButton::Left);
+    const bool  LookDrag      = (FlyMode || OrbitLookDrag) && !SunDragHeld;
 
     if (FlyMode)
     {
@@ -174,7 +180,9 @@ void DriveViewportCamera(RenderExtension& Extension, float DeltaSeconds)
             FlyViewportCamera(Camera, Forward * Speed, Right * Speed, Up * Speed);
         }
     }
-    else if (OrbitMode)
+    // ⚠️ `&& !SunDragHeld` on the MODE, not just on LookDrag: the LMB branch below calls OrbitViewportCamera whether or not the frame counts as a
+    //    look-drag (LookDrag only conditions the smoothing filter), so gating the flag alone would still tumble the view under Ctrl+LMB.
+    else if (OrbitMode && !SunDragHeld)
     {
         // -- DCC tumble. Alt + LMB orbits about the target; Alt + MMB pans in the view plane, distance-scaled. ------------
         if (PacketButtonHeld(Input, PointerButton::Middle))
@@ -2059,7 +2067,10 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                                         ShadowDepthOriginMetres,
                                                         ShadowDepthRangeMetres,
                                                         SunShadowDepthBiasMetres,
-                                                        (SunShadowDebugView)Extension.SunShadowDebugMode);
+                                                        (SunShadowDebugView)Extension.SunShadowDebugMode,
+                                                        Extension.SoftShadowAngleRadians,
+                                                        Extension.SoftShadowRayCount,
+                                                        Extension.SoftShadowStepCount);
                         UploadSurfaceShadeTraceBlock(Extension.SurfaceShade, TraceBlock);
                     }
 
@@ -2307,6 +2318,74 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 fflush(stdout);
             }
             Extension.SunShadowDebugKeyLatch = ShadowDebugKeyDown;
+
+            // 🧩 P6.6 — F7 cycles the SMRT quality ladder, including OFF (the hard single tap). Edge-latched like F5/F6.
+            // 🔴 THE LADDER INCLUDES A ZERO-ANGLE RUNG AND IT IS THE PORT'S CORRECTNESS GATE, not a cosmetic option. A zero-radius cone is ONE ray
+            //    straight down the light axis, so rung 1 must reproduce rung 0's hard shadow EXACTLY. If it does not, the ray transform or the step
+            //    distribution is wrong — and that is far easier to see against an identical image than against a softened one, where a wrong transform
+            //    hides inside the blur. Check this rung before trusting any softness above it.
+            // 📝 The 20x rung exists because the physical angle is sub-texel for near contact (see the field's note): it makes the effect visible while
+            //    porting. It is a DIAGNOSTIC exaggeration, not a look.
+            const bool SoftShadowKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F7);
+            if (SoftShadowKeyDown && !Extension.SoftShadowKeyLatch)
+            {
+                struct SoftShadowRung { float Angle; uint32_t Rays; uint32_t Steps; const char* Label; };
+                static const SoftShadowRung SoftLadder[5] =
+                    { { 0.0f,      0u, 0u, "OFF — hard single tap" },
+                      { 0.0f,      1u, 6u, "GATE — zero angle, 1 ray: MUST match OFF exactly" },
+                      { 4.59e-3f,  1u, 6u, "PHYSICAL — 0.263 deg radius, 1 ray x 6 steps (EEVEE default)" },
+                      { 4.59e-3f,  4u, 12u, "PHYSICAL HQ — 4 rays x 12 steps" },
+                      { 9.18e-2f,  4u, 12u, "DIAGNOSTIC — 20x angle, 4 rays x 12 steps (exaggerated to be visible)" } };
+
+                Extension.SoftShadowRungIndex     = (Extension.SoftShadowRungIndex + 1u) % 5u;
+                const SoftShadowRung& Rung        = SoftLadder[Extension.SoftShadowRungIndex];
+                Extension.SoftShadowAngleRadians  = Rung.Angle;
+                Extension.SoftShadowRayCount      = Rung.Rays;
+                Extension.SoftShadowStepCount     = Rung.Steps;
+
+                // 📝 Reports the TAP COUNT alongside the rung, because that is what the cost is: the hard path is 1 walk per pixel and rung 3 is 48.
+                printf("[shadow] SMRT -> %s (%u taps/pixel)\n", Rung.Label, (unsigned)(Rung.Rays * (Rung.Steps + 1u)));
+                fflush(stdout);
+            }
+            Extension.SoftShadowKeyLatch = SoftShadowKeyDown;
+
+            // 🧩 P6.6 — Ctrl + LMB drag steers the sun: X = azimuth, Y = elevation. The reason this exists is that a SINGLE FRAME CANNOT FALSIFY THE
+            // SOFT PATH — a working SMRT march and a no-op one both render as a hard shadow when the occluder is close, so the only cheap proof is
+            // watching a penumbra WIDEN as the sun swings and the occluder distance grows. That is what caught the ray-length bug below.
+            // ⚠️ Ctrl was chosen because DriveViewportCamera claims Alt (orbit) and Shift (boost) and reads PointerDelta unconditionally; on Alt or
+            //    Shift one drag would move the sun AND the camera, and a moving camera re-scrolls the clipmap — which is exactly the pre-existing
+            //    movement artefact (#15), so the test would be confounded by the bug it has to stay clear of.
+            const bool SunDragHeld = (PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::LeftControl)
+                                   || PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::RightControl))
+                                  && PacketButtonHeld(Extension.Substrate.Window.Input, PointerButton::Left);
+            if (SunDragHeld)
+            {
+                const float SunDragGain = 0.004f;   // [rad/px] - ~57 deg across a 250 px drag; coarse on purpose, this is a diagnostic
+                Extension.SunAzimuthRadians   += (float)Extension.Substrate.Window.Input.PointerDeltaX * SunDragGain;
+                Extension.SunElevationRadians -= (float)Extension.Substrate.Window.Input.PointerDeltaY * SunDragGain;
+
+                // 🔴 Clamped clear of both the horizon and the zenith. At elevation 0 the light basis is degenerate (the sun lies IN the receiver
+                //    plane, so the clipmap's Z axis has no length) and at pi/2 the azimuth stops meaning anything; either end reads as "SMRT broke"
+                //    when it is the basis that collapsed. 5 deg of margin keeps the shadows long enough to actually show a penumbra.
+                const float SunElevationFloor = 0.0873f;              // [rad] - 5 deg
+                const float SunElevationCeil  = 1.4835f;              // [rad] - 85 deg
+                if (Extension.SunElevationRadians < SunElevationFloor) Extension.SunElevationRadians = SunElevationFloor;
+                if (Extension.SunElevationRadians > SunElevationCeil)  Extension.SunElevationRadians = SunElevationCeil;
+
+                // Re-uploads the profile AND raises SunDirtyCondition, which re-bakes the sky-view LUT — so the dome relights with the shadows
+                // instead of keeping a sky that disagrees with the sun casting them.
+                // 📝 The BLOCK is Frontier::AtmosphereUniformBlock while the helpers are Frontier::Atmosphere::* — the type is not in the inner namespace.
+                AtmosphereUniformBlock SunProfile = Extension.SkyPass.Profile;
+                Atmosphere::AssignSolarDirection(SunProfile, Extension.SunElevationRadians, Extension.SunAzimuthRadians);
+                UpdateSkyAtmosphereProfile(Extension.SkyPass, SunProfile);
+
+                if (!Extension.SunDragKeyLatch)
+                {
+                    printf("[shadow] sun drag — Ctrl+LMB: X azimuth, Y elevation (elevation clamped to 5-85 deg)\n");
+                    fflush(stdout);
+                }
+            }
+            Extension.SunDragKeyLatch = SunDragHeld;
 
             // Numpad-2 toggles the GPU-driven visibility-scaling path (the two-pass cull -> indirect raster). Default ON: the raster draws only the
             // survivors the cull kept. OFF: the plain instanced draw of every instance. Edge-latched; either path writes the same id buffer, so the

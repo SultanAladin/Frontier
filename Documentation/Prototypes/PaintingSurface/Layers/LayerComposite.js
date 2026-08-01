@@ -3,7 +3,7 @@
 ====================================================================================================================================*/
 // 🧩 Flatten the layer stack into three resolved channel atlases, one blend-mode-aware pass per layer
 
-import { CHANNEL_ATLASES, ChannelAtlasFormat } from "./ChannelSet.js";
+import { CHANNEL_ATLASES, ChannelAtlasFormat, ResolveModeOverride } from "./ChannelSet.js";
 import { BlendShaderIndex }                    from "./LayerStack.js";
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -29,8 +29,11 @@ const CompositeSlotCapacity = 64;
 const CompositeShaderSource = `
 struct CompositeUniform
 {
-    Control  : vec4f,   // x = blend mode index, y = layer opacity [0,1], z = atlas kind, w = unused
-    Settings : vec4f,   // unused, reserved for mask strength
+    // 📝 z was documented as "atlas kind" and has been written as a constant 0.0 since this shader was
+    //    first authored — nothing ever read it. It now carries the mask strength, which is the only
+    //    change of meaning: the field was dead, not repurposed from something live.
+    Control  : vec4f,   // x = blend mode index, y = layer opacity [0,1], z = mask strength, w = value-mode bits
+    Settings : vec4f,   // xyz = authored value substituted for Value-mode components, w = mask invert 0/1
 };
 
 @group(0) @binding(0) var<uniform> Composite : CompositeUniform;
@@ -43,6 +46,14 @@ struct CompositeUniform
 //    An earlier revision sampled LayerStore for both operands, which made Multiply compute Above*Above
 //    and turned Darken into a no-op. Both look plausible on a uniform test fill and wrong on real paint.
 @group(0) @binding(3) var          BelowStore : texture_2d<f32>;
+
+// 🔴 The layer's greyscale mask: white shows this layer, black reveals what is resolved beneath it.
+//    ALWAYS bound, even when the layer has no mask — WebGPU validates the bind group against the layout,
+//    so an optional entry would need a second layout and a second pipeline. An unmasked layer binds a
+//    1x1 white texture instead and the multiply below is an exact no-op. Control.z carries whether the
+//    binding is a real mask, because a white stand-in and a fully-white painted mask are indistinguishable
+//    here and only one of them should be affected by the mask's own opacity.
+@group(0) @binding(4) var          MaskStore : texture_2d<f32>;
 
 struct CompositeVarying
 {
@@ -103,17 +114,54 @@ fn CompositeFragment(In : CompositeVarying) -> @location(0) vec4f
     let Mode    = i32(Composite.Control.x);
     let Opacity = Composite.Control.y;
 
+    // 🔴 A channel in VALUE mode substitutes its authored value for the stored texel — per component, so
+    //    metallic can read from the atlas while roughness beside it in the same texel reads its authored
+    //    number. The atlas itself is never modified, which is what lets the user flip back to Texture and
+    //    find their strokes intact.
+    //
+    // 🔴 The COVERAGE (Layer.a) is deliberately left alone. A Value-mode channel still only applies where
+    //    the layer has coverage, exactly like the painted one it stands in for: forcing coverage to 1 here
+    //    would make a paint layer set to Value flood the entire surface and hide every layer beneath it.
+    //    A flooded layer already carries full coverage, so it needs no special case.
+    let ValueBits = i32(Composite.Control.w);
+    let ValueMask = vec3f(f32((ValueBits & 1) != 0),
+                          f32((ValueBits & 2) != 0),
+                          f32((ValueBits & 4) != 0));
+    let Source    = mix(Layer.rgb, Composite.Settings.rgb, ValueMask);
+
+    // 🔴 The MASK, folded into coverage. This is the whole masking feature: white (1) leaves the layer's
+    //    own coverage untouched, black (0) drives the weight to zero so the mix() below returns Below
+    //    unchanged — which is exactly "the layer beneath shows through here". Because it multiplies the
+    //    WEIGHT and never the stored texels, painting black is non-destructive: the paint is still in the
+    //    atlas and painting the mask white again restores it bit for bit.
+    //
+    // 🔴 Sampled from .r, and the mask is written greyscale to rgb. Reading .a instead would look correct
+    //    on every mask painted through the brush (which writes coverage too) and fail on the flat fill a
+    //    fresh mask is cleared to, where alpha is 1 everywhere by design.
+    //
+    // 🔴 MaskStrength (Control.z) is 0 for an unmasked layer and mixes the sample back to 1, making the
+    //    stand-in texture's value irrelevant. Relying on the 1x1 white texture alone would work until a
+    //    layer's mask is deleted and the binding briefly still points at real mask content.
+    // 🔴 Invert is applied to the SAMPLE, before the strength mix. Inverting afterwards would turn an
+    //    unmasked layer (strength 0, value 1) into a fully hidden one, so every layer in the document
+    //    would vanish the moment any mask anywhere was inverted.
+    let MaskStrength = Composite.Control.z;
+    let MaskInvert   = Composite.Settings.w;
+    let RawMask      = textureSampleLevel(MaskStore, LayerSampler, In.Coordinate, 0.0).r;
+    let MaskSample   = mix(RawMask, 1.0 - RawMask, MaskInvert);
+    let MaskValue    = mix(1.0, MaskSample, MaskStrength);
+
     // 🔴 Coverage gates EVERYTHING. Layer.a is where this layer was actually painted; multiplying the
     //    blend weight by it is what stops an unpainted region of a Multiply layer from blacking out the
     //    surface below. Reading only the RGB and trusting the blend mode to be a no-op over untouched
     //    texels is wrong for every mode except Normal.
-    let Weight = Layer.a * Opacity;
+    let Weight = Layer.a * Opacity * MaskValue;
 
     // 🔴 The shader owns the WHOLE compositing equation, so the pipeline blend is disabled and this
     //    pass writes the final value. An unpainted texel must therefore pass the value below through
     //    unchanged rather than discard — discarding would leave whatever the ping-pong target happened
     //    to hold from two layers ago, which is stale paint, not the surface beneath.
-    let Blended = ApplyBlend(Mode, Below.rgb, Layer.rgb);
+    let Blended = ApplyBlend(Mode, Below.rgb, Source);
 
     return vec4f(mix(Below.rgb, Blended, Weight), max(Below.a, Weight));
 }`;
@@ -180,9 +228,32 @@ export class LayerComposite
                 { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer:  { type: "uniform", hasDynamicOffset: true, minBindingSize: CompositeUniformByteLength } },
                 { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
                 { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
-                { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
+                { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+                { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
             ]
         });
+
+        // 🔴 A 1x1 opaque-white texture bound wherever a layer has no mask. The bind group must satisfy
+        //    the layout on EVERY draw, so "no mask" cannot mean "no binding" without a second pipeline.
+        //    White is the identity for the multiply in the shader, so this stand-in is a true no-op — and
+        //    the shader additionally zeroes MaskStrength for unmasked layers, so this texture's contents
+        //    are belt-and-braces rather than the only thing keeping an unmasked layer visible.
+        this.MaskStandIn = Device.createTexture({
+            label:  "CompositeMaskStandIn",
+            size:   [1, 1],
+            format: ChannelAtlasFormat,
+            usage:  GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST |
+                    GPUTextureUsage.RENDER_ATTACHMENT
+        });
+        this.MaskStandInView = this.MaskStandIn.createView();
+
+        // 📝 Written through writeTexture rather than a clear pass: it is four bytes and this runs once at
+        //    construction, so a render pass would be more code for the same result.
+        Device.queue.writeTexture(
+            { texture: this.MaskStandIn },
+            new Uint8Array([255, 255, 255, 255]),
+            { bytesPerRow: 4 },
+            { width: 1, height: 1 });
 
         this.Pipeline = Device.createRenderPipeline({
             label:  "LayerComposite",
@@ -238,10 +309,33 @@ export class LayerComposite
 
                 const Base = Slot * (CompositeUniformStride / 4);
 
+                // Which of this atlas's components are showing their authored value instead of their
+                // stored texels, and what that value is.
+                const Override = ResolveModeOverride(
+                    Descriptor.Key, Layer.Modes, Layer.Values, Layer.Enabled);
+
                 Staging[Base + 0] = BlendShaderIndex(Layer.Blend);
                 Staging[Base + 1] = Layer.Opacity / 100;
-                Staging[Base + 2] = 0.0;
-                Staging[Base + 3] = 0.0;
+
+                // 🔴 MaskActive, not Mask.Enabled. The UI flips Enabled before anything is painted, so a
+                //    mask can be "on" with no texture allocated; MaskActive requires the atlas to exist as
+                //    well, which is what keeps this flag in step with what is actually bound below.
+                //
+                // 🔴 Scaled by the mask's OWN opacity, which is what makes a partially-applied mask
+                //    possible: at 50% the mask's black only halves the layer rather than hiding it. This
+                //    is the mask's Opacity, entirely separate from the layer's above.
+                Staging[Base + 2] = Layer.MaskActive
+                    ? ((Layer.Mask.Opacity ?? 100) / 100) : 0.0;
+                // Three component flags packed into one float, so the existing uniform layout is unchanged.
+                Staging[Base + 3] = Override
+                    ? (Override.Mask[0] | (Override.Mask[1] << 1) | (Override.Mask[2] << 2)) : 0.0;
+
+                Staging[Base + 4] = Override ? Override.Value[0] : 0.0;
+                Staging[Base + 5] = Override ? Override.Value[1] : 0.0;
+                Staging[Base + 6] = Override ? Override.Value[2] : 0.0;
+                // 📝 Was unused; now carries the mask's Invert as 0/1. Gated on MaskActive so an inverted
+                //    flag left on a layer whose mask was deleted cannot affect anything.
+                Staging[Base + 7] = (Layer.MaskActive && Layer.Mask.Invert) ? 1.0 : 0.0;
 
                 SlotOf.set(`${Layer.Token}:${Descriptor.Key}`, Slot);
                 Slot += 1;
@@ -302,7 +396,9 @@ export class LayerComposite
                         { binding: 0, resource: { buffer: this.Uniform, offset: 0, size: CompositeUniformByteLength } },
                         { binding: 1, resource: Layer.AtlasView[Key] },
                         { binding: 2, resource: this.Sampler },
-                        { binding: 3, resource: Read.createView() }
+                        { binding: 3, resource: Read.createView() },
+                        // The layer's mask, or the white stand-in when it has none. See MaskStandIn.
+                        { binding: 4, resource: Layer.MaskActive ? Layer.MaskView : this.MaskStandInView }
                     ]
                 });
 
@@ -339,5 +435,9 @@ export class LayerComposite
             this.Resolved[Descriptor.Key].destroy();
             this.Scratch[Descriptor.Key].destroy();
         }
+
+        this.MaskStandIn?.destroy();
+        this.MaskStandIn     = null;
+        this.MaskStandInView = null;
     }
 }

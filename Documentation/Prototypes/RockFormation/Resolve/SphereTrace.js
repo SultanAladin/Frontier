@@ -63,13 +63,7 @@ fn TraceConstructionTree(Origin : vec3f, Bearing : vec3f) -> TraceOutcome
 
     // ① Bounding-sphere entry. The scene is authored inside a fixed radius, so skip the empty run-up
     //    instead of stepping through it.
-    //
-    // 📝 The radius is a dial, not a constant. It was 14.0 against a seed that fits inside ~4, so most
-    //    rays spent their whole step budget crossing empty space before reaching anything. Tightening it
-    //    is the cheapest speed win available: it costs nothing per step, it removes steps.
-    //    ⚠️ Too tight CLIPS the subject — the far side of the arch vanishes rather than degrading, so
-    //       widen it whenever a piece of geometry is missing before suspecting the tree.
-    let SceneRadius   = U.SceneRadius;
+    let SceneRadius   = 14.0;
     let ToCentre      = -Origin;
     let Projection    = dot(ToCentre, Bearing);
     let PerpendicularSq = dot(ToCentre, ToCentre) - Projection * Projection;
@@ -264,33 +258,11 @@ fn InscribeSurfaceFragment(Stream : QuadYield) -> @location(0) vec4f
         return vec4f(pow(Ramp * mix(0.45, 1.0, Occlusion), vec3f(1.0 / 2.2)), 1.0);
     }
 
-    // ⑤ Preview resolve — a matcap-style lit tint, for while the view or a dial is being dragged.
-    //
-    // 📝 This exists purely to make interaction responsive. It keeps the tint and the normal, because
-    //    those are what you steer the tree by, and drops the three costly terms: the 40-step shadow
-    //    re-march, the 5-tap AO and the 6-tap curvature. That is ~51 of ~206 field evaluations per hit
-    //    pixel, and combined with half-resolution it is the difference between draggable and not.
-    //    ⚠️ Preview is NOT the look. Judge shading, cavity darkening and dust on the idle full render.
-    if (U.PreviewMode > 0.5)
-    {
-        let Tint      = EvaluateConstructionTint(Probe);
-        let Solar     = normalize(U.SolarBearing);
-        let Incidence = clamp(dot(Normal, Solar), 0.0, 1.0);
-
-        // A wrapped diffuse term stands in for the sky dome and ground bounce at no extra march cost.
-        let Wrapped = clamp(0.5 + 0.5 * dot(Normal, Solar), 0.0, 1.0);
-        var Preview = Tint * (0.34 + 1.55 * Incidence * 0.72 + 0.30 * Wrapped);
-
-        // Keep the sky facing tint so up and down still read apart while orbiting.
-        Preview = Preview + Tint * vec3f(0.10, 0.13, 0.19) * clamp(0.5 + 0.5 * Normal.y, 0.0, 1.0);
-        return vec4f(ResolveTonemap(Preview * U.Exposure), 1.0);
-    }
-
-    // ⑥ Full resolve.
+    // ⑤ Full resolve.
     let Tint     = EvaluateConstructionTint(Probe);
     let Radiance = ShadeContactPoint(Probe, Normal, Tint, Outcome.StepTally);
 
-    // ⑦ Distance haze, so depth reads without a depth buffer.
+    // ⑥ Distance haze, so depth reads without a depth buffer.
     let Haze     = 1.0 - exp(-Outcome.Range * 0.020);
     let Hazed    = mix(Radiance, vec3f(0.30, 0.33, 0.38) * 1.5, Haze * 0.42);
     return vec4f(ResolveTonemap(Hazed), 1.0);

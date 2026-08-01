@@ -141,9 +141,9 @@ fn EvaluateSusceptibility(Cell : vec3i, Edge : i32) -> f32
 //       halves shows as a total that drifts. CheckMassConservation.py asserts it to within f32 rounding.
 //
 //    📝 Repose: talus stands at 33-37 deg for angular rock debris. As a slope expressed over one cell,
-//       tan(35 deg) ~= 0.70. ⚠️ Self-tuned to the cell metric rather than measured in this geometry.
+//       tan(35 deg) ~= 0.70. ⚠️ Mine-tuned to the cell metric rather than measured in this geometry.
 //
-//    📝 The local is named Mine, not Self: `Self` is a WGSL RESERVED KEYWORD and the module will not
+//    📝 The local is named Mine, not Mine: `Mine` is a WGSL RESERVED KEYWORD and the module will not
 //       parse. Caught by the compile probe, invisible to every JS-side check.
 
 const ThermalWeathering = `

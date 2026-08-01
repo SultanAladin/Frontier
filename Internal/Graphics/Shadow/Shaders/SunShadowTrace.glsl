@@ -69,6 +69,26 @@
 #define ShadowTraceNormalOffsetTexels 1.5
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                                       SMRT CONSTANTS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Shadow Map Ray Tracing (P6.6). Ported from EEVEE-Next's eevee_shadow_tracing_lib.glsl, whose bounds these mirror.
+// 🔴 THE LOOP BOUND MUST BE A COMPILE-TIME CONSTANT, and that is why these are #defines rather than uniform fields. The step count is dynamic, but the
+//    `for` needs a constant upper bound so the compiler can bound register allocation; EEVEE does the same with SHADOW_MAX_STEP / SHADOW_MAX_RAY.
+#define ShadowTraceMaxStep 16
+#define ShadowTraceMaxRay  4
+
+// 🔴 THE LIGHT-LEAK SLOPE CLAMP, tan(45 deg) = 1.0. EEVEE's own comment is that without it a nearly-light-aligned occluder surface extrapolates an
+//    almost-flat gradient forward and the ray walks UNDER geometry it should have hit — light leaking through a wall along its own plane. The clamp
+//    forces the extrapolation to give up rather than to trust a degenerate slope. ⚠️ Not a tuning value: it is the point past which the linear
+//    extrapolation stops being a prediction and becomes an unbounded lever on one sample's noise.
+#define ShadowTraceMinSlope 1.0
+
+// 📝 The sentinel for "no occluder has been seen yet on this ray", matching EEVEE's SHADOW_TRACING_INVALID_HISTORY. Deliberately a huge negative rather
+//    than 0: a real depth history of 0 is legitimate (a receiver at the near end of the encoded range), so 0 would read as "already seen an occluder".
+#define ShadowTraceInvalidHistory (-1000.0)
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                          ADDRESSING
 //------------------------------------------------------------------------------------------------------------------------
 
@@ -409,6 +429,290 @@ vec2 ResolveShadowTraceCentreMetres(ivec2 ToroidalOrigin, float BaseTileMetres, 
             (OutDepthMargin)   = TraceTap.DepthMargin;                                                                                    \
             break;                                                                                                                       \
         }                                                                                                                               \
+    }                                                                                                                                   \
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    SMRT — SOFT SHADOWS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE SOFT MARCH NEEDS THE OCCLUDER'S DEPTH, NOT A VISIBILITY VERDICT, AND REUSING TraceSunShadowVisibility FOR IT IS THE BUG THAT MAKES SMRT
+//    RENDER AS A HARD SHADOW. That macro returns DepthMargin = stored - receiver evaluated AT THE POSITION PASSED IN. Passing a marching sample
+//    position makes the receiver term move with the ray, so the margin is measured in a frame that slides along the ray: the comparison collapses to
+//    "is this mid-air point inside an occluder", which is binary and identical for every ray, and the penumbra never appears. The margin must be
+//    taken against the ORIGINAL shading point, in ONE fixed frame, for the slope history to mean anything.
+// 📝 So this returns the stored depth in METRES, decoded and frame-free. The caller subtracts the receiver's own depth once.
+// ⚠️ Walks levels exactly like the hard path (analytic start, outward fallback) so the soft and hard paths cannot resolve different pages — but
+//    reports OutValid instead of a verdict, which is the skip sentinel ShadowTraceHitCheck needs.
+#define SampleShadowTraceOccluderDepth(OutOccluderMetres, OutValid, ShadowAtlas, MappingArray, CoverageArray, LevelCount,                  \
+                                       SamplePosition, ToroidalOriginArray, BaseTileMetres, DepthOriginMetres, DepthRangeMetres)           \
+{                                                                                                                                       \
+    (OutOccluderMetres) = 0.0;                                                                                                            \
+    (OutValid)          = false;                                                                                                          \
+                                                                                                                                        \
+    const vec2 SoftCentreMetres = ResolveShadowTraceCentreMetres((ToroidalOriginArray)[0], (BaseTileMetres), 0u);                          \
+    const uint SoftStartLevel   = SelectShadowTraceLevel((SamplePosition).xy, SoftCentreMetres, (BaseTileMetres), (LevelCount));           \
+                                                                                                                                        \
+    for (uint SoftLevel = SoftStartLevel; SoftLevel < (LevelCount) && !(OutValid); ++SoftLevel)                                            \
+    {                                                                                                                                   \
+        const float SoftLevelTileMetres = (BaseTileMetres) * float(1u << SoftLevel);                                                      \
+                                                                                                                                        \
+        ivec2 SoftLevelTile;                                                                                                              \
+        uvec2 SoftLevelTexelWithin;                                                                                                       \
+        ResolveShadowTraceTexel((SamplePosition).xy, SoftLevelTileMetres, SoftLevelTile, SoftLevelTexelWithin);                            \
+                                                                                                                                        \
+        /* Containment before the wrap, for the same aliasing reason the hard sampler does it in this order. */                            \
+        const bool SoftInside = ShadowTraceTileInsideWindow(SoftLevelTile, (ToroidalOriginArray)[SoftLevel]);                              \
+        const uint SoftSlot   = ResolveShadowTraceSlot(SoftLevel, SoftLevelTile, (ToroidalOriginArray)[SoftLevel]);                        \
+        if (SoftInside && SoftSlot < (MappingArray).length())                                                                              \
+        {                                                                                                                               \
+            const uint SoftPage = (MappingArray)[SoftSlot];                                                                                \
+            if (SoftPage < uint(ShadowTraceAtlasPageEdge * ShadowTraceAtlasPageEdge))                                                      \
+            {                                                                                                                           \
+                bool SoftHoldsDepth;                                                                                                       \
+                ShadowPageHoldsDepth(SoftHoldsDepth, CoverageArray, SoftPage);                                                             \
+                if (SoftHoldsDepth)                                                                                                        \
+                {                                                                                                                       \
+                    const uvec2 SoftPageOrigin = ResolveShadowTracePageOrigin(SoftPage);                                                   \
+                    const ivec2 SoftTexel      = ivec2(SoftPageOrigin + SoftLevelTexelWithin);                                             \
+                    const uint  SoftStored     = texelFetch(ShadowAtlas, SoftTexel, 0).r;                                                  \
+                                                                                                                                        \
+                    /* 🔴 The clear identity is NOT an occluder at infinity — it is no information. Reporting it valid would let a cleared  \
+                          page veto the coarser level that actually holds depth, exactly as in the hard sampler. */                        \
+                    if (SoftStored != ShadowTraceClearIdentity)                                                                            \
+                    {                                                                                                                   \
+                        /* Inverse of EncodeShadowTraceDepth: encoded -> metres, so the caller can difference against the receiver. */     \
+                        (OutOccluderMetres) = (DepthOriginMetres)                                                                          \
+                                            + (float(SoftStored) / ShadowTraceDepthEncodeScale) * (DepthRangeMetres);                      \
+                        (OutValid)          = true;                                                                                        \
+                    }                                                                                                                   \
+                }                                                                                                                       \
+            }                                                                                                                           \
+        }                                                                                                                               \
+    }                                                                                                                                   \
+}
+
+// 🧩 P6.6 — Shadow Map Ray Tracing, ported from EEVEE-Next (eevee_shadow_tracing_lib.glsl). Turns the hard single-tap visibility above into a soft
+//    penumbra by marching a short ray through the SAME depth pages and jittering where each ray starts on the sun's disc.
+//
+// 🔴 THIS IS NOT PCSS AND MUST NOT BE TURNED INTO IT. There is no blocker search, no averaged blocker depth, and no filter radius derived from one.
+//    Softness comes from ONE place: N rays whose directions are sampled inside the sun's angular cone, each answering a binary "did I hit". Contact
+//    hardening then falls out for free — near an occluder the cone's rays have barely diverged, so they agree, and the penumbra is narrow; far from it
+//    they spread across many texels and disagree, so it is wide. Adding a blocker search on top would compute a radius the ray spread already encodes.
+//
+// 🔴 THE RAY IS TRACED IN REVERSE — FROM THE LIGHT (t=1) TO THE SHADING POINT (t=0) — WHICH IS EEVEE'S `ray_step_mul = -1.0 / sample_count`. This is not
+//    a stylistic choice and reversing it changes the algorithm: the slope history below extrapolates the occluder surface FORWARD along the march, and
+//    that extrapolation is only meaningful when the march approaches the receiver. Tracing receiver->light makes the history predict away from the
+//    surface being shaded, where it has nothing to constrain it.
+//
+// 📝 The per-step sampler is SampleShadowTraceOccluderDepth, which mirrors TraceSunShadowVisibility's level walk (analytic start, outward fallback,
+//    containment-before-wrap) but returns the stored depth in METRES instead of a visibility verdict.
+// ⚠️ It is NOT the hard macro reused, and the earlier note here claiming that was the reason SMRT rendered as a hard shadow: the hard macro measures
+//    its margin against whatever position it is handed, so a marching sample makes the reference frame slide along the ray. See that macro's 🔴 block.
+struct ShadowTraceMarchState
+{
+    float RayTime;         // [0-1] - position along the ray; 1 at the light, 0 at the shading point
+    float PreviousRayTime; // [0-1] - the previous step's RayTime, so the slope divides by the INTERVAL and not the position
+    float OccluderHistory; // [-]   - the last step's occluder depth delta, or ShadowTraceInvalidHistory
+    float OccluderSlope;   // [-]   - d(depth)/d(time) extrapolated from the last two samples
+    bool  HitCondition;    // [-]   - true once this ray is blocked; the march stops
+};
+
+// 🔴 THE HISTORY CARRIES ACROSS STEPS, WHICH IS WHY ONE BAD SAMPLE POISONS THE WHOLE RAY AND WHY THE SKIP BELOW MUST NOT TOUCH IT. EEVEE's structure,
+//    kept verbatim. The test is not "is the ray below the stored depth at this step" — that is a per-step comparison and it misses thin occluders the
+//    march steps over. It is "did the ray cross the occluder SURFACE", reconstructed from the last two samples' slope.
+// ⚠️ `SkipCondition` is handled by DOING NOTHING AT ALL — not by treating the step as unoccluded. An empty or unmapped page means NO INFORMATION, which
+//    is categorically different from NO OCCLUDER. Folding it into the else branch would feed a bogus delta into the slope and every later step of this
+//    ray would extrapolate from it. EEVEE's own comment: "Not doing so would change the z gradient history." This is the single most load-bearing
+//    subtlety in the port; our ShadowTraceTap.PageResident is exactly the sentinel EEVEE gets from shadow_read_depth returning -1.0.
+void ShadowTraceHitCheck(inout ShadowTraceMarchState State,
+                         float                       SampleOccluderDepth,
+                         float                       SampleRayDepth,
+                         bool                        SkipCondition,
+                         bool                        FinalStepCondition)
+{
+    if (SkipCondition)
+        return;
+
+    // The signed distance from the ray to the occluder at this step, in encoded depth units. Positive = the occluder is BEHIND the ray (no hit yet).
+    const float Delta = SampleOccluderDepth - SampleRayDepth;
+
+    if (Delta < 0.0)
+    {
+        // 🔴 The ray is behind the occluder surface at this step, so it crossed somewhere in the last interval. EEVEE accepts the hit only when the
+        //    crossing is consistent with the surface's own slope — a lone sample deeper than the ray is far more often a thin sliver or a silhouette
+        //    edge the march straddled than a real blocker, and accepting those produces a dense stipple of false shadow through open geometry.
+        const bool HistoryValid = State.OccluderHistory != ShadowTraceInvalidHistory;
+        State.HitCondition = HistoryValid || FinalStepCondition;
+    }
+    else
+    {
+        // 🔴 THE SLOPE IS CLAMPED, NEVER TRUSTED RAW — see ShadowTraceMinSlope. An occluder surface nearly parallel to the light gives an almost-zero
+        //    denominator, so the extrapolation becomes an unbounded lever on one sample's quantization error and the next step leaks.
+        const bool HistoryValid = State.OccluderHistory != ShadowTraceInvalidHistory;
+        if (HistoryValid)
+        {
+            // 🔴 THE DENOMINATOR IS THE STEP INTERVAL, NOT THE ABSOLUTE RayTime. The distribution is quadratic, so the interval shrinks toward the
+            //    receiver while RayTime itself goes to 0 — dividing by the position makes the slope blow up exactly where the samples are densest and
+            //    the extrapolation matters most. Tracked explicitly because the caller owns the step schedule and the check cannot re-derive it.
+            const float TimeDelta = max(abs(State.RayTime - State.PreviousRayTime), 1e-6);
+            State.OccluderSlope = max(ShadowTraceMinSlope, abs((Delta - State.OccluderHistory) / TimeDelta));
+        }
+        State.OccluderHistory = Delta;
+    }
+}
+
+// 📝 A cheap per-pixel hash for the ray jitter. 🔴 THE JITTER MUST DECORRELATE PER PIXEL OR THE SOFTNESS BECOMES BANDING: every pixel sampling the same
+//    point on the sun disc reproduces the hard shadow exactly, displaced — the penumbra collapses into N discrete hard edges. Interleaved gradient noise
+//    (Jimenez, used by both EEVEE and Unreal for the same job) because it is one madd + one fract and its screen-space spectrum is well-behaved under
+//    the 2x2 quad derivative pattern.
+// ⚠️ NO TEMPORAL TERM. This is a still-image port: adding a frame ordinal here would trade banding for a crawl that only a temporal filter can absorb,
+//    and there is no accumulation pass to absorb it yet. That is the P6.7 follow-up, not this one.
+float ShadowTraceInterleavedNoise(vec2 PixelCoordinate)
+{
+    return fract(52.9829189 * fract(dot(PixelCoordinate, vec2(0.06711056, 0.00583715))));
+}
+
+// 📝 A direction inside a cone of half-angle acos(CosineMax) about +Z, then rotated onto Axis. Mirrors EEVEE's sample_uniform_cone.
+// 🔴 THE COSINE IS SAMPLED LINEARLY, NOT THE ANGLE. Uniform-in-angle sampling concentrates rays toward the cone's axis (the solid-angle element carries
+//    a sin(theta) factor), which biases every penumbra toward its hard core and makes the gradient visibly wrong at wide angles.
+vec3 ShadowTraceSampleCone(vec2 Random, float CosineMax, vec3 Axis)
+{
+    const float CosineTheta = mix(CosineMax, 1.0, Random.x);
+    const float SineTheta   = sqrt(max(0.0, 1.0 - CosineTheta * CosineTheta));
+    const float Phi         = 6.28318530718 * Random.y;
+
+    const vec3 Local = vec3(SineTheta * cos(Phi), SineTheta * sin(Phi), CosineTheta);
+
+    // Build any orthonormal frame about Axis. ⚠️ The branch on Axis.z avoids the degenerate cross product when Axis is near +-Z — the same guard
+    // SolveSunShadowBasis needs for a sun at the zenith, and for the same reason.
+    const vec3 Helper  = (abs(Axis.z) < 0.999) ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    const vec3 TangentX = normalize(cross(Helper, Axis));
+    const vec3 TangentY = cross(Axis, TangentX);
+
+    return TangentX * Local.x + TangentY * Local.y + Axis * Local.z;
+}
+
+// Resolve SOFT sun visibility for one world point: ShadowTraceRayCount rays through the sun's cone, each marched ShadowTraceStepCount steps.
+//
+// 🔴 THE RETURN IS `1 - hits / rays`, A RATIO OF BINARY OUTCOMES — never an averaged depth or an averaged margin. Each ray is fully blocked or fully
+//    clear; the penumbra is the DISAGREEMENT between rays, which is what makes it geometrically correct rather than a blur radius.
+//
+// 🔴 THE MARCH IS IN LIGHT SPACE AND THE RAY LENGTH IS BOUNDED BY THE WINDOW, NOT BY THE SCENE. EEVEE's `max_tracing_distance = texel_radius *
+//    (PAGE_RES << TILEMAP_LOD)`: a ray longer than the clipmap window walks straight out of every level's containment and every step past the edge is a
+//    non-resident skip, so it costs steps and returns nothing. Sizing it to the window is what keeps the step budget spent inside real data.
+//
+// ⚠️ ShadowAngle is the sun's angular RADIUS (half-angle), not its diameter. The physical sun is 0.526 deg across, so the radius is 4.59e-3 rad. Passing
+//    the diameter doubles every penumbra — and it reads as "SMRT is too soft" rather than as a unit error.
+//
+// 📝 Falls back to the hard tap when the ray budget is 1 and the angle is 0, by construction rather than by a special case: a zero-radius cone is a
+//    single ray straight down the light axis, and one step lands on the shading point. That identity is the phase gate — see the plan's Phase 4.
+#define TraceSunShadowVisibilitySoft(OutVisibility, OutResolvedLevel, OutDepthMargin, ShadowAtlas, MappingArray, CoverageArray, LevelCount, \
+                                     LightPosition, ToroidalOriginArray, BaseTileMetres, DepthOriginMetres, DepthRangeMetres, DepthBias,     \
+                                     LightNormal, ShadowAngle, RayCount, StepCount, PixelCoordinate)                                       \
+{                                                                                                                                       \
+    /* The hard tap first: it establishes the resolved level and the margin the debug views read, and its level selection is what sizes the ray. */  \
+    TraceSunShadowVisibility((OutVisibility), (OutResolvedLevel), (OutDepthMargin), ShadowAtlas, MappingArray, CoverageArray, (LevelCount), \
+                             (LightPosition), ToroidalOriginArray, (BaseTileMetres), (DepthOriginMetres), (DepthRangeMetres),               \
+                             (DepthBias), (LightNormal));                                                                                  \
+                                                                                                                                        \
+    /* 🔴 SKIPPED ENTIRELY WHEN NO LEVEL RESOLVED. With the whole column missing there is no depth for any ray to march through, so every ray would   \
+          skip every step and return clear — burning RayCount x StepCount taps to reproduce the hard path's fully-lit last resort. */               \
+    if ((OutResolvedLevel) < (LevelCount) && (RayCount) > 0u && (StepCount) > 0u && (ShadowAngle) > 0.0)                                    \
+    {                                                                                                                                   \
+        /* This level's texel size in metres, which sets both the ray length and the depth scale the march compares in. */                  \
+        const float SoftTileMetres  = (BaseTileMetres) * float(1u << (OutResolvedLevel));                                                   \
+        const float SoftTexelMetres = SoftTileMetres / float(ShadowTracePageResolution);                                                    \
+                                                                                                                                        \
+        /* 🔴 THE RAY LENGTH IS WHAT MAKES THE CONE VISIBLE, AND THE OBVIOUS FORM OF IT IS A NO-OP. Writing this as `SoftTexelMetres *          \
+              PAGE_RES` cancels the divide above and collapses to exactly one tile (0.5 m at L0); the cone's lateral offset at that range is     \
+              0.5 * sin(4.59e-3) = 2.3 um, roughly 1/1700 of a texel, so every ray samples the SAME texel as the hard tap and the whole ladder   \
+              renders bit-identical to OFF. It reads as "F7 does nothing" rather than as a length bug.                                            \
+           🔴 So the length is set by the REACH THE CONE NEEDS to spread one page of texels laterally: offset = Distance * sin(Angle), solved     \
+              for the distance at which offset equals a full page. That is EEVEE's max_tracing_distance intent (texel_RADIUS scaled by the page), \
+              not the texel SIZE round trip. Clamped to the window because a longer ray walks out of containment and every step past the edge is  \
+              a non-resident skip — steps spent to learn nothing. */                                                                             \
+        const float SoftWindowMetres = SoftTileMetres * float(ShadowTraceTilemapResolution);                                                 \
+        const float SoftConeReach    = SoftTexelMetres * float(ShadowTracePageResolution) / max(sin(ShadowAngle), 1e-6);                     \
+        const float SoftRayMetres    = min(SoftConeReach, SoftWindowMetres);                                                                 \
+                                                                                                                                        \
+        /* The light travels along +Z in light space, so a ray toward the sun is -Z. The cone is built about that. */                        \
+        const vec3 SoftToLight = vec3(0.0, 0.0, -1.0);                                                                                      \
+        const float SoftCosMax = cos(ShadowAngle);                                                                                          \
+                                                                                                                                        \
+        const float SoftNoise = ShadowTraceInterleavedNoise(PixelCoordinate);                                                               \
+                                                                                                                                        \
+        uint SoftHitCount = 0u;                                                                                                            \
+        uint SoftRayTotal = 0u;                                                                                                            \
+                                                                                                                                        \
+        for (uint SoftRay = 0u; SoftRay < (RayCount) && SoftRay < uint(ShadowTraceMaxRay); ++SoftRay)                                       \
+        {                                                                                                                               \
+            /* 📝 Golden-ratio stratification per ray on top of the per-pixel noise, so N rays from one pixel spread across the disc instead of      \
+                  clustering wherever the hash happened to land. */                                                                        \
+            const vec2 SoftRandom = vec2(fract(SoftNoise + float(SoftRay) * 0.618033988),                                                   \
+                                         fract(SoftNoise * 1.324717957 + float(SoftRay) * 0.381966011));                                    \
+            const vec3 SoftDirection = ShadowTraceSampleCone(SoftRandom, SoftCosMax, SoftToLight);                                          \
+                                                                                                                                        \
+            /* 🔴 THE MARCH ORIGIN CARRIES THE SAME NORMAL OFFSET THE HARD SAMPLER APPLIES, and omitting it makes SMRT stipple acne over every lit    \
+                  surface. The final step lands exactly ON the shading point (RayTime = 0), so without the offset the receiver's own stored depth is  \
+                  the occluder and Delta is ~0 — self-shadowing. DepthBias alone cannot cover it: it is constant slack along the light while the      \
+                  error scales with tan(incidence), which is precisely why ShadowTraceNormalOffsetTexels exists (see its note).                       \
+               ⚠️ Sized at the RESOLVED level's texel, matching what the hard tap used for this pixel, so the two paths start from the same point. */ \
+            const vec3 SoftOrigin   = (LightPosition) + (LightNormal) * (ShadowTraceNormalOffsetTexels * SoftTexelMetres);                  \
+                                                                                                                                        \
+            /* The ray's far end, at the light. The march walks BACK from here to the shading point. */                                     \
+            const vec3 SoftRayStart = SoftOrigin + SoftDirection * SoftRayMetres;                                                          \
+                                                                                                                                        \
+            ShadowTraceMarchState SoftState;                                                                                               \
+            SoftState.RayTime         = 1.0;                                                                                               \
+            SoftState.PreviousRayTime = 1.0;                                                                                               \
+            SoftState.OccluderHistory = ShadowTraceInvalidHistory;                                                                          \
+            SoftState.OccluderSlope   = ShadowTraceInvalidHistory;                                                                          \
+            SoftState.HitCondition    = false;                                                                                              \
+                                                                                                                                        \
+            /* 🔴 `<=` AND `StepCount + 1` ITERATIONS, matching EEVEE's `i <= sample_count`. The extra iteration is what lands a sample exactly ON   \
+                  the shading point (RayTime = 0); stopping at `<` leaves a gap of one step between the last sample and the surface, and every       \
+                  contact shadow detaches by that gap. */                                                                                    \
+            for (uint SoftStep = 0u; SoftStep <= (StepCount) && SoftStep <= uint(ShadowTraceMaxStep) && !SoftState.HitCondition; ++SoftStep) \
+            {                                                                                                                           \
+                /* 🔴 THE STEP DISTRIBUTION IS QUADRATIC (EEVEE's `square(saturate(...))`), NOT LINEAR, and it is what buys 6 steps the quality of   \
+                      16 linear ones. Squaring clusters the samples near RayTime = 0 — at the receiver, where the occluder that matters is closest    \
+                      and a missed crossing shows as a detached contact shadow. Linear spacing spends half its budget out near the light where       \
+                      nothing is ever found. */                                                                                             \
+                const float SoftLinear   = 1.0 - float(SoftStep) / float(StepCount);                                                        \
+                SoftState.PreviousRayTime = SoftState.RayTime;                                                                              \
+                SoftState.RayTime         = SoftLinear * SoftLinear;                                                                        \
+                                                                                                                                        \
+                const vec3 SoftSamplePosition = mix(SoftOrigin, SoftRayStart, SoftState.RayTime);                                          \
+                                                                                                                                        \
+                /* Occluder depth in METRES at the ray's XY, frame-free — see SampleShadowTraceOccluderDepth for why the hard macro cannot serve. */ \
+                float SoftOccluderMetres;                                                                                                   \
+                bool  SoftSampleValid;                                                                                                      \
+                SampleShadowTraceOccluderDepth(SoftOccluderMetres, SoftSampleValid, ShadowAtlas, MappingArray, CoverageArray, (LevelCount), \
+                                               SoftSamplePosition, ToroidalOriginArray, (BaseTileMetres),                                   \
+                                               (DepthOriginMetres), (DepthRangeMetres));                                                    \
+                                                                                                                                        \
+                /* 🔴 THE SKIP SENTINEL. Invalid means no resident page held depth at this sample — no information, NOT "no occluder". Passing it   \
+                      as SkipCondition is what keeps the slope history clean; see ShadowTraceHitCheck. */                                    \
+                const bool SoftSkip = !SoftSampleValid;                                                                                      \
+                                                                                                                                        \
+                /* 🔴 BOTH DEPTHS IN THE RECEIVER'S FIXED FRAME. The ray's own depth at this step is its light-space Z; the receiver's is           \
+                      LightPosition.z. Differencing each against the SAME origin is what makes the delta a signed distance that VARIES ALONG THE     \
+                      RAY — which is the quantity the slope history extrapolates. Measuring the occluder against the moving sample instead (what     \
+                      reusing the hard macro does) yields a per-step in/out flag with no gradient, and the march degenerates to the hard tap. */     \
+                const float SoftSampleRayDepth = SoftSamplePosition.z - (DepthBias);                                                        \
+                ShadowTraceHitCheck(SoftState, SoftOccluderMetres, SoftSampleRayDepth, SoftSkip, SoftStep == (StepCount));                  \
+            }                                                                                                                           \
+                                                                                                                                        \
+            ++SoftRayTotal;                                                                                                                \
+            if (SoftState.HitCondition)                                                                                                    \
+                ++SoftHitCount;                                                                                                            \
+        }                                                                                                                               \
+                                                                                                                                        \
+        /* 🔴 `1 - hits/rays`. ⚠️ Guarded against a zero total: the loop bound is clamped by ShadowTraceMaxRay, so a caller passing a larger        \
+              RayCount than the clamp still runs, but a caller passing 0 was rejected by the gate above. */                                 \
+        if (SoftRayTotal > 0u)                                                                                                              \
+            (OutVisibility) = 1.0 - float(SoftHitCount) / float(SoftRayTotal);                                                              \
     }                                                                                                                                   \
 }
 

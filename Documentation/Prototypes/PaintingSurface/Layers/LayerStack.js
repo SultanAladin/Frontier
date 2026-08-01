@@ -7,6 +7,7 @@ import { CHANNEL_ATLASES, CHANNEL_SLOTS, CHANNEL_ORDER, ChannelAtlasFormat,
          ResolveAtlasWrite } from "./ChannelSet.js";
 import { LAYER_KINDS, IsPaintable, DefaultChannelModes, DefaultChannels,
          MATERIAL_PRESETS, GENERATOR_RECIPES } from "./LayerKinds.js";
+import { ResampleLayerAtlases, ResampleSingleAtlas, ResolveResolutionOptions } from "./AtlasResample.js";
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       CONSTANTS
@@ -21,6 +22,41 @@ export const CLASSIFICATION_LABEL = {
 };
 
 export const CLASSIFICATION_ORDER = ["material", "generator", "brushwork", "flood"];
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                      LAYER MASK
+//------------------------------------------------------------------------------------------------------------------------
+
+// Ported from Studio-standalone.html's mask model.
+//
+// 📝 A mask is a coverage field over the layer, built from an ordered list of components (painted strokes, a
+//    flat fill, a procedural generator, a levels remap) on top of a base fill of white or black.
+export const MASK_COMPONENT_TYPES = {
+    Paint:     { Glyph: "brush",   Note: "Hand-painted mask strokes." },
+    Fill:      { Glyph: "bucket",  Note: "Uniform fill region." },
+    Generator: { Glyph: "sparkle", Note: "Procedural (AO / curvature / dirt)." },
+    Levels:    { Glyph: "sliders", Note: "Remap mask contrast & range." }
+};
+
+let MaskComponentSequence = 0;
+
+export function MakeMaskComponent(Type, Name)
+{
+    return { Token: `M${(MaskComponentSequence += 1).toString().padStart(3, "0")}`,
+             Type, Name: Name ?? Type };
+}
+
+// 🔴 `Enabled` starts FALSE, and that is what makes the "Add Mask" call-to-action honest. Every layer carries
+//    a mask object so nothing has to null-check it, but a layer the user never masked must composite as if it
+//    has no mask at all — defaulting this to true would silently clip every layer to its unpainted mask.
+// 🔴 `Target` is the paint router's switch: true means the brush deposits into this mask instead of the
+//    layer's channel atlases. It lives on the mask rather than on the stack so that focusing a different
+//    layer cannot silently leave the brush pointed at a mask the user can no longer see.
+export function MakeMask(Over)
+{
+    return { Enabled: false, Fill: "white", Invert: false, Opacity: 100,
+             Target: false, Components: [], ...(Over ?? {}) };
+}
 
 export const CLASSIFICATION_TINT = {
     material:  "#5b8cff",
@@ -90,6 +126,15 @@ export class PaintLayer
         //    the serializer move over to `Kind`. Same string, one name for it going forward.
         this.Classification = this.Kind;
 
+        // 🔴 The row's identification hue, and null by default rather than the kind's tint. Null means "no
+        //    tag", which is what lets the row fall back to the kind tint; storing the tint here instead
+        //    would make an untagged layer indistinguishable from one deliberately tagged its own colour,
+        //    and re-tinting the kind later would leave every old layer stuck on the previous palette.
+        this.Tag = Setting.Tag ?? null;
+
+        // The layer's coverage mask. Present but disabled until the user adds one.
+        this.Mask = MakeMask(Setting.Mask);
+
         // Which material preset or generator recipe this layer is an instance of, if any.
         this.Preset    = Setting.Preset    ?? null;
         this.Generator = Setting.Generator ?? null;
@@ -121,6 +166,11 @@ export class PaintLayer
         //    result, since an unwritten layer has zero coverage and must not affect anything beneath it.
         this.Atlas     = {};
         this.AtlasView = {};
+
+        // The greyscale mask's storage, allocated by EnsureMaskAtlas on first use. Null means the layer
+        // composites unmasked, which is the correct result for a layer nobody has masked.
+        this.MaskAtlas = null;
+        this.MaskView  = null;
     }
 
     // Allocate one atlas on demand and clear it to its documented value. Returns the view.
@@ -160,6 +210,61 @@ export class PaintLayer
 
         return this.AtlasView[AtlasKey];
     }
+
+    // Allocate the layer's greyscale mask on demand, cleared to its base fill.
+    //
+    // 📝 The mask is a coverage field, not a colour: white shows this layer, black reveals whatever is
+    //    resolved beneath it. The compositor multiplies it into the layer's coverage weight, so painting
+    //    black is a non-destructive erase — the paint underneath is untouched and painting white back
+    //    restores it exactly. That is the whole point of masking over erasing.
+    //
+    // 🔴 Cleared to the mask's OWN Fill, not to white. "Add black mask" means the layer starts hidden
+    //    everywhere and the user paints white to reveal it; seeding white regardless would make the two
+    //    menu entries behave identically, with the difference only visible in the metadata.
+    //
+    // 🔴 Stored in the same RGBA8 as every channel atlas rather than an r8unorm. The paint pass renders
+    //    with one pipeline whose target format is fixed at creation, so an r8 mask would need a second
+    //    pipeline, a second bind layout and a second shader variant to paint into. Greyscale is written
+    //    to all three components and read from .r; the 4x memory is the price of one code path, and at
+    //    1024² that is 4 MiB on a layer the user explicitly asked to mask.
+    EnsureMaskAtlas()
+    {
+        if (this.MaskView) { return this.MaskView; }
+
+        const Texture = this.Device.createTexture({
+            label:  `Layer${this.Token}Mask`,
+            size:   [this.Extent, this.Extent],
+            format: ChannelAtlasFormat,
+            usage:  GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_SRC          | GPUTextureUsage.COPY_DST
+        });
+
+        this.MaskAtlas = Texture;
+        this.MaskView  = Texture.createView();
+
+        // 🔴 Alpha is 1 in both cases. The mask carries its value in RGB and is sampled for .r only; a
+        //    black mask cleared to alpha 0 would still read r = 0 and work by accident here, but the
+        //    snapshot/undo path copies the texture wholesale and a zero alpha there reads as "never
+        //    written". Keeping alpha at 1 means "this mask exists" is unambiguous everywhere.
+        const Level = this.Mask?.Fill === "black" ? 0.0 : 1.0;
+        const Encoder = this.Device.createCommandEncoder({ label: `LayerMaskClear${this.Token}` });
+        Encoder.beginRenderPass({
+            colorAttachments: [{ view: this.MaskView,
+                                 clearValue: { r: Level, g: Level, b: Level, a: 1.0 },
+                                 loadOp: "clear", storeOp: "store" }]
+        }).end();
+        this.Device.queue.submit([Encoder.finish()]);
+
+        return this.MaskView;
+    }
+
+    // Is this layer's mask actually affecting the composite right now?
+    //
+    // 🔴 BOTH conditions, and the atlas one is not redundant. `Enabled` is metadata the UI flips before
+    //    anything has been painted, so a mask enabled but never allocated has no texture to bind — and
+    //    binding nothing while telling the shader a mask exists samples garbage. The compositor asks this,
+    //    not `Mask.Enabled`.
+    get MaskActive() { return this.Mask?.Enabled === true && !!this.MaskView; }
 
     // Has this layer ever been written? Drives the "allocated on first stroke" note in the UI.
     get Allocated() { return Object.keys(this.Atlas).length > 0; }
@@ -246,12 +351,69 @@ export class PaintLayer
         else     { Encoder.finish(); }
     }
 
+    // Change this layer's atlas resolution, carrying the painted content across.
+    //
+    // 🔴 The content is RESAMPLED, not discarded. Reallocating at the new size and clearing would be far
+    //    simpler and is what the size change literally requires — but it would silently destroy every stroke
+    //    the moment the user touched the resolution dropdown, which is the same one-way trap the Value/Texture
+    //    switch had. A resolution change is a change of precision, not of content.
+    //
+    // 🔴 The OLD textures are destroyed only AFTER the new ones exist. An 8K triple is 768 MiB and allocation
+    //    can genuinely fail; freeing first would turn a refused resize into lost paint.
+    Resize(Device, ToExtent)
+    {
+        if (!Number.isFinite(ToExtent) || ToExtent <= 0)     { return false; }
+        if (ToExtent === this.Extent)                        { return false; }
+
+        // 🔴 The mask is carried FIRST and independently of the channel atlases, because `Allocated` counts
+        //    only channel atlases and the early return below would otherwise skip it. A layer that has a
+        //    mask but no paint — entirely reachable: add a mask, then change resolution before painting —
+        //    would keep a mask at the OLD extent while the layer reports the new one. The compositor binds
+        //    both to one draw, so the mismatch is a validation error at the next resolve, not a wrong
+        //    picture, and it fires far from the resize that caused it.
+        const FromExtent = this.Extent;
+        if (this.MaskAtlas)
+        {
+            const NextMask = ResampleSingleAtlas(
+                Device, this.MaskAtlas, FromExtent, ToExtent, `Layer${this.Token}Mask`);
+
+            if (NextMask)
+            {
+                const StaleMask = this.MaskAtlas;
+                this.MaskAtlas  = NextMask.Texture;
+                this.MaskView   = NextMask.View;
+                StaleMask.destroy();
+            }
+        }
+
+        // Nothing allocated means nothing to carry: record the extent and let lazy allocation use it.
+        if (!this.Allocated) { this.Extent = ToExtent; return true; }
+
+        const Next = ResampleLayerAtlases(Device, this, ToExtent);
+        if (!Next.Any) { this.Extent = ToExtent; return true; }
+
+        const Stale = this.Atlas;
+
+        this.Atlas     = Next.Atlas;
+        this.AtlasView = Next.View;
+        this.Extent    = ToExtent;
+
+        for (const Descriptor of CHANNEL_ATLASES) { Stale[Descriptor.Key]?.destroy(); }
+        return true;
+    }
+
     Release()
     {
         // Only allocated atlases exist to destroy — a lazily-skipped one has no texture object.
         for (const Descriptor of CHANNEL_ATLASES) { this.Atlas[Descriptor.Key]?.destroy(); }
         this.Atlas     = {};
         this.AtlasView = {};
+
+        // 🔴 The mask lives outside CHANNEL_ATLASES, so the loop above does not reach it. Left out, a
+        //    masked layer leaks a full atlas every time one is deleted.
+        this.MaskAtlas?.destroy();
+        this.MaskAtlas = null;
+        this.MaskView  = null;
     }
 }
 
@@ -276,6 +438,14 @@ export class LayerStack
 
     get Count()        { return this.Layers.length; }
     get EnabledCount() { return this.Layers.filter(L => L.Shown).length; }
+
+    // The atlas sizes this device can actually allocate, as {Value, Label}.
+    //
+    // 🔴 Answered from the STACK rather than imported straight into the inspector, because the honest answer
+    //    depends on the adapter's maxTextureDimension2D and the inspector holds no device. Offering 8K on a
+    //    device that caps at 4096 fails inside createTexture with an error naming the texture, so the menu that
+    //    made the promise never appears in the message.
+    get ResolutionOptions() { return ResolveResolutionOptions(this.Device); }
 
     Resolve(Token)     { return this.Layers.find(L => L.Token === Token) ?? null; }
     IndexOf(Token)     { return this.Layers.findIndex(L => L.Token === Token); }

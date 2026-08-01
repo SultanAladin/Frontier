@@ -3,10 +3,17 @@
 ====================================================================================================================================*/
 // 🧩 Tab-summoned layer manager: [stack | layer properties] ⇄ [identity | channels], driving the live stack
 
-import { CLASSIFICATION_LABEL, CLASSIFICATION_ORDER, CLASSIFICATION_TINT,
-         BLEND_MODES, LayerCapacity } from "../Layers/LayerStack.js";
+import { BLEND_MODES, LayerCapacity,
+         MASK_COMPONENT_TYPES, MakeMask, MakeMaskComponent } from "../Layers/LayerStack.js";
 import { CHANNEL_ORDER, CHANNEL_LABEL, CHANNEL_SLOTS } from "../Layers/ChannelSet.js";
-import { CHANNEL_MODES } from "../Layers/LayerKinds.js";
+import { CHANNEL_MODES, KindLabel, KindTint } from "../Layers/LayerKinds.js";
+
+// 🔴 Labels and tints come from LAYER_KINDS, never from the legacy CLASSIFICATION_* tables. Those are keyed
+//    by the DEAD vocabulary ("brushwork"/"flood"), while Layer.Classification is only an alias of Layer.Kind
+//    and so now carries "paint"/"fill". Looking a live kind up in the legacy table returns undefined, which
+//    is exactly what rendered as "Paint 1 undefined" in the properties header. KindLabel/KindTint fall back
+//    to the raw kind and a neutral grey instead of injecting the string "undefined" into the UI.
+const LabelOf = (Layer) => KindLabel(Layer.Kind ?? Layer.Classification);
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        ARTWORK
@@ -36,20 +43,24 @@ const CLASSIFICATION_ART = {
         <path d="M12 2.5 L13.7 8.3 L19.5 10 L13.7 11.7 L12 17.5 L10.3 11.7 L4.5 10 L10.3 8.3 Z" fill="${H}"/>
         <circle cx="18" cy="18" r="2.1" fill="${Shade(H, .3)}"/>
         <circle cx="6.4" cy="17.4" r="1.4" fill="${Shade(H, .45)}"/>`,
-    brushwork: (H) => `
+    // 🔴 Keyed "paint"/"fill", the LIVE kinds — not the legacy "brushwork"/"flood". Under the old keys these
+    //    two never matched a real layer, so every paint and fill row silently drew an EMPTY icon: the lookup
+    //    missed, the ternary below substituted "", and a blank square is indistinguishable from art that
+    //    simply has no fill.
+    paint: (H) => `
         <path d="M14.6 3.6 L20.4 9.4 L11 18.8 L5.2 13 Z" fill="${H}"/>
         <path d="M5.2 13 L11 18.8 L8.4 21.4 L3.2 21.4 L2.6 16.2 Z" fill="${Shade(H, .4)}"/>
         <path d="M14.6 3.6 L20.4 9.4 L17.8 12 L12 6.2 Z" fill="${Shade(H, .6)}"/>`,
-    flood: (H) => `
+    fill: (H) => `
         <path d="M11.4 2.8 L20.6 12 L12.3 20.3 L3.1 11.1 Z" fill="${H}"/>
         <path d="M11.4 2.8 L20.6 12 L12.3 20.3 L11.4 19.4 L11.4 2.8 Z" fill="${Shade(H, .42)}"/>
         <path d="M3.1 11.1 L12.3 20.3 L12.3 14.4 L6.2 14.4 Z" fill="${Shade(H, .62)}"/>`
 };
 
-const Hue = (Classification) => CLASSIFICATION_TINT[Classification] ?? "#5b8cff";
+const Hue = (Kind) => KindTint(Kind);
 
-const ClassificationSvg = (Classification, Size) =>
-    SvgWrap(CLASSIFICATION_ART[Classification] ? CLASSIFICATION_ART[Classification](Hue(Classification)) : "", Size);
+const ClassificationSvg = (Kind, Size) =>
+    SvgWrap(CLASSIFICATION_ART[Kind] ? CLASSIFICATION_ART[Kind](Hue(Kind)) : "", Size);
 
 // 📝 Chrome stays monochrome currentColor — only classification art carries hue.
 const Stroked = 'stroke="currentColor" stroke-width="1.7" fill="none"';
@@ -67,8 +78,20 @@ const GLYPH = {
     arrowDown:   `<path ${Stroked} d="M12 5 V19 M6 13 L12 19 L18 13"/>`,
     trash:       `<path ${Stroked} d="M4.5 7 H19.5 M9.5 7 V4.8 h5 V7 M6.5 7 l1 12.5 h9 L17.5 7"/><path ${Stroked} d="M10.3 10.5 v6 M13.7 10.5 v6"/>`,
     sliders:     `<path ${Stroked} d="M4 7 H20 M4 12 H20 M4 17 H20"/><circle ${Stroked} cx="9" cy="7" r="2"/><circle ${Stroked} cx="15" cy="12" r="2"/><circle ${Stroked} cx="8" cy="17" r="2"/>`,
+    image:       `<rect ${Stroked} x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle ${Stroked} cx="9" cy="9.8" r="1.7"/><path ${Stroked} d="M4 16.5 L9.5 12.5 L14 16 L17 13.5 L20.5 16.5"/>`,
     cube:        `<path ${Stroked} d="M12 3 L20.5 7.5 V16.5 L12 21 L3.5 16.5 V7.5 Z"/><path ${Stroked} d="M3.5 7.5 L12 12 L20.5 7.5 M12 12 V21"/>`,
-    bucket:      `<path ${Stroked} d="M11 3 L20 12 L12 20 L3 11 Z"/><path ${Stroked} d="M18 16.5 c1.6 2.2 2.4 3.5 2.4 4.3 a2.4 2.4 0 0 1 -4.8 0 c0 -0.8 0.8 -2.1 2.4 -4.3 Z"/>`
+    bucket:      `<path ${Stroked} d="M11 3 L20 12 L12 20 L3 11 Z"/><path ${Stroked} d="M18 16.5 c1.6 2.2 2.4 3.5 2.4 4.3 a2.4 2.4 0 0 1 -4.8 0 c0 -0.8 0.8 -2.1 2.4 -4.3 Z"/>`,
+    palette:     `<path ${Stroked} d="M12 3.2 a8.8 8.8 0 0 0 0 17.6 c1.6 0 2.2 -1 2.2 -2 0 -1.3 -1.1 -1.8 -1.1 -3 0 -1.1 0.9 -2 2 -2 H18 a3.2 3.2 0 0 0 3.2 -3.2 C21.2 6.6 17 3.2 12 3.2 Z"/><circle cx="8.2" cy="9.4" r="1.25" fill="currentColor"/><circle cx="12" cy="7.6" r="1.25" fill="currentColor"/><circle cx="7.4" cy="14" r="1.25" fill="currentColor"/>`,
+    sparkle:     `<path ${Stroked} d="M10 3.4 L11.7 8.3 L16.6 10 L11.7 11.7 L10 16.6 L8.3 11.7 L3.4 10 L8.3 8.3 Z"/><path ${Stroked} d="M17.4 14.2 L18.3 16.7 L20.8 17.6 L18.3 18.5 L17.4 21 L16.5 18.5 L14 17.6 L16.5 16.7 Z"/>`,
+    brush:       `<path ${Stroked} d="M17.6 3.9 a2.3 2.3 0 0 1 3.2 3.2 L12.4 15.6 L9.1 12.3 Z"/><path ${Stroked} d="M9.1 12.3 L12.4 15.6 c0 2.3 -1.9 4.2 -4.2 4.2 H3.4 c1.7 -0.9 1.5 -2.4 1.5 -3.7 a3.7 3.7 0 0 1 4.2 -3.8 Z"/>`,
+    // 📝 Stand-ins for the reference's Lucide set, drawn in this file's own inline idiom: `layers` for the
+    //    add menu's footer, `mask` for venetian-mask, `circle`/`flip` for the mask fill and invert tools,
+    //    and `close` for the component remove button.
+    layers:      `<path ${Stroked} d="M12 3 L21 8 L12 13 L3 8 Z"/><path ${Stroked} d="M3 13 L12 18 L21 13"/>`,
+    mask:        `<path ${Stroked} d="M3.2 6.4 h17.6 v4.4 a9.4 9.4 0 0 1 -8.8 9.4 a9.4 9.4 0 0 1 -8.8 -9.4 Z"/><circle cx="8.4" cy="11.4" r="1.5" fill="currentColor"/><circle cx="15.6" cy="11.4" r="1.5" fill="currentColor"/>`,
+    circle:      `<circle ${Stroked} cx="12" cy="12" r="8"/>`,
+    flip:        `<path ${Stroked} d="M3.5 12 H20.5"/><path ${Stroked} d="M12 3.5 L16.5 9 H7.5 Z"/><path ${Stroked} d="M12 20.5 L7.5 15 H16.5 Z"/>`,
+    close:       `<path ${Stroked} d="M6 6 L18 18 M18 6 L6 18"/>`
 };
 
 const Icon = (Name, Size = 15) => SvgWrap(GLYPH[Name] ?? "", Size);
@@ -111,6 +134,33 @@ const CHANNEL_PANELS = CHANNEL_ORDER.map((Key) => {
 
 const DecimalsFor = (Step) => (Step >= 1 ? 0 : (Step >= 0.1 ? 1 : 2));
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     ADD LAYER BAR
+//------------------------------------------------------------------------------------------------------------------------
+
+// The four layer types the Add Layer bar offers, ported from Studio-standalone.html's LAYER_TYPES +
+// LAYER_TYPE_DESC — including its names, its descriptions, its glyphs and its tag hues.
+//
+// 🔴 `Label` is the reference's user-facing word and `Kind` is the ENGINE kind, and they are separate fields
+//    because the two vocabularies genuinely disagree. `Layer.Classification` is only an ALIAS of `Layer.Kind`
+//    (LayerStack.js), so passing a classification through as the kind sets Kind to a string that is NOT a key
+//    in LAYER_KINDS. IsPaintable() then returns false and the stroke path swallows every dab with no error —
+//    an earlier revision shipped "Brushwork"/"Flood" that way, and Flood silently became a paint layer rather
+//    than a fill, arriving empty where uniform coverage was asked for. Naming the kind explicitly is the fix.
+//
+// 📝 The reference's own names are Material / Generator / Paint / Fill. The invented "Brushwork"/"Flood" are
+//    gone: Paint is the kind that takes strokes, Fill is the flooded one.
+const LAYER_TYPES = [
+    { Label: "Material",  Kind: "material",  Glyph: "cube",    Tag: "#8b5cf6",
+      Note: "Full PBR surface with every channel.", Preset: "plastic" },
+    { Label: "Generator", Kind: "generator", Glyph: "sparkle", Tag: "#10b981",
+      Note: "Procedural mask-driven wear & grime.", Generator: "rust" },
+    { Label: "Paint",     Kind: "paint",     Glyph: "brush",   Tag: "#f97316",
+      Note: "Hand-painted brush strokes." },
+    { Label: "Fill",      Kind: "fill",      Glyph: "bucket",  Tag: "#3b82f6",
+      Note: "Flat fill across the surface." }
+];
+
 // The channels a layer paints, always as an array.
 //
 // 🔴 The inspector is handed LIVE `PaintLayer` objects, where the field is `Enabled` and is a **Set** —
@@ -144,6 +194,24 @@ function ColourToHex(Triple)
     return "#" + Byte(Triple[0]) + Byte(Triple[1]) + Byte(Triple[2]);
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     MASK SWATCH
+//------------------------------------------------------------------------------------------------------------------------
+
+// A tiny greyscale gradient that reads as the mask's fill + invert state. Ported from maskSwatchStyle().
+function MaskSwatchStyle(Mask)
+{
+    const Light = Mask.Fill === "white" ? "#f0f0f0" : "#101010";
+    const Dark  = Mask.Fill === "white" ? "#9a9a9a" : "#2a2a2a";
+    return Mask.Invert
+        ? `linear-gradient(135deg,${Dark},${Light})`
+        : `linear-gradient(135deg,${Light},${Dark})`;
+}
+
+const MaskMeta = (Mask) =>
+    `${Mask.Fill === "white" ? "White" : "Black"} fill` +
+    `${Mask.Invert ? " · inverted" : ""} · ${Mask.Components.length} comp`;
+
 function HexToColour(Hex)
 {
     const Packed = parseInt(Hex.slice(1), 16);
@@ -171,6 +239,14 @@ const InspectorMarkup = `
               <span class="fn">Suzanne</span>
             </span>
             <span class="h-n" data-part="Tally">0</span>
+          </div>
+          <!-- 🔴 The Add Layer bar is its OWN band, a sibling of the stack rather than a control inside the
+                  pane head — the layer stack is separate from Add Layer, exactly as the reference has it.
+                  It sits above the filter so the control that grows the stack is never scrolled away or
+                  hidden behind a filter term that matches nothing. -->
+          <div class="ls-addbar" data-part="AddBar">
+            <button class="ls-addmain" data-part="AddButton" aria-haspopup="menu"></button>
+            <div class="ls-addmenu" data-part="AddMenu" role="menu"></div>
           </div>
           <div class="search-wrap">
             <label class="search">
@@ -232,8 +308,12 @@ const InspectorMarkup = `
   </div>
 </div>`;
 
-const MenuWidth  = 548;
-const MenuHeight = 372;
+// 🔴 These MUST match .summon-menu's width/height in LayerInspector.css. Show() clamps the card against the
+//    viewport using these numbers, so if the CSS grows and these do not, the clamp reserves too little room
+//    and the card is positioned partly off-screen — with the overflow hidden, the bottom rows simply cannot
+//    be reached. Scaled 548×372 → 632×430 together with the stylesheet.
+const MenuWidth  = 632;
+const MenuHeight = 430;
 const MenuPad    = 14;
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -278,7 +358,16 @@ export class LayerInspector
         this.RowDragged = false;
         this.OpenList   = null;
 
+        // Which row has its inline editor unfolded. Seeded to the focused layer so the card opens showing
+        // the editor for the layer it is already pointed at, rather than requiring a click to reveal it.
+        this.ExpandToken = Stack.FocusToken;
+
+        this.AddOpen = false;
+
         this.Part.StackIcon.innerHTML   = Icon("stack", 18);
+        // Ported verbatim from the reference's .ls-addmain: plus glyph, "Add Layer", rotating chevron.
+        this.Part.AddButton.innerHTML   = `${Icon("plus", 14)} Add Layer ` +
+                                          `<span class="la-chev">${Icon("chevronDown", 13)}</span>`;
         this.Part.SearchIcon.innerHTML  = Icon("search", 14);
         this.Part.AdvanceStep.innerHTML = Icon("chevron", 13);
         this.Part.ReturnStep.innerHTML  = Icon("chevronLeft", 14);
@@ -292,6 +381,18 @@ export class LayerInspector
     Bind()
     {
         this.Part.Veil.onpointerdown       = () => this.Hide();
+        this.Part.AddButton.onclick        = (Event) => {
+            Event.stopPropagation();
+            const WasOpen = this.AddOpen;
+            this.CloseLists();
+            if (WasOpen) { return; }
+            // 📝 Rebuilt on every open, not once at construction, so the capacity guard reflects the stack
+            //    as it is right now.
+            this.RenderAddMenu();
+            // The reference toggles `open` on the BAR, and the menu and chevron are styled off that.
+            this.Part.AddBar.classList.add("open");
+            this.AddOpen = true;
+        };
         this.Part.AdvanceHead.onclick      = () => this.ShowChannels();
         this.Part.ReturnHead.onclick       = () => this.ShowStack();
         this.Part.Filter.oninput           = () => { this.FilterTerm = this.Part.Filter.value.trim().toLowerCase();
@@ -304,8 +405,16 @@ export class LayerInspector
         };
 
         // A dropdown is position:fixed and placed by script, so any scroll or outside press must close it.
+        // 🔴 Both menus are tested, not just OpenList. The add menu is not tracked by OpenList (it is
+        //    anchored in the pane head rather than fixed-positioned), so a handler that only consulted
+        //    OpenList would leave it standing open behind the next press.
         this.CloseListOnOutside = (Event) => {
             if (this.OpenList && !this.OpenList.contains(Event.target)) { this.CloseLists(); }
+            if (this.AddOpen && !this.Part.AddBar.contains(Event.target)) { this.CloseAddMenu(); }
+            if (this.MaskMenu && !this.MaskMenu.parentElement.contains(Event.target))
+            {
+                this.CloseMaskMenu();
+            }
         };
         document.addEventListener("pointerdown", this.CloseListOnOutside, true);
         document.addEventListener("scroll", () => this.CloseLists(), true);
@@ -370,7 +479,7 @@ export class LayerInspector
     // Escape unwinds the same path one step at a time.
     Retreat()
     {
-        if (this.OpenList)    { this.CloseLists(); return true; }
+        if (this.OpenList || this.AddOpen) { this.CloseLists(); return true; }
         if (!this.OpenState)  { return false; }
         if (this.OnChannels)  { this.ShowStack(); return true; }
         this.Hide();
@@ -384,6 +493,15 @@ export class LayerInspector
     //    layer that is no longer focused cannot paint itself into the panel that replaced it.
     Refresh()
     {
+        // 🔴 The expand FOLLOWS focus whenever focus moved somewhere this panel did not send it — a new
+        //    layer from the add bar, or a delete reassigning focus. Without this the token would still name
+        //    the previous layer, so the newly focused row would render folded and the just-added layer would
+        //    look like it arrived without a mask editor. Deliberately collapsed rows keep their null.
+        if (this.ExpandToken !== null && this.ExpandToken !== this.Stack.FocusToken)
+        {
+            this.ExpandToken = this.Stack.FocusToken;
+        }
+
         this.PreviewGeneration = (this.PreviewGeneration ?? 0) + 1;
         this.RenderStack();
         this.RenderProperties();
@@ -412,7 +530,14 @@ export class LayerInspector
         const Layers = this.Stack.Layers.filter(
             (L) => !this.FilterTerm || L.Name.toLowerCase().includes(this.FilterTerm));
 
-        for (const Layer of Layers) { Body.appendChild(this.BuildRow(Layer)); }
+        // 🔴 The expand is appended as a SIBLING after the row, not nested inside it, matching the reference.
+        //    Nesting it would make the row 200px tall, so the row's own hover/selection fill would cover the
+        //    whole editor and every press inside the editor would also read as a press on the row.
+        for (const Layer of Layers)
+        {
+            Body.appendChild(this.BuildRow(Layer));
+            if (this.IsExpanded(Layer)) { Body.appendChild(this.BuildMaskExpand(Layer)); }
+        }
 
         if (Body.children.length === 0)
         {
@@ -428,6 +553,33 @@ export class LayerInspector
             `<span class="pf-spacer"></span><span>${this.Stack.Count} / ${LayerCapacity}</span>`;
     }
 
+    // Open or close a row's inline expand.
+    //
+    // 🔴 Expansion is tracked SEPARATELY from focus, unlike the reference, which collapses by setting
+    //    selectedId = null. Here the focus token is also the paint target, and LayerStack refuses a stroke
+    //    when focus is unset rather than redirecting it — so collapsing via focus would leave the user with
+    //    a visible stack whose next brush stroke silently does nothing. Clicking a row therefore always
+    //    focuses it, and only the second click on the already-open row folds the editor away.
+    ToggleExpand(Layer)
+    {
+        if (Layer.Token !== this.Stack.FocusToken)
+        {
+            this.ExpandToken = Layer.Token;
+            this.Apply("focus", { Token: Layer.Token });
+            return;
+        }
+
+        this.ExpandToken = this.ExpandToken === Layer.Token ? null : Layer.Token;
+        this.Refresh();
+    }
+
+    // A row shows its editor when it is both the focused layer and not explicitly collapsed.
+    IsExpanded(Layer)
+    {
+        return Layer.Token === this.Stack.FocusToken && this.ExpandToken !== null &&
+               this.ExpandToken === Layer.Token;
+    }
+
     BuildRow(Layer)
     {
         const Row = document.createElement("div");
@@ -436,20 +588,40 @@ export class LayerInspector
             (Layer.Shown ? "" : " layer-muted");
         Row.dataset.token = Layer.Token;
 
-        const Tint   = Hue(Layer.Classification);
+        // 📝 An explicit tag wins over the kind tint; untagged rows keep classifying themselves by kind.
+        const Tint   = Layer.Tag ?? Hue(Layer.Classification);
         const Swatch = SwatchOf(Layer);
+        // The authored colour is only the PLACEHOLDER now — the real painted atlas replaces it below, once
+        // the readback lands. A layer with no storage keeps the placeholder, which is the honest answer.
         const Thumb  = Swatch
             ? `<span class="sr-thumb-fill" style="background:${Swatch}"></span>`
             : ClassificationSvg(Layer.Classification, 15);
 
+        const Open = this.IsExpanded(Layer);
+        const Mask = Layer.Mask;
+
+        // 📝 `expanded` is what lets the row and its editor render as ONE card: the row drops its bottom
+        //    radius and border, the expand drops its top ones, and the seam between the two closes up.
+        if (Open) { Row.classList.add("expanded"); }
+
+        // 📝 The badge appears only once a mask actually exists, so an unmasked row stays uncluttered and the
+        //    badge's presence is itself the signal that the layer is masked.
+        const MaskBadge = Mask?.Enabled
+            ? `<span class="sr-mask active" title="Mask · ${Mask.Fill}` +
+              `${Mask.Invert ? " · inverted" : ""} · ${Mask.Components.length} comp" ` +
+              `style="background:${MaskSwatchStyle(Mask)}"></span>`
+            : "";
+
         Row.innerHTML =
+            `<span class="sr-twisty ${Open ? "open" : "closed"}">${Icon("chevronDown", 13)}</span>` +
             `<span class="sr-tag" style="background:${Tint}"></span>` +
             `<span class="sr-thumb">${Thumb}</span>` +
             `<span class="sr-text">` +
               `<span class="sr-name"></span>` +
-              `<span class="sr-meta">${CLASSIFICATION_LABEL[Layer.Classification]} · ${Layer.Blend} · ` +
+              `<span class="sr-meta">${LabelOf(Layer)} · ${Layer.Blend} · ` +
                 `${ChannelsOf(Layer).length} ch</span>` +
             `</span>` +
+            MaskBadge +
             `<span class="sr-opacity" title="Drag to adjust opacity">${Layer.Opacity}%</span>` +
             `<span class="sr-visibility" title="${Layer.Shown ? "Hide" : "Show"}">` +
               `${Icon(Layer.Shown ? "eyeOpen" : "eyeOff", 14)}</span>`;
@@ -459,13 +631,18 @@ export class LayerInspector
         //    name vanishes, at worst the row's own handlers are replaced by injected ones.
         Row.querySelector(".sr-name").textContent = Layer.Name;
 
+        // The thumbnail shows the layer's actual painted colour atlas, not its authored value.
+        this.FillFromAtlas(Row.querySelector(".sr-thumb"), Layer, "baseColour");
+
         Row.onclick = (Event) => {
             if (this.RowDragged) { this.RowDragged = false; return; }
-            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity")) { return; }
-            if (Layer.Token !== this.Stack.FocusToken) { this.Apply("focus", { Token: Layer.Token }); }
+            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity") ||
+                Event.target.closest(".sr-mask")) { return; }
+            this.ToggleExpand(Layer);
         };
         Row.ondblclick = (Event) => {
-            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity")) { return; }
+            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity") ||
+                Event.target.closest(".sr-mask")) { return; }
             this.BeginRename(Layer, Row.querySelector(".sr-name"));
         };
         // 🔴 Right-click inside the card focuses a row; it never opens a second menu, and it must
@@ -478,6 +655,12 @@ export class LayerInspector
         Row.querySelector(".sr-visibility").onclick = (Event) => {
             Event.stopPropagation();
             this.Apply("show", { Token: Layer.Token, Shown: !Layer.Shown });
+        };
+        // The twisty is the explicit disclosure control, so it toggles without waiting for the row's
+        // own handler — and it stops propagation so the row does not then toggle it straight back.
+        Row.querySelector(".sr-twisty").onclick = (Event) => {
+            Event.stopPropagation();
+            this.ToggleExpand(Layer);
         };
         this.BindOpacityDrag(Row.querySelector(".sr-opacity"), Layer);
         if (!this.FilterTerm) { this.BindRowDrag(Row, Layer); }
@@ -525,7 +708,8 @@ export class LayerInspector
     {
         Row.addEventListener("pointerdown", (Event) => {
             if (Event.button !== 0) { return; }
-            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity")) { return; }
+            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity") ||
+                Event.target.closest(".sr-mask")) { return; }
 
             const StartY = Event.clientY;
             const StartX = Event.clientX;
@@ -590,6 +774,252 @@ export class LayerInspector
         });
     }
 
+    //--------------------------------------------------------------------------------------------------
+    //                                      LAYER MASK
+    //--------------------------------------------------------------------------------------------------
+
+    // The inline panel beneath the focused row, ported from the reference's buildLayerExpand/buildMaskEditor:
+    // Visible, a rule, Blend / Opacity / Resolution, a rule, then the Mask block.
+    //
+    // 🔴 These four live HERE and nowhere else. They were also in the properties pane, and two controls over
+    //    one value is not a convenience — each rebuilds the panel the other is drawn in, so moving the pane's
+    //    Opacity slider re-renders the expand's slider out from under a finger already on it. The pane keeps
+    //    Preview, Channels and Actions; the row's own expand owns the four per-layer settings.
+    BuildMaskExpand(Layer)
+    {
+        const Box = document.createElement("div");
+        Box.className = "ls-expand";
+
+        // A group wrapper for the switch, matching the reference's .lse-grp.
+        const Group = document.createElement("div");
+        Group.className = "lse-grp";
+        Group.appendChild(SwitchRow("Visible", Layer.Shown, (On) =>
+            this.Apply("show", { Token: Layer.Token, Shown: On })));
+        Box.appendChild(Group);
+
+        Box.appendChild(Rule());
+
+        Box.appendChild(Control("Blend mode", this.BuildDropdown(BLEND_MODES, Layer.Blend, (Pick) =>
+            this.Apply("blend", { Token: Layer.Token, Blend: Pick }))));
+
+        // 🔴 Live drags write through Commands, not Apply. Apply refreshes, and refreshing rebuilds this very
+        //    expand — so the slider the pointer is captured on is destroyed mid-drag and the value freezes at
+        //    wherever the first move landed. The row's opacity pill is nudged directly instead, and the full
+        //    rebuild waits for release.
+        Box.appendChild(Control("Opacity", BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Layer.Opacity, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("opacity", { Token: Layer.Token, Opacity: Value });
+                const Pill = this.Part.StackBody
+                    .querySelector(`.stack-row[data-token="${Layer.Token}"] .sr-opacity`);
+                if (Pill) { Pill.textContent = `${Value}%`; }
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        })));
+
+        // 🔴 The options come from the STACK, which asks the device, rather than from a fixed list. The
+        //    reference offers up to 8K unconditionally; that is exactly the default WebGPU limit, so a device
+        //    reporting less would fail inside createTexture rather than in the menu that promised it.
+        //
+        // 📝 Labelled "1K"/"2K" but valued in texels, so what the dropdown shows and what the engine allocates
+        //    cannot drift — the label is presentation only.
+        const Options = this.Stack.ResolutionOptions ?? [];
+        const Current = Options.find((O) => O.Value === Layer.Extent);
+        Box.appendChild(Control("Resolution", this.BuildDropdown(
+            Options.map((O) => O.Label), Current?.Label ?? `${Layer.Extent}`, (Pick) => {
+                const Chosen = Options.find((O) => O.Label === Pick);
+                if (Chosen) { this.Apply("resolution", { Token: Layer.Token, Extent: Chosen.Value }); }
+            })));
+
+        Box.appendChild(Rule());
+
+        const Title = document.createElement("div");
+        Title.className = "lse-title";
+        Title.innerHTML = `${Icon("mask", 12)}<span>Mask</span>`;
+        Box.appendChild(Title);
+        Box.appendChild(this.BuildMaskEditor(Layer));
+
+        return Box;
+    }
+
+    // Commit a mask edit and rebuild the panel around it.
+    //
+    // 🔴 The Touch is what keeps the stack revision honest. Without it the row would redraw while the
+    //    compositor kept serving its cached pre-edit result, so the swatch and the model would disagree
+    //    until some unrelated edit happened to invalidate the composite.
+    //
+    // 📝 Mask fields are still assigned by the callers rather than passed through the `mask` command verb.
+    //    The verb exists for the harness and for anything driving the stack without this panel; routing the
+    //    panel through it too would mean a full rebuild per pointer move during an opacity drag, which is
+    //    exactly what the live/commit split below is avoiding.
+    CommitMask()
+    {
+        this.Stack.Touch();
+        this.Refresh();
+        this.OnChange();
+    }
+
+    BuildMaskEditor(Layer)
+    {
+        const Mask = Layer.Mask ?? (Layer.Mask = MakeMask());
+        const Wrap = document.createElement("div");
+
+        // No mask yet: offer the one call-to-action and nothing else.
+        if (!Mask.Enabled)
+        {
+            const Add = document.createElement("button");
+            Add.className = "msk-empty";
+            Add.innerHTML = `${Icon("mask", 14)} Add Mask`;
+            Add.onclick = (Event) => {
+                Event.stopPropagation();
+                Mask.Enabled = true;
+                this.CommitMask();
+            };
+            Wrap.appendChild(Add);
+            return Wrap;
+        }
+
+        // ---- preview + summary ----------------------------------------------------------------------
+        // 🔴 The PREVIEW is the paint target selector, exactly as in Substance: click the mask thumbnail
+        //    and the brush paints the mask, click it again and it paints the layer's channels. No new UI
+        //    is introduced for this — the thumbnail already existed and was inert, and adding a separate
+        //    "paint mask" toggle beside it would give the panel two controls for one piece of state.
+        const Row = document.createElement("div");
+        Row.className = "msk-row" + (Mask.Target ? " targeting" : "");
+        Row.innerHTML =
+            `<div class="msk-prev${Mask.Target ? " targeting" : ""}" ` +
+              `title="${Mask.Target ? "Painting the MASK — click to paint the layer" : "Click to paint this mask"}">` +
+              `<div class="msk-chk"></div>` +
+              `<div class="msk-grad" style="background:${MaskSwatchStyle(Mask)};` +
+              `opacity:${Mask.Opacity / 100}"></div></div>` +
+            `<div class="msk-info"><div class="msk-nm">Layer Mask</div>` +
+              `<div class="msk-meta">${MaskMeta(Mask)}</div></div>`;
+
+        // 🔴 Targeting is cleared on every OTHER layer, not just set on this one. The stroke router asks
+        //    the focused layer whether its mask is targeted, so two layers both flagged is not directly
+        //    harmful — but the flag drives the "you are painting a mask" affordance, and two layers
+        //    claiming it at once makes the panel lie about where the next stroke lands.
+        Row.querySelector(".msk-prev").onclick = (Event) => {
+            Event.stopPropagation();
+            const Next = !Mask.Target;
+            for (const Other of this.Stack.Layers) { if (Other.Mask) { Other.Mask.Target = false; } }
+            Mask.Target = Next;
+            this.CommitMask();
+        };
+        Wrap.appendChild(Row);
+
+        // ---- fill black / fill white / invert -------------------------------------------------------
+        const Bar = document.createElement("div");
+        Bar.className = "msk-toolbar";
+        const Tool = (Label, Glyph, On, Run) => {
+            const Button = document.createElement("button");
+            Button.className = "msk-tool" + (On ? " on" : "");
+            Button.innerHTML = `${Icon(Glyph, 13)} ${Label}`;
+            Button.onclick = (Event) => { Event.stopPropagation(); Run(); };
+            return Button;
+        };
+        Bar.appendChild(Tool("Black",  "circle", Mask.Fill === "black",
+            () => { Mask.Fill = "black"; this.CommitMask(); }));
+        Bar.appendChild(Tool("White",  "circle", Mask.Fill === "white",
+            () => { Mask.Fill = "white"; this.CommitMask(); }));
+        Bar.appendChild(Tool("Invert", "flip",   Mask.Invert,
+            () => { Mask.Invert = !Mask.Invert; this.CommitMask(); }));
+        Wrap.appendChild(Bar);
+
+        // ---- mask opacity ---------------------------------------------------------------------------
+        // 📝 The live drag repaints the gradient in place and only commits on release, the same contract the
+        //    row's opacity pill uses — committing per pointer move would rebuild this editor mid-drag.
+        Wrap.appendChild(PropertyRow("Opacity", BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Mask.Opacity, Unit: "%",
+            OnInput: (Value, Live) => {
+                Mask.Opacity = Value;
+                const Gradient = Wrap.querySelector(".msk-grad");
+                if (Gradient) { Gradient.style.opacity = Value / 100; }
+                if (!Live) { this.CommitMask(); }
+            }
+        })));
+
+        // ---- the component list ---------------------------------------------------------------------
+        const List = document.createElement("div");
+        List.className = "msk-comps";
+        for (const Component of Mask.Components)
+        {
+            const Meta = MASK_COMPONENT_TYPES[Component.Type] ?? { Glyph: "cube" };
+            const Item = document.createElement("div");
+            Item.className = "msk-comp";
+            Item.innerHTML =
+                `<span class="mc-ico">${Icon(Meta.Glyph, 13)}</span>` +
+                `<span class="mc-tx"><span class="mc-nm"></span>` +
+                  `<span class="mc-md">${Component.Type}</span></span>` +
+                `<button class="mc-x" title="Remove component">${Icon("close", 12)}</button>`;
+            Item.querySelector(".mc-nm").textContent = Component.Name;
+            Item.querySelector(".mc-x").onclick = (Event) => {
+                Event.stopPropagation();
+                Mask.Components = Mask.Components.filter((X) => X.Token !== Component.Token);
+                this.CommitMask();
+            };
+            List.appendChild(Item);
+        }
+        Wrap.appendChild(List);
+
+        // ---- add a component ------------------------------------------------------------------------
+        const Add = document.createElement("button");
+        Add.className = "msk-addcomp";
+        Add.innerHTML = `${Icon("plus", 12)} Add component`;
+
+        const Menu = document.createElement("div");
+        Menu.className = "msk-addmenu";
+        Menu.innerHTML = `<div class="cm-h">Mask Components</div>`;
+        for (const [Type, Meta] of Object.entries(MASK_COMPONENT_TYPES))
+        {
+            const Option = document.createElement("button");
+            Option.innerHTML = `${Icon(Meta.Glyph, 13)}<span>${Type}</span>`;
+            Option.title = Meta.Note;
+            Option.onclick = (Event) => {
+                Event.stopPropagation();
+                Mask.Components.push(MakeMaskComponent(Type));
+                this.CloseMaskMenu();
+                this.CommitMask();
+            };
+            Menu.appendChild(Option);
+        }
+        Add.appendChild(Menu);
+        Add.onclick = (Event) => {
+            Event.stopPropagation();
+            const WasOpen = Menu.classList.contains("open");
+            this.CloseLists();
+            if (WasOpen) { return; }
+            Menu.classList.add("open");
+            this.MaskMenu = Menu;
+        };
+        Wrap.appendChild(Add);
+
+        // ---- drop the mask entirely -----------------------------------------------------------------
+        const Clear = document.createElement("button");
+        Clear.className = "msk-tool";
+        Clear.style.width = "100%";
+        Clear.style.marginTop = "7px";
+        Clear.innerHTML = `${Icon("trash", 13)} Remove mask`;
+        Clear.onclick = (Event) => {
+            Event.stopPropagation();
+            // 🔴 Replaced with a FRESH mask rather than just clearing Enabled, matching the reference. Leaving
+            //    the old components behind would resurrect every one of them the next time a mask was added.
+            Layer.Mask = MakeMask();
+            this.CommitMask();
+        };
+        Wrap.appendChild(Clear);
+
+        return Wrap;
+    }
+
+    CloseMaskMenu()
+    {
+        if (!this.MaskMenu) { return; }
+        this.MaskMenu.classList.remove("open");
+        this.MaskMenu = null;
+    }
+
     // Rename in place on the row label.
     BeginRename(Layer, Label)
     {
@@ -643,49 +1073,40 @@ export class LayerInspector
 
         const Tint = Hue(Layer.Classification);
         this.Part.MetaName.textContent  = Layer.Name;
-        this.Part.MetaClass.textContent = `${CLASSIFICATION_LABEL[Layer.Classification]} layer`;
+        this.Part.MetaClass.textContent = `${LabelOf(Layer)} layer`;
         this.Part.MetaIcon.innerHTML    = ClassificationSvg(Layer.Classification, 17);
 
-        const Swatch = SwatchOf(Layer);
-        const Hero   = document.createElement("div");
-        Hero.className = "meta-hero";
-        Hero.innerHTML =
-            `<span class="mh-ic">${Swatch
-                ? `<span class="mh-fill" style="background:${Swatch}"></span>`
-                : ClassificationSvg(Layer.Classification, 22)}</span>` +
-            `<span class="mh-txt">` +
-              `<span class="mh-name"></span>` +
-              `<span class="mh-class" style="color:${Tint}">` +
-                `${CLASSIFICATION_LABEL[Layer.Classification]}</span>` +
-            `</span>`;
-        Hero.querySelector(".mh-name").textContent = Layer.Name;
-        Body.appendChild(Hero);
+        // 🔴 No name/class hero card here. It restated what the pane header directly above it already says
+        //    (MetaName + MetaClass are the same two strings) beside a thumbnail of the same atlas the big
+        //    preview below renders far larger. Three copies of one layer's identity stacked vertically, and
+        //    the small thumbnail was the least legible of them — the big preview is sufficient.
+        Body.appendChild(SectionLabel("Preview", "image"));
+        Body.appendChild(this.BuildLayerPreview(Layer));
 
         Body.appendChild(SectionLabel("Properties", "sliders"));
 
-        Body.appendChild(PropertyRow("Visible", BuildSwitch(Layer.Shown, (On) =>
-            this.Apply("show", { Token: Layer.Token, Shown: On }))));
-
-        Body.appendChild(PropertyRow("Blend", this.BuildDropdown(BLEND_MODES, Layer.Blend, (Pick) =>
-            this.Apply("blend", { Token: Layer.Token, Blend: Pick }))));
-
-        Body.appendChild(PropertyRow("Opacity", BuildSlider({
-            Min: 0, Max: 100, Step: 1, Value: Layer.Opacity, Unit: "%",
-            OnInput: (Value, Live) => {
-                this.Commands("opacity", { Token: Layer.Token, Opacity: Value });
-                const Pill = this.Part.StackBody
-                    .querySelector(`.stack-row[data-token="${Layer.Token}"] .sr-opacity`);
-                if (Pill) { Pill.textContent = `${Value}%`; }
-                this.OnChange();
-                if (!Live) { this.Refresh(); }
-            }
-        })));
-
+        // 🔴 Visible / Blend / Opacity / Resolution are NOT here. They moved to the row's own inline expand
+        //    (BuildMaskExpand), where the reference puts them and where they sit next to the layer they
+        //    describe. They were in both places for a while, and two controls over one value meant each one
+        //    rebuilt the panel the other lived in: dragging this pane's Opacity slider re-rendered the
+        //    expand's, and vice versa, so whichever the pointer was captured on was destroyed mid-drag.
+        //
+        // 📝 What this pane keeps is what the expand has no room for: the large preview, the channel tally,
+        //    and Delete. The footer below still REPORTS opacity and blend, read-only — reporting a value is
+        //    not a second control over it.
         const ChannelRow = document.createElement("div");
         ChannelRow.className = "meta-row";
         ChannelRow.innerHTML = `<span class="mr-k">Channels</span>` +
             `<span class="mr-v">${ChannelsOf(Layer).length} / ${CHANNEL_PANELS.length} active</span>`;
         Body.appendChild(ChannelRow);
+
+        // The layer's atlas size, reported here and AUTHORED in the expand. Same read-only contract as the
+        // footer's opacity: the pane states facts, the expand changes them.
+        const SizeRow = document.createElement("div");
+        SizeRow.className = "meta-row";
+        SizeRow.innerHTML = `<span class="mr-k">Resolution</span>` +
+            `<span class="mr-v">${Layer.Extent}²${Layer.Allocated ? "" : " · unallocated"}</span>`;
+        Body.appendChild(SizeRow);
 
         Body.appendChild(SectionLabel("Actions"));
         Body.appendChild(this.BuildActions(Layer));
@@ -698,16 +1119,23 @@ export class LayerInspector
 
         this.Part.MetaFoot.innerHTML =
             `<span class="pf-hue" style="background:${Tint}"></span>` +
-            `<span>${CLASSIFICATION_LABEL[Layer.Classification]}</span>` +
+            `<span>${LabelOf(Layer)}</span>` +
             `<span class="pf-dot">·</span><span class="pf-strong">${Layer.Opacity}%</span>` +
             `<span class="pf-spacer"></span><span>${Layer.Blend}</span>`;
     }
 
+    // Delete is the ONLY action this pane offers.
+    //
+    // 🔴 Raise / Lower and the four "Add <kind>" rows were deliberately removed, because each duplicated a
+    //    control that already exists and reads better elsewhere: restacking is drag-to-reorder in the layer
+    //    stack, and creating a layer is the Add Layer bar above it. A second copy of a verb is not a
+    //    convenience — it is a second thing to keep in sync, and the add rows already caused exactly that
+    //    bug once (they passed `Classification` where `Kind` was expected, silently making every Flood a
+    //    paint layer). One entry point per verb is what stops that recurring.
     BuildActions(Layer)
     {
         const Host  = document.createElement("div");
         Host.className = "meta-actions";
-        const Index = this.Stack.IndexOf(Layer.Token);
 
         const Add = (Glyph, Label, Enabled, Run, Danger) => {
             const Item = document.createElement("div");
@@ -716,28 +1144,6 @@ export class LayerInspector
             if (Enabled) { Item.onclick = Run; }
             Host.appendChild(Item);
         };
-
-        Add("arrowUp",   "Raise",  Index > 0,
-            () => this.Apply("reorder", { Token: Layer.Token, Direction: -1 }));
-        Add("arrowDown", "Lower",  Index >= 0 && Index < this.Stack.Count - 1,
-            () => this.Apply("reorder", { Token: Layer.Token, Direction: 1 }));
-
-        // 📝 The add row offers one option per classification, so a new layer arrives already tagged.
-        for (const Classification of CLASSIFICATION_ORDER)
-        {
-            // 🔴 A "material" or "flood" layer is a FILL, not brushwork: it is seeded with every channel
-            //    and flooded at full coverage, because a base material wants the whole atlas including
-            //    the UV gutters. A brushwork layer starts empty and waits for a stroke.
-            const Fill     = (Classification === "material" || Classification === "flood");
-            const Channels = Fill ? [...CHANNEL_ORDER] : ["baseColour"];
-            Add("plus", `Add ${CLASSIFICATION_LABEL[Classification]}`, this.Stack.Count < LayerCapacity,
-                () => this.Apply("add", {
-                    Name:           `NEW_${CLASSIFICATION_LABEL[Classification]}`,
-                    Classification: Classification,
-                    Channels:       Channels,
-                    Flood:          Fill
-                }));
-        }
 
         // 🔴 The stack refuses to remove its last layer, so the row is disabled rather than offered and
         //    then silently ignored.
@@ -772,6 +1178,9 @@ export class LayerInspector
         Chip.innerHTML = Swatch
             ? `<span class="ic-fill" style="background:${Swatch}"></span>`
             : ClassificationSvg(Layer.Classification, 34);
+        // 📝 The same painted atlas the stack row and the hero show, so stepping between panes does not
+        //    change what the layer appears to contain.
+        this.FillFromAtlas(Chip, Layer, "baseColour");
         Body.appendChild(Chip);
 
         const Name = document.createElement("div");
@@ -782,7 +1191,7 @@ export class LayerInspector
         const Class = document.createElement("div");
         Class.className = "ident-class";
         Class.style.color = Tint;
-        Class.textContent = CLASSIFICATION_LABEL[Layer.Classification];
+        Class.textContent = LabelOf(Layer);
         Body.appendChild(Class);
 
         const Facts = [
@@ -803,7 +1212,7 @@ export class LayerInspector
 
         this.Part.IdentityFoot.innerHTML =
             `<span class="pf-hue" style="background:${Tint}"></span>` +
-            `<span>${CLASSIFICATION_LABEL[Layer.Classification]}</span>`;
+            `<span>${LabelOf(Layer)}</span>`;
     }
 
     //--------------------------------------------------------------------------------------------------
@@ -828,7 +1237,7 @@ export class LayerInspector
 
         this.Part.ChannelName.textContent = Layer.Name;
         this.Part.ChannelSub.textContent  =
-            `${CLASSIFICATION_LABEL[Layer.Classification]} · ${Layer.Blend}`;
+            `${LabelOf(Layer)} · ${Layer.Blend}`;
         this.Part.ChannelIcon.innerHTML   = ClassificationSvg(Layer.Classification, 17);
 
         Body.appendChild(this.BuildChannelChips(Layer));
@@ -985,6 +1394,10 @@ export class LayerInspector
             return;
         }
 
+        // 📝 Value mode gets a preview too, and it deliberately shows the FLAT authored value rather than the
+        //    texels still sitting in the atlas. That is the point of the tile here: it confirms the channel is
+        //    reading its value and not its paint. The strokes are untouched underneath — switching back to
+        //    Texture brings them straight back — so this is the honest picture of what the surface renders now.
         if (Panel.Edit === "colour")
         {
             const Current = Array.isArray(Layer.Values[Panel.Key])
@@ -994,6 +1407,7 @@ export class LayerInspector
                 this.OnChange();
                 if (!Live) { this.Refresh(); }
             })));
+            Body.appendChild(this.BuildChannelPreview(Layer, Panel));
             return;
         }
 
@@ -1006,6 +1420,7 @@ export class LayerInspector
                 if (!Live) { this.Refresh(); }
             }
         })));
+        Body.appendChild(this.BuildChannelPreview(Layer, Panel));
     }
 
     //--------------------------------------------------------------------------------------------------
@@ -1018,6 +1433,203 @@ export class LayerInspector
     //    pane in one pass and appends as it goes; awaiting a GPU readback per channel there would make the
     //    panel appear a channel at a time, and would make Refresh() async — which every caller, including
     //    LayerCommand, invokes without awaiting.
+    // The layer's big preview: the painted Colour atlas at size, with the other channels as a strip beneath.
+    //
+    // 🔴 The hero is the COLOUR atlas, not a composite of all six channels, and the strip names each channel
+    //    it shows. Six channels cannot honestly be flattened into one tile: metallic, roughness and height
+    //    are three greyscale components sharing ONE Material atlas, and normal is derived and never stored.
+    //    Packing them into a single RGB image would be a false-colour debug view, not a preview of the
+    //    surface — a viewer would read the green channel as "green paint" when it means "roughness". A lit
+    //    composite of all six is the honest single image, and that needs a shading pass; it is on the
+    //    backlog rather than faked here.
+    BuildLayerPreview(Layer)
+    {
+        const Host = document.createElement("div");
+        Host.className = "layer-preview";
+
+        const Hero = document.createElement("div");
+        Hero.className = "lp-hero";
+        // The checker shows through wherever the layer has NO coverage. A layer is a sparse contribution to
+        // the stack, so "transparent here" is real information — a flat tile would imply full coverage.
+        Hero.innerHTML = `<span class="lp-chk"></span><span class="lp-img"></span>`;
+
+        const Note = document.createElement("div");
+        Note.className = "lp-note";
+
+        const Image = Hero.querySelector(".lp-img");
+        const Generation = this.PreviewGeneration ?? 0;
+
+        this.Capture(Layer.Token, "baseColour").then((Preview) => {
+            if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
+            if (!Image.isConnected) { return; }
+
+            if (!Preview)
+            {
+                Host.classList.add("lp-empty");
+                Note.textContent = Layer.Paintable
+                    ? "Nothing painted yet — paint a stroke to see it here."
+                    : "No colour content on this layer yet.";
+                return;
+            }
+
+            Image.style.backgroundImage = `url(${Preview.Image})`;
+            Note.textContent = `Colour · ${Preview.Extent}² from the ${Preview.Atlas} atlas`;
+        }).catch(() => {});
+
+        Host.appendChild(Hero);
+        Host.appendChild(Note);
+
+        // The remaining channels as small tiles, in a paged carousel. Each is its own readback and each is
+        // LABELLED, because a bare greyscale square gives the viewer no way to tell roughness from height.
+        //
+        // 📝 Derived channels are skipped: normal is computed from height at shade time and has no storage,
+        //    so there is no atlas to read back for it.
+        const Channels = CHANNEL_PANELS.filter(
+            (P) => P.Key !== "baseColour" && P.Kind !== "derived");
+
+        if (Channels.length === 0) { return Host; }
+
+        const Strip = document.createElement("div");
+        Strip.className = "lp-strip";
+
+        const Rail = document.createElement("div");
+        Rail.className = "lp-rail";
+
+        const Prev = document.createElement("button");
+        Prev.className = "lp-arrow prev";
+        Prev.type = "button";
+        Prev.title = "Previous channels";
+        Prev.innerHTML = Icon("chevronLeft", 14);
+
+        const Next = document.createElement("button");
+        Next.className = "lp-arrow next";
+        Next.type = "button";
+        Next.title = "More channels";
+        Next.innerHTML = Icon("chevron", 14);
+
+        const Dots = document.createElement("div");
+        Dots.className = "lp-dots";
+
+        for (const Panel of Channels)
+        {
+            const Cell = document.createElement("div");
+            Cell.className = "lp-cell";
+            Cell.innerHTML = `<span class="lpc-tile"></span><span class="lpc-lb"></span>`;
+            Cell.querySelector(".lpc-lb").textContent = Panel.Label;
+            Cell.title = Panel.Label;
+
+            const Tile = Cell.querySelector(".lpc-tile");
+            this.Capture(Layer.Token, Panel.Key).then((Preview) => {
+                if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
+                if (!Tile.isConnected) { return; }
+                if (!Preview) { Cell.classList.add("lpc-empty"); return; }
+                Tile.style.backgroundImage = `url(${Preview.Image})`;
+            }).catch(() => {});
+
+            Rail.appendChild(Cell);
+        }
+
+        // 🔴 Paging is measured off the rail's ACTUAL scroll extent, not computed from a hard-coded tile
+        //    width times a count. The tiles are flex-sized against the card, so a fixed stride drifts out of
+        //    step the moment the panel scale changes — and the last page would either stop short of the end
+        //    or scroll past it, both of which strand a channel the user can never bring into view.
+        const PageCount = () => Math.max(1, Math.ceil(Rail.scrollWidth / Math.max(1, Rail.clientWidth)));
+
+        let Page = 0;
+
+        const Sync = () => {
+            const Pages   = PageCount();
+            const Maximum = Math.max(0, Rail.scrollWidth - Rail.clientWidth);
+            Page = Math.min(Page, Pages - 1);
+
+            Rail.scrollTo({ left: Math.min(Page * Rail.clientWidth, Maximum), behavior: "smooth" });
+
+            // Both arrows and the dots hide outright when everything already fits — a control that cannot
+            // do anything is worse than no control, because it invites a press that appears to fail.
+            const Paged = Pages > 1;
+            Strip.classList.toggle("lp-paged", Paged);
+            Prev.disabled = !Paged || Page === 0;
+            Next.disabled = !Paged || Page >= Pages - 1;
+
+            Dots.innerHTML = "";
+            if (Paged)
+            {
+                for (let Index = 0; Index < Pages; Index += 1)
+                {
+                    const Dot = document.createElement("span");
+                    Dot.className = "lp-dot" + (Index === Page ? " on" : "");
+                    Dots.appendChild(Dot);
+                }
+            }
+        };
+
+        Prev.onclick = (Event) => { Event.stopPropagation(); Page -= 1; Sync(); };
+        Next.onclick = (Event) => { Event.stopPropagation(); Page += 1; Sync(); };
+
+        Strip.appendChild(Prev);
+        Strip.appendChild(Rail);
+        Strip.appendChild(Next);
+        Host.appendChild(Strip);
+        Host.appendChild(Dots);
+
+        // 📝 Measured after layout. Called synchronously the element is still unattached, so scrollWidth and
+        //    clientWidth are both 0 and every channel would look like it fits on one page.
+        requestAnimationFrame(Sync);
+
+        // 🔴 Re-measured whenever the rail's own width changes, because paging is a function of BOTH the tile
+        //    count and the space available — and Sync() previously only ever ran from an arrow press. That is
+        //    unreachable in exactly the state that needs it: when the rail shrinks with the arrows still
+        //    hidden, there is no arrow to press, so the strip would keep claiming everything fits while
+        //    channels sat out of view. Harmless with today's four tiles in a fixed-size card; a real defect
+        //    the moment the channel set grows toward the ~14 planned, or the card is ever made resizable.
+        if (typeof ResizeObserver === "function")
+        {
+            const Watch = new ResizeObserver(() => {
+                // Disconnect once detached, or the observer outlives every pane rebuild and leaks one
+                // callback per Refresh() for the lifetime of the session.
+                if (!Rail.isConnected) { Watch.disconnect(); return; }
+                Sync();
+            });
+            Watch.observe(Rail);
+        }
+
+        return Host;
+    }
+
+    // Paint one element's background from a layer's REAL atlas content.
+    //
+    // 🔴 This is what replaced SwatchOf() in the row thumbnail, the hero and the identity chip. Those three
+    //    drew Layer.Values.baseColour — the AUTHORED value, one flat colour — which is a different thing
+    //    from what the layer actually holds. A layer covered in ten strokes of ten colours still showed one
+    //    solid square, so the preview agreed with the model while disagreeing with the paint.
+    //
+    // 📝 Fire-and-forget on purpose. Every caller builds its markup synchronously (Refresh() is sync and
+    //    LayerCommand calls it without awaiting), so the element is returned immediately and the image lands
+    //    when the readback resolves. `Fallback` is what shows until then, and stays if nothing was painted.
+    FillFromAtlas(Element, Layer, Key, Fallback)
+    {
+        // The same generation guard BuildChannelPreview uses: the pane is rebuilt on every Refresh(), so a
+        // slow readback must not paint itself into the element that replaced its own.
+        const Generation = this.PreviewGeneration ?? 0;
+
+        this.Capture(Layer.Token, Key ?? "baseColour").then((Preview) => {
+            if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
+            if (!Element.isConnected) { return; }
+            if (!Preview) { return; }
+
+            Element.style.backgroundImage    = `url(${Preview.Image})`;
+            // 🔴 Atlas content is pixel art at thumbnail size, so it is scaled with `pixelated` rather than
+            //    smoothed. Bilinear scaling of a sparse painted atlas blurs isolated strokes into the
+            //    transparent gutters and the thumbnail reads as empty.
+            Element.style.backgroundSize     = "cover";
+            Element.style.imageRendering     = "pixelated";
+            Element.classList.add("from-atlas");
+        }).catch(() => {});
+
+        if (Fallback) { Element.style.background = Fallback; }
+        return Element;
+    }
+
     BuildChannelPreview(Layer, Panel)
     {
         const Host = document.createElement("div");
@@ -1056,7 +1668,12 @@ export class LayerInspector
             }
 
             Tile.style.backgroundImage = `url(${Preview.Image})`;
-            Note.textContent = `${Preview.Extent}² from the ${Preview.Atlas} atlas`;
+            // 📝 Value mode is named as such rather than credited to the atlas. The tile is a flat authored
+            //    value at that point, so "from the Material atlas" would be describing storage the tile is
+            //    pointedly NOT showing — and the reassurance that the paint survives is the useful half.
+            Note.textContent = ((Layer.Modes?.[Panel.Key] ?? "Value") === "Value")
+                ? `Authored value. Any painted content is kept and returns on Texture.`
+                : `${Preview.Extent}² from the ${Preview.Atlas} atlas`;
         });
 
         return Host;
@@ -1110,9 +1727,80 @@ export class LayerInspector
 
     CloseLists()
     {
+        this.CloseAddMenu();
+        this.CloseMaskMenu();
         if (!this.OpenList) { return; }
         this.OpenList.classList.remove("open");
         this.OpenList = null;
+    }
+
+    //--------------------------------------------------------------------------------------------------
+    //                                        ADD MENU
+    //--------------------------------------------------------------------------------------------------
+
+    CloseAddMenu()
+    {
+        this.Part.AddBar.classList.remove("open");
+        this.AddOpen = false;
+    }
+
+    // The typed New Layer menu, ported from the reference's renderAddBar(): a header, one option per layer
+    // type carrying its tinted glyph tile / name / description, and a footer stating where the layer lands.
+    //
+    // 📝 Rebuilt on each open so the capacity guard reflects the live layer count.
+    RenderAddMenu()
+    {
+        const Menu = this.Part.AddMenu;
+        Menu.innerHTML = "";
+
+        const Room = this.Stack.Count < LayerCapacity;
+
+        const Head = document.createElement("div");
+        Head.className = "la-head";
+        Head.textContent = "New Layer";
+        Menu.appendChild(Head);
+
+        for (const Type of LAYER_TYPES)
+        {
+            const Option = document.createElement("div");
+            Option.className = "la-opt" + (Room ? "" : " disabled");
+            Option.setAttribute("role", "menuitem");
+            Option.dataset.type = Type.Label;
+            // The reference tints the glyph tile with the type's own hue at 22 alpha over its full-strength ink.
+            Option.innerHTML =
+                `<span class="la-ico" style="background:${Type.Tag}22;color:${Type.Tag}">` +
+                  `${Icon(Type.Glyph, 15)}</span>` +
+                `<span class="la-tx"><span class="la-nm"></span><span class="la-ds"></span></span>`;
+            Option.querySelector(".la-nm").textContent = Type.Label;
+            Option.querySelector(".la-ds").textContent = Type.Note;
+
+            if (Room)
+            {
+                Option.onclick = (Event) => {
+                    Event.stopPropagation();
+                    this.CloseAddMenu();
+                    // 📝 "New Paint" / "New Fill" / … is the reference's own naming for a fresh layer.
+                    this.Apply("add", {
+                        Name:      `New ${Type.Label}`,
+                        Kind:      Type.Kind,
+                        Tag:       Type.Tag,
+                        Preset:    Type.Preset    ?? null,
+                        Generator: Type.Generator ?? null
+                    });
+                };
+            }
+            else
+            {
+                Option.title = `Layer cap of ${LayerCapacity} reached.`;
+            }
+
+            Menu.appendChild(Option);
+        }
+
+        const Foot = document.createElement("div");
+        Foot.className = "la-foot";
+        Foot.innerHTML = `${Icon("layers", 12)}<span>Adds above the selected layer</span>`;
+        Menu.appendChild(Foot);
     }
 
     // 📝 The list is position:fixed and placed by script, so it escapes the scrolling pane rather than
@@ -1194,6 +1882,41 @@ function PropertyRow(Label, Field)
     Row.appendChild(Field);
     return Row;
 }
+
+// The reference's switchRow: label pushed left, switch pushed right, on one line.
+//
+// 📝 Not PropertyRow. PropertyRow is an 88px label column on a grid, which is right for a properties pane
+//    where a dozen rows have to line up; the expand has one switch and the reference puts it end-to-end.
+function SwitchRow(Label, On, OnFlip)
+{
+    const Row = document.createElement("div");
+    Row.className = "switch-row";
+    const Tag = document.createElement("span");
+    Tag.className = "sr-label";
+    Tag.textContent = Label;
+    Row.appendChild(Tag);
+    Row.appendChild(BuildSwitch(On, OnFlip));
+    return Row;
+}
+
+// The reference's ddCtl/sliderCtl shape: caption ABOVE its field rather than beside it.
+function Control(Label, Field)
+{
+    const Host = document.createElement("div");
+    Host.className = "ctl";
+    const Tag = document.createElement("div");
+    Tag.className = "ctl-label";
+    Tag.textContent = Label;
+    Host.appendChild(Tag);
+    Host.appendChild(Field);
+    return Host;
+}
+
+const Rule = () => {
+    const Line = document.createElement("div");
+    Line.className = "lse-sep";
+    return Line;
+};
 
 function BuildSwitch(On, OnFlip)
 {

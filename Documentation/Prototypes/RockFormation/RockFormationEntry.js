@@ -19,9 +19,10 @@ import { ComposeSeedTree }                        from "./Construction/SeedTree.
 import { ComposeDeviceHost, ProvisionDevice, AssemblePipeline,
          WriteViewProfile, InscribeSurface, ApplyResolveScale,
          SeedField, DriveErosion, RefreshSequence,
-         ApplyBakeTier, InscribeEntryPreview }    from "./Resolve/DeviceHost.js";
-import { ComposeTreeSurface, RebuildSurface, RedrawLinks,
-         FrameTree, EngageEntry }                 from "./Surface/TreeSurface.js";
+         ApplyBakeTier, InscribeEntryPreview,
+         SampleSurfaceRow }                       from "./Resolve/DeviceHost.js";
+import { AttachSurface, RebuildSurface, RedrawLinks,
+         FrameTree, EngageEntry }                 from "./Surface/SurfaceAttachment.js";
 import { ComposeCatalogue, RebuildCatalogue }     from "./Surface/Catalogue.js";
 import { ComposePanel }                           from "./Surface/PanelDials.js";
 import { PreviewEdge }                            from "./Simulation/VoxelField.js";
@@ -307,16 +308,51 @@ function TouchInteraction()
     DrawPending  = true;
 }
 
-const Surface = ComposeTreeSurface(document.getElementById("TreeCanvas"), TreeState, Notify);
-const Panel   = ComposePanel(document.getElementById("PanelRoot"), TreeState, ViewProfile,
-                             WeatherProfile, Notify);
-const Catalogue = ComposeCatalogue(document.getElementById("CatalogueRoot"), Surface, Identifier =>
+// 📝 The three mounts are resolved against EITHER shell. The grafted reference shell renamed every one
+//    of them, and the ids below are tried in new-then-old order:
+//
+//      graph    #PanSurface           <- #TreeCanvas
+//      dials    #ViewportSettingsPane <- #PanelRoot        (both hold #MarchHost)
+//      species  #CatalogueRoot        <- absent in the reference shell, which spawns by right-click
+//
+//    🔴 Resolved by id lookup rather than assumed, because a missing mount used to surface as a
+//       `querySelector of null` deep inside a surface module that never chose the id.
+function ResolveMount(...Identifiers)
 {
-    RebuildSurface(Surface);
-    EngageEntry(Surface, Identifier);
-    RebuildCatalogue(Catalogue);
-    Notify("topology");
-});
+    for (const Identifier of Identifiers)
+    {
+        const Found = document.getElementById(Identifier);
+        if (Found) return Found;
+    }
+    return null;
+}
+
+// 🔴 Top-level await, deliberately. AttachSurface must finish before anything below runs: it imports the
+//    ported EditorSurface.js, which binds its nine elements at module scope and runs its own boot tail on
+//    import. Everything after this line — Surface.OnPreview at 516, Surface.OnEngage at 524, the first
+//    Notify("topology") — reads a booted editor. This file is an ES module, so the await is legal and the
+//    alternative (wrapping 500 lines in an async function) would move every declaration for no gain.
+//
+//    📝 The mount is no longer passed: the editor finds its own elements by id from the reference shell.
+const Surface = await AttachSurface(TreeState, ViewProfile, Notify,
+                                    Divisor => ApplyResolveScale(Host, Divisor));
+const Panel   = ComposePanel(ResolveMount("ViewportSettingsPane", "PanelRoot"), TreeState, ViewProfile,
+                             WeatherProfile, Notify);
+
+// 🔴 The reference shell has no catalogue rail — species are spawned from a right-click menu instead, so
+//    this mount is legitimately absent rather than mis-named. Left null until CatalogueMenu.js is wired;
+//    every call below is guarded, because a hard mount here would put the whole boot back on the floor
+//    for a panel that is being replaced anyway.
+const CatalogueRoot = ResolveMount("CatalogueRoot");
+const Catalogue = CatalogueRoot
+    ? ComposeCatalogue(CatalogueRoot, Surface, Identifier =>
+      {
+          RebuildSurface(Surface);
+          EngageEntry(Surface, Identifier);
+          RebuildCatalogue(Catalogue);
+          Notify("topology");
+      })
+    : null;
 
 function Notify(Reason, Detail)
 {
@@ -325,7 +361,7 @@ function Notify(Reason, Detail)
         RecompilePending = true;
         DrawPending      = true;
         RestartPending   = true;
-        RebuildCatalogue(Catalogue);
+        if (Catalogue) RebuildCatalogue(Catalogue);
     }
     else if (Reason === "dial")
     {
@@ -358,7 +394,11 @@ function RefreshReadouts()
     document.getElementById("FootEntries").textContent = TreeState.Entries.size;
     document.getElementById("FootLinks").textContent   = TreeState.Links.length;
     document.getElementById("FootLines").textContent   = Host.LineTally;
-    document.getElementById("FootZoom").textContent    = `${Math.round(Surface.Zoom * 100)}%`;
+    // 🔴 `Surface` is a const initialized by a top-level await, and the ported editor can call Notify while
+    //    that await is still pending — reading it directly is a TDZ ReferenceError that would abort the whole
+    //    boot from inside a readout. typeof is the one form that tests a TDZ binding without throwing.
+    const Zoom = (typeof Surface === "undefined" || !Surface) ? 1 : Surface.Zoom;
+    document.getElementById("FootZoom").textContent    = `${Math.round(Zoom * 100)}%`;
     document.getElementById("FootState").textContent   =
         Host.LastError ? `🔴 ${Host.LastError.slice(0, 68)}` : "🟢 resolving";
     document.getElementById("StampTag").textContent =
@@ -725,6 +765,16 @@ async function Run()
     document.getElementById("BootPlate").classList.add("Away");
     RefreshReadouts();
     SchedulePreviews();                                             // paint the cards, one per frame
+
+    // 📝 A diagnostic handle, so a probe can assert on GEOMETRY rather than on readouts. Every readout on
+    //    this page can look healthy while the shape is wrong: an unresolved operand emits a valid constant,
+    //    so the arch simply is not carved and no counter moves.
+    globalThis.RockFormationProbe =
+    {
+        SampleRow  : Fraction => SampleSurfaceRow(Host, Fraction),
+        ReadTree   : () => TreeState,
+        ReadHost   : () => Host
+    };
 
     // 📝 Render ON DEMAND, not every rAF.
     //

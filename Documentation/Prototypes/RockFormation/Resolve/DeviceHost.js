@@ -367,7 +367,18 @@ async function ReportCompilation(Host, Module, Source, Naming)
 {
     const Diagnostics = await Module.getCompilationInfo();
     const Failures = Diagnostics.messages.filter(Message => Message.type === "error");
-    if (Failures.length === 0) return true;
+    // 📝 Keep the SUCCEEDING source reachable too, not just the failing one. A program that compiles can
+    //    still have dropped an entry the author wired -- an unresolved operand emits a valid constant, so
+    //    the arch simply is not carved and nothing anywhere reports it. This is the only handle a probe has
+    //    on "what did the transcriber actually emit".
+    //    🔴 KEYED BY NAME. This runs for march, seed AND erode; a single global would hold whichever
+    //       compiled last, so a probe asking about the march would silently be shown the erode source.
+    if (Failures.length === 0)
+    {
+        globalThis.RockFormationEmittedShader = globalThis.RockFormationEmittedShader || {};
+        globalThis.RockFormationEmittedShader[Naming] = Source;
+        return true;
+    }
 
     const First = Failures[0];
     Host.LastError = `WGSL ${Naming} ${First.lineNum}:${First.linePos} — ${First.message}`;
@@ -582,6 +593,74 @@ export function InscribeSurface(Host)
     Resolve.end();
 
     Host.Device.queue.submit([Encoder.finish()]);
+}
+
+// 📝 Render one frame into a texture WE own and read the pixels back. This exists because a swap-chain
+//    canvas cannot be sampled after the fact -- drawImage() on it outside the frame callback yields a
+//    uniformly blank image, which is indistinguishable from "the march drew nothing".
+//
+//    🔴 THIS IS A DIAGNOSTIC, NOT A RENDER PATH. It is the only way to assert on geometry: the readouts
+//       can all look healthy while the shape is wrong, because an unresolved operand emits a valid
+//       constant rather than an error. Returns one horizontal scanline's luminance.
+export async function SampleSurfaceRow(Host, Fraction)
+{
+    if (!Host.Ready || !Host.Pipeline) return null;
+
+    const Width  = Host.Canvas.width;
+    const Height = Host.Canvas.height;
+
+    const Target = Host.Device.createTexture({
+        size   : { width: Width, height: Height },
+        format : Host.Format,
+        usage  : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+    });
+
+    // 🔴 bytesPerRow must be a multiple of 256, so the readback is padded and the row stride is NOT
+    //    Width * 4. Indexing by Width * 4 reads progressively further into the wrong row.
+    const Stride  = Math.ceil(Width * 4 / 256) * 256;
+    const Readout = Host.Device.createBuffer({
+        size  : Stride * Height,
+        usage : GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    });
+
+    const Encoder = Host.Device.createCommandEncoder();
+    const Resolve = Encoder.beginRenderPass({
+        colorAttachments:
+        [{
+            view       : Target.createView(),
+            clearValue : { r: 0.02, g: 0.02, b: 0.024, a: 1.0 },
+            loadOp     : "clear",
+            storeOp    : "store"
+        }]
+    });
+    Resolve.setPipeline(Host.Pipeline);
+    Resolve.setBindGroup(0, Host.Binding);
+    Resolve.setBindGroup(1, MarchBinding(Host.Field));
+    Resolve.draw(6);
+    Resolve.end();
+
+    Encoder.copyTextureToBuffer({ texture: Target },
+                                { buffer: Readout, bytesPerRow: Stride },
+                                { width: Width, height: Height });
+    Host.Device.queue.submit([Encoder.finish()]);
+
+    await Readout.mapAsync(GPUMapMode.READ);
+    const Pixels = new Uint8Array(Readout.getMappedRange()).slice();
+    Readout.unmap();
+    Readout.destroy();
+    Target.destroy();
+
+    const Row       = Math.floor(Height * Fraction);
+    const Base      = Row * Stride;
+    const Luminance = [];
+    for (let Column = 0; Column < Width; Column++)
+    {
+        const Offset = Base + Column * 4;
+        // 📝 The preferred canvas format is bgra8unorm on Windows, so B and R are swapped here.
+        const Blue = Pixels[Offset], Green = Pixels[Offset + 1], Red = Pixels[Offset + 2];
+        Luminance.push(0.2126 * Red + 0.7152 * Green + 0.0722 * Blue);
+    }
+    return { Width, Height, Row, Luminance };
 }
 
 //------------------------------------------------------------------------------------------------------------------------

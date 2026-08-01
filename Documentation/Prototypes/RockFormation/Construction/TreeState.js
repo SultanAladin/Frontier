@@ -14,14 +14,70 @@ import { MayConnect } from "./PortCategories.js";
 
 export const SlotCeiling = 48;                                      // [idx] - uniform array length
 
+// 📝 Port tokens are opaque and unique for the life of an entry. They are NOT the intake naming and NOT
+//    the slot — a token identifies one socket on one entry so the editor can drag to it, while the
+//    intake naming is what Transcribe() reads its operands by.
+//
+//    🔴 A token must never reach ComposeTopologyStamp. Tokens come from a monotonic counter, so a
+//       delete-then-re-add of an identical subtree issues fresh tokens and would look like a topology
+//       change — forcing a recompile of a shader that did not change. Stamp the intake naming instead.
+let PortCounter = 1;
+
+export function IssuePortToken() { return `port_${PortCounter++}`; }
+
 export function ComposeTreeState()
 {
     return {
         Entries      : new Map(),                                   // Identifier -> entry
-        Links        : [],                                          // { SourceEntry, TargetEntry, TargetIntake }
+        Links        : [],                                          // see ComposeLink for the record shape
         NextIdentifier : 1,
         Revision     : 0                                            // bumped on any structural change
     };
+}
+
+// 📝 Ports are derived from the species, never authored. InboundPorts is a pure function of
+//    Specification.Intakes, which is what makes the port form and the intake form interchangeable.
+function ComposeInboundPorts(Specification)
+{
+    return Specification.Intakes.map(Intake => ({
+        Token          : IssuePortToken(),
+        Label          : Intake.Naming,                             // what the card shows
+        IntakeNaming   : Intake.Naming,                             // 🔴 what Transcribe() resolves by
+        Classification : Intake.Category,
+        Optional       : Intake.Optional === true
+    }));
+}
+
+// 📝 Resolve is the only species with no yield, so it is the only one with no outbound port.
+function ComposeOutboundPorts(Specification)
+{
+    if (!Specification.Yields) return [];
+    return [{
+        Token          : IssuePortToken(),
+        Label          : "out",
+        Classification : Specification.Yields
+    }];
+}
+
+export function ResolveInboundPortToken(Entry, IntakeNaming)
+{
+    if (!Entry) return null;
+    const Port = Entry.InboundPorts.find(Candidate => Candidate.IntakeNaming === IntakeNaming);
+    return Port ? Port.Token : null;
+}
+
+export function ResolveInboundPort(Entry, PortToken)
+{
+    if (!Entry) return null;
+    return Entry.InboundPorts.find(Candidate => Candidate.Token === PortToken) || null;
+}
+
+export function ResolvePort(Entry, PortToken)
+{
+    if (!Entry) return null;
+    return Entry.InboundPorts.find(Candidate => Candidate.Token === PortToken)
+        || Entry.OutboundPorts.find(Candidate => Candidate.Token === PortToken)
+        || null;
 }
 
 // 📝 Dials are stored as a flat array in DIAL ORDER, matching the xyzw packing the shader expects.
@@ -48,7 +104,14 @@ export function InsertEntry(TreeState, Species, Position)
         Position : { x: Position.x, y: Position.y },
         Dials    : Specification.Dials.map(Dial => Dial[4]),
         Bypassed : false,
-        Slot     : 0
+        Slot     : 0,
+
+        // 🔴 Ports are built HERE, at insert, not lazily on first draw. The editor drags to a port token,
+        //    so an entry that exists without ports is an entry nothing can be connected to — and because
+        //    the transcriber resolves by intake naming instead, the tree still renders, so the only
+        //    symptom is that the new card silently refuses every link.
+        InboundPorts  : ComposeInboundPorts(Specification),
+        OutboundPorts : ComposeOutboundPorts(Specification)
     };
 
     TreeState.Entries.set(Identifier, Entry);

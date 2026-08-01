@@ -3,6 +3,8 @@
 //========================================================================================================================
 
 
+import { HullExpressionSource } from "./HullExpression.js";
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                              DISTANCE EXPRESSION LIBRARY
 //------------------------------------------------------------------------------------------------------------------------
@@ -17,13 +19,7 @@
 //      - Smooth-min, non-uniform scale, and additive displacement all BREAK the Euclidean metric.
 //      - Adding a displacement of amplitude A to the field raises the Lipschitz constant, so the
 //        sphere trace must shorten each step. The march multiplies by StepScale for exactly this.
-//    📝 The hull body lives in HullExpression.js and is appended at the bottom of this file, so every
-//       consumer of the preamble gets it without threading a second string through six call sites. It is a
-//       separate FILE because it is a separate provenance — a port of a specific published addon, with its
-//       own verification notes — not because it is a separate compilation unit.
-import { HullExpressionSource } from "./HullExpression.js";
-
-const DistanceExpressionBody = /* wgsl */`
+export const DistanceExpressionBody = /* wgsl */`
 
 const Tau : f32 = 6.28318530718;
 
@@ -44,9 +40,7 @@ struct ViewProfile
     SlopeWeight   : f32,
     ResolveMode   : f32,
     ShadowWeight  : f32,
-    Exposure      : f32,
-    SceneRadius   : f32,
-    PreviewMode   : f32
+    Exposure      : f32
 };
 
 //------------------------------------------------------------- noise basis
@@ -326,24 +320,74 @@ fn ApplyLateralRepeat(Probe : vec3f, Dials : vec4f) -> vec3f
     return Folded;
 }
 
-//------------------------------------------------------------- carvers
+//------------------------------------------------------------- rock masses
 
-// 📝 A swept horizontal capsule — the arch carver, subtracted from a block.
-//
-//    🔴 This is the ONLY compound shape left. M1 had five (boulder, mesa, hoodoo, fin, aperture), each an
-//       analytic guess at a weathered landform, and they were the design error: a landform is the OUTPUT
-//       of erosion, so building it as a primitive means the erosion never happens and the surface between
-//       features stays untouched. That is the flat wall in the screenshot.
-//
-//    📝 This one survives because it is not a landform. It is a hole — the initial perforation a stream
-//       or a spall makes through a fin, which the weather then widens into an arch. The formation
-//       sequence is real: joints open fins, something punches through, weathering does the rest.
-//
-//    ⚠️ Note what it does NOT do any more: M1's version biased the aperture by the resistance field, so
-//       the hole was pre-placed in soft rock. It no longer needs to — differential erosion now finds the
-//       soft rock by itself, over time, which is the entire point.
-//    Dials: x = Radius, y = Span, z = Elevation, w = Bearing
-fn EvaluateSweptTunnel(Probe : vec3f, Dials : vec4f) -> f32
+// 📝 Angular boulder — a sphere intersected with a set of half-spaces, smoothly. This is the
+//    joint-controlled blocky boulder of Joshua Tree: three orthogonal joint sets cut rectangular
+//    blocks, then subsurface weathering rounds the corners (the Arris term).
+//    Dials: x = Radius, y = FaceCount, z = FaceBias, w = Rounding
+fn EvaluateAngularBoulder(Probe : vec3f, Dials : vec4f) -> f32
+{
+    var Field = DistanceToSphere(Probe, Dials.x);
+
+    let FaceCount = i32(clamp(Dials.y, 0.0, 14.0));
+    for (var Face : i32 = 0; Face < FaceCount; Face = Face + 1)
+    {
+        // ① A deterministic direction per cut face, spread over the sphere.
+        let Seed   = HashToVector(vec3f(f32(Face) * 3.7, 1.9, 4.3)) * 2.0 - vec3f(1.0);
+        let Normal = normalize(Seed + vec3f(1e-4));
+        let Reach  = Dials.x * mix(1.0, 0.42, Dials.z)
+                   * (0.7 + 0.3 * HashToUnit(vec3f(f32(Face), 2.0, 6.0)));
+        Field = SmoothMaximum(Field, dot(Probe, Normal) - Reach, Dials.w);
+    }
+    return Field;
+}
+
+// 📝 Battered mesa — caprock over a slope, the batter angle standing in for the talus apron.
+//    Ward & Anderson: a strong caprock plus vertical fractures keeps the scarp near-vertical while it
+//    retreats, which is why the batter is small by default.
+//    Dials: x = Radius, y = Height, z = Batter, w = Rounding
+fn EvaluateBatteredMesa(Probe : vec3f, Dials : vec4f) -> f32
+{
+    let Rise       = max(Dials.y, 0.05);
+    let Elevation  = clamp((Probe.y + Rise) / (2.0 * Rise), 0.0, 1.0);
+    let PlanRadius = Dials.x * (1.0 + Dials.z * (1.0 - Elevation));
+
+    let Radial  = length(vec2f(Probe.x, Probe.z)) - PlanRadius;
+    let Cap     = abs(Probe.y) - Rise;
+    let Outward = vec2f(max(Radial, 0.0), max(Cap, 0.0));
+    return length(Outward) + min(max(Radial, Cap), 0.0) - Dials.w;
+}
+
+// 📝 Hoodoo column. The radius profile r(y) is MODULATED BY THE RESISTANCE FIELD — that is the actual
+//    mechanism (differential recession of alternating-resistance beds), not a cosmetic wobble.
+//    Bryce heights are measured (under 12 m to over 61 m). ⚠️ Waist and CapFlare have no published
+//    measurement anywhere found, so those two defaults are my own tuning, not sourced values.
+//    Dials: x = Height, y = Waist, z = CapFlare, w = Lean
+fn EvaluateHoodooColumn(Probe : vec3f, Resistance : f32, Dials : vec4f) -> f32
+{
+    let Rise = max(Dials.x, 0.1);
+
+    // ① Lean the column off vertical, so a field of them does not read as a picket fence.
+    let Elevation = clamp((Probe.y + Rise * 0.5) / Rise, 0.0, 1.0);
+    let Leaned    = vec3f(Probe.x + Dials.w * Elevation * Elevation,
+                          Probe.y,
+                          Probe.z + Dials.w * 0.4 * Elevation);
+
+    // ② Resistant beds stand proud, weak beds recede. This is the whole silhouette.
+    let Profile = Dials.y * (0.55 + 0.45 * clamp(Resistance, 0.0, 1.0) * (1.0 + Dials.z));
+
+    let Radial  = length(vec2f(Leaned.x, Leaned.z)) - Profile;
+    let Cap     = abs(Leaned.y) - Rise * 0.5;
+    let Outward = vec2f(max(Radial, 0.0), max(Cap, 0.0));
+    return length(Outward) + min(max(Radial, Cap), 0.0) - 0.04;
+}
+
+// 📝 Fin wall. Arches NP: salt-anticline flexure opens closely spaced parallel vertical joints, the
+//    joints widen into fins, and only then does a fin get perforated into an arch. So the fin is a
+//    primitive here and the arch is a CARVE applied to it — matching the real formation sequence.
+//    Dials: x = Length, y = Thickness, z = Height, w = Bearing
+fn EvaluateFinWall(Probe : vec3f, Dials : vec4f) -> f32
 {
     let Cosine = cos(Dials.w);
     let Sine   = sin(Dials.w);
@@ -351,9 +395,69 @@ fn EvaluateSweptTunnel(Probe : vec3f, Dials : vec4f) -> f32
                        Probe.y,
                        Probe.x * Sine   + Probe.z * Cosine);
 
+    // ① Taper toward the ends and the crest, which is how a weathering fin actually stands.
+    let Along = clamp(abs(Turned.x) / max(Dials.x, 0.1), 0.0, 1.0);
+    let Taper = 1.0 - Along * Along * 0.55;
+    let Crest = 1.0 - clamp((Turned.y + Dials.z * 0.5) / max(Dials.z, 0.1), 0.0, 1.0) * 0.3;
+
+    let HalfExtent = vec3f(Dials.x, Dials.z * 0.5, Dials.y * 0.5 * Taper * Crest);
+    return DistanceToRoundedBox(Turned, HalfExtent, 0.06);
+}
+
+//------------------------------------------------------------- aperture
+
+// 📝 The arch carver. A horizontal capsule, positioned by Elevation and sized by Aperture/Span, then
+//    biased toward WEAK rock by the resistance field. Paris 2019's sea arches work exactly this way:
+//    a negative-energy stratum marks soft rock and successive erosion passes carve it preferentially.
+//    Landscape Arch measures 93 m span over a 1.8-6 m ligament, hence the aperture-to-ligament ratio.
+//    Dials: x = Aperture, y = Span, z = Elevation, w = Softness
+fn EvaluateApertureCapsule(Probe : vec3f, Resistance : f32, Dials : vec4f) -> f32
+{
+    // ① Soft rock carves more: the aperture opens where resistance is low.
+    let Softness = 1.0 - clamp(Resistance, 0.0, 1.0);
+    let Aperture = Dials.x * (0.55 + 0.75 * Softness);
+
     let Head = vec3f(-Dials.y * 0.5, Dials.z, 0.0);
     let Tail = vec3f( Dials.y * 0.5, Dials.z, 0.0);
-    return DistanceToCapsule(Turned, Head, Tail, max(Dials.x, 0.02));
+    return DistanceToCapsule(Probe, Head, Tail, Aperture);
+}
+
+// 📝 TunnelMass's carver. The same swept capsule as EvaluateApertureCapsule, with one difference: this one
+//    is AUTHORED rather than resistance-driven, so dial w is a plan-view BEARING instead of a softness.
+//    Subtract it from a block and what remains is an arch -- a span above, legs either side.
+//    Dials: x = Radius, y = Span, z = Elevation, w = Bearing [rad]
+//
+//    🔴 ROTATE THE PROBE, NOT THE ENDPOINTS. Turning the sample point by -Bearing and leaving the capsule
+//       on the X axis keeps the whole function a rigid motion, which preserves the Euclidean metric and so
+//       stays an EXACT distance. Rotating Head/Tail instead is algebraically the same surface, but invites
+//       the scaled-axis "fix" that quietly turns this into a non-metric bound and shortens every march step.
+fn EvaluateSweptTunnel(Probe : vec3f, Dials : vec4f) -> f32
+{
+    // ① Inverse plan rotation about Y. The capsule stays axis-aligned in the turned frame.
+    let Turn    = -Dials.w;
+    let Cosine  = cos(Turn);
+    let Sine    = sin(Turn);
+    let Turned  = vec3f(Probe.x * Cosine - Probe.z * Sine,
+                        Probe.y,
+                        Probe.x * Sine   + Probe.z * Cosine);
+
+    // ② Span is the full opening, so each endpoint sits half a span out. Elevation lifts the bore.
+    let Head = vec3f(-Dials.y * 0.5, Dials.z, 0.0);
+    let Tail = vec3f( Dials.y * 0.5, Dials.z, 0.0);
+    return DistanceToCapsule(Turned, Head, Tail, Dials.x);
+}
+
+// 📝 Resistance-driven surface recession. Paris 2019's erosion OPERATOR, verbatim in form:
+//        f_E(p) = f(p) - alpha_D * (1 - psi(p))       psi = resistance
+//    This is the cheapest, highest-value erosion cue and the reason differential hardness ranked
+//    first in the research: it costs one field evaluation and no iteration.
+//    Dials: x = Depth, y = Threshold, z = Sharpness, w = Undercut
+fn ApplyResistanceCarve(Mass : f32, Resistance : f32, Dials : vec4f) -> f32
+{
+    let Clamped  = clamp(Resistance, 0.0, 1.0);
+    let Margin   = 1.0 / max(Dials.z, 0.2);
+    let Weakness = 1.0 - smoothstep(Dials.y - Margin, Dials.y + Margin, Clamped);
+    return Mass + Dials.x * Weakness * (1.0 + Dials.w);
 }
 
 //------------------------------------------------------------- tint
@@ -405,8 +509,24 @@ fn EvaluateStratumTint(Probe : vec3f, Resistance : f32, Dials : vec4f) -> vec3f
 }
 `;
 
-// 🔴 Hull source AFTER the body, not before. WGSL requires a function to be declared before it is called,
-//    and the hull calls HashToUnit, HashToVector, EvaluateValueNoise, EvaluateFractalNoise and
-//    SmoothMaximum — all defined in the body above. Prepending it instead fails to compile with an
-//    "unresolved identifier" naming the noise helper, which points at the wrong file entirely.
+//------------------------------------------------------------------------------------------------------------------------
+//                                                THE ASSEMBLED PREAMBLE
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Every program -- march, seed, erode, preview -- is concatenated from THIS constant, so the library is
+//    assembled in exactly one place. The hull functions live in their own file because they are a faithful
+//    port of one external algorithm and are long enough to bury the rest of the library; they are not a
+//    separate stage, and no consumer should have to know they arrived from somewhere else.
+//
+//    🔴 ORDER IS LOAD-BEARING, AND WGSL WILL NOT WARN YOU. HullExpression's DistanceToPlaneHull calls
+//       HashToUnit and SmoothMaximum, both declared in the body above -- WGSL resolves top to bottom, so the
+//       hull source must come SECOND. Reversing these two yields "unresolved call target 'SmoothMaximum'",
+//       which reads as a missing helper rather than as a swapped concatenation.
+//
+//    🔴 CONCATENATE HERE, NOT AT THE FOUR CALL SITES IN DeviceHost.js. Splicing the hull source into each
+//       createShaderModule separately is what put this defect in: HullExpressionSource was exported and
+//       complete, ConstructionSpecifications.js emitted calls to it, and NO module ever imported it -- so
+//       every program compiled without the definitions and failed at "unresolved call target
+//       'DistanceToPlaneHull'". A fifth assembly site added later would silently regress the same way.
+//       One constant means a site cannot forget a part of the library it never had to name.
 export const DistanceExpressionPreamble = DistanceExpressionBody + HullExpressionSource;

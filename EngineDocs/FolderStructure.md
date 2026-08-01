@@ -375,7 +375,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 ├── Documentation/                                 // per "Where to Save Documents"
 │   ├── Explainers/  Mockups/  Research/  Skills/  Assets/
 │   └── Prototypes/                                // single-file .html prototypes, plus:
-│       └── RockFormation/                         // node-based 3D rock/erosion editor (WebGPU, voxel)
+│       ├── RockFormation/                         // node-based 3D rock/erosion editor (WebGPU, voxel)
 │           │                                      //   RockFormationConstructionTree.html  (chrome + boot)
 │           │                                      //   RockFormationEntry.js               (device, loop)
 │           │                                      //   RockFormationNotes.md  (working notes:
@@ -401,7 +401,37 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │           │                                      //   SphereTrace.js  (analytic; CARD PREVIEWS only —
 │           │                                      //                    the viewport marches the grid)
 │           └── Surface/                           // authoring interface (DOM cards, SVG links)
-│                                                  //   TreeSurface.js  Catalogue.js  PanelDials.js
+│               │                                  //   TreeSurface.js  Catalogue.js  PanelDials.js
+│               │                                  //   EditorSurface.js (NodeFlowEditor port, MID-PORT:
+│               │                                  //                    self-initializes, 0 exports yet)
+│               ├── Graph/                          // tree adapter + link geometry for the ported editor
+│               │                                  //   EditorStore.js (adapter over TreeState — there is
+│               │                                  //                  ONE copy of the tree, not two)
+│               │                                  //   LinkRouting.js  SpeciesPresentation.js
+│               └── Presentation/                   // card rasterization + menus + glyph paths
+│                                                  //   EntryRasterization.js  CatalogueMenu.js
+│                                                  //   GlyphOutlines.js
+│       │
+│       └── NodeFlowEditor/                        // node graph + terrain preview editor (Three.js)
+│           │                                      //   NodeFlowEditor.html       (chrome + all CSS)
+│           │                                      //   EditorEntry.js            (assembly: pan/zoom
+│           │                                      //                     glide, drag, linking, chrome)
+│           │                                      //   LaunchNodeFlowEditor.bat  (http serve; ES
+│           │                                      //                     modules cannot load file://)
+│           ├── Graph/                             // the record model + wire geometry
+│           │                                      //   GraphStore.js   (entries, links, admissibility)
+│           │                                      //   CatalogueSpecifications.js (7-category roster,
+│           │                                      //                     port classes, label overrides)
+│           │                                      //   LinkRouting.js  (orthogonal filleted paths)
+│           ├── Presentation/                      // DOM composition of the graph
+│           │                                      //   EntryRasterization.js (both node forms)
+│           │                                      //   CatalogueMenu.js (searchable spawn menu,
+│           │                                      //                     link-context filtered)
+│           │                                      //   GlyphOutlines.js (transcribed icon paths)
+│           └── Terrain/                           // the 3D preview
+│                                                  //   TerrainViewport.js (sky/sun model, shading
+│                                                  //                     modes, env probe, shadows)
+│                                                  //   SimplexField.js  (seeded 2D simplex noise)
 │
 ├── EngineDocs/                                     // plans + running docs
 │   ├── FolderStructure.md   (+ PARSE:FOLDER-INDEX block)   Backlog.md   ImportantNotes.md   Phase.md

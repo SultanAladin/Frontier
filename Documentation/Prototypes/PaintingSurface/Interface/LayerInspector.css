@@ -78,12 +78,76 @@
 .hdr-btn svg{ width:15px; height:15px; }
 
 /*----------------------------------------------------------------------------------------------------------------------
+                                                    ADD LAYER BAR
+----------------------------------------------------------------------------------------------------------------------*/
+/* Ported from Studio-standalone.html (.ls-addbar / .ls-addmain / .ls-addmenu / .la-*).
+ *
+ * 🔴 A SEPARATE element from the stack, not a control inside the stack's head. The reference draws its own
+ *    bordered band above the tree, and that separation is the point: the bar is the one thing in the pane
+ *    that does not describe an existing layer, so it must not read as a row of the list it grows. Folding it
+ *    into the pane head was the divergence being corrected here. */
+.ls-addbar{ position:relative; flex:0 0 auto; padding:8px; border-bottom:1px solid var(--hair); }
+.ls-addmain{
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  width:100%; height:34px; border-radius:999px;
+  background:var(--tile); border:1px solid var(--hair); color:var(--ink);
+  font:inherit; font-size:12px; font-weight:500; cursor:pointer;
+  transition:background .14s cubic-bezier(.4,0,.2,1), border-color .14s cubic-bezier(.4,0,.2,1);
+}
+.ls-addmain:hover{ background:var(--row-hover); border-color:var(--muted); }
+.ls-addmain:active{ transform:scale(.98); }
+.ls-addmain svg{ width:14px; height:14px; }
+.ls-addmain .la-chev{
+  display:grid; place-items:center; color:var(--faint); margin-left:1px;
+  transition:transform .18s cubic-bezier(.4,0,.2,1);
+}
+.ls-addmain .la-chev svg{ width:13px; height:13px; }
+.ls-addbar.open .ls-addmain .la-chev{ transform:rotate(180deg); }
+
+/* 🔴 position:absolute and z-index above the stack, exactly as the reference has it. The menu is taller than
+      the bar, so laying it out in flow would push the whole stack down on every open. */
+.ls-addmenu{
+  position:absolute; top:calc(100% - 2px); left:8px; right:8px; z-index:90;
+  background:var(--menu); border:1px solid var(--hair-strong); border-radius:14px;
+  box-shadow:0 18px 46px rgba(0,0,0,.6); overflow:hidden;
+  display:none; flex-direction:column;
+}
+.ls-addbar.open .ls-addmenu{ display:flex; }
+.la-head{
+  padding:10px 13px; border-bottom:1px solid var(--hair); font-size:9px;
+  text-transform:uppercase; letter-spacing:.8px; color:var(--faint); font-weight:700;
+}
+.la-opt{
+  display:flex; align-items:center; gap:11px; padding:9px 12px;
+  cursor:pointer; text-align:left; transition:background .12s;
+}
+.la-opt:hover{ background:var(--row-hover); }
+.la-opt.disabled{ opacity:.34; cursor:default; }
+.la-opt.disabled:hover{ background:none; }
+.la-opt .la-ico{
+  width:30px; height:30px; border-radius:9px; flex:0 0 auto;
+  display:grid; place-items:center;
+}
+.la-opt .la-ico svg{ width:15px; height:15px; }
+.la-opt .la-tx{ flex:1; min-width:0; }
+.la-opt .la-nm{ display:block; font-size:12.5px; font-weight:600; color:var(--ink); }
+.la-opt .la-ds{
+  display:block; font-size:10.5px; color:var(--faint);
+  margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.la-foot{
+  padding:8px 13px; border-top:1px solid var(--hair); font-size:10.5px;
+  color:var(--faint); display:flex; align-items:center; gap:6px;
+}
+.la-foot svg{ width:12px; height:12px; flex:0 0 auto; }
+
+/*----------------------------------------------------------------------------------------------------------------------
                                                    SEARCH STRIP
 ----------------------------------------------------------------------------------------------------------------------*/
 .search-wrap{ flex:0 0 auto; padding:7px 7px 4px; }
 .search{
-  display:flex; align-items:center; gap:7px; height:30px; padding:0 9px;
-  background:var(--menu-2); border:1px solid var(--hair); border-radius:9px;
+  display:flex; align-items:center; gap:7px; height:30px; padding:0 11px;
+  background:var(--menu-2); border:1px solid var(--hair); border-radius:999px;
   transition:border-color .12s;
 }
 .search:focus-within{ border-color:var(--outline); }
@@ -103,27 +167,53 @@
   flex:1; min-height:0; overflow-y:auto;
   padding:4px 6px 8px; display:flex; flex-direction:column; gap:2px;
 }
+/* Ported from Studio-standalone's .ls-row, trimmed 52px → 44px for the summoned card's 372px height.
+ *
+ * 🔴 The ROW BOX is the one square thing in an otherwise rounded panel, and only here in the stack. Its
+ *    hover and selection fills span the full band edge to edge: the rows are a dense vertical list, so a
+ *    rounded fill leaves four lit corner gaps against its neighbours and a run of selected rows reads as
+ *    separate pills rather than one contiguous span. Everything the row CONTAINS keeps the reference's
+ *    radii — the twisty, tag, thumbnail, mask chip and opacity pill are objects, not bands. */
 .stack-row{
-  position:relative; display:flex; align-items:center; gap:7px;
-  height:44px; padding:0 7px 0 5px; border-radius:10px;
+  position:relative; display:flex; align-items:center; gap:8px;
+  height:44px; padding:0 8px 0 4px; border-radius:0;
   color:var(--muted); cursor:pointer; border:1px solid transparent;
-  transition:background .12s, border-color .12s, opacity .12s;
+  transition:background .13s cubic-bezier(.4,0,.2,1), border-color .13s cubic-bezier(.4,0,.2,1),
+             opacity .12s;
 }
 .stack-row:hover{ background:var(--row-hover); }
 .stack-row.active{ background:var(--row-sel); border-color:var(--hair-strong); }
 .stack-row.active::before{
   content:""; position:absolute; left:-6px; top:50%; transform:translateY(-50%);
-  width:3px; height:18px; border-radius:0 3px 3px 0; background:var(--accent);
+  width:3px; height:18px; border-radius:0; background:var(--accent);
 }
-.stack-row.dragging{ opacity:.45; }
+.stack-row.dragging{ opacity:.5; background:var(--row-sel); border-color:var(--hair-strong); cursor:grabbing; }
+/* An expanded row and its editor are ONE card.
+ *
+ * 🔴 Joined in CSS, not by nesting the editor inside the row. They stay DOM siblings because the row owns a
+ *    hover fill, a click-to-toggle handler and a pointerdown drag-reorder: nested, the row's fill would
+ *    paint the whole editor, every press on a slider would bubble as a press on the row, and dragging a
+ *    mask control would restack the layer. The seam is closed instead by dropping the two facing radii and
+ *    the row's bottom border, and by removing the 2px flex gap under an expanded row. */
+.stack-row.expanded{
+  background:var(--row-sel); border-color:var(--hair-strong); border-bottom-color:transparent;
+  border-radius:0; margin-bottom:-2px;
+}
 .stack-row.layer-muted .sr-name,
 .stack-row.layer-muted .sr-thumb,
 .stack-row.layer-muted .sr-meta{ opacity:.4; }
-/* the 4px hue tag — colour is the layer's classification, same hue as everywhere else */
+/* the disclosure twisty: open points down, closed points right */
+.sr-twisty{
+  width:16px; height:16px; flex:0 0 auto; display:grid; place-items:center;
+  color:var(--muted); transition:transform .16s cubic-bezier(.4,0,.2,1);
+}
+.sr-twisty svg{ width:13px; height:13px; }
+.sr-twisty.closed{ transform:rotate(-90deg); }
+/* the 4px hue tag — the layer's own tag colour when set, otherwise its kind tint */
 .sr-tag{ width:4px; height:28px; border-radius:999px; flex:0 0 auto; }
 .sr-thumb{
   width:30px; height:30px; flex:0 0 auto; position:relative; overflow:hidden;
-  border-radius:8px; border:1px solid var(--hair); background:#000;
+  border-radius:9px; border:1px solid var(--hair); background:#000;
   display:grid; place-items:center;
 }
 .sr-thumb svg{ width:15px; height:15px; }
@@ -141,22 +231,23 @@
   font-size:9px; text-transform:uppercase; letter-spacing:.7px; color:var(--faint);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-/* the mask chip: a greyscale gradient reading fill + invert, straight from Studio */
+/* the mask chip on the row: a greyscale gradient reading fill + invert, straight from Studio's .ls-mask */
 .sr-mask{
-  width:19px; height:19px; flex:0 0 auto; border-radius:5px;
-  border:1px solid var(--hair); background:#000;
+  width:19px; height:19px; flex:0 0 auto; border-radius:6px; position:relative;
+  border:1px solid var(--hair); background:#000; cursor:pointer; overflow:hidden;
 }
+.sr-mask.active{ border-color:var(--muted); }
 .sr-opacity{
   flex:0 0 auto; min-width:37px; text-align:center; padding:3px 6px;
   font-size:9.5px; font-weight:600; color:var(--muted);
   background:#000; border:1px solid var(--hair); border-radius:999px;
-  font-variant-numeric:tabular-nums; cursor:ew-resize;
+  font-variant-numeric:tabular-nums; cursor:ew-resize; user-select:none;
   transition:border-color .14s, color .14s;
 }
 .sr-opacity:hover{ border-color:var(--outline); color:var(--ink); }
 .sr-visibility{
   width:20px; height:20px; flex:0 0 auto; display:grid; place-items:center;
-  opacity:0; color:var(--faint); border-radius:5px;
+  opacity:0; color:var(--faint); border-radius:50%;
   transition:opacity .12s, color .12s, background .12s;
 }
 .stack-row:hover .sr-visibility{ opacity:1; }
@@ -165,9 +256,145 @@
 .stack-row.layer-muted .sr-visibility{ opacity:1; }
 /* drop indicator for drag-reorder */
 .drop-line{
-  height:2px; margin:1px 8px; border-radius:2px; flex:0 0 auto;
+  height:2px; margin:2px 6px; border-radius:2px; flex:0 0 auto;
   background:var(--accent); box-shadow:0 0 8px var(--accent); pointer-events:none;
 }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     LAYER MASK
+----------------------------------------------------------------------------------------------------------------------*/
+/* Ported from Studio-standalone's mask block (.msk-*). The mask editor lives in the row's inline expand,
+ * beneath the layer it belongs to, so a mask is never shown detached from its owner. */
+/* 📝 Square at the TOP so it meets the row flush, rounded at the bottom so the joined card still closes
+      off as one object. Its border matches the row's selection border, not the lighter hairline, or the
+      seam reappears as a change of border colour halfway down the card. */
+.ls-expand{
+  margin:0 0 8px; padding:2px 12px 12px;
+  background:var(--menu-2);
+  border:1px solid var(--hair-strong); border-top:0;
+  border-radius:0 0 12px 12px;
+  animation:lsExpand .2s cubic-bezier(.4,0,.2,1);
+}
+@keyframes lsExpand{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:none; } }
+.lse-title{
+  font-size:9px; text-transform:uppercase; letter-spacing:.8px; color:var(--faint);
+  font-weight:700; margin:4px 0 8px; display:flex; align-items:center; gap:6px;
+}
+.lse-title svg{ width:12px; height:12px; color:var(--muted); }
+.lse-sep{ height:1px; background:var(--hair); margin:9px 0; }
+
+/* The four per-layer settings the expand owns: Visible, Blend, Opacity, Resolution.
+ * Ported from the reference's .lse-grp / .switch-row / .ctl. */
+.ls-expand .lse-grp{ display:flex; flex-direction:column; gap:2px; }
+.switch-row{ display:flex; align-items:center; justify-content:space-between; margin:12px 0; }
+.switch-row .sr-label{ font-size:12.5px; color:var(--ink); }
+.ls-expand .switch-row{ margin:7px 0; }
+/* 📝 Caption ABOVE its field, unlike .prow's label column. The expand is a narrow card under a row, so an
+      88px label gutter would leave a dropdown about 60px wide. */
+.ctl{ margin:11px 0; }
+.ctl-label{
+  font-size:12px; color:var(--ink); display:flex; align-items:center;
+  justify-content:space-between; margin-bottom:7px;
+}
+.ls-expand .ctl{ margin:9px 0; }
+
+.msk-row{ display:flex; align-items:center; gap:10px; margin:8px 0; }
+/* 🔴 The checker sits UNDER the gradient, not beside it. A mask is a coverage field, so the preview has to
+      show what it does not cover; a flat black tile is indistinguishable from a fully-masked one. */
+.msk-prev{
+  width:46px; height:46px; border-radius:10px; flex:0 0 auto; position:relative;
+  border:1px solid var(--hair); background:#000; overflow:hidden;
+}
+.msk-prev .msk-chk{
+  position:absolute; inset:0;
+  background-image:linear-gradient(45deg,#1a1a1a 25%,transparent 25%),
+                   linear-gradient(-45deg,#1a1a1a 25%,transparent 25%),
+                   linear-gradient(45deg,transparent 75%,#1a1a1a 75%),
+                   linear-gradient(-45deg,transparent 75%,#1a1a1a 75%);
+  background-size:10px 10px;
+  background-position:0 0, 0 5px, 5px -5px, -5px 0;
+}
+.msk-prev .msk-grad{ position:absolute; inset:0; }
+.msk-info{ flex:1; min-width:0; }
+.msk-info .msk-nm{ font-size:12px; font-weight:500; color:var(--ink); }
+.msk-info .msk-meta{ font-size:10px; color:var(--faint); margin-top:2px; }
+
+.msk-toolbar{ display:flex; gap:5px; margin:8px 0; }
+.msk-tool{
+  flex:1; display:flex; align-items:center; justify-content:center; gap:5px; height:30px;
+  border-radius:999px; background:#000; border:1px solid var(--hair); color:var(--muted);
+  font:inherit; font-size:10.5px; font-weight:500; cursor:pointer;
+  transition:background .13s, border-color .13s, color .13s;
+}
+.msk-tool:hover{ background:var(--tile); border-color:var(--muted); color:var(--ink); }
+.msk-tool:active{ transform:scale(.96); }
+.msk-tool.on{ background:var(--accent); border-color:var(--accent); color:#000; }
+.msk-tool svg{ width:13px; height:13px; }
+
+.msk-comps{ display:flex; flex-direction:column; gap:5px; margin-top:7px; }
+.msk-comp{
+  display:flex; align-items:center; gap:9px; padding:7px 9px;
+  background:var(--tile); border:1px solid var(--hair); border-radius:9px;
+}
+.msk-comp .mc-ico{
+  width:24px; height:24px; border-radius:7px; background:#000; border:1px solid var(--hair);
+  display:grid; place-items:center; flex:0 0 auto; color:var(--muted);
+}
+.msk-comp .mc-ico svg{ width:13px; height:13px; }
+.msk-comp .mc-tx{ flex:1; min-width:0; }
+.msk-comp .mc-nm{
+  font-size:11.5px; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.msk-comp .mc-md{
+  font-size:9.5px; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--faint); margin-top:1px;
+}
+.msk-comp .mc-x{
+  width:22px; height:22px; border-radius:50%; display:grid; place-items:center;
+  color:var(--faint); flex:0 0 auto; cursor:pointer; transition:.12s;
+}
+.msk-comp .mc-x:hover{ color:#e0564a; background:#1f1f1f; }
+.msk-comp .mc-x svg{ width:12px; height:12px; }
+
+.msk-addcomp{
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  width:100%; height:30px; border-radius:999px; background:transparent;
+  border:1px dashed #2c2c2c; color:var(--muted);
+  font:inherit; font-size:11px; font-weight:500; cursor:pointer;
+  transition:.14s; margin-top:6px; position:relative;
+}
+.msk-addcomp:hover{ background:var(--tile); border-color:var(--muted); color:var(--ink); }
+.msk-addcomp svg{ width:12px; height:12px; color:var(--accent); }
+/* the component-type pop-menu the dashed button opens */
+.msk-addmenu{
+  position:absolute; bottom:calc(100% + 5px); left:0; right:0; z-index:60;
+  background:var(--menu); border:1px solid var(--hair-strong); border-radius:10px;
+  box-shadow:0 14px 34px rgba(0,0,0,.6); overflow:hidden;
+  display:none; flex-direction:column; text-align:left;
+}
+.msk-addmenu.open{ display:flex; }
+.msk-addmenu .cm-h{
+  padding:7px 11px; border-bottom:1px solid var(--hair); font-size:9px;
+  text-transform:uppercase; letter-spacing:.8px; color:var(--faint); font-weight:700;
+}
+.msk-addmenu button{
+  display:flex; align-items:center; gap:8px; padding:7px 11px;
+  background:none; border:0; color:var(--ink); font:inherit; font-size:11.5px;
+  cursor:pointer; text-align:left; transition:background .12s;
+}
+.msk-addmenu button:hover{ background:var(--row-hover); }
+.msk-addmenu button svg{ width:13px; height:13px; color:var(--muted); flex:0 0 auto; }
+
+/* the "add mask" call-to-action shown when a layer has none */
+.msk-empty{
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  width:100%; height:36px; border-radius:999px;
+  background:var(--tile); border:1px solid var(--hair); color:var(--ink);
+  font:inherit; font-size:12px; font-weight:500; cursor:pointer; transition:.14s;
+}
+.msk-empty:hover{ background:var(--row-hover); border-color:var(--muted); }
+.msk-empty svg{ width:14px; height:14px; }
 .empty-state{
   padding:26px 14px; text-align:center; color:var(--faint);
   font-size:11.5px; line-height:1.7;
@@ -258,29 +485,53 @@
   border-left:1px solid var(--hair);
 }
 
+/* 🧩 Slider + switch themed from Documentation/Prototypes/ControlsPreview.html.
+ *
+ * 🔴 The track is a PILL, not a hairline. The reference's slider is `height:36px; background:#000;
+ *    border-radius:999px` with a 1.5px --outline border — a fully-rounded black capsule the knob rides
+ *    inside. This file previously drew a 4px grey line with the knob straddling it, which is a different
+ *    control entirely, so matching only the colours would still have read as the wrong widget.
+ *
+ * 🔴 --track-bg is deliberately NOT the track colour any more. The reference uses #000 for the slider and
+ *    reserves --track-bg for the switch's OFF state only; the two used to share it here, so recolouring
+ *    the track would have silently dragged the switch with it.
+ *
+ * 📝 Scaled, not copied: reference row-h is 50px against our 38px, so 36 -> 22 track, 30 -> 16 knob,
+ *    56x32 -> 40x22 switch with a 16px nub. Ratios (knob/track .83, nub travel) are preserved; the border
+ *    stays 1.5px because a hairline does not scale — thinning it to 1px loses the outline on this palette. */
 .sliderrow{ display:flex; align-items:center; gap:7px; min-width:0; }
 .sliderrow .valuebox{ flex:0 0 78px; }
 .slider{
-  flex:1; min-width:0; position:relative; height:4px;
-  background:var(--track-bg); border-radius:999px; cursor:pointer;
+  flex:1; min-width:0; position:relative; height:22px;
+  background:#000; border:1.5px solid var(--outline); border-radius:999px; cursor:pointer;
+  touch-action:none;
 }
-.slider .fill{ position:absolute; left:0; top:0; bottom:0; background:var(--track-fill); border-radius:999px; }
+/* 🔴 Inset by the border, not `inset:0`. The fill is positioned against the PADDING box, so with a 1.5px
+      border a `left:0` fill sits inside the outline correctly — but `top/bottom:0` would leave it 3px
+      short of the capsule's visual height and read as a thin bar floating in a black tube. */
+.slider .fill{
+  position:absolute; left:0; top:0; bottom:0; background:var(--track-fill);
+  border-radius:999px; pointer-events:none;
+}
 .slider .knob{
-  position:absolute; top:50%; width:12px; height:12px; margin-left:-6px;
-  transform:translateY(-50%); background:var(--knob); border-radius:50%;
-  box-shadow:0 1px 3px rgba(0,0,0,.5);
+  position:absolute; top:50%; width:16px; height:16px; margin-left:-8px;
+  transform:translateY(-50%); background:var(--knob); border-radius:999px;
+  box-shadow:0 2px 6px rgba(0,0,0,.5); pointer-events:none;
 }
+/* The reference grows the knob on grab; transform already carries the Y-centre so it must be re-stated. */
+.slider:active .knob{ transform:translateY(-50%) scale(1.08); }
 
 .switch{
-  width:38px; height:22px; flex:0 0 auto; position:relative; cursor:pointer;
-  background:var(--track-bg); border-radius:999px; transition:background .16s;
+  width:40px; height:22px; flex:0 0 auto; position:relative; cursor:pointer;
+  background:var(--track-bg); border-radius:999px; transition:background .15s;
 }
 .switch.on{ background:var(--accent); }
 .switch .nub{
   position:absolute; top:3px; left:3px; width:16px; height:16px;
-  background:var(--knob); border-radius:50%; transition:left .16s cubic-bezier(.4,0,.2,1);
+  background:var(--knob); border-radius:999px; transition:left .15s cubic-bezier(.4,0,.2,1);
+  box-shadow:0 1px 3px rgba(0,0,0,.5);
 }
-.switch.on .nub{ left:19px; }
+.switch.on .nub{ left:21px; }
 
 .segment{
   display:flex; height:26px; background:var(--value-black);
@@ -361,12 +612,16 @@
   border:2px solid #fff; border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.5);
 }
 .barstack{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
-.cbar{ position:relative; height:9px; border-radius:999px; cursor:pointer; }
+.cbar{ position:relative; height:13px; border-radius:999px; cursor:pointer; touch-action:none; }
 .huebar{ background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00); }
+/* 🔴 White fill with a DARK ring, unlike .slider .knob which is white on black. The hue bar is fully
+      saturated across its whole width, so a plain white dot with only a soft shadow loses its edge over
+      the yellow and cyan stops — the reference gives this knob a `2px solid #1b1b1e` border for exactly
+      that reason, and it is the one place the two knob styles legitimately diverge. */
 .cknob{
-  position:absolute; top:50%; width:13px; height:13px; margin-left:-6.5px;
-  transform:translateY(-50%); background:var(--knob); border-radius:50%;
-  box-shadow:0 1px 3px rgba(0,0,0,.6);
+  position:absolute; top:50%; width:15px; height:15px; margin-left:-7.5px;
+  transform:translateY(-50%); background:#fff; border:2px solid #1b1b1e; border-radius:999px;
+  box-shadow:0 1px 4px rgba(0,0,0,.5); pointer-events:none;
 }
 .hexrow{ display:flex; align-items:center; gap:7px; margin-top:8px; }
 .hexrow input{
@@ -480,10 +735,14 @@
 /*----------------------------------------------------------------------------------------------------------------------
                                                   SUMMONED MENU
 ----------------------------------------------------------------------------------------------------------------------*/
-/* 💡 one menu, two slides, fixed 548×372 — the same translate as SceneDirectoryInspector */
+/* 💡 one menu, two slides, fixed 632×430 — the same translate as SceneDirectoryInspector
+ *
+ * 🔴 MenuWidth / MenuHeight in LayerInspector.js must match these two numbers. Show() clamps the card
+ *    against the viewport using the JS copies, so a stylesheet that grows alone leaves the card placed
+ *    partly off-screen with its overflow hidden — the bottom rows become unreachable rather than clipped. */
 .summon-menu{
   position:fixed; z-index:900; display:none;
-  width:548px; height:372px;
+  width:632px; height:430px;
   background:var(--menu); border:1px solid var(--hair-strong); border-radius:var(--r-menu);
   overflow:hidden; transform-origin:top left;
   box-shadow:0 30px 80px rgba(0,0,0,.66), 0 1px 0 rgba(255,255,255,.04) inset;
@@ -501,34 +760,71 @@
   transition:transform .34s cubic-bezier(.5,.05,.2,1);
 }
 .menu-track.to-inspect{ transform:translateX(-50%); }
-/* 🔴 the left column is pinned at 214px on BOTH slides so the seam never steps mid-translate */
+/* 🔴 the left column is pinned at 248px on BOTH slides so the seam never steps mid-translate */
 .menu-slide{
   width:50%; height:100%; display:grid;
-  grid-template-columns:214px minmax(0,1fr); min-height:0;
+  grid-template-columns:248px minmax(0,1fr); min-height:0;
 }
 .slide-pane{ min-width:0; min-height:0; display:flex; flex-direction:column; }
 .slide-pane.rail{ background:var(--menu); border-right:1px solid var(--hair); }
 .slide-pane.detail{ background:var(--menu-2); }
 
-/* compact overrides — the menu is small, so every widget loses a few px */
-.summon-menu .pane-head{ height:46px; padding:0 10px; }
-.summon-menu .pane-head .h-ic{ width:24px; height:24px; border-radius:6px; }
-.summon-menu .pane-head .h-ic svg{ width:17px; height:17px; }
-.summon-menu .pane-head .h-txt{ font-size:12.5px; }
-.summon-menu .prop-carousel{ height:31px; }
-.summon-menu .pc-seg{ font-size:11.5px; }
-.summon-menu .prop-body{ padding:7px 7px 10px; }
-.summon-menu .card{ margin-bottom:6px; }
-.summon-menu .card-body{ padding:6px 9px 8px; }
-.summon-menu .prow{ grid-template-columns:74px minmax(0,1fr); min-height:32px; column-gap:8px; }
-.summon-menu .plabel{ font-size:11px; }
+/* Interior scale — grown in step with the 632×430 card (~1.15x on 548×372), so the extra room becomes
+   larger controls and text rather than more empty margin.
+ *
+ * 🔴 EVERY number here must be >= its unscoped base, and the first version of this block broke that in
+ *    five places: pane-head 53 -> 52, prow label column 88 -> 84, prow gap 10 -> 9, prow min-height
+ *    (--row-h) 38 -> 36, prop-body side padding held at base. The card got 15% bigger while its contents
+ *    stayed put or shrank, so everything inside read as SMALLER against the larger frame — which looks
+ *    exactly like a global UI scale-down even though no scale or zoom exists anywhere in this stylesheet.
+ *    Growing the shell is not growing the UI; the interior has to move with it or the change inverts.
+ *
+ * 📝 Base values, for anyone checking this stays true: pane-head 53, h-ic 26, h-ic svg 18, h-txt 13.5,
+ *    prop-carousel 33, pc-seg 12, prop-body 8/8/12, card-body 7/10/9, prow 88 + gap 10 + --row-h 38,
+ *    plabel 11.5, valuebox/dd-head/colorbar/segment 26, pane-foot 29 @ 10.5, stack-row 44, sr-name 12,
+ *    sr-meta 9. */
+.summon-menu .pane-head{ height:61px; padding:0 13px; }
+.summon-menu .pane-head .h-ic{ width:30px; height:30px; border-radius:8px; }
+.summon-menu .pane-head .h-ic svg{ width:21px; height:21px; }
+.summon-menu .pane-head .h-txt{ font-size:15px; }
+/* 📝 No .prop-carousel / .pc-seg overrides here. Those classes are never emitted by this inspector — the
+      card's two slides are .menu-track / .menu-slide / .slide-pane — so scaling them was scaling nothing.
+      The unscoped rules at ~608 are likewise dead, left in place as they predate this work. */
+.summon-menu .prop-body{ padding:10px 11px 14px; }
+.summon-menu .card{ margin-bottom:8px; }
+.summon-menu .card-body{ padding:9px 12px 11px; }
+.summon-menu .prow{ grid-template-columns:100px minmax(0,1fr); min-height:44px; column-gap:12px; }
+.summon-menu .plabel{ font-size:13px; }
 .summon-menu .valuebox,
 .summon-menu .dd-head,
 .summon-menu .colorbar,
-.summon-menu .segment{ height:24px; }
-.summon-menu .sliderrow .valuebox{ flex:0 0 62px; }
-.summon-menu .hx-scroll{ padding:5px 7px 9px; }
-.summon-menu .pane-foot{ height:26px; padding:0 10px; font-size:10px; }
+.summon-menu .segment{ height:30px; }
+.summon-menu .sliderrow .valuebox{ flex:0 0 76px; }
+/* The pill track and its knob scale with the card too. Left at base they would be the ONE control that
+   stayed small while everything around it grew — the exact mismatch that made the panel read as
+   scaled-down before. Base is 22px track / 16px knob / 40x22 switch. */
+.summon-menu .slider{ height:26px; }
+.summon-menu .slider .knob{ width:19px; height:19px; margin-left:-9.5px; }
+.summon-menu .switch{ width:46px; height:26px; }
+.summon-menu .switch .nub{ width:20px; height:20px; }
+.summon-menu .switch.on .nub{ left:23px; }
+.summon-menu .hx-scroll{ padding:8px 10px 12px; }
+.summon-menu .pane-foot{ height:34px; padding:0 13px; font-size:12px; }
+/* The stack row and its contents grow too, or the list looks sparse inside the larger card.
+ *
+ * 🔴 flex-shrink:0 is what makes the height REAL. .stack-body is a flex column, so every row is a flex
+ *    item with the default flex-shrink:1 and `height` degrades to a hint: once the rows overflow the
+ *    body they are compressed to fit, and they measured 36px against a 51px rule and a 44px base — the
+ *    row silently ignoring BOTH. That is why the list kept looking cramped no matter what height was
+ *    set here, and why the fix is not simply a larger number. */
+.summon-menu .stack-row{ height:51px; flex-shrink:0; }
+.summon-menu .sr-name{ font-size:13.5px; }
+.summon-menu .sr-meta{ font-size:10px; }
+.summon-menu .sr-thumb{ width:34px; height:34px; }
+.summon-menu .sr-tag{ height:32px; }
+.summon-menu .search{ height:31px; font-size:12px; }
+.summon-menu .ls-addmain{ height:38px; font-size:12.5px; }
+.summon-menu .act-item{ height:32px; font-size:12.5px; }
 
 /* pane-head that acts as the advance / back affordance */
 .pane-head.stepper{ cursor:pointer; }
@@ -548,21 +844,9 @@
                                             SLIDE 1 — LAYER PROPERTIES
 ----------------------------------------------------------------------------------------------------------------------*/
 .meta-body{ flex:1; min-height:0; overflow-y:auto; padding:9px 10px 12px; }
-.meta-hero{
-  display:flex; align-items:center; gap:10px; padding:9px 10px; margin-bottom:8px;
-  background:var(--tile); border:1px solid var(--hair); border-radius:var(--r-tile);
-}
-.meta-hero .mh-ic{
-  width:34px; height:34px; flex:0 0 auto; position:relative; overflow:hidden;
-  background:#000; border-radius:8px; display:grid; place-items:center;
-}
-.meta-hero .mh-ic svg{ width:22px; height:22px; }
-.meta-hero .mh-fill{ position:absolute; inset:0; }
-.meta-hero .mh-txt{ min-width:0; flex:1; }
-.meta-hero .mh-name{
-  font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.meta-hero .mh-class{ font-size:10.5px; margin-top:4px; }
+/* 📝 The .meta-hero card was removed, not merely hidden: it repeated the pane header's own name and class
+      next to a small thumbnail of the atlas the big preview shows properly. Its rules are deleted with it so
+      the stylesheet does not accumulate styling for markup nothing builds any more. */
 .meta-row{
   display:flex; align-items:center; gap:8px; height:28px;
   font-size:11.5px; border-bottom:1px solid var(--hair);
@@ -646,6 +930,17 @@
   border:1px solid var(--hair); overflow:hidden; background:#000; position:relative;
 }
 .msk-grad{ position:absolute; inset:0; }
+/* The thumbnail doubles as the paint-target selector, so it has to look pressable. */
+.msk-prev{ cursor:pointer; }
+.msk-prev:hover{ border-color:var(--hair-strong); }
+/* 🔴 The targeted state must be unmissable, because it silently changes where every subsequent stroke
+      lands. A subtle border would let someone paint a whole pass into a mask believing it went onto the
+      layer — the accent ring plus the outer glow is deliberately louder than the rest of this panel. */
+.msk-prev.targeting{
+  border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent), 0 0 10px rgba(91,140,255,.45);
+}
+.msk-row.targeting .msk-nm{ color:var(--accent); font-weight:600; }
 .msk-info{ min-width:0; }
 .msk-nm{ font-size:11.5px; color:var(--ink); }
 .msk-meta{ font-size:9.5px; color:var(--faint); margin-top:3px; }
@@ -862,6 +1157,90 @@
    would make the two states identical. */
 .cp-empty{ background:var(--menu-2); border-style:dashed; border-color:var(--value-unit); }
 .cp-note{ font-size:10px; line-height:1.5; color:var(--faint); }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                   LAYER PREVIEW
+----------------------------------------------------------------------------------------------------------------------*/
+/* The big "what am I painting" preview: the layer's real Colour atlas, with the remaining channels beneath.
+ *
+ * 🔴 The hero is the COLOUR atlas alone, not all six channels flattened together. Metallic, roughness and
+ *    height share ONE Material atlas as three greyscale components and normal is derived, never stored — so
+ *    a single combined tile could only be a false-colour debug view, where the viewer reads "green" as green
+ *    paint when it means roughness. Each channel therefore gets its own labelled tile. */
+.layer-preview{ margin:2px 0 4px; }
+.lp-hero{
+  position:relative; width:100%; aspect-ratio:1; overflow:hidden;
+  border-radius:10px; border:1px solid var(--hair); background:#000;
+}
+/* The checker sits UNDER the image: a layer is a sparse contribution to the stack, so the texels it does
+   not cover are real information. A flat backing would read as full coverage. */
+.lp-hero .lp-chk{
+  position:absolute; inset:0;
+  background-image:linear-gradient(45deg,#1a1a1a 25%,transparent 25%),
+                   linear-gradient(-45deg,#1a1a1a 25%,transparent 25%),
+                   linear-gradient(45deg,transparent 75%,#1a1a1a 75%),
+                   linear-gradient(-45deg,transparent 75%,#1a1a1a 75%);
+  background-size:14px 14px;
+  background-position:0 0,0 7px,7px -7px,-7px 0;
+}
+.lp-hero .lp-img{
+  position:absolute; inset:0; background:center/cover no-repeat;
+  image-rendering:pixelated;                 /* sparse painted atlas: smoothing bleeds strokes into gutters */
+}
+.lp-note{ font-size:10px; line-height:1.5; color:var(--faint); margin-top:6px; }
+.lp-empty .lp-hero{ border-style:dashed; border-color:var(--value-unit); }
+
+/* The channel carousel: arrows flanking a scrolling rail of labelled tiles. */
+.lp-strip{ display:flex; align-items:center; gap:5px; margin-top:8px; }
+.lp-rail{
+  flex:1 1 auto; min-width:0; display:flex; gap:6px;
+  overflow-x:auto; scroll-behavior:smooth;
+  scrollbar-width:none; -ms-overflow-style:none;
+}
+.lp-rail::-webkit-scrollbar{ width:0; height:0; }
+.lp-arrow{
+  flex:0 0 auto; width:22px; height:52px; display:none; place-items:center;
+  background:var(--tile); border:1px solid var(--hair); border-radius:7px;
+  color:var(--muted); cursor:pointer; padding:0;
+  transition:background .13s, color .13s, opacity .13s;
+}
+/* 🔴 The arrows appear only once the tiles actually overflow. A visible-but-dead arrow reads as a broken
+      control: the user presses it, nothing moves, and there is no way to tell that "nothing to scroll to"
+      was the intended answer. */
+.lp-strip.lp-paged .lp-arrow{ display:grid; }
+.lp-arrow:hover:not(:disabled){ background:var(--tile-hi); color:var(--ink); }
+.lp-arrow:disabled{ opacity:.3; cursor:default; }
+.lp-arrow svg{ width:14px; height:14px; }
+/* 📝 Fixed-width tiles, so the rail can overflow and have something to page THROUGH. Flex-filling them
+      would fit every channel into the visible width and the carousel would never have a second page. */
+.lp-cell{ flex:0 0 58px; min-width:0; }
+.lp-cell .lpc-tile{
+  display:block; width:100%; aspect-ratio:1; border-radius:7px;
+  border:1px solid var(--hair); background:#000 center/cover no-repeat;
+  image-rendering:pixelated;
+}
+/* 📝 Every tile is LABELLED. Metallic, roughness and height all read as flat grey squares, so an unlabelled
+      strip gives the viewer no way to tell which is which. */
+.lp-cell .lpc-lb{
+  display:block; margin-top:4px; font-size:8.5px; letter-spacing:.4px; text-transform:uppercase;
+  color:var(--faint); text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.lp-cell.lpc-empty .lpc-tile{
+  background:var(--menu-2); border-style:dashed; border-color:var(--value-unit);
+}
+.lp-cell.lpc-empty .lpc-lb{ opacity:.5; }
+/* Page indicator. Empty (and so invisible) whenever the tiles all fit. */
+.lp-dots{ display:flex; justify-content:center; gap:4px; margin-top:6px; min-height:4px; }
+.lp-dot{ width:4px; height:4px; border-radius:50%; background:var(--value-unit); }
+.lp-dot.on{ background:var(--accent); }
+
+/* 🔴 Once real atlas content has landed, the flat authored-value swatch and the kind glyph must be HIDDEN.
+      Both are children of the same box the image is painted onto, so leaving them visible would stack a
+      solid colour on top of the very strokes the readback just fetched — the preview would look exactly as
+      wrong as before while actually holding the right image. */
+.from-atlas > .sr-thumb-fill,
+.from-atlas > .ic-fill,
+.from-atlas > svg{ display:none; }
 
 /* the inspector mounts inside the viewport, so its own stacking context has to clear the canvas */
 .layer-inspector{ position:absolute; inset:0; pointer-events:none; z-index:880; }

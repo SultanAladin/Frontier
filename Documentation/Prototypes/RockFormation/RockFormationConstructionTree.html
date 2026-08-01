@@ -3,370 +3,1054 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Frontier — Rock Formation Construction Tree</title>
+<title>Frontier &mdash; Rock Formation Construction Tree</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /*==================================================================================================
+                                            EDITOR SKIN
+    ==================================================================================================
+    🧩 NodeFlowEditor's stylesheet, grafted VERBATIM. Do not edit rules in this block — RockFormation's
+       own additions live in the ROCKFORMATION ADDITIONS block at the foot of the file.
+
+    🔴 Nine variable names exist in both palettes with DIFFERENT values (--text, --text-dim,
+       --text-faint, --border, --border-soft, --border-entry, --bg-raise, --bad, --warn). Custom
+       properties are NOT scoped per stylesheet, so a second :root would win globally and there is no
+       source order that lets both survive. The reference values are therefore the only ones declared,
+       and RockFormation's chrome inherits them. That is what "UI exact" costs, and it is deliberate:
+       the alternative silently repaints the ported editor in the old palette.                       */
   :root{
     --accent:#b0fab0;
 
-    --bg:#0a0a0b;
-    --bg-panel:#0d0d0f;
-    --bg-head:#111113;
-    --bg-raise:#131315;
+    --bg-canvas:#141416;
+    --bg-viewport:#0a0a0b;
     --bg-entry:#1a1a1c;
-    --border:#1c1c20;
-    --border-soft:#161618;
-    --border-entry:#2c2c30;
+    --bg-chrome:#16161a;
+    --bg-raise:#2c2c30;
+    --bg-raise-hi:#3c3c40;
+    --bg-input:#0f0f12;
+
+    --border:#2c2c30;
     --border-hover:#44444a;
-    --text:#d8d8dc;
-    --text-dim:#8a8a92;
-    --text-faint:#5a5a62;
+    --border-soft:#3c3c40;
+    --border-pill:#3f3f42;
+    --border-entry:#3c3c40;
+
+    --text:#f3f4f6;
+    --text-dim:#d1d5db;
+    --text-mid:#9ca3af;
+    --text-faint:#6b7280;
+    --text-ghost:#4b5563;
+
+    --dot-grid:#2a2a2e;
+    --edge:#444;
+    --bad:#ef4444;
+    --bad-hi:#f87171;
+    --warn:#eab308;
+
+    --port-float:#aaaaab;
+    --port-vec2:#daaa55;
+    --port-vec3:#55da55;
+    --port-color:#a355da;
+    --port-texture:#da55a3;
+    --port-heightmap:#da5555;
+    --port-any:#666;
+
     --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
 
+    --ease:cubic-bezier(.32,.72,0,1);
+
+    /* Control vocabulary carried over from ControlsPreview.html. */
+    --outline-hair:rgba(255,255,255,.22);
+    --track-bg:#2f2f33;
+    --track-fill:#8a8a8e;
+    --knob-face:#f4f4f5;
+    --value-black:#0a0a0b;
+    --value-unit:#33333a;
+
+    /* ── RockFormation additions — names the reference does not define ── */
+
+    /* 📝 Port categories. The reference keys its dots by shader type (float/vec2/vec3/color/...);
+          RockFormation keys them by MEANING, because a Resistance f32 and a Distance f32 are the
+          same shader type and must still refuse to connect. */
     --port-scalar:#aaaaab;
     --port-distance:#55da55;
     --port-resistance:#daaa55;
     --port-warp:#a355da;
     --port-tint:#da55a3;
 
-    --bad:#e8564a;
-    --good:#3ecf8e;
-    --warn:#e8b64a;
+    /* 🔴 Was undefined until now: PortCategories.Weather.Swatch read var(--port-weather) and got
+          nothing, so every weather stud rendered with no fill. */
+    --port-weather:#55dada;
 
-    --topbar-h:34px;
-    --footer-h:30px;
+    --good:#3ecf8e;
   }
+
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
-  html{background:#050506;overflow:hidden}
+  html{background:var(--bg-canvas);overflow:hidden}
   body{
-    background:#050506;
     font-family:'Archivo',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     color:var(--text);
+    background:var(--bg-canvas);
     -webkit-font-smoothing:antialiased;
-    display:flex;flex-direction:column;
-    height:100vh;width:100vw;overflow:hidden;
+    width:100vw;height:100vh;overflow:hidden;
+    display:flex;flex-direction:row;
+  }
+  button{font-family:inherit;border:none;background:none;color:inherit;cursor:pointer}
+  input,select,textarea{font-family:inherit}
+
+  .CustomScroll::-webkit-scrollbar{width:8px;height:8px}
+  .CustomScroll::-webkit-scrollbar-track{background:transparent}
+  .CustomScroll::-webkit-scrollbar-thumb{background:var(--bg-raise);border-radius:4px}
+  .CustomScroll::-webkit-scrollbar-thumb:hover{background:var(--bg-raise-hi)}
+
+  /* ══════════════════ LAYOUT ══════════════════ */
+
+  /* 📝 The split is one number — the graph's share of the width — and the viewport simply takes the
+        rest. Driving both from a single variable keeps them from ever disagreeing about the total. */
+  .GraphRegion{
+    position:relative;height:100%;overflow:hidden;min-width:0;
+    flex:0 0 var(--split-fraction,50%);
+    background:var(--bg-canvas);
+  }
+  .ViewportRegion{
+    position:relative;height:100%;flex:1 1 auto;min-width:0;
+    background:var(--bg-viewport);
+  }
+  .ViewportRegion.SideLeft{border-right:1px solid var(--border)}
+  .ViewportRegion.SideRight{border-left:1px solid var(--border)}
+  .ViewportRegion.Concealed{display:none}
+  body.ViewportHidden .GraphRegion{flex:1 1 100%}
+  body.ViewportHidden .SplitHandle{display:none}
+
+  /* 📝 The grip is a hair wide but claims a wider invisible hit strip via padding, so it can be caught
+        without pixel-hunting; the visible rule is drawn by the inner bar. Sits above both regions so
+        the canvas and the WebGL viewport never steal the drag. */
+  .SplitHandle{
+    flex:0 0 auto;position:relative;z-index:40;
+    width:11px;margin:0 -5px;
+    cursor:col-resize;
+    display:flex;align-items:center;justify-content:center;
+    background:none;touch-action:none;
+  }
+  .SplitGrip{
+    width:1px;height:100%;background:var(--border);
+    transition:background .15s,width .15s;
+  }
+  .SplitHandle:hover .SplitGrip,
+  .SplitHandle.Hauling .SplitGrip{width:3px;background:var(--accent)}
+
+  /* While hauling, nothing underneath should select text or fight for the cursor. */
+  body.Hauling{cursor:col-resize;user-select:none}
+  body.Hauling .PanSurface{pointer-events:none}
+
+  /* ══════════════════ CANVAS SURFACE ══════════════════ */
+
+  .PanSurface{
+    position:absolute;inset:0;overflow:hidden;
+    background-color:var(--bg-canvas);
+    background-image:radial-gradient(var(--dot-grid) 1.5px,transparent 1.5px);
+    cursor:default;
+  }
+  .PanSurface.Grabbing{cursor:grabbing}
+  .PanSurface.Locked{cursor:not-allowed}
+
+  .TransformPlane{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+
+  .EdgeCanvas{position:absolute;top:0;left:0;overflow:visible;pointer-events:none;width:1px;height:1px}
+  .EdgeCurve{fill:none;stroke:var(--edge);stroke-width:2;pointer-events:stroke;cursor:pointer}
+  .EdgeCurve:hover{stroke:var(--accent)}
+  .EdgeHalo{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+  .EdgeDraft{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:6 5;pointer-events:none}
+
+  .SelectionBand{
+    position:absolute;border:1px solid rgba(176,250,176,.55);
+    background:rgba(176,250,176,.07);pointer-events:none;z-index:5;
   }
 
-  /* ══════════ CHROME ══════════ */
-  .TopBar{
-    height:var(--topbar-h);flex:0 0 var(--topbar-h);
-    background:var(--bg-head);border-bottom:1px solid var(--border);
-    display:flex;align-items:center;padding:0 12px;gap:14px;
-  }
-  .TopNaming{font-size:12px;font-weight:600;letter-spacing:.02em}
-  .TopNaming b{color:var(--accent);font-weight:700}
-  .TopSpacer{flex:1}
-  .TopTag{font-family:var(--mono);font-size:10.5px;color:var(--text-faint)}
+  /* ══════════════════ NODE ENTRY ══════════════════ */
 
-  .ResolveTabs{display:flex;gap:2px;background:var(--bg-raise);
-    border:1px solid var(--border);border-radius:7px;padding:2px}
-  .ResolveTab{
-    font-family:var(--mono);font-size:10px;color:var(--text-dim);
-    background:none;border:0;padding:3px 9px;border-radius:5px;cursor:pointer;
-  }
-  .ResolveTab:hover{color:var(--text)}
-  .ResolveTab.Live{background:#242428;color:var(--accent)}
+  .NodeEntry{position:absolute;top:0;left:0;will-change:transform}
 
-  .Body{flex:1;display:flex;min-height:0}
-
-  /* ══════════ CATALOGUE (LEFT) ══════════ */
-  .Catalogue{
-    width:232px;flex:0 0 232px;background:var(--bg-panel);
-    border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;
+  .EntryBody{
+    position:relative;display:flex;flex-direction:column;min-width:200px;
+    border-radius:1.5rem;background:rgba(26,26,28,.9);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.6);
+    transition:border-color .15s,box-shadow .15s;
+    cursor:grab;
   }
-  .PanelBand{
-    height:var(--topbar-h);flex:0 0 var(--topbar-h);display:flex;align-items:center;
-    padding:0 11px;border-bottom:1px solid var(--border-soft);
-    font-size:10.5px;font-weight:600;color:var(--text-dim);
-    text-transform:uppercase;letter-spacing:.08em;
-  }
-  #CatalogueSearch{
-    margin:8px 9px;padding:6px 9px;background:#141416;
-    border:1px solid var(--border);border-radius:7px;
-    color:var(--text);font-family:var(--mono);font-size:11px;outline:none;
-  }
-  #CatalogueSearch:focus{border-color:var(--border-hover)}
-  #CatalogueListing{flex:1;overflow-y:auto;padding:0 6px 10px}
-
-  .CatalogueBand{padding:11px 6px 5px;display:flex;flex-direction:column;gap:1px}
-  .CatalogueBandNaming{font-size:10px;font-weight:700;color:var(--text-dim);
-    text-transform:uppercase;letter-spacing:.09em}
-  .CatalogueBandHint{font-size:9.5px;color:var(--text-faint);line-height:1.3}
-
-  .CatalogueRow{
-    width:100%;display:flex;gap:8px;align-items:flex-start;text-align:left;
-    background:none;border:1px solid transparent;border-radius:8px;
-    padding:6px 7px;cursor:pointer;color:var(--text);font-family:inherit;
-  }
-  .CatalogueRow:hover{background:var(--bg-raise);border-color:var(--border)}
-  .CatalogueRow.Spent{opacity:.4;cursor:default}
-  .CatalogueRow.Spent:hover{background:none;border-color:transparent}
-  .CatalogueGlyph{font-family:var(--mono);font-size:9px;font-weight:500;
-    padding-top:2px;min-width:34px}
-  .CatalogueText{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .CatalogueNaming{font-size:11.5px;font-weight:500}
-  .CatalogueSummary{font-size:9.5px;color:var(--text-faint);line-height:1.32}
-  .CatalogueEmpty{padding:16px 8px;font-size:10.5px;color:var(--text-faint);
-    font-family:var(--mono)}
-
-  /* ══════════ SURFACE (CENTRE) ══════════ */
-  .Middle{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-
-  #TreeCanvas{
-    flex:1;position:relative;overflow:hidden;min-height:0;
-    background:var(--bg);
-    background-image:radial-gradient(circle,#2a2a2e 1.4px,transparent 1.4px);
-    background-size:32px 32px;
-    cursor:grab;touch-action:none;
-  }
-  #TreeCanvas:active{cursor:grabbing}
-  #TreeViewport{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
-  #LinkLayer{position:absolute;overflow:visible;pointer-events:none;
-    width:1px;height:1px;left:0;top:0}
-  #LinkLayer path{pointer-events:stroke}
-  #CardLayer{position:absolute;left:0;top:0}
-
-  .LinkCurve{fill:none;stroke-width:2;opacity:.85;cursor:pointer}
-  .LinkCurve:hover{stroke-width:3.4;opacity:1}
-  .LinkCurve.Draft{stroke-dasharray:6 5;opacity:.75;pointer-events:none}
-
-  /* ── the reference editor's card idiom ── */
-  .ConstructionEntry{
-    position:absolute;min-width:196px;
-    background:rgba(26,26,28,.9);backdrop-filter:blur(18px);
-    border:1px solid var(--border-entry);border-radius:1.5rem;
-    box-shadow:0 18px 34px -12px rgba(0,0,0,.7);
-    cursor:grab;user-select:none;
-  }
-  .ConstructionEntry:hover{border-color:var(--border-hover)}
-  .ConstructionEntry.Engaged{border-color:#fff;box-shadow:0 0 30px rgba(255,255,255,.05)}
-  .ConstructionEntry.Bypassed{opacity:.45}
-
-  .EntryTools{
-    position:absolute;top:-46px;left:50%;transform:translateX(-50%);
-    display:flex;gap:3px;padding:3px;
-    background:rgba(19,19,21,.94);backdrop-filter:blur(14px);
-    border:1px solid var(--border-entry);border-radius:9999px;
-    opacity:0;pointer-events:none;transition:opacity .12s;
-  }
-  .ConstructionEntry:hover .EntryTools{opacity:1;pointer-events:auto}
-  .EntryTool{
-    font-family:var(--mono);font-size:9.5px;color:var(--text-dim);
-    background:none;border:0;padding:3px 9px;border-radius:9999px;cursor:pointer;
-  }
-  .EntryTool:hover{background:#242428;color:var(--text)}
-  .EntryTool.on{color:var(--warn)}
-  .EntryTool.bad:hover{background:rgba(232,86,74,.16);color:var(--bad)}
+  .EntryBody:hover{border-color:var(--border-hover)}
+  .NodeEntry.Chosen .EntryBody{border-color:#fff;box-shadow:0 0 30px rgba(255,255,255,.05)}
+  .NodeEntry.Immobile .EntryBody{box-shadow:0 0 0 2px rgba(234,179,8,.3),0 25px 50px -12px rgba(0,0,0,.6);cursor:default}
+  .NodeEntry.Dragging .EntryBody{cursor:grabbing}
 
   .EntryHead{
-    display:flex;align-items:center;gap:7px;
-    padding:9px 13px 7px;border-bottom:1px solid var(--border-soft);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px;border-bottom:1px solid var(--border);
+    background:rgba(26,26,28,.4);border-radius:1.5rem 1.5rem 0 0;
   }
-  .EntryGlyph{font-family:var(--mono);font-size:8.5px;color:var(--text-faint);
-    border:1px solid var(--border-entry);border-radius:4px;padding:1px 4px}
-  .EntryNaming{font-size:11.5px;font-weight:600;flex:1}
-  .EntryYield{font-family:var(--mono);font-size:9px}
+  .HeadNaming{display:flex;align-items:center;gap:12px}
+  .HeadGlyph{
+    width:36px;height:36px;border-radius:9999px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 2px 4px rgba(0,0,0,.06);
+  }
+  .HeadText{display:flex;flex-direction:column}
+  .HeadTitle{font-size:13px;font-weight:600;letter-spacing:.025em;color:#f3f4f6}
+  .HeadSubtitle{font-size:11px;font-weight:500;color:var(--text-faint);margin-top:2px}
 
-  .EntryBody{padding:7px 13px 11px;display:flex;flex-direction:column;gap:3px}
-  .IntakeRow{height:22px;display:flex;align-items:center}
-  .IntakeNaming{font-family:var(--mono);font-size:10px;color:var(--text-dim)}
-  .IntakeNaming.Optional{color:var(--text-faint);font-style:italic}
+  .GlyphInput{background:rgba(99,102,241,.2);color:#818cf8}
+  .GlyphGenerator{background:rgba(234,179,8,.2);color:#facc15}
+  .GlyphDatabase{background:rgba(59,130,246,.2);color:#60a5fa}
+  .GlyphMath{background:rgba(244,63,94,.2);color:#fb7185}
+  .GlyphRouter{background:rgba(168,85,247,.2);color:#c084fc}
+  .GlyphTexture{background:rgba(20,184,166,.2);color:#2dd4bf}
+  .GlyphUtility{background:rgba(107,114,128,.2);color:#9ca3af}
+  .GlyphNeutral{background:rgba(255,255,255,.1);color:#fff}
 
-  .DialReadout{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
-  .DialChip{
-    font-family:var(--mono);font-size:9px;color:var(--text-faint);
-    background:var(--bg-raise);border:1px solid var(--border-soft);
-    border-radius:5px;padding:2px 5px;
+  .PinRegion{display:flex;flex-direction:row;justify-content:space-between;padding:16px;gap:16px}
+  .NodeEntry.Folded .PinRegion{display:none}
+
+  .PinColumn{display:flex;flex-direction:column;gap:10px;position:relative}
+  .PinColumn.Outbound{align-items:flex-end}
+  .PinCaption{
+    display:flex;align-items:center;gap:8px;margin-bottom:6px;
+    font-size:10px;color:var(--text-faint);
+    text-transform:uppercase;letter-spacing:.1em;font-weight:700;
+  }
+  .CaptionAdd{
+    padding:2px;border-radius:9999px;color:var(--text-faint);
+    display:flex;align-items:center;transition:background .15s,color .15s;
+  }
+  .CaptionAdd:hover{background:#333;color:#fff}
+
+  .PinRow{position:relative;display:flex;align-items:center;height:20px}
+  .PinRow.Outbound{justify-content:flex-end}
+  .PinLabel{font-size:11px;font-weight:500;color:var(--text-faint);white-space:nowrap}
+
+  .PinDot{
+    width:12px;height:12px;border-radius:9999px;flex-shrink:0;
+    border:2.5px solid #1a1a1c;cursor:crosshair;
+    transition:background .12s,transform .12s;
+  }
+  .PinDot:hover{background:#fff !important;transform:scale(1.15)}
+  .PinDot.Inbound{margin-right:8px;margin-left:-20px}
+  .PinDot.Outbound{margin-left:8px;margin-right:-20px}
+
+  .DotFloat{background:var(--port-float)}
+  .DotVec2{background:var(--port-vec2)}
+  .DotVec3{background:var(--port-vec3)}
+  .DotColor{background:var(--port-color)}
+  .DotTexture{background:var(--port-texture)}
+  .DotHeightmap{background:var(--port-heightmap)}
+  .DotAny{background:var(--port-any)}
+
+  .PinAffordance{
+    padding:2px;margin-left:6px;color:var(--text-ghost);
+    opacity:0;transition:opacity .15s,color .15s;display:flex;align-items:center;
+  }
+  .PinRow.Outbound .PinAffordance{margin-left:0;margin-right:6px}
+  .PinRow:hover .PinAffordance{opacity:1}
+  .PinAffordance:hover{color:var(--accent)}
+  .PinAffordance.Severing:hover{color:var(--bad-hi)}
+
+  .PinScalarField{
+    margin-left:8px;width:48px;background:rgba(44,44,48,.5);
+    border:1px solid #444;border-radius:4px;padding:2px 4px;
+    font-size:10px;color:#fff;outline:none;transition:border-color .15s;
+  }
+  .PinScalarField:focus{border-color:rgba(176,250,176,.5)}
+
+  /* ══════════════════ HOVER TOOLBAR ══════════════════ */
+
+  .EntryToolbar{
+    position:absolute;top:-56px;left:50%;transform:translateX(-50%);
+    display:flex;align-items:center;gap:4px;padding:6px;
+    background:rgba(22,22,24,.95);
+    -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+    border-radius:9999px;border:1px solid var(--border);
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);
+    opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50;
+  }
+  /* 📝 The bar floats 56px clear of the body, so travelling to it would leave the node's hover
+        region and dismiss the bar mid-reach. This bridges the gap with a transparent hit area,
+        and the bar keeps itself revealed once the pointer is on it. */
+  .EntryToolbar::after{
+    content:'';position:absolute;left:-8px;right:-8px;top:100%;height:56px;
+    z-index:-1;
+  }
+  .NodeEntry:hover .EntryToolbar,
+  .EntryToolbar:hover{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(-4px)}
+  .ToolbarAction{
+    padding:6px;border-radius:9999px;color:var(--text-mid);
+    display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;
+  }
+  .ToolbarAction:hover{color:#fff;background:#2c2c2f}
+  .ToolbarAction.Engaged{color:#fff;background:#333}
+  .ToolbarAction.EngagedIndigo{color:#818cf8;background:rgba(99,102,241,.2)}
+  .ToolbarAction.EngagedAmber{color:#facc15;background:rgba(234,179,8,.2)}
+  .ToolbarAction.Destructive{color:var(--bad)}
+  .ToolbarAction.Destructive:hover{color:var(--bad-hi);background:rgba(239,68,68,.2)}
+  .ToolbarRule{width:1px;height:16px;background:#333;margin:0 4px}
+
+  .ActionHint{position:relative;display:flex;align-items:center;justify-content:center}
+  .ActionHint::after{
+    content:attr(data-hint);position:absolute;bottom:100%;margin-bottom:8px;
+    left:50%;transform:translateX(-50%);
+    background:#2c2c2f;color:#e5e7eb;font-size:12px;font-weight:500;
+    padding:4px 10px;border-radius:9999px;white-space:nowrap;
+    border:1px solid var(--border-pill);box-shadow:0 10px 20px rgba(0,0,0,.5);
+    opacity:0;pointer-events:none;transition:opacity .15s;z-index:100;
+  }
+  .ActionHint:hover::after{opacity:1}
+
+  /* ══════════════════ EXPORT BADGE · TOOLTIP · COMMENT ══════════════════ */
+
+  .ExportBadge{
+    position:absolute;top:-12px;right:-12px;z-index:30;
+    background:var(--accent);color:#0f0f12;
+    padding:4px 10px;border-radius:9999px;
+    font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.15em;
+    border:2px solid #0f0f12;box-shadow:0 10px 20px rgba(176,250,176,.2);
+    transition:background .15s;
+  }
+  .ExportBadge:hover{background:#fff}
+  .ExportBadge.Compact{top:-8px;right:-8px;padding:1px 8px;font-size:8px}
+
+  .EntryTooltip{
+    position:absolute;right:100%;margin-right:16px;top:50%;transform:translateY(-50%);
+    background:var(--accent);color:#0a0a0a;font-size:12px;font-weight:500;
+    padding:6px 12px;border-radius:9999px;white-space:nowrap;
+    box-shadow:0 0 20px rgba(176,250,176,.3);
+    opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;
+  }
+  .NodeEntry:hover .EntryTooltip{opacity:1}
+
+  .CommentPane{
+    position:absolute;top:calc(100% + 12px);left:-10%;width:120%;padding:16px;
+    background:rgba(26,26,28,.8);border:1px solid var(--border);
+    border-radius:1.5rem;box-shadow:0 25px 50px -12px rgba(0,0,0,.7);
+    -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+    z-index:30;opacity:0;pointer-events:none;transition:opacity .2s;
+  }
+  .NodeEntry:hover .CommentPane,.CommentPane.Composing{opacity:1;pointer-events:auto}
+  .CommentPane.Compact{left:50%;transform:translateX(-50%);width:192px}
+  .CommentField{
+    width:100%;background:transparent;border:none;outline:none;resize:none;
+    font-size:13px;color:var(--text-dim);font-weight:500;letter-spacing:.025em;
+  }
+  .CommentField::placeholder{color:var(--text-ghost)}
+  .CommentBody{
+    font-size:13px;color:var(--text-mid);font-weight:500;letter-spacing:.025em;
+    cursor:text;white-space:pre-wrap;word-break:break-word;min-height:20px;
+  }
+  .CommentBody.Vacant{font-style:italic;opacity:.4}
+
+  /* ══════════════════ MATH ENTRY ══════════════════ */
+
+  .MathBody{
+    position:relative;display:flex;align-items:center;justify-content:center;
+    border:1.5px solid var(--border-entry);background:rgba(26,26,28,.9);
+    -webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.6);
+    transition:border-color .3s,box-shadow .3s,background .3s;
+    color:var(--accent);cursor:grab;
+  }
+  .MathBody:hover{border-color:#5c5c60}
+  .NodeEntry.Chosen .MathBody{
+    border-color:var(--accent);background:rgba(176,250,176,.1);
+    box-shadow:0 0 30px rgba(176,250,176,.15),0 0 0 4px rgba(176,250,176,.1);
+  }
+  .NodeEntry.Immobile .MathBody{box-shadow:0 0 0 2px rgba(234,179,8,.3);cursor:default}
+  .NodeEntry.Dragging .MathBody{cursor:grabbing}
+
+  .MathBody.Operator{width:64px;height:64px;border-radius:9999px}
+  .MathBody.Compound{padding:12px 16px;height:56px;border-radius:9999px}
+  .MathBody.Regulator{width:176px;padding:12px 16px;border-radius:1rem;flex-direction:column}
+
+  .OperatorGlyph{display:flex;align-items:center;justify-content:center}
+  .OperatorGlyph .Symbol{font-family:var(--mono);font-size:30px;line-height:1}
+  .OperatorGlyph .Word{font-family:var(--mono);font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .OperatorGlyph .WordWide{font-family:var(--mono);font-size:18px;font-weight:700;letter-spacing:-.02em}
+  .WaveCaption{
+    font-size:10px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;
+    color:rgba(176,250,176,.7);margin-top:4px;
   }
 
-  /* ── live dials, on the engaged card ── */
-  /* 📝 Negative margin lets the rack reach the card's rounded edge while DialRow keeps the 12 px inset
-     it needs in the drawer, so one row builder serves both without a variant class. */
-  .DialRack{
-    margin:6px -13px 0;padding-top:5px;
-    border-top:1px solid var(--border-soft);
+  .RegulatorStack{display:flex;flex-direction:column;width:100%;gap:8px;margin-top:4px}
+  .RegulatorCaption{
+    font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+    color:var(--text-faint);text-align:center;width:100%;
   }
-  .DialRack .DialRow{padding:5px 13px 7px}
-  .DialRack .DialNaming{font-size:10px}
+  .RegulatorField{
+    width:100%;background:var(--bg-input);color:var(--accent);
+    border:1px solid var(--border-entry);border-radius:.75rem;
+    padding:6px 12px;font-size:14px;font-family:var(--mono);text-align:center;outline:none;
+    transition:border-color .15s;
+  }
+  .RegulatorField:focus{border-color:rgba(176,250,176,.5)}
+  .AxisRow{display:flex;gap:8px}
+  .AxisField{
+    width:100%;background:var(--bg-input);border:1px solid var(--border-entry);
+    border-radius:.5rem;padding:6px 8px;font-size:12px;font-family:var(--mono);
+    text-align:center;outline:none;transition:border-color .15s;
+  }
+  .AxisField.AxisX{color:#facc15}
+  .AxisField.AxisX:focus{border-color:rgba(250,204,21,.5)}
+  .AxisField.AxisY{color:#4ade80}
+  .AxisField.AxisY:focus{border-color:rgba(74,222,128,.5)}
+  .AxisField.AxisZ{color:#60a5fa}
+  .AxisField.AxisZ:focus{border-color:rgba(96,165,250,.5)}
 
-  /* ── per-entry preview ── */
-  .EntryPreview{
-    margin-top:8px;width:100%;height:auto;aspect-ratio:1/1;
-    background:#08080a;border:1px solid var(--border-soft);border-radius:12px;
-    display:block;cursor:pointer;image-rendering:auto;
+  .SweepField{
+    -webkit-appearance:none;appearance:none;width:100%;height:6px;
+    background:var(--bg-raise);border-radius:.5rem;outline:none;cursor:pointer;margin-top:8px;
   }
-  .EntryPreview:hover{border-color:var(--border-hover)}
-  .EntryPreview.Stale{opacity:.4}
-
-  .PortStud{
-    position:absolute;width:12px;height:12px;border-radius:50%;
-    border:2.5px solid var(--bg-entry);cursor:crosshair;
+  .SweepField::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:14px;height:14px;
+    border-radius:9999px;background:var(--accent);cursor:pointer;
   }
-  .PortStud:hover{transform:scale(1.34)}
-  .PortStud.Inviting{box-shadow:0 0 0 4px rgba(176,250,176,.28)}
-  .PortStud.Refusing{opacity:.22}
-
-  .SurfaceFoot{
-    height:var(--footer-h);flex:0 0 var(--footer-h);
-    background:var(--bg-head);border-top:1px solid var(--border);
-    display:flex;align-items:center;padding:0 11px;gap:13px;
-    font-family:var(--mono);font-size:10px;color:var(--text-faint);
-  }
-  .SurfaceFoot b{color:var(--text-dim);font-weight:500}
-
-  /* ══════════ VIEWPORT (RIGHT HALF) ══════════ */
-  /* 🔴 50/50: .Middle and .Viewing are both flex:1 with min-width:0. Without min-width:0 a flex child
-     refuses to shrink below its content and the split silently drifts off even. */
-  .Viewing{
-    flex:1;min-width:0;min-height:0;background:var(--bg-panel);
-    border-left:1px solid var(--border);display:flex;flex-direction:column;
-  }
-  #ResolveFrame{
-    flex:1;min-height:0;width:100%;
-    background:#08080a;display:block;cursor:grab;touch-action:none;
-  }
-  #ResolveFrame:active{cursor:grabbing}
-
-  /* 📝 The march/weather strip is a drawer, not a permanent column — it would otherwise eat the
-     viewport that the 50/50 split exists to give back. */
-  .MarchDrawer{
-    flex:0 0 auto;max-height:38%;overflow-y:auto;
-    border-top:1px solid var(--border);background:var(--bg-panel);
-  }
-  .MarchDrawer.Shut{display:none}
-
-  .ViewFoot{
-    height:var(--footer-h);flex:0 0 var(--footer-h);
-    background:var(--bg-head);border-top:1px solid var(--border);
-    display:flex;align-items:center;padding:0 11px;gap:10px;
-    font-family:var(--mono);font-size:10px;color:var(--text-faint);
-  }
-  .ViewFoot b{color:var(--text-dim);font-weight:500}
-  .FootAct{
-    font-family:var(--mono);font-size:9.5px;color:var(--text-dim);
-    background:var(--bg-raise);border:1px solid var(--border);
-    border-radius:6px;padding:3px 9px;cursor:pointer;
-  }
-  .FootAct:hover{border-color:var(--border-hover);color:var(--text)}
-  .FootAct.Live{color:var(--accent);border-color:#33443a}
-
-  .DialRow{padding:6px 12px 9px}
-  .DialHead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
-  .DialNaming{font-size:10.5px;color:var(--text-dim);display:flex;align-items:center;gap:5px}
-  .DialValue{font-family:var(--mono);font-size:10px;color:var(--text)}
-
-  .DialMark{
-    font-family:var(--mono);font-size:8px;padding:1px 4px;border-radius:4px;
-    text-transform:uppercase;letter-spacing:.04em;
-  }
-  .DialMark.Cited{background:rgba(62,207,142,.14);color:var(--good)}
-  .DialMark.Tuned{background:rgba(232,182,74,.15);color:var(--warn)}
-  .DialMark.Hazard{background:rgba(232,86,74,.15);color:var(--bad)}
-
-  .DialSlider{
-    -webkit-appearance:none;appearance:none;width:100%;height:3px;
-    background:#2a2a2e;border-radius:2px;outline:none;cursor:pointer;
-  }
-  .DialSlider::-webkit-slider-thumb{
-    -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
-    background:#f4f4f5;cursor:grab;
-  }
-  .DialSlider::-webkit-slider-thumb:active{cursor:grabbing}
-
-  .PanelDivide{
-    margin:5px 12px 2px;padding-top:9px;border-top:1px solid var(--border-soft);
-    font-size:9.5px;font-weight:700;color:var(--text-faint);
-    text-transform:uppercase;letter-spacing:.09em;
+  .SweepField::-moz-range-thumb{
+    width:14px;height:14px;border:none;border-radius:9999px;background:var(--accent);cursor:pointer;
   }
 
-  /* ══════════ BOOT ══════════ */
+  .RadialDial{
+    width:48px;height:48px;border-radius:9999px;border:2px solid var(--border-entry);
+    margin:8px auto 0;position:relative;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .DialPivot{width:6px;height:6px;background:var(--accent);border-radius:9999px;z-index:10}
+  .DialNeedle{
+    position:absolute;top:50%;left:50%;width:50%;height:2px;
+    background:var(--accent);transform-origin:0% 50%;
+  }
+
+  .MathPinColumn{
+    position:absolute;top:0;bottom:0;display:flex;flex-direction:column;
+    justify-content:center;gap:12px;
+  }
+  .MathPinColumn.Inbound{left:0;transform:translateX(-12px)}
+  .MathPinColumn.Outbound{right:0;transform:translateX(12px)}
+  .MathPinColumn .PinDot{margin:0}
+
+  /* ══════════════════ TOP BAR ══════════════════ */
+
+  .TopBar{
+    position:absolute;top:24px;left:0;right:0;padding:0 32px;
+    display:flex;flex-direction:column;align-items:center;
+    z-index:20;pointer-events:none;
+  }
+  .TopRow{display:flex;align-items:center;justify-content:space-between;width:100%}
+  .TopFlank{width:180px;display:flex;align-items:center}
+  .TopFlank.Trailing{justify-content:flex-end;position:relative;pointer-events:auto}
+
+  .PillCluster{
+    display:flex;align-items:center;padding:6px;gap:4px;
+    background:rgba(22,22,26,.8);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);border-radius:9999px;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);pointer-events:auto;
+  }
+  .ClusterAnchor{position:relative}
+  .NavAction{
+    position:relative;padding:10px;border-radius:9999px;
+    display:flex;align-items:center;justify-content:center;
+    color:#888;transition:background .15s,color .15s;
+  }
+  .NavAction:hover{color:#fff;background:var(--bg-raise)}
+  .NavAction.Chosen{color:#111;background:#fff}
+  .NavAction.Chosen:hover{color:#111;background:#fff}
+  .NavAction.Running{color:var(--accent);background:rgba(176,250,176,.2)}
+  .ClusterRule{width:1px;height:24px;background:var(--border-soft);margin:0 4px}
+
+  /* 📝 The shell is the dismissal boundary: it wraps the trigger AND the pane, so `pointerleave` on it
+        fires only on a genuine exit from the pair — not on the trip from button to pane. Sized to its
+        contents and pointer-transparent so it never swallows a canvas drag; the button and pane each
+        take their own pointer-events back. */
+  .SettingsShell{position:relative}
+
+  /* 📝 In the viewport the shell must hug the button + pane rather than fill the frame — stretched to
+        `inset:0` it would only report a leave at the frame edge, which is the very bug being fixed.
+        Both children are absolute, so the shell would collapse to 0x0 and never report a leave at all;
+        it is given explicit bounds spanning the button (top 24) down past the open pane, widened a
+        little past the 256px pane so the pointer gets a margin before dismissal. Pointer-transparent
+        so the canvas underneath still receives drags. */
+  .ViewportFrame > .SettingsShell{
+    position:absolute;top:0;left:0;width:304px;height:calc(80vh + 96px);max-height:100%;
+    pointer-events:none;z-index:20;
+  }
+  .ViewportFrame > .SettingsShell > *{pointer-events:auto}
+
+  /* Collapsed to just the button's reach while the pane is shut, so a shut pane's footprint is not a
+     dead zone hovering over the canvas. */
+  .ViewportFrame > .SettingsShell.Shut{width:80px;height:80px}
+
+  /* 📝 Cards open by transitioning opacity + a small lift/scale off the anchored corner, the way the
+        UVEditor popups do. Kept off `display` so both the reveal and the dismissal animate — a
+        display flip would snap straight to the end state with no tween to watch. */
+  .SettingsPane{
+    position:absolute;top:100%;margin-top:8px;right:0;width:208px;
+    background:rgba(22,22,26,.95);
+    -webkit-backdrop-filter:blur(48px);backdrop-filter:blur(48px);
+    border:1px solid var(--border);border-radius:.75rem;padding:8px;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);
+    display:flex;flex-direction:column;gap:4px;
+    opacity:0;pointer-events:none;
+    transform:translateY(-6px) scale(.97);transform-origin:top right;
+    transition:opacity .14s var(--ease),transform .14s var(--ease);
+  }
+  .SettingsPane.Open{opacity:1;pointer-events:auto;transform:translateY(0) scale(1)}
+  .ToggleRow{
+    width:100%;display:flex;align-items:center;justify-content:space-between;
+    padding:8px 12px;font-size:14px;color:var(--text-dim);
+    border-radius:.5rem;transition:background .15s,color .15s;
+  }
+  .ToggleRow:hover{color:#fff;background:var(--bg-raise)}
+  /* 📝 The ControlsPreview switch, scaled from its 56x32 to 36x20 — the 3px nub inset is kept as a ratio
+        so the nub still sits visually centred in the track. Its `left` transition is preserved rather
+        than swapped for a transform: the travel is then stated as the two endpoint positions, which is
+        what makes the off state read as flush against the track wall. */
+  .ToggleTrack{
+    flex:0 0 auto;width:36px;height:20px;border-radius:9999px;position:relative;
+    background:var(--track-bg);transition:background .15s;
+  }
+  .ToggleTrack.Engaged{background:var(--accent)}
+  .ToggleKnob{
+    position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:9999px;
+    background:var(--knob-face);transition:left .15s var(--ease);box-shadow:0 1px 3px rgba(0,0,0,.5);
+  }
+  .ToggleTrack.Engaged .ToggleKnob{left:18px}
+  .PaneRule{height:1px;width:100%;background:var(--border-soft);margin:4px 0}
+
+  /* ══════════════════ PROGRESS · CONTROLS ══════════════════ */
+
+  .ProgressPill{
+    position:absolute;bottom:24px;left:24px;z-index:20;
+    background:rgba(22,22,26,.8);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);border-radius:9999px;
+    padding:6px 12px;display:flex;align-items:center;gap:12px;
+    box-shadow:0 20px 25px -5px rgba(0,0,0,.5);
+  }
+  .ProgressStack{display:flex;flex-direction:column;gap:2px;min-width:70px}
+  .ProgressRow{display:flex;align-items:center;justify-content:space-between}
+  .ProgressNaming{
+    color:var(--text-dim);font-size:8px;font-weight:600;
+    letter-spacing:.025em;text-transform:uppercase;
+    max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .ProgressTally{font-size:8px;font-weight:500;color:var(--text-mid)}
+  .ProgressTally.Failed{color:var(--bad-hi)}
+  .ProgressTrack{width:100%;height:4px;background:#2a2a2e;border-radius:9999px;overflow:hidden}
+  .ProgressFill{height:100%;border-radius:9999px;background:#fff;transition:width .5s}
+  .ProgressFill.Building{background:var(--accent)}
+  .ProgressFill.Failed{background:var(--bad)}
+
+  .ControlStack{
+    position:absolute;bottom:24px;right:24px;z-index:20;
+    display:flex;flex-direction:column;gap:6px;padding:6px;
+    background:rgba(22,22,26,.8);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);border-radius:9999px;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);
+  }
+  .ControlAction{
+    width:32px;height:32px;border-radius:9999px;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-mid);transition:background .15s,color .15s;
+  }
+  .ControlAction:hover{color:#fff;background:var(--bg-raise)}
+  .ControlAction.Engaged{color:#fbbf24;background:var(--bg-raise)}
+  .ControlRule{width:20px;height:1px;background:var(--border-soft);margin:2px auto}
+
+  .SideHint{position:relative;display:flex;align-items:center;justify-content:center}
+  .SideHint::after{
+    content:attr(data-hint);position:absolute;
+    background:#2c2c2f;color:#e5e7eb;font-size:12px;font-weight:500;
+    padding:6px 12px;border-radius:9999px;white-space:nowrap;
+    border:1px solid var(--border-pill);box-shadow:0 10px 20px rgba(0,0,0,.5);
+    opacity:0;pointer-events:none;transition:opacity .15s;z-index:100;
+  }
+  .SideHint:hover::after{opacity:1}
+  .SideHint.HintLeading::after{right:100%;margin-right:16px;top:50%;transform:translateY(-50%)}
+  .SideHint.HintTrailing::after{left:100%;margin-left:16px;top:50%;transform:translateY(-50%)}
+  .SideHint.HintBelow::after{top:100%;margin-top:8px;left:50%;transform:translateX(-50%)}
+  .SideHint.HintAbove::after{bottom:100%;margin-bottom:8px;left:50%;transform:translateX(-50%)}
+
+  /* ══════════════════ CONTEXT MENU ══════════════════ */
+
+  .MenuScreen{position:fixed;inset:0;z-index:40}
+
+  .CatalogueMenu{
+    position:fixed;z-index:50;width:256px;
+    background:rgba(22,22,26,.95);
+    -webkit-backdrop-filter:blur(48px);backdrop-filter:blur(48px);
+    border:1px solid var(--border);border-radius:1.5rem;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.8);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  .MenuSearchRegion{padding:12px;border-bottom:1px solid var(--border);background:rgba(26,26,28,.5)}
+  .MenuSearchField{
+    display:flex;align-items:center;gap:8px;padding:6px 8px;
+    background:rgba(44,44,48,.5);border-radius:.75rem;
+    border:1px solid rgba(60,60,64,.5);transition:border-color .15s;
+  }
+  .MenuSearchField:focus-within{border-color:rgba(176,250,176,.5)}
+  .MenuSearchField input{
+    background:transparent;border:none;outline:none;
+    font-size:12px;color:#e5e7eb;width:100%;
+  }
+  .MenuSearchField input::placeholder{color:var(--text-faint)}
+
+  .MenuRoster{overflow-y:auto;flex:1;max-height:350px;padding:8px}
+  .MenuVacant{padding:16px;text-align:center;font-size:12px;color:var(--text-faint)}
+
+  .CategoryFold{display:flex;flex-direction:column}
+  .CategoryPill{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:8px;border-radius:1rem;transition:background .15s;
+  }
+  .CategoryPill:hover{background:var(--bg-raise)}
+  .CategoryNaming{display:flex;align-items:center;gap:12px;color:var(--text-mid);transition:color .15s}
+  .CategoryPill:hover .CategoryNaming{color:#fff}
+  .CategoryNaming span{font-size:13px;font-weight:500}
+  .FoldChevron{color:var(--text-faint);display:flex;align-items:center}
+
+  .CatalogueItems{padding:4px 4px 4px 36px;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .CatalogueItem{
+    width:100%;display:flex;align-items:center;justify-content:space-between;
+    padding:8px;border-radius:.75rem;color:var(--text-faint);
+    transition:background .15s,color .15s;
+  }
+  .CatalogueItem:hover{background:var(--bg-raise);color:#fff}
+  .CatalogueItem span{font-size:12px;font-weight:500;letter-spacing:.025em}
+  .ItemAdd{opacity:0;transition:opacity .15s;display:flex;align-items:center}
+  .CatalogueItem:hover .ItemAdd{opacity:1}
+
+  .EntryMenu{
+    position:fixed;z-index:50;background:rgba(22,22,26,.95);
+    -webkit-backdrop-filter:blur(48px);backdrop-filter:blur(48px);
+    border:1px solid var(--border);border-radius:.75rem;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.8);
+    display:flex;flex-direction:column;overflow:hidden;padding:4px 0;
+  }
+  .EntryMenuAction{
+    padding:8px 16px;font-size:14px;color:var(--text-dim);
+    text-align:left;min-width:160px;transition:background .15s,color .15s;
+  }
+  .EntryMenuAction:hover{color:#fff;background:var(--bg-raise)}
+
+  /* ══════════════════ VIEWPORT CHROME ══════════════════ */
+
+  .ViewportFrame{width:100%;height:100%;position:relative;background:var(--bg-viewport)}
+  .ViewportFrame canvas{display:block;width:100%;height:100%}
+
+  .ViewportSettingsAnchor{position:absolute;top:24px;left:24px;z-index:20}
+  .RoundAction{
+    padding:10px;border-radius:9999px;display:flex;align-items:center;justify-content:center;
+    border:1px solid var(--border);background:rgba(22,22,26,.95);color:var(--text-mid);
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  .RoundAction:hover{color:#fff;background:var(--bg-raise)}
+  .RoundAction.Engaged{background:#fff;color:#000;border-color:#fff}
+
+  .ViewportSettingsPane{
+    position:absolute;top:64px;left:24px;width:256px;max-height:80vh;overflow-y:auto;
+    background:rgba(22,22,26,.95);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);border-radius:1rem;padding:16px;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);
+    z-index:20;display:flex;flex-direction:column;gap:8px;color:var(--text-dim);
+    opacity:0;pointer-events:none;
+    transform:translateY(-6px) scale(.97);transform-origin:top left;
+    transition:opacity .14s var(--ease),transform .14s var(--ease);
+  }
+  .ViewportSettingsPane.Open{opacity:1;pointer-events:auto;transform:translateY(0) scale(1)}
+
+  /* 📝 A caption is the fold handle for the section that follows it. The chevron rotates and the body
+        eases its max-height to 0 — the same two-property move the UVEditor transform section makes.
+        Max-height is seeded from JS scrollHeight, since a CSS keyword can't be transitioned. */
+  .PaneCaption{
+    display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+    border-bottom:1px solid var(--border);padding-bottom:8px;
+    transition:color .15s;
+  }
+  .PaneCaption:hover .PaneNaming{color:#fff}
+  .PaneCaption:hover .FoldChevron{color:#fff}
+  /* 📝 Scoped to the label rather than every span: as a bare `span` rule this also claimed the glyph
+        and the chevron, overriding the colours set for them further down. */
+  .PaneCaption .PaneNaming{font-size:14px;font-weight:600;color:#f3f4f6}
+  .PaneCaption .Glyph{color:var(--accent);display:flex;align-items:center}
+  .PaneCaption .FoldChevron{
+    margin-left:auto;display:flex;align-items:center;color:var(--text-mid);
+    transition:transform .2s var(--ease),color .15s;
+  }
+  .PaneCaption.Folded .FoldChevron{transform:rotate(-90deg)}
+  .PaneSection{
+    display:flex;flex-direction:column;gap:16px;overflow:hidden;
+    padding-top:8px;
+    transition:max-height .25s var(--ease),opacity .2s,padding-top .25s var(--ease);
+  }
+  .PaneCaption.Folded + .PaneSection{max-height:0!important;opacity:0;padding-top:0}
+  /* The pane scrolls itself, so a section must never win a scrollbar of its own mid-fold. */
+  .PaneSection{scrollbar-width:none}
+  .DialGroup{display:flex;flex-direction:column;gap:6px}
+  .DialNaming{font-size:12px;color:var(--text-mid)}
+  .SplitChoice{display:flex;gap:8px}
+  .ChoiceAction{
+    flex:1;padding:4px 8px;border-radius:.5rem;font-size:12px;
+    background:var(--bg-raise);color:var(--text-dim);transition:background .15s,color .15s;
+  }
+  .ChoiceAction:hover{background:var(--bg-raise-hi)}
+  .ChoiceAction.Chosen{background:#fff;color:#000}
+  .DialSelect{
+    width:100%;background:var(--bg-raise);border:1px solid var(--border-soft);
+    border-radius:.5rem;padding:4px 8px;font-size:12px;color:#fff;outline:none;
+  }
+  .DialSelect:focus{border-color:rgba(176,250,176,.5)}
+  /* 📝 Sweep and Switch are ported from ControlsPreview.html so the editor's dials match the component
+        vocabulary rather than the browser's. The construction is kept verbatim — pill track, inset fill,
+        floating knob, white hairline outline — while the metrics are scaled to this 256px pane, since
+        ControlsPreview is drawn against a 20px base font and its 36px track would swamp the card.
+        A hand-built track also replaces `input[type=range]`, whose thumb cannot be styled consistently
+        across engines and whose fill has no standard at all. */
+  .SweepRow{display:flex;align-items:center;gap:8px}
+  .Sweep{
+    position:relative;flex:1;min-width:0;height:20px;
+    background:#000;border:1px solid var(--outline-hair);border-radius:9999px;
+    cursor:pointer;touch-action:none;
+  }
+  .SweepFill{
+    position:absolute;left:0;top:0;bottom:0;
+    background:var(--track-fill);border-radius:9999px;pointer-events:none;
+  }
+  .SweepKnob{
+    position:absolute;top:50%;width:16px;height:16px;background:var(--knob-face);
+    border-radius:9999px;transform:translate(-50%,-50%);
+    box-shadow:0 2px 6px rgba(0,0,0,.5);pointer-events:none;
+    transition:transform .12s var(--ease);
+  }
+  .Sweep:active .SweepKnob{transform:translate(-50%,-50%) scale(1.12)}
+
+  /* The split value box: black number segment, grey unit segment, one hairline pill around both. */
+  .ValueBox{
+    flex:0 0 auto;display:flex;align-items:stretch;height:20px;
+    border:1px solid var(--outline-hair);border-radius:9999px;overflow:hidden;
+  }
+  .ValueNumber{
+    background:var(--value-black);display:flex;align-items:center;justify-content:flex-end;
+    padding:0 5px;cursor:text;
+  }
+  .ValueNumber:focus-within{box-shadow:0 0 0 1px var(--accent) inset}
+  .ValueNumber input{
+    background:none;border:none;outline:none;color:#f2f2f4;
+    font:500 11px/1 inherit;text-align:right;width:34px;
+    font-variant-numeric:tabular-nums;-moz-appearance:textfield;
+  }
+  .ValueNumber input::-webkit-outer-spin-button,
+  .ValueNumber input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .ValueUnit{
+    background:var(--value-unit);color:var(--text-mid);
+    display:flex;align-items:center;justify-content:center;
+    padding:0 5px;font-size:10px;min-width:20px;
+  }
+
+  .ShadingBar{
+    position:absolute;bottom:24px;left:50%;transform:translateX(-50%);
+    padding:6px;display:flex;flex-direction:row;align-items:center;gap:4px;
+    background:rgba(22,22,26,.95);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    border:1px solid var(--border);border-radius:9999px;
+    box-shadow:0 25px 50px -12px rgba(0,0,0,.7);z-index:20;
+  }
+  .ShadingAction{
+    padding:8px;border-radius:9999px;color:var(--text-mid);
+    display:flex;align-items:center;justify-content:center;transition:background .15s,color .15s;
+  }
+  .ShadingAction:hover{color:#fff;background:var(--bg-raise)}
+  .ShadingAction.Chosen{background:#fff;color:#000}
+  .ShadingRule{width:1px;height:20px;background:var(--border-soft);margin:0 4px}
+
+
+  /* ══════════════════════════════════════════════════════════════════════════════════════════════
+                                     ROCKFORMATION ADDITIONS
+     ══════════════════════════════════════════════════════════════════════════════════════════════
+     📝 Everything above this line is NodeFlowEditor's stylesheet, verbatim. Everything below is a
+        rule the reference has no equivalent for. Nothing here re-declares a reference selector, so
+        the reference appearance is not being overridden — it is being extended.                  */
+
+  /* ── port dots, keyed by RockFormation's six categories ──
+     📝 The reference's .DotFloat/.DotVec3/... stay defined above and simply go unused; keeping them
+        costs nothing and means the dormant compact forms still render if enabled. */
+  .DotScalar{background:var(--port-scalar)}
+  .DotDistance{background:var(--port-distance)}
+  .DotResistance{background:var(--port-resistance)}
+  .DotWarp{background:var(--port-warp)}
+  .DotTint{background:var(--port-tint)}
+  .DotWeather{background:var(--port-weather)}
+
+  /* ── family glyph plates, keyed by RockFormation's seven families ── */
+  .GlyphMass{background:rgba(85,218,85,.18);color:#7ee87e}
+  .GlyphResistance{background:rgba(218,170,85,.18);color:#e8c07e}
+  .GlyphWeather{background:rgba(85,218,218,.18);color:#7ee8e8}
+  .GlyphWarp{background:rgba(163,85,218,.18);color:#c07ee8}
+  .GlyphCombination{background:rgba(244,63,94,.18);color:#fb7185}
+  .GlyphTint{background:rgba(218,85,163,.18);color:#e87ec0}
+  .GlyphResolve{background:rgba(176,250,176,.18);color:var(--accent)}
+
+  /* ── the species badge, beside the family glyph ──
+     📝 Two species of one family share a glyph plate, so the badge is what keeps them apart once a
+        card is folded down to its head. */
+  .SpeciesBadge{
+    font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;
+    color:var(--text-faint);border:1px solid var(--border);
+    border-radius:4px;padding:1px 4px;white-space:nowrap;
+  }
+
+  /* ── an optional intake reads dimmer than a required one ── */
+  .PinOptional{color:var(--text-ghost);font-style:italic}
+
+  /* ── live dials on the card ──
+     📝 The reference had no per-card dials at all (its sliders live in the viewport pane), so the
+        whole rack is new. Grid rather than flex: the label and readout columns then align down the
+        whole stack instead of each row sizing itself. */
+  .DialRegion{
+    display:flex;flex-direction:column;gap:2px;
+    padding:8px 16px 4px;border-top:1px solid var(--border);
+  }
+  .DialRow{
+    display:grid;grid-template-columns:62px 1fr 52px;align-items:center;gap:8px;
+  }
+  .DialLabel{
+    font-size:10px;color:var(--text-mid);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .DialReadout{
+    font-family:var(--mono);font-size:9.5px;color:var(--text-dim);text-align:right;
+  }
+  .DialUnit{color:var(--text-ghost);margin-left:2px}
+
+  /* 🔴 The slider must not let its drag reach the card. A pointerdown on the card begins a MOVE, so
+        without an explicit stop the first pixel of every dial drag drags the card instead. The
+        surface stops it by event target, but the cursor has to say so too or it reads as a bug. */
+  .DialSweep{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:3px;border-radius:9999px;
+    background:var(--track-bg);outline:none;cursor:ew-resize;
+  }
+  .DialSweep::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:11px;height:11px;border-radius:9999px;
+    background:var(--knob-face);cursor:ew-resize;border:0;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4);
+  }
+  .DialSweep::-moz-range-thumb{
+    width:11px;height:11px;border-radius:9999px;
+    background:var(--knob-face);cursor:ew-resize;border:0;
+  }
+
+  /* ── per-card WebGPU thumbnail ──
+     📝 aspect-ratio, not a fixed height: the canvas backing store is sized by the host from the
+        rendered box, so a hard height would fight the device pixel ratio. */
+  .PreviewPlate{padding:4px 16px 14px}
+  .PreviewCanvas{
+    display:block;width:100%;aspect-ratio:1/1;
+    background:#08080a;border:1px solid var(--border);
+    border-radius:.75rem;cursor:pointer;
+  }
+  .PreviewCanvas:hover{border-color:var(--border-hover)}
+  .PreviewCanvas.Stale{opacity:.4}
+
+  /* 🔴 A folded card must KEEP its port dots in the DOM. ResolvePortAnchor reads the live DOM, so a
+        removed dot is an unroutable link — every edge touching a folded card would silently vanish.
+        The stub is zero-height and clipped, holding the dots at the card's edge where the links
+        already expect them. */
+  .FoldedStubs{
+    position:absolute;left:0;right:0;top:50%;height:0;
+    overflow:visible;pointer-events:none;
+  }
+  .FoldedStubs .PinDot{position:absolute;pointer-events:auto}
+  .FoldedStubs .PinDot.Inbound{left:-6px}
+  .FoldedStubs .PinDot.Outbound{right:-6px}
+
+  /* ── boot plate ── */
   #BootPlate{
-    position:fixed;inset:0;background:#050506;z-index:90;
+    position:fixed;inset:0;background:var(--bg-canvas);z-index:90;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
-    font-family:var(--mono);font-size:11px;color:var(--text-dim);
+    font-family:var(--mono);font-size:11px;color:var(--text-mid);
   }
   #BootPlate.Away{display:none}
   .BootLine{opacity:.82}
-  .BootLine.bad{color:var(--bad)}
-  .BootLine.good{color:var(--good)}
+  .BootLine.bad{color:var(--bad-hi)}
+  .BootLine.good{color:var(--accent)}
 
+  /* ── notice rail ── */
   #NoticeRail{
-    position:fixed;bottom:38px;left:50%;transform:translateX(-50%);
+    position:fixed;bottom:76px;left:50%;transform:translateX(-50%);
     z-index:80;display:flex;flex-direction:column;gap:5px;align-items:center;
     pointer-events:none;
   }
   .Notice{
-    font-family:var(--mono);font-size:10.5px;padding:6px 13px;border-radius:8px;
-    background:rgba(19,19,21,.95);border:1px solid var(--border-entry);
+    font-family:var(--mono);font-size:10.5px;padding:6px 13px;border-radius:9999px;
+    background:rgba(22,22,26,.95);border:1px solid var(--border);
     color:var(--text);backdrop-filter:blur(12px);
   }
-  .Notice.bad{border-color:rgba(232,86,74,.5);color:#ffb0a8}
-  .Notice.good{border-color:rgba(62,207,142,.45);color:#9ff0c8}
+  .Notice.bad{border-color:rgba(239,68,68,.5);color:var(--bad-hi)}
+  .Notice.good{border-color:rgba(176,250,176,.45);color:var(--accent)}
+
+  /* ── the readouts that used to live in the two footers ──
+     📝 Relocated into the reference's ProgressPill idiom rather than dropped. StampTag is the
+        topology stamp; the three tallies are what prove a transcription actually happened. */
+  .FootTally{
+    display:flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:9px;color:var(--text-mid);white-space:nowrap;
+  }
+  .FootTally b{color:var(--text);font-weight:500}
+  .FootRule{width:1px;height:16px;background:var(--border-soft)}
+  .FootStamp{
+    font-family:var(--mono);font-size:8px;color:var(--text-ghost);
+    max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
 </style>
 </head>
 <body>
 
-<div class="TopBar">
-  <span class="TopNaming">Frontier <b>·</b> Rock Formation Construction Tree</span>
-  <span class="TopTag" id="StampTag">—</span>
-  <span class="TopSpacer"></span>
-  <div class="ResolveTabs" id="ResolveTabs">
-    <button class="ResolveTab Live" data-mode="0">full</button>
-    <button class="ResolveTab" data-mode="1">resistance</button>
-    <button class="ResolveTab" data-mode="2">normal</button>
-    <button class="ResolveTab" data-mode="3">steps</button>
+<div class="GraphRegion" id="GraphRegion">
+  <div class="PanSurface" id="PanSurface">
+    <div class="TransformPlane" id="TransformPlane">
+      <svg class="EdgeCanvas" id="EdgeCanvas"></svg>
+      <div id="EntryPlane"></div>
+    </div>
+    <div class="SelectionBand" id="SelectionBand" style="display:none"></div>
   </div>
-</div>
 
-<div class="Body">
+  <div class="TopBar">
+    <div class="TopRow">
+      <div class="TopFlank"></div>
 
-  <aside class="Catalogue" id="CatalogueRoot">
-    <div class="PanelBand">Catalogue</div>
-    <input id="CatalogueSearch" placeholder="search species…" spellcheck="false">
-    <div id="CatalogueListing"></div>
-  </aside>
+      <div class="ClusterAnchor">
+        <div class="PillCluster">
+          <div class="SideHint HintBelow" data-hint="Simulate" id="SimulateHint">
+            <button class="NavAction" id="SimulateAction"></button>
+          </div>
+          <div class="ClusterRule"></div>
+          <div class="SideHint HintBelow" data-hint="Restart from year zero">
+            <button class="NavAction" id="SimRestart"></button>
+          </div>
+          <div class="SideHint HintBelow" data-hint="Bake at 256&sup3;">
+            <button class="NavAction" id="SimBake"></button>
+          </div>
+        </div>
+      </div>
 
-  <main class="Middle">
-    <div id="TreeCanvas">
-      <div id="TreeViewport">
-        <svg id="LinkLayer"></svg>
-        <div id="CardLayer"></div>
+      <div class="TopFlank Trailing">
+        <div class="SettingsShell" id="ChromeSettingsShell">
+          <div class="PillCluster">
+            <div class="SideHint HintBelow" data-hint="Settings">
+              <button class="NavAction" id="ChromeSettingsAction"></button>
+            </div>
+          </div>
+          <div class="SettingsPane" id="ChromeSettingsPane">
+            <button class="ToggleRow" id="ViewportToggle">
+              <span>3D Viewport</span>
+              <div class="ToggleTrack Engaged"><div class="ToggleKnob"></div></div>
+            </button>
+            <div class="PaneRule"></div>
+            <button class="ToggleRow" id="ControlsToggle">
+              <span>Canvas Controls</span>
+              <div class="ToggleTrack"><div class="ToggleKnob"></div></div>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-    <div class="SurfaceFoot">
+  </div>
+
+  <!-- 📝 The tree tallies, in the reference's bottom-left pill. FootEntries/FootLinks/FootLines and
+          StampTag keep their ids, so the host's readout writes need no change. -->
+  <div class="ProgressPill" id="ProgressAnchor">
+    <div class="FootTally">
       <span><b id="FootEntries">0</b> entries</span>
       <span><b id="FootLinks">0</b> links</span>
-      <span><b id="FootLines">0</b> emitted lines</span>
-      <span><b id="FootZoom">82%</b></span>
-      <span style="flex:1"></span>
-      <span id="FootState">—</span>
+      <span><b id="FootLines">0</b> lines</span>
+      <span><b id="FootZoom">75%</b></span>
     </div>
-  </main>
+    <div class="FootRule"></div>
+    <span class="FootStamp" id="StampTag">&mdash;</span>
+    <div class="FootRule"></div>
+    <span class="FootTally" id="FootState">&mdash;</span>
+  </div>
 
-  <aside class="Viewing" id="PanelRoot">
-    <canvas id="ResolveFrame" width="808" height="808"></canvas>
-    <div class="MarchDrawer Shut" id="MarchDrawer">
-      <div id="MarchHost"></div>
-    </div>
-    <div class="ViewFoot">
-      <span><b id="FootYears">0</b></span>
-      <span><b id="FootGrid">—</b></span>
-      <span style="flex:1"></span>
-      <button class="FootAct" id="SimRestart" title="reseed the cube and erode again from year zero">restart</button>
-      <button class="FootAct" id="SimBake" title="re-run at 256³ — slower, far more detail">bake</button>
-      <button class="FootAct" id="MarchToggle" title="weather, march and illumination dials">dials</button>
-    </div>
-  </aside>
+  <div id="ControlAnchor"></div>
+</div>
 
+<div class="SplitHandle" id="SplitHandle" title="Drag to resize"><div class="SplitGrip"></div></div>
+
+<div class="ViewportRegion SideRight" id="ViewportRegion">
+  <div class="ViewportFrame" id="ViewportFrame">
+    <canvas id="ResolveFrame"></canvas>
+
+    <div class="SettingsShell Shut" id="ViewportSettingsShell">
+      <div class="ViewportSettingsAnchor">
+        <div class="SideHint HintTrailing" data-hint="Viewport Settings">
+          <button class="RoundAction" id="ViewportSettingsAction"></button>
+        </div>
+      </div>
+
+      <!-- 📝 The march/weather/illumination dials the drawer used to hold. The host builds their rows
+              into #MarchHost, so PanelDials needs no change — only its mount moved. -->
+      <div class="ViewportSettingsPane CustomScroll" id="ViewportSettingsPane">
+        <div class="PaneCaption" data-fold="Simulation">
+          <span class="Glyph" id="DisplayGlyph"></span><span class="PaneNaming">Simulation</span>
+          <span class="FoldChevron"></span>
+        </div>
+        <div class="PaneSection">
+          <div class="DialGroup">
+            <span class="DialNaming">Eroded years</span>
+            <span class="ProgressTally"><b id="FootYears">0</b></span>
+          </div>
+          <div class="DialGroup">
+            <span class="DialNaming">Voxel grid</span>
+            <span class="ProgressTally"><b id="FootGrid">&mdash;</b></span>
+          </div>
+        </div>
+
+        <div class="PaneCaption" data-fold="Dials" style="margin-top:8px">
+          <span class="Glyph" id="EnvironmentGlyph"></span><span class="PaneNaming">Dials</span>
+          <span class="FoldChevron"></span>
+        </div>
+        <div class="PaneSection" id="MarchHost"></div>
+      </div>
+    </div>
+
+    <!-- 📝 The four resolve modes, in the reference's ShadingBar. data-mode is unchanged, so the
+            host's existing .ResolveTab handler still drives them. -->
+    <div class="ShadingBar" id="ResolveTabs">
+      <div class="SideHint HintAbove" data-hint="Full">
+        <button class="ShadingAction ResolveTab Chosen Live" data-mode="0"></button>
+      </div>
+      <div class="SideHint HintAbove" data-hint="Resistance">
+        <button class="ShadingAction ResolveTab" data-mode="1"></button>
+      </div>
+      <div class="SideHint HintAbove" data-hint="Normal">
+        <button class="ShadingAction ResolveTab" data-mode="2"></button>
+      </div>
+      <div class="ShadingRule"></div>
+      <div class="SideHint HintAbove" data-hint="Step count">
+        <button class="ShadingAction ResolveTab" data-mode="3"></button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="NoticeRail"></div>
 
 <div id="BootPlate">
-  <div class="BootLine" id="BootLine0">provisioning WebGPU…</div>
+  <div class="BootLine" id="BootLine0">provisioning WebGPU&hellip;</div>
   <div class="BootLine" id="BootLine1"></div>
   <div class="BootLine" id="BootLine2"></div>
 </div>

@@ -93,8 +93,11 @@ export const ConstructionTranscriber =
             };
         }
 
-        // 📝 The root's shape intake is "mass" — the SEED body, not the finished rock. Renamed from
-        //    "distance" when the erosion sim landed, because what arrives here is no longer what renders.
+        // 🔴 The intake is named "mass", NOT "distance". SurfaceResolve renamed it when the seed stopped
+        //    being the finished shape, and this reader was the one place the rename missed. Asking for
+        //    "distance" matches no link, so the guard below fired on a fully-wired tree and emitted the
+        //    fallback sphere — a rock that renders, from a shader that compiles, with nothing in any log.
+        //    Resolve by a naming the species table actually declares, never by a remembered one.
         const DistanceSource = this.ResolveOperand(TreeState, RootIdentifier, "mass");
         const TintSource     = this.ResolveOperand(TreeState, RootIdentifier, "tint");
 
@@ -113,19 +116,19 @@ export const ConstructionTranscriber =
 
         // ⑥ Resistance body.
         //
-        //    🔴 An EXPLICIT wire to the root's resist intake wins over the discovered one. Resistance is
-        //       no longer decoration: it is the sole reason the eroded shape has the form it has, so it
-        //       must be authorable directly rather than inferred from whatever the shape branch happens
-        //       to consume. Discovery stays as the fallback for a tree that has not wired it.
-        const ExplicitResistance = this.ResolveOperand(TreeState, RootIdentifier, "resist");
+        // 🔴 The ROOT'S OWN "resist" INTAKE IS AUTHORITATIVE and must be read first. The discovery walk
+        //    below starts from the distance source and goes upstream, but resistance is a SEPARATE TREE
+        //    (see PortCategories) — it is never an ancestor of the shape branch, so the walk cannot reach
+        //    it and returned null on a fully-wired tree. Resistance then emitted a constant 0.5, meaning
+        //    uniform hardness: the erosion has no reason to bite one place harder than another, which is
+        //    exactly the flat-wall failure the species table was redesigned to escape. It compiles, it
+        //    renders, and the rock just comes out wrong.
         const ResistanceIdentifier =
-            (ExplicitResistance !== null && TreeState.Entries.has(ExplicitResistance))
-                ? ExplicitResistance
-                : this.DiscoverResistanceSource(TreeState, DistanceSource);
-
+               this.ResolveOperand(TreeState, RootIdentifier, "resist")
+            ?? this.DiscoverResistanceSource(TreeState, DistanceSource);
         const ResistanceLines = [];
         let ResistanceBinding = "0.5";
-        if (ResistanceIdentifier !== null)
+        if (ResistanceIdentifier !== null && TreeState.Entries.has(ResistanceIdentifier))
         {
             ResistanceBinding = this.EmitEntry(
                 TreeState, ResistanceIdentifier, new Map(), ResistanceLines, new Set());
@@ -168,133 +171,97 @@ ${TintBody}
         };
     },
 
-    // 📝 Transcribe ONE entry as the whole subject, for the per-card preview. Same EmitEntry walk, a
-    //    different root — a preview is "what does the tree look like if it stopped here".
+    // ⑥ One CARD's own thumbnail: the same three entry points, but rooted at an arbitrary entry instead
+    //    of at SurfaceResolve. That is the whole difference -- a preview shows what this entry alone
+    //    produces, so the walk starts here and goes upstream, and whatever is downstream is not its
+    //    business.
     //
-    //    🔴 An entry that does not yield Distance has no silhouette of its own. Rather than refuse, the
-    //       preview shows that value PAINTED ON a reference block: a resistance field or a tint is a
-    //       function of position, so it is only visible on some surface. Showing an empty frame instead
-    //       would read as "this entry is broken" when it is working exactly as designed.
-    TranscribeEntry(TreeState, EntryIdentifier)
+    //    🔴 RETURNS Source: null FOR ANYTHING THAT IS NOT A SURFACE. A Tint or Warp or Resistance card has
+    //       no shape to sphere-trace -- vec3f is not a distance. Emitting one anyway yields a shader that
+    //       compiles and a thumbnail that is uniformly one colour, which reads as "the preview is broken"
+    //       rather than "this card has no surface". The caller skips the pipeline entirely on null.
+    //
+    //    🔴 A BYPASSED entry still previews. Bypass forwards an operand rather than deleting the branch,
+    //       so its thumbnail should show what it forwards; EmitEntry already implements exactly that, so
+    //       this must not special-case it.
+    TranscribeEntry(TreeState, Identifier)
     {
-        if (!TreeState.Entries.has(EntryIdentifier))
-        {
-            return { Source: this.ComposeFallback("no such entry"), LineTally: 0, Painted: false };
-        }
+        if (!TreeState.Entries.has(Identifier)) return { Source: null, LineTally: 0 };
 
-        const Entry = TreeState.Entries.get(EntryIdentifier);
+        const Entry         = TreeState.Entries.get(Identifier);
         const Specification = ConstructionSpecificationTable[Entry.Species];
-        const Yields = Specification.Yields;
 
-        // 🔴 A Weather entry is a DISPATCH, not a function of position — EmitEntry has no expression to
-        //    emit for it. Previewing one means previewing the erosion it performs, which is the live
-        //    viewport, not a thumbnail. Refuse here rather than emitting a broken shader.
-        if (Yields === "Weather" || Specification.Family === "Resolve")
-        {
-            return { Source: null, LineTally: 0, Painted: false, Refused: Yields === "Weather"
-                ? "a weather process has no shape of its own — watch it in the viewport"
-                : "the resolve root IS the viewport" };
-        }
+        // The preview sphere-traces a distance field. Only a Distance-yielding entry has one.
+        if (!Specification || Specification.Yields !== "Distance") return { Source: null, LineTally: 0 };
 
-        const Lines = [];
-        const Binding = this.EmitEntry(TreeState, EntryIdentifier, new Map(), Lines, new Set());
-        const Shaped = Yields === "Distance";
+        const DistanceLines = [];
+        const DistanceBinding = this.EmitEntry(
+            TreeState, Identifier, new Map(), DistanceLines, new Set());
 
-        // 📝 The reference block is the domain cube the sim seeds from, so a resistance preview shows the
-        //    field on the same body the erosion will actually read it on.
-        const DistanceBody = Shaped
-            ? `${Lines.join("\n")}\n    return ${Binding};`
-            : `    return DistanceToRoundedBox(Probe, vec3f(1.5), 0.12);`;
-
-        // 📝 Scalars land in resistance so the resistance resolve mode shows them; warp and tint have no
-        //    scalar reading, so they hold the neutral 0.5 and are seen through the tint body instead.
-        const ResistanceBody = (Yields === "Resistance" || Yields === "Scalar")
-            ? `${Lines.join("\n")}\n    return clamp(${Binding}, 0.0, 1.0);`
-            : `    return 0.5;`;
-
-        let TintBody;
-        if (Yields === "Tint")
+        // 📝 Resistance is a SEPARATE tree and is never an ancestor of the shape branch, so the walk from
+        //    this entry cannot reach it. Discovering it upstream is the same accommodation Transcribe()
+        //    makes; a preview with uniform 0.5 hardness is acceptable where the viewport's is not, because
+        //    the thumbnail shows shape rather than differential weathering.
+        const ResistanceIdentifier = this.DiscoverResistanceSource(TreeState, Identifier);
+        const ResistanceLines = [];
+        let   ResistanceBinding = "0.5";
+        if (ResistanceIdentifier !== null && TreeState.Entries.has(ResistanceIdentifier))
         {
-            TintBody = `${Lines.join("\n")}\n    return ${Binding};`;
-        }
-        else if (Yields === "Warp")
-        {
-            // 📝 A warp yields a displaced POSITION, so show the displacement itself as colour — the
-            //    difference from the undisplaced probe, centred. A warp is otherwise invisible alone.
-            TintBody = `${Lines.join("\n")}\n    return clamp((${Binding} - Probe) * 1.6 + vec3f(0.5), vec3f(0.0), vec3f(1.0));`;
-        }
-        else if (Yields === "Resistance" || Yields === "Scalar")
-        {
-            TintBody = `${Lines.join("\n")}\n    return mix(vec3f(0.24, 0.30, 0.42), vec3f(0.94, 0.86, 0.68), clamp(${Binding}, 0.0, 1.0));`;
-        }
-        else
-        {
-            TintBody = `    return EvaluateStratumTint(Probe, 0.5, vec4f(0.0, 1.0, 0.34, 0.42));`;
+            ResistanceBinding = this.EmitEntry(
+                TreeState, ResistanceIdentifier, new Map(), ResistanceLines, new Set());
         }
 
         const Source =
 `
 fn EvaluateConstructionTree(Probe : vec3f) -> f32
 {
-${DistanceBody}
+${DistanceLines.join("\n")}
+    return ${DistanceBinding};
 }
 
 fn EvaluateConstructionResistance(Probe : vec3f) -> f32
 {
-${ResistanceBody}
+${ResistanceLines.join("\n")}
+    return ${ResistanceBinding};
 }
 
 fn EvaluateConstructionTint(Probe : vec3f) -> vec3f
 {
-${TintBody}
+${ResistanceLines.join("\n")}
+    return EvaluateStratumTint(Probe, ${ResistanceBinding}, vec4f(0.0, 1.0, 0.34, 0.42));
 }
 `;
-        return { Source, LineTally: Lines.length, Painted: !Shaped };
+        return {
+            Source,
+            LineTally: DistanceLines.length + ResistanceLines.length
+        };
     },
 
-    // 📝 Find the resistance field the shape branch actually consumes, for the resistance resolve view and
-    //    for tint when nothing is wired to the tint intake.
-    //
-    //    🔴 Prefers the resistance entry NEAREST the shape branch, i.e. the smallest upstream depth. That
-    //       is the fully-composed field: in the seed tree StratumBand feeds JointNetwork, so JointNetwork
-    //       is what the carve reads and StratumBand is only a partial input to it.
-    //
-    //       An earlier form kept whichever entry a stack-based walk popped LAST and called it "deepest".
-    //       Stack pop order is not depth, so it returned StratumBand — the resistance view and the tint
-    //       then showed bare bedding with no joints, which looks plausible and is wrong. Depth is now
-    //       measured rather than inferred from traversal order.
+    // 📝 Find a resistance-yielding entry reachable from the shape branch. Prefers the one furthest
+    //    from the root, since that is the fully-composed resistance field rather than a partial one.
     DiscoverResistanceSource(TreeState, StartIdentifier)
     {
-        const Frontier = [{ Identifier: StartIdentifier, Depth: 0 }];
+        const Frontier = [StartIdentifier];
         const Seen     = new Set();
-        let   Nearest      = null;
-        let   NearestDepth = Infinity;
+        let   Deepest  = null;
 
         while (Frontier.length > 0)
         {
-            const { Identifier, Depth } = Frontier.shift();          // breadth-first, so depth is honest
+            const Identifier = Frontier.pop();
             if (Seen.has(Identifier)) continue;
             Seen.add(Identifier);
             if (!TreeState.Entries.has(Identifier)) continue;
 
             const Entry = TreeState.Entries.get(Identifier);
             const Specification = ConstructionSpecificationTable[Entry.Species];
-
-            if (Specification.Yields === "Resistance" && !Entry.Bypassed && Depth < NearestDepth)
-            {
-                Nearest      = Identifier;
-                NearestDepth = Depth;
-            }
+            if (Specification.Yields === "Resistance" && !Entry.Bypassed) Deepest = Identifier;
 
             for (const Link of TreeState.Links)
             {
-                if (Link.TargetEntry === Identifier)
-                {
-                    Frontier.push({ Identifier: Link.SourceEntry, Depth: Depth + 1 });
-                }
+                if (Link.TargetEntry === Identifier) Frontier.push(Link.SourceEntry);
             }
         }
-        return Nearest;
+        return Deepest;
     },
 
     // 📝 A visible fallback rather than a compile failure, so an incomplete tree still renders and the
