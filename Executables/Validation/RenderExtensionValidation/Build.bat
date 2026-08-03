@@ -152,6 +152,10 @@ copy /Y "%ROOT%\Internal\Graphics\Visibility\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Clipmap\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Render\Radiance\Shaders\*.spv" "%SHADEROUT%" >nul
 copy /Y "%ROOT%\Internal\Graphics\Shadow\Shaders\*.spv" "%SHADEROUT%" >nul
+copy /Y "%ROOT%\Internal\Graphics\Surfel\Shaders\*.spv" "%SHADEROUT%" >nul
+REM  The TLAS build (InstanceBounds/RadixSort/InstanceTree submissions) loads its .comp.spv by filename from the staged "Shaders" dir, same as the
+REM  grid/sky/surfel passes. Without these the accel Init calls in RenderExtension find no module and TlasReady stays false (scene still rasters).
+copy /Y "%ROOT%\Internal\Graphics\Acceleration\Shaders\*.spv" "%SHADEROUT%" >nul
 echo [%NAME%] staged shaders -^> %SHADEROUT%
 
 REM --- Stage the saved scene documents beside the exe -------------------------

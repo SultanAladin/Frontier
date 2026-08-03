@@ -37,25 +37,27 @@ namespace
     }
 
 
-    // 📝 Re-author the whole selection profile. Everything downstream of the stratum is reset rather than carried: an open tile
-    //    belongs to a band that may not survive the new stratum, and a half-travelled carousel would slide a pane that is about
+    // 📝 Re-author the whole selection profile. Everything downstream of the stratum is reset rather than carried: an open action
+    //    belongs to a cluster that may not survive the new stratum, and a half-travelled carousel would slide a pane that is about
     //    to be repopulated. The parameter block's identity is cleared so the next open reseeds from the descriptor.
+    //    🔴 The stratum is written to the PANEL's own state, not into the console's focus: the console no longer holds a selection.
+    //       It reaches the stratum only through the bridge context the resolver reads, which is refreshed once per frame below.
     void ApplyStratum(ModellingToolState& State, unsigned int StratumBit)
     {
         int BandCount = 0;
         const ToolBandDescriptor* const Bands = ResolveModellingBands(BandCount);
 
-        State.Selection.StratumBit    = StratumBit;
-        State.Selection.StratumName   = DescribeModellingStratum(StratumBit);
-        State.Selection.SelectedCount = ResolveModellingSelectedCount(StratumBit);
-        State.Selection.OpenBand      = ResolveFirstPopulatedBand(Bands, BandCount, StratumBit);
-        State.Selection.OpenTile      = -1;
+        State.StratumBit = StratumBit;
+
+        // Cluster index is band index: the bridge emits exactly one cluster per authored band, in order.
+        State.Focus.OpenCluster = ResolveFirstPopulatedBand(Bands, BandCount, StratumBit);
+        State.Focus.OpenAction  = -1;
 
         State.Carousel.ShowingOptions = false;
         State.Carousel.Travel         = 0.0f;
 
-        State.Parameters.Band = -1;   // [idx]- forces a reseed the next time a tool opens
-        State.Parameters.Tile = -1;
+        State.Parameters.Cluster = -1;   // [idx]- forces a reseed the next time an action opens
+        State.Parameters.Action  = -1;
     }
 
 
@@ -96,7 +98,7 @@ namespace
         for (int StratumIndex = 0; StratumIndex < ModellingStratumCount; ++StratumIndex)
         {
             const unsigned int StratumBit = ModellingStrata[StratumIndex];
-            const bool         Active     = (State.Selection.StratumBit == StratumBit);
+            const bool         Active     = (State.StratumBit == StratumBit);
 
             char Caption[64] = {};
             std::snprintf(Caption, sizeof(Caption), "%s (%d)",
@@ -115,7 +117,7 @@ namespace
         int BandsShown = 0;
         int ToolsLive  = 0;
         int ToolsGated = 0;
-        TallyStratumReach(State.Selection.StratumBit, BandsShown, ToolsLive, ToolsGated);
+        TallyStratumReach(State.StratumBit, BandsShown, ToolsLive, ToolsGated);
 
         ImGui::Text("bands  %d", BandsShown);
         ImGui::Text("live   %d", ToolsLive);
@@ -155,6 +157,9 @@ namespace
 
     // 📝 Latch what was committed, so a click is observable in an app that has nothing to mutate. The band is recorded alongside
     //    the tool because several bands carry a tool of the same name (Circle appears under both Primitive and Curve).
+    //    🔴 The console reports a CLUSTER and an ACTION, which read back into the authored catalogue as band and tile because the
+    //       bridge emits one cluster per band in order and one action per tile in order. A single-shot band's lone action is the
+    //       band itself and has no tile, so an action index at or past TileCount falls back to the band caption.
     void RecordCommit(ModellingToolState& State, int BandIndex, int TileIndex)
     {
         int BandCount = 0;
@@ -197,7 +202,7 @@ void InitializeModellingToolSample(ModellingToolState& State)
 
 void ConstructModellingToolPanel(const ThemeConfiguration& Theme, ModellingToolState& State, const SvgIconRegistry* Icons)
 {
-    const ToolCardMetrics Metrics = ResolveToolCardMetrics(Theme);
+    const MetricsSpecification Metrics = ResolveConsoleMetrics(Theme);
 
     // 📝 The authoring column is sized to its own content; the field takes the rest. Fixed rather than a splitter because the
     //    card has a FIXED size and the point of the field is to show it at that size with room around it.
@@ -210,10 +215,10 @@ void ConstructModellingToolPanel(const ThemeConfiguration& Theme, ModellingToolS
 
     ImGui::SameLine();
 
-    // 📝 The field is only the backdrop and the right-click surface. The card itself is drawn AFTER this child closes:
-    //    🔴 ConstructToolCard opens its own top-level ImGui window, and a Begin() nested inside an active BeginChild() is
-    //       invalid — the card is silently never emitted. So the field records where the card goes, and the card is built
-    //       at panel scope where a top-level window is legal.
+    // 📝 The field is only the backdrop and the right-click surface. The console itself is drawn AFTER this child closes:
+    //    🔴 ConstructWorkspaceContextConsole opens its own top-level ImGui window, and a Begin() nested inside an active
+    //       BeginChild() is invalid — the console is silently never emitted. So the field records where the console goes,
+    //       and the console is built at panel scope where a top-level window is legal.
     ImGui::BeginChild("ModellingField", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders);
     {
         const ImVec2 FieldMin  = ImGui::GetCursorScreenPos();
@@ -238,26 +243,26 @@ void ConstructModellingToolPanel(const ThemeConfiguration& Theme, ModellingToolS
     ImGui::EndChild();
 
     State.Carousel.OpenAge += ImGui::GetIO().DeltaTime;
-    AdvanceToolCardCarousel(State.Carousel, ImGui::GetIO().DeltaTime, Metrics);
+    AdvanceConsoleCarousel(State.Carousel, ImGui::GetIO().DeltaTime, Metrics);
 
     if (State.CardOpen)
     {
-        ToolCardDescriptor Descriptor = {};
-        Descriptor.Identifier     = "ModellingToolCard";
-        Descriptor.Bands          = ResolveModellingBands(Descriptor.BandCount);
-        Descriptor.Probe          = ResolveModellingProbe(State.Selection.StratumBit);
-        Descriptor.AnchorPosition = ImVec2(State.CardAnchorX, State.CardAnchorY);
+        // Refresh the resolver's live context to THIS frame's stratum, then compose and draw. Bound every frame rather than on the
+        // stratum switch: the context also carries the converted probe, and rebinding is the one place both are guaranteed in step.
+        BindModellingConsoleContext(State.Bridge, State.StratumBit);
+        const WorkspaceContextConsoleDescriptor Descriptor = ComposeModellingConsoleDescriptor(State.Bridge);
 
-        const ToolCardResult Result = ConstructToolCard(Icons,
-                                                        Descriptor,
-                                                        State.Selection,
-                                                        State.Carousel,
-                                                        State.Parameters,
-                                                        Theme);
+        const ConsoleResult Result = ConstructWorkspaceContextConsole(Icons,
+                                                                     Descriptor,
+                                                                     ImVec2(State.CardAnchorX, State.CardAnchorY),
+                                                                     State.Focus,
+                                                                     State.Carousel,
+                                                                     State.Parameters,
+                                                                     Theme);
 
-        if (Result.CommitRequested || Result.ActivatedBand >= 0)
+        if (Result.CommitRequested || Result.ActivatedCluster >= 0)
         {
-            RecordCommit(State, Result.ActivatedBand, Result.ActivatedTile);
+            RecordCommit(State, Result.ActivatedCluster, Result.ActivatedAction);
         }
 
         if (Result.DismissRequested)

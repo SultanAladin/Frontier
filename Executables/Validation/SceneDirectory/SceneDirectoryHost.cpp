@@ -23,7 +23,7 @@
 #include "EngineContext/Interface/Icons/IconPackGlobal.h"
 #include "EngineContext/Interface/Icons/IconPackScene.h"
 
-#include "SceneDirectoryPanel.h"
+#include "EngineContext/Interface/WorkspaceHost/SketchOutliner/SketchOutlinerPanel.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -32,9 +32,11 @@
 #include <cstdio>
 
 using namespace Frontier;
-using SceneDirectoryValidation::SceneDirectoryState;
-using SceneDirectoryValidation::InitializeSceneDirectorySample;
-using SceneDirectoryValidation::ConstructSceneDirectoryPanel;
+using Frontier::SketchOutlinerUi::SketchOutlinerState;
+using Frontier::SketchOutlinerUi::InitializeSketchOutlinerSample;
+using Frontier::SketchOutlinerUi::ConstructSketchOutlinerPanel;
+using Frontier::SketchOutlinerUi::ConfineSketchOutlinerMenus;
+using Frontier::SketchOutlinerUi::ResolveSceneContentProfile;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INTERNAL HELPERS
@@ -157,8 +159,10 @@ int main(int ArgumentCount, char** ArgumentValues)
     const SvgIconRegistry* IconRegistry = IconsReady ? &Icons : nullptr;
 
     // -- The caller-owned panel state + its default demonstration tree ---------------------------------------------------
-    SceneDirectoryState State;
-    InitializeSceneDirectorySample(State);
+    //    The scene outliner is now the ONE shared SketchOutliner panel driven by the scene content profile (its own scene- icons,
+    //    labels, add catalogue, filter facets, and the Scene / Environment / Cameras / Lights / Geometry sample). No private panel.
+    SketchOutlinerState State;
+    InitializeSketchOutlinerSample(State, ResolveSceneContentProfile());
 
     // -- Frame loop -----------------------------------------------------------------------------------------------------
     while (!QueryWindowCloseRequested(Window))
@@ -185,7 +189,12 @@ int main(int ArgumentCount, char** ArgumentValues)
                                            ImGuiWindowFlags_NoBringToFrontOnFocus;
         if (ImGui::Begin("Scene Directory", nullptr, HostFlags))
         {
-            ConstructSceneDirectoryPanel(Theme, State, IconRegistry);
+            // 📝 Pin the dropdown-menu confinement band to the host window rect so a menu opened near an edge folds back inside the
+            //    panel instead of spilling over the desk — the confinement the private SceneDirectory copy lacked, gained for free here.
+            const ImVec2 WinMin = ImGui::GetWindowPos();
+            const ImVec2 WinSize = ImGui::GetWindowSize();
+            ConfineSketchOutlinerMenus(State, WinMin.x, WinMin.y, WinMin.x + WinSize.x, WinMin.y + WinSize.y);
+            ConstructSketchOutlinerPanel(Theme, State, IconRegistry, ResolveSceneContentProfile());
         }
         ImGui::End();
         ImGui::PopStyleColor();

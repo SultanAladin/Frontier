@@ -4,6 +4,97 @@ Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---
 
+## Dead thin `WorkspaceHost/Outliner/OutlinerPanel` — registered, never invoked (2026-08-03)
+
+The outliner unification is done: ONE shared panel (`WorkspaceHost/SketchOutliner/SketchOutlinerPanel`,
+ns `Frontier::SketchOutlinerUi`) + per-app content profiles (`SketchContentProfile` / `SceneContentProfile`),
+content-agnostic via `OutlinerContentProfile`. Both private 1707-line copies (`SceneDirectory/…Panel` and the
+stray `SketchOutliner/…Panel`) are deleted; SceneDirectory / SketchOutliner / SceneDirectoryInspector all link
+the shared panel from EngineContext.lib. All five consumers build green (EngineContext, the three validation
+apps, Editor).
+
+**Left open, on purpose:** the OTHER, thin outliner — `WorkspaceHost/Outliner/OutlinerPanel`
+(`ConstructOutlinerPanel(Theme, Config, Model)`, with `OutlinerConfiguration` + `Model/OutlinerModel` +
+`Model/OutlinerRow`). It is registered by ~5 workspace layouts but **never invoked at runtime** — a separate,
+much smaller panel unrelated to the SketchOutliner tree. Not folded into this pass. Decide later whether to
+retire it or route those workspaces onto the shared SketchOutliner panel + a profile.
+
+Also deferred (unchanged this pass): `OutlinerPalette` stays file-local/self-paletted; theme-driving it is a
+separate future item.
+
+---
+
+## The eight-corner box rule has NO gate until the traversal (#11) lands (2026-08-02)
+
+**A real coverage gap, deliberately left open rather than faked.** Both `InstanceBoundsReduce.comp` and
+`InstanceMortonCode.comp` bound an instance by transforming all **eight** corners of its local box. The cheap
+wrong alternative — transform only the min and max corners — is too SMALL under rotation, and a too-small
+instance box means a ray **misses geometry it should hit**. That is a silent, view-dependent artefact, not a
+crash.
+
+`InstanceBoundsValidation` used to claim it proved the rule via a "foil" case that recomputed the scene the
+wrong way and asserted the GPU disagreed. **That claim was false and the case has been deleted.** The two
+rules differ only in box EXTENT and provably never in box CENTRE — opposite corners stay opposite under any
+affine map, so both rules average to the image of the local centre (measured: 0 of 24 mesh/variant
+combinations differ, `_ClaudeScratch/build/CentroidFoilProbe.cpp`). `InstanceBoundsReduce.comp:162` discards
+the extent the instant it takes `(WorldMinimum + WorldMaximum) * 0.5` and reduces **centroids**, so nothing
+either dispatch outputs can discriminate the rules. No amount of scene design fixes this — it is structural.
+
+🚩 **Task #11 must carry the assertion.** The traversal is the first consumer that tests a ray against an
+instance's box extent, so it is the first place the rule is observable. Concretely: build a scene with an
+obliquely rotated instance and a ray that enters only the eight-corner box, and assert the hit. A two-corner
+regression must fail that test. Without it the engine has no check on the rule at all.
+
+---
+
+## Extended Morton codes — up to 54% BVH quality for open-world scenes (2026-08-02)
+
+**Deferred, not rejected.** `VolumeBoundsReduce.comp` currently reduces only the CENTROID box, which is the
+correct input for plain 30-bit Morton coding and is what AMD's `gpurt` uses too. Vinkler et al., *Extended
+Morton Codes for High Performance Bounding Volume Hierarchy Construction* (HPG 2017,
+https://dcgi.fel.cvut.cz/projects/emc/emc2017.pdf) measure **up to 54% BVH quality improvement** — and they
+attribute it specifically to *"scenes with a non-uniform spatial extent and varying object sizes"*, which is
+exactly the open-world many-mesh case this GI work targets. Extended codes interleave size/extent bits with
+position bits, so they need the **union of triangle AABBs** in addition to the centroid box.
+
+Cost to collect: **6 more atomics and 24 more bytes** in a dispatch that is already DRAM-bound at ~140 MB of
+scattered vertex reads — i.e. free. `gpurt` keeps both boxes for the same reason (`IsCentroidMortonBoundsEnabled`).
+
+🚩 Not done now because it changes the Morton pass, the tree build, and the bounds contract at once, and the
+reduce is green and gate-verified. The reduce is the natural place to gather the data when the tree build is
+proven. Revisit after task #8.
+
+---
+
+## GPU scene AABB reduce — optimisation researched, KEEP AS IS (2026-08-02)
+
+Closed, recorded so it is not re-litigated. Asked whether `VolumeBoundsReduce.comp` could be made more
+accurate or cheaper. Answer: **no on both counts, and the current shape matches shipping production code.**
+
+- **Accuracy**: already bit-exact vs a CPU float reduction over 278 GPU cases. Min/max are selections, not
+  arithmetic, so there is nothing to improve.
+- **Cost**: the dispatch is **DRAM-bound** — ~140 MB of scattered, index-indirected vertex reads at 3M
+  triangles, a ~1–2 ms floor on a ~192 GB/s bus. The shared-memory reduction hides entirely behind that.
+- **Subgroup `subgroupMin`/`subgroupMax`** (device confirms `ARITHMETIC`, size 32): removes 8 barriers and
+  drops shared memory 6 KiB → 192 B, but published benchmarks put the reduce saving at ~zero (one Vulkan
+  reduce/scan study calls it *"rather disappointing"*; a re-test measured **identical kernel duration**, both
+  >96% memory throughput). Would also change NaN behaviour — the subgroup spec DROPS NaN, scalar `min()`
+  leaves it undefined — and adds an unpinned signed-zero corner, a runtime feature gate, subgroup-size
+  specialization, and reconvergence fragility. Not worth it against a gate-verified path.
+- **Rejected too**: int64 packing (halves ~70K atomics over 6 L2-resolved addresses — noise), two-pass
+  scratch reduce (extra dispatch for contention that isn't hurting), persistent threads (loses the trivially
+  correct `GlobalInvocationID == triangle` mapping).
+- **Corroboration**: AMD's `gpurt` ships this exact design — Herf's 2001 float-flip unchanged in `Bits.hlsli`,
+  wave-reduce then one atomic per wave.
+
+🔴 Device fact worth keeping: `VK_EXT_shader_atomic_float` IS present here (add/exchange), but float atomic
+MIN/MAX needs `VK_EXT_shader_atomic_float2`, which is **absent** — Turing has no `FMIN`/`FMAX` buffer atomic
+(RDNA2 does). So the ordered-int form is not a workaround for a disabled feature; enabling the float-atomic
+feature `VulkanHost` omits would NOT unlock `atomicMin` on a float. Comments in `VolumeBoundsSubmission.h`
+and `VolumeBoundsReduce.comp` corrected accordingly.
+
+---
+
 ## VolumetricFlowSolver — multiple scattering shipped, two follow-ups (2026-07-31)
 
 Deep-scatter approximation (Wrenninge et al.) is in: `EvaluateDeepScatter` in `RaymarchShaderSource`,

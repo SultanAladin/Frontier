@@ -86,6 +86,76 @@ void ComposeNormalBasis(const LocalPlacement& Placement, float OutBasis[12])
     OutBasis[8]  = static_cast<float>( CosZ * SinY * CosX + SinZ * SinX); OutBasis[9]  = static_cast<float>( SinZ * SinY * CosX - CosZ * SinX); OutBasis[10] = static_cast<float>( CosY * CosX); OutBasis[11] = 0.0f;
 }
 
+} // namespace
+
+// 📝 Declared in the header and therefore OUTSIDE the anonymous namespace above, unlike its two sibling composers: the validation gate judges
+//    Model * InverseModel against identity, and it has to judge this function rather than a copy of it. The internal helpers resume below.
+//
+// The world→local matrix the ray trace enters a mesh's bottom-level tree through, composed from the SAME LocalPlacement as ComposeModelMatrix so
+// the two are exact inverses by construction. Built analytically rather than by inverting the composed matrix numerically:
+//
+//     inverse(T * R * S) = S⁻¹ * R⁻¹ * T⁻¹,  with  S⁻¹ = 1/scale per axis,  R⁻¹ = Rᵀ (rotation is orthonormal),  T⁻¹ = -translation
+//
+// 🔴 A ZERO OR NEAR-ZERO SCALE AXIS IS CLAMPED, NOT RECIPROCATED. 1/0 gives inf, inf*0 gives NaN, and a NaN in this matrix propagates into every
+//    ray that enters the instance — which reads as a black or missing object with no malformed data anywhere to find. A degenerate axis is a
+//    legitimate authored state (a flattened object), so it is clamped to a huge-but-finite reciprocal: the instance collapses visually, which is
+//    what the author asked for, instead of poisoning the trace.
+void ComposeInverseModelMatrix(const LocalPlacement& Placement, float OutInverse[16])
+{
+    const double RadiansX = static_cast<double>(Placement.Rotation[0]) * DegreesToRadians;
+    const double RadiansY = static_cast<double>(Placement.Rotation[1]) * DegreesToRadians;
+    const double RadiansZ = static_cast<double>(Placement.Rotation[2]) * DegreesToRadians;
+    const double CosX = std::cos(RadiansX), SinX = std::sin(RadiansX);
+    const double CosY = std::cos(RadiansY), SinY = std::sin(RadiansY);
+    const double CosZ = std::cos(RadiansZ), SinZ = std::sin(RadiansZ);
+
+    // The same rotation basis R = Rz * Ry * Rx that ComposeModelMatrix builds, in the same column convention.
+    const double R00 =  CosZ * CosY;
+    const double R10 =  SinZ * CosY;
+    const double R20 = -SinY;
+    const double R01 =  CosZ * SinY * SinX - SinZ * CosX;
+    const double R11 =  SinZ * SinY * SinX + CosZ * CosX;
+    const double R21 =  CosY * SinX;
+    const double R02 =  CosZ * SinY * CosX + SinZ * SinX;
+    const double R12 =  SinZ * SinY * CosX - CosZ * SinX;
+    const double R22 =  CosY * CosX;
+
+    // Guarded reciprocal scale. The threshold is well below any authored scale but far above the denormal range, so an ordinary small object is
+    // untouched while a true zero cannot reach the divide.
+    const auto SafeReciprocal = [](float ScaleValue) -> double
+    {
+        const double Value = static_cast<double>(ScaleValue);
+        if (!(std::fabs(Value) > 1.0e-8))
+            return Value < 0.0 ? -1.0e8 : 1.0e8;
+        return 1.0 / Value;
+    };
+    const double InverseScaleX = SafeReciprocal(Placement.Scale[0]);
+    const double InverseScaleY = SafeReciprocal(Placement.Scale[1]);
+    const double InverseScaleZ = SafeReciprocal(Placement.Scale[2]);
+
+    // S⁻¹ * Rᵀ. Row i of Rᵀ is column i of R, and left-multiplying by the diagonal S⁻¹ scales row i by 1/scale_i.
+    const double Inverse00 = R00 * InverseScaleX, Inverse01 = R10 * InverseScaleX, Inverse02 = R20 * InverseScaleX;
+    const double Inverse10 = R01 * InverseScaleY, Inverse11 = R11 * InverseScaleY, Inverse12 = R21 * InverseScaleY;
+    const double Inverse20 = R02 * InverseScaleZ, Inverse21 = R12 * InverseScaleZ, Inverse22 = R22 * InverseScaleZ;
+
+    // ...then * T⁻¹, which turns into applying the 3x3 above to -translation.
+    const double TranslationX = static_cast<double>(Placement.Location[0]);
+    const double TranslationY = static_cast<double>(Placement.Location[1]);
+    const double TranslationZ = static_cast<double>(Placement.Location[2]);
+    const double OffsetX = -(Inverse00 * TranslationX + Inverse01 * TranslationY + Inverse02 * TranslationZ);
+    const double OffsetY = -(Inverse10 * TranslationX + Inverse11 * TranslationY + Inverse12 * TranslationZ);
+    const double OffsetZ = -(Inverse20 * TranslationX + Inverse21 * TranslationY + Inverse22 * TranslationZ);
+
+    // Column-major, element index Column*4 + Row — matching ComposeModelMatrix.
+    OutInverse[0]  = static_cast<float>(Inverse00); OutInverse[1]  = static_cast<float>(Inverse10); OutInverse[2]  = static_cast<float>(Inverse20); OutInverse[3]  = 0.0f;
+    OutInverse[4]  = static_cast<float>(Inverse01); OutInverse[5]  = static_cast<float>(Inverse11); OutInverse[6]  = static_cast<float>(Inverse21); OutInverse[7]  = 0.0f;
+    OutInverse[8]  = static_cast<float>(Inverse02); OutInverse[9]  = static_cast<float>(Inverse12); OutInverse[10] = static_cast<float>(Inverse22); OutInverse[11] = 0.0f;
+    OutInverse[12] = static_cast<float>(OffsetX);   OutInverse[13] = static_cast<float>(OffsetY);   OutInverse[14] = static_cast<float>(OffsetZ);   OutInverse[15] = 1.0f;
+}
+
+namespace
+{
+
 // Fill the authored-topology provenance for an already-triangulated cluster. Walks the provenance map ConstructDisplayPolygons produced and, per
 // triangle, records the authored face, the three CLUSTER vertex indices its corners expanded from, and the authored edge ordinal of each of its three
 // sides — InvalidAuthoredEdge where a side is a triangulation artifact rather than a real loop edge.
@@ -175,13 +245,44 @@ void ReportFaceArityHistogram(const PolygonCluster& Cluster, uint32_t EdgeCount,
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
+bool BuildGeometryTreeForStream(const RenderVertexStream&  Geometry,
+                                const GeometryTreeOptions& Options,
+                                GeometryTree&              Result)
+{
+    ClearGeometryTree(Result);
+
+    if (Geometry.Vertices.empty() || Geometry.Indices.empty() || (Geometry.Indices.size() % 3) != 0)
+        return false;
+
+    // 📝 RenderVertex is interleaved (position / normal / UV, 32 B), and BuildGeometryTree takes a tightly packed XYZ run — so the positions are
+    //    copied out rather than aliased. The copy is deliberate and not worth avoiding: it is three floats per vertex, once per mesh at load, and
+    //    the alternative is teaching the ported builder a stride, which would put a divergence into code whose whole value is being 1:1.
+    std::vector<float> Positions;
+    Positions.resize(Geometry.Vertices.size() * 3);
+    for (size_t VertexIterator = 0; VertexIterator < Geometry.Vertices.size(); ++VertexIterator)
+    {
+        const RenderVertex& Vertex = Geometry.Vertices[VertexIterator];
+        Positions[VertexIterator * 3 + 0] = Vertex.Position[0];
+        Positions[VertexIterator * 3 + 1] = Vertex.Position[1];
+        Positions[VertexIterator * 3 + 2] = Vertex.Position[2];
+    }
+
+    return BuildGeometryTree(Positions.data(),
+                             static_cast<uint32_t>(Geometry.Vertices.size()),
+                             Geometry.Indices.data(),
+                             static_cast<uint32_t>(Geometry.Indices.size()),
+                             Options,
+                             Result);
+}
+
 bool LoadWorkspaceScene(const char*                        Path,
                         RenderVertexStream&                Geometry,
                         std::vector<SuzanneSceneInstance>& Instances,
                         WorkspaceDocument*                 Document,
                         std::vector<uint32_t>*             TriangleSourceFace,
                         uint32_t                           PartitionBase,
-                        AuthoredTopologyMap*               Topology)
+                        AuthoredTopologyMap*               Topology,
+                        GeometryTree*                      Tree)
 {
     Geometry = RenderVertexStream{};
     Instances.clear();
@@ -191,6 +292,8 @@ bool LoadWorkspaceScene(const char*                        Path,
         TriangleSourceFace->clear();
     if (Topology != nullptr)
         *Topology = AuthoredTopologyMap{};
+    if (Tree != nullptr)
+        ClearGeometryTree(*Tree);
 
     WorkspaceDocument Decoded;
     if (!DecodeWorkspaceDocument(Path, Decoded))
@@ -236,6 +339,19 @@ bool LoadWorkspaceScene(const char*                        Path,
             std::fprintf(stderr, "[workspace-scene] authored topology unresolved (component modes disabled): %s\n", Path);
     }
 
+    // 📝 The bottom-level tree over block 0's LOCAL-space triangles — the stream above, before any placement is applied. Built once here and shared
+    //    by every instance below, which is what keeps the cost off the frame no matter how many objects reference the block.
+    //
+    //    ⚠️ A FAILED TREE BUILD IS NOT FATAL TO THE LOAD, deliberately. The raster stream is already valid and complete at this point, so a scene
+    //       that cannot be traced still draws — the caller sees a tree with ReadyCondition false, appends nothing, and loses global illumination
+    //       rather than the whole scene. Failing the load here would take the raster down with the tracer.
+    if (Tree != nullptr)
+    {
+        GeometryTreeOptions TreeOptions;   // SAH, static: no skinned mesh exists yet, so no parent table is requested
+        if (!BuildGeometryTreeForStream(Geometry, TreeOptions, *Tree))
+            std::fprintf(stderr, "[workspace-scene] bottom-level tree build failed (scene will raster but not trace): %s\n", Path);
+    }
+
     Instances.reserve(Decoded.Objects.size());
     for (size_t ObjectIterator = 0; ObjectIterator < Decoded.Objects.size(); ++ObjectIterator)
     {
@@ -246,6 +362,8 @@ bool LoadWorkspaceScene(const char*                        Path,
         SuzanneSceneInstance Instance;
         ComposeModelMatrix(Object.Placement, Instance.Model);
         ComposeNormalBasis(Object.Placement, Instance.NormalBasis);
+        // The ray-tracing half. Composed from the same placement as Model, so the pair is exact by construction rather than by a later inversion.
+        ComposeInverseModelMatrix(Object.Placement, Instance.InverseModel);
         Instance.Tint[0] = Object.Tint[0];
         Instance.Tint[1] = Object.Tint[1];
         Instance.Tint[2] = Object.Tint[2];
@@ -273,13 +391,17 @@ bool LoadWorkspaceScene(const char*                        Path,
 
 bool LoadFloorDocument(const char*                        Path,
                        RenderVertexStream&                Geometry,
-                       std::vector<SuzanneSceneInstance>& Instances)
+                       std::vector<SuzanneSceneInstance>& Instances,
+                       GeometryTree*                      Tree)
 {
     // The floor decode is exactly the main scene decode — triangulate block 0, recompose its objects into instances — only the caller's intent differs
     // (a second mesh in the shared buffer, not more heads). Delegate rather than duplicate: the floor doc needs no document registration and no
     // per-triangle provenance (there is no topology-wireframe view of the floor), so both optional outputs are dropped. Identities are based high
     // (FloorPartitionBase) so the floor's partition range cannot overlap the heads' — both meshes write into the one shared visibility buffer.
-    return LoadWorkspaceScene(Path, Geometry, Instances, nullptr, nullptr, FloorPartitionBase);
+    //
+    // 📝 Tree is forwarded rather than dropped: the slab is a bottom-level mesh in the arena exactly like a head, so the trace can descend into it.
+    //    Everything else the delegate offers stays unused here.
+    return LoadWorkspaceScene(Path, Geometry, Instances, nullptr, nullptr, FloorPartitionBase, nullptr, Tree);
 }
 
 } // namespace Frontier

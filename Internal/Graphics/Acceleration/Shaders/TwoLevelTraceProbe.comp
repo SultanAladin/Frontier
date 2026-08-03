@@ -1,0 +1,127 @@
+#version 450
+// ============================================================================================================================================
+//                                                        TWOLEVELTRACEPROBE.COMP
+// ============================================================================================================================================
+// 🧩 The dispatch TwoLevelTraceValidation drives: one lane per ray, each calling TraceTwoLevel and writing the hit out. It exists ONLY to give the
+//    gate a way to invoke the traversal module on a real device — it is not part of any render path, and nothing in Internal/ dispatches it.
+//
+//    🔴 THIS FILE IS THE INCLUDER CONTRACT MADE EXECUTABLE, AND THAT IS ITS SECOND PURPOSE. TwoLevelTrace.glsl declares no bindings of its own so
+//       that each consumer can own its descriptor layout; the price is that the contract is enforced by nothing but a compile error in whoever
+//       includes it. This file is the reference spelling of that contract, so a future consumer (the surfel trace, AO, shadow rays) has a working
+//       declaration to copy rather than a comment to interpret.
+//
+//    ⚠️ COMPILED BY glslc THROUGH ShaderPlan.ps1'S .comp GLOB. The included .glsl is NOT glob-discovered — it reaches the compiler only through this
+//       file, and ShaderPlan's -MD depfile tracking is what makes an edit to the module rebuild this. Without that tracking the gate would validate
+//       a stale .spv of the previous traversal and report PASS.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     THE INCLUDER CONTRACT
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B. Must list EVERY field including padding, or std430 mis-strides the array
+//    and every instance after the first reads a blend of its neighbours. Model is unused here — the trace enters through InverseModel — but it is
+//    declared because omitting it changes the stride.
+struct SceneInstance
+{
+    mat4 Model;              // @0   - column-major local -> world (unused here)
+    vec4 NormalBasis[3];     // @64  (unused here)
+    vec4 Tint;               // @112 (unused here)
+    uint PartitionId;        // @128 (unused here)
+    uint MaterialId;         // @132 (unused here)
+    uint MeshOrdinal;        // @136 - indexes the slice table
+    uint Pad0;               // @140
+    mat4 InverseModel;       // @144 - world -> local; the ray enters the bottom-level tree through this
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B. NodeOffset is in WORDS, not nodes.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+// One RenderVertex, stride-32: position @0, normal @12, texcoord @24. Only the position is read, but the full layout is declared so the std430
+// stride stays 32 and PositionForVertex indexes correctly — the same reason SurfaceShade.frag declares it in full.
+struct RenderVertex
+{
+    float PositionX; float PositionY; float PositionZ;
+    float NormalX;   float NormalY;   float NormalZ;
+    float TexU;      float TexV;
+};
+
+// 📝 One ray in. Origin and Direction are world-space; the limits ride along per ray so a single dispatch can mix ordinary closest-hit rays with
+//    the shortened rays assertion 5 uses to prove MaximumDistance is honoured.
+struct TraceRay
+{
+    vec4 Origin;       // xyz = origin,    w = NearLimit
+    vec4 Direction;    // xyz = direction, w = MaximumDistance
+};
+
+// 📝 One hit out. Laid out as four 16-byte rows so the host reads it without std430 surprises. The flags are uints rather than bools because a GLSL
+//    bool has no defined size in a storage block.
+struct TraceResult
+{
+    vec4 DistanceAndBarycentric;   // x = distance, yz = barycentric, w = unused
+    uvec4 Identity;                // x = instance, y = primitive, z = hit flag, w = overflow flag
+};
+
+layout(std430, set = 0, binding = 0) readonly  buffer InstanceBlock  { SceneInstance      Instances[]; };
+layout(std430, set = 0, binding = 1) readonly  buffer SliceBlock     { GeometryArenaSlice Slices[]; };
+layout(std430, set = 0, binding = 2) readonly  buffer ArenaNodeBlock { uint ArenaNodeWords[]; };
+layout(std430, set = 0, binding = 3) readonly  buffer ArenaPrimBlock { uint ArenaPrimitives[]; };
+layout(std430, set = 0, binding = 4) readonly  buffer TreeNodeBlock  { uint TreeNodeWords[]; };
+layout(std430, set = 0, binding = 5) readonly  buffer IndexBlock     { uint MeshIndices[]; };
+layout(std430, set = 0, binding = 6) readonly  buffer VertexBlock    { RenderVertex Vertices[]; };
+layout(std430, set = 0, binding = 7) readonly  buffer RayBlock       { TraceRay Rays[]; };
+layout(std430, set = 0, binding = 8) writeonly buffer ResultBlock    { TraceResult Results[]; };
+
+layout(push_constant) uniform TwoLevelTraceProbeConstants
+{
+    uint InstanceCount;   // [-] - leaves in the top-level tree
+    uint SliceCount;      // [-] - entries in the slice table; the bound on a valid MeshOrdinal
+    uint RayCount;        // [-] - rays to trace; the final tile is partial whenever this is not a multiple of 64
+} Constants;
+
+// 📝 The module reads these two as plain names. Aliasing them through the push block here — rather than having the module reach into a struct — is
+//    what keeps TwoLevelTrace.glsl agnostic about whether a consumer supplies them as push constants, a UBO, or compile-time constants.
+#define TraceInstanceCount Constants.InstanceCount
+#define TraceSliceCount    Constants.SliceCount
+
+vec3 PositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+#include "TwoLevelTrace.glsl"
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                             ENTRY
+//------------------------------------------------------------------------------------------------------------------------
+
+void main()
+{
+    uint RayIndex = gl_GlobalInvocationID.x;
+    if (RayIndex >= Constants.RayCount)
+        return;
+
+    TraceRay Ray = Rays[RayIndex];
+
+    TraceHit Hit = TraceTwoLevel(Ray.Origin.xyz, Ray.Direction.xyz, Ray.Origin.w, Ray.Direction.w);
+
+    TraceResult Result;
+    Result.DistanceAndBarycentric = vec4(Hit.Distance, Hit.Barycentric, 0.0);
+    Result.Identity               = uvec4(Hit.InstanceIndex,
+                                          Hit.PrimitiveIndex,
+                                          Hit.HitCondition      ? 1u : 0u,
+                                          Hit.OverflowCondition ? 1u : 0u);
+    Results[RayIndex] = Result;
+}

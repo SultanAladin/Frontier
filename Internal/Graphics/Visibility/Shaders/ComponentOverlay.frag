@@ -51,6 +51,9 @@ layout(std430, set = 0, binding = 3) readonly buffer IndexBlock
 };
 
 // Mirrors SuzanneSceneInstance / VisibilityRaster.vert's SceneInstance (std140). Only Model and PartitionId are read.
+// 🔴 MIRRORS SuzanneSceneInstance (Graphics/Scene/SuzanneScene.h) FIELD FOR FIELD — 208 bytes. Three other shaders carry the same hand-written copy
+//    (VisibilityRaster.vert, SurfaceShade.frag, SoftwareRasterization.comp). A copy that falls behind the C++ struct still compiles and still
+//    validates; it just strides by the wrong size, so instance N reads the tail of instance N-1. The host static_assert is what catches it.
 struct SceneInstance
 {
     mat4 Model;
@@ -58,8 +61,9 @@ struct SceneInstance
     vec4 Tint;
     uint PartitionId;
     uint MaterialId;
+    uint MeshOrdinal;    // bottom-level tree slice — ray tracing only, unused here
     uint Pad0;
-    uint Pad1;
+    mat4 InverseModel;   // world -> local, for the ray trace — unused here
 };
 
 layout(std140, set = 0, binding = 4) readonly buffer InstanceBlock

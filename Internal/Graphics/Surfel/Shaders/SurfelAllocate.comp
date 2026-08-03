@@ -1,0 +1,73 @@
+#version 450
+/*==============================================================================================================================================
+                                                            SURFELALLOCATE.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 2 of the lifecycle spawn (webgiya Allocate, surfelAllocatePass.ts). One lane per TILE. A tile that requested a spawn (TileAlloc[tile] == 1)
+//    pops one slot off the pool free-list stack (atomicAdd(+1) on the stack pointer), and writes the requested world position + normal into that
+//    surfel, resetting its age to 0 so it is live. The high-water mark is bumped so the count / slot / age passes see the new slot. If the pool is
+//    exhausted (stack pointer past capacity) the increment is rolled back and the tile drops its request.
+//
+//    🔴 PHASE-1 REDUCTION. webgiya's Allocate ALSO does the "brain transplant" — copying a parent surfel's 72 SLG guiding floats, seeding the MSME
+//       moments from a per-tile irradiance estimate, and clearing the surfel's 4x4 radial-depth tile. All three touch the guiding / moments / depth
+//       buffers that Phase 1 only ZERO-FILLS (Phase 2 fills them). They are omitted here; a freshly spawned surfel keeps the zero-filled moments /
+//       guiding / depth it already has, which is exactly the cold-start state Phase 2's integrate expects. The pop + write + high-water + alive-sync
+//       (the part the lifecycle DoD tests) is ported exactly.
+//
+//    🔴 A SECOND small dispatch (lane 0 only) syncs the alive counter to the stack pointer, mirroring webgiya's syncComputeNode. Kept so the AliveCount
+//       atomic the validation gate reads stays honest.
+
+#include "SurfelRecord.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer SurfelBuffer       { SurfelRecord Surfels[]; };
+layout(std430, binding = 1) buffer PoolBuffer         { int PoolFreeList[]; };
+layout(std430, binding = 2) buffer PoolAllocBuffer    { int PoolAlloc[]; };   // stack pointer atomic
+layout(std430, binding = 3) buffer PoolMaxBuffer      { int PoolMax[]; };     // high-water atomic
+layout(std430, binding = 4) buffer AliveCountBuffer   { int AliveCount[]; };  // live count atomic
+layout(std430, binding = 5) readonly buffer TileAllocBuffer     { int  TileAlloc[]; };      // 1 int per tile
+layout(std430, binding = 6) readonly buffer TileCandidateBuffer { vec4 TileCandidate[]; };  // 2 vec4 per tile
+
+layout(push_constant) uniform PushBlock
+{
+    int Capacity;
+    int TileCount;
+    int SyncPass;   // 0 == allocate lanes, 1 == the single alive-sync lane
+    int Pad0;
+} Push;
+
+void main()
+{
+    int Index = int(gl_GlobalInvocationID.x);
+
+    if (Push.SyncPass == 1)
+    {
+        // Single-lane alive sync: alive = current stack pointer (webgiya syncComputeNode).
+        if (Index == 0)
+            AliveCount[0] = atomicAdd(PoolAlloc[0], 0);
+        return;
+    }
+
+    if (Index >= Push.TileCount) return;
+    if (TileAlloc[Index] != 1) return;
+
+    // Pop one slot off the free-list stack.
+    int PrevAlloc = atomicAdd(PoolAlloc[0], 1);
+    if (PrevAlloc >= Push.Capacity)
+    {
+        atomicAdd(PoolAlloc[0], -1);   // overflow — roll back, drop the request
+        return;
+    }
+
+    int SurfelIndex = PoolFreeList[PrevAlloc];
+
+    // High-water so later passes see this slot.
+    atomicMax(PoolMax[0], SurfelIndex + 1);
+
+    // Commit the requested surface. w carries the spawn frame (webgiya posb.w), age resets to live.
+    vec4 Candidate = TileCandidate[Index * 2 + 0];
+    vec4 CandidateNormal = TileCandidate[Index * 2 + 1];
+    Surfels[SurfelIndex].PositionAndSpare = Candidate;
+    Surfels[SurfelIndex].Normal           = normalize(CandidateNormal.xyz);
+    Surfels[SurfelIndex].Age              = 0;
+}

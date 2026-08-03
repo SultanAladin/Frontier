@@ -8,8 +8,9 @@ REM
 REM  Native Vulkan host. Ported from the old Win32 + D3D11 backend so it can reuse
 REM  the Vulkan-only SvgIconRegistry (the same icon store the CAD outliner uses)
 REM  and draw the real IconGallery SVGs at full colour instead of procedural line
-REM  art. The outliner panel is app-local (its own RecordEntry tree in namespace
-REM  SceneDirectoryValidation), NOT the thin shared OutlinerPanel.
+REM  art. The outliner panel is the ONE shared SketchOutliner panel that lives in
+REM  EngineContext.lib (Frontier::SketchOutlinerUi), driven here by the SCENE content
+REM  profile; this app compiles only its host and links the panel from the lib.
 REM
 REM  The Vulkan host + ImGui interface live in Graphics.lib; the window + surface +
 REM  relay live in Platform.lib; the theme + icon registry + packs + vendored ImGui
@@ -83,10 +84,10 @@ REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for l
 set "DEFINES=/DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX /DFRONTIER_DEVELOPMENT_PROFILE"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
-REM --- Compile this app's own units every time (they are the files under edit) -
+REM --- Compile this app's own unit (only the host; the panel links from EngineContext.lib) -
 set "OBJRSP=%OBJ%\link_objs.rsp"
 if exist "%OBJRSP%" del /Q "%OBJRSP%"
-for %%U in (SceneDirectoryPanel SceneDirectoryHost) do (
+for %%U in (SceneDirectoryHost) do (
     echo [compile] %%U.cpp
     cl %CXXFLAGS% %DEFINES% %INCLUDES% "%APPDIR%\%%U.cpp" /Fo"%OBJ%\%%U.obj" /Fd"%OBJ%\%NAME%.pdb"
     if errorlevel 1 (

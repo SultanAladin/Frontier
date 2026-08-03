@@ -1,0 +1,72 @@
+#version 450
+// ============================================================================================================================================
+//                                                            RADIXBINTALLY.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 1 of 3 in one radix-sort pass: each workgroup tallies its own tile of 1024 keys into a 256-bin shared histogram, then writes those
+//    256 counts into the global bin table. Transcribed from the validated CPU model in _ClaudeScratch/build/RadixSortProbe.cpp
+//    (RunHistogramDispatch), which agrees element-for-element with std::stable_sort at 968 / 10648 / 100672 / 1000912 keys.
+//
+//    🔴 THE BIN TABLE IS BIN-MAJOR: BinTally[Bin * GroupCount + Group]. The scatter needs, for bin B in group G, the count of every key with a
+//       SMALLER bin across the WHOLE buffer plus every key with the SAME bin in an EARLIER group. Over a bin-major table that is exactly one
+//       plain exclusive scan. Store it group-major and the same information needs a strided two-level walk — correct but slower, and easy to get
+//       subtly wrong. The scan and scatter shaders both assume this layout; changing it here silently corrupts both.
+//
+//    📝 The load stride is LanesPerGroup, NOT contiguous-per-lane. Lane L reads keys L, L+256, L+512, L+768 so each of the four steps is one
+//       fully coalesced 256-lane load. Lane L reading keys 4L..4L+3 would compute the same histogram while fragmenting every load into a
+//       4-element gather — same arithmetic, roughly 4x the memory traffic.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Must match RadixSortSubmission.h (RadixBinCount / RadixKeysPerGroup) and local_size_x above.
+const uint RadixBinCount     = 256u;
+const uint RadixBinMask      = RadixBinCount - 1u;
+const uint LanesPerGroup     = 256u;
+const uint KeysPerLane       = 4u;
+const uint KeysPerGroup      = LanesPerGroup * KeysPerLane;   // 1024
+
+// The keys being tallied this pass. Ping-ponged by the host: the pass reads whichever side the previous pass wrote.
+layout(std430, set = 0, binding = 0) readonly buffer SortKeyBlock
+{
+    uint SortKey[];
+} KeySource;
+
+// The bin table: GroupCount * 256 uints, bin-major. Fully overwritten every pass, so no clear dispatch is needed.
+layout(std430, set = 0, binding = 1) writeonly buffer BinTallyBlock
+{
+    uint BinTally[];
+} TallyTarget;
+
+layout(push_constant) uniform RadixTallyConstants
+{
+    uint KeyCount;       // [-] - live keys; the final tile is partial whenever KeyCount is not a multiple of 1024
+    uint GroupCount;      // [-] - tiles in this dispatch; also the bin-major table stride
+    uint ShiftBits;       // [-] - which 8-bit digit this pass sorts (0 / 8 / 16 / 24)
+} Constants;
+
+// 256 uints = 1 KiB, far inside TU116's 48 KiB of shared memory per workgroup.
+shared uint TileBinTally[RadixBinCount];
+
+void main()
+{
+    uint Lane  = gl_LocalInvocationID.x;
+    uint Group = gl_WorkGroupID.x;
+
+    // LanesPerGroup == RadixBinCount, so the clear is exactly one bin per lane with no loop.
+    TileBinTally[Lane] = 0u;
+    barrier();
+
+    uint TileBase = Group * KeysPerGroup;
+    for (uint Step = 0u; Step < KeysPerLane; ++Step)
+    {
+        uint KeyIndex = TileBase + Step * LanesPerGroup + Lane;
+        if (KeyIndex < Constants.KeyCount)
+        {
+            uint BinIndex = (KeySource.SortKey[KeyIndex] >> Constants.ShiftBits) & RadixBinMask;
+            atomicAdd(TileBinTally[BinIndex], 1u);
+        }
+    }
+    barrier();
+
+    // One lane per bin writes its count out, bin-major.
+    TallyTarget.BinTally[Lane * Constants.GroupCount + Group] = TileBinTally[Lane];
+}

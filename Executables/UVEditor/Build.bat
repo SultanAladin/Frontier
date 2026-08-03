@@ -93,8 +93,14 @@ for /R "%APPDIR%" %%F in (*.cpp) do (
     echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
 )
 
-REM --- Link the shared libs + Vulkan / system libs (no GLFW) -------------------
-set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib""
+REM --- Link the shared libs + thorvg + Vulkan / system libs (no GLFW) ----------
+REM  thorvg.lib is the vendored static SVG rasterizer SvgRasterizer.obj (inside
+REM  EngineContext.lib) calls into for the icon glyphs. EngineContext.lib compiles
+REM  green without it - it only needs the header - so the omission surfaces ONLY
+REM  at link time, in whichever exe drags SvgRasterizer.obj in. Same seam every
+REM  other icon-registry exe already carries (SketchOutliner, SceneDirectory, ...).
+set "THORVGLIB=%ROOT%\ExternalPackages\thorvg\lib\thorvg.lib"
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%THORVGLIB%""
 set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
 
 echo [%NAME%] linking -^> %OUTPUT%

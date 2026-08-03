@@ -1,8 +1,10 @@
 /*==============================================================================================================================================
                                                           PAINTTOOLPANEL.CPP
 ==============================================================================================================================================*/
-// 🧩 The card assembled: state transitions, the per-frame resolve->draw->apply loop, and the parameter aliasing the preview reads.
-//    Ported from Documentation/Prototypes/PaintToolMenu.html's RenderCard() / RenderOptions() / Commit() / PaintPreview().
+// 🧩 The card assembled on the shared console: state transitions, the metrics + footer paint pushes into the descriptor, the per-frame
+//    resolve->console->fold loop, and the parameter aliasing the preview reads. The two-slide shell, the rail, the grid and the four parameter
+//    widgets are the CONSOLE's now — this file drives them with paint's own catalogue and folds the console's reports back into paint's values.
+//    Ported behaviour from Documentation/Prototypes/PaintToolMenu.html's RenderCard() / RenderOptions() / Commit() / PaintPreview().
 
 #include "PaintToolPanel.h"
 
@@ -11,6 +13,8 @@
 #include "PaintIconStore.h"
 
 #include "EngineContext/Interface/Icons/SvgIconRegistry.h"
+#include "EngineContext/Interface/Theme/ThemeConfiguration.h"
+#include "EngineContext/Interface/WorkspaceContextConsole/Token/MetricsSpecification.h"
 
 #include <cstdio>
 #include <cstring>
@@ -24,10 +28,6 @@ namespace Frontier
 
 namespace
 {
-
-// 📝 One wheel notch, in pixels. Not from the prototype — its panes are native scrolling divs and the step is the browser's.
-constexpr float PaintScrollWheelStep = 42.0f;
-
 
 bool SameKey(const char* Left, const char* Right)
 {
@@ -60,13 +60,6 @@ bool ReadKeyedReading(const PaintSchema& Schema, const PaintControlValue* Values
     return false;
 }
 
-// 📝 Both transitions below shut the dropdown, which the prototype gets for free by rebuilding the pane. Here the open row is
-//    remembered across frames, so a slide change or an instrument swap would float a list over a pane that no longer owns it.
-void DismissOpenSelect(PaintOptionsState& Options)
-{
-    Options.OpenSelectValueIndex = -1;
-}
-
 
 // 📝 The family an instrument belongs to. Resolved through the family KEY rather than by dividing the index, because the
 //    catalogue's bands are contiguous but not equal-sized (eraser has 5, brush has 23).
@@ -82,46 +75,100 @@ const PaintFamilyDescriptor& ResolveFamilyOf(const PaintInstrumentDescriptor& In
 }
 
 
-// 📝 The panes are drawn into the shell's clip with the window draw list, not into child windows, so there is no ImGui scroll to
-//    inherit — the wheel is read here and the offset clamped to the content the pane actually has.
-//    🔴 Clamped against the CURRENT content height every frame, not just on change: the options list grows and shrinks as
-//       live-state rows appear, and an offset held from a taller list would leave the pane scrolled past its own last row.
-float AdvancePaneScroll(const PaintPaneRegion& Region, float ScrollOffset, float ContentHeight)
+// 📝 Paint's box geometry, pushed into the shared MetricsSpecification. The console resolves the theme-scaled defaults (modelling's
+//    523x420 numbers), and paint overrides the fields it disagrees on — which is nearly all of them, since paint's card is 560x420 with a
+//    363 px right column and a set of parameter-row numbers a third shorter than modelling's. Built from the ALREADY-SCALED PaintCardMetrics
+//    so the two cards scale together off one UiScale knob.
+//    🔴 Only the fields MetricsSpecification actually carries are copied; PaintCardMetrics' preview/rail/grid-swap numbers stay paint's own,
+//       read by paint's own painters, and have no console counterpart to write.
+MetricsSpecification ResolvePaintConsoleMetrics(const ThemeConfiguration& Theme, const PaintCardMetrics& Card)
 {
-    const float ViewHeight   = Region.BodyMaximum.y - Region.BodyMinimum.y;
-    const float ScrollLimit  = (ContentHeight > ViewHeight) ? (ContentHeight - ViewHeight) : 0.0f;
+    MetricsSpecification Metrics = ResolveConsoleMetrics(Theme);
 
-    const bool PointerInside = ImGui::IsMouseHoveringRect(Region.BodyMinimum, Region.BodyMaximum, false);
-    if (PointerInside)
-    {
-        ScrollOffset -= ImGui::GetIO().MouseWheel * PaintScrollWheelStep;
-    }
+    // ── the box ──
+    Metrics.CardWidth        = Card.CardWidth;
+    Metrics.CardHeight       = Card.CardHeight;
+    Metrics.LeftColumnWidth  = Card.LeftColumnWidth;
+    Metrics.RightColumnWidth = Card.RightColumnWidth;
+    Metrics.CardRounding     = Card.CardRounding;
 
-    if (ScrollOffset < 0.0f)        { ScrollOffset = 0.0f; }
-    if (ScrollOffset > ScrollLimit) { ScrollOffset = ScrollLimit; }
-    return ScrollOffset;
+    // ── pane bands ──
+    Metrics.HeaderHeight      = Card.HeaderHeight;
+    Metrics.GridFootHeight    = Card.GridFootHeight;
+    Metrics.OptionsFootHeight = Card.OptionsFootHeight;
+
+    // ── rail + grid ──
+    Metrics.RailRowHeight  = Card.RailRowHeight;
+    Metrics.GridColumnCount = Card.GridColumnCount;
+    Metrics.TileGap         = Card.TileGap;
+    Metrics.TileRounding    = Card.TileRounding;
+    Metrics.TileArtEdge     = Card.WellDiameter;   // paint's tile carries a round well, not a glyph mark
+
+    // ── parameter rows ──
+    Metrics.ParameterPadding  = Card.OptionsPaddingY;   // .options-body padding
+    Metrics.ParameterRowGap   = Card.OptionsRowGap;
+    Metrics.ParameterLabelGap = Card.ControlGap;
+    Metrics.ValuePillHeight   = Card.ValueBoxHeight;
+    Metrics.SliderTrackHeight = Card.SliderHeight;
+    Metrics.SliderKnobEdge    = Card.SliderKnobEdge;
+    Metrics.SegmentHeight     = Card.SegmentHeight;
+    Metrics.SegmentGap        = Card.SegmentGap;
+    Metrics.SwitchWidth       = Card.SwitchWidth;
+    Metrics.SwitchHeight      = Card.SwitchHeight;
+    Metrics.SwitchNubEdge     = Card.SwitchNubEdge;
+
+    // ── animation ──
+    Metrics.CarouselSeconds = Card.CarouselSeconds;
+    Metrics.OpenSeconds     = Card.OpenSeconds;
+
+    return Metrics;
 }
 
 
-// 📝 The prototype's Commit(): write the value, then let the caller re-render. The re-render is the NEXT frame's resolve here,
-//    which is the whole reason the column reports instead of applying.
-//    🔴 A committed option can add or remove a row, so the open dropdown is dismissed on a choice — the prototype's rebuild
-//       destroys the open list as a side effect, and leaving it open here would float it over a row that may no longer exist.
-void ApplyOptionsOutcome(PaintToolPanelState& State, const PaintOptionsOutcome& Outcome)
+// 📝 The visible list resolved from THIS state's live values, plus the group tally the footer note reports. Pulled into one place because
+//    both the bridge context (which builds the options arena from it) and the footer tally read the same list, and re-resolving it twice
+//    could drift if the values changed between the two calls.
+int ResolveVisibleNow(const PaintToolPanelState& State, PaintVisibleControl* Visible, int Capacity, int& GroupCount)
 {
-    if (Outcome.Request == PaintOptionsRequest::None)   { return; }
-    if (Outcome.ValueIndex < 0 || Outcome.ValueIndex >= State.ValueCount) { return; }
+    GroupCount = 0;
 
-    PaintControlValue& Value = State.Values[Outcome.ValueIndex];
+    int InstrumentCount = 0;
+    const PaintInstrumentDescriptor* Instruments = ResolvePaintInstruments(InstrumentCount);
+    if (State.InstrumentIndex < 0 || State.InstrumentIndex >= InstrumentCount) { return 0; }
 
-    switch (Outcome.Request)
+    const PaintInstrumentDescriptor& Active = Instruments[State.InstrumentIndex];
+    const int Count = ResolveVisiblePaintControls(Active, State.Schema, State.Values, State.ValueCount, Visible, Capacity);
+
+    for (int Index = 0; Index < Count; ++Index)
     {
-        case PaintOptionsRequest::SetReading:       Value.Reading      = Outcome.Reading;      break;
-        case PaintOptionsRequest::ChooseOption:     Value.ChosenOption = Outcome.ChosenOption;
-                                                    DismissOpenSelect(State.Options);          break;
-        case PaintOptionsRequest::ToggleActivation: Value.Activated    = Outcome.Activated;    break;
-        default:                                                                               break;
+        if (Visible[Index].StartsGroup) { ++GroupCount; }
     }
+    return Count;
+}
+
+
+// 🔴 Fold the console's parameter edits back into paint's value array. The console mutates its ParameterBlock.Rows[] in place — there is no
+//    outcome struct — and the block's rows are in the SAME order as the arena the bridge built from the visible list, so row i maps to the
+//    value slot Visible[i].ValueIndex. Written here because the bridge's ConvertControl maps paint->console going in, and this is the reverse
+//    it has no place to do (the bridge cannot see State.Values). Returns true when any value changed, so a live preview re-resolves.
+bool FoldParameterBlock(PaintToolPanelState& State, const PaintVisibleControl* Visible, int VisibleCount)
+{
+    const int Bound = (VisibleCount < State.Parameters.RowCount) ? VisibleCount : State.Parameters.RowCount;
+    bool Changed = false;
+
+    for (int Row = 0; Row < Bound; ++Row)
+    {
+        const int ValueIndex = Visible[Row].ValueIndex;
+        if (ValueIndex < 0 || ValueIndex >= State.ValueCount) { continue; }
+
+        PaintControlValue&    Value  = State.Values[ValueIndex];
+        const ParameterState& Reading = State.Parameters.Rows[Row];
+
+        if (Value.Reading != Reading.Reading)           { Value.Reading = Reading.Reading;           Changed = true; }
+        if (Value.ChosenOption != Reading.ChosenOption) { Value.ChosenOption = Reading.ChosenOption; Changed = true; }
+        if (Value.Activated != Reading.Activation)      { Value.Activated = Reading.Activation;      Changed = true; }
+    }
+    return Changed;
 }
 
 } // namespace
@@ -140,32 +187,28 @@ void OpenPaintToolPanel(PaintToolPanelState& State, int FamilyIndex)
 
     State.FamilyIndex = FamilyIndex;
 
-    // 🔴 The card opens on the LIBRARY slide with a valid slide 2 behind it. The prototype's OpenMenu only renders slide 1, but its
-    //    slide 2 reads `ActiveTool` which is null until OpenTool runs — a null the DOM tolerates and a schema walk does not. So the
-    //    family's first instrument is selected here, giving the options column real rows before the carousel can ever reach it.
+    // 🔴 The card opens on the LIBRARY (action) slide with a valid slide 2 behind it. The family's first instrument is selected here, giving
+    //    the options column real rows before the carousel can ever reach it — a schema walk does not tolerate the null ActiveTool the DOM does.
     int FirstIndex = 0;
     int LastIndex  = 0;
     ResolvePaintFamilyRange(State.FamilyIndex, FirstIndex, LastIndex);
     SelectPaintInstrument(State, FirstIndex < LastIndex ? FirstIndex : -1);
 
-    State.Shell.Slide      = PaintCardSlide::Library;
-    State.Shell.SlidePhase = 0.0f;
-    State.Shell.OpenPhase  = 0.0f;   // the pop replays from the start on every open, as the class re-add does
-    State.Shell.IsOpen     = true;
-
-    State.GridScroll    = 0.0f;
-    State.OptionsScroll = 0.0f;
-    RequestPaintGridReplay(State.Grid, State.FamilyIndex);
+    // Open on the grid, with the carousel and its pop replayed from the start.
+    State.Focus.OpenCluster       = FamilyIndex;
+    State.Carousel.ShowingOptions = false;
+    State.Carousel.Travel         = 0.0f;
+    State.Carousel.OpenAge        = 0.0f;
+    State.CardOpen                = true;
 }
 
 
 void ClosePaintToolPanel(PaintToolPanelState& State)
 {
-    // 📝 CloseMenu() also clears OptionsShown, so a re-open starts on the grid rather than resuming slide 2. Requested rather than
-    //    assigned so the carousel travels back while the card fades, which is what dropping both classes at once does.
-    State.Shell.IsOpen = false;
-    RequestPaintCardSlide(State.Shell, PaintCardSlide::Library);
-    DismissOpenSelect(State.Options);
+    // 📝 The console travels its carousel back to the action slide as it fades. Requested through the carousel rather than snapped so the
+    //    slide-back plays, which is what the prototype's dropping both classes at once does.
+    State.CardOpen                = false;
+    State.Carousel.ShowingOptions = false;
 }
 
 
@@ -179,7 +222,10 @@ void SelectPaintInstrument(PaintToolPanelState& State, int InstrumentIndex)
         State.InstrumentIndex = -1;
         State.Schema          = PaintSchema{};
         State.ValueCount      = 0;
-        DismissOpenSelect(State.Options);
+        State.Focus.OpenAction = -1;
+        // Force the console's parameter block to reseed the next time an action opens.
+        State.Parameters.Cluster = -1;
+        State.Parameters.Action  = -1;
         return;
     }
 
@@ -189,14 +235,18 @@ void SelectPaintInstrument(PaintToolPanelState& State, int InstrumentIndex)
     State.Schema          = ResolvePaintSchema(Instrument);
     State.ValueCount      = SeedPaintValues(Instrument, State.Schema, State.Values, PaintSchemaValueLimit);
 
-    // 📝 SwatchIndex = 0 in OpenTool. It is reset rather than carried because the swatch list is per FAMILY and ragged (eraser has
-    //    one ink, brush has five), so an index held across a swap can name a colour the new family does not offer.
+    // 📝 SwatchIndex = 0 in OpenTool. Reset rather than carried because the swatch list is per FAMILY and ragged (eraser has one ink, brush
+    //    has five), so an index held across a swap can name a colour the new family does not offer.
     State.Preview.SwatchIndex = 0;
-    State.OptionsScroll       = 0.0f;
-    DismissOpenSelect(State.Options);
 
-    // The new instrument's switches mount already in position, as the prototype's rebuilt pane does — see SettlePaintSwitches.
-    SettlePaintSwitches(State.Options, State.Values, State.ValueCount);
+    // Point the console's open action at this instrument's console position, and clear the parameter block's identity so it reseeds.
+    int ClusterIndex = 0;
+    int ActionIndex  = -1;
+    ResolvePaintConsolePosition(InstrumentIndex, ClusterIndex, ActionIndex);
+    State.Focus.OpenCluster = ClusterIndex;
+    State.Focus.OpenAction  = ActionIndex;
+    State.Parameters.Cluster = -1;
+    State.Parameters.Action  = -1;
 }
 
 
@@ -255,217 +305,129 @@ PaintStrokeParameters ResolvePaintStrokeParameters(const PaintSchema& Schema,
 //                                                        THE PER-FRAME PASS
 //------------------------------------------------------------------------------------------------------------------------
 
-void ConstructPaintToolPanel(PaintToolPanelState& State, const PaintCardPalette& Palette, const PaintCardMetrics& Metrics,
-                             SvgIconRegistry* Registry, PaintIconStore* StripStore, ImVec2 CardCentre)
+void ConstructPaintToolPanel(PaintToolPanelState& State, const ThemeConfiguration& Theme, const PaintCardPalette& Palette,
+                             const PaintCardMetrics& Metrics, SvgIconRegistry* Registry, PaintIconStore* StripStore,
+                             ImVec2 CardCentre)
 {
     const float DeltaSeconds = ImGui::GetIO().DeltaTime;
 
-    AdvancePaintCardShell(State.Shell, Metrics, DeltaSeconds);
-    AdvancePaintRail(State.Rail, Metrics, State.FamilyIndex, DeltaSeconds);
-    AdvancePaintGrid(State.Grid, Metrics, DeltaSeconds);
-    AdvancePaintOptions(State.Options, State.Values, State.ValueCount, DeltaSeconds);
+    const MetricsSpecification ConsoleMetrics = ResolvePaintConsoleMetrics(Theme, Metrics);
 
-    const ImVec2 TopLeft(CardCentre.x - Metrics.CardWidth * 0.5f, CardCentre.y - Metrics.CardHeight * 0.5f);
+    // Advance the toast (paint's own) and the console carousel. Both step even on a frame the card is closed, so a lingering toast expires
+    // and the slide-back finishes.
+    AdvancePaintOptions(State.Toast, nullptr, 0, DeltaSeconds);
+    State.Carousel.OpenAge += DeltaSeconds;
+    AdvanceConsoleCarousel(State.Carousel, DeltaSeconds, ConsoleMetrics);
 
-    // 🔴 STEP 1 of the fixed order — resolve from LAST frame's values, before anything is drawn. Everything below reads this
-    //    list; nothing below may rebuild it. The commit at the bottom is what makes the next frame's list differ.
+    const ImVec2 TopLeft(CardCentre.x - ConsoleMetrics.CardWidth * 0.5f, CardCentre.y - ConsoleMetrics.CardHeight * 0.5f);
+
+    // 🔴 STEP 1 — resolve the visible list from LAST frame's values, before the console draws. Everything below reads this; the fold at the
+    //    bottom is what makes the next frame's list differ.
     PaintVisibleControl Visible[PaintVisibleControlLimit] = {};
-    int VisibleCount = 0;
     int VisibleGroupCount = 0;
+    const int VisibleCount = ResolveVisibleNow(State, Visible, PaintVisibleControlLimit, VisibleGroupCount);
+
+    if (!State.CardOpen)
+    {
+        // Card closed: the toast may still be fading over an empty field, so it is drawn even here.
+        ConstructPaintToast(Palette, Metrics, State.Toast, CardCentre.x, TopLeft.y + Metrics.CardHeight);
+        return;
+    }
+
+    const PaintStrokeParameters Stroke = ResolvePaintStrokeParameters(State.Schema, State.Values, State.ValueCount);
+
+    // 🔴 STEP 2 — refresh the bridge context and build the options arena from THIS frame's visible list, then compose the descriptor and
+    //    stamp it with paint's geometry, footer and painters' shared state. The context must outlive the console call — the descriptor's
+    //    open action points into Context.Rows.
+    State.Bridge.CardPalette       = &Palette;
+    State.Bridge.CardMetrics       = &Metrics;
+    State.Bridge.Preview           = &State.Preview;
+    State.Bridge.Stroke            = Stroke;
+    State.Bridge.InstrumentIndex   = State.InstrumentIndex;
+    State.Bridge.VisibleGroupCount = VisibleGroupCount;
+    State.Bridge.ParameterCount    = VisibleCount;
+    State.Bridge.Registry          = Registry;
+    State.Bridge.StripStore        = StripStore;
+    State.Bridge.ArtMode           = State.ArtMode;
+    State.Bridge.ClickedSwatch     = -1;
+
+    BindPaintConsoleContext(State.Bridge, Visible, VisibleCount, State.Values, State.ValueCount);
+
+    WorkspaceContextConsoleDescriptor Descriptor = ComposePaintConsoleDescriptor(State.Bridge);
+    Descriptor.Metrics = &ConsoleMetrics;
+
+    // The footer's live tally: "<n> live parameters · <n> groups", both figures moving as the reader edits, digits in the accent ink.
+    char FooterNote[96] = {};
+    std::snprintf(FooterNote, sizeof(FooterNote), "%d live parameters \xc2\xb7 %d groups", VisibleCount, VisibleGroupCount);
+    Descriptor.Footer.CommitCaption = "Select";
+    Descriptor.Footer.RevertCaption = "Reset";
+    Descriptor.Footer.NoteText      = FooterNote;
+    Descriptor.Footer.AccentFigures = true;
+
+    const ConsoleResult Result = ConstructWorkspaceContextConsole(Registry, Descriptor, TopLeft, State.Focus,
+                                                                 State.Carousel, State.Parameters, Theme);
+
+    // 🔴 STEP 3 — fold the console's reports back. The parameter block first (its edits feed the schema-changing acts below), then the swatch
+    //    the column painter latched, then the footer buttons, and finally the grid selection LAST because it discards the value set the fold
+    //    wrote into. A reset or an apply-and-close likewise spends the values, so both come before the re-select.
+    (void)FoldParameterBlock(State, Visible, VisibleCount);
+
+    if (State.Bridge.ClickedSwatch >= 0) { State.Preview.SwatchIndex = State.Bridge.ClickedSwatch; }
 
     int InstrumentCount = 0;
     const PaintInstrumentDescriptor* Instruments = ResolvePaintInstruments(InstrumentCount);
     const PaintInstrumentDescriptor* Active =
         (State.InstrumentIndex >= 0 && State.InstrumentIndex < InstrumentCount) ? &Instruments[State.InstrumentIndex] : nullptr;
 
-    if (Active != nullptr)
+    // The footer's LEFT button — Reset. Re-seed from the schema, NOT a re-resolve: SeedParams(ActiveTool) rebuilds the values and leaves the
+    //    rows alone. Clearing the block identity makes the console reseed its readings from the freshly-seeded values next frame.
+    if (Result.RevertRequested && Active != nullptr)
     {
-        VisibleCount = ResolveVisiblePaintControls(*Active, State.Schema, State.Values, State.ValueCount,
-                                                   Visible, PaintVisibleControlLimit);
-        for (int Index = 0; Index < VisibleCount; ++Index)
-        {
-            if (Visible[Index].StartsGroup) { ++VisibleGroupCount; }
-        }
-    }
-
-    const PaintStrokeParameters Parameters = ResolvePaintStrokeParameters(State.Schema, State.Values, State.ValueCount);
-
-    // 📝 Everything a pane reports is collected and applied AFTER the shell closes, for the reason the header states: an applied
-    //    edit can change the row set, and the rows above it in this frame are already emitted.
-    int                 ClickedFamily     = -1;
-    int                 ClickedInstrument = -1;
-    int                 ClickedSwatch     = -1;
-    bool                BackRequested     = false;
-    PaintOptionsOutcome Outcome;
-    PaintOptionsRequest FootRequest = PaintOptionsRequest::None;
-
-    if (BeginPaintCardShell(Palette, Metrics, State.Shell, TopLeft))
-    {
-        //---------------------------------------------- SLIDE 1 — RAIL + GRID -----------------------------------------------
-        int FamilyCount = 0;
-        const PaintFamilyDescriptor* Families = ResolvePaintFamilies(FamilyCount);
-        const PaintFamilyDescriptor& Family   = Families[State.FamilyIndex];
-
-        const PaintPaneRegion RailRegion = ResolvePaintPaneRegion(Metrics, State.Shell, TopLeft, PaintCardSlide::Library,
-                                                                  true, Metrics.HeaderHeight, 0.0f);
-        if (RailRegion.IsVisible)
-        {
-            ConstructPaintRailHeader(Palette, Metrics, Family.DotColour, FamilyCount, InstrumentCount,
-                                     ImVec2(RailRegion.BodyMinimum.x, TopLeft.y), Metrics.LeftColumnWidth);
-            ClickedFamily = ConstructPaintInstrumentRail(Palette, Metrics, State.Rail, RailRegion,
-                                                         Families, FamilyCount, State.FamilyIndex);
-        }
-
-        const PaintPaneRegion GridRegion = ResolvePaintPaneRegion(Metrics, State.Shell, TopLeft, PaintCardSlide::Library,
-                                                                  false, Metrics.HeaderHeight, Metrics.GridFootHeight);
-        if (GridRegion.IsVisible)
-        {
-            int FirstIndex = 0;
-            int LastIndex  = 0;
-            ResolvePaintFamilyRange(State.FamilyIndex, FirstIndex, LastIndex);
-
-            // 📝 The prototype's stand-in face: the header tile shows the family's FIRST instrument when the selection belongs to
-            //    another band, because an empty black square beside a populated grid reads as a load failure.
-            const bool FaceIsActive = (Active != nullptr) && SameKey(Active->FamilyKey, Family.Key);
-            const int  FaceIndex    = FaceIsActive ? State.InstrumentIndex : FirstIndex;
-
-            char GridSubtitle[64] = {};
-            std::snprintf(GridSubtitle, sizeof(GridSubtitle), "%d instruments", LastIndex - FirstIndex);
-            char GridTally[16] = {};
-            std::snprintf(GridTally, sizeof(GridTally), "%d", LastIndex - FirstIndex);
-
-            PaintPaneHeader Header;
-            Header.Title       = Family.Caption;
-            Header.Subtitle    = GridSubtitle;
-            Header.TallyText   = GridTally;
-            Header.TallyAccent = true;
-            Header.IconIsNib   = true;
-            Header.IconTexture = (Registry != nullptr) ? ResolveIconTexture(*Registry, ResolvePaintNibKey(FaceIndex)) : 0;
-            (void)ConstructPaintPaneHeader(Palette, Metrics, Header, ImVec2(GridRegion.BodyMinimum.x, TopLeft.y),
-                                           Metrics.RightColumnWidth);
-
-            State.GridScroll = AdvancePaneScroll(GridRegion, State.GridScroll,
-                                                 ResolvePaintGridContentHeight(Metrics, State.FamilyIndex));
-
-            PaintGridArtSources Art;
-            Art.Registry   = Registry;
-            Art.StripStore = StripStore;
-            Art.ArtMode    = State.ArtMode;
-            ClickedInstrument = ConstructPaintInstrumentGrid(Palette, Metrics, State.Grid, GridRegion, Art,
-                                                             State.FamilyIndex, State.InstrumentIndex, State.GridScroll);
-
-            ConstructPaintGridFoot(Palette, Metrics,
-                                   (Active != nullptr) ? Active->Label : nullptr, InstrumentCount,
-                                   ImVec2(GridRegion.BodyMinimum.x, GridRegion.BodyMaximum.y), Metrics.RightColumnWidth);
-        }
-
-        //------------------------------------------- SLIDE 2 — PREVIEW + OPTIONS --------------------------------------------
-        const PaintPaneRegion PreviewRegion = ResolvePaintPaneRegion(Metrics, State.Shell, TopLeft, PaintCardSlide::Options,
-                                                                     true, Metrics.HeaderHeight, 0.0f);
-        if (PreviewRegion.IsVisible && Active != nullptr)
-        {
-            const PaintFamilyDescriptor& OwnFamily = ResolveFamilyOf(*Active);
-
-            char BackSubtitle[96] = {};
-            std::snprintf(BackSubtitle, sizeof(BackSubtitle), "%s · %d instruments", OwnFamily.Caption, OwnFamily.Tally);
-
-            PaintPaneHeader Header;
-            Header.Title     = "Back";
-            Header.Subtitle  = BackSubtitle;
-            Header.IsBackRow = true;
-            BackRequested    = ConstructPaintPaneHeader(Palette, Metrics, Header,
-                                                        ImVec2(PreviewRegion.BodyMinimum.x, TopLeft.y),
-                                                        Metrics.LeftColumnWidth);
-
-            ClickedSwatch = ConstructPaintPreviewColumn(Palette, Metrics, PreviewRegion, State.Preview, Parameters,
-                                                        Registry, StripStore, State.InstrumentIndex,
-                                                        VisibleGroupCount, State.ValueCount);
-        }
-
-        const PaintPaneRegion OptionsRegion = ResolvePaintPaneRegion(Metrics, State.Shell, TopLeft, PaintCardSlide::Options,
-                                                                     false, Metrics.HeaderHeight, Metrics.OptionsFootHeight);
-        if (OptionsRegion.IsVisible && Active != nullptr)
-        {
-            PaintPaneHeader Header;
-            Header.Title       = Active->Label;
-            Header.Subtitle    = ResolveFamilyOf(*Active).Caption;
-            Header.IconIsNib   = true;
-            Header.IconTexture = (Registry != nullptr)
-                               ? ResolveIconTexture(*Registry, ResolvePaintNibKey(State.InstrumentIndex)) : 0;
-            (void)ConstructPaintPaneHeader(Palette, Metrics, Header, ImVec2(OptionsRegion.BodyMinimum.x, TopLeft.y),
-                                           Metrics.RightColumnWidth);
-
-            State.OptionsScroll = AdvancePaneScroll(OptionsRegion, State.OptionsScroll,
-                                                    ResolvePaintOptionsContentHeight(Metrics, Visible, VisibleCount));
-
-            Outcome = ConstructPaintOptionsColumn(Palette, Metrics, OptionsRegion, State.Options, Registry,
-                                                  Visible, VisibleCount, State.Values, State.ValueCount,
-                                                  State.OptionsScroll);
-
-            FootRequest = ConstructPaintOptionsFoot(Palette, Metrics, VisibleCount, VisibleGroupCount,
-                                                    ImVec2(OptionsRegion.BodyMinimum.x, OptionsRegion.BodyMaximum.y),
-                                                    Metrics.RightColumnWidth);
-        }
-
-        EndPaintCardShell();
-    }
-
-    // 🔴 The toast is drawn AFTER the clip is popped and with the foreground list — `position:fixed; z-index:120` sits over the
-    //    card, not inside a pane, and drawing it before EndPaintCardShell would clip it to the options column.
-    ConstructPaintToast(Palette, Metrics, State.Options, CardCentre.x, TopLeft.y + Metrics.CardHeight);
-
-    //-------------------------------------------------- STEP 3 — COMMIT ---------------------------------------------------
-    // 📝 Order matters only in that the schema-changing acts come last: a family or instrument change discards the value set the
-    //    edits below would have written into, so applying an edit first and then swapping would spend it on a dead schema.
-    ApplyOptionsOutcome(State, Outcome);
-
-    if (FootRequest == PaintOptionsRequest::ResetToDefaults && Active != nullptr)
-    {
-        // Re-seed from the schema, NOT a re-resolve: SeedParams(ActiveTool) rebuilds the values and leaves the rows alone.
-        State.ValueCount = SeedPaintValues(*Active, State.Schema, State.Values, PaintSchemaValueLimit);
-        DismissOpenSelect(State.Options);
-        // Reset re-renders the pane too, so a switch returning to its default appears there rather than sliding back.
-        SettlePaintSwitches(State.Options, State.Values, State.ValueCount);
+        State.ValueCount         = SeedPaintValues(*Active, State.Schema, State.Values, PaintSchemaValueLimit);
+        State.Parameters.Cluster = -1;
+        State.Parameters.Action  = -1;
 
         char Message[128] = {};
         std::snprintf(Message, sizeof(Message), "Reset %s", Active->Label);
-        FlashPaintToast(State.Options, Message);
+        FlashPaintToast(State.Toast, Message);
     }
-    else if (FootRequest == PaintOptionsRequest::ApplyInstrument && Active != nullptr)
+
+    // The footer's RIGHT button — Select. The console reports this as CommitRequested (and, coincidentally, the open action in
+    //    ActivatedCluster/Action). Flash the active instrument's headline, then close.
+    if (Result.CommitRequested && Active != nullptr)
     {
         float SizeReading = 0.0f;
         const bool HasSize = ReadKeyedReading(State.Schema, State.Values, State.ValueCount, "size", SizeReading);
 
         char Message[160] = {};
-        if (HasSize) { std::snprintf(Message, sizeof(Message), "%s active · %g px", Active->Label, SizeReading); }
-        else         { std::snprintf(Message, sizeof(Message), "%s active · — px", Active->Label); }
+        if (HasSize) { std::snprintf(Message, sizeof(Message), "%s active \xc2\xb7 %g px", Active->Label, SizeReading); }
+        else         { std::snprintf(Message, sizeof(Message), "%s active \xc2\xb7 \xe2\x80\x94 px", Active->Label); }
 
-        FlashPaintToast(State.Options, Message);
+        FlashPaintToast(State.Toast, Message);
         ClosePaintToolPanel(State);
     }
 
-    if (ClickedSwatch >= 0) { State.Preview.SwatchIndex = ClickedSwatch; }
-
-    if (BackRequested)
+    if (Result.DismissRequested)
     {
-        RequestPaintCardSlide(State.Shell, PaintCardSlide::Library);
-        DismissOpenSelect(State.Options);
+        State.CardOpen = false;
     }
 
-    if (ClickedFamily >= 0)
+    // 🔴 A GRID tile click does NOT come back as ActivatedCluster — the console only moves Focus.OpenAction and slides to options. So the
+    //    selection is detected by the focus now naming a different instrument than the one whose schema is loaded; re-selecting re-resolves
+    //    the schema and re-seeds its values. Done LAST because it discards the values every step above may have written. Guarded on the open
+    //    action being valid so an open-on-empty focus does not re-select instrument -1.
+    if (State.Focus.OpenAction >= 0)
     {
-        State.FamilyIndex = ClickedFamily;
-        State.GridScroll  = 0.0f;
-        // 📝 The unguarded replay, because this IS the prototype's click site: it rebuilds the grid and re-adds the fade class
-        //    whether or not the band changed. The guarded restart is the one a render path may call; this is not a render path.
-        RequestPaintGridReplay(State.Grid, State.FamilyIndex);
+        const int FocusInstrument = ResolvePaintInstrumentFor(State.Focus.OpenCluster, State.Focus.OpenAction);
+        if (FocusInstrument >= 0 && FocusInstrument != State.InstrumentIndex)
+        {
+            SelectPaintInstrument(State, FocusInstrument);
+        }
     }
 
-    if (ClickedInstrument >= 0)
-    {
-        SelectPaintInstrument(State, ClickedInstrument);
-        RequestPaintCardSlide(State.Shell, PaintCardSlide::Options);
-    }
+    // 🔴 The toast is drawn AFTER the console returns, over the whole card with the foreground list — `position:fixed; z-index:120` sits over
+    //    the card, not inside a pane, and the console never clips the foreground list, so paint's own toast survives intact.
+    ConstructPaintToast(Palette, Metrics, State.Toast, CardCentre.x, TopLeft.y + Metrics.CardHeight);
 }
 
 } // namespace Frontier

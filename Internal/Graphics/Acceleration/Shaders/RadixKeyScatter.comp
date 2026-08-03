@@ -1,0 +1,123 @@
+#version 450
+// ============================================================================================================================================
+//                                                          RADIXKEYSCATTER.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 3 of 3 in one radix-sort pass: each workgroup writes its tile's 1024 keys (and their payloads) to their sorted destinations, at
+//    BinOffset[bin, group] + the key's rank among same-bin keys within the tile. Transcribed from RunScatterDispatch in
+//    _ClaudeScratch/build/RadixSortProbe.cpp.
+//
+//    🔴 STABILITY LIVES HERE, AND IT IS LOAD-BEARING, NOT A NICETY. The rank must be the key's position among same-bin keys in ORIGINAL INDEX
+//       ORDER within the tile. The Karras radix-tree build downstream resolves duplicate Morton codes by primitive index; if equal keys emerge in
+//       arbitrary order that tiebreak is destroyed and the tree build HANGS rather than returning a wrong answer — a TDR, not a visual artifact.
+//       The CPU model measured 19,772 duplicate Morton codes at 1M triangles, so this path is exercised by real data, not just in principle.
+//
+//    ⚠️ THIS IS THE ONE DISPATCH THAT IS NOT A LITERAL TRANSCRIPTION, and the reason is worth stating. The model walks the tile once in ascending
+//       index with a running per-bin cursor — stable by construction, but a single serial chain over all 1024 keys. A lane cannot know how many
+//       EARLIER lanes share its bin without cooperating, and a plain shared-memory atomicAdd would give each key a unique slot in ARBITRARY order,
+//       which is exactly the instability that breaks the tiebreak. This shader keeps the model's ascending-index walk verbatim but PARTITIONS IT BY
+//       BIN: lane B performs the walk for bin B alone, so all 256 bins are walked concurrently and each bin's keys still receive their ranks in
+//       index order. Same ordering rule, same result, 256-wide instead of 1-wide. The equivalence is what RadixSortProbe's oracle must re-confirm
+//       against the GPU output before this is trusted.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint RadixBinCount  = 256u;
+const uint RadixBinMask   = RadixBinCount - 1u;
+const uint LanesPerGroup  = 256u;
+const uint KeysPerLane    = 4u;
+const uint KeysPerGroup   = LanesPerGroup * KeysPerLane;   // 1024
+
+layout(std430, set = 0, binding = 0) readonly buffer SortKeySourceBlock
+{
+    uint SortKey[];
+} KeySource;
+
+layout(std430, set = 0, binding = 1) readonly buffer SortPayloadSourceBlock
+{
+    uint SortPayload[];
+} PayloadSource;
+
+layout(std430, set = 0, binding = 2) writeonly buffer SortKeyTargetBlock
+{
+    uint SortKey[];
+} KeyTarget;
+
+layout(std430, set = 0, binding = 3) writeonly buffer SortPayloadTargetBlock
+{
+    uint SortPayload[];
+} PayloadTarget;
+
+// The scanned bin table from dispatch 2: BinOffset[Bin * GroupCount + Group] is where this group's run of bin-Bin keys begins globally.
+layout(std430, set = 0, binding = 4) readonly buffer BinOffsetBlock
+{
+    uint BinOffset[];
+} OffsetTable;
+
+layout(push_constant) uniform RadixScatterConstants
+{
+    uint KeyCount;     // [-] - live keys; the final tile is partial whenever this is not a multiple of 1024
+    uint GroupCount;   // [-] - the bin-major offset table's stride
+    uint ShiftBits;    // [-] - which 8-bit digit this pass sorts (0 / 8 / 16 / 24)
+} Constants;
+
+// This tile's write cursor per bin, seeded from the scanned global offsets and advanced in index order by the ranking sweep below.
+shared uint TileBinCursor[RadixBinCount];
+
+// The digit of every key in the tile, cached so the ranking sweep does not re-read global memory 1024 times.
+shared uint TileKeyBin[KeysPerGroup];
+
+// Each key's final rank within its bin within this tile.
+shared uint TileKeyRank[KeysPerGroup];
+
+void main()
+{
+    uint Lane     = gl_LocalInvocationID.x;
+    uint Group    = gl_WorkGroupID.x;
+    uint TileBase = Group * KeysPerGroup;
+
+    // Seed the per-bin cursors from the scanned offsets. LanesPerGroup == RadixBinCount, so one bin per lane, no loop.
+    TileBinCursor[Lane] = OffsetTable.BinOffset[Lane * Constants.GroupCount + Group];
+
+    // Cache every key's digit. Out-of-range slots get RadixBinCount — a sentinel outside the valid bin range, so the ranking sweep skips them
+    // without a second bounds test and they can never contribute to a real bin's rank.
+    for (uint Step = 0u; Step < KeysPerLane; ++Step)
+    {
+        uint Local    = Step * LanesPerGroup + Lane;
+        uint KeyIndex = TileBase + Local;
+        TileKeyBin[Local] = (KeyIndex < Constants.KeyCount)
+                          ? ((KeySource.SortKey[KeyIndex] >> Constants.ShiftBits) & RadixBinMask)
+                          : RadixBinCount;
+    }
+    barrier();
+
+    // ---- ranking : each key's position among same-bin keys, in ascending index order ------------------------------------------------------
+    // 🔴 One lane per BIN sweeps the whole tile in ascending index and hands out consecutive ranks to the keys that carry its bin. Index order is
+    //    therefore the rank order by construction — the same guarantee the model's serial walk gives — while the 256 bins are swept in parallel,
+    //    so the tile costs 1024 shared reads per lane rather than 1024 serialized steps overall. Any scheme that lets two keys of one bin be
+    //    ranked out of index order (an unordered atomicAdd, say) breaks the downstream tiebreak.
+    uint OwnedBin  = Lane;
+    uint RunningRank = 0u;
+    for (uint Local = 0u; Local < KeysPerGroup; ++Local)
+    {
+        if (TileKeyBin[Local] == OwnedBin)
+        {
+            TileKeyRank[Local] = RunningRank;
+            ++RunningRank;
+        }
+    }
+    barrier();
+
+    // ---- scatter : one write per key, to its bin's global base plus its in-tile rank -----------------------------------------------------------
+    for (uint Step = 0u; Step < KeysPerLane; ++Step)
+    {
+        uint Local    = Step * LanesPerGroup + Lane;
+        uint KeyIndex = TileBase + Local;
+        if (KeyIndex < Constants.KeyCount)
+        {
+            uint BinIndex    = TileKeyBin[Local];
+            uint Destination = TileBinCursor[BinIndex] + TileKeyRank[Local];
+            KeyTarget.SortKey[Destination]         = KeySource.SortKey[KeyIndex];
+            PayloadTarget.SortPayload[Destination] = PayloadSource.SortPayload[KeyIndex];
+        }
+    }
+}

@@ -170,6 +170,53 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   ├── SkyAtmosphere.{h,cpp}  AtmosphereProfile.h
 │   │   │   └── Shaders/ (Transmittance.comp, MultiScatter.comp, SkyView.frag, SkyDome.{vert,frag},
 │   │   │                 FullscreenTriangle.vert, AtmosphereCommon.glsl, TransmittanceLookup.glsl)
+│   │   ├── Acceleration/                          // 🟢 (live) GPU LBVH build for the surfel GI prepass — 4 dispatches, no CPU step
+│   │   │   ├── RadixSortSubmission.{h,cpp}        // 8-bit-digit LSD radix sort over 32-bit keys + a payload. STABLE by construction:
+│   │   │   │                                      //    one lane per bin sweeps the tile in ascending index (RadixKeyScatter lines
+│   │   │   │                                      //    93-107), so equal keys keep primitive order. 🔴 the Karras delta() tie-break
+│   │   │   │                                      //    DEPENDS on that — reorder the loop and the tree build hangs (TDR), not renders
+│   │   │   │                                      //    wrong. Ping-pong parity sets, capacity 2^21 keys, refuses beyond it
+│   │   │   ├── VolumeBoundsSubmission.{h,cpp}     // dispatch 1: scene AABB over triangle CENTROIDS, feeding the Morton normalisation.
+│   │   │   │                                      //    🔴 no float atomics on this device, so the 6 accumulators are ORDERED-INT
+│   │   │   │                                      //    (floatBitsToInt, XOR 0x7FFFFFFF when negative). Seeds are ±inf and differ, so
+│   │   │   │                                      //    the reseed is TWO vkCmdFillBuffer ranges — and it is recorded WITH the
+│   │   │   │                                      //    dispatch, because skipping it silently returns the union of every rebuild
+│   │   │   ├── GeometryTreeBuild.{h,cpp}          // the BOTTOM level (BLAS): a SAH tree over ONE mesh's triangles in LOCAL space, on the
+│   │   │   │                                      //    CPU, ported 1:1 from three-mesh-bvh. 🔴 the CPU may only ever see local-space
+│   │   │   │                                      //    per-mesh geometry — a tree built here is shared by every instance forever, so
+│   │   │   │                                      //    handing it world space converts a once-per-asset cost into a per-frame one.
+│   │   │   │                                      //    ParentTable (child->parent, for a future skinned refit) only under DynamicCondition
+│   │   │   ├── GeometryArenaSubmission.{h,cpp}    // uploads those trees: every mesh's node blob CONCATENATED into one device buffer +
+│   │   │   │                                      //    a per-mesh slice table, so the trace binds a fixed set of buffers however many
+│   │   │   │                                      //    meshes the world holds (descriptorIndexing is available but NOT enabled here).
+│   │   │   │                                      //    🔴 append-then-upload is two phases: sizing needs every mesh, so appending must
+│   │   │   │                                      //    not allocate. NodeOffset is in WORDS while NodeCount is in NODES
+│   │   │   ├── GeometryStreamConcatenation.{h,cpp} // merges every mesh's vertex/index stream (heads + floor) into ONE device buffer at load,
+│   │   │   │                                      //    so the surfel spawn/trace bind a single vertex + index SSBO regardless of mesh count.
+│   │   │   │                                      //    Emits a per-mesh base-offset table; the floor rides the same claim as the heads
+│   │   │   └── Shaders/ (RadixBinTally.comp, RadixBlockScan.comp, RadixBlockBaseAdd.comp, RadixKeyScatter.comp,
+│   │   │                 VolumeBoundsReduce.comp)
+│   │   ├── Surfel/                                 // 🟢 (live) surfel GI prepass — Phase-1 pool/grid/spawn/debug + Phase-2 trace+MSME integrate.
+│   │   │   │                                      //    NO GI on screen yet (Phase 3 gathers at SurfaceShade.frag:547, still untouched)
+│   │   │   ├── SurfelPool.{h,cpp}                  // surfel SSBO (stride-32: vec4 posb; vec3 normal; int age) + alive/pool atomics + free-list
+│   │   │   │                                      //    + the four F7 zero-fill buffers (touched/guiding/surfelDepth/moments)
+│   │   │   ├── SurfelPrefixSum.{h,cpp}             // segmented inclusive scan over grid cells (net-new — no scan existed in the repo).
+│   │   │   │                                      //    Serial single-thread cross-segment variant (F4). 🔴 collect dispatch groups by 64
+│   │   │   ├── SurfelGridSlotting.{h,cpp}          // clear->count->scan->slot; owns Offsets + List SSBOs (split, per F6) and an internal
+│   │   │   │                                      //    SurfelPrefixSum. 🔴 grid coord signed ivec3 so the cascade `>>` is arithmetic (F1)
+│   │   │   ├── SurfelLifecycleSubmission.{h,cpp}   // Prepare (F21 seed ages to RECYCLED, one-time) / Spawn (reconstructs world pos+normal
+│   │   │   │                                      //    from the VISIBILITY id, mirroring SurfaceShade — no G-buffer here) / Age (+1, TTL recycle)
+│   │   │   ├── SurfelDebugInscription.{h,cpp}      // splats each live surfel as a screen-space disc into the radiance scope; colour by mode
+│   │   │   │                                      //    (Age/Cascade/Identity/Occupancy). Off by default; F6 cycles it. Visual half of the DoD
+│   │   │   ├── SurfelIntegrateSubmission.{h,cpp}   // 🟢 (Phase 2) per-surfel INTEGRATE: SLG-guided trace (TraceTwoLevel inline) + hit shade
+│   │   │   │                                      //    + MSME fold + radial-depth write. Two sets (BVH + surfel), direct ceil(Cap/64), swap last
+│   │   │   ├── SurfelRadialDepth.{h,cpp}           // host occlusion constants (SurfelOcclusionParams 1.2/0.2/0.25/0.15, tile base index) + a CPU
+│   │   │   │                                      //    mirror of compute_surfel_depth_weight for the I4 gate oracle. NO dispatch of its own
+│   │   │   └── Shaders/ (SurfelGrid.glsl [F1 helper + hashing], SurfelRecord.glsl, SurfelVisibilityReconstruct.glsl,
+│   │   │                 SurfelMoments.glsl, SurfelGuiding.glsl, SurfelRadialDepth.glsl, SurfelGather.glsl [Phase 2 modules],
+│   │   │                 SurfelPrepare.comp, SurfelGridClear/Count/Slot.comp, SurfelPrefixScanSegment/CollectSegment/
+│   │   │                 SegmentReduce/Merge.comp, SurfelSpawnRequest.comp, SurfelAllocate.comp, SurfelAge.comp,
+│   │   │                 SurfelIntegrate.comp, SurfelDebugSplat.{vert,frag})
 │   │   ├── Grid/                                  // 🟢 (live) analytic ground grid — display-referred overlay, drawn after the
 │   │   │   │                                      //    radiance resolve; samples scene depth for occlusion (no depth attachment)
 │   │   │   ├── GroundGridPass.{h,cpp}  Shaders/ (AnalyticGroundPlane.{vert,frag})
@@ -269,6 +316,13 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │       ├── Gizmo3D/  TranslateGizmo3D, RotateGizmo3D, ScaleGizmo3D, TransformGizmoFrame
 │   │       └── Gizmo2D/  TranslateGizmo2D, RotateGizmo2D, ScaleGizmo2D, PlanarGizmoFrame
 │   │
+│   │   └── ParametricAuthoring/                   // ported analytic-sketch CPU model → AuthoringParametric.lib
+│   │       ├── ParametricSketchShapeStore.{h,cpp} // 🧩 analytic shapes + factory/flatten + the GPU bridges
+│   │       │                                      //   (SceneView / stroke+shape bodies / solid+stroke images)
+│   │       ├── ParametricSketchConstraintSolver.{h,cpp}  // 🧩 relaxation constraint solve
+│   │       ├── Operations/ Boolean, Fillet, Loft, Transform  // (Boolean/Transform → Clipper2, Loft → earcut)
+│   │       └── Build.bat                          // → AuthoringParametric.lib (folds in Clipper2's 3 vendored .cpp)
+│   │
 │   ├── Workspaces/                                // ══ pillar 5 — editable workspace documents ══
 │   │   │                                          //   A WorkspaceDocument = one tab = one editable authoring
 │   │   │                                          //   session (Modeling/UV/Sketch/Paint/Bake). Each owns a
@@ -334,7 +388,12 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       │   ├── WorkspaceApplicationRunner, WorkspaceDockHost, WorkspacePanelDock, WorkspaceTabStrip
 │       │   ├── PanelRegistry, DeploymentBracket, ImguiPlatformBridge
 │       │   ├── Viewport/  ViewportPanel, ViewportCamera, ViewportGrid
-│       │   └── Outliner/  OutlinerPanel, OutlinerConfiguration, Model/OutlinerModel, Model/OutlinerRow
+│       │   ├── SketchOutliner/  SketchOutlinerPanel (the ONE shared outliner panel, ns Frontier::SketchOutlinerUi),
+│       │   │                    OutlinerContentProfile.h, SketchContentProfile, SceneContentProfile
+│       │   │                    // content-agnostic frame + per-app profile (icons/labels/sample/filters/fallback art).
+│       │   │                    // Drives the CAD outliner (WorkspacePanelDock, SketchOutliner.exe, the SDI directory rail)
+│       │   │                    // AND the scene outliner (SceneDirectory.exe) — "more outliners" = another profile, not a panel.
+│       │   └── Outliner/  OutlinerPanel, OutlinerConfiguration, Model/OutlinerModel, Model/OutlinerRow  // ← thin, DEAD (registered, never invoked)
 │       └── WorkspaceLayouts/                      // one UI layout per editor mode (was Workspaces/)
 │           ├── Modeling/          ModelingWorkspace, ModelingPropertyPanel
 │           ├── UV/                UVWorkspace, UVPropertyPanel
@@ -352,14 +411,30 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── TextureBakeEditor/      { TextureBakeEditorEntry.cpp,       Config/, Build.bat }
 │   ├── SimulationEditor/       { SimulationEditorEntry.cpp,        Config/, Build.bat }
 │   └── Validation/                                // validation targets (not editors)
-│       ├── ControlsGallery/           { ControlsGalleryEntry.cpp,           …Panel.{h,cpp}, Build.bat }
-│       ├── InstrumentationValidation/ { InstrumentationValidationEntry.cpp, Build.bat }
-│       ├── ModellingToolValidation/   { ModellingToolValidationHost.cpp,    …Panel.{h,cpp}, Build.bat }
-│       ├── PolygonActionValidation/   { PolygonActionValidationHost.cpp,    …Panel.{h,cpp}, Build.bat }
-│       ├── OrientationCube/           { OrientationCubeEntry.cpp,           Build.bat }
-│       ├── RenderExtensionValidation/ { RenderExtensionValidationEntry.cpp, Build.bat }
-│       ├── SceneDirectory/            { SceneDirectoryEntry.cpp,            …Panel.{h,cpp}, Build.bat }
-│       └── WorkspaceDock/             { WorkspaceDockEntry.cpp,             Build.bat }
+│       ├── ClipmapFieldValidation/         { ClipmapFieldValidation.cpp,             Build.bat }
+│       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }
+│       ├── ControlsGallery/                { ControlsGalleryEntry.cpp,               …Panel.{h,cpp}, Build.bat }
+│       ├── GeometryArenaValidation/        { GeometryArenaValidationEntry.cpp,       Build.bat }  // headless device: uploads the BLAS
+│       │                                                                                          //   blobs and reads them back byte for
+│       │                                                                                          //   byte; also judges Model*InverseModel
+│       │                                                                                          //   and drives a real .wsdoc through the
+│       │                                                                                          //   load path into the arena (assertion 7)
+│       ├── GeometryTreeValidation/         { GeometryTreeValidationEntry.cpp,        Build.bat }  // CPU-only: the SAH builder itself
+│       ├── InstrumentationValidation/      { InstrumentationValidationEntry.cpp,     Build.bat }
+│       ├── ModellingToolValidation/        { ModellingToolValidationHost.cpp,        …Panel.{h,cpp}, Build.bat }
+│       ├── OrientationCube/                { OrientationCubeEntry.cpp,               Build.bat }
+│       ├── PaintToolValidation/            { PaintToolValidationHost.cpp,            PaintToolPanel + Paint* card/catalogue/column units, Build.bat }
+│       ├── PolygonActionValidation/        { PolygonActionValidationHost.cpp,        …Panel.{h,cpp}, Build.bat }
+│       ├── RadixSortValidation/            { RadixSortValidationEntry.cpp,           Build.bat }
+│       ├── RenderExtensionValidation/      { RenderExtensionValidationEntry.cpp,     Build.bat }
+│       ├── SceneDirectory/                 { SceneDirectoryHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel with the SCENE profile (no private panel copy)
+│       ├── SceneDirectoryInspectorValidation/ { SceneDirectoryInspectorValidationHost.cpp, SceneDirectoryInspector.{h,cpp}, SceneDirectoryInspectorPanel.{h,cpp}, InspectorGlyphs.{h,cpp}, Build.bat }  // directory rail = SHARED SketchOutliner panel (SKETCH profile), linked from EngineContext.lib
+│       ├── SketchModelViewport/            { SketchModelViewportHost.cpp,            …Panel.{h,cpp}, SketchModelOffscreenSurface.{h,cpp}, SketchModelViewportChrome.{h,cpp}, Build.bat }
+│       ├── SketchOutliner/                 { SketchOutlinerValidationHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel (SKETCH profile) from EngineContext.lib
+│       ├── TriangleCellOverlapValidation/  { TriangleCellOverlapValidationEntry.cpp, Build.bat }
+│       ├── VolumeBoundsValidation/         { VolumeBoundsValidationEntry.cpp,        Build.bat }
+│       ├── WorkspaceDock/                  { WorkspaceDockEntry.cpp,                 Build.bat }
+│       └── WorkspaceDocumentWriter/        { WorkspaceDocumentSerializer.cpp,        Build.bat }
 │
 ├── Binaries/                                       // outputs mirror Executables/ 1:1 (git-ignored)
 │   ├── ModelingEditor/         { ModelingEditor.exe,         Config/, EngineContent/ }
@@ -370,7 +445,12 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── SimulationEditor/       { SimulationEditor.exe,       Config/, EngineContent/ }
 │   └── Validation/             { ControlsGallery.exe, OrientationCube.exe, SceneDirectory.exe,
 │                                 WorkspaceDock.exe, InstrumentationValidation.exe, RenderExtensionValidation.exe,
-│                                 PolygonActionValidation.exe, ModellingToolValidation.exe }
+│                                 PolygonActionValidation.exe, ModellingToolValidation.exe, PaintToolValidation.exe,
+│                                 SketchOutliner.exe, SketchModelViewport.exe, ClipmapFieldValidation.exe,
+│                                 RadixSortValidation.exe, TriangleCellOverlapValidation.exe, VolumeBoundsValidation.exe,
+│                                 GeometryTreeValidation.exe, GeometryArenaValidation.exe,
+│                                 WorkspaceDocumentWriter.exe, ConstructionCatalogueValidation.exe,
+│                                 SceneDirectoryInspectorValidation.exe }
 │
 ├── Documentation/                                 // per "Where to Save Documents"
 │   ├── Explainers/  Mockups/  Research/  Skills/  Assets/
@@ -421,7 +501,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 | 1 | **EngineContext/** | EngineHost · Configuration · Math · MetricSpace · SpatialAcceleration · MicroUtils · Motion · Input · Audio · Scene · Navigation |
 | 1b | **Platform/** | Windowing · Concurrency · Storage · InputProvider |
 | 2 | **Simulation/** | Physics · Cloth · Gameplay |
-| 3 | **Graphics/** | Render · Visibility · Atmosphere · Grid · Shadow · DistanceField · Terrain |
+| 3 | **Graphics/** | Render · Visibility · Atmosphere · Grid · Shadow · Acceleration · Surfel · DistanceField · Terrain |
 | 4 | **Authoring/** | Modeling · UVEditing · ParametricSketch · TexturePainting · TextureBaking · Interchange · Gizmos |
 | 5 | **Workspaces/** | WorkspaceDocument · Revision · Codex |
 | 6 | **Interface/** | Theme · Instrumentation · Components · Dialogues · Settings · RevisionPanel · WorkspaceHost · WorkspaceLayouts |

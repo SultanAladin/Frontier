@@ -2036,7 +2036,8 @@ namespace
                                                                  BodyTop,
                                                                  OutlinerRect.PositionX + OutlinerRect.Width,
                                                                  BodyBottom);
-                    SketchOutlinerUi::ConstructSketchOutlinerPanel(Theme, Document->OutlinerState, State.FrameIconRegistry);
+                    SketchOutlinerUi::ConstructSketchOutlinerPanel(Theme, Document->OutlinerState, State.FrameIconRegistry,
+                                                                   SketchOutlinerUi::ResolveSketchContentProfile());
                 }
                 ImGui::End();
                 ImGui::PopStyleVar(3);
@@ -2764,7 +2765,8 @@ namespace
                     Box.Height = 420.0f;
                     if (!Target->OutlinerReady)
                     {
-                        SketchOutlinerUi::InitializeSketchOutlinerSample(Target->OutlinerState);
+                        SketchOutlinerUi::InitializeSketchOutlinerSample(Target->OutlinerState,
+                                                                         SketchOutlinerUi::ResolveSketchContentProfile());
                         Target->OutlinerReady = true;
                     }
                 }

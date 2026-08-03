@@ -1,0 +1,183 @@
+#version 450
+// ============================================================================================================================================
+//                                                          INSTANCETREEBUILD.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 3 of the TOP-level (TLAS) build: turn the sorted Morton codes into a binary radix tree over the instances. One lane per INTERNAL
+//    node. No shared memory, no atomics, no iteration — every internal node determines its own range and split independently, which is what makes
+//    this O(n) work in O(log n) depth and why the whole tree lands in a single dispatch.
+//
+//    Karras 2012, "Maximizing Parallelism in the Construction of BVHs, Octrees, and k-d Trees" (HPG). Written from the algorithm's definition
+//    rather than transcribed from any one implementation: the range determination, the split search and the delta function below are derived from
+//    the paper's construction and are the same shape every LBVH builder uses (NVIDIA's "Thinking Parallel" series, AMD's gpurt).
+//
+//    🔴 A TREE OVER N LEAVES HAS EXACTLY N-1 INTERNAL NODES, AND THE TWO ARE ADDRESSED IN THE SAME ARRAY. Internal nodes occupy slots
+//       [0, InstanceCount-1) and leaves occupy [InstanceCount-1, 2*InstanceCount-1). A child index is therefore meaningless on its own — it must be
+//       compared against InstanceCount-1 to know which half it names. Getting that comparison wrong does not fault: it reads a leaf's payload as if
+//       it were a child pointer and walks off into the array, producing a tree that is structurally well-formed and describes nothing.
+//
+//    ⚠️ THE DUPLICATE-KEY TIEBREAK IS A HANG, NOT A QUALITY ISSUE. Two instances closer than (extent / 1024) on every axis share a Morton code, and
+//       that is ordinary rather than pathological in a dense scene. delta() over equal codes would be infinite for every candidate split, so the
+//       binary searches below never converge and the range never narrows — the dispatch spins until the driver resets the device (TDR). The cure is
+//       to fall back to comparing the key INDICES when the codes are equal, which makes every key distinct by construction. That is why the sort
+//       feeding this pass MUST be stable (RadixSortSubmission.h says the same thing from the other side).
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup = 256u;
+
+// 🔴 Mirrors GeometryTreeWordsPerNode (Acceleration/GeometryTreeBuild.h). The TOP level writes the SAME 8-word node the BOTTOM level uses so the
+//    trace walks one node format at both levels instead of carrying two decoders. The word MEANINGS differ by level and are documented where they
+//    are written below.
+const uint TreeWordsPerNode = 8u;
+
+// 🔴 Mirrors GeometryTreeLeafFlag. A leaf stamps 0xFFFF in the high half of word 7; an interior node stores its split axis there. This is the ONLY
+//    thing distinguishing the two, at both levels.
+const uint TreeLeafFlag = 0xFFFFu;
+
+// set 0, binding 0 — the sorted Morton codes, as the radix sort left them. Read-only.
+layout(std430, set = 0, binding = 0) readonly buffer SortedKeyBlock
+{
+    uint SortedKeys[];
+};
+
+// set 0, binding 1 — the sorted payloads: the instance index each key belongs to. Read-only.
+layout(std430, set = 0, binding = 1) readonly buffer SortedPayloadBlock
+{
+    uint SortedPayloads[];
+};
+
+// set 0, binding 2 — the tree's node words. Internal nodes first, then leaves; see the addressing note in the header.
+layout(std430, set = 0, binding = 2) writeonly buffer TreeNodeBlock
+{
+    uint TreeNodeWords[];
+};
+
+// set 0, binding 3 — one parent index per node, written here and consumed by the bounds refit that follows. The root's entry is left at the
+// sentinel the host seeded.
+layout(std430, set = 0, binding = 3) writeonly buffer TreeParentBlock
+{
+    uint TreeParents[];
+};
+
+layout(push_constant) uniform InstanceTreeConstants
+{
+    uint InstanceCount;   // [-] - leaves in the tree; internal nodes are one fewer
+} Constants;
+
+// ─── THE KEY, WIDENED ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 📝 The 30-bit Morton code in the high bits and the key's own index in the low bits, giving a 62-bit value that is UNIQUE even when two instances
+//    share a code. Every comparison below runs on this widened key rather than on the raw code, which is what makes the tiebreak in the header
+//    automatic rather than a special case sprinkled through the searches.
+uvec2 WidenedKey(uint KeyIndex)
+{
+    return uvec2(SortedKeys[KeyIndex], KeyIndex);
+}
+
+// ─── DELTA ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 📝 The length of the common prefix of two widened keys — the paper's δ. Longer prefix means the two keys sit closer together on the Z-curve, so
+//    δ is the similarity measure the whole construction is driven by. Returns -1 for an out-of-range index, which is the sentinel that stops a
+//    range from walking off either end of the array.
+//
+//    🔴 THE INDEX HALF IS PART OF THE PREFIX, NOT A COMPARISON APPENDED AFTER IT. When two codes are equal the prefix continues into the indices and
+//       yields 32 + (common prefix of the indices), which is finite and distinct for every pair. Special-casing equality instead — returning 0, or
+//       comparing indices only on a tie — breaks the monotonicity the binary searches rely on and reintroduces the hang.
+int DeltaAt(uint KeyIndexA, int KeyIndexB)
+{
+    if (KeyIndexB < 0 || KeyIndexB >= int(Constants.InstanceCount))
+        return -1;
+
+    uvec2 KeyA = WidenedKey(KeyIndexA);
+    uvec2 KeyB = WidenedKey(uint(KeyIndexB));
+
+    if (KeyA.x != KeyB.x)
+        return int(31u - findMSB(KeyA.x ^ KeyB.x));
+
+    // Codes identical — the prefix runs on into the indices. 32 accounts for the whole code half matching.
+    return 32 + int(31u - findMSB(KeyA.y ^ KeyB.y));
+}
+
+void main()
+{
+    uint NodeIndex = gl_GlobalInvocationID.x;
+
+    // A tree over N leaves has N-1 internal nodes. One lane each; the rest return.
+    if (Constants.InstanceCount < 2u || NodeIndex >= Constants.InstanceCount - 1u)
+        return;
+
+    // ─── DIRECTION ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 📝 Which way this node's range extends from NodeIndex. The neighbour sharing the longer prefix is the one inside the range, so the sign of
+    //    the difference in δ points along it.
+    int DeltaRight = DeltaAt(NodeIndex, int(NodeIndex) + 1);
+    int DeltaLeft  = DeltaAt(NodeIndex, int(NodeIndex) - 1);
+    int Direction  = (DeltaRight > DeltaLeft) ? 1 : -1;
+
+    // ─── RANGE LENGTH ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 📝 The prefix length shared by everything in this node's range: whatever the neighbour on the FAR side has. Any key with a longer prefix is
+    //    inside, any key with a shorter one is outside, which is the test both searches below use.
+    int DeltaMinimum = min(DeltaRight, DeltaLeft);
+
+    // Overshoot by doubling until the test fails, then binary-search back. Finds the far end in O(log n) without ever scanning the range.
+    int UpperBound = 2;
+    while (DeltaAt(NodeIndex, int(NodeIndex) + UpperBound * Direction) > DeltaMinimum)
+        UpperBound *= 2;
+
+    int RangeLength = 0;
+    for (int Step = UpperBound / 2; Step >= 1; Step /= 2)
+    {
+        if (DeltaAt(NodeIndex, int(NodeIndex) + (RangeLength + Step) * Direction) > DeltaMinimum)
+            RangeLength += Step;
+    }
+
+    int RangeEnd = int(NodeIndex) + RangeLength * Direction;
+
+    // ─── SPLIT ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 📝 The position inside the range where the shared prefix first grows — the highest bit on which the range's keys disagree. Same binary search
+    //    shape as above, now against the range's OWN prefix length rather than its neighbour's.
+    int DeltaRange = DeltaAt(NodeIndex, RangeEnd);
+    int SplitOffset = 0;
+    int Divisor = 2;
+    for (int Step = (RangeLength + Divisor - 1) / Divisor; Step >= 1; Divisor *= 2, Step = (RangeLength + Divisor - 1) / Divisor)
+    {
+        if (DeltaAt(NodeIndex, int(NodeIndex) + (SplitOffset + Step) * Direction) > DeltaRange)
+            SplitOffset += Step;
+
+        if (Step == 1)
+            break;
+    }
+
+    int Split = int(NodeIndex) + SplitOffset * Direction + min(Direction, 0);
+
+    // ─── CHILDREN ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 📝 A child is a LEAF when it is alone on its side of the split, and an internal node otherwise. Leaves live above the internal nodes, so a
+    //    leaf's slot is (InstanceCount - 1) + its key position. See the addressing note in the header.
+    uint InternalCount = Constants.InstanceCount - 1u;
+
+    uint LeftChild  = (min(int(NodeIndex), RangeEnd) == Split)
+                    ? (InternalCount + uint(Split))
+                    : uint(Split);
+
+    uint RightChild = (max(int(NodeIndex), RangeEnd) == Split + 1)
+                    ? (InternalCount + uint(Split + 1))
+                    : uint(Split + 1);
+
+    // ─── WRITE ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // 🔴 THE BOX WORDS (0..5) ARE DELIBERATELY NOT WRITTEN HERE, AND THEY ARE NOT LEFT UNDEFINED EITHER. This pass builds the tree's SHAPE; the
+    //    boxes are computed by the refit that follows, which needs them pre-seeded to an inverted box and would have to clear them anyway. The host
+    //    seeds them, so writing them here would be a redundant store per node on the critical path of the largest dispatch in the build.
+    //
+    // 📝 WORD MEANINGS AT THE TOP LEVEL differ from the bottom level's, which is the one place the shared node format carries different freight:
+    //       words 0..5 : the six bounds floats                          (same at both levels)
+    //       word 6     : interior -> the ABSOLUTE index of the left child, not a relative offset
+    //       word 7     : interior -> the ABSOLUTE index of the right child
+    //    The bottom level stores a relative right-child offset and an implicit next-node left child, which suits a tree written in depth-first slot
+    //    order by a CPU builder. This tree is written by independent lanes in NO order at all, so a relative offset would be meaningless — nothing
+    //    guarantees a child sits near its parent. Absolute indices at both children is the correct encoding for a parallel build, and it is why the
+    //    trace's top-level descent reads children differently from its bottom-level descent.
+    uint Base = NodeIndex * TreeWordsPerNode;
+    TreeNodeWords[Base + 6u] = LeftChild;
+    TreeNodeWords[Base + 7u] = RightChild;
+
+    // The refit walks child -> parent, so every child records who claimed it. The root is claimed by nobody and keeps the host's sentinel.
+    TreeParents[LeftChild]  = NodeIndex;
+    TreeParents[RightChild] = NodeIndex;
+}

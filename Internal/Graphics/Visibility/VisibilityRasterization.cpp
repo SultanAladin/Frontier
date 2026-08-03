@@ -524,7 +524,9 @@ void DrawVisibilityMesh(VisibilityRasterization&         Raster,
                         const VisibilityRasterConstants& Constants,
                         bool                             Indirect,
                         VkBuffer                         ArgumentBuffer,
-                        VkCommandBuffer                  CommandBuffer)
+                        VkCommandBuffer                  CommandBuffer,
+                        uint32_t                         FirstIndex,
+                        uint32_t                         IndexCount)
 {
     if (!Raster.ReadyCondition || Raster.Host == nullptr)
         return;
@@ -546,7 +548,14 @@ void DrawVisibilityMesh(VisibilityRasterization&         Raster,
         // The cull's ArgumentBuffer holds one VkDrawIndexedIndirectCommand at offset 0; its instanceCount == the survivor count the vertex stage remaps.
         vkCmdDrawIndexedIndirect(CommandBuffer, ArgumentBuffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
     else
-        vkCmdDrawIndexed(CommandBuffer, Mesh.IndexCount, InstanceCount, 0, 0, 0);
+    {
+        // 📝 IndexCount 0 is the whole-buffer default (the single-mesh case); a merged caller names its own sub-range. Clamped to what the buffer
+        //    actually holds so a stale placement under-draws rather than reading past the allocation.
+        const uint32_t DrawFirstIndex = (FirstIndex < Mesh.IndexCount) ? FirstIndex : 0u;
+        const uint32_t RemainingRun   = Mesh.IndexCount - DrawFirstIndex;
+        const uint32_t DrawIndexCount = (IndexCount == 0u || IndexCount > RemainingRun) ? RemainingRun : IndexCount;
+        vkCmdDrawIndexed(CommandBuffer, DrawIndexCount, InstanceCount, DrawFirstIndex, 0, 0);
+    }
 }
 
 void EndVisibilityScope(VisibilityRasterization& Raster,

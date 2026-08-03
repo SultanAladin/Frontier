@@ -1,0 +1,105 @@
+#version 450
+// ============================================================================================================================================
+//                                                            RADIXBLOCKSCAN.COMP
+// ============================================================================================================================================
+// 🧩 Steps 2a and 2b of the radix pass's exclusive scan. Each workgroup exclusive-scans its own 1024-entry block of the bin table into the offset
+//    table, and publishes the block's total. Transcribed from RunScanDispatch in _ClaudeScratch/build/RadixSortProbe.cpp, whose blocked result is
+//    verified entry-for-entry against the serial reference at every tested scale.
+//
+//    🔴 THE SCAN IS THREE DISPATCHES AND THE REASON IS CORRECTNESS, NOT STYLE. Block N's output depends on the total of every block before it.
+//       Within one dispatch Vulkan gives no ordering between workgroups and no portable way to wait for one, so a single-dispatch scan would read
+//       partials that may not have been written yet — a race that on this hardware would usually produce the right answer and occasionally not.
+//       Hence 2a (scan each block, publish its total) → 2b (scan the totals) → 2c (add the block base back). THE DISPATCH BOUNDARY IS THE
+//       SYNCHRONISATION. This is also precisely the guarantee OneSweep / decoupled look-back needs and Vulkan does not portably provide.
+//
+//    📝 2a and 2b are the SAME operation — an exclusive scan of a contiguous block — differing only in which buffer they walk. One shader serves
+//       both; the host selects with TotalWriteEnabled. 2b runs as a single workgroup, which is legitimate ONLY while the block count stays inside
+//       1024 entries. RadixSortSubmission enforces that on the host (see the ceiling note there); at 1M triangles the block count is 245, a 4.2x
+//       margin, so the ceiling is real and not hypothetical.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup      = 256u;
+const uint EntriesPerLane     = 4u;
+const uint EntriesPerGroup    = LanesPerGroup * EntriesPerLane;   // 1024
+
+// The values to scan: the bin table in 2a, the published block totals in 2b.
+layout(std430, set = 0, binding = 0) readonly buffer ScanSourceBlock
+{
+    uint ScanSource[];
+} SourceTable;
+
+// The exclusive scan result: the offset table in 2a, the per-block bases in 2b.
+layout(std430, set = 0, binding = 1) writeonly buffer ScanTargetBlock
+{
+    uint ScanTarget[];
+} TargetTable;
+
+// Each block's total, written by 2a and consumed by 2b. Bound but unwritten when TotalWriteEnabled is 0.
+layout(std430, set = 0, binding = 2) writeonly buffer BlockTotalBlock
+{
+    uint BlockTotal[];
+} TotalTable;
+
+layout(push_constant) uniform RadixScanConstants
+{
+    uint EntryCount;           // [-] - live entries to scan; the final block is partial whenever this is not a multiple of 1024
+    uint TotalWriteEnabled;    // [-] - 1 in step 2a (publish the block total), 0 in step 2b (nothing downstream reads it)
+} Constants;
+
+// The in-tile scan workspace. 1024 uints = 4 KiB — one slot per entry, because a Hillis-Steele sweep reads and writes the whole tile.
+shared uint TileScan[EntriesPerGroup];
+
+void main()
+{
+    uint Lane  = gl_LocalInvocationID.x;
+    uint Block = gl_WorkGroupID.x;
+    uint TileBase = Block * EntriesPerGroup;
+
+    // Load the tile. Out-of-range slots become 0, which is the identity for a sum scan — so the partial final block needs no separate path and
+    // its published total is still exactly the sum of its live entries.
+    for (uint Step = 0u; Step < EntriesPerLane; ++Step)
+    {
+        uint Local = Step * LanesPerGroup + Lane;
+        uint Slot  = TileBase + Local;
+        TileScan[Local] = (Slot < Constants.EntryCount) ? SourceTable.ScanSource[Slot] : 0u;
+    }
+    barrier();
+
+    // Hillis-Steele INCLUSIVE scan over the tile. Every lane handles EntriesPerLane slots per stride, and the read of all slots must complete
+    // before any write lands — hence the read phase into a register array, then a barrier, then the write phase. Reading and writing TileScan in
+    // the same phase is the classic in-place scan race.
+    for (uint Stride = 1u; Stride < EntriesPerGroup; Stride <<= 1u)
+    {
+        uint Addend[EntriesPerLane];
+        for (uint Step = 0u; Step < EntriesPerLane; ++Step)
+        {
+            uint Local = Step * LanesPerGroup + Lane;
+            Addend[Step] = (Local >= Stride) ? TileScan[Local - Stride] : 0u;
+        }
+        barrier();
+
+        for (uint Step = 0u; Step < EntriesPerLane; ++Step)
+        {
+            uint Local = Step * LanesPerGroup + Lane;
+            TileScan[Local] += Addend[Step];
+        }
+        barrier();
+    }
+
+    // The block total is the inclusive scan's last slot — read before the shift to exclusive consumes it.
+    uint TileTotal = TileScan[EntriesPerGroup - 1u];
+
+    // Shift inclusive → exclusive on the way out: slot L takes the inclusive value of L-1, and slot 0 takes 0. The scatter needs the count of
+    // everything BEFORE this entry, so the exclusive form is the one that is load-bearing.
+    for (uint Step = 0u; Step < EntriesPerLane; ++Step)
+    {
+        uint Local = Step * LanesPerGroup + Lane;
+        uint Slot  = TileBase + Local;
+        if (Slot < Constants.EntryCount)
+            TargetTable.ScanTarget[Slot] = (Local == 0u) ? 0u : TileScan[Local - 1u];
+    }
+
+    if (Constants.TotalWriteEnabled != 0u && Lane == 0u)
+        TotalTable.BlockTotal[Block] = TileTotal;
+}

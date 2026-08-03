@@ -1,0 +1,105 @@
+/*==============================================================================================================================================
+                                                    SCENEDIRECTORYINSPECTORPANEL.H
+==============================================================================================================================================*/
+// 🧩 The drawing half of the summoned scene-directory inspector. It owns the summon (Tab / right-click over a bare viewport), the outer
+//    directory ⇄ inspect carousel, the inner Properties ⇄ History carousel, the metadata pane, the property cards with every field widget,
+//    and the branching history rail (branch pills · timeline · undo / redo). 🔴 The directory ROWS are NOT drawn here: the rail hosts the
+//    reused SketchOutliner panel (ConstructSketchOutlinerPanel over State.Directory), which owns rows / selection / rename / drag / eye /
+//    filter / menus. This half reads the selection SketchOutliner surfaces and drives the cards + history off it, keeping a profile side-table
+//    keyed by the SketchOutliner token. All caller-owned state lives in one InspectorPanelState for the window's life; the two entry points
+//    seed it once and draw one frame. Types live in the app-local namespace SceneDirectoryInspectorValidation, never Frontier.
+
+#pragma once
+#ifndef FRONTIER_VALIDATION_SCENEDIRECTORYINSPECTOR_PANEL_H
+#define FRONTIER_VALIDATION_SCENEDIRECTORYINSPECTOR_PANEL_H
+
+#include "EngineContext/Interface/Theme/ThemeConfiguration.h"
+
+#include "SceneDirectoryInspector.h"
+#include "EngineContext/Interface/WorkspaceHost/SketchOutliner/SketchOutlinerPanel.h"
+
+#include <utility>
+#include <vector>
+
+namespace Frontier { struct SvgIconRegistry; }
+
+namespace SceneDirectoryInspectorValidation
+{
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                          STATE
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Which inner inspector face is shown (the pc-seg segmented control / inspectTrack.show-history).
+enum class InspectorFace { Properties, History };
+
+// 📝 Everything the inspector keeps between frames. The reused SketchOutliner directory (tree + selection + rename + filter, all caller-owned),
+//    a profile side-table keyed by SketchOutliner token, the branching revision store, the carousel travel (outer + inner, eased), and the
+//    summon placement + open state. The directory + profiles + revisions are the authored state; every pane is rebuilt from them each frame.
+struct InspectorPanelState
+{
+    // -- Directory (the reused SketchOutliner owns the tree, selection, rename, drag, eye, filter, menus) --
+    Frontier::SketchOutlinerUi::SketchOutlinerState Directory;   // [-]  - the recordStore + all row interaction
+
+    // -- Property side-table: the reused tree node carries no profile bag, so profiles hang off the token here --
+    std::vector<std::pair<RecordToken, RecordProfile>> Profiles;  // [-] - token -> established property bag
+
+    // -- Classification map: SketchOutliner classifies rows in its own vocabulary; this holds each token's SDI kind for the cards --
+    std::vector<std::pair<RecordToken, RecordClassification>> Kinds;  // [-] - token -> SDI RecordClassification
+
+    // -- Selection echo: the token whose cards are currently shown, to detect a selection change across frames --
+    RecordToken              ShownToken = 0;             // [-]  - last token the cards were resolved for (0 = none)
+
+    // -- Branching revision store --
+    RevisionStore            Revisions;                  // [-]  - the revisionStore (branches + active + fork-on-record)
+
+    // -- Add-record fold (the metadata action list's in-place classification grid) --
+    bool                     AddFoldOpen = false;        // [-]  - addFoldOpen
+
+    // -- Carousel travel (outer directory<->inspect, inner properties<->history), eased 0..1 --
+    InspectorFace            Face = InspectorFace::Properties; // [-] - which inner face
+    bool                     OnInspect = false;          // [-]  - outer slide: false=directory, true=inspect (menuTrack.to-inspect)
+    float                    OuterTravel = 0.0f;         // [-]  - 0 at directory, 1 at inspect; eased toward OnInspect
+    float                    InnerTravel = 0.0f;         // [-]  - 0 at properties, 1 at history; eased toward Face
+
+    // -- Summon placement + open --
+    bool                     SummonOpen = false;         // [-]  - the card is showing (summonOpen)
+    float                    SummonX = 0.0f;             // [px] - card top-left (clamped on summon)
+    float                    SummonY = 0.0f;             // [px]
+    float                    OpenAge = 0.0f;             // [s]  - seconds since summon, for the pop
+
+    // -- Deferred summon request (a right-click / Tab arriving this frame, applied after the card reports dismissal) --
+    bool                     SummonRequested = false;    // [-]  - a summon is waiting to place the card
+    float                    RequestX = 0.0f;            // [px] - where it wants to open
+    float                    RequestY = 0.0f;            // [px]
+
+    // -- Per-card fold memory (foldMemory: classification/title -> collapsed) is small + string-keyed; kept as a parallel vector --
+    std::vector<std::string> CollapsedCards;             // [-]  - "classification/Title" keys the reviewer collapsed
+};
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                      PUBLIC FUNCTIONS
+//------------------------------------------------------------------------------------------------------------------------
+
+// The profile bag for a token in the side-table, inserting a fresh (unpopulated) one if absent. Stable across the call (vector re-alloc
+// is fine — the reference is taken after any insert).
+RecordProfile& ProfileFor(InspectorPanelState& State, RecordToken Token);
+
+// The SDI classification recorded for a token when the directory was seeded; Solid when unknown (a safe card schema).
+RecordClassification KindFor(const InspectorPanelState& State, RecordToken Token);
+
+// Seed the state to the prototype's opening pose: the default Part tree seeded into the SketchOutliner directory, the four seeded
+// revisions, and SOL_Boss pre-selected (the cylinder, so a green hue is on screen immediately). Call once before the frame loop.
+void InitializeInspectorSample(InspectorPanelState& State);
+
+// Draw the whole inspector for one frame over the current viewport. Handles the Tab / right-click summon, both carousels, the directory
+// rows + interactions, the property cards, and the history rail. Icons supplies the reference glyphs (a null / empty registry falls back
+// to text, so the panel still renders). Call inside a docked-full host window each frame.
+void ConstructSceneDirectoryInspectorPanel(const Frontier::ThemeConfiguration& Theme,
+                                           InspectorPanelState&                State,
+                                           const Frontier::SvgIconRegistry*    Icons);
+
+}   // namespace SceneDirectoryInspectorValidation
+
+#endif

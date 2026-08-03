@@ -69,7 +69,7 @@ namespace
         ImGui::Separator();
         ImGui::Spacing();
 
-        if (State.Shell.IsOpen)
+        if (State.CardOpen)
         {
             if (ImGui::Button("close", ImVec2(-1.0f, 0.0f))) { ClosePaintToolPanel(State); }
         }
@@ -78,9 +78,9 @@ namespace
             if (ImGui::Button("open", ImVec2(-1.0f, 0.0f))) { OpenPaintToolPanel(State, State.FamilyIndex); }
         }
 
-        ImGui::TextUnformatted((State.Shell.Slide == PaintCardSlide::Options) ? "slide  options" : "slide  library");
-        ImGui::Text("travel %.2f", State.Shell.SlidePhase);
-        ImGui::Text("pop    %.2f", State.Shell.OpenPhase);
+        ImGui::TextUnformatted(State.Carousel.ShowingOptions ? "slide  options" : "slide  library");
+        ImGui::Text("travel %.2f", State.Carousel.Travel);
+        ImGui::Text("pop    %.2f", State.Carousel.OpenAge);
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -277,7 +277,7 @@ int main(int ArgumentCount, char** ArgumentValues)
             const ImVec2 FieldSize(ImGui::GetWindowSize().x - AuthoringWidth, ImGui::GetWindowSize().y);
             const ImVec2 CardCentre(FieldMinimum.x + FieldSize.x * 0.5f, FieldMinimum.y + FieldSize.y * 0.5f);
 
-            ConstructPaintToolPanel(State, Palette, Metrics, &Icons, &StripStore, CardCentre);
+            ConstructPaintToolPanel(State, Theme, Palette, Metrics, &Icons, &StripStore, CardCentre);
         }
         ImGui::End();
         ImGui::PopStyleVar();

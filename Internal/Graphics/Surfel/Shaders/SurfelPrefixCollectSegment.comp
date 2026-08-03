@@ -1,0 +1,36 @@
+#version 450
+/*==============================================================================================================================================
+                                                    SURFELPREFIXCOLLECTSEGMENT.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 2 of 4. After each segment has been scanned locally (pass 1), the segment's TOTAL is its last scanned element. This pass gathers that last
+//    element of every segment into the compact SegmentSums buffer, one entry per segment, so the serial cross-segment reduction (pass 3) can prefix
+//    them without touching the big Offsets buffer.
+//
+//    🔴 Ported 1:1 from webgiya surfelHashGrid.ts:531-541 (computeCollectSeg). The gathered index is min(base + SEGMENT_SIZE-1, totalCells) — clamped
+//       so the final (partial) segment reads its true last live entry, index totalCells = ElementCount-1, not a zero past the end. One thread per
+//       segment; a flat dispatch of `segments` invocations, guarded by Seg < segments.
+
+layout(local_size_x = 64) in;
+
+const int SURFEL_SCAN_WORKGROUP_SIZE = 512;
+const int SURFEL_SCAN_SEGMENT_SIZE   = SURFEL_SCAN_WORKGROUP_SIZE * 2;   // 1024
+
+layout(std430, binding = 0) buffer OffsetsBuffer     { int Offsets[]; };
+layout(std430, binding = 1) buffer SegmentSumsBuffer { int SegmentSums[]; };
+
+layout(push_constant) uniform PushBlock
+{
+    int ElementCount;   // totalCells + 1
+    int SegmentCount;   // ceil(ElementCount / SEGMENT_SIZE)
+} Push;
+
+void main()
+{
+    int Seg = int(gl_GlobalInvocationID.x);
+    if (Seg >= Push.SegmentCount) return;
+
+    int Base      = Seg * SURFEL_SCAN_SEGMENT_SIZE;
+    int Last      = Base + (SURFEL_SCAN_SEGMENT_SIZE - 1);
+    int ClampLast = min(Last, Push.ElementCount - 1);   // reference: min(last, totalCells); totalCells == ElementCount-1
+    SegmentSums[Seg] = Offsets[ClampLast];
+}

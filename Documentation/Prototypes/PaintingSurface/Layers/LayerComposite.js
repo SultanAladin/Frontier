@@ -30,7 +30,7 @@ const CompositeShaderSource = `
 struct CompositeUniform
 {
     Control  : vec4f,   // x = blend mode index, y = layer opacity [0,1], z = atlas kind, w = unused
-    Settings : vec4f,   // unused, reserved for mask strength
+    Settings : vec4f,   // x = mask applied (0/1), y = mask strength [0,1], z = mask inverted (0/1), w = unused
 };
 
 @group(0) @binding(0) var<uniform> Composite : CompositeUniform;
@@ -43,6 +43,12 @@ struct CompositeUniform
 //    An earlier revision sampled LayerStore for both operands, which made Multiply compute Above*Above
 //    and turned Darken into a no-op. Both look plausible on a uniform test fill and wrong on real paint.
 @group(0) @binding(3) var          BelowStore : texture_2d<f32>;
+
+// 🔴 The layer's resolved mask, or a 1x1 opaque white stand-in when the layer carries none. A bind group
+//    has to satisfy its layout in full, so the slot cannot simply be left empty — and white reads as
+//    "applies everywhere", which is exactly the unmasked result. The Settings.x gate below means the
+//    stand-in is never even sampled in the common case, but binding white keeps the two paths identical.
+@group(0) @binding(4) var          MaskStore : texture_2d<f32>;
 
 struct CompositeVarying
 {
@@ -107,7 +113,24 @@ fn CompositeFragment(In : CompositeVarying) -> @location(0) vec4f
     //    blend weight by it is what stops an unpainted region of a Multiply layer from blacking out the
     //    surface below. Reading only the RGB and trusting the blend mode to be a no-op over untouched
     //    texels is wrong for every mode except Normal.
-    let Weight = Layer.a * Opacity;
+    //
+    // 🔴 The mask is a THIRD factor on that same weight, not a separate operation. A mask says "apply
+    //    this layer here, by this much", which is precisely a per-texel opacity — so it multiplies in
+    //    alongside coverage and the layer's own opacity, and every blend mode gets it for free. Applying
+    //    it to the layer's RGB instead would darken the painted colour toward black wherever the mask is
+    //    low, which is a completely different picture from revealing what is underneath.
+    var MaskWeight = 1.0;
+    if (Composite.Settings.x > 0.5)
+    {
+        // Greyscale, read from red — every mask write stores the same scalar in all three components.
+        var Sampled = textureSampleLevel(MaskStore, LayerSampler, In.Coordinate, 0.0).r;
+        if (Composite.Settings.z > 0.5) { Sampled = 1.0 - Sampled; }
+        // 📝 Mask strength blends the mask toward "fully applied" rather than scaling it toward zero: at
+        //    strength 0 the mask must vanish (layer applies everywhere), not black the layer out.
+        MaskWeight = mix(1.0, Sampled, clamp(Composite.Settings.y, 0.0, 1.0));
+    }
+
+    let Weight = Layer.a * Opacity * MaskWeight;
 
     // 🔴 The shader owns the WHOLE compositing equation, so the pipeline blend is disabled and this
     //    pass writes the final value. An unpainted texel must therefore pass the value below through
@@ -174,13 +197,31 @@ export class LayerComposite
             addressModeV: "clamp-to-edge"
         });
 
+        // The stand-in bound at the mask slot for every unmasked layer: 1x1, opaque white, "applies
+        // everywhere". Built once and shared by every layer that carries no mask.
+        this.MaskStandIn = Device.createTexture({
+            label:  "CompositeMaskStandIn",
+            size:   [1, 1],
+            format: ChannelAtlasFormat,
+            usage:  GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+        });
+        const StandInSeed = Device.createCommandEncoder({ label: "CompositeMaskStandInClear" });
+        StandInSeed.beginRenderPass({
+            colorAttachments: [{ view: this.MaskStandIn.createView(),
+                                 clearValue: { r: 1, g: 1, b: 1, a: 1 },
+                                 loadOp: "clear", storeOp: "store" }]
+        }).end();
+        Device.queue.submit([StandInSeed.finish()]);
+        this.MaskStandInView = this.MaskStandIn.createView();
+
         this.BindLayout = Device.createBindGroupLayout({
             label: "CompositeBindLayout",
             entries: [
                 { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer:  { type: "uniform", hasDynamicOffset: true, minBindingSize: CompositeUniformByteLength } },
                 { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
                 { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "non-filtering" } },
-                { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
+                { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+                { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
             ]
         });
 
@@ -243,6 +284,16 @@ export class LayerComposite
                 Staging[Base + 2] = 0.0;
                 Staging[Base + 3] = 0.0;
 
+                // 🔴 The gate is `Masked`, which demands BOTH an enabled mask and resolved storage. An
+                //    enabled-but-unevaluated mask has no texture to bind, and gating on Mask.Enabled alone
+                //    would bind the white stand-in while telling the shader to apply it — harmless today,
+                //    but it makes "mask enabled" and "mask readable" two different truths in one frame.
+                const Masked = Layer.Masked === true;
+                Staging[Base + 4] = Masked ? 1.0 : 0.0;
+                Staging[Base + 5] = Masked ? (Layer.Mask.Opacity ?? 100) / 100 : 0.0;
+                Staging[Base + 6] = (Masked && Layer.Mask.Invert) ? 1.0 : 0.0;
+                Staging[Base + 7] = 0.0;
+
                 SlotOf.set(`${Layer.Token}:${Descriptor.Key}`, Slot);
                 Slot += 1;
             }
@@ -302,7 +353,8 @@ export class LayerComposite
                         { binding: 0, resource: { buffer: this.Uniform, offset: 0, size: CompositeUniformByteLength } },
                         { binding: 1, resource: Layer.AtlasView[Key] },
                         { binding: 2, resource: this.Sampler },
-                        { binding: 3, resource: Read.createView() }
+                        { binding: 3, resource: Read.createView() },
+                        { binding: 4, resource: Layer.Masked ? Layer.MaskView : this.MaskStandInView }
                     ]
                 });
 
@@ -339,5 +391,9 @@ export class LayerComposite
             this.Resolved[Descriptor.Key].destroy();
             this.Scratch[Descriptor.Key].destroy();
         }
+
+        this.MaskStandIn?.destroy();
+        this.MaskStandIn     = null;
+        this.MaskStandInView = null;
     }
 }

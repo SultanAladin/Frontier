@@ -7,6 +7,7 @@ import { CHANNEL_ATLASES, CHANNEL_SLOTS, CHANNEL_ORDER, ChannelAtlasFormat,
          ResolveAtlasWrite } from "./ChannelSet.js";
 import { LAYER_KINDS, IsPaintable, DefaultChannelModes, DefaultChannels,
          MATERIAL_PRESETS, GENERATOR_RECIPES } from "./LayerKinds.js";
+import { CreateLayerMask, MaskAtlasFormat, MaskFillValue } from "./LayerMask.js";
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       CONSTANTS
@@ -121,7 +122,78 @@ export class PaintLayer
         //    result, since an unwritten layer has zero coverage and must not affect anything beneath it.
         this.Atlas     = {};
         this.AtlasView = {};
+
+        // ---- the layer mask --------------------------------------------------------------------------
+        // 🔴 A mask is NOT a fourth channel. It gates how strongly this whole layer composites over what
+        //    is beneath it, across every channel at once, so it lives beside the channel atlases rather
+        //    than inside them. It starts disabled and unallocated: a layer with no mask must cost nothing.
+        this.Mask        = CreateLayerMask();
+        this.MaskTexture = null;
+        this.MaskView    = null;
     }
+
+    // Allocate the layer's resolved mask atlas on demand, cleared to the mask's own fill.
+    //
+    // 🔴 Cleared to the FILL value, not to zero. A white-fill mask means "this layer applies everywhere",
+    //    and a zeroed atlas means the exact opposite — so a mask that was enabled but not yet evaluated
+    //    would make the whole layer vanish, which reads as "adding a mask deletes the layer".
+    EnsureMaskAtlas()
+    {
+        if (this.MaskView) { return this.MaskView; }
+
+        this.MaskTexture = this.Device.createTexture({
+            label:  `LayerMask${this.Token}`,
+            size:   [this.Extent, this.Extent],
+            format: MaskAtlasFormat,
+            usage:  GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_SRC          | GPUTextureUsage.COPY_DST
+        });
+        this.MaskView = this.MaskTexture.createView();
+
+        const Base    = MaskFillValue(this.Mask);
+        const Encoder = this.Device.createCommandEncoder({ label: `LayerMaskClear${this.Token}` });
+        Encoder.beginRenderPass({
+            colorAttachments: [{ view: this.MaskView,
+                                 clearValue: { r: Base, g: Base, b: Base, a: 1 },
+                                 loadOp: "clear", storeOp: "store" }]
+        }).end();
+        this.Device.queue.submit([Encoder.finish()]);
+
+        return this.MaskView;
+    }
+
+    // Allocate one mask COMPONENT's painted atlas on demand, cleared to transparent black.
+    //
+    // 🔴 Transparent, unlike the resolved mask above. A paint component's alpha is where it was actually
+    //    stroked, and the sequence shader mixes by that coverage — clearing it opaque would make every
+    //    unpainted texel of the component read as a hard black paint-out over everything beneath it.
+    EnsureMaskComponentAtlas(Component)
+    {
+        if (!Component) { return null; }
+        if (Component.AtlasView) { return Component.AtlasView; }
+
+        Component.Atlas = this.Device.createTexture({
+            label:  `LayerMask${this.Token}${Component.Token}`,
+            size:   [this.Extent, this.Extent],
+            format: MaskAtlasFormat,
+            usage:  GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_SRC          | GPUTextureUsage.COPY_DST
+        });
+        Component.AtlasView = Component.Atlas.createView();
+
+        const Encoder = this.Device.createCommandEncoder({ label: `LayerMaskCompClear${Component.Token}` });
+        Encoder.beginRenderPass({
+            colorAttachments: [{ view: Component.AtlasView,
+                                 clearValue: { r: 0, g: 0, b: 0, a: 0 },
+                                 loadOp: "clear", storeOp: "store" }]
+        }).end();
+        this.Device.queue.submit([Encoder.finish()]);
+
+        return Component.AtlasView;
+    }
+
+    // Is the mask both enabled and actually resolved into storage the compositor can bind?
+    get Masked() { return Boolean(this.Mask?.Enabled && this.MaskView); }
 
     // Allocate one atlas on demand and clear it to its documented value. Returns the view.
     //
@@ -252,6 +324,17 @@ export class PaintLayer
         for (const Descriptor of CHANNEL_ATLASES) { this.Atlas[Descriptor.Key]?.destroy(); }
         this.Atlas     = {};
         this.AtlasView = {};
+
+        // The mask's own atlas plus every paint component's, each of which is a full-size texture.
+        this.MaskTexture?.destroy();
+        this.MaskTexture = null;
+        this.MaskView    = null;
+        for (const Component of this.Mask?.Components ?? [])
+        {
+            Component.Atlas?.destroy();
+            Component.Atlas     = null;
+            Component.AtlasView = null;
+        }
     }
 }
 

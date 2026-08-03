@@ -1,0 +1,241 @@
+#version 450
+// ============================================================================================================================================
+//                                                         INSTANCEMORTONCODE.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 2 of the TOP-level (TLAS) build: turn each placed instance's world-space centroid into a 32-bit Morton code, and write that code
+//    plus the instance's own index straight into the radix sort's key and payload buffers. One lane per instance, no shared memory, no atomics.
+//    After this the sort orders the instances along the Z-curve and the Karras build (#8) reads them in that order.
+//
+//    🔴 THE CENTROID RULE HERE MUST MATCH InstanceBoundsReduce.comp EXACTLY. That shader reduced the box this one normalises against, so the two
+//       must agree on where an instance sits: same eight-corner world box, same (minimum + maximum) * 0.5 centre, same drop test for an
+//       out-of-range MeshOrdinal. If they disagree — even by a reassociation that rounds differently — a centroid can land marginally outside the
+//       box that was reduced for it. The normalisation below CLAMPS, so the symptom is not a crash but a handful of instances quantised onto a
+//       shared edge value: extra duplicate Morton codes, which is precisely the input the tree build is most sensitive to.
+//
+//    📝 WHY THE CODES GO STRAIGHT INTO THE SORT'S DEVICE BUFFERS. RadixSortSubmission's own upload path stages keys from HOST memory, which for a
+//       per-frame TLAS rebuild would mean device -> host -> device every frame for data the GPU just produced and is about to consume. The sort's
+//       PrimaryKeyBuffer / PrimaryPayloadBuffer are device-local and are exactly what its tally reads at parity 0, so this pass writes them in
+//       place and the host only has to tell the sort how many keys are live.
+//
+//    ⚠️ 32-BIT MORTON, 10 BITS PER AXIS, IS A DELIBERATE CEILING AND IT IS NOT THE SAME LIMIT AS THE SORT'S. Ten bits quantise each axis to 1024
+//       buckets, so two instances closer than (extent / 1024) on every axis receive the SAME code. That is not a failure — Karras resolves ties by
+//       index, which is why the sort must be stable — but it does mean tree quality degrades once instance density outruns the grid. The sort
+//       handles 4,194,304 keys; the Morton grid saturates on spatial density, not on count, so a dense city block can produce duplicates at far
+//       fewer instances than that. Widening to 64-bit codes is the fix if that ever bites, and it changes the sort's digit count, not this rule.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup = 256u;
+
+// 📝 Bits per axis in the code. Three axes at 10 bits is 30 bits of the available 32, which is the standard LBVH choice: the two spare bits are
+//    left clear rather than spent, so the code fits a uint and the sort's four 8-bit digit passes cover it exactly.
+const uint MortonBitsPerAxis   = 10u;
+const float MortonAxisMaximum  = 1023.0;   // (1 << MortonBitsPerAxis) - 1
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B by the static_assert there. Must list EVERY field including padding, or
+//    std430 mis-strides the array and every instance after the first reads a blend of its neighbours.
+struct SceneInstance
+{
+    float Model[16];         // @0   - column-major local -> world
+    float NormalBasis[12];   // @64  (unused here)
+    float Tint[4];           // @112 (unused here)
+    uint  PartitionId;       // @128 (unused here)
+    uint  MaterialId;        // @132 (unused here)
+    uint  MeshOrdinal;       // @136 - indexes the slice table
+    uint  Padding;           // @140
+    float InverseModel[16];  // @144 (unused here)
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B. NodeOffset is in WORDS, not nodes.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+    SceneInstance Instances[];
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer SliceBlock
+{
+    GeometryArenaSlice Slices[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer NodeBlock
+{
+    uint NodeWords[];
+};
+
+// set 0, binding 3 — the six ordered-int accumulators InstanceBoundsReduce.comp produced, read back here on the DEVICE rather than round-tripped
+// through the host. Read-only: this pass normalises against the box and never widens it.
+layout(std430, set = 0, binding = 3) readonly buffer InstanceBoundsBlock
+{
+    int InstanceBounds[];
+};
+
+// set 0, binding 4 — the radix sort's PrimaryKeyBuffer. One Morton code per instance.
+layout(std430, set = 0, binding = 4) writeonly buffer MortonKeyBlock
+{
+    uint MortonKeys[];
+};
+
+// set 0, binding 5 — the radix sort's PrimaryPayloadBuffer. The instance index each code belongs to, which is what survives the sort and tells the
+// tree build which instance a leaf refers to.
+layout(std430, set = 0, binding = 5) writeonly buffer MortonPayloadBlock
+{
+    uint MortonPayloads[];
+};
+
+layout(push_constant) uniform InstanceMortonConstants
+{
+    uint InstanceCount;   // [-] - live instances
+    uint SliceCount;      // [-] - entries in the slice table
+} Constants;
+
+// ─── ORDERED-INT BITS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Identical to the copies in InstanceBoundsReduce.comp / VolumeBoundsReduce.comp / AccelerationDeviceSupport.h. NOT GLSL built-ins.
+float OrderedIntBitsToFloat(int Bits)
+{
+    return intBitsToFloat((Bits < 0) ? (Bits ^ 0x7FFFFFFF) : Bits);
+}
+
+// ─── MORTON ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// 📝 Spread the low 10 bits of Value out so two zero bits sit between each, which is what lets three axes interleave into 30 bits. The classic
+//    shift-and-mask ladder: each step doubles the gap between the bits already placed. Same constants every LBVH implementation uses (Karras 2012 /
+//    the NVIDIA "Thinking Parallel" series); they are magic only in the sense that they are the fixed points of the spreading pattern.
+uint SpreadBitsByTwo(uint Value)
+{
+    Value &= 0x000003FFu;                        // keep 10 bits
+    Value = (Value | (Value << 16u)) & 0xFF0000FFu;
+    Value = (Value | (Value <<  8u)) & 0x0300F00Fu;
+    Value = (Value | (Value <<  4u)) & 0x030C30C3u;
+    Value = (Value | (Value <<  2u)) & 0x09249249u;
+    return Value;
+}
+
+// Interleave three 10-bit axis buckets into one 30-bit code, X in the highest of the three bit positions.
+uint MortonCodeForBuckets(uint BucketX, uint BucketY, uint BucketZ)
+{
+    return (SpreadBitsByTwo(BucketX) << 2u) | (SpreadBitsByTwo(BucketY) << 1u) | SpreadBitsByTwo(BucketZ);
+}
+
+mat4 ModelMatrixForInstance(uint InstanceIndex)
+{
+    float M[16] = Instances[InstanceIndex].Model;
+    return mat4(vec4(M[0],  M[1],  M[2],  M[3]),
+                vec4(M[4],  M[5],  M[6],  M[7]),
+                vec4(M[8],  M[9],  M[10], M[11]),
+                vec4(M[12], M[13], M[14], M[15]));
+}
+
+void main()
+{
+    uint InstanceIndex = gl_GlobalInvocationID.x;
+    if (InstanceIndex >= Constants.InstanceCount)
+        return;
+
+    uint MeshOrdinal = Instances[InstanceIndex].MeshOrdinal;
+
+    // 🔴 The SAME drop test the bounds reduce applied. An instance the reduce ignored has no coverage in the box, so coding it here would place it
+    //    against a box that never saw it. Dropped instances get the maximum key and their own index as payload: the sort pushes them to the end of
+    //    the range where the tree build can bound them off, rather than clustering them at code 0 among real geometry at the origin.
+    if (MeshOrdinal >= Constants.SliceCount)
+    {
+        MortonKeys[InstanceIndex]     = 0xFFFFFFFFu;
+        MortonPayloads[InstanceIndex] = InstanceIndex;
+        return;
+    }
+
+    uint NodeOffset = Slices[MeshOrdinal].NodeOffset;
+
+    vec3 LocalMinimum = vec3(uintBitsToFloat(NodeWords[NodeOffset + 0u]),
+                             uintBitsToFloat(NodeWords[NodeOffset + 1u]),
+                             uintBitsToFloat(NodeWords[NodeOffset + 2u]));
+    vec3 LocalMaximum = vec3(uintBitsToFloat(NodeWords[NodeOffset + 3u]),
+                             uintBitsToFloat(NodeWords[NodeOffset + 4u]),
+                             uintBitsToFloat(NodeWords[NodeOffset + 5u]));
+
+    mat4 Model = ModelMatrixForInstance(InstanceIndex);
+
+    // ⚠️ ALL EIGHT CORNERS, matching InstanceBoundsReduce.comp exactly. Two corners is correct only without rotation.
+    vec3 WorldMinimum = vec3( 1.0 / 0.0);
+    vec3 WorldMaximum = vec3(-1.0 / 0.0);
+    for (uint Corner = 0u; Corner < 8u; ++Corner)
+    {
+        vec3 LocalCorner = vec3((Corner & 1u) != 0u ? LocalMaximum.x : LocalMinimum.x,
+                                (Corner & 2u) != 0u ? LocalMaximum.y : LocalMinimum.y,
+                                (Corner & 4u) != 0u ? LocalMaximum.z : LocalMinimum.z);
+        vec3 WorldCorner = (Model * vec4(LocalCorner, 1.0)).xyz;
+        WorldMinimum = min(WorldMinimum, WorldCorner);
+        WorldMaximum = max(WorldMaximum, WorldCorner);
+    }
+
+    vec3 Centroid = (WorldMinimum + WorldMaximum) * 0.5;
+
+    // ─── normalise into the unit cube ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    vec3 SceneMinimum = vec3(OrderedIntBitsToFloat(InstanceBounds[0]),
+                             OrderedIntBitsToFloat(InstanceBounds[1]),
+                             OrderedIntBitsToFloat(InstanceBounds[2]));
+    vec3 SceneMaximum = vec3(OrderedIntBitsToFloat(InstanceBounds[3]),
+                             OrderedIntBitsToFloat(InstanceBounds[4]),
+                             OrderedIntBitsToFloat(InstanceBounds[5]));
+
+    vec3 Extent = SceneMaximum - SceneMinimum;
+
+    // 🔴 A DEGENERATE AXIS IS THE COMMON CASE, NOT AN EDGE CASE, AND DIVIDING BY IT SILENTLY POISONS EVERY CODE. Any scene whose instances are
+    //    coplanar — a row of props on flat ground, or the single-instance case — has zero extent on at least one axis. 0/0 is NaN, and NaN
+    //    survives clamp() on this hardware to produce bucket 0 for every instance, collapsing the whole tree onto one code. Substituting 1.0 maps
+    //    a flat axis to bucket 0 for everything, which is the CORRECT answer for an axis carrying no spatial information.
+    vec3 SafeExtent = vec3(Extent.x > 0.0 ? Extent.x : 1.0,
+                           Extent.y > 0.0 ? Extent.y : 1.0,
+                           Extent.z > 0.0 ? Extent.z : 1.0);
+
+    vec3 Normalised = clamp((Centroid - SceneMinimum) / SafeExtent, vec3(0.0), vec3(1.0));
+
+    // 🔴 SCALE BY THE BUCKET COUNT (1024) AND CLAMP TO THE LAST BUCKET (1023) — DO NOT SCALE BY 1023. Scaling by 1023 makes the top bucket
+    //    reachable only when the normalised value is EXACTLY 1.0, which requires (extent / extent) to be exact — and a compiler may contract
+    //    that divide into a multiply by the reciprocal, which is not. The instance sitting on the box's upper face then truncates from 1023 to
+    //    1022 on that axis. This is not hypothetical: the gate caught exactly one such instance per scene, always the one at the box maximum.
+    //
+    //    Measured over 200,000 quarter-lattice extents at the top edge (_ClaudeScratch/build/Scale1024Probe.cpp):
+    //        norm * 1023                  26,644 wrong buckets
+    //        (offset * 1023) / extent     43,619 wrong buckets   <- reassociating is WORSE, not better
+    //        norm * 1024, clamp to 1023        0 wrong buckets
+    //    1024 is a power of two so the multiply is exact, the top edge lands on 1024 and the clamp pulls it to 1023 unconditionally. Nothing
+    //    depends on a division being exact. An interior sweep confirms all 1024 buckets stay occupied, so this does not skew the distribution.
+    //
+    // 📝 ON THE ROUNDING: uint() TRUNCATES, AND THAT IS CORRECT — DO NOT "FIX" IT TO ROUND-TO-NEAREST. Truncation is the bucket rule: bucket k
+    //    owns [k/1024, (k+1)/1024). A residual fragility survives the 1024 change and is worth knowing about rather than papering over: a centroid
+    //    whose normalised coordinate lands EXACTLY on an interior boundary k/1024 can bin one bucket low if the divide above comes out 1 ulp under,
+    //    which it may, since a compiler is free to contract (c - mn) / e into (c - mn) * (1 / e). At 200,000 samples that is ~1 instance in 250 in
+    //    synthetic lattice scenes, and rarer in real ones, where exact-boundary centroids are not constructed on purpose.
+    //
+    //    Round-to-nearest looks like the cure and is NOT — measured, not assumed (_ClaudeScratch/build/RoundingFairProbe.cpp):
+    //        sensitivity to the divide form, sampling BOTH rules' fragile loci   truncate 20,716   round 23,708   (of 400,000)
+    //        disagreement with the true partition floor(norm * 1024)             truncate  1,444   round 98,415   (of 200,000)
+    //    Round-to-nearest scores zero ONLY when the probe samples exclusively at k/1024, which is truncation's worst case and round's best. It is
+    //    not more robust — it relocates the fragile locus to (k + 0.5)/1024 — and it is a DIFFERENT partition, every boundary shifted half a bucket.
+    //    Adopting it would have silently rebucketed the whole scene to quieten a gate.
+    //
+    //    ⚠️ THE RESIDUAL IS TOLERABLE HERE, AND THAT IS A PROPERTY OF THE CONSUMER, NOT OF THIS CODE. A one-bucket error moves an instance to a
+    //       neighbouring Z-curve cell: the sort still totally orders the keys, Karras still builds a valid tree over whatever order it is handed,
+    //       and the traversal is CONSERVATIVE — it tests boxes, and the boxes come from InstanceBoundsReduce, not from these codes. So the cost is
+    //       a marginally worse split, never a missed intersection. If a future consumer ever treats a Morton code as an EXACT spatial address
+    //       (hash-grid lookup, dedup key, cell-to-cell adjacency) that reasoning collapses and this needs an exactly-rational bucket computation
+    //       instead — not a rounding-mode swap.
+    const float MortonBucketCount = 1024.0;   // 1 << MortonBitsPerAxis
+    uint BucketX = uint(clamp(Normalised.x * MortonBucketCount, 0.0, MortonAxisMaximum));
+    uint BucketY = uint(clamp(Normalised.y * MortonBucketCount, 0.0, MortonAxisMaximum));
+    uint BucketZ = uint(clamp(Normalised.z * MortonBucketCount, 0.0, MortonAxisMaximum));
+
+    MortonKeys[InstanceIndex]     = MortonCodeForBuckets(BucketX, BucketY, BucketZ);
+    MortonPayloads[InstanceIndex] = InstanceIndex;
+}

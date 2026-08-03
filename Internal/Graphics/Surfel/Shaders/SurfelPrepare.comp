@@ -1,0 +1,41 @@
+#version 450
+/*==============================================================================================================================================
+                                                            SURFELPREPARE.COMP
+==============================================================================================================================================*/
+// 🧩 One-time pool seeding (webgiya Prepare / initializePool, surfelPreparePass.ts:77-112). Runs ONCE at startup, not per frame. One lane per pool
+//    slot: seed the surfel's age to SURFEL_LIFE_RECYCLED and the free-list entry to identity (pool[i] = i). Lane 0 also resets the two stack atomics
+//    (poolAlloc, poolMax) to 0. After this the pool reads as "all slots dead, free-list full, nothing allocated".
+//
+//    🔴 F21 — THE AGE SEED IS LOAD-BEARING. SurfelPool leaves ages UNTOUCHED on purpose; this pass owns them. Seeding to SURFEL_LIFE_RECYCLED (a large
+//       POSITIVE sentinel, bit 27, NOT the sign bit) is what makes every not-yet-spawned slot read as DEAD (age >= TTL), so the count / slot / spawn
+//       passes skip it. Zero-filling ages instead would make all 262144 slots read as live age-0 surfels before a single one spawned — the trace would
+//       gather garbage on frame 0. This must run before the first slotting.
+
+#include "SurfelRecord.glsl"
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) buffer SurfelBuffer    { SurfelRecord Surfels[]; };
+layout(std430, binding = 1) buffer PoolBuffer      { int PoolFreeList[]; };
+layout(std430, binding = 2) buffer PoolAllocBuffer { int PoolAlloc[]; };   // stack pointer atomic
+layout(std430, binding = 3) buffer PoolMaxBuffer   { int PoolMax[]; };     // high-water atomic
+
+layout(push_constant) uniform PushBlock { int Capacity; } Push;
+
+// SURFEL_LIFE_RECYCLED — must match SurfelPool.h (SurfelLifeRecycled = 0x8000000 + 1) and SurfelGrid.glsl's SURFEL_TTL relationship.
+const int SURFEL_LIFE_RECYCLED = 0x8000000 + 1;
+
+void main()
+{
+    int Index = int(gl_GlobalInvocationID.x);
+    if (Index >= Push.Capacity) return;
+
+    Surfels[Index].Age        = SURFEL_LIFE_RECYCLED;   // F21: mark every slot dead
+    PoolFreeList[Index]       = Index;                  // identity free-list stack
+
+    if (Index == 0)
+    {
+        PoolAlloc[0] = 0;   // stack pointer: nothing handed out
+        PoolMax[0]   = 0;   // high-water: no slot used
+    }
+}

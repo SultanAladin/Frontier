@@ -116,6 +116,14 @@ void BeginVisibilityScope(VisibilityRasterization& Raster,
 // (Constants.CullActive must be 1, the survivor buffer bound). InstanceSet lets a caller draw distinct meshes with distinct per-instance buffers
 // through the shared pipeline layout (heads use Raster.InstanceSet; the floor its own set). A no-op when the mesh is empty / not ready. Must be called
 // between BeginVisibilityScope and EndVisibilityScope.
+//
+// 📝 FirstIndex / IndexCount name a SUB-RANGE of Mesh's index buffer, which is what lets several meshes share one merged buffer (see
+//    GeometryStreamConcatenation): each draws only the indices it contributed. The default IndexCount of 0 means "the whole buffer" — the
+//    single-mesh case every existing caller wants — so a merged caller passes its placement's IndexOffset / IndexCount and nobody else changes.
+//    The indices are already rebased at append time, so vertexOffset stays 0 rather than carrying the placement's VertexOffset; adding it here
+//    would apply the rebase twice.
+// ⚠️ Ignored entirely when Indirect is true: the argument buffer carries its own firstIndex / indexCount, and the cull that fills it is the only
+//    thing that knows the survivor count. A merged sub-range under an indirect draw must be encoded into the argument buffer, not here.
 void DrawVisibilityMesh(VisibilityRasterization&         Raster,
                         VkDescriptorSet                  InstanceSet,
                         const PolygonBufferAllocation&   Mesh,
@@ -123,7 +131,9 @@ void DrawVisibilityMesh(VisibilityRasterization&         Raster,
                         const VisibilityRasterConstants& Constants,
                         bool                             Indirect,
                         VkBuffer                         ArgumentBuffer,
-                        VkCommandBuffer                  CommandBuffer);
+                        VkCommandBuffer                  CommandBuffer,
+                        uint32_t                         FirstIndex = 0u,
+                        uint32_t                         IndexCount = 0u);
 
 // Close the shared visibility scope opened by BeginVisibilityScope and record the resulting image / depth layouts (both left in their attachment
 // layouts, matching the single-mesh path). Pair one EndVisibilityScope with each BeginVisibilityScope. A no-op when the raster / image / depth is not

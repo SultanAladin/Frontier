@@ -1,0 +1,201 @@
+#version 450
+// ============================================================================================================================================
+//                                                        INSTANCEBOUNDSREDUCE.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 1 of the TOP-level (TLAS) build: reduce every placed INSTANCE's centroid to one axis-aligned bounding box. InstanceMortonCode.comp
+//    then normalises each instance centroid into [0,1] against this box, so the box must cover EVERY centroid that pass will read — the two
+//    dispatches must walk the same instance set by the same rule or codes fall outside the unit cube and quantise to the clamped edge.
+//
+//    🔴 THIS IS NOT VolumeBoundsReduce.comp WITH A DIFFERENT BUFFER BOUND, AND THE TWO MUST NOT BE MERGED. VolumeBoundsReduce reduces TRIANGLE
+//       centroids as (P0+P1+P2)/3 over a vertex/index stream: that is the BOTTOM level's rule, over the bottom level's set. This shader reduces
+//       INSTANCE centroids as the centre of a world-space instance box. Different set, different rule, different level. A single shader carrying
+//       both behind a mode flag would put the two centroid rules where they can be selected wrongly at runtime — and a wrong-but-plausible box
+//       does not crash, it silently coarsens every Morton code downstream. Keeping them apart makes that mistake a type error instead.
+//
+//    📝 An instance's world box is its mesh's LOCAL-space bottom-level root box transformed by that instance's Model matrix. The root box lives at
+//       words [NodeOffset .. NodeOffset+5] of the arena's node array (minimum XYZ then maximum XYZ, the packed layout GeometryTreeBuild writes),
+//       and NodeOffset is read from the slice the instance's MeshOrdinal names. So the chain per instance is:
+//           instance -> MeshOrdinal -> GeometryArenaSlice -> NodeOffset -> six root-box floats -> transform by Model -> centre.
+//       Nothing here touches a triangle: the whole point of the two-level split is that the top level costs one box per instance, not one per
+//       primitive, so a scene of 100k instances sharing 12 meshes reduces 100k boxes and never re-reads the 12 meshes' geometry.
+//
+//    ⚠️ THE BOX IS TRANSFORMED BY ITS EIGHT CORNERS, NOT BY ITS TWO. Transforming only the minimum and maximum corners and re-bounding those is a
+//       classic and silent error: it is correct ONLY for a transform with no rotation. Under any rotation the two transformed corners no longer
+//       span the rotated box, and the resulting box is too SMALL — so an instance's true extent pokes outside the scene box, its centroid can leave
+//       [0,1], and the Morton pass clamps it onto a shared edge value. The RadialArray scene rotates every head to face the centre, so this is the
+//       common case here, not a corner case. All eight corners are enumerated below.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup = 256u;
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h) field for field, and the static_assert there pins it at 208 bytes. std430 over a struct of
+//    scalars packs them contiguously, so this must list EVERY field including the padding — dropping the pad, or reordering, mis-strides the whole
+//    array and every instance after the first reads a blend of its neighbours' data.
+struct SceneInstance
+{
+    float Model[16];         // @0   - column-major local -> world
+    float NormalBasis[12];   // @64  - 3x vec3 padded to vec4 (unused here)
+    float Tint[4];           // @112 - linear RGB + pad (unused here)
+    uint  PartitionId;       // @128 (unused here)
+    uint  MaterialId;        // @132 (unused here)
+    uint  MeshOrdinal;       // @136 - indexes the slice table below
+    uint  Padding;           // @140
+    float InverseModel[16];  // @144 - world -> local (unused here)
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B by the static_assert there. NodeOffset is in WORDS, not
+//    nodes — that asymmetry is deliberate and documented at the struct; treating it as a node index reads the fourth node's tail as the root box.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+// set 0, binding 0 — the placed instances the raster already holds.
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+    SceneInstance Instances[];
+};
+
+// set 0, binding 1 — the arena's per-mesh slice table, indexed by MeshOrdinal.
+layout(std430, set = 0, binding = 1) readonly buffer SliceBlock
+{
+    GeometryArenaSlice Slices[];
+};
+
+// set 0, binding 2 — the arena's concatenated bottom-level node words. Only each mesh's root box is read.
+layout(std430, set = 0, binding = 2) readonly buffer NodeBlock
+{
+    uint NodeWords[];
+};
+
+// set 0, binding 3 — the scene box as six ordered-int accumulators: [0..2] minimum corner, [3..5] maximum. Ordered-int rather than float because
+// this device has no float atomic min/max (VK_EXT_shader_atomic_float2 absent); the host seeds it and reads it back through the same transform.
+layout(std430, set = 0, binding = 3) buffer InstanceBoundsBlock
+{
+    int InstanceBounds[];
+};
+
+layout(push_constant) uniform InstanceBoundsConstants
+{
+    uint InstanceCount;   // [-] - live instances; the final tile is partial whenever this is not a multiple of 256
+    uint SliceCount;      // [-] - entries in the slice table, so an out-of-range MeshOrdinal can be rejected rather than read
+} Constants;
+
+// ─── ORDERED-INT BITS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Transcribed from EEVEE's gpu_shader_utildefines_lib.glsl, identical to the copies in VolumeBoundsReduce.comp and AccelerationDeviceSupport.h.
+// They are NOT GLSL built-ins — glslc fails with "no matching overloaded function" if they are assumed present.
+int FloatBitsToOrderedInt(float Value)
+{
+    int Bits = floatBitsToInt(Value);
+    return (Bits < 0) ? (Bits ^ 0x7FFFFFFF) : Bits;
+}
+
+// Read column-major Model out of the flat float run into a mat4. GLSL's mat4 constructor takes COLUMNS, and Model is stored column-major, so the
+// four groups of four map straight across with no transpose.
+mat4 ModelMatrixForInstance(uint InstanceIndex)
+{
+    float M[16] = Instances[InstanceIndex].Model;
+    return mat4(vec4(M[0],  M[1],  M[2],  M[3]),
+                vec4(M[4],  M[5],  M[6],  M[7]),
+                vec4(M[8],  M[9],  M[10], M[11]),
+                vec4(M[12], M[13], M[14], M[15]));
+}
+
+// This tile's per-lane centroid extremes, reduced in shared memory before any global atomic runs.
+shared vec3 TileMinimum[LanesPerGroup];
+shared vec3 TileMaximum[LanesPerGroup];
+
+void main()
+{
+    uint Lane          = gl_LocalInvocationID.x;
+    uint InstanceIndex = gl_GlobalInvocationID.x;
+
+    // 📝 Out-of-range lanes seed +inf / -inf so they are IDENTITIES of min / max. They must still reach the barriers below: the halving reduction
+    //    reads every slot unconditionally, so an uninitialised slot would fold garbage into the tile's box.
+    vec3 Centroid = vec3(0.0);
+    bool Live     = (InstanceIndex < Constants.InstanceCount);
+
+    if (Live)
+    {
+        uint MeshOrdinal = Instances[InstanceIndex].MeshOrdinal;
+
+        // 🔴 An out-of-range ordinal is dropped, not clamped. Clamping to slice 0 would silently give this instance some OTHER mesh's box — a
+        //    well-formed centroid in the wrong place, which widens the scene box and shifts the instance's Morton code with nothing to catch it.
+        //    Dropping it makes the instance contribute nothing here, and the Morton pass drops it by the same test, so the two stay consistent.
+        if (MeshOrdinal < Constants.SliceCount)
+        {
+            uint NodeOffset = Slices[MeshOrdinal].NodeOffset;
+
+            // The root box, in the mesh's own LOCAL space: six floats at the head of node 0.
+            vec3 LocalMinimum = vec3(uintBitsToFloat(NodeWords[NodeOffset + 0u]),
+                                     uintBitsToFloat(NodeWords[NodeOffset + 1u]),
+                                     uintBitsToFloat(NodeWords[NodeOffset + 2u]));
+            vec3 LocalMaximum = vec3(uintBitsToFloat(NodeWords[NodeOffset + 3u]),
+                                     uintBitsToFloat(NodeWords[NodeOffset + 4u]),
+                                     uintBitsToFloat(NodeWords[NodeOffset + 5u]));
+
+            mat4 Model = ModelMatrixForInstance(InstanceIndex);
+
+            // ⚠️ ALL EIGHT CORNERS. See the header note: two corners is correct only without rotation, and every RadialArray head is rotated.
+            vec3 WorldMinimum = vec3( 1.0 / 0.0);
+            vec3 WorldMaximum = vec3(-1.0 / 0.0);
+            for (uint Corner = 0u; Corner < 8u; ++Corner)
+            {
+                vec3 LocalCorner = vec3((Corner & 1u) != 0u ? LocalMaximum.x : LocalMinimum.x,
+                                        (Corner & 2u) != 0u ? LocalMaximum.y : LocalMinimum.y,
+                                        (Corner & 4u) != 0u ? LocalMaximum.z : LocalMinimum.z);
+                vec3 WorldCorner = (Model * vec4(LocalCorner, 1.0)).xyz;
+                WorldMinimum = min(WorldMinimum, WorldCorner);
+                WorldMaximum = max(WorldMaximum, WorldCorner);
+            }
+
+            // 🔴 THE CENTROID RULE. InstanceMortonCode.comp must compute this the SAME way, including the 0.5 factor and the eight-corner box it
+            //    is taken from, or the two dispatches disagree about where an instance sits and a centroid can land outside the box reduced for it.
+            Centroid = (WorldMinimum + WorldMaximum) * 0.5;
+        }
+        else
+        {
+            Live = false;
+        }
+    }
+
+    TileMinimum[Lane] = Live ? Centroid : vec3( 1.0 / 0.0);
+    TileMaximum[Lane] = Live ? Centroid : vec3(-1.0 / 0.0);
+    barrier();
+
+    // ─── tile reduction : halving tree over shared memory, no atomics ───────────────────────────────────────────────────────────────────────
+    // The barrier inside the loop is unconditional on purpose — a barrier reached by only some lanes of a workgroup is undefined behaviour, so the
+    // lane test governs only the WORK, never whether the barrier executes.
+    for (uint Stride = LanesPerGroup / 2u; Stride > 0u; Stride >>= 1u)
+    {
+        if (Lane < Stride)
+        {
+            TileMinimum[Lane] = min(TileMinimum[Lane], TileMinimum[Lane + Stride]);
+            TileMaximum[Lane] = max(TileMaximum[Lane], TileMaximum[Lane + Stride]);
+        }
+        barrier();
+    }
+
+    // ─── commit : one lane per workgroup folds this tile's box into the scene box ───────────────────────────────────────────────────────────
+    // 🔴 A tile whose every lane was dropped would commit its +inf / -inf identities, which under the ordered-int transform are the extreme
+    //    patterns and would WIDEN the scene box to infinity rather than leave it alone. Unlike the triangle reduce, the dispatch size does not rule
+    //    this out here — a whole tile of instances can be dropped for out-of-range ordinals — so the guard tests the REDUCED value, not the tile's
+    //    index. Infinities in the box make every Morton code collapse to zero.
+    if (Lane == 0u && TileMinimum[0].x <= TileMaximum[0].x)
+    {
+        atomicMin(InstanceBounds[0], FloatBitsToOrderedInt(TileMinimum[0].x));
+        atomicMin(InstanceBounds[1], FloatBitsToOrderedInt(TileMinimum[0].y));
+        atomicMin(InstanceBounds[2], FloatBitsToOrderedInt(TileMinimum[0].z));
+        atomicMax(InstanceBounds[3], FloatBitsToOrderedInt(TileMaximum[0].x));
+        atomicMax(InstanceBounds[4], FloatBitsToOrderedInt(TileMaximum[0].y));
+        atomicMax(InstanceBounds[5], FloatBitsToOrderedInt(TileMaximum[0].z));
+    }
+}

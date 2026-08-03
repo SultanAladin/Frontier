@@ -105,15 +105,17 @@
 }
 .stack-row{
   position:relative; display:flex; align-items:center; gap:7px;
-  height:44px; padding:0 7px 0 5px; border-radius:10px;
+  height:44px; padding:0 7px 0 5px;
   color:var(--muted); cursor:pointer; border:1px solid transparent;
   transition:background .12s, border-color .12s, opacity .12s;
 }
 .stack-row:hover{ background:var(--row-hover); }
+/* 🔴 The selected row is RECTANGULAR — no border-radius. A rounded selection reads as a chip; the
+   layer stack wants a hard-edged bar that the inline expand below it hangs off flush. */
 .stack-row.active{ background:var(--row-sel); border-color:var(--hair-strong); }
 .stack-row.active::before{
-  content:""; position:absolute; left:-6px; top:50%; transform:translateY(-50%);
-  width:3px; height:18px; border-radius:0 3px 3px 0; background:var(--accent);
+  content:""; position:absolute; left:-6px; top:0; bottom:0;
+  width:3px; background:var(--accent);
 }
 .stack-row.dragging{ opacity:.45; }
 .stack-row.layer-muted .sr-name,
@@ -163,6 +165,35 @@
 .sr-visibility:hover{ background:var(--tile-hi); color:var(--ink); }
 .sr-visibility svg{ width:14px; height:14px; }
 .stack-row.layer-muted .sr-visibility{ opacity:1; }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                          INLINE EXPAND (under the active row)
+----------------------------------------------------------------------------------------------------------------------*/
+/* 🔴 The active row's settings drop open in the RAIL, directly beneath it — not in the wide detail pane.
+   grid-rows 0fr→1fr animates the height with no measured pixel target, the same idiom the classification
+   fold uses, so the accordion opens cleanly inside the 214px column without a scrollbar jump. */
+.stack-expand{ display:grid; grid-template-rows:1fr; }
+.stack-expand > .se-clip{ overflow:hidden; min-height:0; }
+.se-body{
+  display:flex; flex-direction:column; gap:6px;
+  padding:7px 8px 9px; margin:1px 0 2px;
+  background:var(--tile); border:1px solid var(--hair-strong); border-top:none;
+}
+/* one label + control per line, label fixed so the controls align down the column */
+.se-row{ display:flex; align-items:center; gap:8px; min-height:24px; }
+.se-row > .se-k{
+  flex:0 0 52px; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--faint);
+}
+.se-row > .se-v{ flex:1; min-width:0; display:flex; align-items:center; justify-content:flex-end; }
+/* the expand reuses the shared switch / dropdown / slider / colour widgets, only tightened to the rail */
+.se-body .dropdown{ min-width:0; }
+.se-body .sliderrow{ flex:1; }
+.se-sect{
+  display:flex; align-items:center; gap:6px; margin-top:2px;
+  font-size:9.5px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted);
+}
+.se-sect::after{ content:""; flex:1; height:1px; background:var(--hair); }
+
 /* drop indicator for drag-reorder */
 .drop-line{
   height:2px; margin:1px 8px; border-radius:2px; flex:0 0 auto;
@@ -186,6 +217,20 @@
 .pf-dot{ color:var(--value-unit); }
 .pf-spacer{ flex:1; }
 .pf-hue{ width:8px; height:8px; border-radius:2px; flex:0 0 auto; }
+
+/* the stack footer's Add-Layer affordance + its kind list */
+.sf-tally{ display:flex; align-items:center; gap:6px; }
+.sf-add{
+  display:flex; align-items:center; gap:5px; height:20px; padding:0 9px;
+  border-radius:999px; cursor:pointer; font-size:10.5px; font-weight:600; color:var(--ink);
+  background:var(--tile); border:1px solid var(--hair-strong);
+  transition:background .13s, border-color .13s, color .13s;
+}
+.sf-add:hover{ background:rgba(91,140,255,.14); border-color:var(--accent); }
+.sf-add svg{ width:12px; height:12px; }
+.sf-add.disabled{ opacity:.35; pointer-events:none; }
+.sf-add-list .dd-item{ font-size:11px; }
+.sf-swatch{ width:9px; height:9px; border-radius:3px; flex:0 0 auto; }
 
 /*----------------------------------------------------------------------------------------------------------------------
                                                    PROPERTY CARDS

@@ -1,0 +1,246 @@
+#version 450
+/*==============================================================================================================================================
+                                                          SURFELSPAWNREQUEST.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 1 of the lifecycle spawn (webgiya FindMissing, surfelFindMissingPass.ts). One workgroup owns an 8x8 pixel tile of the visibility buffer.
+//    Every lane reconstructs its pixel's world position + flat normal from the packed identity (SurfelVisibilityReconstruct.glsl — the SAME math
+//    SurfaceShade.frag uses, NOT a G-buffer read), walks the surfel grid cell that pixel falls in, and measures how well the existing surfels already
+//    COVER it. A pixel that is poorly covered and whose cell is not full VOTES to spawn; the workgroup elects ONE winning lane per tile (the least-
+//    covered) and that lane writes a single spawn request (worldPos + normal) into the per-tile request buffers. The allocate pass (Pass 2) consumes
+//    one request per tile.
+//
+//    🔴 PHASE-1 REDUCTION (PLAN — Phase 1 excludes tracing / GI). webgiya's FindMissing also runs a DESPAWN vote, a keep-alive `touched` write, and an
+//       irradiance accumulation that seeds new surfels from neighbours' cached light. All three read or write the moments / touched / guiding buffers
+//       that Phase 1 only ZERO-FILLS (they are filled in Phase 2). Porting them now would read uninitialised scoring channels, so they are omitted here
+//       and land with the integrate. What remains is the faithful spawn arbitration: reconstruct, measure coverage, elect the neediest pixel, request.
+//
+//    🔴 The coverage weight (smoothstep(radius, 0, mahalanobis) * max(0, dot(surfelN, pixelN))) and the spawn gate (second-best coverage < 0.4 AND total
+//       scoring < 0.1 AND cell not full) are ported 1:1 from surfelFindMissingPass.ts:336-457. The random depth-weighted throttle is kept so spawning
+//       stays spread over frames rather than flooding every needy pixel at once.
+
+#include "SurfelGrid.glsl"
+#include "SurfelRecord.glsl"
+#include "SurfelVisibilityReconstruct.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// ---- set 0: the visibility reconstruction inputs, mirroring SurfaceShade.frag's set 0 (b0 id, b1/b2/b3 head mesh, b5/b6/b7 floor mesh) ----
+layout(set = 0, binding = 0) uniform usampler2D VisibilityBuffer;
+layout(std430, set = 0, binding = 1) readonly buffer VertexBlock        { SurfelReconstructVertex   Vertices[]; };
+layout(std430, set = 0, binding = 2) readonly buffer IndexBlock         { uint                      Indices[]; };
+layout(std140, set = 0, binding = 3) readonly buffer InstanceBlock      { SurfelReconstructInstance Instances[]; };
+layout(std430, set = 0, binding = 5) readonly buffer FloorVertexBlock   { SurfelReconstructVertex   FloorVertices[]; };
+layout(std430, set = 0, binding = 6) readonly buffer FloorIndexBlock    { uint                      FloorIndices[]; };
+layout(std140, set = 0, binding = 7) readonly buffer FloorInstanceBlock { SurfelReconstructInstance FloorInstances[]; };
+
+// ---- set 1: the surfel grid + pool (coverage read), and the per-tile spawn-request outputs ----
+layout(std430, set = 1, binding = 0) readonly buffer OffsetsBuffer { int  Offsets[]; };   // per-cell slice [start,end)
+layout(std430, set = 1, binding = 1) readonly buffer ListBuffer    { int  List[]; };      // packed per-cell surfel indices
+layout(std430, set = 1, binding = 2) readonly buffer SurfelBuffer  { SurfelRecord Surfels[]; };
+layout(std430, set = 1, binding = 3) writeonly buffer TileAllocBuffer { int TileAlloc[]; };   // 1 int per tile: 1 == spawn requested this frame
+layout(std430, set = 1, binding = 4) writeonly buffer TileCandidateBuffer { vec4 TileCandidate[]; };   // 2 vec4 per tile: [0]=posb(xyz,w frame spare), [1]=normal
+
+layout(push_constant) uniform PushBlock
+{
+    mat4 InverseViewProjection;   // clip -> world (mirrors SurfaceShade.frag ShadeConstants)
+    vec4 CameraPosition;          // xyz raw eye; w unused
+    vec4 GridOrigin;              // xyz snapped grid origin; w unused
+    ivec4 ScreenAndTiles;         // x screen width, y screen height, z tiles-x (grid stride), w frame index
+    uint  FloorPartitionBase;     // partition ordinals >= this are floor
+    uint  FloorShadeEnabled;      // 1 == floor buffers are real
+    uint  FloorIndexBase;         // first index of the floor run in the merged index buffer
+    uint  Pad0;
+} Push;
+
+// Workgroup vote: pack (coverage score in the high 26 bits, lane index 0..63 in the low 6). atomicMin over the tile finds the LEAST covered lane;
+// its float score sorts correctly as a uint because all scores are non-negative. 0xFFFFFFFF is "nobody wants to spawn".
+shared uint TileMinVote;
+
+uint SurfelPackVote(float Score, uint Lane)
+{
+    uint ScoreBits = floatBitsToUint(Score);
+    return (ScoreBits & 0xFFFFFFC0u) | (Lane & 0x3Fu);
+}
+
+// --- the visibility reconstruction, 1:1 with SurfaceShade.frag:322-416 (identity -> triangle corners -> ray/tri -> flat normal) ---
+SurfelSurfaceHit ReconstructPixel(ivec2 Texel)
+{
+    SurfelSurfaceHit Hit;
+    Hit.WorldPosition = vec3(0.0);
+    Hit.Normal        = vec3(0.0, 0.0, 1.0);
+    Hit.Valid         = false;
+
+    uint Identity = texelFetch(VisibilityBuffer, Texel, 0).r;
+    if (Identity == SurfelReconstructSentinel)
+        return Hit;
+
+    uint Partition = Identity >> SurfelReconstructPrimitiveBits;
+    uint Primitive = Identity & SurfelReconstructPrimitiveMask;
+
+    bool FloorSurface = Partition >= Push.FloorPartitionBase;
+    if (FloorSurface && Push.FloorShadeEnabled == 0u)
+        return Hit;
+
+    mat4 Model;
+    vec3 World0, World1, World2;
+
+    if (FloorSurface)
+    {
+        uint FloorPartition = Partition - Push.FloorPartitionBase;
+        if (FloorPartition >= uint(FloorInstances.length()))
+            return Hit;
+        Model = FloorInstances[FloorPartition].Model;
+
+        uint IndexBase = Push.FloorIndexBase + Primitive * 3u;
+        if (IndexBase + 2u >= uint(FloorIndices.length()))
+            return Hit;
+        SurfelReconstructVertex V0 = FloorVertices[FloorIndices[IndexBase + 0u]];
+        SurfelReconstructVertex V1 = FloorVertices[FloorIndices[IndexBase + 1u]];
+        SurfelReconstructVertex V2 = FloorVertices[FloorIndices[IndexBase + 2u]];
+        World0 = (Model * vec4(V0.PositionX, V0.PositionY, V0.PositionZ, 1.0)).xyz;
+        World1 = (Model * vec4(V1.PositionX, V1.PositionY, V1.PositionZ, 1.0)).xyz;
+        World2 = (Model * vec4(V2.PositionX, V2.PositionY, V2.PositionZ, 1.0)).xyz;
+    }
+    else
+    {
+        if (Partition >= uint(Instances.length()))
+            return Hit;
+        Model = Instances[Partition].Model;
+
+        uint IndexBase = Primitive * 3u;
+        if (IndexBase + 2u >= uint(Indices.length()))
+            return Hit;
+        SurfelReconstructVertex V0 = Vertices[Indices[IndexBase + 0u]];
+        SurfelReconstructVertex V1 = Vertices[Indices[IndexBase + 1u]];
+        SurfelReconstructVertex V2 = Vertices[Indices[IndexBase + 2u]];
+        World0 = (Model * vec4(V0.PositionX, V0.PositionY, V0.PositionZ, 1.0)).xyz;
+        World1 = (Model * vec4(V1.PositionX, V1.PositionY, V1.PositionZ, 1.0)).xyz;
+        World2 = (Model * vec4(V2.PositionX, V2.PositionY, V2.PositionZ, 1.0)).xyz;
+    }
+
+    vec2 BufferSize = vec2(float(Push.ScreenAndTiles.x), float(Push.ScreenAndTiles.y));
+    vec2 Ndc        = (vec2(Texel) + vec2(0.5)) / BufferSize * 2.0 - 1.0;
+    vec3 RayOrigin  = Push.CameraPosition.xyz;
+    vec4 NearClip   = Push.InverseViewProjection * vec4(Ndc, 0.0, 1.0);
+    vec3 NearPoint  = NearClip.xyz / NearClip.w;
+    vec3 RayDir     = normalize(NearPoint - RayOrigin);
+
+    vec3 Bary = SurfelRayTriangleBarycentrics(RayOrigin, RayDir, World0, World1, World2);
+    vec3 WorldPosition = Bary.x * World0 + Bary.y * World1 + Bary.z * World2;
+
+    vec3 Normal = normalize(cross(World1 - World0, World2 - World0));
+    vec3 ViewVector = normalize(RayOrigin - WorldPosition);
+    if (dot(Normal, ViewVector) < 0.0)
+        Normal = -Normal;
+
+    Hit.WorldPosition = WorldPosition;
+    Hit.Normal        = Normal;
+    Hit.Valid         = true;
+    return Hit;
+}
+
+// A cheap integer hash for the per-pixel spawn throttle (webgiya hash1 / hashCombine2), so spawning is spread over frames.
+uint SurfelHashCombine(uint A, uint B)
+{
+    uint H = A * 747796405u + 2891336453u;
+    H = ((H >> ((H >> 28u) + 4u)) ^ H) * 277803737u;
+    H ^= B + 0x9E3779B9u + (H << 6u) + (H >> 2u);
+    return H;
+}
+
+void main()
+{
+    uint LaneIndex = gl_LocalInvocationID.y * 8u + gl_LocalInvocationID.x;
+    int  TileIndex = int(gl_WorkGroupID.y) * Push.ScreenAndTiles.z + int(gl_WorkGroupID.x);
+
+    if (LaneIndex == 0u)
+    {
+        TileAlloc[TileIndex] = 0;
+        TileMinVote = 0xFFFFFFFFu;
+    }
+    barrier();
+
+    ivec2 Texel = ivec2(gl_GlobalInvocationID.xy);
+    bool  InBounds = Texel.x < Push.ScreenAndTiles.x && Texel.y < Push.ScreenAndTiles.y;
+
+    vec3  SpawnPosition = vec3(0.0);
+    vec3  SpawnNormal   = vec3(0.0, 0.0, 1.0);
+
+    if (InBounds)
+    {
+        SurfelSurfaceHit Hit = ReconstructPixel(Texel);
+        if (Hit.Valid)
+        {
+            SpawnPosition = Hit.WorldPosition;
+            SpawnNormal   = Hit.Normal;
+
+            vec3 Relative = Hit.WorldPosition - Push.GridOrigin.xyz;
+            uint Hash     = SurfelHashOfPosition(Relative);
+
+            int Start = Offsets[int(Hash)];
+            int End   = Offsets[int(Hash) + 1];
+            int Count = max(End - Start, 0);
+            int Loop  = min(Count, SURFEL_MAX_SURFELS_PER_CELL * 2);
+
+            float TotalWeight   = 0.0;   // smoothed coverage (overscaled radius)
+            float ScoringWeight = 0.0;   // tight coverage (base radius)
+            float Highest       = 0.0;
+            float Second        = 0.0;
+
+            for (int I = 0; I < Loop; ++I)
+            {
+                int Sid = List[Start + I];
+                if (Sid < 0) continue;
+
+                SurfelRecord Neighbour = Surfels[Sid];
+                vec3  NeighbourPos    = Neighbour.PositionAndSpare.xyz;
+                vec3  NeighbourNormal = Neighbour.Normal;
+
+                float SurfelRadius = SurfelRadiusForPositionEye(NeighbourPos, Push.CameraPosition.xyz);
+                vec3  Offset       = Hit.WorldPosition - NeighbourPos;
+                float DistanceLen  = length(Offset);
+                float AlignPenalty = abs(dot(Offset, NeighbourNormal)) * SURFEL_NORMAL_DIRECTION_SQUISH;
+                float Mahalanobis  = DistanceLen * (1.0 + AlignPenalty);
+                float DotNormal    = max(dot(NeighbourNormal, Hit.Normal), 0.0);
+
+                float Weight = smoothstep(SurfelRadius * SURFEL_RADIUS_OVERSCALE, 0.0, Mahalanobis) * DotNormal;
+                float Score  = smoothstep(SurfelRadius, 0.0, Mahalanobis) * DotNormal;
+                TotalWeight   += Weight;
+                ScoringWeight += Score;
+
+                if (Weight > Highest)      { Second = Highest; Highest = Weight; }
+                else if (Weight > Second)  { Second = Weight; }
+            }
+
+            // Spawn gate (surfelFindMissingPass.ts:444-457): a poorly covered pixel whose cell is not full, throttled by a
+            // depth-weighted random so the fill spreads over frames rather than flooding.
+            float DepthWeight = length(Hit.WorldPosition - Push.CameraPosition.xyz) / 64.0;
+            float Probability = 5000.0 * DepthWeight / float(Push.ScreenAndTiles.x) / float(Push.ScreenAndTiles.y);
+            uint  Seed        = SurfelHashCombine(SurfelHashCombine(uint(Texel.x), uint(Texel.y)), uint(Push.ScreenAndTiles.w));
+            float Random      = float(Seed & 0x00FFFFFFu) / float(0x01000000u);
+            bool  RandomOk    = Random < Probability;
+
+            bool GateCoverage = Second < 0.4 && ScoringWeight < 0.1 && Count < SURFEL_MAX_SURFELS_PER_CELL;
+            if (GateCoverage && RandomOk)
+            {
+                // Vote to spawn — the least-covered (lowest total weight) lane wins the tile.
+                atomicMin(TileMinVote, SurfelPackVote(TotalWeight, LaneIndex));
+            }
+        }
+    }
+
+    barrier();
+
+    // The winning lane (if any) writes the one per-tile spawn request.
+    uint Winner = TileMinVote;
+    if (Winner != 0xFFFFFFFFu)
+    {
+        uint WinningLane = Winner & 0x3Fu;
+        if (LaneIndex == WinningLane)
+        {
+            TileAlloc[TileIndex] = 1;
+            TileCandidate[TileIndex * 2 + 0] = vec4(SpawnPosition, float(Push.ScreenAndTiles.w));   // w = frame (posb spare)
+            TileCandidate[TileIndex * 2 + 1] = vec4(SpawnNormal, 0.0);
+        }
+    }
+}

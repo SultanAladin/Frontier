@@ -1,0 +1,48 @@
+#version 450
+// ============================================================================================================================================
+//                                                          RADIXBLOCKBASEADD.COMP
+// ============================================================================================================================================
+// 🧩 Step 2c of the radix pass's exclusive scan: add each block's base — the sum of every entry in every earlier block — back into every entry of
+//    that block, turning 2a's per-tile-local offsets into global ones. Transcribed from the 2c section of RunScanDispatch in
+//    _ClaudeScratch/build/RadixSortProbe.cpp.
+//
+//    📝 This step is why 2a's output alone is NOT usable by the scatter: 2a scans each block in isolation, so every block restarts from 0. There is
+//       no cross-block dependency left at this point — every entry takes exactly one add — which is what makes the step fully parallel.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup   = 256u;
+const uint EntriesPerLane  = 4u;
+const uint EntriesPerGroup = LanesPerGroup * EntriesPerLane;   // 1024
+
+// The offset table, read-modify-written in place: 2a's block-local exclusive scan going in, the global offsets coming out.
+layout(std430, set = 0, binding = 0) buffer ScanTargetBlock
+{
+    uint ScanTarget[];
+} TargetTable;
+
+// 2b's output: the exclusive scan of the block totals, one base per block.
+layout(std430, set = 0, binding = 1) readonly buffer BlockBaseBlock
+{
+    uint BlockBase[];
+} BaseTable;
+
+layout(push_constant) uniform RadixBaseAddConstants
+{
+    uint EntryCount;   // [-] - live entries; the final block is partial whenever this is not a multiple of 1024
+} Constants;
+
+void main()
+{
+    uint Lane     = gl_LocalInvocationID.x;
+    uint Block    = gl_WorkGroupID.x;
+    uint TileBase = Block * EntriesPerGroup;
+    uint Base     = BaseTable.BlockBase[Block];
+
+    for (uint Step = 0u; Step < EntriesPerLane; ++Step)
+    {
+        uint Slot = TileBase + Step * LanesPerGroup + Lane;
+        if (Slot < Constants.EntryCount)
+            TargetTable.ScanTarget[Slot] += Base;
+    }
+}

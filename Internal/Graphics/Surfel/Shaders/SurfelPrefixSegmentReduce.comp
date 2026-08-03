@@ -1,0 +1,39 @@
+#version 450
+/*==============================================================================================================================================
+                                                     SURFELPREFIXSEGMENTREDUCE.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 3 of 4. The cross-segment reduction: turn the per-segment TOTALS (SegmentSums, from pass 2) into per-segment INCLUSIVE PREFIXES, so
+//    SegmentSums[s] becomes "the sum of every element in segments 0..s". Pass 4 then adds SegmentSums[s-1] to every element of segment s to lift the
+//    segment-local scans into one global inclusive prefix.
+//
+//    🔴 F4 — THIS IS DELIBERATELY A SINGLE-THREAD SERIAL LOOP, ported 1:1 from webgiya surfelHashGrid.ts:543-553 (computeSegPrefix). Only invocation 0
+//       runs; it walks the SegmentSums array accumulating in a register and writes back the running total. The reference carries a COMMENTED-OUT
+//       parallel variant right beside it — that one is dead for a reason (it was buggy / never validated); DO NOT resurrect it. There are only ~257
+//       segments for the desktop grid, so a serial walk in one thread is trivially cheap and provably correct. Dispatch is a single workgroup; the
+//       localId==0 guard is preserved verbatim so the shape matches the reference even though the launch is 1x1x1.
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 1) buffer SegmentSumsBuffer { int SegmentSums[]; };
+
+// 🔴 The push block MUST mirror the host SurfelPrefixConstants field ORDER exactly: ElementCount @0, SegmentCount @4. The reference and the sibling
+//    passes read ElementCount at offset 0; this pass wants SegmentCount, which lives at offset 4. Declaring a lone `int SegmentCount` here would alias
+//    offset 0 (ElementCount == totalCells+1) and run the serial loop 262145 times over a 257-int SegmentSums buffer — an out-of-bounds walk that
+//    corrupts adjacent memory and turns the whole scan nondeterministic across invocations.
+layout(push_constant) uniform PushBlock
+{
+    int ElementCount;   // offset 0 - unused here, present only to align SegmentCount to its host offset
+    int SegmentCount;   // offset 4 - number of live segments to reduce
+} Push;
+
+void main()
+{
+    if (gl_LocalInvocationID.x != 0u) return;   // serial: one lane does the whole reduction (reference If(localId.x == 0))
+
+    int Accumulator = 0;
+    for (int Index = 0; Index < Push.SegmentCount; ++Index)
+    {
+        Accumulator += SegmentSums[Index];
+        SegmentSums[Index] = Accumulator;
+    }
+}

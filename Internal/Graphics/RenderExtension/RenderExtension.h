@@ -29,6 +29,16 @@
 #include "Graphics/Scene/SuzanneScene.h"
 #include "Graphics/Scene/WorkspaceDocumentDecoder.h"
 #include "Graphics/Render/Resources/BufferAllocation.h"
+#include "Graphics/Acceleration/GeometryStreamConcatenation.h"
+#include "Graphics/Acceleration/GeometryArenaSubmission.h"
+#include "Graphics/Acceleration/InstanceBoundsSubmission.h"
+#include "Graphics/Acceleration/RadixSortSubmission.h"
+#include "Graphics/Acceleration/InstanceTreeSubmission.h"
+#include "Graphics/Surfel/SurfelPool.h"
+#include "Graphics/Surfel/SurfelGridSlotting.h"
+#include "Graphics/Surfel/SurfelLifecycleSubmission.h"
+#include "Graphics/Surfel/SurfelDebugInscription.h"
+#include "Graphics/Surfel/SurfelIntegrateSubmission.h"
 #include "EngineContext/Scene/SceneExtension.h"
 #include "EngineContext/Scene/WorkspaceDocumentRegister.h"
 #include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
@@ -149,9 +159,27 @@ struct RenderExtension
     uint32_t  SelectedComponent        = NoSelectionSentinel; // [-] - Committed component key (mesh vertex index / edge key); sentinel = whole primitive
     bool      ComponentModeKeyLatch    = false;               // [-] - Edge latch so one Numpad-7 press advances the mode once
 #endif // FRONTIER_POLYGON_AUTHORING
-    PolygonBufferAllocation SceneGeometry;         // [-] - The uploaded Suzanne shared geometry (from the .wsdoc block) the raster instances (device-local)
+    // 📝 ONE device geometry claim holding EVERY mesh (heads then floor), so a GeometryArenaSlice can name any mesh's triangles — a slice stores
+    //    absolute offsets into a shared stream, so a mesh in a private buffer is unreachable to the trace by construction. SceneGeometry is that
+    //    merged claim; SceneStreamPlacements records where each mesh landed so the raster still draws them as separate sub-range draws.
+    //    🔴 The NAME is unchanged but the CONTENTS are not: SceneGeometry.IndexCount is now the merged total (heads + floor), so a consumer that
+    //       divided it by 3 to count "triangles per head" now counts the whole world. Read the placement for a per-mesh extent.
+    PolygonBufferAllocation SceneGeometry;         // [-] - The ONE device-local geometry claim every mesh lives in (heads at ordinal 0, floor at 1)
+    GeometryStreamConcatenation SceneStreams;      // [-] - Host-side merged run + one placement per mesh; the offsets the arena slices carry
+    uint32_t                HeadMeshOrdinal  = 0;  // [-] - Ordinal of the heads mesh within SceneStreams / the arena (0 = first appended)
+    uint32_t                FloorMeshOrdinal = 0;  // [-] - Ordinal of the floor slab; equals HeadMeshOrdinal only when no floor loaded
+    bool                    FloorStreamPresent = false; // [-] - True when the floor actually appended a non-empty mesh (its ordinal is meaningful)
+    GeometryArenaSubmission GeometryArena;         // [-] - Bottom-level trees for every merged mesh, indexed by the ordinals above
+    // 📝 Top-level acceleration structure (TLAS) — built on the GPU every frame over the scene instances so the Phase-2 surfel trace has a live
+    //    two-level BVH to walk. Bound ONCE at load (the scene is static after load, so every buffer handle is stable — re-binding a set already
+    //    recorded into an in-flight command buffer is undefined; recording a pre-written set is not). Records five dispatches per frame at the
+    //    compute seam. Feeds nothing yet: the tree node buffer is exposed via RetrieveInstanceTreeBuffers and the refit->consumer barrier is in
+    //    place, awaiting the surfel trace. Best-effort: a failed init leaves TlasReady false and every per-frame record no-ops.
+    InstanceBoundsSubmission TlasBounds;           // [-] - Dispatches 1-2: instance-centroid AABB reduce + Morton emit into the sort's input pair
+    RadixSortSubmission      TlasSort;             // [-] - Dispatch 3: the 20-sub-dispatch GPU radix sort ordering instances along the Morton curve
+    InstanceTreeSubmission   TlasTree;             // [-] - Dispatches 4-5: Karras radix-tree build + bottom-up box refit; exposes the TLAS node buffer
+    bool                     TlasReady = false;    // [-] - One gate: all three ReadyCondition && scene bound && instance count in range
     VisibilityRasterization FloorRaster;           // [-] - Second raster (own pipeline + instance set) for the checkered floor mesh, drawn into the SHARED visibility buffer
-    PolygonBufferAllocation FloorGeometry;         // [-] - The uploaded floor slab geometry (from CheckerFloor.wsdoc block 0), device-local
     VkCommandPool           UploadPool = VK_NULL_HANDLE; // [-] - One-shot transfer pool for the geometry upload (freed at finalize)
     SuzanneSceneChoice      SceneChoice = SuzanneSceneChoice::MaterialRings; // [-] - Which saved .wsdoc scene the raster loads (MaterialRings = the 13 shaded heads the shade pass exists for)
     SceneExtension          SceneRegistry;         // [-] - The scene directory the loaded WorkspaceDocument registers into (one outliner row per head)
@@ -198,6 +226,23 @@ struct RenderExtension
     uint32_t                ReportedInspectionCellCount = 0xFFFFFFFFu; // [-] - Last overlay cell count logged, so the trace fires on CHANGE not per frame
     bool                    ReportedInspectionShortfall = false;       // [-] - Latch for the capacity-truncation caution, so it states the onset once
 #endif
+
+    // 📝 Surfel GI — Phase 1 (pool + camera-relative cascaded hash grid + spawn-from-visibility + debug view). NO tracing / GI on screen yet: this
+    //    stands up the surfel substrate and an eyeballable debug splat, the visual half of the Phase-1 definition of done. The compute records in the
+    //    preamble at the one in-buffer, outside-every-scope seam (after the visibility image is handed to sampling, before the radiance scope opens);
+    //    the splat records inside the radiance scope after the shade. Every unit is best-effort — a failed init leaves ReadyCondition false and every
+    //    record no-ops, exactly like the clipmap visualization, so the renderer still runs. The grid Offsets/List + pool buffers are owned here; the
+    //    lifecycle borrows the visibility image + the merged mesh buffers (mirroring the shade's Refresh).
+    SurfelPool                SurfelPoolResource;   // [-] - the surfel SSBO + free-list + atomics + the four F7 zero-fill buffers
+    SurfelGridSlotting        SurfelSlotting;       // [-] - clear -> count -> scan -> slot; owns the Offsets/List SSBOs + an internal SurfelPrefixSum
+    SurfelLifecycleSubmission SurfelLifecycle;      // [-] - Prepare (one-time seed, F21) / Spawn (from the visibility id) / Age (TTL recycle)
+    SurfelDebugInscription    SurfelDebug;          // [-] - the screen-space splat of every live surfel, composited after the shade
+    SurfelIntegrateSubmission SurfelIntegrate;      // [-] - Phase 2: per-surfel trace + MSME integrate (bound once against the BVH + surfel state, records after Age)
+    uint32_t                  SurfelDebugMode          = SurfelDebugModeOff; // [-] - selected debug mode (0 = off, default); F6 cycles Off->Age->Cascade->Identity->Occupancy
+    bool                      SurfelDebugModeKeyLatch  = false;              // [-] - edge latch so one F6 press advances the mode once
+    bool                      SurfelGiEnabled          = true;               // [-] - Phase 3: when true the shade GATHERS surfel GI in place of the flat ambient; F7 toggles the A/B
+    bool                      SurfelGiKeyLatch         = false;              // [-] - edge latch so one F7 press flips the GI toggle once
+    uint32_t                  SurfelFrameIndex         = 0;                  // [-] - monotonically-increasing frame counter fed to the spawn (jitter / frame-index uses)
 
     ViewportCamera          ViewCamera;            // [-] - Orbit / fly camera spec the grid is rendered through
 

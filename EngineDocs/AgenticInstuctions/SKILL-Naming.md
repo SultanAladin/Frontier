@@ -68,6 +68,10 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
 - **2026-07-25:** `backend` (web "layer beneath" jargon) → raw-ingestion layer = `…Substrate`.
 - **2026-07-26:** `Pass` (borrowed from `VkRenderPass`; revokes the old `stage→Pass` ruling) and
   `Emission`/`Emit` (AI-default) → a GPU render unit takes a mechanism suffix (§2, render-unit table).
+- **2026-08-02:** `Inscription` (was the §2 approved `Pass` replacement for composite-onto-target units;
+  now barred outright) → a GPU render unit that composites onto an existing target takes `…Rasterization`
+  (it still rasterizes ribbon / glyph / decal geometry into the target). New code never uses
+  `Inscription`; existing `…Inscription` files are deferred renames (see §2).
 
 > \*`Traversal` exempt only at `Topology/Selection/SelectionTraversal.{h,cpp}` (user direction).
 > †bare `Record` banned; composite `RecordEntry`/`RecordStore`/`RecordToken` (§4) is approved.
@@ -101,8 +105,7 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
 
 | Suffix | Use when the unit… | Example |
 |---|---|---|
-| `…Rasterization` | rasterizes geometry into targets (default draw unit) | `PlexusFieldRasterization` |
-| `…Inscription` | composites a result *onto* an existing target (overlays, decals, glyphs) | `DecalTextInscription` |
+| `…Rasterization` | rasterizes geometry into targets — the default draw unit AND overlays / decals / glyphs composited onto an existing target (both cases rasterize into the target) | `PlexusFieldRasterization` · `DecalTextRasterization` |
 | `…Submission` | records + submits a batched GPU workload | `ShadowBatchSubmission` |
 | `…Sequence` | is an ordered multi-step chain | `PostProcessSequence` |
 
@@ -111,9 +114,10 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
 `CoordinateSystem`/`TransformSystem` keep `System` (math-frame noun, not the coordinator suffix).
 **Rejected (never use):** `proof`, `Trial`/`Trials`, `glide`, `Role`.
 **Deferred renames (user-owned code):** `PlexusFieldPass`→`PlexusFieldRasterization`,
-`GaussianBlurPass`→`GaussianBlurRasterization`, `DecalTextPass`→`DecalTextInscription`,
-`LoginPillPass`→`LoginPillInscription`; editor `WorkspaceBakeStage` still pending. New code never uses
-`stage`/`Pass`/`Emission`.
+`GaussianBlurPass`→`GaussianBlurRasterization`, `DecalTextPass`→`DecalTextRasterization`,
+`LoginPillPass`→`LoginPillRasterization`; every shipped `…Inscription` (`…SurfaceInscription`,
+`GlyphInscription`, `ShadowTileTagInscription`, `RadianceResolveInscription`, …)→`…Rasterization`;
+editor `WorkspaceBakeStage` still pending. New code never uses `stage`/`Pass`/`Emission`/`Inscription`.
 **Workspace name (2026-07-07):** the B-rep/surfacing workspace is `DraftingWorkspace` (British
 `DraughtingWorkspace` an accepted alternative — note at class site). Not `Cad`/`CAD` (kernel folder
 `Authoring/Modeling/Cad/` keeps its name).
@@ -230,11 +234,11 @@ Avoid `is`/`has`/`can` prefixes — use enabled/disabled or a property descripto
 
 Classes and render units must be **modular and reusable**, never one-off entities tied to one call
 site. Name by *what it does*, not the one place it's used today. (Render-unit suffix per §2: a button
-composited onto the target → `…Inscription`.)
+rasterized onto the target → `…Rasterization`.)
 
-- ❌ `LoginPillInscription` — a whole unit hardcoded to the single "Sign in" button; a second button
+- ❌ `LoginPillRasterization` — a whole unit hardcoded to the single "Sign in" button; a second button
   needs a duplicate pipeline/descriptor/shader.
-- ✔️ `GlassButtonInscription` — one unit owning the pipeline **once**; the caller records **any number**
+- ✔️ `GlassButtonRasterization` — one unit owning the pipeline **once**; the caller records **any number**
   of buttons per frame, each driven by its own push-constant (rect, radius, hover, label).
 
 Idiom: the component struct owns shared device resources built **once** (pipeline, layout, descriptor,

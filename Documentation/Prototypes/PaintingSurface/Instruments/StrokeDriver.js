@@ -5,6 +5,7 @@
 
 import { PickFromPointer, ResolveCoordinate } from "./SurfacePick.js";
 import { DecomposeSegment, DefaultSpacing }   from "../Deposit/DabFootprint.js";
+import { ResolveMaskPaintTarget }             from "../Layers/LayerMask.js";
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                    PUBLIC FUNCTIONS
@@ -161,6 +162,40 @@ export class StrokeDriver
     {
         if (this.Pending.length === 0) { return 0; }
         if (!Layer)                    { this.Pending.length = 0; return 0; }
+
+        // 🔴 A focused PAINT mask component takes the stroke BEFORE the paintable check, and takes it even
+        //    on a fill / material / generator layer. Painting the mask is how the user carves where the
+        //    whole layer applies, so a layer whose CONTENT cannot be hand-painted still accepts strokes
+        //    into its mask. The dabs land in the component's own greyscale atlas — one texture, not the
+        //    channel fan-out — as a flat scalar the mask sequence reads back from red and weights by
+        //    coverage. Ink is ignored: a mask has no colour, only where-it-applies.
+        const MaskTarget = ResolveMaskPaintTarget(Layer);
+        if (MaskTarget)
+        {
+            const MaskWrite = { Value: [1, 1, 1], Mask: [1, 1, 1] };
+            let   MaskDrawn = 0;
+
+            while (this.Pending.length > 0)
+            {
+                const Batch = this.Pending.splice(0, 256);
+
+                // First dab into this component is what brings its atlas into existence.
+                const View = Layer.EnsureMaskComponentAtlas
+                    ? Layer.EnsureMaskComponentAtlas(MaskTarget)
+                    : MaskTarget.AtlasView;
+                if (!View) { continue; }
+
+                const Count   = this.Pass.StageDabs(Batch, Brush, MaskWrite);
+                const Encoder = this.Device.createCommandEncoder({ label: `MaskStrokeFlush${MaskTarget.Token}` });
+
+                this.Pass.Encode(Encoder, View, Surface, Count, MaskWrite);
+                this.Device.queue.submit([Encoder.finish()]);
+
+                MaskDrawn += Count;
+            }
+
+            return MaskDrawn;
+        }
 
         // 🔴 Only a PAINT layer takes a stroke. A fill, material or generator layer's content is its
         //    authored value or its procedural pass, and letting a dab land on one would silently overwrite

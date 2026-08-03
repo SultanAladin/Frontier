@@ -1,0 +1,149 @@
+#version 450
+// ============================================================================================================================================
+//                                                          VOLUMEBOUNDSREDUCE.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 1 of the LBVH build: reduce every triangle centroid in the scene to one axis-aligned bounding box. The Morton pass that follows
+//    normalises each centroid into [0,1] against this box, so the box must cover EVERY centroid the Morton pass will read — the two dispatches
+//    must walk the same triangle set by the same rule or codes fall outside the unit cube and quantise to the clamped edge.
+//
+//    Each workgroup reduces its own tile in shared memory (a halving tree, no atomics), then commits its tile's box to the scene box with six
+//    global atomics. So the global traffic is six atomics per 256 triangles rather than six per triangle.
+//
+//    🔴 THE ATOMICS ARE ORDERED-INT, NOT FLOAT, AND THAT IS FORCED BY THE HARDWARE. Precisely: VK_EXT_shader_atomic_float IS present on this
+//       device (shaderBufferFloat32Atomics and ...AtomicAdd both report YES), but it only grants atomic ADD and EXCHANGE. Atomic MIN/MAX on
+//       floats is a separate extension, VK_EXT_shader_atomic_float2, which this device does NOT expose — so atomicMin/atomicMax on a float SSBO
+//       element genuinely does not exist here, and enabling the float-atomic feature VulkanHost currently omits would not change that. Measured
+//       by direct query, not assumed. The standard remedy is to reinterpret the float's bits as an int whose
+//       INTEGER order matches the float's order, atomically min/max that, and reinterpret back. IEEE-754 already orders non-negative floats
+//       correctly under their bit pattern; negatives run backwards, so the sign-magnitude form is flipped into two's-complement order. Scene
+//       coordinates are signed and centred near the origin, so the negative half is the common case here, not an edge case.
+//
+//    ⚠️ floatBitsToOrderedInt / orderedIntBitsToFloat ARE NOT GLSL BUILT-INS. They were EEVEE helpers, and Frontier's copy lived in
+//       Shadow/Shaders/ShadowTileLayout.glsl — which was DELETED with the VSM subsystem (commit c99e22f). They are transcribed below rather than
+//       included, because there is no longer a file to include. glslc fails with "no matching overloaded function" if they are assumed present.
+//
+//    📝 The reduce is over CENTROIDS, not vertices. The tree partitions primitives by where they sit, and a Morton code is a point code — the
+//       centroid IS the point being coded. A vertex-extent box would be larger than the centroid extent, which is not wrong so much as wasteful:
+//       it spends Morton resolution on space no centroid occupies, coarsening the codes that decide tree quality.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup = 256u;
+
+// One RenderVertex, stride-32: position @0 (vec3), normal @12 (vec3), texcoord @24 (vec2). Copied verbatim from
+// Visibility/Shaders/SoftwareRasterization.comp so the std430 stride stays 32 and PositionForVertex indexes correctly. Only the position is read;
+// the remaining fields exist to hold the stride.
+struct RenderVertex
+{
+    float PositionX; float PositionY; float PositionZ; // @0
+    float NormalX;   float NormalY;   float NormalZ;   // @12 (unused)
+    float TexU;      float TexV;                       // @24 (unused)
+};
+
+// set 0, binding 0 — the mesh vertex stream as an SSBO. The SAME device-local buffer the hardware raster binds as a vertex buffer; BufferAllocation
+// already added STORAGE usage, so there is no upload work to read geometry from compute.
+layout(std430, set = 0, binding = 0) readonly buffer VertexBlock
+{
+    RenderVertex Vertices[];
+};
+
+// set 0, binding 1 — the mesh index stream, three indices per triangle.
+layout(std430, set = 0, binding = 1) readonly buffer IndexBlock
+{
+    uint Indices[];
+};
+
+// set 0, binding 2 — the scene box as six ordered-int accumulators: [0..2] the minimum corner, [3..5] the maximum. Ordered-int rather than float
+// because this device has no float atomic min/max (see the header note); the host seeds it (see below) and reads it back through the same transform.
+layout(std430, set = 0, binding = 2) buffer SceneBoundsBlock
+{
+    int SceneBounds[];
+};
+
+layout(push_constant) uniform VolumeBoundsConstants
+{
+    uint TriangleCount;   // [-] - live triangles; the final tile is partial whenever this is not a multiple of 256
+} Constants;
+
+// ─── ORDERED-INT BITS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Transcribed from EEVEE's gpu_shader_utildefines_lib.glsl (blender-main), the same body Frontier carried in the now-deleted ShadowTileLayout.glsl.
+//
+// 🔴 The XOR is the whole trick and it is easy to get subtly wrong. A float's raw bits sort correctly as signed ints ONLY while the float is
+//    non-negative. Negative floats are sign-magnitude, so their bit patterns run BACKWARDS (more negative = larger magnitude = larger pattern).
+//    XOR-ing every bit below the sign of a negative value reverses that half, splicing the two halves into one monotonic integer line. Getting this
+//    wrong does not fail loudly: the box comes out right for a scene sitting entirely in the positive octant and wrong the moment anything crosses
+//    an axis — and a wrong-but-plausible box quietly coarsens every Morton code downstream.
+int FloatBitsToOrderedInt(float Value)
+{
+    int Bits = floatBitsToInt(Value);
+    return (Bits < 0) ? (Bits ^ 0x7FFFFFFF) : Bits;
+}
+
+float OrderedIntBitsToFloat(int Bits)
+{
+    return intBitsToFloat((Bits < 0) ? (Bits ^ 0x7FFFFFFF) : Bits);
+}
+
+// Read a triangle corner's position out of the stride-32 vertex stream.
+vec3 PositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+// This tile's per-lane centroid extremes, reduced in shared memory before any global atomic runs.
+shared vec3 TileMinimum[LanesPerGroup];
+shared vec3 TileMaximum[LanesPerGroup];
+
+void main()
+{
+    uint Lane          = gl_LocalInvocationID.x;
+    uint TriangleIndex = gl_GlobalInvocationID.x;
+
+    // 📝 Out-of-range lanes seed +inf / -inf so they are IDENTITIES of min / max. They must still participate: the halving reduction below reads
+    //    every slot unconditionally, so leaving a slot uninitialised would fold garbage into the tile's box. Seeding the identity is what lets the
+    //    reduction stay branch-free while the final tile is partial.
+    vec3 Centroid = vec3(0.0);
+    bool Live     = (TriangleIndex < Constants.TriangleCount);
+    if (Live)
+    {
+        uint Corner0 = Indices[TriangleIndex * 3u + 0u];
+        uint Corner1 = Indices[TriangleIndex * 3u + 1u];
+        uint Corner2 = Indices[TriangleIndex * 3u + 2u];
+
+        // The centroid is the mean of the three corners. The Morton pass must compute this the SAME way, including the division, or the two
+        // dispatches disagree about where a triangle sits and a centroid can land outside the box that was reduced for it.
+        Centroid = (PositionForVertex(Corner0) + PositionForVertex(Corner1) + PositionForVertex(Corner2)) / 3.0;
+    }
+
+    TileMinimum[Lane] = Live ? Centroid : vec3( 1.0 / 0.0);
+    TileMaximum[Lane] = Live ? Centroid : vec3(-1.0 / 0.0);
+    barrier();
+
+    // ─── tile reduction : halving tree over shared memory, no atomics ───────────────────────────────────────────────────────────────────────
+    // Each step folds the upper half onto the lower half. The barrier inside the loop is unconditional on purpose — a barrier reached by only
+    // some lanes of a workgroup is undefined behaviour, so the lane test governs only the WORK, never whether the barrier executes.
+    for (uint Stride = LanesPerGroup / 2u; Stride > 0u; Stride >>= 1u)
+    {
+        if (Lane < Stride)
+        {
+            TileMinimum[Lane] = min(TileMinimum[Lane], TileMinimum[Lane + Stride]);
+            TileMaximum[Lane] = max(TileMaximum[Lane], TileMaximum[Lane + Stride]);
+        }
+        barrier();
+    }
+
+    // ─── commit : one lane per workgroup folds this tile's box into the scene box ───────────────────────────────────────────────────────────
+    // 🔴 A fully out-of-range tile would commit its +inf / -inf identities, which under the ordered-int transform are the extreme patterns and
+    //    would therefore WIDEN the scene box to infinity rather than leave it alone. The dispatch is sized so this cannot happen, but the guard
+    //    costs one comparison and removes the possibility entirely — infinities in the box make every Morton code collapse to zero.
+    if (Lane == 0u && (gl_WorkGroupID.x * LanesPerGroup) < Constants.TriangleCount)
+    {
+        atomicMin(SceneBounds[0], FloatBitsToOrderedInt(TileMinimum[0].x));
+        atomicMin(SceneBounds[1], FloatBitsToOrderedInt(TileMinimum[0].y));
+        atomicMin(SceneBounds[2], FloatBitsToOrderedInt(TileMinimum[0].z));
+        atomicMax(SceneBounds[3], FloatBitsToOrderedInt(TileMaximum[0].x));
+        atomicMax(SceneBounds[4], FloatBitsToOrderedInt(TileMaximum[0].y));
+        atomicMax(SceneBounds[5], FloatBitsToOrderedInt(TileMaximum[0].z));
+    }
+}

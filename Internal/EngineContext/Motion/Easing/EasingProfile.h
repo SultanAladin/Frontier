@@ -29,7 +29,8 @@ struct EasingProfile
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-// Evaluate the eased output for a normalized progress in [0,1]; clamps outside that range.
+// Evaluate the eased output for a normalized progress in [0,1]. Progress is clamped to that range, but the OUTPUT is not:
+// an overshoot curve such as cubic-bezier(.34,1.56,.64,1) peaks near 1.098 mid-travel, and that overshoot is preserved.
 [[nodiscard]] float EvaluateEasing(const EasingProfile& Profile, float Progress) noexcept;
 
 // The default workspace ease — cubic-bezier(.22,.61,.36,1), matching the prototype --ease custom property.

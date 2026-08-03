@@ -565,6 +565,17 @@ void RegisterParametricSketchSolidImage(ImTextureID Image, uint32_t Width, uint3
 // rendered; the extent lets the view keep the composite's aspect exact against the canvas rect. Read by the parametricSketching view's render walk.
 ImTextureID RetrieveParametricSketchSolidImage(uint32_t& Width, uint32_t& Height);
 
+// The stroke counterpart of the solid-image reverse bridge: the runtime publishes the offscreen CURVE/outline target's ImGui texture handle back
+// to the view AFTER the thick-line pass has stroked the canvas-sized, camera-locked outlines, so the view composites it ON TOP -- above the grid
+// and the solid image, the topmost layer of the documented z-order (fill -> solid -> grid -> outlines). Same one-writer-per-frame, opaque-handle
+// contract as RegisterParametricSketchSolidImage (the store TU never dereferences it). Null (0) when no outline was stroked this frame (no displayed
+// shapes / the curve sequence disabled) -- the view then draws no stroke image. SEPARATE published slot from the solid image.
+void RegisterParametricSketchStrokeImage(ImTextureID Image, uint32_t Width, uint32_t Height);
+
+// Retrieve the curve/outline target image the runtime published this frame (see RegisterParametricSketchStrokeImage). Image is null (0) when nothing
+// was stroked; the extent keeps the composite's aspect exact against the canvas rect. Read by the parametricSketching view's render walk, drawn last.
+ImTextureID RetrieveParametricSketchStrokeImage(uint32_t& Width, uint32_t& Height);
+
 // ðŸ“ One tessellated shape body destined for the GPU scene pass: a flat triangle soup in world MM (X-right / Y-up outline at Z = the
 //    shape's Elevation), exactly the layout ParametricSketchLoftBody uses so CadMain uploads it through the SAME RenderVertexStream path (and the
 //    same mm â†’ cm scale). The view fills these each frame from the CPU fill tessellators (EvaluateFilledPolygon + TriangulateFillRegion)
@@ -587,6 +598,51 @@ void RegisterParametricSketchShapeBodies(const std::vector<ParametricSketchShape
 // Retrieve the tessellated shape bodies the active parametricSketching view last published this frame (see RegisterParametricSketchShapeBodies). Empty when
 // no parametricSketching view painted or no closed + filled shapes exist. Read by the runtime's GPU-scene upload walk.
 const std::vector<ParametricSketchShapeBody>& RetrieveParametricSketchShapeBodies();
+
+// One STROKE vertex on a shape's display OUTLINE, world mm at the shape's Elevation (z). This is the outline the GPU thick-line rasterizer
+// consumes (the analytic-shape -> display-polyline the CPU already flattens), the stroke counterpart to the filled ParametricSketchShapeBody
+// triangle soup. Position only; per-shape colour + linetype ride the body below (uniform along one outline), so a vertex stays 12 bytes and
+// the upload is one interleave-free position stream that the segment-expansion vertex shader walks pairwise.
+struct ParametricSketchStrokeVertex
+{
+    float PositionX = 0.0f;   // [mm] - world x
+    float PositionY = 0.0f;   // [mm] - world y
+    float PositionZ = 0.0f;   // [mm] - world z (the source shape's Elevation)
+};
+
+// One tessellated shape OUTLINE destined for the GPU curve pass: the flattened display polyline (world mm) plus the per-shape display cues that
+// are uniform along it. Identifier ties it to its source shape id so the GPU consumer caches device buffers by revision instead of re-uploading
+// every frame; Revision bumps when the outline changes (the source shape's CachedSampleBudget / geometry moved), so the re-upload gate mirrors
+// ParametricSketchShapeBody exactly. ClosedLoop rejoins the last sample to the first (Circle / Rectangle / Polygon loops). ColourRGBA is the
+// resolved swatch (from the shape's TintIndex) so the pass needs no tint table. LineStyle selects the fragment linetype: 0 solid, 1 construction
+// dashed, 2 centerline (dash-dot). Built by AssembleParametricSketchStrokeBodies from RetrieveCachedOutline -- never a fresh flatten.
+struct ParametricSketchStrokeBody
+{
+    uint32_t                                 Identifier = 0;       // [-]  - the source shape's stable id (device-buffer cache key)
+    uint32_t                                 Revision   = 0;       // [-]  - bumps when the outline changes, so the GPU re-uploads only then
+    std::vector<ParametricSketchStrokeVertex> Polyline;            // [mm] - the flattened display outline (world mm), pairwise segments
+    bool                                     ClosedLoop = false;   // [-]  - rejoin the last sample to the first (loop shapes)
+    float                                    ColourRGBA[4] = { 0.85f, 0.86f, 0.90f, 1.0f }; // [-] - resolved stroke colour (from TintIndex)
+    uint8_t                                  LineStyle  = 0;       // [-]  - 0 solid / 1 construction-dashed / 2 centerline (fragment linetype)
+};
+
+// Publish the flattened shape OUTLINES the active parametricSketching view built this frame, so the GPU curve pass uploads + strokes them. Call once
+// each frame from the active view's paint (or AssembleParametricSketchStrokeBodies then this); an empty list means "no outlines this frame". The
+// stroke counterpart to RegisterParametricSketchShapeBodies -- same one-writer-per-frame contract, SEPARATE published slot.
+void RegisterParametricSketchStrokeBodies(const std::vector<ParametricSketchStrokeBody>& Bodies);
+
+// Retrieve the shape outlines the active parametricSketching view last published this frame (see RegisterParametricSketchStrokeBodies). Empty when no
+// parametricSketching view painted or no displayed shapes exist. Read by the runtime's GPU curve-upload walk.
+const std::vector<ParametricSketchStrokeBody>& RetrieveParametricSketchStrokeBodies();
+
+// Walk Store's DISPLAYED shapes and build one ParametricSketchStrokeBody per shape from its cached outline (RetrieveCachedOutline -- warms the flatten
+// cache, so this takes a non-const store), filling ClosedLoop from ClosedEnabled, ColourRGBA from TintIndex, and Revision from the shape's edit
+// state so the GPU re-uploads only on change. Skips shapes with fewer than two outline points. This is a pure ADAPTER over the existing flatten --
+// no new tessellation -- so the GPU stroke and the CPU pick/length outlines can never drift. SampleBudget forwards to RetrieveCachedOutline (0 = the
+// per-category default); pass the view's adaptive budget for zoom-correct chord error. Clears OutBodies first.
+void AssembleParametricSketchStrokeBodies(ParametricSketchShapeStore&               Store,
+                                          std::vector<ParametricSketchStrokeBody>&  OutBodies,
+                                          int                                       SampleBudget = 0);
 
 // How many defining clicks a category expects before it seals. Fixed-count families return their exact count (Line 2, Arc 3, â€¦);
 // the open-ended families (Polyline / Bezier / BSpline / Nurbs / Spline) return 0, meaning "collect until a finish gesture".

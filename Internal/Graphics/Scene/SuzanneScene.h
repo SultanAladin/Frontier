@@ -42,15 +42,32 @@ enum class SuzanneSceneChoice : uint8_t
 //    MaterialId is the second hop of the shade pass's lookup chain: the visibility buffer stores a partition ordinal, the ordinal indexes THIS
 //    buffer, and MaterialId then indexes the SurfacePresetTable. It stays 0 (the floor's flat Standard record) for every scene that predates the
 //    material work, so the debug-hash views are untouched — only MaterialRings authors it.
+//
+//    📝 InverseModel + MeshOrdinal are the ray-tracing half, added for the two-level acceleration structure. The trace walks the TOP level in world
+//       space, and to descend into a mesh's bottom-level tree it must carry the ray into that mesh's LOCAL space — which is what InverseModel is
+//       for. MeshOrdinal then names which GeometryArenaSlice holds that mesh's tree. The raster passes ignore both.
+//
+//    🔴 THIS STRUCT IS AN ABI CONTRACT WITH FOUR SHADERS AND THE COMPILER CANNOT CHECK IT. VisibilityRaster.vert, SurfaceShade.frag,
+//       SoftwareRasterization.comp and ComponentOverlay.frag each re-declare this layout by hand as `SceneInstance`. Every host site sizes its
+//       uploads with sizeof(SuzanneSceneInstance), so a field added here propagates through C++ silently and correctly — and leaves those four GLSL
+//       copies behind. A stale copy does not fail to compile and does not validate: it simply strides by the old size, so instance N reads the tail
+//       of instance N-1. Adding a field here means editing all four in the SAME change. The static_assert below pins the size so at least a
+//       DELIBERATE resize has to be acknowledged.
 struct SuzanneSceneInstance
 {
-    float    Model[16]      = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };  // [-] - column-major world transform
-    float    NormalBasis[12] = { 1,0,0,0, 0,1,0,0, 0,0,1,0 };          // [-] - 3x vec3 (padded to vec4) rotation-only basis
-    float    Tint[4]        = { 1,1,1,1 };                              // [-] - linear RGB (+pad) debug tint
-    uint32_t PartitionId    = 0;                                        // [-] - instance identity written into the visibility buffer
-    uint32_t MaterialId     = 0;                                        // [-] - index into the SurfacePresetTable (0 = the flat Standard record)
-    uint32_t Padding[2]     = { 0,0 };                                  // [-] - std140 tail pad to a 16-byte boundary
+    float    Model[16]       = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };  // [-] - column-major world transform (local -> world)
+    float    NormalBasis[12] = { 1,0,0,0, 0,1,0,0, 0,0,1,0 };           // [-] - 3x vec3 (padded to vec4) rotation-only basis
+    float    Tint[4]         = { 1,1,1,1 };                             // [-] - linear RGB (+pad) debug tint
+    uint32_t PartitionId     = 0;                                       // [-] - instance identity written into the visibility buffer
+    uint32_t MaterialId      = 0;                                       // [-] - index into the SurfacePresetTable (0 = the flat Standard record)
+    uint32_t MeshOrdinal     = 0;                                       // [-] - which GeometryArenaSlice holds this instance's bottom-level tree
+    uint32_t Padding         = 0;                                       // [-] - std140 pad, keeping the uint run at a 16-byte boundary
+    float    InverseModel[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 }; // [-] - world -> local; the ray enters the bottom-level tree through this
 };
+
+// 🔴 The four GLSL copies named above must agree with this. If a field is added, this fires — fix the shaders, THEN update the number.
+static_assert(sizeof(SuzanneSceneInstance) == 208, "SuzanneSceneInstance changed size: update SceneInstance in VisibilityRaster.vert, "
+                                                   "SurfaceShade.frag, SoftwareRasterization.comp and ComponentOverlay.frag to match.");
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS

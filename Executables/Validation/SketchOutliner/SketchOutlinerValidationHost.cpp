@@ -20,7 +20,7 @@
 #include "EngineContext/Interface/Icons/IconPackGlobal.h"
 #include "EngineContext/Interface/Icons/IconPackCad.h"
 
-#include "SketchOutlinerPanel.h"
+#include "EngineContext/Interface/WorkspaceHost/SketchOutliner/SketchOutlinerPanel.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -29,9 +29,10 @@
 #include <cstdio>
 
 using namespace Frontier;
-using SketchOutlinerValidation::SketchOutlinerState;
-using SketchOutlinerValidation::InitializeSketchOutlinerSample;
-using SketchOutlinerValidation::ConstructSketchOutlinerPanel;
+using Frontier::SketchOutlinerUi::SketchOutlinerState;
+using Frontier::SketchOutlinerUi::InitializeSketchOutlinerSample;
+using Frontier::SketchOutlinerUi::ConstructSketchOutlinerPanel;
+using Frontier::SketchOutlinerUi::ResolveSketchContentProfile;
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INTERNAL HELPERS
@@ -147,7 +148,7 @@ int main(int ArgumentCount, char** ArgumentValues)
 
     // -- The caller-owned panel state + its default demonstration part ---------------------------------------------------
     SketchOutlinerState State;
-    InitializeSketchOutlinerSample(State);
+    InitializeSketchOutlinerSample(State, ResolveSketchContentProfile());
 
     // -- Frame loop -----------------------------------------------------------------------------------------------------
     while (!QueryWindowCloseRequested(Window))
@@ -173,7 +174,7 @@ int main(int ArgumentCount, char** ArgumentValues)
                                            ImGuiWindowFlags_NoBringToFrontOnFocus;
         if (ImGui::Begin("Sketch Outliner", nullptr, HostFlags))
         {
-            ConstructSketchOutlinerPanel(Theme, State, &Icons);
+            ConstructSketchOutlinerPanel(Theme, State, &Icons, ResolveSketchContentProfile());
         }
         ImGui::End();
         ImGui::PopStyleVar();

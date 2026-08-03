@@ -14,6 +14,7 @@
 
 #include "Authoring/Geometry/Interchange/WorkspaceDocumentEncoder.h"
 #include "Authoring/Geometry/Modeling/PolygonCluster.h"
+#include "Graphics/Acceleration/GeometryTreeBuild.h"
 #include "Graphics/Scene/SuzanneScene.h"
 
 #include <cstdint>
@@ -67,6 +68,27 @@ struct AuthoredTopologyMap
 //    (VisibilityRaster.frag), so identities must stay under 4096 — 2048 leaves both ranges ample room.
 constexpr uint32_t FloorPartitionBase = 2048u;
 
+// Compose the world→local matrix the ray trace enters an instance's bottom-level tree through, from the same LocalPlacement the model matrix is
+// built from, into OutInverse[16] (column-major, element index Column*4 + Row). Inverted ANALYTICALLY from the TRS — S⁻¹ * Rᵀ * T⁻¹ — rather than
+// by a numeric inversion of the composed matrix, so the pair is exact by construction. Exposed because the load path is not the only consumer: the
+// validation gate judges Model * InverseModel against identity, and it must judge the SHIPPED composer rather than a transcription of it.
+//
+// 🔴 A ZERO OR NEAR-ZERO SCALE AXIS IS CLAMPED TO A FINITE RECIPROCAL, NOT ALLOWED TO PRODUCE inf/NaN. A NaN here propagates into every ray
+//    entering the instance and reads as a black or missing object with no malformed data to catch, so a degenerate axis collapses the instance
+//    visually — which is what the author asked for — instead of poisoning the trace.
+void ComposeInverseModelMatrix(const LocalPlacement& Placement, float OutInverse[16]);
+
+// Build the bottom-level tree over an already-triangulated render stream, in the stream's own LOCAL space, into Result. De-interleaves the
+// positions out of RenderVertex (a 32-byte interleaved record) into the tightly packed XYZ run BuildGeometryTree takes, then delegates. Returns
+// false with Result cleared on an empty stream or an index run that is not a whole number of triangles.
+//
+// 🔴 THE STREAM MUST BE THE ONE THE INSTANCES SHARE, NOT ONE INSTANCE'S WORLD-SPACE COPY. Every instance of a mesh walks this one tree and enters
+//    it through its own InverseModel, which is the entire reason a CPU build is affordable here — see GeometryTreeBuild.h's header. A tree built
+//    over transformed vertices is correct for exactly one instance and silently wrong for every other.
+bool BuildGeometryTreeForStream(const RenderVertexStream&  Geometry,
+                                const GeometryTreeOptions& Options,
+                                GeometryTree&              Result);
+
 // Decode the .wsdoc at Path and produce the two things the raster needs: the shared geometry block's triangulated GPU stream (Geometry, from
 // block 0 via ConstructDisplayPolygons) and one SuzanneSceneInstance per placed object referencing block 0 (Instances — TRS recomposed into a
 // column-major model matrix + a rotation-only normal basis, tinted, identity = PartitionBase + placement ordinal). Document, when non-null, receives
@@ -76,16 +98,24 @@ constexpr uint32_t FloorPartitionBase = 2048u;
 // authored with. PartitionBase offsets every emitted identity so meshes sharing one visibility buffer stay in disjoint ranges (see
 // FloorPartitionBase); pass 0 for the primary scene. Topology, when non-null, receives the fuller authored-topology provenance the component overlay
 // needs (per-triangle authored face + corner vertices + loop-edge ordinals — see AuthoredTopologyMap); it supersedes TriangleSourceFace, whose
-// SourceFace table it also carries, and resolving it additionally builds the adjacency so fan diagonals can be told from real edges. Returns false (all
-// outputs cleared) on a missing / malformed file, an empty document, or a geometry block that fails to triangulate. Objects referencing a block other
-// than 0 are skipped (single-block runtime path).
+// SourceFace table it also carries, and resolving it additionally builds the adjacency so fan diagonals can be told from real edges. Tree, when
+// non-null, additionally receives the bottom-level acceleration tree built over block 0's local-space triangles (BuildGeometryTreeForStream), which
+// the caller appends to a GeometryArenaSubmission and whose returned mesh ordinal it writes back over every emitted instance's MeshOrdinal. Returns
+// false (all outputs cleared) on a missing / malformed file, an empty document, or a geometry block that fails to triangulate. Objects referencing a
+// block other than 0 are skipped (single-block runtime path).
+//
+// ⚠️ EVERY EMITTED INSTANCE LEAVES HERE WITH MeshOrdinal 0, WHICH IS A VALID ORDINAL AND THEREFORE NOT SELF-ANNOUNCING. This function cannot know
+//    the ordinal: it is assigned by AppendGeometryTreeToArena, which the caller owns. A caller that requests Tree and forgets to write the returned
+//    ordinal back has every mesh in the scene tracing against whichever mesh happens to be arena slot 0 — geometry that renders correctly under the
+//    raster and traces against the wrong triangles.
 bool LoadWorkspaceScene(const char*                        Path,
                         RenderVertexStream&                Geometry,
                         std::vector<SuzanneSceneInstance>& Instances,
                         WorkspaceDocument*                 Document,
                         std::vector<uint32_t>*             TriangleSourceFace = nullptr,
                         uint32_t                           PartitionBase      = 0u,
-                        AuthoredTopologyMap*               Topology           = nullptr);
+                        AuthoredTopologyMap*               Topology           = nullptr,
+                        GeometryTree*                      Tree               = nullptr);
 
 // Decode a STANDALONE document whose single geometry block is drawn as a second mesh alongside the main scene (the checkered floor). Identical to
 // LoadWorkspaceScene in mechanics — triangulate block 0 into Geometry, recompose every block-0 object into a SuzanneSceneInstance — but named apart
@@ -94,9 +124,15 @@ bool LoadWorkspaceScene(const char*                        Path,
 // collide with the heads' low range in the shared visibility buffer — a consumer that unpacks a partition ordinal subtracts the base before indexing
 // this mesh's instance buffer. Returns false (outputs cleared) on a missing / malformed file, an empty document, or a block that fails to
 // triangulate. This is the runtime side of "the floor is a real mesh baked into its own .wsdoc".
+//
+// Tree carries the same contract as LoadWorkspaceScene's: when non-null it receives the floor slab's bottom-level tree, built over the slab's
+// LOCAL-space triangles, for the caller to append to the arena. The floor is a ray target like any other surface — it is the surface most indirect
+// bounces actually land on — so it needs a real tree rather than being the one mesh the trace cannot see. The returned MeshOrdinal must be written
+// back over every emitted instance for the same reason documented above: 0 is a valid ordinal and will silently trace against the heads.
 bool LoadFloorDocument(const char*                        Path,
                        RenderVertexStream&                Geometry,
-                       std::vector<SuzanneSceneInstance>& Instances);
+                       std::vector<SuzanneSceneInstance>& Instances,
+                       GeometryTree*                      Tree = nullptr);
 
 } // namespace Frontier
 

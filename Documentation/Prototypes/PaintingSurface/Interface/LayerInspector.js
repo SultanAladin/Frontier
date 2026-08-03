@@ -3,10 +3,13 @@
 ====================================================================================================================================*/
 // 🧩 Tab-summoned layer manager: [stack | layer properties] ⇄ [identity | channels], driving the live stack
 
-import { CLASSIFICATION_LABEL, CLASSIFICATION_ORDER, CLASSIFICATION_TINT,
+import { CLASSIFICATION_LABEL, CLASSIFICATION_TINT,
          BLEND_MODES, LayerCapacity } from "../Layers/LayerStack.js";
 import { CHANNEL_ORDER, CHANNEL_LABEL, CHANNEL_SLOTS } from "../Layers/ChannelSet.js";
-import { CHANNEL_MODES } from "../Layers/LayerKinds.js";
+import { CHANNEL_MODES, LAYER_KINDS, LAYER_KIND_ORDER, KindLabel, KindTint,
+         DefaultChannels } from "../Layers/LayerKinds.js";
+import { MASK_COMPONENT_CATEGORY, MASK_COMPONENT_ORDER, MASK_COMPONENT_PARAMS,
+         MaskFillValue } from "../Layers/LayerMask.js";
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        ARTWORK
@@ -68,7 +71,9 @@ const GLYPH = {
     trash:       `<path ${Stroked} d="M4.5 7 H19.5 M9.5 7 V4.8 h5 V7 M6.5 7 l1 12.5 h9 L17.5 7"/><path ${Stroked} d="M10.3 10.5 v6 M13.7 10.5 v6"/>`,
     sliders:     `<path ${Stroked} d="M4 7 H20 M4 12 H20 M4 17 H20"/><circle ${Stroked} cx="9" cy="7" r="2"/><circle ${Stroked} cx="15" cy="12" r="2"/><circle ${Stroked} cx="8" cy="17" r="2"/>`,
     cube:        `<path ${Stroked} d="M12 3 L20.5 7.5 V16.5 L12 21 L3.5 16.5 V7.5 Z"/><path ${Stroked} d="M3.5 7.5 L12 12 L20.5 7.5 M12 12 V21"/>`,
-    bucket:      `<path ${Stroked} d="M11 3 L20 12 L12 20 L3 11 Z"/><path ${Stroked} d="M18 16.5 c1.6 2.2 2.4 3.5 2.4 4.3 a2.4 2.4 0 0 1 -4.8 0 c0 -0.8 0.8 -2.1 2.4 -4.3 Z"/>`
+    bucket:      `<path ${Stroked} d="M11 3 L20 12 L12 20 L3 11 Z"/><path ${Stroked} d="M18 16.5 c1.6 2.2 2.4 3.5 2.4 4.3 a2.4 2.4 0 0 1 -4.8 0 c0 -0.8 0.8 -2.1 2.4 -4.3 Z"/>`,
+    // a circle half-filled — the universal "mask" read: a shape whose one half is painted through.
+    mask:        `<circle ${Stroked} cx="12" cy="12" r="8.5"/><path d="M12 3.5 a8.5 8.5 0 0 1 0 17 Z" fill="currentColor"/>`
 };
 
 const Icon = (Name, Size = 15) => SvgWrap(GLYPH[Name] ?? "", Size);
@@ -275,8 +280,9 @@ export class LayerInspector
         this.OpenState  = false;
         this.FilterTerm = "";
         this.Collapsed  = new Set();
-        this.RowDragged = false;
-        this.OpenList   = null;
+        this.RowDragged   = false;
+        this.OpenList     = null;
+        this.AddLayerList = null;
 
         this.Part.StackIcon.innerHTML   = Icon("stack", 18);
         this.Part.SearchIcon.innerHTML  = Icon("search", 14);
@@ -412,7 +418,18 @@ export class LayerInspector
         const Layers = this.Stack.Layers.filter(
             (L) => !this.FilterTerm || L.Name.toLowerCase().includes(this.FilterTerm));
 
-        for (const Layer of Layers) { Body.appendChild(this.BuildRow(Layer)); }
+        for (const Layer of Layers)
+        {
+            Body.appendChild(this.BuildRow(Layer));
+
+            // 🔴 The active row's settings drop open INLINE, right beneath it in the rail. Only the focused
+            //    layer expands, and it is skipped while a filter is active — a filtered stack is a lookup,
+            //    not an editing surface, and an accordion inside it fights the row the user is scanning for.
+            if (Layer.Token === this.Stack.FocusToken && !this.FilterTerm)
+            {
+                Body.appendChild(this.BuildExpand(Layer));
+            }
+        }
 
         if (Body.children.length === 0)
         {
@@ -421,11 +438,100 @@ export class LayerInspector
 
         this.Part.Tally.textContent = this.Stack.Count;
 
+        this.RenderStackFoot();
+    }
+
+    // The stack footer: the layer tally, and the "+ Add Layer" affordance that unfolds one option per
+    // layer kind (Paint / Fill / Material / Generator, straight from LAYER_KIND_ORDER).
+    //
+    // 🔴 A new layer is created through the "add" verb, never by touching the stack directly — the verb
+    //    seeds a fill/material's content and re-flattens, which a bare Stack.Add would skip.
+    RenderStackFoot()
+    {
+        const Foot = this.Part.StackFoot;
+        Foot.innerHTML = "";
+
         const Hidden = this.Stack.Layers.filter((L) => !L.Shown).length;
-        this.Part.StackFoot.innerHTML =
-            `<span class="pf-strong">${this.Stack.Count}</span> layers` +
-            (Hidden ? `<span class="pf-dot">·</span><span>${Hidden} hidden</span>` : "") +
-            `<span class="pf-spacer"></span><span>${this.Stack.Count} / ${LayerCapacity}</span>`;
+        const Tally  = document.createElement("span");
+        Tally.className = "sf-tally";
+        Tally.innerHTML =
+            `<span class="pf-strong">${this.Stack.Count}</span> / ${LayerCapacity}` +
+            (Hidden ? `<span class="pf-dot">·</span><span>${Hidden} hidden</span>` : "");
+        Foot.appendChild(Tally);
+
+        const Spacer = document.createElement("span");
+        Spacer.className = "pf-spacer";
+        Foot.appendChild(Spacer);
+
+        const AtCap = this.Stack.Count >= LayerCapacity;
+        const Add   = document.createElement("div");
+        Add.className = "sf-add" + (AtCap ? " disabled" : "");
+        Add.innerHTML = `${Icon("plus", 12)}<span>Add Layer</span>`;
+        Add.title = AtCap ? `Layer cap of ${LayerCapacity} reached` : "Add a layer";
+
+        if (!AtCap)
+        {
+            Add.onclick = (Event) => {
+                Event.stopPropagation();
+                this.OpenAddLayerList(Add);
+            };
+        }
+        Foot.appendChild(Add);
+    }
+
+    // The add-layer kind list, placed above the footer button. Reuses the fixed-position dropdown
+    // machinery so it escapes the scrolling rail and closes on any outside press.
+    OpenAddLayerList(Anchor)
+    {
+        const WasOpen = this.OpenList === this.AddLayerList;
+        this.CloseLists();
+        if (WasOpen) { return; }
+
+        const List = document.createElement("div");
+        List.className = "dd-list sf-add-list open";
+
+        for (const Kind of LAYER_KIND_ORDER)
+        {
+            const Item = document.createElement("div");
+            Item.className = "dd-item";
+            Item.innerHTML =
+                `<span class="sf-swatch" style="background:${KindTint(Kind)}"></span>` +
+                `<span>${KindLabel(Kind)}</span>`;
+            Item.onclick = (Event) => {
+                Event.stopPropagation();
+                this.CloseLists();
+                this.AddLayer(Kind);
+            };
+            List.appendChild(Item);
+        }
+
+        document.body.appendChild(List);
+        this.AddLayerList = List;
+        this.OpenList     = List;
+
+        const Box  = Anchor.getBoundingClientRect();
+        const Tall = LAYER_KIND_ORDER.length * 29 + 8;
+        List.style.left  = `${Box.left}px`;
+        List.style.width = `${Math.max(Box.width, 132)}px`;
+        // The footer sits at the bottom of the card, so the list always opens UPWARD from the button.
+        List.style.top   = `${Box.top - Tall - 4}px`;
+    }
+
+    // Create a layer of the given kind through the add verb.
+    //
+    // 🔴 A fill or material is FLOODED at full coverage across every channel — a base material wants the
+    //    whole atlas including the UV gutters — while a paint or generator layer starts empty. The Flood
+    //    payload and the default channel set both follow from the kind, so the kind is the single input.
+    AddLayer(Kind)
+    {
+        const Flood    = Boolean(LAYER_KINDS[Kind]?.Flooded);
+        const Channels = DefaultChannels(Kind, null, null);
+        this.Apply("add", {
+            Name:     `NEW_${KindLabel(Kind)}`,
+            Kind:     Kind,
+            Channels: Channels,
+            Flood:    Flood
+        });
     }
 
     BuildRow(Layer)
@@ -483,6 +589,274 @@ export class LayerInspector
         if (!this.FilterTerm) { this.BindRowDrag(Row, Layer); }
 
         return Row;
+    }
+
+    //--------------------------------------------------------------------------------------------------
+    //                                     INLINE EXPAND
+    //--------------------------------------------------------------------------------------------------
+
+    // The active layer's settings, dropped open in the rail directly under its row: the same paint-menu
+    // controls Studio carries — Visible, Blend, Opacity, base Colour — plus the mask section.
+    //
+    // 🔴 Every control here drives the SAME command surface the detail pane uses, so the two never diverge:
+    //    a change made in the inline expand shows in the properties pane and vice versa on the next Refresh.
+    BuildExpand(Layer)
+    {
+        const Host = document.createElement("div");
+        Host.className = "stack-expand";
+        const Clip = document.createElement("div"); Clip.className = "se-clip";
+        const Body = document.createElement("div"); Body.className = "se-body";
+
+        const Line = (Label, Field) => {
+            const Row = document.createElement("div");
+            Row.className = "se-row";
+            const Tag = document.createElement("span"); Tag.className = "se-k"; Tag.textContent = Label;
+            const Val = document.createElement("span"); Val.className = "se-v"; Val.appendChild(Field);
+            Row.appendChild(Tag); Row.appendChild(Val);
+            return Row;
+        };
+
+        // ---- Visible -----------------------------------------------------------------------------------
+        Body.appendChild(Line("Visible", BuildSwitch(Layer.Shown, (On) =>
+            this.Apply("show", { Token: Layer.Token, Shown: On }))));
+
+        // ---- Blend -------------------------------------------------------------------------------------
+        Body.appendChild(Line("Blend", this.BuildDropdown(BLEND_MODES, Layer.Blend, (Pick) =>
+            this.Apply("blend", { Token: Layer.Token, Blend: Pick }))));
+
+        // ---- Opacity -----------------------------------------------------------------------------------
+        Body.appendChild(Line("Opacity", BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Layer.Opacity, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("opacity", { Token: Layer.Token, Opacity: Value });
+                const Pill = this.Part.StackBody
+                    .querySelector(`.stack-row[data-token="${Layer.Token}"] .sr-opacity`);
+                if (Pill) { Pill.textContent = `${Value}%`; }
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        })));
+
+        // ---- Colour ------------------------------------------------------------------------------------
+        // 🔴 Only offered where the layer paints baseColour, and it edits the AUTHORED value — the ink a
+        //    dab deposits on a paint layer, the flooded fill on a fill/material. A layer with no baseColour
+        //    channel (a height-only generator, say) has no colour to author, so the row is simply omitted
+        //    rather than shown editing a value that reaches no atlas.
+        if (PaintsChannel(Layer, "baseColour"))
+        {
+            const Current = Array.isArray(Layer.Values.baseColour)
+                ? ColourToHex(Layer.Values.baseColour) : "#808080";
+            Body.appendChild(Line("Colour", BuildColourField(Current, (Hex, Live) => {
+                this.Commands("value", { Token: Layer.Token, Channel: "baseColour", Value: HexToColour(Hex) });
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            })));
+        }
+
+        // ---- Mask --------------------------------------------------------------------------------------
+        this.BuildMaskSection(Body, Layer);
+
+        Clip.appendChild(Body);
+        Host.appendChild(Clip);
+        return Host;
+    }
+
+    //--------------------------------------------------------------------------------------------------
+    //                                       MASK SECTION
+    //--------------------------------------------------------------------------------------------------
+
+    // The layer's mask editor, ported from Studio: an enable affordance while off, and while on a preview
+    // reading fill+invert, the White/Black/Invert toolbar, an opacity slider, the component stack and an
+    // add-component picker. Every control drives a mask verb on the shared command surface.
+    BuildMaskSection(Body, Layer)
+    {
+        const Mask = Layer.Mask;
+
+        const Sect = document.createElement("div");
+        Sect.className = "se-sect";
+        Sect.textContent = "Mask";
+        Body.appendChild(Sect);
+
+        // Off: a single affordance that enables the mask (which seeds its atlas).
+        if (!Mask || !Mask.Enabled)
+        {
+            const Empty = document.createElement("div");
+            Empty.className = "msk-empty";
+            Empty.innerHTML = `${Icon("mask", 13)}<span>Add mask</span>`;
+            Empty.onclick = () => this.Apply("mask", { Token: Layer.Token, Enabled: true });
+            Body.appendChild(Empty);
+            return;
+        }
+
+        // ---- preview + disable -------------------------------------------------------------------------
+        const Base   = MaskFillValue(Mask);
+        const Light  = Mask.Invert ? 1 - Base : Base;
+        const Shade  = Math.round(Light * 255);
+        const HeadRow = document.createElement("div");
+        HeadRow.className = "msk-row";
+        HeadRow.innerHTML =
+            `<span class="msk-prev"><span class="msk-grad" ` +
+              `style="background:rgb(${Shade},${Shade},${Shade})"></span></span>` +
+            `<span class="msk-info">` +
+              `<span class="msk-nm"></span>` +
+              `<span class="msk-meta">${Mask.Fill === "black" ? "Black" : "White"} fill` +
+                `${Mask.Invert ? " · inverted" : ""} · ${Mask.Components.length} comp</span>` +
+            `</span>` +
+            `<span class="mc-x" title="Remove mask" style="margin-left:auto">×</span>`;
+        HeadRow.querySelector(".msk-nm").textContent = "Layer mask";
+        HeadRow.querySelector(".mc-x").onclick = () =>
+            this.Apply("mask", { Token: Layer.Token, Enabled: false });
+        Body.appendChild(HeadRow);
+
+        // ---- White / Black / Invert toolbar ------------------------------------------------------------
+        const Bar = document.createElement("div");
+        Bar.className = "msk-toolbar";
+
+        const Tool = (Label, On, Run) => {
+            const El = document.createElement("div");
+            El.className = "msk-tool" + (On ? " on" : "");
+            El.textContent = Label;
+            El.onclick = Run;
+            return El;
+        };
+        Bar.appendChild(Tool("White", Mask.Fill !== "black",
+            () => this.Apply("maskFill", { Token: Layer.Token, Fill: "white" })));
+        Bar.appendChild(Tool("Black", Mask.Fill === "black",
+            () => this.Apply("maskFill", { Token: Layer.Token, Fill: "black" })));
+        Bar.appendChild(Tool("Invert", Mask.Invert === true,
+            () => this.Apply("maskInvert", { Token: Layer.Token, Invert: !Mask.Invert })));
+        Body.appendChild(Bar);
+
+        // ---- mask opacity ------------------------------------------------------------------------------
+        const OpacityRow = document.createElement("div");
+        OpacityRow.className = "se-row";
+        OpacityRow.innerHTML = `<span class="se-k">Strength</span>`;
+        const OpacityVal = document.createElement("span"); OpacityVal.className = "se-v";
+        OpacityVal.appendChild(BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Mask.Opacity ?? 100, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("maskOpacity", { Token: Layer.Token, Opacity: Value });
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        }));
+        OpacityRow.appendChild(OpacityVal);
+        Body.appendChild(OpacityRow);
+
+        // ---- component stack ---------------------------------------------------------------------------
+        this.BuildMaskComponents(Body, Layer);
+    }
+
+    // The mask's ordered component stack, plus the add-component picker.
+    BuildMaskComponents(Body, Layer)
+    {
+        const Mask = Layer.Mask;
+
+        const Comps = document.createElement("div");
+        Comps.className = "msk-comps";
+
+        for (const Component of Mask.Components)
+        {
+            Comps.appendChild(this.BuildMaskComponent(Layer, Component));
+        }
+        Body.appendChild(Comps);
+
+        // The add-component picker: one option per category (paint / fill / generator / levels).
+        Body.appendChild(this.BuildDropdown(
+            MASK_COMPONENT_ORDER.map((C) => MASK_COMPONENT_CATEGORY[C].Label),
+            "Add component",
+            (Pick) => {
+                const Category = MASK_COMPONENT_ORDER.find(
+                    (C) => MASK_COMPONENT_CATEGORY[C].Label === Pick);
+                if (Category) { this.Apply("maskAddComponent", { Token: Layer.Token, Category }); }
+            }));
+    }
+
+    // One entry in the mask component stack: its glyph, name + category, and — for a paint component — a
+    // focus toggle that routes brush strokes into it; every category carries an opacity slider, a params
+    // block for fill/generator/levels, and a remove ×.
+    BuildMaskComponent(Layer, Component)
+    {
+        const Category = MASK_COMPONENT_CATEGORY[Component.Category] ?? MASK_COMPONENT_CATEGORY.fill;
+        const Paintable = Category.Paintable === true;
+        const Focused   = Layer.Mask.FocusToken === Component.Token;
+
+        const Host = document.createElement("div");
+        Host.className = "msk-comp";
+
+        // ---- header row: glyph, name, focus toggle (paint only), remove --------------------------------
+        const Head = document.createElement("div");
+        Head.className = "msk-row";
+        Head.style.margin = "0";
+        Head.innerHTML =
+            `<span class="mc-ico">${Icon("mask", 12)}</span>` +
+            `<span class="mc-tx"><span class="mc-nm"></span>` +
+              `<span class="mc-md">${Category.Label}${Focused ? " · painting" : ""}</span></span>`;
+        Head.querySelector(".mc-nm").textContent = Component.Name;
+
+        // 🔴 A PAINT component gets a focus toggle: focusing it is what makes a brush stroke land in the
+        //    mask rather than the layer's channels (ResolveMaskPaintTarget keys off exactly this). The
+        //    other categories have no atlas to paint, so they carry no toggle.
+        if (Paintable)
+        {
+            const Aim = document.createElement("span");
+            Aim.className = "msk-tool" + (Focused ? " on" : "");
+            Aim.style.cssText = "flex:0 0 auto; height:22px; padding:0 8px";
+            Aim.textContent = Focused ? "Painting" : "Paint";
+            Aim.onclick = () => this.Apply("maskFocusComponent",
+                { Token: Layer.Token, Component: Focused ? null : Component.Token });
+            Head.appendChild(Aim);
+        }
+
+        const Kill = document.createElement("span");
+        Kill.className = "mc-x";
+        Kill.style.marginLeft = "auto";
+        Kill.textContent = "×";
+        Kill.onclick = () => this.Apply("maskRemoveComponent",
+            { Token: Layer.Token, Component: Component.Token });
+        Head.appendChild(Kill);
+
+        Host.appendChild(Head);
+
+        // ---- component opacity -------------------------------------------------------------------------
+        const OpacityRow = document.createElement("div");
+        OpacityRow.className = "se-row";
+        OpacityRow.innerHTML = `<span class="se-k">Opacity</span>`;
+        const OpacityVal = document.createElement("span"); OpacityVal.className = "se-v";
+        OpacityVal.appendChild(BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Component.Opacity ?? 100, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("maskComponentOpacity",
+                    { Token: Layer.Token, Component: Component.Token, Opacity: Value });
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        }));
+        OpacityRow.appendChild(OpacityVal);
+        Host.appendChild(OpacityRow);
+
+        // ---- category params (fill / generator / levels) -----------------------------------------------
+        for (const Spec of MASK_COMPONENT_PARAMS[Component.Category] ?? [])
+        {
+            const Row = document.createElement("div");
+            Row.className = "se-row";
+            const Tag = document.createElement("span"); Tag.className = "se-k"; Tag.textContent = Spec.Label;
+            const Val = document.createElement("span"); Val.className = "se-v";
+            Val.appendChild(BuildSlider({
+                Min: Spec.Min, Max: Spec.Max, Step: Spec.Step,
+                Value: Number(Component.Params?.[Spec.Key] ?? Category.Defaults?.[Spec.Key] ?? Spec.Min),
+                OnInput: (Value, Live) => {
+                    this.Commands("maskComponentParam",
+                        { Token: Layer.Token, Component: Component.Token, Key: Spec.Key, Value });
+                    this.OnChange();
+                    if (!Live) { this.Refresh(); }
+                }
+            }));
+            Row.appendChild(Tag); Row.appendChild(Val);
+            Host.appendChild(Row);
+        }
+
+        return Host;
     }
 
     // The opacity pill scrubs horizontally.
@@ -703,46 +1077,22 @@ export class LayerInspector
             `<span class="pf-spacer"></span><span>${Layer.Blend}</span>`;
     }
 
+    // 🔴 Delete is the ONE per-layer action left in the detail pane. Raise / Lower moved to the stack's
+    //    own drag-reorder, and adding a layer moved to the "+ Add Layer" footer picker — leaving the
+    //    right-hand action list to the single verb that has no other home.
     BuildActions(Layer)
     {
-        const Host  = document.createElement("div");
+        const Host = document.createElement("div");
         Host.className = "meta-actions";
-        const Index = this.Stack.IndexOf(Layer.Token);
 
-        const Add = (Glyph, Label, Enabled, Run, Danger) => {
-            const Item = document.createElement("div");
-            Item.className = "act-item" + (Enabled ? "" : " disabled") + (Danger ? " danger" : "");
-            Item.innerHTML = `<span class="ic">${Icon(Glyph, 15)}</span><span>${Label}</span>`;
-            if (Enabled) { Item.onclick = Run; }
-            Host.appendChild(Item);
-        };
-
-        Add("arrowUp",   "Raise",  Index > 0,
-            () => this.Apply("reorder", { Token: Layer.Token, Direction: -1 }));
-        Add("arrowDown", "Lower",  Index >= 0 && Index < this.Stack.Count - 1,
-            () => this.Apply("reorder", { Token: Layer.Token, Direction: 1 }));
-
-        // 📝 The add row offers one option per classification, so a new layer arrives already tagged.
-        for (const Classification of CLASSIFICATION_ORDER)
-        {
-            // 🔴 A "material" or "flood" layer is a FILL, not brushwork: it is seeded with every channel
-            //    and flooded at full coverage, because a base material wants the whole atlas including
-            //    the UV gutters. A brushwork layer starts empty and waits for a stroke.
-            const Fill     = (Classification === "material" || Classification === "flood");
-            const Channels = Fill ? [...CHANNEL_ORDER] : ["baseColour"];
-            Add("plus", `Add ${CLASSIFICATION_LABEL[Classification]}`, this.Stack.Count < LayerCapacity,
-                () => this.Apply("add", {
-                    Name:           `NEW_${CLASSIFICATION_LABEL[Classification]}`,
-                    Classification: Classification,
-                    Channels:       Channels,
-                    Flood:          Fill
-                }));
-        }
-
+        const Item    = document.createElement("div");
         // 🔴 The stack refuses to remove its last layer, so the row is disabled rather than offered and
         //    then silently ignored.
-        Add("trash", "Delete", this.Stack.Count > 1,
-            () => this.Apply("remove", { Token: Layer.Token }), true);
+        const Enabled = this.Stack.Count > 1;
+        Item.className = "act-item danger" + (Enabled ? "" : " disabled");
+        Item.innerHTML = `<span class="ic">${Icon("trash", 15)}</span><span>Delete</span>`;
+        if (Enabled) { Item.onclick = () => this.Apply("remove", { Token: Layer.Token }); }
+        Host.appendChild(Item);
 
         return Host;
     }
@@ -1113,6 +1463,10 @@ export class LayerInspector
         if (!this.OpenList) { return; }
         this.OpenList.classList.remove("open");
         this.OpenList = null;
+
+        // The add-layer list is a body-appended node, not a child of a persistent .dropdown, so closing it
+        // means removing it outright — dropping the class alone would leave an orphan behind the card.
+        if (this.AddLayerList) { this.AddLayerList.remove(); this.AddLayerList = null; }
     }
 
     // 📝 The list is position:fixed and placed by script, so it escapes the scrolling pane rather than

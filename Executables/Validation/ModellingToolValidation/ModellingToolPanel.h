@@ -9,10 +9,11 @@
 #ifndef FRONTIER_VALIDATION_MODELLINGTOOLVALIDATION_MODELLINGTOOLPANEL_H
 #define FRONTIER_VALIDATION_MODELLINGTOOLVALIDATION_MODELLINGTOOLPANEL_H
 
-#include "EngineContext/Interface/Components/Menus/ToolCard/ToolCardShell.h"
 #include "EngineContext/Interface/Theme/ThemeConfiguration.h"
+#include "EngineContext/Interface/WorkspaceContextConsole/Pane/WorkspaceContextConsolePane.h"
 
 #include "ModellingCatalogue.h"
+#include "ModellingConsoleBridge.h"
 
 namespace Frontier
 {
@@ -23,14 +24,18 @@ struct SvgIconRegistry;
 //                                                          STRUCTS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Everything the validation window keeps between frames. The card's own cross-frame state (which slide, which band, which tool, the
-//    live parameter readings) is held HERE rather than latched inside the component, so the card can be driven from a key or restored
-//    to a band without the component having to expose private storage.
+// 📝 Everything the validation window keeps between frames. The console's own cross-frame state (which slide, which cluster, which action, the live
+//    parameter readings) is held HERE rather than latched inside the component, so it can be driven from a key or restored to a cluster without the
+//    component having to expose private storage. 🔴 The stratum is NOT part of the console's focus any more — the card used to carry StratumBit and
+//    StratumName in its selection struct, but standing is now the workspace's business, so the active stratum lives in the bridge context the
+//    resolver reads.
 struct ModellingToolState
 {
-    ToolCardSelection  Selection  = {};   // [-] - stratum, counts, open band + tile
-    ToolCardCarousel   Carousel   = {};   // [-] - which slide, and where in the travel
-    ToolParameterBlock Parameters = {};   // [-] - the open tool's live readings
+    unsigned int             StratumBit = 0u;   // [-] - the active selection stratum; the gate's whole input
+    ModellingConsoleContext  Bridge     = {};   // [-] - the resolver's live context: stratum + the converted probe
+    ConsoleFocus             Focus      = {};   // [-] - which cluster's grid + which action's options (console-owned)
+    ConsoleCarousel          Carousel   = {};   // [-] - which slide, and where in the travel (console-owned)
+    ParameterBlock           Parameters = {};   // [-] - the open action's live readings
 
     bool  CardOpen    = true;             // [-] - the card is showing
     float CardAnchorX = 0.0f;             // [px]- where the card sits; set on right-click

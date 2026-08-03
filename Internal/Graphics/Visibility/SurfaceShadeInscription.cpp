@@ -40,6 +40,16 @@ constexpr uint32_t BindingFloorIndices    = 6;
 constexpr uint32_t BindingFloorInstances  = 7;
 constexpr uint32_t BindingCount           = 8;
 
+// The surfel GI set (set 1) — mirrors SurfelIntegrate.comp's set-1 binding numbers exactly so the shader and this layout cannot drift apart.
+constexpr uint32_t SurfelBindingSurfels   = 0;   // b0 SurfelPool.SurfelBuffer      (ro in the shader)
+constexpr uint32_t SurfelBindingMoments   = 1;   // b1 SurfelPool.MomentsBuffer     (rw — both ping-pong halves)
+constexpr uint32_t SurfelBindingOffsets   = 2;   // b2 SurfelGridSlotting.OffsetsBuffer (ro)
+constexpr uint32_t SurfelBindingList      = 3;   // b3 SurfelGridSlotting.ListBuffer    (ro)
+constexpr uint32_t SurfelBindingGuiding   = 4;   // b4 SurfelPool.GuidingBuffer     (rw — see the frag's 🔴)
+constexpr uint32_t SurfelBindingDepth     = 5;   // b5 SurfelPool.SurfelDepthBuffer (rw)
+constexpr uint32_t SurfelBindingTouched   = 6;   // b6 SurfelPool.TouchedBuffer     (rw atomic)
+constexpr uint32_t SurfelBindingCount     = 7;
+
 // Read a whole SPIR-V file into a byte buffer. Empty on failure (missing / unreadable), which the caller treats as "skip".
 std::vector<char> RetrieveShaderBytes(const std::string& FilePath)
 {
@@ -234,20 +244,43 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         return false;
     }
 
+    // -- Set 1 (Phase 3): the surfel GI cache — seven storage buffers, all fragment stage. Best-effort: if this layout fails the shade still runs the
+    //    flat-ambient path (the frag's SurfelGiEnabled toggle handles a never-pointed set), so a failure here caution-logs and leaves SurfelSetLayout
+    //    null rather than aborting the whole shade build. The pipeline layout below then falls back to one set. -----------------------------------
+    VkDescriptorSetLayoutBinding SurfelBindings[SurfelBindingCount] = {};
+    for (uint32_t Index = 0; Index < SurfelBindingCount; ++Index)
+    {
+        SurfelBindings[Index].binding         = Index;
+        SurfelBindings[Index].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        SurfelBindings[Index].descriptorCount = 1;
+        SurfelBindings[Index].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo SurfelLayoutInfo = {};
+    SurfelLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    SurfelLayoutInfo.bindingCount = SurfelBindingCount;
+    SurfelLayoutInfo.pBindings    = SurfelBindings;
+    if (vkCreateDescriptorSetLayout(Host.Device, &SurfelLayoutInfo, Host.Allocator, &Shade.SurfelSetLayout) != VK_SUCCESS)
+    {
+        Shade.SurfelSetLayout = VK_NULL_HANDLE;
+        ISSUE_CAUTION("surface-shade", "surfel GI set layout creation failed — GI disabled, flat ambient only");
+    }
+
     // -- Descriptor pool + set. ONE sampler (the id image), SIX storage buffers (three head + three floor) and ONE uniform buffer (the material
     //    table). ⚠️ These counts must track the binding list above exactly: an undersized pool fails allocation outright rather than degrading, which
     //    is the good outcome, but it fails at bring-up far from the binding that caused it. -------------------------------------------------------
+    // Set 0 needs 1 sampler + 6 storage + 1 uniform; set 1 (the surfel GI cache) adds 7 storage. Size the pool for both sets even if the surfel layout
+    // failed above — an over-sized pool is harmless, and this keeps the counts a simple sum rather than a conditional. maxSets = 2 for the two sets.
     VkDescriptorPoolSize PoolSizes[3] = {};
     PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     PoolSizes[0].descriptorCount = 1;
     PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSizes[1].descriptorCount = 6;
+    PoolSizes[1].descriptorCount = 6 + SurfelBindingCount;   // 6 (set 0 mesh/floor) + 7 (set 1 surfel)
     PoolSizes[2].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     PoolSizes[2].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo PoolInfo = {};
     PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    PoolInfo.maxSets       = 1;
+    PoolInfo.maxSets       = 2;
     PoolInfo.poolSizeCount = 3;
     PoolInfo.pPoolSizes    = PoolSizes;
     if (vkCreateDescriptorPool(Host.Device, &PoolInfo, Host.Allocator, &Shade.DescriptorPool) != VK_SUCCESS)
@@ -269,6 +302,22 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         FinalizeSurfaceShadeInscription(Shade);
         ISSUE_FAULT("surface-shade", "descriptor set allocation failed");
         return false;
+    }
+
+    // Allocate the surfel GI set from the same pool (best-effort — only if the layout built). A failure leaves SurfelSet null; the record forces GI
+    // off. Left unpointed until RefreshSurfaceShadeSurfelBindings runs against a live pool + slotting.
+    if (Shade.SurfelSetLayout != VK_NULL_HANDLE)
+    {
+        VkDescriptorSetAllocateInfo SurfelSetAllocate = {};
+        SurfelSetAllocate.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        SurfelSetAllocate.descriptorPool     = Shade.DescriptorPool;
+        SurfelSetAllocate.descriptorSetCount = 1;
+        SurfelSetAllocate.pSetLayouts        = &Shade.SurfelSetLayout;
+        if (vkAllocateDescriptorSets(Host.Device, &SurfelSetAllocate, &Shade.SurfelSet) != VK_SUCCESS)
+        {
+            Shade.SurfelSet = VK_NULL_HANDLE;
+            ISSUE_CAUTION("surface-shade", "surfel GI set allocation failed — GI disabled, flat ambient only");
+        }
     }
 
     // -- Point sampler (nearest / clamp). A filtered identity is not a blend of two surfaces — it is a DIFFERENT, probably nonexistent triangle,
@@ -305,10 +354,15 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     PushRange.offset     = 0;
     PushRange.size       = sizeof(SurfaceShadeConstants);
 
+    // Two sets when the surfel layout built (set 0 shade + set 1 surfel GI), one otherwise. The frag ALWAYS declares set 1, so a one-set layout is only
+    // valid when the surfel set genuinely failed — in which case GI is forced off and no draw ever reaches a set-1 access (unbound set-1 = no read).
+    const VkDescriptorSetLayout SetLayouts[2] = { Shade.SetLayout, Shade.SurfelSetLayout };
+    const uint32_t              SetLayoutCount = (Shade.SurfelSetLayout != VK_NULL_HANDLE) ? 2u : 1u;
+
     VkPipelineLayoutCreateInfo LayoutInfo = {};
     LayoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    LayoutInfo.setLayoutCount         = 1;
-    LayoutInfo.pSetLayouts            = &Shade.SetLayout;
+    LayoutInfo.setLayoutCount         = SetLayoutCount;
+    LayoutInfo.pSetLayouts            = SetLayouts;
     LayoutInfo.pushConstantRangeCount = 1;
     LayoutInfo.pPushConstantRanges    = &PushRange;
     if (vkCreatePipelineLayout(Host.Device, &LayoutInfo, Host.Allocator, &Shade.PipelineLayout) != VK_SUCCESS)
@@ -571,6 +625,77 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     Shade.FloorGeometryBound         = FloorPresent;
 }
 
+void RefreshSurfaceShadeSurfelBindings(SurfaceShadeInscription& Shade,
+                                       const SurfelPool&        Pool,
+                                       const SurfelGridSlotting& Slotting)
+{
+    // The surfel set must exist (Initialize built it) and the pool + slotting must be live, or there is nothing valid to point at.
+    if (!Shade.ReadyCondition || Shade.SurfelSet == VK_NULL_HANDLE || Shade.Host == nullptr)
+        return;
+    if (!Pool.ReadyCondition || !Slotting.ReadyCondition)
+        return;
+
+    // The seven buffers the gather reads. All borrowed; all whole-buffer ranges (the gather indexes by element within the buffer, and the moments
+    // read-half base rides the push constant, not a descriptor offset — so one binding covers both ping-pong halves).
+    VkBuffer Surfels    = Pool.SurfelBuffer;
+    VkBuffer Moments    = Pool.MomentsBuffer;
+    VkBuffer Offsets    = Slotting.OffsetsBuffer;
+    VkBuffer List       = Slotting.ListBuffer;
+    VkBuffer Guiding    = Pool.GuidingBuffer;
+    VkBuffer Depth      = Pool.SurfelDepthBuffer;
+    VkBuffer Touched    = Pool.TouchedBuffer;
+    if (Surfels == VK_NULL_HANDLE || Moments == VK_NULL_HANDLE || Offsets == VK_NULL_HANDLE || List == VK_NULL_HANDLE ||
+        Guiding == VK_NULL_HANDLE || Depth == VK_NULL_HANDLE || Touched == VK_NULL_HANDLE)
+        return;
+
+    // Idempotent, same rule as the set-0 Refresh: rewriting a set bound by an in-flight command buffer is undefined, so only write on an actual change.
+    const bool Unchanged = Shade.BoundSurfelBuffer      == Surfels
+                        && Shade.BoundMomentsBuffer     == Moments
+                        && Shade.BoundOffsetsBuffer     == Offsets
+                        && Shade.BoundListBuffer        == List
+                        && Shade.BoundGuidingBuffer     == Guiding
+                        && Shade.BoundSurfelDepthBuffer == Depth
+                        && Shade.BoundTouchedBuffer     == Touched
+                        && Shade.SurfelSetReady;
+    if (Unchanged)
+        return;
+
+    VkDescriptorBufferInfo SurfelInfo = { Surfels, 0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo MomentsInfo = { Moments, 0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo OffsetsInfo = { Offsets, 0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo ListInfo    = { List,    0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo GuidingInfo = { Guiding, 0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo DepthInfo   = { Depth,   0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo TouchedInfo = { Touched, 0, VK_WHOLE_SIZE };
+
+    const VkDescriptorBufferInfo* Infos[SurfelBindingCount] =
+        { &SurfelInfo, &MomentsInfo, &OffsetsInfo, &ListInfo, &GuidingInfo, &DepthInfo, &TouchedInfo };
+    const uint32_t Bindings[SurfelBindingCount] =
+        { SurfelBindingSurfels, SurfelBindingMoments, SurfelBindingOffsets, SurfelBindingList,
+          SurfelBindingGuiding, SurfelBindingDepth, SurfelBindingTouched };
+
+    VkWriteDescriptorSet Writes[SurfelBindingCount] = {};
+    for (uint32_t Index = 0; Index < SurfelBindingCount; ++Index)
+    {
+        Writes[Index].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        Writes[Index].dstSet          = Shade.SurfelSet;
+        Writes[Index].dstBinding      = Bindings[Index];
+        Writes[Index].descriptorCount = 1;
+        Writes[Index].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        Writes[Index].pBufferInfo     = Infos[Index];
+    }
+    vkUpdateDescriptorSets(Shade.Host->Device, SurfelBindingCount, Writes, 0, nullptr);
+
+    Shade.BoundSurfelBuffer      = Surfels;
+    Shade.BoundMomentsBuffer     = Moments;
+    Shade.BoundOffsetsBuffer     = Offsets;
+    Shade.BoundListBuffer        = List;
+    Shade.BoundGuidingBuffer     = Guiding;
+    Shade.BoundSurfelDepthBuffer = Depth;
+    Shade.BoundTouchedBuffer     = Touched;
+    Shade.SurfelSetReady         = true;
+}
+
 void RecordSurfaceShadeInscription(const SurfaceShadeInscription& Shade,
                                    VkExtent2D                     Extent,
                                    const SurfaceShadeConstants&   Constants,
@@ -594,10 +719,24 @@ void RecordSurfaceShadeInscription(const SurfaceShadeInscription& Shade,
     vkCmdSetScissor(CommandBuffer, 0, 1, &Scissor);
 
     vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Shade.Pipeline);
-    vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Shade.PipelineLayout,
-                            0, 1, &Shade.ShadeSet, 0, nullptr);
+
+    // Bind set 0 always; bind set 1 (surfel GI) only when it is pointed at live buffers. When it is NOT, force SurfelGiEnabled = 0 in the pushed copy
+    // so the frag never touches the unbound set-1 accesses — the shade falls back to the flat ambient with no descriptor hazard.
+    SurfaceShadeConstants Pushed = Constants;
+    if (Shade.SurfelSet != VK_NULL_HANDLE && Shade.SurfelSetReady)
+    {
+        const VkDescriptorSet Sets[2] = { Shade.ShadeSet, Shade.SurfelSet };
+        vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Shade.PipelineLayout,
+                                0, 2, Sets, 0, nullptr);
+    }
+    else
+    {
+        Pushed.SurfelGiEnabled = 0u;
+        vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Shade.PipelineLayout,
+                                0, 1, &Shade.ShadeSet, 0, nullptr);
+    }
     vkCmdPushConstants(CommandBuffer, Shade.PipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(SurfaceShadeConstants), &Constants);
+                       0, sizeof(SurfaceShadeConstants), &Pushed);
     vkCmdDraw(CommandBuffer, 3, 1, 0, 0);
 }
 
@@ -618,9 +757,11 @@ void FinalizeSurfaceShadeInscription(SurfaceShadeInscription& Shade)
     if (Shade.PointSampler != VK_NULL_HANDLE)
         vkDestroySampler(Device, Shade.PointSampler, Allocator);
     if (Shade.DescriptorPool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(Device, Shade.DescriptorPool, Allocator);   // frees ShadeSet
+        vkDestroyDescriptorPool(Device, Shade.DescriptorPool, Allocator);   // frees ShadeSet + SurfelSet
     if (Shade.SetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(Device, Shade.SetLayout, Allocator);
+    if (Shade.SurfelSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(Device, Shade.SurfelSetLayout, Allocator);
     if (Shade.MaterialBuffer != VK_NULL_HANDLE)
         vkDestroyBuffer(Device, Shade.MaterialBuffer, Allocator);
     if (Shade.MaterialMemory != VK_NULL_HANDLE)

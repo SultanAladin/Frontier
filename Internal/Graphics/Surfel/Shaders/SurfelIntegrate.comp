@@ -1,0 +1,464 @@
+#version 450
+/*==============================================================================================================================================
+                                                          SURFELINTEGRATE.COMP
+==============================================================================================================================================*/
+// 🧩 The per-surfel integrate — Phase 2's whole payload in one dispatch. One lane owns one surfel slot: it shoots SLG-guided cosine-hemisphere rays
+//    through TraceTwoLevel, shades each hit (albedo + a sun shadow ray + a one-bounce gather over the grid), folds the frame estimate into the MSME
+//    moments (RTG ch.25 firefly clamp), learns the surfel's radial-depth occlusion tile, and writes the surfel's new state into the moments WRITE
+//    half. In webgiya the "trace" is NOT a standalone pass — bvhIntersectFirstHit is called inline (surfelIntegratePass.ts:1006,1044,1073) and the
+//    whole thing dispatches once. This .comp is that inline consumer: it #includes TwoLevelTrace.glsl (which owns no bindings) and drives its own
+//    dispatch, exactly as TwoLevelTraceProbe.comp does. Body is 1:1 with surfelIntegratePass.ts:890-1168.
+//
+//    🔴 THE INCLUDER CONTRACT (Phase-2 fact 5). Set 0 copies TwoLevelTraceProbe.comp's spelling VERBATIM: the 208-B SceneInstance (Tint@112 for the
+//       albedo stand-in, NormalBasis[3]@64 for the hit-normal transform, InverseModel@144), the 32-B GeometryArenaSlice, the stride-32 RenderVertex,
+//       SSBOs b0-b6 (Instances/Slices/ArenaNodeWords/ArenaPrimitives/TreeNodeWords/MeshIndices/Vertices), the #define TraceInstanceCount/SliceCount
+//       aliases, and PositionForVertex. Probe b7/b8 (ray/result) are validation-only and are REPLACED by the surfel set below. TwoLevelTrace.glsl is
+//       #include'd LAST because the set-0 declarations + the two #defines + PositionForVertex are its prerequisites.
+//
+//    🔴 THE SURFEL SET (set 1) declares the bare array names the leaf modules reach for (they own no bindings): Surfels[] (SurfelRecord),
+//       Moments[] (the 5-vec4 struct), SurfelOffsets[] / SurfelList[] (the F6 split), SurfelGuidingBuffer[] (72 floats/surfel), SurfelDepthBuffer[]
+//       (16 vec4/surfel), SurfelTouched[] (atomic int). SurfelGather.glsl reads Offsets/List/Surfels/Moments + atomicMax'es Touched; SurfelGuiding.glsl
+//       reads/writes SurfelGuidingBuffer; SurfelRadialDepth.glsl reads/writes SurfelDepthBuffer.
+//
+//    🔴 DIRECT DISPATCH, NO INDIRECT (Phase-2 fact 2). local_size_x = 64, ceil(Capacity/64) groups over the whole pool; the in-shader
+//       `if (Age >= SURFEL_TTL) return;` guard is the bounds guard (settles F8: one lane per slot ⇒ the guiding RMW is safe by construction).
+//
+//    🔴 MOMENTS OFFSETS ARE ELEMENT INDICES (Phase-2 fact 4). ReadOffsetElements / WriteOffsetElements are `parity*Capacity` element counts (NOT the
+//       byte offsets SurfelMomentsReadOffset/WriteOffset return) — the submission converts. Moments[index + ReadOffset] indexes the 5-vec4 struct array.
+//
+//    ⚠️ COMPILED BY glslc THROUGH ShaderPlan.ps1'S .comp GLOB; the six #include'd .glsl reach the compiler only through this file and ride the -MD
+//       depfiles. Compile with glslc -I, never glslangValidator.
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                             SET 0 — THE BVH (TwoLevelTraceProbe.comp verbatim)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B. Every field including padding is declared or std430 mis-strides the array.
+//    Model is unused (the trace enters through InverseModel) but declared because omitting it changes the stride. Tint@112 is the Phase-2 albedo
+//    stand-in (§conflict 1); NormalBasis[3]@64 transforms the reconstructed local face normal to world.
+struct SceneInstance
+{
+    mat4 Model;              // @0   - column-major local -> world (unused for the trace)
+    vec4 NormalBasis[3];     // @64  - world-space normal basis rows; used for the hit-normal transform
+    vec4 Tint;               // @112 - albedo stand-in (§conflict 1)
+    uint PartitionId;        // @128 (unused here)
+    uint MaterialId;         // @132 (unused here)
+    uint MeshOrdinal;        // @136 - indexes the slice table
+    uint Pad0;               // @140
+    mat4 InverseModel;       // @144 - world -> local; the ray enters the bottom-level tree through this
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B. NodeOffset is in WORDS. IndexOffset/VertexOffset drive the
+//    hit-normal reconstruction below (the three local corners of the struck triangle).
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+// One RenderVertex, stride-32: position @0, normal @12, texcoord @24. Only position is read; the full layout keeps the std430 stride at 32.
+struct RenderVertex
+{
+    float PositionX; float PositionY; float PositionZ;
+    float NormalX;   float NormalY;   float NormalZ;
+    float TexU;      float TexV;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock  { SceneInstance      Instances[]; };
+layout(std430, set = 0, binding = 1) readonly buffer SliceBlock     { GeometryArenaSlice Slices[]; };
+layout(std430, set = 0, binding = 2) readonly buffer ArenaNodeBlock { uint ArenaNodeWords[]; };
+layout(std430, set = 0, binding = 3) readonly buffer ArenaPrimBlock { uint ArenaPrimitives[]; };
+layout(std430, set = 0, binding = 4) readonly buffer TreeNodeBlock  { uint TreeNodeWords[]; };
+layout(std430, set = 0, binding = 5) readonly buffer IndexBlock     { uint MeshIndices[]; };
+layout(std430, set = 0, binding = 6) readonly buffer VertexBlock    { RenderVertex Vertices[]; };
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SET 1 — THE SURFEL STATE
+//------------------------------------------------------------------------------------------------------------------------
+
+// SurfelRecord's layout must exist before the set-1 buffer block below names it, so pull the record module in here (ahead of the other includes, which
+// live after the push block). Its guard makes the later grouped #include a no-op.
+#include "SurfelRecord.glsl"
+
+// The moments struct: five vec4 rows (20 floats), one entry per surfel per ping-pong half. The read half is Moments[index + ReadOffset], the write
+// half Moments[index + WriteOffset]. Field order matches surfelIntegratePass.ts's moment layout exactly.
+struct SurfelMomentEntry
+{
+    vec4 Irradiance;   // xyz = mean irradiance, w = totalCount
+    vec4 MsmeData0;    // xyz = shortMean,       w = vbbr
+    vec4 MsmeData1;    // xyz = variance,        w = inconsistency
+    vec4 Hit;          // xyz = first hit point, w = debug flag
+    vec4 Guiding;      // xyz = mean world dir,  w = slgMass
+};
+
+// SurfelRecord comes from SurfelRecord.glsl (posb @0, normal @16, age @28). The buffer block spells the bare `Surfels[]` name the gather reads.
+layout(std430, set = 1, binding = 0) readonly  buffer SurfelBuffer   { SurfelRecord      Surfels[]; };
+layout(std430, set = 1, binding = 1)           buffer MomentsBuffer  { SurfelMomentEntry SurfelMoments[]; };
+layout(std430, set = 1, binding = 2) readonly  buffer OffsetsBuffer  { int  SurfelOffsets[]; };   // F6 split: per-cell [start,end)
+layout(std430, set = 1, binding = 3) readonly  buffer ListBuffer     { int  SurfelList[]; };      // F6 split: packed per-cell surfel indices (no base)
+layout(std430, set = 1, binding = 4)           buffer GuidingBuffer  { float SurfelGuidingBuffer[]; };   // 72 floats/surfel (SLG)
+layout(std430, set = 1, binding = 5)           buffer DepthBuffer    { vec4  SurfelDepthBuffer[]; };     // 16 vec4/surfel (MSM radial depth)
+layout(std430, set = 1, binding = 6)           buffer TouchedBuffer  { int   SurfelTouched[]; };         // per-surfel importance (atomicMax)
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                          PUSH CONSTANTS
+//------------------------------------------------------------------------------------------------------------------------
+
+// std430-friendly push block (<= 256 B). vec4-padded rows keep the C++ mirror trivially aligned. Frame drives the depth-probe stride + noise; the two
+// element offsets are parity*Capacity (fact 4); InstanceCount/SliceCount feed TwoLevelTrace's TraceInstanceCount/TraceSliceCount aliases.
+layout(push_constant) uniform SurfelIntegrateConstants
+{
+    vec4 CameraPosition;   // xyz raw eye (the radius model measures from it); w unused
+    vec4 GridOrigin;       // xyz snapped grid origin (matches the slotting build); w unused
+    vec4 SunDirection;     // xyz sun direction (shade's LightDirection); w unused
+    vec4 SunColour;        // xyz LightColour*LightIntensity; w unused
+    vec4 SkyGround;        // xyz miss ambient at the horizon (§conflict 2); w unused
+    vec4 SkyZenith;        // xyz miss ambient at the zenith; w = sky intensity
+    vec4 OcclusionParams;  // (shadowStrength, bleedReduction, grazingBiasScale, varianceBleedScale) for the radial-depth gate
+
+    uint Frame;                 // [-] - frame index (depth-probe bin pick + noise)
+    uint ReadOffsetElements;    // [-] - parity*Capacity (moments read half)
+    uint WriteOffsetElements;   // [-] - (1-parity)*Capacity (moments write half)
+    uint Capacity;              // [-] - pool capacity (the dispatch bound)
+
+    uint BaseSampleCount;       // [-] - samples/surfel before warmup/boost
+    uint InstanceCount;         // [-] - TLAS leaves (TraceInstanceCount)
+    uint SliceCount;            // [-] - slice table entries (TraceSliceCount)
+    float AlbedoBoost;          // [-] - the albedo remap strength
+
+    float GiFromDirect;         // [-] - direct-light gain at a hit
+    float GiFromIndirect;       // [-] - one-bounce gather gain at a hit
+    float Pad0;
+    float Pad1;
+} Constants;
+
+// The two names TwoLevelTrace.glsl reads as plain identifiers — aliased through the push block so the module stays agnostic about their source.
+#define TraceInstanceCount Constants.InstanceCount
+#define TraceSliceCount    Constants.SliceCount
+
+vec3 PositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    THE SHARED SURFEL MODULES
+//------------------------------------------------------------------------------------------------------------------------
+
+// Dependency order (Phase-2 spec): grid first (hashing, radius; SurfelRecord already pulled in ahead of set 1), then the estimator + guiding, then
+// radial depth (calls the guiding encode), then the gather (calls grid + guiding + radial depth), then TwoLevelTrace LAST (needs set 0 + the two
+// #defines + PositionForVertex above).
+#include "SurfelGrid.glsl"
+#include "SurfelMoments.glsl"
+#include "SurfelGuiding.glsl"
+#include "SurfelRadialDepth.glsl"
+#include "SurfelGather.glsl"
+#include "TwoLevelTrace.glsl"
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                        BLUE-NOISE SUBSTITUTE
+//------------------------------------------------------------------------------------------------------------------------
+
+// webgiya's blueNoise4 samples a 1024x1024 blue-noise texture; Frontier binds none on the integrate path. This is a hash-based stand-in returning four
+// decorrelated [0,1) values from (surfelIndex, sampleSalt, channelSalt) — a per-lane low-discrepancy-ish sequence. It is deterministic (no time input),
+// so the gates reproduce; a real blue-noise texture can replace it later without touching the body (§3 stability). Uses a PCG-style integer hash.
+uint SurfelHashU32(uint X)
+{
+    X ^= X >> 16u;
+    X *= 0x7feb352du;
+    X ^= X >> 15u;
+    X *= 0x846ca68bu;
+    X ^= X >> 16u;
+    return X;
+}
+
+vec4 SurfelBlueNoise4(uint SurfelIndex, uint SampleSalt, uint ChannelSalt)
+{
+    uint Seed = SurfelHashU32(SurfelIndex * 0x9e3779b9u + SampleSalt * 0x85ebca6bu + ChannelSalt * 0xc2b2ae35u);
+    uint A = SurfelHashU32(Seed + 0u);
+    uint B = SurfelHashU32(Seed + 1u);
+    uint C = SurfelHashU32(Seed + 2u);
+    uint D = SurfelHashU32(Seed + 3u);
+    const float InvMax = 1.0 / 4294967296.0;
+    return vec4(float(A) * InvMax, float(B) * InvMax, float(C) * InvMax, float(D) * InvMax);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    HIT-NORMAL RECONSTRUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+// webgiya's bvhIntersectFirstHit returns hit.normal; Frontier's TraceHit returns barycentric + instance/primitive, so the flat geometric normal is
+// reconstructed from the three LOCAL corners of the struck triangle (Slices[MeshOrdinal] IndexOffset/VertexOffset + MeshIndices + PositionForVertex),
+// cross-producted, then rotated to world by the instance NormalBasis — mirroring SurfaceShade.frag's flat-normal read (§conflict 3, §13 one-normal-per-facet).
+vec3 SurfelReconstructHitNormal(uint InstanceIndex, uint PrimitiveIndex)
+{
+    uint MeshOrdinal = Instances[InstanceIndex].MeshOrdinal;
+    GeometryArenaSlice Slice = Slices[MeshOrdinal];
+
+    uint Corner = Slice.IndexOffset + PrimitiveIndex * 3u;
+    uint I0 = MeshIndices[Corner + 0u] + Slice.VertexOffset;
+    uint I1 = MeshIndices[Corner + 1u] + Slice.VertexOffset;
+    uint I2 = MeshIndices[Corner + 2u] + Slice.VertexOffset;
+
+    vec3 P0 = PositionForVertex(I0);
+    vec3 P1 = PositionForVertex(I1);
+    vec3 P2 = PositionForVertex(I2);
+
+    vec3 LocalNormal = cross(P1 - P0, P2 - P0);
+
+    // Rotate the local geometric normal to world through the instance normal basis (rows @64). w components carry no rotation.
+    mat3 NormalBasis = mat3(Instances[InstanceIndex].NormalBasis[0].xyz,
+                            Instances[InstanceIndex].NormalBasis[1].xyz,
+                            Instances[InstanceIndex].NormalBasis[2].xyz);
+    return normalize(NormalBasis * LocalNormal);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                            MISS AMBIENT
+//------------------------------------------------------------------------------------------------------------------------
+
+// The env-miss stand-in (§conflict 2): a constant hemispherical sky ambient, mix(ground, zenith) by the ray's up component, scaled by intensity.
+// Replaces webgiya's sampleEnvEquirect until the Phase-5 clipmap probe lands. Deterministic ⇒ the gates reproduce (I3 leans on this).
+vec3 SurfelSampleSkyAmbient(vec3 RayDirection)
+{
+    float T = clamp(RayDirection.y * 0.5 + 0.5, 0.0, 1.0);
+    float SkyIntensity = Constants.SkyZenith.w;
+    return mix(Constants.SkyGround.xyz, Constants.SkyZenith.xyz, T) * SkyIntensity;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                              ENTRY
+//------------------------------------------------------------------------------------------------------------------------
+
+// Structural trace limits. NearLimit pushes the ray off the surfel's own surface; MissLimit is the closest-hit far bound; SunLimit bounds the shadow ray.
+const float SURFEL_TRACE_NEAR_LIMIT = 1e-4;
+const float SURFEL_TRACE_MISS_LIMIT = 1e4;
+const float SURFEL_TRACE_SUN_LIMIT  = 1e4;
+const uint  SURFEL_BLUE_NOISE_STRIDE = 4u;
+
+void main()
+{
+    uint Index = gl_GlobalInvocationID.x;
+    if (Index >= Constants.Capacity) { return; }          // dispatch is ceil(Capacity/64); the tail lanes drop here
+
+    SurfelRecord Surfel = Surfels[Index];
+    if (Surfel.Age >= SURFEL_TTL) { return; }             // age-guard = bounds guard (F21/F16/F8) — one live lane per surfel
+
+    // Compute the tangent basis once per surfel (ray directions + the final meanWorld).
+    vec3 SurfelPosition = Surfel.PositionAndSpare.xyz;
+    vec3 SurfelNormal   = Surfel.Normal;
+    mat3 Basis = SurfelTangentBasis(SurfelNormal);
+    vec3 NormalWorld = Basis[2];
+
+    // --- READ PREVIOUS STATE (read half) ---
+    uint ReadIdx = Index + Constants.ReadOffsetElements;
+    SurfelMomentEntry Previous = SurfelMoments[ReadIdx];
+
+    MSMEData State;
+    State.Mean          = Previous.Irradiance.xyz;
+    State.ShortMean     = Previous.MsmeData0.xyz;
+    State.Vbbr          = Previous.MsmeData0.w;
+    State.Variance      = Previous.MsmeData1.xyz;
+    State.Inconsistency = Previous.MsmeData1.w;
+
+    float PreviousCount = Previous.Irradiance.w;
+
+    // Sanitise decoded state so garbage / NaNs cannot propagate into the mean.
+    SurfelSanitiseMSME(State);
+
+    uint BirthFrame = uint(Surfel.PositionAndSpare.w);
+    uint SinceBirth = Constants.Frame - BirthFrame;
+
+    float SlgMass = SurfelGetTotalMass(Index);
+
+    bool  HasGrid   = SlgMass > 1e-5;
+    float PGuide    = HasGrid ? 0.9 : 0.0;
+    float GuideRamp = clamp(float(SinceBirth) / 16.0, 0.0, 1.0);
+    PGuide = min(PGuide * GuideRamp, 0.9);
+
+    vec3  DiffuseGI    = vec3(0.0);
+    float ValidSamples = 0.0;
+
+    // Adaptive sample count from MSME inconsistency; warmup floors it at 32.
+    uint BaseCount  = max(1u, Constants.BaseSampleCount);
+    uint BoostCount = (State.Inconsistency > 0.3) ? 12u : 0u;
+    uint SampleCount = BaseCount + BoostCount;
+
+    bool Warmup = (SinceBirth <= 4u);
+    if (Warmup) { SampleCount = 32u; }
+
+    vec3  HitPos0   = SurfelPosition;
+    float DebugFlag = 0.0;
+
+    // Common surfel geometry: eye-relative radius + epsilon-offset ray origin (off its own surface).
+    vec3  PositionRelativeSurfel = SurfelPosition - Constants.CameraPosition.xyz;
+    float SurfelRadius = SurfelRadiusForPosition(PositionRelativeSurfel);
+    float Epsilon      = SurfelRadiusBasedEpsilon(SurfelRadius);
+    vec3  RayOrigin    = SurfelPosition + NormalWorld * Epsilon;
+
+    // --- DEPTH PROBE PRE-LOOP (:977-1013). 25% of surfels probe one bin per frame; covers all 16 bins over time. ---
+    uint DepthProbeStride = 4u;
+    bool DoProbe = (((Index ^ Constants.Frame) & (DepthProbeStride - 1u)) == 0u);
+    if (DoProbe)
+    {
+        uint BinCount = SURFEL_DEPTH_TEXELS * SURFEL_DEPTH_TEXELS;
+        uint Bin = (Constants.Frame + Index * 13u) % BinCount;
+        uint Bx = Bin % SURFEL_DEPTH_TEXELS;
+        uint By = Bin / SURFEL_DEPTH_TEXELS;
+
+        vec4 Noise = SurfelBlueNoise4(Index, Constants.Frame, 0u);
+        vec2 UvDepth = vec2(float(Bx) + Noise.x, float(By) + Noise.y) / float(SURFEL_DEPTH_TEXELS);
+
+        vec3 DirLocalDepth = SurfelHemiOctSquareDecode(UvDepth);
+        vec3 RayDirDepth   = Basis * DirLocalDepth;
+
+        TraceHit ProbeHit = TraceTwoLevel(RayOrigin, RayDirDepth, SURFEL_TRACE_NEAR_LIMIT, SURFEL_TRACE_MISS_LIMIT);
+
+        float MaxDepth = SurfelRadius * 2.0;
+        float HitDistance = clamp(ProbeHit.Distance, 0.0, MaxDepth);
+        float LearnDepth  = ProbeHit.HitCondition ? HitDistance : MaxDepth;
+
+        SurfelUpdateDepth2(Index, UvDepth, LearnDepth, DirLocalDepth);
+    }
+
+    // --- SAMPLE LOOP (:1015-1096). SLG-guided cosine-hemisphere rays; trace, learn depth, shade hit or sky, MIS-weight into DiffuseGI, update SLG. ---
+    for (uint I = 0u; I < SampleCount; I = I + 1u)
+    {
+        vec4 U4 = SurfelBlueNoise4(Index, Constants.Frame * SURFEL_BLUE_NOISE_STRIDE + I, 1u);
+
+        SLGSample Sample = SurfelSampleGuidedDirection(Index, SlgMass, PGuide, U4);
+        vec3 DirLocal = Sample.DirectionLocal;
+        vec2 Uv       = Sample.Uv;
+
+        float CosTerm = max(0.0, DirLocal.z);
+        float PdfCos  = CosTerm / SURFEL_PI;
+
+        float PdfGuide = 0.0;
+        if (PGuide > 0.0)
+        {
+            PdfGuide = SurfelPdfSLG(Index, Uv, SlgMass);
+        }
+
+        float MixPdf = (1.0 - PGuide) * PdfCos + PGuide * PdfGuide;
+
+        if (MixPdf > 1e-6 && CosTerm > 0.0)
+        {
+            DebugFlag = 1.0;
+            vec3 RayDir = Basis * DirLocal;
+
+            TraceHit Hit = TraceTwoLevel(RayOrigin, RayDir, SURFEL_TRACE_NEAR_LIMIT, SURFEL_TRACE_MISS_LIMIT);
+            vec3 BounceLi = vec3(0.0);
+
+            // Learn radial depth along this direction (miss writes max depth, hit writes clamped hit depth).
+            float MaxDepth = SurfelRadius * 2.0;
+            float HitDistance = clamp(Hit.Distance, 0.0, MaxDepth);
+            float LearnDepth  = Hit.HitCondition ? HitDistance : MaxDepth;
+            SurfelUpdateDepth2(Index, Uv, LearnDepth, DirLocal);
+
+            if (Hit.HitCondition)
+            {
+                vec3 HitPoint  = RayOrigin + RayDir * Hit.Distance;   // Distance is world-space
+                vec3 HitNormal = SurfelReconstructHitNormal(Hit.InstanceIndex, Hit.PrimitiveIndex);
+                if (I == 0u) { HitPos0 = HitPoint; }
+
+                // Albedo stand-in (§conflict 1): instance tint remapped by the albedoBoost curve, matching the reference's luma-preserving boost.
+                vec3  HitAlbedo = Instances[Hit.InstanceIndex].Tint.rgb;
+                float Y  = max(1e-4, dot(HitAlbedo, SurfelLumaWeights));
+                float Y2 = 1.0 - pow(1.0 - Y, max(0.0, Constants.AlbedoBoost));
+                float Scale = Y2 / Y;
+                HitAlbedo = clamp(HitAlbedo * Scale, vec3(0.0), vec3(1.0));
+
+                // Sun shadow ray from the hit point.
+                vec3 ShadowOrigin = HitPoint + HitNormal * Epsilon;
+                TraceHit ShadowHit = TraceTwoLevel(ShadowOrigin, Constants.SunDirection.xyz,
+                                                   SURFEL_TRACE_NEAR_LIMIT, SURFEL_TRACE_SUN_LIMIT);
+                if (!ShadowHit.HitCondition)
+                {
+                    float NdotL = max(0.0, dot(HitNormal, Constants.SunDirection.xyz));
+                    BounceLi += Constants.SunColour.xyz * HitAlbedo * NdotL * (1.0 / SURFEL_PI) * Constants.GiFromDirect;
+                }
+
+                // One-bounce gather over the grid (reads the moments read half).
+                vec3 Gi = SurfelLookupGI(HitPoint, HitNormal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
+                                         Constants.ReadOffsetElements, Constants.OcclusionParams);
+                BounceLi += Gi * HitAlbedo * Constants.GiFromIndirect;
+            }
+            else
+            {
+                BounceLi = SurfelSampleSkyAmbient(RayDir);   // §conflict 2 miss stand-in
+            }
+
+            DiffuseGI += BounceLi * (CosTerm / SURFEL_PI) / MixPdf;
+
+            float Luminance = dot(BounceLi, SurfelLumaWeights) * CosTerm;
+            SlgMass += SurfelUpdateFromSample(Index, Uv, Luminance);   // F8 RMW — safe (one lane owns this surfel)
+            ValidSamples += 1.0;
+        }
+    }
+
+    SlgMass = SurfelGetTotalMass(Index);
+
+    vec3 NewAverageV = DiffuseGI / max(1.0, ValidSamples);
+
+    // --- RUN MSME ---
+    if (ValidSamples > 0.0)
+    {
+        float Tau = 12.5;
+        float N   = ValidSamples;
+        float ShortWindowBlend = clamp(1.0 - exp(-N / Tau), 0.01, 0.10);
+
+        if (PreviousCount < 32.0)
+        {
+            // Brand-new surfel: plain running average, kept responsive.
+            float Blend = 1.0 / (1.0 + PreviousCount);
+            State.Mean      = mix(State.Mean,      NewAverageV, Blend);
+            State.ShortMean = mix(State.ShortMean, NewAverageV, Blend);
+            State.Variance  = mix(State.Variance,  vec3(1.0),   Blend);
+            State.Vbbr          = max(State.Vbbr, 1.0);
+            State.Inconsistency = max(State.Inconsistency, 1.0);
+        }
+        else
+        {
+            State = SurfelRunMSME(NewAverageV, State, ShortWindowBlend);
+        }
+    }
+
+    float TotalCount = PreviousCount;
+    if (ValidSamples > 0.0)
+    {
+        TotalCount = min(PreviousCount + 1.0, SurfelMaxTemporalM);
+    }
+
+    // Derive the mean world direction from the 64 SLG lobes.
+    uint  BaseIndex = Index * SLG_TOTAL_FLOATS;
+    float MaxWeight = 0.0;
+    vec3  MeanLocal = vec3(0.0);
+    for (uint L = 0u; L < SLG_LOBE_COUNT; L = L + 1u)
+    {
+        float W = max(0.0, SurfelGuidingBuffer[BaseIndex + L]);
+        if (W <= 0.0) { continue; }
+        if (W > MaxWeight) { MaxWeight = W; }
+        vec3 AxisLocal = SurfelLobeAxisLocal(L);
+        MeanLocal += AxisLocal * W;
+    }
+    float MeanLength = length(MeanLocal);
+    vec3  MeanLocalN = (MeanLength > 1e-6) ? (MeanLocal / MeanLength) : vec3(0.0, 0.0, 1.0);
+    vec3  MeanWorld  = normalize(Basis * MeanLocalN);
+
+    // --- WRITE NEW STATE (write half) ---
+    uint OutIdx = Index + Constants.WriteOffsetElements;
+    SurfelMoments[OutIdx].Irradiance = vec4(State.Mean, TotalCount);
+    SurfelMoments[OutIdx].MsmeData0  = vec4(State.ShortMean, State.Vbbr);
+    SurfelMoments[OutIdx].MsmeData1  = vec4(State.Variance, State.Inconsistency);
+    SurfelMoments[OutIdx].Hit        = vec4(HitPos0, DebugFlag);
+    SurfelMoments[OutIdx].Guiding    = vec4(MeanWorld, SlgMass);
+}

@@ -51,6 +51,8 @@ import { ToolMenu }                                            from "./Interface
 import { LayerInspector }                                     from "./Interface/LayerInspector.js";
 import { SeedLayerStack }                                      from "./Layers/LayerStack.js";
 import { LayerComposite }                                      from "./Layers/LayerComposite.js";
+import { MaskSequence, CreateMaskComponent, ResolveMaskPaintTarget,
+         MASK_COMPONENT_CATEGORY, MaskComponentSummary }        from "./Layers/LayerMask.js";
 import { CHANNEL_ATLASES, CHANNEL_SLOTS, CHANNEL_ORDER,
          CHANNEL_LABEL, ResolveAtlasWrite }                     from "./Layers/ChannelSet.js";
 import { LAYER_KINDS, DefaultChannels, GENERATOR_PARAMS,
@@ -102,6 +104,8 @@ const State = {
     // ---- layers -----------------------------------------------------------------------------------
     Stack:     null,
     Composite: null,
+    // Evaluates a layer's mask component stack into its resolved mask atlas. One instance, shared scratch.
+    Mask:      null,
     // Height-to-normal strength. 📝 Exposed as state rather than a constant because it is the one
     //    parameter that has to be tuned against the model, not derived from it.
     NormalStrength: 6.0,
@@ -224,6 +228,7 @@ async function Initialise()
     State.Generator = new GeneratorPass(Device);
     State.Stack     = SeedLayerStack(Device, AtlasExtent);
     State.Composite = new LayerComposite(Device, AtlasExtent);
+    State.Mask      = new MaskSequence(Device, AtlasExtent);
     State.Composite.Resolve(State.Stack);
     State.StackRevision = State.Stack.Revision;
 
@@ -322,6 +327,20 @@ function EncodeSurface(Encoder, ColourView)
     return Resolved;
 }
 
+// Re-evaluate one layer's mask into its resolved mask atlas, then force a re-flatten so the compositor
+// re-reads it. Returns false when the layer carries no enabled mask.
+//
+// 🔴 The composite is FORCED, not left to the revision check. A mask change — a stroke into a component,
+//    a slider, a fill flip — alters what the layer resolves to WITHOUT touching the stack's Revision, so
+//    relying on the revision would evaluate the new mask into its atlas and never show it.
+function ReEvaluateMask(Layer)
+{
+    if (!Layer || !State.Mask) { return false; }
+    const Changed = State.Mask.Evaluate(Layer);
+    if (Changed) { RefreshComposite(true); }
+    return Changed;
+}
+
 // Re-flatten the stack and rebind, if anything changed since the last flatten.
 function RefreshComposite(Force)
 {
@@ -377,14 +396,24 @@ function Present()
     // 🔴 Dabs are laid into the layer BEFORE the surface is drawn, in a separate submission. Encoding
     //    both into one encoder would sample the atlas in the same submission that renders to it, which
     //    is a read-write hazard on the same texture.
+    const Focus = State.Stack.Focus;
+    // 🔴 Resolved BEFORE the flush drains the pending dabs. A dab into a focused paint mask component lands
+    //    in that component's own atlas, which the mask sequence — not the compositor — reads; so a mask
+    //    stroke has to re-evaluate the mask, whereas a channel stroke only re-flattens. Reading the target
+    //    after the flush would always see the same focus but no longer know which path the dabs took.
+    const MaskStroke = ResolveMaskPaintTarget(Focus) !== null;
+
     const Laid = State.Driver.FlushToLayer(
-        State.Stack.Focus, State.Surface, Brush, ResolveAtlasWrite, CHANNEL_ATLASES);
+        Focus, State.Surface, Brush, ResolveAtlasWrite, CHANNEL_ATLASES);
 
     // 🔴 A stroke changes a layer's CONTENTS without changing the stack's Revision, so the composite is
     //    forced here rather than left to the revision check. Relying on the revision alone would paint
-    //    into the layer and never show it — the atlas would fill up invisibly.
-    if (Laid > 0) { RefreshComposite(true); }
-    else          { RefreshComposite(false); }
+    //    into the layer and never show it — the atlas would fill up invisibly. A mask stroke additionally
+    //    re-evaluates the component stack, because the painted component atlas is one input to the mask,
+    //    not the mask itself.
+    if (Laid > 0 && MaskStroke) { ReEvaluateMask(Focus); }
+    else if (Laid > 0)          { RefreshComposite(true); }
+    else                        { RefreshComposite(false); }
 
     if (State.Redraw)
     {
@@ -717,18 +746,23 @@ window.PaintStroke = async function (Path, Overrides)
         Placed += State.Driver.Extend(Context, PointerX, PointerY, 1.0);
     }
 
+    const Focus      = State.Stack.Focus;
+    const MaskStroke = ResolveMaskPaintTarget(Focus) !== null;
+
     const Drawn = State.Driver.FlushToLayer(
-        State.Stack.Focus, State.Surface, Brush, ResolveAtlasWrite, CHANNEL_ATLASES);
+        Focus, State.Surface, Brush, ResolveAtlasWrite, CHANNEL_ATLASES);
 
     State.Driver.Finish();
-    RefreshComposite(true);
+    // A mask stroke re-evaluates the component stack; a channel stroke only re-flattens.
+    if (MaskStroke) { ReEvaluateMask(Focus); }
+    else            { RefreshComposite(true); }
     await State.Device.queue.onSubmittedWorkDone();
 
     State.Redraw = true;
     return {
-        Opened, Placed, Drawn,
+        Opened, Placed, Drawn, MaskStroke,
         ActiveStrokes: State.Ledger.ActiveCount,
-        Layer:         State.Stack.Focus?.Token ?? null
+        Layer:         Focus?.Token ?? null
     };
 };
 
@@ -1115,7 +1149,26 @@ window.ReadLayerStack = function ()
             Allocated: Object.keys(L.Atlas),
             Shown: L.Shown, Blend: L.Blend, Opacity: L.Opacity,
             Channels: [...L.Enabled],
-            Values:   L.Values
+            Values:   L.Values,
+            // 📝 The mask model as plain data, so the inspector renders its section and a probe can assert
+            //    it. Components carry their token, category, opacity and params but NOT their GPU atlas.
+            Mask: {
+                Enabled:    L.Mask.Enabled,
+                Fill:       L.Mask.Fill,
+                Invert:     L.Mask.Invert,
+                Opacity:    L.Mask.Opacity,
+                FocusToken: L.Mask.FocusToken,
+                Resolved:   L.Masked,
+                Components:  L.Mask.Components.map((C) => ({
+                    Token:     C.Token,
+                    Category:  C.Category,
+                    Name:      C.Name,
+                    Opacity:   C.Opacity,
+                    Paintable: MASK_COMPONENT_CATEGORY[C.Category]?.Paintable === true,
+                    Painted:   Boolean(C.AtlasView),
+                    Params:    { ...C.Params }
+                }))
+            }
         }))
     };
 };
@@ -1240,6 +1293,145 @@ window.LayerCommand = function (Command, Payload)
                 //    would obliterate every stroke already on it.
                 if (LAYER_KINDS[Layer.Kind]?.Flooded) { Layer.Flood(State.Device); }
 
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        //---- mask -------------------------------------------------------------------------------------
+        // 🔴 Every mask verb re-evaluates the layer's component stack into its mask atlas and forces a
+        //    re-flatten, because a mask change alters what the layer resolves to WITHOUT bumping Revision.
+        //    Disabling a mask is the one exception: it stops re-evaluating and re-flattens on the revision.
+
+        // Turn the mask on or off. Enabling it seeds the atlas so the compositor has something to bind.
+        case "mask": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                Layer.Mask.Enabled = Argument.Enabled !== false;
+                if (Layer.Mask.Enabled) { ReEvaluateMask(Layer); }
+                else                    { Layer.MaskView = null; RefreshComposite(true); }
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // The base fill ("white" / "black") the component stack is evaluated over.
+        case "maskFill": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                Layer.Mask.Fill = Argument.Fill === "black" ? "black" : "white";
+                ReEvaluateMask(Layer);
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // Flip the resolved mask — "apply where it is dark" instead of where it is light.
+        case "maskInvert": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                Layer.Mask.Invert = Argument.Invert === true;
+                // Inversion is read by the compositor from Settings.z, so a re-flatten alone shows it — but
+                // re-evaluating keeps every mask verb on one path and costs one pass.
+                ReEvaluateMask(Layer);
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // How strongly the whole mask applies, [0..100].
+        case "maskOpacity": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                Layer.Mask.Opacity = Argument.Opacity;
+                // Read by the compositor from Settings.y; re-flatten shows it. Re-evaluate for one path.
+                ReEvaluateMask(Layer);
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // Append a component of a given category. Focus lands on it, so a paint component is paint-ready.
+        case "maskAddComponent": {
+            const Layer = Stack.Resolve(Argument.Token);
+            const Category = MASK_COMPONENT_CATEGORY[Argument.Category] ? Argument.Category : "fill";
+            if (Layer)
+            {
+                const Component = CreateMaskComponent(Category, Argument.Name);
+                Layer.Mask.Components.push(Component);
+                Layer.Mask.FocusToken = Component.Token;
+                ReEvaluateMask(Layer);
+                Stack.Touch();
+                Result = Component.Token;
+            }
+            break;
+        }
+
+        // Drop a component. Its painted atlas is released, and focus falls back to none.
+        case "maskRemoveComponent": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                const Index = Layer.Mask.Components.findIndex((C) => C.Token === Argument.Component);
+                if (Index >= 0)
+                {
+                    const [Dropped] = Layer.Mask.Components.splice(Index, 1);
+                    Dropped.Atlas?.destroy();
+                    Dropped.Atlas     = null;
+                    Dropped.AtlasView = null;
+                    if (Layer.Mask.FocusToken === Argument.Component) { Layer.Mask.FocusToken = null; }
+                    ReEvaluateMask(Layer);
+                    Stack.Touch();
+                    Result = true;
+                }
+            }
+            break;
+        }
+
+        // Which component brush strokes land in. Null routes strokes back to the layer's channels.
+        case "maskFocusComponent": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer)
+            {
+                Layer.Mask.FocusToken = Argument.Component ?? null;
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // A component's own opacity, [0..100].
+        case "maskComponentOpacity": {
+            const Layer = Stack.Resolve(Argument.Token);
+            const Component = Layer?.Mask.Components.find((C) => C.Token === Argument.Component);
+            if (Component)
+            {
+                Component.Opacity = Argument.Opacity;
+                ReEvaluateMask(Layer);
+                Stack.Touch();
+                Result = true;
+            }
+            break;
+        }
+
+        // A fill / generator / levels component's parameters.
+        case "maskComponentParam": {
+            const Layer = Stack.Resolve(Argument.Token);
+            const Component = Layer?.Mask.Components.find((C) => C.Token === Argument.Component);
+            if (Component)
+            {
+                if (Argument.Params) { Object.assign(Component.Params, Argument.Params); }
+                else if (Argument.Key !== undefined) { Component.Params[Argument.Key] = Argument.Value; }
+                ReEvaluateMask(Layer);
                 Stack.Touch();
                 Result = true;
             }

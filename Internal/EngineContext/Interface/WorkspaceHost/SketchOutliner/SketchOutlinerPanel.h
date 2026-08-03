@@ -18,6 +18,7 @@
 #define FRONTIER_ENGINECONTEXT_INTERFACE_WORKSPACEHOST_SKETCHOUTLINER_PANEL_H
 
 #include "../../Theme/ThemeConfiguration.h"
+#include "OutlinerContentProfile.h"
 
 #include <cstdint>
 #include <string>
@@ -40,24 +41,9 @@ namespace Frontier::SketchOutlinerUi
 //    row's token can never alias a live one. 0 is the null token.
 using RecordToken = std::uint32_t;
 
-// 📝 What kind of parametric-sketch item a row is (SKILL-Naming §4: RecordClassification, never Kind/Role/EntityType). Drives the resolved icon,
-//    the add-object catalogue, and the chip filters. Containers (PartRoot / FeatureDirectory / SketchProfile) hold a SubtreeRegion; leaves do not.
-enum class RecordClassification
-{
-    PartRoot,             // [-] - The single depth-0 container ("Part")
-    FeatureDirectory,     // [-] - A grouping container (Origin / Sketches / Bodies / a user directory)
-    DatumPlane,           // [-] - A reference plane leaf (XY / YZ / custom)
-    DatumAxis,            // [-] - A reference axis leaf
-    DatumPoint,           // [-] - A reference point leaf
-    CoordinateFrame,      // [-] - The origin coordinate frame leaf
-    SketchProfile,        // [-] - A 2D sketch container (holds curves + constraints)
-    SketchCurve,          // [-] - A curve inside a sketch (line / arc / spline)
-    SketchConstraint,     // [-] - A geometric constraint inside a sketch
-    DimensionalConstraint,// [-] - A dimensional (measured) constraint inside a sketch
-    SolidShell,           // [-] - A resulting closed solid shell leaf
-    FeatureOperation,     // [-] - A feature in the build order (extrude / revolve / fillet)
-    ComponentInstance     // [-] - A referenced sub-part instance leaf
-};
+// 📝 What kind of item a row is, as an OPAQUE integer. The panel never names a classification — it only compares ids and looks them up in the
+//    active OutlinerContentProfile's ClassRows table (label / icon / tint / container). Each profile owns its own id vocabulary (a sketch tree's
+//    PartRoot/SketchCurve and a scene tree's SceneRoot/LightEmitter are two data tables over the same panel). See OutlinerContentProfile.h.
 
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -69,10 +55,10 @@ enum class RecordClassification
 //    directory and a body directory can share the directory glyph while differing in classification.
 struct RecordEntry
 {
-    RecordToken                Token;          // [-] - Stable identity issued by the state's TokenIssuer
-    std::string                Label;          // [-] - Display name (editable via rename)
-    RecordClassification       Classification; // [-] - What kind of sketch item this is (icon + filter facet)
-    std::string                IconKey;        // [-] - Registry key of the drawn glyph (cad-profile / g-folder / ...)
+    RecordToken                Token;            // [-] - Stable identity issued by the state's TokenIssuer
+    std::string                Label;            // [-] - Display name (editable via rename)
+    int                        ClassificationId; // [-] - Opaque classification (looked up in the profile's ClassRows for icon + filter facet)
+    std::string                IconKey;          // [-] - Registry key of the drawn glyph (cad-profile / scene-mesh / g-folder / ...)
     std::uint32_t              TintColor;      // [-] - Packed ImU32 accent tint (icon tint + colour-filter facet)
     bool                       ExpandedState;  // [-] - Container fold state (true = open)
     bool                       ConcealedState; // [-] - Visibility toggle (true = suppressed, cascades to the region)
@@ -91,7 +77,7 @@ enum class FilterFacet
 struct FilterChip
 {
     FilterFacet          Facet;                 // [-] - Which facet this chip constrains
-    RecordClassification ClassificationValue;   // [-] - Target classification (Facet == Classification)
+    int                  ClassificationValue;   // [-] - Target classification id (Facet == Classification)
     std::uint32_t        TintValue;             // [-] - Target packed tint (Facet == Tint)
 };
 
@@ -142,9 +128,9 @@ struct SketchOutlinerState
 //                                                      PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Assemble the default demonstration parametric part (Part → Origin/Sketches/Bodies + a feature order), and pre-select the first sketch. Call
-//    once before the frame loop.
-void InitializeSketchOutlinerSample(SketchOutlinerState& State);
+// 📝 Assemble the profile's default demonstration tree into State and pre-select its landmark row (delegates to Profile.SeedSample). Call once
+//    before the frame loop, with the same profile later passed to ConstructSketchOutlinerPanel.
+void InitializeSketchOutlinerSample(SketchOutlinerState& State, const OutlinerContentProfile& Profile);
 
 // 📝 Pin the absolute screen band the outliner's dropdown menus must stay inside — normally the hosting panel box's body rect, so a menu opened near
 //    an edge folds back into the panel instead of spilling over whatever sits beside it. Call once per frame BEFORE ConstructSketchOutlinerPanel. A
@@ -156,11 +142,13 @@ void ConfineSketchOutlinerMenus(SketchOutlinerState& State,
                                 float                Bottom);
 
 // 📝 Draw the whole outliner inside the current ImGui window. Handles selection, rename, visibility, drag relocation, filters, and both menus.
-//    IconRegistry supplies the resolved parametric-sketch SVG textures; pass a registry whose "cad-"/"g-" packs are registered. A null / empty
-//    registry falls back to procedural glyph strokes so the panel still renders.
+//    Profile supplies every content decision (header caption, search hint, classification/icon/tint tables, add catalogue, filter facets,
+//    procedural fallback art); pass the SAME profile used to seed the sample. IconRegistry supplies the resolved SVG textures whose keys the
+//    profile's rows carry; a null / empty registry falls back to the profile's procedural glyph strokes so the panel still renders.
 void ConstructSketchOutlinerPanel(const Frontier::ThemeConfiguration& Theme,
                                   SketchOutlinerState&                State,
-                                  const Frontier::SvgIconRegistry*    IconRegistry);
+                                  const Frontier::SvgIconRegistry*    IconRegistry,
+                                  const OutlinerContentProfile&       Profile);
 
 }   // namespace Frontier::SketchOutlinerUi
 

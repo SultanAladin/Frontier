@@ -11,6 +11,9 @@
 // shade pass resolves through, and std140 tail pad — laid out to match SuzanneSceneInstance so the CPU list uploads straight into this buffer.
 // MaterialId is not read HERE (this stage only writes identity); it is read by SurfaceShade.comp off the same buffer, so it must still occupy the
 // right slot or every member after it shifts.
+// 🔴 MIRRORS SuzanneSceneInstance (Graphics/Scene/SuzanneScene.h) FIELD FOR FIELD — 208 bytes. Three other shaders carry the same hand-written copy
+//    (SurfaceShade.frag, SoftwareRasterization.comp, ComponentOverlay.frag). A copy that falls behind the C++ struct still compiles and still
+//    validates; it just strides by the wrong size, so instance N reads the tail of instance N-1. The host static_assert is what catches it.
 struct SceneInstance
 {
     mat4 Model;          // column-major world transform
@@ -18,8 +21,9 @@ struct SceneInstance
     vec4 Tint;           // linear RGB (+pad) — unused here
     uint PartitionId;    // instance identity
     uint MaterialId;     // index into the SurfacePresetTable — unused here, read by the shade pass
+    uint MeshOrdinal;    // bottom-level tree slice — ray tracing only, unused here
     uint Pad0;
-    uint Pad1;
+    mat4 InverseModel;   // world -> local, for the ray trace — unused here
 };
 
 layout(std140, set = 0, binding = 0) readonly buffer InstanceBlock

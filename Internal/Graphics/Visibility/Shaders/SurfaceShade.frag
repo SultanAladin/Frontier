@@ -87,6 +87,9 @@ layout(std430, set = 0, binding = 2) readonly buffer IndexBlock
 };
 
 // Mirrors SuzanneSceneInstance / VisibilityRaster.vert's SceneInstance (std140).
+// 🔴 MIRRORS SuzanneSceneInstance (Graphics/Scene/SuzanneScene.h) FIELD FOR FIELD — 208 bytes. Three other shaders carry the same hand-written copy
+//    (VisibilityRaster.vert, SoftwareRasterization.comp, ComponentOverlay.frag). A copy that falls behind the C++ struct still compiles and still
+//    validates; it just strides by the wrong size, so instance N reads the tail of instance N-1. The host static_assert is what catches it.
 struct SceneInstance
 {
     mat4 Model;
@@ -94,8 +97,9 @@ struct SceneInstance
     vec4 Tint;
     uint PartitionId;
     uint MaterialId;
+    uint MeshOrdinal;    // bottom-level tree slice — ray tracing only, unused here
     uint Pad0;
-    uint Pad1;
+    mat4 InverseModel;   // world -> local, for the ray trace — unused here
 };
 
 layout(std140, set = 0, binding = 3) readonly buffer InstanceBlock
@@ -138,6 +142,42 @@ layout(std140, set = 0, binding = 7) readonly buffer FloorInstanceBlock
     SceneInstance FloorInstances[];
 };
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                            SET 1 — THE SURFEL STATE (Phase 3 GI gather)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🧩 Phase 3: the deferred shade reads the surfel irradiance cache to REPLACE the flat ambient fill with a real one-bounce GI gather. This second
+//    descriptor set mirrors SurfelIntegrate.comp's set 1 spelling EXACTLY so host and shader agree on layout — the gather module reads Offsets/List/
+//    Surfels/Moments and atomicMax'es Touched, so those five carry the exact qualifiers the integrate uses.
+//
+// 🔴 GUIDING (b4) AND DEPTH (b5) MUST BE NON-readonly even though the gather never writes them: SurfelGuiding.glsl carries SurfelUpdateFromSample
+//    (writes SurfelGuidingBuffer) and SurfelRadialDepth.glsl carries update_surfel_depth2 (writes SurfelDepthBuffer); both compile into this frag
+//    through the #includes below even though the gather calls neither, and glslc rejects a write to a readonly block. Match the integrate: writable.
+//    TOUCHED (b6) is written by the gather's atomicMax, so it is writable too.
+
+// The moments struct: five vec4 rows (20 floats), one entry per surfel per ping-pong half. The shade reads the POST-SWAP read half — Moments[id +
+// ReadOffsetElements] — which holds the fresh integrate output (the swap at RenderExtension already ran before this pass records). Field order is exact.
+struct SurfelMomentEntry
+{
+    vec4 Irradiance;   // xyz = mean irradiance, w = totalCount
+    vec4 MsmeData0;    // xyz = shortMean,       w = vbbr
+    vec4 MsmeData1;    // xyz = variance,        w = inconsistency
+    vec4 Hit;          // xyz = first hit point, w = debug flag
+    vec4 Guiding;      // xyz = mean world dir,  w = slgMass
+};
+
+// SurfelRecord's layout must exist before the set-1 buffer block below names it, so pull the record module in here (ahead of the grouped includes after
+// the push block). Its include guard makes the later #include a no-op.
+#include "SurfelRecord.glsl"
+
+layout(std430, set = 1, binding = 0) readonly  buffer SurfelBuffer   { SurfelRecord      Surfels[]; };
+layout(std430, set = 1, binding = 1)           buffer MomentsBuffer  { SurfelMomentEntry SurfelMoments[]; };
+layout(std430, set = 1, binding = 2) readonly  buffer OffsetsBuffer  { int  SurfelOffsets[]; };   // F6 split: per-cell [start,end)
+layout(std430, set = 1, binding = 3) readonly  buffer ListBuffer     { int  SurfelList[]; };      // F6 split: packed per-cell surfel indices (no base)
+layout(std430, set = 1, binding = 4)           buffer GuidingBuffer  { float SurfelGuidingBuffer[]; };   // 72 floats/surfel (SLG) — writable, see 🔴 above
+layout(std430, set = 1, binding = 5)           buffer DepthBuffer    { vec4  SurfelDepthBuffer[]; };     // 16 vec4/surfel (MSM radial depth) — writable
+layout(std430, set = 1, binding = 6)           buffer TouchedBuffer  { int   SurfelTouched[]; };         // per-surfel importance (atomicMax)
+
 layout(push_constant) uniform ShadeConstants
 {
     mat4 InverseViewProjection;   // [-] - clip -> world
@@ -146,7 +186,27 @@ layout(push_constant) uniform ShadeConstants
     uint CompositeFeatureMask;    // [-] - overrides the Composite record's own mask only
     uint FloorPartitionBase;      // [-] - partition ordinals >= this belong to the floor mesh
     uint FloorShadeEnabled;       // [-] - 1 shades the floor from b5-b7, 0 discards it (the b5-b7 alias is not real floor data)
+    uint FloorIndexBase;          // [-] - first index of the floor's run in b6; gl_PrimitiveID restarts per draw, b6 is a merged buffer
+
+    // ---- Phase 3 surfel GI gather (std430 tail, vec4-padded rows first, then the uint scalars) ----
+    vec4 GridOrigin;              // [-] - snapped grid origin, SAME source as the slotting/integrate build; .w unused
+    vec4 OcclusionParams;         // [-] - (shadowStrength, bleedReduction, grazingBiasScale, varianceBleedScale) for the radial-depth gate
+    uint SurfelReadOffsetElements;// [-] - moments read-half ELEMENT base = MomentsParity*Capacity (post-swap); NOT the byte offset
+    uint SurfelGiEnabled;         // [-] - 1 gathers surfel GI, 0 falls back to the flat AmbientColour (A/B toggle)
+    uint SurfelCapacity;          // [-] - pool capacity (unused by the gather math; carried for parity + future bounds)
+    uint PushPad0;                // [-] - keep the block 16-byte aligned
 } Constants;
+
+// The surfel gather chain — dependency order (each is a guarded #include MODULE with no main(), reading the set-1 buffers by bare name declared above):
+//   SurfelGrid.glsl        cell hash + radius-for-position (the F1 signed-shift site)
+//   SurfelGuiding.glsl     hemi-oct encode/decode the radial-depth module calls
+//   SurfelRadialDepth.glsl the 4MSM occlusion gate
+//   SurfelGather.glsl      SurfelLookupGI itself
+// SurfelRecord.glsl is already pulled in above (it must precede the set-1 block). These compile INTO SurfaceShade.frag.spv via glslc -I.
+#include "SurfelGrid.glsl"
+#include "SurfelGuiding.glsl"
+#include "SurfelRadialDepth.glsl"
+#include "SurfelGather.glsl"
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     RECONSTRUCTION
@@ -346,7 +406,10 @@ void main()
             discard;
         Instance = FloorInstances[FloorPartition];
 
-        uint IndexBase = Primitive * 3u;
+        // 🔴 The floor's primitive ordinal is DRAW-LOCAL (gl_PrimitiveID restarts at 0 for the floor's own vkCmdDrawIndexed) while b6 is the merged
+        //    index buffer the heads also live in. FloorIndexBase converts one to the other. Without it every floor pixel reconstructs from the heads'
+        //    opening triangles and shades a real surface with a borrowed normal.
+        uint IndexBase = Constants.FloorIndexBase + Primitive * 3u;
         if (IndexBase + 2u >= uint(FloorIndices.length()))
             discard;
         vec3 Local0 = FloorPositionForVertex(FloorIndices[IndexBase + 0u]);
@@ -532,11 +595,23 @@ void main()
         Radiance += Dc * Vc * Fc * NoL * LightEnergy;
     }
 
-    // ---- Ambient fill ----
-    // A flat irradiance term, not an IBL: enough to keep unlit sides readable. Metals take it tinted by f0 (they have no diffuse
-    // albedo to catch it with), dielectrics take it on their diffuse colour.
+    // ---- Ambient fill / surfel GI ----
+    // The indirect term catches on the same albedo either way: metals take it tinted by f0 (they have no diffuse albedo to catch it
+    // with), dielectrics take it on their diffuse colour.
     vec3 AmbientAlbedo = mix(DiffuseColour, F0, Metallic);
-    Radiance += AmbientColour * AmbientAlbedo;
+    // 🧩 Phase 3 seam: FULLY REPLACE the flat ambient with a one-bounce surfel-cache gather when GI is on (user ruling). SurfelLookupGI walks the
+    //    grid cell at WorldPosition, blends nearby surfels' stored irradiance by radius/normal/occlusion weight, and returns the indirect radiance.
+    //    The toggle keeps the pre-Phase-3 flat-ambient look one keypress away for a direct A/B. ReadOffsetElements is the POST-SWAP read half.
+    if (Constants.SurfelGiEnabled != 0u)
+    {
+        vec3 Gi = SurfelLookupGI(WorldPosition, Normal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
+                                 Constants.SurfelReadOffsetElements, Constants.OcclusionParams);
+        Radiance += Gi * AmbientAlbedo;
+    }
+    else
+    {
+        Radiance += AmbientColour * AmbientAlbedo;
+    }
 
     // ---- Emissive ----
     // Enters BELOW the coat (an LED under a lacquer layer is dimmed by it), which is why this sits after the coat attenuation.

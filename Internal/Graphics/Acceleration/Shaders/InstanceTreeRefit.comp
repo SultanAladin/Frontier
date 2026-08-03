@@ -1,0 +1,236 @@
+#version 450
+// ============================================================================================================================================
+//                                                          INSTANCETREEREFIT.COMP
+// ============================================================================================================================================
+// 🧩 Dispatch 4 of the TOP-level (TLAS) build, and the last: give every node its bounding box. One lane per LEAF. Each lane writes its own leaf's
+//    box from the instance it names, then walks child -> parent up the tree, growing each interior box to contain its children, until it either
+//    reaches the root or meets another lane coming up the same path.
+//
+//    🔴 THE SECOND LANE TO ARRIVE AT A NODE IS THE ONE THAT PROCEEDS, AND THE FIRST MUST DIE. An interior box needs BOTH children finished. The
+//       arrival counter below is what enforces that: each lane atomically increments its parent's counter, and the lane that reads back 0 (it was
+//       first) STOPS, while the lane that reads back 1 (it was second, so its sibling's subtree is complete) continues upward. Letting both proceed
+//       is the classic bug here — it does not produce a wrong answer reliably, it produces a box that is right in most frames and short by one
+//       subtree in the frames where the timing lands badly. That reads as geometry flickering out of the trace, intermittently, under load.
+//
+//    ⚠️ THE ATOMIC IS THE SYNCHRONISATION, AND IT ONLY WORKS BECAUSE THE BOX WRITES ARE ORDERED BEFORE IT. A lane must publish its box where the
+//       next lane up can see it BEFORE announcing its arrival, or the winning lane can read a half-written box from a sibling that has not landed.
+//       memoryBarrierBuffer() below is what orders those two, and it is not optional or a defensive habit — without it this is a data race that
+//       this hardware would usually still get right.
+//
+//    📝 Why bottom-up-with-a-counter rather than a level-by-level sweep: the tree's depth is data-dependent (a Morton tree over clustered instances
+//       is deeper than over uniform ones), so a level sweep needs either a host round trip per level or a fixed worst-case level count, and both
+//       cost more than they save. This form is one dispatch whatever the shape, and every lane does work proportional to its own depth.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+const uint LanesPerGroup = 256u;
+
+// 🔴 Mirrors GeometryTreeWordsPerNode / GeometryTreeLeafFlag (Acceleration/GeometryTreeBuild.h) and InstanceTreeBuild.comp.
+const uint TreeWordsPerNode = 8u;
+const uint TreeLeafFlag     = 0xFFFFu;
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B. Must list EVERY field including padding, or std430 mis-strides the array
+//    and every instance after the first reads a blend of its neighbours.
+struct SceneInstance
+{
+    float Model[16];         // @0   - column-major local -> world
+    float NormalBasis[12];   // @64  (unused here)
+    float Tint[4];           // @112 (unused here)
+    uint  PartitionId;       // @128 (unused here)
+    uint  MaterialId;        // @132 (unused here)
+    uint  MeshOrdinal;       // @136 - indexes the slice table
+    uint  Padding;           // @140
+    float InverseModel[16];  // @144 (unused here)
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B. NodeOffset is in WORDS, not nodes.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+layout(std430, set = 0, binding = 0) readonly buffer InstanceBlock
+{
+    SceneInstance Instances[];
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer SliceBlock
+{
+    GeometryArenaSlice Slices[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer ArenaNodeBlock
+{
+    uint ArenaNodeWords[];
+};
+
+// set 0, binding 3 — the sorted payloads: which instance each leaf names.
+layout(std430, set = 0, binding = 3) readonly buffer SortedPayloadBlock
+{
+    uint SortedPayloads[];
+};
+
+// set 0, binding 4 — the tree's node words. Read AND written: a lane reads its children's boxes and writes its own.
+//
+// 🔴 COHERENT IS LOAD-BEARING AND IS NOT A DEFENSIVE HABIT. The climb below reads a SIBLING'S box, and that sibling is a lane in a DIFFERENT
+//    workgroup — nothing schedules the two together. Without this qualifier the write may sit in the writing core's cache while the reading core
+//    services its load from a stale line, and memoryBarrierBuffer() does not help: it ORDERS a lane's own accesses, it does not make them VISIBLE
+//    across an incoherent cache. The failure that costs is an interior node read back as ALL ZEROS — the untouched allocation — which reads as "the
+//    climb never ran" and sends the diagnosis at the tree's SHAPE when the shape was correct all along.
+layout(std430, set = 0, binding = 4) coherent buffer TreeNodeBlock
+{
+    uint TreeNodeWords[];
+};
+
+layout(std430, set = 0, binding = 5) readonly buffer TreeParentBlock
+{
+    uint TreeParents[];
+};
+
+// set 0, binding 6 — one arrival counter per INTERNAL node, seeded to 0 by the host each rebuild. See the header.
+//
+// 🔴 COHERENT for the same reason as the node block: this counter is the rendezvous between two lanes in different workgroups, and it is only a
+//    rendezvous if both of them see the same value.
+layout(std430, set = 0, binding = 6) coherent buffer TreeCounterBlock
+{
+    uint TreeCounters[];
+};
+
+layout(push_constant) uniform InstanceTreeRefitConstants
+{
+    uint InstanceCount;   // [-] - leaves in the tree
+    uint SliceCount;      // [-] - entries in the slice table
+    uint NoParentSentinel;// [-] - GeometryTreeNoParent; marks the root and terminates the climb
+} Constants;
+
+mat4 ModelMatrixForInstance(uint InstanceIndex)
+{
+    float M[16] = Instances[InstanceIndex].Model;
+    return mat4(vec4(M[0],  M[1],  M[2],  M[3]),
+                vec4(M[4],  M[5],  M[6],  M[7]),
+                vec4(M[8],  M[9],  M[10], M[11]),
+                vec4(M[12], M[13], M[14], M[15]));
+}
+
+void ReadNodeBox(uint NodeIndex, out vec3 Minimum, out vec3 Maximum)
+{
+    uint Base = NodeIndex * TreeWordsPerNode;
+    Minimum = vec3(uintBitsToFloat(TreeNodeWords[Base + 0u]),
+                   uintBitsToFloat(TreeNodeWords[Base + 1u]),
+                   uintBitsToFloat(TreeNodeWords[Base + 2u]));
+    Maximum = vec3(uintBitsToFloat(TreeNodeWords[Base + 3u]),
+                   uintBitsToFloat(TreeNodeWords[Base + 4u]),
+                   uintBitsToFloat(TreeNodeWords[Base + 5u]));
+}
+
+void WriteNodeBox(uint NodeIndex, vec3 Minimum, vec3 Maximum)
+{
+    uint Base = NodeIndex * TreeWordsPerNode;
+    TreeNodeWords[Base + 0u] = floatBitsToUint(Minimum.x);
+    TreeNodeWords[Base + 1u] = floatBitsToUint(Minimum.y);
+    TreeNodeWords[Base + 2u] = floatBitsToUint(Minimum.z);
+    TreeNodeWords[Base + 3u] = floatBitsToUint(Maximum.x);
+    TreeNodeWords[Base + 4u] = floatBitsToUint(Maximum.y);
+    TreeNodeWords[Base + 5u] = floatBitsToUint(Maximum.z);
+}
+
+void main()
+{
+    uint LeafSlot = gl_GlobalInvocationID.x;
+    if (LeafSlot >= Constants.InstanceCount)
+        return;
+
+    uint InternalCount = (Constants.InstanceCount >= 1u) ? (Constants.InstanceCount - 1u) : 0u;
+    uint LeafNode      = InternalCount + LeafSlot;
+    uint InstanceIndex = SortedPayloads[LeafSlot];
+
+    // ─── THE LEAF'S OWN BOX ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    vec3 Minimum = vec3( 1.0 / 0.0);
+    vec3 Maximum = vec3(-1.0 / 0.0);
+
+    uint MeshOrdinal = (InstanceIndex < Constants.InstanceCount) ? Instances[InstanceIndex].MeshOrdinal : 0xFFFFFFFFu;
+
+    // 🔴 THE SAME DROP TEST THE REDUCE AND THE MORTON PASS APPLIED. An instance those passes ignored has no coverage in the scene box and no
+    //    meaningful centroid, so bounding it here would stretch the tree over geometry the rest of the build never saw. A dropped leaf keeps its
+    //    INVERTED box, which is inert: it fails every ray test rather than swallowing the scene, and it still climbs so its ancestors close.
+    if (MeshOrdinal < Constants.SliceCount)
+    {
+        uint NodeOffset = Slices[MeshOrdinal].NodeOffset;
+
+        vec3 LocalMinimum = vec3(uintBitsToFloat(ArenaNodeWords[NodeOffset + 0u]),
+                                 uintBitsToFloat(ArenaNodeWords[NodeOffset + 1u]),
+                                 uintBitsToFloat(ArenaNodeWords[NodeOffset + 2u]));
+        vec3 LocalMaximum = vec3(uintBitsToFloat(ArenaNodeWords[NodeOffset + 3u]),
+                                 uintBitsToFloat(ArenaNodeWords[NodeOffset + 4u]),
+                                 uintBitsToFloat(ArenaNodeWords[NodeOffset + 5u]));
+
+        mat4 Model = ModelMatrixForInstance(InstanceIndex);
+
+        // ⚠️ ALL EIGHT CORNERS. Two corners is correct only without rotation, and it is too SMALL under rotation — a box that is too small means a
+        //    ray MISSES geometry it should hit, which is silent and view-dependent. This is the rule the whole structure rests on; it matches
+        //    InstanceBoundsReduce.comp and InstanceMortonCode.comp exactly.
+        for (uint Corner = 0u; Corner < 8u; ++Corner)
+        {
+            vec3 LocalCorner = vec3((Corner & 1u) != 0u ? LocalMaximum.x : LocalMinimum.x,
+                                    (Corner & 2u) != 0u ? LocalMaximum.y : LocalMinimum.y,
+                                    (Corner & 4u) != 0u ? LocalMaximum.z : LocalMinimum.z);
+            vec3 WorldCorner = (Model * vec4(LocalCorner, 1.0)).xyz;
+            Minimum = min(Minimum, WorldCorner);
+            Maximum = max(Maximum, WorldCorner);
+        }
+    }
+
+    WriteNodeBox(LeafNode, Minimum, Maximum);
+
+    // 📝 The leaf's payload words: which instance it names, and the leaf marker. Word 6 is the instance index rather than a primitive offset — the
+    //    top level's leaves ARE instances, so there is no indirection through a primitive-order table the way the bottom level has.
+    uint LeafBase = LeafNode * TreeWordsPerNode;
+    TreeNodeWords[LeafBase + 6u] = InstanceIndex;
+    TreeNodeWords[LeafBase + 7u] = (TreeLeafFlag << 16u) | 1u;   // count of 1: a top-level leaf is exactly one instance
+
+    // A single-instance scene has no internal nodes at all — the lone leaf IS the tree, and there is nothing to climb.
+    if (Constants.InstanceCount < 2u)
+        return;
+
+    // ─── THE CLIMB ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    uint Current = LeafNode;
+    uint Parent  = TreeParents[Current];
+
+    while (Parent != Constants.NoParentSentinel)
+    {
+        // ⚠️ Publish before announcing. See the header: the box store must be visible to whichever lane wins the counter below, and the atomic is
+        //    what that lane synchronises on. Reversing these two is a race that usually still gives the right answer.
+        memoryBarrierBuffer();
+
+        uint Arrival = atomicAdd(TreeCounters[Parent], 1u);
+        if (Arrival == 0u)
+            return;   // first here — the sibling subtree is unfinished, and that sibling's lane will do this node
+
+        // ⚠️ THE SECOND BARRIER IS NOT A DUPLICATE OF THE FIRST — the two face opposite directions. The one above is the RELEASE (publish my box
+        //    before I announce myself); this one is the ACQUIRE (having learnt my sibling is done, discard anything I cached about it before I read
+        //    it). Omitting this one lets the sibling-box loads below be hoisted ABOVE the atomic, which reads the boxes as they were BEFORE the
+        //    sibling landed — the same all-zero interior node, arrived at from the other side.
+        memoryBarrierBuffer();
+
+        // Second arrival: both children are complete, so this node's box is now computable.
+        uint ChildBase  = Parent * TreeWordsPerNode;
+        uint LeftChild  = TreeNodeWords[ChildBase + 6u];
+        uint RightChild = TreeNodeWords[ChildBase + 7u];
+
+        vec3 LeftMinimum, LeftMaximum, RightMinimum, RightMaximum;
+        ReadNodeBox(LeftChild,  LeftMinimum,  LeftMaximum);
+        ReadNodeBox(RightChild, RightMinimum, RightMaximum);
+
+        WriteNodeBox(Parent, min(LeftMinimum, RightMinimum), max(LeftMaximum, RightMaximum));
+
+        Current = Parent;
+        Parent  = TreeParents[Current];
+    }
+}

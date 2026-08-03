@@ -1,0 +1,64 @@
+#version 450
+/*==============================================================================================================================================
+                                                          SURFELGRIDCOUNT.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 2 of the grid build: for every live surfel, atomicAdd 1 into Offsets[hash] for each grid cell its disc intersects. After this pass Offsets[h]
+//    holds the number of surfels that want cell h — the input the prefix scan turns into per-cell END offsets. One invocation per pool slot; a slot is
+//    live when it is below the pool high-water mark AND its age is under TTL.
+//
+//    🔴 Ported 1:1 from webgiya surfelHashGrid.ts:380-478 (computeCount). The per-surfel work: read world pos + normal, compute the eye-relative radius
+//       (from the RAW camera, not the snapped origin — SurfelRadiusForPositionEye), build the multi-cascade grid box (with the ±0.2 cascade hysteresis),
+//       then iterate cascade 0..count-1 and x/y/z over [min,max], testing SurfelIntersectsGridCoord per cell and counting the hits. The intersection and
+//       box math all live in SurfelGrid.glsl so build and lookup can never drift (F1). The grid coords come from the SNAPPED-origin-relative position
+//       (worldPos - GridOrigin); the radius comes from the raw camera distance — this split is webgiya's and is preserved exactly.
+
+#include "SurfelGrid.glsl"
+#include "SurfelRecord.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer OffsetsBuffer { int Offsets[]; };            // atomic: per-cell count (this pass increments)
+layout(std430, binding = 1) readonly buffer SurfelBuffer { SurfelRecord Surfels[]; };
+layout(std430, binding = 2) readonly buffer PoolMaxBuffer { int PoolMax[]; };   // [0] = pool high-water slot count
+
+layout(push_constant) uniform PushBlock
+{
+    vec4 CameraPosition;   // xyz raw camera world position (radius distance); w unused
+    vec4 GridOrigin;       // xyz snapped grid origin (cell centres + indices); w unused
+} Push;
+
+void main()
+{
+    int Index = int(gl_GlobalInvocationID.x);
+    int Total = PoolMax[0];
+    if (Index >= Total) return;
+
+    SurfelRecord Surfel = Surfels[Index];
+    if (Surfel.Age >= SURFEL_TTL) return;
+
+    vec3  WorldPosition = Surfel.PositionAndSpare.xyz;
+    vec3  Normal        = Surfel.Normal;
+    vec3  Relative      = WorldPosition - Push.GridOrigin.xyz;
+    float Radius        = SurfelRadiusForPositionEye(WorldPosition, Push.CameraPosition.xyz);
+
+    SurfelGridBox Box = SurfelGridBoxMinMax(Relative);
+
+    for (int Ci = 0; Ci < Box.CascadeCount; ++Ci)
+    {
+        ivec4 CurrentMin = (Ci == 1) ? Box.C1Min : Box.C0Min;
+        ivec4 CurrentMax = (Ci == 1) ? Box.C1Max : Box.C0Max;
+        uint  Cascade    = uint(CurrentMin.w);
+
+        for (int Z = CurrentMin.z; Z <= CurrentMax.z; ++Z)
+        for (int Y = CurrentMin.y; Y <= CurrentMax.y; ++Y)
+        for (int X = CurrentMin.x; X <= CurrentMax.x; ++X)
+        {
+            uvec4 Cell = uvec4(uint(X), uint(Y), uint(Z), Cascade);
+            if (SurfelIntersectsGridCoord(WorldPosition, Normal, Radius, Cell, Push.GridOrigin.xyz))
+            {
+                uint Hash = SurfelCellToHash(Cell);
+                atomicAdd(Offsets[int(Hash)], 1);
+            }
+        }
+    }
+}

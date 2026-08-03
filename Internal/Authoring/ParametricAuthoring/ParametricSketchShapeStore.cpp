@@ -8,8 +8,9 @@
 #include "ParametricSketchShapeStore.h"
 
 #include <algorithm> // 📝 std::max / std::min / std::reverse — clamp the curve degree + sample budgets, flip the winding.
-#include <cmath>     // 📝 std::sqrt / std::atan2 / std::cos / std::sin — the analytic evaluators.
+#include <cmath>     // 📝 std::sqrt / std::atan2 / std::cos / std::sin / std::fmod / std::floor — the analytic evaluators + the stroke-swatch hue walk.
 #include <cstdio>    // 📝 std::snprintf — seed a shape's title + a log entry's label.
+#include <cstring>   // 📝 std::memcpy — fold shape-outline float bits into the stroke-body change hash.
 
 namespace Frontier
 {
@@ -473,7 +474,11 @@ namespace
     ImTextureID        PublishedSolidImage  = (ImTextureID)0;   // [-] - the offscreen solid target the view composites (0 = none this frame)
     uint32_t           PublishedSolidWidth  = 0;                // [px] - the published image's live extent width
     uint32_t           PublishedSolidHeight = 0;                // [px] - the published image's live extent height
+    ImTextureID        PublishedStrokeImage  = (ImTextureID)0;  // [-] - the offscreen outline/curve target the view composites ON TOP (0 = none this frame)
+    uint32_t           PublishedStrokeWidth  = 0;               // [px] - the published stroke image's live extent width
+    uint32_t           PublishedStrokeHeight = 0;               // [px] - the published stroke image's live extent height
     std::vector<ParametricSketchShapeBody> PublishedShapeBodies;        // [-] - tessellated closed-shape / solid bodies the GPU scene pass draws
+    std::vector<ParametricSketchStrokeBody> PublishedStrokeBodies;      // [-] - flattened shape outlines the GPU curve pass strokes
 }
 
 void RegisterParametricSketchShapeSource(ParametricSketchShapeStore* Store)
@@ -510,6 +515,20 @@ ImTextureID RetrieveParametricSketchSolidImage(uint32_t& Width, uint32_t& Height
     return PublishedSolidImage;
 }
 
+void RegisterParametricSketchStrokeImage(ImTextureID Image, uint32_t Width, uint32_t Height)
+{
+    PublishedStrokeImage  = Image;
+    PublishedStrokeWidth  = Width;
+    PublishedStrokeHeight = Height;
+}
+
+ImTextureID RetrieveParametricSketchStrokeImage(uint32_t& Width, uint32_t& Height)
+{
+    Width  = PublishedStrokeWidth;
+    Height = PublishedStrokeHeight;
+    return PublishedStrokeImage;
+}
+
 void RegisterParametricSketchShapeBodies(const std::vector<ParametricSketchShapeBody>& Bodies)
 {
     PublishedShapeBodies = Bodies;
@@ -518,6 +537,111 @@ void RegisterParametricSketchShapeBodies(const std::vector<ParametricSketchShape
 const std::vector<ParametricSketchShapeBody>& RetrieveParametricSketchShapeBodies()
 {
     return PublishedShapeBodies;
+}
+
+void RegisterParametricSketchStrokeBodies(const std::vector<ParametricSketchStrokeBody>& Bodies)
+{
+    PublishedStrokeBodies = Bodies;
+}
+
+const std::vector<ParametricSketchStrokeBody>& RetrieveParametricSketchStrokeBodies()
+{
+    return PublishedStrokeBodies;
+}
+
+namespace
+{
+    // 📝 Resolve a stroke swatch from a shape's rolling TintIndex without a tint table in this pillar (the outliner owns the display ladder; the
+    //    GPU pass must not depend on it). A golden-ratio hue walk gives distinct, evenly-spread hues for consecutive ids, converted from a fixed
+    //    high-value / mid-saturation HSV so every stroke reads bright on the dark canvas. Index 0 (the default) still lands on a stable hue.
+    void ResolveStrokeSwatch(uint32_t TintIndex, float OutRGBA[4])
+    {
+        const float Hue        = std::fmod(static_cast<float>(TintIndex) * 0.61803398875f, 1.0f); // golden-ratio conjugate walk
+        const float Saturation = 0.45f;
+        const float Value      = 0.95f;
+        const float Sector     = Hue * 6.0f;
+        const int   Index      = static_cast<int>(Sector) % 6;
+        const float Fraction   = Sector - std::floor(Sector);
+        const float P = Value * (1.0f - Saturation);
+        const float Q = Value * (1.0f - Saturation * Fraction);
+        const float T = Value * (1.0f - Saturation * (1.0f - Fraction));
+        float R = Value, G = Value, B = Value;
+        switch (Index)
+        {
+            case 0: R = Value; G = T;     B = P;     break;
+            case 1: R = Q;     G = Value; B = P;     break;
+            case 2: R = P;     G = Value; B = T;     break;
+            case 3: R = P;     G = Q;     B = Value; break;
+            case 4: R = T;     G = P;     B = Value; break;
+            default:R = Value; G = P;     B = Q;     break;
+        }
+        OutRGBA[0] = R; OutRGBA[1] = G; OutRGBA[2] = B; OutRGBA[3] = 1.0f;
+    }
+
+    // 📝 A change-sensitive revision for one shape's OUTLINE, so the GPU consumer re-uploads only when the flattened outline actually moved. The
+    //    shape carries no monotonic revision field, so this hashes the outline itself (already flattened this frame) plus the closed flag: any
+    //    geometry edit rewrites the outline through ConstructParametricSketchShape, changing the hash. An FNV-1a walk over the point floats +
+    //    point count is enough to distinguish edits; a hash collision only costs a skipped re-upload, which the sample-budget field below guards
+    //    against separately (a re-flatten at a new budget changes the point count, so the hash moves).
+    uint32_t HashOutlineRevision(const std::vector<ImVec2>& Outline, bool ClosedLoop)
+    {
+        uint32_t Hash = 2166136261u;                       // FNV-1a offset basis
+        auto Fold = [&Hash](uint32_t Word)
+        {
+            Hash ^= Word;
+            Hash *= 16777619u;                             // FNV-1a prime
+        };
+        Fold(static_cast<uint32_t>(Outline.size()));
+        Fold(ClosedLoop ? 1u : 0u);
+        for (const ImVec2& Point : Outline)
+        {
+            uint32_t Bits;
+            std::memcpy(&Bits, &Point.x, sizeof(Bits)); Fold(Bits);
+            std::memcpy(&Bits, &Point.y, sizeof(Bits)); Fold(Bits);
+        }
+        return Hash;
+    }
+}
+
+void AssembleParametricSketchStrokeBodies(ParametricSketchShapeStore&              Store,
+                                          std::vector<ParametricSketchStrokeBody>& OutBodies,
+                                          int                                      SampleBudget)
+{
+    OutBodies.clear();
+    OutBodies.reserve(Store.Shapes.size());
+
+    for (ParametricSketchShape& Shape : Store.Shapes)
+    {
+        if (!Shape.Displayed)
+            continue;
+
+        // 📝 One flatten path only — RetrieveCachedOutline warms + returns the same cached outline the pick / length / CPU-render loops use, so
+        //    the GPU stroke can never drift from the CPU outline. A shape with fewer than two samples has no segment to stroke.
+        const std::vector<ImVec2>& Outline = RetrieveCachedOutline(Shape, SampleBudget);
+        if (Outline.size() < 2)
+            continue;
+
+        ParametricSketchStrokeBody Body;
+        Body.Identifier = Shape.Identifier;
+        Body.ClosedLoop = Shape.ClosedEnabled;
+        Body.Revision   = HashOutlineRevision(Outline, Body.ClosedLoop);
+        // 📝 Construction geometry (locked reference shapes) strokes dashed; everything else solid this pass. Centerline (style 2) is reserved for
+        //    the datum-axis work and not emitted from a plain shape walk yet.
+        Body.LineStyle  = Shape.LockEnabled ? 1u : 0u;
+        ResolveStrokeSwatch(Shape.TintIndex, Body.ColourRGBA);
+
+        Body.Polyline.reserve(Outline.size());
+        for (const ImVec2& Point : Outline)
+        {
+            ParametricSketchStrokeVertex Vertex;
+            Vertex.PositionX = Point.x;
+            Vertex.PositionY = Point.y;
+            Vertex.PositionZ = Shape.Elevation;   // lift the outline to the shape's sketch-plane height
+            Body.Polyline.push_back(Vertex);
+        }
+
+        OutBodies.push_back(std::move(Body));
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------

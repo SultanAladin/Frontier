@@ -316,6 +316,101 @@ void AssembleSurfaceShadeConstants(const ViewportCamera& Subject, uint32_t Compo
 
     Constants.CompositeFeatureMask = CompositeMask;
     Constants.FloorPartitionBase   = FloorPartitionBase;
+
+    // Phase 3 surfel GI: the gather's grid origin MUST be the SAME camera-relative origin the slotting/integrate used this frame — the raw eye
+    // (AssembleSurfelSlottingConstants uses Frame.EyePosition verbatim, no snap). Reusing Frame here keeps host and shader on the same cell lattice;
+    // a different origin would hash the shade point into a different bucket than the surfels were slotted into and the gather would find nothing.
+    Constants.GridOrigin[0] = Frame.EyePosition.XCoord;
+    Constants.GridOrigin[1] = Frame.EyePosition.YCoord;
+    Constants.GridOrigin[2] = Frame.EyePosition.ZCoord;
+    Constants.GridOrigin[3] = 0.0f;
+
+    // The radial-depth occlusion tunables, matching the integrate's defaults (SurfelRadialDepth.cpp: 1.2, 0.2, 0.25, 0.15). Left here so the shade's
+    // gate and the integrate's learning agree; the SurfelReadOffsetElements / SurfelGiEnabled / SurfelCapacity fields are runtime state set at the
+    // call site (they depend on the post-swap pool parity and the GI toggle, which this camera-only assemble cannot see).
+    Constants.OcclusionParams[0] = 1.2f;
+    Constants.OcclusionParams[1] = 0.2f;
+    Constants.OcclusionParams[2] = 0.25f;
+    Constants.OcclusionParams[3] = 0.15f;
+}
+
+// Fill the surfel slotting push block. GridOrigin is the eye position: the grid is CAMERA-RELATIVE, so the eye is the origin every cell coordinate is
+// measured against (matching the SurfelValidation oracle, which feeds the raw camera position as the grid origin and passed). CameraPosition is the raw
+// eye that drives the eye-distance surfel radius (SurfelGrid.glsl reads it separately from the origin). ListCount is the slot pass's bounds guard.
+void AssembleSurfelSlottingConstants(const ViewportCamera& Subject, SurfelSlottingConstants& Constants)
+{
+    const FocalOrientation Frame = SolveOrbitOrientation(Subject);
+    Constants.CameraPosition[0] = Frame.EyePosition.XCoord;
+    Constants.CameraPosition[1] = Frame.EyePosition.YCoord;
+    Constants.CameraPosition[2] = Frame.EyePosition.ZCoord;
+    Constants.CameraPosition[3] = 0.0f;
+    Constants.GridOrigin[0]     = Frame.EyePosition.XCoord;
+    Constants.GridOrigin[1]     = Frame.EyePosition.YCoord;
+    Constants.GridOrigin[2]     = Frame.EyePosition.ZCoord;
+    Constants.GridOrigin[3]     = 0.0f;
+    Constants.ListCount         = (int32_t)SurfelGridListCount;
+}
+
+// Fill the surfel spawn push block. Shares the shade's clip->world reconstruction (the spawn reads the SAME visibility id buffer and reconstructs world
+// pos/normal exactly as SurfaceShade does), the same camera-relative grid origin as the slotting above, and the same floor rebase as the shade
+// (FloorPartitionBase / FloorIndexBase). ScreenAndTiles packs (width, height, tiles-x, frame index) for the per-tile spawn dispatch.
+void AssembleSurfelSpawnConstants(const ViewportCamera& Subject, VkExtent2D Extent, uint32_t FrameIndex,
+                                  bool FloorResident, uint32_t FloorIndexBase, SurfelSpawnConstants& Constants)
+{
+    const FocalOrientation Frame          = SolveOrbitOrientation(Subject);
+    const Matrix4f         Projection     = EvaluateProjectionFrame(Subject);
+    const Matrix4f         ViewProjection = MultiplyMatrix(Projection, Frame.ViewMatrix);
+    const Matrix4f         Inverse        = InvertMatrix(ViewProjection);
+    for (int Column = 0; Column < 4; Column++)
+        for (int Row = 0; Row < 4; Row++)
+            Constants.InverseViewProjection[Column * 4 + Row] = Inverse.Column[Column][Row];
+
+    Constants.CameraPosition[0] = Frame.EyePosition.XCoord;
+    Constants.CameraPosition[1] = Frame.EyePosition.YCoord;
+    Constants.CameraPosition[2] = Frame.EyePosition.ZCoord;
+    Constants.CameraPosition[3] = 1.0f;
+    Constants.GridOrigin[0]     = Frame.EyePosition.XCoord;
+    Constants.GridOrigin[1]     = Frame.EyePosition.YCoord;
+    Constants.GridOrigin[2]     = Frame.EyePosition.ZCoord;
+    Constants.GridOrigin[3]     = 0.0f;
+
+    Constants.ScreenAndTiles[0] = (int32_t)Extent.width;
+    Constants.ScreenAndTiles[1] = (int32_t)Extent.height;
+    Constants.ScreenAndTiles[2] = (int32_t)SurfelSpawnTilesAcross(Extent.width);
+    Constants.ScreenAndTiles[3] = (int32_t)FrameIndex;
+
+    Constants.FloorPartitionBase = FloorPartitionBase;
+    Constants.FloorShadeEnabled  = FloorResident ? 1u : 0u;
+    Constants.FloorIndexBase     = FloorResident ? FloorIndexBase : 0u;
+}
+
+// Fill the surfel debug splat push block. ViewProjection projects each live surfel's world position to clip; CameraPosition drives the disc radius; the
+// SNAPPED grid origin (== the eye, matching the slotting) lets the cascade / occupancy modes recover the same cell the build used. DebugMode is the
+// F6-selected number; Capacity is the pool capacity == the point-list vertex count.
+void AssembleSurfelDebugConstants(const ViewportCamera& Subject, VkExtent2D Extent, uint32_t DebugMode,
+                                  SurfelDebugConstants& Constants)
+{
+    const FocalOrientation Frame          = SolveOrbitOrientation(Subject);
+    const Matrix4f         Projection     = EvaluateProjectionFrame(Subject);
+    const Matrix4f         ViewProjection = MultiplyMatrix(Projection, Frame.ViewMatrix);
+    Constants.ViewProjection = ViewProjection;
+
+    Constants.CameraPosition[0] = Frame.EyePosition.XCoord;
+    Constants.CameraPosition[1] = Frame.EyePosition.YCoord;
+    Constants.CameraPosition[2] = Frame.EyePosition.ZCoord;
+    Constants.CameraPosition[3] = 0.0f;
+    Constants.GridOrigin[0]     = Frame.EyePosition.XCoord;
+    Constants.GridOrigin[1]     = Frame.EyePosition.YCoord;
+    Constants.GridOrigin[2]     = Frame.EyePosition.ZCoord;
+    Constants.GridOrigin[3]     = 0.0f;
+
+    Constants.ScreenAndRadius[0] = (float)Extent.width;
+    Constants.ScreenAndRadius[1] = (float)Extent.height;
+    Constants.ScreenAndRadius[2] = 1.0f;   // radius scale (1 = the grid's own eye-distance radius)
+    Constants.ScreenAndRadius[3] = 0.0f;
+
+    Constants.DebugMode = DebugMode;
+    Constants.Capacity  = SurfelMaxCount;
 }
 
 #ifdef FRONTIER_POLYGON_AUTHORING
@@ -896,13 +991,61 @@ bool InitializeRenderExtension(RenderExtension& Extension,
             // 📝 The authored provenance the component modes select by: per-triangle source face, per-corner CLUSTER vertex, per-side loop-edge ordinal.
             //    Filled by the decoder alongside the render stream, because the authored cluster only exists there — it is discarded after triangulation.
             AuthoredTopologyMap AuthoredTopology;
+            GeometryTree HeadTree;
+
+            // 🔴 BOTH DOCUMENTS ARE DECODED BEFORE EITHER IS UPLOADED, and the order is the merge. The heads and the floor now share ONE vertex and ONE
+            //    index buffer, because a GeometryArenaSlice names a mesh by absolute offsets into a shared stream — a mesh sitting in its own private
+            //    buffer cannot be named at all, which is what made the floor invisible to every ray. Sizing that shared claim requires knowing both
+            //    meshes, so the floor decode moved ABOVE the upload it used to sit below.
+            //    ⚠️ Append order is the ordinal order and is permanent: heads are ordinal 0, floor ordinal 1. Both are appended unconditionally on a
+            //       successful decode so a missing floor cannot renumber the heads.
+            const std::string FloorPath = std::string(FRONTIER_SCENE_ASSET_DIR) + "/CheckerFloor.wsdoc";
+            RenderVertexStream FloorStream;
+            std::vector<SuzanneSceneInstance> FloorInstances;
+            GeometryTree FloorTree;
+            const bool FloorDecoded = LoadFloorDocument(FloorPath.c_str(), FloorStream, FloorInstances, &FloorTree);
+            if (!FloorDecoded)
+                ISSUE_CAUTION("render-extension", "checkered floor document unavailable ('%s') — floor not drawn", FloorPath.c_str());
+
             // ⚠️ PartitionBase is 0 here — this is the PRIMARY scene. Passing FloorPartitionBase would shift every head identity into the floor's reserved
             //    range, which the overlay rejects outright, so the handles would vanish rather than merely misdraw.
-            if (LoadWorkspaceScene(DocumentPath.c_str(), Stream, Instances, &LoadedDocument, &TriangleSourceFace,
-                                   0u, &AuthoredTopology) &&
-                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool, Stream, Extension.SceneGeometry))
+            const bool HeadsDecoded = LoadWorkspaceScene(DocumentPath.c_str(), Stream, Instances, &LoadedDocument, &TriangleSourceFace,
+                                                         0u, &AuthoredTopology, &HeadTree);
+
+            // Fold both meshes into the one run the arena's offsets are measured against, then claim it once. The heads' own placement is recorded
+            // even though it is trivially zero, so no consumer has to special-case "the first mesh".
+            ResetGeometryStreamConcatenation(Extension.SceneStreams);
+            if (HeadsDecoded)
+                AppendGeometryStream(Extension.SceneStreams, Stream, Extension.HeadMeshOrdinal);
+            if (FloorDecoded)
+            {
+                AppendGeometryStream(Extension.SceneStreams, FloorStream, Extension.FloorMeshOrdinal);
+                Extension.FloorStreamPresent = !FloorStream.Indices.empty();
+            }
+
+            if (HeadsDecoded &&
+                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool,
+                                                 Extension.SceneStreams.Merged, Extension.SceneGeometry))
             {
                 UploadVisibilityScene(Extension.VisibilityRaster, Instances);
+
+                // 🔴 The heads' own extent within the merged buffer. SceneGeometry.IndexCount is now the WHOLE world (heads + floor), so every
+                //    heads-only consumer below reads this placement instead — a cull whose indirect draw named the merged count would draw the floor
+                //    slab once per head, with each head's transform.
+                const GeometryStreamPlacement HeadPlacement =
+                    RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.HeadMeshOrdinal);
+
+                // ⚠️ The GPU cull's indirect argument hardcodes FirstIndex 0 (InstanceCullSubmission.cpp:494), so the indirect head draw is only
+                //    correct while the heads are the FIRST mesh in the merged run. That holds by construction — they are appended first — but the
+                //    dependency is invisible from there, so it is asserted here rather than left to be discovered as a scrambled indirect draw.
+                //    Three other consumers ride on the same fact and have no base of their own: the shade's HEAD reconstruction (Indices[Primitive*3],
+                //    the b1-b2 branch — the floor's counterpart needed FloorIndexBase precisely because it is NOT at zero), the component overlay's,
+                //    and SoftwareRasterization.comp's Indices[Triangle*3]. Give the heads a non-zero offset and all four break at once, each into a
+                //    wrong-but-plausible surface rather than a blank one.
+                if (HeadPlacement.IndexOffset != 0u)
+                    ISSUE_CAUTION("render-extension", "heads are not at merged-stream offset 0 (%u) — the indirect cull draw and every "
+                                  "zero-based reconstruction (shade, overlay, software raster) will be wrong",
+                                  (unsigned)HeadPlacement.IndexOffset);
 
                 // Clipmap occupancy (P5c): voxelize every placed head's TRIANGLES into world cells, once, here at load. The exact triangle-cell
                 // overlap predicate marks only the cells a surface actually crosses, so a concave object claims no empty interior cells — the
@@ -920,7 +1063,7 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                     float LocalCone[4];
                     FitMeshLocalBounds(Stream, LocalSphere, LocalCone);
                     UploadInstanceCullRecords(Extension.InstanceCull, Extension.UploadPool, Instances,
-                                              LocalSphere, LocalCone, Extension.SceneGeometry.IndexCount);
+                                              LocalSphere, LocalCone, HeadPlacement.IndexCount);
                     Extension.InstanceCullRecordCount = Extension.InstanceCull.RecordCount;
                     BindVisibilitySurvivorBuffer(Extension.VisibilityRaster, Extension.InstanceCull.SurvivorBuffer,
                                                  (VkDeviceSize)Extension.InstanceCull.RecordCapacity * sizeof(uint32_t));
@@ -985,53 +1128,74 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                     RegisterWorkspaceDocument(Extension.SceneRegistry, LoadedDocument, NullRecordToken, 0u);
 
                 ISSUE_NOTICE("render-extension", "visibility scene loaded: %u instances, %u triangles/head, %u outliner rows (from '%s')",
-                             (unsigned)Instances.size(), (unsigned)(Extension.SceneGeometry.IndexCount / 3),
+                             (unsigned)Instances.size(), (unsigned)(HeadPlacement.IndexCount / 3),
                              (unsigned)Registration.SpawnedCount, DocumentName);
-            }
-            else
-            {
-                ISSUE_CAUTION("render-extension", "visibility scene document unavailable ('%s') — raster idle", DocumentPath.c_str());
-            }
 
-            // Checkered floor: load its standalone document (one slab block + one grey object), upload the slab into its own device-local geometry, and
-            // upload the single floor instance into the floor raster. Drawn as a second mesh into the shared visibility buffer in the preamble. All
-            // best-effort — a missing CheckerFloor.wsdoc leaves FloorGeometry empty and the floor draw a no-op (the heads-only scene is unaffected).
-            const std::string FloorPath = std::string(FRONTIER_SCENE_ASSET_DIR) + "/CheckerFloor.wsdoc";
-            RenderVertexStream FloorStream;
-            std::vector<SuzanneSceneInstance> FloorInstances;
-            if (LoadFloorDocument(FloorPath.c_str(), FloorStream, FloorInstances) &&
-                ConstructPolygonBufferAllocation(Extension.Substrate.Host, Extension.UploadPool, FloorStream, Extension.FloorGeometry))
-            {
-                UploadVisibilityScene(Extension.FloorRaster, FloorInstances);
-                ISSUE_NOTICE("render-extension", "checkered floor loaded: %u instances, %u triangles",
-                             (unsigned)FloorInstances.size(), (unsigned)(Extension.FloorGeometry.IndexCount / 3));
-
-                // The floor is scene geometry too, so it belongs in the clipmap occupancy alongside the heads — previously it was loaded into
-                // its own local stream and never voxelized, which is why the slab showed no occupied cells at all. Its triangles are large
-                // enough to each propose a wide candidate box, so this is the sweep the cell budget above exists for.
-                VoxelizeSceneOccupancy(Extension, FloorStream, FloorInstances, "floor");
-
-                // P6.3a: re-point the shade's floor bindings (b5-b7) at the real floor buffers, which only exist as of this branch. Until now they
-                // aliased the head buffers, so this is the call that actually lets the floor shade — and therefore the call that gives the sun
-                // shadows a lit surface to fall on. Reached only on success, so a missing document leaves the safe alias in place.
-                // ⚠️ The head buffers must be passed through unchanged: Refresh rewrites the WHOLE set, so handing it null head handles here would
-                //    trip its early-return and the floor would silently never bind.
-                if (Extension.SurfaceShade.ReadyCondition)
+                // -- The floor half of the merged claim. Its geometry is ALREADY resident (it was folded into the buffer constructed above), so what
+                //    remains is the instance upload, the occupancy sweep, and pointing the shade's floor bindings at the merged buffer.
+                if (Extension.FloorStreamPresent)
                 {
-                    RefreshSurfaceShadeInscription(Extension.SurfaceShade, Extension.VisibilityTarget,
-                                                   Extension.SurfaceShade.BoundVertexBuffer,   Extension.SceneGeometry.VertexByteCapacity,
-                                                   Extension.SurfaceShade.BoundIndexBuffer,    Extension.SceneGeometry.IndexByteCapacity,
-                                                   Extension.SurfaceShade.BoundInstanceBuffer,
-                                                   (VkDeviceSize)Extension.VisibilityRaster.InstanceCount * sizeof(SuzanneSceneInstance),
-                                                   Extension.FloorGeometry.VertexBuffer, Extension.FloorGeometry.VertexByteCapacity,
-                                                   Extension.FloorGeometry.IndexBuffer,  Extension.FloorGeometry.IndexByteCapacity,
-                                                   Extension.FloorRaster.InstanceBuffer,
-                                                   (VkDeviceSize)FloorInstances.size() * sizeof(SuzanneSceneInstance));
+                    const GeometryStreamPlacement FloorPlacement =
+                        RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.FloorMeshOrdinal);
+
+                    UploadVisibilityScene(Extension.FloorRaster, FloorInstances);
+                    ISSUE_NOTICE("render-extension", "checkered floor merged: %u instances, %u triangles at vertex %u / index %u",
+                                 (unsigned)FloorInstances.size(), (unsigned)(FloorPlacement.IndexCount / 3),
+                                 (unsigned)FloorPlacement.VertexOffset, (unsigned)FloorPlacement.IndexOffset);
+
+                    // The floor is scene geometry too, so it belongs in the clipmap occupancy alongside the heads — previously it was loaded into
+                    // its own local stream and never voxelized, which is why the slab showed no occupied cells at all. Its triangles are large
+                    // enough to each propose a wide candidate box, so this is the sweep the cell budget above exists for.
+                    VoxelizeSceneOccupancy(Extension, FloorStream, FloorInstances, "floor");
+
+                    // 🔴 b5-b7 STAY WIRED, and they now point at the SAME merged buffer as b1-b2 rather than at a separate floor allocation. That is
+                    //    not the aliasing hazard the FloorShadeEnabled gate was written against: back then an absent floor left b5-b7 aliased onto the
+                    //    heads' buffers, so a floor pixel would reconstruct from head geometry. Here the floor's triangles genuinely live in this
+                    //    buffer, and the shader reaches them because the floor's indices were REBASED at append time — the same absolute indices the
+                    //    raster draws with. The gate keeps its original meaning (0 = no floor geometry to reconstruct from) and is still driven by
+                    //    FloorGeometryBound below.
+                    if (Extension.SurfaceShade.ReadyCondition)
+                    {
+                        RefreshSurfaceShadeInscription(Extension.SurfaceShade, Extension.VisibilityTarget,
+                                                       Extension.SurfaceShade.BoundVertexBuffer,   Extension.SceneGeometry.VertexByteCapacity,
+                                                       Extension.SurfaceShade.BoundIndexBuffer,    Extension.SceneGeometry.IndexByteCapacity,
+                                                       Extension.SurfaceShade.BoundInstanceBuffer,
+                                                       (VkDeviceSize)Extension.VisibilityRaster.InstanceCount * sizeof(SuzanneSceneInstance),
+                                                       Extension.SceneGeometry.VertexBuffer, Extension.SceneGeometry.VertexByteCapacity,
+                                                       Extension.SceneGeometry.IndexBuffer,  Extension.SceneGeometry.IndexByteCapacity,
+                                                       Extension.FloorRaster.InstanceBuffer,
+                                                       (VkDeviceSize)FloorInstances.size() * sizeof(SuzanneSceneInstance));
+                    }
+                }
+
+                // -- The arena: one bottom-level tree per merged mesh, appended in the SAME order as the streams so a mesh ordinal names the same mesh
+                //    in both tables. This is the first point every tree and every offset exists together. Best-effort throughout — a scene that cannot
+                //    be traced still rasters, which is why a failed append only costs global illumination.
+                if (InitializeGeometryArenaSubmission(Extension.GeometryArena, Extension.Substrate.Host))
+                {
+                    uint32_t AppendedOrdinal = 0;
+                    if (HeadTree.ReadyCondition)
+                        AppendGeometryTreeToArena(Extension.GeometryArena, HeadTree,
+                                                  HeadPlacement.VertexOffset, HeadPlacement.IndexOffset, AppendedOrdinal);
+
+                    if (Extension.FloorStreamPresent && FloorTree.ReadyCondition)
+                    {
+                        const GeometryStreamPlacement FloorPlacement =
+                            RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.FloorMeshOrdinal);
+                        AppendGeometryTreeToArena(Extension.GeometryArena, FloorTree,
+                                                  FloorPlacement.VertexOffset, FloorPlacement.IndexOffset, AppendedOrdinal);
+                    }
+
+                    if (UploadGeometryArena(Extension.GeometryArena, Extension.UploadPool))
+                        ISSUE_NOTICE("render-extension", "geometry arena uploaded: %u mesh slices",
+                                     (unsigned)Extension.GeometryArena.Slices.size());
+                    else
+                        ISSUE_CAUTION("render-extension", "geometry arena upload failed — scene rasters but does not trace");
                 }
             }
             else
             {
-                ISSUE_CAUTION("render-extension", "checkered floor document unavailable ('%s') — floor not drawn", FloorPath.c_str());
+                ISSUE_CAUTION("render-extension", "visibility scene document unavailable ('%s') — raster idle", DocumentPath.c_str());
             }
         }
     }
@@ -1039,6 +1203,124 @@ bool InitializeRenderExtension(RenderExtension& Extension,
     // Every mesh that contributes occupancy has now been swept, so close the bake: dedup across instances and derive the overlay's shell copy.
     // Placed outside the load branches on purpose — it must run even when a document failed to load, so the two sets never disagree.
     FinalizeSceneOccupancy(Extension);
+
+    // -- Surfel GI, Phase 1 (pool + hash grid + spawn + debug view). Stood up HERE, after the scene load, because the pool/slotting inits submit
+    //    one-shot clears on the UploadPool and the lifecycle's first Refresh binds the merged mesh buffers — both of which only exist once the
+    //    document has loaded. The debug splat is built against the SCENE colour format (it draws into the radiance scope, like the sky + shade), so
+    //    it reuses the SceneColourFormat resolved above. All best-effort: a failed init leaves ReadyCondition false and every surfel record no-ops,
+    //    exactly like the clipmap visualization, so the colour path is unaffected. Skipped entirely when the UploadPool never came up (no raster).
+#ifndef FRONTIER_SURFEL_SHADER_DIR
+#define FRONTIER_SURFEL_SHADER_DIR "Shaders"
+#endif
+    if (Extension.UploadPool != VK_NULL_HANDLE)
+    {
+        InitializeSurfelPool(Extension.SurfelPoolResource, Extension.Substrate.Host, Extension.UploadPool, SurfelMaxCount);
+        InitializeSurfelGridSlotting(Extension.SurfelSlotting, Extension.Substrate.Host, Extension.UploadPool, FRONTIER_SURFEL_SHADER_DIR);
+
+        // The spawn dispatch is one workgroup per 8x8 visibility tile; the per-tile request buffers are sized ONCE for the largest image the window
+        // can reach so a resize never re-allocates them. 4K covers every practical swapchain; a smaller live extent simply leaves the tail unused.
+        const uint32_t SurfelSpawnMaxTileCount = SurfelSpawnTilesAcross(3840u) * SurfelSpawnTilesAcross(2160u);
+        InitializeSurfelLifecycleSubmission(Extension.SurfelLifecycle, Extension.Substrate.Host,
+                                            SurfelSpawnMaxTileCount, FRONTIER_SURFEL_SHADER_DIR);
+        InitializeSurfelDebugInscription(Extension.SurfelDebug, Extension.Substrate.Host, SceneColourFormat, FRONTIER_SURFEL_SHADER_DIR);
+
+        // Point the debug splat at the pool + grid buffers (idempotent; safe every frame later). The lifecycle's spawn set binds the visibility
+        // image + the merged mesh buffers exactly as the shade does — heads always, floor when its run is genuinely resident (FloorGeometryBound),
+        // else VK_NULL_HANDLE so the three floor bindings alias onto the heads and FloorShadeEnabled stays 0 in the spawn constants below.
+        if (Extension.SurfelDebug.ReadyCondition)
+            RefreshSurfelDebugInscription(Extension.SurfelDebug, Extension.SurfelPoolResource, Extension.SurfelSlotting);
+
+        if (Extension.SurfelLifecycle.ReadyCondition && Extension.VisibilityRaster.ReadyCondition)
+        {
+            const bool FloorResident = Extension.SurfaceShade.FloorGeometryBound && Extension.FloorRaster.InstanceCount > 0;
+            RefreshSurfelLifecycleVisibility(Extension.SurfelLifecycle, Extension.VisibilityTarget.IdView,
+                                             Extension.SurfelPoolResource, Extension.SurfelSlotting,
+                                             Extension.SceneGeometry.VertexBuffer, Extension.SceneGeometry.IndexBuffer,
+                                             Extension.VisibilityRaster.InstanceBuffer,
+                                             FloorResident ? Extension.SceneGeometry.VertexBuffer   : VK_NULL_HANDLE,
+                                             FloorResident ? Extension.SceneGeometry.IndexBuffer    : VK_NULL_HANDLE,
+                                             FloorResident ? Extension.FloorRaster.InstanceBuffer   : VK_NULL_HANDLE);
+        }
+
+        // -- Phase 3: point the SHADE's surfel set (set 1) at the SAME seven buffers the integrate writes, so the deferred gather reads the live cache.
+        //    Bind ONCE here (the surfel buffers are stable after the pool + slotting init — unlike the id view they do NOT rebuild on resize, so no
+        //    resize-path re-Refresh is needed). Best-effort: a no-op until the shade's surfel layout, the pool, and the slotting are all ready, leaving
+        //    SurfelSetReady false so the shade record forces the flat-ambient path. This is what the F7 GI toggle A/B-tests against.
+        RefreshSurfaceShadeSurfelBindings(Extension.SurfaceShade, Extension.SurfelPoolResource, Extension.SurfelSlotting);
+
+        // -- Top-level acceleration structure (TLAS). Stood up beside the surfels because it, too, needs the loaded scene: it reduces boxes over the
+        //    instance array the raster holds and reads the arena's slice + node buffers. The scene is STATIC after load (VisibilityRaster.InstanceCount
+        //    is never reassigned), so every buffer handle is stable — we Bind* ONCE here and Record-only per frame. This diverges from the validation
+        //    exe (TwoLevelTraceValidation re-binds inside its submit-and-wait loop, trivially safe there); live, with two frames in flight and fresh
+        //    per-slot command buffers, re-binding a set already recorded into an in-flight command buffer is UNDEFINED, so the binds MUST stay out of
+        //    the per-frame path. SetRadixSortKeyCount sets a scalar (not a descriptor) and the count is fixed, so it is hoisted here too. Best-effort:
+        //    a failed init/bind leaves TlasReady false and the per-frame record no-ops, so the colour path is unaffected. Feeds nothing yet — Phase 2.
+        constexpr uint32_t TlasInstanceCapacity = 65536; // designed-for-growth; today's scene is a handful of instances, well under RadixSortKeyCeiling
+        const uint32_t TlasInstanceCount = Extension.VisibilityRaster.InstanceCount;
+        const uint32_t TlasSliceCount    = (uint32_t)Extension.GeometryArena.Slices.size();
+        if (Extension.GeometryArena.UploadedCondition && TlasInstanceCount > 0 && TlasInstanceCount <= TlasInstanceCapacity)
+        {
+            VkBuffer ArenaNode = VK_NULL_HANDLE, ArenaPrimitive = VK_NULL_HANDLE, ArenaSlice = VK_NULL_HANDLE, ArenaParent = VK_NULL_HANDLE;
+            RetrieveGeometryArenaBuffers(Extension.GeometryArena, ArenaNode, ArenaPrimitive, ArenaSlice, ArenaParent);
+
+            const bool BoundsOk = InitializeInstanceBoundsSubmission(Extension.TlasBounds, Extension.Substrate.Host, FRONTIER_SURFEL_SHADER_DIR);
+            const bool SortOk   = InitializeRadixSortSubmission(Extension.TlasSort, Extension.Substrate.Host, TlasInstanceCapacity, FRONTIER_SURFEL_SHADER_DIR);
+            const bool TreeOk   = InitializeInstanceTreeSubmission(Extension.TlasTree, Extension.Substrate.Host, TlasInstanceCapacity, FRONTIER_SURFEL_SHADER_DIR);
+
+            if (BoundsOk && SortOk && TreeOk)
+            {
+                const VkDeviceSize InstanceBytes = (VkDeviceSize)TlasInstanceCount * sizeof(SuzanneSceneInstance);
+                const VkDeviceSize KeyBytes      = (VkDeviceSize)TlasInstanceCount * sizeof(uint32_t);
+
+                VkBuffer MortonKey = VK_NULL_HANDLE, MortonPayload = VK_NULL_HANDLE;
+                RetrieveRadixSortInputBuffers(Extension.TlasSort, MortonKey, MortonPayload);
+
+                VkBuffer SortedKey = VK_NULL_HANDLE, SortedPayload = VK_NULL_HANDLE;
+                RetrieveRadixSortedBuffers(Extension.TlasSort, SortedKey, SortedPayload); // the RESULT pair — never the primary buffers by name
+
+                // Arena node/slice descriptor ranges use VK_WHOLE_SIZE: the host word arrays are released after UploadGeometryArena, so no host byte
+                // count survives — this matches the trace exe's descriptor write. SliceCount is the arena's slice count, NOT the instance count.
+                const bool Bound =
+                    BindInstanceBoundsScene(Extension.TlasBounds,
+                                            Extension.VisibilityRaster.InstanceBuffer, InstanceBytes,
+                                            ArenaSlice, VK_WHOLE_SIZE, ArenaNode, VK_WHOLE_SIZE,
+                                            TlasInstanceCount, TlasSliceCount)
+                  && BindInstanceMortonTarget(Extension.TlasBounds, MortonKey, KeyBytes, MortonPayload, KeyBytes)
+                  && SetRadixSortKeyCount(Extension.TlasSort, TlasInstanceCount)
+                  && BindInstanceTreeSorted(Extension.TlasTree, SortedKey, KeyBytes, SortedPayload, KeyBytes, TlasInstanceCount)
+                  && BindInstanceTreeScene(Extension.TlasTree,
+                                           Extension.VisibilityRaster.InstanceBuffer, InstanceBytes,
+                                           ArenaSlice, VK_WHOLE_SIZE, ArenaNode, VK_WHOLE_SIZE,
+                                           SortedPayload, KeyBytes, TlasSliceCount);
+
+                Extension.TlasReady = Bound;
+                if (Bound)
+                    ISSUE_NOTICE("render-extension", "TLAS chain wired: %u instances, %u slices", TlasInstanceCount, TlasSliceCount);
+                else
+                    ISSUE_CAUTION("render-extension", "TLAS bind failed — scene rasters, no top-level built");
+
+                // -- Phase 2: the per-surfel INTEGRATE (trace + MSME). The awaited consumer of the #26 tree-node barrier. Two descriptor sets — set 0 is
+                //    the BVH (the exact seven buffers the TLAS just bound: instances + arena slice/node/primitive + tree node + merged index/vertex),
+                //    set 1 is the surfel state. Scene is static after load, so — like the TLAS — bind ONCE here and Record-only per frame (re-binding an
+                //    in-flight set is undefined). Gated on the whole chain being live; best-effort, so a failure just leaves ReadyCondition false and the
+                //    per-frame record no-ops. Feeds nothing on screen yet — Phase 3 gathers it at SurfaceShade.frag.
+                InitializeSurfelIntegrateSubmission(Extension.SurfelIntegrate, Extension.Substrate.Host, FRONTIER_SURFEL_SHADER_DIR);
+                if (Extension.SurfelIntegrate.ReadyCondition && Extension.TlasReady
+                    && Extension.SurfelPoolResource.ReadyCondition && Extension.SurfelSlotting.ReadyCondition)
+                {
+                    VkBuffer TreeNode = VK_NULL_HANDLE, TreeParent = VK_NULL_HANDLE;
+                    RetrieveInstanceTreeBuffers(Extension.TlasTree, TreeNode, TreeParent);
+
+                    RefreshSurfelIntegrateBindings(Extension.SurfelIntegrate,
+                                                   Extension.SurfelPoolResource, Extension.SurfelSlotting,
+                                                   Extension.VisibilityRaster.InstanceBuffer, ArenaSlice,
+                                                   ArenaNode, ArenaPrimitive, TreeNode,
+                                                   Extension.SceneGeometry.IndexBuffer, Extension.SceneGeometry.VertexBuffer);
+                    ISSUE_NOTICE("render-extension", "surfel integrate wired against the TLAS");
+                }
+            }
+        }
+    }
 
 #ifdef FRONTIER_DEVELOPMENT_PROFILE
     // -- Clipmap visualization (development only): the instanced wire-cube lattice + probe markers over the field, built against the SWAPCHAIN
@@ -1147,16 +1429,19 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 //    buffers on the first resize and FloorGeometryBound would fall to false — the floor would stop shading the moment the window was
                 //    dragged. Passed from the inscription's own Bound* fields for the same reason the head buffers are: this call exists to re-point
                 //    the image view, and every buffer binding should come back out exactly as it went in.
+                // 📝 Since the merge, the floor's geometry pair IS the merged SceneGeometry pair, so b5/b6 and b1/b2 carry the same two handles and the
+                //    same two capacities. Handing them back from Bound* rather than re-deriving them keeps that an observation about this frame's
+                //    state instead of an assumption baked into the resize path.
                 RefreshSurfaceShadeInscription(Extension.SurfaceShade, Extension.VisibilityTarget,
                                                Extension.SurfaceShade.BoundVertexBuffer,   Extension.SceneGeometry.VertexByteCapacity,
                                                Extension.SurfaceShade.BoundIndexBuffer,    Extension.SceneGeometry.IndexByteCapacity,
                                                Extension.SurfaceShade.BoundInstanceBuffer,
                                                (VkDeviceSize)Extension.VisibilityRaster.InstanceCount * sizeof(SuzanneSceneInstance),
-                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.FloorGeometry.VertexBuffer : VK_NULL_HANDLE,
-                                               Extension.FloorGeometry.VertexByteCapacity,
-                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.FloorGeometry.IndexBuffer : VK_NULL_HANDLE,
-                                               Extension.FloorGeometry.IndexByteCapacity,
-                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.FloorRaster.InstanceBuffer : VK_NULL_HANDLE,
+                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.SurfaceShade.BoundFloorVertexBuffer : VK_NULL_HANDLE,
+                                               Extension.SceneGeometry.VertexByteCapacity,
+                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.SurfaceShade.BoundFloorIndexBuffer : VK_NULL_HANDLE,
+                                               Extension.SceneGeometry.IndexByteCapacity,
+                                               Extension.SurfaceShade.FloorGeometryBound ? Extension.SurfaceShade.BoundFloorInstanceBuffer : VK_NULL_HANDLE,
                                                (VkDeviceSize)Extension.FloorRaster.InstanceCount * sizeof(SuzanneSceneInstance));
 
 #ifdef FRONTIER_POLYGON_AUTHORING
@@ -1202,9 +1487,18 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             // what the others wrote (the modern one-clear / N-mesh path via BeginVisibilityScope → DrawVisibilityMesh… → EndVisibilityScope). The floor
             // is always a plain single-instance draw (no cull — it is one object); the heads draw indirect (cull) or plain per the toggle. The floor push
             // constants share the same camera; CullActive stays 0 for the floor so its gl_InstanceIndex is direct.
+            // 📝 The floor now draws out of the SHARED merged buffer as a sub-range rather than out of its own allocation, so readiness is the presence
+            //    of its placement rather than of a second buffer. The range is read once here and handed to each of the four draw sites below.
+            const GeometryStreamPlacement FloorDrawPlacement =
+                RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.FloorMeshOrdinal);
+            // 🔴 The heads need a sub-range for the same reason: SceneGeometry.IndexCount is the WHOLE merged run now, so a plain head draw that took
+            //    it would render the floor slab once per head instance, each carrying that head's transform.
+            const GeometryStreamPlacement HeadDrawPlacement =
+                RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.HeadMeshOrdinal);
             const bool FloorReady = Extension.FloorRaster.ReadyCondition
                                  && Extension.FloorRaster.InstanceCount > 0
-                                 && Extension.FloorGeometry.IndexCount > 0;
+                                 && Extension.FloorStreamPresent
+                                 && FloorDrawPlacement.IndexCount > 0;
 
             // Software micro-raster path (P4, Numpad-3): when toggled on AND the compute path built (int64 atomics present) AND heads are present, the
             // heads are rasterized by the compute edge-function walk instead of the hardware raster. RecordSoftwareRasterization owns the whole fill —
@@ -1228,7 +1522,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 SoftwareConstants.ViewportExtentX = (float)Extension.VisibilityTarget.Width;
                 SoftwareConstants.ViewportExtentY = (float)Extension.VisibilityTarget.Height;
                 SoftwareConstants.InstanceCount   = Extension.VisibilityRaster.InstanceCount;
-                SoftwareConstants.TriangleCount   = Extension.SceneGeometry.IndexCount / 3u;
+                // 🔴 The HEADS' triangle count, not the merged buffer's. The compute raster walks TriangleCount triangles per instance, so the merged
+                //    total would march every head instance across the floor slab's triangles as well.
+                SoftwareConstants.TriangleCount   = HeadDrawPlacement.IndexCount / 3u;
                 SoftwareConstants.CullActive      = CullActive ? 1u : 0u;
 
                 if (CullActive)
@@ -1255,8 +1551,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     AssembleVisibilityConstants(Extension.ViewCamera, FloorConstants);
                     FloorConstants.CullActive = 0u;
                     BeginVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer, true);
-                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
-                                       Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.SceneGeometry,
+                                       Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer,
+                                       FloorDrawPlacement.IndexOffset, FloorDrawPlacement.IndexCount);
                     EndVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
                 }
             }
@@ -1282,8 +1579,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 {
                     VisibilityRasterConstants FloorConstants = RasterConstants;
                     FloorConstants.CullActive = 0u;
-                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
-                                       Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.SceneGeometry,
+                                       Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer,
+                                       FloorDrawPlacement.IndexOffset, FloorDrawPlacement.IndexCount);
                 }
                 EndVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
             }
@@ -1295,10 +1593,12 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 // One shared scope: clear once, plain-draw every head instance, then plain-draw the floor.
                 BeginVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
                 DrawVisibilityMesh(Extension.VisibilityRaster, Extension.VisibilityRaster.InstanceSet, Extension.SceneGeometry,
-                                   Extension.VisibilityRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                                   Extension.VisibilityRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer,
+                                   HeadDrawPlacement.IndexOffset, HeadDrawPlacement.IndexCount);
                 if (FloorReady)
-                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
-                                       Extension.FloorRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                    DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.SceneGeometry,
+                                       Extension.FloorRaster.InstanceCount, RasterConstants, false, VK_NULL_HANDLE, CommandBuffer,
+                                       FloorDrawPlacement.IndexOffset, FloorDrawPlacement.IndexCount);
                 EndVisibilityScope(Extension.VisibilityRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
             }
             else if (FloorReady)
@@ -1307,8 +1607,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 VisibilityRasterConstants FloorConstants;
                 AssembleVisibilityConstants(Extension.ViewCamera, FloorConstants);
                 BeginVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
-                DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.FloorGeometry,
-                                   Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer);
+                DrawVisibilityMesh(Extension.FloorRaster, Extension.FloorRaster.InstanceSet, Extension.SceneGeometry,
+                                   Extension.FloorRaster.InstanceCount, FloorConstants, false, VK_NULL_HANDLE, CommandBuffer,
+                                   FloorDrawPlacement.IndexOffset, FloorDrawPlacement.IndexCount);
                 EndVisibilityScope(Extension.FloorRaster, Extension.VisibilityTarget, Extension.DepthTarget, CommandBuffer);
             }
             else
@@ -1381,6 +1682,160 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             if (VisibilityWritten)
                 TransitionVisibilityImageForSampling(Extension.VisibilityTarget, CommandBuffer);
 
+            // ================================================================================================================================
+            //  TOP-LEVEL ACCELERATION STRUCTURE (TLAS) — per-frame GPU build over the scene instances. NO trace yet; this stands up the two-level
+            //  BVH the Phase-2 surfel trace will walk, and exposes its node buffer at the seam below.
+            // ================================================================================================================================
+            // 📝 Recorded in the SAME outside-every-scope compute region as the surfels (compute is illegal inside the radiance scope that opens below).
+            //    Independent of the surfel block — it reads the instance array + arena, NOT the visibility image — so its order vs the surfels is free
+            //    and it gates on TlasReady, NOT VisibilityWritten (it can rebuild even on an idle frame). The five records go in EXACT order with NO
+            //    caller barriers between them: each submission inserts its own inter-dispatch barriers, and the device-side reseeds (bounds accumulator,
+            //    tree parent table, refit counters) live inside these Record calls and run every frame — they must NOT be hoisted.
+            if (Extension.TlasReady)
+            {
+                RecordInstanceBoundsReduce(Extension.TlasBounds, CommandBuffer);
+                RecordInstanceMortonCode  (Extension.TlasBounds, CommandBuffer);
+                RecordRadixSort           (Extension.TlasSort,   CommandBuffer);
+                RecordInstanceTreeBuild   (Extension.TlasTree,   CommandBuffer);
+                RecordInstanceTreeRefit   (Extension.TlasTree,   CommandBuffer);
+
+                // Fence the refit's node-buffer writes (compute) for the future surfel trace's read (compute). Harmless with no consumer yet — a
+                // no-cost fence — but it future-proofs the seam so Phase 2 only adds its descriptor write + dispatch, and makes the live recording
+                // structurally identical to the TwoLevelTraceValidation reference. The destination consumer is the Phase-2 surfel trace.
+                VkBuffer TlasNodeBuffer = VK_NULL_HANDLE, TlasParentBuffer = VK_NULL_HANDLE;
+                RetrieveInstanceTreeBuffers(Extension.TlasTree, TlasNodeBuffer, TlasParentBuffer);
+                if (TlasNodeBuffer != VK_NULL_HANDLE)
+                {
+                    VkBufferMemoryBarrier TlasToConsumer = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+                    TlasToConsumer.srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT;
+                    TlasToConsumer.dstAccessMask       = VK_ACCESS_SHADER_READ_BIT;
+                    TlasToConsumer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    TlasToConsumer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    TlasToConsumer.buffer              = TlasNodeBuffer;
+                    TlasToConsumer.offset              = 0;
+                    TlasToConsumer.size                = VK_WHOLE_SIZE;
+                    vkCmdPipelineBarrier(CommandBuffer,
+                                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                         0, 0, nullptr, 1, &TlasToConsumer, 0, nullptr);
+                }
+            }
+
+            // ================================================================================================================================
+            //  SURFEL GI — Phase 1 per-frame compute (pool lifecycle + hash-grid slotting). NO tracing / GI on screen; this maintains the surfel
+            //  substrate and the debug splat reads it below.
+            // ================================================================================================================================
+            // 📝 THE ONE LEGAL SEAM: compute is illegal inside a dynamic-rendering scope, and the radiance scope opens right below. This spot — after
+            //    the visibility image is handed to sampling (the spawn texelFetches its id) and before any scope opens — is the only place inside the
+            //    command buffer and outside every scope, the same seam the shade's radiance scope needs.
+            // 🔴 ORDER IS THE LIFECYCLE CONTRACT: Prepare (one-time seed, F21 — no-ops after frame 0) MUST precede the first slotting; slotting builds
+            //    the grid the spawn reads, so spawn is AFTER slotting; Age (+1 / TTL recycle) is after spawn. Each unit inserts its own F3 barriers;
+            //    the trailing barrier below fences the finished surfel + offsets writes for the debug splat's vertex-stage read in the radiance scope.
+            // ⚠️ Gated on VisibilityWritten for the same reason the shade is: the spawn reconstructs world pos/normal from the id buffer, and on an idle
+            //    frame that buffer holds undefined bytes — spawning from them would seed surfels out of stale memory.
+            if (VisibilityWritten && Extension.SurfelLifecycle.ReadyCondition && Extension.SurfelSlotting.ReadyCondition
+                && Extension.SurfelPoolResource.ReadyCondition)
+            {
+                // 🩺 DIAGNOSTIC (task #37 — breathing oscillation). Read the atomics recorded LAST frame (frame-latency, no stall) and log the surfel
+                //    population every ~30 frames. Still camera: pulsing alive/spawn in lockstep with the visual breath => coverage churn; flat while the
+                //    brightness still breathes => pure feedback-delay ringing. Remove this block + RecordSurfelAtomicReadback once settled.
+                {
+                    int32_t DiagAlive = 0, DiagAllocPtr = 0, DiagMaxSlot = 0;
+                    if (ReadSurfelAtomicReadback(Extension.SurfelPoolResource, DiagAlive, DiagAllocPtr, DiagMaxSlot)
+                        && (Extension.SurfelFrameIndex % 30u) == 0u)
+                    {
+                        printf("[surfel-diag] frame %u: alive=%d allocPtr=%d maxSlot=%d\n",
+                               Extension.SurfelFrameIndex, DiagAlive, DiagAllocPtr, DiagMaxSlot);
+                        fflush(stdout);
+                    }
+                }
+
+                RecordSurfelLifecyclePrepare(Extension.SurfelLifecycle, Extension.SurfelPoolResource, CommandBuffer);
+
+                SurfelSlottingConstants SlottingConstants;
+                AssembleSurfelSlottingConstants(Extension.ViewCamera, SlottingConstants);
+                RecordSurfelGridSlotting(Extension.SurfelSlotting, Extension.SurfelPoolResource, SlottingConstants, CommandBuffer);
+
+                const bool FloorResident = Extension.SurfaceShade.FloorGeometryBound && FloorDrawPlacement.IndexCount > 0;
+                SurfelSpawnConstants SpawnConstants;
+                AssembleSurfelSpawnConstants(Extension.ViewCamera, Extension.VisibilityTarget.Width
+                                             ? VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height } : Extent,
+                                             Extension.SurfelFrameIndex, FloorResident, FloorDrawPlacement.IndexOffset, SpawnConstants);
+                RecordSurfelLifecycleSpawn(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SpawnConstants,
+                                           VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height }, CommandBuffer);
+
+                RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, CommandBuffer);
+
+                // ── Phase 2: the per-surfel INTEGRATE (trace + MSME). Runs AFTER Age (so this frame's ages are settled) and AFTER the #26 TLAS chain (it
+                //    walks the tree the refit just wrote — B2 above already fenced the tree node buffer). B1 fences slotting's grid + the pool/moments-read
+                //    writes for integrate's read; B3 fences integrate's moments-write / guiding / depth / touched for next frame's readers; then the swap
+                //    flips parity so the write half becomes readable. The swap is LAST (Phase 3 inserts Resolve BEFORE it and changes nothing else).
+                //    🔴 Do NOT try to make this frame's Age see this frame's touched — Age ran above, so integrate's touched is a NEXT-frame input (the
+                //       deliberate one-frame skew F10); the frame fence carries that, and B3 makes the writes visible within the frame.
+                if (Extension.TlasReady && Extension.SurfelIntegrate.ReadyCondition && Extension.SurfelPoolResource.ReadyCondition)
+                {
+                    // B1 — slotting/pool/moments-read (compute WRITE) → integrate (compute READ). The Phase-1 trailing barrier below is COMPUTE→VERTEX for
+                    // the splat; it does NOT cover COMPUTE→COMPUTE, so integrate needs its own.
+                    VkMemoryBarrier GridToIntegrate = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+                    GridToIntegrate.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                    GridToIntegrate.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                    vkCmdPipelineBarrier(CommandBuffer,
+                                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                         0, 1, &GridToIntegrate, 0, nullptr, 0, nullptr);
+
+                    // The eye is the camera-relative grid origin (same as slotting/spawn); the sun is the SAME Z-up solar direction the shade + shadow
+                    // clipmap use, its colour the white-calibrated solar illuminance. The sky ground/zenith are a deterministic constant stand-in (§conflict
+                    // 2) — no env texture is bound; the clipmap probe replaces this miss path at Phase 5.
+                    const FocalOrientation IntegrateFrame = SolveOrbitOrientation(Extension.ViewCamera);
+                    const float IntegrateEye[3] = { IntegrateFrame.EyePosition.XCoord, IntegrateFrame.EyePosition.YCoord, IntegrateFrame.EyePosition.ZCoord };
+
+                    float IntegrateSunX = 0.0f, IntegrateSunY = 0.0f, IntegrateSunZ = 1.0f;
+                    Atmosphere::ResolveSolarDirectionSceneFrame(Extension.SkyPass.Profile, IntegrateSunX, IntegrateSunY, IntegrateSunZ);
+                    const float IntegrateSunDir[3]    = { IntegrateSunX, IntegrateSunY, IntegrateSunZ };
+                    const float IntegrateSunColour[3] = { Extension.SkyPass.Profile.SolarIlluminance[0],
+                                                          Extension.SkyPass.Profile.SolarIlluminance[1],
+                                                          Extension.SkyPass.Profile.SolarIlluminance[2] };
+                    const float IntegrateSkyGround[3] = { 0.15f, 0.16f, 0.18f };   // constant sky-ambient stand-in (§conflict 2), replaced at Phase 5
+                    const float IntegrateSkyZenith[3] = { 0.30f, 0.42f, 0.60f };
+                    const float IntegrateSkyIntensity = 1.0f;
+
+                    SurfelIntegrateConstants IntegrateConstants =
+                        AssembleSurfelIntegrateConstants(Extension.SurfelPoolResource,
+                                                         IntegrateEye, IntegrateEye,
+                                                         IntegrateSunDir, IntegrateSunColour,
+                                                         IntegrateSkyGround, IntegrateSkyZenith, IntegrateSkyIntensity,
+                                                         Extension.SurfelFrameIndex,
+                                                         Extension.VisibilityRaster.InstanceCount,
+                                                         (uint32_t)Extension.GeometryArena.Slices.size());
+                    RecordSurfelIntegrate(Extension.SurfelIntegrate, Extension.SurfelPoolResource, IntegrateConstants, CommandBuffer);
+
+                    // B3 — integrate (compute WRITE) → next frame's integrate/resolve/Age (compute READ). Fences moments-write / guiding / depth / touched.
+                    VkMemoryBarrier IntegrateToReaders = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+                    IntegrateToReaders.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                    IntegrateToReaders.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                    vkCmdPipelineBarrier(CommandBuffer,
+                                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                         0, 1, &IntegrateToReaders, 0, nullptr, 0, nullptr);
+
+                    // Swap LAST: flip the moments parity so the write half integrate just filled becomes the read half next frame's MSME sees.
+                    SwapSurfelMoments(Extension.SurfelPoolResource);
+                }
+
+                // Fence the surfel + Offsets + moments writes (compute) for the two graphics-stage readers in the radiance scope: the debug splat's
+                // VERTEX-stage storage read AND (Phase 3) the SurfaceShade FRAGMENT-stage GI gather. The units' internal barriers cover COMPUTE->COMPUTE
+                // only; both cross-stage visibilities are this pass's to add, so dstStageMask carries VERTEX | FRAGMENT (one barrier serves both).
+                VkMemoryBarrier SurfelToSplat = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+                SurfelToSplat.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+                SurfelToSplat.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(CommandBuffer,
+                                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                     0, 1, &SurfelToSplat, 0, nullptr, 0, nullptr);
+
+                // 🩺 DIAGNOSTIC (task #37): mirror the three atomics into the host-visible readback buffer. Read next frame at the top of this block.
+                RecordSurfelAtomicReadback(Extension.SurfelPoolResource, CommandBuffer);
+
+                Extension.SurfelFrameIndex++;
+            }
 
             // ================================================================================================================================
             //  THE RADIANCE SCOPE (P5.9b) — the scene, in linear light
@@ -1439,9 +1894,12 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 //    buffers, so a mesh that is absent contributes no pixels rather than wrong ones.
                 const bool HeadsShadeable = Extension.VisibilityRaster.InstanceCount > 0
                                          && Extension.SceneGeometry.IndexCount > 0;
+                // 📝 The floor's triangle run is a sub-range of the merged buffer now, so "the floor has geometry" is its placement's IndexCount, not an
+                //    allocation's. Reading SceneGeometry.IndexCount here would be true whenever the HEADS loaded and would enable the floor shade over a
+                //    scene with no floor in it.
                 const bool FloorShadeable = Extension.SurfaceShade.FloorGeometryBound
                                          && Extension.FloorRaster.InstanceCount > 0
-                                         && Extension.FloorGeometry.IndexCount > 0;
+                                         && FloorDrawPlacement.IndexCount > 0;
                 if (Extension.SurfaceShadeEnabled && Extension.SurfaceShade.ReadyCondition && VisibilityWritten
                     && (HeadsShadeable || FloorShadeable))
                 {
@@ -1458,7 +1916,34 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     //    triangles — a plausible-looking surface built from the wrong mesh, which is far harder to spot than a missing one.
                     ShadeConstants.FloorShadeEnabled = FloorShadeable ? 1u : 0u;
 
+                    // 🔴 Paired with the flag above, never set independently: b5-b7 point at the MERGED buffer, so the floor's draw-local primitive
+                    //    ordinals need its run's base added before they name the right triangle. Zero when the floor is not shadeable, matching the
+                    //    aliased-binding case where no floor run exists to be based.
+                    ShadeConstants.FloorIndexBase = FloorShadeable ? FloorDrawPlacement.IndexOffset : 0u;
+
+                    // ---- Phase 3 surfel GI gather (the three runtime fields the camera-only assemble cannot see) ----
+                    // 🔴 Post-swap read half: the integrate + SwapSurfelMoments above (~:1800) already flipped MomentsParity, so it now names the
+                    //    fresh write half the integrate just filled. The gather indexes Moments[i + ReadOffsetElements] over 20-float structs, so the
+                    //    ELEMENT base is MomentsParity*Capacity, NOT the byte offset SurfelMomentsReadOffset returns (the Phase-2 fact-4 trap).
+                    ShadeConstants.SurfelReadOffsetElements = Extension.SurfelPoolResource.MomentsParity * Extension.SurfelPoolResource.Capacity;
+                    ShadeConstants.SurfelCapacity           = Extension.SurfelPoolResource.Capacity;
+                    // GI is ON only when the toggle is set AND the surfel set is actually bound — the record forces the flat-ambient path otherwise, but
+                    // gating here too keeps the console A/B honest and avoids pushing a live read-offset the shader would ignore.
+                    ShadeConstants.SurfelGiEnabled = (Extension.SurfelGiEnabled && Extension.SurfaceShade.SurfelSetReady) ? 1u : 0u;
+
                     RecordSurfaceShadeInscription(Extension.SurfaceShade, Extent, ShadeConstants, CommandBuffer);
+                }
+
+                // Surfel debug splat (Phase 1, user-requested). Composites every LIVE surfel as a screen-space disc over the shaded scene, INSIDE this
+                // radiance scope and after the shade — like GroundGridPass, a composite that records no dispatch of its own. It self-no-ops when the
+                // mode is Off (the F6 default), so it costs nothing until asked for; when on it reads the pool + Offsets buffers the compute above just
+                // fenced for the vertex stage. Gated on VisibilityWritten because an all-idle frame ran no lifecycle, so the pool holds last frame's
+                // (or the seed) state — harmless, but there is nothing new to show and the gate keeps it in lockstep with the compute that feeds it.
+                if (VisibilityWritten && Extension.SurfelDebug.ReadyCondition && Extension.SurfelDebugMode != SurfelDebugModeOff)
+                {
+                    SurfelDebugConstants DebugConstants;
+                    AssembleSurfelDebugConstants(Extension.ViewCamera, Extent, Extension.SurfelDebugMode, DebugConstants);
+                    RecordSurfelDebugInscription(Extension.SurfelDebug, Extent, DebugConstants, CommandBuffer);
                 }
 
                 Extension.Substrate.Host.CmdEndRendering(CommandBuffer);
@@ -1653,6 +2138,43 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             }
             Extension.RadianceOperatorKeyLatch = OperatorKeyDown;
 
+            // F6 cycles the surfel debug splat through Off -> Age -> Cascade -> Identity -> Occupancy -> Off (Phase-1 visual DoD). The splat draws
+            // inside the radiance scope after shade and self-no-ops when the mode is Off, so cycling back to Off costs nothing. Edge-latched like the
+            // others; refuses to arm when the inscription did not build (shaders unstaged), and the surfel FIELD advances every frame regardless — only
+            // its on-screen display is toggled here.
+            const bool SurfelDebugKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F6);
+            if (SurfelDebugKeyDown && !Extension.SurfelDebugModeKeyLatch)
+            {
+                if (!Extension.SurfelDebug.ReadyCondition)
+                    printf("[surfel] debug view unavailable — the inscription did not build (shaders staged?)\n");
+                else
+                {
+                    Extension.SurfelDebugMode = (Extension.SurfelDebugMode + 1) % SurfelDebugModeCount;
+                    static const char* const SurfelDebugModeNames[SurfelDebugModeCount] =
+                        { "OFF", "AGE", "CASCADE", "IDENTITY", "OCCUPANCY" };
+                    printf("[surfel] debug view -> %s\n", SurfelDebugModeNames[Extension.SurfelDebugMode]);
+                }
+                fflush(stdout);
+            }
+            Extension.SurfelDebugModeKeyLatch = SurfelDebugKeyDown;
+
+            // F7 — Phase 3 GI A/B toggle. Flips between the surfel-cache gather and the old flat AmbientColour in the shade, keeping the pre-GI look one
+            // press away. Edge-latched like the others; refuses to arm when the shade's surfel set never bound (SurfelSetReady false → the shade is on the
+            // flat path anyway), so the console never claims GI is on while it is silently off.
+            const bool SurfelGiKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F7);
+            if (SurfelGiKeyDown && !Extension.SurfelGiKeyLatch)
+            {
+                if (!Extension.SurfaceShade.SurfelSetReady)
+                    printf("[surfel] GI unavailable — the shade's surfel set never bound (pool/slotting/shaders ready?)\n");
+                else
+                {
+                    Extension.SurfelGiEnabled = !Extension.SurfelGiEnabled;
+                    printf("[surfel] GI -> %s\n", Extension.SurfelGiEnabled ? "on" : "off");
+                }
+                fflush(stdout);
+            }
+            Extension.SurfelGiKeyLatch = SurfelGiKeyDown;
+
 
             // Numpad-2 toggles the GPU-driven visibility-scaling path (the two-pass cull -> indirect raster). Default ON: the raster draws only the
             // survivors the cull kept. OFF: the plain instanced draw of every instance. Edge-latched; either path writes the same id buffer, so the
@@ -1827,8 +2349,17 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             // scope, reading the visibility image the preamble transitioned to SHADER_READ_ONLY. Gated on the raster having run
             // this frame (InstanceCount > 0 + geometry present) so it never samples an undefined image. Default OFF — the presented pixels are then
             // exactly the forward view, holding the phase gate until the user flips F2.
-            const bool HeadsPresent = Extension.VisibilityRaster.InstanceCount > 0 && Extension.SceneGeometry.IndexCount > 0;
-            const bool FloorPresent = Extension.FloorRaster.InstanceCount > 0 && Extension.FloorGeometry.IndexCount > 0;
+            // 📝 Both predicates ask "did this mesh contribute pixels to the id buffer", which since the merge is a question about each mesh's own
+            //    sub-range: SceneGeometry.IndexCount is the whole world's run and would read as non-zero for a mesh that loaded nothing. The draw
+            //    placements above are out of scope by here (they live inside the raster scope), so the two runs are re-read from the concatenation.
+            const GeometryStreamPlacement HeadResolvePlacement =
+                RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.HeadMeshOrdinal);
+            const GeometryStreamPlacement FloorResolvePlacement =
+                RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.FloorMeshOrdinal);
+            const bool HeadsPresent = Extension.VisibilityRaster.InstanceCount > 0 && HeadResolvePlacement.IndexCount > 0;
+            const bool FloorPresent = Extension.FloorRaster.InstanceCount > 0
+                                   && Extension.FloorStreamPresent
+                                   && FloorResolvePlacement.IndexCount > 0;
             if (Extension.VisibilityResolveEnabled
                 && Extension.VisibilityResolve.ReadyCondition
                 && (HeadsPresent || FloorPresent))
@@ -1967,14 +2498,33 @@ void FinalizeRenderExtension(RenderExtension& Extension)
     FinalizeRadianceResolveInscription(Extension.RadianceResolve);
     FinalizeRadianceTarget(Extension.RadianceScene);
     FinalizeSurfaceShadeInscription(Extension.SurfaceShade);
+    // Phase-2 integrate first: it borrows BOTH the surfel state (pool/slotting) AND the BVH (arena + TLAS tree), all released below, so it must go ahead
+    // of every one of them. Owns only its layouts/pipeline/pool; safe on never-initialized state.
+    FinalizeSurfelIntegrateSubmission(Extension.SurfelIntegrate);
+    // Surfel chain torn down in reverse init order (debug -> lifecycle -> slotting -> pool). Each borrows the visibility image + merged mesh buffers,
+    // which are released further down, so the borrowers go first. All four are safe on never-initialized state (best-effort init leaves them inert).
+    FinalizeSurfelDebugInscription(Extension.SurfelDebug);
+    FinalizeSurfelLifecycleSubmission(Extension.SurfelLifecycle);
+    FinalizeSurfelGridSlotting(Extension.SurfelSlotting);
+    FinalizeSurfelPool(Extension.SurfelPoolResource);
+    // TLAS teardown, reverse of init (tree -> sort -> bounds), and BEFORE the arena release below because the binds borrowed the arena's buffers.
+    // All safe on never-initialized state; device already idle at the top of this function.
+    FinalizeInstanceTreeSubmission(Extension.TlasTree);
+    FinalizeRadixSortSubmission(Extension.TlasSort);
+    FinalizeInstanceBoundsSubmission(Extension.TlasBounds);
     FinalizeVisibilityInscription(Extension.VisibilityResolve);
     FinalizeSoftwareRasterization(Extension.SoftwareRaster);
     FinalizeInstanceCullSubmission(Extension.InstanceCull);
     FinalizeVisibilityRasterization(Extension.VisibilityRaster);
     FinalizeVisibilityRasterization(Extension.FloorRaster);
     FinalizeScene(Extension.SceneRegistry);
+    // The arena's slices name offsets into SceneGeometry, so it is released before the buffer those offsets address — reverse of the order the load
+    // path built them in.
+    FinalizeGeometryArenaSubmission(Extension.GeometryArena);
+    ResetGeometryStreamConcatenation(Extension.SceneStreams);
+    // 📝 ONE release now: the floor's geometry lives inside this same claim, so the second ReleasePolygonBufferAllocation that used to sit here would
+    //    be a release of a handle nothing ever allocated.
     ReleasePolygonBufferAllocation(Extension.Substrate.Host, Extension.SceneGeometry);
-    ReleasePolygonBufferAllocation(Extension.Substrate.Host, Extension.FloorGeometry);
     if (Extension.UploadPool != VK_NULL_HANDLE)
     {
         vkDestroyCommandPool(Extension.Substrate.Host.Device, Extension.UploadPool, Extension.Substrate.Host.Allocator);
