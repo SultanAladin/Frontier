@@ -49,6 +49,36 @@ const float SURFEL_GRID_CELL_DIAMETER = 1.0;    // 🔴 [m] - base (cascade-0) c
 const float SURFEL_BASE_RADIUS        = 1.2;    // 🔴 [m] - surfel disc radius at cascade 0. webgiya 0.24; scaled by the same 5x as the cell diameter.
 const float SURFEL_RADIUS_OVERSCALE   = 1.25;   // [-]  - structural, ported 1:1 (webgiya SURFEL_RADIUS_OVERSCALE)
 
+// 🔴 LIVE-TUNING GLOBALS — the world-scale knobs the F10 tuning window drives (PLAN §3). They start EQUAL to the baked consts above, so any shader that
+//    does NOT call SurfelSetTuning() behaves byte-identically to the pre-tuning build. A consumer that wants live values calls SurfelSetTuning() once at
+//    the top of main() from its push block; every grid/radius helper below reads these globals instead of the consts, so radius/cell/bias reach the WHOLE
+//    pipeline (spawn, slotting, integrate, gather, debug) from one seam. NearFieldBias defaults to 1.0 (inert); the spawn throttle multiplies by it.
+float g_SurfelCellDiameter = SURFEL_GRID_CELL_DIAMETER;   // [m] - live base cell edge (defaults to the baked const)
+float g_SurfelBaseRadius   = SURFEL_BASE_RADIUS;          // [m] - live cascade-0 disc radius (defaults to the baked const)
+float g_SurfelNearFieldBias = 1.0;                        // [-] - live near-field spawn lift (1.0 = current behaviour, inert)
+
+// 🔴 LIVE PER-CELL CAP — the F10 window's 32/64/128/256 selector, applied on the explicit Apply button (PLAN §4). It is the spawn-throttle CEILING and the
+//    dedup loop bound, NOT a per-cell buffer stride: the List SSBO is packed by the scanned Offsets, so a cell's slice length is whatever the count pass
+//    tallied. The List is allocated once at the 256 MAX cap (host-side SurfelMaxPerCell), so raising the cap never over-runs it — this uniform only lets a
+//    cell fill FURTHER before the spawn gate stops it. Defaults to the baked const so a shader that never seats it behaves byte-identically.
+int g_SurfelPerCellCap = SURFEL_MAX_SURFELS_PER_CELL;    // [-] - live per-cell fill ceiling (defaults to the baked const == max cap)
+
+// Seat the live tuning globals from a consumer's push block. Call once at the top of main() BEFORE any grid/radius helper. A shader that never calls this
+// keeps the baked consts, so the module is inert until a stage opts in.
+void SurfelSetTuning(float CellDiameter, float BaseRadius, float NearFieldBias)
+{
+    g_SurfelCellDiameter  = CellDiameter;
+    g_SurfelBaseRadius    = BaseRadius;
+    g_SurfelNearFieldBias = NearFieldBias;
+}
+
+// Seat the live per-cell cap. Only the spawn throttle + the debug occupancy heatmap opt in (they gate/normalize on the cap); every other stage ignores it
+// and the packed List is unaffected. A shader that never calls this keeps SURFEL_MAX_SURFELS_PER_CELL (the max), so it is inert until a stage opts in.
+void SurfelSetPerCellCap(int PerCellCap)
+{
+    g_SurfelPerCellCap = PerCellCap;
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        GRID COORDINATE MATH
 //------------------------------------------------------------------------------------------------------------------------
@@ -57,7 +87,7 @@ const float SURFEL_RADIUS_OVERSCALE   = 1.25;   // [-]  - structural, ported 1:1
 // is signed: a position behind the origin yields a NEGATIVE coord, which is the whole point of the F1 contract above.
 ivec3 SurfelPositionToGridCoord(vec3 PositionRelative)
 {
-    return ivec3(floor(PositionRelative / SURFEL_GRID_CELL_DIAMETER));
+    return ivec3(floor(PositionRelative / g_SurfelCellDiameter));
 }
 
 // integer grid coord -> the FLOAT cascade level it falls in (surfel_grid_coord_to_cascade_float). The cascade grows with the largest absolute axis:
@@ -123,8 +153,8 @@ uint SurfelHashOfPosition(vec3 PositionRelative)
 float SurfelRadiusForPosition(vec3 PositionRelative)
 {
     float Distance       = length(PositionRelative);
-    float CascadeRadius  = SURFEL_GRID_CELL_DIAMETER * float(SURFEL_CS) * 0.5;
-    return SURFEL_BASE_RADIUS * max(1.0, Distance / CascadeRadius);
+    float CascadeRadius  = g_SurfelCellDiameter * float(SURFEL_CS) * 0.5;
+    return g_SurfelBaseRadius * max(1.0, Distance / CascadeRadius);
 }
 
 // The two-argument radius the count/slot passes actually call: surfel_radius_for_pos(worldPos, camPos). Distance is |worldPos - camPos|, i.e. the true
@@ -133,8 +163,8 @@ float SurfelRadiusForPosition(vec3 PositionRelative)
 float SurfelRadiusForPositionEye(vec3 WorldPosition, vec3 CameraPosition)
 {
     float Distance      = length(WorldPosition - CameraPosition);
-    float CascadeRadius = SURFEL_GRID_CELL_DIAMETER * float(SURFEL_CS) * 0.5;
-    return SURFEL_BASE_RADIUS * max(1.0, Distance / CascadeRadius);
+    float CascadeRadius = g_SurfelCellDiameter * float(SURFEL_CS) * 0.5;
+    return g_SurfelBaseRadius * max(1.0, Distance / CascadeRadius);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -147,7 +177,7 @@ float SurfelRadiusForPositionEye(vec3 WorldPosition, vec3 CameraPosition)
 vec3 SurfelGridCoordCenter(uvec4 Cell, vec3 EyePosition)
 {
     vec3  GridPosition  = (vec3(Cell.xyz) + vec3(0.5)) - float(SURFEL_CS) * 0.5;
-    vec3  PositionInCascade = GridPosition * SURFEL_GRID_CELL_DIAMETER;
+    vec3  PositionInCascade = GridPosition * g_SurfelCellDiameter;
     float CascadeScale  = float(1u << Cell.w);
     return EyePosition + PositionInCascade * CascadeScale;
 }

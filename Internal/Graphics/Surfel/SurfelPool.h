@@ -49,6 +49,11 @@ constexpr uint32_t SurfelStrideFloats    = 8;        // [-] - vec4 posb + vec3 n
 constexpr int32_t SurfelLifeRecycle   = 0x8000000;        // [-] - "this slot is recycled" marker base
 constexpr int32_t SurfelLifeRecycled  = SurfelLifeRecycle + 1;  // [-] - the exact seed Prepare writes into every age
 
+// 📝 TTL threshold — a slot is LIVE when its Age is below this. There is no other host copy: the shader-side authority is
+//    SURFEL_TTL in SurfelGrid.glsl (currently 500). 🔴 Keep the two in lockstep — a drift here mis-classifies live surfels
+//    in the dump readback only (this constant is not fed to any shader), but the dump's liveness filter must match the field.
+constexpr int32_t SurfelTtl = 500;                        // [-] - Age < SurfelTtl (and != SurfelLifeRecycle) == live
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                            STRUCTS
 //------------------------------------------------------------------------------------------------------------------------
@@ -99,13 +104,6 @@ struct SurfelPool
     uint32_t Capacity      = 0;     // [-] - surfel capacity every per-surfel buffer is sized for
     uint32_t MomentsParity = 0;     // [-] - ping-pong parity; read half = parity, write half = 1-parity (integrate swaps it)
     bool     ReadyCondition = false;// [-] - true once every buffer is allocated and cleared to its initial state
-
-    // 🩺 DIAGNOSTIC-ONLY readback of the three atomics (breathing-oscillation probe, task #37). Host-visible staging that the record copies the three
-    //    device-local atomics into; the host maps it a frame later (frame-latency, no GPU stall) to log alive/allocPtr/maxSlot per frame. Remove with
-    //    the RenderExtension printf once the coverage-churn vs feedback-ringing question is settled. Null/false when never initialised.
-    VkBuffer       AtomicReadbackBuffer = VK_NULL_HANDLE; // [-] - 3 x int32 host-visible mirror: [0]=alive [1]=allocPtr [2]=maxSlot
-    VkDeviceMemory AtomicReadbackMemory = VK_NULL_HANDLE;
-    bool           AtomicReadbackReady  = false;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -133,14 +131,36 @@ void SwapSurfelMoments(SurfelPool& Pool);
 // Destroy every buffer + backing memory and reset to empty. The device must be idle. Safe on a never-initialized value.
 void FinalizeSurfelPool(SurfelPool& Pool);
 
-// 🩺 DIAGNOSTIC-ONLY (task #37). Record a copy of the three device-local atomics (AliveCount, PoolAlloc, PoolMax) into the host-visible readback
-//    staging buffer. Call at the end of the surfel region, inside the command buffer, AFTER the last pass that touched the atomics. No-op if the
-//    readback staging never allocated. A barrier making the atomics' TRANSFER_READ visible is the caller's (it already fences COMPUTE writes there).
-void RecordSurfelAtomicReadback(const SurfelPool& Pool, VkCommandBuffer CommandBuffer);
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       DIAGNOSTIC DUMP
+//------------------------------------------------------------------------------------------------------------------------
 
-// 🩺 DIAGNOSTIC-ONLY (task #37). Map the readback staging and return the three atomics observed one frame ago (frame-latency, no stall). Returns false
-//    if the readback staging never allocated. Read at the top of the next frame — the values reflect the PREVIOUS frame's recorded copy.
-bool ReadSurfelAtomicReadback(const SurfelPool& Pool, int32_t& AliveOut, int32_t& AllocPtrOut, int32_t& MaxSlotOut);
+// 🩺 Copy the live surfel records + this-frame's per-tile spawn-request buffers OFF the GPU and write three files under
+//    OutputDirectory (typically _ClaudeScratch/logs): surfel-live.csv, surfel-spawns.csv, surfel-dump.json. This is a
+//    keypress-triggered diagnostic (the 'L' key), NOT a per-frame path, so it may — and does — take the cheap route: it
+//    records a one-shot copy of every source buffer into host-visible staging on its OWN transient command buffer, submits
+//    it, and waits on a fence (a localized stall the L press pays for). It touches no pool state and records nothing into
+//    the caller's frame command buffer, so it is safe to call between frames.
+//
+//    🔴 THE FIRE-POINT CONTRACT: the caller must have ALREADY submitted (and ideally waited on) the frame whose spawn the
+//       user pressed L on, so that TileAllocBuffer / TileCandidateBuffer hold that frame's fully-written requests before the
+//       copy is recorded. This function does its own copy+submit+wait; it does not synchronise against the caller's frame.
+//
+//    The tile buffers are passed as raw handles + a tile count rather than the SurfelLifecycleSubmission type on purpose:
+//    SurfelLifecycleSubmission.h already includes THIS header, so referencing that type here would form an include cycle.
+//    Pass Lifecycle.TileAllocBuffer, Lifecycle.TileCandidateBuffer, and Lifecycle.TileCapacity. Either tile handle may be
+//    VK_NULL_HANDLE (spawn dump is then skipped, live dump still written). Returns false on any allocation/submit failure.
+// DumpSequence is a monotonic per-press counter: each L press passes a distinct value so successive dumps ACCUMULATE as a
+// numbered set (surfel-dump-0000.json, -0001, …) instead of overwriting. OutputDirectory is created if it does not exist.
+bool DumpSurfelStateToDisk(const SurfelPool& Pool,
+                           VkBuffer          TileAllocBuffer,
+                           VkBuffer          TileCandidateBuffer,
+                           uint32_t          TileCount,
+                           VkCommandPool     CommandPool,
+                           const float       CameraEye[3],
+                           uint32_t          FrameIndex,
+                           uint32_t          DumpSequence,
+                           const char*       OutputDirectory);
 
 } // namespace Frontier
 

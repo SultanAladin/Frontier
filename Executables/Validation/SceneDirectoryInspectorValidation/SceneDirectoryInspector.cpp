@@ -17,11 +17,11 @@ namespace SceneDirectoryInspectorValidation
 //                                                          CLASSIFICATION
 //------------------------------------------------------------------------------------------------------------------------
 
-const RecordClassification AddChoices[8] =
+const RecordClassification AddChoices[9] =
 {
     RecordClassification::Folder,  RecordClassification::Sketch, RecordClassification::Solid,
     RecordClassification::Cylinder,RecordClassification::Sphere, RecordClassification::Cone,
-    RecordClassification::Revolve, RecordClassification::Loft
+    RecordClassification::Revolve, RecordClassification::Loft,   RecordClassification::Workplane
 };
 
 namespace
@@ -42,6 +42,7 @@ namespace
     constexpr std::uint32_t HueCone     = Packed(0xff, 0x6b, 0x6b);  // red
     constexpr std::uint32_t HueRevolve  = Packed(0xc9, 0x9b, 0x6a);  // earth
     constexpr std::uint32_t HueLoft     = Packed(0x5b, 0x8c, 0xff);  // blue
+    constexpr std::uint32_t HueWorkplane= Packed(0x3f, 0xc8, 0xc0);  // teal
     constexpr std::uint32_t HueDim      = Packed(0x8a, 0x8a, 0x99);  // dim (fallback)
 }
 
@@ -58,6 +59,7 @@ std::uint32_t ClassificationHue(RecordClassification Classification)
         case RecordClassification::Cone:     return HueCone;
         case RecordClassification::Revolve:  return HueRevolve;
         case RecordClassification::Loft:     return HueLoft;
+        case RecordClassification::Workplane:return HueWorkplane;
     }
     return HueDim;
 }
@@ -76,6 +78,7 @@ const char* ClassificationLabel(RecordClassification Classification)
         case RecordClassification::Cone:     return "Cone";
         case RecordClassification::Revolve:  return "Revolve";
         case RecordClassification::Loft:     return "Loft";
+        case RecordClassification::Workplane:return "Workplane";
     }
     return "Record";
 }
@@ -93,6 +96,7 @@ const char* ClassificationKey(RecordClassification Classification)
         case RecordClassification::Cone:     return "cone";
         case RecordClassification::Revolve:  return "revolve";
         case RecordClassification::Loft:     return "loft";
+        case RecordClassification::Workplane:return "workplane";
     }
     return "solid";
 }
@@ -161,6 +165,18 @@ RecordProfile& EstablishProfile(RecordClassification Classification, int NestedT
             Profile.TangencyStart = 0.0f;
             Profile.TangencyEnd   = 0.0f;
             Profile.Ruled         = false;
+            break;
+        case RecordClassification::Workplane:
+            Profile.PlaneMethod      = 0;      // XY default
+            Profile.PlaneOffset      = 0.0f;
+            Profile.PlaneAngle       = 0.0f;
+            Profile.PlaneAnglePivot  = 0;      // U-axis hinge (tilt forward / back)
+            Profile.FlipNormal       = false;
+            Profile.PlaneExtent      = 2000.0f;  // [mm] 2 m half → 4 m sheet, readable at the ~18 m boot orbit (200 mm was invisibly small)
+            Profile.PlaneGrid        = true;
+            Profile.PlaneGridSpacing = 200.0f;   // [mm] 0.2 m cells → ~20 across the sheet (matches Workplane.h default)
+            Profile.PlaneSnap        = true;
+            Profile.PlaneLock        = false;
             break;
     }
 
@@ -358,6 +374,28 @@ int ResolveProfileCards(RecordClassification Classification, CardSpec OutCards[8
             }));
             Push(TransformCard());
             Push(AppearanceCard());
+            break;
+
+        case RecordClassification::Workplane:
+            // 📝 Two cards mirroring WorkplaneExplainer.html: Definition (parametric — method + offset/angle + flip) and Display
+            //    (viewport — extent, grid + spacing, snap, lock). No Transform / Appearance card (the frame IS the transform, solved).
+            Push(Identity);
+            Push(MakeCard("Definition", {
+                Options(FieldControl::Dropdown, "PlaneMethod", "Method",
+                        { "XY", "XZ", "YZ", "Offset", "Angle", "3-Point", "Midplane", "Tangent", }),
+                Scalar("PlaneOffset", "Offset", 0.1f, 2, "mm"),
+                Slider("PlaneAngle",  "Angle", -180.0f, 180.0f, 1, "\xC2\xB0"),
+                Options(FieldControl::Dropdown, "PlaneAnglePivot", "Angle axis",
+                        { "Tilt (U)", "Tilt (V)", "Roll (N)" }),
+                Boolean("FlipNormal", "Flip normal"),
+            }));
+            Push(MakeCard("Display", {
+                Slider("PlaneExtent", "Extent", 200.0f, 10000.0f, 0, "mm"),
+                Boolean("PlaneGrid", "Grid"),
+                Slider("PlaneGridSpacing", "Spacing", 10.0f, 1000.0f, 0, "mm"),
+                Boolean("PlaneSnap", "Snap"),
+                Boolean("PlaneLock", "Lock"),
+            }));
             break;
     }
 

@@ -22,9 +22,15 @@
 #include "EngineContext/Interface/Icons/SvgIconRegistry.h"
 #include "EngineContext/Interface/Icons/IconPackGlobal.h"
 #include "EngineContext/Interface/Icons/IconPackCad.h"
+#include "EngineContext/Interface/Icons/IconPackToolMenu.h"
 
 #include "SketchModelViewportPanel.h"
 #include "SketchModelOffscreenSurface.h"
+
+// 📝 The two embedded surfaces' own glyph packs: the inspector's classification + chrome marks ("sdi-class-…" / "sdi-ui-…") and the construction
+//    console's tool + badge marks ("tool-…" / "tool-badge-…"). Without both registered the embedded cards fall back to procedural strokes.
+#include "InspectorGlyphs.h"
+#include "ConstructionGlyphs.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -129,7 +135,8 @@ int main(int ArgumentCount, char** ArgumentValues)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& Io = ImGui::GetIO();
-    Io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // 🔴 NO keyboard nav: the embedded directory card owns Tab as its summon / carousel key. ImGuiConfigFlags_NavEnableKeyboard would consume Tab
+    //    for widget focus-cycling before the panel ever sees the press, and the card could then never be summoned.
     Io.IniFilename = nullptr;
 
     AttachImguiPlatform(Window);
@@ -164,10 +171,13 @@ int main(int ArgumentCount, char** ArgumentValues)
     {
         const bool GlobalOk = RegisterGlobalIconPack(Icons);
         const bool CadOk    = RegisterCadIconPack(Icons);
-        if (!GlobalOk || !CadOk)
+        const bool ToolOk   = RegisterToolMenuIconPack(Icons);
+        const bool InspOk   = SceneDirectoryInspectorValidation::RegisterInspectorGlyphPack(Icons);
+        const bool ConsOk   = ConstructionCatalogueValidation::RegisterConstructionGlyphPack(Icons);
+        if (!GlobalOk || !CadOk || !ToolOk || !InspOk || !ConsOk)
         {
-            fprintf(stderr, "[sketchmodel-viewport] icon pack registration incomplete (global=%d cad=%d)\n",
-                    (int)GlobalOk, (int)CadOk);
+            fprintf(stderr, "[sketchmodel-viewport] icon pack registration incomplete (global=%d cad=%d tool=%d inspector=%d construction=%d)\n",
+                    (int)GlobalOk, (int)CadOk, (int)ToolOk, (int)InspOk, (int)ConsOk);
         }
     }
 

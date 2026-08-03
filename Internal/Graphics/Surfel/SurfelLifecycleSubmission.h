@@ -70,7 +70,11 @@ struct SurfelSpawnConstants
     uint32_t FloorPartitionBase        = 0;                // [-] - partition ordinals >= this belong to the floor
     uint32_t FloorShadeEnabled         = 0;                // [-] - 1 when the floor buffers are real
     uint32_t FloorIndexBase            = 0;                // [-] - first index of the floor run in the merged index buffer
-    uint32_t Pad0                      = 0;
+    float    SpawnDensityScale         = 1.0f;             // [-] - live spawn-rate multiplier (numpad +/-); 1.0 == the ported baseline throttle
+    float    TuneCellDiameter          = 1.0f;             // [m] - live base cell edge (F10 window); seeds from SURFEL_GRID_CELL_DIAMETER
+    float    TuneBaseRadius            = 1.2f;             // [m] - live cascade-0 disc radius (F10 window); seeds from SURFEL_BASE_RADIUS
+    float    TuneNearFieldBias         = 1.0f;             // [-] - live near-field spawn lift (F10 window); 1.0 == inert baseline
+    int32_t  PerCellCap                = SurfelMaxPerCell; // [-] - live per-cell fill ceiling (F10 window Apply); default == the baked max cap
 };
 
 // 📝 The lifecycle unit's owned resources. TWO set layouts + their pipelines: the spawn layout binds the visibility set (0) and the grid/pool/tile set
@@ -82,7 +86,7 @@ struct SurfelLifecycleSubmission
 
     // --- spawn: visibility set 0 (id image + 6 mesh SSBOs) + grid/pool/tile set 1 ---
     VkDescriptorSetLayout SpawnVisibilityLayout = VK_NULL_HANDLE;   // [-] - set 0: b0 id, b1/b2/b3 head, b5/b6/b7 floor
-    VkDescriptorSetLayout SpawnGridLayout       = VK_NULL_HANDLE;   // [-] - set 1: offsets, list, surfels, tileAlloc, tileCandidate
+    VkDescriptorSetLayout SpawnGridLayout       = VK_NULL_HANDLE;   // [-] - set 1: offsets, list, surfels, tileAlloc, tileCandidate, touched (b5, economy)
     VkPipelineLayout      SpawnPipelineLayout   = VK_NULL_HANDLE;   // [-] - both sets + SurfelSpawnConstants push range
     VkPipeline            SpawnPipeline         = VK_NULL_HANDLE;   // [-] - SurfelSpawnRequest.comp
     VkDescriptorSet       SpawnVisibilitySet    = VK_NULL_HANDLE;   // [-] - set 0 (re-pointed on visibility resize)
@@ -117,7 +121,10 @@ struct SurfelLifecycleSubmission
     VkBuffer    BoundOffsetsBuffer      = VK_NULL_HANDLE;
     VkBuffer    BoundListBuffer         = VK_NULL_HANDLE;
     VkBuffer    BoundSpawnSurfelBuffer  = VK_NULL_HANDLE;
+    VkBuffer    BoundSpawnTouchedBuffer = VK_NULL_HANDLE;   // set 1 b5 (economy)
     VkBuffer    BoundPoolSurfelBuffer   = VK_NULL_HANDLE;
+    VkBuffer    BoundPoolOffsetsBuffer  = VK_NULL_HANDLE;   // pool set b7 (rent count)
+    VkBuffer    BoundPoolTouchedBuffer  = VK_NULL_HANDLE;   // pool set b8 (income drain)
 
     bool Prepared       = false;   // [-] - the one-time seed has been recorded
     bool ReadyCondition = false;   // [-] - true once every layout / pipeline / buffer is live
@@ -165,10 +172,13 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
                                 VkExtent2D                    Extent,
                                 VkCommandBuffer               CommandBuffer);
 
-// Record the Age stage: +1 age over the live pool, TTL survivors recycled to the free-list. Independent of the spawn set (pool layout only). Run once
-// per frame, after spawn. A no-op when not ready. Must be OUTSIDE any rendering scope.
+// Record the Age stage: the full surfel economy — police execution (touched == kill), crowding rent (over-subscribed cells age faster, read from the
+// grid Offsets slice), keep-alive income (touched 5..50 cancels metabolism), then +1 metabolism with TTL recycle to the free-list. Reads the grid
+// Offsets + the touched mailbox (pointed at Refresh) and needs the frame's SNAPPED grid origin (the same one slotting/spawn used) to hash each surfel's
+// cell. Independent of the spawn set (pool layout only). Run once per frame, after spawn. A no-op when not ready. Must be OUTSIDE any rendering scope.
 void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
                               const SurfelPool&           Pool,
+                              const float                 GridOrigin[3],
                               VkCommandBuffer             CommandBuffer);
 
 // Destroy every layout / pipeline / descriptor / buffer / sampler and reset to empty. The device must be idle. Safe on a never-initialized value.

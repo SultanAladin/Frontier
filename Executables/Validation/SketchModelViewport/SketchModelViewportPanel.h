@@ -19,6 +19,7 @@
 #include "Graphics/Grid/GroundGridPass.h"
 
 #include "SketchModelOffscreenSurface.h"
+#include "SketchModelSummonedSurfaces.h"
 #include "SketchModelViewportChrome.h"
 
 #include <cstdint>
@@ -41,6 +42,10 @@ struct SketchModelViewportState
 
     SketchModelChromeState       Chrome;        // [-]  - Band chrome selections (grid layers, scene unit, view caption)
 
+    // 📝 The two surfaces summoned over the canvas: the directory + inspector card (Tab) and the action console (right-click). Both are embedded
+    //    whole; this panel only reports the canvas rect the console's summon is armed over and records them after the viewport column.
+    SketchModelSummonedState     Summoned;      // [-]  - Directory card + action console state (both closed at rest)
+
     // 📝 The canvas rect the bands left for the scene, reported back by ConstructSketchModelViewportPanel so the host can size
     //    the offscreen surface to the CANVAS rather than the whole framebuffer (the bands occupy 52 + 30 px of it).
     uint32_t CanvasWidth  = 0u;                 // [px] - Canvas width  the grid should render at
@@ -52,7 +57,8 @@ struct SketchModelViewportState
 //                                                      PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Initialize the panel state once: a perspective viewport with grid, axis, and the spatial compass all enabled. The GroundGridPass +
+// 📝 Initialize the panel state once: a perspective viewport with grid, axis, and the spatial compass all enabled, plus both summoned surfaces in
+//    their opening pose (an EMPTY directory + EMPTY history, and a closed action console). The GroundGridPass +
 //    offscreen surface are brought up separately by the host (they need the VulkanHost).
 void InitializeSketchModelViewportSample(SketchModelViewportState& State);
 
@@ -64,7 +70,8 @@ void ConformSketchModelAspect(SketchModelViewportState& State, uint32_t SurfaceW
 Frontier::GroundGridConstants AssembleSketchModelGridConstants(const SketchModelViewportState& State);
 
 // 📝 Record the full viewport column for this cycle: the 52 px band (title cluster + Views/Settings pills), the canvas hosting the
-//    rendered grid + spatial compass, and the 30 px footer band (navigation hint + coordinate readout + Units pill). Writes the
+//    rendered grid + spatial compass, the 30 px footer band (navigation hint + coordinate readout + Units pill), and finally the two
+//    summoned surfaces over the canvas — the directory card on Tab and the action console on right-click. Writes the
 //    canvas extent back into State so the host can size the offscreen surface to it. Returns the shared viewport result.
 Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::ThemeConfiguration& Theme,
                                                                 const Frontier::SvgIconRegistry&    Icons,

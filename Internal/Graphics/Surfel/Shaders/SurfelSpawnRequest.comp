@@ -9,10 +9,15 @@
 //    covered) and that lane writes a single spawn request (worldPos + normal) into the per-tile request buffers. The allocate pass (Pass 2) consumes
 //    one request per tile.
 //
-//    🔴 PHASE-1 REDUCTION (PLAN — Phase 1 excludes tracing / GI). webgiya's FindMissing also runs a DESPAWN vote, a keep-alive `touched` write, and an
-//       irradiance accumulation that seeds new surfels from neighbours' cached light. All three read or write the moments / touched / guiding buffers
-//       that Phase 1 only ZERO-FILLS (they are filled in Phase 2). Porting them now would read uninitialised scoring channels, so they are omitted here
-//       and land with the integrate. What remains is the faithful spawn arbitration: reconstruct, measure coverage, elect the neediest pixel, request.
+//    🔴 THE SURFEL ECONOMY (restored — surfelFindMissingPass.ts:406-560). Two `touched`-mailbox writes ride the same per-pixel loop that measures
+//       coverage, and they are the pixel-side half of the equilibrium the Age pass enforces:
+//         • KEEP-ALIVE — a covered pixel whose cell is not over-subscribed and that finds a well-aligned, same-cell surfel writes atomicMax(touched, 5)
+//           to that surfel. Age subtracts that income from the surfel's metabolism, so a surfel that is actively covering geometry ages slower and its
+//           cohort no longer recycles in lockstep (the direct fix for the breathing limit cycle).
+//         • DESPAWN VOTE — an OVER-covered pixel (tight scoring weight past a fullness-scaled threshold with a strong second-best) elects one winning
+//           lane per tile; that lane re-scans its cell for the heaviest surfel and writes atomicMax(touched, 255=KILL) to it. Age's police execution
+//           recycles it next frame. This is the pressure-relief valve that stops runaway over-coverage.
+//       The irradiance accumulation that seeds new surfels from neighbours' cached light is still deferred (it feeds the allocate, a larger change).
 //
 //    🔴 The coverage weight (smoothstep(radius, 0, mahalanobis) * max(0, dot(surfelN, pixelN))) and the spawn gate (second-best coverage < 0.4 AND total
 //       scoring < 0.1 AND cell not full) are ported 1:1 from surfelFindMissingPass.ts:336-457. The random depth-weighted throttle is kept so spawning
@@ -39,6 +44,7 @@ layout(std430, set = 1, binding = 1) readonly buffer ListBuffer    { int  List[]
 layout(std430, set = 1, binding = 2) readonly buffer SurfelBuffer  { SurfelRecord Surfels[]; };
 layout(std430, set = 1, binding = 3) writeonly buffer TileAllocBuffer { int TileAlloc[]; };   // 1 int per tile: 1 == spawn requested this frame
 layout(std430, set = 1, binding = 4) writeonly buffer TileCandidateBuffer { vec4 TileCandidate[]; };   // 2 vec4 per tile: [0]=posb(xyz,w frame spare), [1]=normal
+layout(std430, set = 1, binding = 5) buffer TouchedBuffer { int Touched[]; };   // per-surfel income mailbox: keep-alive writes 5, despawn writes 255
 
 layout(push_constant) uniform PushBlock
 {
@@ -49,12 +55,23 @@ layout(push_constant) uniform PushBlock
     uint  FloorPartitionBase;     // partition ordinals >= this are floor
     uint  FloorShadeEnabled;      // 1 == floor buffers are real
     uint  FloorIndexBase;         // first index of the floor run in the merged index buffer
-    uint  Pad0;
+    float SpawnDensityScale;      // live spawn-rate multiplier (numpad +/-); 1.0 == the ported baseline throttle
+    float TuneCellDiameter;       // live base cell edge (F10 window); seeds from SURFEL_GRID_CELL_DIAMETER
+    float TuneBaseRadius;         // live cascade-0 disc radius (F10 window); seeds from SURFEL_BASE_RADIUS
+    float TuneNearFieldBias;      // live near-field spawn lift (F10 window); 1.0 == inert baseline
+    int   PerCellCap;             // live per-cell fill ceiling (F10 window Apply); == SURFEL_MAX_SURFELS_PER_CELL default
 } Push;
 
 // Workgroup vote: pack (coverage score in the high 26 bits, lane index 0..63 in the low 6). atomicMin over the tile finds the LEAST covered lane;
 // its float score sorts correctly as a uint because all scores are non-negative. 0xFFFFFFFF is "nobody wants to spawn".
 shared uint TileMinVote;
+// The despawn counterpart: atomicMax over the tile finds the MOST over-covered lane (the strongest despawn candidate). 0 is "nobody votes to despawn".
+shared uint TileMaxVote;
+
+// Economy constants — ported 1:1 from webgiya constants.ts.
+const int SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE = 32;    // maxKeepAlive: the fullness reference + keep-alive cell cap
+const int SURFEL_KILL_SIGNAL                         = 255;   // the despawn kill value written into the touched mailbox
+const int SURFEL_LIFE_RECYCLE                        = 0x8000000;   // "recycled" marker (a surfel flagged for recycle is not kept alive)
 
 uint SurfelPackVote(float Score, uint Lane)
 {
@@ -150,6 +167,10 @@ uint SurfelHashCombine(uint A, uint B)
 
 void main()
 {
+    // Seat the live world-scale globals from the push block BEFORE any grid/radius helper runs (whole-pipeline reach, PLAN §3).
+    SurfelSetTuning(Push.TuneCellDiameter, Push.TuneBaseRadius, Push.TuneNearFieldBias);
+    SurfelSetPerCellCap(Push.PerCellCap);
+
     uint LaneIndex = gl_LocalInvocationID.y * 8u + gl_LocalInvocationID.x;
     int  TileIndex = int(gl_WorkGroupID.y) * Push.ScreenAndTiles.z + int(gl_WorkGroupID.x);
 
@@ -157,6 +178,7 @@ void main()
     {
         TileAlloc[TileIndex] = 0;
         TileMinVote = 0xFFFFFFFFu;
+        TileMaxVote = 0u;
     }
     barrier();
 
@@ -165,6 +187,12 @@ void main()
 
     vec3  SpawnPosition = vec3(0.0);
     vec3  SpawnNormal   = vec3(0.0, 0.0, 1.0);
+
+    // Kept for the despawn winner's victim re-scan after the barrier (this pixel's world pos/normal + cell hash).
+    vec3 PixelWorld  = vec3(0.0);
+    vec3 PixelNormal = vec3(0.0, 0.0, 1.0);
+    uint PixelHash   = 0u;
+    bool PixelValid  = false;
 
     if (InBounds)
     {
@@ -176,6 +204,11 @@ void main()
 
             vec3 Relative = Hit.WorldPosition - Push.GridOrigin.xyz;
             uint Hash     = SurfelHashOfPosition(Relative);
+
+            PixelWorld  = Hit.WorldPosition;
+            PixelNormal = Hit.Normal;
+            PixelHash   = Hash;
+            PixelValid  = true;
 
             int Start = Offsets[int(Hash)];
             int End   = Offsets[int(Hash) + 1];
@@ -210,17 +243,44 @@ void main()
 
                 if (Weight > Highest)      { Second = Highest; Highest = Weight; }
                 else if (Weight > Second)  { Second = Weight; }
+
+                // KEEP-ALIVE (surfelFindMissingPass.ts:406-416): a covered pixel whose cell is not over-subscribed and that finds a
+                // well-aligned, same-cell surfel that is NOT flagged for recycle feeds it a small keep-alive income. Age subtracts this
+                // from the surfel's metabolism, so a contributing surfel ages slower and its cohort no longer dies in lockstep.
+                bool SameCellKeep = Count <= SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE
+                                    && DotNormal > 0.8
+                                    && SurfelHashOfPosition(NeighbourPos - Push.GridOrigin.xyz) == Hash;
+                if (SameCellKeep && Neighbour.Age != SURFEL_LIFE_RECYCLE)
+                    atomicMax(Touched[Sid], 5);
             }
+
+            // DESPAWN vote (surfelFindMissingPass.ts:422-442): an OVER-covered pixel elects one winning lane per tile. Fullness scales the
+            // thresholds toward stricter as the cell fills; a pixel past both the tight-scoring and second-best thresholds packs its scoring
+            // weight into the tile's max vote. The winner re-scans below to kill the heaviest surfel.
+            float Fullness        = smoothstep(float(SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE) * 0.75,
+                                               float(SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE),
+                                               float(Count));
+            float DespawnThreshold = mix(3.5, 3.0, Fullness);
+            float SecondThreshold  = mix(0.9, 0.8, Fullness);
+            if (ScoringWeight > DespawnThreshold && Second > SecondThreshold)
+                atomicMax(TileMaxVote, SurfelPackVote(ScoringWeight, LaneIndex));
 
             // Spawn gate (surfelFindMissingPass.ts:444-457): a poorly covered pixel whose cell is not full, throttled by a
             // depth-weighted random so the fill spreads over frames rather than flooding.
-            float DepthWeight = length(Hit.WorldPosition - Push.CameraPosition.xyz) / 64.0;
-            float Probability = 5000.0 * DepthWeight / float(Push.ScreenAndTiles.x) / float(Push.ScreenAndTiles.y);
+            //   NEAR-FIELD BIAS (F10 window): the baseline weight = dist/64 makes NEAR pixels spawn LESS. Blending toward a FLAT 1.0
+            //   as bias climbs lifts near-field spawn probability without touching the far field's frame-spread. bias 1.0 keeps the
+            //   raw ported weight (inert); bias >1 pulls the near field up toward the flat weight. The blend is clamped to [0,1].
+            float BaseDepthWeight = length(Hit.WorldPosition - Push.CameraPosition.xyz) / 64.0;
+            float BiasLerp        = clamp(g_SurfelNearFieldBias - 1.0, 0.0, 1.0);
+            float DepthWeight     = mix(BaseDepthWeight, max(BaseDepthWeight, 1.0), BiasLerp);
+            // Live density multiplier (numpad +/-). Guard 0 -> 1 so a host that never set it keeps the ported baseline rather than freezing spawning.
+            float DensityScale = Push.SpawnDensityScale > 0.0 ? Push.SpawnDensityScale : 1.0;
+            float Probability = 5000.0 * DensityScale * DepthWeight / float(Push.ScreenAndTiles.x) / float(Push.ScreenAndTiles.y);
             uint  Seed        = SurfelHashCombine(SurfelHashCombine(uint(Texel.x), uint(Texel.y)), uint(Push.ScreenAndTiles.w));
             float Random      = float(Seed & 0x00FFFFFFu) / float(0x01000000u);
             bool  RandomOk    = Random < Probability;
 
-            bool GateCoverage = Second < 0.4 && ScoringWeight < 0.1 && Count < SURFEL_MAX_SURFELS_PER_CELL;
+            bool GateCoverage = Second < 0.4 && ScoringWeight < 0.1 && Count < g_SurfelPerCellCap;
             if (GateCoverage && RandomOk)
             {
                 // Vote to spawn — the least-covered (lowest total weight) lane wins the tile.
@@ -230,6 +290,46 @@ void main()
     }
 
     barrier();
+
+    // --- Execute despawn: the winning lane re-scans its cell for the heaviest surfel and flags it for the police execution in Age. ---
+    uint DespawnVote = TileMaxVote;
+    if (DespawnVote != 0u)
+    {
+        uint DespawnLane = DespawnVote & 0x3Fu;
+        if (LaneIndex == DespawnLane && PixelValid)
+        {
+            int   VictimSid    = -1;
+            float VictimWeight = -1.0;
+
+            int Start = Offsets[int(PixelHash)];
+            int End   = Offsets[int(PixelHash) + 1];
+            int Count = max(End - Start, 0);
+            int Loop  = min(Count, SURFEL_MAX_SURFELS_PER_CELL * 2);
+
+            for (int I = 0; I < Loop; ++I)
+            {
+                int Sid = List[Start + I];
+                if (Sid < 0) continue;
+
+                SurfelRecord Neighbour = Surfels[Sid];
+                vec3  NeighbourPos    = Neighbour.PositionAndSpare.xyz;
+                vec3  NeighbourNormal = Neighbour.Normal;
+
+                float SurfelRadius = SurfelRadiusForPositionEye(NeighbourPos, Push.CameraPosition.xyz);
+                vec3  Offset       = PixelWorld - NeighbourPos;
+                float DistanceLen  = length(Offset);
+                float AlignPenalty = abs(dot(Offset, NeighbourNormal)) * SURFEL_NORMAL_DIRECTION_SQUISH;
+                float Mahalanobis  = DistanceLen * (1.0 + AlignPenalty);
+                float DirWeight    = max(dot(NeighbourNormal, PixelNormal), 0.0);
+                float Weight       = smoothstep(SurfelRadius * SURFEL_RADIUS_OVERSCALE, 0.0, Mahalanobis) * DirWeight;
+
+                if (Weight >= VictimWeight) { VictimWeight = Weight; VictimSid = Sid; }
+            }
+
+            if (VictimSid != -1)
+                atomicMax(Touched[VictimSid], SURFEL_KILL_SIGNAL);
+        }
+    }
 
     // The winning lane (if any) writes the one per-tile spawn request.
     uint Winner = TileMinVote;

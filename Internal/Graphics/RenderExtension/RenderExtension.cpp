@@ -12,6 +12,13 @@
 
 #include "EngineContext/Input/InputPacket.h"
 
+// 📝 ImGui — headers only; the backend impl objects link in via the exe's Build.bat. The tuning window uses the Vulkan backend and the shared
+//    theme, rendered into the substrate's own command buffer (see the F10 window in RecordSequence). NO VulkanImguiInterface (second swapchain).
+#include "imgui.h"
+#include "backends/imgui_impl_vulkan.h"
+#include "EngineContext/Interface/Theme/ThemeResolver.h"
+#include "EngineContext/Interface/WorkspaceHost/ImguiPlatformRelay.h"
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -335,9 +342,10 @@ void AssembleSurfaceShadeConstants(const ViewportCamera& Subject, uint32_t Compo
 }
 
 // Fill the surfel slotting push block. GridOrigin is the eye position: the grid is CAMERA-RELATIVE, so the eye is the origin every cell coordinate is
-// measured against (matching the SurfelValidation oracle, which feeds the raw camera position as the grid origin and passed). CameraPosition is the raw
-// eye that drives the eye-distance surfel radius (SurfelGrid.glsl reads it separately from the origin). ListCount is the slot pass's bounds guard.
-void AssembleSurfelSlottingConstants(const ViewportCamera& Subject, SurfelSlottingConstants& Constants)
+// measured against (matching the SurfelValidation oracle, which feeds the raw camera position as the grid origin it slots and looks up against).
+// CameraPosition is the raw eye that drives the eye-distance surfel radius (SurfelGrid.glsl reads it separately from the origin). ListCount is the slot
+// pass's bounds guard.
+void AssembleSurfelSlottingConstants(const ViewportCamera& Subject, const SurfelTuningState& Tuning, SurfelSlottingConstants& Constants)
 {
     const FocalOrientation Frame = SolveOrbitOrientation(Subject);
     Constants.CameraPosition[0] = Frame.EyePosition.XCoord;
@@ -349,13 +357,19 @@ void AssembleSurfelSlottingConstants(const ViewportCamera& Subject, SurfelSlotti
     Constants.GridOrigin[2]     = Frame.EyePosition.ZCoord;
     Constants.GridOrigin[3]     = 0.0f;
     Constants.ListCount         = (int32_t)SurfelGridListCount;
+
+    // Live world-scale knobs (F10 window) — the count/slot grid box + intersection must match the spawn/gather cell diameter + radius exactly.
+    Constants.TuneCellDiameter  = Tuning.CellDiameter;
+    Constants.TuneBaseRadius    = Tuning.BaseRadius;
+    Constants.TuneNearFieldBias = Tuning.NearFieldBias;
 }
 
 // Fill the surfel spawn push block. Shares the shade's clip->world reconstruction (the spawn reads the SAME visibility id buffer and reconstructs world
 // pos/normal exactly as SurfaceShade does), the same camera-relative grid origin as the slotting above, and the same floor rebase as the shade
 // (FloorPartitionBase / FloorIndexBase). ScreenAndTiles packs (width, height, tiles-x, frame index) for the per-tile spawn dispatch.
 void AssembleSurfelSpawnConstants(const ViewportCamera& Subject, VkExtent2D Extent, uint32_t FrameIndex,
-                                  bool FloorResident, uint32_t FloorIndexBase, SurfelSpawnConstants& Constants)
+                                  bool FloorResident, uint32_t FloorIndexBase, float DensityScale,
+                                  const SurfelTuningState& Tuning, SurfelSpawnConstants& Constants)
 {
     const FocalOrientation Frame          = SolveOrbitOrientation(Subject);
     const Matrix4f         Projection     = EvaluateProjectionFrame(Subject);
@@ -382,13 +396,23 @@ void AssembleSurfelSpawnConstants(const ViewportCamera& Subject, VkExtent2D Exte
     Constants.FloorPartitionBase = FloorPartitionBase;
     Constants.FloorShadeEnabled  = FloorResident ? 1u : 0u;
     Constants.FloorIndexBase     = FloorResident ? FloorIndexBase : 0u;
+    Constants.SpawnDensityScale  = DensityScale;
+
+    // Live world-scale knobs (F10 tuning window). Passed straight into the spawn push block; the shader seats them into SurfelGrid.glsl's globals.
+    Constants.TuneCellDiameter  = Tuning.CellDiameter;
+    Constants.TuneBaseRadius    = Tuning.BaseRadius;
+    Constants.TuneNearFieldBias = Tuning.NearFieldBias;
+    // The spawn gate ceiling. Uses the APPLIED cap (the value the List buffer is sized for), NOT the pending combo choice — a click that has not
+    // been Applied must not let a cell pack past what the current allocation covers. Apply commits Choice -> Applied at the RecordPreamble seam.
+    Constants.PerCellCap        = Tuning.PerCellCapApplied;
 }
 
 // Fill the surfel debug splat push block. ViewProjection projects each live surfel's world position to clip; CameraPosition drives the disc radius; the
-// SNAPPED grid origin (== the eye, matching the slotting) lets the cascade / occupancy modes recover the same cell the build used. DebugMode is the
+// grid origin (== the eye, matching the slotting) lets the cascade / occupancy modes recover the same cell the build used. DebugMode is the
 // F6-selected number; Capacity is the pool capacity == the point-list vertex count.
 void AssembleSurfelDebugConstants(const ViewportCamera& Subject, VkExtent2D Extent, uint32_t DebugMode,
-                                  SurfelDebugConstants& Constants)
+                                  float RadiusScale, uint32_t ReadOffsetElements, uint32_t Capacity,
+                                  const SurfelTuningState& Tuning, SurfelDebugConstants& Constants)
 {
     const FocalOrientation Frame          = SolveOrbitOrientation(Subject);
     const Matrix4f         Projection     = EvaluateProjectionFrame(Subject);
@@ -406,11 +430,21 @@ void AssembleSurfelDebugConstants(const ViewportCamera& Subject, VkExtent2D Exte
 
     Constants.ScreenAndRadius[0] = (float)Extent.width;
     Constants.ScreenAndRadius[1] = (float)Extent.height;
-    Constants.ScreenAndRadius[2] = 1.0f;   // radius scale (1 = the grid's own eye-distance radius)
+    Constants.ScreenAndRadius[2] = RadiusScale;   // F8/F9 disc-size multiplier atop the grid's own eye-distance radius
     Constants.ScreenAndRadius[3] = 0.0f;
 
-    Constants.DebugMode = DebugMode;
-    Constants.Capacity  = SurfelMaxCount;
+    Constants.DebugMode          = DebugMode;
+    Constants.Capacity           = Capacity;
+    // 🔴 Post-swap read half for the GI modes (5-7): Moments[i + ReadOffsetElements] over 20-float structs. Same ELEMENT base the shade uses
+    //    (MomentsParity*Capacity), NOT the byte offset SurfelMomentsReadOffset returns. Zero for the non-GI modes — they never touch Moments[].
+    Constants.ReadOffsetElements = ReadOffsetElements;
+
+    // Live world-scale knobs (F10 window) — the splat disc size + cascade/occupancy modes read the SAME cell/radius globals the field uses.
+    Constants.TuneCellDiameter  = Tuning.CellDiameter;
+    Constants.TuneBaseRadius    = Tuning.BaseRadius;
+    Constants.TuneNearFieldBias = Tuning.NearFieldBias;
+    // The occupancy heatmap (mode 4) normalizes cell fill against the APPLIED cap so the ramp matches what the spawn gate is actually enforcing.
+    Constants.PerCellCap        = Tuning.PerCellCapApplied;
 }
 
 #ifdef FRONTIER_POLYGON_AUTHORING
@@ -1228,7 +1262,8 @@ bool InitializeRenderExtension(RenderExtension& Extension,
         // image + the merged mesh buffers exactly as the shade does — heads always, floor when its run is genuinely resident (FloorGeometryBound),
         // else VK_NULL_HANDLE so the three floor bindings alias onto the heads and FloorShadeEnabled stays 0 in the spawn constants below.
         if (Extension.SurfelDebug.ReadyCondition)
-            RefreshSurfelDebugInscription(Extension.SurfelDebug, Extension.SurfelPoolResource, Extension.SurfelSlotting);
+            RefreshSurfelDebugInscription(Extension.SurfelDebug, Extension.SurfelPoolResource, Extension.SurfelSlotting,
+                                          Extension.DepthTarget.DepthView);
 
         if (Extension.SurfelLifecycle.ReadyCondition && Extension.VisibilityRaster.ReadyCondition)
         {
@@ -1349,6 +1384,74 @@ bool InitializeRenderExtension(RenderExtension& Extension,
             RecordGroundGridPass(Extension.GridPass, CommandBuffer, Extent, Constants);
         });
 
+    // -- ImGui debug overlay (surfel tuning window, F10) ----------------------------------------------------------------
+    // 📝 Mirror the canonical live ImGui-on-Vulkan bring-up every editor host uses (SketchModelViewportHost.cpp:134-162), with the ONE
+    //    difference that the substrate renders with DYNAMIC RENDERING, so the backend gets a PipelineRenderingCreateInfo (colour format =
+    //    the swapchain format) instead of a RenderPass. Best-effort: any failure leaves ImguiReady=false and every per-frame ImGui call
+    //    no-ops, so the renderer still presents. The window is drawn into the substrate's OWN command buffer (RecordSequence tail).
+    {
+        const VulkanHost& Host = Extension.Substrate.Host;
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& Io = ImGui::GetIO();
+        Io.IniFilename = nullptr;   // 🔴 no imgui.ini — a renderer window must not persist layout to disk
+
+        AttachImguiPlatform(Extension.Substrate.Window);
+
+        const uint32_t SwapImageCount = (uint32_t)Extension.Substrate.Images.size();
+
+        // 🔴 Dynamic-rendering path: the backend needs the colour attachment format up front (no RenderPass). Keep the format struct alive
+        //    for the duration of the Init call — the backend copies it, so a stack local is safe here.
+        VkPipelineRenderingCreateInfoKHR RenderingCreateInfo = {};
+        RenderingCreateInfo.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+        RenderingCreateInfo.colorAttachmentCount    = 1;
+        RenderingCreateInfo.pColorAttachmentFormats = &Extension.Substrate.SurfaceFormat;
+
+        ImGui_ImplVulkan_InitInfo InitInfo = {};
+        InitInfo.ApiVersion                = Host.ApiVersion;
+        InitInfo.Instance                  = Host.Instance;
+        InitInfo.PhysicalDevice            = Host.PhysicalDevice;
+        InitInfo.Device                    = Host.Device;
+        InitInfo.QueueFamily               = Host.GraphicsQueueFamily;
+        InitInfo.Queue                     = Host.GraphicsQueue;
+        InitInfo.DescriptorPool            = Host.ImguiDescriptorPool;
+        InitInfo.MinImageCount             = SwapImageCount;
+        InitInfo.ImageCount                = SwapImageCount;
+        InitInfo.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        // 🔴 This vendored ImGui (post-2025/09/26) carries the dynamic-rendering create-info INSIDE PipelineInfoMain, guarded by
+        //    IMGUI_IMPL_VULKAN_HAS_DYNAMIC_RENDERING — NOT the old top-level InitInfo.PipelineRenderingCreateInfo the editor hosts used.
+        InitInfo.UseDynamicRendering       = true;
+        InitInfo.PipelineInfoMain.PipelineRenderingCreateInfo = RenderingCreateInfo;
+        InitInfo.Allocator                 = Host.Allocator;
+
+        if (Host.ImguiDescriptorPool != VK_NULL_HANDLE && ImGui_ImplVulkan_Init(&InitInfo))
+        {
+            // 🔴 Match ControlsGalleryHost EXACTLY: resolve the shared theme and enforce it — NOTHING else. No StyleColorsDark seed, no
+            //    ScaleAllSizes. The ControlsGallery look does NOT come from the global ImGui style; it comes from drawing every widget through
+            //    the real Interface components (ConstructValueSlider / ConstructSelectionEntry / BeginPropertyCard …), each of which pushes the
+            //    Theme.Palette colours per-widget. So the window draws through those components (see SurfelTuningWindow.cpp) rather than raw
+            //    ImGui::SliderFloat, and the resolved Theme is cached on the extension to thread into that draw call each frame.
+            Extension.ImguiTheme = ResolveActiveTheme();
+            EnforceThemeStyle(Extension.ImguiTheme);
+            Extension.ImguiReady = true;
+
+            // 📝 Seed the tuning knobs from the baked SurfelGrid.glsl defaults so opening the window shows the values in force right now.
+            Extension.SurfelTuning.CellDiameter      = 1.0f;
+            Extension.SurfelTuning.BaseRadius        = 1.2f;
+            Extension.SurfelTuning.NearFieldBias     = 1.0f;
+            Extension.SurfelTuning.PerCellCapChoice  = 64;
+            Extension.SurfelTuning.PerCellCapApplied = 64;
+            ISSUE_NOTICE("render-extension", "ImGui surfel-tuning overlay ready (F10)");
+        }
+        else
+        {
+            // ⚠️ Leave ImguiReady=false and tear the half-built context back down so finalize is a clean no-op.
+            DetachImguiPlatform(Extension.Substrate.Window);
+            ImGui::DestroyContext();
+            ISSUE_CAUTION("render-extension", "ImGui overlay unavailable — surfel-tuning window disabled (renderer runs without it)");
+        }
+    }
+
     return true;
 }
 
@@ -1367,6 +1470,28 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
     Extension.Substrate.RecordPreamble =
         [&Extension](VkCommandBuffer CommandBuffer, VkExtent2D Extent)
         {
+            // 📝 Start the ImGui frame at the very top of the preamble — it does NO GPU work (no command-buffer touch), it only opens the UI
+            //    frame so widget calls later in RecordSequence have somewhere to land. The platform advance (mouse/focus/cursor) sits between the
+            //    backend new-frame and ImGui::NewFrame exactly as the editor hosts order it. Gated on ImguiReady so a failed init is inert.
+            if (Extension.ImguiReady)
+            {
+                ImGui_ImplVulkan_NewFrame();
+                AdvanceImguiPlatform();
+                ImGui::NewFrame();
+            }
+
+            // 🔴 Per-cell cap commit (F10 Apply). Consumed at the TOP of the preamble, before any surfel dispatch this frame, so the spawn gate + the
+            //    occupancy heatmap read a stable cap for the whole frame. Because the List SSBO is allocated once at SurfelMaxPerCellAllocationCap (256),
+            //    raising the cap can NEVER over-run it — so this is a pure uniform commit (choice -> applied), NOT a reallocation: no vkDeviceWaitIdle, no
+            //    descriptor rewrite, no buffer rebuild. The new applied value flows into SurfelSpawnConstants.PerCellCap / SurfelDebugConstants.PerCellCap
+            //    below via AssembleSurfel*Constants (both read Tuning.PerCellCapApplied). One-shot: the request is cleared so a held state does not re-fire.
+            if (Extension.SurfelTuning.ApplyCapRequested)
+            {
+                Extension.SurfelTuning.PerCellCapApplied = Extension.SurfelTuning.PerCellCapChoice;
+                Extension.SurfelTuning.ApplyCapRequested = false;
+                printf("[surfel] per-cell cap applied -> %d\n", Extension.SurfelTuning.PerCellCapApplied);
+            }
+
             // 🔴 The observer is CACHED here for RecordSequence to reuse rather than each recomputing it. The preamble runs first and the sequence
             //    second within ONE command buffer, but the sequence drives the camera before it advances the GI field — so recomputing there would
             //    hand the two spines observers a frame of camera motion apart, and the GI field would disagree with itself about where the viewer
@@ -1377,6 +1502,33 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             //    wrote it. Advancing the camera first would invert that invariant and perturb the settled P5.9b image.
             Extension.CachedObserverPosition = EvaluateObserverPosition(Extension.ViewCamera);
             Extension.ObserverCacheSeeded    = true;
+
+            // 🩺 Surfel dump (L key). Consumed HERE, at the very TOP of the preamble — before this frame records any surfel work — precisely because the
+            //    surfel + spawn-request buffers now hold the PREVIOUS frame's fully-submitted-and-completed state (the frame the user was looking at when
+            //    they pressed L). The facility runs its OWN transient command buffer + submit + fence wait (a one-off stall the keypress pays for), so it
+            //    must fire outside the live command-buffer recording that has not begun its surfel dispatches yet. Reading here avoids racing this frame's
+            //    not-yet-recorded spawn writes. One-shot: cleared immediately so a held key does not re-fire.
+            if (Extension.SurfelDumpRequested)
+            {
+                Extension.SurfelDumpRequested = false;
+                if (Extension.UploadPool == VK_NULL_HANDLE)
+                    printf("[surfel] dump skipped — no command pool (scene not loaded?)\n");
+                else
+                {
+                    const FocalOrientation DumpFrame = SolveOrbitOrientation(Extension.ViewCamera);
+                    const float DumpEye[3] = { DumpFrame.EyePosition.XCoord, DumpFrame.EyePosition.YCoord, DumpFrame.EyePosition.ZCoord };
+                    // Each press names a distinct numbered snapshot set under SurfelDumps/ (beside the exe) so presses accumulate.
+                    DumpSurfelStateToDisk(Extension.SurfelPoolResource,
+                                          Extension.SurfelLifecycle.TileAllocBuffer,
+                                          Extension.SurfelLifecycle.TileCandidateBuffer,
+                                          Extension.SurfelLifecycle.TileCapacity,
+                                          Extension.UploadPool,
+                                          DumpEye,
+                                          Extension.SurfelFrameIndex,
+                                          Extension.SurfelDumpSequence++,
+                                          "SurfelDumps");
+                }
+            }
 
 
             // 🔴 Resize fail-safe. All three offscreen render targets (depth, id image, HiZ pyramid) are extent-sized, so a window resize must
@@ -1408,6 +1560,13 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             // valid view to point at yet at that time. Refresh is idempotent (one handle compare when nothing moved), so the steady-state cost is
             // nil and the resize + first-frame cases are both covered by the same call.
             RefreshGroundGridPass(Extension.GridPass, Extension.Substrate.Host, Extension.DepthTarget);
+
+            // The debug splat's fragment stage depth-rejects against that same scene depth (b3), so the resize that rebuilt the depth view left its
+            // descriptor pointing at a stale handle — re-point it here beside the grid, for the same reason: idempotent (a single handle compare when
+            // nothing moved) and also the first valid binding after a genuine extent change. Harmless when the inscription never built.
+            if (Extension.SurfelDebug.ReadyCondition)
+                RefreshSurfelDebugInscription(Extension.SurfelDebug, Extension.SurfelPoolResource, Extension.SurfelSlotting,
+                                              Extension.DepthTarget.DepthView);
 
             // A resize rebuilt the visibility image's view, so the resolve's descriptor now points at a stale handle — re-point it. The device is
             // already idle above on a genuine extent change, so this rewrite of the (possibly in-flight) resolve set is safe.
@@ -1735,35 +1894,24 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             if (VisibilityWritten && Extension.SurfelLifecycle.ReadyCondition && Extension.SurfelSlotting.ReadyCondition
                 && Extension.SurfelPoolResource.ReadyCondition)
             {
-                // 🩺 DIAGNOSTIC (task #37 — breathing oscillation). Read the atomics recorded LAST frame (frame-latency, no stall) and log the surfel
-                //    population every ~30 frames. Still camera: pulsing alive/spawn in lockstep with the visual breath => coverage churn; flat while the
-                //    brightness still breathes => pure feedback-delay ringing. Remove this block + RecordSurfelAtomicReadback once settled.
-                {
-                    int32_t DiagAlive = 0, DiagAllocPtr = 0, DiagMaxSlot = 0;
-                    if (ReadSurfelAtomicReadback(Extension.SurfelPoolResource, DiagAlive, DiagAllocPtr, DiagMaxSlot)
-                        && (Extension.SurfelFrameIndex % 30u) == 0u)
-                    {
-                        printf("[surfel-diag] frame %u: alive=%d allocPtr=%d maxSlot=%d\n",
-                               Extension.SurfelFrameIndex, DiagAlive, DiagAllocPtr, DiagMaxSlot);
-                        fflush(stdout);
-                    }
-                }
-
                 RecordSurfelLifecyclePrepare(Extension.SurfelLifecycle, Extension.SurfelPoolResource, CommandBuffer);
 
                 SurfelSlottingConstants SlottingConstants;
-                AssembleSurfelSlottingConstants(Extension.ViewCamera, SlottingConstants);
+                AssembleSurfelSlottingConstants(Extension.ViewCamera, Extension.SurfelTuning, SlottingConstants);
                 RecordSurfelGridSlotting(Extension.SurfelSlotting, Extension.SurfelPoolResource, SlottingConstants, CommandBuffer);
 
                 const bool FloorResident = Extension.SurfaceShade.FloorGeometryBound && FloorDrawPlacement.IndexCount > 0;
                 SurfelSpawnConstants SpawnConstants;
                 AssembleSurfelSpawnConstants(Extension.ViewCamera, Extension.VisibilityTarget.Width
                                              ? VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height } : Extent,
-                                             Extension.SurfelFrameIndex, FloorResident, FloorDrawPlacement.IndexOffset, SpawnConstants);
+                                             Extension.SurfelFrameIndex, FloorResident, FloorDrawPlacement.IndexOffset,
+                                             Extension.SurfelSpawnDensityScale, Extension.SurfelTuning, SpawnConstants);
                 RecordSurfelLifecycleSpawn(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SpawnConstants,
                                            VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height }, CommandBuffer);
 
-                RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, CommandBuffer);
+                // Age reads the touched income mailbox + hashes each surfel's cell for the crowding rent, so it needs THIS frame's grid origin — the
+                // same camera-relative eye position the slotting/spawn used above (SlottingConstants.GridOrigin), keeping host and shader on one lattice.
+                RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SlottingConstants.GridOrigin, CommandBuffer);
 
                 // ── Phase 2: the per-surfel INTEGRATE (trace + MSME). Runs AFTER Age (so this frame's ages are settled) and AFTER the #26 TLAS chain (it
                 //    walks the tree the refit just wrote — B2 above already fenced the tree node buffer). B1 fences slotting's grid + the pool/moments-read
@@ -1806,6 +1954,11 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                                          Extension.SurfelFrameIndex,
                                                          Extension.VisibilityRaster.InstanceCount,
                                                          (uint32_t)Extension.GeometryArena.Slices.size());
+                    // Live world-scale knobs (F10 window) — the integrate's one-bounce gather runs SurfelGather.glsl, so its cell/radius must
+                    // match the spawn+slotting build. Stamped here (not in the Surfel-module assembler) to keep SurfelTuningState a RenderExtension type.
+                    IntegrateConstants.TuneCellDiameter  = Extension.SurfelTuning.CellDiameter;
+                    IntegrateConstants.TuneBaseRadius    = Extension.SurfelTuning.BaseRadius;
+                    IntegrateConstants.TuneNearFieldBias = Extension.SurfelTuning.NearFieldBias;
                     RecordSurfelIntegrate(Extension.SurfelIntegrate, Extension.SurfelPoolResource, IntegrateConstants, CommandBuffer);
 
                     // B3 — integrate (compute WRITE) → next frame's integrate/resolve/Age (compute READ). Fences moments-write / guiding / depth / touched.
@@ -1830,9 +1983,6 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                      0, 1, &SurfelToSplat, 0, nullptr, 0, nullptr);
-
-                // 🩺 DIAGNOSTIC (task #37): mirror the three atomics into the host-visible readback buffer. Read next frame at the top of this block.
-                RecordSurfelAtomicReadback(Extension.SurfelPoolResource, CommandBuffer);
 
                 Extension.SurfelFrameIndex++;
             }
@@ -1931,6 +2081,11 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     // gating here too keeps the console A/B honest and avoids pushing a live read-offset the shader would ignore.
                     ShadeConstants.SurfelGiEnabled = (Extension.SurfelGiEnabled && Extension.SurfaceShade.SurfelSetReady) ? 1u : 0u;
 
+                    // Live world-scale knobs (F10 window) — the gather hashes into the SAME cells the spawn+slotting build filled, so cell/radius must track.
+                    ShadeConstants.TuneCellDiameter  = Extension.SurfelTuning.CellDiameter;
+                    ShadeConstants.TuneBaseRadius    = Extension.SurfelTuning.BaseRadius;
+                    ShadeConstants.TuneNearFieldBias = Extension.SurfelTuning.NearFieldBias;
+
                     RecordSurfaceShadeInscription(Extension.SurfaceShade, Extent, ShadeConstants, CommandBuffer);
                 }
 
@@ -1941,8 +2096,15 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 // (or the seed) state — harmless, but there is nothing new to show and the gate keeps it in lockstep with the compute that feeds it.
                 if (VisibilityWritten && Extension.SurfelDebug.ReadyCondition && Extension.SurfelDebugMode != SurfelDebugModeOff)
                 {
+                    // 🔴 Post-swap read half (mirrors the shade at ~:1913): the integrate + SwapSurfelMoments already flipped parity, so
+                    //    MomentsParity*Capacity names the fresh irradiance the GI modes (5-7) read. The non-GI modes ignore it.
+                    const uint32_t SurfelDebugReadOffset =
+                        Extension.SurfelPoolResource.MomentsParity * Extension.SurfelPoolResource.Capacity;
+
                     SurfelDebugConstants DebugConstants;
-                    AssembleSurfelDebugConstants(Extension.ViewCamera, Extent, Extension.SurfelDebugMode, DebugConstants);
+                    AssembleSurfelDebugConstants(Extension.ViewCamera, Extent, Extension.SurfelDebugMode,
+                                                 Extension.SurfelDebugRadiusScale, SurfelDebugReadOffset,
+                                                 Extension.SurfelPoolResource.Capacity, Extension.SurfelTuning, DebugConstants);
                     RecordSurfelDebugInscription(Extension.SurfelDebug, Extent, DebugConstants, CommandBuffer);
                 }
 
@@ -2151,7 +2313,7 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 {
                     Extension.SurfelDebugMode = (Extension.SurfelDebugMode + 1) % SurfelDebugModeCount;
                     static const char* const SurfelDebugModeNames[SurfelDebugModeCount] =
-                        { "OFF", "AGE", "CASCADE", "IDENTITY", "OCCUPANCY" };
+                        { "OFF", "AGE", "CASCADE", "IDENTITY", "OCCUPANCY", "IRRADIANCE", "LUMINANCE", "GI-VS-DEAD" };
                     printf("[surfel] debug view -> %s\n", SurfelDebugModeNames[Extension.SurfelDebugMode]);
                 }
                 fflush(stdout);
@@ -2174,6 +2336,69 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 fflush(stdout);
             }
             Extension.SurfelGiKeyLatch = SurfelGiKeyDown;
+
+            // F8 / F9 shrink / grow the debug splat discs (radius scale), so overlapping surfels stop merging into a flat wash and the field
+            // reads as individual dots. Multiplicative steps, clamped to a sane band; edge-latched so one press is one step. Only meaningful with a
+            // debug mode on, but harmless off (the field advances regardless and the splat self-no-ops). Prints the new scale for feedback.
+            const bool SurfelRadiusDownDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F8);
+            if (SurfelRadiusDownDown && !Extension.SurfelDebugRadiusDownLatch)
+            {
+                Extension.SurfelDebugRadiusScale = std::clamp(Extension.SurfelDebugRadiusScale * 0.8f, 0.1f, 8.0f);
+                printf("[surfel] debug disc scale -> %.2f\n", Extension.SurfelDebugRadiusScale);
+                fflush(stdout);
+            }
+            Extension.SurfelDebugRadiusDownLatch = SurfelRadiusDownDown;
+
+            const bool SurfelRadiusUpDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F9);
+            if (SurfelRadiusUpDown && !Extension.SurfelDebugRadiusUpLatch)
+            {
+                Extension.SurfelDebugRadiusScale = std::clamp(Extension.SurfelDebugRadiusScale * 1.25f, 0.1f, 8.0f);
+                printf("[surfel] debug disc scale -> %.2f\n", Extension.SurfelDebugRadiusScale);
+                fflush(stdout);
+            }
+            Extension.SurfelDebugRadiusUpLatch = SurfelRadiusUpDown;
+
+            // L — one-shot surfel-state dump to disk (the diagnostic instrument for the near-camera mound). Edge-latched: one press sets a one-shot
+            // request the PREAMBLE consumes next frame, copying the live surfel records + this frame's per-tile spawn requests off the GPU into
+            // SurfelDumps/ beside the exe (surfel-live-NNNN.csv, surfel-spawns-NNNN.csv, surfel-dump-NNNN.json). The copy is fired at the compute seam, NOT here — this is
+            // input handling and has no command pool or post-record buffers; the facility does its own submit/wait. Refuses to re-arm while a prior
+            // request is still pending so a held key does not queue a burst.
+            const bool SurfelDumpKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::L);
+            if (SurfelDumpKeyDown && !Extension.SurfelDumpKeyLatch)
+            {
+                if (Extension.SurfelDumpRequested)
+                    printf("[surfel] dump already pending — press ignored\n");
+                else if (!Extension.SurfelPoolResource.ReadyCondition)
+                    printf("[surfel] dump unavailable — the pool did not build\n");
+                else
+                {
+                    Extension.SurfelDumpRequested = true;
+                    printf("[surfel] dump requested\n");
+                }
+                fflush(stdout);
+            }
+            Extension.SurfelDumpKeyLatch = SurfelDumpKeyDown;
+
+            // Numpad + / - drive the live spawn-density multiplier: it scales the spawn-request throttle in SurfelSpawnRequest.comp, so more (or
+            // fewer) surfels seed per frame from the same visibility pixels. Denser coverage is the direct lever on the "no surfel -> no GI"
+            // clumpiness of screen-space spawn. Multiplicative steps, clamped to a sane band; edge-latched so one press is one step.
+            const bool SurfelDensityUpDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::NumpadAdd);
+            if (SurfelDensityUpDown && !Extension.SurfelSpawnDensityUpLatch)
+            {
+                Extension.SurfelSpawnDensityScale = std::clamp(Extension.SurfelSpawnDensityScale * 1.25f, 0.25f, 16.0f);
+                printf("[surfel] spawn density -> %.2f\n", Extension.SurfelSpawnDensityScale);
+                fflush(stdout);
+            }
+            Extension.SurfelSpawnDensityUpLatch = SurfelDensityUpDown;
+
+            const bool SurfelDensityDownDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::NumpadSubtract);
+            if (SurfelDensityDownDown && !Extension.SurfelSpawnDensityDownLatch)
+            {
+                Extension.SurfelSpawnDensityScale = std::clamp(Extension.SurfelSpawnDensityScale * 0.8f, 0.25f, 16.0f);
+                printf("[surfel] spawn density -> %.2f\n", Extension.SurfelSpawnDensityScale);
+                fflush(stdout);
+            }
+            Extension.SurfelSpawnDensityDownLatch = SurfelDensityDownDown;
 
 
             // Numpad-2 toggles the GPU-driven visibility-scaling path (the two-pass cull -> indirect raster). Default ON: the raster draws only the
@@ -2285,7 +2510,13 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             Extension.ClipmapInspectionKeyLatch = ClipmapKeyDown;
 #endif
 
-            DriveViewportCamera(Extension, Delta);
+            // 🔴 Swallow camera input while ImGui owns the mouse — otherwise dragging a tuning slider ALSO orbits/flies the scene behind the window
+            //    (the camera reads the same raw pointer packets ImGui just consumed). WantCaptureMouse is true whenever the pointer is over an ImGui
+            //    window OR a widget drag is active, so releasing the drag off-window still hands control back cleanly. Gated on ImguiReady so the
+            //    camera is never frozen when the overlay failed to initialize. Keyboard fly (WASD) stays live — only pointer look/orbit/pan is gated.
+            const bool ImguiWantsMouse = Extension.ImguiReady && ImGui::GetIO().WantCaptureMouse;
+            if (!ImguiWantsMouse)
+                DriveViewportCamera(Extension, Delta);
 
             // 📝 Clipmap spine (P5c): advance every level to the camera the moment the camera has moved for this frame — scroll (invalidating only the
             //    newly-exposed L-slabs), refill the shell around the camera, climb the relight ramp. Unconditional and cheap (host-side integer work on
@@ -2467,6 +2698,29 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 RecordClipmapInspection(Extension.ClipmapInspection, CommandBuffer, Extent, ClipmapConstants);
             }
 #endif
+
+            // -- ImGui surfel-tuning overlay (F10) — LAST draw inside the colour scope, so the window reads on top of the whole scene ---------
+            // 📝 F10 edge-latch toggles the window; the frame was already opened in the preamble (ImGui::NewFrame), so we build the window here,
+            //    then Render + RenderDrawData into THIS command buffer — the same dynamic-rendering colour scope the scene drew into, the same
+            //    present. NewFrame ran unconditionally in the preamble whenever ImguiReady, so ImGui::Render must run here every frame to balance
+            //    it (drawing nothing when the window is closed); skipping Render on a frame that called NewFrame corrupts ImGui's frame state.
+            if (Extension.ImguiReady)
+            {
+                const bool TuningKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::F10);
+                if (TuningKeyDown && !Extension.SurfelTuning.FKeyLatch)
+                {
+                    Extension.SurfelTuning.WindowOpen = !Extension.SurfelTuning.WindowOpen;
+                    printf("[surfel] tuning window -> %s\n", Extension.SurfelTuning.WindowOpen ? "on" : "off");
+                    fflush(stdout);
+                }
+                Extension.SurfelTuning.FKeyLatch = TuningKeyDown;
+
+                if (Extension.SurfelTuning.WindowOpen)
+                    DrawSurfelTuningWindow(Extension.ImguiTheme, Extension.SurfelTuning);
+
+                ImGui::Render();
+                ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), CommandBuffer);
+            }
         };
 
     RunWindowSubstrate(Extension.Substrate);
@@ -2480,6 +2734,17 @@ void FinalizeRenderExtension(RenderExtension& Extension)
         vkDeviceWaitIdle(Extension.Substrate.Host.Device);
     Extension.Substrate.RecordSequence = nullptr;
     Extension.Substrate.RecordPreamble = nullptr;
+
+    // ImGui overlay teardown — reverse of the init in InitializeRenderExtension, under the device-idle above (the backend may still hold this
+    // frame's descriptor sets). Safe when ImguiReady was never set: the whole block no-ops, leaving nothing to destroy.
+    if (Extension.ImguiReady)
+    {
+        ImGui_ImplVulkan_Shutdown();
+        DetachImguiPlatform(Extension.Substrate.Window);
+        ImGui::DestroyContext();
+        Extension.ImguiReady = false;
+    }
+
     // Drop the schedule's step callbacks (they capture Extension by reference) before the passes they record into are torn down.
     FinalizeRenderSchedule(Extension.Schedule);
 #ifdef FRONTIER_DEVELOPMENT_PROFILE

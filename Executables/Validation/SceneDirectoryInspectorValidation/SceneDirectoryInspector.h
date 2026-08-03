@@ -37,11 +37,12 @@ enum class RecordClassification
     Sphere,      // [-] - a sphere primitive; hue pink
     Cone,        // [-] - a cone primitive; hue red
     Revolve,     // [-] - a revolved feature; hue earth
-    Loft         // [-] - a lofted feature; hue blue
+    Loft,        // [-] - a lofted feature; hue blue
+    Workplane    // [-] - a construction plane (origin + normal + grid); hue teal
 };
 
-// The eight add-menu / chip choices, in on-screen order (ADD_CHOICES) — Scene is the root and is never added, so it is omitted.
-extern const RecordClassification AddChoices[8];
+// The nine add-menu / chip choices, in on-screen order (ADD_CHOICES) — Scene is the root and is never added, so it is omitted.
+extern const RecordClassification AddChoices[9];
 
 // Packed 0xAABBGGRR ImU32 hue for a classification (CLASSIFICATION_HUE), and its display label (CLASSIFICATION_LABEL).
 std::uint32_t ClassificationHue(RecordClassification Classification);
@@ -116,6 +117,23 @@ struct RecordProfile
     float TangencyStart = 0.0f;           // [-]
     float TangencyEnd   = 0.0f;           // [-]
     bool  Ruled         = false;          // [-]
+
+    // -- workplane -- (mirrors WorkplaneExplainer.html's definition + display split; the outliner card face for Frontier::Workplane)
+    int   PlaneMethod    = 0;             // [idx]- XY / XZ / YZ / Offset / Angle / 3-Point / Midplane / Tangent / Point-Normal / On-Face
+    float PlaneOffset    = 0.0f;          // [mm] - Offset method: signed shift along the reference normal
+    float PlaneAngle     = 0.0f;          // [deg]- Angle method: signed rotation about the pivot axis
+    int   PlaneAnglePivot = 0;            // [idx]- Angle method hinge: 0 U (tilt fwd/back) / 1 V (tilt left/right) / 2 Normal (in-plane roll)
+    bool  FlipNormal     = false;         // [-]  - reverse which side is "up" (flips extrude direction)
+    float PlaneExtent    = 2000.0f;       // [mm] - half-size of the finite display rectangle (2 m half → 4 m sheet, readable at the boot orbit)
+    bool  PlaneGrid      = true;          // [-]  - draw the snap lattice on the plane
+    float PlaneGridSpacing = 200.0f;      // [mm] - minor-cell spacing of the on-plane grid (0.2 m cells)
+    bool  PlaneSnap      = true;          // [-]  - the cursor snaps to grid intersections while sketching
+    bool  PlaneLock      = false;         // [-]  - freeze the active sketch plane
+    // [mm] - authored base origin, non-zero only for a plane PLACED by the interactive draw (the sheet is centred on the drag midpoint); the
+    //        default XY plane keeps world zero. Carried into Frontier::Workplane.AuthoredOrigin so the solve seats the frame there.
+    float PlaneOriginX   = 0.0f;
+    float PlaneOriginY   = 0.0f;
+    float PlaneOriginZ   = 0.0f;
 };
 
 

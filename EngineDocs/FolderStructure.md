@@ -320,6 +320,8 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │       ├── ParametricSketchShapeStore.{h,cpp} // 🧩 analytic shapes + factory/flatten + the GPU bridges
 │   │       │                                      //   (SceneView / stroke+shape bodies / solid+stroke images)
 │   │       ├── ParametricSketchConstraintSolver.{h,cpp}  // 🧩 relaxation constraint solve
+│   │       ├── Workplane.{h,cpp}                  // 🧩 standalone construction-plane model: parametric frame solve (Z-up), per-panel store,
+│   │       │                                      //   Append/Detach + undo/redo history, sheet+grid render assembly (SketchModelViewport draws it)
 │   │       ├── Operations/ Boolean, Fillet, Loft, Transform  // (Boolean/Transform → Clipper2, Loft → earcut)
 │   │       └── Build.bat                          // → AuthoringParametric.lib (folds in Clipper2's 3 vendored .cpp)
 │   │
@@ -412,7 +414,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   ├── SimulationEditor/       { SimulationEditorEntry.cpp,        Config/, Build.bat }
 │   └── Validation/                                // validation targets (not editors)
 │       ├── ClipmapFieldValidation/         { ClipmapFieldValidation.cpp,             Build.bat }
-│       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }
+│       ├── ConstructionCatalogueValidation/{ ConstructionCatalogueValidationHost.cpp, ConstructionCatalogue.{h,cpp}, ConstructionCataloguePanel.{h,cpp}, ConstructionConsoleBridge.{h,cpp}, ConstructionGlyphs.{h,cpp}, Build.bat }  // non-host units ALSO compiled in-place by SketchModelViewport (the embedded right-click console)
 │       ├── ControlsGallery/                { ControlsGalleryEntry.cpp,               …Panel.{h,cpp}, Build.bat }
 │       ├── GeometryArenaValidation/        { GeometryArenaValidationEntry.cpp,       Build.bat }  // headless device: uploads the BLAS
 │       │                                                                                          //   blobs and reads them back byte for
@@ -428,8 +430,8 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       ├── RadixSortValidation/            { RadixSortValidationEntry.cpp,           Build.bat }
 │       ├── RenderExtensionValidation/      { RenderExtensionValidationEntry.cpp,     Build.bat }
 │       ├── SceneDirectory/                 { SceneDirectoryHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel with the SCENE profile (no private panel copy)
-│       ├── SceneDirectoryInspectorValidation/ { SceneDirectoryInspectorValidationHost.cpp, SceneDirectoryInspector.{h,cpp}, SceneDirectoryInspectorPanel.{h,cpp}, InspectorGlyphs.{h,cpp}, Build.bat }  // directory rail = SHARED SketchOutliner panel (SKETCH profile), linked from EngineContext.lib
-│       ├── SketchModelViewport/            { SketchModelViewportHost.cpp,            …Panel.{h,cpp}, SketchModelOffscreenSurface.{h,cpp}, SketchModelViewportChrome.{h,cpp}, Build.bat }
+│       ├── SceneDirectoryInspectorValidation/ { SceneDirectoryInspectorValidationHost.cpp, SceneDirectoryInspector.{h,cpp}, SceneDirectoryInspectorPanel.{h,cpp}, InspectorContentProfile.{h,cpp}, InspectorGlyphs.{h,cpp}, Build.bat }  // directory rail = SHARED SketchOutliner panel via InspectorContentProfile (opaque ClassificationId == RecordClassification); non-host units ALSO compiled in-place by SketchModelViewport
+│       ├── SketchModelViewport/            { SketchModelViewportHost.cpp,            …Panel.{h,cpp}, SketchModelOffscreenSurface.{h,cpp}, SketchModelViewportChrome.{h,cpp}, SketchModelSummonedSurfaces.{h,cpp}, SketchModelWorkplaneOverlay.{h,cpp}, Build.bat }  // embeds two surfaces over the canvas: SceneDirectoryInspector card on Tab + ConstructionCatalogue console on right-click — both sibling folders' non-host .cpp compiled IN-PLACE (their Host.cpp skipped); links AuthoringParametric.lib + draws authored Workplane records as an ImGui DrawList overlay projected by the viewport camera
 │       ├── SketchOutliner/                 { SketchOutlinerValidationHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel (SKETCH profile) from EngineContext.lib
 │       ├── TriangleCellOverlapValidation/  { TriangleCellOverlapValidationEntry.cpp, Build.bat }
 │       ├── VolumeBoundsValidation/         { VolumeBoundsValidationEntry.cpp,        Build.bat }

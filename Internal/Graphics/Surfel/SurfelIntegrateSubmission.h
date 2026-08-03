@@ -74,8 +74,10 @@ struct SurfelIntegrateConstants
 
     float    GiFromDirect       = 1.0f;// [-] - direct-light gain at a hit
     float    GiFromIndirect     = 1.0f;// [-] - one-bounce gather gain at a hit
+    float    TuneCellDiameter   = 1.0f;// [m] - live base cell edge (F10 window); the one-bounce gather's cell must match spawn/slotting
+    float    TuneBaseRadius     = 1.2f;// [m] - live cascade-0 disc radius (F10 window)
+    float    TuneNearFieldBias  = 1.0f;// [-] - live near-field bias (F10 window; layout parity, unused by integrate)
     float    Pad0               = 0.0f;
-    float    Pad1               = 0.0f;
 };
 
 // 📝 The integrate unit's owned handles. Two set layouts (BVH set 0, surfel set 1), one pipeline layout (both sets + the push range), one pipeline

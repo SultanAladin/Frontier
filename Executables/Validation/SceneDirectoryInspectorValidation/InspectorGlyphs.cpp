@@ -30,7 +30,7 @@ namespace
     // Every classification key the tree / cards / timeline reference (ClassificationKey lowercase strings).
     const char* const ClassificationKeys[] =
     {
-        "scene", "folder", "sketch", "solid", "cylinder", "sphere", "cone", "revolve", "loft"
+        "scene", "folder", "sketch", "solid", "cylinder", "sphere", "cone", "revolve", "loft", "workplane"
     };
 
     // Every chrome / UI glyph the panel draws (the prototype's UI table keys).

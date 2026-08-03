@@ -13,6 +13,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <string>
 #include <vector>
 
 namespace Frontier
@@ -150,6 +152,51 @@ bool AllocateStagingWithData(VulkanHost& Host, const void* Bytes, VkDeviceSize B
     return true;
 }
 
+// Allocate a host-visible staging buffer of ByteSize as a copy DESTINATION (TRANSFER_DST). Mirrors AllocateStagingWithData
+// but does NOT map/fill — the caller copies a device-local buffer INTO it on a command buffer, then maps to read it back.
+bool AllocateStagingReadback(VulkanHost& Host, VkDeviceSize ByteSize, VkBuffer& OutBuffer, VkDeviceMemory& OutMemory)
+{
+    OutBuffer = VK_NULL_HANDLE;
+    OutMemory = VK_NULL_HANDLE;
+    if (ByteSize == 0) ByteSize = 4;
+
+    VkBufferCreateInfo BufferInformation = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    BufferInformation.size        = ByteSize;
+    BufferInformation.usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    BufferInformation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    if (vkCreateBuffer(Host.Device, &BufferInformation, Host.Allocator, &OutBuffer) != VK_SUCCESS)
+    {
+        OutBuffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryRequirements MemoryRequirements = {};
+    vkGetBufferMemoryRequirements(Host.Device, OutBuffer, &MemoryRequirements);
+    bool MemoryTypeFound = false;
+    const uint32_t MemoryTypeIndex = SelectMemoryTypeIndex(Host.PhysicalDevice, MemoryRequirements.memoryTypeBits,
+                                                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, MemoryTypeFound);
+    if (!MemoryTypeFound)
+    {
+        vkDestroyBuffer(Host.Device, OutBuffer, Host.Allocator);
+        OutBuffer = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryAllocateInfo AllocateInformation = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    AllocateInformation.allocationSize  = MemoryRequirements.size;
+    AllocateInformation.memoryTypeIndex = MemoryTypeIndex;
+    if (vkAllocateMemory(Host.Device, &AllocateInformation, Host.Allocator, &OutMemory) != VK_SUCCESS ||
+        vkBindBufferMemory(Host.Device, OutBuffer, OutMemory, 0) != VK_SUCCESS)
+    {
+        if (OutMemory != VK_NULL_HANDLE) vkFreeMemory(Host.Device, OutMemory, Host.Allocator);
+        vkDestroyBuffer(Host.Device, OutBuffer, Host.Allocator);
+        OutBuffer = VK_NULL_HANDLE;
+        OutMemory = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -194,39 +241,6 @@ bool InitializeSurfelPool(SurfelPool&   Pool,
         ReportSurfelPool("pool buffer allocation failed");
         FinalizeSurfelPool(Pool);
         return false;
-    }
-
-    // 🩺 DIAGNOSTIC-ONLY (task #37): a 12-byte host-visible readback mirror of the three atomics. Non-fatal — a failure just leaves the diagnostic off.
-    {
-        const VkDeviceSize ReadbackBytes = 3u * sizeof(int32_t);
-        VkBufferCreateInfo ReadbackInformation = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-        ReadbackInformation.size        = ReadbackBytes;
-        ReadbackInformation.usage       = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        ReadbackInformation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        if (vkCreateBuffer(Host.Device, &ReadbackInformation, Host.Allocator, &Pool.AtomicReadbackBuffer) == VK_SUCCESS)
-        {
-            VkMemoryRequirements ReadbackRequirements = {};
-            vkGetBufferMemoryRequirements(Host.Device, Pool.AtomicReadbackBuffer, &ReadbackRequirements);
-            bool ReadbackTypeFound = false;
-            const uint32_t ReadbackTypeIndex = SelectMemoryTypeIndex(Host.PhysicalDevice, ReadbackRequirements.memoryTypeBits,
-                                                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ReadbackTypeFound);
-            if (ReadbackTypeFound)
-            {
-                VkMemoryAllocateInfo ReadbackAllocate = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-                ReadbackAllocate.allocationSize  = ReadbackRequirements.size;
-                ReadbackAllocate.memoryTypeIndex = ReadbackTypeIndex;
-                if (vkAllocateMemory(Host.Device, &ReadbackAllocate, Host.Allocator, &Pool.AtomicReadbackMemory) == VK_SUCCESS &&
-                    vkBindBufferMemory(Host.Device, Pool.AtomicReadbackBuffer, Pool.AtomicReadbackMemory, 0) == VK_SUCCESS)
-                {
-                    Pool.AtomicReadbackReady = true;
-                }
-            }
-        }
-        if (!Pool.AtomicReadbackReady)
-        {
-            if (Pool.AtomicReadbackMemory != VK_NULL_HANDLE) { vkFreeMemory(Host.Device, Pool.AtomicReadbackMemory, Host.Allocator); Pool.AtomicReadbackMemory = VK_NULL_HANDLE; }
-            if (Pool.AtomicReadbackBuffer != VK_NULL_HANDLE) { vkDestroyBuffer(Host.Device, Pool.AtomicReadbackBuffer, Host.Allocator); Pool.AtomicReadbackBuffer = VK_NULL_HANDLE; }
-        }
     }
 
     // --- stage the identity free-list 0..cap-1 (vkCmdFillBuffer cannot write an ascending sequence) ---------------------
@@ -321,39 +335,256 @@ void SwapSurfelMoments(SurfelPool& Pool)
     Pool.MomentsParity = 1u - Pool.MomentsParity;
 }
 
-void RecordSurfelAtomicReadback(const SurfelPool& Pool, VkCommandBuffer CommandBuffer)
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       DIAGNOSTIC DUMP
+//------------------------------------------------------------------------------------------------------------------------
+
+namespace
 {
-    if (!Pool.AtomicReadbackReady || CommandBuffer == VK_NULL_HANDLE) return;
 
-    // Copy each single-int atomic into its slot of the 3-int host-visible mirror. The caller already fenced the atomics' COMPUTE writes; make those
-    // writes visible to the transfer read (COMPUTE -> TRANSFER, SHADER_WRITE -> TRANSFER_READ) so the mirror never latches a torn value.
-    VkMemoryBarrier ToTransfer = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
-    ToTransfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    ToTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(CommandBuffer,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0, 1, &ToTransfer, 0, nullptr, 0, nullptr);
+// Copy SourceBuffer[0..ByteSize) into a fresh host-visible readback buffer on a one-shot command buffer, submit, wait, and
+// hand back the still-mapped bytes in OutBytes. The staging buffer/memory are freed here (bytes are copied into the vector).
+bool CopyDeviceBufferToVector(VulkanHost&           Host,
+                              VkCommandPool         CommandPool,
+                              VkBuffer              SourceBuffer,
+                              VkDeviceSize          ByteSize,
+                              std::vector<uint8_t>& OutBytes)
+{
+    OutBytes.clear();
+    if (SourceBuffer == VK_NULL_HANDLE || ByteSize == 0)
+        return false;
 
-    VkBufferCopy Alive = { 0, 0 * sizeof(int32_t), sizeof(int32_t) };
-    VkBufferCopy Alloc = { 0, 1 * sizeof(int32_t), sizeof(int32_t) };
-    VkBufferCopy Max   = { 0, 2 * sizeof(int32_t), sizeof(int32_t) };
-    vkCmdCopyBuffer(CommandBuffer, Pool.AliveCountBuffer, Pool.AtomicReadbackBuffer, 1, &Alive);
-    vkCmdCopyBuffer(CommandBuffer, Pool.PoolAllocBuffer,  Pool.AtomicReadbackBuffer, 1, &Alloc);
-    vkCmdCopyBuffer(CommandBuffer, Pool.PoolMaxBuffer,    Pool.AtomicReadbackBuffer, 1, &Max);
+    VkBuffer       Staging = VK_NULL_HANDLE;
+    VkDeviceMemory Memory  = VK_NULL_HANDLE;
+    if (!AllocateStagingReadback(Host, ByteSize, Staging, Memory))
+        return false;
+
+    bool Copied = false;
+    VkCommandBufferAllocateInfo CommandAllocate = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    CommandAllocate.commandPool        = CommandPool;
+    CommandAllocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    CommandAllocate.commandBufferCount = 1;
+    VkCommandBuffer CopyCommand = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(Host.Device, &CommandAllocate, &CopyCommand) == VK_SUCCESS)
+    {
+        VkCommandBufferBeginInfo BeginInformation = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        BeginInformation.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(CopyCommand, &BeginInformation) == VK_SUCCESS)
+        {
+            VkBufferCopy Region = { 0, 0, ByteSize };
+            vkCmdCopyBuffer(CopyCommand, SourceBuffer, Staging, 1, &Region);
+            if (vkEndCommandBuffer(CopyCommand) == VK_SUCCESS)
+            {
+                VkFence Fence = VK_NULL_HANDLE;
+                VkFenceCreateInfo FenceInformation = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+                if (vkCreateFence(Host.Device, &FenceInformation, Host.Allocator, &Fence) == VK_SUCCESS)
+                {
+                    VkSubmitInfo SubmitInformation = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+                    SubmitInformation.commandBufferCount = 1;
+                    SubmitInformation.pCommandBuffers    = &CopyCommand;
+                    if (vkQueueSubmit(Host.GraphicsQueue, 1, &SubmitInformation, Fence) == VK_SUCCESS &&
+                        vkWaitForFences(Host.Device, 1, &Fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS)
+                    {
+                        void* Mapped = nullptr;
+                        if (vkMapMemory(Host.Device, Memory, 0, ByteSize, 0, &Mapped) == VK_SUCCESS)
+                        {
+                            OutBytes.resize((size_t)ByteSize);
+                            std::memcpy(OutBytes.data(), Mapped, (size_t)ByteSize);
+                            vkUnmapMemory(Host.Device, Memory);
+                            Copied = true;
+                        }
+                    }
+                    vkDestroyFence(Host.Device, Fence, Host.Allocator);
+                }
+            }
+        }
+        vkFreeCommandBuffers(Host.Device, CommandPool, 1, &CopyCommand);
+    }
+
+    vkDestroyBuffer(Host.Device, Staging, Host.Allocator);
+    vkFreeMemory(Host.Device, Memory, Host.Allocator);
+    return Copied;
 }
 
-bool ReadSurfelAtomicReadback(const SurfelPool& Pool, int32_t& AliveOut, int32_t& AllocPtrOut, int32_t& MaxSlotOut)
+// Read one signed int32 back from a single-int atomic buffer (AliveCount / PoolMax). Returns Fallback on any copy failure.
+int32_t ReadAtomicInt(VulkanHost& Host, VkCommandPool CommandPool, VkBuffer Buffer, int32_t Fallback)
 {
-    AliveOut = AllocPtrOut = MaxSlotOut = 0;
-    if (!Pool.AtomicReadbackReady || Pool.Host == nullptr || Pool.Host->Device == VK_NULL_HANDLE) return false;
+    std::vector<uint8_t> Bytes;
+    if (Buffer == VK_NULL_HANDLE || !CopyDeviceBufferToVector(Host, CommandPool, Buffer, sizeof(int32_t), Bytes) || Bytes.size() < sizeof(int32_t))
+        return Fallback;
+    int32_t Value = Fallback;
+    std::memcpy(&Value, Bytes.data(), sizeof(int32_t));
+    return Value;
+}
 
-    void* Mapped = nullptr;
-    if (vkMapMemory(Pool.Host->Device, Pool.AtomicReadbackMemory, 0, 3u * sizeof(int32_t), 0, &Mapped) != VK_SUCCESS) return false;
-    const int32_t* Values = reinterpret_cast<const int32_t*>(Mapped);
-    AliveOut    = Values[0];
-    AllocPtrOut = Values[1];
-    MaxSlotOut  = Values[2];
-    vkUnmapMemory(Pool.Host->Device, Pool.AtomicReadbackMemory);
+} // namespace
+
+bool DumpSurfelStateToDisk(const SurfelPool& Pool,
+                           VkBuffer          TileAllocBuffer,
+                           VkBuffer          TileCandidateBuffer,
+                           uint32_t          TileCount,
+                           VkCommandPool     CommandPool,
+                           const float       CameraEye[3],
+                           uint32_t          FrameIndex,
+                           uint32_t          DumpSequence,
+                           const char*       OutputDirectory)
+{
+    if (Pool.Host == nullptr || Pool.Host->Device == VK_NULL_HANDLE || !Pool.ReadyCondition)
+    {
+        ReportSurfelPool("dump skipped — pool not ready");
+        return false;
+    }
+    VulkanHost& Host = *Pool.Host;
+    const char* Directory = (OutputDirectory && OutputDirectory[0]) ? OutputDirectory : "SurfelDumps";
+
+    // Create the output directory if it is missing (a fresh checkout has no dump folder). Best-effort — a create failure just
+    // means the fopen below fails and we report it; std::filesystem swallows its own error via the non-throwing overload.
+    {
+        std::error_code DirError;
+        std::filesystem::create_directories(Directory, DirError);
+    }
+
+    // --- 1. copy the whole surfel record buffer back (stride 32 B; Capacity records) --------------------------------------
+    const VkDeviceSize SurfelBytes = (VkDeviceSize)Pool.Capacity * SurfelStrideFloats * sizeof(float);
+    std::vector<uint8_t> SurfelBytesHost;
+    if (!CopyDeviceBufferToVector(Host, CommandPool, Pool.SurfelBuffer, SurfelBytes, SurfelBytesHost))
+    {
+        ReportSurfelPool("dump failed — surfel readback copy failed");
+        return false;
+    }
+    const SurfelRecord* Records = reinterpret_cast<const SurfelRecord*>(SurfelBytesHost.data());
+    const uint32_t      RecordCount = (uint32_t)(SurfelBytesHost.size() / sizeof(SurfelRecord));
+
+    // Bounds hint from the atomics (best-effort; the age filter below is the authority, so a failed read just widens the scan).
+    const int32_t AliveCount = ReadAtomicInt(Host, CommandPool, Pool.AliveCountBuffer, -1);
+    const int32_t PoolMax    = ReadAtomicInt(Host, CommandPool, Pool.PoolMaxBuffer,    -1);
+    const uint32_t ScanLimit = (PoolMax > 0 && (uint32_t)PoolMax < RecordCount) ? (uint32_t)PoolMax + 1u : RecordCount;
+
+    // --- 2. copy this-frame spawn-request buffers back (optional) ---------------------------------------------------------
+    std::vector<uint8_t> TileAllocHost;      // TileCount x int32 (1 == requested)
+    std::vector<uint8_t> TileCandidateHost;  // TileCount x 2 x vec4 (32 B / tile): [0]=pos.xyz + frame in .w, [1]=normal.xyz
+    bool HaveSpawns = false;
+    if (TileAllocBuffer != VK_NULL_HANDLE && TileCandidateBuffer != VK_NULL_HANDLE && TileCount > 0)
+    {
+        const VkDeviceSize AllocBytes     = (VkDeviceSize)TileCount * sizeof(int32_t);
+        const VkDeviceSize CandidateBytes = (VkDeviceSize)TileCount * 2 * 4 * sizeof(float);
+        HaveSpawns = CopyDeviceBufferToVector(Host, CommandPool, TileAllocBuffer,     AllocBytes,     TileAllocHost) &&
+                     CopyDeviceBufferToVector(Host, CommandPool, TileCandidateBuffer, CandidateBytes, TileCandidateHost);
+        if (!HaveSpawns)
+            ReportSurfelPool("dump note — spawn-request readback failed; writing live surfels only");
+    }
+    const int32_t* TileAlloc     = HaveSpawns ? reinterpret_cast<const int32_t*>(TileAllocHost.data())     : nullptr;
+    const float*   TileCandidate = HaveSpawns ? reinterpret_cast<const float*>(TileCandidateHost.data())   : nullptr;
+
+    // --- 3. build the file paths ------------------------------------------------------------------------------------------
+    // Each L press passes a distinct DumpSequence so successive presses ACCUMULATE numbered snapshots instead of clobbering
+    // the last dump. FrameIndex alone is not a safe key (a paused / near-identical frame repeats it), so the monotonic press
+    // counter owns the filename. A 4-digit zero-padded suffix sorts naturally in a file listing and in the viewer's picker.
+    char Suffix[16];
+    std::snprintf(Suffix, sizeof(Suffix), "-%04u", DumpSequence);
+    const std::string LivePath  = std::string(Directory) + "/surfel-live"  + Suffix + ".csv";
+    const std::string SpawnPath = std::string(Directory) + "/surfel-spawns" + Suffix + ".csv";
+    const std::string JsonPath  = std::string(Directory) + "/surfel-dump"  + Suffix + ".json";
+
+    const float Eye[3] = { CameraEye ? CameraEye[0] : 0.0f, CameraEye ? CameraEye[1] : 0.0f, CameraEye ? CameraEye[2] : 0.0f };
+
+    // --- 4. surfel-live.csv: one row per LIVE surfel (Age < SurfelTtl && Age != SurfelLifeRecycle) ------------------------
+    uint32_t LiveWritten = 0;
+    if (FILE* LiveFile = std::fopen(LivePath.c_str(), "wb"))
+    {
+        std::fprintf(LiveFile, "# surfel-live  frame=%u  cameraEye=%.4f,%.4f,%.4f  capacity=%u  aliveCount=%d  poolMax=%d  ttl=%d\n",
+                     FrameIndex, Eye[0], Eye[1], Eye[2], Pool.Capacity, AliveCount, PoolMax, (int)SurfelTtl);
+        std::fprintf(LiveFile, "x,y,z,nx,ny,nz,age\n");
+        for (uint32_t Index = 0; Index < ScanLimit && Index < RecordCount; ++Index)
+        {
+            const SurfelRecord& R = Records[Index];
+            if (R.Age >= SurfelTtl || R.Age == SurfelLifeRecycle || R.Age == SurfelLifeRecycled)
+                continue;
+            std::fprintf(LiveFile, "%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d\n",
+                         R.PositionX, R.PositionY, R.PositionZ, R.NormalX, R.NormalY, R.NormalZ, R.Age);
+            ++LiveWritten;
+        }
+        std::fclose(LiveFile);
+    }
+    else
+    {
+        ReportSurfelPool("dump failed — could not open surfel-live.csv for writing");
+        return false;
+    }
+
+    // --- 5. surfel-spawns.csv: one row per tile with TileAlloc==1 ---------------------------------------------------------
+    uint32_t SpawnWritten = 0;
+    if (FILE* SpawnFile = std::fopen(SpawnPath.c_str(), "wb"))
+    {
+        std::fprintf(SpawnFile, "# surfel-spawns  frame=%u  cameraEye=%.4f,%.4f,%.4f  tileCount=%u\n",
+                     FrameIndex, Eye[0], Eye[1], Eye[2], TileCount);
+        std::fprintf(SpawnFile, "tile,x,y,z,nx,ny,nz,frame\n");
+        if (HaveSpawns)
+        {
+            for (uint32_t Tile = 0; Tile < TileCount; ++Tile)
+            {
+                if (TileAlloc[Tile] != 1)
+                    continue;
+                const float* Pos    = &TileCandidate[Tile * 8 + 0];   // vec4 [0]: xyz pos, w = frame stamp
+                const float* Normal = &TileCandidate[Tile * 8 + 4];   // vec4 [1]: xyz normal
+                std::fprintf(SpawnFile, "%u,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d\n",
+                             Tile, Pos[0], Pos[1], Pos[2], Normal[0], Normal[1], Normal[2], (int)Pos[3]);
+                ++SpawnWritten;
+            }
+        }
+        std::fclose(SpawnFile);
+    }
+
+    // --- 6. surfel-dump.json: camera + counts + the two arrays (one file the HTML viewer fetches) -------------------------
+    if (FILE* JsonFile = std::fopen(JsonPath.c_str(), "wb"))
+    {
+        std::fprintf(JsonFile, "{\n");
+        std::fprintf(JsonFile, "  \"frame\": %u,\n", FrameIndex);
+        std::fprintf(JsonFile, "  \"cameraEye\": [%.5f, %.5f, %.5f],\n", Eye[0], Eye[1], Eye[2]);
+        std::fprintf(JsonFile, "  \"capacity\": %u,\n", Pool.Capacity);
+        std::fprintf(JsonFile, "  \"aliveCount\": %d,\n", AliveCount);
+        std::fprintf(JsonFile, "  \"liveCount\": %u,\n", LiveWritten);
+        std::fprintf(JsonFile, "  \"spawnCount\": %u,\n", SpawnWritten);
+        // live: flat [x,y,z,nx,ny,nz,age, ...]
+        std::fprintf(JsonFile, "  \"live\": [");
+        {
+            uint32_t Emitted = 0;
+            for (uint32_t Index = 0; Index < ScanLimit && Index < RecordCount; ++Index)
+            {
+                const SurfelRecord& R = Records[Index];
+                if (R.Age >= SurfelTtl || R.Age == SurfelLifeRecycle || R.Age == SurfelLifeRecycled)
+                    continue;
+                std::fprintf(JsonFile, "%s%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d",
+                             (Emitted == 0 ? "" : ","),
+                             R.PositionX, R.PositionY, R.PositionZ, R.NormalX, R.NormalY, R.NormalZ, R.Age);
+                ++Emitted;
+            }
+        }
+        std::fprintf(JsonFile, "],\n");
+        // spawns: flat [x,y,z,nx,ny,nz,frame, ...]
+        std::fprintf(JsonFile, "  \"spawns\": [");
+        if (HaveSpawns)
+        {
+            uint32_t Emitted = 0;
+            for (uint32_t Tile = 0; Tile < TileCount; ++Tile)
+            {
+                if (TileAlloc[Tile] != 1)
+                    continue;
+                const float* Pos    = &TileCandidate[Tile * 8 + 0];
+                const float* Normal = &TileCandidate[Tile * 8 + 4];
+                std::fprintf(JsonFile, "%s%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%d",
+                             (Emitted == 0 ? "" : ","),
+                             Pos[0], Pos[1], Pos[2], Normal[0], Normal[1], Normal[2], (int)Pos[3]);
+                ++Emitted;
+            }
+        }
+        std::fprintf(JsonFile, "]\n}\n");
+        std::fclose(JsonFile);
+    }
+
+    std::fprintf(stdout, "[surfel] dumped %u live, %u spawn requests -> %s , %s , %s\n",
+                 LiveWritten, SpawnWritten, LivePath.c_str(), SpawnPath.c_str(), JsonPath.c_str());
+    std::fflush(stdout);
     return true;
 }
 
@@ -376,10 +607,6 @@ void FinalizeSurfelPool(SurfelPool& Pool)
         if (Buffers[Index]  != VK_NULL_HANDLE) vkDestroyBuffer(Device, Buffers[Index], Allocator);
         if (Memories[Index] != VK_NULL_HANDLE) vkFreeMemory(Device, Memories[Index], Allocator);
     }
-
-    // 🩺 DIAGNOSTIC-ONLY (task #37) readback staging.
-    if (Pool.AtomicReadbackBuffer != VK_NULL_HANDLE) vkDestroyBuffer(Device, Pool.AtomicReadbackBuffer, Allocator);
-    if (Pool.AtomicReadbackMemory != VK_NULL_HANDLE) vkFreeMemory(Device, Pool.AtomicReadbackMemory, Allocator);
 
     Pool = SurfelPool{};
 }

@@ -43,6 +43,7 @@ enum class KeyIdentity : uint8_t
 
     // Numpad (debug view toggles).
     Numpad0, Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7,
+    NumpadAdd, NumpadSubtract,   // numpad + / - (live density / step controls)
 
     // Miscellaneous.
     Space, Escape,

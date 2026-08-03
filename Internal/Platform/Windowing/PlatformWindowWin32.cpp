@@ -107,6 +107,8 @@ static KeyIdentity TranslateVirtualKey(WPARAM VirtualKey)
         case VK_NUMPAD5:  return KeyIdentity::Numpad5;
         case VK_NUMPAD6:  return KeyIdentity::Numpad6;
         case VK_NUMPAD7:  return KeyIdentity::Numpad7;
+        case VK_ADD:      return KeyIdentity::NumpadAdd;
+        case VK_SUBTRACT: return KeyIdentity::NumpadSubtract;
         case VK_SPACE:    return KeyIdentity::Space;
         case VK_ESCAPE:   return KeyIdentity::Escape;
         default:          return KeyIdentity::Unknown;

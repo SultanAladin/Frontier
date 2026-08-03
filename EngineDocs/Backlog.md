@@ -4,6 +4,24 @@ Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---
 
+## Precompute surfel distribution for static meshes (2026-08-03)
+
+Surfel GI coverage is currently **view-dependent**: `SurfelSpawnRequest.comp` seeds surfels from visibility
+pixels, so a surface only gets surfels once the camera has looked at it, and coverage is clumpy — the direct
+cause of the "no surfel → no GI" gaps the debug view (modes 5–7) makes visible. The live Numpad +/- density
+control (raises the spawn-throttle multiplier) mitigates but does not solve it.
+
+**Better approach, deferred:** for **static meshes** (floor slab, the Suzanne heads) precompute a
+**view-independent** surfel distribution at load — e.g. blue-noise / area-weighted sampling over each mesh's
+surface (roughly "one per patch", the user's "1 per vertices on Suzanne" intuition, done properly by surface
+area rather than raw vertex count) — and seed those surfels once so coverage is uniform and complete before
+the camera moves. Screen-space spawn stays for dynamic/streamed geometry. Keep the two paths coexisting: the
+precomputed seed for statics, the visibility-pixel spawn for everything else.
+
+Not scoped into the current GI phases; revisit after Phase 4–6.
+
+---
+
 ## Dead thin `WorkspaceHost/Outliner/OutlinerPanel` — registered, never invoked (2026-08-03)
 
 The outliner unification is done: ONE shared panel (`WorkspaceHost/SketchOutliner/SketchOutlinerPanel`,

@@ -54,7 +54,10 @@ bool AllocateStorageBuffer(VulkanHost& Host, VkDeviceSize ByteSize, VkBuffer& Ou
 
     VkBufferCreateInfo BufferInformation = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
     BufferInformation.size        = ByteSize;
-    BufferInformation.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    // TRANSFER_SRC lets the diagnostic dump (DumpSurfelStateToDisk / the L key) copy these buffers — notably TileAlloc and
+    // TileCandidate, this frame's spawn requests — back to host staging. Harmless on the buffers the dump never reads.
+    BufferInformation.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     BufferInformation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (vkCreateBuffer(Host.Device, &BufferInformation, Host.Allocator, &OutBuffer) != VK_SUCCESS)
     {
@@ -288,8 +291,8 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
 
     // --- set layouts ---
     Lifecycle.SpawnVisibilityLayout = ConstructSpawnVisibilityLayout(Host);
-    Lifecycle.SpawnGridLayout       = ConstructStorageSetLayout(Host, 5);   // offsets, list, surfels, tileAlloc, tileCandidate
-    Lifecycle.PoolLayout            = ConstructStorageSetLayout(Host, 7);   // surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate
+    Lifecycle.SpawnGridLayout       = ConstructStorageSetLayout(Host, 6);   // offsets, list, surfels, tileAlloc, tileCandidate, touched (b5, economy)
+    Lifecycle.PoolLayout            = ConstructStorageSetLayout(Host, 9);   // surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate, offsets (b7), touched (b8) — the last two economy-only
     if (Lifecycle.SpawnVisibilityLayout == VK_NULL_HANDLE || Lifecycle.SpawnGridLayout == VK_NULL_HANDLE || Lifecycle.PoolLayout == VK_NULL_HANDLE)
     {
         ReportLifecycle("set layout creation failed");
@@ -300,9 +303,10 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
     // --- pipeline layouts ---
     const VkDescriptorSetLayout SpawnSets[2] = { Lifecycle.SpawnVisibilityLayout, Lifecycle.SpawnGridLayout };
     Lifecycle.SpawnPipelineLayout = ConstructPipelineLayout(Host, SpawnSets, 2, sizeof(SurfelSpawnConstants));
-    // The pool layout drives Prepare (push { int Capacity }), Age (push { int Capacity }), Allocate (push { int Capacity, TileCount, SyncPass, Pad }).
-    // One shared push range sized to the largest (Allocate's 16 bytes) keeps the pipeline layout single.
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; };
+    // The pool layout drives Prepare (push { int Capacity }), Allocate (push { int Capacity, TileCount, SyncPass, Pad }), and Age (which additionally
+    // reads GridOrigin to hash each surfel's cell for the crowding rent). One shared push range sized to the whole block (32 bytes: 16 header + a padded
+    // vec4 GridOrigin) keeps the pipeline layout single — the passes that don't use GridOrigin simply don't read it.
+    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     Lifecycle.PoolPipelineLayout = ConstructPipelineLayout(Host, &Lifecycle.PoolLayout, 1, sizeof(PoolPushBlock));
     if (Lifecycle.SpawnPipelineLayout == VK_NULL_HANDLE || Lifecycle.PoolPipelineLayout == VK_NULL_HANDLE)
     {
@@ -328,7 +332,7 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
     // --- descriptor pool + three sets ---
     VkDescriptorPoolSize PoolSizes[2] = {};
     PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSizes[0].descriptorCount = 6 + 5 + 7;   // spawn visibility (6 SSBOs) + spawn grid (5) + pool (7)
+    PoolSizes[0].descriptorCount = 6 + 6 + 9;   // spawn visibility (6 SSBOs) + spawn grid (6: +touched) + pool (9: +offsets +touched)
     PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     PoolSizes[1].descriptorCount = 1;           // the id image
 
@@ -444,6 +448,13 @@ void RefreshSurfelLifecycleVisibility(SurfelLifecycleSubmission& Lifecycle,
         Lifecycle.BoundSpawnSurfelBuffer = Pool.SurfelBuffer;
     }
 
+    // --- set 1: the touched income mailbox (b5, economy) — the spawn pass's keep-alive/despawn writes ---
+    if (Pool.TouchedBuffer != VK_NULL_HANDLE && Pool.TouchedBuffer != Lifecycle.BoundSpawnTouchedBuffer)
+    {
+        WriteStorageDescriptor(Host, Lifecycle.SpawnGridSet, 5u, Pool.TouchedBuffer);
+        Lifecycle.BoundSpawnTouchedBuffer = Pool.TouchedBuffer;
+    }
+
     // --- pool set: the borrowed pool buffers (surfels @0, pool @1, poolAlloc @2, poolMax @3, alive @4) ---
     if (Pool.SurfelBuffer != VK_NULL_HANDLE && Pool.SurfelBuffer != Lifecycle.BoundPoolSurfelBuffer)
     {
@@ -453,6 +464,18 @@ void RefreshSurfelLifecycleVisibility(SurfelLifecycleSubmission& Lifecycle,
         WriteStorageDescriptor(Host, Lifecycle.PoolSet, 3u, Pool.PoolMaxBuffer);
         WriteStorageDescriptor(Host, Lifecycle.PoolSet, 4u, Pool.AliveCountBuffer);
         Lifecycle.BoundPoolSurfelBuffer = Pool.SurfelBuffer;
+    }
+
+    // --- pool set: the economy-only bindings — the grid Offsets slice (b7, the rent-crowding count) + the touched mailbox (b8, the income drain) ---
+    if (Slotting.OffsetsBuffer != VK_NULL_HANDLE && Slotting.OffsetsBuffer != Lifecycle.BoundPoolOffsetsBuffer)
+    {
+        WriteStorageDescriptor(Host, Lifecycle.PoolSet, 7u, Slotting.OffsetsBuffer);
+        Lifecycle.BoundPoolOffsetsBuffer = Slotting.OffsetsBuffer;
+    }
+    if (Pool.TouchedBuffer != VK_NULL_HANDLE && Pool.TouchedBuffer != Lifecycle.BoundPoolTouchedBuffer)
+    {
+        WriteStorageDescriptor(Host, Lifecycle.PoolSet, 8u, Pool.TouchedBuffer);
+        Lifecycle.BoundPoolTouchedBuffer = Pool.TouchedBuffer;
     }
 }
 
@@ -465,7 +488,7 @@ void RecordSurfelLifecyclePrepare(SurfelLifecycleSubmission& Lifecycle,
     if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE)
         return;
 
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; };
+    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock Push = {};
     Push.Capacity = (int32_t)Pool.Capacity;
 
@@ -514,7 +537,7 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
     LifecycleStorageBarrier(CommandBuffer);   // the requests must be visible to Allocate
 
     // --- Stage 2: SurfelAllocate over the tiles (pops pool slots, commits surfels) ---
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; };
+    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock AllocPush = {};
     AllocPush.Capacity  = (int32_t)Pool.Capacity;
     AllocPush.TileCount = (int32_t)TileCount;
@@ -536,6 +559,7 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
 
 void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
                               const SurfelPool&           Pool,
+                              const float                 GridOrigin[3],
                               VkCommandBuffer             CommandBuffer)
 {
     if (!Lifecycle.ReadyCondition)
@@ -543,9 +567,14 @@ void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
     if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE)
         return;
 
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; };
+    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock Push = {};
     Push.Capacity = (int32_t)Pool.Capacity;
+    // The snapped grid origin the slotting/spawn used this frame — hashes each surfel's cell for the crowding-rent count.
+    Push.GridOrigin[0] = GridOrigin[0];
+    Push.GridOrigin[1] = GridOrigin[1];
+    Push.GridOrigin[2] = GridOrigin[2];
+    Push.GridOrigin[3] = 0.0f;
 
     vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Lifecycle.PoolPipelineLayout, 0, 1, &Lifecycle.PoolSet, 0, nullptr);
     vkCmdPushConstants(CommandBuffer, Lifecycle.PoolPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PoolPushBlock), &Push);

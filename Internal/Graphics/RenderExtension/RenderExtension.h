@@ -39,6 +39,7 @@
 #include "Graphics/Surfel/SurfelLifecycleSubmission.h"
 #include "Graphics/Surfel/SurfelDebugInscription.h"
 #include "Graphics/Surfel/SurfelIntegrateSubmission.h"
+#include "Graphics/RenderExtension/SurfelTuningWindow.h"
 #include "EngineContext/Scene/SceneExtension.h"
 #include "EngineContext/Scene/WorkspaceDocumentRegister.h"
 #include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
@@ -238,11 +239,28 @@ struct RenderExtension
     SurfelLifecycleSubmission SurfelLifecycle;      // [-] - Prepare (one-time seed, F21) / Spawn (from the visibility id) / Age (TTL recycle)
     SurfelDebugInscription    SurfelDebug;          // [-] - the screen-space splat of every live surfel, composited after the shade
     SurfelIntegrateSubmission SurfelIntegrate;      // [-] - Phase 2: per-surfel trace + MSME integrate (bound once against the BVH + surfel state, records after Age)
-    uint32_t                  SurfelDebugMode          = SurfelDebugModeOff; // [-] - selected debug mode (0 = off, default); F6 cycles Off->Age->Cascade->Identity->Occupancy
+    uint32_t                  SurfelDebugMode          = SurfelDebugModeOff; // [-] - selected debug mode (0 = off, default); F6 cycles Off->Age->..->Irradiance->Luminance->GiVsDead
     bool                      SurfelDebugModeKeyLatch  = false;              // [-] - edge latch so one F6 press advances the mode once
+    float                     SurfelDebugRadiusScale   = 0.1f;               // [-] - disc-size multiplier for the splat; DEFAULTS to the smallest size F8 can produce (F8 shrinks ×0.8 to the 0.1 floor, F9 grows) so debug spheres start as small dots
+    bool                      SurfelDebugRadiusDownLatch = false;            // [-] - edge latch for F8 (shrink)
+    bool                      SurfelDebugRadiusUpLatch   = false;            // [-] - edge latch for F9 (grow)
+    float                     SurfelSpawnDensityScale  = 1.0f;               // [-] - live spawn-rate multiplier; Numpad- sparser, Numpad+ denser (raises coverage at GPU cost)
+    bool                      SurfelSpawnDensityUpLatch   = false;           // [-] - edge latch for Numpad+ (denser)
+    bool                      SurfelSpawnDensityDownLatch = false;           // [-] - edge latch for Numpad- (sparser)
     bool                      SurfelGiEnabled          = true;               // [-] - Phase 3: when true the shade GATHERS surfel GI in place of the flat ambient; F7 toggles the A/B
     bool                      SurfelGiKeyLatch         = false;              // [-] - edge latch so one F7 press flips the GI toggle once
     uint32_t                  SurfelFrameIndex         = 0;                  // [-] - monotonically-increasing frame counter fed to the spawn (jitter / frame-index uses)
+    bool                      SurfelDumpKeyLatch       = false;              // [-] - edge latch so one L press requests a dump once
+    bool                      SurfelDumpRequested      = false;              // [-] - one-shot: set by the L latch, consumed at the preamble seam (copy surfels+spawns off the GPU to disk)
+    uint32_t                  SurfelDumpSequence       = 0;                  // [-] - monotonic per-dump counter; names each L-press snapshot (surfel-dump-0000.json …) so presses accumulate
+
+    // 📝 Live surfel-tuning debug window (F10). The renderer stands up its OWN ImGui-on-Vulkan context (context + imgui_impl_vulkan backend +
+    //    shared theme) and renders the window INTO the substrate's swapchain command buffer inside the colour scope — NOT via VulkanImguiInterface
+    //    (that owns a second swapchain, which cannot coexist on one surface). ImguiReady gates every ImGui call: a failed init leaves it false and
+    //    all ImGui work no-ops, so the renderer still runs. SurfelTuning holds the live knobs the whole surfel pipeline reads each frame.
+    bool                      ImguiReady               = false;              // [-] - true once the ImGui context + Vulkan backend init succeeded; every ImGui call gates on it
+    ThemeConfiguration        ImguiTheme;                                    // [-] - the shared theme resolved once at init (ControlsGallery look); threaded into the tuning window's component draws each frame
+    SurfelTuningState         SurfelTuning;                                  // [-] - live cell/radius/bias knobs + per-cell cap selector + window-open flag (F10 toggles)
 
     ViewportCamera          ViewCamera;            // [-] - Orbit / fly camera spec the grid is rendered through
 

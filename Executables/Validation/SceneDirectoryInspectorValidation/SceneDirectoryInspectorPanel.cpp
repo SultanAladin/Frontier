@@ -11,6 +11,7 @@
 //    SceneDirectoryInspectorValidation, never Frontier, so its RecordEntry / RecordToken never collide with the pillar's.
 
 #include "SceneDirectoryInspectorPanel.h"
+#include "InspectorContentProfile.h"
 #include "InspectorGlyphs.h"
 
 #include "EngineContext/Interface/Icons/SvgIconRegistry.h"
@@ -159,27 +160,14 @@ namespace
 //                                                      SAMPLE CONTENT
 //------------------------------------------------------------------------------------------------------------------------
 // 📝 The directory tree is the shared SketchOutliner's (Frontier::SketchOutlinerUi::SketchOutlinerState, caller-owned), so the seed builds
-//    Frontier::SketchOutlinerUi::RecordEntry values directly (all fields public) rather than an SDI node. Each row carries its SDI hue as the
-//    tint and its SDI classification glyph key ("sdi-class-<key>") as the icon, so the reused panel paints SDI's own art with no CAD pack.
-//    A parallel side-table (Profiles + Kinds, keyed by token) hangs the SDI property bag + classification off each row — the tree node has
-//    no room for either. The card panes read the selection SketchOutliner surfaces (classification via Kinds, child count, visibility).
+//    Frontier::SketchOutlinerUi::RecordEntry values directly (all fields public) rather than an SDI node. 🔴 The directory runs the SDI content
+//    profile (InspectorContentProfile), so a row's opaque ClassificationId IS the SDI RecordClassification and its hue + glyph key come off that
+//    profile's tables. The classification side-table the seed used to maintain is gone, and with it the drift that mis-typed every row born in
+//    the add menu; only the property bag still hangs off the token, because the shared tree row has no room for it.
 
 namespace
 {
     namespace SO = Frontier::SketchOutlinerUi;
-
-    // 📝 The shared sketch content profile's classification ids, mirrored here as int literals (the profile's enum lives in an anonymous
-    //    namespace inside SketchContentProfile.cpp, so it can't be named across the library boundary). These drive ONLY the reused outliner's
-    //    own facets (filter chips + row-glyph classification); every row overrides IconKey + TintColor with SDI's own art below, so an exact
-    //    id barely matters. Kept in lock-step with SketchClass in SketchContentProfile.cpp.
-    enum SketchClassId : int
-    {
-        SketchClass_PartRoot        = 0,
-        SketchClass_SketchProfile   = 5,
-        SketchClass_SolidShell      = 9,
-        SketchClass_FeatureOperation= 10,
-        SketchClass_FeatureDirectory= 11,
-    };
 
     // 📝 A per-frame scratch mirror of the selected row, carrying only what the preserved card / metadata / property code reads off a record:
     //    the token (widget-ID uniqueness), the display name (the Name text field writes here), the SDI classification (card schema + hue +
@@ -192,26 +180,6 @@ namespace
         RecordClassification Classification = RecordClassification::Solid;
         bool                 Hidden         = false;
     };
-
-    // The nearest SketchOutliner classification for an SDI object kind — the outliner classifies rows in its own vocabulary (chips + add menu
-    // + row glyph facet), so the seed maps each SDI kind onto the closest one. The round-trip back to SDI is exact because Kinds records the
-    // authored SDI kind per token; this map only drives the outliner's own facets.
-    int ToOutlinerClass(RecordClassification Kind)
-    {
-        switch (Kind)
-        {
-            case RecordClassification::Scene:    return SketchClass_PartRoot;
-            case RecordClassification::Folder:   return SketchClass_FeatureDirectory;
-            case RecordClassification::Sketch:   return SketchClass_SketchProfile;
-            case RecordClassification::Solid:    return SketchClass_SolidShell;
-            case RecordClassification::Cylinder: return SketchClass_SolidShell;
-            case RecordClassification::Sphere:   return SketchClass_SolidShell;
-            case RecordClassification::Cone:     return SketchClass_SolidShell;
-            case RecordClassification::Revolve:  return SketchClass_FeatureOperation;
-            case RecordClassification::Loft:     return SketchClass_FeatureOperation;
-        }
-        return SketchClass_SolidShell;
-    }
 
     // Resolve a token to its live SketchOutliner entry anywhere in the reused tree (read + write; the card pushes a rename back through it).
     SO::RecordEntry* ResolveOutlinerEntry(std::vector<SO::RecordEntry>& Region, RecordToken Target)
@@ -229,24 +197,6 @@ namespace
         return ResolveOutlinerEntry(const_cast<std::vector<SO::RecordEntry>&>(Region), Target);
     }
 
-    // Seed one SketchOutliner row for an SDI record: issue a token from the state's counter, paint it with the SDI hue + SDI glyph key, and
-    // record its SDI classification + a seeded profile in the side-tables. Returns the built row for the caller to nest.
-    SO::RecordEntry SeedRow(InspectorPanelState& State, const char* Name, RecordClassification Kind, bool Expanded)
-    {
-        SO::RecordEntry Entry;
-        Entry.Token            = State.Directory.NextToken++;
-        Entry.Label            = Name;
-        Entry.ClassificationId = ToOutlinerClass(Kind);
-        Entry.IconKey          = ClassificationGlyphKey(Kind);
-        Entry.TintColor      = 0xFF000000u | ClassificationHue(Kind);
-        Entry.ExpandedState  = Expanded;
-        Entry.ConcealedState = false;
-
-        State.Kinds.emplace_back(Entry.Token, Kind);
-        RecordProfile& Profile = ProfileFor(State, Entry.Token);
-        EstablishProfile(Kind, 0, true, Profile);
-        return Entry;
-    }
 }
 
 
@@ -260,47 +210,31 @@ RecordProfile& ProfileFor(InspectorPanelState& State, RecordToken Token)
 
 RecordClassification KindFor(const InspectorPanelState& State, RecordToken Token)
 {
-    for (const auto& Pair : State.Kinds) { if (Pair.first == Token) { return Pair.second; } }
-    return RecordClassification::Solid;   // a safe card schema when unknown
+    const SO::RecordEntry* Entry = ResolveOutlinerEntry(State.Directory.RootRegion, Token);
+    if (Entry == nullptr) { return RecordClassification::Solid; }   // a safe card schema when the token resolves to no row
+    return ResolveClassificationOfId(Entry->ClassificationId);
 }
 
 
 void InitializeInspectorSample(InspectorPanelState& State)
 {
+    // 📝 The empty opening pose. The directory profile's own SeedSample clears the tree and adds nothing, so the workspace opens with no
+    //    authored content and every row arrives through the outliner's add menu (which lands top-tier rows when the root region is empty).
     State.Directory = Frontier::SketchOutlinerUi::SketchOutlinerState{};
+    SO::InitializeSketchOutlinerSample(State.Directory, ResolveInspectorContentProfile());
+
     State.Profiles.clear();
-    State.Kinds.clear();
     State.ShownToken = 0;
 
-    // 📝 The prototype's recordStore seed, exactly: Part → { Sketches[SK_BasePlate, SK_BoltHoles],
-    //    Bodies[ BODY_Bracket[SOL_Plate, SOL_Boss(cylinder), SOL_Rib], SOL_Housing, SOL_Dome(sphere) ] }, seeded into the reused tree.
-    SO::RecordEntry Part = SeedRow(State, "Part", RecordClassification::Scene, true);
-
-    SO::RecordEntry Sketches = SeedRow(State, "Sketches", RecordClassification::Folder, true);
-    Sketches.NestedRegion.push_back(SeedRow(State, "SK_BasePlate", RecordClassification::Sketch, false));
-    Sketches.NestedRegion.push_back(SeedRow(State, "SK_BoltHoles", RecordClassification::Sketch, false));
-
-    SO::RecordEntry Bodies  = SeedRow(State, "Bodies", RecordClassification::Folder, true);
-    SO::RecordEntry Bracket = SeedRow(State, "BODY_Bracket", RecordClassification::Folder, true);
-    Bracket.NestedRegion.push_back(SeedRow(State, "SOL_Plate", RecordClassification::Solid,    false));
-    SO::RecordEntry Boss = SeedRow(State, "SOL_Boss", RecordClassification::Cylinder, false);
-    const RecordToken BossToken = Boss.Token;
-    Bracket.NestedRegion.push_back(std::move(Boss));
-    Bracket.NestedRegion.push_back(SeedRow(State, "SOL_Rib", RecordClassification::Solid, false));
-    Bodies.NestedRegion.push_back(std::move(Bracket));
-    Bodies.NestedRegion.push_back(SeedRow(State, "SOL_Housing", RecordClassification::Solid,  false));
-    Bodies.NestedRegion.push_back(SeedRow(State, "SOL_Dome",    RecordClassification::Sphere, false));
-
-    Part.NestedRegion.push_back(std::move(Sketches));
-    Part.NestedRegion.push_back(std::move(Bodies));
-    State.Directory.RootRegion.push_back(std::move(Part));
-
-    SeedRevisions(State.Revisions);
-
-    // 📝 Open on SOL_Boss so a cylinder's green hue is on screen immediately (the prototype's boot selectSolely).
-    State.Directory.SelectionSet.push_back(BossToken);
-    State.Directory.RangeAnchor = BossToken;
-    State.ShownToken = BossToken;
+    // 🔴 An empty history is ONE empty branch, not zero branches: RecordRevision / StepBack / StepForward / JumpToRevision / ForkBranch all
+    //    early-return unless Active indexes a live branch, so a branch-less store would swallow every logged revision without a trace.
+    State.Revisions.Branches.clear();
+    State.Revisions.Active    = 0;
+    State.Revisions.BranchSeq = 0;
+    RevisionBranch Trunk;
+    Trunk.Name   = "Trunk";
+    Trunk.Cursor = -1;
+    State.Revisions.Branches.push_back(std::move(Trunk));
 }
 
 
@@ -443,6 +377,10 @@ namespace
         if (Is("ProfileClosed"))    { B.BoolField = &P.ProfileClosed; return B; }
         if (Is("Ruled"))            { B.BoolField = &P.Ruled; return B; }
         if (Is("Selectable"))       { B.BoolField = &P.Selectable; return B; }
+        if (Is("FlipNormal"))       { B.BoolField = &P.FlipNormal; return B; }
+        if (Is("PlaneGrid"))        { B.BoolField = &P.PlaneGrid; return B; }
+        if (Is("PlaneSnap"))        { B.BoolField = &P.PlaneSnap; return B; }
+        if (Is("PlaneLock"))        { B.BoolField = &P.PlaneLock; return B; }
 
         // -- ints (dropdown / selection indices + count fields) --
         if (Is("Units"))          { B.IntField = &P.Units; return B; }
@@ -456,6 +394,8 @@ namespace
         if (Is("NestedTally"))    { B.IntField = &P.NestedTally; return B; }
         if (Is("CurveTally"))     { B.IntField = &P.CurveTally; return B; }
         if (Is("ConstraintTally")){ B.IntField = &P.ConstraintTally; return B; }
+        if (Is("PlaneMethod"))    { B.IntField = &P.PlaneMethod; return B; }
+        if (Is("PlaneAnglePivot")){ B.IntField = &P.PlaneAnglePivot; return B; }
 
         // -- floats --
         if (Is("ToleranceLinear")) { B.FloatField = &P.ToleranceLinear; return B; }
@@ -473,6 +413,10 @@ namespace
         if (Is("Metalness"))       { B.FloatField = &P.Metalness; return B; }
         if (Is("TangencyStart"))   { B.FloatField = &P.TangencyStart; return B; }
         if (Is("TangencyEnd"))     { B.FloatField = &P.TangencyEnd; return B; }
+        if (Is("PlaneOffset"))     { B.FloatField = &P.PlaneOffset; return B; }
+        if (Is("PlaneAngle"))      { B.FloatField = &P.PlaneAngle; return B; }
+        if (Is("PlaneExtent"))     { B.FloatField = &P.PlaneExtent; return B; }
+        if (Is("PlaneGridSpacing")){ B.FloatField = &P.PlaneGridSpacing; return B; }
 
         return B;   // unknown key: an inert binding (draws a blank row, as the JS default did)
     }
@@ -1038,12 +982,8 @@ void ConstructSceneDirectoryInspectorPanel(const ThemeConfiguration& Theme,
         else if (State.OnInspect) { State.OnInspect = false; }                        // slide back to directory
         else if (!State.Directory.SelectionSet.empty()) { State.OnInspect = true; }   // slide to inspect (only with a selection)
     }
-    // A right-click over the empty viewport summons at the cursor (the prototype's contextmenu on the desk).
-    if (!State.SummonOpen && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-    {
-        State.SummonRequested = true;
-        State.RequestX = Io.MousePos.x; State.RequestY = Io.MousePos.y;
-    }
+    // 🔴 Tab is the ONLY opener. The prototype's right-click summon is gone: in the modelling workspace that hosts this card, right-click
+    //    belongs to the construction console, and two surfaces answering one press would race for the same click.
     if (State.SummonOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
     {
         if (State.OnInspect) { State.OnInspect = false; }   // Escape steps inspect -> directory, then dismisses
@@ -1145,7 +1085,7 @@ void ConstructSceneDirectoryInspectorPanel(const ThemeConfiguration& Theme,
                               ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
         {
             ImGui::SetCursorScreenPos(ImVec2(DirX, CardTL.y));
-            SO::ConstructSketchOutlinerPanel(Theme, State.Directory, Icons, SO::ResolveSketchContentProfile());
+            SO::ConstructSketchOutlinerPanel(Theme, State.Directory, Icons, ResolveInspectorContentProfile());
         }
         ImGui::EndChild();
         ImGui::PopStyleVar();
@@ -1310,11 +1250,25 @@ void ConstructSceneDirectoryInspectorPanel(const ThemeConfiguration& Theme,
             // inner viewport: Properties pane and History pane on a 2× track shifted by InnerTravel
             const float ViewTop = SegY + CarouselSegH;
             const float ViewBot = CardTL.y + CardHeight - PaneFootH;
+            const float ViewHeight = ViewBot - ViewTop;
+            const float TopPad = 6.0f;   // [px] - the gap the body content keeps below the segmented control
+
+            // 🔴 The Properties + History bodies draw into this fixed clip rect, so content taller than ViewHeight (a Workplane's two cards,
+            //    a long timeline) is cut off at ViewBot with no way to reach it. Each face carries its OWN scroll offset: it is subtracted from
+            //    the body's start Y, the wheel drives it while the pane is hovered, and it is clamped to [0, content-view] from the extent the
+            //    body reported LAST frame (immediate-mode: the true content height is only known after the draw, so the clamp trails by a frame).
+            float& ActiveScroll = ShowHistory ? State.HistoryScroll : State.PropertiesScroll;
+            const bool PaneHovered =
+                Io.MousePos.x >= DetX && Io.MousePos.x <= DetX + DetailW &&
+                Io.MousePos.y >= ViewTop && Io.MousePos.y <= ViewBot;
+            if (PaneHovered && Io.MouseWheel != 0.0f) { ActiveScroll -= Io.MouseWheel * 34.0f; }
+
             Fg->PushClipRect(ImVec2(DetX, ViewTop), ImVec2(DetX + DetailW, ViewBot), true);
             const float InnerShaped = SolveCubicBezier(State.InnerTravel, 0.4f, 0.0f, 0.2f, 1.0f);
             const float InnerDx = -InnerShaped * DetailW;
 
             // Properties pane
+            float PropContentH = 0.0f;
             {
                 const float PX = DetX + InnerDx;
                 if (!Active) { Fg->AddText(ImVec2(PX + 12.0f, ViewTop + 8.0f), Palette.TextFaint, "Select a record to inspect its properties."); }
@@ -1322,24 +1276,51 @@ void ConstructSceneDirectoryInspectorPanel(const ThemeConfiguration& Theme,
                 {
                     RecordProfile& Profile = ProfileFor(State, Active->Token);
                     EstablishProfile(Active->Classification, NestedTally(State, Active->Token), !Active->Hidden, Profile);
-                    float PY = ViewTop + 6.0f;
+                    const float PStart = ViewTop + TopPad - State.PropertiesScroll;
+                    float PY = PStart;
                     CardSpec Cards[8]; const int CardCount = ResolveProfileCards(Active->Classification, Cards);
                     for (int C = 0; C < CardCount; ++C)
                     {
                         const std::string Toggled = ConstructCard(Fg, Icons, State, *Active, Profile, Cards[C], PX + 8.0f, PY, DetailW - 16.0f);
                         if (!Toggled.empty()) { ToggleCardFold(State, Toggled); }
                     }
+                    PropContentH = (PY - PStart) + TopPad;   // full body extent, top pad + cards
                 }
             }
             // History pane
+            float HistContentH = 0.0f;
             {
                 const float HX = DetX + InnerDx + DetailW;
-                float HY = ViewTop + 6.0f;
+                const float HStart = ViewTop + TopPad - State.HistoryScroll;
+                float HY = HStart;
                 ConstructBranchPills(Fg, State, HX + 8.0f, HY, DetailW - 16.0f, HistRep);
                 HY += 30.0f;
                 ConstructTimeline(Fg, Icons, State, HX + 8.0f, HY, DetailW - 16.0f, HistRep);
+                HistContentH = (HY - HStart) + TopPad;
             }
             Fg->PopClipRect();
+
+            // -- Clamp each face's scroll to [0, content - viewport] from the extent just measured (0 when the body fits). --
+            const float PropMax = (PropContentH > ViewHeight) ? (PropContentH - ViewHeight) : 0.0f;
+            const float HistMax = (HistContentH > ViewHeight) ? (HistContentH - ViewHeight) : 0.0f;
+            if (State.PropertiesScroll < 0.0f)      { State.PropertiesScroll = 0.0f; }
+            if (State.PropertiesScroll > PropMax)   { State.PropertiesScroll = PropMax; }
+            if (State.HistoryScroll < 0.0f)         { State.HistoryScroll = 0.0f; }
+            if (State.HistoryScroll > HistMax)      { State.HistoryScroll = HistMax; }
+
+            // -- A thin scrollbar hint on the right edge when the active face overflows, so the clip is legibly "more below". --
+            {
+                const float FaceContentH = ShowHistory ? HistContentH : PropContentH;
+                if (FaceContentH > ViewHeight)
+                {
+                    const float TrackX = DetX + DetailW - 4.0f;
+                    const float ThumbFrac = ViewHeight / FaceContentH;
+                    const float ThumbH = ViewHeight * ThumbFrac;
+                    const float FaceMax = FaceContentH - ViewHeight;
+                    const float ThumbY = ViewTop + (ViewHeight - ThumbH) * (FaceMax > 0.0f ? (ActiveScroll / FaceMax) : 0.0f);
+                    Fg->AddRectFilled(ImVec2(TrackX, ThumbY), ImVec2(TrackX + 3.0f, ThumbY + ThumbH), Palette.BorderLine, 1.5f);
+                }
+            }
 
             // detail foot
             ConstructPaneFoot(Fg, ImVec2(DetX, ViewBot), DetailW, Palette.MenuFill);

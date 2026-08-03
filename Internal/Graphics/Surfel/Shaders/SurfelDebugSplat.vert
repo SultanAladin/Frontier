@@ -21,6 +21,10 @@
 
 layout(std430, set = 0, binding = 0) readonly buffer SurfelBuffer  { SurfelRecord Surfels[]; };
 layout(std430, set = 0, binding = 1) readonly buffer OffsetsBuffer { int CellOffsets[]; };   // per-cell END offsets (scanned); occupancy = end - prevEnd
+// 🔴 b2 — the pool's moments buffer, both ping-pong halves. Row 0 of each 5-vec4 (20-float) surfel struct is the GATHERED IRRADIANCE the shade reads
+//    (MSMEData.Mean, packed as vec4(mean.rgb, totalCount)). The GI-diagnostic modes 5-7 read Moments[index + ReadOffsetElements] to show the actual
+//    light each surfel carries — not just where surfels exist, but whether they hold any indirect light. ReadOffsetElements = MomentsParity*Capacity.
+layout(std430, set = 0, binding = 2) readonly buffer MomentsBuffer { vec4 Moments[]; };
 
 layout(push_constant) uniform SurfelDebugConstants
 {
@@ -28,14 +32,34 @@ layout(push_constant) uniform SurfelDebugConstants
     vec4  CameraPosition;      // [m]  - raw eye; drives the surfel radius (matches the grid's eye-distance radius)
     vec4  GridOrigin;          // [m]  - snapped grid origin the slotting used; recovers the eye-relative position for the cascade
     vec4  ScreenAndRadius;     // [-]  - x width px, y height px, z disc-radius scale, w unused
-    uint  DebugMode;           // [-]  - 0 off, 1 age, 2 cascade, 3 identity, 4 cell-occupancy heatmap
+    uint  DebugMode;           // [-]  - 0 off, 1 age, 2 cascade, 3 identity, 4 occupancy, 5 irradiance, 6 luminance-heat, 7 GI-vs-dead
     uint  Capacity;            // [-]  - pool capacity (the draw's vertex count); slots past PoolMax are dead and culled
-    uint  Pad0;
-    uint  Pad1;
+    uint  ReadOffsetElements;  // [-]  - MomentsParity*Capacity: the post-swap READ-half base for Moments[] (the fresh irradiance)
+    int   PerCellCap;          // [-]  - live per-cell cap (F10 window); the occupancy heatmap normalizes fill against it
+    float TuneCellDiameter;    // [m]  - live base cell edge (F10 window); the cascade/occupancy modes must match the live build
+    float TuneBaseRadius;      // [m]  - live cascade-0 disc radius (F10 window); sizes the splat disc so it tracks the sliders
+    float TuneNearFieldBias;   // [-]  - live near-field bias (F10 window; layout parity, unused by the splat)
+    float Pad2;
 } Debug;
+
+const uint SurfelMomentsVec4Stride = 5u;   // 5 vec4 (20 floats) per surfel per moments half; row 0 is irradiance vec4(mean, count)
+
+// Row 0 of a surfel's moments struct in the current (post-swap) read half: the long-term Mean the gather reads out as GI.
+vec3 SurfelIrradiance(uint Index)
+{
+    uint Row0 = (Index + Debug.ReadOffsetElements) * SurfelMomentsVec4Stride;
+    return Moments[Row0].rgb;
+}
+
+// Rec.709 luminance of a linear colour, for the scalar heat / GI-vs-dead thresholds.
+float SurfelLuminance(vec3 Colour)
+{
+    return dot(Colour, vec3(0.2126, 0.7152, 0.0722));
+}
 
 layout(location = 0) out vec4  SurfelColour;   // resolved disc colour (flat — one colour per point)
 layout(location = 1) out float SurfelFade;     // 1 for a live surfel, 0 to fully discard in the fragment stage
+layout(location = 2) out float SurfelDepthNdc; // [0,1] window-space depth of the surfel centre; frag depth-rejects behind the scene surface
 
 // A recognizable, well-separated colour per integer key (golden-ratio hue walk), for the identity / cascade modes.
 vec3 DebugHue(uint Key)
@@ -56,6 +80,11 @@ vec3 DebugHeat(float T)
 
 void main()
 {
+    // Seat the live world-scale globals before any grid/radius helper (whole-pipeline reach) so the splat disc + cascade/occupancy modes
+    // track the F10 sliders alongside the actual field.
+    SurfelSetTuning(Debug.TuneCellDiameter, Debug.TuneBaseRadius, Debug.TuneNearFieldBias);
+    SurfelSetPerCellCap(Debug.PerCellCap);
+
     uint Index = uint(gl_VertexIndex);
 
     // Read the record. A slot past capacity cannot occur (the draw is exactly Capacity vertices), but guard anyway so a stale count never over-reads.
@@ -65,10 +94,11 @@ void main()
     // Dead / never-spawned cull: both read >= TTL (see the header). Emit a degenerate off-screen point and tell the fragment stage to discard it.
     if (Index >= Debug.Capacity || Age >= SURFEL_TTL || Age < 0)
     {
-        gl_Position   = vec4(2.0, 2.0, 2.0, 1.0);   // outside the clip cube -> clipped away
-        gl_PointSize  = 0.0;
-        SurfelColour  = vec4(0.0);
-        SurfelFade    = 0.0;
+        gl_Position    = vec4(2.0, 2.0, 2.0, 1.0);   // outside the clip cube -> clipped away
+        gl_PointSize   = 0.0;
+        SurfelColour   = vec4(0.0);
+        SurfelFade     = 0.0;
+        SurfelDepthNdc = 1.0;
         return;
     }
 
@@ -78,12 +108,17 @@ void main()
     vec4 Clip = Debug.ViewProjection * vec4(WorldPosition, 1.0);
     if (Clip.w <= 0.0)
     {
-        gl_Position  = vec4(2.0, 2.0, 2.0, 1.0);
-        gl_PointSize = 0.0;
-        SurfelColour = vec4(0.0);
-        SurfelFade   = 0.0;
+        gl_Position    = vec4(2.0, 2.0, 2.0, 1.0);
+        gl_PointSize   = 0.0;
+        SurfelColour   = vec4(0.0);
+        SurfelFade     = 0.0;
+        SurfelDepthNdc = 1.0;
         return;
     }
+
+    // Window-space depth of the surfel centre, for the fragment stage's depth-reject against the scene depth buffer. Vulkan clip -> NDC z is already
+    // in [0,1] (no *0.5+0.5 remap), so Clip.z/Clip.w is directly comparable to the sampled D32 depth. A surfel behind the scene surface reads deeper.
+    SurfelDepthNdc = Clip.z / Clip.w;
 
     // World disc radius -> screen pixels. The radius model is the grid's own eye-distance radius, so the disc grows exactly as the surfel's cell does.
     // The projected pixel size is (worldRadius / clip.w) scaled by half the viewport width — the standard perspective point-size projection.
@@ -122,8 +157,34 @@ void main()
         uint  Hash     = SurfelHashOfCoord(Coord);
         int   End      = CellOffsets[Hash + 1u];
         int   Start    = CellOffsets[Hash];
-        float Fill     = float(End - Start) / float(SURFEL_MAX_SURFELS_PER_CELL);
+        float Fill     = float(End - Start) / float(g_SurfelPerCellCap);
         Colour = vec4(DebugHeat(Fill), 0.9);
+    }
+    else if (Debug.DebugMode == 5u)
+    {
+        // Irradiance: the surfel's ACTUAL gathered GI colour (Moments row 0 = MSMEData.Mean), tonemapped so a bright surfel does not clip. This is
+        // the true GI the shade reads — a black disc means the surfel exists but carries no light, a coloured disc means the bounce is landing.
+        vec3 Gi = SurfelIrradiance(Index);
+        Colour  = vec4(Gi / (Gi + vec3(1.0)), 0.95);   // Reinhard so any magnitude stays visible; hue == the surfel's indirect colour
+    }
+    else if (Debug.DebugMode == 6u)
+    {
+        // Luminance heatmap: the scalar brightness of the surfel's irradiance on a cold->hot ramp, so bright vs dim coverage reads at a glance even
+        // where the colour itself is subtle. Log-mapped: indirect light spans decades, and a linear ramp would leave everything but the hottest cold.
+        float Luma = SurfelLuminance(SurfelIrradiance(Index));
+        float Heat = clamp(log2(Luma + 1.0) * 0.5, 0.0, 1.0);   // ~0 dark, saturates around a few units of luminance
+        Colour = vec4(DebugHeat(Heat), 0.95);
+    }
+    else if (Debug.DebugMode == 7u)
+    {
+        // GI-vs-dead: the Suzanne diagnosis. A surfel holding real light shows its irradiance colour; a surfel whose irradiance is ~zero (exists but
+        // dark — no bounce reached it) shows stark MAGENTA. This separates "no surfel here" (no disc at all) from "surfel here but unlit" (magenta).
+        vec3  Gi   = SurfelIrradiance(Index);
+        float Luma = SurfelLuminance(Gi);
+        if (Luma < 1e-4)
+            Colour = vec4(1.0, 0.0, 1.0, 0.95);         // dead-but-present: the coverage gap that reads as "no GI"
+        else
+            Colour = vec4(Gi / (Gi + vec3(1.0)), 0.95); // live GI: its own colour
     }
 
     SurfelColour = Colour;

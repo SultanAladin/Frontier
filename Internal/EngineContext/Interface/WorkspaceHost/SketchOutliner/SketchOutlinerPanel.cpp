@@ -1526,6 +1526,12 @@ void ConstructSketchOutlinerPanel(const ThemeConfiguration& Theme, SketchOutline
     }
     Context.DrawList->PopClipRect();
 
+    // 🔴 An EMPTY tree submits no row, yet the cursor was moved to TreeMin.y + TopPadding (line above) to seat the first row — that move alone
+    //    extends the child's content boundary, which ImGui asserts on unless an item follows. A zero-size Dummy at the current cursor legitimizes
+    //    the extend without drawing anything (and is a harmless no-op when rows WERE submitted). Before the empty inspector pose every consumer
+    //    seeded content, so this path was never exercised.
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+
     // 📝 Clicking empty tree space clears the selection.
     if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
     {

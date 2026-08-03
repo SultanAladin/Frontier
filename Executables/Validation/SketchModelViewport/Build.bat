@@ -60,6 +60,13 @@ call "%ROOT%\Internal\Graphics\Build.bat"
 if errorlevel 1 goto :fail
 call "%ROOT%\Internal\EngineContext\Build.bat"
 if errorlevel 1 goto :fail
+REM  AuthoringParametric (the standalone Workplane construction-plane model the viewport overlay draws).
+call "%ROOT%\Internal\Authoring\ParametricAuthoring\Build.bat"
+if errorlevel 1 goto :fail
+if not exist "%LIBDIR%\AuthoringParametric.lib" (
+    echo [%NAME%] AuthoringParametric.lib missing after build - aborting.
+    goto :fail
+)
 if not exist "%LIBDIR%\EngineContext.lib" (
     echo [%NAME%] EngineContext.lib missing after build - aborting.
     goto :fail
@@ -77,7 +84,14 @@ REM --- Include roots (pillar-rooted headers + ImGui + Vulkan; no GLFW) --------
 set "IMGUI=%ROOT%\ExternalPackages\imgui"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include""
+REM  The two embedded validation surfaces (SceneDirectoryInspector card on Tab, ConstructionCatalogue
+REM  console on right-click) are compiled IN PLACE from the sibling app folders, so their headers must be
+REM  on the include path. Their own Host.cpp files carry main() and are skipped in the compile loop below.
+set "SDIDIR=%APPDIR%\..\SceneDirectoryInspectorValidation"
+set "CCDIR=%APPDIR%\..\ConstructionCatalogueValidation"
+REM  The standalone Workplane construction-plane model the viewport overlay draws (AuthoringParametric.lib).
+set "APDIR=%ROOT%\Internal\Authoring\ParametricAuthoring"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include" /I"%SDIDIR%" /I"%CCDIR%" /I"%APDIR%""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
 REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
 set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE"
@@ -97,11 +111,41 @@ for /R "%APPDIR%" %%F in (*.cpp) do (
     echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
 )
 
+REM --- Compile the two embedded surfaces' units, in place from the sibling folders --------------
+REM  Every .cpp EXCEPT each folder's own *Host.cpp (those carry main()). The data model, glyph pack,
+REM  panel, console bridge, content profile, and generated catalogue table all link into this exe.
+for /R "%SDIDIR%" %%F in (*.cpp) do (
+    set "UNIT=%%~nF"
+    echo !UNIT! | findstr /I /C:"ValidationHost" >nul
+    if errorlevel 1 (
+        echo [compile] !UNIT!
+        cl %CXXFLAGS% %DEFINES% %INCLUDES% "%%F" /Fo"%OBJ%\!UNIT!.obj" /Fd"%OBJ%\%NAME%.pdb"
+        if errorlevel 1 (
+            echo [%NAME%] COMPILE FAILED
+            goto :fail
+        )
+        echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
+    )
+)
+for /R "%CCDIR%" %%F in (*.cpp) do (
+    set "UNIT=%%~nF"
+    echo !UNIT! | findstr /I /C:"ValidationHost" >nul
+    if errorlevel 1 (
+        echo [compile] !UNIT!
+        cl %CXXFLAGS% %DEFINES% %INCLUDES% "%%F" /Fo"%OBJ%\!UNIT!.obj" /Fd"%OBJ%\%NAME%.pdb"
+        if errorlevel 1 (
+            echo [%NAME%] COMPILE FAILED
+            goto :fail
+        )
+        echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
+    )
+)
+
 REM --- Link the shared libs + thorvg + Vulkan / system libs (no GLFW) ----------
 REM  thorvg.lib is the vendored static SVG rasterizer SvgRasterizer.obj (inside
 REM  EngineContext.lib) calls into for the icon glyphs.
 set "THORVGLIB=%ROOT%\ExternalPackages\thorvg\lib\thorvg.lib"
-set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%THORVGLIB%""
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%LIBDIR%\AuthoringParametric.lib" "%THORVGLIB%""
 set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
 
 echo [%NAME%] linking -^> %OUTPUT%
@@ -122,6 +166,10 @@ if not exist "%SHADEROUT%\AnalyticGroundPlane.vert.spv" (
 if not exist "%SHADEROUT%\AnalyticGroundPlane.frag.spv" (
     echo [%NAME%] WARNING: grid fragment SPIR-V not staged - the grid pass will be unavailable at runtime.
 )
+
+REM --- Stage the UI-scale config next to the exe so the theme resolver finds it ---------------
+robocopy "%ROOT%\EngineContent\Config" "%OUTDIR%\EngineContent\Config" InterfaceScale.config /NFL /NDL /NJH /NJS /NP >nul
+if %ERRORLEVEL% GEQ 8 goto :fail
 
 echo [%NAME%] OK -^> %OUTPUT%
 endlocal & exit /b 0

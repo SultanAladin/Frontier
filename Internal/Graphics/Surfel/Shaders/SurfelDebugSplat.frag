@@ -6,20 +6,33 @@
 //    the vertex stage (age / cascade / identity / occupancy) — this stage only shapes the disc and applies the alpha, then alpha-over blends onto the
 //    radiance target. A culled slot arrives with SurfelFade == 0 and is discarded outright.
 //
-//    🔴 DEBUG-ONLY. No depth test (the splat owns no depth attachment, same as GroundGridPass): surfels draw over the shaded scene as an overlay so
-//       coverage is legible even where a surfel sits just behind a surface. This is intentional for a diagnostic view and is why it is gated off by
-//       default (mode 0) — it is never part of the shaded image Phase 2/3 build on.
+//    🔴 DEPTH-REJECT (not a depth attachment). The splat still owns no depth attachment — it samples the scene's D32 depth (SHADER_READ_ONLY at
+//       radiance time) at gl_FragCoord and DISCARDS any surfel fragment behind the scene surface. So a near surface occludes the surfels behind it
+//       and the field reads front-to-back with real parallax instead of a flat wash of every surfel in the frustum. This is what turns "a cloud of
+//       same-size spheres" into a legible view. The compare is window-space depth vs the surfel centre's NDC z (a small bias absorbs the point-sprite
+//       spread). A surfel IN FRONT of the surface (or where the depth buffer is the cleared far plane) always passes.
 
 #version 450
 
 layout(location = 0) in flat vec4  SurfelColour;   // disc colour resolved per mode in the vertex stage
 layout(location = 1) in flat float SurfelFade;     // 1 live, 0 culled
+layout(location = 2) in flat float SurfelDepthNdc; // [0,1] window-space depth of the surfel centre (from the vertex stage)
+
+// The scene depth target (D32_SFLOAT), SHADER_READ_ONLY at radiance time. Sampled at the fragment's own pixel to depth-reject occluded surfels.
+layout(set = 0, binding = 3) uniform sampler2D SceneDepth;
 
 layout(location = 0) out vec4 FragmentColour;
 
 void main()
 {
     if (SurfelFade <= 0.0)
+        discard;
+
+    // Depth-reject: read the scene depth at THIS pixel and drop the fragment if the surfel sits behind the surface there. texelFetch by integer pixel
+    // (gl_FragCoord.xy is pixel-centered) reads the exact stored depth with no filtering. The bias tolerates the point-sprite's screen spread so a
+    // surfel glued to a surface is not self-occluded by its own disc edge. A cleared far-plane depth (1.0) never rejects, so open sky keeps its surfels.
+    float SceneZ = texelFetch(SceneDepth, ivec2(gl_FragCoord.xy), 0).r;
+    if (SurfelDepthNdc > SceneZ + 1e-4)
         discard;
 
     // Round the square point sprite into a disc. Distance from the sprite centre in [0, ~0.707]; fade the last texels for a soft anti-aliased rim.

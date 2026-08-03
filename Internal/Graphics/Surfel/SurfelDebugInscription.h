@@ -40,12 +40,15 @@ namespace Frontier
 //    coverage views, 5-9 are reserved for the trace / radiance views later phases add. Kept as an enum so the host key handler and the shader agree.
 enum SurfelDebugMode : uint32_t
 {
-    SurfelDebugModeOff        = 0,   // draw nothing
-    SurfelDebugModeAge        = 1,   // cold -> hot toward TTL
-    SurfelDebugModeCascade    = 2,   // one hue per cascade level
-    SurfelDebugModeIdentity   = 3,   // one hue per slot (coverage density)
-    SurfelDebugModeOccupancy  = 4,   // cell fill heatmap (scanned Offsets)
-    SurfelDebugModeCount      = 5,   // first reserved slot
+    SurfelDebugModeOff          = 0,   // draw nothing
+    SurfelDebugModeAge          = 1,   // cold -> hot toward TTL
+    SurfelDebugModeCascade      = 2,   // one hue per cascade level
+    SurfelDebugModeIdentity     = 3,   // one hue per slot (coverage density)
+    SurfelDebugModeOccupancy    = 4,   // cell fill heatmap (scanned Offsets)
+    SurfelDebugModeIrradiance   = 5,   // the surfel's actual gathered GI colour (Moments row 0, tonemapped)
+    SurfelDebugModeLuminance    = 6,   // luminance heatmap of the irradiance (cold -> hot, log-mapped)
+    SurfelDebugModeGiVsDead     = 7,   // lit surfels in GI colour, present-but-unlit ones in stark magenta
+    SurfelDebugModeCount        = 8,   // first reserved slot
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -62,29 +65,38 @@ struct SurfelDebugConstants
     float    CameraPosition[4]  = { 0, 0, 0, 0 };              // [m]  - raw eye; w unused
     float    GridOrigin[4]      = { 0, 0, 0, 0 };              // [m]  - snapped grid origin; w unused
     float    ScreenAndRadius[4] = { 1.0f, 1.0f, 1.0f, 0.0f };  // [-]  - x width, y height, z radius scale, w unused
-    uint32_t DebugMode          = SurfelDebugModeOff;          // [-]  - selected number key (0 off)
+    uint32_t DebugMode          = SurfelDebugModeOff;          // [-]  - selected mode (0 off)
     uint32_t Capacity           = 0;                           // [-]  - pool capacity == vertex count
-    uint32_t Pad0               = 0;
-    uint32_t Pad1               = 0;
+    uint32_t ReadOffsetElements = 0;                           // [-]  - MomentsParity*Capacity: the post-swap read-half base for the irradiance modes
+    int32_t  PerCellCap         = SurfelMaxPerCell;            // [-]  - live per-cell cap (F10 window); the occupancy heatmap normalizes fill against it
+    float    TuneCellDiameter   = 1.0f;                        // [m]  - live base cell edge (F10 window); the splat disc + cascade/occupancy track the sliders
+    float    TuneBaseRadius     = 1.2f;                        // [m]  - live cascade-0 disc radius (F10 window)
+    float    TuneNearFieldBias  = 1.0f;                        // [-]  - live near-field bias (F10 window; layout parity, unused by the splat)
+    float    Pad2               = 0.0f;
 };
 
 // 📝 The debug view's owned device resources. One alpha-blended point-list graphics pipeline (dynamic rendering into the radiance colour format), a
-//    two-binding storage set (b0 surfel records, b1 the slotting Offsets header for the occupancy mode), and the set itself. Bound* cache the borrowed
-//    pool / slotting handles so the descriptor is re-pointed only on change. Owns no buffers — everything it reads is borrowed.
+//    four-binding set (b0 surfel records, b1 the slotting Offsets header, b2 the pool Moments buffer for the irradiance modes, b3 the scene depth
+//    combined-image-sampler for the fragment depth-reject), and the set itself. Bound* cache the borrowed handles so the descriptor is re-pointed only
+//    on change. Owns exactly ONE resource — the depth Sampler; every buffer / image it reads is borrowed.
 struct SurfelDebugInscription
 {
     VulkanHost*           Host           = nullptr;          // [-] - not owned
-    VkPipeline            Pipeline       = VK_NULL_HANDLE;   // [-] - point-list splat pipeline (alpha-over, no depth)
-    VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE;   // [-] - the storage set + SurfelDebugConstants push range
-    VkDescriptorSetLayout SetLayout      = VK_NULL_HANDLE;   // [-] - set 0: b0 surfels, b1 offsets
+    VkPipeline            Pipeline       = VK_NULL_HANDLE;   // [-] - point-list splat pipeline (alpha-over, no depth attachment; frag depth-rejects)
+    VkPipelineLayout      PipelineLayout = VK_NULL_HANDLE;   // [-] - the set + SurfelDebugConstants push range
+    VkDescriptorSetLayout SetLayout      = VK_NULL_HANDLE;   // [-] - set 0: b0 surfels, b1 offsets, b2 moments, b3 scene depth
     VkDescriptorPool      DescriptorPool = VK_NULL_HANDLE;   // [-] - one set
     VkDescriptorSet       SplatSet       = VK_NULL_HANDLE;   // [-] - the bound set
+    VkSampler             DepthSampler   = VK_NULL_HANDLE;   // [-] - OWNED: nearest-clamp sampler for the scene-depth depth-reject (b3)
 
     VkBuffer              BoundSurfelBuffer  = VK_NULL_HANDLE;  // [-] - the borrowed pool SurfelBuffer at b0
     VkBuffer              BoundOffsetsBuffer = VK_NULL_HANDLE;  // [-] - the borrowed slotting OffsetsBuffer at b1
+    VkBuffer              BoundMomentsBuffer = VK_NULL_HANDLE;  // [-] - the borrowed pool MomentsBuffer at b2
+    VkImageView           BoundDepthView     = VK_NULL_HANDLE;  // [-] - the borrowed scene DepthView at b3
 
     uint32_t              Capacity       = 0;                  // [-] - pool capacity; the draw's vertex count
     bool                  ReadyCondition = false;              // [-] - true once pipeline + layout + descriptors are live
+    bool                  BindingsReady  = false;              // [-] - true once b0-b3 have all been pointed at real resources (the draw needs all four)
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -99,12 +111,14 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
                                       VkFormat                ColourFormat,
                                       const char*             ShaderDirectory);
 
-// Point the storage set at the borrowed pool SurfelBuffer (b0) and the slotting OffsetsBuffer (b1), and latch the pool capacity as the draw's vertex
-// count. Idempotent — a no-op when both handles already match, so it is safe to call every frame; it writes the descriptor only after a rebuild changed
-// a handle. The device must be idle when a handle actually changes. Must be called at least once before recording.
+// Point the set at the borrowed pool SurfelBuffer (b0), slotting OffsetsBuffer (b1), pool MomentsBuffer (b2), and scene DepthView (b3), and latch the
+// pool capacity as the draw's vertex count. Idempotent — a no-op when all four handles already match, so it is safe to call every frame; it writes the
+// descriptor only after a rebuild changed a handle (the DepthView rebuilds on resize, so this must be re-called there). The device must be idle when a
+// handle actually changes. Must be called at least once with a valid DepthView before recording — BindingsReady stays false until all four are pointed.
 void RefreshSurfelDebugInscription(SurfelDebugInscription&   Debug,
                                    const SurfelPool&         Pool,
-                                   const SurfelGridSlotting& Slotting);
+                                   const SurfelGridSlotting& Slotting,
+                                   VkImageView               SceneDepthView);
 
 // Record one debug splat into an already-open dynamic-rendering colour scope: set viewport + scissor, bind the pipeline + set, push the constants, and
 // draw Capacity points. A no-op when not ready OR when Constants.DebugMode is 0 (the off state costs nothing). The surfel + offsets buffers must already

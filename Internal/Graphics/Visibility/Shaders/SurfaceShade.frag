@@ -194,6 +194,9 @@ layout(push_constant) uniform ShadeConstants
     uint SurfelReadOffsetElements;// [-] - moments read-half ELEMENT base = MomentsParity*Capacity (post-swap); NOT the byte offset
     uint SurfelGiEnabled;         // [-] - 1 gathers surfel GI, 0 falls back to the flat AmbientColour (A/B toggle)
     uint SurfelCapacity;          // [-] - pool capacity (unused by the gather math; carried for parity + future bounds)
+    float TuneCellDiameter;       // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
+    float TuneBaseRadius;         // [m] - live cascade-0 disc radius (F10 window)
+    float TuneNearFieldBias;      // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
     uint PushPad0;                // [-] - keep the block 16-byte aligned
 } Constants;
 
@@ -604,6 +607,9 @@ void main()
     //    The toggle keeps the pre-Phase-3 flat-ambient look one keypress away for a direct A/B. ReadOffsetElements is the POST-SWAP read half.
     if (Constants.SurfelGiEnabled != 0u)
     {
+        // Seat the live world-scale globals before the gather (whole-pipeline reach) — the gather hashes WorldPosition into the SAME cells the
+        // spawn+slotting build scattered surfels into, so its cell diameter + radius must track the F10 sliders in lockstep.
+        SurfelSetTuning(Constants.TuneCellDiameter, Constants.TuneBaseRadius, Constants.TuneNearFieldBias);
         vec3 Gi = SurfelLookupGI(WorldPosition, Normal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
                                  Constants.SurfelReadOffsetElements, Constants.OcclusionParams);
         Radiance += Gi * AmbientAlbedo;

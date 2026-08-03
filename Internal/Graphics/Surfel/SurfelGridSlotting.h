@@ -40,10 +40,15 @@ namespace Frontier
 //    cascades; the Offsets header is TotalCells + 1 (an extra terminal offset); the List is (TotalCells + 1) x per-cell cap.
 constexpr uint32_t SurfelGridCellEdge     = 32;    // [-] - SURFEL_CS
 constexpr uint32_t SurfelGridCascades     = 8;     // [-] - SURFEL_CASCADES
-constexpr uint32_t SurfelMaxPerCell       = 64;    // [-] - MAX_SURFELS_PER_CELL
+constexpr uint32_t SurfelMaxPerCell       = 64;    // [-] - MAX_SURFELS_PER_CELL — the DEFAULT operating cap (matches SurfelGrid.glsl's const + the F10 state default)
+// 🔴 The List buffer is sized at the MAX the live F10 cap can reach (256), not the operating default. PLAN §4: the cap is a spawn-throttle CEILING +
+//    a uniform loop bound, NOT a per-cell stride — the List is packed by the scanned Offsets, so a cell's slice length is whatever the count pass
+//    tallied (bounded by the live cap). Allocating at 256 once means raising the cap live never over-runs the List, so Apply is a pure uniform commit
+//    (no realloc, no device stall). ~268 MiB worst-case; well under maxStorageBufferRange on the target device (user chose the max-allocation variant).
+constexpr uint32_t SurfelMaxPerCellAllocationCap = 256;   // [-] - the largest live cap; sizes the List so any Apply fits without reallocation
 constexpr uint32_t SurfelGridTotalCells   = SurfelGridCellEdge * SurfelGridCellEdge * SurfelGridCellEdge * SurfelGridCascades;   // 262144
 constexpr uint32_t SurfelGridOffsetsCount = SurfelGridTotalCells + 1;                                   // header entries (scan element count)
-constexpr uint32_t SurfelGridListCount    = (SurfelGridTotalCells + 1) * SurfelMaxPerCell;              // surfel-index list capacity
+constexpr uint32_t SurfelGridListCount    = (SurfelGridTotalCells + 1) * SurfelMaxPerCellAllocationCap; // surfel-index list capacity (sized at max cap)
 
 // The count/slot workgroup edge — must match local_size_x in SurfelGridCount.comp / SurfelGridSlot.comp. One lane per pool slot.
 constexpr uint32_t SurfelSlottingWorkgroupEdge = 64;
@@ -62,9 +67,9 @@ struct SurfelSlottingConstants
     float    CameraPosition[4] = { 0, 0, 0, 0 };   // [m] - raw camera world position (radius distance); w unused
     float    GridOrigin[4]     = { 0, 0, 0, 0 };   // [m] - snapped grid origin (cell indices + centres); w unused
     int32_t  ListCount         = 0;                // [-] - List SSBO capacity (slot bounds guard)
-    int32_t  Padding0          = 0;
-    int32_t  Padding1          = 0;
-    int32_t  Padding2          = 0;
+    float    TuneCellDiameter  = 1.0f;             // [m] - live base cell edge (F10 window); seeds from SURFEL_GRID_CELL_DIAMETER
+    float    TuneBaseRadius    = 1.2f;             // [m] - live cascade-0 disc radius (F10 window); seeds from SURFEL_BASE_RADIUS
+    float    TuneNearFieldBias = 1.0f;             // [-] - live near-field bias (F10 window); unused by slotting but keeps one shared layout
 };
 
 // 📝 The slotting unit's owned resources. Two SSBOs (Offsets header + surfel-index List), three pipelines (clear/count/slot) sharing one set layout, an

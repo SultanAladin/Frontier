@@ -136,8 +136,10 @@ layout(push_constant) uniform SurfelIntegrateConstants
 
     float GiFromDirect;         // [-] - direct-light gain at a hit
     float GiFromIndirect;       // [-] - one-bounce gather gain at a hit
+    float TuneCellDiameter;     // [m] - live base cell edge (F10 window); seeds SurfelGrid.glsl's cell globals for the one-bounce gather
+    float TuneBaseRadius;       // [m] - live cascade-0 disc radius (F10 window); the gather's coverage must match spawn/slotting
+    float TuneNearFieldBias;    // [-] - live near-field bias (F10 window; carried for layout parity, unused by integrate)
     float Pad0;
-    float Pad1;
 } Constants;
 
 // The two names TwoLevelTrace.glsl reads as plain identifiers — aliased through the push block so the module stays agnostic about their source.
@@ -247,6 +249,10 @@ const uint  SURFEL_BLUE_NOISE_STRIDE = 4u;
 
 void main()
 {
+    // Seat the live world-scale globals before the one-bounce gather runs SurfelGather.glsl (whole-pipeline reach) — the gather's cell/radius
+    // must match the spawn+slotting build, or it reads cells the surfels were never scattered into.
+    SurfelSetTuning(Constants.TuneCellDiameter, Constants.TuneBaseRadius, Constants.TuneNearFieldBias);
+
     uint Index = gl_GlobalInvocationID.x;
     if (Index >= Constants.Capacity) { return; }          // dispatch is ceil(Capacity/64); the tail lanes drop here
 

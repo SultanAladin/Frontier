@@ -2,20 +2,28 @@
 /*==============================================================================================================================================
                                                               SURFELAGE.COMP
 ==============================================================================================================================================*/
-// 🧩 Pass that ages every live surfel one frame and recycles the ones that hit TTL (webgiya Age / "Surfel Economy", surfelAgePass.ts). One lane per
-//    pool slot, up to the high-water mark PoolMax[0]. A live surfel (age < TTL) ages +1; if that pushes it to TTL it is DECLARED DEAD — its age is
-//    stamped SURFEL_LIFE_RECYCLED and its slot is pushed back onto the free-list (atomicAdd(-1) on the stack pointer, write the slot at the freed
-//    position). The recycled slot is then available to the next allocate.
+// 🧩 The surfel ECONOMY (webgiya Age / "Surfel Economy", surfelAgePass.ts). One lane per pool slot, up to the high-water mark PoolMax[0]. It decides
+//    which surfels live, how fast they age, and which die — the full four-mechanic balance that keeps coverage in equilibrium instead of oscillating:
 //
-//    🔴 PHASE-1 REDUCTION. webgiya's Age also runs a "police execution" on a KILL signal, a crowding "rent" that ages surfels faster where a cell is
-//       over-subscribed, and reads the per-frame `touched` income — all through the `touched` scoring channel that Phase 1 only ZERO-FILLS. Those are
-//       Phase-2 economy; here age is a plain +1 metabolism and TTL is the only death. The recycle-to-free-list mechanic (the part Phase 1's lifecycle
-//       DoD tests) is ported exactly.
+//      1. POLICE EXECUTION — a surfel whose `touched` income this frame is the KILL signal (255, written by the spawn pass's despawn vote in an
+//         over-covered cell) is recycled immediately, no metabolism.
+//      2. CROWDING RENT — a surfel in a cell holding more than SAFE_CAP (32) surfels ages FASTER; excess/10 above SAFE_CAP, plus excess²/32 above 2×.
+//         Over-subscribed cells thin themselves out; sparse cells age at the base rate.
+//      3. KEEP-ALIVE INCOME — a well-covered, well-aligned surfel gets `touched` income (5..50, from the spawn pass's keep-alive write and the
+//         gather's importance write). Income is SUBTRACTED from the age delta (`max(delta - income, 0)`), so contributing surfels age slower or not at
+//         all. This is what STAGGERS death: a cohort that all spawned together no longer all recycles at frame 500 in lockstep — the ones still pulling
+//         their weight keep resetting their metabolism while the idle ones age out, which is the fix for the breathing limit cycle.
+//      4. BASE METABOLISM + TTL — the surviving delta is +1/frame; when age reaches TTL the surfel is DECLARED DEAD, its age stamped
+//         SURFEL_LIFE_RECYCLED, and its slot pushed back onto the free-list (atomicAdd(-1) on the stack pointer, write the slot at the freed position).
+//
+//    🔴 `touched` income is READ-AND-CLEARED with atomicMin(touched, 0): the values are all non-negative so atomicMin(·,0) returns the old value and
+//       leaves 0 behind, draining the mailbox each frame exactly as webgiya does (surfelAgePass.ts:110). The rent count comes from the grid Offsets
+//       slice for the surfel's own cell, hashed from its position relative to the SNAPPED grid origin the spawn/slotting used this frame (Push.GridOrigin).
 //
 //    🔴 Dispatched over the pool CAPACITY (one lane per slot, gated by PoolMax[0]), NOT an indirect count. webgiya drives Age with an indirect dispatch
-//       sized to the live count; Frontier's slotting count/slot passes already dispatch over capacity and gate on PoolMax, so this matches them. The
-//       indirect-dispatch optimisation is deferred to Phase 2 (it only saves idle lanes, it changes no result).
+//       sized to the live count; Frontier's slotting count/slot passes already dispatch over capacity and gate on PoolMax, so this matches them.
 
+#include "SurfelGrid.glsl"
 #include "SurfelRecord.glsl"
 
 layout(local_size_x = 64) in;
@@ -24,11 +32,25 @@ layout(std430, binding = 0) buffer SurfelBuffer    { SurfelRecord Surfels[]; };
 layout(std430, binding = 1) buffer PoolBuffer      { int PoolFreeList[]; };
 layout(std430, binding = 2) buffer PoolAllocBuffer { int PoolAlloc[]; };   // stack pointer atomic
 layout(std430, binding = 3) buffer PoolMaxBuffer   { int PoolMax[]; };     // high-water atomic (read only here)
+layout(std430, binding = 7) readonly buffer OffsetsBuffer { int Offsets[]; };   // per-cell slice [start,end) — the rent-crowding count source
+layout(std430, binding = 8) buffer TouchedBuffer  { int Touched[]; };      // per-surfel income mailbox: 5..50 keep-alive, 255 kill
 
-layout(push_constant) uniform PushBlock { int Capacity; } Push;
+layout(push_constant) uniform PushBlock
+{
+    int  Capacity;
+    int  Pad0;
+    int  Pad1;
+    int  Pad2;
+    vec4 GridOrigin;   // xyz snapped grid origin (matches the slotting/spawn origin this frame); w unused
+} Push;
 
-const int SURFEL_TTL           = 500;
+// SURFEL_TTL and SURFEL_MAX_SURFELS_PER_CELL come from SurfelGrid.glsl (included above) — do not redefine them here.
+const int SURFEL_LIFE_RECYCLE  = 0x8000000;
 const int SURFEL_LIFE_RECYCLED = 0x8000000 + 1;
+
+// Economy constants — ported 1:1 from webgiya constants.ts.
+const int SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE = 32;   // SAFE_CAP: a cell over this starts charging rent
+const int SURFEL_KILL_SIGNAL                         = 255;  // the despawn vote's kill value in the touched mailbox
 
 void main()
 {
@@ -37,14 +59,44 @@ void main()
     if (Index >= Total) return;
 
     int Age = Surfels[Index].Age;
-    if (Age >= SURFEL_TTL) return;   // already dead / recycled — leave it
 
-    int NextAge = Age + 1;           // Phase-1 metabolism: +1 per frame
+    // Drain the touched mailbox for THIS surfel every frame — non-negative values, so atomicMin(·,0) reads the old value and clears to 0.
+    int Income = atomicMin(Touched[Index], 0);
+
+    if (Age >= SURFEL_TTL) return;   // already dead / recycled — leave it (mailbox still drained above, matching webgiya)
+
+    int NextAge;
+    if (Income == SURFEL_KILL_SIGNAL)
+    {
+        // 1. POLICE EXECUTION — the despawn vote flagged this surfel; kill it now.
+        NextAge = SURFEL_LIFE_RECYCLE;
+    }
+    else
+    {
+        // 2. CROWDING RENT — read this surfel's own cell occupancy from the grid Offsets slice.
+        vec3 Relative = Surfels[Index].PositionAndSpare.xyz - Push.GridOrigin.xyz;
+        uint Hash     = SurfelHashOfPosition(Relative);
+        int  Start    = Offsets[int(Hash)];
+        int  End      = Offsets[int(Hash) + 1];
+        int  Count    = End - Start;
+
+        int Delta  = 1;   // base metabolism
+        int Excess = max(0, Count - SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE);
+        if (Count > SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE)
+            Delta += Excess / 10;                       // linear rent above SAFE_CAP
+        if (Count > SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE * 2)
+            Delta += (Excess * Excess) / 32;            // quadratic rent above 2×
+
+        // 3. KEEP-ALIVE INCOME — income cancels the delta; you can stop age, never reverse it.
+        NextAge = Age + max(Delta - Income, 0);
+        NextAge = max(0, NextAge);
+    }
+
     Surfels[Index].Age = NextAge;
 
     if (NextAge >= SURFEL_TTL)
     {
-        // Death: stamp recycled and return the slot to the free-list stack.
+        // 4. Death: stamp recycled and return the slot to the free-list stack.
         Surfels[Index].Age = SURFEL_LIFE_RECYCLED;
         int FreedSlot = atomicAdd(PoolAlloc[0], -1) - 1;   // value BEFORE the subtract, minus one
         if (FreedSlot >= 0 && FreedSlot < Push.Capacity)

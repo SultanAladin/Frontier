@@ -58,6 +58,9 @@ struct SurfaceShadeConstants
     uint32_t SurfelReadOffsetElements  = 0;                                        // [-] - moments read-half ELEMENT base = MomentsParity*Capacity (post-swap)
     uint32_t SurfelGiEnabled           = 0;                                        // [-] - 1 gathers surfel GI, 0 falls back to the flat AmbientColour (A/B)
     uint32_t SurfelCapacity            = 0;                                        // [-] - pool capacity (carried for parity + future bounds)
+    float    TuneCellDiameter          = 1.0f;                                     // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
+    float    TuneBaseRadius            = 1.2f;                                     // [m] - live cascade-0 disc radius (F10 window)
+    float    TuneNearFieldBias         = 1.0f;                                     // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
     uint32_t PushPad0                  = 0;                                        // [-] - keep the block 16-byte aligned (matches the frag's PushPad0)
 };
 

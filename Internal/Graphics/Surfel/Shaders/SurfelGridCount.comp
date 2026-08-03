@@ -23,12 +23,20 @@ layout(std430, binding = 2) readonly buffer PoolMaxBuffer { int PoolMax[]; };   
 
 layout(push_constant) uniform PushBlock
 {
-    vec4 CameraPosition;   // xyz raw camera world position (radius distance); w unused
-    vec4 GridOrigin;       // xyz snapped grid origin (cell centres + indices); w unused
+    vec4  CameraPosition;    // xyz raw camera world position (radius distance); w unused
+    vec4  GridOrigin;        // xyz snapped grid origin (cell centres + indices); w unused
+    int   ListCount;         // (shared layout with slot; unused here)
+    float TuneCellDiameter;  // live base cell edge (F10 window)
+    float TuneBaseRadius;    // live cascade-0 disc radius (F10 window)
+    float TuneNearFieldBias; // live near-field bias (F10 window; unused by count)
 } Push;
 
 void main()
 {
+    // Seat the live world-scale globals before any grid/radius helper (whole-pipeline reach). The grid box + intersection must use the SAME
+    // cell diameter / radius the spawn + gather use, or build and lookup drift.
+    SurfelSetTuning(Push.TuneCellDiameter, Push.TuneBaseRadius, Push.TuneNearFieldBias);
+
     int Index = int(gl_GlobalInvocationID.x);
     int Total = PoolMax[0];
     if (Index >= Total) return;

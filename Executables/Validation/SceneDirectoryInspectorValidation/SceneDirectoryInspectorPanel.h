@@ -44,9 +44,6 @@ struct InspectorPanelState
     // -- Property side-table: the reused tree node carries no profile bag, so profiles hang off the token here --
     std::vector<std::pair<RecordToken, RecordProfile>> Profiles;  // [-] - token -> established property bag
 
-    // -- Classification map: SketchOutliner classifies rows in its own vocabulary; this holds each token's SDI kind for the cards --
-    std::vector<std::pair<RecordToken, RecordClassification>> Kinds;  // [-] - token -> SDI RecordClassification
-
     // -- Selection echo: the token whose cards are currently shown, to detect a selection change across frames --
     RecordToken              ShownToken = 0;             // [-]  - last token the cards were resolved for (0 = none)
 
@@ -61,6 +58,12 @@ struct InspectorPanelState
     bool                     OnInspect = false;          // [-]  - outer slide: false=directory, true=inspect (menuTrack.to-inspect)
     float                    OuterTravel = 0.0f;         // [-]  - 0 at directory, 1 at inspect; eased toward OnInspect
     float                    InnerTravel = 0.0f;         // [-]  - 0 at properties, 1 at history; eased toward Face
+
+    // -- Inner-pane vertical scroll: the Properties + History bodies draw into a fixed clip rect, so tall content (a Workplane's two
+    //    cards, a long timeline) needs its own scroll offset. Held per face, clamped each frame to [0, content - viewport], fed by the
+    //    wheel while the pane is hovered. --
+    float                    PropertiesScroll = 0.0f;    // [px] - Properties body scroll offset (0 = top)
+    float                    HistoryScroll    = 0.0f;    // [px] - History body scroll offset (0 = top)
 
     // -- Summon placement + open --
     bool                     SummonOpen = false;         // [-]  - the card is showing (summonOpen)
@@ -86,11 +89,14 @@ struct InspectorPanelState
 // is fine — the reference is taken after any insert).
 RecordProfile& ProfileFor(InspectorPanelState& State, RecordToken Token);
 
-// The SDI classification recorded for a token when the directory was seeded; Solid when unknown (a safe card schema).
+// The SDI classification a token's row carries. The directory runs the SDI content profile, so a row's own opaque ClassificationId IS the
+// classification — this reads it off the tree, and reports Solid (a safe card schema) when the token resolves to no row.
 RecordClassification KindFor(const InspectorPanelState& State, RecordToken Token);
 
-// Seed the state to the prototype's opening pose: the default Part tree seeded into the SketchOutliner directory, the four seeded
-// revisions, and SOL_Boss pre-selected (the cylinder, so a green hue is on screen immediately). Call once before the frame loop.
+// Seed the state to its opening pose: an EMPTY directory (no rows, no selection) and an EMPTY history (one "Trunk" branch carrying no
+// revisions). Everything in the tree arrives through the outliner's add menu; every revision arrives from an observed tree delta.
+// 🔴 The history needs the one empty branch, not zero branches: every revision verb early-returns unless Active indexes a live branch,
+//    so a branch-less store would swallow each LogRevision silently. Call once before the frame loop.
 void InitializeInspectorSample(InspectorPanelState& State);
 
 // Draw the whole inspector for one frame over the current viewport. Handles the Tab / right-click summon, both carousels, the directory

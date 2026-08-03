@@ -93,6 +93,16 @@ static KeyIdentity TranslateKeysym(KeySym Symbol)
         case XK_F10:       return KeyIdentity::F10;
         case XK_F11:       return KeyIdentity::F11;
         case XK_F12:       return KeyIdentity::F12;
+        case XK_KP_0:      return KeyIdentity::Numpad0;
+        case XK_KP_1:      return KeyIdentity::Numpad1;
+        case XK_KP_2:      return KeyIdentity::Numpad2;
+        case XK_KP_3:      return KeyIdentity::Numpad3;
+        case XK_KP_4:      return KeyIdentity::Numpad4;
+        case XK_KP_5:      return KeyIdentity::Numpad5;
+        case XK_KP_6:      return KeyIdentity::Numpad6;
+        case XK_KP_7:      return KeyIdentity::Numpad7;
+        case XK_KP_Add:      return KeyIdentity::NumpadAdd;
+        case XK_KP_Subtract: return KeyIdentity::NumpadSubtract;
         case XK_space:     return KeyIdentity::Space;
         case XK_Escape:    return KeyIdentity::Escape;
         default:           return KeyIdentity::Unknown;

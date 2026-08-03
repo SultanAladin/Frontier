@@ -133,6 +133,17 @@ function ChannelsOf(Layer)
 // Does this layer paint the given channel? Order-independent, so it works for either shape.
 const PaintsChannel = (Layer, Key) => ChannelsOf(Layer).includes(Key);
 
+// The mask component a target-selection is aimed at, whatever its category — not only the paintable one.
+// 🔴 Distinct from ResolveMaskPaintTarget, which returns a component ONLY when it can take a brush stroke.
+//    The right pane has to show a generator/fill/levels component's SETTINGS even though no dab lands in it,
+//    so selection and paint-routing are two different questions with two different resolvers.
+function SelectedMaskComponent(Layer)
+{
+    const Mask = Layer?.Mask;
+    if (!Mask || !Mask.Enabled || !Mask.FocusToken) { return null; }
+    return Mask.Components.find((C) => C.Token === Mask.FocusToken) ?? null;
+}
+
 // A layer's channel value as a CSS colour, or null when the channel is off. Used for the row thumbnail.
 function SwatchOf(Layer)
 {
@@ -177,6 +188,7 @@ const InspectorMarkup = `
             </span>
             <span class="h-n" data-part="Tally">0</span>
           </div>
+          <div class="stack-add-wrap" data-part="AddHost"></div>
           <div class="search-wrap">
             <label class="search">
               <span data-part="SearchIcon"></span>
@@ -237,8 +249,10 @@ const InspectorMarkup = `
   </div>
 </div>`;
 
-const MenuWidth  = 548;
-const MenuHeight = 372;
+// 🔴 +15% over the original 548×372. Kept in lockstep with the .summon-menu width/height in the CSS — the
+//    clamp maths here and the fixed box there must agree or the card is placed for the wrong footprint.
+const MenuWidth  = 630;
+const MenuHeight = 428;
 const MenuPad    = 14;
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -280,9 +294,52 @@ export class LayerInspector
         this.OpenState  = false;
         this.FilterTerm = "";
         this.Collapsed  = new Set();
+        // Tokens whose inline expand is open. Focusing a row opens it; its caret toggles it shut/open
+        // again without changing focus.
+        this.Expanded   = new Set();
+        // 🔴 Tokens whose inline expand has ALREADY played its open animation. RenderStack rebuilds the rail on
+        //    every committed value, so this is what stops the reveal replaying on each tick of a slider drag
+        //    inside the expand itself — the same job `CardFoldState::Seeded` does in PropertyPanelBase.cpp,
+        //    where the fold snaps to its intent the first frame a card is seen. A token is dropped from here the
+        //    moment its expand closes, so the NEXT open animates again.
+        this.SeededExpands = new Set();
+        // 🔴 Which colour pickers are open, keyed `Token/Channel`. A picker MUST outlive a pane rebuild: every
+        //    commit runs Refresh(), which wipes the pane and builds a fresh BuildColourField, so an open state
+        //    held only in the widget's own DOM was lost on the first value written. That is why picking a
+        //    colour read as "it confirms and closes" — the panel was not dismissing the picker, it was
+        //    discarding and rebuilding it closed. Keyed by channel as well as token because the mask detail
+        //    pane and the layer pane can each show a colour row for a different channel of the same layer.
+        this.OpenPickers = new Set();
+        // 🔴 The right pane's [ Layer | Mask ] carousel position per layer: "layer" shows the layer's own
+        //    paint properties, "mask" slides to the mask editor. This is ALSO the paint target — with the
+        //    Mask tab live and a mask component focused, strokes route to that component; otherwise they
+        //    route to the layer's channels. Keyed by token so a layer keeps its tab when another is focused;
+        //    defaults to "layer". Coerced back to "layer" by TabOf whenever the mask is gone.
+        this.PaintTab = new Map();
+        // 📝 The tab each layer's carousel showed on its LAST build. BuildTargetCarousel compares the
+        //    current tab against this to fire the slide micro-animation only on a real Layer<->Mask
+        //    switch, never on the Refresh rebuilds that follow every unrelated mutation.
+        this.LastTab  = new Map();
         this.RowDragged   = false;
+        // The open list's bookkeeping. Uniform for EVERY dropdown, because they are all portalled to
+        // <body> on open (see BuildDropdown) — OpenList is always the .dd-list itself, never its wrapper,
+        // so the outside-press and scroll guards can test containment the same way for all of them.
+        //   OpenList   — the .dd-list currently up
+        //   OpenHost   — the .dropdown that owns it and must get it back on close; null for the add list
+        //   OpenAnchor — the trigger wearing the .listopen / .flipped join classes (the "+ Add Layer" button;
+        //                a field dropdown's capsule head has no border to join with, so it wears neither)
         this.OpenList     = null;
+        this.OpenHost     = null;
+        this.OpenAnchor   = null;
         this.AddLayerList = null;
+
+        // 🔴 A depth count, not a boolean: a slider drag and the colour picker's plane can both be live at
+        //    once (two pointers), and a boolean cleared by whichever released first would unlatch the other
+        //    mid-scrub. While non-zero, Refresh() defers instead of rebuilding — see Refresh().
+        this.Scrubbing       = 0;
+        this.RefreshDeferred = false;
+
+        LiveInspectors.add(this);
 
         this.Part.StackIcon.innerHTML   = Icon("stack", 18);
         this.Part.SearchIcon.innerHTML  = Icon("search", 14);
@@ -310,11 +367,36 @@ export class LayerInspector
         };
 
         // A dropdown is position:fixed and placed by script, so any scroll or outside press must close it.
+        //
+        // 🔴 A press on the trigger that OWNS the open list is NOT an outside press. This capturing handler
+        //    runs before the trigger's own onclick, so without this exclusion it would close the list on
+        //    pointerdown, the click's toggle guard would then read "already closed" and re-open it — the list
+        //    could never be dismissed by re-clicking its button. Let such a press fall through to the trigger.
+        // 📝 OpenList is always the .dd-list itself (never a .dropdown wrapper) and always a child of <body>
+        //    while open, so this containment test reads the same for every list — the add-layer picker and
+        //    each field dropdown alike.
         this.CloseListOnOutside = (Event) => {
-            if (this.OpenList && !this.OpenList.contains(Event.target)) { this.CloseLists(); }
+            this.ClosePickersOnOutside(Event);
+            if (!this.OpenList) { return; }
+            if (this.OpenList.contains(Event.target)) { return; }
+            if (Event.target.closest && Event.target.closest(".sf-add, .dd-head")) { return; }
+            this.CloseLists();
         };
         document.addEventListener("pointerdown", this.CloseListOnOutside, true);
-        document.addEventListener("scroll", () => this.CloseLists(), true);
+
+        // A position:fixed list is placed against a one-time measurement of its trigger, so any scroll that
+        // MOVES that trigger leaves the list stranded — hence closing on scroll.
+        //
+        // 🔴 But a scroll INSIDE the open list is not that: now that a clamped list scrolls its own options,
+        //    this capturing handler would fire on the list's own scroll and shut it the instant the user
+        //    reached for an option below the fold. The list's own scrolling moves nothing it is anchored to,
+        //    so it is excluded.
+        this.CloseListOnScroll = (Event) => {
+            if (this.OpenList && this.OpenList.contains(Event.target)) { return; }
+            if (Event.target instanceof Element && Event.target.closest(".dd-list")) { return; }
+            this.CloseLists();
+        };
+        document.addEventListener("scroll", this.CloseListOnScroll, true);
     }
 
     //--------------------------------------------------------------------------------------------------
@@ -350,11 +432,34 @@ export class LayerInspector
         this.CloseLists();
     }
 
+    // Slide 2 is dual-purpose: the detail pane shows the layer's Channels when the carousel tab is "layer",
+    // and the mask components deep-dive when it is "mask". Both share the same physical slide and the same
+    // Identity rail; only the detail pane's content differs. RenderInspectSlide picks which to draw, so the
+    // single Tab step lands on the right editor for whichever target the carousel is aimed at.
     ShowChannels()
     {
         this.CloseLists();
         this.Part.Track.classList.add("to-inspect");
-        this.RenderChannels();
+        this.RenderInspectSlide();
+    }
+
+    // The mask CTA's destination. Force the carousel to Mask first (so a Tab from anywhere lands on the mask
+    // detail, and returning to slide 1 shows the mask pane), then reuse the shared slide.
+    ShowMaskDetail()
+    {
+        const Layer = this.Stack.Focus;
+        if (Layer) { this.PaintTab.set(Layer.Token, "mask"); }
+        this.CloseLists();
+        this.Part.Track.classList.add("to-inspect");
+        this.RenderInspectSlide();
+    }
+
+    // Fill slide 2 for the focused layer's current tab: Channels for "layer", mask deep-dive for "mask".
+    RenderInspectSlide()
+    {
+        const Layer = this.Stack.Focus;
+        if (Layer && this.TabOf(Layer) === "mask") { this.RenderMaskDetail(); }
+        else                                        { this.RenderChannels(); }
         this.RenderIdentity();
     }
 
@@ -388,13 +493,36 @@ export class LayerInspector
     // 🔴 The preview generation is bumped FIRST, before anything is rebuilt. Every in-flight channel
     //    readback captured the previous value and drops its result on resolving, so a slow capture for a
     //    layer that is no longer focused cannot paint itself into the panel that replaced it.
+    //
+    // 🔴 A rebuild is REFUSED while a widget is being scrubbed — this is what cured "the sliders keep
+    //    jamming". Every pane rebuild does `Body.innerHTML = ""`, which detaches the very `.slider` the
+    //    pointer is captured on; the browser then fires no further pointermove at a node outside the
+    //    document, so the knob froze wherever it was when the first value landed. The widget's own
+    //    `Live` flag already suppressed the inspector's rebuild, but the HOST re-enters here through its
+    //    LayerCommand choke point (which cannot see Live), so the guard has to live at this end. The
+    //    deferred flag replays the skipped rebuild once on release, so nothing is lost.
+    //
+    // 🔴 Any open list is closed FIRST. While a list is open it is portalled to <body>, so it is no longer a
+    //    child of the pane about to be wiped — the `Body.innerHTML = ""` below that used to dispose of it
+    //    implicitly now leaves it floating on screen, anchored to a trigger that no longer exists, with item
+    //    handlers closed over the pre-rebuild Layer. Closing here reparents it back and drops it with its
+    //    host, which is the behaviour every call site already assumed.
     Refresh()
     {
+        if (this.Scrubbing > 0) { this.RefreshDeferred = true; return; }
+        this.RefreshDeferred = false;
+
+        this.CloseLists();
+
         this.PreviewGeneration = (this.PreviewGeneration ?? 0) + 1;
         this.RenderStack();
         this.RenderProperties();
         this.RenderIdentity();
-        this.RenderChannels();
+        // Slide 2's detail pane rebuilds to whichever editor the carousel tab selects, so a mutation while
+        // the mask deep-dive is open leaves it open and current instead of snapping back to Channels.
+        const Layer = this.Stack.Focus;
+        if (Layer && this.TabOf(Layer) === "mask") { this.RenderMaskDetail(); }
+        else                                        { this.RenderChannels(); }
     }
 
     // Push a command at the stack, then rebuild and tell the host to redraw.
@@ -415,6 +543,16 @@ export class LayerInspector
         const Body = this.Part.StackBody;
         Body.innerHTML = "";
 
+        // 📝 Drop expand state for tokens the stack no longer has. Nothing else prunes these two Sets, so
+        //    deleting an open layer leaves its token in both of them for the rest of the session. Tokens are
+        //    never re-issued (LayerStack's TokenSequence only increments), so this cannot mis-seed a future
+        //    layer — it is housekeeping, and it keeps `Expanded` an honest answer to "is this row open" for
+        //    anything that later reads it. Pruned against the WHOLE stack, not the filtered view: a layer
+        //    hidden by the filter still exists and keeps its open state for when the filter clears.
+        const Live = new Set(this.Stack.Layers.map((L) => L.Token));
+        for (const Token of this.Expanded)      { if (!Live.has(Token)) { this.Expanded.delete(Token); } }
+        for (const Token of this.SeededExpands) { if (!Live.has(Token)) { this.SeededExpands.delete(Token); } }
+
         const Layers = this.Stack.Layers.filter(
             (L) => !this.FilterTerm || L.Name.toLowerCase().includes(this.FilterTerm));
 
@@ -422,12 +560,33 @@ export class LayerInspector
         {
             Body.appendChild(this.BuildRow(Layer));
 
-            // 🔴 The active row's settings drop open INLINE, right beneath it in the rail. Only the focused
-            //    layer expands, and it is skipped while a filter is active — a filtered stack is a lookup,
-            //    not an editing surface, and an accordion inside it fights the row the user is scanning for.
-            if (Layer.Token === this.Stack.FocusToken && !this.FilterTerm)
+            // 🔴 A row's settings drop open INLINE, right beneath it in the rail, when its caret is open —
+            //    tracked in this.Expanded, independent of focus. It is skipped while a filter is active — a
+            //    filtered stack is a lookup, not an editing surface, and an accordion inside it fights the
+            //    row the user is scanning for.
+            if (this.Expanded.has(Layer.Token) && !this.FilterTerm)
             {
-                Body.appendChild(this.BuildExpand(Layer));
+                const Expand = this.BuildExpand(Layer);
+
+                // 🔴 The reveal animates only on a NEWLY opened expand — the CSS equivalent of the C++
+                //    `Fold->Seeded` guard, which snaps the fold to its intent the first frame a card is seen so
+                //    "a card shown already-open does not animate in". RenderStack runs on every committed value,
+                //    so without this the expand would replay its whole open animation on each tick of a slider
+                //    drag inside itself. `Seeded` is recorded per token and only ever set here.
+                if (!this.SeededExpands.has(Layer.Token))
+                {
+                    this.SeededExpands.add(Layer.Token);
+                    Expand.classList.add("folding");
+                    // 🔴 Two frames, not one. The node is appended THIS frame, so it has no committed style yet;
+                    //    clearing the class in the same frame (or in a single rAF, which can still coalesce with
+                    //    the insertion's first style resolution) gives the browser no `0fr` start value to
+                    //    interpolate from and the fold hard-cuts — the same reason the portalled .dd-list defers
+                    //    its `.open`.
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                        Expand.classList.remove("folding");
+                    }));
+                }
+                Body.appendChild(Expand);
             }
         }
 
@@ -441,27 +600,17 @@ export class LayerInspector
         this.RenderStackFoot();
     }
 
-    // The stack footer: the layer tally, and the "+ Add Layer" affordance that unfolds one option per
-    // layer kind (Paint / Fill / Material / Generator, straight from LAYER_KIND_ORDER).
+    // The stack rail's chrome: the "+ Add Layer" affordance sits ABOVE the filter (it opens one option
+    // per layer kind — Paint / Fill / Material / Generator, straight from LAYER_KIND_ORDER), and the
+    // footer carries only the layer tally.
     //
     // 🔴 A new layer is created through the "add" verb, never by touching the stack directly — the verb
     //    seeds a fill/material's content and re-flattens, which a bare Stack.Add would skip.
     RenderStackFoot()
     {
-        const Foot = this.Part.StackFoot;
-        Foot.innerHTML = "";
-
-        const Hidden = this.Stack.Layers.filter((L) => !L.Shown).length;
-        const Tally  = document.createElement("span");
-        Tally.className = "sf-tally";
-        Tally.innerHTML =
-            `<span class="pf-strong">${this.Stack.Count}</span> / ${LayerCapacity}` +
-            (Hidden ? `<span class="pf-dot">·</span><span>${Hidden} hidden</span>` : "");
-        Foot.appendChild(Tally);
-
-        const Spacer = document.createElement("span");
-        Spacer.className = "pf-spacer";
-        Foot.appendChild(Spacer);
+        // ---- "+ Add Layer", above the filter -----------------------------------------------------------
+        const AddHost = this.Part.AddHost;
+        AddHost.innerHTML = "";
 
         const AtCap = this.Stack.Count >= LayerCapacity;
         const Add   = document.createElement("div");
@@ -476,19 +625,35 @@ export class LayerInspector
                 this.OpenAddLayerList(Add);
             };
         }
-        Foot.appendChild(Add);
+        AddHost.appendChild(Add);
+
+        // ---- tally, in the footer ----------------------------------------------------------------------
+        const Foot = this.Part.StackFoot;
+        Foot.innerHTML = "";
+
+        const Hidden = this.Stack.Layers.filter((L) => !L.Shown).length;
+        const Tally  = document.createElement("span");
+        Tally.className = "sf-tally";
+        Tally.innerHTML =
+            `<span class="pf-strong">${this.Stack.Count}</span> / ${LayerCapacity}` +
+            (Hidden ? `<span class="pf-dot">·</span><span>${Hidden} hidden</span>` : "");
+        Foot.appendChild(Tally);
     }
 
-    // The add-layer kind list, placed above the footer button. Reuses the fixed-position dropdown
+    // The add-layer kind list, dropped below the "+ Add Layer" button. Reuses the fixed-position dropdown
     // machinery so it escapes the scrolling rail and closes on any outside press.
     OpenAddLayerList(Anchor)
     {
-        const WasOpen = this.OpenList === this.AddLayerList;
+        // 🔴 "Already open" is a re-click on a list that EXISTS, so the toggle-shut branch. The earlier form
+        //    `this.OpenList === this.AddLayerList` was true when BOTH were null — i.e. on the very first click
+        //    with nothing open — so it closed before ever building the list and the picker never appeared,
+        //    which read as "Add Layer does nothing". Requiring AddLayerList to be non-null fixes the toggle.
+        const WasOpen = this.AddLayerList !== null && this.OpenList === this.AddLayerList;
         this.CloseLists();
         if (WasOpen) { return; }
 
         const List = document.createElement("div");
-        List.className = "dd-list sf-add-list open";
+        List.className = "dd-list sf-add-list";
 
         for (const Kind of LAYER_KIND_ORDER)
         {
@@ -508,13 +673,30 @@ export class LayerInspector
         document.body.appendChild(List);
         this.AddLayerList = List;
         this.OpenList     = List;
+        // 📝 No OpenHost: this list has no persistent .dropdown to be handed back to, so CloseLists removes
+        //    it rather than reparenting it.
+        this.OpenHost     = null;
+        // The button keeps its pressed styling for as long as its list is up, so the pair reads as one
+        // object rather than a card that happens to be floating near a button.
+        Anchor.classList.add("listopen");
+        this.OpenAnchor = Anchor;
+        // Recomputed below once the drop direction is known — the joined edge is the bottom one when the
+        // list drops down, the top one when it flips above.
+        Anchor.classList.remove("flipped");
 
-        const Box  = Anchor.getBoundingClientRect();
-        const Tall = LAYER_KIND_ORDER.length * 29 + 8;
-        List.style.left  = `${Box.left}px`;
-        List.style.width = `${Math.max(Box.width, 132)}px`;
-        // The footer sits at the bottom of the card, so the list always opens UPWARD from the button.
-        List.style.top   = `${Box.top - Tall - 4}px`;
+        // 🔴 Flush to the button — width matched EXACTLY and top pinned to the button's edge with NO gap,
+        //    because the old +4px offset plus the list's own full border-radius made the picker read as a
+        //    second card floating below the first. The CSS squares off the joined corners and drops the
+        //    shared edge, so button + list become one continuous surface. PlaceList measures the real
+        //    height, so the list flips or scrolls rather than running off the viewport.
+        const DropsDown = this.PlaceList(List, Anchor, 132);
+        Anchor.classList.toggle("flipped", !DropsDown);
+
+        // 🔴 The open class lands on the NEXT frame, not now. Setting it in the same frame as the insert
+        //    gives the browser no start value to interpolate from, so the transition is skipped entirely
+        //    and the list simply appears — the "no micro animation" fault. One rAF commits the closed
+        //    state first, so the change to .open actually animates.
+        requestAnimationFrame(() => List.classList.add("open"));
     }
 
     // Create a layer of the given kind through the add verb.
@@ -537,8 +719,10 @@ export class LayerInspector
     BuildRow(Layer)
     {
         const Row = document.createElement("div");
+        const IsOpen = this.Expanded.has(Layer.Token);
         Row.className = "stack-row" +
             (Layer.Token === this.Stack.FocusToken ? " active" : "") +
+            (IsOpen ? " expanded" : "") +
             (Layer.Shown ? "" : " layer-muted");
         Row.dataset.token = Layer.Token;
 
@@ -558,7 +742,9 @@ export class LayerInspector
             `</span>` +
             `<span class="sr-opacity" title="Drag to adjust opacity">${Layer.Opacity}%</span>` +
             `<span class="sr-visibility" title="${Layer.Shown ? "Hide" : "Show"}">` +
-              `${Icon(Layer.Shown ? "eyeOpen" : "eyeOff", 14)}</span>`;
+              `${Icon(Layer.Shown ? "eyeOpen" : "eyeOff", 14)}</span>` +
+            `<span class="sr-caret" title="${IsOpen ? "Collapse" : "Expand"}">` +
+              `${Icon("chevronDown", 12)}</span>`;
 
         // 🔴 The name is assigned as TEXT, not interpolated into the markup above. A layer name is
         //    user-typed, and a name containing "<" would otherwise be parsed as markup — at best the
@@ -567,8 +753,23 @@ export class LayerInspector
 
         Row.onclick = (Event) => {
             if (this.RowDragged) { this.RowDragged = false; return; }
-            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity")) { return; }
+            if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity") ||
+                Event.target.closest(".sr-caret")) { return; }
+            // Focusing a row opens its expand so the settings are there to edit right away.
+            this.Expanded.add(Layer.Token);
             if (Layer.Token !== this.Stack.FocusToken) { this.Apply("focus", { Token: Layer.Token }); }
+            else                                       { this.RenderStack(); }
+        };
+        // 🔴 The caret toggles the inline expand WITHOUT touching focus, so a row can be opened to read
+        //    its settings without stealing the paint target from the layer currently being stroked.
+        Row.querySelector(".sr-caret").onclick = (Event) => {
+            Event.stopPropagation();
+            if (this.Expanded.has(Layer.Token)) { this.CollapseExpand(Layer.Token); }
+            else
+            {
+                this.Expanded.add(Layer.Token);
+                this.RenderStack();
+            }
         };
         Row.ondblclick = (Event) => {
             if (Event.target.closest(".sr-visibility") || Event.target.closest(".sr-opacity")) { return; }
@@ -592,6 +793,150 @@ export class LayerInspector
     }
 
     //--------------------------------------------------------------------------------------------------
+    //                                   RIGHT-PANE CAROUSEL TAB
+    //--------------------------------------------------------------------------------------------------
+
+    // Which carousel panel the right pane shows for a layer: "layer" or "mask".
+    //
+    // 🔴 This is the carousel POSITION only — purely which panel is on screen. It is NOT the paint target and
+    //    it does NOT coerce for a missing mask: the user can slide to the Mask panel on a layer with no mask,
+    //    where they get the Create-mask affordance. Stroke routing is guarded independently by
+    //    ResolveMaskPaintTarget (which returns null unless the mask is enabled and the component paintable),
+    //    so a "mask" position with no mask can never send a dab into a mask that is not there.
+    TabOf(Layer)
+    {
+        return this.PaintTab.get(Layer.Token) === "mask" ? "mask" : "layer";
+    }
+
+    // Fold an open inline expand SHUT on screen, then drop it. A close has to animate out of a node that still
+    // exists, which a straight `Expanded.delete` + RenderStack cannot do — the rebuild removes the node in the
+    // same frame, so the fold-out never renders and only the open direction was ever animated.
+    //
+    // 🔴 The intent is cleared FIRST, so any RenderStack racing this (a commit landing mid-fold) already agrees
+    //    the row is closed and will not rebuild the expand back into place behind the animation.
+    // 🔴 `transitionend` is filtered to grid-template-rows: .se-body transitions opacity and transform over the
+    //    same duration and its events bubble, so an unfiltered handler would fire up to three times and rebuild
+    //    the rail twice more. The timeout is the backstop for the case the event never arrives at all — a
+    //    display:none ancestor or a reduced-motion setting can skip the transition entirely, and without it the
+    //    expand would sit collapsed-but-present forever.
+    CollapseExpand(Token)
+    {
+        this.Expanded.delete(Token);
+        this.SeededExpands.delete(Token);
+
+        // 🔴 Scoped to THIS token's expand, not the first one in the rail. Expanded is a Set, so several rows can
+        //    be open at once, and a bare `.stack-expand` query would fold whichever happened to come first in
+        //    the DOM while the row the user actually clicked stayed open.
+        const Expand = this.Part.StackBody
+            .querySelector(`.stack-expand[data-token="${Token}"]:not(.folding)`);
+        if (!Expand) { this.RenderStack(); return; }
+
+        // 📝 The owning row un-rotates its caret in step with the fold — see .stack-row.collapsing. The row is not
+        //    rebuilt until the fold lands, so without this the chevron would hold its 180° and snap afterwards.
+        const Owner = this.Part.StackBody.querySelector(`.stack-row[data-token="${Token}"]`);
+        if (Owner) { Owner.classList.add("collapsing"); }
+
+        let Landed = false;
+        const Finish = () => {
+            if (Landed) { return; }
+            Landed = true;
+            this.RenderStack();
+        };
+        Expand.addEventListener("transitionend", (Event) => {
+            if (Event.target === Expand && Event.propertyName === "grid-template-rows") { Finish(); }
+        });
+        window.setTimeout(Finish, 400);
+        Expand.classList.add("folding");
+    }
+
+    // The persistence handle a colour field uses to survive a pane rebuild — see BuildColourField. Returns a
+    // tiny { Get, Set } pair over this.OpenPickers rather than the raw Set, so the widget stays ignorant of how
+    // (or where) the flag is stored and cannot reach the rest of the panel's state.
+    // Dismiss any open colour picker on a press outside it — the behaviour every colour picker has, and what
+    // the user asked for: the picker used to be dismissable ONLY by re-clicking its own bar.
+    //
+    // 🔴 A press on the picker's OWN surfaces is not an outside press. That includes the plane, the hue rail and
+    //    the hex input — a scrub starts with a pointerdown inside .picker, and closing on it would shut the
+    //    picker the instant the drag began. The bar is excluded too: it owns the toggle, and closing here first
+    //    would let its click re-open what this just closed (the same re-entry the .dd-head exclusion guards).
+    // 🔴 Cleared from OpenPickers as well as the DOM, or the next rebuild would faithfully restore the picker
+    //    this press just dismissed.
+    ClosePickersOnOutside(Event)
+    {
+        const Target = Event.target;
+        if (!(Target instanceof Element)) { return; }
+        if (Target.closest(".picker, .colorbar")) { return; }
+
+        // 📝 Queried off the document, not a pane root: the two colour rows live in different panes (the layer
+        //    body and the mask detail) and only one can be open at a time in practice, so one sweep covers both.
+        for (const Open of document.querySelectorAll(".picker.open"))
+        {
+            Open.classList.remove("open");
+        }
+        this.OpenPickers.clear();
+    }
+
+    PickerState(Token, Channel)
+    {
+        const Key = `${Token}/${Channel}`;
+        return {
+            Get: ()      => this.OpenPickers.has(Key),
+            Set: (Value) => { if (Value) { this.OpenPickers.add(Key); } else { this.OpenPickers.delete(Key); } },
+        };
+    }
+
+    // Slide the carousel to a panel. Selecting "layer" clears the mask focus so no stray stroke lands in a
+    // component while the layer's own channels are the visible target; "mask" leaves the focus alone (a
+    // following component pick sets it).
+    //
+    // 🔴 The focus clear goes through the command surface, never a bare field write — the mask focus is
+    //    stroke-routing state the StrokeDriver reads, and a direct write would not bump the revision the
+    //    paint path checks. When nothing routing-related changes we only re-render, avoiding a needless
+    //    revision bump that would restart in-flight channel previews.
+    SetTab(Layer, Tab)
+    {
+        this.PaintTab.set(Layer.Token, Tab);
+
+        // Switching to Layer with a mask component focused clears that focus so no stray dab lands in it while
+        // the layer's own channels are the visible target. That routes through the command surface (revision
+        // bump the StrokeDriver needs) and rebuilds — the slide there is a fresh render, which is acceptable
+        // because clearing focus is a real state change the panel must reflect.
+        if (Tab === "layer" && Layer.Mask?.FocusToken)
+        {
+            this.Apply("maskFocusComponent", { Token: Layer.Token, Component: null });
+            return;
+        }
+
+        // The common case is a pure position change with nothing routing-related to commit. Rather than
+        // rebuild the subtree (which would drop a freshly-built thumb at its destination with nothing to
+        // transition from), slide the LIVE toggle and track in place so both the thumb underline and the
+        // panes glide. Fall back to a full render if the carousel is not currently mounted.
+        if (this.SlideCarousel(Tab))
+        {
+            this.LastTab.set(Layer.Token, Tab);
+            this.Part.AdvanceHead.title = Tab === "mask" ? "Mask components" : "Channels";
+            return;
+        }
+        this.RenderProperties();
+    }
+
+    // Drive the mounted carousel to a tab without rebuilding it: flip the toggle's data-tab (slides the thumb),
+    // swap the active segment, and translate the track. Returns false when no carousel is on screen.
+    SlideCarousel(Tab)
+    {
+        const Toggle = this.Part.MetaBody.querySelector(".mc-toggle");
+        const Track  = this.Part.MetaBody.querySelector(".mc-track");
+        if (!Toggle || !Track) { return false; }
+
+        Toggle.dataset.tab = Tab;
+        for (const Seg of Toggle.querySelectorAll(".mc-seg")) { Seg.classList.remove("active"); }
+        const Index = Tab === "mask" ? 1 : 0;
+        Toggle.querySelectorAll(".mc-seg")[Index]?.classList.add("active");
+        Track.style.transform = Tab === "mask" ? "translateX(-50%)" : "translateX(0)";
+        return true;
+    }
+
+    //--------------------------------------------------------------------------------------------------
     //                                     INLINE EXPAND
     //--------------------------------------------------------------------------------------------------
 
@@ -603,7 +948,13 @@ export class LayerInspector
     BuildExpand(Layer)
     {
         const Host = document.createElement("div");
-        Host.className = "stack-expand";
+        // 📝 `active` mirrors the owning row's focus class so the accent spine runs the FULL height of the card.
+        //    The expand is the row's SIBLING, not its child, so the row's own ::before spine stops at the head;
+        //    the lower half has to draw its own continuing segment. See .stack-expand.active::before.
+        Host.className = "stack-expand" + (Layer.Token === this.Stack.FocusToken ? " active" : "");
+        // 📝 Stamped so CollapseExpand can fold THIS row's expand rather than the first one in the rail — several
+        //    rows can be open at once (Expanded is a Set).
+        Host.dataset.token = Layer.Token;
         const Clip = document.createElement("div"); Clip.className = "se-clip";
         const Body = document.createElement("div"); Body.className = "se-body";
 
@@ -650,10 +1001,13 @@ export class LayerInspector
                 this.Commands("value", { Token: Layer.Token, Channel: "baseColour", Value: HexToColour(Hex) });
                 this.OnChange();
                 if (!Live) { this.Refresh(); }
-            })));
+            }, this.PickerState(Layer.Token, "baseColour"))));
         }
 
-        // ---- Mask --------------------------------------------------------------------------------------
+        // ---- the mask editor ---------------------------------------------------------------------------
+        // 🔴 The paint-target choice moved OUT of here and onto the RIGHT pane's [ Layer | Mask ] carousel.
+        //    The left expand is once again just the layer's own settings plus its mask editor; picking which
+        //    surface a stroke lands on is the carousel's job, not this rail's.
         this.BuildMaskSection(Body, Layer);
 
         Clip.appendChild(Body);
@@ -672,23 +1026,22 @@ export class LayerInspector
     {
         const Mask = Layer.Mask;
 
-        const Sect = document.createElement("div");
-        Sect.className = "se-sect";
-        Sect.textContent = "Mask";
-        Body.appendChild(Sect);
+        Body.appendChild(SectionLabel2("Mask"));
 
-        // Off: a single affordance that enables the mask (which seeds its atlas).
+        // ---- empty state: no mask yet ------------------------------------------------------------------
+        // A layer without an enabled mask shows a single "Add mask" affordance rather than the full editor.
+        // Enabling one is a mask verb so the stack revision bumps and the composite picks the mask up.
         if (!Mask || !Mask.Enabled)
         {
-            const Empty = document.createElement("div");
-            Empty.className = "msk-empty";
-            Empty.innerHTML = `${Icon("mask", 13)}<span>Add mask</span>`;
-            Empty.onclick = () => this.Apply("mask", { Token: Layer.Token, Enabled: true });
-            Body.appendChild(Empty);
+            const Add = document.createElement("div");
+            Add.className = "msk-add";
+            Add.innerHTML = `${Icon("mask", 13)}<span>Add mask</span>`;
+            Add.onclick = () => this.Apply("mask", { Token: Layer.Token, Enabled: true });
+            Body.appendChild(Add);
             return;
         }
 
-        // ---- preview + disable -------------------------------------------------------------------------
+        // ---- preview + remove --------------------------------------------------------------------------
         const Base   = MaskFillValue(Mask);
         const Light  = Mask.Invert ? 1 - Base : Base;
         const Shade  = Math.round(Light * 255);
@@ -702,10 +1055,13 @@ export class LayerInspector
               `<span class="msk-meta">${Mask.Fill === "black" ? "Black" : "White"} fill` +
                 `${Mask.Invert ? " · inverted" : ""} · ${Mask.Components.length} comp</span>` +
             `</span>` +
-            `<span class="mc-x" title="Remove mask" style="margin-left:auto">×</span>`;
+            `<span class="mc-x" title="Delete mask" style="margin-left:auto">×</span>`;
         HeadRow.querySelector(".msk-nm").textContent = "Layer mask";
-        HeadRow.querySelector(".mc-x").onclick = () =>
+        // Deleting the mask drops the carousel back to Layer — there is no mask left to edit or aim at.
+        HeadRow.querySelector(".mc-x").onclick = () => {
+            this.PaintTab.set(Layer.Token, "layer");
             this.Apply("mask", { Token: Layer.Token, Enabled: false });
+        };
         Body.appendChild(HeadRow);
 
         // ---- White / Black / Invert toolbar ------------------------------------------------------------
@@ -772,89 +1128,50 @@ export class LayerInspector
             }));
     }
 
-    // One entry in the mask component stack: its glyph, name + category, and — for a paint component — a
-    // focus toggle that routes brush strokes into it; every category carries an opacity slider, a params
-    // block for fill/generator/levels, and a remove ×.
+    // One entry in the mask component SELECTION list: a radio dot, glyph, name + category, and a remove ×.
+    //
+    // 🔴 The whole row is now a single-SELECT: clicking it aims the paint target at this component, whatever
+    //    its category — Mask.FocusToken carries the selection, and the right pane on Tab shows that
+    //    component's settings. For a paint component the selection also routes the brush into it (the
+    //    StrokeDriver's ResolveMaskPaintTarget still keys off exactly this token); for a generator / fill /
+    //    levels component the selection is edit-only, since those own no atlas a dab can land in. The
+    //    per-component sliders moved OUT of this list and into the right pane, so the list stays a scannable
+    //    picker rather than a wall of controls.
     BuildMaskComponent(Layer, Component)
     {
         const Category = MASK_COMPONENT_CATEGORY[Component.Category] ?? MASK_COMPONENT_CATEGORY.fill;
         const Paintable = Category.Paintable === true;
-        const Focused   = Layer.Mask.FocusToken === Component.Token;
+        const Selected  = Layer.Mask.FocusToken === Component.Token;
 
         const Host = document.createElement("div");
-        Host.className = "msk-comp";
+        Host.className = "msk-comp" + (Selected ? " sel" : "");
 
-        // ---- header row: glyph, name, focus toggle (paint only), remove --------------------------------
         const Head = document.createElement("div");
         Head.className = "msk-row";
         Head.style.margin = "0";
         Head.innerHTML =
+            `<span class="mc-radio"></span>` +
             `<span class="mc-ico">${Icon("mask", 12)}</span>` +
             `<span class="mc-tx"><span class="mc-nm"></span>` +
-              `<span class="mc-md">${Category.Label}${Focused ? " · painting" : ""}</span></span>`;
+              `<span class="mc-md">${Category.Label}` +
+                `${Selected ? (Paintable ? " · painting" : " · editing") : ""}</span></span>`;
         Head.querySelector(".mc-nm").textContent = Component.Name;
-
-        // 🔴 A PAINT component gets a focus toggle: focusing it is what makes a brush stroke land in the
-        //    mask rather than the layer's channels (ResolveMaskPaintTarget keys off exactly this). The
-        //    other categories have no atlas to paint, so they carry no toggle.
-        if (Paintable)
-        {
-            const Aim = document.createElement("span");
-            Aim.className = "msk-tool" + (Focused ? " on" : "");
-            Aim.style.cssText = "flex:0 0 auto; height:22px; padding:0 8px";
-            Aim.textContent = Focused ? "Painting" : "Paint";
-            Aim.onclick = () => this.Apply("maskFocusComponent",
-                { Token: Layer.Token, Component: Focused ? null : Component.Token });
-            Head.appendChild(Aim);
-        }
 
         const Kill = document.createElement("span");
         Kill.className = "mc-x";
         Kill.style.marginLeft = "auto";
         Kill.textContent = "×";
-        Kill.onclick = () => this.Apply("maskRemoveComponent",
-            { Token: Layer.Token, Component: Component.Token });
+        Kill.onclick = (Event) => {
+            Event.stopPropagation();
+            this.Apply("maskRemoveComponent", { Token: Layer.Token, Component: Component.Token });
+        };
         Head.appendChild(Kill);
-
         Host.appendChild(Head);
 
-        // ---- component opacity -------------------------------------------------------------------------
-        const OpacityRow = document.createElement("div");
-        OpacityRow.className = "se-row";
-        OpacityRow.innerHTML = `<span class="se-k">Opacity</span>`;
-        const OpacityVal = document.createElement("span"); OpacityVal.className = "se-v";
-        OpacityVal.appendChild(BuildSlider({
-            Min: 0, Max: 100, Step: 1, Value: Component.Opacity ?? 100, Unit: "%",
-            OnInput: (Value, Live) => {
-                this.Commands("maskComponentOpacity",
-                    { Token: Layer.Token, Component: Component.Token, Opacity: Value });
-                this.OnChange();
-                if (!Live) { this.Refresh(); }
-            }
-        }));
-        OpacityRow.appendChild(OpacityVal);
-        Host.appendChild(OpacityRow);
-
-        // ---- category params (fill / generator / levels) -----------------------------------------------
-        for (const Spec of MASK_COMPONENT_PARAMS[Component.Category] ?? [])
-        {
-            const Row = document.createElement("div");
-            Row.className = "se-row";
-            const Tag = document.createElement("span"); Tag.className = "se-k"; Tag.textContent = Spec.Label;
-            const Val = document.createElement("span"); Val.className = "se-v";
-            Val.appendChild(BuildSlider({
-                Min: Spec.Min, Max: Spec.Max, Step: Spec.Step,
-                Value: Number(Component.Params?.[Spec.Key] ?? Category.Defaults?.[Spec.Key] ?? Spec.Min),
-                OnInput: (Value, Live) => {
-                    this.Commands("maskComponentParam",
-                        { Token: Layer.Token, Component: Component.Token, Key: Spec.Key, Value });
-                    this.OnChange();
-                    if (!Live) { this.Refresh(); }
-                }
-            }));
-            Row.appendChild(Tag); Row.appendChild(Val);
-            Host.appendChild(Row);
-        }
+        // Selecting toggles: clicking the selected component deselects it (target falls back to the mask as a
+        // whole — nothing focused). Clicking another selects it.
+        Host.onclick = () => this.Apply("maskFocusComponent",
+            { Token: Layer.Token, Component: Selected ? null : Component.Token });
 
         return Host;
     }
@@ -1020,22 +1337,146 @@ export class LayerInspector
         this.Part.MetaClass.textContent = `${CLASSIFICATION_LABEL[Layer.Classification]} layer`;
         this.Part.MetaIcon.innerHTML    = ClassificationSvg(Layer.Classification, 17);
 
-        const Swatch = SwatchOf(Layer);
-        const Hero   = document.createElement("div");
-        Hero.className = "meta-hero";
-        Hero.innerHTML =
-            `<span class="mh-ic">${Swatch
-                ? `<span class="mh-fill" style="background:${Swatch}"></span>`
-                : ClassificationSvg(Layer.Classification, 22)}</span>` +
-            `<span class="mh-txt">` +
-              `<span class="mh-name"></span>` +
-              `<span class="mh-class" style="color:${Tint}">` +
-                `${CLASSIFICATION_LABEL[Layer.Classification]}</span>` +
-            `</span>`;
-        Hero.querySelector(".mh-name").textContent = Layer.Name;
-        Body.appendChild(Hero);
+        // The Tab / stepper destination tracks the carousel tab: Channels for the layer, mask components for
+        // the mask, so the head tooltip does not promise the wrong slide.
+        this.Part.AdvanceHead.title =
+            this.TabOf(Layer) === "mask" ? "Mask components" : "Channels";
 
-        Body.appendChild(SectionLabel("Properties", "sliders"));
+        // 🔴 NO hero card here. A `.meta-hero` used to sit at the top of this body carrying the classification
+        //    icon, the layer name and the classification label — which is exactly what the pane-head three lines
+        //    up from here already shows (MetaIcon / MetaName / MetaClass). It read as the header followed by a
+        //    smaller card repeating the header verbatim. The head is the single identity line for this pane; the
+        //    body starts straight at the controls. (The rail's ident-chip/ident-name card on the OTHER slide is a
+        //    different pane with no head of its own, so it stays.)
+
+        // 🔴 A [ Layer | Mask ] carousel carries the two targets. Selecting a segment SLIDES the pane between
+        //    the layer's own paint properties and the mask editor — the same translateX idiom the card uses on
+        //    Tab, only two panels wide inside this pane. The carousel position is also the paint target: with
+        //    the Mask panel live and a mask component focused, strokes route into that component; otherwise
+        //    into the layer's channels. This replaces the left-rail segment the earlier revision carried.
+        Body.appendChild(this.BuildTargetCarousel(Layer));
+
+        this.Part.MetaFoot.innerHTML =
+            `<span class="pf-hue" style="background:${Tint}"></span>` +
+            `<span>${CLASSIFICATION_LABEL[Layer.Classification]}</span>` +
+            `<span class="pf-dot">·</span><span class="pf-strong">${Layer.Opacity}%</span>` +
+            `<span class="pf-spacer"></span><span>${Layer.Blend}</span>`;
+    }
+
+    // The [ Layer | Mask ] carousel: a two-segment toggle over a two-panel sliding track. Panel 0 is the
+    // layer's own paint properties; panel 1 is the mask editor (or its create-mask empty state). The active
+    // tab both slides the track and, for the Mask tab, decides whether a focused mask component takes the
+    // paint stroke.
+    //
+    // 🔴 BOTH panels are built every render, not just the visible one. The slide is a CSS transform over a
+    //    track that holds both side by side, so the off-screen panel has to exist for the transition to have
+    //    something to move to — building only the active one would make the toggle a hard swap, not a slide.
+    // 🔴 The track transform is applied inline from TabOf, not toggled by a class the click handler flips,
+    //    because RenderProperties rebuilds this whole subtree on every Refresh: a class set by a prior click
+    //    would be gone. Reading the persisted tab each build is what survives the rebuild.
+    BuildTargetCarousel(Layer)
+    {
+        const Tab = this.TabOf(Layer);
+
+        const Host = document.createElement("div");
+        Host.className = "meta-carousel";
+
+        // ---- the [ Layer | Mask ] toggle ---------------------------------------------------------------
+        // A sliding-thumb switch: the two segments are static, and a single .mc-thumb underline slides between
+        // them. The thumb's position is driven by the toggle's data-tab attribute (CSS translates it), so the
+        // active marker glides left/right on a tab change rather than one underline snapping off and another on.
+        const Toggle = document.createElement("div");
+        Toggle.className = "mc-toggle";
+        Toggle.dataset.tab = Tab;
+        for (const [Key, Label] of [["layer", "Layer"], ["mask", "Mask"]])
+        {
+            const Seg = document.createElement("div");
+            Seg.className = "mc-seg" + (Tab === Key ? " active" : "");
+            Seg.textContent = Label;
+            // 🔴 Guard against the LIVE tab, not the closure's build-time `Tab`. SetTab slides in place
+            //    without rebuilding, so the captured `Tab` goes stale after the first switch; comparing to it
+            //    would wedge the toggle (a second click reads the old value and no-ops). TabOf is the truth.
+            Seg.onclick = () => { if (Key !== this.TabOf(Layer)) { this.SetTab(Layer, Key); } };
+            Toggle.appendChild(Seg);
+        }
+        const Thumb = document.createElement("div");
+        Thumb.className = "mc-thumb";
+        Toggle.appendChild(Thumb);
+        Host.appendChild(Toggle);
+
+        // ---- the sliding track -------------------------------------------------------------------------
+        const View  = document.createElement("div"); View.className  = "mc-view";
+        const Track = document.createElement("div"); Track.className = "mc-track";
+        Track.style.transform = Tab === "mask" ? "translateX(-50%)" : "translateX(0)";
+
+        const LayerPane = document.createElement("div"); LayerPane.className = "mc-pane";
+        const MaskPane  = document.createElement("div"); MaskPane.className  = "mc-pane";
+
+        // Fire the incoming-pane lift only when the tab actually flipped since the last build — a Refresh
+        // that rebuilds this subtree without a tab change must not re-run the entrance.
+        const Previous = this.LastTab.get(Layer.Token);
+        if (Previous !== undefined && Previous !== Tab)
+        {
+            (Tab === "mask" ? MaskPane : LayerPane).classList.add("mc-incoming");
+        }
+        this.LastTab.set(Layer.Token, Tab);
+
+        this.RenderLayerProperties(LayerPane, Layer);
+        this.RenderMaskPane(MaskPane, Layer);
+
+        Track.appendChild(LayerPane);
+        Track.appendChild(MaskPane);
+        View.appendChild(Track);
+        Host.appendChild(View);
+
+        return Host;
+    }
+
+    // The Mask carousel panel. This renders the SAME full mask editor the left expand carries — preview +
+    // remove, the White/Black/Invert toolbar, the Strength slider, the component list and the add-component
+    // picker — so the two are guaranteed identical: both go through BuildMaskSection, there is no second copy
+    // to drift. With no mask at all it shows a create-mask empty state; with a mask it also carries a
+    // "Mask components" CTA that Tabs to the deep-dive slide, mirroring the Layer panel's Channels CTA.
+    RenderMaskPane(Body, Layer)
+    {
+        const Mask = Layer.Mask;
+
+        // ---- no mask: the create affordance ------------------------------------------------------------
+        if (!Mask || !Mask.Enabled)
+        {
+            const Empty = document.createElement("div");
+            Empty.className = "mc-empty";
+            const Add = document.createElement("div");
+            Add.className = "mc-create";
+            Add.innerHTML = `${Icon("mask", 15)}<span>Create mask</span>`;
+            Add.onclick = () => {
+                // Creating the mask keeps the carousel on Mask so the pane fills in place.
+                this.PaintTab.set(Layer.Token, "mask");
+                this.Apply("mask", { Token: Layer.Token, Enabled: true });
+            };
+            Empty.appendChild(document.createElement("div")).className = "mc-empty-note";
+            Empty.lastChild.textContent = "This layer has no mask. A mask carves where the layer applies.";
+            Empty.appendChild(Add);
+            Body.appendChild(Empty);
+            return;
+        }
+
+        // ---- mask present: the identical full editor, then the deep-dive CTA ----------------------------
+        this.BuildMaskSection(Body, Layer);
+
+        const Cta = document.createElement("div");
+        Cta.className = "meta-cta";
+        Cta.innerHTML = `<span>Mask components</span>${Icon("chevron", 13)}<span class="cta-kbd">Tab</span>`;
+        Cta.onclick = () => this.ShowMaskDetail();
+        Body.appendChild(Cta);
+    }
+
+    // The layer-as-paint-target properties: the same Visible / Blend / Opacity / channel-count the pane has
+    // always carried, plus the Actions and the Channels CTA. This is what shows when the target is the
+    // layer's content rather than a mask component.
+    RenderLayerProperties(Body, Layer)
+    {
+        Body.appendChild(SectionLabel("Layer paint", "sliders"));
 
         Body.appendChild(PropertyRow("Visible", BuildSwitch(Layer.Shown, (On) =>
             this.Apply("show", { Token: Layer.Token, Shown: On }))));
@@ -1069,12 +1510,103 @@ export class LayerInspector
         Cta.innerHTML = `<span>Channels</span>${Icon("chevron", 13)}<span class="cta-kbd">Tab</span>`;
         Cta.onclick = () => this.ShowChannels();
         Body.appendChild(Cta);
+    }
 
-        this.Part.MetaFoot.innerHTML =
-            `<span class="pf-hue" style="background:${Tint}"></span>` +
-            `<span>${CLASSIFICATION_LABEL[Layer.Classification]}</span>` +
-            `<span class="pf-dot">·</span><span class="pf-strong">${Layer.Opacity}%</span>` +
-            `<span class="pf-spacer"></span><span>${Layer.Blend}</span>`;
+    // The selected mask component's settings, keyed off its category. This is the "different target kinds
+    // show different settings" the request asked for:
+    //
+    //   • paint     — a greyscale paint preview + component opacity; strokes land here.
+    //   • generator — its real shader inputs (Scale / Contrast / Amount / Seed). 🔴 NOT invented AO / bevel /
+    //                 cavity sliders: our generator is one procedural noise field, and a slider that reaches
+    //                 no shader input reads as "the control does nothing". The section is named for the
+    //                 procedural role; the four params are what actually drive the pass.
+    //   • fill      — a Value slider, plus a Load-texture affordance shown DISABLED, because no bitmap-import
+    //                 path exists yet. Disabled-with-a-reason beats a dead button that looks live.
+    //   • levels    — Low / High remap of the accumulated mask.
+    RenderComponentProperties(Body, Layer, Component)
+    {
+        const Category  = MASK_COMPONENT_CATEGORY[Component.Category] ?? MASK_COMPONENT_CATEGORY.fill;
+        const Paintable = Category.Paintable === true;
+
+        // A "painting into…" banner so the target is unmistakable, reusing the accent-ringed preview tile.
+        const Banner = this.BuildTargetBanner(Layer, Component, Category);
+        if (Banner) { Body.appendChild(Banner); }
+
+        Body.appendChild(SectionLabel(`${Category.Label} mask`, "sliders"));
+
+        // Every component carries its own opacity (how strongly this step mixes into the mask beneath it).
+        Body.appendChild(PropertyRow("Opacity", BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Component.Opacity ?? 100, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("maskComponentOpacity",
+                    { Token: Layer.Token, Component: Component.Token, Opacity: Value });
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        })));
+
+        // The category's real parameters (fill / generator / levels). Paint has none — its content is the
+        // strokes themselves.
+        for (const Spec of MASK_COMPONENT_PARAMS[Component.Category] ?? [])
+        {
+            Body.appendChild(PropertyRow(Spec.Label, BuildSlider({
+                Min: Spec.Min, Max: Spec.Max, Step: Spec.Step,
+                Value: Number(Component.Params?.[Spec.Key] ?? Category.Defaults?.[Spec.Key] ?? Spec.Min),
+                OnInput: (Value, Live) => {
+                    this.Commands("maskComponentParam",
+                        { Token: Layer.Token, Component: Component.Token, Key: Spec.Key, Value });
+                    this.OnChange();
+                    if (!Live) { this.Refresh(); }
+                }
+            })));
+        }
+
+        // Fill can, in a fuller build, take a bitmap. The affordance is shown so the intent is legible, but
+        // disabled: there is no texture-import path in this prototype, and a live-looking button that does
+        // nothing is worse than one that says why.
+        if (Component.Category === "fill")
+        {
+            const Load = document.createElement("div");
+            Load.className = "meta-cta disabled";
+            Load.title = "Bitmap import is not available in this prototype.";
+            Load.innerHTML = `<span>Load texture…</span>`;
+            Body.appendChild(Load);
+        }
+
+        if (Paintable)
+        {
+            const Note = document.createElement("div");
+            Note.className = "tgt-hint";
+            Note.textContent = "Strokes paint this component in greyscale.";
+            Body.appendChild(Note);
+        }
+    }
+
+    // The accent-ringed "painting into…" banner atop the component-properties pane. Reuses the greyscale
+    // fill+invert read of the mask so the surface a stroke lands on is visible, exactly as before — only now
+    // it heads a full settings pane rather than sitting above the layer's own props.
+    BuildTargetBanner(Layer, Component, Category)
+    {
+        const Mask = Layer.Mask;
+        if (!Mask) { return null; }
+
+        const Base  = MaskFillValue(Mask);
+        const Light = Mask.Invert ? 1 - Base : Base;
+        const Shade = Math.round(Light * 255);
+        const Verb  = Category.Paintable === true ? "Painting mask" : "Editing mask";
+
+        const Host = document.createElement("div");
+        Host.className = "mask-paint-preview";
+        Host.innerHTML =
+            `<span class="mpp-tile" style="background:rgb(${Shade},${Shade},${Shade})"></span>` +
+            `<span class="mpp-txt">` +
+              `<span class="mpp-lbl">${Verb}</span>` +
+              `<span class="mpp-nm"></span>` +
+              `<span class="mpp-sub">${Category.Label} · ${Mask.Fill === "black" ? "Black" : "White"} fill` +
+                `${Mask.Invert ? " · inverted" : ""}</span>` +
+            `</span>`;
+        Host.querySelector(".mpp-nm").textContent = Component.Name;
+        return Host;
     }
 
     // 🔴 Delete is the ONE per-layer action left in the detail pane. Raise / Lower moved to the stack's
@@ -1190,6 +1722,174 @@ export class LayerInspector
         this.Part.ChannelFoot.innerHTML =
             `<span class="pf-strong">${ChannelsOf(Layer).length}</span> channels` +
             `<span class="pf-spacer"></span><span>3 atlases</span>`;
+    }
+
+    //--------------------------------------------------------------------------------------------------
+    //                                   MASK DEEP-DIVE PANE
+    //--------------------------------------------------------------------------------------------------
+
+    // The mask counterpart to RenderChannels, drawn into the SAME slide-2 detail pane. Where Channels lists
+    // every painted channel as a collapsible panel, this lists every mask COMPONENT as a collapsible panel
+    // whose body is that component's real settings (RenderComponentProperties) — the "same design as the
+    // layer's Channels slide, but for the mask" the request asked for. Selecting a component's head aims the
+    // paint target at it (mirroring the left list's single-select), while its chevron expands the settings.
+    RenderMaskDetail()
+    {
+        const Layer = this.Stack.Focus;
+        const Body  = this.Part.ChannelBody;
+        Body.innerHTML = "";
+
+        const Mask = Layer?.Mask;
+
+        // Head + foot follow the channel pane's own conventions so the two slides read as siblings.
+        this.Part.ChannelName.textContent = Layer ? `${Layer.Name} · Mask` : "Nothing selected";
+        this.Part.ChannelSub.textContent  = Layer
+            ? `${Mask && Mask.Enabled ? (Mask.Fill === "black" ? "Black" : "White") + " fill" : "No mask"}`
+              + `${Mask?.Invert ? " · inverted" : ""}`
+            : "—";
+        this.Part.ChannelIcon.innerHTML   = Icon("mask", 17);
+
+        if (!Mask || !Mask.Enabled)
+        {
+            Body.innerHTML = '<div class="empty-state">This layer has no mask.<br>Create one on the Mask tab.</div>';
+            this.Part.ChannelFoot.innerHTML = "<span>—</span>";
+            return;
+        }
+
+        // The mask-wide controls sit up top (the same White / Black / Invert + Strength the editor carries),
+        // then every component gets its own expandable settings panel below.
+        Body.appendChild(this.BuildMaskOverviewCard(Layer));
+        for (const Component of Mask.Components)
+        {
+            Body.appendChild(this.BuildMaskComponentPanel(Layer, Component));
+        }
+        Body.appendChild(this.BuildMaskAddComponent(Layer));
+
+        this.Part.ChannelFoot.innerHTML =
+            `<span class="pf-strong">${Mask.Components.length}</span> components` +
+            `<span class="pf-spacer"></span><span>${Mask.Opacity ?? 100}% strength</span>`;
+    }
+
+    // The collapsible summary card atop the deep-dive: the mask's fill / invert toolbar and strength, reusing
+    // the channel-chips card shell so it matches the Channels slide's leading card.
+    BuildMaskOverviewCard(Layer)
+    {
+        const Mask = Layer.Mask;
+
+        const Card  = document.createElement("div"); Card.className  = "card";
+        const Head  = document.createElement("div"); Head.className  = "card-head";
+        Head.innerHTML = `<span class="ch-tw">${Icon("chevronDown", 10)}</span><span>Mask</span>` +
+            `<span class="ch-n">${Mask.Components.length} comp</span>`;
+
+        const Shell = document.createElement("div"); Shell.className = "card-shell";
+        const Clip  = document.createElement("div"); Clip.className  = "card-body-inner";
+        const Body  = document.createElement("div"); Body.className  = "card-body";
+
+        const Bar = document.createElement("div");
+        Bar.className = "msk-toolbar";
+        const Tool = (Label, On, Run) => {
+            const El = document.createElement("div");
+            El.className = "msk-tool" + (On ? " on" : "");
+            El.textContent = Label;
+            El.onclick = Run;
+            return El;
+        };
+        Bar.appendChild(Tool("White", Mask.Fill !== "black",
+            () => this.Apply("maskFill", { Token: Layer.Token, Fill: "white" })));
+        Bar.appendChild(Tool("Black", Mask.Fill === "black",
+            () => this.Apply("maskFill", { Token: Layer.Token, Fill: "black" })));
+        Bar.appendChild(Tool("Invert", Mask.Invert === true,
+            () => this.Apply("maskInvert", { Token: Layer.Token, Invert: !Mask.Invert })));
+        Body.appendChild(Bar);
+
+        Body.appendChild(PropertyRow("Strength", BuildSlider({
+            Min: 0, Max: 100, Step: 1, Value: Mask.Opacity ?? 100, Unit: "%",
+            OnInput: (Value, Live) => {
+                this.Commands("maskOpacity", { Token: Layer.Token, Opacity: Value });
+                this.OnChange();
+                if (!Live) { this.Refresh(); }
+            }
+        })));
+
+        Clip.appendChild(Body);
+        Shell.appendChild(Clip);
+        Card.appendChild(Head);
+        Card.appendChild(Shell);
+        return Card;
+    }
+
+    // One mask component as a collapsible panel, mirroring BuildChannelPanel: a head that both selects the
+    // component (aims the paint target) and toggles the settings body open, and a body carrying that
+    // component's real parameters via RenderComponentProperties.
+    BuildMaskComponentPanel(Layer, Component)
+    {
+        const Category  = MASK_COMPONENT_CATEGORY[Component.Category] ?? MASK_COMPONENT_CATEGORY.fill;
+        const Paintable = Category.Paintable === true;
+        const Selected  = Layer.Mask.FocusToken === Component.Token;
+        const Key       = `mask:${Layer.Token}:${Component.Token}`;
+        const Collapsed = this.Collapsed.has(Key);
+
+        const Host = document.createElement("div");
+        Host.className = "chan-panel mask-comp-panel" + (Collapsed ? " collapsed" : "") + (Selected ? " sel" : "");
+
+        const Head = document.createElement("div");
+        Head.className = "chan-head";
+        Head.innerHTML =
+            `<span class="ch-tw">${Icon("chevronDown", 9)}</span>` +
+            `<span class="mc-radio"></span>` +
+            `<span class="ch-title"></span>` +
+            `<span class="ch-sub">${Category.Label}` +
+              `${Selected ? (Paintable ? " · painting" : " · editing") : ""}</span>` +
+            `<span class="mc-x" title="Remove component" style="margin-left:auto">×</span>`;
+        Head.querySelector(".ch-title").textContent = Component.Name;
+
+        Head.querySelector(".mc-x").onclick = (Event) => {
+            Event.stopPropagation();
+            this.Apply("maskRemoveComponent", { Token: Layer.Token, Component: Component.Token });
+        };
+        // The radio selects (aims the paint target); the chevron toggles the settings. Splitting them keeps a
+        // component openable without stealing focus, and selectable without forcing it open.
+        Head.querySelector(".mc-radio").onclick = (Event) => {
+            Event.stopPropagation();
+            this.Apply("maskFocusComponent",
+                { Token: Layer.Token, Component: Selected ? null : Component.Token });
+        };
+        Head.querySelector(".ch-tw").onclick = (Event) => {
+            Event.stopPropagation();
+            if (this.Collapsed.has(Key)) { this.Collapsed.delete(Key); }
+            else                          { this.Collapsed.add(Key); }
+            Host.classList.toggle("collapsed", this.Collapsed.has(Key));
+        };
+        // Clicking the label body selects too, matching the left list where the whole row is the target.
+        Head.onclick = () => this.Apply("maskFocusComponent",
+            { Token: Layer.Token, Component: Selected ? null : Component.Token });
+
+        const Shell = document.createElement("div"); Shell.className = "chan-shell";
+        const Clip  = document.createElement("div"); Clip.className  = "chan-clip";
+        const Body  = document.createElement("div"); Body.className  = "chan-body";
+        this.RenderComponentProperties(Body, Layer, Component);
+        Clip.appendChild(Body);
+        Shell.appendChild(Clip);
+
+        Host.appendChild(Head);
+        Host.appendChild(Shell);
+        return Host;
+    }
+
+    // The add-component picker at the foot of the deep-dive, one option per category.
+    BuildMaskAddComponent(Layer)
+    {
+        const Wrap = document.createElement("div");
+        Wrap.className = "mask-add-wrap";
+        Wrap.appendChild(this.BuildDropdown(
+            MASK_COMPONENT_ORDER.map((C) => MASK_COMPONENT_CATEGORY[C].Label),
+            "Add component",
+            (Pick) => {
+                const Category = MASK_COMPONENT_ORDER.find(
+                    (C) => MASK_COMPONENT_CATEGORY[C].Label === Pick);
+                if (Category) { this.Apply("maskAddComponent", { Token: Layer.Token, Category }); }
+            }));
+        return Wrap;
     }
 
     BuildChannelChips(Layer)
@@ -1343,7 +2043,7 @@ export class LayerInspector
                 this.Commands("value", { Token: Layer.Token, Channel: Panel.Key, Value: HexToColour(Hex) });
                 this.OnChange();
                 if (!Live) { this.Refresh(); }
-            })));
+            }, this.PickerState(Layer.Token, Panel.Key))));
             return;
         }
 
@@ -1460,13 +2160,113 @@ export class LayerInspector
 
     CloseLists()
     {
-        if (!this.OpenList) { return; }
-        this.OpenList.classList.remove("open");
-        this.OpenList = null;
+        // 🔴 Do NOT early-return on a null OpenList: the add-layer list can be live while OpenList points
+        //    elsewhere (or was cleared), and skipping the cleanup then orphans a body-appended node. A stale
+        //    AddLayerList also poisons the next OpenAddLayerList toggle guard, so it stops opening. Clean up
+        //    every field unconditionally, every time.
+        if (this.OpenList)
+        {
+            this.OpenList.classList.remove("open");
 
-        // The add-layer list is a body-appended node, not a child of a persistent .dropdown, so closing it
-        // means removing it outright — dropping the class alone would leave an orphan behind the card.
+            // 🔴 A portalled list is put BACK under its .dropdown, and its inline placement wiped. Left on
+            //    <body>, the node would be orphaned the moment the next Refresh() rebuilt the pane that owns
+            //    the trigger — the list's item handlers close over a Layer that is gone, and the stale node
+            //    keeps answering `.dd-list` queries. Returning it home ties its lifetime back to its host, so
+            //    a rebuild disposes of it exactly as it always did.
+            if (this.OpenHost)
+            {
+                this.OpenHost.classList.remove("open");
+                this.OpenHost.appendChild(this.OpenList);
+                for (const Property of ["width", "maxHeight", "left", "top", "transformOrigin"])
+                {
+                    this.OpenList.style[Property] = "";
+                }
+                this.OpenList.classList.remove("above");
+                this.OpenHost = null;
+            }
+            this.OpenList = null;
+        }
+
+        // The add-layer list has no persistent .dropdown to go home to — it is rebuilt per open — so it is
+        // removed outright instead.
+        //
+        // 🔴 Removed IMMEDIATELY, not after a close transition. The list is rebuilt from scratch on every
+        //    open, and the toggle guard reads AddLayerList, so letting a dying node linger would make the
+        //    next click reopen against a node that is already on its way out.
         if (this.AddLayerList) { this.AddLayerList.remove(); this.AddLayerList = null; }
+
+        // Whichever trigger was wearing the join drops it with the list it owned. Only the "+ Add Layer" button
+        // still joins its list, so in practice `flipped` clears for that anchor alone — a field dropdown's
+        // capsule head never takes it. Removing both unconditionally keeps one exit path for every trigger.
+        if (this.OpenAnchor)
+        {
+            this.OpenAnchor.classList.remove("listopen", "flipped");
+            this.OpenAnchor = null;
+        }
+    }
+
+    // Place an open .dd-list against its trigger — `Gap` px off it, or flush when Gap is 0 — choosing the side
+    // with more room and CLAMPING the list to what that side actually has.
+    //
+    // 🔴 The height is MEASURED (scrollHeight), never derived from the option count. Both call sites used to
+    //    guess `Options.length * 29 + 8`; a row that wraps to two lines, or any list longer than the guess,
+    //    then reported a height smaller than the real one, so the "does it fit below?" test passed for a list
+    //    that did not — and the overflow was simply cut off at the viewport edge (the reported "Add
+    //    component" / "Blend" clipping). The measurement needs the list laid out but not yet animating, which
+    //    is why `visibility:hidden` (not display:none) is the closed state — a hidden box still has geometry.
+    //
+    // 🔴 max-height is set EXPLICITLY per open rather than left to the stylesheet's flat 280px. A trigger
+    //    near an edge can have less than 280px on both sides, and a fixed cap taller than the gap clips no
+    //    matter which side is chosen; capping to the measured gap makes the list scroll instead.
+    // 🔴 `Gap` is the offset between trigger and list, and it is a PARAMETER because the two kinds of trigger
+    //    disagree by design. A field dropdown passes 6 — Dropdown.cpp positions its popup at
+    //    `Origin.y + Height + 6.0f`, a detached window that shares no edge. The "+ Add Layer" button passes 0
+    //    and keeps its joined one-card look, which the ruling did not touch (it is a button, not a
+    //    DrawValuePill dropdown). Baking either value in would silently restyle the other control.
+    //    The gap is taken out of the room BEFORE the fit test, or a list that only just fits would be told it
+    //    fits and then get pushed `Gap` px past the viewport edge by the offset.
+    PlaceList(List, Anchor, MinWidth, Gap = 0)
+    {
+        const Box    = Anchor.getBoundingClientRect();
+        const Margin = 8;
+
+        const Room   = { Below: window.innerHeight - Box.bottom - Margin - Gap,
+                         Above: Box.top - Margin - Gap };
+        // Measured against the width it will actually be shown at, or a long option would wrap differently
+        // once the width lands and change the height out from under the decision.
+        const Width  = Math.max(Box.width, MinWidth);
+        List.style.width     = `${Width}px`;
+        List.style.maxHeight = "none";
+        const Natural = List.scrollHeight;
+
+        // Prefer below; flip only when below cannot take it AND above has more room.
+        const DropsDown = Natural <= Room.Below || Room.Below >= Room.Above;
+        // 🔴 Capped at the room the CHOSEN side actually has, with NO minimum floor. The old
+        //    `Math.max(96, ...)` looks like a courtesy — "never show a uselessly short list" — but it is
+        //    exactly what kept the left-rail lists clipped: a trigger low in the scrolling rail can have
+        //    40px beneath it, the floor then hands back 96px, and `top = Box.bottom` puts 56px of the list
+        //    past the viewport edge where nothing can scroll it into view. The cap must be honest; a genuinely
+        //    cramped side is handled by FLIPPING (above), not by overflowing.
+        const Cap = Math.max(0, Math.min(Natural, DropsDown ? Room.Below : Room.Above));
+
+        // Kept inside the viewport horizontally too — a trigger in the right-hand pane of a card near the
+        // screen edge would otherwise run its list off the side.
+        const Left = Math.max(Margin, Math.min(Box.left, window.innerWidth - Width - Margin));
+
+        List.style.maxHeight = `${Cap}px`;
+        List.style.left      = `${Left}px`;
+        // 🔴 Anchored to the list's own top edge on BOTH sides. When flipped, the bottom edge must meet the
+        //    trigger's top, and the box grows upward from `Box.top - Cap` — but only while the list is TALLER
+        //    than its cap. A short list capped generously would be positioned Cap px up and leave a visible
+        //    gap under the trigger, so the offset uses the height the list will actually take, not the cap.
+        //    `Gap` is then applied AWAY from the trigger on whichever side we chose — added below, subtracted
+        //    above — so a detached list clears the head by the same 6px in both directions.
+        const Height = Math.min(Natural, Cap);
+        List.style.top = DropsDown ? `${Box.bottom + Gap}px` : `${Box.top - Gap - Height}px`;
+        List.classList.toggle("above", !DropsDown);
+        List.style.transformOrigin = DropsDown ? "top center" : "bottom center";
+
+        return DropsDown;
     }
 
     // 📝 The list is position:fixed and placed by script, so it escapes the scrolling pane rather than
@@ -1501,15 +2301,42 @@ export class LayerInspector
             const WasOpen = Host.classList.contains("open");
             this.CloseLists();
             if (WasOpen) { return; }
-            Host.classList.add("open");
-            this.OpenList = Host;
 
-            const Box = Head.getBoundingClientRect();
-            List.style.left  = `${Box.left}px`;
-            List.style.width = `${Math.max(Box.width, 128)}px`;
-            // Flip above when the list would run past the bottom edge.
-            const Tall = Math.min(280, Options.length * 29 + 8);
-            List.style.top = `${Box.bottom + Tall > window.innerHeight ? Box.top - Tall - 3 : Box.bottom + 3}px`;
+            // 🔴 The list is PORTALLED to <body> for as long as it is open, then handed back by CloseLists.
+            //    `position:fixed` is only viewport-relative while no ancestor establishes a containing block
+            //    for it — and several do here. `.card` carries `animation:cardRise ... both`, which leaves a
+            //    transform on the element FOREVER after it finishes (the `both` fill holds the final
+            //    keyframe), and `.card` is also `overflow:hidden`; `.mc-track` and `.menu-track` are
+            //    transformed too. So a list inside any of them was being positioned relative to that box and
+            //    then clipped by it — which is why PlaceList's viewport maths, correct on its own terms, still
+            //    produced cut-off lists: it clamped against the viewport while the browser resolved the
+            //    coordinates against a card. Reparenting to <body> is what makes the clamp mean what it says,
+            //    and it applies to EVERY dropdown, left rail and right pane alike.
+            document.body.appendChild(List);
+
+            Host.classList.add("open");
+            this.OpenList   = List;
+            this.OpenHost   = Host;
+            this.OpenAnchor = Head;
+
+            // 🔴 DETACHED by 6px, matching Dropdown.cpp's `SetNextWindowPos(Origin.x, Origin.y + Height + 6.0f)`
+            //    — the executable's list is an independent popup, not the joined card this used to draw (the
+            //    user chose the executable when the two designs were put to them). No `.flipped` class is set
+            //    on the head any more: it existed only to swap which border went transparent for the join, and
+            //    the capsule head has no border to swap. PlaceList still returns the side so the list's own
+            //    grow direction can flip.
+            //
+            // 🔴 Placed while .open is already set. The measurement reads scrollHeight, and the closed state
+            //    carries a scaleY(.86) transform — harmless for scrollHeight (a transform does not change
+            //    layout) but the class must be on before `top` is written, or the flipped branch would
+            //    position against a stale max-height.
+            this.PlaceList(List, Head, 128, 6);
+
+            // 🔴 `.open` lands on the NEXT frame, exactly as for the add-layer list. Reparenting to <body>
+            //    makes this a freshly-inserted node with no committed style, so setting the class in this same
+            //    frame would give the browser no start value to interpolate from and the open would hard-cut.
+            //    Before the portal, the list was already in the document and this deferral was unnecessary.
+            requestAnimationFrame(() => List.classList.add("open"));
         };
 
         Host.appendChild(Head);
@@ -1519,7 +2346,9 @@ export class LayerInspector
 
     Release()
     {
+        LiveInspectors.delete(this);
         document.removeEventListener("pointerdown", this.CloseListOnOutside, true);
+        document.removeEventListener("scroll", this.CloseListOnScroll, true);
         this.Root.remove();
     }
 }
@@ -1528,12 +2357,43 @@ export class LayerInspector
 //                                                   FIELD WIDGETS
 //------------------------------------------------------------------------------------------------------------------------
 
+// 🔴 The scrub latch. The field widgets are module-level functions with no `this`, but a drag inside one
+//    must suppress every live inspector's Refresh() — the rebuild detaches the node the pointer is
+//    captured on and the drag dies on the spot (the "sliders keep jamming" fault). Rather than thread a
+//    latch through all eight BuildSlider call sites, the widgets raise it here and the inspectors
+//    register themselves for the duration of their life.
+const LiveInspectors = new Set();
+
+function BeginScrub()
+{
+    for (const Panel of LiveInspectors) { Panel.Scrubbing += 1; }
+}
+
+// Release replays the rebuild that was skipped, so the panes catch up with everything the drag wrote.
+function EndScrub()
+{
+    for (const Panel of LiveInspectors)
+    {
+        Panel.Scrubbing = Math.max(0, Panel.Scrubbing - 1);
+        if (Panel.Scrubbing === 0 && Panel.RefreshDeferred) { Panel.Refresh(); }
+    }
+}
+
 function SectionLabel(Text, Glyph, Tail)
 {
     const Element = document.createElement("div");
     Element.className = "meta-sect";
     Element.innerHTML = (Glyph ? `<span>${Icon(Glyph, 12)}</span>` : "") + `<span>${Text}</span>` +
         (Tail ? `<span class="ms-tail">${Tail}</span>` : "");
+    return Element;
+}
+
+// A divider label for the inline expand rail — the `.se-sect` band with its trailing hairline.
+function SectionLabel2(Text)
+{
+    const Element = document.createElement("div");
+    Element.className = "se-sect";
+    Element.textContent = Text;
     return Element;
 }
 
@@ -1600,10 +2460,23 @@ function BuildSlider(Spec)
         Knob.style.left  = `${Percent}%`;
         Input.value = Value.toFixed(Places);
     };
+    // 🔴 Quantised RELATIVE TO Min, not to zero. `round(v / Step) * Step` only lands on the offered values
+    //    when Min is a whole multiple of Step — on a 0.05-stepped range starting at 0.1 it snaps to a
+    //    lattice the endpoints are not on, so the track could never reach its own Max and the knob stuck
+    //    just short of the end. Re-clamped afterwards because rounding can overshoot Max by a part-step.
     const Settle = (Next, Live) => {
         const Clamped   = Math.max(Spec.Min, Math.min(Spec.Max, Next));
-        const Quantised = Math.round(Clamped / Spec.Step) * Spec.Step;
-        Value = Number(Quantised.toFixed(Places));
+        const Steps     = Math.round((Clamped - Spec.Min) / Spec.Step);
+        const Quantised = Math.min(Spec.Max, Spec.Min + Steps * Spec.Step);
+        const Landed    = Number(Quantised.toFixed(Places));
+
+        // 🔴 An unchanged value is NOT pushed through. A 0–100 slider over a ~200px track quantises many
+        //    pointer positions to the same integer, and each redundant write re-resolved the composite on
+        //    the GPU — the drag went sluggish and lagged behind the cursor, which reads as jamming. Only a
+        //    real change costs a recomposite; the release below always commits once regardless.
+        if (Landed === Value && Live) { return; }
+
+        Value = Landed;
         Paint();
         Spec.OnInput(Value, Live);
     };
@@ -1613,18 +2486,48 @@ function BuildSlider(Spec)
         Settle(Spec.Min + Ratio * (Spec.Max - Spec.Min), true);
     };
 
+    // 🔴 One drag at a time, keyed on the pointer that opened it. The previous form added a fresh
+    //    pointermove/pointerup pair per pointerdown and only ever removed them on `pointerup` — so a drag
+    //    that ended any other way (pointercancel, or capture lost when a rebuild detached the track) left
+    //    its listeners attached, and the next press ran TWO handlers that fought over the same value. That
+    //    is the other half of the jamming. `Active` makes a second press a no-op until the first finishes,
+    //    and Finish is idempotent so every exit path lands in the same place exactly once.
+    let Active = -1;
+
+    const Move = (Motion) => {
+        if (Motion.pointerId !== Active) { return; }
+        FromPointer(Motion);
+    };
+    const Finish = (Motion) => {
+        if (Motion && Motion.pointerId !== Active) { return; }
+        if (Active === -1) { return; }
+        Active = -1;
+        Track.removeEventListener("pointermove", Move);
+        Track.removeEventListener("pointerup", Finish);
+        Track.removeEventListener("pointercancel", Finish);
+        Track.removeEventListener("lostpointercapture", Finish);
+        Spec.OnInput(Value, false);
+        EndScrub();
+    };
+
     Track.onpointerdown = (Event) => {
+        if (Event.button !== 0)   { return; }
+        if (Active !== -1)        { return; }
         Event.preventDefault();
+        Event.stopPropagation();
+
+        Active = Event.pointerId;
+        BeginScrub();
         Track.setPointerCapture(Event.pointerId);
-        FromPointer(Event);
-        const Move = (Motion) => FromPointer(Motion);
-        const Up = () => {
-            Track.removeEventListener("pointermove", Move);
-            Track.removeEventListener("pointerup", Up);
-            Spec.OnInput(Value, false);
-        };
+
         Track.addEventListener("pointermove", Move);
-        Track.addEventListener("pointerup", Up);
+        Track.addEventListener("pointerup", Finish);
+        // 🔴 pointercancel and lostpointercapture both END the drag with no pointerup. Without them the
+        //    scrub latch would never come back down and the panel would stop refreshing for good.
+        Track.addEventListener("pointercancel", Finish);
+        Track.addEventListener("lostpointercapture", Finish);
+
+        FromPointer(Event);
     };
     Input.onchange = () => {
         const Parsed = parseFloat(Input.value);
@@ -1680,7 +2583,12 @@ function HsvToHex(HueAngle, Saturation, Value)
 // 🔴 `OnPick` is NOT called during construction. The field is built while rendering the pane, and a
 //    construction-time call would write the layer's own current value straight back through the command
 //    surface — bumping the revision and re-entering the render that is still running.
-function BuildColourField(Current, OnPick)
+//
+// 🔴 `OpenState` carries the disclosure across rebuilds: `{ Get(), Set(Bool) }`, backed by the panel's
+//    OpenPickers set. The widget cannot own this — it is destroyed and recreated by every commit — so it reads
+//    the flag to decide whether to build open, and writes it whenever the bar is clicked. Optional so a caller
+//    with no persistence (a one-off field) still works, just closing on rebuild as before.
+function BuildColourField(Current, OnPick, OpenState)
 {
     const Host = document.createElement("div");
 
@@ -1724,33 +2632,87 @@ function BuildColourField(Current, OnPick)
         if (Notify) { OnPick(Hex, Live); }
     };
 
+    // 🔴 The plane and the hue rail RAISE THE SCRUB LATCH for the life of the drag. Without it the first
+    //    pointermove wrote through OnPick -> LayerCommand -> the host's Refresh(), whose `Body.innerHTML = ""`
+    //    detached the very .svbox the pointer was captured on: the drag died on its first pixel and the picker
+    //    itself was destroyed and rebuilt without `.open`. That is precisely the "sliders keep jamming" fault
+    //    BeginScrub/EndScrub exist to cure — BuildSlider has always called them and this widget simply never
+    //    did, which is why dragging a colour read as "one click confirms and closes".
+    // 🔴 EndScrub is paired in a `finally`-shaped teardown that runs on pointercancel and lostpointercapture
+    //    too, not just pointerup. A latch left raised would wedge Refresh() off permanently and freeze the
+    //    whole panel — losing the capture (an alt-tab, a touch interruption) must still balance the count.
+    // 🔴 One drag at a time, keyed on the pointer that opened it — the same shape BuildSlider settled on, and
+    //    for the same reason: a drag that ends by pointercancel or lost capture (not pointerup) would otherwise
+    //    leave its listeners attached, and the next press would run two handlers fighting over one value.
     const Scrub = (Surface, Apply) => {
+        let Active = -1;
+
+        const Read = (Motion) => {
+            const Box = Surface.getBoundingClientRect();
+            Apply(Math.max(0, Math.min(1, (Motion.clientX - Box.left) / Box.width)),
+                  Math.max(0, Math.min(1, (Motion.clientY - Box.top)  / Box.height)));
+            Paint(true, true);
+        };
+        const Move = (Motion) => {
+            if (Motion.pointerId !== Active) { return; }
+            Read(Motion);
+        };
+        // 📝 Idempotent, and every exit path lands here exactly once: pointerup and lostpointercapture both fire
+        //    on a normal release, and a double EndScrub would drive the shared depth count below the drags still
+        //    live on other pointers, unlatching them mid-scrub.
+        const Up = (Motion) => {
+            if (Motion && Motion.pointerId !== Active) { return; }
+            if (Active === -1) { return; }
+            Active = -1;
+            Surface.removeEventListener("pointermove", Move);
+            Surface.removeEventListener("pointerup", Up);
+            Surface.removeEventListener("pointercancel", Up);
+            Surface.removeEventListener("lostpointercapture", Up);
+            // 🔴 The final commit is published BEFORE the latch drops. EndScrub replays the deferred rebuild,
+            //    so releasing first would rebuild the pane against the pre-drag value and then write the new
+            //    one into a pane that had already been thrown away.
+            Paint(false, true);
+            EndScrub();
+        };
+
         Surface.onpointerdown = (Event) => {
+            // 📝 Left button only, and never re-entered while a drag is live — a right-click on the plane must
+            //    not open a phantom scrub that only a matching release could ever close.
+            if (Event.button !== 0) { return; }
+            if (Active !== -1)      { return; }
             Event.preventDefault();
             Event.stopPropagation();
+
+            Active = Event.pointerId;
+            BeginScrub();
             Surface.setPointerCapture(Event.pointerId);
-            const Read = (Motion) => {
-                const Box = Surface.getBoundingClientRect();
-                Apply(Math.max(0, Math.min(1, (Motion.clientX - Box.left) / Box.width)),
-                      Math.max(0, Math.min(1, (Motion.clientY - Box.top)  / Box.height)));
-                Paint(true, true);
-            };
-            Read(Event);
-            const Move = (Motion) => Read(Motion);
-            const Up = () => {
-                Surface.removeEventListener("pointermove", Move);
-                Surface.removeEventListener("pointerup", Up);
-                Paint(false, true);
-            };
+
             Surface.addEventListener("pointermove", Move);
             Surface.addEventListener("pointerup", Up);
+            // 🔴 pointercancel and lostpointercapture both END the drag with no pointerup. Without them the
+            //    scrub latch would never come back down and the panel would stop refreshing for good.
+            Surface.addEventListener("pointercancel", Up);
+            Surface.addEventListener("lostpointercapture", Up);
+
+            Read(Event);
         };
     };
 
     Scrub(Plane, (X, Y) => { State.Saturation = X; State.Value = 1 - Y; });
     Scrub(Rail,  (X)    => { State.Hue = X * 360; });
 
-    Bar.onclick = (Event) => { Event.stopPropagation(); Picker.classList.toggle("open"); };
+    // 🔴 Built open when the persisted flag says so, WITHOUT a transition on that first frame — the pane is
+    //    mid-rebuild, so animating the reveal here would replay the open animation on every committed value
+    //    and make a drag look like the picker was flickering shut and back.
+    if (OpenState && OpenState.Get()) { Picker.classList.add("open"); }
+
+    Bar.onclick = (Event) => {
+        Event.stopPropagation();
+        const NowOpen = !Picker.classList.contains("open");
+        Picker.classList.toggle("open", NowOpen);
+        // 📝 Mirrored into the panel so the next rebuild agrees with what is on screen.
+        if (OpenState) { OpenState.Set(NowOpen); }
+    };
 
     Input.onkeydown = (Event) => {
         Event.stopPropagation();

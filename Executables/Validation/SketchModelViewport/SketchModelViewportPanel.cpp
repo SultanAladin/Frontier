@@ -9,6 +9,9 @@
 
 #include "SketchModelViewportPanel.h"
 
+#include "SketchModelWorkplaneOverlay.h"
+#include "SketchModelViewportInput.h"
+
 #include "EngineContext/Interface/Components/Bands/ViewportBandTop.h"
 #include "EngineContext/Interface/Components/Bands/ViewportBandBottom.h"
 
@@ -31,6 +34,9 @@ void InitializeSketchModelViewportSample(SketchModelViewportState& State)
     //    camera to the default perspective orbit pose. The chrome carries its own defaults (dotted grid, metres).
     Frontier::InitializeViewportPanelState(State.Viewport, Frontier::ViewportProjection::Perspective);
     State.Chrome = SketchModelChromeState{};
+
+    // 📝 Both summoned surfaces open blank: an empty directory with an empty history, and the action console closed until a right-click.
+    InitializeSketchModelSummonedSurfaces(State.Summoned);
 }
 
 
@@ -132,10 +138,57 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     State.CanvasHeight = static_cast<uint32_t>(CanvasSize.y);
 
     Frontier::ViewportPanelResult Result = {};
+    const ImVec2 CanvasOrigin = ImGui::GetCursorScreenPos();
     ImGui::BeginChild("##sketch-model-canvas", CanvasSize, false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    // 🔴 Global wheel guard, BEFORE ConstructViewportPanel: while a primitive draw is armed the wheel belongs to the draw (a polygon's live side
+    //    count), not the camera. The shared panel dollies on any hovered wheel notch, so capture + zero the notch here so the SAME scroll can't
+    //    both change the side count AND zoom. The captured notches are spent by AdvanceShapeDraw below; a no-op (returns 0) while no draw is armed.
+    const float WheelNotches = HoldWheelFromCamera(ShapeDrawActive(State.Summoned.ShapeStore));
+
     Result = Frontier::ConstructViewportPanel(Theme, State.Viewport);
+
+    // 🔴 Right-drag orbits the camera (this viewport only): the shared surface button binds only left+middle, so the right press is unclaimed and
+    //    reaches here. Layered over the shared left-drag orbit with the same verb + sensitivity, so both buttons look around identically. Applied
+    //    after the panel so its hover result is known. Suppressed while a draw is armed — a right-drag then is not a look-around.
+    if (!ShapeDrawActive(State.Summoned.ShapeStore) && !WorkplaneDrawActive(State.Summoned.WorkplaneDraw))
+        ApplyRightDragOrbit(State.Viewport.Camera, Result.Hovered);
+
+    // 📝 The authored construction planes, drawn OVER the analytic ground grid but under the summoned cards: an ImGui DrawList overlay projected
+    //    by the one viewport camera (this .exe wires no ParametricSketch GPU bridge). Reads the summoned directory tree for Workplane records.
+    RenderSketchModelWorkplaneOverlay(State, CanvasOrigin, CanvasSize);
+
+    // 📝 The committed 2D sketch primitives, drawn over the sheets: read the store's shapes, flatten + project each, stroke outline + fill. Under
+    //    the live rubber band that follows.
+    RenderSketchModelShapes(State, State.Summoned.ShapeStore, CanvasOrigin, CanvasSize);
+
+    // 📝 The interactive workplane draw (armed by a References→Workplane commit in the console): cast the cursor to the ground, sweep the
+    //    rectangle, and on the confirming click inject the sized plane into the directory. Drawn AFTER the committed sheets so the live rubber
+    //    band + crosshair sit on top; a no-op while the draw is Idle.
+    AdvanceWorkplaneDraw(State, State.Summoned.Directory, State.Summoned.WorkplaneDraw, CanvasOrigin, CanvasSize);
+
+    // 📝 The interactive primitive draw (armed by a Sketch* commit in the console): cast the cursor to the ground, seat defining points, preview
+    //    the analytic shape, and on the completing click seal it into the store (which records the history entry). Returns the sealed shape id so
+    //    the panel mirrors it into the outliner + History pane. A no-op while no draw is armed.
+    const uint32_t SealedShapeId =
+        AdvanceShapeDraw(State, State.Summoned.ShapeStore, State.Summoned.Directory, CanvasOrigin, CanvasSize, WheelNotches);
+    if (SealedShapeId != 0)
+        MirrorSketchShapeIntoDirectory(State.Summoned.ShapeStore, State.Summoned.Directory, SealedShapeId);
+
+    // 🔴 Sticky-tool cycle. Escape ENDS the cycle: clear the latch FIRST (AdvanceShapeDraw already used the same Escape to cancel any in-progress
+    //    shape), so the sustain below does not re-arm an Escaped tool. Then SustainSketchToolCycle re-arms the latched tool whenever a shape has just
+    //    sealed (store went idle), so the next click begins a fresh shape of the same kind — the tool stays active click after click. Order is
+    //    load-bearing: clear-on-Escape must precede the re-arm, or an Escape and a re-arm would fight in the same frame.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        ClearSketchToolLatch(State.Summoned.ToolLatch);
+    SustainSketchToolCycle(State.Summoned.ToolLatch, State.Summoned.ShapeStore);
+
     ImGui::EndChild();
+
+    // 📝 Arm the action console's right-click over exactly this rect, so a press on a band or a pill never summons it. The shared viewport surface
+    //    binds only left + middle, so the right press is unclaimed by orbit / pan / dolly and reaches the console untouched.
+    ConfineSketchModelSummonField(State.Summoned, CanvasOrigin, CanvasSize);
 
     // -- The 30 px footer band: navigation hint, live target readout, Units pill ----------------------------------------
     char CoordinateReadout[96];
@@ -147,7 +200,7 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
 
     Frontier::ViewportBandBottomDescriptor FooterBand = {};
     FooterBand.Identifier          = "sketch-model-band-bottom";
-    FooterBand.NavigationHintText  = "Orbit LMB \xC2\xB7 Pan MMB/Shift \xC2\xB7 Zoom Wheel";
+    FooterBand.NavigationHintText  = "Orbit LMB/RMB \xC2\xB7 Pan MMB/Shift \xC2\xB7 Zoom Wheel \xC2\xB7 Menu Q";
     FooterBand.CoordinateText      = CoordinateReadout;
     FooterBand.TrailingClusterSpan = ResolveFooterClusterSpan(Theme, State.Chrome);
 
@@ -158,6 +211,11 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     Frontier::EndViewportBandBottom(Theme);
 
     ImGui::PopStyleVar();   // ItemSpacing
+
+    // -- The two summoned surfaces, recorded LAST so each card draws over the canvas rather than under it ------------------
+    //    📝 Both are embedded whole and draw nothing while closed: the directory + inspector card answers Tab, the action console answers a
+    //       right-click over the canvas rect reported above.
+    ConstructSketchModelSummonedSurfaces(Theme, State.Summoned, &Icons);
 
     return Result;
 }

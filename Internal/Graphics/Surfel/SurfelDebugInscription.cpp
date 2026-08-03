@@ -104,8 +104,26 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
         vkDestroyShaderModule(Host.Device, FragmentModule, Host.Allocator);
     };
 
-    // -- Descriptor set layout: set 0 b0 = surfel records, b1 = the slotting Offsets header (occupancy mode) --------------
-    VkDescriptorSetLayoutBinding Bindings[2] = {};
+    // -- Depth sampler (owned): nearest + clamp for the fragment depth-reject; the frag texelFetches, but a valid sampler is still required by the combined
+    //    image-sampler descriptor. Nearest/clamp is the safe choice for a depth texture read at integer pixel coordinates.
+    VkSamplerCreateInfo SamplerInfo = {};
+    SamplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    SamplerInfo.magFilter    = VK_FILTER_NEAREST;
+    SamplerInfo.minFilter    = VK_FILTER_NEAREST;
+    SamplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    SamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    SamplerInfo.maxLod       = 0.0f;
+    if (vkCreateSampler(Host.Device, &SamplerInfo, Host.Allocator, &Debug.DepthSampler) != VK_SUCCESS)
+    {
+        ReleaseModules();
+        ISSUE_FAULT("surfel-debug", "depth sampler creation failed");
+        return false;
+    }
+
+    // -- Descriptor set layout: set 0 b0 = surfel records, b1 = slotting Offsets header, b2 = pool Moments (irradiance modes), b3 = scene depth sampler --
+    VkDescriptorSetLayoutBinding Bindings[4] = {};
     Bindings[0].binding         = 0;
     Bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     Bindings[0].descriptorCount = 1;
@@ -114,29 +132,43 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
     Bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     Bindings[1].descriptorCount = 1;
     Bindings[1].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;
+    Bindings[2].binding         = 2;
+    Bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Bindings[2].descriptorCount = 1;
+    Bindings[2].stageFlags      = VK_SHADER_STAGE_VERTEX_BIT;                              // the irradiance modes read it in the vertex stage
+    Bindings[3].binding         = 3;
+    Bindings[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Bindings[3].descriptorCount = 1;
+    Bindings[3].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;                            // the depth-reject samples it in the fragment stage
 
     VkDescriptorSetLayoutCreateInfo SetLayoutInfo = {};
     SetLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    SetLayoutInfo.bindingCount = 2;
+    SetLayoutInfo.bindingCount = 4;
     SetLayoutInfo.pBindings    = Bindings;
     if (vkCreateDescriptorSetLayout(Host.Device, &SetLayoutInfo, Host.Allocator, &Debug.SetLayout) != VK_SUCCESS)
     {
+        vkDestroySampler(Host.Device, Debug.DepthSampler, Host.Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
         ReleaseModules();
         ISSUE_FAULT("surfel-debug", "descriptor set layout creation failed");
         return false;
     }
 
-    VkDescriptorPoolSize PoolSize = {};
-    PoolSize.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSize.descriptorCount = 2;
+    VkDescriptorPoolSize PoolSizes[2] = {};
+    PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    PoolSizes[0].descriptorCount = 3;   // b0 surfels, b1 offsets, b2 moments
+    PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    PoolSizes[1].descriptorCount = 1;   // b3 scene depth
 
     VkDescriptorPoolCreateInfo PoolInfo = {};
     PoolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     PoolInfo.maxSets       = 1;
-    PoolInfo.poolSizeCount = 1;
-    PoolInfo.pPoolSizes    = &PoolSize;
+    PoolInfo.poolSizeCount = 2;
+    PoolInfo.pPoolSizes    = PoolSizes;
     if (vkCreateDescriptorPool(Host.Device, &PoolInfo, Host.Allocator, &Debug.DescriptorPool) != VK_SUCCESS)
     {
+        vkDestroySampler(Host.Device, Debug.DepthSampler, Host.Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
         ReleaseModules();
         ISSUE_FAULT("surfel-debug", "descriptor pool creation failed");
         return false;
@@ -149,6 +181,8 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
     SetAllocation.pSetLayouts        = &Debug.SetLayout;
     if (vkAllocateDescriptorSets(Host.Device, &SetAllocation, &Debug.SplatSet) != VK_SUCCESS)
     {
+        vkDestroySampler(Host.Device, Debug.DepthSampler, Host.Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
         ReleaseModules();
         ISSUE_FAULT("surfel-debug", "descriptor set allocation failed");
         return false;
@@ -168,6 +202,8 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
     LayoutInfo.pPushConstantRanges    = &PushRange;
     if (vkCreatePipelineLayout(Host.Device, &LayoutInfo, Host.Allocator, &Debug.PipelineLayout) != VK_SUCCESS)
     {
+        vkDestroySampler(Host.Device, Debug.DepthSampler, Host.Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
         ReleaseModules();
         ISSUE_FAULT("surfel-debug", "pipeline layout creation failed");
         return false;
@@ -257,6 +293,8 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
 
     if (Outcome != VK_SUCCESS)
     {
+        vkDestroySampler(Host.Device, Debug.DepthSampler, Host.Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
         ISSUE_FAULT("surfel-debug", "graphics pipeline creation failed (VkResult %d)", (int)Outcome);
         return false;
     }
@@ -268,20 +306,24 @@ bool InitializeSurfelDebugInscription(SurfelDebugInscription& Debug,
 
 void RefreshSurfelDebugInscription(SurfelDebugInscription&   Debug,
                                    const SurfelPool&         Pool,
-                                   const SurfelGridSlotting& Slotting)
+                                   const SurfelGridSlotting& Slotting,
+                                   VkImageView               SceneDepthView)
 {
     if (!Debug.ReadyCondition || Debug.SplatSet == VK_NULL_HANDLE)
         return;
-    if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE)
+    if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE || Pool.MomentsBuffer == VK_NULL_HANDLE)
         return;
     if (!Slotting.ReadyCondition || Slotting.OffsetsBuffer == VK_NULL_HANDLE)
         return;
+    if (SceneDepthView == VK_NULL_HANDLE)
+        return;   // the depth-reject needs a live scene-depth view; without it the draw would sample an undefined image
 
     // Latch the capacity every call (cheap) so the draw count tracks the pool even if the descriptor did not change this frame.
     Debug.Capacity = Pool.Capacity;
 
-    if (Debug.BoundSurfelBuffer == Pool.SurfelBuffer && Debug.BoundOffsetsBuffer == Slotting.OffsetsBuffer)
-        return;   // idempotent: both already point where they should, so a per-frame call costs two compares
+    if (Debug.BoundSurfelBuffer  == Pool.SurfelBuffer     && Debug.BoundOffsetsBuffer == Slotting.OffsetsBuffer &&
+        Debug.BoundMomentsBuffer == Pool.MomentsBuffer    && Debug.BoundDepthView     == SceneDepthView)
+        return;   // idempotent: all four already point where they should, so a per-frame call costs four compares
 
     VkDescriptorBufferInfo SurfelInfo = {};
     SurfelInfo.buffer = Pool.SurfelBuffer;
@@ -293,7 +335,18 @@ void RefreshSurfelDebugInscription(SurfelDebugInscription&   Debug,
     OffsetsInfo.offset = 0;
     OffsetsInfo.range  = VK_WHOLE_SIZE;
 
-    VkWriteDescriptorSet Writes[2] = {};
+    VkDescriptorBufferInfo MomentsInfo = {};
+    MomentsInfo.buffer = Pool.MomentsBuffer;
+    MomentsInfo.offset = 0;
+    MomentsInfo.range  = VK_WHOLE_SIZE;
+
+    // The depth image is in SHADER_READ_ONLY at radiance time (TransitionVisibilityDepthForSampling ran in the preamble), so this layout is correct.
+    VkDescriptorImageInfo DepthInfo = {};
+    DepthInfo.sampler     = Debug.DepthSampler;
+    DepthInfo.imageView   = SceneDepthView;
+    DepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet Writes[4] = {};
     Writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     Writes[0].dstSet          = Debug.SplatSet;
     Writes[0].dstBinding      = 0;
@@ -306,10 +359,25 @@ void RefreshSurfelDebugInscription(SurfelDebugInscription&   Debug,
     Writes[1].descriptorCount = 1;
     Writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     Writes[1].pBufferInfo     = &OffsetsInfo;
+    Writes[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Writes[2].dstSet          = Debug.SplatSet;
+    Writes[2].dstBinding      = 2;
+    Writes[2].descriptorCount = 1;
+    Writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    Writes[2].pBufferInfo     = &MomentsInfo;
+    Writes[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Writes[3].dstSet          = Debug.SplatSet;
+    Writes[3].dstBinding      = 3;
+    Writes[3].descriptorCount = 1;
+    Writes[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Writes[3].pImageInfo      = &DepthInfo;
 
-    vkUpdateDescriptorSets(Debug.Host->Device, 2, Writes, 0, nullptr);
+    vkUpdateDescriptorSets(Debug.Host->Device, 4, Writes, 0, nullptr);
     Debug.BoundSurfelBuffer  = Pool.SurfelBuffer;
     Debug.BoundOffsetsBuffer = Slotting.OffsetsBuffer;
+    Debug.BoundMomentsBuffer = Pool.MomentsBuffer;
+    Debug.BoundDepthView     = SceneDepthView;
+    Debug.BindingsReady      = true;
 }
 
 void RecordSurfelDebugInscription(const SurfelDebugInscription& Debug,
@@ -322,8 +390,9 @@ void RecordSurfelDebugInscription(const SurfelDebugInscription& Debug,
     // 🔴 Mode 0 draws NOTHING — the debug view is off by default and costs a single compare when off.
     if (Constants.DebugMode == SurfelDebugModeOff)
         return;
-    // The set must be pointed at real buffers, or the draw would read undefined memory. Refresh latches these; skip if it never ran.
-    if (Debug.SplatSet == VK_NULL_HANDLE || Debug.BoundSurfelBuffer == VK_NULL_HANDLE || Debug.Capacity == 0)
+    // The set must be pointed at ALL FOUR real resources (surfels, offsets, moments, depth), or the draw would read undefined memory / sample an
+    // undefined depth image. BindingsReady is set only once Refresh wrote b0-b3 against live handles; skip the draw until then.
+    if (Debug.SplatSet == VK_NULL_HANDLE || !Debug.BindingsReady || Debug.Capacity == 0)
         return;
 
     vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Debug.PipelineLayout,
@@ -379,10 +448,18 @@ void FinalizeSurfelDebugInscription(SurfelDebugInscription& Debug)
         vkDestroyDescriptorSetLayout(Device, Debug.SetLayout, Debug.Host->Allocator);
         Debug.SetLayout = VK_NULL_HANDLE;
     }
+    if (Debug.DepthSampler != VK_NULL_HANDLE)
+    {
+        vkDestroySampler(Device, Debug.DepthSampler, Debug.Host->Allocator);
+        Debug.DepthSampler = VK_NULL_HANDLE;
+    }
     Debug.BoundSurfelBuffer  = VK_NULL_HANDLE;
     Debug.BoundOffsetsBuffer = VK_NULL_HANDLE;
+    Debug.BoundMomentsBuffer = VK_NULL_HANDLE;
+    Debug.BoundDepthView     = VK_NULL_HANDLE;
     Debug.Capacity           = 0;
     Debug.ReadyCondition     = false;
+    Debug.BindingsReady      = false;
 }
 
 } // namespace Frontier
