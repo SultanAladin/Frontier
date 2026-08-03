@@ -1,11 +1,15 @@
 /*==============================================================================================================================================
                                                         SKETCHMODELSHAPEDRAW.H
 ==============================================================================================================================================*/
-// 🧩 The interactive click-to-draw for the 2D sketch primitives (Line / Rectangle / Circle / Ellipse / Polygon / Slot). A committed
-//    Sketch* op in the action console ARMS a draw (ArmShapeDraw sets the store's DrawingCategory + DrawingEnabled); each subsequent ground
-//    click seats one defining point until the category's defining count is met, at which point AppendParametricSketchShape seals the analytic
-//    shape into the store — which records the edit-log/history entry itself. Between clicks the last point rubber-bands under the cursor and the
-//    live analytic preview (ConstructParametricSketchShape) is stroked exactly as the sealed shape will be, so what you see is what you get.
+// 🧩 The interactive click-to-draw for the 2D sketch primitives. Two seal modes:
+//      • FIXED-count families (Line / Rectangle / Centre-Rect / Circle / Ellipse / Arc / Polygon / Slot) seal automatically once their defining
+//        count is reached (Line 2, Arc/Ellipse/Slot 3, …). Centre-Rect shares the Rectangle solver but reads its two clicks as centre + corner.
+//      • OPEN-ENDED families (Polyline / Bezier / Spline) collect control points click after click and seal on a FINISH gesture — Enter, or a
+//        left double-click — once a per-family minimum is met (Spline 3, the rest 2).
+//    A committed Sketch* op in the action console ARMS a draw (ArmShapeDraw sets the store's DrawingCategory + DrawingEnabled); each subsequent
+//    ground click seats one defining point, and the matching seal verb (AppendParametricSketchShape) records the edit-log/history entry itself.
+//    Between clicks the last point rubber-bands under the cursor and the live analytic preview (ConstructParametricSketchShape) is stroked exactly
+//    as the sealed shape will be, so what you see is what you get.
 //
 //    🔴 The store (Frontier::ParametricSketchShapeStore) is the SINGLE source of truth: it owns the analytic shapes, the solver, and the
 //       EditLog/Revision snapshot history (undo/redo). This unit only drives the picking + preview and calls the store's own append verb; the
@@ -55,10 +59,13 @@ void RenderSketchModelShapes(const SketchModelViewportState&       State,
 // 📝 WheelNotches is the frame's wheel movement AS CAPTURED by the panel's global wheel guard (HoldWheelFromCamera), passed in rather than read
 //    from Io.MouseWheel here: the guard zeroed Io.MouseWheel so the same notch never also dollied the camera, so this unit must read the captured
 //    value. Positive = wheel up. Only the polygon draw spends it (live side count); other categories ignore it.
+// 📝 CentreRect selects the CENTRE-rectangle affordance for a Rectangle draw (the SketchCentreRect op): the first click is the box CENTRE and the
+//    second is one corner, which is mirrored about the centre to seal a full centred box. Ignored for every non-Rectangle category. It rides the
+//    viewport-local tool latch, not the store, so the geometry model stays unaware of this pure draw-gesture variant.
 uint32_t AdvanceShapeDraw(const SketchModelViewportState&                         State,
                           Frontier::ParametricSketchShapeStore&                   Store,
                           SceneDirectoryInspectorValidation::InspectorPanelState& Directory,
-                          ImVec2 CanvasOrigin, ImVec2 CanvasSize, float WheelNotches);
+                          ImVec2 CanvasOrigin, ImVec2 CanvasSize, float WheelNotches, bool CentreRect);
 
 // 📝 Mirror a freshly-sealed shape (ShapeId in Store) into the directory as a PROJECTION of the store: append an outliner row (Sketch
 //    classification, cyan tint, titled from the shape) and record one History-panel revision (Sketch category) carrying the shape's title +

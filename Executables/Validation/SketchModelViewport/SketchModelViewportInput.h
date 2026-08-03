@@ -1,25 +1,22 @@
 /*==============================================================================================================================================
                                                     SKETCHMODELVIEWPORTINPUT.H
 ==============================================================================================================================================*/
-// 🧩 The sketch viewport's own pointer bindings, layered OVER the shared ConstructViewportPanel without touching it (the shared panel drives the
-//    3D modeling view too, so its left+middle+wheel convention must stay put for every other consumer). Two seams:
+// 🧩 The sketch viewport's own pointer + tool state, layered OVER the shared ConstructViewportPanel without touching it (the shared panel drives the
+//    3D modeling view too, so its left+middle+wheel convention must stay put for every other consumer). Two concerns:
 //
-//      • HoldWheelFromCamera — a global wheel guard. While an interactive draw is armed (a polygon's side count rides the wheel, a slot's future
-//        arc bias could too), the wheel MUST NOT also dolly the camera: the shared panel dollies on any hovered wheel notch, so this captures the
-//        notches and zeroes Io.MouseWheel BEFORE ConstructViewportPanel reads it, then hands the captured value to the draw. Restored the next
-//        frame automatically (ImGui reseeds Io.MouseWheel per frame). Call once, right before ConstructViewportPanel, every frame.
+//      • HoldWheelFromCamera — a targeted wheel guard. ONLY while the polygon tool is actively drawn (center click seated) does the wheel retune the
+//        side count instead of dollying: the shared panel dollies on any hovered wheel notch, so this captures the notches and zeroes Io.MouseWheel
+//        BEFORE ConstructViewportPanel reads it, then hands the captured value to the draw. For every OTHER tool (and an unclicked polygon) it leaves
+//        the wheel alone so zoom keeps working. Self-restoring — ImGui reseeds Io.MouseWheel each frame. Call once, right before ConstructViewportPanel.
 //
-//      • ApplyRightDragOrbit — right-drag orbits the camera, matching the user's muscle memory (right-click-drag = look around). The shared surface
-//        button binds only left+middle, so a right press is unclaimed there; this reads the raw right-button delta while the canvas is hovered and
-//        turns it into an OrbitViewportCamera call, the same verb + sensitivity the shared left-drag orbit uses. Sketch-viewport-only by living here.
+//      • The sticky-tool latch — the last-committed Sketch tool stays active so the user draws the same primitive click after click; a seal re-arms it,
+//        Escape or a right-click clears it. The cycle owner lives here (a viewport-interaction rule, not a property of the geometry model).
 
 #pragma once
 #ifndef FRONTIER_EXECUTABLES_VALIDATION_SKETCHMODELVIEWPORT_SKETCHMODELVIEWPORTINPUT_H
 #define FRONTIER_EXECUTABLES_VALIDATION_SKETCHMODELVIEWPORT_SKETCHMODELVIEWPORTINPUT_H
 
 #include "ParametricSketchShapeStore.h"
-
-namespace Frontier { struct ViewportCamera; }
 
 namespace SketchModelViewportValidation
 {
@@ -37,6 +34,7 @@ struct SketchToolLatch
 {
     bool                                   Latched  = false;                                          // [-] - a tool is held active
     Frontier::ParametricSketchShapeCategory Category = Frontier::ParametricSketchShapeCategory::Line;   // [-] - the held tool
+    bool                                   CentreRect = false;                                        // [-] - the held Rectangle draws from its CENTRE (SketchCentreRect): 1st click centre, 2nd click corner, mirrored to the far corner at seal
 };
 
 // 📝 Latch a tool active (called when the console commits a Sketch op). Records the category and marks the latch held; the caller also arms the
@@ -56,15 +54,18 @@ bool SketchToolLatched(const SketchToolLatch& Latch);
 void SustainSketchToolCycle(const SketchToolLatch& Latch, Frontier::ParametricSketchShapeStore& Store);
 
 
-// 📝 Global wheel guard. If SuppressCamera is true (a draw is armed), capture the frame's wheel notches, zero Io.MouseWheel so the shared panel's
-//    dolly never fires, and RETURN the captured notches for the draw to spend (e.g. polygon side count). If false, leave the wheel alone and
-//    return 0. Call ONCE per frame, immediately before ConstructViewportPanel, so the camera never sees a notch the draw is claiming.
+// 📝 Targeted wheel guard. If SuppressCamera is true (ONLY the actively-drawn polygon tool passes true), capture the frame's wheel notches, zero
+//    Io.MouseWheel so the shared panel's dolly never fires, and RETURN the captured notches for the draw to spend (polygon side count). If false,
+//    leave the wheel alone and return 0 so zoom works. Call ONCE per frame, immediately before ConstructViewportPanel, so the camera never sees a
+//    notch the draw is claiming.
 float HoldWheelFromCamera(bool SuppressCamera);
 
-// 📝 Right-drag orbit for this viewport only. While the canvas is Hovered, a held right button's pointer delta orbits the camera through the same
-//    OrbitViewportCamera verb + sensitivity the shared left-drag uses. A no-op when not hovered or the button is up. Call after ConstructViewportPanel
-//    (so the shared surface button has already claimed hover) each frame.
-void ApplyRightDragOrbit(Frontier::ViewportCamera& Camera, bool Hovered);
+// 📝 Targeted LEFT-DRAG orbit guard. While a sketch tool is armed the left button belongs to the DRAW (click to seat a point), so a left-click-drag
+//    must NOT also orbit the camera. The shared ConstructViewportPanel orbits off Io.MouseDelta whenever Io.MouseDown[0] is held (no Shift, no middle),
+//    so this ZEROES Io.MouseDelta for exactly that gesture — a plain left-drag — BEFORE the panel reads it, killing the orbit while leaving the click,
+//    the pan (middle / Shift-left), and the wheel untouched. A no-op unless SuppressLeftDrag is true (a tool is armed) AND the current gesture is a plain
+//    left-drag; ImGui reseeds Io.MouseDelta each frame so this is self-restoring. Call ONCE per frame, immediately before ConstructViewportPanel.
+void HoldLeftDragFromCamera(bool SuppressLeftDrag);
 
 }   // namespace SketchModelViewportValidation
 

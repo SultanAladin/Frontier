@@ -671,6 +671,38 @@ export class ToolMenu
         this.OnChange(this.Active, this.Params);
     }
 
+    // The selected tool and its full parameter set, as an immutable snapshot for a stroke record.
+    //
+    // 🔴 Exists because ApplyToBrush above is LOSSY by design: it folds the instrument down to hardness,
+    //    spacing, one deposit strength and an ink triple, and the paint pass has nowhere to put the rest.
+    //    Everything it discards — the instrument's identity, grade, nib, bristle, wetness, grain, scatter,
+    //    bleed, taper, tilt, smoothing, pressure-sensitivity — is exactly what a reconstruction needs, so it
+    //    is captured HERE, at the only place that still holds it, rather than recovered later (it cannot be).
+    // 🔴 `Params` is spread into a new object. `this.Params` is the live entry from `Store`, mutated in place
+    //    by every slider drag, so handing the reference out would let a stroke's recorded settings keep
+    //    changing after it was laid — the history would rewrite its own past every time a slider moved.
+    // 🔴 `Wired` is derived from the SCHEMA rather than hardcoded, so a control that gets wired to the brush
+    //    later cannot leave this list claiming it was decorative on strokes that it actually shaped.
+    Snapshot()
+    {
+        // 📝 The VISIBLE controls, not the whole schema: a hidden control (Taper with Pressure off) holds a
+        //    stale value that had no effect on this stroke, and listing it as wired would be a lie.
+        const Visible = VisibleControls(this.Active, this.Params);
+
+        return {
+            Key:    this.Active.Key,
+            Name:   this.Active.Name,
+            Label:  this.Active.Label,
+            Schema: this.Active.Schema,
+            // The instrument's rail colour, so a history row can be tinted by tool without re-importing
+            // INSTRUMENTS and re-finding the entry by key.
+            Tone:   this.Active.Dot,
+            Swatch: this.Swatch,
+            Params: { ...this.Params },
+            Wired:  Visible.filter((Control) => Control.Wired).map((Control) => Control.Key)
+        };
+    }
+
     ShowGrid()
     {
         this.Root.classList.remove("Properties");

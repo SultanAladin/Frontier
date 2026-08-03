@@ -142,18 +142,24 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     ImGui::BeginChild("##sketch-model-canvas", CanvasSize, false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-    // 🔴 Global wheel guard, BEFORE ConstructViewportPanel: while a primitive draw is armed the wheel belongs to the draw (a polygon's live side
-    //    count), not the camera. The shared panel dollies on any hovered wheel notch, so capture + zero the notch here so the SAME scroll can't
-    //    both change the side count AND zoom. The captured notches are spent by AdvanceShapeDraw below; a no-op (returns 0) while no draw is armed.
-    const float WheelNotches = HoldWheelFromCamera(ShapeDrawActive(State.Summoned.ShapeStore));
+    // 🔴 Global wheel guard, BEFORE ConstructViewportPanel: the wheel belongs to the draw INSTEAD of the camera ONLY while the polygon tool is
+    //    actively being drawn (its center click seated, so a scroll now retunes the side count). For every other tool — and for an armed-but-unclicked
+    //    polygon — the wheel stays with the camera so zoom keeps working. The shared panel dollies on any hovered wheel notch, so this captures + zeroes
+    //    the notch only under that one predicate; AdvanceShapeDraw below spends the captured value. Returns 0 (leaves the wheel alone) otherwise.
+    const Frontier::ParametricSketchShapeStore& Shp = State.Summoned.ShapeStore;
+    const bool PolygonTuningWheel =
+        Shp.DrawingEnabled &&
+        Shp.DrawingCategory == Frontier::ParametricSketchShapeCategory::Polygon &&
+        !Shp.PendingPoints.empty();
+    const float WheelNotches = HoldWheelFromCamera(PolygonTuningWheel);
+
+    // 🔴 While ANY interactive draw is armed (a sketch primitive OR the workplane sweep), the left button belongs to the DRAW: a left-click-drag must
+    //    seat/complete a point, never orbit the camera. Zero the plain-left-drag delta before the shared panel reads it — pan (MMB / Shift-left) and the
+    //    wheel stay live. A latched-but-idle tool still counts as armed here (SustainSketchToolCycle keeps DrawingEnabled up between shapes).
+    const bool DrawArmed = ShapeDrawActive(Shp) || WorkplaneDrawActive(State.Summoned.WorkplaneDraw) || SketchToolLatched(State.Summoned.ToolLatch);
+    HoldLeftDragFromCamera(DrawArmed);
 
     Result = Frontier::ConstructViewportPanel(Theme, State.Viewport);
-
-    // 🔴 Right-drag orbits the camera (this viewport only): the shared surface button binds only left+middle, so the right press is unclaimed and
-    //    reaches here. Layered over the shared left-drag orbit with the same verb + sensitivity, so both buttons look around identically. Applied
-    //    after the panel so its hover result is known. Suppressed while a draw is armed — a right-drag then is not a look-around.
-    if (!ShapeDrawActive(State.Summoned.ShapeStore) && !WorkplaneDrawActive(State.Summoned.WorkplaneDraw))
-        ApplyRightDragOrbit(State.Viewport.Camera, Result.Hovered);
 
     // 📝 The authored construction planes, drawn OVER the analytic ground grid but under the summoned cards: an ImGui DrawList overlay projected
     //    by the one viewport camera (this .exe wires no ParametricSketch GPU bridge). Reads the summoned directory tree for Workplane records.
@@ -172,15 +178,16 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     //    the analytic shape, and on the completing click seal it into the store (which records the history entry). Returns the sealed shape id so
     //    the panel mirrors it into the outliner + History pane. A no-op while no draw is armed.
     const uint32_t SealedShapeId =
-        AdvanceShapeDraw(State, State.Summoned.ShapeStore, State.Summoned.Directory, CanvasOrigin, CanvasSize, WheelNotches);
+        AdvanceShapeDraw(State, State.Summoned.ShapeStore, State.Summoned.Directory, CanvasOrigin, CanvasSize,
+                         WheelNotches, State.Summoned.ToolLatch.CentreRect);
     if (SealedShapeId != 0)
         MirrorSketchShapeIntoDirectory(State.Summoned.ShapeStore, State.Summoned.Directory, SealedShapeId);
 
-    // 🔴 Sticky-tool cycle. Escape ENDS the cycle: clear the latch FIRST (AdvanceShapeDraw already used the same Escape to cancel any in-progress
-    //    shape), so the sustain below does not re-arm an Escaped tool. Then SustainSketchToolCycle re-arms the latched tool whenever a shape has just
-    //    sealed (store went idle), so the next click begins a fresh shape of the same kind — the tool stays active click after click. Order is
-    //    load-bearing: clear-on-Escape must precede the re-arm, or an Escape and a re-arm would fight in the same frame.
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    // 🔴 Sticky-tool cycle. Escape OR a right-click ENDS the cycle: clear the latch FIRST (AdvanceShapeDraw already used the same press to cancel any
+    //    in-progress shape), so the sustain below does not re-arm a cancelled tool. Then SustainSketchToolCycle re-arms the latched tool whenever a
+    //    shape has just sealed (store went idle), so the next click begins a fresh shape of the same kind — the tool stays active click after click.
+    //    Order is load-bearing: clear-on-cancel must precede the re-arm, or a cancel and a re-arm would fight in the same frame.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         ClearSketchToolLatch(State.Summoned.ToolLatch);
     SustainSketchToolCycle(State.Summoned.ToolLatch, State.Summoned.ShapeStore);
 
@@ -200,7 +207,7 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
 
     Frontier::ViewportBandBottomDescriptor FooterBand = {};
     FooterBand.Identifier          = "sketch-model-band-bottom";
-    FooterBand.NavigationHintText  = "Orbit LMB/RMB \xC2\xB7 Pan MMB/Shift \xC2\xB7 Zoom Wheel \xC2\xB7 Menu Q";
+    FooterBand.NavigationHintText  = "Orbit LMB \xC2\xB7 Pan MMB/Shift \xC2\xB7 Zoom Wheel \xC2\xB7 Menu Q \xC2\xB7 Cancel RMB/Esc";
     FooterBand.CoordinateText      = CoordinateReadout;
     FooterBand.TrailingClusterSpan = ResolveFooterClusterSpan(Theme, State.Chrome);
 

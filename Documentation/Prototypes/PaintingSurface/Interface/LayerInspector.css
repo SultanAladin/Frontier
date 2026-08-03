@@ -1416,6 +1416,45 @@
   font-size:10.5px; color:var(--muted); border-bottom:1px solid var(--hair);
 }
 .ident-stat:last-child{ border-bottom:0; }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                        COMBINED (RESOLVED STACK) CARD
+----------------------------------------------------------------------------------------------------------------------*/
+/* The flattened stack at the foot of the identity rail: one tile per stored PBR channel, showing what the
+   surface actually resolves to rather than what the focused layer contributes.
+
+   🔴 `border-top` + margin, not a bordered box: it is the last block in a scrolling column of .ident-stat
+      rows that each carry their own bottom hairline, so a full border here would double up against the last
+      row's line and read as a 2px seam. */
+.composite-card{ margin-top:11px; padding-top:9px; border-top:1px solid var(--hair); }
+.cc-head{ display:flex; align-items:baseline; gap:6px; margin-bottom:7px; }
+.cc-head .cc-t{
+  font-size:9px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); font-weight:600;
+}
+.cc-head .cc-s{ margin-left:auto; font-size:9px; color:var(--faint); white-space:nowrap; }
+
+/* 🔴 Two columns of `minmax(0,1fr)`, NOT `auto` or a fixed width. The rail is the narrow half of the slide
+      and this grid sits inside its padding, so a fixed tile width would overflow it — and because the
+      overflowing axis is the one the .ident-body scrolls on (vertical), the excess would be clipped
+      silently rather than showing a scrollbar. */
+.cc-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px; }
+.cc-cell{ min-width:0; }
+/* 🔴 Overrides .cp-tile's fixed 128px box, which is sized for the wide detail pane. `aspect-ratio` keeps
+      these square at whatever width the two columns work out to, so the card reflows with the rail instead
+      of at one hard-coded size. `width:auto` is required: .cp-tile sets `flex:0 0 auto; width:128px`, and
+      leaving the width would win over the grid track and overflow the column.
+   🔴 Qualified `.cc-grid .cc-tile` (0,2,0) rather than a bare `.cc-tile` (0,1,0) — NOT for readability. The
+      tile carries BOTH classes, and `.cp-tile{ width:128px }` is defined LATER in this file, so at equal
+      specificity the 128px wins on source order and every combined tile overflows the narrow rail. This has
+      to beat it on specificity, not on position. */
+.cc-grid .cc-tile{
+  width:auto; height:auto; aspect-ratio:1; border-radius:6px;
+}
+.cc-lbl{
+  margin-top:3px; font-size:8.5px; letter-spacing:.4px; text-transform:uppercase;
+  color:var(--faint); text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
 .ident-stat .is-v{
   margin-left:auto; color:var(--text-value); font-variant-numeric:tabular-nums;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:64%;
@@ -1457,10 +1496,35 @@
   border:1px solid var(--hair); background:#000 center/cover no-repeat;
   image-rendering:pixelated;
 }
-/* A channel with no storage yet: a flat sunken well, deliberately NOT a checkerboard. The checkerboard
-   means "allocated, and transparent here" inside a rendered tile, so reusing it for "never allocated"
-   would make the two states identical. */
-.cp-empty{ background:var(--menu-2); border-style:dashed; border-color:var(--value-unit); }
+/* An enabled channel that has not been painted yet: the transparency checkerboard.
+
+   🔴 ONE conic-gradient, not the two offset 45deg linear gradients of the usual snippet. Two IDENTICAL
+      diagonal gradients offset by half a tile give diagonal STRIPES, not a checker — the classic form needs
+      a 45deg/-45deg pair, and a single conic quartered at 0/25/50/75% is both shorter and unambiguous.
+   🔴 The squares are deliberately DARK (#1b1b1b on #131313). The standard light-grey checker is brighter
+      than any near-black channel value this panel shows (emission defaults to 0,0,0), so a light checker
+      would make an EMPTY tile the most eye-catching thing in the pane.
+   🔴 `background-image` + `background-color` rather than the `background` shorthand: the shorthand would
+      reset .cp-tile's `center/cover no-repeat`, and `background-size` is set here to the checker tile — so
+      the painted state (which assigns background-image alone) must inherit its sizing from the base rule. */
+.cp-clear{
+  background-color:#131313;
+  background-image:
+    conic-gradient(#1b1b1b 25%, transparent 25% 50%, #1b1b1b 50% 75%, transparent 75%);
+  background-size:16px 16px;
+  background-repeat:repeat;
+  border-color:var(--hair-strong);
+}
+/* A derived channel's tile shows its SOURCE field, so it is marked to keep it from being read as the
+   channel itself. A dotted edge says "this is a stand-in", where solid says "this is the content". */
+.cp-derived{ border-style:dotted; border-color:var(--value-unit); }
+/* A Value-mode channel: a flat authored solid, drawn as the value itself. The border stays SOLID (unlike
+   .cp-clear's checker and .cp-derived's dotted stand-in) because this tile shows real content — the channel
+   genuinely is this colour everywhere. `image-rendering` and the background shorthand are both overridden
+   inline by the flat fill.
+   🔴 The inner hairline is inset rather than an outer border: a near-black solid (emission defaults to
+      0,0,0) against the panel would otherwise have no visible edge at all and read as a missing tile. */
+.cp-solid{ box-shadow:inset 0 0 0 1px rgba(255,255,255,.09); }
 .cp-note{ font-size:10px; line-height:1.5; color:var(--faint); }
 
 /* the inspector mounts inside the viewport, so its own stacking context has to clear the canvas */

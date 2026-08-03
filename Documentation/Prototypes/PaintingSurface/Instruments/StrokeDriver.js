@@ -40,7 +40,17 @@ export class StrokeDriver
         const Hit = this.Probe(Context, PointerX, PointerY);
         if (Hit === null) { return false; }
 
-        this.Stroke      = this.Ledger.Begin(Context.Brush);
+        // 🔴 The target, tool and authored size are recorded at stroke OPEN, from the context the caller
+        //    resolved this frame. None of it is looked up here: the driver deliberately knows nothing about
+        //    the layer stack (FlushToLayer is handed the layer as an argument) or the tool menu, and reaching
+        //    for either would give the driver a dependency that exists only to caption a history row.
+        // 🔴 Composed into ONE metadata object rather than passed as three arguments, so a future field is a
+        //    change in the host and the record only — this line and Ledger.Begin's signature stay put.
+        this.Stroke      = this.Ledger.Begin(Context.Brush, {
+            ...(Context.Target ?? {}),
+            Instrument: Context.Instrument ?? null,
+            Authored:   Context.Authored   ?? null
+        });
         this.Carry       = 0;
         this.PriorAnchor = AnchorFromHit(Hit, Pressure);
 
@@ -99,6 +109,9 @@ export class StrokeDriver
     Finish()
     {
         const Closed = this.Stroke;
+        // Stamps the end time, so the record can report a duration. Idempotent — Finish is reached from both
+        // pointerup and pointercancel, and a stroke must not have its duration extended by the second one.
+        if (Closed) { Closed.Close(); }
         this.Stroke      = null;
         this.PriorAnchor = null;
         this.Carry       = 0;

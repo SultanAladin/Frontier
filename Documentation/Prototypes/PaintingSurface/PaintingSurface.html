@@ -43,13 +43,13 @@ import { SurfaceRasterization, CreateDepthTarget }              from "./Projecti
 import { CreateCaptureTarget, EncodeCapture,
          ResolveCapture, MeasureCoverage }                      from "./Projection/SurfaceCapture.js";
 import { PaintPass }                                            from "./Deposit/PaintPass.js";
-import { StrokeLedger }                                         from "./Deposit/StrokeRecord.js";
+import { StrokeLedger, ReplayIntoLayers }                       from "./Deposit/StrokeRecord.js";
 import { SnapshotStore, RebuildAtlas }                          from "./Deposit/SnapshotStore.js";
 import { StrokeDriver }                                         from "./Instruments/StrokeDriver.js";
 import { ResolveObjectRadius, DefaultSpacing }                  from "./Deposit/DabFootprint.js";
 import { ToolMenu }                                            from "./Interface/ToolMenu.js";
 import { LayerInspector }                                     from "./Interface/LayerInspector.js";
-import { SeedLayerStack }                                      from "./Layers/LayerStack.js";
+import { SeedLayerStack, LayerStack, RESOLUTIONS }              from "./Layers/LayerStack.js";
 import { LayerComposite }                                      from "./Layers/LayerComposite.js";
 import { MaskSequence, CreateMaskComponent, ResolveMaskPaintTarget,
          MASK_COMPONENT_CATEGORY, MaskComponentSummary }        from "./Layers/LayerMask.js";
@@ -284,7 +284,8 @@ async function Initialise()
         () => UpdateReadout(),
         // 📝 Handed the same cached entry point a probe calls, for the same reason as the command surface
         //    above: one path, so what the panel shows is what an assertion can measure.
-        (Token, Channel) => window.CapturePreview(Token, Channel));
+        (Token, Channel) => window.CapturePreview(Token, Channel),
+        (Channel) => window.CaptureComposite(Channel));
     window.LayerInspector = State.Inspector;
 
     AttachInput(Canvas);
@@ -476,12 +477,45 @@ function DisplayModeName(Mode) { return DisplayModeNames[Mode] ?? "shaded"; }
 //    otherwise pick a point offset from the cursor, which reads as "the brush paints beside my mouse".
 function PaintContext(Canvas)
 {
+    // 🔴 The stroke's TARGET is resolved here, in the host, and carried into the record at Begin. The driver
+    //    has no view of the layer stack by design — FlushToLayer is handed its layer as an argument — so this
+    //    is the only seam that can see which layer and channels a stroke is about to land in.
+    // 🔴 Resolved per pointer event but only READ at stroke open, which is correct: a stroke belongs to the
+    //    layer it started on. Re-reading it mid-drag would let a focus change (a keyboard shortcut during a
+    //    drag) retarget the record's caption without retargeting the dabs, which already went elsewhere.
+    const Focus      = State.Stack.Focus;
+    const MaskTarget = ResolveMaskPaintTarget(Focus);
+
     return {
         Decoded:       State.Surface.Decoded,
         Resolved:      State.Camera.Resolve(Canvas.width, Canvas.height),
         SurfaceWidth:  Canvas.width,
         SurfaceHeight: Canvas.height,
-        Brush
+        Brush,
+        // 🔴 The TOOL, snapshotted here for the same reason as Target: this is the only seam that sees both
+        //    the menu and the stroke. The driver never learns which instrument is selected — it is handed a
+        //    finished Brush — and the Brush itself is the collapsed form with the instrument already
+        //    discarded, so a record built from Brush alone can never say what made the stroke.
+        // 🔴 Guarded on State.Menu rather than assumed present. The harness path (line ~750) builds a context
+        //    before the menu is constructed, and an unguarded `.Snapshot()` would throw there — turning a
+        //    metadata nicety into a crash in the automated probe path.
+        Instrument: State.Menu ? State.Menu.Snapshot() : null,
+        // The authored radius and the view that converted it, recorded as provenance beside the object-space
+        // radius that Brush.Radius already carries. See StrokeRecord's `Authored` block for why both exist.
+        Authored: {
+            PixelRadius:   Brush.PixelRadius,
+            Distance:      State.Camera.Distance,
+            VerticalField: State.Camera.VerticalField,
+            SurfaceHeight: Canvas.height
+        },
+        Target: Focus ? {
+            Token:     Focus.Token,
+            Name:      Focus.Name,
+            // 📝 A copy of the Set as an array: Layer.Enabled keeps mutating as the user toggles channels,
+            //    and a live reference would make every historic entry list today's channels.
+            Channels:  [...Focus.Enabled],
+            MaskToken: MaskTarget ? MaskTarget.Token : null
+        } : null
     };
 }
 
@@ -1128,6 +1162,53 @@ window.CapturePreview = async function (Token, ChannelKey)
     return Pending;
 };
 
+// The RESOLVED stack — every visible layer flattened — previewed for one channel.
+//
+// 🔴 Reuses ChannelPreview.Capture by handing it a STAND-IN layer whose `Atlas` points at the compositor's
+//    resolved textures instead of any one layer's. Capture only ever reads `Layer.Atlas[Slot.Atlas]`
+//    (ChannelPreview.js:307), so this needs no second shader path and cannot drift from the per-layer
+//    previews: both go through the same component-splat and the same readback.
+// 🔴 Cached on Stack.Revision like PreviewCache above, and for the extra reason that the combined card asks
+//    for every stored channel in one render: the first miss flattens, and because the flatten does NOT bump
+//    Revision, the other four find that first call's shared Pending under the same stamp and cost nothing.
+const CompositeCache = new Map();
+
+window.CaptureComposite = async function (ChannelKey)
+{
+    if (!State.Preview) { return null; }
+
+    // 🔴 The cache is consulted BEFORE the forced flatten, not after. The combined card asks for five
+    //    channels at once, so checking afterwards would re-flatten the entire stack five times per render —
+    //    and RefreshComposite(true) skips the revision guard by definition, so nothing downstream would
+    //    absorb the repeats. A cache hit must cost nothing.
+    const Stamp = State.Stack.Revision;
+    const Held  = CompositeCache.get(ChannelKey);
+    if (Held && Held.Stamp === Stamp)
+    {
+        if (Held.Pending) { return Held.Pending; }
+        return Held.Tile;
+    }
+
+    // 🔴 Forced, not RefreshComposite(false). A stroke changes a layer's CONTENTS without bumping Revision
+    //    (the same reason Present() forces it after laying dabs), so the revision guard would report the
+    //    composite current and this card would show the stack as it stood before the last dab.
+    // 🔴 BindResolved after it, exactly as RefreshComposite's other callers do: the pass ping-pongs, so the
+    //    rasterizer's bind group would otherwise sample the stale half and the 3D view would freeze while
+    //    only this preview updated.
+    RefreshComposite(true);
+    BindResolved(State.Raster);
+
+    // The stand-in: `Atlas` is the resolved set, so CHANNEL_SLOTS' Atlas key resolves against the composite.
+    const StandIn = { Atlas: State.Composite.Resolved };
+
+    const Pending = State.Preview.Capture(StandIn, ChannelKey, AtlasExtent)
+        .then((Tile) => { CompositeCache.set(ChannelKey, { Stamp, Tile }); return Tile; })
+        .catch((Fault) => { console.error(`CaptureComposite ${ChannelKey} failed`, Fault); return null; });
+
+    CompositeCache.set(ChannelKey, { Stamp, Pending });
+    return Pending;
+};
+
 window.ReadLayerStack = function ()
 {
     return {
@@ -1140,6 +1221,8 @@ window.ReadLayerStack = function ()
             Kind: L.Kind,
             // 📝 Kept alongside Kind so anything still reading Classification keeps working.
             Classification: L.Classification,
+            // The per-layer identity colour the rail tags each row with (see LAYER_COLOUR_PALETTE).
+            Colour: L.Colour,
             Paintable: L.Paintable,
             Preset:    L.Preset,
             Generator: L.Generator,
@@ -1268,6 +1351,19 @@ window.LayerCommand = function (Command, Payload)
         case "opacity": {
             const Layer = Stack.Resolve(Argument.Token);
             if (Layer) { Layer.Opacity = Argument.Opacity; Stack.Touch(); Result = true; }
+            break;
+        }
+        // The layer's identity tag colour. Presentation only — no atlas, no compositor input — but it goes
+        // through the command surface like everything else so the probe can drive it and Touch() bumps the
+        // revision the inspector's rebuild is gated on.
+        case "layerColour": {
+            const Layer = Stack.Resolve(Argument.Token);
+            if (Layer && typeof Argument.Colour === "string")
+            {
+                Layer.Colour = Argument.Colour;
+                Stack.Touch();
+                Result = true;
+            }
             break;
         }
         case "channel": {
@@ -1469,6 +1565,252 @@ window.PaintRedo = async function ()
     if (Moved) { Rebuild(); }
     await State.Device.queue.onSubmittedWorkDone();
     return { Moved, ActiveStrokes: State.Ledger.ActiveCount };
+};
+
+// The stroke history: one entry per recorded stroke with its metadata, newest first.
+//
+// 📝 Dab-free by construction (StrokeLedger.Entries), so this is cheap enough to call on every redraw of a
+//    history list. window.PaintDescribe below is the full serialization when the dabs are actually wanted.
+window.PaintHistory = function ()
+{
+    if (!State.Ledger) { return { Entries: [], Active: 0, Total: 0 }; }
+
+    return {
+        Entries: State.Ledger.Entries(),
+        Active:  State.Ledger.ActiveCount,
+        Total:   State.Ledger.StrokeCount,
+        Dabs:    State.Ledger.TotalDabCount
+    };
+};
+
+// The whole session including every dab, for a probe assertion or an export.
+window.PaintDescribe = function ()
+{
+    return State.Ledger ? State.Ledger.Describe() : null;
+};
+
+// Move the history cursor to an absolute position, so a history list can jump rather than stepping.
+//
+// 🔴 Implemented as repeated Undo/Redo rather than by assigning Cursor directly. The ledger's own methods
+//    are the only place that bounds-check the cursor, and a direct write of an out-of-range index would
+//    leave ActiveStrokes() slicing past the end (or negative) — which replays a truncated image with no
+//    error anywhere. Clamping here as well would put the same rule in two places.
+//
+// 🔴 PRE-EXISTING LIMITATION, not introduced here: Rebuild() replays into State.Atlas — the pre-layer single
+//    atlas that SnapshotStore captured a base of — and never into Layer.Atlas[...]. So the cursor move is
+//    faithfully recorded and reported, but paint that landed in a LAYER is not rewound by it. Ctrl+Z has the
+//    same gap (it calls the same Rebuild), so this verb is no worse than the shortcut it generalises; making
+//    either one actually undo layer paint needs per-layer snapshots, which is a separate piece of work.
+window.PaintSeek = async function (Position)
+{
+    if (!State.Ledger) { return { Moved: false, ActiveStrokes: 0 }; }
+
+    const Wanted = Math.max(0, Math.min(Number(Position) | 0, State.Ledger.StrokeCount));
+    let   Moved  = false;
+
+    while (State.Ledger.ActiveCount > Wanted && State.Ledger.Undo()) { Moved = true; }
+    while (State.Ledger.ActiveCount < Wanted && State.Ledger.Redo()) { Moved = true; }
+
+    if (Moved) { Rebuild(); }
+    await State.Device.queue.onSubmittedWorkDone();
+    return { Moved, ActiveStrokes: State.Ledger.ActiveCount };
+};
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                        EXPORT
+//------------------------------------------------------------------------------------------------------------------------
+
+// The stroke TREE: the whole document as a resolution-free record that replays into any atlas size.
+//
+// 🔴 This is the primary export, and the reason the record was built in object space. It names no pixel
+//    dimension anywhere, so the same document reconstructs at 512² or 8K — which is what makes the
+//    application resolution-independent in the sense that matters. The flattened PNG below is DERIVED from
+//    this, never the other way round: an image cannot be re-lifted into strokes.
+// 🔴 Carries an explicit `Version` and `Space`. A record whose units are implicit is unreadable the moment
+//    the convention changes, and "object space, raw pressure" is exactly the kind of rule a later reader
+//    would otherwise have to infer from the numbers — and would infer wrongly for a model near the origin.
+window.ExportStrokeTree = function ()
+{
+    if (!State.Ledger) { return null; }
+
+    const Document = State.Ledger.Describe();
+
+    return {
+        Version:   1,
+        Kind:      "PaintingSurface.StrokeTree",
+        // 📝 The authoring extent is recorded as PROVENANCE, not as a requirement. It says what the painter
+        //    was looking at; it does not constrain what a replay may choose.
+        Authored:  { AtlasExtent, Surface: State.Surface?.Name ?? null },
+        Space:     {
+            Position:   "object",
+            Coordinate: "uv",
+            Radius:     "object",
+            Pressure:   "raw"
+        },
+        Layers: State.Stack ? State.Stack.Layers.map((Layer) => ({
+            Token:     Layer.Token,
+            Name:      Layer.Name,
+            Kind:      Layer.Kind,
+            Blend:     Layer.Blend,
+            Opacity:   Layer.Opacity,
+            Shown:     Layer.Shown,
+            // 📝 Preset and Generator are recorded because PaintLayer derives its default channel set and
+            //    authored values from them; a reader that restored Values alone would rebuild a layer whose
+            //    defaults disagreed with its identity.
+            Preset:    Layer.Preset,
+            Generator: Layer.Generator,
+            Enabled:   [...Layer.Enabled],
+            Values:    { ...Layer.Values },
+            Modes:     { ...Layer.Modes },
+            Params:    { ...Layer.Params }
+        })) : [],
+        Strokes: Document.Strokes,
+        Cursor:  Document.Cursor
+    };
+};
+
+// Flatten the painting to ONE image per channel atlas, at an arbitrary extent.
+//
+// 🔴 Replays the tree into a FRESH stack allocated at the requested extent rather than upscaling the live
+//    atlases. That is the whole point: a 4K export re-lays every dab at 4K, so a soft edge gains real
+//    texels instead of being interpolated from 1K ones. It also means the result is NOT a resample of the
+//    on-screen image and will not be pixel-identical to one — dab spacing is `Spacing x Radius` in object
+//    units, so a higher extent spends more texels per dab. That is correct, and worth expecting.
+// 🔴 The live stack, composite and mask are left untouched. Exporting must not disturb what the user is
+//    painting, and reusing State.Stack would both resize their document and destroy their undo base.
+// 🔴 Every allocation here is DESTROYED before returning, in a finally. An 8K export is three 256 MiB
+//    atlases per layer; leaking one set per export button press exhausts the adapter within a few clicks,
+//    and the failure surfaces as an unrelated allocation error much later.
+window.ExportFlattened = async function (Extent)
+{
+    if (!State.Device || !State.Ledger || !State.Stack) { return null; }
+
+    // 📝 Accepts either a label from RESOLUTIONS ("4K") or a raw number, so a caller can pass the token the
+    //    UI shows without translating it.
+    // 🔴 The default is chosen with an `undefined` test, NOT with `??` against Number(Extent). Number(undefined)
+    //    is NaN — which is not nullish, so `Number(Extent) ?? AtlasExtent` never reaches the fallback and a
+    //    no-argument call would be rejected by the validator below with a message about NaN instead of
+    //    quietly exporting at the authoring extent.
+    const Wanted = Extent === undefined || Extent === null
+        ? AtlasExtent
+        : (RESOLUTIONS[String(Extent)] ?? Number(Extent));
+
+    // 🔴 Rejected rather than clamped. A non-power-of-two or absurd extent would allocate, replay, and
+    //    produce a subtly wrong image (mip levels for the preview path assume power-of-two reduction), and
+    //    silently substituting a different size gives the caller a file that is not what they asked for.
+    if (!Number.isInteger(Wanted) || Wanted < 64 || Wanted > 8192 || (Wanted & (Wanted - 1)) !== 0)
+    {
+        return { Fault: `Extent must be a power of two in [64, 8192]; received ${Extent}` };
+    }
+
+    const Started = performance.now();
+    let   Stack   = null;
+    let   Composite = null;
+
+    try
+    {
+        // A stack that mirrors the live one's layer settings, allocated at the export extent.
+        Stack = new LayerStack(State.Device, Wanted);
+
+        // 🔴 Added BOTTOM-first. Add() inserts at index 0 (the top) when no index is given, so walking the
+        //    live stack front-to-back would build the export stack upside down — and because the compositor
+        //    walks the array backward, every blend mode would resolve against the wrong layers underneath.
+        for (const Source of [...State.Stack.Layers].reverse())
+        {
+            // 🔴 `Options` is Add's FIFTH parameter; the fourth is AtIndex. Passing a settings object in the
+            //    fourth slot would have it read as an insertion index (NaN -> clamped to 0) and the preset
+            //    would be dropped silently.
+            const Layer = Stack.Add(Source.Name, Source.Kind, [...Source.Enabled], undefined, {
+                Preset:    Source.Preset,
+                Generator: Source.Generator
+            });
+
+            // 🔴 The layer's IDENTITY is carried over, because ReplayIntoLayers routes every stroke by the
+            //    recorded Target.Token. A fresh stack mints fresh tokens, so without this every stroke
+            //    would find no matching layer, count as orphaned, and the export would come back blank —
+            //    with a healthy-looking "0 strokes laid" tally and no error anywhere.
+            Layer.Token   = Source.Token;
+            Layer.Blend   = Source.Blend;
+            Layer.Opacity = Source.Opacity;
+            Layer.Shown   = Source.Shown;
+
+            // 🔴 Assigned after construction: PaintLayer builds Values from the channel defaults and its
+            //    material preset, and takes no Values override. Copied per key rather than by reference —
+            //    an array value (baseColour, emission) shared with the live layer would let the export
+            //    mutate the document it is exporting.
+            for (const [Key, Value] of Object.entries(Source.Values))
+            {
+                Layer.Values[Key] = Array.isArray(Value) ? Value.slice() : Value;
+            }
+            Layer.Modes = { ...Source.Modes };
+            Layer.Params = { ...Source.Params };
+        }
+
+        const Replay = ReplayIntoLayers(
+            State.Device, State.Pass, Stack, State.Surface, State.Ledger,
+            ResolveAtlasWrite, CHANNEL_ATLASES);
+
+        // Flatten the replayed stack the same way the viewport does.
+        Composite = new LayerComposite(State.Device, Wanted);
+        Composite.Resolve(Stack);
+
+        await State.Device.queue.onSubmittedWorkDone();
+
+        // One PNG per resolved atlas.
+        const Images  = {};
+        const Encoder = State.Device.createCommandEncoder({ label: "ExportFlatten" });
+        const Staged  = [];
+
+        for (const Descriptor of CHANNEL_ATLASES)
+        {
+            const Texture = Composite.Resolved[Descriptor.Key];
+            if (!Texture) { continue; }
+            Staged.push({
+                Key:   Descriptor.Key,
+                Store: EncodeCapture(State.Device, Encoder, Texture, Wanted, Wanted)
+            });
+        }
+
+        State.Device.queue.submit([Encoder.finish()]);
+
+        for (const Entry of Staged)
+        {
+            // 🔴 AtlasFormat, not the canvas format. These are atlas textures, and ResolveCapture swizzles
+            //    on a `bgra` prefix — handing it the presentation format would exchange red and blue in
+            //    every exported file while leaving the image otherwise perfect and plausible.
+            const Capture = await ResolveCapture(Entry.Store, Wanted, Wanted, AtlasFormat);
+            Images[Entry.Key] = {
+                PortableNetworkGraphic: Capture.PortableNetworkGraphic,
+                DistinctColourCount:    Capture.DistinctColourCount
+            };
+        }
+
+        return {
+            Extent:  Wanted,
+            Images,
+            Strokes: Replay,
+            Elapsed: performance.now() - Started,
+            // Surfaced, not swallowed: a caller showing "exported" over a partial image is the failure this
+            // tally exists to prevent.
+            Note: Replay.Orphaned > 0 || Replay.Masked > 0
+                ? `${Replay.Orphaned} stroke(s) skipped (layer gone), ${Replay.Masked} mask stroke(s) not replayed`
+                : null
+        };
+    }
+    catch (Fault)
+    {
+        console.error("ExportFlattened failed", Fault);
+        return { Fault: String(Fault?.message ?? Fault) };
+    }
+    finally
+    {
+        // 🔴 The teardown verb is `Release`, not `Destroy`, and LayerStack has NO release of its own — only
+        //    PaintLayer does, so the stack is freed layer by layer. Calling a `Destroy` that does not exist
+        //    would have been a silent no-op behind an optional guard: every export would leak three atlases
+        //    per layer (768 MiB at 8K on a four-layer document) and nothing would report it.
+        Composite?.Release();
+        for (const Layer of Stack?.Layers ?? []) { Layer.Release(); }
+    }
 };
 
 Initialise()

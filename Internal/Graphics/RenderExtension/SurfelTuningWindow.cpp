@@ -15,7 +15,13 @@
 
 #include "EngineContext/Interface/Components/Controls/SelectionEntry.h"
 
+#include "EngineContext/Interface/Components/Controls/BooleanEntry.h"
+
+#include "EngineContext/Interface/Components/Controls/ColorEntry.h"
+
 #include "imgui.h"
+
+#include <cmath>
 
 namespace Frontier
 {
@@ -39,6 +45,21 @@ namespace
             if (CapValues[Index] == Value)
                 return Index;
         return 1;
+    }
+
+    // 📝 The sun-shadow sample-count ladder. Same index<->value pattern as the per-cell cap: SelectionEntry edits an INDEX, the tuning state stores the
+    //    tap count. 1 is a hard shadow; 8 is the default soft penumbra; 32 is the smooth-but-costly end.
+    const int         ShadowSampleValues[] = { 1, 4, 8, 16, 32 };
+    const char* const ShadowSampleLabels[] = { "1", "4", "8", "16", "32" };
+    constexpr int     ShadowSampleCount    = 5;
+
+    // Value -> index (default to 8's index if off the ladder).
+    int ShadowSampleIndexForValue(int Value)
+    {
+        for (int Index = 0; Index < ShadowSampleCount; ++Index)
+            if (ShadowSampleValues[Index] == Value)
+                return Index;
+        return 2;
     }
 }
 
@@ -108,6 +129,65 @@ void DrawSurfelTuningWindow(const ThemeConfiguration& Theme, SurfelTuningState& 
 
         ImGui::SameLine();
         ImGui::TextDisabled("applied: %d", State.PerCellCapApplied);
+
+        EndPropertyCard(Theme);
+    }
+
+    // -- Sun source (tuning-window override). Elevation/azimuth rewrite the atmosphere profile's solar vector each frame, so the SKY, the surfel
+    //    integrate, and the direct shade all follow ONE sun; intensity x colour is premultiplied into the shade's key radiance. Degrees at the UI,
+    //    radians in the state — the ×π/180 conversion sits at the slider edges so SunElevation/SunAzimuth stay the shader-native unit. ----------------
+    if (BeginPropertyCard(Theme, "Sun source (live, whole pipeline)", &State.SunSourceExpanded))
+    {
+        const float DegToRad = 3.14159265358979323846f / 180.0f;
+
+        float ElevationDegrees = State.SunElevation / DegToRad;
+        ValueSliderDescriptor Elevation = {};
+        Elevation.Label = "Elevation"; Elevation.Value = &ElevationDegrees;
+        Elevation.Minimum = 0.0f; Elevation.Maximum = 90.0f; Elevation.Format = "%.1f"; Elevation.Unit = "\xC2\xB0"; Elevation.Enabled = true;   // °
+        if (ConstructValueSlider(Theme, Elevation))
+            State.SunElevation = ElevationDegrees * DegToRad;
+
+        float AzimuthDegrees = State.SunAzimuth / DegToRad;
+        ValueSliderDescriptor Azimuth = {};
+        Azimuth.Label = "Azimuth"; Azimuth.Value = &AzimuthDegrees;
+        Azimuth.Minimum = 0.0f; Azimuth.Maximum = 360.0f; Azimuth.Format = "%.1f"; Azimuth.Unit = "\xC2\xB0"; Azimuth.Enabled = true;   // °
+        if (ConstructValueSlider(Theme, Azimuth))
+            State.SunAzimuth = AzimuthDegrees * DegToRad;
+
+        ValueSliderDescriptor Intensity = {};
+        Intensity.Label = "Intensity"; Intensity.Value = &State.SunIntensity;
+        Intensity.Minimum = 0.0f; Intensity.Maximum = 12.0f; Intensity.Format = "%.2f"; Intensity.Unit = "\xC3\x97"; Intensity.Enabled = true;   // × multiplier
+        ConstructValueSlider(Theme, Intensity);
+
+        ColorEntryDescriptor Colour = {};
+        Colour.Label = "Colour"; Colour.Channels = State.SunColour; Colour.IncludeAlpha = false; Colour.Enabled = true;
+        ConstructColorEntry(Theme, Colour);
+
+        EndPropertyCard(Theme);
+    }
+
+    // -- Primary sun shadow: the area-sampled BVH ray in SurfaceShade.frag. An Enabled toggle, a penumbra-width slider, and a discrete tap-count ladder.
+    //    All take effect the next frame the shade records — the renderer threads them into the shade push block with no device stall. -----------------
+    if (BeginPropertyCard(Theme, "Sun shadow (area-sampled, live)", &State.SunShadowExpanded))
+    {
+        BooleanEntryDescriptor ShadowOn = {};
+        ShadowOn.Label = "Cast sun shadow"; ShadowOn.Value = &State.ShadowEnabled; ShadowOn.Enabled = true;
+        ConstructBooleanEntry(Theme, ShadowOn);
+
+        // 📝 Penumbra width = the sun's angular half-radius the shadow rays spread across. The real sun is ~0.0047 rad; the range runs to an
+        //    artistically-soft 0.15. Greyed while shadows are off, since it does nothing then.
+        ValueSliderDescriptor Penumbra = {};
+        Penumbra.Label = "Penumbra width"; Penumbra.Value = &State.SunAngularRadius;
+        Penumbra.Minimum = 0.0f; Penumbra.Maximum = 0.15f; Penumbra.Format = "%.4f"; Penumbra.Unit = "rad"; Penumbra.Enabled = State.ShadowEnabled;
+        ConstructValueSlider(Theme, Penumbra);
+
+        // Discrete tap count (1/4/8/16/32), same index<->value pattern as the per-cell cap. More taps = smoother penumbra at higher per-pixel cost.
+        int ShadowIndex = ShadowSampleIndexForValue(State.ShadowSampleCount);
+        SelectionEntryDescriptor Samples = {};
+        Samples.Label = "Samples"; Samples.SelectedIndex = &ShadowIndex;
+        Samples.Options = ShadowSampleLabels; Samples.OptionCount = ShadowSampleCount; Samples.Enabled = State.ShadowEnabled;
+        if (ConstructSelectionEntry(Theme, Samples))
+            State.ShadowSampleCount = ShadowSampleValues[ShadowIndex];
 
         EndPropertyCard(Theme);
     }

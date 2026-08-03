@@ -40,6 +40,7 @@
 #include "Graphics/Surfel/SurfelDebugInscription.h"
 #include "Graphics/Surfel/SurfelIntegrateSubmission.h"
 #include "Graphics/RenderExtension/SurfelTuningWindow.h"
+#include "Graphics/RenderExtension/GpuTimestampScope.h"
 #include "EngineContext/Scene/SceneExtension.h"
 #include "EngineContext/Scene/WorkspaceDocumentRegister.h"
 #include "Graphics/HierarchicalDepth/HierarchicalDepthPyramid.h"
@@ -261,6 +262,23 @@ struct RenderExtension
     bool                      ImguiReady               = false;              // [-] - true once the ImGui context + Vulkan backend init succeeded; every ImGui call gates on it
     ThemeConfiguration        ImguiTheme;                                    // [-] - the shared theme resolved once at init (ControlsGallery look); threaded into the tuning window's component draws each frame
     SurfelTuningState         SurfelTuning;                                  // [-] - live cell/radius/bias knobs + per-cell cap selector + window-open flag (F10 toggles)
+
+    // 📝 GPU wall-clock instrumentation (measure-first, before any temporal-shadow / convergence-gate work). One best-effort timestamp scope brackets
+    //    the six per-frame surfel + shade passes; ResolvedMillis reads one frame late so the CPU never stalls. A device without graphics-queue
+    //    timestamps leaves PassTiming.ReadyCondition false and every bracket no-ops — the unmeasured path runs byte-identically. The slot enum names
+    //    the six passes so the record sites and the console readout agree on which index is which.
+    enum SurfelPassSlot : uint32_t
+    {
+        SurfelPassSlotSlotting   = 0u,   // RecordSurfelGridSlotting
+        SurfelPassSlotSpawn      = 1u,   // RecordSurfelLifecycleSpawn
+        SurfelPassSlotAge        = 2u,   // RecordSurfelLifecycleAge
+        SurfelPassSlotIntegrate  = 3u,   // RecordSurfelIntegrate
+        SurfelPassSlotShade      = 4u,   // RecordSurfaceShadeInscription
+        SurfelPassSlotDebugSplat = 5u,   // RecordSurfelDebugInscription
+        SurfelPassSlotCount      = 6u,
+    };
+    GpuTimestampScope         PassTiming;                                    // [-] - the query-pool probe; best-effort, one-frame-late, no CPU stall
+    uint32_t                  PassReportFrame          = 0;                  // [-] - frame counter for throttling the per-pass ms console notice (every N frames)
 
     ViewportCamera          ViewCamera;            // [-] - Orbit / fly camera spec the grid is rendered through
 

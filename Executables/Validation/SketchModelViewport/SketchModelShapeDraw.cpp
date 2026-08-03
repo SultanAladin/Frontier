@@ -40,6 +40,36 @@ namespace
                Category == Frontier::ParametricSketchShapeCategory::Slot;
     }
 
+    // 📝 The open-ended (Required == 0) families collect control points click-by-click until a FINISH gesture seals them — there is no fixed count.
+    //    This returns the MINIMUM seated points a finish will accept, matching the store's per-family evaluators (below which EvaluateShapePolyline
+    //    just echoes the raw points): Spline (Catmull-Rom) needs 3; Polyline / Bezier / BSpline / Nurbs evaluate from 2. A finish below the minimum
+    //    is ignored (the run keeps collecting), so a stray Enter never seals a degenerate one-point curve.
+    int OpenEndedMinimumPoints(Frontier::ParametricSketchShapeCategory Category)
+    {
+        return (Category == Frontier::ParametricSketchShapeCategory::Spline) ? 3 : 2;
+    }
+
+    // 📝 Whether a category is one of the open-ended free-curve / polyline families (Required == 0): it seats points on every click and seals only on
+    //    a finish gesture, rather than auto-sealing when a fixed count is reached.
+    bool CategoryIsOpenEnded(Frontier::ParametricSketchShapeCategory Category)
+    {
+        return Frontier::ResolveParametricSketchDefiningCount(Category) == 0;
+    }
+
+    // 📝 The CENTRE-rectangle affordance (SketchCentreRect): the store has ONE Rectangle solver that takes two OPPOSITE corners, so a centre-drawn box
+    //    is expressed by mapping the two clicks — [centre C, corner P] — to the two opposite corners [2C - P, P] before the solver sees them. The box
+    //    then grows symmetrically about the first click. A no-op (returns the points verbatim) unless CentreRect is set AND exactly two points are in
+    //    hand, so a single seated centre (one point) still previews nothing and the fixed-2 seal still fires on the second click.
+    std::vector<ImVec2> ApplyCentreRectangle(const std::vector<ImVec2>& Points, bool CentreRect)
+    {
+        if (!CentreRect || Points.size() != 2)
+            return Points;
+        const ImVec2 Centre = Points[0];
+        const ImVec2 Corner = Points[1];
+        const ImVec2 Opposite(2.0f * Centre.x - Corner.x, 2.0f * Centre.y - Corner.y);
+        return { Opposite, Corner };
+    }
+
     // Project + stroke a world-mm polyline (the analytic preview or a seated-point run) through the shared forward map. Closed adds the fill +
     // the closing edge. Drops the whole polyline if any vertex is behind the eye (a partial projection would smear across the screen).
     void StrokeGroundPolyline(const SketchModelViewportState& State, ImVec2 CanvasOrigin, ImVec2 CanvasSize,
@@ -261,7 +291,7 @@ bool ShapeDrawActive(const Frontier::ParametricSketchShapeStore& Store)
 uint32_t AdvanceShapeDraw(const SketchModelViewportState&                         State,
                           Frontier::ParametricSketchShapeStore&                   Store,
                           SceneDirectoryInspectorValidation::InspectorPanelState& Directory,
-                          ImVec2 CanvasOrigin, ImVec2 CanvasSize, float WheelNotches)
+                          ImVec2 CanvasOrigin, ImVec2 CanvasSize, float WheelNotches, bool CentreRect)
 {
     (void)Directory;   // threaded for a later mirror step; the seal writes only the store here
     if (!Store.DrawingEnabled)
@@ -271,8 +301,9 @@ uint32_t AdvanceShapeDraw(const SketchModelViewportState&                       
 
     const ImGuiIO& Io = ImGui::GetIO();
 
-    // -- Cancel: Escape abandons the draw with nothing added. (Right-click is no longer a cancel — it now drives the camera orbit.) --
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    // -- Cancel: Escape OR a right-click abandons the draw with nothing added. Both also release the sticky tool (handled by the panel: it clears the
+    //    latch on the same press, so the cancelled tool is not re-armed). --
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))
     {
         Store.DrawingEnabled = false;
         Store.PendingPoints.clear();
@@ -280,7 +311,9 @@ uint32_t AdvanceShapeDraw(const SketchModelViewportState&                       
     }
 
     const Frontier::ParametricSketchShapeCategory Category = Store.DrawingCategory;
-    const int Required = Frontier::ResolveParametricSketchDefiningCount(Category);   // 0 = open-ended (not wired this cut)
+    const int  Required   = Frontier::ResolveParametricSketchDefiningCount(Category);   // 0 = open-ended (Polyline / Bezier / Spline / …)
+    const bool OpenEnded  = CategoryIsOpenEnded(Category);
+    const int  OpenMinimum = OpenEndedMinimumPoints(Category);
 
     // -- Where the cursor meets the ground this frame (authored mm). Only act while the pointer is over the canvas rect. --
     const bool OverCanvas =
@@ -312,21 +345,32 @@ uint32_t AdvanceShapeDraw(const SketchModelViewportState&                       
     if (GroundHit)
         Defining.push_back(Store.RubberEnd);
 
-    // -- Analytic preview: as soon as enough points exist, flatten the shape-in-progress exactly as the seal will, and stroke it. --
-    if ((int)Defining.size() >= Required && Required > 0)
+    // -- Analytic preview. A fixed-count family previews once its defining points (seated + live cursor) reach Required; an open-ended curve previews
+    //    the whole control run (seated points PLUS the live cursor as a provisional last control point) as soon as two points exist, flattening with the
+    //    SAME evaluator the seal uses so the rubber curve reads exactly like the committed one. --
+    const bool FixedReady = Required > 0 && (int)Defining.size() >= Required;
+    const bool OpenReady  = OpenEnded && Defining.size() >= 2;
+    if (FixedReady || OpenReady)
     {
         const int SideOverride = (Category == Frontier::ParametricSketchShapeCategory::Polygon) ? Store.PendingSideCount : 0;
-        Frontier::ParametricSketchShape Preview = Frontier::ConstructParametricSketchShape(Category, Defining, SideOverride);
+        // Centre-rect: remap [centre, corner] → [far corner, corner] so the preview box grows symmetrically about the first click. A no-op otherwise.
+        const std::vector<ImVec2> Solved = ApplyCentreRectangle(Defining, CentreRect);
+        Frontier::ParametricSketchShape Preview = Frontier::ConstructParametricSketchShape(Category, Solved, SideOverride);
         std::vector<ImVec2> Outline;
         Frontier::EvaluateShapePolyline(Preview, Outline);
         StrokeGroundPolyline(State, CanvasOrigin, CanvasSize, Outline, CategoryCloses(Category), Draw);
 
-        // A live primary-dimension readout at the cursor (mm).
+        // A live primary-dimension readout at the cursor (mm). Open-ended curves also report the seated control-point count + the finish hint, so the
+        // user knows the run can be sealed (once the minimum is met) and how.
         const char* PrimaryLabel = nullptr;
         const float Primary = Frontier::ResolvePrimaryDimension(Preview, &PrimaryLabel);
-        char Readout[80];
+        char Readout[112];
         if (Category == Frontier::ParametricSketchShapeCategory::Polygon)
             std::snprintf(Readout, sizeof(Readout), "%s %.0f mm  (%d sides)", PrimaryLabel ? PrimaryLabel : "", Primary, Store.PendingSideCount);
+        else if (OpenEnded)
+            std::snprintf(Readout, sizeof(Readout), "%s %.0f mm  (%d pts \xC2\xB7 %s)", PrimaryLabel ? PrimaryLabel : "", Primary,
+                          (int)Store.PendingPoints.size(),
+                          (int)Store.PendingPoints.size() >= OpenMinimum ? "Enter / dbl-click to finish" : "keep clicking");
         else
             std::snprintf(Readout, sizeof(Readout), "%s %.0f mm", PrimaryLabel ? PrimaryLabel : "", Primary);
         DrawReadout(Draw, Io.MousePos, Readout);
@@ -359,7 +403,26 @@ uint32_t AdvanceShapeDraw(const SketchModelViewportState&                       
             Draw->AddCircleFilled(P.Pixel, 3.2f, PointInk());
     }
 
-    // -- A left click over the ground seats the cursor point; if that completes the category, seal the analytic shape into the store. --
+    // -- OPEN-ENDED FINISH GESTURE (checked BEFORE the seat, so a double-click's second press seals rather than seating a duplicate control point).
+    //    Enter, or a left double-click, seals the collected run once the family minimum is met. The double-click's FIRST press already seated its point
+    //    below on the prior frame; here the SECOND press (IsMouseDoubleClicked) finishes the run with the points already down. A finish under the minimum
+    //    is ignored so a stray Enter never seals a degenerate curve. --
+    if (OpenEnded && (int)Store.PendingPoints.size() >= OpenMinimum)
+    {
+        const bool FinishByKey    = ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+        const bool FinishByDouble = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+        if (FinishByKey || FinishByDouble)
+        {
+            Sealed = Frontier::AppendParametricSketchShape(Store, Category, Store.PendingPoints, 0);
+            Store.PendingPoints.clear();
+            Store.DrawingEnabled = false;   // one shape per arm (the sticky-tool cycle re-arms for the next); mirrors the fixed-count seal
+            Draw->PopClipRect();
+            return Sealed;                  // the completing gesture ends this frame; no seat below
+        }
+    }
+
+    // -- A left click over the ground seats the cursor point. A FIXED-count family seals when the count is reached; an OPEN-ENDED family only seats
+    //    (it seals on the finish gesture above), so it keeps collecting control points click after click. --
     if (GroundHit && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         Store.PendingPoints.push_back(Store.RubberEnd);
@@ -367,7 +430,9 @@ uint32_t AdvanceShapeDraw(const SketchModelViewportState&                       
         if (Required > 0 && (int)Store.PendingPoints.size() >= Required)
         {
             const int SideOverride = (Category == Frontier::ParametricSketchShapeCategory::Polygon) ? Store.PendingSideCount : 0;
-            Sealed = Frontier::AppendParametricSketchShape(Store, Category, Store.PendingPoints, SideOverride);
+            // Centre-rect: remap [centre, corner] → [far corner, corner] so the sealed box matches the symmetric preview. A no-op otherwise.
+            const std::vector<ImVec2> Solved = ApplyCentreRectangle(Store.PendingPoints, CentreRect);
+            Sealed = Frontier::AppendParametricSketchShape(Store, Category, Solved, SideOverride);
             Store.PendingPoints.clear();
             Store.DrawingEnabled = false;   // one shape per arm (the console re-arms for the next); mirrors the workplane draw
         }

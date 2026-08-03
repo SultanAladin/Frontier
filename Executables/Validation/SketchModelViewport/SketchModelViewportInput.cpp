@@ -1,27 +1,18 @@
 /*==============================================================================================================================================
                                                     SKETCHMODELVIEWPORTINPUT.CPP
 ==============================================================================================================================================*/
-// 🧩 The two sketch-viewport-local pointer seams declared in the header: a global wheel guard that keeps the camera from dollying while a draw
-//    claims the wheel, and a right-drag orbit that layers over the shared panel's left+middle binding. Both read ImGui's live IO and drive the
-//    render-canonical ViewportCamera through the shared Navigation verbs — no second camera, no matrices touched here.
+// 🧩 The sketch-viewport-local input state declared in the header: a targeted wheel guard that keeps the camera from dollying only while the polygon
+//    tool is retuning its side count, and the sticky-tool latch that keeps the last-committed tool active across draw cycles. Reads ImGui's live IO;
+//    the latch drives the shared store's arm verb (ArmShapeDraw) for the next cycle.
 
 #include "SketchModelViewportInput.h"
 
 #include "SketchModelShapeDraw.h"
 
-#include "EngineContext/Navigation/Camera/CameraNavigation/CameraNavigation.h"
-
 #include "imgui.h"
 
 namespace SketchModelViewportValidation
 {
-
-namespace
-{
-    // Match the shared viewport panel's left-drag orbit sensitivity exactly, so right-drag orbit feels identical to the standard bind.
-    constexpr float OrbitRadiansPerPixel = 0.008f;   // [rad/px] - pointer delta → orbit angle
-}
-
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                      STICKY TOOL LATCH
@@ -77,21 +68,20 @@ float HoldWheelFromCamera(bool SuppressCamera)
 }
 
 
-void ApplyRightDragOrbit(Frontier::ViewportCamera& Camera, bool Hovered)
+void HoldLeftDragFromCamera(bool SuppressLeftDrag)
 {
-    const ImGuiIO& Io = ImGui::GetIO();
-
-    // Only while the canvas owns the pointer and the right button is actually held. IsMouseDragging keys off the drag threshold + the accumulated
-    // delta, so a single right click (used elsewhere as a dismiss) never nudges the camera; only a real drag orbits.
-    if (!Hovered || !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+    if (!SuppressLeftDrag)
         return;
 
-    const ImVec2 Drag = Io.MouseDelta;
-    if (Drag.x == 0.0f && Drag.y == 0.0f)
-        return;
+    ImGuiIO& Io = ImGui::GetIO();
 
-    // Same convention as the shared left-drag orbit: drag-right turns the view right (−Yaw), drag-down raises the eye. ConstrainPitch is inside the verb.
-    Frontier::OrbitViewportCamera(Camera, -Drag.x * OrbitRadiansPerPixel, -Drag.y * OrbitRadiansPerPixel);
+    // 🔴 Only a PLAIN left-drag orbits in the shared panel (Io.MouseDown[0] with no Shift, and no middle held — those are pan). Match that exact gesture
+    //    and zero the frame's mouse delta so the panel's OrbitViewportCamera reads no movement, while the click itself (IsMouseClicked, MousePos) is
+    //    untouched so the draw still seats its point. Middle / Shift-left pan and the wheel are left alone — this suppresses ONLY orbit. Self-restoring:
+    //    ImGui reseeds Io.MouseDelta from the platform each new frame, so there is no save/restore to unwind.
+    const bool PlainLeftDrag = Io.MouseDown[0] && !Io.KeyShift && !Io.MouseDown[2];
+    if (PlainLeftDrag)
+        Io.MouseDelta = ImVec2(0.0f, 0.0f);
 }
 
 }   // namespace SketchModelViewportValidation

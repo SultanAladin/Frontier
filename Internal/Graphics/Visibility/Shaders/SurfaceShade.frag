@@ -183,6 +183,7 @@ layout(push_constant) uniform ShadeConstants
     mat4 InverseViewProjection;   // [-] - clip -> world
     vec4 CameraPosition;          // [-] - world-space eye (.w unused)
     vec4 LightDirection;          // [-] - world-space direction TOWARD the light (.w unused)
+    vec4 SunRadiance;             // [-] - rgb: key-light radiance (colour x intensity, PREMULTIPLIED on the host from the F10 Sun card); .w unused
     uint CompositeFeatureMask;    // [-] - overrides the Composite record's own mask only
     uint FloorPartitionBase;      // [-] - partition ordinals >= this belong to the floor mesh
     uint FloorShadeEnabled;       // [-] - 1 shades the floor from b5-b7, 0 discards it (the b5-b7 alias is not real floor data)
@@ -198,6 +199,14 @@ layout(push_constant) uniform ShadeConstants
     float TuneBaseRadius;         // [m] - live cascade-0 disc radius (F10 window)
     float TuneNearFieldBias;      // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
     uint PushPad0;                // [-] - keep the block 16-byte aligned
+
+    // ---- Primary sun shadow (area-sampled BVH ray; set 2) — six scalars, byte-matched by SurfaceShadeConstants ----
+    float SunAngularRadius;       // [rad] - half-angle of the sun disc; 0 gives a hard shadow, ~0.0047 is the real sun (soft penumbra)
+    uint  ShadowSampleCount;      // [-] - jittered rays across the disc per pixel; 1 = hard, more = smoother penumbra (denoise wants temporal at low N)
+    uint  ShadowEnabled;          // [-] - 1 traces the sun-visibility gate, 0 leaves LightEnergy unshadowed (forced 0 when set 2 is not ready)
+    uint  ShadowFrame;            // [-] - frame index; rotates the per-pixel sample jitter so a temporal/denoise pass can average
+    uint  ShadowInstanceCount;    // [-] - TLAS leaves (TraceInstanceCount for the shadow trace)
+    uint  ShadowSliceCount;       // [-] - slice table entries (TraceSliceCount for the shadow trace)
 } Constants;
 
 // The surfel gather chain — dependency order (each is a guarded #include MODULE with no main(), reading the set-1 buffers by bare name declared above):
@@ -212,6 +221,50 @@ layout(push_constant) uniform ShadeConstants
 #include "SurfelGather.glsl"
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                     SET 2 — THE BVH (area-sampled sun shadow ray)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🧩 The primary/direct sun shadow. The reference composites a CSM-shadowed scene pass (three.js CSM, PCF-filtered) over the surfel
+//    GI; the surfel integrate already carries its OWN secondary sun-shadow ray, but nothing here gated the DIRECT sun in the shade —
+//    so the port rendered unshadowed. Rather than rebuild a map-atlas shadow system, this traces N jittered rays across the sun's
+//    angular disc through the SAME two-level BVH the surfel integrate uses; the averaged visibility ∈ [0,1] gives a true penumbra
+//    (physically-accurate contact hardening, better than a PCF blur) and multiplies LightEnergy below.
+//
+// 🔴 A SELF-CONTAINED THIRD SET, spelled to satisfy TwoLevelTrace.glsl's includer contract. Set 0 already carries the instance SSBO
+//    (b3, std140) and the merged vertex/index streams (b1/b2) the BVH was built over, so those are REUSED — the trace's Instances[]
+//    and MeshIndices[] resolve to set 0's Instances/Indices via the #defines, and PositionForVertex reads set 0's Vertices. Only the
+//    five acceleration buffers the shade never had — Slices / ArenaNodeWords / ArenaPrimitives / TreeNodeWords — live in set 2.
+//    All BORROWED (GeometryArena + InstanceTree); best-effort on the host, so a set-2 build failure forces ShadowEnabled=0 and the
+//    shade still runs unshadowed rather than reading undefined memory.
+
+// Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B — same as SurfelIntegrate.comp's set 0 b1.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+layout(std430, set = 2, binding = 0) readonly buffer TraceSliceBlock     { GeometryArenaSlice TraceSlices[]; };
+layout(std430, set = 2, binding = 1) readonly buffer TraceArenaNodeBlock { uint TraceArenaNodeWords[]; };
+layout(std430, set = 2, binding = 2) readonly buffer TraceArenaPrimBlock { uint TraceArenaPrimitives[]; };
+layout(std430, set = 2, binding = 3) readonly buffer TraceTreeNodeBlock  { uint TraceTreeNodeWords[]; };
+
+// TwoLevelTrace.glsl reads bare names; alias its contract onto the buffers above and the set-0 streams it shares with the raster.
+#define Slices          TraceSlices
+#define ArenaNodeWords  TraceArenaNodeWords
+#define ArenaPrimitives TraceArenaPrimitives
+#define TreeNodeWords   TraceTreeNodeWords
+#define MeshIndices     Indices
+#define TraceInstanceCount Constants.ShadowInstanceCount
+#define TraceSliceCount    Constants.ShadowSliceCount
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                     RECONSTRUCTION
 //------------------------------------------------------------------------------------------------------------------------
 
@@ -220,6 +273,10 @@ vec3 PositionForVertex(uint VertexIndex)
     RenderVertex Vertex = Vertices[VertexIndex];
     return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
 }
+
+// The two-level ray walk — pulled in AFTER its includer contract (set-2 buffers + the #define aliases + PositionForVertex + the two
+// count aliases) is all in scope. Compiles into SurfaceShade.frag.spv via glslc -I, same as the surfel gather modules above.
+#include "TwoLevelTrace.glsl"
 
 // The floor's counterpart. A separate reader rather than a buffer parameter because GLSL cannot pass an SSBO block as an argument — the two
 // otherwise-identical bodies are the language's price for two storage blocks, not duplication that could be factored away.
@@ -371,9 +428,73 @@ vec3 IridescenceRamp(float NoV, float FilmIor, float ThicknessNanometres)
 
 // One analytic key light plus a constant ambient fill. A single light is enough to read every material's signature, and the fill
 // keeps the shadowed side from going pure black on an LDR target where crushed blacks band badly.
-const vec3  LightColour  = vec3(1.0, 0.98, 0.95);
-const float LightIntensity = 3.0;
+// 📝 The key light's radiance now rides Constants.SunRadiance (colour x intensity, premultiplied host-side from the F10 Sun card), so the
+//    hardcoded pair is retired. These two survive ONLY as the fallback the body picks when the host pushes a zero radiance (older constant path).
+const vec3  LightColourDefault    = vec3(1.0, 0.98, 0.95);
+const float LightIntensityDefault = 3.0;
 const vec3  AmbientColour  = vec3(0.10, 0.12, 0.16);
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                              AREA-SAMPLED SUN SHADOW
+//------------------------------------------------------------------------------------------------------------------------
+
+// A cheap per-pixel hash for the sample jitter — the same integer-scramble the surfel passes lean on, so no blue-noise texture
+// is needed. Feeds a rotated Fibonacci disc below; the frame index folds in so a temporal pass sees a fresh sequence each frame.
+float ShadowHash(uint Seed)
+{
+    Seed ^= Seed >> 17u;
+    Seed *= 0xED5AD4BBu;
+    Seed ^= Seed >> 11u;
+    Seed *= 0xAC4C1B51u;
+    Seed ^= Seed >> 15u;
+    Seed *= 0x31848BABu;
+    Seed ^= Seed >> 14u;
+    return float(Seed) * (1.0 / 4294967296.0);
+}
+
+// Build an orthonormal basis around a direction — Duff et al.'s branchless frisvad, for spreading the shadow taps across the disc.
+void ShadowBasis(vec3 N, out vec3 T, out vec3 B)
+{
+    float Sign = N.z >= 0.0 ? 1.0 : -1.0;
+    float A = -1.0 / (Sign + N.z);
+    float C = N.x * N.y * A;
+    T = vec3(1.0 + Sign * N.x * N.x * A, Sign * C, -Sign * N.x);
+    B = vec3(C, Sign + N.y * N.y * A, -N.y);
+}
+
+// Averaged sun visibility ∈ [0,1] at a surface point: ShadowSampleCount rays spread across the sun's angular disc, each traced
+// through the two-level BVH; the fraction that reach the sky is the soft-shadow term. SunAngularRadius = 0 collapses to one hard
+// ray. The origin is nudged along the geometric normal by a scale-relative epsilon so a grazing ray does not self-intersect.
+float SunVisibility(vec3 SurfacePoint, vec3 GeometricNormal, vec3 SunDirection)
+{
+    uint  Samples = max(Constants.ShadowSampleCount, 1u);
+    float Epsilon = 1e-3 * (1.0 + length(SurfacePoint));
+    vec3  Origin  = SurfacePoint + GeometricNormal * Epsilon;
+
+    vec3 Tangent;
+    vec3 Bitangent;
+    ShadowBasis(SunDirection, Tangent, Bitangent);
+
+    // A per-pixel rotation so neighbouring pixels sample different disc points — the Fibonacci spiral is otherwise identical per pixel.
+    uint  PixelSeed = uint(gl_FragCoord.x) * 1973u + uint(gl_FragCoord.y) * 9277u + Constants.ShadowFrame * 26699u;
+    float Rotation  = ShadowHash(PixelSeed) * 6.28318530718;
+
+    const float GoldenAngle = 2.39996322973;
+    float Visible = 0.0;
+    for (uint Index = 0u; Index < Samples; ++Index)
+    {
+        // Concentric Fibonacci disc: radius = sqrt(stratified index), angle = golden angle * index + per-pixel rotation.
+        float Fraction = (float(Index) + 0.5) / float(Samples);
+        float Radius   = sqrt(Fraction) * Constants.SunAngularRadius;
+        float Angle    = float(Index) * GoldenAngle + Rotation;
+        vec3  Direction = normalize(SunDirection + (cos(Angle) * Tangent + sin(Angle) * Bitangent) * Radius);
+
+        TraceHit Hit = TraceTwoLevel(Origin, Direction, 1e-4, 1e4);
+        if (!Hit.HitCondition)
+            Visible += 1.0;
+    }
+    return Visible / float(Samples);
+}
 
 void main()
 {
@@ -531,7 +652,19 @@ void main()
     // ---- Key light energy ----
     // Every sun-driven lobe below — diffuse, wrapped subsurface, specular, sheen, coat — is scaled by LightEnergy. The ambient fill uses AmbientColour
     // instead, so it stands in for sky and bounce and is deliberately left untouched by the key light's direction.
-    vec3  LightEnergy = LightColour * LightIntensity;
+    // 📝 LightEnergy is the host-pushed key radiance (F10 Sun card, colour x intensity premultiplied). A zero push (older constant path / uninitialised)
+    //    falls back to the retired hardcoded pair so the shade never goes black on a caller that has not wired the Sun card yet.
+    vec3  LightEnergy = (dot(Constants.SunRadiance.rgb, vec3(1.0)) > 0.0)
+                        ? Constants.SunRadiance.rgb
+                        : LightColourDefault * LightIntensityDefault;
+
+    // ---- Primary sun shadow (area-sampled BVH) ----
+    // The DIRECT sun's visibility gate — the piece the port was missing (the surfel integrate already self-shadows the indirect bounce). Averaged
+    // across the sun's angular disc it is a real penumbra, so it folds into LightEnergy BEFORE the lobes and every direct term darkens together. Skip
+    // the trace entirely when the ray would face away (NoL == 0) — a back-facing point is already unlit, so its N taps are pure cost. Set 2 not ready
+    // ⇒ the host forces ShadowEnabled=0 and this whole block is a no-op, leaving the pre-shadow look intact.
+    if (Constants.ShadowEnabled != 0u && NoL > 0.0)
+        LightEnergy *= SunVisibility(WorldPosition, Normal, LightVector);
 
     // ---- Diffuse ----
     if ((FeatureMask & FeatureDiffuse) != 0u)
@@ -631,8 +764,12 @@ void main()
     float OutputAlpha = 1.0;
     if ((FeatureMask & FeatureTransmission) != 0u)
     {
+        // Rim tint tracks the key light's HUE (normalised so intensity does not double-count with the rim's own 0.6 weight); falls back to the
+        // default warm-white when the host pushes no radiance.
         float Rim = pow(1.0 - NoV, 3.0);
-        Radiance += vec3(Rim) * 0.6 * LightColour;
+        float SunLuma = max(dot(Constants.SunRadiance.rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+        vec3  SunHue  = (dot(Constants.SunRadiance.rgb, vec3(1.0)) > 0.0) ? Constants.SunRadiance.rgb / SunLuma : LightColourDefault;
+        Radiance += vec3(Rim) * 0.6 * SunHue;
         OutputAlpha = clamp(Alpha + Rim, 0.0, 1.0);
     }
 

@@ -47,6 +47,7 @@ struct SurfaceShadeConstants
     float    InverseViewProjection[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };  // [-] - column-major clip -> world
     float    CameraPosition[4]         = { 0,0,0,1 };                              // [-] - world-space eye (.w unused)
     float    LightDirection[4]         = { 0,0,1,0 };                              // [-] - world-space direction TOWARD the light (.w unused)
+    float    SunRadiance[4]            = { 3.0f, 2.94f, 2.85f, 0.0f };             // [-] - key-light radiance (colour x intensity, PREMULTIPLIED from the F10 Sun card); .w unused. Default = old 3.0*(1,0.98,0.95)
     uint32_t CompositeFeatureMask      = 0;                                        // [-] - SurfaceFeatureBit set, overrides the Composite record only
     uint32_t FloorPartitionBase        = 0;                                        // [-] - partition ordinals >= this belong to the floor mesh
     uint32_t FloorShadeEnabled         = 0;                                        // [-] - 1 shades the floor from its own buffers, 0 discards it (P6.3a)
@@ -62,6 +63,14 @@ struct SurfaceShadeConstants
     float    TuneBaseRadius            = 1.2f;                                     // [m] - live cascade-0 disc radius (F10 window)
     float    TuneNearFieldBias         = 1.0f;                                     // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
     uint32_t PushPad0                  = 0;                                        // [-] - keep the block 16-byte aligned (matches the frag's PushPad0)
+
+    // ---- Primary sun shadow (area-sampled BVH ray; set 2) — must byte-match the six-scalar tail of the frag's ShadeConstants ----
+    float    SunAngularRadius          = 0.03f;                                    // [rad] - sun-disc half-angle; 0 hard, larger softens the penumbra (real sun ~0.0047)
+    uint32_t ShadowSampleCount         = 8;                                        // [-] - jittered rays across the disc per pixel; more = smoother, noisier wants temporal
+    uint32_t ShadowEnabled             = 0;                                        // [-] - 1 traces the sun-visibility gate; the record forces 0 when set 2 is not ready
+    uint32_t ShadowFrame               = 0;                                        // [-] - frame index; rotates the per-pixel jitter so a temporal pass can average
+    uint32_t ShadowInstanceCount       = 0;                                        // [-] - TLAS leaves (TraceInstanceCount for the shadow trace)
+    uint32_t ShadowSliceCount          = 0;                                        // [-] - slice table entries (TraceSliceCount for the shadow trace)
 };
 
 // 🔴 FloorIndexBase exists because gl_PrimitiveID is per-DRAW while b6 is now a MERGED index buffer. Since the floor and heads share one allocation
@@ -121,6 +130,19 @@ struct SurfaceShadeInscription
     VkBuffer              BoundTouchedBuffer  = VK_NULL_HANDLE; // [-] - b6 (SurfelPool.TouchedBuffer)
     bool                  SurfelSetReady   = false;          // [-] - true once the surfel layout + set exist AND all seven buffers are pointed
 
+    // ---- Primary sun shadow: the BVH descriptor set (set 2) — the acceleration buffers the shade never had ----
+    // Same two-level BVH SurfelIntegrate.comp reads, but the shade REUSES set 0's instance SSBO + merged vertex/index streams (the trace's Instances/
+    // MeshIndices/PositionForVertex resolve to those), so set 2 carries only the four buffers set 0 lacks: Slices / ArenaNodeWords / ArenaPrimitives /
+    // TreeNodeWords. All BORROWED (GeometryArena + InstanceTree), bound ONCE (scene static after load). Best-effort: a set-2 build failure leaves
+    // ShadowSet null and ShadowSetReady false; the record then forces ShadowEnabled=0 and the shade runs unshadowed rather than reading undefined memory.
+    VkDescriptorSetLayout ShadowSetLayout  = VK_NULL_HANDLE; // [-] - set 2: b0 Slices, b1 ArenaNodeWords, b2 ArenaPrimitives, b3 TreeNodeWords (all ro storage)
+    VkDescriptorSet       ShadowSet        = VK_NULL_HANDLE; // [-] - the bound BVH set (allocated from DescriptorPool alongside ShadeSet / SurfelSet)
+    VkBuffer              BoundSliceBuffer        = VK_NULL_HANDLE; // [-] - b0 (GeometryArena slice table)
+    VkBuffer              BoundArenaNodeBuffer    = VK_NULL_HANDLE; // [-] - b1 (GeometryArena bottom-level node blob)
+    VkBuffer              BoundArenaPrimBuffer    = VK_NULL_HANDLE; // [-] - b2 (GeometryArena primitive-order table)
+    VkBuffer              BoundTreeNodeBuffer     = VK_NULL_HANDLE; // [-] - b3 (InstanceTree top-level node words)
+    bool                  ShadowSetReady   = false;          // [-] - true once the BVH layout + set exist AND all four buffers are pointed
+
     bool                  ReadyCondition   = false;          // [-] - true once pipeline + layout + descriptors + material UBO are live
 };
 
@@ -176,6 +198,16 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
 void RefreshSurfaceShadeSurfelBindings(SurfaceShadeInscription& Shade,
                                        const SurfelPool&        Pool,
                                        const SurfelGridSlotting& Slotting);
+
+// Primary sun shadow: point the BVH descriptor set (set 2) at the borrowed GeometryArena + InstanceTree buffers so the shade's shadow ray can trace
+// the scene. Writes the four whole-buffer bindings (Slices / ArenaNodeWords / ArenaPrimitives / TreeNodeWords), re-pointing only on a handle change.
+// Idempotent and cheap; a no-op when the shade's BVH layout is not built — ShadowSetReady stays false and the record forces ShadowEnabled=0. The
+// device must be idle (an in-flight frame may still read the set). These handles are stable after load (scene static), so this need run only once.
+void RefreshSurfaceShadeBvhBindings(SurfaceShadeInscription& Shade,
+                                    VkBuffer                 SliceBuffer,
+                                    VkBuffer                 ArenaNodeBuffer,
+                                    VkBuffer                 ArenaPrimitiveBuffer,
+                                    VkBuffer                 TreeNodeBuffer);
 
 // Record one shade into an already-open dynamic-rendering colour scope: set viewport + scissor, bind the pipeline + set, push the constants, and draw
 // the three-vertex fullscreen triangle. The visibility image must already be in SHADER_READ_ONLY (see TransitionVisibilityImageForSampling). A no-op

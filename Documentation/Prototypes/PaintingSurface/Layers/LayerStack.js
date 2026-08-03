@@ -30,6 +30,28 @@ export const CLASSIFICATION_TINT = {
     flood:     "#b45fd0"
 };
 
+// 🔴 The per-layer IDENTITY palette, distinct from CLASSIFICATION_TINT above. A classification tint answers
+//    "what kind of layer is this" and is therefore SHARED by every layer of that kind — which is exactly why
+//    it cannot serve as the rail's per-layer marker: a stack of four material layers drew four identical blue
+//    tags and the marker carried no information at all.
+// 🔴 Hues are ordered so CONSECUTIVE entries contrast: the list alternates around the wheel rather than walking
+//    it, because the assignment below hands adjacent layers adjacent entries and two neighbouring tags that
+//    differ by 20° of hue read as the same colour in a 4px-wide swatch.
+export const LAYER_COLOUR_PALETTE = [
+    "#4fb286",   // teal
+    "#e0a03c",   // amber
+    "#7c6cf0",   // violet
+    "#e0685f",   // coral
+    "#3fa9d4",   // cyan
+    "#c76fb8",   // orchid
+    "#9dbd4f",   // olive
+    "#d9784a",   // rust
+    "#5b8cff",   // blue
+    "#57c07a",   // green
+    "#b0763a",   // bronze
+    "#8d8fa8"    // slate
+];
+
 // 🔴 The order here IS the shader's enum. BlendShaderIndex returns the position in this array and the
 //    composite shader switches on that integer, so reordering this list silently remaps every layer's
 //    blend mode in every existing document.
@@ -90,6 +112,16 @@ export class PaintLayer
         // 📝 Kept as an alias so anything still reading `Classification` keeps working while the UI and
         //    the serializer move over to `Kind`. Same string, one name for it going forward.
         this.Classification = this.Kind;
+
+        // The layer's own identity colour — the rail's tag, independent of Kind.
+        //
+        // 🔴 Indexed off the TOKEN's ordinal, not off the layer's position in the stack. A position-derived
+        //    colour would re-shuffle every tag on a reorder or a delete, so the marker the user just learned to
+        //    recognise would jump to a different layer — the one thing an identity colour must never do. The
+        //    token ordinal is issued once and never reused, so a layer keeps its colour for life.
+        // 📝 Explicitly overridable via Setting.Colour so a caller (or a restored document) can pin one.
+        this.Colour = Setting.Colour
+            ?? LAYER_COLOUR_PALETTE[(TokenSequence - 1) % LAYER_COLOUR_PALETTE.length];
 
         // Which material preset or generator recipe this layer is an instance of, if any.
         this.Preset    = Setting.Preset    ?? null;

@@ -282,8 +282,8 @@ void AdvanceWorkplaneDraw(const SketchModelViewportState&                       
 
     const ImGuiIO& Io = ImGui::GetIO();
 
-    // -- Cancel: Escape abandons the draw with nothing added. (Right-click is no longer a cancel — it now drives the camera orbit.) --
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    // -- Cancel: Escape OR a right-click abandons the draw with nothing added. --
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))
     {
         Draw.Phase        = WorkplaneDrawPhase::Idle;
         Draw.CornerBValid = false;

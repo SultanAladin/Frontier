@@ -60,10 +60,17 @@ namespace
     }
 
     // 📝 Resolve a committed console action to a drawable 2D primitive category, or false if it is not one. The Sketch Geometry band's ops carry
-    //    glyph names (SketchLine / SketchRectangle / …) that map 1:1 onto ParametricSketchShapeCategory; only the categories this cut draws are
-    //    matched (Line / Rectangle / Circle / Ellipse / Polygon / Slot). Same dense (cluster, action) → catalogue mapping as the workplane check.
-    bool CommittedActionIsSketchShape(int ClusterIndex, int ActionIndex, Frontier::ParametricSketchShapeCategory& OutCategory)
+    //    glyph names (SketchLine / SketchRectangle / …) that map 1:1 onto ParametricSketchShapeCategory. The fixed-count families (Line / Rectangle /
+    //    Circle / Ellipse / Polygon / Slot / Arc) AND the open-ended curve families (Polyline / Bezier / Spline via the catalogue's SketchPolyline /
+    //    SketchBezier / SketchSpline glyphs) are matched here; AdvanceShapeDraw seals the former on the completing click and the latter on a finish
+    //    gesture. Same dense (cluster, action) → catalogue mapping as the workplane check. The band now exposes the full free-curve set (SketchPolyline
+    //    / SketchBezier / SketchSpline / SketchBSpline / SketchNurbs — all open-ended — plus the fixed-3-point SketchConic), each mapping 1:1 onto its
+    //    store category. The former SketchArcThree / SketchCircleThree 3-point glyphs were dropped: Arc already IS the 3-point circumcircle solve, and no
+    //    3-point circle solver exists, so they were duplicate / unbacked.
+    bool CommittedActionIsSketchShape(int ClusterIndex, int ActionIndex,
+                                      Frontier::ParametricSketchShapeCategory& OutCategory, bool& OutCentreRect)
     {
+        OutCentreRect = false;
         if (ClusterIndex < 0 || ActionIndex < 0)
             return false;
 
@@ -80,20 +87,35 @@ namespace
         if (Glyph == nullptr)
             return false;
 
-        struct GlyphCategory { const char* Glyph; Frontier::ParametricSketchShapeCategory Category; };
+        // 📝 CentreRect shares the Rectangle store category (there is one Rectangle solver, two opposite corners) but changes how the TWO clicks are
+        //    read: click 1 is the CENTRE, click 2 is one corner, and AdvanceShapeDraw mirrors the corner about the centre to seal a full centred box.
+        //    That interpretation is a viewport-draw affordance, so it rides a flag out of here rather than a distinct store category.
+        struct GlyphCategory { const char* Glyph; Frontier::ParametricSketchShapeCategory Category; bool CentreRect; };
         static const GlyphCategory Table[] =
         {
-            { "SketchLine",      Frontier::ParametricSketchShapeCategory::Line      },
-            { "SketchRectangle", Frontier::ParametricSketchShapeCategory::Rectangle },
-            { "SketchCircle",    Frontier::ParametricSketchShapeCategory::Circle    },
-            { "SketchEllipse",   Frontier::ParametricSketchShapeCategory::Ellipse   },
-            { "SketchPolygon",   Frontier::ParametricSketchShapeCategory::Polygon   },
-            { "SketchSlot",      Frontier::ParametricSketchShapeCategory::Slot      },
+            { "SketchLine",       Frontier::ParametricSketchShapeCategory::Line,      false },
+            { "SketchRectangle",  Frontier::ParametricSketchShapeCategory::Rectangle, false },
+            { "SketchCentreRect", Frontier::ParametricSketchShapeCategory::Rectangle, true  },
+            { "SketchCircle",     Frontier::ParametricSketchShapeCategory::Circle,    false },
+            { "SketchEllipse",    Frontier::ParametricSketchShapeCategory::Ellipse,   false },
+            { "SketchPolygon",    Frontier::ParametricSketchShapeCategory::Polygon,   false },
+            { "SketchSlot",       Frontier::ParametricSketchShapeCategory::Slot,      false },
+            // -- The Arc: three points solve the circumcircle-arc (fixed-3). --
+            { "SketchArc",        Frontier::ParametricSketchShapeCategory::Arc,       false },
+            // -- The Conic: three points solve the conic section (fixed-3). --
+            { "SketchConic",      Frontier::ParametricSketchShapeCategory::Conic,     false },
+            // -- The open-ended curve families: each collects control points until a finish gesture (Enter / double-click) seals it. --
+            { "SketchPolyline",   Frontier::ParametricSketchShapeCategory::Polyline,  false },
+            { "SketchBezier",     Frontier::ParametricSketchShapeCategory::Bezier,    false },
+            { "SketchSpline",     Frontier::ParametricSketchShapeCategory::Spline,    false },
+            { "SketchBSpline",    Frontier::ParametricSketchShapeCategory::BSpline,   false },
+            { "SketchNurbs",      Frontier::ParametricSketchShapeCategory::Nurbs,     false },
         };
         for (const GlyphCategory& Row : Table)
             if (std::strcmp(Glyph, Row.Glyph) == 0)
             {
-                OutCategory = Row.Category;
+                OutCategory   = Row.Category;
+                OutCentreRect = Row.CentreRect;
                 return true;
             }
         return false;
@@ -206,11 +228,14 @@ void ConstructSketchModelSummonedSurfaces(const Frontier::ThemeConfiguration& Th
         // 🔴 A committed Sketch* primitive op ARMS a shape draw on the store (nothing is added to the outliner yet — the shape seals only when the
         //    click gesture completes, and AdvanceShapeDraw mirrors it then). Same commit-off-(cluster, action) detection as the workplane.
         Frontier::ParametricSketchShapeCategory SketchCategory = Frontier::ParametricSketchShapeCategory::Line;
-        if (Outcome.CommitRequested && CommittedActionIsSketchShape(Outcome.ActivatedCluster, Outcome.ActivatedAction, SketchCategory))
+        bool SketchCentreRect = false;
+        if (Outcome.CommitRequested && CommittedActionIsSketchShape(Outcome.ActivatedCluster, Outcome.ActivatedAction, SketchCategory, SketchCentreRect))
         {
             // 🔴 LATCH the tool so it stays active: after each shape seals, the panel re-arms this same category for the next cycle (SustainSketchToolCycle),
             //    so the user draws rectangle after rectangle without reopening the menu. The latch is the cycle owner; Escape clears it to leave the tool.
+            //    The centre-rect affordance (mirror the 2nd click about the 1st) rides the latch too, so it survives every re-arm of the cycle.
             LatchSketchTool(State.ToolLatch, SketchCategory);
+            State.ToolLatch.CentreRect = SketchCentreRect;
             ArmShapeDraw(State.ShapeStore, SketchCategory);
             State.ConsoleOpen = false;
         }

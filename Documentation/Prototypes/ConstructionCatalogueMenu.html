@@ -646,14 +646,15 @@ const GLYPH = {
   SketchRectangle:   S("M4 6h16v12H4z",1.7)+B(4,6,1.8)+B(20,18,1.8),
   SketchCentreRect:  S("M4 6h16v12H4z",1.6,.8)+B(12,12,2.2)+S("M12 8v8M8 12h8",1.2,.4),
   SketchCircle:      O(12,12,8,1.7)+B(12,12,1.8),
-  SketchCircleThree: O(12,12,8,1.6,.85)+B(12,4,2.1)+B(19,16,2.1)+B(5,16,2.1),
   SketchArc:         S("M4 19a15 15 0 0 1 16-13",1.8)+B(4,19,2.2)+B(20,6,2.2),
-  SketchArcThree:    S("M4 18a12 12 0 0 1 16-8",1.7)+B(4,18,2.1)+B(11,12.4,1.9)+B(20,10,2.1),
   SketchEllipse:     S("M12 5c4.4 0 8 3.1 8 7s-3.6 7-8 7-8-3.1-8-7 3.6-7 8-7z",1.7)+S("M4 12h16",1.2,.4)+B(12,12,1.6,.8),
   SketchSlot:        S("M8 8h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z",1.7)+B(8,12,1.5,.7)+B(16,12,1.5,.7),
   SketchPolygon:     S("M12 3l8 6-3 10H7L4 9z",1.7)+B(12,12,1.6,.6),
   SketchSpline:      S("M3 18C7 6 17 22 21 8",1.7)+B(3,18,1.9,.8)+B(9,12,1.6,.55)+B(15,15,1.6,.55)+B(21,8,1.9,.8),
   SketchBezier:      S("M3 19C3 9 21 19 21 6",1.7)+B(3,19,2.2)+B(21,6,2.2)+D("M3 19l6-3M21 6l-6 4",1.2,.5),
+  SketchBSpline:     S("M3 18C7 8 9 8 12 12s5 4 9-6",1.7)+D("M3 18l5-4M12 12l4-3M21 6l-4 3",1.2,.45)+B(8,10,1.5,.6)+B(16,13,1.5,.6),
+  SketchNurbs:       S("M3 18C7 8 9 8 12 12s5 4 9-6",1.7)+D("M3 18l5-4M21 6l-4 3",1.2,.45)+B(8,10,1.8,.8)+B(16,13,1.4,.5)+O(12,12,1.6,1.1,.7),
+  SketchConic:       S("M4 20a16 16 0 0 1 16-16",1.7,.85)+B(4,20,2.1)+B(12,10.5,1.8)+B(20,4,2.1),
   SketchPoint:       B(12,12,3)+D("M12 2v6M12 16v6M2 12h6M16 12h6",1.3,.5),
   SketchFillet:      S("M5 19V11a6 6 0 0 1 6-6h8",1.8)+D("M5 5h6M5 5v6",1.3,.45)+B(5,5,1.4,.4),
   SketchChamfer:     S("M5 19V10l5-5h9",1.8)+D("M5 5h5M5 5v5",1.3,.45)+B(5,5,1.4,.4),
@@ -1252,7 +1253,7 @@ const BANDS = [
      together. That block behaviour is why WorkplaneAbsent is its own state and not
      just another ProfileShortfall: it is the only shortfall with an honest
      one-click remedy. */
-  { key:"sketch", label:"Sketch Geometry", glyph:"SketchLine", ops:[
+  { key:"sketch-draw", label:"Sketch Draw", glyph:"SketchLine", ops:[
       {glyph:"SketchLine",        label:"Line",         accel:"L", dims:ANY, needs:["workplane"], params:[
           {kind:"slider",    ico:"ParamDistance", label:"Length", min:0.1, max:5000, value:100, unit:"mm"},
           {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:-180, max:180, value:0, unit:"°"},
@@ -1285,16 +1286,10 @@ const BANDS = [
           {kind:"segmented", ico:"ParamMode",     label:"Defined by", options:["Centre","Diameter"], value:0},
           {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
       ]},
-      {glyph:"SketchCircleThree", label:"Circle 3 Pt.", dims:ANY, needs:["workplane"], minCount:3, params:[
-          {kind:"toggle",    ico:"ParamSnap",     label:"Snap to existing points", value:true},
-      ]},
       {glyph:"SketchArc",         label:"Arc",          accel:"A", dims:ANY, needs:["workplane"], params:[
           {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
           {kind:"slider",    ico:"ParamAngle",    label:"Included angle", min:1, max:359, value:90, unit:"°"},
           {kind:"segmented", ico:"ParamDirection",label:"Direction", options:["CCW","CW"], value:0},
-      ]},
-      {glyph:"SketchArcThree",    label:"Arc 3 Pt.",    dims:ANY, needs:["workplane"], minCount:3, params:[
-          {kind:"toggle",    ico:"ParamSnap",     label:"Snap to existing points", value:true},
       ]},
       {glyph:"SketchEllipse",     label:"Ellipse",      dims:ANY, needs:["workplane"], params:[
           {kind:"slider",    ico:"ParamWidth",    label:"Major radius", min:0.1, max:2500, value:70, unit:"mm"},
@@ -1315,10 +1310,35 @@ const BANDS = [
           {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
           {kind:"toggle",    ico:"ParamSmooth",   label:"Tangent continuity", value:true},
       ]},
+      {glyph:"SketchBSpline",     label:"B-Spline",     dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
+          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
+      ]},
+      {glyph:"SketchNurbs",       label:"NURBS",        dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
+          {kind:"slider",    ico:"ParamRadius",   label:"Weight", min:0.1, max:10, value:1, unit:"−"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
+      ]},
+      {glyph:"SketchConic",       label:"Conic",        dims:ANY, needs:["workplane"], minCount:3, params:[
+          {kind:"slider",    ico:"ParamRadius",   label:"Rho", min:0.01, max:0.99, value:0.5, unit:"−"},
+          {kind:"segmented", ico:"ParamMode",     label:"Family", options:["Ellipse","Parabola","Hyperbola"], value:0},
+      ]},
       {glyph:"SketchPoint",       label:"Point",        dims:ANY, needs:["workplane"], params:[
           {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid"]},
           {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:true},
       ]},
+  ]},
+
+  { sep:true },
+
+  /*── Band · SKETCH MODIFY ──────────────────────────────────────────────────────
+     Curve-editing ops that consume EXISTING sketch geometry rather than drawing a
+     new primitive from scratch: fillet/chamfer a shared corner, trim/extend an
+     edge to its neighbours, offset a wire. Split out of the flat Sketch Geometry
+     band so "draw a shape" and "edit an edge that already exists" no longer share
+     one undifferentiated list. */
+  { key:"sketch-modify", label:"Sketch Modify", glyph:"SketchFillet", ops:[
       /* Fillet and Chamfer need a shared endpoint between two curves — the
          "needs a shared endpoint" chip, not the vague "Wrong selection" that
          FreeCAD #30460 shows for the analogous case. */
@@ -1342,6 +1362,16 @@ const BANDS = [
           {kind:"segmented", ico:"ParamMode",     label:"Corners", options:["Arc","Extend","Chamfer"], value:0},
           {kind:"toggle",    ico:"ParamClosed",   label:"Both sides", value:false},
       ]},
+  ]},
+
+  { sep:true },
+
+  /*── Band · SKETCH REFERENCE ───────────────────────────────────────────────────
+     Ops that reference or re-cast existing geometry rather than draw or edit it in
+     place: mirror across an axis, demote to construction geometry, project 3D
+     edges down onto the active workplane. Kept apart from Sketch Modify because
+     these produce derived / linked geometry, not an edit of the source curve. */
+  { key:"sketch-reference", label:"Sketch Reference", glyph:"SketchMirrorLine", ops:[
       {glyph:"SketchMirrorLine",  label:"Mirror",       needs:["workplane","axis"], dims:["Edge","Wire","Face"], params:[
           {kind:"toggle",    ico:"ParamMirror",   label:"Keep source", value:true},
           {kind:"axis",      ico:"ParamAxis",     label:"Mirror line"},

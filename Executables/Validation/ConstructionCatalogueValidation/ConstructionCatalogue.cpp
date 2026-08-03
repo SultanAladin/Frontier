@@ -872,7 +872,7 @@ const Frontier::ToolParameterDescriptor ParametersPrimitive17[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch00[4] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw00[4] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -920,7 +920,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch00[4] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch01[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw01[3] =
 {
         {
             Frontier::ToolParameterCategory::Toggle,
@@ -957,7 +957,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch01[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch02[4] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw02[4] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1005,7 +1005,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch02[4] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch03[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw03[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1042,7 +1042,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch03[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch04[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw04[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1079,7 +1079,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch04[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch05[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw05[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1116,22 +1116,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch05[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch06[1] =
-{
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamSnap",
-            "Snap to existing points",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketch07[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw06[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1168,22 +1153,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch07[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch08[1] =
-{
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamSnap",
-            "Snap to existing points",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketch09[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw07[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1220,7 +1190,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch09[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch10[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw08[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1257,7 +1227,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch10[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch11[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw09[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1294,7 +1264,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch11[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch12[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw10[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1320,7 +1290,107 @@ const Frontier::ToolParameterDescriptor ParametersSketch12[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch13[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchDraw11[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            2.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Periodic",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::SnapTargets,
+            "ParamSnap",
+            "Snap to",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
+            { true, true, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw12[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            2.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Weight",
+            0.1f, 10.0f, 1.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Periodic",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw13[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Rho",
+            0.01f, 0.99f, 0.5f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Family",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Ellipse", "Parabola", "Hyperbola", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw14[2] =
 {
         {
             Frontier::ToolParameterCategory::SnapTargets,
@@ -1346,7 +1416,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch13[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch14[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchModify00[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1372,7 +1442,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch14[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch15[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchModify01[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1398,7 +1468,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch15[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch16[1] =
+const Frontier::ToolParameterDescriptor ParametersSketchModify02[1] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -1413,7 +1483,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch16[1] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch17[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchModify03[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1439,7 +1509,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch17[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch18[3] =
+const Frontier::ToolParameterDescriptor ParametersSketchModify04[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -1476,7 +1546,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch18[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch19[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchReference00[2] =
 {
         {
             Frontier::ToolParameterCategory::Toggle,
@@ -1502,7 +1572,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch19[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch20[1] =
+const Frontier::ToolParameterDescriptor ParametersSketchReference01[1] =
 {
         {
             Frontier::ToolParameterCategory::Toggle,
@@ -1517,7 +1587,7 @@ const Frontier::ToolParameterDescriptor ParametersSketch20[1] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketch21[2] =
+const Frontier::ToolParameterDescriptor ParametersSketchReference02[2] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -4343,30 +4413,39 @@ const ConstructionOperation OperationsPrimitive[18] =
     { "SolidThicken", "Thicken Shell", nullptr, 0x30u, false, 0x0080u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersPrimitive17, 3 },
 };
 
-const ConstructionOperation OperationsSketch[22] =
+const ConstructionOperation OperationsSketchDraw[15] =
 {
-    { "SketchLine", "Line", "L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch00, 4 },
-    { "SketchPolyline", "Polyline", "⇧L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch01, 3 },
-    { "SketchRectangle", "Rectangle", "R", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch02, 4 },
-    { "SketchCentreRect", "Centre Rect.", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch03, 3 },
-    { "SketchSlot", "Slot", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch04, 3 },
-    { "SketchCircle", "Circle", "C", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch05, 3 },
-    { "SketchCircleThree", "Circle 3 Pt.", nullptr, 0x7Fu, false, 0x0001u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch06, 1 },
-    { "SketchArc", "Arc", "A", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch07, 3 },
-    { "SketchArcThree", "Arc 3 Pt.", nullptr, 0x7Fu, false, 0x0001u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch08, 1 },
-    { "SketchEllipse", "Ellipse", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch09, 3 },
-    { "SketchPolygon", "Polygon", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch10, 3 },
-    { "SketchSpline", "Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch11, 3 },
-    { "SketchBezier", "Bézier", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch12, 2 },
-    { "SketchPoint", "Point", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch13, 2 },
-    { "SketchFillet", "Fillet", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch14, 2 },
-    { "SketchChamfer", "Chamfer", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch15, 2 },
-    { "SketchTrim", "Trim", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch16, 1 },
-    { "SketchExtend", "Extend", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch17, 2 },
-    { "SketchOffset", "Offset", nullptr, 0x1Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch18, 3 },
-    { "SketchMirrorLine", "Mirror", nullptr, 0x1Cu, false, 0x0009u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch19, 2 },
-    { "SketchConstruction", "To Construction", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch20, 1 },
-    { "SketchProject", "Project Edges", nullptr, 0x7Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketch21, 2 },
+    { "SketchLine", "Line", "L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw00, 4 },
+    { "SketchPolyline", "Polyline", "⇧L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw01, 3 },
+    { "SketchRectangle", "Rectangle", "R", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw02, 4 },
+    { "SketchCentreRect", "Centre Rect.", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw03, 3 },
+    { "SketchSlot", "Slot", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw04, 3 },
+    { "SketchCircle", "Circle", "C", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw05, 3 },
+    { "SketchArc", "Arc", "A", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw06, 3 },
+    { "SketchEllipse", "Ellipse", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw07, 3 },
+    { "SketchPolygon", "Polygon", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw08, 3 },
+    { "SketchSpline", "Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw09, 3 },
+    { "SketchBezier", "Bézier", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw10, 2 },
+    { "SketchBSpline", "B-Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw11, 3 },
+    { "SketchNurbs", "NURBS", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw12, 3 },
+    { "SketchConic", "Conic", nullptr, 0x7Fu, false, 0x0001u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw13, 2 },
+    { "SketchPoint", "Point", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw14, 2 },
+};
+
+const ConstructionOperation OperationsSketchModify[5] =
+{
+    { "SketchFillet", "Fillet", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify00, 2 },
+    { "SketchChamfer", "Chamfer", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify01, 2 },
+    { "SketchTrim", "Trim", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify02, 1 },
+    { "SketchExtend", "Extend", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify03, 2 },
+    { "SketchOffset", "Offset", nullptr, 0x1Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify04, 3 },
+};
+
+const ConstructionOperation OperationsSketchReference[3] =
+{
+    { "SketchMirrorLine", "Mirror", nullptr, 0x1Cu, false, 0x0009u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference00, 2 },
+    { "SketchConstruction", "To Construction", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference01, 1 },
+    { "SketchProject", "Project Edges", nullptr, 0x7Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference02, 2 },
 };
 
 const ConstructionOperation OperationsSweep[12] =
@@ -4500,7 +4579,9 @@ const ConstructionOperation OperationsAnnotation[8] =
 const ConstructionBand ConstructionBands[] =
 {
     { "Solid Primitive", "SolidBox", OperationsPrimitive, 18 },
-    { "Sketch Geometry", "SketchLine", OperationsSketch, 22 },
+    { "Sketch Draw", "SketchLine", OperationsSketchDraw, 15 },
+    { "Sketch Modify", "SketchFillet", OperationsSketchModify, 5 },
+    { "Sketch Reference", "SketchMirrorLine", OperationsSketchReference, 3 },
     { "Profile Sweep", "SweepPrism", OperationsSweep, 12 },
     { "Curve", "CurveLine3d", OperationsCurve, 14 },
     { "Surface", "SurfacePlanar", OperationsSurface, 11 },
@@ -4512,7 +4593,7 @@ const ConstructionBand ConstructionBands[] =
     { "Annotation", "AnnotateLinear", OperationsAnnotation, 8 },
 };
 
-constexpr int ConstructionBandCount = 11;
+constexpr int ConstructionBandCount = 13;
 
 //----------------------------------------------------------------------------------------------------------------------
 //                                                    THE RAISING LAW

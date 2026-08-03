@@ -1352,10 +1352,22 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                                    ArenaNode, ArenaPrimitive, TreeNode,
                                                    Extension.SceneGeometry.IndexBuffer, Extension.SceneGeometry.VertexBuffer);
                     ISSUE_NOTICE("render-extension", "surfel integrate wired against the TLAS");
+
+                    // -- Primary sun shadow: point the SHADE's BVH set (set 2) at the SAME four acceleration buffers the integrate trace reads. The
+                    //    shade REUSES set 0's instance SSBO + merged vertex/index streams (its Refresh already pointed those), so only Slices / arena
+                    //    node / arena primitive / tree node are wired here. Bound ONCE for the same static-scene reason as the integrate. Best-effort: a
+                    //    no-op until the shade's set-2 layout exists, leaving ShadowSetReady false so the shade record forces the unshadowed path.
+                    RefreshSurfaceShadeBvhBindings(Extension.SurfaceShade,
+                                                   ArenaSlice, ArenaNode, ArenaPrimitive, TreeNode);
+                    ISSUE_NOTICE("render-extension", "surface-shade sun-shadow BVH wired against the TLAS");
                 }
             }
         }
     }
+
+    // -- GPU wall-clock probe (measure-first). Best-effort: a device without graphics-queue timestamps leaves PassTiming.ReadyCondition false and every
+    //    Begin/End/Collect no-ops, so the unmeasured path runs byte-identically. Its own ISSUE_NOTICE reports whether timing came up.
+    InitializeGpuTimestampScope(Extension.PassTiming, Extension.Substrate.Host);
 
 #ifdef FRONTIER_DEVELOPMENT_PROFILE
     // -- Clipmap visualization (development only): the instanced wire-cube lattice + probe markers over the field, built against the SWAPCHAIN
@@ -1480,6 +1492,25 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 ImGui::NewFrame();
             }
 
+            // 📊 GPU-timing frame boundary. Collect FIRST — it reads the ring that trails this frame's (the GPU has retired it), so the numbers are one
+            //    frame late but never stall the CPU. BeginFrame THEN advances to this frame's ring and resets it, so the brackets below write into a clean
+            //    span. Both no-op when the device can't timestamp the graphics queue, leaving the unmeasured path byte-identical. The console readout is
+            //    throttled to once every 120 frames so it narrates the breakdown without flooding the notice log.
+            CollectGpuTimestampResults(Extension.PassTiming);
+            BeginGpuTimestampFrame(Extension.PassTiming, CommandBuffer);
+            if (Extension.PassTiming.ReadyCondition && (++Extension.PassReportFrame % 120u) == 0u)
+            {
+                const float* Millis = Extension.PassTiming.ResolvedMillis;
+                ISSUE_NOTICE("surfel-timing",
+                             "GPU ms  slot %.3f  spawn %.3f  age %.3f  integrate %.3f  shade %.3f  splat %.3f",
+                             Millis[RenderExtension::SurfelPassSlotSlotting],
+                             Millis[RenderExtension::SurfelPassSlotSpawn],
+                             Millis[RenderExtension::SurfelPassSlotAge],
+                             Millis[RenderExtension::SurfelPassSlotIntegrate],
+                             Millis[RenderExtension::SurfelPassSlotShade],
+                             Millis[RenderExtension::SurfelPassSlotDebugSplat]);
+            }
+
             // 🔴 Per-cell cap commit (F10 Apply). Consumed at the TOP of the preamble, before any surfel dispatch this frame, so the spawn gate + the
             //    occupancy heatmap read a stable cap for the whole frame. Because the List SSBO is allocated once at SurfelMaxPerCellAllocationCap (256),
             //    raising the cap can NEVER over-run it — so this is a pure uniform commit (choice -> applied), NOT a reallocation: no vkDeviceWaitIdle, no
@@ -1490,6 +1521,22 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 Extension.SurfelTuning.PerCellCapApplied = Extension.SurfelTuning.PerCellCapChoice;
                 Extension.SurfelTuning.ApplyCapRequested = false;
                 printf("[surfel] per-cell cap applied -> %d\n", Extension.SurfelTuning.PerCellCapApplied);
+            }
+
+            // ☀️ Sun source (F10 Sun card override). Rewrite the atmosphere profile's solar vector from the tuning elevation/azimuth, then re-upload ONLY
+            //    when it actually moved — UpdateSkyAtmosphereProfile re-writes the UBO mapping + sets SunDirtyCondition (a sky-view re-bake), so a static
+            //    sun costs nothing. The sky, the surfel integrate, and the direct shade all read Extension.SkyPass.Profile, so one write drives all three.
+            {
+                float PriorSolar[3] = { Extension.SkyPass.Profile.SolarDirection[0],
+                                        Extension.SkyPass.Profile.SolarDirection[1],
+                                        Extension.SkyPass.Profile.SolarDirection[2] };
+                AtmosphereUniformBlock TunedProfile = Extension.SkyPass.Profile;
+                Atmosphere::AssignSolarDirection(TunedProfile, Extension.SurfelTuning.SunElevation, Extension.SurfelTuning.SunAzimuth);
+                const bool SunMoved = TunedProfile.SolarDirection[0] != PriorSolar[0]
+                                   || TunedProfile.SolarDirection[1] != PriorSolar[1]
+                                   || TunedProfile.SolarDirection[2] != PriorSolar[2];
+                if (SunMoved)
+                    UpdateSkyAtmosphereProfile(Extension.SkyPass, TunedProfile);
             }
 
             // 🔴 The observer is CACHED here for RecordSequence to reuse rather than each recomputing it. The preamble runs first and the sequence
@@ -1898,7 +1945,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
 
                 SurfelSlottingConstants SlottingConstants;
                 AssembleSurfelSlottingConstants(Extension.ViewCamera, Extension.SurfelTuning, SlottingConstants);
+                BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSlotting);
                 RecordSurfelGridSlotting(Extension.SurfelSlotting, Extension.SurfelPoolResource, SlottingConstants, CommandBuffer);
+                EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSlotting);
 
                 const bool FloorResident = Extension.SurfaceShade.FloorGeometryBound && FloorDrawPlacement.IndexCount > 0;
                 SurfelSpawnConstants SpawnConstants;
@@ -1906,12 +1955,16 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                              ? VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height } : Extent,
                                              Extension.SurfelFrameIndex, FloorResident, FloorDrawPlacement.IndexOffset,
                                              Extension.SurfelSpawnDensityScale, Extension.SurfelTuning, SpawnConstants);
+                BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSpawn);
                 RecordSurfelLifecycleSpawn(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SpawnConstants,
                                            VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height }, CommandBuffer);
+                EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSpawn);
 
                 // Age reads the touched income mailbox + hashes each surfel's cell for the crowding rent, so it needs THIS frame's grid origin — the
                 // same camera-relative eye position the slotting/spawn used above (SlottingConstants.GridOrigin), keeping host and shader on one lattice.
+                BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotAge);
                 RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SlottingConstants.GridOrigin, CommandBuffer);
+                EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotAge);
 
                 // ── Phase 2: the per-surfel INTEGRATE (trace + MSME). Runs AFTER Age (so this frame's ages are settled) and AFTER the #26 TLAS chain (it
                 //    walks the tree the refit just wrote — B2 above already fenced the tree node buffer). B1 fences slotting's grid + the pool/moments-read
@@ -1959,7 +2012,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     IntegrateConstants.TuneCellDiameter  = Extension.SurfelTuning.CellDiameter;
                     IntegrateConstants.TuneBaseRadius    = Extension.SurfelTuning.BaseRadius;
                     IntegrateConstants.TuneNearFieldBias = Extension.SurfelTuning.NearFieldBias;
+                    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotIntegrate);
                     RecordSurfelIntegrate(Extension.SurfelIntegrate, Extension.SurfelPoolResource, IntegrateConstants, CommandBuffer);
+                    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotIntegrate);
 
                     // B3 — integrate (compute WRITE) → next frame's integrate/resolve/Age (compute READ). Fences moments-write / guiding / depth / touched.
                     VkMemoryBarrier IntegrateToReaders = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
@@ -2061,6 +2116,14 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     AssembleSurfaceShadeConstants(Extension.ViewCamera, Extension.CompositeFeatureMask,
                                                   Vector3f{ ShadeSunX, ShadeSunY, ShadeSunZ }, ShadeConstants);
 
+                    // ☀️ Key-light radiance from the F10 Sun card: colour × intensity, PREMULTIPLIED here so the frag reads one vec3 (SunRadiance) with no
+                    //    per-pixel multiply. The sky keeps its own SolarIlluminance calibration (independent scale, see AtmosphereProfile.h) — this is only
+                    //    the deferred shade's key light, the one the retired hardcoded LightColour*LightIntensity used to carry.
+                    ShadeConstants.SunRadiance[0] = Extension.SurfelTuning.SunColour[0] * Extension.SurfelTuning.SunIntensity;
+                    ShadeConstants.SunRadiance[1] = Extension.SurfelTuning.SunColour[1] * Extension.SurfelTuning.SunIntensity;
+                    ShadeConstants.SunRadiance[2] = Extension.SurfelTuning.SunColour[2] * Extension.SurfelTuning.SunIntensity;
+                    ShadeConstants.SunRadiance[3] = 0.0f;
+
                     // 🔴 Sourced from the inscription's own record of what b5-b7 hold, never from whether a floor document loaded: when the floor is
                     //    absent those bindings are aliased onto the HEAD buffers, so enabling the shade would reconstruct floor pixels from head
                     //    triangles — a plausible-looking surface built from the wrong mesh, which is far harder to spot than a missing one.
@@ -2086,7 +2149,21 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     ShadeConstants.TuneBaseRadius    = Extension.SurfelTuning.BaseRadius;
                     ShadeConstants.TuneNearFieldBias = Extension.SurfelTuning.NearFieldBias;
 
+                    // ---- Primary sun shadow (area-sampled BVH; set 2) ----
+                    // The trace's TraceInstanceCount / TraceSliceCount, from the SAME sources the TLAS + integrate were counted against (the scene is
+                    // static after load, so these are the leaf/slice counts the tree was built with). ShadowFrame rotates the per-pixel jitter so a
+                    // temporal pass can average. GI is ON only when the toggle is set AND set 2 is bound — the record forces it off otherwise, but
+                    // gating here avoids pushing live counts the shader would ignore and keeps the tuning A/B honest.
+                    ShadeConstants.SunAngularRadius   = Extension.SurfelTuning.SunAngularRadius;
+                    ShadeConstants.ShadowSampleCount  = (uint32_t)(Extension.SurfelTuning.ShadowSampleCount > 0 ? Extension.SurfelTuning.ShadowSampleCount : 1);
+                    ShadeConstants.ShadowEnabled      = (Extension.SurfelTuning.ShadowEnabled && Extension.SurfaceShade.ShadowSetReady) ? 1u : 0u;
+                    ShadeConstants.ShadowFrame        = Extension.SurfelFrameIndex;
+                    ShadeConstants.ShadowInstanceCount = Extension.VisibilityRaster.InstanceCount;
+                    ShadeConstants.ShadowSliceCount    = (uint32_t)Extension.GeometryArena.Slices.size();
+
+                    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotShade);
                     RecordSurfaceShadeInscription(Extension.SurfaceShade, Extent, ShadeConstants, CommandBuffer);
+                    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotShade);
                 }
 
                 // Surfel debug splat (Phase 1, user-requested). Composites every LIVE surfel as a screen-space disc over the shaded scene, INSIDE this
@@ -2105,7 +2182,9 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     AssembleSurfelDebugConstants(Extension.ViewCamera, Extent, Extension.SurfelDebugMode,
                                                  Extension.SurfelDebugRadiusScale, SurfelDebugReadOffset,
                                                  Extension.SurfelPoolResource.Capacity, Extension.SurfelTuning, DebugConstants);
+                    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotDebugSplat);
                     RecordSurfelDebugInscription(Extension.SurfelDebug, Extent, DebugConstants, CommandBuffer);
+                    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotDebugSplat);
                 }
 
                 Extension.Substrate.Host.CmdEndRendering(CommandBuffer);
@@ -2762,6 +2841,8 @@ void FinalizeRenderExtension(RenderExtension& Extension)
     // destroyed is the wrong order even when both happen under one device-idle.
     FinalizeRadianceResolveInscription(Extension.RadianceResolve);
     FinalizeRadianceTarget(Extension.RadianceScene);
+    // GPU timestamp probe: destroy its query pool. Device is idle at teardown; safe on a never-initialized (unsupported-device) value.
+    FinalizeGpuTimestampScope(Extension.PassTiming);
     FinalizeSurfaceShadeInscription(Extension.SurfaceShade);
     // Phase-2 integrate first: it borrows BOTH the surfel state (pool/slotting) AND the BVH (arena + TLAS tree), all released below, so it must go ahead
     // of every one of them. Owns only its layouts/pipeline/pool; safe on never-initialized state.

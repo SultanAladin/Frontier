@@ -5,7 +5,8 @@
 
 import { CLASSIFICATION_LABEL, CLASSIFICATION_TINT,
          BLEND_MODES, LayerCapacity } from "../Layers/LayerStack.js";
-import { CHANNEL_ORDER, CHANNEL_LABEL, CHANNEL_SLOTS } from "../Layers/ChannelSet.js";
+import { CHANNEL_ORDER, CHANNEL_LABEL, CHANNEL_SLOTS,
+         IsStoredChannel }                            from "../Layers/ChannelSet.js";
 import { CHANNEL_MODES, LAYER_KINDS, LAYER_KIND_ORDER, KindLabel, KindTint,
          DefaultChannels } from "../Layers/LayerKinds.js";
 import { MASK_COMPONENT_CATEGORY, MASK_COMPONENT_ORDER, MASK_COMPONENT_PARAMS,
@@ -50,6 +51,14 @@ const CLASSIFICATION_ART = {
 };
 
 const Hue = (Classification) => CLASSIFICATION_TINT[Classification] ?? "#5b8cff";
+
+// The layer's own identity colour, for the rail tag and anything else marking THIS layer rather than its kind.
+//
+// 🔴 Falls back to the classification tint, not to a hard-coded default: a layer arriving from an older document
+//    (or any caller that predates PaintLayer.Colour) has no Colour field, and defaulting it to one fixed hue
+//    would tag every such layer identically — the very fault the per-layer palette exists to fix. The kind tint
+//    is at least as informative as what was there before.
+const LayerHue = (Layer) => Layer?.Colour ?? Hue(Layer?.Classification);
 
 const ClassificationSvg = (Classification, Size) =>
     SvgWrap(CLASSIFICATION_ART[Classification] ? CLASSIFICATION_ART[Classification](Hue(Classification)) : "", Size);
@@ -166,6 +175,42 @@ function HexToColour(Hex)
     return [((Packed >> 16) & 255) / 255, ((Packed >> 8) & 255) / 255, (Packed & 255) / 255];
 }
 
+// What a Value-mode ("solid") channel looks like, as a CSS fill plus a human reading of the value.
+// Returns null when the channel has no solid to show, which is the caller's cue to fall through to
+// "nothing here yet".
+//
+// 🔴 A DERIVED channel returns null even though it has a value in Layer.Values. `normal` is computed from
+//    height at shade time (CHANNEL_SLOTS.normal: Atlas null, Kind "derived"); painting a flat swatch for it
+//    would assert a stored solid that does not exist, and the honest answer is the empty state.
+// 🔴 A scalar is shown as GREY, not as a colour. metallic/roughness/height occupy one component of the shared
+//    Material atlas, and ChannelPreview splats that component to grey for the real readback (Component 0/1/2
+//    with the same shader) — so a scalar solid must match, or the solid and painted previews of one channel
+//    would disagree on what the value looks like.
+function SolidPreviewOf(Layer, Key)
+{
+    const Slot = CHANNEL_SLOTS[Key];
+    if (!Slot || Slot.Atlas === null) { return null; }
+
+    const Value = Layer?.Values?.[Key];
+
+    if (Slot.Kind === "colour")
+    {
+        if (!Array.isArray(Value)) { return null; }
+        const Hex = ColourToHex(Value);
+        return { Css: Hex, Reading: Hex.toUpperCase() };
+    }
+
+    if (Slot.Kind === "scalar")
+    {
+        if (typeof Value !== "number" || !Number.isFinite(Value)) { return null; }
+        const Unit  = Math.max(0, Math.min(1, Value));
+        const Level = Math.round(Unit * 255);
+        return { Css: `rgb(${Level},${Level},${Level})`, Reading: Unit.toFixed(3) };
+    }
+
+    return null;
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       MARKUP
 //------------------------------------------------------------------------------------------------------------------------
@@ -264,14 +309,15 @@ const MenuPad    = 14;
 // `Stack` is the live LayerStack; `Commands` is the command surface (the same one the harness drives, so
 // the UI and the probe cannot diverge); `OnChange` is called after any mutation so the host can redraw.
 // `Capture` renders a channel thumbnail and resolves to a data address, or null when the channel has no
-// storage yet.
+// storage yet. `CaptureComposite` does the same for the RESOLVED stack — every visible layer flattened —
+// which is what the combined card on the channels slide shows.
 //
 // 🔴 Every mutation goes through `Commands`, never through the layer objects directly. Writing
 //    `Layer.Opacity = x` from here would change the value without bumping the stack revision, and the
 //    compositor early-returns on an unchanged revision — the slider would move and the viewport would not.
 export class LayerInspector
 {
-    constructor(Host, Stack, Commands, OnChange, Capture)
+    constructor(Host, Stack, Commands, OnChange, Capture, CaptureComposite)
     {
         this.Stack    = Stack;
         this.Commands = Commands;
@@ -279,6 +325,11 @@ export class LayerInspector
         // 📝 Defaults to "no preview available" rather than throwing, so the panel is still usable when
         //    constructed without a GPU capture path (as an isolated DOM test would).
         this.Capture  = Capture ?? (async () => null);
+        // 📝 Same default for the same reason. Kept a SEPARATE entry point rather than a null-token
+        //    convention on Capture above: the two read different sources (one layer's atlas vs the
+        //    compositor's resolved pair) and the host caches them under different keys, so folding them
+        //    into one signature would put a `Token === null` branch in every caller of both.
+        this.CaptureComposite = CaptureComposite ?? (async () => null);
 
         this.Root = document.createElement("div");
         this.Root.className = "layer-inspector";
@@ -726,7 +777,11 @@ export class LayerInspector
             (Layer.Shown ? "" : " layer-muted");
         Row.dataset.token = Layer.Token;
 
-        const Tint   = Hue(Layer.Classification);
+        // 🔴 The rail tag carries the LAYER's colour, not its classification tint. Keyed to the kind it was the
+        //    same blue on every material layer, so the marker distinguished nothing in the one place it exists to
+        //    distinguish. The glyph inside .sr-thumb keeps the kind tint — the two markers now answer different
+        //    questions: the tag says WHICH layer, the glyph says WHAT KIND.
+        const Tint   = LayerHue(Layer);
         const Swatch = SwatchOf(Layer);
         const Thumb  = Swatch
             ? `<span class="sr-thumb-fill" style="background:${Swatch}"></span>`
@@ -997,12 +1052,27 @@ export class LayerInspector
         {
             const Current = Array.isArray(Layer.Values.baseColour)
                 ? ColourToHex(Layer.Values.baseColour) : "#808080";
-            Body.appendChild(Line("Colour", BuildColourField(Current, (Hex, Live) => {
+            // 📝 Labelled "Paint", not "Colour". With the identity Tag row directly below, two rows both called
+            //    "Colour" would be indistinguishable — and these two do genuinely different things: this one
+            //    changes the pixels the layer deposits, the other only changes its marker in the rail.
+            Body.appendChild(Line("Paint", BuildColourField(Current, (Hex, Live) => {
                 this.Commands("value", { Token: Layer.Token, Channel: "baseColour", Value: HexToColour(Hex) });
                 this.OnChange();
                 if (!Live) { this.Refresh(); }
             }, this.PickerState(Layer.Token, "baseColour"))));
         }
+
+        // ---- Tag (the layer's identity colour) ---------------------------------------------------------
+        // 🔴 Offered on EVERY layer, unlike Paint above: the rail tag is presentation, so it applies to a
+        //    height-only generator with no baseColour channel exactly as much as to a paint layer.
+        // 🔴 Committed only on RELEASE (`if (Live) { return; }`). Every other field here scrubs live because the
+        //    user is watching the surface change, but this one's only visible effect is the rail tag, and
+        //    repainting the whole rail on each pointermove of a hue drag rebuilds the very expand the picker
+        //    lives inside — it would tear the picker out from under the pointer mid-scrub.
+        Body.appendChild(Line("Tag", BuildColourField(LayerHue(Layer), (Hex, Live) => {
+            if (Live) { return; }
+            this.Apply("layerColour", { Token: Layer.Token, Colour: Hex });
+        }, this.PickerState(Layer.Token, "layerColour"))));
 
         // ---- the mask editor ---------------------------------------------------------------------------
         // 🔴 The paint-target choice moved OUT of here and onto the RIGHT pane's [ Layer | Mask ] carousel.
@@ -1683,9 +1753,86 @@ export class LayerInspector
             Body.appendChild(Row);
         }
 
+        // ---- the combined stack ---------------------------------------------------------------------
+        // 🔴 The COMBINED result, not this layer's. Everything above in this pane describes the focused
+        //    layer in isolation, and the right-hand pane breaks that layer down channel by channel — so
+        //    nothing in the panel showed what the surface actually ends up looking like once the whole
+        //    stack is flattened. That is the one thing the user is painting toward, and it belongs here
+        //    rather than in the channel pane precisely because it is NOT a property of the focused layer.
+        Body.appendChild(this.BuildCompositePreview());
+
         this.Part.IdentityFoot.innerHTML =
             `<span class="pf-hue" style="background:${Tint}"></span>` +
             `<span>${CLASSIFICATION_LABEL[Layer.Classification]}</span>`;
+    }
+
+    //--------------------------------------------------------------------------------------------------
+    //                                    COMBINED PREVIEW
+    //--------------------------------------------------------------------------------------------------
+
+    // The flattened stack, one tile per stored PBR channel.
+    //
+    // 🔴 Built from CHANNEL_ORDER filtered by IsStoredChannel rather than from a literal list of four
+    //    names. The resolved set is exactly the channels that have an atlas to resolve INTO, so deriving
+    //    the tiles from the same predicate the compositor uses keeps this card from either missing a
+    //    channel the engine gained or asking the host for a resolved atlas that does not exist.
+    // 🔴 Synchronous return + late fill, for the same reason as BuildChannelPreview: RenderIdentity is
+    //    called from Refresh(), which no caller awaits.
+    BuildCompositePreview()
+    {
+        const Host = document.createElement("div");
+        Host.className = "composite-card";
+
+        const Head = document.createElement("div");
+        Head.className = "cc-head";
+        Head.innerHTML =
+            `<span class="cc-t">Combined</span>` +
+            `<span class="cc-s">${this.Stack.EnabledCount} of ${this.Stack.Count} visible</span>`;
+        Host.appendChild(Head);
+
+        const Grid = document.createElement("div");
+        Grid.className = "cc-grid";
+        Host.appendChild(Grid);
+
+        const Generation = this.PreviewGeneration ?? 0;
+
+        for (const Key of CHANNEL_ORDER)
+        {
+            if (!IsStoredChannel(Key)) { continue; }
+
+            const Cell = document.createElement("div");
+            Cell.className = "cc-cell";
+
+            const Tile = document.createElement("div");
+            Tile.className = "cp-tile cc-tile";
+
+            const Label = document.createElement("div");
+            Label.className = "cc-lbl";
+            Label.textContent = CHANNEL_LABEL[Key] ?? Key;
+
+            Cell.appendChild(Tile);
+            Cell.appendChild(Label);
+            Grid.appendChild(Cell);
+
+            this.CaptureComposite(Key).then((Preview) => {
+                if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
+                if (!Tile.isConnected) { return; }
+
+                if (!Preview)
+                {
+                    // 🔴 Checker, matching the per-channel tiles. A resolved atlas ALWAYS exists once the
+                    //    compositor has run, so a null here means no layer contributed to this channel —
+                    //    which is transparency, the same state the per-channel tiles show a checker for.
+                    Tile.classList.add("cp-clear");
+                    return;
+                }
+
+                Tile.style.backgroundImage = `url(${Preview.Image})`;
+                Tile.title = `${CHANNEL_LABEL[Key] ?? Key} · ${Preview.Extent}² resolved from the ${Preview.Atlas} atlas`;
+            });
+        }
+
+        return Host;
     }
 
     //--------------------------------------------------------------------------------------------------
@@ -1996,6 +2143,12 @@ export class LayerInspector
             Note.className = "chan-note";
             Note.textContent = "Derived from the painted height. No value to author.";
             Body.appendChild(Note);
+            // 🔴 A preview even here, and it was the one branch without one. "No value to AUTHOR" is not
+            //    "nothing to SEE": every enabled channel is drawn over the surface, so every enabled channel
+            //    owes the panel a picture of what it contributes. Normal has no atlas of its own
+            //    (CHANNEL_SLOTS.normal.Atlas is null), so this resolves to the derived-source tile below,
+            //    which reads the HEIGHT it is computed from rather than claiming the channel is empty.
+            Body.appendChild(this.BuildChannelPreview(Layer, Panel));
             return;
         }
 
@@ -2035,6 +2188,11 @@ export class LayerInspector
             return;
         }
 
+        // 🔴 Value mode gets a preview TOO, which it did not before. Texture and Generator each showed one and
+        //    then returned, so a solid channel was the only one in the panel with nothing to look at — and a
+        //    solid is still what the surface shows, so "whatever channel you look at, you see what it holds"
+        //    was false exactly where the answer is simplest. The preview falls back to a flat swatch of the
+        //    authored value (SolidPreviewOf) because Capture has no atlas to read for a Value channel.
         if (Panel.Edit === "colour")
         {
             const Current = Array.isArray(Layer.Values[Panel.Key])
@@ -2044,6 +2202,7 @@ export class LayerInspector
                 this.OnChange();
                 if (!Live) { this.Refresh(); }
             }, this.PickerState(Layer.Token, Panel.Key))));
+            Body.appendChild(this.BuildChannelPreview(Layer, Panel));
             return;
         }
 
@@ -2056,6 +2215,7 @@ export class LayerInspector
                 if (!Live) { this.Refresh(); }
             }
         })));
+        Body.appendChild(this.BuildChannelPreview(Layer, Panel));
     }
 
     //--------------------------------------------------------------------------------------------------
@@ -2090,23 +2250,68 @@ export class LayerInspector
         //    content, which is indistinguishable from a preview that simply renders the wrong thing.
         const Generation = this.PreviewGeneration ?? 0;
 
-        this.Capture(Layer.Token, Panel.Key).then((Preview) => {
+        // 🔴 A derived channel is captured through its SOURCE, not through itself. normal has no atlas
+        //    (CHANNEL_SLOTS.normal.Atlas === null) so Capture returns null for it unconditionally — asking for
+        //    "normal" would show an empty tile on a heavily sculpted layer. CHANNEL_SLOTS names the source
+        //    ("height"), so the tile shows the field the normal is actually computed from and says so.
+        const Slot   = CHANNEL_SLOTS[Panel.Key];
+        const Source = (Slot && Slot.Atlas === null && Slot.Source) ? Slot.Source : Panel.Key;
+
+        this.Capture(Layer.Token, Source).then((Preview) => {
             if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
             if (!Tile.isConnected) { return; }
 
             if (!Preview)
             {
-                // Not a failure: a lazily-allocated channel that has never been written has no atlas, and
-                // saying so is more use than an empty tile that looks like a broken image.
-                Tile.classList.add("cp-empty");
-                Note.textContent = (Layer.Modes?.[Panel.Key] === "Texture" && Layer.Paintable)
-                    ? "Not painted yet — no storage allocated."
-                    : "No content for this channel yet.";
+                // 🔴 No atlas is NOT the same as nothing to show. A Value-mode channel is a solid — a flat
+                //    authored value that the compositor reads directly and that therefore never allocates
+                //    storage, so Capture returns null for it forever (ChannelPreview.js:308, `if (!Source)`).
+                //    Reporting "no content" for one was wrong: the channel has content, it just is not a
+                //    texture. Draw the value itself as a flat swatch — that IS the texture, at 1x1.
+                const Solid = SolidPreviewOf(Layer, Panel.Key);
+                if (Solid)
+                {
+                    Tile.classList.add("cp-solid");
+                    Tile.style.background = Solid.Css;
+                    Note.textContent = `Solid ${Solid.Reading} · authored value, not painted`;
+                    return;
+                }
+
+                // 🔴 Nothing painted YET is shown as a transparent checkerboard, not as a blank well. The
+                //    channel is enabled, so it will be drawn over the surface the moment a stroke lands —
+                //    what it holds right now is genuine transparency, and the checker is the standing idiom
+                //    for exactly that. A flat grey panel instead reads as "this channel is unavailable",
+                //    which is the one thing that is not true of an enabled, paintable, empty channel.
+                Tile.classList.add("cp-clear");
+                Note.textContent = Source !== Panel.Key
+                    ? `Transparent — nothing painted into ${CHANNEL_LABEL[Source] ?? Source} to derive from yet.`
+                    : "Transparent — nothing painted into this channel yet.";
                 return;
             }
 
             Tile.style.backgroundImage = `url(${Preview.Image})`;
-            Note.textContent = `${Preview.Extent}² from the ${Preview.Atlas} atlas`;
+
+            // The derived channel's tile is its source field, so the caption must name the source rather
+            // than let the reader take the picture for the normal map itself.
+            if (Source !== Panel.Key)
+            {
+                Tile.classList.add("cp-derived");
+                Note.textContent =
+                    `${Preview.Extent}² ${CHANNEL_LABEL[Source] ?? Source} from the ${Preview.Atlas} atlas · ` +
+                    `the normal is computed from this`;
+                return;
+            }
+
+            // 🔴 A Value-mode channel that STILL has an atlas is a real state, not a contradiction: switching a
+            //    non-flooded paint layer to Value records the mode but leaves the painted atlas in place (only
+            //    flooded kinds re-flood — see the "mode" verb in PaintingSurface.html). The readback is the
+            //    honest thing to show, because it is what the compositor reads; but it must not be captioned as
+            //    the authored value, or the panel would claim the swatch and the pixels are the same thing.
+            const Solid = (Layer.Modes?.[Panel.Key] ?? "Value") === "Value"
+                ? SolidPreviewOf(Layer, Panel.Key) : null;
+            Note.textContent = Solid
+                ? `${Preview.Extent}² from the ${Preview.Atlas} atlas · retained paint, authored value is ${Solid.Reading}`
+                : `${Preview.Extent}² from the ${Preview.Atlas} atlas`;
         });
 
         return Host;

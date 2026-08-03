@@ -37,9 +37,26 @@ struct SurfelTuningState
     int   PerCellCapApplied = 64;      // [-] - the cap the grid buffers are currently sized/looped for (what the shaders actually use)
     bool  ApplyCapRequested = false;   // [-] - set by the Apply button, consumed + cleared by the renderer's cap-commit seam
 
+    // 📝 Primary sun-shadow knobs (area-sampled BVH ray in SurfaceShade.frag). ShadowEnabled gates the whole per-pixel trace; SunAngularRadius widens
+    //    the penumbra (0 = hard, ~0.0047 = the real sun, larger = artistically softer); ShadowSampleCount is the tap count per pixel (higher = smoother
+    //    but costlier + wants a temporal/denoise pass at low counts). The renderer threads these into the shade push block each frame.
+    bool  ShadowEnabled      = true;   // [-] - trace the direct-sun visibility gate; false leaves LightEnergy unshadowed
+    float SunAngularRadius   = 0.03f;  // [rad] - half-angle of the sun disc the shadow rays spread across (penumbra width)
+    int   ShadowSampleCount  = 8;      // [-] - jittered rays per pixel across the disc (1 = hard edge, more = smoother penumbra)
+
+    // 📝 Sun source (F10 Sun card, tuning-window override). Elevation/Azimuth drive AtmosphereProfile::AssignSolarDirection each frame, so the SKY,
+    //    the surfel integrate, and the direct shade all follow ONE sun. Intensity x Colour is premultiplied into the shade's SunRadiance push each
+    //    frame (the sky keeps its own SolarIlluminance calibration). Defaults mirror the shipped 45° profile + the retired hardcoded 3.0*(1,0.98,0.95).
+    float SunElevation       = 0.7853982f;         // [rad] - 0 = horizon, +pi/2 = zenith; default 45°
+    float SunAzimuth         = 0.0f;               // [rad] - around the up axis
+    float SunIntensity       = 3.0f;               // [-] - key-light multiplier folded into SunRadiance
+    float SunColour[3]       = { 1.0f, 0.98f, 0.95f }; // [-] - key-light tint (warm white default)
+
     // 📝 Card collapse flags — caller-owned so BeginPropertyCard's expand state survives across frames (ControlsGallery keeps them in its State too).
     bool  WorldScaleExpanded  = true;  // [-] - the world-scale (cell/radius/bias) card starts open
     bool  PerCellCapExpanded  = true;  // [-] - the per-cell-cap card starts open
+    bool  SunSourceExpanded   = true;  // [-] - the sun-source (elevation/azimuth/intensity/colour) card starts open
+    bool  SunShadowExpanded   = true;  // [-] - the sun-shadow card starts open
 };
 
 //------------------------------------------------------------------------------------------------------------------------
