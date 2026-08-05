@@ -1,0 +1,375 @@
+/*==============================================================================================================================================
+                                                         SURFELRADIANCETRACE.COMP
+==============================================================================================================================================*/
+// 🧩 Pass 5 of the surfel pipeline: one invocation per CLAIMED RAY. Each lane picks up a ray slot the census stamped with its owning surfel, samples a
+//    direction over that surfel's hemisphere, walks the scene, shades what it struck, and writes the outcome back into the same slot. Nothing is
+//    integrated here — the outcome buffer is a per-ray record the integrate (pass 6) reduces per surfel. Ported 1:1 from W298/SurfelGI
+//    (SurfelRayTrace.rt.slang's rayGen + handleHit + scatterMiss).
+//
+// 🔴 UPSTREAM'S RAYGEN BECOMES A PLAIN COMPUTE DISPATCH, AND THAT IS A MECHANISM DEVIATION WITH NO RESULT DEVIATION. Frontier has NO
+//    VK_KHR_ray_query and no ray-tracing pipeline anywhere (plan §5) — the software two-level BVH in TwoLevelTrace.glsl is the only tracer. Upstream's
+//    recursive TraceRay/closesthit/miss shape becomes an explicit bounce LOOP here: same rays, same budget, same outcome buffer. 📝 The recursion was
+//    never deep — upstream's payload carries its own step counter and re-traces from the raygen — so the loop is the honest shape of the same walk.
+//
+// 🔴 THE SURFEL RADIANCE SHORTCUT (upstream's `finalize()`) IS DELIBERATELY ABSENT FROM THIS PHASE, AND IT IS A SCOPE LINE, NOT AN OVERSIGHT. Upstream
+//    terminates a path early by GATHERING nearby surfels' radiance at the last bounce, which folds the field's own converged light back into itself.
+//    That gather also carries upstream's sleeping-surfel spawn and its over-coverage destruction, so it is Phase-7 work sitting inside a Phase-6 file.
+//    ⚠️ Until it lands the field is a pure N-bounce path tracer whose bounces terminate on the sky — dimmer in deep interiors than upstream, and
+//    correct everywhere. The seam is marked at the bounce loop's tail.
+//
+// 🔴 RAY GUIDING IS ALSO ABSENT AND FOR THE SAME REASON. Upstream biases a mature surfel's directions toward its irradiance atlas's brightest texels
+//    (an approximate inverse CDF over the 5x5 tile). The atlas is written by the integrate, which does not exist yet, so guiding would sample a
+//    zero-filled atlas and divide by a zero sumLuminance. This pass fires UNIFORM hemisphere directions and stores pdf = 1/(16π) — upstream's own
+//    non-guided branch, constant included. ⚠️ That 1/(16π) is not the pdf a uniform hemisphere carries (1/2π); it is upstream's constant, and the
+//    integrate divides by the SAME constant, so the pair cancels. Fix one without the other and every surfel's radiance rescales.
+//
+// 📝 SET 0 IS THE SURFEL STORE (SurfelStoreBindings.glsl, twelve bindings, shared verbatim with the lifecycle). SET 1 IS THE SCENE — the includer
+//    contract TwoLevelTrace.glsl and SurfelSurfaceAnchor.glsl need, spelled the way TwoLevelTraceProbe.comp spells it. Two sets rather than one because
+//    the store is written by four other passes that must not carry the scene's seven bindings, and the scene buffers are borrowed from
+//    GeometryArena / InstanceTree and are read-only here.
+//
+// ⚠️ COMPILED BY glslc THROUGH ShaderPlan.ps1'S .comp GLOB; the four #include'd .glsl reach the compiler only through this file and ride the -MD
+//    depfiles. Compile with glslc -I, never glslangValidator.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 64) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                              SET 0 — THE SURFEL STORE (shared)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE OPT-OUT IS MANDATORY HERE. GLSL allows exactly ONE push_constant block per stage and this pass has its own (sun, sky, bounce limits), so the
+//    lifecycle's block must not be declared. The twelve BINDINGS are still shared verbatim — that is the part worth sharing — and FetchCameraOrigin is
+//    re-supplied below against this pass's own constants.
+#define SURFEL_STORE_BINDINGS_WITHOUT_LIFECYCLE_CONSTANTS
+#include "SurfelStoreBindings.glsl"
+#include "SurfelCellGrid.glsl"
+#include "SurfelSampling.glsl"
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                           SET 1 — THE SCENE (the includer contract)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B. EVERY field is declared including padding, or std430 mis-strides the array
+//    and instance N reads the tail of instance N-1. Three fields are live here: Model @0 (the anchor's position transform), NormalBasis[3] @64 (its
+//    normal transform), Tint @112 (the albedo stand-in, plan §5), plus MeshOrdinal @136 and InverseModel @144 which the trace itself reads.
+struct SceneInstance
+{
+    mat4 Model;              // @0   - local -> world; transforms an anchor's interpolated position
+    vec4 NormalBasis[3];     // @64  - inverse-transpose rows; transforms an anchor's / a hit's normal
+    vec4 Tint;               // @112 - 🔴 the albedo stand-in. Frontier's tracer has no material system (plan §5); this is instance colour, not a BRDF
+    uint PartitionId;        // @128 (unused here)
+    uint MaterialId;         // @132 (unused here)
+    uint MeshOrdinal;        // @136 - indexes the slice table
+    uint Pad0;               // @140
+    mat4 InverseModel;       // @144 - world -> local; the ray enters the bottom-level tree through this
+};
+
+// 🔴 Mirrors GeometryArenaSlice (Acceleration/GeometryArenaSubmission.h), pinned at 32 B. NodeOffset is in WORDS, not nodes.
+struct GeometryArenaSlice
+{
+    uint NodeOffset;
+    uint NodeCount;
+    uint PrimitiveOffset;
+    uint PrimitiveCount;
+    uint VertexOffset;
+    uint IndexOffset;
+    uint ParentOffset;
+    uint Padding;
+};
+
+// One RenderVertex, stride-32: position @0, normal @12, texcoord @24. The full layout is declared so the std430 stride stays 32 — the same reason
+// SurfaceShade.frag and TwoLevelTraceProbe.comp declare it in full. ⚠️ Unlike those two, this pass reads the NORMAL as well as the position.
+struct RenderVertex
+{
+    float PositionX; float PositionY; float PositionZ;
+    float NormalX;   float NormalY;   float NormalZ;
+    float TexU;      float TexV;
+};
+
+layout(std430, set = 1, binding = 0) readonly buffer TraceInstanceBlock  { SceneInstance      Instances[];       };
+layout(std430, set = 1, binding = 1) readonly buffer TraceSliceBlock     { GeometryArenaSlice Slices[];          };
+layout(std430, set = 1, binding = 2) readonly buffer TraceArenaNodeBlock { uint               ArenaNodeWords[];  };
+layout(std430, set = 1, binding = 3) readonly buffer TraceArenaPrimBlock { uint               ArenaPrimitives[]; };
+layout(std430, set = 1, binding = 4) readonly buffer TraceTreeNodeBlock  { uint               TreeNodeWords[];   };
+layout(std430, set = 1, binding = 5) readonly buffer TraceIndexBlock     { uint               MeshIndices[];     };
+layout(std430, set = 1, binding = 6) readonly buffer TraceVertexBlock    { RenderVertex       Vertices[];        };
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                         PUSH BLOCK
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE HOST MIRROR IS SurfelRadianceConstants IN SurfelRadianceSubmission.h, FIELD FOR FIELD IN THIS ORDER. Scalars only, for the same reason every
+//    surfel record is scalar: a vec3 here carries 16-byte alignment and shifts every field after it, which reads as a plausible sun in the wrong place
+//    rather than as an error. The host asserts pin every offset.
+layout(push_constant) uniform SurfelRadianceConstants
+{
+    float CameraX, CameraY, CameraZ;    // [m]        - the frame's camera origin; the cell grid is relative to it
+    float SunDirectionX, SunDirectionY, SunDirectionZ;   // [-] - unit vector TOWARD the sun, matching SurfaceShade's LightDirection
+    float SunRadianceR, SunRadianceG, SunRadianceB;      // [W/m²/sr] - key-light radiance, PREMULTIPLIED colour x intensity (see the shade)
+    float SkyHorizonR, SkyHorizonG, SkyHorizonB;         // [W/m²/sr] - miss radiance at the horizon
+    float SkyZenithR, SkyZenithG, SkyZenithB;            // [W/m²/sr] - miss radiance at the zenith
+    float SkyIntensity;                 // [-]        - scales the whole miss term; 0 makes an interior go black rather than dim
+    float AlbedoScale;                  // [-]        - multiplies the instance Tint stand-in, so the field can be tuned without editing the scene
+    uint  FrameOrdinal;                 // [-]        - seeds the per-ray generator; MUST advance or every frame fires the same directions
+    uint  BounceLimit;                  // [-]        - scatter bounces per ray (upstream gRayStep); 1 = direct light at the first hit only
+    uint  StepCeiling;                  // [-]        - hard loop bound (upstream gMaxStep); the walk cannot exceed this whatever the bounce logic wants
+    uint  InstanceCount;                // [-]        - TLAS leaves (TraceInstanceCount)
+    uint  SliceCount;                   // [-]        - slice table entries (TraceSliceCount)
+} Constants;
+
+// 📝 TwoLevelTrace.glsl reads these two as bare names; aliasing them here keeps that module agnostic about whether a consumer supplies them as push
+//    constants, a UBO or compile-time constants.
+#define TraceInstanceCount Constants.InstanceCount
+#define TraceSliceCount    Constants.SliceCount
+
+vec3 PositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+// The one name SurfelSurfaceAnchor.glsl needs beyond TwoLevelTrace's contract. See that file's header for why it is not in the shared contract.
+vec3 NormalForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.NormalX, Vertex.NormalY, Vertex.NormalZ);
+}
+
+// Re-supplied because the shared bindings' copy reads the lifecycle push block this pass opted out of. Same value, different block.
+vec3 FetchCameraOrigin() { return vec3(Constants.CameraX, Constants.CameraY, Constants.CameraZ); }
+
+vec3 FetchSunDirection() { return vec3(Constants.SunDirectionX, Constants.SunDirectionY, Constants.SunDirectionZ); }
+vec3 FetchSunRadiance()  { return vec3(Constants.SunRadianceR,  Constants.SunRadianceG,  Constants.SunRadianceB);  }
+
+// 🔴 THE TWO TRACE MODULES COME LAST, AFTER EVERY NAME THEY READ IS IN SCOPE. TwoLevelTrace needs set 1 + the two count aliases + PositionForVertex;
+//    SurfelSurfaceAnchor needs all of that plus NormalForVertex. Moving either #include above its prerequisites is a compile error, which is the one
+//    part of the includer contract the language enforces.
+#include "TwoLevelTrace.glsl"
+#include "SurfelSurfaceAnchor.glsl"
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       STRUCTURAL LIMITS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 NearLimit pushes a ray off the surface it left, so it cannot re-strike its own triangle. Scaled by nothing — the trace's t is in world units at
+//    both levels (TwoLevelTrace.glsl), so one absolute epsilon is right everywhere in a metre-scale scene.
+const float SurfelTraceNearLimit = 1e-4;
+
+// The closest-hit far bound. Anything past this is treated as sky, which for a 32 m grid is every direction that leaves the scene.
+const float SurfelTraceFarLimit = 1e4;
+
+// 🔴 THE ABSOLUTE CEILING ON THE BOUNCE LOOP, INDEPENDENT OF Constants.StepCeiling. A push constant is host data and a corrupt or uninitialized value
+//    would spin this loop for as long as the driver tolerates before the watchdog kills the device. The min() against this is what makes the loop
+//    provably finite from the shader's own text.
+const uint SurfelTraceStepCeiling = 8u;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                        MISS RADIANCE
+//------------------------------------------------------------------------------------------------------------------------
+
+// The substitute for upstream's `gScene.envMap.eval(-direction)`: a two-tone hemispherical sky, horizon to zenith by the ray's up component, scaled by
+// intensity. 📝 Y-UP, matching the atmosphere profile the rest of the renderer publishes — the surfel grid is axis-agnostic but the sky is not, and a
+// Z-up read here would put the bright half of the sky on a wall.
+// ⚠️ Deterministic and analytic, so the gate reproduces exactly. Swapping in the real atmosphere LUT later changes only this function.
+vec3 ResolveMissRadiance(vec3 RayDirection)
+{
+    const float Upness = clamp(RayDirection.y * 0.5 + 0.5, 0.0, 1.0);
+    const vec3  Horizon = vec3(Constants.SkyHorizonR, Constants.SkyHorizonG, Constants.SkyHorizonB);
+    const vec3  Zenith  = vec3(Constants.SkyZenithR,  Constants.SkyZenithG,  Constants.SkyZenithB);
+    return mix(Horizon, Zenith, Upness) * Constants.SkyIntensity;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     THE ALBEDO STAND-IN
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE ONE PLACE THE MISSING MATERIAL SYSTEM SHOWS (plan §5). Upstream calls prepareShadingData / getMaterialInstance and evaluates a real BSDF at
+//    every hit; Frontier's tracer has neither, so an instance's authored Tint stands in as a Lambertian albedo. Clamped into [0,1] because an albedo
+//    above one is an energy source and the bounce loop would then AMPLIFY light at every step — a slow whiteout that looks like an exposure bug.
+// 📝 AlbedoScale is a tuning multiply applied BEFORE the clamp, so raising it brightens the field until a channel saturates rather than past it.
+vec3 ResolveHitAlbedo(uint InstanceIndex)
+{
+    if (InstanceIndex >= TraceInstanceCount)
+        return vec3(0.0);
+    return clamp(Instances[InstanceIndex].Tint.rgb * Constants.AlbedoScale, vec3(0.0), vec3(1.0));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       DIRECT SUN AT A HIT
+//------------------------------------------------------------------------------------------------------------------------
+
+// Upstream's evalAnalyticLight, reduced to Frontier's single directional light: cosine-weighted sun radiance through a Lambertian lobe, gated by ONE
+// occlusion ray. 🔴 THE ANY-HIT TWIN, NOT THE CLOSEST-HIT WALK. The result is used only as a boolean, so firing TraceTwoLevel here would pay for a
+// tightening far limit, an ordered descent and a drained stack to compute five fields that are all discarded (TwoLevelTrace.glsl states the same).
+//
+// ⚠️ THE SHADOW RAY LEAVES FROM THE SURFACE OFFSET ALONG ITS OWN NORMAL, NOT FROM THE HIT POINT. A ray starting exactly on a triangle re-strikes it at
+//    t ≈ 0 for roughly half of all floating-point roundings, which shades the surface as self-shadowed — a uniform darkening that reads as "the GI is
+//    too dim" rather than as an epsilon bug.
+// 📝 Hard-edged: one ray, no disc sampling. SurfaceShade.frag area-samples the sun for a penumbra on the DIRECT term where the softness is visible; a
+//    bounce's contribution to an irradiance cache is averaged over the surfel's whole hemisphere, so a soft penumbra here would cost N rays to produce
+//    a difference the estimator averages away.
+vec3 ResolveDirectSun(vec3 SurfacePoint, vec3 SurfaceNormal, vec3 Albedo)
+{
+    const vec3  SunDirection = FetchSunDirection();
+    const float CosineTerm   = dot(SurfaceNormal, SunDirection);
+    if (CosineTerm <= 0.0)
+        return vec3(0.0);   // facing away; no shadow ray needed
+
+    const vec3 ShadowOrigin = SurfacePoint + SurfaceNormal * SurfelTraceNearLimit;
+    if (TraceAnyHitTwoLevel(ShadowOrigin, SunDirection, SurfelTraceNearLimit, SurfelTraceFarLimit))
+        return vec3(0.0);
+
+    // Lambertian BRDF is albedo/π; the cosine is the geometry term.
+    return FetchSunRadiance() * Albedo * CosineTerm * (1.0 / SurfelPi);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                             ENTRY
+//------------------------------------------------------------------------------------------------------------------------
+
+void main()
+{
+    const uint RayIndex = gl_GlobalInvocationID.x;
+
+    // 🔴 EARLY-OUT AGAINST THE COUNTER THIS PASS READS ITSELF, NOT AGAINST THE DISPATCH SIZE. The host dispatches the whole ray budget because the
+    //    frame's actual claim lives on the device and is not knowable host-side without a stall (upstream does the same). Slots past the claim hold
+    //    LAST frame's outcomes, and tracing them would feed the integrate rays no surfel asked for.
+    const uint ClaimedRayCount = min(CounterStorage.Slots[SurfelCounterRequestedRay], SurfelRayBudget);
+    if (RayIndex >= ClaimedRayCount) return;
+
+    SurfelRayOutcome Outcome = RayOutcomeStorage.Outcomes[RayIndex];
+
+    const uint SurfelOrdinal = Outcome.SurfelOrdinal;
+    if (SurfelOrdinal >= SurfelTotalLimit) return;   // a corrupt stamp must not index past the records
+
+    Surfel Record = SurfelRecordStorage.Records[SurfelOrdinal];
+
+    // ⚠️ A radius at or below zero is how the spawn and the census mark a slot dead. The census stamped this run before deciding, so a slot can be
+    //    stamped and dead in the same frame; tracing it would write radiance into a slot the next census frees.
+    if (Record.Radius <= 0.0) return;
+
+    //-- The surfel's surface, re-derived --------------------------------------------------------------------------------------
+    // 🔴 THE ANCHOR FETCH IS WHY THIS PASS EXISTS IN THE FORM IT DOES, AND IT IS THE PHASE-6 DELIVERABLE THE CENSUS'S STUB WAS WAITING FOR. Reading the
+    //    STORED position would leave a surfel on a moving body lighting the body's old location; re-interpolating the anchored triangle every frame is
+    //    what keeps it glued. ⚠️ An absent or dropped anchor falls back to the stored values rather than failing — a probe-seeded surfel has no anchor
+    //    by construction and must still trace.
+    vec3 SurfelPosition = FetchSurfelPosition(Record);
+    vec3 SurfelNormal   = FetchSurfelNormal(Record);
+    {
+        vec3 AnchoredPosition;
+        vec3 AnchoredNormal;
+        if (ResolveAnchoredSurfacePoint(HitLocatorStorage.Anchors[SurfelOrdinal], AnchoredPosition, AnchoredNormal))
+        {
+            SurfelPosition = AnchoredPosition;
+            SurfelNormal   = AnchoredNormal;
+        }
+    }
+
+    // ⚠️ A stored normal can be unnormalized (the spawn writes a geometric normal it did not renormalize) and the tangent frame's cross products
+    //    assume unit length. Renormalizing here is cheap and makes the frame orthonormal whatever the store holds.
+    if (dot(SurfelNormal, SurfelNormal) < 1e-12) return;   // no usable hemisphere; the integrate reads this run as zero contribution
+    SurfelNormal = normalize(SurfelNormal);
+
+    //-- The ray's direction ---------------------------------------------------------------------------------------------------
+    // 📝 Seeded from (RayIndex, RayIndex) and the frame ordinal, matching upstream's rayGen exactly. The ray INDEX, not the surfel ordinal, is what
+    //    decorrelates the several rays one surfel owns — seeding from the surfel would give every one of its rays the same direction.
+    SurfelRandomState Random = SeedSurfelRandom(uvec2(RayIndex, RayIndex), Constants.FrameOrdinal);
+
+    const vec2 UniformPair = SurfelRandomFloat2(Random);
+    const vec3 LocalDirection = normalize(ResolveUniformHemisphereDirection(UniformPair.x, UniformPair.y));
+
+    const mat3 TangentFrame  = ResolveTangentFrame(SurfelNormal);
+    const vec3 WorldDirection = normalize(TangentFrame * LocalDirection);   // COLUMNS frame; see SurfelSampling.glsl
+
+    // 🔴 UPSTREAM'S NON-GUIDED PDF, TRANSCRIBED AS-IS. 1/(16π) is not the pdf a uniform hemisphere carries — that is 1/(2π) — but the integrate divides
+    //    by this same constant when it reweights, so the pair cancels and the field's absolute scale matches upstream's. ⚠️ Correcting this alone
+    //    rescales every surfel's radiance by 8x. Both sides move together or neither does.
+    const float ProbabilityDensity = 1.0 / (16.0 * SurfelPi);
+
+    //-- The bounce walk ------------------------------------------------------------------------------------------------------
+    // Radiance accumulates along the path, weighted by the throughput of everything it has already bounced off.
+    vec3  Radiance       = vec3(0.0);
+    vec3  Throughput     = vec3(1.0);
+    float FirstRayLength = 0.0;
+
+    vec3 RayOrigin    = SurfelPosition + SurfelNormal * SurfelTraceNearLimit;
+    vec3 RayDirection = WorldDirection;
+
+    // 🔴 TWO BOUNDS, AND THE SMALLER WINS. BounceLimit is the tuning knob; SurfelTraceStepCeiling is the shader's own guarantee that a corrupt push
+    //    cannot spin this loop. See the constant's note.
+    const uint StepLimit = min(min(Constants.BounceLimit, Constants.StepCeiling), SurfelTraceStepCeiling);
+
+    for (uint Step = 0u; Step < StepLimit; ++Step)
+    {
+        const TraceHit Hit = TraceTwoLevel(RayOrigin, RayDirection, SurfelTraceNearLimit, SurfelTraceFarLimit);
+
+        if (!Hit.HitCondition)
+        {
+            // 📝 The path ends on the sky. MissBounce is a diagnostic the F10 window reports — it says how much of the field's light is coming from
+            //    outside the scene rather than from a bounce, which is the number that tells an interior apart from an exterior.
+            Radiance += Throughput * ResolveMissRadiance(RayDirection);
+            atomicAdd(CounterStorage.Slots[SurfelCounterMissBounce], 1u);
+            break;
+        }
+
+        // 🔴 THE HIT DISTANCE IS WORLD-SPACE AT BOTH TREE LEVELS (TwoLevelTrace.glsl's unnormalized-local-direction rule), so the hit point is a plain
+        //    ray march. A per-instance rescale here would be double-correcting.
+        const vec3 HitPoint  = RayOrigin + RayDirection * Hit.Distance;
+        const vec3 HitNormal = ResolveHitFaceNormal(Hit.InstanceIndex, Hit.PrimitiveIndex);
+
+        // ⚠️ A zero normal means a dropped instance or a degenerate triangle. Ending the path is right: shading through it would put a NaN-free but
+        //    meaningless black sample into the estimator, and continuing the bounce from an unknown orientation is worse.
+        if (dot(HitNormal, HitNormal) < 1e-12)
+            break;
+
+        // 📝 The FIRST segment's length is what the depth-moment atlas learns from — it is the distance to the nearest occluder in this direction, which
+        //    is how the gather later rejects a surfel whose light is blocked. Only the first segment carries that meaning, so it is stamped once.
+        if (Step == 0u)
+            FirstRayLength = Hit.Distance;
+
+        const vec3 Albedo = ResolveHitAlbedo(Hit.InstanceIndex);
+
+        // 🔴 THE FACET IS ORIENTED TOWARD THE INCOMING RAY BEFORE IT IS SHADED. IntersectRayTriangle is double-sided by design (a bounce ray routinely
+        //    strikes the BACK of geometry), so a hit's face normal can point away from the ray that found it — and shading with it makes the sun term
+        //    zero on a surface that is lit. Flipping against the ray is what upstream's getOrientedFaceNormal does.
+        const vec3 OrientedNormal = (dot(HitNormal, RayDirection) > 0.0) ? -HitNormal : HitNormal;
+
+        Radiance += Throughput * ResolveDirectSun(HitPoint, OrientedNormal, Albedo);
+
+        // 🚧 THE PHASE-7 SEAM. Upstream tries to FINALIZE the path here by gathering nearby surfels' radiance through the cell grid, which is what turns
+        //    an N-bounce walk into an effectively-infinite one and is where its sleeping-surfel spawn and over-coverage destruction live. The gather
+        //    needs converged radiance in the field, which needs the integrate — so it lands with Phase 7, reading CellSpanStorage / CellListStorage
+        //    (already bound, already correct) at exactly this point. Until then the path simply continues to the next bounce.
+
+        // --- prepare the next bounce ---
+        // Lambertian scatter: a cosine-weighted direction about the oriented facet. 📝 The throughput weight for a cosine-sampled Lambertian lobe is
+        //    just the albedo — the cosine and the 1/π cancel against the pdf — which is why no cosine appears here.
+        const vec2 BouncePair = SurfelRandomFloat2(Random);
+        const vec3 BounceLocal = ResolveCosineHemisphereDirection(BouncePair.x, BouncePair.y);
+
+        Throughput *= Albedo;
+
+        // ⚠️ A fully black surface ends the path. Continuing would trace rays whose contribution is provably zero, which is the most expensive way to
+        //    add nothing.
+        if (dot(Throughput, vec3(1.0)) <= 1e-6)
+            break;
+
+        RayOrigin    = HitPoint + OrientedNormal * SurfelTraceNearLimit;
+        RayDirection = normalize(ResolveTangentFrame(OrientedNormal) * BounceLocal);
+    }
+
+    //-- Write the outcome back ------------------------------------------------------------------------------------------------
+    // 📝 The whole record is rewritten, not merged. The census zeroed every field of this slot except SurfelOrdinal when it claimed the run, so a
+    //    partial write here would leave a mix of this frame's radiance and that zeroing — and the integrate cannot tell the two apart.
+    // ⚠️ SurfelOrdinal is preserved untouched: it is the census's stamp and the integrate's only route back to the owning surfel.
+    StoreRayOutcomeLocalDirection(Outcome, LocalDirection);
+    StoreRayOutcomeWorldDirection(Outcome, WorldDirection);
+    Outcome.ProbabilityDensity = ProbabilityDensity;
+    Outcome.FirstRayLength     = FirstRayLength;
+    StoreRayOutcomeRadiance(Outcome, Radiance);
+
+    RayOutcomeStorage.Outcomes[RayIndex] = Outcome;
+}

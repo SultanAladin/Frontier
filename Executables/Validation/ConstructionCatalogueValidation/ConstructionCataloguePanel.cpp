@@ -220,7 +220,9 @@ namespace
         ImGui::Dummy(ImVec2(0.0f, 4.0f));
         ImGui::TextDisabled("LIVE TALLY");
         const ConstructionTally Tally = TallyBuckets(State.Document);
-        const bool Holds = Tally.Available + Tally.Gated + Tally.Hidden == Tally.Total && Tally.Total == 128;
+        // 129 = the authored catalogue total (128 ported ops + the Sketch-Modify Select tool). Bump this whenever an op is added or the readout
+        // reports INVARIANT BROKEN on a catalogue that is in fact consistent.
+        const bool Holds = Tally.Available + Tally.Gated + Tally.Hidden == Tally.Total && Tally.Total == 129;
         ImGui::Text("%d available   %d gated   %d hidden", Tally.Available, Tally.Gated, Tally.Hidden);
         ImGui::TextColored(Holds ? ImVec4(0.30f, 0.72f, 0.48f, 1.0f) : ImVec4(0.88f, 0.38f, 0.25f, 1.0f),
                            "%d + %d + %d = %d %s", Tally.Available, Tally.Gated, Tally.Hidden, Tally.Total,

@@ -149,6 +149,7 @@ namespace
         struct ModifyGlyph { const char* Glyph; const char* Label; };
         static const ModifyGlyph Table[] =
         {
+            { "SketchSelect",  "Select"  },
             { "SketchFillet",  "Fillet"  },
             { "SketchChamfer", "Chamfer" },
             { "SketchTrim",    "Trim"    },
@@ -165,6 +166,17 @@ namespace
                 return true;
             }
         return false;
+    }
+
+    // 📝 The Select tool's Stratum reading (0 Shape / 1 Vertex / 2 Edge) out of the console's live parameter block — its ONE authored row, so row 0
+    //    carries it. Falls back to 0 (whole-shape, the historical default) whenever the block holds no rows, which is what an action committed
+    //    straight off the grid without ever opening its options looks like.
+    int ResolveSketchSelectStratum(const Frontier::ParameterBlock& Readings)
+    {
+        if (Readings.RowCount < 1)
+            return 0;
+        const int Chosen = Readings.Rows[0].ChosenOption;
+        return (Chosen >= 0 && Chosen <= 2) ? Chosen : 0;
     }
 
     // 📝 Whether a committed console action is specifically the Fillet or Chamfer corner-edit op — the two that arm the drag modal (the ported
@@ -192,6 +204,39 @@ namespace
         if (std::strcmp(Label, "Remove") == 0) return SketchCommandTool::Remove;
         if (std::strcmp(Label, "Extend") == 0) return SketchCommandTool::Extend;
         return SketchCommandTool::None;
+    }
+
+    // 📝 Whether a committed console action is the SWEEP-band EXTRUDE op ("SweepPrism"). Same dense (cluster, action) → GlyphName mapping every other
+    //    classifier here uses. Extrude is the first Sweep-band op with a live dispatcher; the rest of the band still commits nothing.
+    bool CommittedActionIsExtrude(int ClusterIndex, int ActionIndex)
+    {
+        if (ClusterIndex < 0 || ActionIndex < 0)
+            return false;
+
+        int BandCount = 0;
+        const CC::ConstructionBand* const Bands = CC::ResolveConstructionBands(BandCount);
+        if (ClusterIndex >= BandCount)
+            return false;
+
+        const CC::ConstructionBand& Band = Bands[ClusterIndex];
+        if (ActionIndex >= Band.OperationCount)
+            return false;
+
+        const char* const Glyph = Band.Operations[ActionIndex].GlyphName;
+        return Glyph != nullptr && std::strcmp(Glyph, "SweepPrism") == 0;
+    }
+
+    // 🔴 The one thing the Sweep band's parameter block still decides: whether the sweep STRADDLES the sketch plane. Row 1 is the Direction segmented
+    //    option {Normal, Reversed, Symmetric}, and only Symmetric (index 2) changes anything the gesture cannot express:
+    //      • Normal / Reversed are just the SIGN of the height, and the drag already carries a sign — pulling the pointer up the sweep axis extrudes up,
+    //        pulling it down extrudes down — so forcing a sign from the menu would fight the pointer;
+    //      • Symmetric is a CENTRING, which no pointer direction can convey, so it must be read here.
+    //    Row 0's "Length" slider is likewise no longer read: the pointer sets the height, and typing a number during the drag sets it exactly (which is
+    //    the same affordance the slider offered, but in the gesture where it belongs). Taper (row 2) and Axis (row 3) stay unhonoured — a prism sweep has
+    //    no draft angle and always follows the plane normal, so reading them would imply support that does not exist.
+    bool ResolveExtrudeSymmetricEnabled(const Frontier::ParameterBlock& Readings)
+    {
+        return Readings.RowCount >= 2 && Readings.Rows[1].ChosenOption == 2;
     }
 
     // 📝 Whether a shape's category is a CLOSED profile by construction — the round + box families always loop (Rectangle / Circle / Ellipse / Polygon /
@@ -384,6 +429,17 @@ void ConstructSketchModelSummonedSurfaces(const Frontier::ThemeConfiguration& Th
 
         if (Outcome.DismissRequested) { State.ConsoleOpen = false; }
 
+        // 🔴 ANY commit that is not itself an Extrude ENDS a live sweep gesture first. This one guard stands in for a release line inside every arm
+        //    branch below (draw / Select / corner-edit / command tool / Offset) and covers whatever branch is wired next, which matters more here than
+        //    for the other modals: the extrude drag has the live height WRITTEN ONTO THE SHAPES, so a gesture abandoned silently would leave whatever
+        //    partial height the pointer happened to be at baked in as if it had been confirmed. Abandon restores the arm-time snapshot instead.
+        //    The Extrude branch is excluded only for tidiness — it abandons on its own before re-arming, and the verb is idempotent when idle.
+        if (Outcome.CommitRequested && !CommittedActionIsExtrude(Outcome.ActivatedCluster, Outcome.ActivatedAction))
+        {
+            AbandonSketchModelExtrudeModal(State.ExtrudeModal, State.ShapeStore);
+            State.ExtrudePickPending = false;
+        }
+
         // 🔴 References→Workplane commit ARMS the interactive draw and closes the console — nothing is added to the outliner yet. The plane is
         //    added only after the second ground click confirms (AdvanceWorkplaneDraw). Detect it off the committed (cluster, action) indices.
         if (Outcome.CommitRequested && CommittedActionIsWorkplane(Outcome.ActivatedCluster, Outcome.ActivatedAction))
@@ -419,7 +475,34 @@ void ConstructSketchModelSummonedSurfaces(const Frontier::ThemeConfiguration& Th
         const char* ModifyLabel = nullptr;
         if (Outcome.CommitRequested && CommittedActionIsSketchModify(Outcome.ActivatedCluster, Outcome.ActivatedAction, ModifyLabel))
         {
-            if (CommittedActionIsCornerEdit(Outcome.ActivatedCluster, Outcome.ActivatedAction))
+            if (ModifyLabel != nullptr && std::strcmp(ModifyLabel, "Select") == 0)
+            {
+                // 🔴 SELECT is the RELEASE op — the only Modify entry that arms nothing. Every other tool here claims the canvas click (a draw seats a
+                //    point, a command tool applies a verb, a modal picks a corner / an edge), which is exactly what makes a plain shift-multi-select
+                //    impossible while one is held. Select ends all of them and returns the canvas to the idle pick, so the clicks reach
+                //    AdvanceShapeSelection and build the SelectionSet the boolean popup reconciles against. This is the "back to select mode" gesture.
+                //
+                //    Order matters: this branch precedes the corner-edit / command-tool / offset tests so no later arm can fire off the same commit.
+                ClearSketchToolLatch(State.ToolLatch);
+                State.ShapeStore.DrawingEnabled = false;
+                State.ShapeStore.PendingPoints.clear();
+
+                State.FilletModal       = SketchModelFilletModal{};
+                State.FilletPickPending = false;
+                State.InsetModal        = SketchModelInsetModal{};
+                State.InsetPickPending  = false;
+                ReleaseSketchCommandTool(State.CommandTools, State.ShapeStore);
+
+                // 📝 The Stratum reading rides the commit: the menu's Shape / Vertex / Edge segmented option IS the viewport's 1/2/3 mode, so choosing
+                //    Select also chooses what the next click catches. Index 0/1/2 map 1:1 onto SelectionStratum.
+                const int Stratum = ResolveSketchSelectStratum(State.ConsoleReadings);
+                State.Stratum = (Stratum == 1) ? SelectionStratum::Vertex
+                              : (Stratum == 2) ? SelectionStratum::Edge
+                                               : SelectionStratum::WholeShape;
+
+                State.ConsoleOpen = false;
+            }
+            else if (CommittedActionIsCornerEdit(Outcome.ActivatedCluster, Outcome.ActivatedAction))
             {
                 // 🔴 FILLET / CHAMFER arm the drag modal (the ported Plasticity `B` tool). A commit does NOT pick a corner yet — one tool, the drag sign
                 //    later choosing fillet↔chamfer — so it only raises FilletPickPending. The console closes and the NEXT canvas click resolves the
@@ -493,6 +576,50 @@ void ConstructSketchModelSummonedSurfaces(const Frontier::ThemeConfiguration& Th
                 std::fflush(stdout);
                 State.ConsoleOpen = false;
             }
+        }
+
+        // 🔴 THE EXTRUDE COMMIT — arms the SWEEP DRAG, it does not extrude. This is the Blender `E` order: with a profile already selected the commit
+        //    captures it at ZERO height and hands the pointer control of the height (drag = taller, click = confirmed, Esc = back to where it was), so
+        //    the user never gets a finished solid they did not ask for. With NOTHING selected there is no operand, so it instead raises
+        //    ExtrudePickPending — the two-phase form Fillet / Offset use — and the next canvas click over a profile both picks it and starts the drag
+        //    there. Either way the height comes from the gesture; nothing here writes a depth.
+        //
+        //    (This REPLACES a one-shot that wrote the console's authored depth the instant the tile committed. That produced a small fixed prism with
+        //     no control over it, which is exactly the behaviour being removed. The Depth field on the Sweep row is now only a hint — the drag, or a
+        //     typed number during the drag, is the height. Symmetric is still read here and carried into the arm.)
+        //
+        //    The console's Direction reading is taken NOW rather than at confirm time because the console is closed for the whole gesture, so this is
+        //    the last moment it can be read.
+        if (Outcome.CommitRequested && CommittedActionIsExtrude(Outcome.ActivatedCluster, Outcome.ActivatedAction))
+        {
+            Frontier::ParametricSketchShapeStore& Store = State.ShapeStore;
+
+            // End the sticky DRAW cycle first — the same trap the fillet / command / offset arms fix. A latched primitive would keep re-arming
+            // DrawingEnabled and seat a stray point on the first click of the sweep gesture, which has nothing to do with the extrude.
+            ClearSketchToolLatch(State.ToolLatch);
+            Store.DrawingEnabled = false;
+            Store.PendingPoints.clear();
+            State.FilletModal       = SketchModelFilletModal{};
+            State.FilletPickPending = false;
+            State.InsetPickPending  = false;
+            ReleaseSketchCommandTool(State.CommandTools, State.ShapeStore);
+
+            const bool Symmetric = ResolveExtrudeSymmetricEnabled(State.ConsoleReadings);
+
+            AbandonSketchModelExtrudeModal(State.ExtrudeModal, Store);   // a re-commit over a live gesture restores it first, never stacks on it
+
+            const bool OperandSelected = !Store.SelectionSet.empty() || Store.Selected != 0;
+            if (OperandSelected)
+            {
+                ActivateSketchModelExtrudeModal(State.ExtrudeModal, Store, Symmetric);
+                State.ExtrudePickPending = State.ExtrudeModal.VacantArmReported;   // the selection resolved to nothing displayed → fall back to a pick
+            }
+            else
+            {
+                State.ExtrudePickPending = true;
+            }
+            State.ExtrudeSymmetricPending = Symmetric;
+            State.ConsoleOpen             = false;
         }
 
         // 🔴 The console reports no dismissal of its own (ConsoleResult.DismissRequested is never set inside the pane), so the OUTSIDE press

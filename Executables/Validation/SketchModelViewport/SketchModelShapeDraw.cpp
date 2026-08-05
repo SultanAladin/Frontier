@@ -14,6 +14,7 @@
 #include "SketchModelGroundProjection.h"
 #include "SketchModelFilletModal.h"
 #include "SketchModelInsetModal.h"
+#include "SketchModelExtrudeModal.h"
 
 #include "Operations/Fillet/ParametricSketchFillet.h"
 #include "Operations/Boolean/ParametricSketchBoolean.h"
@@ -21,7 +22,11 @@
 #include "SceneDirectoryInspectorPanel.h"
 #include "InspectorContentProfile.h"
 
+#include "earcut.hpp"   // 📝 mapbox::earcut — 2D triangulation with holes; the fill path for a Profile that carries HoleLoops (ported 1:1 from the
+                        //    legacy DraughtingView, which used the same header for exactly this).
+
 #include <algorithm>
+#include <array>        // 📝 std::array<float,2> — the point form Earcut indexes when triangulating a hole-punched fill.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -33,6 +38,43 @@ namespace SketchModelViewportValidation
 
 namespace
 {
+    // 📝 Triangulate a hole-punched fill region in SCREEN space via Earcut, returning a flat triangle-vertex run (every 3 entries = one triangle)
+    //    ready for AddTriangleFilled. Earcut takes the outer ring first, then each hole ring, indexes them across the merged vertex pool, and emits
+    //    triangle indices that respect the holes (true even-odd punching — no bridge hack, no winding dependence). Points are projected screen
+    //    positions; a ring with < 3 points is skipped. Returns empty when triangulation yields nothing.
+    //
+    // 🔴 Ported verbatim from the legacy DraughtingView's TriangulateFillRegion. AddConvexPolyFilled CANNOT draw this: a boolean result is routinely
+    //    CONCAVE (a union of two overlapping rectangles is an L / plus shape) and may carry holes, and that function assumes a convex ring — which is
+    //    why a committed boolean rendered as a filled-over blob instead of the solved region.
+    std::vector<ImVec2> TriangulateFillRegion(const std::vector<ImVec2>&              OuterScreen,
+                                              const std::vector<std::vector<ImVec2>>& HolesScreen)
+    {
+        using EarPoint = std::array<float, 2>;
+        std::vector<std::vector<EarPoint>> Rings;
+        std::vector<ImVec2>                Pool;   // parallel to the flattened ring vertices Earcut indexes into
+
+        std::vector<ImVec2> Triangles;
+        if (OuterScreen.size() < 3)
+            return Triangles;
+
+        Rings.emplace_back();
+        for (const ImVec2& Point : OuterScreen) { Rings.back().push_back({ Point.x, Point.y }); Pool.push_back(Point); }
+        for (const std::vector<ImVec2>& Hole : HolesScreen)
+        {
+            if (Hole.size() < 3)
+                continue;
+            Rings.emplace_back();
+            for (const ImVec2& Point : Hole) { Rings.back().push_back({ Point.x, Point.y }); Pool.push_back(Point); }
+        }
+
+        const std::vector<uint32_t> Indices = mapbox::earcut<uint32_t>(Rings);
+        Triangles.reserve(Indices.size());
+        for (uint32_t Index : Indices)
+            if (Index < Pool.size())
+                Triangles.push_back(Pool[Index]);
+        return Triangles;
+    }
+
     // The XY-plane blue the primitives + rubber band stroke (matches the workplane sheet's guide ink for a consistent draw language).
     ImU32 GuideInk()   { return ImGui::GetColorU32(ImVec4(0.36f, 0.62f, 1.0f, 0.95f)); }
     ImU32 GuideFill()  { return ImGui::GetColorU32(ImVec4(0.36f, 0.62f, 1.0f, 0.16f)); }
@@ -561,12 +603,71 @@ void RenderSketchModelShapes(const SketchModelViewportState&       State,
         const float Thickness = Selected ? 2.4f : (Hovered ? 2.0f : 1.7f);
 
         const bool Closed = Shape.ClosedEnabled;
-        if (Closed && Pixels.size() >= 3)
+        if (Closed && Pixels.size() >= 3 && (DrawFill || Shape.FillEnabled))
         {
-            if (DrawFill)
-                Draw->AddConvexPolyFilled(Pixels.data(), (int)Pixels.size(), SelectFill);
-            else if (Shape.FillEnabled)
-                Draw->AddConvexPolyFilled(Pixels.data(), (int)Pixels.size(), CommitFill);
+            const ImU32 FillColour = DrawFill ? SelectFill : CommitFill;
+
+            // 🔴 A boolean result is a Profile: its outer loop can be CONCAVE and it may carry HoleLoops. AddConvexPolyFilled handles neither — it
+            //    assumes a convex ring, so a union of two overlapping rectangles painted as a filled-over blob and a subtract's hole never punched
+            //    at all. Route anything with holes, and every concave outer loop, through the Earcut triangulator instead (the legacy fill path).
+            std::vector<std::vector<ImVec2>> HolePixels;
+            bool HolesProjected = true;
+            for (const std::vector<ImVec2>& Hole : Shape.HoleLoops)
+            {
+                if (Hole.size() < 3)
+                    continue;
+                std::vector<ImVec2> Screen;
+                Screen.reserve(Hole.size());
+                for (const ImVec2& Point : Hole)
+                {
+                    const ProjectedPoint P = ProjectWorldPoint(ViewProjection, CanvasOrigin, CanvasSize, Point.x, Point.y, 0.0f);
+                    if (!P.InFront) { HolesProjected = false; break; }
+                    Screen.push_back(P.Pixel);
+                }
+                if (!HolesProjected)
+                    break;
+                HolePixels.push_back(std::move(Screen));
+            }
+
+            const bool ConvexFamily = Shape.Category == Frontier::ParametricSketchShapeCategory::Circle    ||
+                                      Shape.Category == Frontier::ParametricSketchShapeCategory::Ellipse   ||
+                                      Shape.Category == Frontier::ParametricSketchShapeCategory::Polygon   ||
+                                      Shape.Category == Frontier::ParametricSketchShapeCategory::Rectangle ||
+                                      Shape.Category == Frontier::ParametricSketchShapeCategory::Slot;
+
+            if (!HolePixels.empty() && HolesProjected)
+            {
+                const std::vector<ImVec2> Triangles = TriangulateFillRegion(Pixels, HolePixels);
+                for (size_t Index = 0; Index + 2 < Triangles.size(); Index += 3)
+                    Draw->AddTriangleFilled(Triangles[Index], Triangles[Index + 1], Triangles[Index + 2], FillColour);
+            }
+            else if (ConvexFamily)
+            {
+                Draw->AddConvexPolyFilled(Pixels.data(), (int)Pixels.size(), FillColour);
+            }
+            else
+            {
+                // ImGui's ear-clip concave fill REQUIRES a CLOCKWISE outer boundary (imgui_draw.cpp: "Filled shapes must always use clockwise winding
+                //    order"). The camera projection can invert the mm-space CCW winding on SCREEN, so re-orient the PROJECTED run: in ImGui's Y-down
+                //    space a CW loop has POSITIVE shoelace area, so a negative area means it is still CCW → reverse. (The hole path above skips this —
+                //    Earcut is winding-independent.)
+                std::vector<ImVec2> FillScreen = Pixels;
+                double TwiceArea = 0.0;
+                for (size_t Index = 0; Index < FillScreen.size(); ++Index)
+                {
+                    const ImVec2& Current = FillScreen[Index];
+                    const ImVec2& Next    = FillScreen[(Index + 1) % FillScreen.size()];
+                    TwiceArea += (double)Current.x * Next.y - (double)Next.x * Current.y;
+                }
+                if (TwiceArea < 0.0)
+                    std::reverse(FillScreen.begin(), FillScreen.end());
+                Draw->AddConcavePolyFilled(FillScreen.data(), (int)FillScreen.size(), FillColour);
+            }
+
+            // -- Stroke each hole boundary too, so a punched void reads as an edge rather than an unexplained gap in the fill. --
+            for (const std::vector<ImVec2>& Hole : HolePixels)
+                if (Hole.size() >= 3)
+                    Draw->AddPolyline(Hole.data(), (int)Hole.size(), Ink, ImDrawFlags_Closed, Thickness);
         }
         Draw->AddPolyline(Pixels.data(), (int)Pixels.size(), Ink, Closed ? ImDrawFlags_Closed : ImDrawFlags_None, Thickness);
     }
@@ -1588,6 +1689,200 @@ bool AdvanceSketchInsetModal(const SketchModelViewportState&       State,
         PickPending = true;
 
     return Owned;
+}
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                    THE EXTRUDE MODAL — the Blender `E` sweep drag
+//------------------------------------------------------------------------------------------------------------------------
+
+namespace
+{
+    // 🔴 THE SWEEP AXIS ON SCREEN. Extrude's height cannot come from CastCursorToGroundMillimetres like every other tool's drag: that function solves
+    //    the plane Z = 0, which by construction has no height in it. So the height is read the way Blender reads a constrained-axis extrude — project
+    //    the sweep axis (world +Z, probed AT the profile so perspective foreshortening is the real local one) to pixels, and take the pointer's travel
+    //    ALONG that pixel direction.
+    //
+    //    A 100 mm probe rather than 1 mm: at a typical sketch zoom 1 mm is a fraction of a pixel, so its projected direction is dominated by float
+    //    error, while 100 mm spans a solid run of pixels and still stays local enough that the perspective scale is representative. The returned
+    //    OutPixelsPerMm is that run divided back down, so the caller's division is in true mm.
+    //
+    //    Returns false when the axis collapses on screen — a view looking straight DOWN the sweep axis (a plan view is exactly this), or either probe
+    //    point behind the eye. The caller then holds the last height instead of dividing by a near-zero span and flinging the solid to infinity.
+    struct ProjectedSweepAxis
+    {
+        ImVec2 Direction   = ImVec2(0, -1);   // [-]  - unit pixel direction the sweep axis points (screen Y grows down, so +Z usually reads negative)
+        float  PixelsPerMm = 0.0f;            // [px/mm] - on-screen pixels one mm of height spans at the profile
+    };
+
+    bool ProjectSweepAxis(const SketchModelViewportState& State, ImVec2 CanvasOrigin, ImVec2 CanvasSize,
+                          ImVec2 CentroidMm, float BaseElevationMm, ProjectedSweepAxis& Out)
+    {
+        constexpr float ProbeMillimetres = 100.0f;   // [mm] - a run long enough to project to a stable pixel direction (see above)
+
+        const Frontier::Matrix4f ViewProjection = AssembleGroundViewProjection(State);
+        const ProjectedPoint     Base = ProjectWorldPoint(ViewProjection, CanvasOrigin, CanvasSize,
+                                                          CentroidMm.x, CentroidMm.y, BaseElevationMm);
+        const ProjectedPoint     Lift = ProjectWorldPoint(ViewProjection, CanvasOrigin, CanvasSize,
+                                                          CentroidMm.x, CentroidMm.y, BaseElevationMm + ProbeMillimetres);
+        if (!Base.InFront || !Lift.InFront)
+            return false;
+
+        const float DeltaX = Lift.Pixel.x - Base.Pixel.x;
+        const float DeltaY = Lift.Pixel.y - Base.Pixel.y;
+        const float Span   = std::sqrt(DeltaX * DeltaX + DeltaY * DeltaY);
+        if (Span < 2.0f)
+            return false;   // the axis is edge-on / collapsed — a plan view; hold the last height
+
+        Out.Direction   = ImVec2(DeltaX / Span, DeltaY / Span);
+        Out.PixelsPerMm = Span / ProbeMillimetres;
+        return true;
+    }
+
+    // 📝 Stroke the sweep-axis guide from the profile centroid up through the live height, plus a tick at the top — so the constraint the drag is
+    //    following is VISIBLE (the user is dragging along a line, and seeing it is what makes the gesture legible rather than mysterious). Drawn in
+    //    the guide tint the other modals' previews use, so the whole modal family reads consistently.
+    void StrokeSweepAxisGuide(const SketchModelViewportState& State, ImVec2 CanvasOrigin, ImVec2 CanvasSize,
+                              ImVec2 CentroidMm, float BaseElevationMm, float HeightMm, ImDrawList* Draw)
+    {
+        const ImU32 GuideInk = ImGui::GetColorU32(ImVec4(0.36f, 0.62f, 1.0f, 0.9f));
+
+        // Both ends go through ProjectWorldPoint at the profile's OWN elevation — not ProjectGroundMillimetres, which pins Z = 0 and would plant the
+        // base ring on the ground while the tip tracked a raised profile, drawing a guide longer than the height it is reporting.
+        const Frontier::Matrix4f ViewProjection = AssembleGroundViewProjection(State);
+        const ProjectedPoint     Base = ProjectWorldPoint(ViewProjection, CanvasOrigin, CanvasSize,
+                                                          CentroidMm.x, CentroidMm.y, BaseElevationMm);
+        const ProjectedPoint     Top  = ProjectWorldPoint(ViewProjection, CanvasOrigin, CanvasSize,
+                                                          CentroidMm.x, CentroidMm.y, BaseElevationMm + HeightMm);
+        if (!Base.InFront || !Top.InFront)
+            return;
+
+        Draw->AddLine(Base.Pixel, Top.Pixel, GuideInk, 1.6f);
+        Draw->AddCircleFilled(Top.Pixel, 3.5f, GuideInk);
+        Draw->AddCircle(Base.Pixel, 4.0f, GuideInk, 12, 1.4f);
+    }
+}
+
+
+bool AdvanceSketchExtrudeModal(const SketchModelViewportState&       State,
+                               Frontier::ParametricSketchShapeStore& Store,
+                               SketchModelExtrudeModal&              Modal,
+                               bool&                                 PickPending,
+                               bool                                  PendingSymmetric,
+                               ImVec2 CanvasOrigin, ImVec2 CanvasSize)
+{
+    if (CanvasSize.x < 1.0f || CanvasSize.y < 1.0f)
+        return false;
+    if (!PickPending && !Modal.Armed)
+        return false;   // idle — the caller does not veto the normal pick / draw
+
+    const ImGuiIO& Io   = ImGui::GetIO();
+    ImDrawList*    Draw = ImGui::GetWindowDrawList();
+
+    // A right-click OR Escape abandons the whole gesture (whether still picking or already dragging) — the shared cancel edge every modal here reads.
+    const bool CancelEdge = ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+
+    // ── PHASE 1 — PICK PENDING: the tool was chosen with NOTHING selected, so no operand exists yet. Hover-highlight the profile under the cursor and
+    //    a left click captures it AND starts the drag from that click's pixel. (With a selection in hand the console arms PHASE 2 directly, which is
+    //    Blender's behaviour: select, press E, you are already extruding.) ──────────────────────────────────────────────────────────────────────────
+    if (PickPending && !Modal.Armed)
+    {
+        if (CancelEdge)
+        {
+            PickPending = false;
+            return true;   // owned the press — the caller vetoes the normal pick this frame
+        }
+
+        const bool OverCanvas =
+            Io.MousePos.x >= CanvasOrigin.x && Io.MousePos.x <= CanvasOrigin.x + CanvasSize.x &&
+            Io.MousePos.y >= CanvasOrigin.y && Io.MousePos.y <= CanvasOrigin.y + CanvasSize.y;
+        if (!OverCanvas)
+            return true;   // still picking; hold the press away from the canvas without acting
+
+        constexpr float          PickRadiusPixels = 8.0f;   // [px] - the on-screen catch radius for the outline pick (matches the offset tool's)
+        const uint32_t           Hit = ResolveScreenSpacePick(State, Store, CanvasOrigin, CanvasSize, Io.MousePos, PickRadiusPixels);
+        if (Hit != 0)
+        {
+            // Stroke the hovered outline in the guide tint so the profile a click will sweep reads BEFORE the click.
+            const Frontier::Matrix4f ViewProjection = AssembleGroundViewProjection(State);
+            const ImU32              HoverInk       = ImGui::GetColorU32(ImVec4(0.36f, 0.62f, 1.0f, 0.9f));
+            Frontier::ParametricSketchShape* const HoverShape = Frontier::ResolveParametricSketchShape(Store, Hit);
+            if (HoverShape != nullptr)
+            {
+                const std::vector<ImVec2>& Outline = Frontier::RetrieveCachedOutline(*HoverShape);
+                const size_t Count = Outline.size();
+                const size_t Last  = HoverShape->ClosedEnabled ? Count : (Count > 0 ? Count - 1 : 0);
+                for (size_t Index = 0; Index < Last; ++Index)
+                {
+                    const ImVec2 A = Outline[Index];
+                    const ImVec2 B = Outline[(Index + 1) % Count];
+                    ClippedEdge  Edge;
+                    if (ProjectClippedEdge(ViewProjection, CanvasOrigin, CanvasSize, A, B, Edge))
+                        Draw->AddLine(Edge.PixelA, Edge.PixelB, HoverInk, 2.5f);
+                }
+            }
+
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+                ActivateSketchModelExtrudeModalOnShape(Modal, Store, Hit, Io.MousePos, PendingSymmetric);
+                PickPending = false;   // whether the arm took (a live shape) or was a no-op (vanished), the pick phase is over
+                return true;
+            }
+        }
+        return true;   // owned the frame while picking (veto the normal selection under the cursor)
+    }
+
+    // ── PHASE 2 — DRAGGING: fold the pointer's travel along the projected sweep axis into the live height, which the integrate writes straight onto
+    //    the targets — so what grows on screen is the REAL extruded solid, tessellated + rendered by the GPU matcap pass. ────────────────────────────
+    SketchModelExtrudeModalInput Input;
+    Input.CancelPressed    = CancelEdge;
+    Input.ConfirmPressed   = ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                             ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+    Input.BackspacePressed = ImGui::IsKeyPressed(ImGuiKey_Backspace, false);
+
+    // Absorb this frame's typed characters (0-9 / '.' / '-') so an exact height can be typed instead of dragged, exactly as in the fillet / offset modals.
+    {
+        size_t Written = 0;
+        for (int Character = 0; Character < Io.InputQueueCharacters.Size && Written + 1 < sizeof(Input.TypedDigits); ++Character)
+        {
+            const ImWchar Ch = Io.InputQueueCharacters[Character];
+            if ((Ch >= '0' && Ch <= '9') || Ch == '.' || Ch == '-')
+                Input.TypedDigits[Written++] = static_cast<char>(Ch);
+        }
+        Input.TypedDigits[Written] = '\0';
+    }
+
+    // 🔴 LATCH THE ANCHOR ON THE FIRST ARMED FRAME. A console arm cannot seed it: the commit is dispatched from the console recorded LATER in the same
+    //    cycle, so at arm time this driver has not run and the caller would have to guess a pointer position. Latching here — on the first frame the
+    //    modal is seen armed — makes the origin exactly "wherever the pointer was when the drag became live", so the height starts at a true zero.
+    //    Extrude is a RELATIVE drag (movement along the axis grows the height, in any screen region), so the anchor needs no relation to the profile;
+    //    it only has to be the position the travel is measured from. A PICK arm already latched the profile click and leaves this low.
+    if (Modal.AnchorPending)
+    {
+        Modal.AnchorPixel    = Io.MousePos;
+        Modal.AnchorPending  = false;
+        Input.ConfirmPressed = false;   // the drag's FIRST frame is not a confirm — a stray press this frame must not seal a zero-height sweep
+    }
+
+    // The height: the pointer's displacement from the arm anchor, PROJECTED onto the sweep axis's pixel direction and divided back to mm. A dot
+    //    product rather than a raw vertical delta, so the gesture tracks the axis as the camera orbits — drag along where the solid grows on screen
+    //    and it grows; drag across the axis and nothing happens, which is the constraint reading correctly.
+    ProjectedSweepAxis Axis;
+    if (ProjectSweepAxis(State, CanvasOrigin, CanvasSize, Modal.AnchorCentroid, Modal.AnchorElevation, Axis) && Axis.PixelsPerMm > 1e-5f)
+    {
+        const float TravelX = Io.MousePos.x - Modal.AnchorPixel.x;
+        const float TravelY = Io.MousePos.y - Modal.AnchorPixel.y;
+        Input.SweepMillimetres = (TravelX * Axis.Direction.x + TravelY * Axis.Direction.y) / Axis.PixelsPerMm;
+        Input.SweepResolved    = true;
+    }
+
+    // The guide + readout are drawn BEFORE the integrate consumes a confirm (which resets the modal), so the last frame of the gesture still paints
+    //    the height the click is sealing rather than flashing empty.
+    StrokeSweepAxisGuide(State, CanvasOrigin, CanvasSize, Modal.AnchorCentroid, Modal.AnchorElevation,
+                         Modal.Targets.empty() ? 0.0f : (Modal.Targets.front().PriorDepth + Modal.Depth), Draw);
+    DrawModalReadout(Draw, Io.MousePos, Modal.ReadoutText);
+
+    return IntegrateSketchModelExtrudeModal(Modal, Store, Input);
 }
 
 

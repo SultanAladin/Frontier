@@ -46,6 +46,9 @@ struct SketchModelFilletModal;
 // The one offset drag modal, defined in SketchModelInsetModal.h (forward-declared — AdvanceSketchInsetModal takes it by reference).
 struct SketchModelInsetModal;
 
+// The one extrude sweep modal, defined in SketchModelExtrudeModal.h (forward-declared — AdvanceSketchExtrudeModal takes it by reference).
+struct SketchModelExtrudeModal;
+
 // Arm a primitive draw of Category: clears any pending points, sets the store's DrawingCategory, and raises DrawingEnabled. Called when the
 // action console commits the matching Sketch* op. A no-op reset — the picking itself happens in AdvanceShapeDraw.
 void ArmShapeDraw(Frontier::ParametricSketchShapeStore& Store, Frontier::ParametricSketchShapeCategory Category);
@@ -175,6 +178,24 @@ bool AdvanceSketchInsetModal(const SketchModelViewportState&       State,
                              SketchModelInsetModal&                Modal,
                              bool&                                 PickPending,
                              ImVec2 CanvasOrigin, ImVec2 CanvasSize);
+
+// 📝 Advance the EXTRUDE sweep modal for one cycle, and render its axis guide + HUD. The Blender `E` gesture: a SweepPrism commit in the Q console
+//    ARMED THE DRAG DIRECTLY when a profile was selected (select → E → you are already extruding, height zero), or raised PickPending when nothing was
+//    selected so the next click over a profile becomes the operand and starts the drag there.
+//      • PHASE 1 (PickPending, not yet armed) hover-highlights the profile under the cursor; a left click captures it + begins the drag at that pixel.
+//      • PHASE 2 (armed) measures the pointer's travel ALONG THE PROJECTED SWEEP AXIS (world +Z probed at the profile — a ground cast cannot express a
+//        height, see ProjectSweepAxis) and hands it to the integrate as mm. Typed digits override with an exact height. A left click / Enter CONFIRMS;
+//        Esc / right-click restores every target's arm-time state.
+//    🔴 The height is written onto the shapes EVERY frame, so the growing prism on screen is the real tessellated + GPU-rendered solid, not an outline
+//       preview — which is exactly why the cancel path has to restore a snapshot. See SketchModelExtrudeModal.h.
+//    PendingSymmetric is the console's Direction reading (Symmetric), carried through the pick phase so a PHASE-1 arm honours the same option a
+//    PHASE-2 arm did. Returns true whenever it OWNED the press this cycle, so the panel vetoes the normal selection / draw that frame; false while idle.
+bool AdvanceSketchExtrudeModal(const SketchModelViewportState&       State,
+                               Frontier::ParametricSketchShapeStore& Store,
+                               SketchModelExtrudeModal&              Modal,
+                               bool&                                 PickPending,
+                               bool                                  PendingSymmetric,
+                               ImVec2 CanvasOrigin, ImVec2 CanvasSize);
 
 }   // namespace SketchModelViewportValidation
 

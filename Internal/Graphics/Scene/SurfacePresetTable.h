@@ -86,14 +86,18 @@ constexpr uint32_t SurfacePresetCount = 14u;
 //                                                            STRUCTS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 One flattened preset: 96 bytes as six 16-byte std140 slots, byte-compatible with the SurfacePreset block in SurfaceShade.comp. Every member sits
-//    on a 16-byte boundary, so std140 inserts no hidden padding and the C++ array uploads straight into the uniform block.
+// 📝 One flattened preset: 112 bytes as seven 16-byte std140 slots, byte-compatible with the SurfacePreset block in SurfaceShade.frag. Every member
+//    sits on a 16-byte boundary, so std140 inserts no hidden padding and the C++ array uploads straight into the uniform block.
 //
 //    Channel semantics follow Filament / glTF rather than being invented here:
 //      Reflectance -> dielectric f0 via f0 = 0.16 * Reflectance^2; for metals f0 = BaseColour instead (Metallic selects between them).
 //      Roughness   -> PERCEPTUAL; the shader squares it to alpha and clamps to >= 0.089, without which a mirror-smooth Chrome yields NaN / fireflies.
 //      SheenColour -> replaces the Fresnel term outright in the Charlie cloth lobe (Filament removes Fresnel from cloth entirely).
 //      Emissive    -> linear RGB intensity; .w is a strength multiplier. On this LDR target values above 1 cannot outrun white (see the shade pass).
+//      RefractionIndex -> KHR_ior. <= 1.0 means UNAUTHORED, which keeps the legacy Reflectance route to f0; above 1.0 the shade derives f0 from the
+//                         index instead (f0 = ((n-1)/(n+1))^2). Dielectric-only — the derivation assumes κ = 0, so it never feeds a conductor's f0.
+//      AmbientOcclusion -> scales the INDIRECT fill only. The direct sun's occlusion is the area-sampled shadow ray's job; applying AO to it as well
+//                         double-darkens every contact region, by a term carrying no directional information.
 struct SurfacePresetParameters
 {
     float    BaseColour[4]        = { 1.0f, 1.0f, 1.0f, 1.0f };   // [-] - linear RGB; .w = alpha (Glass leans on it)
@@ -108,10 +112,18 @@ struct SurfacePresetParameters
     float    CoatRoughness        = 0.1f;                          // [-] - clear-coat lobe width
     float    IridescenceIor       = 1.3f;                          // [-] - thin-film IOR (glTF default)
     float    IridescenceThickness = 400.0f;                        // [-] - film thickness in nm (glTF 100..400 range)
+    float    TransmissionWeight   = 0.0f;                          // [-] - KHR_transmission factor; 0 opaque (reserved: the Glass path still rides BaseColour.w)
+    float    RefractionIndex      = 0.0f;                          // [-] - KHR_ior; <= 1.0 means UNAUTHORED and keeps the Reflectance route to f0
+    float    AmbientOcclusion     = 1.0f;                          // [-] - authored AO; 1 = unoccluded. Scales the INDIRECT fill only, never direct light
+    float    ScatterPadding       = 0.0f;                          // [-] - pad to the 16-byte slot boundary
     uint32_t ShadingModelId       = 0u;                            // [-] - SurfaceShadingModel; the uber-shader's switch value
     uint32_t FeatureMask          = 0u;                            // [-] - SurfaceFeatureBit set (overridden for Composite)
     uint32_t TablePadding[2]      = { 0u, 0u };                    // [-] - std140 tail pad to a 16-byte boundary
 };
+
+// 🔴 The GLSL mirror (SurfacePreset in SurfaceShade.frag) byte-matches this struct with NO DIAGNOSTIC when it drifts: a stale copy still compiles and
+//    still validates, it merely strides by the wrong size so material N reads the tail of material N-1. This assert is the only thing that catches it.
+static_assert(sizeof(SurfacePresetParameters) == 112, "SurfacePresetParameters must stay seven 16-byte std140 slots — update SurfaceShade.frag's SurfacePreset in the SAME edit.");
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS

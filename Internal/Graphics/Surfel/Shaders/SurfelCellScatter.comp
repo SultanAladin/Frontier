@@ -1,0 +1,61 @@
+/*==============================================================================================================================================
+                                                          SURFELCELLSCATTER.COMP
+==============================================================================================================================================*/
+// 🧩 Lifecycle pass 4 of 4, ported 1:1 from W298/SurfelGI (SurfelUpdatePass.cs.slang:updateCellToSurfelBuffer). One invocation per LIVE surfel. Walks the
+//    same 5³ neighbourhood the census walked and writes one cell-list entry per intersected cell, at the base address the offset scan assigned that cell.
+//    On return, "which surfels are near this point?" is one span lookup plus a contiguous read — which is the whole reason the grid exists.
+//
+// 🔴 THIS WALK MUST MATCH THE CENSUS'S WALK EXACTLY. The census counted the cells and the scan sized each run from that count; if this pass reaches one cell
+//    the census missed, that cell's cursor runs past its own run and overwrites the NEXT cell's entries. Three things keep them identical, and all three are
+//    load-bearing:
+//       ① both derive the centre cell through ResolveCellCoordinate against the SAME pushed camera origin (round() is free on a half-cell tie — see
+//          SurfelCellGrid.glsl, and note the submission pushes the origin once for all four dispatches)
+//       ② both use the same SurfelIntersectsCell, sphere-versus-box, with no reordering of the comparison
+//       ③ both read the radius the census WROTE, which is why this pass must never recompute it
+//    ⚠️ The cursor bound below is a guard against a real defect, not routine defensiveness: reaching it means ① ② or ③ has been broken.
+//
+// 📝 Reads the LIVE set the census rebuilt, not the pending set — the pending set still holds surfels the census freed this frame, and those have no run.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "SurfelStoreBindings.glsl"
+#include "SurfelCellGrid.glsl"
+
+layout(local_size_x = 64) in;
+
+void main()
+{
+    const uint Invocation = gl_GlobalInvocationID.x;
+
+    const uint LiveCount = CounterStorage.Slots[SurfelCounterValidSurfel];
+    if (Invocation >= min(LiveCount, SurfelTotalLimit)) return;
+
+    const uint SurfelOrdinal = LiveIndexStorage.Ordinals[Invocation];
+    if (SurfelOrdinal >= SurfelTotalLimit) return;
+
+    const Surfel Record = SurfelRecordStorage.Records[SurfelOrdinal];
+    if (Record.Radius <= 0.0) return;   // the spawn can zero a radius after the census ran; such a surfel has no run to write into
+
+    const vec3  Position     = FetchSurfelPosition(Record);
+    const vec3  CameraOrigin = FetchCameraOrigin();
+    const ivec3 CentreCell   = ResolveCellCoordinate(Position, CameraOrigin);
+
+    for (uint Neighbour = 0u; Neighbour < SurfelNeighbourCellCount; ++Neighbour)
+    {
+        const ivec3 TargetCell = CentreCell + ResolveNeighbourCellOffset(Neighbour);
+        if (!SurfelIntersectsCell(Position, Record.Radius, TargetCell, CameraOrigin))
+            continue;
+
+        const uint CellIndex = FlattenCellIndex(TargetCell);
+
+        // Claim the next slot in this cell's run. SurfelCount arrives at 0 from the offset scan and ends the frame back at the census's count.
+        const uint RunSlot    = atomicAdd(CellSpanStorage.Spans[CellIndex].SurfelCount, 1u);
+        const uint TableSlot  = CellSpanStorage.Spans[CellIndex].TableOffset + RunSlot;
+
+        // 🔴 See the header: reaching this means the two walks disagreed. Dropping the entry loses one surfel from one cell; writing it would silently corrupt
+        //    a different cell's run, which is unrecoverable and would outlive the frame.
+        if (TableSlot < SurfelCellListCapacity)
+            CellListStorage.Ordinals[TableSlot] = SurfelOrdinal;
+    }
+}

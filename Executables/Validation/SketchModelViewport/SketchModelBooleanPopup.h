@@ -90,9 +90,15 @@ void ReconcileSketchModelBooleanPopup(SketchModelBooleanPopup&              Popu
 //    Store.SelectionSet so the chosen base leads), bumps CommitSerial + fills the Last* block, and closes; Cancel / the close box dismisses
 //    (remembering the operand set so it does not re-open). A no-op when idle. Returns true on the cycle it COMMITTED, so the caller logs one
 //    History revision off the returned edge. Call from inside the canvas child, alongside the other summoned surfaces.
+//
+// 🔴 OutOwnsPress reports that the pointer is OVER THE CARD (or the card holds ImGui's active item), so the caller must skip its canvas picks this
+//    frame. Without it the card is invisible to the pick: the popup floats INSIDE the canvas rect, so AdvanceShapeSelection's OverCanvas test passes
+//    over the card, the pick resolves nothing, and a plain click CLEARS the selection — which deletes the very operands the card is offering, closing
+//    it the instant any control is touched. The press ownership is what makes the card clickable at all.
 bool ConstructSketchModelBooleanPopup(const Frontier::ThemeConfiguration&   Theme,
                                       SketchModelBooleanPopup&              Popup,
-                                      Frontier::ParametricSketchShapeStore& Store);
+                                      Frontier::ParametricSketchShapeStore& Store,
+                                      bool&                                 OutOwnsPress);
 
 // 📝 Resolve the live preview loops the consumer paints while the popup is open — the surviving region at the current Operation + base order,
 //    WITHOUT mutating the store. Outer loops come back Hole = false, punched interiors Hole = true. Empty when idle, when an operand has since

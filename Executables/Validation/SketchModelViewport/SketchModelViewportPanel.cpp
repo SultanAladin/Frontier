@@ -93,6 +93,69 @@ Frontier::GroundGridConstants AssembleSketchModelGridConstants(const SketchModel
 }
 
 
+void PublishSketchModelSolidScene(SketchModelViewportState& State, ImVec2 CanvasOrigin, ImVec2 CanvasSize)
+{
+    // 🔴 THE UNIT FOLD. Three unit systems meet here and the scale MUST be resolved in this matrix, not in the geometry:
+    //
+    //      the store tessellates in authored MM  →  ParametricSketchSolidSequence uploads every position × 0.1 (mm → CM, because the CadMain
+    //      sketch camera it was written for speaks centimetres)  →  but THIS viewport's camera is in METRES (MillimetresToMetres = 0.001).
+    //
+    //    So the published ViewProjection has to undo the cm assumption and land in metres: cm × 0.01 = m. Folding it here rather than editing the
+    //    shared sequence keeps CadMain + the editor (which really do want cm) working untouched, and it costs nothing — the CPU overlay's own
+    //    matrix already scales mm→m per point, so both paths still describe the same world, just reached by different multiplies.
+    constexpr float CentimetresToMetres = 0.01f;
+
+    const Frontier::FocalOrientation Frame      = Frontier::SolveOrbitOrientation(State.Viewport.Camera);
+    const Frontier::Matrix4f         Projection = Frontier::EvaluateProjectionFrame(State.Viewport.Camera);
+
+    Frontier::Matrix4f UnitScale;                              // identity, then the diagonal — a pure uniform world scale
+    UnitScale.Column[0][0] = CentimetresToMetres;
+    UnitScale.Column[1][1] = CentimetresToMetres;
+    UnitScale.Column[2][2] = CentimetresToMetres;
+
+    const Frontier::Matrix4f ViewMatrix     = Frontier::MultiplyMatrix(Frame.ViewMatrix, UnitScale);
+    const Frontier::Matrix4f ViewProjection = Frontier::MultiplyMatrix(Projection, ViewMatrix);
+
+    // 📝 Flatten column-major as index = col*4 + row — exactly how ParametricSketchSurfaceCameraBlock reads it, so NO transpose (Matrix4f is
+    //    already stored Column[c][r]). Getting this backwards renders the solid mirrored through the diagonal rather than visibly broken.
+    Frontier::ParametricSketchSceneView SceneView;
+    for (int ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
+        for (int RowIndex = 0; RowIndex < 4; ++RowIndex)
+        {
+            SceneView.ViewProjection[ColumnIndex * 4 + RowIndex] = ViewProjection.Column[ColumnIndex][RowIndex];
+            SceneView.ViewMatrix[ColumnIndex * 4 + RowIndex]     = ViewMatrix.Column[ColumnIndex][RowIndex];
+        }
+
+    SceneView.CanvasMinimum            = CanvasOrigin;
+    SceneView.CanvasMaximum            = ImVec2(CanvasOrigin.x + CanvasSize.x, CanvasOrigin.y + CanvasSize.y);
+    SceneView.ThreeDimensionalEnabled  = (State.Viewport.Camera.Projection == Frontier::ProjectionMode::Perspective);
+    SceneView.ReadyStatus              = true;
+    Frontier::RegisterParametricSketchSceneView(SceneView);
+
+    // 📝 Tessellate + publish the prism / thin-wall bodies. The store's assembler skips every shape that is not matcap-promoted, so this is a cheap
+    //    walk until something is actually extruded. Held in the panel state so the vectors keep their capacity frame to frame instead of reallocating.
+    Frontier::RegisterParametricSketchShapeSource(&State.Summoned.ShapeStore);
+    Frontier::AssembleParametricSketchSolidBodies(State.Summoned.ShapeStore, State.SolidBodies);
+    Frontier::RegisterParametricSketchShapeBodies(State.SolidBodies);
+}
+
+
+void CompositeSketchModelSolidImage(ImVec2 CanvasOrigin, ImVec2 CanvasSize)
+{
+    // 📝 The reverse half of the bridge: the host published the offscreen matcap target's ImGui handle after recording it. Null on the very first
+    //    frame (nothing rendered yet) and whenever nothing is extruded — the canvas is then the pure sketch it always was. The target is sized to
+    //    the canvas rect, so it blits 1:1 with no aspect correction; its clear is fully transparent so the grid underneath shows through.
+    uint32_t SolidWidth  = 0;
+    uint32_t SolidHeight = 0;
+    const ImTextureID SolidImage = Frontier::RetrieveParametricSketchSolidImage(SolidWidth, SolidHeight);
+    if (SolidImage == 0 || SolidWidth == 0 || SolidHeight == 0)
+        return;
+
+    ImGui::GetWindowDrawList()->AddImage(SolidImage, CanvasOrigin,
+                                         ImVec2(CanvasOrigin.x + CanvasSize.x, CanvasOrigin.y + CanvasSize.y));
+}
+
+
 Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::ThemeConfiguration& Theme,
                                                                 const Frontier::SvgIconRegistry&    Icons,
                                                                 SketchModelViewportState&            State)
@@ -164,10 +227,18 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     //    plain left-drag no longer orbits — this guard is now defensive only: it zeros the plain-left-drag delta before the shared panel reads it, so no
     //    future left-drag verb can steal a draw gesture. MMB navigation + the wheel stay live. A latched-but-idle tool still counts as armed here.
     const bool DrawArmed = ShapeDrawActive(Shp) || WorkplaneDrawActive(State.Summoned.WorkplaneDraw) || SketchToolLatched(State.Summoned.ToolLatch) ||
-                           SketchCommandToolActive(State.Summoned.CommandTools) || State.Summoned.InsetModal.Armed || State.Summoned.InsetPickPending;
+                           SketchCommandToolActive(State.Summoned.CommandTools) || State.Summoned.InsetModal.Armed || State.Summoned.InsetPickPending ||
+                           State.Summoned.ExtrudeModal.Armed || State.Summoned.ExtrudePickPending;
     HoldLeftDragFromCamera(DrawArmed);
 
     Result = Frontier::ConstructViewportPanel(Theme, State.Viewport);
+
+    // 🔴 THE EXTRUDE SOLID. Publish this frame's scene view + tessellated prism bodies for the GPU matcap pass, then composite the image the host
+    //    rendered LAST frame into the canvas. Both halves live here because only the panel knows the canvas rect and owns the one camera; the host
+    //    merely drives Synchronize/Record between frames. Drawn immediately after the panel's grid blit and BEFORE the CPU shape overlay, which is
+    //    the documented z-order (fill → solid → grid → outlines) as this app realizes it: the grid arrives inside the panel's own blitted texture.
+    PublishSketchModelSolidScene(State, CanvasOrigin, CanvasSize);
+    CompositeSketchModelSolidImage(CanvasOrigin, CanvasSize);
 
     // 📝 The authored construction planes, drawn OVER the analytic ground grid but under the summoned cards: an ImGui DrawList overlay projected
     //    by the one viewport camera (this .exe wires no ParametricSketch GPU bridge). Reads the summoned directory tree for Workplane records.
@@ -345,6 +416,48 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
         }
     }
 
+    // 🔴 THE EXTRUDE SWEEP MODAL (the Blender `E` gesture), after the offset modal and ahead of the idle picks. A SweepPrism commit in the Q console
+    //    either armed the drag directly on the selected profiles (height zero) or — with nothing selected — raised ExtrudePickPending so PHASE 1 picks the
+    //    profile under the next click and starts the drag there. PHASE 2 grows the height from the pointer's travel along the projected sweep axis and a
+    //    click / Enter confirms (Esc / right-click restores the arm-time state). While it owns the press this cycle, the picks below are SKIPPED.
+    //
+    // 🔴 ONE-FRAME PUBLISH LAG, by design. PublishSketchModelSolidScene ran at the top of this canvas (it must, so the composite lands under the CPU
+    //    overlay), so the height this modal writes now is tessellated on the NEXT cycle. Re-ordering to chase it would put the solid image over the
+    //    outlines; a single frame of lag on a pointer drag is invisible, and the composite is already a frame behind (the host records between frames).
+    bool ExtrudeOwnsPress = false;
+    if (!SummonOwnsPress && !FilletOwnsPress && !CommandOwnsPress && !InsetOwnsPress)
+    {
+        ExtrudeOwnsPress = AdvanceSketchExtrudeModal(State, State.Summoned.ShapeStore, State.Summoned.ExtrudeModal,
+                                                    State.Summoned.ExtrudePickPending,
+                                                    State.Summoned.ExtrudeSymmetricPending, CanvasOrigin, CanvasSize);
+    }
+
+    // 🔴 HISTORY: a fresh confirmed sweep (ExtrudeModal.CommitSerial advanced past the last one logged) records ONE Sketch revision — the extrude twin of
+    //    the fillet / command / offset hooks. A cancelled or zero-height gesture never bumps the serial, so it never logs. Same monotonic "HH:MM" stamp.
+    {
+        SketchModelExtrudeModal& Modal = State.Summoned.ExtrudeModal;
+        if (Modal.CommitSerial != State.Summoned.ExtrudeHistorySerial)
+        {
+            State.Summoned.ExtrudeHistorySerial = Modal.CommitSerial;
+
+            char Title[64];
+            std::snprintf(Title, sizeof(Title), "Extruded %d shape%s", Modal.LastTargetCount,
+                          (Modal.LastTargetCount == 1) ? "" : "s");
+
+            char Subtitle[64];
+            std::snprintf(Subtitle, sizeof(Subtitle), "Height = %.2f mm", Modal.LastDepth);
+
+            static int ExtrudeMinute = 60;
+            char TimeText[8];
+            std::snprintf(TimeText, sizeof(TimeText), "%02d:%02d", 9 + (ExtrudeMinute / 60), ExtrudeMinute % 60);
+            ++ExtrudeMinute;
+
+            SceneDirectoryInspectorValidation::RecordRevision(State.Summoned.Directory.Revisions,
+                                                              SceneDirectoryInspectorValidation::RevisionCategory::Sketch,
+                                                              Title, Subtitle, TimeText);
+        }
+    }
+
     // 🔴 RECONCILE the outliner against the store, AFTER every tool has run this frame. Drawn shapes mirror themselves on seal; but Offset APPENDS
     //    Profiles and Join / Cut mutate the shape set entirely outside that path, so their rows would otherwise never appear / vanish. This pass
     //    mirrors any store shape with no row (into Profiles or Curves by its closedness), drops rows whose shape has left the store, and re-homes a
@@ -401,8 +514,11 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
 
     // -- Record the card. It reports the commit edge, which the History hook below logs. --
     bool BooleanCommitted = false;
-    if (!SummonOwnsPress && !FilletOwnsPress && !OperatorBoxOwnsPress && !CommandOwnsPress && !InsetOwnsPress && !InsetBoxOwnsPress)
-        BooleanCommitted = ConstructSketchModelBooleanPopup(Theme, State.Summoned.BooleanPopup, State.Summoned.ShapeStore);
+    bool BooleanOwnsPress = false;
+    if (!SummonOwnsPress && !FilletOwnsPress && !OperatorBoxOwnsPress && !CommandOwnsPress && !InsetOwnsPress && !InsetBoxOwnsPress &&
+        !ExtrudeOwnsPress)
+        BooleanCommitted = ConstructSketchModelBooleanPopup(Theme, State.Summoned.BooleanPopup, State.Summoned.ShapeStore,
+                                                           BooleanOwnsPress);
 
     // 🔴 HISTORY: one Sketch revision per applied boolean, off CommitSerial — the boolean twin of the offset hook above.
     {
@@ -431,7 +547,7 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
     //    the frame it COMMITS is vetoed, because that press already consumed the selection the boolean just replaced. Esc / right-click is claimed
     //    below, ahead of the other Escape handlers, so a dismissal never doubles as ending the fillet / offset tool.
     if (!SummonOwnsPress && !FilletOwnsPress && !OperatorBoxOwnsPress && !CommandOwnsPress && !InsetOwnsPress && !InsetBoxOwnsPress &&
-        !BooleanCommitted)
+        !ExtrudeOwnsPress && !BooleanCommitted)
     {
         // 🔴 ESCAPE / right-click DISMISSES the boolean card first, and only that — an open card consumes the gesture so the same press does not also
         //    end the fillet / offset tool below it. Handled here rather than inside the card because the gesture happens over the CANVAS, not the card.
@@ -463,15 +579,22 @@ Frontier::ViewportPanelResult ConstructSketchModelViewportPanel(const Frontier::
         // Left-click whole-shape selection (a plain click replaces, Shift toggles) — runs in the WholeShape stratum only, so a vertex/edge click below
         // is not also read as a re-pick of the whole shape. The right-click pick above owns the other button. A boolean dismissal this frame consumed
         // the press, so the pick is skipped: a right-click that closed the card must not also re-pick underneath it.
-        if (!BooleanDismissed && State.Summoned.Stratum == SelectionStratum::WholeShape)
+        // 🔴 BooleanOwnsPress skips the pick while the pointer is over the boolean card. The card floats INSIDE the canvas rect, so the pick would
+        //    otherwise read a click on it as an empty-canvas click, clear the SelectionSet, and destroy the operands the card is offering — the card
+        //    vanished the moment any control was touched, and Apply could never fire. Esc above is deliberately NOT gated on it, so the card can
+        //    still be dismissed while hovered.
+        if (!BooleanDismissed && !BooleanOwnsPress && State.Summoned.Stratum == SelectionStratum::WholeShape)
             AdvanceShapeSelection(State, State.Summoned.ShapeStore, CanvasOrigin, CanvasSize);
 
         // Sub-element (vertex / edge) pick against the selected shape, writing the store's shared component-selection slots for the gate to read. A
         // no-op (and it clears the slots) in the WholeShape stratum or with nothing selected.
-        AdvanceElementSelection(State, State.Summoned.ShapeStore,
-                                State.Summoned.Stratum == SelectionStratum::Vertex,
-                                State.Summoned.Stratum == SelectionStratum::Edge,
-                                CanvasOrigin, CanvasSize);
+        if (!BooleanOwnsPress)
+        {
+            AdvanceElementSelection(State, State.Summoned.ShapeStore,
+                                    State.Summoned.Stratum == SelectionStratum::Vertex,
+                                    State.Summoned.Stratum == SelectionStratum::Edge,
+                                    CanvasOrigin, CanvasSize);
+        }
     }
 
     ImGui::EndChild();

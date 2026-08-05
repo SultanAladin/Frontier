@@ -15,6 +15,8 @@
 #include "Graphics/RenderExtension/Device/VulkanHost.h"
 #include "Graphics/RenderExtension/Device/VulkanImguiInterface.h"
 #include "Graphics/Grid/GroundGridPass.h"
+// 📝 The GPU matcap solid pass the EXTRUDED prisms / thin walls render through (the panel tessellates + publishes them through the store bridge).
+#include "Graphics/Render/Surface/ParametricSketchSolidSequence.h"
 
 #include "EngineContext/Interface/WorkspaceHost/ImguiPlatformRelay.h"
 #include "EngineContext/Interface/Theme/ThemeResolver.h"
@@ -210,6 +212,21 @@ int main(int ArgumentCount, char** ArgumentValues)
     VkFenceCreateInfo GridFenceInformation = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     vkCreateFence(Host.Device, &GridFenceInformation, Host.Allocator, &GridFence);
 
+    // -- The GPU matcap solid pass: renders the EXTRUDED prisms / thin walls the panel tessellates ------------------------
+    //    📝 The panel publishes the scene view + bodies during its paint; this sequence consumes them on the NEXT cycle and
+    //       publishes its image back, which the panel composites. That one frame of latency is by construction (see the header)
+    //       and invisible as the camera eases. A failure to bring the chain up disables it only — the app stays the pure-2D
+    //       sketch it was and every call below no-ops, so the matcap is strictly additive.
+    ParametricSketchSolidSequence SolidSequence;
+    if (!InitializeParametricSketchSolidSequence(SolidSequence, Host,
+                                                 "EngineContent/ReferenceMaterials/Matcaps/Matcap-Chrome.png",
+                                                 "Shaders/ParametricSketchMatcap.vert.spv",
+                                                 "Shaders/ParametricSketchMatcap.frag.spv",
+                                                 1024u))
+    {
+        fprintf(stderr, "[sketchmodel-viewport] matcap solid sequence unavailable — extruded bodies will not render\n");
+    }
+
     // -- Frame loop -----------------------------------------------------------------------------------------------------
     while (!QueryWindowCloseRequested(Window))
     {
@@ -264,6 +281,34 @@ int main(int ArgumentCount, char** ArgumentValues)
             }
         }
 
+        // -- The matcap solid pass for the EXTRUDED bodies the panel published last cycle -------------------------------
+        //    🔴 Synchronize runs OUTSIDE any render pass (it may drain the device and re-stage buffers), then the pass records
+        //       into its own one-shot buffer and is fence-waited — exactly the grid's discipline, and for the same reason: the
+        //       target's colour image must be SHADER_READ_ONLY before ImGui samples it. Publish hands the descriptor back to the
+        //       panel through the reverse bridge; it publishes null when nothing is resident, so the canvas stays the pure sketch.
+        if (SolidSequence.Enabled)
+        {
+            SynchronizeParametricSketchSolidSequence(SolidSequence, RetrieveParametricSketchSceneView());
+
+            vkResetCommandBuffer(GridCommandBuffer, 0);
+            VkCommandBufferBeginInfo SolidBegin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+            SolidBegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(GridCommandBuffer, &SolidBegin);
+            RecordParametricSketchSolidSequenceInto(SolidSequence, GridCommandBuffer);
+            vkEndCommandBuffer(GridCommandBuffer);
+
+            VkSubmitInfo SolidSubmit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            SolidSubmit.commandBufferCount = 1;
+            SolidSubmit.pCommandBuffers    = &GridCommandBuffer;
+            vkResetFences(Host.Device, 1, &GridFence);
+            if (vkQueueSubmit(Host.GraphicsQueue, 1, &SolidSubmit, GridFence) == VK_SUCCESS)
+            {
+                vkWaitForFences(Host.Device, 1, &GridFence, VK_TRUE, UINT64_MAX);
+            }
+
+            PublishParametricSketchSolidImage(SolidSequence);
+        }
+
         ImGui_ImplVulkan_NewFrame();
         AdvanceImguiPlatform();
         ImGui::NewFrame();
@@ -289,6 +334,9 @@ int main(int ArgumentCount, char** ArgumentValues)
 
     // -- Teardown (reverse of bring-up, each Vulkan step gated on device-idle) -------------------------------------------
     vkDeviceWaitIdle(Host.Device);
+
+    // 📝 The solid target's colour image is an ImGui backend texture, so it must be released while the ImGui Vulkan backend is still up.
+    FinalizeParametricSketchSolidSequence(SolidSequence);
 
     FinalizeSketchModelOffscreenSurface(State.Surface, Host);
     FinalizeGroundGridPass(State.Grid, Host);

@@ -681,6 +681,23 @@ const Frontier::ToolParameterDescriptor ParametersSketchModify01[2] =
         },
 };
 
+// 📝 The SELECT tool's one option: which topological STRATUM a pick resolves against — the viewport's 1/2/3 selection mode surfaced as a menu
+//    reading, so choosing Select also chooses what a click catches. Order matches SelectionStratum (0 whole / 1 vertex / 2 edge).
+const Frontier::ToolParameterDescriptor ParametersSketchSelect[1] =
+{
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Stratum",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Shape", "Vertex", "Edge", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
 const Frontier::ToolParameterDescriptor ParametersSketchModify02[1] =
 {
         {
@@ -4414,8 +4431,16 @@ const ConstructionOperation OperationsSketchDraw[15] =
     { "SketchPoint", "Point", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw14, 2 },
 };
 
-const ConstructionOperation OperationsSketchModify[8] =
+const ConstructionOperation OperationsSketchModify[9] =
 {
+    // 🔴 SELECT is the one op that must NEVER gate. Every other Modify op needs operands, so the gate hides it until the selection resolves the
+    //    right dimension — but Select is HOW you build that selection, so a dimension-gated Select would be unreachable from an empty canvas
+    //    (chicken-and-egg: no selection → hidden → no way to select). Hence the full DimensionMask (every bit, Nothing included) and a zero
+    //    NeedMask / zero counts: it is always Available, whatever the document holds.
+    // 📝 No accelerator authored: "S" is the user's reserved SCALE key (S/G/R/E/X/B/C/Q are the transform verbs + the tool menu), and this field only
+    //    DRAWS a keystroke on the tile — printing a letter the canvas does not honour, or one that means Scale, would both be lies. Space is the
+    //    intended Select key once a real key handler exists.
+    { "SketchSelect", "Select", nullptr, 0xFFFFu, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchSelect, 1 },
     { "SketchFillet", "Fillet", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify00, 2 },
     { "SketchChamfer", "Chamfer", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify01, 2 },
     { "SketchTrim", "Trim", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify02, 1 },
@@ -4585,7 +4610,7 @@ const ConstructionOperation OperationsAnnotation[8] =
 const ConstructionBand ConstructionBands[] =
 {
     { "Sketch Draw", "SketchLine", OperationsSketchDraw, 15 },
-    { "Sketch Modify", "SketchFillet", OperationsSketchModify, 8 },
+    { "Sketch Modify", "SketchSelect", OperationsSketchModify, 9 },
     { "Sketch Reference", "SketchMirrorLine", OperationsSketchReference, 3 },
     { "Solid Primitive", "SolidBox", OperationsPrimitive, 18 },
     { "Profile Sweep", "SweepPrism", OperationsSweep, 12 },

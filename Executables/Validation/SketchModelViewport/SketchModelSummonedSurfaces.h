@@ -29,6 +29,7 @@
 #include "SketchModelViewportInput.h"
 #include "SketchModelFilletModal.h"
 #include "SketchModelInsetModal.h"
+#include "SketchModelExtrudeModal.h"
 #include "SketchModelBooleanPopup.h"
 
 #include "ConstructionCatalogue.h"
@@ -142,6 +143,26 @@ struct SketchModelSummonedState
     // 📝 The last InsetModal.CommitSerial the panel logged a History revision for — the offset twin of FilletHistorySerial. Bumped once per fresh
     //    commit; the panel compares it here and records ONE Sketch revision per offset ("Offset N shape(s)"); a redo-box slide leaves it untouched.
     uint32_t InsetHistorySerial = 0;   // [-] - last InsetModal.CommitSerial logged to the revision store
+
+    // 📝 The one EXTRUDE sweep modal (the Blender `E` gesture). A SweepPrism commit in the Q console captures the selected profiles at ZERO height and
+    //    the pointer's travel along the projected sweep axis grows it live; a click confirms, Esc / right-click restores the arm-time state. Held here
+    //    beside InsetModal because extrude arming is a viewport-interaction rule.
+    //    🔴 This modal writes the live height straight onto the shapes every frame (the growing solid IS the preview), which is why it — alone among the
+    //       modals here — needs an arm-time snapshot to cancel against. See SketchModelExtrudeModal.h.
+    SketchModelExtrudeModal ExtrudeModal = {};   // [-] - the extrude sweep drag modal + its retained last confirm
+
+    // 📝 Set on the frame a SweepPrism op commits with NOTHING selected — the extrude twin of InsetPickPending. With a selection the commit arms the drag
+    //    DIRECTLY (select → E → you are already extruding, Blender's order); with none there is no operand, so the tool waits and the next canvas click
+    //    over a profile both picks it and starts the drag there. Cleared on Activate or cancel.
+    bool ExtrudePickPending = false;   // [-] - a SweepPrism op was chosen with no selection; awaiting the profile pick
+
+    // 📝 The console's Direction reading (Symmetric) stashed at commit time so a PHASE-1 pick arms with the SAME option a direct arm would have. Read only
+    //    while ExtrudePickPending stands; meaningless otherwise.
+    bool ExtrudeSymmetricPending = false;   // [-] - the pending pick should straddle the sketch plane
+
+    // 📝 The last ExtrudeModal.CommitSerial the panel logged a History revision for — the extrude twin of InsetHistorySerial. One Sketch revision per
+    //    confirmed sweep ("Extruded N shape(s)").
+    uint32_t ExtrudeHistorySerial = 0;   // [-] - last ExtrudeModal.CommitSerial logged to the revision store
 
     // 📝 The one BOOLEAN popup. Unlike every other sketch op this is NOT armed from the Q console — it reconciles itself against the live selection
     //    each frame and opens the moment two closed shapes are selected, because a boolean's operands ARE the selection and no drag gesture is

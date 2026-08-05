@@ -1,0 +1,36 @@
+/*==============================================================================================================================================
+                                                          SURFELCOUNTERRESET.COMP
+==============================================================================================================================================*/
+// 🧩 Lifecycle pass 1 of 4, ported 1:1 from W298/SurfelGI (SurfelPreparePass.cs.slang). A single invocation that rolls the frame over: last frame's live
+//    count becomes this frame's PENDING count, the live count restarts at zero, and the three per-frame accumulators are cleared. One thread, because the
+//    whole job is six scalar writes to one cache line and any parallelism would need synchronizing for no gain.
+//
+// 🔴 THE HOST MUST COPY LiveIndex -> PendingIndex IMMEDIATELY AFTER THIS DISPATCH, AND THE DIRECTION IS THE WHOLE MECHANISM. This shader moves the
+//    COUNT; the submission moves the LIST (upstream does the same, SurfelGI.cpp:100, a copyResource right after the prepare dispatch). Pass 2 then reads
+//    Pending — last frame's survivors — and rebuilds Live from whichever of them are still worth keeping. ⚠️ Copy it the other way and the census
+//    re-processes the set it is currently writing: surfels are counted twice, dropped, or read half-written, and the field's population wanders instead of
+//    settling. Nothing reports it.
+//
+// 📝 FreeSurfel is deliberately NOT reset. It is the vacancy stack's cursor and CARRIES ACROSS FRAMES — the census pushes freed slots onto it and the
+//    spawn pops from it. Upstream re-clamps it into range here (its own guard against a signed underflow in the recycle path); this port keeps the clamp
+//    for the same reason, since a FreeSurfel above the limit would let the spawn pop past the end of the vacancy table.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "SurfelStoreBindings.glsl"
+
+layout(local_size_x = 1) in;
+
+void main()
+{
+    // Last frame's live set is this frame's work list. Clamped because everything downstream uses it as a dispatch/loop bound.
+    const uint PendingCount = min(CounterStorage.Slots[SurfelCounterValidSurfel], SurfelTotalLimit);
+
+    CounterStorage.Slots[SurfelCounterValidSurfel]  = 0u;              // the census rebuilds this from scratch
+    CounterStorage.Slots[SurfelCounterDirtySurfel]  = PendingCount;    // what the census is handed
+    CounterStorage.Slots[SurfelCounterFreeSurfel]   = min(CounterStorage.Slots[SurfelCounterFreeSurfel], SurfelTotalLimit);
+    CounterStorage.Slots[SurfelCounterCell]         = 0u;              // the cell-list write cursor, rebuilt by the offset scan
+    CounterStorage.Slots[SurfelCounterRequestedRay] = 0u;              // the frame's ray claim
+    CounterStorage.Slots[SurfelCounterMissBounce]   = 0u;              // rays that left the scene, a diagnostic only
+}

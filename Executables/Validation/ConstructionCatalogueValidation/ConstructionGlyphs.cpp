@@ -144,6 +144,7 @@ namespace
         "SketchPolyline",
         "SketchProject",
         "SketchRectangle",
+        "SketchSelect",
         "SketchSlot",
         "SketchSpline",
         "SketchTrim",

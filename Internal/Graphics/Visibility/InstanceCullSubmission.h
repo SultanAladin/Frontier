@@ -82,7 +82,7 @@ struct InstanceCullSubmission
     VkDescriptorPool      DescriptorPool   = VK_NULL_HANDLE;   // [-] - sized for one set
     VkDescriptorSet       CullSet          = VK_NULL_HANDLE;   // [-] - the bound cull set
 
-    VkBuffer              RecordBuffer     = VK_NULL_HANDLE;   // [-] - device-local per-instance cull records (staged on upload)
+    VkBuffer              RecordBuffer     = VK_NULL_HANDLE;   // [-] - per-instance cull records; HOST_VISIBLE | HOST_COHERENT, so a writer needs no staging copy and no flush
     VkDeviceMemory        RecordMemory     = VK_NULL_HANDLE;   // [-] - backing allocation for RecordBuffer
     VkBuffer              SurvivorBuffer   = VK_NULL_HANDLE;   // [-] - device-local survivor instance-index list (cull writes, raster reads)
     VkDeviceMemory        SurvivorMemory   = VK_NULL_HANDLE;   // [-] - backing allocation for SurvivorBuffer

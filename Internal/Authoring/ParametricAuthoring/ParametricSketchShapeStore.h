@@ -599,6 +599,21 @@ void RegisterParametricSketchShapeBodies(const std::vector<ParametricSketchShape
 // no parametricSketching view painted or no closed + filled shapes exist. Read by the runtime's GPU-scene upload walk.
 const std::vector<ParametricSketchShapeBody>& RetrieveParametricSketchShapeBodies();
 
+// 🔴 Tessellate every DISPLAYED, matcap-promoted shape into a solid body for the GPU scene pass — the EXTRUDE tessellator. Two cases, by closure:
+//
+//    * a CLOSED profile with a non-zero ExtrudeDepth sweeps into a SOLID PRISM — a bottom cap at Elevation and a top cap at Elevation + Depth built
+//      from the SAME Earcut triangulation (so both faces are identical by construction, the defining property of a prism), plus an outward-normalled
+//      wall band around every ring. Holes carry their own inward-facing walls. A zero depth keeps the original flat single cap with EMPTY normals.
+//    * an OPEN profile sweeps into a THIN WALL — one un-wrapped wall band along the display polyline, no caps (an open curve bounds no face), so its
+//      start and end cross-sections are the same curve at two heights.
+//
+// Non-const: warms each shape's flatten cache through RetrieveCachedOutline / EvaluateFilledPolygon, which is also what keeps the solid and the CPU
+// fill from ever drifting (one tessellation source). Each body's Revision folds the shape's DEFINING inputs only — never the emitted vertices, whose
+// adaptive sampling would jitter every frame and provoke a re-upload storm. SampleBudget 0 selects the per-category default. Clears OutBodies first.
+void AssembleParametricSketchSolidBodies(ParametricSketchShapeStore&             Store,
+                                         std::vector<ParametricSketchShapeBody>& OutBodies,
+                                         int                                     SampleBudget = 0);
+
 // One STROKE vertex on a shape's display OUTLINE, world mm at the shape's Elevation (z). This is the outline the GPU thick-line rasterizer
 // consumes (the analytic-shape -> display-polyline the CPU already flattens), the stroke counterpart to the filled ParametricSketchShapeBody
 // triangle soup. Position only; per-shape colour + linetype ride the body below (uniform along one outline), so a vertex stays 12 bytes and

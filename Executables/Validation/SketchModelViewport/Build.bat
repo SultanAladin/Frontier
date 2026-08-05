@@ -91,7 +91,13 @@ set "SDIDIR=%APPDIR%\..\SceneDirectoryInspectorValidation"
 set "CCDIR=%APPDIR%\..\ConstructionCatalogueValidation"
 REM  The standalone Workplane construction-plane model the viewport overlay draws (AuthoringParametric.lib).
 set "APDIR=%ROOT%\Internal\Authoring\ParametricAuthoring"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include" /I"%SDIDIR%" /I"%CCDIR%" /I"%APDIR%""
+REM  mapbox::earcut — 2D triangulation with holes, the fill path for a boolean-result Profile (header-only).
+set "EARCUT=%ROOT%\ExternalPackages\earcut"
+REM  The matcap solid pass (ParametricSketchSolidSequence.h) reaches PolygonCluster.h, which includes its neighbours UNROOTED
+REM  ("LinearAlgebra_Float64.h"), so those two folders must be include roots exactly as Internal\Graphics\Build.bat sets them.
+set "MATHROOT=%ROOT%\Internal\EngineContext\Math"
+set "GEOMROOT=%ROOT%\Internal\Authoring\Geometry\Modeling"
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include" /I"%SDIDIR%" /I"%CCDIR%" /I"%APDIR%" /I"%EARCUT%" /I"%MATHROOT%" /I"%GEOMROOT%""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
 REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
 set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE"
@@ -165,6 +171,26 @@ if not exist "%SHADEROUT%\AnalyticGroundPlane.vert.spv" (
 )
 if not exist "%SHADEROUT%\AnalyticGroundPlane.frag.spv" (
     echo [%NAME%] WARNING: grid fragment SPIR-V not staged - the grid pass will be unavailable at runtime.
+)
+
+REM --- Stage the matcap SPIR-V + the chrome matcap disc for the EXTRUDE solid pass ------------
+REM  The extruded prisms / thin walls render through ParametricSketchSolidSequence, which loads these two
+REM  modules from the relative "Shaders" dir and the matcap PNG from a path under the exe's EngineContent.
+REM  A missing PNG or module disables the whole pass (the app falls back to the pure-2D sketch), so both
+REM  are staged here and a miss is reported loudly rather than showing up as "extrude renders nothing".
+set "SURFACESHADERSRC=%ROOT%\Internal\Graphics\Render\Surface\Shaders"
+copy /Y "%SURFACESHADERSRC%\ParametricSketchMatcap.vert.spv" "%SHADEROUT%" >nul
+copy /Y "%SURFACESHADERSRC%\ParametricSketchMatcap.frag.spv" "%SHADEROUT%" >nul
+if not exist "%SHADEROUT%\ParametricSketchMatcap.vert.spv" (
+    echo [%NAME%] WARNING: matcap vertex SPIR-V not staged - extruded bodies will not render.
+)
+if not exist "%SHADEROUT%\ParametricSketchMatcap.frag.spv" (
+    echo [%NAME%] WARNING: matcap fragment SPIR-V not staged - extruded bodies will not render.
+)
+robocopy "%ROOT%\EngineContent\ReferenceMaterials\Matcaps" "%OUTDIR%\EngineContent\ReferenceMaterials\Matcaps" Matcap-Chrome.png /NFL /NDL /NJH /NJS /NP >nul
+if %ERRORLEVEL% GEQ 8 goto :fail
+if not exist "%OUTDIR%\EngineContent\ReferenceMaterials\Matcaps\Matcap-Chrome.png" (
+    echo [%NAME%] WARNING: chrome matcap not staged - extruded bodies will not render.
 )
 
 REM --- Stage the UI-scale config next to the exe so the theme resolver finds it ---------------

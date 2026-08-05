@@ -154,8 +154,10 @@ void ReconcileSketchModelBooleanPopup(SketchModelBooleanPopup&              Popu
 
 bool ConstructSketchModelBooleanPopup(const Frontier::ThemeConfiguration&   Theme,
                                       SketchModelBooleanPopup&              Popup,
-                                      Frontier::ParametricSketchShapeStore& Store)
+                                      Frontier::ParametricSketchShapeStore& Store,
+                                      bool&                                 OutOwnsPress)
 {
+    OutOwnsPress = false;
     if (!Popup.Open || Popup.Operands.size() < 2)
         return false;
 
@@ -176,6 +178,13 @@ bool ConstructSketchModelBooleanPopup(const Frontier::ThemeConfiguration&   Them
                                    ImGuiWindowFlags_AlwaysAutoResize;
     if (ImGui::Begin("##sketch-model-boolean-popup", nullptr, Flags))
     {
+        // 🔴 CLAIM THE PRESS while the pointer is over the card or one of its widgets is active. The card floats inside the canvas rect, so without
+        //    this the canvas pick reads a click here as an empty canvas click and CLEARS the selection — destroying the operands mid-decision. The
+        //    hovered test covers the click that lands on the card; the active-item test keeps a held dropdown / drag owning the press as it moves.
+        OutOwnsPress = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem |
+                                              ImGuiHoveredFlags_ChildWindows) ||
+                       (ImGui::IsAnyItemActive() && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows));
+
         static bool Expanded = true;
         if (Frontier::BeginPropertyCard(Theme, "Boolean", &Expanded))
         {

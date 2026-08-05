@@ -14,8 +14,9 @@
     RenderLayerProperties     LayerInspector.js:1639      (Visible / Blend / Opacity / Channels + Actions + CTA)
     RenderMaterialProperties  LayerInspector.js:1692      (preset identity + a row per authored channel)
     RenderMaskPane            LayerInspector.js:1602      (create-mask empty state, else the full editor + CTA)
-    BuildMaskSection          LayerInspector.js:1102      (preview row / White|Black|Invert / Strength / comps)
+    BuildMaskSection          LayerInspector.js:1102      (preview row / Base + flip / Strength / comps)
     BuildActions              LayerInspector.js:1876      (Delete, disabled on the stack's last layer)
+    BuildDropdown             Controls/Dropdown.cpp:21    (head pill + fixed popup, radio per row, edge flip)
 
   🔴 Invariants carried across, each of which the CSS earned the hard way:
 
@@ -35,6 +36,20 @@
    6. Material rows come from the preset's channel list INTERSECTED with what the layer still has enabled —
       a row for a disabled channel would edit a value the flood then skips (js:1728).
    7. The incoming-pane lift fires only when the tab actually flipped, never on a plain rebuild (js:1577).
+   8. The dropdown list is position:fixed and JS-placed against the head's live screen rect — it CANNOT be
+      in-flow, because .mc-pane clips (invariant 4) and the 200%-wide track would spill it into the adjacent
+      pane. The corollary is that it does not die with the body subtree, so Refresh() must dismiss it.
+   9. Only one dropdown is open at a time, and it closes on outside-mousedown, on scroll, and on resize —
+      the three ways a fixed list otherwise detaches from the head it was measured against.
+
+  🚩 Revisions in this pass, each replacing a shape that misdescribed its control:
+
+    Blend   chip row (7 pills, wrapping to 2 lines) → the executable's Dropdown.cpp combo, transcribed.
+    Mask    `White | Black | Invert` as three equal pills → labelled `Base [ White | Black ]` segment plus a
+            separate icon-only flip button. Two exclusive bases and one independent modifier are not one
+            radio group of three, and the old row said they were.
+    Delete  a red `.act-item` text row → a bordered full-width danger button; disabled state drops the red
+            entirely and states why the last layer cannot go.
 
   📝 No icon artwork: every mark here is CSS/SVG primitives, matching the executable's own draw-from-
      primitives rule for these panels.
@@ -250,10 +265,33 @@ body{
 .act-item .ic{ width:15px; height:15px; flex:0 0 auto; display:grid; place-items:center; color:var(--muted); }
 .act-item .ic svg{ width:15px; height:15px; }
 .act-item:hover .ic{ color:var(--ink); }
-.act-item.danger{ color:#ff6b6b; }
-.act-item.danger .ic{ color:#ff6b6b; }
-.act-item.danger:hover{ background:rgba(255,107,107,.12); }
 .act-item.disabled{ opacity:.35; pointer-events:none; }
+
+/* 🔴 DELETE is a BUTTON, not a menu row. As an `.act-item danger` it was red text on the panel fill with a
+   hover tint — indistinguishable in weight from the settings rows above it, so the one irreversible control
+   in the pane carried the least visual commitment. A bordered full-width button with a red hairline reads as
+   a deliberate act at rest, and only FILLS red under the cursor, so the pane is not shouting danger while
+   the user is editing opacity.
+
+   💡 Centred, not left-aligned: the rows above are label→value pairs read left-to-right, and matching that
+      alignment is what made the old row scan as another one of them. */
+.act-danger{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  width:100%; height:30px; margin-top:2px; padding:0 10px;
+  border-radius:8px; cursor:pointer; font-size:11px; font-weight:500; letter-spacing:.2px;
+  color:#ff6b6b; background:transparent; border:1px solid rgba(255,107,107,.34);
+  transition:background .14s, border-color .14s, color .14s;
+}
+.act-danger .ic{ display:grid; place-items:center; color:currentColor; }
+.act-danger .ic svg{ width:14px; height:14px; display:block; }
+.act-danger:hover{ background:#ff6b6b; border-color:#ff6b6b; color:#120404; }
+.act-danger:active{ background:#e85f5f; border-color:#e85f5f; }
+/* 📝 The stack refuses to remove its last layer. Disabled drops the red ENTIRELY rather than fading it —
+   a translucent red still reads as "destructive, dimmed", when the truth is there is nothing to destroy. */
+.act-danger.disabled{
+  pointer-events:none; color:var(--faint); border-color:var(--hair); background:transparent;
+}
+.act-note{ font-size:9.5px; line-height:1.45; color:var(--faint); padding:5px 1px 0; text-align:center; }
 
 /*---------------------------------------------------------------------------------------------------------
                                           FIELD WIDGETS
@@ -329,6 +367,67 @@ body{
 .chip:hover{ background:var(--tile-hi); color:var(--ink); }
 .chip.on{ background:var(--accent); color:#111; font-weight:600; }
 
+/* 🔴 The DROPDOWN, transcribed from Controls/Dropdown.cpp — which is itself the executable's port of
+   ControlsPreview.html `.dd-*`. Blend was a 7-chip wrapping row that spent two lines of the pane on a
+   single-choice enum; the executable already owns a combo control for exactly this, so the prototype now
+   shows what the C++ draws rather than a second idiom the port would have to reconcile.
+
+   The head is DrawValuePill's two-segment geometry (Dropdown.cpp:45): a black name segment carrying the
+   current option left-aligned at 14px, capped by a grey caret segment. Same pill as the slider's readout,
+   so a value that opens a list and a value that scrubs read as the same family of control. */
+.dropdown{ position:relative; min-width:0; flex:1; }
+.dd-head{
+  height:26px; border-radius:999px; overflow:hidden;
+  display:flex; align-items:stretch; cursor:pointer;
+  transition:box-shadow .13s;
+}
+.dd-head .cur{
+  flex:1; min-width:0; display:flex; align-items:center; padding:0 11px;
+  background:var(--value-black); color:var(--text-value); font-size:10.5px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* The caret cap lightens on hover — ControlsPreview `.dd-head:hover .caret{ background:var(--value-focus) }`. */
+.dd-head .caret{
+  flex:0 0 26px; display:grid; place-items:center;
+  background:var(--value-unit); color:var(--muted);
+  transition:background .13s, color .13s;
+}
+.dd-head .caret svg{ width:11px; height:11px; transition:transform .16s var(--ease-out); }
+.dd-head:hover .caret{ background:var(--tile-hi); color:var(--ink); }
+.dropdown.open .dd-head .caret svg{ transform:rotate(180deg); }
+
+/* 🔴 `position:fixed` and JS-placed, NOT absolutely positioned inside the row. `.mc-pane` is a hard
+   overflow:hidden containment boundary (invariant 4) and the pane track is 200% wide — an in-flow list
+   would be clipped at the pane edge, or worse, bleed into the neighbouring pane the way the opacity
+   slider once did. Fixed + measured places it over the whole document, so neither can happen. */
+.dd-list{
+  position:fixed; display:none; z-index:1200; max-height:214px; overflow-y:auto; padding:4px;
+  background:var(--menu-2); border:1px solid var(--hair-strong); border-radius:9px;
+  box-shadow:0 16px 44px rgba(0,0,0,.6);
+}
+.dropdown.open .dd-list{ display:block; }
+/* 📝 Sharp (unrounded) hover fill plus a 4px full-height accent bar on the left, and the row's text shifts
+   14px → 20px under the cursor. Dropdown.cpp:113-123 draws exactly this, bar width and both indents. */
+.dd-item{
+  position:relative; display:flex; align-items:center; gap:8px;
+  height:24px; padding:0 10px 0 14px;
+  font-size:10.5px; color:var(--ink); cursor:pointer;
+  transition:background .1s, padding-left .1s;
+}
+.dd-item:hover{ background:var(--rail-sel); padding-left:20px; }
+.dd-item:hover::before{
+  content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--accent);
+}
+/* A ring on EVERY row, filled on the current one (Dropdown.cpp:127-139) — so the list reads as a set of
+   choices with one taken, not as one highlighted row among plain text. */
+.dd-item .radio{
+  margin-left:auto; width:10px; height:10px; flex:0 0 auto; border-radius:50%;
+  border:1.4px solid var(--hair-strong);
+}
+.dd-item.sel .radio{
+  border-color:var(--accent); background:var(--accent); box-shadow:inset 0 0 0 2px var(--menu-2);
+}
+
 /* The colour field: a swatch pill that opens an inline hue/value picker. */
 .colfield{ display:flex; align-items:center; gap:8px; min-width:0; }
 .colswatch{
@@ -396,15 +495,58 @@ body{
 }
 .mc-x:hover{ background:rgba(255,107,107,.14); color:#ff6b6b; }
 
-.msk-toolbar{ display:flex; gap:4px; }
-.msk-tool{
-  flex:1; display:flex; align-items:center; justify-content:center; gap:5px;
-  height:26px; border-radius:999px; cursor:pointer;
-  background:#000; border:1px solid var(--hair); color:var(--muted);
-  font-size:10.5px; font-weight:500; transition:background .13s, border-color .13s, color .13s;
+/* 🔴 `White | Black | Invert` as three identical pills was a LIE about the control's shape. White and Black
+   are two mutually-exclusive BASES — the field the component stack is evaluated over — while Invert is an
+   independent modifier applied after the stack runs (EvaluateMaskTexel: base first, invert last). Drawn as
+   three equal siblings the row read as a one-of-three radio group, so "Invert" looked like a third fill and
+   the fact that it composes with either base was invisible. Worse, the toolbar carried no label at all: the
+   three words had to explain their own axis.
+
+   Now the axis is named once ("Base") and the shape matches the semantics:
+     • a SEGMENTED two-cell pill  → one of these two, always exactly one
+     • a separate icon-only FLIP button → a modifier, on top of whichever base is chosen
+
+   💡 The words stay literally `White` / `Black`. They are the greyscale value the mask is filled with, which
+      is what the evaluated tile directly above is showing — relabelling them to their effect ("Reveal all")
+      would have made the row and the picture beside it disagree about what is being named. */
+.msk-baserow{ display:flex; align-items:center; gap:8px; }
+.msk-baserow > .se-k{
+  flex:0 0 52px; font-size:10px; text-transform:uppercase; letter-spacing:.6px; color:var(--faint);
 }
-.msk-tool:hover{ background:var(--tile-hi); color:var(--ink); }
-.msk-tool.on{ border-color:var(--accent); color:var(--ink); background:var(--accent-soft); }
+
+/* One pill, split by a hairline — the enclosing border and single radius are what say "these two are one
+   choice". Separate rounded pills (the old shape) say "these are independent toggles". */
+.msk-seg{
+  flex:1; display:flex; align-items:stretch; height:26px; min-width:0;
+  background:#000; border:1px solid var(--hair); border-radius:999px; overflow:hidden;
+}
+.msk-seg .sg{
+  flex:1; display:flex; align-items:center; justify-content:center; gap:6px; min-width:0;
+  cursor:pointer; font-size:10.5px; font-weight:500; color:var(--muted);
+  transition:background .13s, color .13s;
+}
+.msk-seg .sg + .sg{ border-left:1px solid var(--hair); }
+.msk-seg .sg:hover{ background:var(--tile-hi); color:var(--ink); }
+.msk-seg .sg.on{ background:var(--accent); color:#111; font-weight:600; }
+/* A dot of the ACTUAL fill value beside each word, so the choice is legible without reading. It carries a
+   hairline because a pure-white dot on the selected (near-white) cell would otherwise vanish. */
+.msk-seg .dot{
+  width:9px; height:9px; flex:0 0 auto; border-radius:50%; border:1px solid rgba(130,130,130,.55);
+}
+.msk-seg .dot.w{ background:#fff; }
+.msk-seg .dot.k{ background:#000; }
+
+/* The modifier. Icon-only and square-ish so it cannot be mistaken for a third member of the segment; its
+   tooltip and the identity line above ("· inverted") carry the word. */
+.msk-flip{
+  flex:0 0 30px; height:26px; display:grid; place-items:center; cursor:pointer;
+  border-radius:8px; color:var(--muted);
+  background:var(--tile); border:1px solid var(--hair);
+  transition:background .13s, border-color .13s, color .13s;
+}
+.msk-flip svg{ width:13px; height:13px; display:block; }
+.msk-flip:hover{ background:var(--tile-hi); color:var(--ink); }
+.msk-flip.on{ background:var(--accent); border-color:var(--accent); color:#111; }
 
 .msk-comps{ display:flex; flex-direction:column; gap:4px; margin-top:5px; }
 /* A component row selects a step; the selected one unfolds its parameters directly beneath. */
@@ -727,6 +869,11 @@ const Glyph = {
   stack:     (S) => Svg(`<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>`, S),
   trash:     (S) => Svg(`<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>`, S),
   chevron:   (S) => Svg(`<path d="M9 6l6 6-6 6"/>`, S),
+  chevronDown:(S) => Svg(`<path d="M6 9l6 6 6-6"/>`, S),
+  // 📝 The invert mark: two opposed arrows over a split axis — the mask's light and dark trading places,
+  //    which is what inversion does to it. Not a "swap two items" mark, which would read as reordering.
+  flip:      (S) => Svg(`<path d="M4 12h16"/><path d="M8.5 7.5L12 4l3.5 3.5"/>` +
+                        `<path d="M15.5 16.5L12 20l-3.5-3.5"/>`, S),
   plus:      (S) => Svg(`<path d="M12 5v14M5 12h14"/>`, S),
   paint:     (S) => Svg(`<path d="M5 19c0-4 3-6 6-6M11 13l6-6a2.8 2.8 0 10-4-4l-6 6"/>` +
                         `<circle cx="6" cy="18" r="1.6"/>`, S),
@@ -1000,6 +1147,105 @@ function BuildChips(Options, Current, OnPick)
   return Host;
 }
 
+//----------------------------------------------------------------------------------------------------------
+//                                          BuildDropdown
+//----------------------------------------------------------------------------------------------------------
+// 🔴 A 1:1 transcription of Controls/Dropdown.cpp — the executable's own combo control — NOT a styled
+//    <select>. A native select renders with the OS's own popup: a different font, a different highlight
+//    colour and a scrollbar none of this panel's palette reaches, so the one control the prototype exists to
+//    preview would be the one control it could not show.
+//
+// 🔴 Three behaviours the C++ gets from ImGui::BeginPopup for free and this must therefore do by hand
+//    (Dropdown.cpp:60, :64-89), because leaving any of them out is how a hand-rolled dropdown ends up
+//    permanently stuck open behind another panel:
+//     ① CLICK-OUTSIDE-TO-CLOSE — one capture-phase document listener, armed only while open.
+//     ② VIEWPORT FLIP — the list is placed under the head, but flips ABOVE when it would run past the
+//       bottom edge. Blend sits high in the pane and Fill sits low; without the flip the low one is clipped.
+//     ③ MEASURED PLACEMENT — position:fixed at the head's live screen rect (invariant 4: the pane clips).
+//
+// 📝 Only ONE list may be open at a time, so opening closes any other. Two open lists can overlap, and the
+//    one underneath then takes clicks aimed at the one on top.
+let OpenDropdown = null;
+
+function CloseOpenDropdown()
+{
+  if (!OpenDropdown) { return; }
+  OpenDropdown.classList.remove("open");
+  document.removeEventListener("mousedown", OpenDropdown.OutsideWatch, true);
+  window.removeEventListener("resize", OpenDropdown.DismissWatch, true);
+  // Capture-phase + `true` so ANY ancestor scroll dismisses: the list is fixed-positioned, so it does not
+  // travel with the pane body it was measured against and would otherwise detach from its own head.
+  window.removeEventListener("scroll", OpenDropdown.DismissWatch, true);
+  OpenDropdown = null;
+}
+
+function BuildDropdown(Options, Current, OnPick)
+{
+  const Host = document.createElement("div");
+  Host.className = "dropdown";
+
+  const Head = document.createElement("div");
+  Head.className = "dd-head";
+  Head.innerHTML = `<span class="cur"></span><span class="caret">${Glyph.chevronDown(11)}</span>`;
+  Head.querySelector(".cur").textContent = Current;
+  Head.title = Current;
+
+  const List = document.createElement("div");
+  List.className = "dd-list";
+
+  for (const Option of Options)
+  {
+    const Item = document.createElement("div");
+    Item.className = "dd-item" + (Option === Current ? " sel" : "");
+    Item.innerHTML = `<span class="lb"></span><span class="radio"></span>`;
+    Item.querySelector(".lb").textContent = Option;
+    // mousedown would fire before the outside-watch could distinguish inside from outside; click is correct.
+    Item.onclick = (Event) => {
+      Event.stopPropagation();
+      CloseOpenDropdown();
+      OnPick(Option);
+    };
+    List.appendChild(Item);
+  }
+
+  Host.OutsideWatch = (Event) => { if (!Host.contains(Event.target)) { CloseOpenDropdown(); } };
+  Host.DismissWatch = () => CloseOpenDropdown();
+
+  Head.onclick = (Event) => {
+    Event.stopPropagation();
+    if (OpenDropdown === Host) { CloseOpenDropdown(); return; }
+    CloseOpenDropdown();
+
+    Host.classList.add("open");
+    OpenDropdown = Host;
+
+    // Measured AFTER the class is on, so the list has a laid-out height to test against the viewport.
+    const Anchor = Head.getBoundingClientRect();
+    List.style.width = `${Anchor.width}px`;
+    List.style.left  = `${Anchor.left}px`;
+    List.style.top   = "0px";
+
+    const Extent    = List.getBoundingClientRect().height;
+    const Below     = Anchor.bottom + 4;
+    const Above     = Anchor.top - 4 - Extent;
+    const FitsBelow = (Below + Extent) <= window.innerHeight;
+    const FitsAbove = Above >= 0;
+    // Prefer below; flip above only when below clips AND above actually fits; else clamp (Dropdown.cpp:79).
+    let Placement;
+    if (FitsBelow || !FitsAbove) { Placement = FitsBelow ? Below : Math.max(0, window.innerHeight - Extent); }
+    else                         { Placement = Above; }
+    List.style.top = `${Placement}px`;
+
+    document.addEventListener("mousedown", Host.OutsideWatch, true);
+    window.addEventListener("resize", Host.DismissWatch, true);
+    window.addEventListener("scroll", Host.DismissWatch, true);
+  };
+
+  Host.appendChild(Head);
+  Host.appendChild(List);
+  return Host;
+}
+
 // A numeric pill plus a track.
 //
 // 📝 OnInput is called with (Value, Live). Live is true while the pointer is down: the caller writes the
@@ -1201,6 +1447,14 @@ class LayerPropertyPane
   //------------------------------------------------------------------------------------------------------
   Refresh()
   {
+    // 🔴 Dismiss any open dropdown HERE, not at the call sites. The list is position:fixed, so it is the one
+    //    thing in this pane that does not disappear when the body subtree does — and the wipe below orphans
+    //    the element while `OpenDropdown` still points at it, leaving its document-level mousedown watcher
+    //    attached to a node no longer in the tree. That is a leak per rebuild AND a list left hovering over a
+    //    pane it can no longer edit. Refresh is the single choke point every structural edit passes through,
+    //    so guarding it once covers the tab toggle, the switcher, and every future caller.
+    CloseOpenDropdown();
+
     const Layer = this.Focus;
     const Body  = this.Part.MetaBody;
     Body.innerHTML = "";
@@ -1302,7 +1556,12 @@ class LayerPropertyPane
       this.Apply();
     })));
 
-    Body.appendChild(PropertyRow("Blend", BuildChips(BLEND_MODES, Layer.Blend, (Pick) => {
+    // 🔴 A DROPDOWN, not the chip row it was. Blend is a 7-option single-choice enum, and as chips it wrapped
+    //    onto two lines inside a 326px pane — the widest control here, spent on the least-often-changed
+    //    setting, and growing again with every mode the compositor gains. The executable draws this exact row
+    //    with Controls/Dropdown.cpp, so the chip row was also the prototype disagreeing with the port target.
+    //    Chips stay where they earn their width: few options, all worth showing at once.
+    Body.appendChild(PropertyRow("Blend", BuildDropdown(BLEND_MODES, Layer.Blend, (Pick) => {
       Layer.Blend = Pick;
       this.Apply();
     })));
@@ -1540,23 +1799,49 @@ class LayerPropertyPane
     };
     Body.appendChild(HeadRow);
 
-    // ---- White / Black / Invert toolbar -------------------------------------------------------------
-    const Bar = document.createElement("div");
-    Bar.className = "msk-toolbar";
-    const Tool = (Label, On, Run) => {
+    // ---- Base [ White | Black ] + flip ---------------------------------------------------------------
+    // 🔴 Two controls on one labelled row, replacing three unlabelled equal pills. The segment is the BASE the
+    //    component stack is evaluated over (EvaluateMaskTexel's `Prior` seed); the flip button is the invert
+    //    applied AFTER the stack has run. They are different kinds of thing and now look like it — see the
+    //    .msk-seg / .msk-flip CSS for why the old shape misdescribed the control.
+    //
+    // 📝 "Base" names the axis once, so neither control has to explain itself in its own label. The word is
+    //    the seed value's own name in the evaluator, not a UI invention.
+    const BaseRow = document.createElement("div");
+    BaseRow.className = "msk-baserow";
+    BaseRow.innerHTML = `<span class="se-k">Base</span>`;
+
+    const Segment = document.createElement("div");
+    Segment.className = "msk-seg";
+    const Cell = (Label, Swatch, On, Run) => {
       const El = document.createElement("div");
-      El.className   = "msk-tool" + (On ? " on" : "");
-      El.textContent = Label;
-      El.onclick     = Run;
+      El.className = "sg" + (On ? " on" : "");
+      El.innerHTML = `<span class="dot ${Swatch}"></span><span class="lb"></span>`;
+      El.querySelector(".lb").textContent = Label;
+      El.title   = Label === "White"
+        ? "White base — the layer applies everywhere the stack does not carve it away"
+        : "Black base — the layer applies nowhere until the stack opens it up";
+      El.onclick = Run;
       return El;
     };
-    Bar.appendChild(Tool("White", Mask.Fill !== "black",
+    Segment.appendChild(Cell("White", "w", Mask.Fill !== "black",
       () => { Mask.Fill = "white"; this.Apply(); }));
-    Bar.appendChild(Tool("Black", Mask.Fill === "black",
+    Segment.appendChild(Cell("Black", "k", Mask.Fill === "black",
       () => { Mask.Fill = "black"; this.Apply(); }));
-    Bar.appendChild(Tool("Invert", Mask.Invert === true,
-      () => { Mask.Invert = !Mask.Invert; this.Apply(); }));
-    Body.appendChild(Bar);
+    BaseRow.appendChild(Segment);
+
+    const Flip = document.createElement("div");
+    Flip.className = "msk-flip" + (Mask.Invert === true ? " on" : "");
+    Flip.innerHTML = Glyph.flip(13);
+    // The button is icon-only, so the tooltip carries the whole meaning AND its current setting — the mark
+    // alone cannot say whether inversion is presently on.
+    Flip.title = Mask.Invert
+      ? "Inverted — light and dark are swapped. Click to restore."
+      : "Invert — swap the mask's light and dark, after its components have run.";
+    Flip.onclick = () => { Mask.Invert = !Mask.Invert; this.Apply(); };
+    BaseRow.appendChild(Flip);
+
+    Body.appendChild(BaseRow);
 
     // ---- mask strength ------------------------------------------------------------------------------
     const StrengthRow = document.createElement("div");
@@ -1763,15 +2048,23 @@ class LayerPropertyPane
     const Host = document.createElement("div");
     Host.className = "meta-actions";
 
-    // 🔴 The stack refuses to remove its last layer, so the row is DISABLED rather than offered and then
-    //    silently ignored.
+    // 🔴 The stack refuses to remove its last layer, so the control is DISABLED rather than offered and then
+    //    silently ignored — and, being the only action in the pane, a dead-looking row with no stated reason
+    //    reads as a broken panel. The note below says WHY, and only appears in that state.
     const Enabled = this.Count > 1;
     const Item    = document.createElement("div");
-    Item.className = "act-item danger" + (Enabled ? "" : " disabled");
-    Item.innerHTML = `<span class="ic">${Glyph.trash(15)}</span><span>Delete</span>`;
+    Item.className = "act-danger" + (Enabled ? "" : " disabled");
+    // 📝 "Delete layer", not bare "Delete": this pane also deletes MASKS (BuildMaskSection's × ) and mask
+    //    COMPONENTS, so an unqualified verb here names the wrong noun for the reader who just scrolled past
+    //    two other delete affordances.
+    Item.innerHTML = `<span class="ic">${Glyph.trash(14)}</span><span>Delete layer</span>`;
+    Item.title = Enabled ? `Remove "${Layer.Name}" from the stack` : "";
     if (Enabled)
     {
       Item.onclick = () => {
+        // A fixed-position dropdown outlives the subtree it was measured against, so any open list must be
+        // dismissed before the rebuild — otherwise it hangs over the pane pointing at a layer that is gone.
+        CloseOpenDropdown();
         const At = this.Layers.findIndex((L) => L.Token === Layer.Token);
         this.Layers.splice(At, 1);
         this.FocusToken = this.Layers[Math.min(At, this.Layers.length - 1)]?.Token ?? null;
@@ -1779,6 +2072,14 @@ class LayerPropertyPane
       };
     }
     Host.appendChild(Item);
+
+    if (!Enabled)
+    {
+      const Note = document.createElement("div");
+      Note.className   = "act-note";
+      Note.textContent = "The stack keeps at least one layer.";
+      Host.appendChild(Note);
+    }
     return Host;
   }
 }

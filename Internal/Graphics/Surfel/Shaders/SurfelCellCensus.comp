@@ -1,0 +1,193 @@
+/*==============================================================================================================================================
+                                                           SURFELCELLCENSUS.COMP
+==============================================================================================================================================*/
+// 🧩 Lifecycle pass 2 of 4, ported 1:1 from W298/SurfelGI (SurfelUpdatePass.cs.slang:collectCellInfo). One invocation per PENDING surfel — last frame's
+//    survivors. Each invocation does five things for its surfel, in this order:
+//       ① ages it (life down one, frame ordinal up one) and applies the sleep/wake rules
+//       ② decides whether it survives: a radius at or below zero, or life exhausted, means the slot is freed
+//       ③ for a survivor, appends its ordinal to the LIVE set and refreshes its radius against the camera distance
+//       ④ counts it into every one of the 5³ cells its disc reaches, so the offset scan can size each cell's run
+//       ⑤ claims a run of the frame's shared ray budget proportional to its MSME variance
+//
+// 🔴 THIS PASS ONLY COUNTS — IT WRITES NO CELL LIST. Pass 4 (SurfelCellScatter) walks the same neighbourhood again and writes the entries. The duplication
+//    is upstream's ("This operation is duplicated, might be possible to merge") and is preserved deliberately: the count must be COMPLETE before any entry
+//    is written, because the offset scan in between turns the counts into the base addresses the scatter writes at. ⚠️ The two walks must agree exactly. They
+//    do so only because both derive the cell from ResolveCellCoordinate against the SAME pushed camera origin — see the tie note in SurfelCellGrid.glsl.
+//
+// 🔴 SurfelCount IS A COUNT HERE AND A WRITE CURSOR IN PASS 4. The offset scan between them zeroes it after banking the total. A missing barrier at either
+//    boundary means the scatter's cursor starts at the census's count and every cell's entries land one run too far along the table.
+//
+// 🔴 THIS PASS ADDS TO SurfelCount AND NEVER INITIALIZES IT, SO THE SUBMISSION MUST ZERO THE SPANS BEFORE THIS RUNS. The scatter leaves the count at the
+//    frame's true value, so without that clear this frame's atomicAdd lands on last frame's leftover and the scan banks both. Upstream has exactly that
+//    defect; SurfelLifecycleSubmission.cpp fixes it with a vkCmdFillBuffer ahead of this dispatch, and the reasoning is recorded there.
+//
+// 📝 Upstream indexes its reference tally through an HLSL ByteAddressBuffer with an ELEMENT index where the API takes a BYTE offset, so its refcounts
+//    overlap four-to-a-word. Frontier's tally is a uint array and is indexed by element, which is what upstream meant. The intent is ported; the defect is not.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "SurfelStoreBindings.glsl"
+#include "SurfelCellGrid.glsl"
+
+layout(local_size_x = 64) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    THE PHASE-6 SURFACE SEAM
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 NOT YET IMPLEMENTED, AND DELIBERATELY NAMED SO IT CANNOT READ AS FINISHED. Upstream re-derives a surfel's position and normal EVERY FRAME from its
+//    stored surface anchor — `gScene.getVertexData(TriangleHit(gSurfelGeometryBuffer[i]))` — which is what keeps a surfel glued to a moving body instead of
+//    hanging in the air where the body used to be. Frontier has no equivalent yet: the software two-level BVH yields instance + primitive + barycentric,
+//    but the vertex/normal fetch from those streams is Phase-6 work (plan §5).
+// ⚠️ Until that lands this returns the surfel's STORED position and normal, so the field is correct for static geometry and stale for moving geometry. That
+//    is a visible limitation, not a hidden one: a surfel on a moving body keeps lighting the body's old location. HitLocatorStorage is already allocated and
+//    already written by the spawn, so this becomes a one-function change with no layout churn.
+void ResolveAnchoredSurface(uint SurfelOrdinal, inout vec3 Position, inout vec3 Normal)
+{
+    // Phase 6 replaces this body with a vertex fetch through HitLocatorStorage.Anchors[SurfelOrdinal]. Reading the anchor here would be dead code, so it
+    // is left unread rather than touched for appearances.
+}
+
+void main()
+{
+    const uint Invocation = gl_GlobalInvocationID.x;
+
+    // Upstream dispatches the full surfel limit every frame and early-outs against the pending count, rather than sizing the dispatch from a count only the
+    // host knows a frame late. 1024 groups of 64 is a negligible launch, and it means the dispatch never disagrees with the counter it reads.
+    const uint PendingCount = CounterStorage.Slots[SurfelCounterDirtySurfel];
+    if (Invocation >= PendingCount) return;
+
+    const uint SurfelOrdinal = PendingIndexStorage.Ordinals[Invocation];
+    if (SurfelOrdinal >= SurfelTotalLimit) return;   // a corrupt pending entry must not index past the records
+
+    Surfel              Record  = SurfelRecordStorage.Records[SurfelOrdinal];
+    SurfelRecycleRecord Recycle = RecycleStorage.Records[SurfelOrdinal];
+
+    const bool LockEnabled = Constants.LockEnabled != 0u;
+
+    //-- ① age + sleep/wake ------------------------------------------------------------------------------------------------
+    bool SleepingCondition = (Recycle.Status & SurfelStatusSleeping) != 0u;
+    const bool SeenCondition = (Recycle.Status & SurfelStatusLastSeen) != 0u;
+
+    // 📝 Saturating, both ends. Life is unsigned here (upstream reinterprets its uint16 as signed to get the same floor), so the max() is what stops a
+    //    surfel at life 0 wrapping to ~4 billion and becoming immortal.
+    Recycle.Life  = Recycle.Life > 0u ? Recycle.Life - 1u : 0u;
+    Recycle.Frame = min(Recycle.Frame + 1u, 65535u);
+
+    // Seen this frame: full life restored, and a sleeper wakes.
+    if (SeenCondition)
+    {
+        Recycle.Life = SurfelMaximumLife;
+        SleepingCondition = false;
+    }
+
+    // A sleeper still referenced by enough screen tiles keeps the shorter sleeping life rather than dying. This is what makes sleep a demotion instead of a
+    // death sentence: it stays as cheap history for a region the camera may return to.
+    const bool WellReferencedCondition = ReferenceTallyStorage.Tally[SurfelOrdinal] > SurfelReferenceThreshold;
+    if (SleepingCondition && WellReferencedCondition)
+        Recycle.Life = SurfelSleepingMaximumLife;
+
+    //-- ② survive or free -------------------------------------------------------------------------------------------------
+    // Radius 0 is how the spawn marks a slot for removal (it writes the radius to zero rather than touching the counters from a raster thread), so these two
+    // conditions are one test: a live surfel has both a positive radius and remaining life.
+    if (Record.Radius <= 0.0 || Recycle.Life == 0u)
+    {
+        if (!LockEnabled)
+        {
+            // Push the slot onto the vacancy stack. FreeSurfel is the stack TOP, so the returned pre-increment value is the slot to write.
+            const uint StackTop = atomicAdd(CounterStorage.Slots[SurfelCounterFreeSurfel], 1u);
+            if (StackTop < SurfelTotalLimit)
+                VacancyStorage.Ordinals[StackTop] = SurfelOrdinal;
+        }
+        return;
+    }
+
+    //-- ③ join the live set + refresh the disc ----------------------------------------------------------------------------
+    const uint LiveSlot = atomicAdd(CounterStorage.Slots[SurfelCounterValidSurfel], 1u);
+    if (LiveSlot >= SurfelTotalLimit) return;   // the live set is full; this surfel sits out the frame rather than overrunning it
+    LiveIndexStorage.Ordinals[LiveSlot] = SurfelOrdinal;
+
+    vec3 Position = FetchSurfelPosition(Record);
+    vec3 Normal   = FetchSurfelNormal(Record);
+    ResolveAnchoredSurface(SurfelOrdinal, Position, Normal);   // 🔴 Phase-6 seam, see above
+
+    const vec3 CameraOrigin = FetchCameraOrigin();
+
+    if (!LockEnabled)
+    {
+        StoreSurfelPosition(Record, Position);
+        StoreSurfelNormal(Record, Normal);
+
+        // A sleeping surfel is made deliberately COARSE — 16x the target area, so it covers more screen with less precision — and then floored so it cannot
+        // shrink to nothing and be recycled while it is still the only cache of its region's light.
+        const float EffectiveTargetArea = Constants.TargetArea * (SleepingCondition ? 16.0 : 1.0);
+        Record.Radius = ResolveSurfelRadius(distance(CameraOrigin, Position),
+                                            Constants.VerticalFieldOfView,
+                                            FetchRenderExtent(),
+                                            EffectiveTargetArea);
+        if (SleepingCondition)
+            Record.Radius = max(Record.Radius, ResolveSleepingRadiusFloor());
+    }
+
+    //-- ④ count this surfel into every cell its disc reaches --------------------------------------------------------------
+    // 💡 The radius is capped at CellEdge*2 by ResolveSurfelRadius, which is exactly what makes this fixed 125-cell walk exhaustive — a disc can never
+    //    reach past ±2 cells from the one holding its centre. The two are one decision (see SurfelCellGrid.glsl).
+    const ivec3 CentreCell = ResolveCellCoordinate(Position, CameraOrigin);
+    for (uint Neighbour = 0u; Neighbour < SurfelNeighbourCellCount; ++Neighbour)
+    {
+        const ivec3 TargetCell = CentreCell + ResolveNeighbourCellOffset(Neighbour);
+        if (SurfelIntersectsCell(Position, Record.Radius, TargetCell, CameraOrigin))
+            atomicAdd(CellSpanStorage.Spans[FlattenCellIndex(TargetCell)].SurfelCount, 1u);
+    }
+
+    //-- ⑤ claim a run of the frame's ray budget ---------------------------------------------------------------------------
+    if (!LockEnabled)
+    {
+        // The ladder: a surfel whose estimator is still noisy earns more rays. A sleeper's whole ladder is shifted down to the minimum, because it is being
+        // retained as history rather than re-converged.
+        const uint LadderFloor   = SleepingCondition ? (Constants.MinimumRayCount / 4u) : (Constants.MaximumRayCount / 4u);
+        const uint LadderCeiling = SleepingCondition ?  Constants.MinimumRayCount       :  Constants.MaximumRayCount;
+
+        const vec3  Variance     = vec3(Record.MeanEstimator.VarianceX, Record.MeanEstimator.VarianceY, Record.MeanEstimator.VarianceZ);
+        const float NoiseFraction = length(Variance) * Constants.VarianceSensitivity;
+        const uint  RequestCount = uint(clamp(mix(float(LadderFloor), float(LadderCeiling), NoiseFraction),
+                                              float(LadderFloor), float(LadderCeiling)));
+
+        const uint RayOffset = atomicAdd(CounterStorage.Slots[SurfelCounterRequestedRay], RequestCount);
+
+        // 🔴 THE BUDGET GUARD IS NOT OPTIONAL. The budget is a shared POOL, not a per-surfel quota, so on a heavy frame a late surfel's claim legitimately
+        //    lands past the end. Upstream's `rayOffset < kRayBudget` makes that surfel trace nothing this frame; dropping the guard writes past the outcome
+        //    buffer instead. ⚠️ The whole claimed RUN must fit, not just its first ray — checking only the offset lets a run straddle the end.
+        if (RayOffset + RequestCount <= SurfelRayBudget)
+        {
+            Record.RayOffset = RayOffset;
+            Record.RayCount  = RequestCount;
+
+            // Stamp each claimed outcome with its owner so the integrate can attribute a ray without a reverse lookup. Zeroed rather than
+            // partially-initialized (upstream leaves the other fields undefined): a ray the trace skips then integrates as no contribution instead of noise.
+            SurfelRayOutcome Blank;
+            StoreRayOutcomeLocalDirection(Blank, vec3(0.0));
+            StoreRayOutcomeWorldDirection(Blank, vec3(0.0));
+            Blank.ProbabilityDensity = 0.0;
+            Blank.FirstRayLength     = 0.0;
+            StoreRayOutcomeRadiance(Blank, vec3(0.0));
+            Blank.SurfelOrdinal      = SurfelOrdinal;
+
+            for (uint RayIndex = 0u; RayIndex < RequestCount; ++RayIndex)
+                RayOutcomeStorage.Outcomes[RayOffset + RayIndex] = Blank;
+        }
+        else
+        {
+            Record.RayCount = 0u;   // starved this frame; the integrate must not read a run that was never traced
+        }
+
+        // LastSeen is cleared every frame by design — it is a per-frame touch mark the shade path re-raises. Sleep is the only bit that carries.
+        Recycle.Status = SleepingCondition ? SurfelStatusSleeping : 0u;
+
+        RecycleStorage.Records[SurfelOrdinal]    = Recycle;
+        SurfelRecordStorage.Records[SurfelOrdinal] = Record;
+
+        ReferenceTallyStorage.Tally[SurfelOrdinal] = 0u;   // the tally is per-frame; the shade path re-accumulates it
+    }
+}

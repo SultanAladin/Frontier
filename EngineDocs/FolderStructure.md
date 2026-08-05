@@ -22,6 +22,8 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │        thorvg, tomlpp, tracy, xxHash, imgui-node-editor)
 │
 ├── EngineContent/                                  // Shared runtime assets (fonts, default themes, icons)
+│   └── ReferenceMaterials/Matcaps/                 // Matcap discs (512² RGBA PNG) the GPU solid pass shades extruded bodies with
+│                                                   // { Matcap-Chrome.png, Matcap-PolishedSteel.png, Matcap-ClayGrey.png, Matcap-NeutralCool.png }
 │
 ├── Build/                                          // Intermediate build output (git-ignored)
 │   ├── obj/                                        // Per-translation-unit .obj
@@ -437,11 +439,13 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       ├── PolygonActionValidation/        { PolygonActionValidationHost.cpp,        …Panel.{h,cpp}, Build.bat }
 │       ├── RadixSortValidation/            { RadixSortValidationEntry.cpp,           Build.bat }
 │       ├── RenderExtensionValidation/      { RenderExtensionValidationEntry.cpp,     Build.bat }
+│       ├── RigidBodyDropValidation/        { RigidBodyDropValidationEntry.cpp, RigidBodySceneAuthor.{h,cpp}, RigidBodySimulation.{h,cpp}, RigidBodyCullRefit.{h,cpp}, RigidBodyFrameDriver.{h,cpp}, RigidBodyControlWindow.{h,cpp}, Build.bat }  // Jolt physics over RenderExtension: authors its own drop scene as .wsdoc, drives 65 dynamic bodies, rewrites the instance transforms each frame. Links ExternalPackages\jolt\lib\jolt.lib + /DNDEBUG (the archive was built with features 0, so a consumer without NDEBUG fails to link JPH::AssertFailed). ⚠️ Substitutes its scene by AUTHORING OVER the engine's own document filenames (SuzanneRadial.wsdoc + CheckerFloor.wsdoc) — RenderExtension.cpp is in Graphics.lib so FRONTIER_SCENE_ASSET_DIR cannot be redefined here. Runs from a PRIVATE working dir (Binaries\Validation\RigidBodyDropScene, Shaders junctioned in) via RunRigidBodyDropValidation.bat so it cannot clobber the shared Assets the other apps load. Zero engine edits: it wraps the public WindowSubstrate::RecordSequence rather than adding a host seam
 │       ├── SceneDirectory/                 { SceneDirectoryHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel with the SCENE profile (no private panel copy)
 │       ├── SceneDirectoryInspectorValidation/ { SceneDirectoryInspectorValidationHost.cpp, SceneDirectoryInspector.{h,cpp}, SceneDirectoryInspectorPanel.{h,cpp}, InspectorContentProfile.{h,cpp}, InspectorGlyphs.{h,cpp}, Build.bat }  // directory rail = SHARED SketchOutliner panel via InspectorContentProfile (opaque ClassificationId == RecordClassification); non-host units ALSO compiled in-place by SketchModelViewport
 │       ├── SketchModelViewport/            { SketchModelViewportHost.cpp,            …Panel.{h,cpp}, SketchModelOffscreenSurface.{h,cpp}, SketchModelViewportChrome.{h,cpp}, SketchModelSummonedSurfaces.{h,cpp}, SketchModelWorkplaneOverlay.{h,cpp}, Build.bat }  // embeds two surfaces over the canvas: SceneDirectoryInspector card on Tab + ConstructionCatalogue console on right-click — both sibling folders' non-host .cpp compiled IN-PLACE (their Host.cpp skipped); links AuthoringParametric.lib + draws authored Workplane records as an ImGui DrawList overlay projected by the viewport camera
 │       ├── SketchOutliner/                 { SketchOutlinerValidationHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel (SKETCH profile) from EngineContext.lib
 │       ├── TexturePaintLayerStack/         { TexturePaintLayerStackHost.cpp, Build.bat }  // host-only; drives the shared Interface/Workspaces/TexturePaint LayerStackPanel from EngineContext.lib, registers the g- + paint- icon tiers, draws the rail in a 340 px column beside a live focus readout
+│       ├── TexturePaintValidation/         { TexturePaintValidationHost.cpp, TexturePaintSummonedCard.{h,cpp}, Build.bat }  // the texture-paint surface: one flat paint field with the PaintToolValidation instrument card summoned over it on RIGHT-CLICK (that sibling's non-host .cpp compiled IN-PLACE, its Host.cpp skipped — the card is deliberately outside EngineContext.lib because its strip store needs a rectangular raster); links thorvg.lib + /DTVG_STATIC for the embedded PaintIconStore
 │       ├── TriangleCellOverlapValidation/  { TriangleCellOverlapValidationEntry.cpp, Build.bat }
 │       ├── VolumeBoundsValidation/         { VolumeBoundsValidationEntry.cpp,        Build.bat }
 │       ├── WorkspaceDock/                  { WorkspaceDockEntry.cpp,                 Build.bat }
@@ -461,7 +465,12 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │                                 RadixSortValidation.exe, TriangleCellOverlapValidation.exe, VolumeBoundsValidation.exe,
 │                                 GeometryTreeValidation.exe, GeometryArenaValidation.exe,
 │                                 WorkspaceDocumentWriter.exe, ConstructionCatalogueValidation.exe,
-│                                 SceneDirectoryInspectorValidation.exe, TexturePaintLayerStack.exe }
+│                                 SceneDirectoryInspectorValidation.exe, TexturePaintLayerStack.exe,
+│                                 TexturePaintValidation.exe, RigidBodyDropValidation.exe,
+│                                 Assets/,                     // the SHARED .wsdoc the render apps load — do NOT author over these
+│                                 RigidBodyDropScene/          // RigidBodyDropValidation's PRIVATE cwd: its own Assets/ + a Shaders junction
+│                                                              // (launch it through RunRigidBodyDropValidation.bat, which cd's here first)
+│                                 RunRigidBodyDropValidation.bat }
 │
 ├── Documentation/                                 // per "Where to Save Documents"
 │   ├── Explainers/  Mockups/  Research/  Skills/  Assets/

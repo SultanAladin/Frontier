@@ -34,13 +34,8 @@
 #include "Graphics/Acceleration/InstanceBoundsSubmission.h"
 #include "Graphics/Acceleration/RadixSortSubmission.h"
 #include "Graphics/Acceleration/InstanceTreeSubmission.h"
-#include "Graphics/Surfel/SurfelPool.h"
-#include "Graphics/Surfel/SurfelGridSlotting.h"
-#include "Graphics/Surfel/SurfelLifecycleSubmission.h"
-#include "Graphics/Surfel/SurfelDebugInscription.h"
-#include "Graphics/Surfel/SurfelIntegrateSubmission.h"
-#include "Graphics/Surfel/SurfelCensusTrace.h"
-#include "Graphics/RenderExtension/SurfelTuningWindow.h"
+// 🚧 Surfel GI includes removed with the webgiya strip; the W298 port re-adds SurfelStore.h + its submissions here.
+#include "Graphics/RenderExtension/LightingTuningWindow.h"
 #include "Graphics/RenderExtension/GpuTimestampScope.h"
 #include "EngineContext/Scene/SceneExtension.h"
 #include "EngineContext/Scene/WorkspaceDocumentRegister.h"
@@ -172,10 +167,6 @@ struct RenderExtension
     uint32_t                HeadMeshOrdinal  = 0;  // [-] - Ordinal of the heads mesh within SceneStreams / the arena (0 = first appended)
     uint32_t                FloorMeshOrdinal = 0;  // [-] - Ordinal of the floor slab; equals HeadMeshOrdinal only when no floor loaded
     bool                    FloorStreamPresent = false; // [-] - True when the floor actually appended a non-empty mesh (its ordinal is meaningful)
-    // 📝 The floor's single model matrix, RETAINED at load. The surfel micro-raster walks geometry rather than the visibility buffer, so it must cover
-    //    the floor partition explicitly — and that dispatch pushes this matrix instead of binding FloorRaster.InstanceBuffer, because re-pointing the
-    //    instance descriptor between the heads' dispatch and the floor's would race the in-flight heads. One instance, so one matrix is the whole set.
-    float                   FloorInstanceModel[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
     GeometryArenaSubmission GeometryArena;         // [-] - Bottom-level trees for every merged mesh, indexed by the ordinals above
     // 📝 Top-level acceleration structure (TLAS) — built on the GPU every frame over the scene instances so the Phase-2 surfel trace has a live
     //    two-level BVH to walk. Bound ONCE at load (the scene is static after load, so every buffer handle is stable — re-binding a set already
@@ -234,60 +225,23 @@ struct RenderExtension
     bool                    ReportedInspectionShortfall = false;       // [-] - Latch for the capacity-truncation caution, so it states the onset once
 #endif
 
-    // 📝 Surfel GI — Phase 1 (pool + camera-relative cascaded hash grid + spawn-from-visibility + debug view). NO tracing / GI on screen yet: this
-    //    stands up the surfel substrate and an eyeballable debug splat, the visual half of the Phase-1 definition of done. The compute records in the
-    //    preamble at the one in-buffer, outside-every-scope seam (after the visibility image is handed to sampling, before the radiance scope opens);
-    //    the splat records inside the radiance scope after the shade. Every unit is best-effort — a failed init leaves ReadyCondition false and every
-    //    record no-ops, exactly like the clipmap visualization, so the renderer still runs. The grid Offsets/List + pool buffers are owned here; the
-    //    lifecycle borrows the visibility image + the merged mesh buffers (mirroring the shade's Refresh).
-    SurfelPool                SurfelPoolResource;   // [-] - the surfel SSBO + free-list + atomics + the four F7 zero-fill buffers
-    SurfelGridSlotting        SurfelSlotting;       // [-] - clear -> count -> scan -> slot; owns the Offsets/List SSBOs + an internal SurfelPrefixSum
-    SurfelLifecycleSubmission SurfelLifecycle;      // [-] - Prepare (one-time seed, F21) / Spawn (from the visibility id) / Age (TTL recycle)
-    SurfelDebugInscription    SurfelDebug;          // [-] - the screen-space splat of every live surfel, composited after the shade
-    SurfelIntegrateSubmission SurfelIntegrate;      // [-] - Phase 2: per-surfel trace + MSME integrate (bound once against the BVH + surfel state, records after Age)
-    uint32_t                  SurfelDebugMode          = SurfelDebugModeOff; // [-] - selected debug mode (0 = off, default); F6 cycles Off->Age->..->Irradiance->Luminance->GiVsDead
-    bool                      SurfelDebugModeKeyLatch  = false;              // [-] - edge latch so one F6 press advances the mode once
-    float                     SurfelDebugRadiusScale   = 0.1f;               // [-] - disc-size multiplier for the splat; DEFAULTS to the smallest size F8 can produce (F8 shrinks ×0.8 to the 0.1 floor, F9 grows) so debug spheres start as small dots
-    bool                      SurfelDebugRadiusDownLatch = false;            // [-] - edge latch for F8 (shrink)
-    bool                      SurfelDebugRadiusUpLatch   = false;            // [-] - edge latch for F9 (grow)
-    float                     SurfelSpawnDensityScale  = 1.0f;               // [-] - live spawn-rate multiplier; Numpad- sparser, Numpad+ denser (raises coverage at GPU cost)
-    bool                      SurfelSpawnDensityUpLatch   = false;           // [-] - edge latch for Numpad+ (denser)
-    bool                      SurfelSpawnDensityDownLatch = false;           // [-] - edge latch for Numpad- (sparser)
-    bool                      SurfelGiEnabled          = true;               // [-] - Phase 3: when true the shade GATHERS surfel GI in place of the flat ambient; F7 toggles the A/B
-    bool                      SurfelGiKeyLatch         = false;              // [-] - edge latch so one F7 press flips the GI toggle once
-    uint32_t                  SurfelFrameIndex         = 0;                  // [-] - monotonically-increasing frame counter fed to the spawn (jitter / frame-index uses)
-    bool                      SurfelDumpKeyLatch       = false;              // [-] - edge latch so one L press requests a dump once
-    bool                      SurfelDumpRequested      = false;              // [-] - one-shot: set by the L latch, consumed at the preamble seam (copy surfels+spawns off the GPU to disk)
-    uint32_t                  SurfelDumpSequence       = 0;                  // [-] - monotonic per-dump counter; names each L-press snapshot (surfel-dump-0000.json …) so presses accumulate
-
-    // 🩺 Per-frame population census (K key), the TIME-SERIES counterpart to L's snapshot. K toggles recording on/off; while on, one CSV row per frame
-    //    carries the pool levels plus the GPU-counted spawn/death FLOWS. It answers what no snapshot can: whether the probe field churns. See
-    //    SurfelCensusTrace.h — the flows must be counted on the GPU because differencing AliveCount hides gross flow entirely.
-    SurfelCensusTrace         SurfelCensus;                                   // [-] - counters buffer + non-blocking staging ring + the open CSV
-    bool                      SurfelCensusKeyLatch     = false;              // [-] - edge latch so one K press toggles recording once
-    uint32_t                  SurfelCensusAutoFrames   = 0;                  // [-] - >0 only for an env-armed trace: close the CSV + exit after N rows
-
-    // 📝 Live surfel-tuning debug window (F10). The renderer stands up its OWN ImGui-on-Vulkan context (context + imgui_impl_vulkan backend +
-    //    shared theme) and renders the window INTO the substrate's swapchain command buffer inside the colour scope — NOT via VulkanImguiInterface
-    //    (that owns a second swapchain, which cannot coexist on one surface). ImguiReady gates every ImGui call: a failed init leaves it false and
-    //    all ImGui work no-ops, so the renderer still runs. SurfelTuning holds the live knobs the whole surfel pipeline reads each frame.
+    // 🚧 Surfel GI — STRIPPED. The webgiya-derived surfel substrate (cascaded hash grid, prefix-sum slotting, TTL lifecycle, MSME integrate, debug
+    //    splat, census/dump diagnostics, F10 tuning window) was removed wholesale ahead of the W298/SurfelGI port. The shade currently runs its FLAT
+    //    AMBIENT fill; no surfel state exists on the device. The replacement lands as SurfelStore + SurfelLifecycleSubmission +
+    //    SurfelRadianceSubmission over a flat camera-relative cell grid, traced against the software BVH (TwoLevelTrace.glsl) rather than an RT
+    //    extension. ImGui is retained here because the tuning window is rebuilt against the new parameter block in a later phase.
     bool                      ImguiReady               = false;              // [-] - true once the ImGui context + Vulkan backend init succeeded; every ImGui call gates on it
-    ThemeConfiguration        ImguiTheme;                                    // [-] - the shared theme resolved once at init (ControlsGallery look); threaded into the tuning window's component draws each frame
-    SurfelTuningState         SurfelTuning;                                  // [-] - live cell/radius/bias knobs + per-cell cap selector + window-open flag (F10 toggles)
+    ThemeConfiguration        ImguiTheme;                                    // [-] - the shared theme resolved once at init (ControlsGallery look)
+    LightingTuningState       LightingTuning;                                // [-] - live sun (elevation/azimuth/intensity/colour) + sun-shadow knobs the sky and shade both read (F10 toggles)
+    uint32_t                  ShadowJitterFrame        = 0;                  // [-] - monotonic frame counter rotating the shade's per-pixel shadow jitter so a temporal pass can average
 
-    // 📝 GPU wall-clock instrumentation (measure-first, before any temporal-shadow / convergence-gate work). One best-effort timestamp scope brackets
-    //    the six per-frame surfel + shade passes; ResolvedMillis reads one frame late so the CPU never stalls. A device without graphics-queue
-    //    timestamps leaves PassTiming.ReadyCondition false and every bracket no-ops — the unmeasured path runs byte-identically. The slot enum names
-    //    the six passes so the record sites and the console readout agree on which index is which.
+    // 📝 GPU wall-clock instrumentation. One best-effort timestamp scope brackets the per-frame shade work; ResolvedMillis reads one frame late so the
+    //    CPU never stalls. A device without graphics-queue timestamps leaves PassTiming.ReadyCondition false and every bracket no-ops. The surfel
+    //    slots are gone with the strip; the enum keeps the shade slot so the record site and the console readout still agree on the index.
     enum SurfelPassSlot : uint32_t
     {
-        SurfelPassSlotSlotting   = 0u,   // RecordSurfelGridSlotting
-        SurfelPassSlotSpawn      = 1u,   // RecordSurfelLifecycleSpawn
-        SurfelPassSlotAge        = 2u,   // RecordSurfelLifecycleAge
-        SurfelPassSlotIntegrate  = 3u,   // RecordSurfelIntegrate
-        SurfelPassSlotShade      = 4u,   // RecordSurfaceShadeInscription
-        SurfelPassSlotDebugSplat = 5u,   // RecordSurfelDebugInscription
-        SurfelPassSlotCount      = 6u,
+        SurfelPassSlotShade      = 0u,   // RecordSurfaceShadeInscription
+        SurfelPassSlotCount      = 1u,
     };
     GpuTimestampScope         PassTiming;                                    // [-] - the query-pool probe; best-effort, one-frame-late, no CPU stall
     uint32_t                  PassReportFrame          = 0;                  // [-] - frame counter for throttling the per-pass ms console notice (every N frames)

@@ -31,7 +31,7 @@ FUNCTIONS · INPUT/OUTPUT STRUCTURES · PUSH CONSTANTS · MAIN.
 - **Inline (aligned, unit-tagged):** align all `//`; unit tag first in `[]`. Format
   `[type] Name; // [unit] - description`. Units: `[cm] [px] [ms] [Hz] [rad] [°] [B] [idx] [0-1] [-]`.
 - **Implementation note 📝** — above the code, short, explains non-obvious logic.
-- **Markers:** ⚠️ warning · 🔴 critical · 💡 insight · 🚩 breaking. (Full emoji rules → §5.)
+- **Markers:** governed by `SKILL-Emoji.md` — see §5.
 - **Ordered steps:** one per line with `①–⑩`.
 
 ## 4. Math / Physics Variables — use Greek / Unicode symbols
@@ -63,11 +63,10 @@ namespace Frontier
 }
 ```
 
-## 5. Approved Emoji Set
+## 5. Emoji
 
-🔴 **`SKILL-Emoji.md` is the single authority** on which emojis are allowed and where. Core set for
-comments/docs: 🧩 📝 💡 ⚠️ 🔴 🟢 🐞 🐛 🚧 🔍 🚩 ✔️. Dots/flags/medals/ratings/tag + the forbidden list
-live in `SKILL-Emoji.md`. Introduce **no** emoji outside it.
+🔴 **`SKILL-Emoji.md` is the single authority** — which glyphs exist, what each means, and where each
+may appear. Introduce **no** emoji outside it. Nothing about emoji is restated here.
 
 ## 6. Alignment
 

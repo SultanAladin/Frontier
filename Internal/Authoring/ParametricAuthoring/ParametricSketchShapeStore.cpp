@@ -7,7 +7,10 @@
 
 #include "ParametricSketchShapeStore.h"
 
+#include "earcut.hpp" // 📝 mapbox::earcut — 2D triangulation with holes; the prism cap tessellator (both caps index ONE result, so they match).
+
 #include <algorithm> // 📝 std::max / std::min / std::reverse — clamp the curve degree + sample budgets, flip the winding.
+#include <array>     // 📝 std::array<double,2> — the point form Earcut indexes when triangulating a hole-punched cap.
 #include <cmath>     // 📝 std::sqrt / std::atan2 / std::cos / std::sin / std::fmod / std::floor — the analytic evaluators + the stroke-swatch hue walk.
 #include <cstdio>    // 📝 std::snprintf — seed a shape's title + a log entry's label.
 #include <cstring>   // 📝 std::memcpy — fold shape-outline float bits into the stroke-body change hash.
@@ -600,6 +603,228 @@ namespace
             std::memcpy(&Bits, &Point.y, sizeof(Bits)); Fold(Bits);
         }
         return Hash;
+    }
+
+    // 📝 Fold one float's bits into a running FNV-1a hash — the primitive the SOLID-body revision below is built from.
+    void FoldBodyHash(uint32_t& Hash, float Value)
+    {
+        uint32_t Bits;
+        std::memcpy(&Bits, &Value, sizeof(Bits));
+        Hash ^= Bits;
+        Hash *= 16777619u;                                 // FNV-1a prime
+    }
+
+    // 🔴 A solid body's revision folds the shape's STABLE DEFINING inputs (id / category / elevation / depth / closed flag / defining points /
+    //    hole loops / corner fillets), NEVER the tessellated output. Ported deliberately from the legacy BuildDraughtShapeBodies, whose comment
+    //    records why: the round evaluators sample ADAPTIVELY, so hashing the emitted fill vertices jittered the revision every frame — a phantom
+    //    "changed" body → a re-upload every frame → transfer-queue exhaustion → DEVICE_LOST. Hashing the inputs reproduces byte-for-byte across
+    //    idle frames and moves only on a real edit, so the GPU re-uploads exactly when it must.
+    uint32_t HashSolidBodyRevision(const ParametricSketchShape& Shape)
+    {
+        uint32_t Hash = 2166136261u;                       // FNV-1a offset basis
+        FoldBodyHash(Hash, static_cast<float>(Shape.Identifier));
+        FoldBodyHash(Hash, static_cast<float>(static_cast<int>(Shape.Category)));
+        FoldBodyHash(Hash, Shape.Elevation);
+        FoldBodyHash(Hash, Shape.ExtrudeDepth);                       // a depth change re-tessellates the prism → the GPU re-uploads
+        FoldBodyHash(Hash, Shape.ClosedEnabled ? 1.0f : 0.0f);        // open shell vs closed solid is a different body topology
+        for (const ImVec2& Point : Shape.Points)
+        {
+            FoldBodyHash(Hash, Point.x);
+            FoldBodyHash(Hash, Point.y);
+        }
+        for (const std::vector<ImVec2>& Hole : Shape.HoleLoops)
+            for (const ImVec2& Point : Hole)
+            {
+                FoldBodyHash(Hash, Point.x);
+                FoldBodyHash(Hash, Point.y);
+            }
+        for (const ParametricSketchCornerFillet& Fillet : Shape.CornerFillets)
+        {
+            FoldBodyHash(Hash, static_cast<float>(Fillet.CornerIndex));
+            FoldBodyHash(Hash, Fillet.Magnitude);
+        }
+        return Hash;
+    }
+}
+
+void AssembleParametricSketchSolidBodies(ParametricSketchShapeStore&             Store,
+                                         std::vector<ParametricSketchShapeBody>& OutBodies,
+                                         int                                     SampleBudget)
+{
+    OutBodies.clear();
+
+    for (ParametricSketchShape& Shape : Store.Shapes)
+    {
+        if (!Shape.Displayed)
+            continue;
+
+        // 🔴 A GPU body is reserved for a MATCAP-PROMOTED shape. A plain filled shape keeps its semi-transparent wash on the CPU draw path, so the
+        //    default face stays flat and the solid read is reserved for the solid tools. A CLOSED shape becomes a body either as a flat cap (zero
+        //    depth) or a solid prism; an OPEN profile bounds no interior, so it contributes a body ONLY when extruded — sweeping its polyline into
+        //    a thin double-sided SHELL (a wall band, no caps). That open/closed split is exactly the two cases the extrude tool must produce.
+        if (!Shape.MatcapFillEnabled)
+            continue;
+        const bool OpenShell = !Shape.ClosedEnabled;
+        if (OpenShell && Shape.ExtrudeDepth == 0.0f)
+            continue;
+
+        ParametricSketchShapeBody Body;
+        Body.Identifier = Shape.Identifier;
+
+        auto AppendVertex = [&Body](float X, float Y, float Z, float NormalX, float NormalY, float NormalZ)
+        {
+            Body.Positions.push_back(X); Body.Positions.push_back(Y); Body.Positions.push_back(Z);
+            Body.Normals.push_back(NormalX); Body.Normals.push_back(NormalY); Body.Normals.push_back(NormalZ);
+        };
+
+        // 📝 Emit ONE ring's side-wall band between ZBottom and ZTop: a quad per edge, its four vertices carrying the shared lateral normal (a
+        //    flat-shaded band). WindingSign orients that normal outward for the ring's own winding (+1 CCW → (dy, -dx)); an open shell passes +1 and
+        //    relies on the matcap's toward-camera flip for two-sidedness. Wrap closes the ring; a shell walks its edges open. A degenerate
+        //    (zero-length) edge is skipped so the normalize never divides by zero.
+        auto AppendWallBand = [&](const std::vector<ImVec2>& Ring, float ZBottom, float ZTop, float WindingSign, bool Wrap)
+        {
+            const size_t Count     = Ring.size();
+            const size_t EdgeCount = Wrap ? Count : (Count >= 1 ? Count - 1 : 0);
+            for (size_t Edge = 0; Edge < EdgeCount; ++Edge)
+            {
+                const ImVec2& A = Ring[Edge];
+                const ImVec2& B = Ring[(Edge + 1) % Count];
+                const float DeltaX = B.x - A.x;
+                const float DeltaY = B.y - A.y;
+                const float Length = std::sqrt(DeltaX * DeltaX + DeltaY * DeltaY);
+                if (Length < 1.0e-5f)
+                    continue;
+                const float NormalX = (DeltaY / Length) * WindingSign;
+                const float NormalY = (-DeltaX / Length) * WindingSign;
+                const uint32_t QuadBase = static_cast<uint32_t>(Body.Positions.size() / 3);
+                AppendVertex(A.x, A.y, ZBottom, NormalX, NormalY, 0.0f);
+                AppendVertex(B.x, B.y, ZBottom, NormalX, NormalY, 0.0f);
+                AppendVertex(B.x, B.y, ZTop,    NormalX, NormalY, 0.0f);
+                AppendVertex(A.x, A.y, ZTop,    NormalX, NormalY, 0.0f);
+                Body.Indices.push_back(QuadBase + 0); Body.Indices.push_back(QuadBase + 1); Body.Indices.push_back(QuadBase + 2);
+                Body.Indices.push_back(QuadBase + 0); Body.Indices.push_back(QuadBase + 2); Body.Indices.push_back(QuadBase + 3);
+            }
+        };
+
+        if (OpenShell)
+        {
+            // OPEN PROFILE → THIN SHELL: sweep the display polyline (the shared flatten cache, so the wall can never drift from the drawn outline)
+            //    along +Z into a single un-wrapped wall band. No caps — an open curve bounds no face — and the start / end cross-sections are the
+            //    same curve at two heights, which is exactly the "start and end profile are identical" the thin wall means.
+            const std::vector<ImVec2>& Line = RetrieveCachedOutline(Shape, SampleBudget);
+            if (Line.size() < 2)
+                continue;
+            AppendWallBand(Line, Shape.Elevation, Shape.Elevation + Shape.ExtrudeDepth, 1.0f, false);
+            if (Body.Indices.empty())
+                continue;
+        }
+        else
+        {
+            // The outer fill loop in world mm (closes the run + orients it CCW, sampling the round families) — the CPU fill's own source loop, so
+            //    the solid cap and the flat wash tessellate from one function and can never disagree.
+            std::vector<ImVec2> Outer;
+            EvaluateFilledPolygon(Shape, Outer, SampleBudget);
+            if (Outer.size() < 3)
+                continue;
+
+            // Earcut the outer + hole rings in mm space (a 2D triangulator is space-agnostic), lifting the result to the shape's Z below. Pool runs
+            //    parallel to the flattened ring vertices the returned indices address.
+            using EarPoint = std::array<double, 2>;
+            std::vector<std::vector<EarPoint>> Rings;
+            std::vector<ImVec2>                Pool;
+            Rings.emplace_back();
+            for (const ImVec2& Point : Outer)
+            {
+                Rings.back().push_back({ static_cast<double>(Point.x), static_cast<double>(Point.y) });
+                Pool.push_back(Point);
+            }
+            for (const std::vector<ImVec2>& Hole : Shape.HoleLoops)
+            {
+                if (Hole.size() < 3)
+                    continue;
+                Rings.emplace_back();
+                for (const ImVec2& Point : Hole)
+                {
+                    Rings.back().push_back({ static_cast<double>(Point.x), static_cast<double>(Point.y) });
+                    Pool.push_back(Point);
+                }
+            }
+
+            const std::vector<uint32_t> Local = mapbox::earcut<uint32_t>(Rings);
+            if (Local.size() < 3)
+                continue;
+
+            // 🔴 A non-zero ExtrudeDepth sweeps the closed face into a SOLID PRISM: a bottom cap at Z = Elevation, a TOP CAP at Z = Elevation + Depth
+            //    built from the SAME triangulation, and a band of wall quads joining the two around every ring (outer + holes). Both caps indexing one
+            //    Earcut result is what guarantees the top and bottom faces are IDENTICAL, which is the defining property of a prism extrude. The caps
+            //    take a flat ±Z normal; each wall vertex takes its edge's outward lateral normal — that VARYING normal is what lets the matcap read the
+            //    body as a solid (a zero-depth facet has one constant normal, so the matcap samples a single texel and reads as a flat swatch).
+            const float Depth = Shape.ExtrudeDepth;
+            if (Depth != 0.0f)
+            {
+                const float ZBottom = Shape.Elevation;
+                const float ZTop    = Shape.Elevation + Depth;
+
+                // The rings that bound the face, in the SAME order Pool concatenated them (outer, then each usable hole) — the wall walks each ring
+                //    edge-by-edge, so a punched hole gets its own inward-facing wall and the solid reads correctly through the void.
+                std::vector<const std::vector<ImVec2>*> RingList;
+                RingList.push_back(&Outer);
+                for (const std::vector<ImVec2>& Hole : Shape.HoleLoops)
+                    if (Hole.size() >= 3)
+                        RingList.push_back(&Hole);
+
+                // Bottom cap (faces −Z) then top cap (faces +Z), both indexing the one Earcut result. The bottom winding is reversed so its front face
+                //    points down; the matcap is double-sided, so this is cosmetic consistency rather than a correctness requirement.
+                const uint32_t BottomBase = 0;
+                for (const ImVec2& Point : Pool) AppendVertex(Point.x, Point.y, ZBottom, 0.0f, 0.0f, -1.0f);
+                const uint32_t TopBase = static_cast<uint32_t>(Pool.size());
+                for (const ImVec2& Point : Pool) AppendVertex(Point.x, Point.y, ZTop, 0.0f, 0.0f, 1.0f);
+
+                for (size_t Index = 0; Index + 2 < Local.size(); Index += 3)
+                {
+                    Body.Indices.push_back(BottomBase + Local[Index + 2]);   // reversed → downward-facing front
+                    Body.Indices.push_back(BottomBase + Local[Index + 1]);
+                    Body.Indices.push_back(BottomBase + Local[Index + 0]);
+                    Body.Indices.push_back(TopBase + Local[Index + 0]);
+                    Body.Indices.push_back(TopBase + Local[Index + 1]);
+                    Body.Indices.push_back(TopBase + Local[Index + 2]);
+                }
+
+                // Side walls — one outward-normalled band per ring, signed by the ring's OWN winding so an outer wall faces out and a hole wall faces
+                //    into its cavity. Wrapped (a closed ring), unlike the open shell above.
+                for (const std::vector<ImVec2>* RingPointer : RingList)
+                {
+                    const std::vector<ImVec2>& Ring = *RingPointer;
+                    if (Ring.size() < 3)
+                        continue;
+                    double TwiceArea = 0.0;
+                    for (size_t Edge = 0; Edge < Ring.size(); ++Edge)
+                    {
+                        const ImVec2& Current = Ring[Edge];
+                        const ImVec2& Next    = Ring[(Edge + 1) % Ring.size()];
+                        TwiceArea += static_cast<double>(Current.x) * Next.y - static_cast<double>(Next.x) * Current.y;
+                    }
+                    const float WindingSign = TwiceArea >= 0.0 ? 1.0f : -1.0f;   // +1 CCW: outward normal = (dy, -dx) · sign
+                    AppendWallBand(Ring, ZBottom, ZTop, WindingSign, true);
+                }
+            }
+            else
+            {
+                // Flat single cap — the zero-depth matcap face. Normals stay EMPTY: the consumer then takes the (0,0,1) plane normal per vertex.
+                Body.Positions.reserve(Pool.size() * 3);
+                Body.Normals.clear();
+                for (const ImVec2& Point : Pool)
+                {
+                    Body.Positions.push_back(Point.x);
+                    Body.Positions.push_back(Point.y);
+                    Body.Positions.push_back(Shape.Elevation);
+                }
+                Body.Indices.assign(Local.begin(), Local.end());
+            }
+        }
+
+        Body.Revision = HashSolidBodyRevision(Shape);
+        OutBodies.push_back(std::move(Body));
     }
 }
 

@@ -1,0 +1,55 @@
+/*==============================================================================================================================================
+                                                         SURFELCELLOFFSETSCAN.COMP
+==============================================================================================================================================*/
+// 🧩 Lifecycle pass 3 of 4, ported 1:1 from W298/SurfelGI (SurfelUpdatePass.cs.slang:accumulateCellInfo). One invocation per CELL. Turns the census's
+//    per-cell counts into base addresses in the flat cell-list table, by having each occupied cell atomically claim a run of exactly its own length from one
+//    shared cursor. Then it zeroes the count so pass 4 can reuse the same field as its write cursor.
+//
+// 🔴 THIS IS NOT A PREFIX SUM, AND THAT IS THE POINT. A prefix sum would give cells their runs in index order; this gives them runs in whatever order the
+//    atomics land. The cell list is therefore NOT ordered by cell — it is a bag of runs, each cell's TableOffset pointing at its own. Every consumer reaches
+//    entries through TableOffset, never by scanning the table, so the ordering is free to be arbitrary. 💡 The previous port used a four-pass segmented
+//    prefix sum for the same job; this needs one dispatch and no scratch buffers, because it never needs the ordering that scan was paying for.
+//
+// 🔴 SurfelCount IS DESTROYED HERE ON PURPOSE. It arrives as the census's count, is banked into the atomic claim, and leaves as ZERO — pass 4 re-increments
+//    it as a write cursor, so a cell whose run is fully written ends the frame with SurfelCount back at the census's value. ⚠️ THE BARRIER ON EITHER SIDE OF
+//    THIS PASS IS MANDATORY. Without the one before, this reads counts the census has not finished writing and cells claim runs too short for what pass 4
+//    writes — entries land in the neighbouring cell's run. Without the one after, pass 4's cursor starts from a count this pass has not yet zeroed and every
+//    entry lands one full run too far along the table. Both corruptions are silent and both look like mildly wrong lighting.
+//
+// 📝 The reservation table is cleared here rather than in its own dispatch, because this pass already visits every cell exactly once and the spawn (Phase 7)
+//    needs it zeroed before it runs. One touch of the cell array instead of two.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#include "SurfelStoreBindings.glsl"
+
+layout(local_size_x = 64) in;
+
+void main()
+{
+    const uint CellIndex = gl_GlobalInvocationID.x;
+    if (CellIndex >= Constants.CellCount) return;
+
+    // The spawn's per-cell seat reservation, cleared every frame (upstream does this here too).
+    ReservationStorage.Reserved[CellIndex] = 0u;
+
+    const uint OccupantCount = CellSpanStorage.Spans[CellIndex].SurfelCount;
+    if (OccupantCount == 0u) return;   // an empty cell keeps TableOffset 0 and is never read, since the scatter writes nothing for it
+
+    // Claim exactly this cell's run from the shared cursor. The returned pre-add value IS the run's base.
+    const uint TableOffset = atomicAdd(CounterStorage.Slots[SurfelCounterCell], OccupantCount);
+
+    // 🔴 Bound the claim. The table holds SurfelTotalLimit * 125 entries, which is the true worst case (every surfel in all 125 of its cells), so overflow
+    //    means the census counted more pairs than are possible — a corrupt count, not a legitimately busy frame. Parking such a cell at offset 0 with count 0
+    //    makes it read as empty, which loses that cell's light for a frame; letting it through would corrupt an unrelated cell's entries permanently.
+    if (TableOffset + OccupantCount > SurfelCellListCapacity)
+    {
+        CellSpanStorage.Spans[CellIndex].SurfelCount = 0u;
+        CellSpanStorage.Spans[CellIndex].TableOffset = 0u;
+        return;
+    }
+
+    CellSpanStorage.Spans[CellIndex].TableOffset = TableOffset;
+    CellSpanStorage.Spans[CellIndex].SurfelCount = 0u;   // handed to pass 4 as a write cursor starting at zero
+}

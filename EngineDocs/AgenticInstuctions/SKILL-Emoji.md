@@ -31,7 +31,7 @@ PARSE:END-->
 
 This document is the **single authority** on which emojis may appear anywhere in the project —
 source comments, shader comments, Markdown docs, chat, plans, decision tables, filenames-context,
-and doc headings. It supersedes the emoji list in `SKILL-formatting.md` §4.
+and doc headings. `SKILL-formatting.md` §5 defers to this file entirely.
 
 🔴 **Only the emojis listed here may be used. Do not introduce any emoji outside this document.**
 
@@ -167,15 +167,5 @@ Ranking screen-space AO techniques. **Accuracy: 🔴 = best.** Cost = % of a 16.
 - Any dot colour other than 🔴 / 🟢.
 - Any emoji not listed in this document.
 
----
-
-# 7. Quick Reference
-
-| Category      | Allowed                                    | Notes |
-| ------------- | ------------------------------------------ | ----- |
-| Core          | 🧩 📝 💡 ⚠️ 🔴 🐞 🐛 🚧 🔍 🚩 ✔️           | Everyday comment/doc markers |
-| Dots          | 🔴 🟢                                       | Red + green only |
-| Flags         | 🚩 🏳️ 🏴 🏁 🎌                              | All coloured flags |
-| Medals / badge| 🏆 🥇 🥈 🥉 🏅 🎖️ 🏷️                        | No longer table-only |
-| Rating star   | ⭐                                          | Plain star only |
-| Forbidden     | 🌟 ✨ · non-red/green dots · anything else  | — |
+📝 The `PARSE:EMOJI-RULES` header at the top of this file is the quick reference — one line per
+category, machine-readable. No prose table restates it.

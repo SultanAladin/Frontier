@@ -22,8 +22,6 @@
 
 #include "Graphics/RenderExtension/Device/VulkanHost.h"
 #include "Graphics/Scene/SurfacePresetTable.h"
-#include "Graphics/Surfel/SurfelPool.h"
-#include "Graphics/Surfel/SurfelGridSlotting.h"
 #include "Graphics/Visibility/VisibilityImage.h"
 
 #include <vulkan/vulkan.h>
@@ -53,16 +51,9 @@ struct SurfaceShadeConstants
     uint32_t FloorShadeEnabled         = 0;                                        // [-] - 1 shades the floor from its own buffers, 0 discards it (P6.3a)
     uint32_t FloorIndexBase            = 0;                                        // [-] - first INDEX of the floor's run in b6 (elements, not bytes)
 
-    // ---- Phase 3 surfel GI gather (must byte-match the ShadeConstants tail in SurfaceShade.frag: two vec4 rows, then four uint scalars) ----
-    float    GridOrigin[4]             = { 0,0,0,0 };                              // [-] - snapped grid origin, SAME source as slotting/integrate (.w unused)
-    float    OcclusionParams[4]        = { 1.2f, 0.2f, 0.25f, 0.15f };            // [-] - (shadowStrength, bleedReduction, grazingBiasScale, varianceBleedScale)
-    uint32_t SurfelReadOffsetElements  = 0;                                        // [-] - moments read-half ELEMENT base = MomentsParity*Capacity (post-swap)
-    uint32_t SurfelGiEnabled           = 0;                                        // [-] - 1 gathers surfel GI, 0 falls back to the flat AmbientColour (A/B)
-    uint32_t SurfelCapacity            = 0;                                        // [-] - pool capacity (carried for parity + future bounds)
-    float    TuneCellDiameter          = 1.0f;                                     // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
-    float    TuneBaseRadius            = 1.2f;                                     // [m] - live cascade-0 disc radius (F10 window)
-    float    TuneNearFieldBias         = 1.0f;                                     // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
-    uint32_t PushPad0                  = 0;                                        // [-] - reserved; keeps the sun-shadow scalars below at their byte-matched offsets
+    // 🚧 The Phase-3 surfel GI gather fields went with the webgiya strip, removed here and in SurfaceShade.frag's ShadeConstants in ONE edit. The W298
+    //    port re-adds its tail to BOTH in one edit too: the two byte-match with no diagnostic, so a one-sided change reads every later scalar from the
+    //    wrong offset — the sun-shadow block below would silently take its knobs from GI bytes.
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — must byte-match the six-scalar tail of the frag's ShadeConstants ----
     float    SunAngularRadius          = 0.03f;                                    // [rad] - sun-disc half-angle; 0 hard, larger softens the penumbra (real sun ~0.0047)
@@ -115,20 +106,13 @@ struct SurfaceShadeInscription
     VkBuffer              BoundFloorInstanceBuffer = VK_NULL_HANDLE; // [-] - the borrowed floor instance SSBO b7 currently points at
     bool                  FloorGeometryBound = false;        // [-] - true when b5-b7 hold the REAL floor buffers rather than the head-buffer alias
 
-    // ---- Phase 3: the surfel GI descriptor set (set 1) — mirrors SurfelIntegrate.comp's set 1 exactly ----
-    // Separate layout + set so the GATHER reads the live surfel cache without disturbing set 0. Best-effort: a surfel-set build failure leaves
-    // SurfelSet null and SurfelSetReady false; the record then forces SurfelGiEnabled=0 in the push block and binds a safe set 1, so the shade still
-    // runs the flat-ambient path. The seven buffers are BORROWED (owned by SurfelPool / SurfelGridSlotting); Refresh re-points only on handle change.
-    VkDescriptorSetLayout SurfelSetLayout  = VK_NULL_HANDLE; // [-] - set 1: b0 Surfels, b1 Moments, b2 Offsets, b3 List, b4 Guiding, b5 Depth, b6 Touched
-    VkDescriptorSet       SurfelSet        = VK_NULL_HANDLE; // [-] - the bound surfel set (allocated from DescriptorPool alongside ShadeSet)
-    VkBuffer              BoundSurfelBuffer   = VK_NULL_HANDLE; // [-] - b0 currently points at (SurfelPool.SurfelBuffer)
-    VkBuffer              BoundMomentsBuffer  = VK_NULL_HANDLE; // [-] - b1 (SurfelPool.MomentsBuffer, both ping-pong halves)
-    VkBuffer              BoundOffsetsBuffer  = VK_NULL_HANDLE; // [-] - b2 (SurfelGridSlotting.OffsetsBuffer)
-    VkBuffer              BoundListBuffer     = VK_NULL_HANDLE; // [-] - b3 (SurfelGridSlotting.ListBuffer)
-    VkBuffer              BoundGuidingBuffer  = VK_NULL_HANDLE; // [-] - b4 (SurfelPool.GuidingBuffer)
-    VkBuffer              BoundSurfelDepthBuffer = VK_NULL_HANDLE; // [-] - b5 (SurfelPool.SurfelDepthBuffer)
-    VkBuffer              BoundTouchedBuffer  = VK_NULL_HANDLE; // [-] - b6 (SurfelPool.TouchedBuffer)
-    bool                  SurfelSetReady   = false;          // [-] - true once the surfel layout + set exist AND all seven buffers are pointed
+    // ---- The RESERVED descriptor set (set 1) — an empty layout holding index 1 open ----
+    // 🚧 This slot held the webgiya surfel GI cache (seven storage buffers) and is where the W298 port's irradiance atlas lands. It survives the strip as
+    //    a ZERO-BINDING layout because the sun-shadow BVH below is declared `set = 2` in SurfaceShade.frag, and Vulkan binds sets by contiguous index —
+    //    a set at index 2 is illegal without a real layout at index 1. Keeping it empty avoids renumbering the frag's set-2 declarations down to 1 now
+    //    and back up to 2 when the atlas arrives. The set carries no descriptors, so nothing points at it and nothing reads it.
+    VkDescriptorSetLayout ReservedSetLayout = VK_NULL_HANDLE; // [-] - set 1: zero bindings; the W298 irradiance atlas fills it
+    VkDescriptorSet       ReservedSet       = VK_NULL_HANDLE; // [-] - allocated from DescriptorPool; bound at index 1 so set 2 stays reachable
 
     // ---- Primary sun shadow: the BVH descriptor set (set 2) — the acceleration buffers the shade never had ----
     // Same two-level BVH SurfelIntegrate.comp reads, but the shade REUSES set 0's instance SSBO + merged vertex/index streams (the trace's Instances/
@@ -190,14 +174,8 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
                                     VkBuffer                 FloorInstanceBuffer = VK_NULL_HANDLE,
                                     VkDeviceSize             FloorInstanceBytes  = 0);
 
-// Phase 3: point the surfel descriptor set (set 1) at the live surfel cache so the shade's gather can read it. Writes the seven whole-buffer bindings
-// from SurfelPool (Surfels / Moments / Guiding / SurfelDepth / Touched) and SurfelGridSlotting (Offsets / List), re-pointing only on handle change.
-// Idempotent and cheap; a no-op when the shade's surfel layout, the pool, or the slotting is not ready — SurfelSetReady stays false and the caller must
-// leave SurfelGiEnabled at 0. The device must be idle (an in-flight frame may still read the set). Surfel buffers do NOT rebuild on resize (only the id
-// view does), so unlike the set-0 Refresh this need only run once both the pool and slotting are first ready.
-void RefreshSurfaceShadeSurfelBindings(SurfaceShadeInscription& Shade,
-                                       const SurfelPool&        Pool,
-                                       const SurfelGridSlotting& Slotting);
+// 🚧 RefreshSurfaceShadeSurfelBindings went with the webgiya strip: set 1 is now an empty reserved layout with no buffers to point at. The W298 port
+//    re-adds a Refresh here for its irradiance atlas, against the same set index.
 
 // Primary sun shadow: point the BVH descriptor set (set 2) at the borrowed GeometryArena + InstanceTree buffers so the shade's shadow ray can trace
 // the scene. Writes the four whole-buffer bindings (Slices / ArenaNodeWords / ArenaPrimitives / TreeNodeWords), re-pointing only on a handle change.

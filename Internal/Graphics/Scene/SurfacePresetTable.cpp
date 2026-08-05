@@ -110,6 +110,11 @@ void BuildSurfacePresetTable(SurfacePresetParameters* OutTable)
     SetColours(Glass, 0.85f, 0.93f, 0.92f, 0.25f);
     Glass.Roughness      = 0.04f;
     Glass.Reflectance    = 0.50f;
+    // 📝 The one preset that authors a real refractive index: 1.52 is soda-lime glass, which ReflectanceForRefractionIndex resolves to f0 ≈ 4.3% —
+    //    a touch above the canonical 4% the Reflectance route gives, and the reason the rim reads slightly stronger than before on this head alone.
+    //    Every other preset leaves RefractionIndex at 0 and therefore keeps the Reflectance route byte-identically.
+    Glass.RefractionIndex     = 1.52f;
+    Glass.TransmissionWeight  = 1.0f;
     Glass.ShadingModelId = (uint32_t)SurfaceShadingModel::Glass;
     Glass.FeatureMask    = SurfaceFeatureSpecular | SurfaceFeatureTransmission;
 

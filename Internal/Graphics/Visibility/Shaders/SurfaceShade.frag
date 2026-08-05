@@ -60,6 +60,16 @@ const float Pi = 3.14159265359;
 
 // Filament's minimum roughness. Below this a mirror-smooth surface drives D_GGX's denominator toward zero and the highlight
 // becomes NaN / fireflies — Chrome at Roughness 0.05 sits close enough to the floor that this clamp is what keeps it finite.
+//
+// 🔴 This floor guards a SECOND consumer that is easy to miss. EnvironmentBrdfApproximate is a polynomial fit with no built-in
+//    range guarantee: at roughness 0 with NoV -> 0 its bias overshoots to 1.0441, and because the ambient split below computes
+//    AmbientDiffuse = DiffuseColour * (1 - AmbientSpecular), an ambient specular above 1 makes the indirect fill SUBTRACT
+//    radiance at glancing angles. Clamped here the reachable bias maxes at 0.79 and the tightest preset margin (Chrome) is
+//    ambient diffuse +0.0065 — thin but positive for all 13 presets.
+// ⚠️ So any roughness reaching EnvironmentBrdfApproximate must pass through this clamp. A per-pixel roughness sampled from the
+//    channel atlas is the likely way to bypass it; re-clamp at the sample site, or swap in the baked DFG LUT which is bounded
+//    by construction. A saturate() on the ambient term is NOT the fix — it measures as a zero-magnitude no-op wherever the
+//    clamp already holds, so it would add cost and hide the real precondition rather than enforce it.
 const float MinimumRoughness = 0.089;
 
 layout(location = 0) in  vec2 FragTexCoord;
@@ -107,15 +117,18 @@ layout(std140, set = 0, binding = 3) readonly buffer InstanceBlock
     SceneInstance Instances[];
 };
 
-// Mirrors SurfacePresetParameters (96 B as six 16-byte std140 slots).
+// Mirrors SurfacePresetParameters (112 B as seven 16-byte std140 slots).
+// 🔴 FIELD FOR FIELD against SurfacePresetParameters in Graphics/Scene/SurfacePresetTable.h. A copy that falls behind still compiles and still
+//    validates — it merely strides by the wrong size, so material N reads the tail of material N-1. The host static_assert is what catches it.
 struct SurfacePreset
 {
-    vec4 BaseColour;           // .w = alpha
-    vec4 EmissiveColour;       // .w = strength
-    vec4 RoughnessMetallic;    // x Roughness, y Metallic, z Reflectance, w pad
-    vec4 SheenColourRoughness; // xyz sheen tint, w sheen roughness
-    vec4 CoatIridescence;      // x coat weight, y coat roughness, z iridescence IOR, w iridescence thickness
-    uvec4 ModelFeature;        // x ShadingModelId, y FeatureMask, zw pad
+    vec4 BaseColour;              // .w = alpha
+    vec4 EmissiveColour;          // .w = strength
+    vec4 RoughnessMetallic;       // x Roughness, y Metallic, z Reflectance, w pad
+    vec4 SheenColourRoughness;    // xyz sheen tint, w sheen roughness
+    vec4 CoatIridescence;         // x coat weight, y coat roughness, z iridescence IOR, w iridescence thickness
+    vec4 TransmissionRefraction;  // x transmission weight, y refraction index (<= 1 means unauthored), z ambient occlusion, w pad
+    uvec4 ModelFeature;           // x ShadingModelId, y FeatureMask, zw pad
 };
 
 layout(std140, set = 0, binding = 4) uniform MaterialBlock
@@ -142,41 +155,9 @@ layout(std140, set = 0, binding = 7) readonly buffer FloorInstanceBlock
     SceneInstance FloorInstances[];
 };
 
-//------------------------------------------------------------------------------------------------------------------------
-//                                            SET 1 — THE SURFEL STATE (Phase 3 GI gather)
-//------------------------------------------------------------------------------------------------------------------------
-
-// 🧩 Phase 3: the deferred shade reads the surfel irradiance cache to REPLACE the flat ambient fill with a real one-bounce GI gather. This second
-//    descriptor set mirrors SurfelIntegrate.comp's set 1 spelling EXACTLY so host and shader agree on layout — the gather module reads Offsets/List/
-//    Surfels/Moments and atomicMax'es Touched, so those five carry the exact qualifiers the integrate uses.
-//
-// 🔴 GUIDING (b4) AND DEPTH (b5) MUST BE NON-readonly even though the gather never writes them: SurfelGuiding.glsl carries SurfelUpdateFromSample
-//    (writes SurfelGuidingBuffer) and SurfelRadialDepth.glsl carries update_surfel_depth2 (writes SurfelDepthBuffer); both compile into this frag
-//    through the #includes below even though the gather calls neither, and glslc rejects a write to a readonly block. Match the integrate: writable.
-//    TOUCHED (b6) is written by the gather's atomicMax, so it is writable too.
-
-// The moments struct: five vec4 rows (20 floats), one entry per surfel per ping-pong half. The shade reads the POST-SWAP read half — Moments[id +
-// ReadOffsetElements] — which holds the fresh integrate output (the swap at RenderExtension already ran before this pass records). Field order is exact.
-struct SurfelMomentEntry
-{
-    vec4 Irradiance;   // xyz = mean irradiance, w = totalCount
-    vec4 MsmeData0;    // xyz = shortMean,       w = vbbr
-    vec4 MsmeData1;    // xyz = variance,        w = inconsistency
-    vec4 Hit;          // xyz = first hit point, w = debug flag
-    vec4 Guiding;      // xyz = mean world dir,  w = slgMass
-};
-
-// SurfelRecord's layout must exist before the set-1 buffer block below names it, so pull the record module in here (ahead of the grouped includes after
-// the push block). Its include guard makes the later #include a no-op.
-#include "SurfelRecord.glsl"
-
-layout(std430, set = 1, binding = 0) readonly  buffer SurfelBuffer   { SurfelRecord      Surfels[]; };
-layout(std430, set = 1, binding = 1)           buffer MomentsBuffer  { SurfelMomentEntry SurfelMoments[]; };
-layout(std430, set = 1, binding = 2) readonly  buffer OffsetsBuffer  { int  SurfelOffsets[]; };   // F6 split: per-cell [start,end)
-layout(std430, set = 1, binding = 3) readonly  buffer ListBuffer     { int  SurfelList[]; };      // F6 split: packed per-cell surfel indices (no base)
-layout(std430, set = 1, binding = 4)           buffer GuidingBuffer  { float SurfelGuidingBuffer[]; };   // 72 floats/surfel (SLG) — writable, see 🔴 above
-layout(std430, set = 1, binding = 5)           buffer DepthBuffer    { vec4  SurfelDepthBuffer[]; };     // 16 vec4/surfel (MSM radial depth) — writable
-layout(std430, set = 1, binding = 6)           buffer TouchedBuffer  { int   SurfelTouched[]; };         // per-surfel importance (atomicMax)
+// 🚧 SET 1 — the surfel state (moments struct, seven buffer bindings, SurfelRecord.glsl) was removed with the webgiya strip. The shade runs its FLAT
+//    AMBIENT fill until the W298 port binds its irradiance atlas here. The layout contract that still applies: whatever set 1 becomes must mirror the
+//    producing pass's spelling EXACTLY, or host and shader disagree on layout with no diagnostic.
 
 layout(push_constant) uniform ShadeConstants
 {
@@ -189,16 +170,9 @@ layout(push_constant) uniform ShadeConstants
     uint FloorShadeEnabled;       // [-] - 1 shades the floor from b5-b7, 0 discards it (the b5-b7 alias is not real floor data)
     uint FloorIndexBase;          // [-] - first index of the floor's run in b6; gl_PrimitiveID restarts per draw, b6 is a merged buffer
 
-    // ---- Phase 3 surfel GI gather (std430 tail, vec4-padded rows first, then the uint scalars) ----
-    vec4 GridOrigin;              // [-] - snapped grid origin, SAME source as the slotting/integrate build; .w unused
-    vec4 OcclusionParams;         // [-] - (shadowStrength, bleedReduction, grazingBiasScale, varianceBleedScale) for the radial-depth gate
-    uint SurfelReadOffsetElements;// [-] - moments read-half ELEMENT base = MomentsParity*Capacity (post-swap); NOT the byte offset
-    uint SurfelGiEnabled;         // [-] - 1 gathers surfel GI, 0 falls back to the flat AmbientColour (A/B toggle)
-    uint SurfelCapacity;          // [-] - pool capacity (unused by the gather math; carried for parity + future bounds)
-    float TuneCellDiameter;       // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
-    float TuneBaseRadius;         // [m] - live cascade-0 disc radius (F10 window)
-    float TuneNearFieldBias;      // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
-    uint  PushPad0;               // [-] - reserved; keeps the sun-shadow scalars below at their byte-matched offsets
+    // 🚧 The Phase-3 surfel GI gather fields (GridOrigin, OcclusionParams, read-offset / GI-enable / capacity, the three world-scale tunables and
+    //    PushPad0) were removed with the webgiya strip. The W298 port re-adds its own tail here — and must re-add it to SurfaceShadeConstants in
+    //    SurfaceShadeInscription.h in the SAME edit, since the two byte-match with no diagnostic when they drift.
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — six scalars, byte-matched by SurfaceShadeConstants ----
     float SunAngularRadius;       // [rad] - half-angle of the sun disc; 0 gives a hard shadow, ~0.0047 is the real sun (soft penumbra)
@@ -209,16 +183,9 @@ layout(push_constant) uniform ShadeConstants
     uint  ShadowSliceCount;       // [-] - slice table entries (TraceSliceCount for the shadow trace)
 } Constants;
 
-// The surfel gather chain — dependency order (each is a guarded #include MODULE with no main(), reading the set-1 buffers by bare name declared above):
-//   SurfelGrid.glsl        cell hash + radius-for-position (the F1 signed-shift site)
-//   SurfelGuiding.glsl     hemi-oct encode/decode the radial-depth module calls
-//   SurfelRadialDepth.glsl the 4MSM occlusion gate
-//   SurfelGather.glsl      SurfelLookupGI itself
-// SurfelRecord.glsl is already pulled in above (it must precede the set-1 block). These compile INTO SurfaceShade.frag.spv via glslc -I.
-#include "SurfelGrid.glsl"
-#include "SurfelGuiding.glsl"
-#include "SurfelRadialDepth.glsl"
-#include "SurfelGather.glsl"
+// 🚧 The surfel gather module chain (SurfelGrid / SurfelGuiding / SurfelRadialDepth / SurfelGather) went with the webgiya strip. Its replacement
+//    compiles in the same way: guarded #include modules with no main(), reading the set-1 buffers by bare name, pulled INTO SurfaceShade.frag.spv
+//    via glslc -I. 🔴 ShaderPlan.ps1 keys on source mtime only, so force a rebuild after editing any included .glsl or a stale .spv ships silently.
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                     SET 2 — THE BVH (area-sampled sun shadow ray)
@@ -345,6 +312,71 @@ float FresnelSchlickScalar(float F0, float VoH)
 {
     float Fc = pow(clamp(1.0 - VoH, 0.0, 1.0), 5.0);
     return F0 + (1.0 - F0) * Fc;
+}
+
+// 🧩 F82-TINT metal Fresnel (Kutz, Hasan & Edmondson 2021 — "Novel aspects of the Adobe Standard Material"). Plain Schlick drives every conductor to
+//    pure WHITE at grazing incidence, but a real metal's reflectance dips around 82° before returning toward 1 — that dip is where copper and gold get
+//    their characteristic warm edge. The correction is a single subtracted lobe peaking at cos θ = 1/7, fitted so the curve passes through the measured
+//    reflectance at 82°.
+//
+// 💡 F82Tint = vec3(1) reduces EXACTLY to Schlick (the subtracted term vanishes), so this is a drop-in default rather than a new authored channel —
+//    which is why no SurfacePresetParameters field is added for it in this slice.
+// ⚠️ NOT usable on the iridescent path. F82-tint carries no complex IOR, so the Airy phase term thin-film interference needs is unavailable, and the
+//    ratified KHR_iridescence spec assumes metal κ = 0.0. The two are mutually exclusive in exact form (research §2.2 / §8.2), so the shade body keeps
+//    the existing hue ramp wherever iridescence is on and applies F82 only where it is off.
+vec3 FresnelF82Tint(vec3 F0, vec3 F82Tint, float VoH)
+{
+    // The Schlick baseline this refines.
+    vec3 Schlick = FresnelSchlick(F0, VoH);
+
+    // Peak of the correction lobe: cos θ = 1/7 is where the fitted dip is deepest.
+    const float CosPeak = 1.0 / 7.0;
+    vec3  F82AtPeak     = FresnelSchlick(F0, CosPeak);
+    // Denominator of the fit's normalisation — constant, spelled out so the magic number is traceable to the paper.
+    const float PeakScale = CosPeak * pow(1.0 - CosPeak, 6.0);
+
+    // The subtracted lobe: zero at normal incidence and at grazing, deepest at CosPeak, scaled by how far the tint sits below white.
+    vec3  Deficit  = (vec3(1.0) - F82Tint) * F82AtPeak;
+    float Lobe     = VoH * pow(clamp(1.0 - VoH, 0.0, 1.0), 6.0) / PeakScale;
+    return max(Schlick - Deficit * Lobe, vec3(0.0));
+}
+
+// 🧩 The split-sum environment BRDF, evaluated ANALYTICALLY (Karis' mobile fit, "Physically Based Shading on Mobile") instead of sampled from a baked
+//    DFG LUT. Returns the (scale, bias) pair that pre-integrates the specular lobe over the hemisphere, so f0 * Scale + Bias is the fraction of
+//    incident environment energy a surface of this roughness reflects.
+//
+// 💡 WHY ANALYTIC AND NOT A LUT. A baked 2D LUT is the more accurate route and the one PLAN-UnifiedMaterialModels §5 costs out, but it needs an image,
+//    a sampler and a descriptor write — host work that belongs with the atlas sampling seam, not with a pure-math correction. This fit is within a few
+//    percent across the roughness range and keeps this step to shader math alone, so it can land and be A/B'd on its own. Swap in the LUT at the seam.
+vec2 EnvironmentBrdfApproximate(float NoV, float Roughness)
+{
+    const vec4 ConstantsC0 = vec4(-1.0, -0.0275, -0.572,  0.022);
+    const vec4 ConstantsC1 = vec4( 1.0,  0.0425,  1.040, -0.040);
+    vec4  Fit = Roughness * ConstantsC0 + ConstantsC1;
+    float A004 = min(Fit.x * Fit.x, exp2(-9.28 * NoV)) * Fit.x + Fit.y;
+    return vec2(-1.04, 1.04) * A004 + Fit.zw;
+}
+
+// 🧩 Multiscatter energy compensation (Fdez-Aguera 2019, the form Filament ships). A single-scattering GGX lobe LOSES the light that bounces more than
+//    once between microfacets, and the loss grows with roughness — a rough metal shaded with single-scatter GGX alone reads visibly too DARK. This
+//    returns the multiplier that puts the missing energy back, derived from the same split-sum pair the environment term uses.
+vec3 MultiscatterCompensation(vec3 F0, float NoV, float Roughness)
+{
+    vec2  Dfg = EnvironmentBrdfApproximate(NoV, Roughness);
+    // Energy the single-scatter lobe accounts for, and what it dropped.
+    float SingleScatter = Dfg.x + Dfg.y;
+    vec3  EnergyLost    = F0 * (1.0 / max(SingleScatter, 1e-4) - 1.0);
+    return vec3(1.0) + EnergyLost;
+}
+
+// 🧩 Refractive index -> normal-incidence reflectance, the ratified KHR_ior / KHR_iridescence `Fresnel0ToIor` inverse. This is what gives the authored
+//    Refraction Index channel (ChannelSlotTable row 12, span 1.0..3.0) a consumer: f0 = ((ior - 1)/(ior + 1))^2, so IOR 1.5 glass yields the canonical
+//    4% and IOR 1.0 yields zero.
+// ⚠️ Exact for DIELECTRICS only — the derivation assumes κ = 0, so it must never be applied to a conductor's chromatic f0.
+float ReflectanceForRefractionIndex(float RefractionIndex)
+{
+    float Ratio = (RefractionIndex - 1.0) / max(RefractionIndex + 1.0, 1e-4);
+    return Ratio * Ratio;
 }
 
 // Estevez & Kulla's Charlie distribution — the cloth sheen lobe. Its inverted exponent gives the bright grazing rim that GGX
@@ -648,7 +680,15 @@ void main()
     // ---- f0 / diffuse split ----
     // Dielectrics take a monochrome f0 from Reflectance (f0 = 0.16 * r^2, the canonical 4% at r = 0.5); conductors take f0 from
     // the base colour and have NO diffuse lobe at all. Metallic selects between them.
-    vec3 DielectricF0 = vec3(0.16 * Reflectance * Reflectance);
+    //
+    // 📝 A dielectric's f0 now has TWO authoring routes and this picks between them: the legacy Reflectance control (0.16 * r^2) and a true refractive
+    //    index through ReflectanceForRefractionIndex. RefractionIndex <= 1.0 means "not authored" and keeps the Reflectance route, so every existing
+    //    preset — none of which sets an IOR — resolves byte-identically to before. Only a record that opts in takes the IOR path.
+    // ⚠️ The IOR route is dielectric-only (it assumes κ = 0), so it feeds the DielectricF0 term ONLY and never the conductor branch of the mix below.
+    float RefractionIndex = Preset.TransmissionRefraction.y;
+    vec3  DielectricF0    = (RefractionIndex > 1.0)
+                            ? vec3(ReflectanceForRefractionIndex(RefractionIndex))
+                            : vec3(0.16 * Reflectance * Reflectance);
     vec3 F0           = mix(DielectricF0, BaseColour, Metallic);
     vec3 DiffuseColour = BaseColour * (1.0 - Metallic);
 
@@ -680,9 +720,40 @@ void main()
     if (Constants.ShadowEnabled != 0u && NoL > 0.0)
         LightEnergy *= SunVisibility(WorldPosition, Normal, LightVector);
 
+    // ---- Fresnel, resolved ONCE for the whole slab ----
+    // 🔴 HOISTED ABOVE THE DIFFUSE LOBE ON PURPOSE. Fresnel is the ENERGY SPLIT between what the surface reflects specularly and what penetrates to
+    //    scatter diffusely, so the diffuse term needs it too — it is not merely a specular ingredient. Computing it inside the specular block (as this
+    //    shader did before) left the diffuse lobe taking FULL incident light while the specular lobe took its own full share, so a smooth dielectric
+    //    emitted more energy than it received. That gain is largest exactly at grazing angles, where F -> 1 and the diffuse term should be vanishing.
+    //
+    // 📝 The iridescent path keeps its hue ramp REPLACING Fresnel, and F82-tint applies only where iridescence is off — the two are mutually exclusive
+    //    in exact form (F82-tint has no complex IOR, so the Airy phase term is unavailable; the ratified iridescence spec assumes metal κ = 0).
+    // 💡 F82Tint is fixed at white for now, which makes FresnelF82Tint reduce EXACTLY to Schlick. The call site is wired so an authored edge-tint
+    //    channel becomes a one-line change rather than a restructure.
+    const vec3 MetalEdgeTint = vec3(1.0);
+    vec3 Fresnel;
+    if ((FeatureMask & FeatureIridescence) != 0u)
+    {
+        // The thin-film ramp REPLACES Fresnel (it is not layered over it), then is scaled by the surface's own f0 so a metal base still reads as metal.
+        vec3 Film = IridescenceRamp(NoV, Preset.CoatIridescence.z, Preset.CoatIridescence.w);
+        Fresnel = Film * FresnelSchlick(F0, VoH);
+    }
+    else
+    {
+        Fresnel = FresnelF82Tint(F0, MetalEdgeTint, VoH);
+    }
+
+    // Multiscatter compensation for the specular lobe — single-scatter GGX drops the light that bounces more than once between microfacets, and the loss
+    // grows with roughness, so a rough metal reads too dark without this. Uses PERCEPTUAL roughness (not the squared alpha below), which is the domain
+    // the split-sum fit was built over.
+    vec3 SpecularEnergy = MultiscatterCompensation(F0, NoV, Roughness);
+
     // ---- Diffuse ----
     if ((FeatureMask & FeatureDiffuse) != 0u)
     {
+        // 🔴 The energy the specular lobe reflected away is NOT available to scatter diffusely. Metals are already excluded by DiffuseColour's
+        //    (1 - Metallic) factor; this is what stops a DIELECTRIC from double-counting the same incident light.
+        vec3 DiffuseTransmission = vec3(1.0) - Fresnel;
         if ((FeatureMask & FeatureSubsurface) != 0u)
         {
             // Wrapped diffuse: shift the lambert term so light bleeds past the terminator, standing in for subsurface scatter.
@@ -692,32 +763,22 @@ void main()
             float Wrapped = clamp((dot(Normal, LightVector) + WrapAmount) / ((1.0 + WrapAmount) * (1.0 + WrapAmount)), 0.0, 1.0);
             // Tint the scattered light warm — the shallow red bleed that makes skin read as flesh rather than painted plastic.
             vec3 ScatterTint = mix(vec3(1.0), vec3(1.0, 0.45, 0.35), 0.6);
-            Radiance += DiffuseColour * ScatterTint * Wrapped * LightEnergy * (1.0 / Pi);
+            Radiance += DiffuseColour * DiffuseTransmission * ScatterTint * Wrapped * LightEnergy * (1.0 / Pi);
         }
         else
         {
-            Radiance += DiffuseColour * (1.0 / Pi) * NoL * LightEnergy;
+            Radiance += DiffuseColour * DiffuseTransmission * (1.0 / Pi) * NoL * LightEnergy;
         }
     }
 
     // ---- Specular ----
+    // Fresnel is resolved above the diffuse lobe (it is the split between the two, not a specular-only term), so this block consumes it rather than
+    // computing its own — which is also what keeps the iridescent ramp from being evaluated twice per pixel.
     if ((FeatureMask & FeatureSpecular) != 0u)
     {
         float D = DistributionGgx(NoH, Alpha2);
         float V = VisibilitySmithGgxCorrelated(NoV, NoL, Alpha2);
-        vec3  F;
-        if ((FeatureMask & FeatureIridescence) != 0u)
-        {
-            // The thin-film ramp REPLACES Fresnel (it is not layered over it), then is scaled by the surface's own f0 so a metal
-            // base still reads as metal. Filament's note applies: an iridescent metal falls back to Schlick-IOR behaviour.
-            vec3 Film = IridescenceRamp(NoV, Preset.CoatIridescence.z, Preset.CoatIridescence.w);
-            F = Film * FresnelSchlick(F0, VoH);
-        }
-        else
-        {
-            F = FresnelSchlick(F0, VoH);
-        }
-        Radiance += D * V * F * NoL * LightEnergy;
+        Radiance += D * V * Fresnel * SpecularEnergy * NoL * LightEnergy;
     }
 
     // ---- Cloth sheen ----
@@ -745,35 +806,30 @@ void main()
         Radiance += Dc * Vc * Fc * NoL * LightEnergy;
     }
 
-    // ---- Ambient fill / surfel GI ----
+    // ---- Ambient fill ----
     // The indirect term catches on the same albedo either way: metals take it tinted by f0 (they have no diffuse albedo to catch it
     // with), dielectrics take it on their diffuse colour.
-    vec3 AmbientAlbedo = mix(DiffuseColour, F0, Metallic);
-    // 🧩 Phase 3 seam: FULLY REPLACE the flat ambient with a one-bounce surfel-cache gather when GI is on (user ruling). SurfelLookupGI walks the
-    //    grid cell at WorldPosition, blends nearby surfels' stored irradiance by radius/normal/occlusion weight, and returns the indirect radiance.
-    //    The toggle keeps the pre-Phase-3 flat-ambient look one keypress away for a direct A/B. ReadOffsetElements is the POST-SWAP read half.
-    if (Constants.SurfelGiEnabled != 0u)
-    {
-        // Seat the live world-scale globals before the gather (whole-pipeline reach) — the gather hashes WorldPosition into the SAME cells the
-        // spawn+slotting build scattered surfels into, so its cell diameter + radius must track the F10 sliders in lockstep.
-        SurfelSetTuning(Constants.TuneCellDiameter, Constants.TuneBaseRadius, Constants.TuneNearFieldBias);
-        // 📝 An uncovered point returns vec3(0.0), which goes through the += as a total absence of indirect light — so a surface the sun does not reach
-        //    renders PURE BLACK (the dark speckle). A low-coverage fallback that degraded to AmbientColour instead was tried and REMOVED with the rest of
-        //    the convergence work; the speckle is coverage showing through, not a fault in this arm.
-        // 📝 ShadowFrame is reused as the gather's frame index for the newborn fade-in. It is already a plain monotonic frame counter (it only rotates the
-        //    shadow sample jitter) sourced from the SAME Extension.SurfelFrameIndex that stamps a surfel's birth frame, so the two agree on "age" by
-        //    construction. See the fade-in note in SurfelGather.glsl.
-        //    ⚠️ ONE FRAME AHEAD, DELIBERATELY LEFT ALONE. RenderExtension.cpp increments SurfelFrameIndex at the end of the surfel block (:2120) and
-        //       assigns it to ShadowFrame afterwards (:2238), so a surfel spawned this frame reads AgeFrames == 1 here rather than 0. That is 1 frame of a
-        //       16-frame ramp, and it errs toward slightly MORE influence — never negative, never a divide. Not worth reordering a working frame graph.
-        vec3 Gi = SurfelLookupGI(WorldPosition, Normal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
-                                 Constants.SurfelReadOffsetElements, Constants.OcclusionParams, Constants.ShadowFrame);
-        Radiance += Gi * AmbientAlbedo;
-    }
-    else
-    {
-        Radiance += AmbientColour * AmbientAlbedo;
-    }
+    //
+    // 📝 The ambient term is now SPLIT the same way the direct light is, instead of catching one flat albedo. A constant fill applied to
+    //    mix(DiffuseColour, F0, Metallic) implicitly assumed the environment reflects with a roughness-independent weight, which is what made a smooth
+    //    metal and a rough metal take identical indirect energy — the split-sum pair is exactly the pre-integration that distinguishes them. This is the
+    //    one place the DFG term is load-bearing rather than a correction: it is the environment BRDF, evaluated against a constant environment.
+    // ⚠️ Still a FLAT ambient, not an irradiance probe — the split changes how the fill is WEIGHTED, not where it comes from. The W298 GI port replaces
+    //    the AmbientColour source at this seam; the weighting below stays correct when it does.
+    vec2 AmbientDfg          = EnvironmentBrdfApproximate(NoV, Roughness);
+    vec3 AmbientSpecular     = (F0 * AmbientDfg.x + vec3(AmbientDfg.y)) * SpecularEnergy;
+    // The diffuse share of the ambient takes what the specular share did not reflect, mirroring the direct lobe's energy split.
+    vec3 AmbientDiffuse      = DiffuseColour * (vec3(1.0) - AmbientSpecular);
+    vec3 AmbientAlbedo       = AmbientDiffuse + AmbientSpecular;
+
+    // 🔴 AMBIENT OCCLUSION SCALES THE INDIRECT FILL ONLY — never the direct sun. AO is a statement about how much of the SKY/BOUNCE hemisphere a crevice
+    //    can see; the direct sun's occlusion is already resolved exactly by the area-sampled shadow ray above. Folding AO into LightEnergy would
+    //    double-darken every contact region the shadow already handles, and would darken it by a term that has no directional information at all.
+    float AmbientOcclusion = clamp(Preset.TransmissionRefraction.z, 0.0, 1.0);
+    // 🚧 The one-bounce surfel gather that FULLY REPLACED this flat fill went with the webgiya strip, so the flat ambient runs unconditionally again.
+    //    The W298 port restores the replacement at this exact seam, gated on the F10 panel's GI master toggle so the flat look stays one click away
+    //    for a direct A/B.
+    Radiance += AmbientColour * AmbientAlbedo * AmbientOcclusion;
 
     // ---- Emissive ----
     // Enters BELOW the coat (an LED under a lacquer layer is dimmed by it), which is why this sits after the coat attenuation.

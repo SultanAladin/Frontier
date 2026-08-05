@@ -20,6 +20,27 @@ list (append/prune; no per-topic backlog files).
 
 ---
 
+## 🔴 Autonomy limits — ASK, do not act
+
+Default is **make the edit, then stop and report.** Verification is the user's call, never yours.
+
+| Action                                                 | Rule                                                |
+|--------------------------------------------------------|-----------------------------------------------------|
+| Build (`Build.bat`, `cl.exe`, `BuildPlan.ps1`)         | 🔴 ASK first. Never self-initiate.                  |
+| Run a test / validation exe / probe / harness          | 🔴 ASK first. Never self-initiate.                  |
+| Screenshot, image capture, CDP / browser capture       | 🔴 NEVER. Not to scratch, not anywhere.             |
+| Write ANY file that is not the source edit asked for   | 🔴 ASK first.                                       |
+| Plans, notes, reports, summaries, `.md` write-ups      | 🟢 Chat only. A file ONLY on explicit instruction.  |
+| Prototype `.html` the user asked for (+ launcher)      | 🟢 `Documentation/Prototypes/` — only when asked.   |
+| Logs / probes / temp — **once validation is approved** | 🟢 `_ClaudeScratch/` (`logs/` · `build/` · `tmp/`). |
+
+- "It compiles" is **not** a deliverable unless the user asked for it. Say *"not built — say the word
+  and I'll build it"* instead of building.
+- Wanting to be sure is not a reason. If the urge to validate arrives, **ask in one line** and wait.
+- Never invent a probe, driver, or validator to check your own work unless the user approves it.
+
+---
+
 ## 🔴 Do not clutter `EngineDocs/`
 
 Never drop plans, `.md` notes, reports, or any document into `EngineDocs/` **unless explicitly
@@ -30,32 +51,17 @@ Plans go in chat first — write a file only when the user says to save it.
 
 ## 🔴 Scratch folder — keep the workspace clean
 
-**All disposable work goes in `_ClaudeScratch/`. Never clutter the real source tree or repo root.**
+Once a build or validation **has been approved**, all of its disposable output goes in
+`_ClaudeScratch/` — never next to source, never at repo root.
 
 `_ClaudeScratch/` → `logs/` (build logs, command output) · `build/` (throwaway `.obj`, compile probes)
-· `tmp/` (copies, staging, scratch `.cpp`, experiments).
+· `tmp/` (copies, staging, scratch `.cpp`, experiments, self-invented probes/drivers/validators).
 
-- **Every** temporary file — test `.cpp`, compile probe, log dump, copied-for-inspection file,
-  intermediate build output — is created **inside `_ClaudeScratch/`**, never next to source or at root.
 - Fully git-ignored; nothing in it is ever committed.
-- When compile-checking a ported batch, emit the probe `.cpp` + `.obj` into `_ClaudeScratch/build/`,
-  never into the ported subsystem's own folder.
-
-### 🔴 Exception — a prototype the user asked for is NOT scratch
-
-The scratch rule covers *disposable* work. It does **not** apply to a deliverable the user requested.
-
-| What | Where |
-|---|---|
-| An `.html` prototype **the user asked for** (+ its launcher `.bat`) | `Documentation/Prototypes/` |
-| Probe/harness/validation `.html`, build fragments, sabotage backups | `_ClaudeScratch/tmp/` |
-
-- Write the requested prototype **straight to `Documentation/Prototypes/`** — never build it in scratch
-  and copy it over, and never leave the only copy in scratch.
+- A requested prototype is **not** scratch: write it straight to `Documentation/Prototypes/` — never
+  build it in scratch and copy it over, never leave the only copy in scratch.
 - Assembly fragments (partial `<head>`/`<body>` chunks stitched by a script) are **not** viewable pages:
   give them a non-`.html` extension such as `.part` so nothing in scratch resembles a deliverable.
-- Test-drivers, CDP probes and validators you invent to check your own work stay in `_ClaudeScratch/tmp/`
-  regardless of extension.
 
 ---
 
