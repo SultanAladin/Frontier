@@ -411,6 +411,45 @@
 }
 .Swatch.Active { box-shadow: 0 0 0 2px var(--Menu), 0 0 0 3px var(--Accent); }
 
+/* 📝 The mask's value ramp. Deliberately a WIDE bar rather than the 4px slider rail used above: the ramp
+      IS the readout — the gradient shows you the value you are about to paint — so it has to be legible
+      as a colour field, not just as a track position. */
+.MaskRamp
+{
+    position: relative;
+    height: 20px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: linear-gradient(to right, #000 0%, #fff 100%);
+    cursor: pointer;
+    touch-action: none;
+}
+
+/* 🔴 Outlined in BOTH tones — a dark ring inside a light one. A single-colour knob vanishes at one end of
+      a black-to-white ramp, which is precisely where the two most-used values sit. */
+.MaskRampKnob
+{
+    position: absolute; top: -2px;
+    width: 10px; height: 22px; margin-left: -5px;
+    border-radius: 3px;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px #000, 0 1px 4px rgba(0, 0, 0, 0.6);
+    background: transparent;
+    pointer-events: none;
+}
+
+/* Square, so the value chips read as swatches of a scale rather than as pigment dots. */
+.Swatch.MaskChip { border-radius: 5px; }
+
+/* 🔴 The picker spans the whole tile grid. .TileGrid is `repeat(4, 1fr)`, so without this the ramp lands
+      in a single quarter-width cell — a 30px gradient nobody can aim at. Chips scale up to match: on the
+      grid pane this is the primary control, not a footnote under the sliders. */
+.TileGrid > .ControlRow { grid-column: 1 / -1; }
+.TileGrid > .ControlRow .MaskRamp { height: 26px; }
+.TileGrid > .ControlRow .MaskRampKnob { height: 28px; }
+.TileGrid > .ControlRow .Swatch.MaskChip { width: 26px; height: 26px; }
+
 .PaneFoot
 {
     height: 44px; flex: 0 0 44px;

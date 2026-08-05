@@ -198,7 +198,7 @@ layout(push_constant) uniform ShadeConstants
     float TuneCellDiameter;       // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
     float TuneBaseRadius;         // [m] - live cascade-0 disc radius (F10 window)
     float TuneNearFieldBias;      // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
-    uint PushPad0;                // [-] - keep the block 16-byte aligned
+    uint  PushPad0;               // [-] - reserved; keeps the sun-shadow scalars below at their byte-matched offsets
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — six scalars, byte-matched by SurfaceShadeConstants ----
     float SunAngularRadius;       // [rad] - half-angle of the sun disc; 0 gives a hard shadow, ~0.0047 is the real sun (soft penumbra)
@@ -465,6 +465,19 @@ void ShadowBasis(vec3 N, out vec3 T, out vec3 B)
 // Averaged sun visibility ∈ [0,1] at a surface point: ShadowSampleCount rays spread across the sun's angular disc, each traced
 // through the two-level BVH; the fraction that reach the sky is the soft-shadow term. SunAngularRadius = 0 collapses to one hard
 // ray. The origin is nudged along the geometric normal by a scale-relative epsilon so a grazing ray does not self-intersect.
+//
+// 🧩 EVERY DISC TAP FIRES THE ANY-HIT TWIN (Track A Phase 1). The loop only ever reads occlusion, so it uses TraceAnyHitTwoLevel — return at the first
+//    blocker instead of the closest-hit walk that computes a distance/instance/barycentric this function then discards. Bit-identical to
+//    !TraceTwoLevel(...).HitCondition (validation assertion 8 proves it on-device), and cheaper because it drops the near/far child sort and the
+//    FarLimit tightening.
+//
+//    ⛔ AN ADAPTIVE-PENUMBRA CLASSIFIER (centre-vs-rim cheap rays, full N only where they disagree) WAS TRIED AND REJECTED. It is not conservative: a
+//       handful of point ray-hits cannot bound a shadow edge threading between them, so it misclassifies genuinely-penumbral pixels as flat. The
+//       numerical sweep (_ClaudeScratch/tmp/penumbra_check{,2,3,4}.py) is unambiguous — the classifier is only cheap where it is wrong: at K=1 rim ray
+//       it misclassifies 57% of "flat" pixels (worst error 0.56, i.e. visible banding), and the mismatch only falls to ~5% by K=4, where the
+//       end-to-end ray budget (1 centre + 4 rim + N on every miss) has already EXCEEDED just firing N. There is no K that is both correct and faster
+//       for this geometry, so the flat N-tap loop stands. Revisit only with a conservative bound (e.g. a cone/closest-hit distance test), not more
+//       discrete rim rays.
 float SunVisibility(vec3 SurfacePoint, vec3 GeometricNormal, vec3 SunDirection)
 {
     uint  Samples = max(Constants.ShadowSampleCount, 1u);
@@ -489,8 +502,9 @@ float SunVisibility(vec3 SurfacePoint, vec3 GeometricNormal, vec3 SunDirection)
         float Angle    = float(Index) * GoldenAngle + Rotation;
         vec3  Direction = normalize(SunDirection + (cos(Angle) * Tangent + sin(Angle) * Bitangent) * Radius);
 
-        TraceHit Hit = TraceTwoLevel(Origin, Direction, 1e-4, 1e4);
-        if (!Hit.HitCondition)
+        // Any-hit occlusion: this loop only ever reads HitCondition, so it fires the boolean twin that returns at the first blocker instead of the
+        // closest-hit walk that computes a distance/instance/barycentric it discards. Bit-identical to !TraceTwoLevel(...).HitCondition, cheaper.
+        if (!TraceAnyHitTwoLevel(Origin, Direction, 1e-4, 1e4))
             Visible += 1.0;
     }
     return Visible / float(Samples);
@@ -743,8 +757,17 @@ void main()
         // Seat the live world-scale globals before the gather (whole-pipeline reach) — the gather hashes WorldPosition into the SAME cells the
         // spawn+slotting build scattered surfels into, so its cell diameter + radius must track the F10 sliders in lockstep.
         SurfelSetTuning(Constants.TuneCellDiameter, Constants.TuneBaseRadius, Constants.TuneNearFieldBias);
+        // 📝 An uncovered point returns vec3(0.0), which goes through the += as a total absence of indirect light — so a surface the sun does not reach
+        //    renders PURE BLACK (the dark speckle). A low-coverage fallback that degraded to AmbientColour instead was tried and REMOVED with the rest of
+        //    the convergence work; the speckle is coverage showing through, not a fault in this arm.
+        // 📝 ShadowFrame is reused as the gather's frame index for the newborn fade-in. It is already a plain monotonic frame counter (it only rotates the
+        //    shadow sample jitter) sourced from the SAME Extension.SurfelFrameIndex that stamps a surfel's birth frame, so the two agree on "age" by
+        //    construction. See the fade-in note in SurfelGather.glsl.
+        //    ⚠️ ONE FRAME AHEAD, DELIBERATELY LEFT ALONE. RenderExtension.cpp increments SurfelFrameIndex at the end of the surfel block (:2120) and
+        //       assigns it to ShadowFrame afterwards (:2238), so a surfel spawned this frame reads AgeFrames == 1 here rather than 0. That is 1 frame of a
+        //       16-frame ramp, and it errs toward slightly MORE influence — never negative, never a divide. Not worth reordering a working frame graph.
         vec3 Gi = SurfelLookupGI(WorldPosition, Normal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
-                                 Constants.SurfelReadOffsetElements, Constants.OcclusionParams);
+                                 Constants.SurfelReadOffsetElements, Constants.OcclusionParams, Constants.ShadowFrame);
         Radiance += Gi * AmbientAlbedo;
     }
     else

@@ -542,9 +542,11 @@ struct DeviceRay
 };
 
 // 📝 One hit as the probe writes it. Matches TraceResult; the flags are uints because a GLSL bool has no defined size in a storage block.
+// 🔴 AnyHitFlag IS THE .w LANE OF DistanceAndBarycentric, carrying TraceAnyHitTwoLevel's boolean occlusion result (1.0 = occluded). It was the
+//    probe's only unused output slot; assertion 8 asserts it equals HitFlag, which is the whole proof that the any-hit twin matches closest-hit.
 struct DeviceResult
 {
-    float    Distance = 0.0f, BarycentricU = 0.0f, BarycentricV = 0.0f, Unused = 0.0f;
+    float    Distance = 0.0f, BarycentricU = 0.0f, BarycentricV = 0.0f, AnyHitFlag = 0.0f;
     uint32_t InstanceIndex = 0, PrimitiveIndex = 0, HitFlag = 0, OverflowFlag = 0;
 };
 
@@ -1306,8 +1308,36 @@ void JudgeTrace(const char*                       Label,
         if (Overflowed != 0u) Fail("rays that overflowed a traversal stack:", Overflowed);
     }
 
-    if (LocalFailures > 6u)
-        std::printf("  [FAIL] %-28s ... and %u more failing assertions\n", Label, LocalFailures - 6u);
+    // ─── 8 : any-hit twin matches closest-hit ───────────────────────────────────────────────────────────────────────────────────────────────────
+    // 🔴 THE ONE ASSERTION THAT VALIDATES TraceAnyHitTwoLevel. The claim in TwoLevelTrace.glsl is that the boolean occlusion twin is bit-identical to
+    //    TraceTwoLevel(...).HitCondition — the shade + integrate shadow rays now depend on that being true. Per ray the probe wrote closest-hit's
+    //    HitFlag AND any-hit's AnyHitFlag (the .w lane), traced from the SAME origin/direction/limits; here they must agree exactly. A disagreement is
+    //    not a tolerance issue — both use the same box/triangle tests over the same trees — so any mismatch means an early-out dropped a branch it had
+    //    to keep (any-hit missed a real blocker) or accepted one it should not have. Split by direction so a fix for one cannot mask the other.
+    {
+        uint32_t AnyMissedBlocker = 0, AnyPhantom = 0;
+        for (uint32_t Index = 0; Index < RayCount; ++Index)
+        {
+            const bool ClosestHit = Results[Index].HitFlag  != 0u;
+            const bool AnyHit      = Results[Index].AnyHitFlag != 0.0f;
+            if (ClosestHit && !AnyHit)   // closest-hit found a blocker the any-hit walk failed to find → too-bright pixel
+            {
+                if (AnyMissedBlocker < 4u && Verbose)
+                    std::printf("        AMISS ray %u o=(%.3f %.3f %.3f) d=(%.3f %.3f %.3f) closest inst=%u prim=%u t=%.6f\n",
+                                Index, Rays[Index].OriginX, Rays[Index].OriginY, Rays[Index].OriginZ,
+                                Rays[Index].DirectionX, Rays[Index].DirectionY, Rays[Index].DirectionZ,
+                                Results[Index].InstanceIndex, Results[Index].PrimitiveIndex, Results[Index].Distance);
+                ++AnyMissedBlocker;
+            }
+            if (!ClosestHit && AnyHit)   // any-hit claims occlusion where the closest-hit walk found nothing → phantom shadow
+                ++AnyPhantom;
+        }
+        if (AnyMissedBlocker != 0u) Fail("rays any-hit missed but closest-hit blocked:", AnyMissedBlocker);
+        if (AnyPhantom       != 0u) Fail("rays any-hit blocked but closest-hit cleared:", AnyPhantom);
+    }
+
+    if (LocalFailures > 8u)
+        std::printf("  [FAIL] %-28s ... and %u more failing assertions\n", Label, LocalFailures - 8u);
 
     FailureTally += LocalFailures;
 

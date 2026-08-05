@@ -2900,6 +2900,213 @@ bool ResolveTrimPreviewSpan(ParametricSketchShapeStore&   Store,
     return OutSpan.size() >= 2;
 }
 
+namespace
+{
+    constexpr float ExtendFallbackLengthMm = 10.0f;   // [mm] - how far an end pushes out when NO boundary lies ahead (the fixed-length fallback)
+
+    // 📝 Cast a RAY (Origin + Direction * t, t > 0, Direction unit) at a finite segment [B0, B1] and report the ray parameter t of the hit. Unlike
+    //    ResolveSegmentCrossing (which clamps BOTH parameters to their finite segments) the ray side is unbounded forward, which is exactly what an
+    //    Extend needs: the curve's end is being pushed OUT past where its own geometry stops. The segment side stays bounded. Rejects a parallel pair
+    //    and any hit at / behind the origin (t <= a small epsilon), so an end already touching a boundary does not re-hit it at zero distance.
+    bool ResolveRaySegmentHit(ImVec2 Origin, ImVec2 Direction, ImVec2 B0, ImVec2 B1, float& OutRayParameter, ImVec2& OutHit)
+    {
+        const ImVec2 S(B1.x - B0.x, B1.y - B0.y);
+        const float  Denominator = Direction.x * S.y - Direction.y * S.x;
+        if (std::fabs(Denominator) < 1e-12f)
+            return false;   // parallel / collinear — no single crossing
+        const ImVec2 Delta(B0.x - Origin.x, B0.y - Origin.y);
+        const float  RayParameter     = (Delta.x * S.y - Delta.y * S.x) / Denominator;
+        const float  SegmentParameter = (Delta.x * Direction.y - Delta.y * Direction.x) / Denominator;
+        if (RayParameter <= 1e-4f)
+            return false;   // at or behind the end — not "ahead"
+        if (SegmentParameter < -1e-4f || SegmentParameter > 1.0f + 1e-4f)
+            return false;   // the crossing lies off the finite boundary segment
+        OutRayParameter = RayParameter;
+        OutHit          = ImVec2(Origin.x + Direction.x * RayParameter, Origin.y + Direction.y * RayParameter);
+        return true;
+    }
+
+    // 📝 Resolve ONE end of an OPEN working polyline for an Extend: which end the cursor is nearer, that end's outgoing tangent (unit), and the world
+    //    point the extension grows from. StartEnd true = the run's FIRST point (tangent points back off W[1] → W[0]); false = its LAST point. Returns
+    //    false when the run is degenerate (< 2 points, or a zero-length terminal segment that yields no direction).
+    bool ResolveExtendEnd(const std::vector<ImVec2>& W, ImVec2 CursorMm, bool& OutStartEnd, ImVec2& OutOrigin, ImVec2& OutDirection)
+    {
+        const int Count = (int)W.size();
+        if (Count < 2)
+            return false;
+
+        const ImVec2 First = W.front();
+        const ImVec2 Last  = W.back();
+        const float  ToFirst = (CursorMm.x - First.x) * (CursorMm.x - First.x) + (CursorMm.y - First.y) * (CursorMm.y - First.y);
+        const float  ToLast  = (CursorMm.x - Last.x)  * (CursorMm.x - Last.x)  + (CursorMm.y - Last.y)  * (CursorMm.y - Last.y);
+        OutStartEnd = (ToFirst <= ToLast);
+
+        // The outgoing tangent at the chosen end, taken from its terminal segment so a curved run extends along its true leaving direction.
+        const ImVec2 Origin = OutStartEnd ? First : Last;
+        const ImVec2 Inner  = OutStartEnd ? W[1]  : W[Count - 2];
+        ImVec2       Direction(Origin.x - Inner.x, Origin.y - Inner.y);
+        const float  Length = std::sqrt(Direction.x * Direction.x + Direction.y * Direction.y);
+        if (Length < 1e-6f)
+            return false;   // a zero-length terminal segment gives no direction
+        Direction.x /= Length;
+        Direction.y /= Length;
+
+        OutOrigin    = Origin;
+        OutDirection = Direction;
+        return true;
+    }
+
+    // 📝 The world point an Extend of this open run would reach: cast the chosen end's tangent ray at EVERY other displayed, unlocked shape and take the
+    //    NEAREST forward hit (first crossing — the tool is sticky, so a second click reaches the next boundary out). When nothing lies ahead the end
+    //    pushes out by ExtendFallbackLengthMm instead, so the tool always does something visible. OutReachedBoundary reports which of the two happened.
+    ImVec2 ResolveExtendTarget(ParametricSketchShapeStore& Store,
+                               uint32_t                    TargetIdentifier,
+                               ImVec2                      Origin,
+                               ImVec2                      Direction,
+                               bool&                       OutReachedBoundary)
+    {
+        float  NearestParameter = 0.0f;
+        ImVec2 NearestHit(0, 0);
+        bool   Found = false;
+
+        for (ParametricSketchShape& Other : Store.Shapes)
+        {
+            if (Other.Identifier == TargetIdentifier || !Other.Displayed || Other.LockEnabled)
+                continue;
+            std::vector<ImVec2> OtherPoints;
+            bool                OtherClosed = false;
+            BuildWorkingPolyline(Other, OtherPoints, OtherClosed);
+            const int OtherCount = (int)OtherPoints.size();
+            if (OtherCount < 2)
+                continue;
+            const int OtherSegments = OtherClosed ? OtherCount : OtherCount - 1;
+            for (int Segment = 0; Segment < OtherSegments; ++Segment)
+            {
+                const ImVec2 B0 = OtherPoints[Segment];
+                const ImVec2 B1 = OtherPoints[(Segment + 1) % OtherCount];
+                float        RayParameter = 0.0f;
+                ImVec2       Hit;
+                if (!ResolveRaySegmentHit(Origin, Direction, B0, B1, RayParameter, Hit))
+                    continue;
+                if (!Found || RayParameter < NearestParameter)
+                {
+                    NearestParameter = RayParameter;
+                    NearestHit       = Hit;
+                    Found            = true;
+                }
+            }
+        }
+
+        OutReachedBoundary = Found;
+        if (Found)
+            return NearestHit;
+        return ImVec2(Origin.x + Direction.x * ExtendFallbackLengthMm, Origin.y + Direction.y * ExtendFallbackLengthMm);
+    }
+}
+
+bool ExtendShapeToBoundary(ParametricSketchShapeStore& Store, uint32_t Identifier, ImVec2 CursorMm, float ToleranceMm)
+{
+    ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);
+    if (Shape == nullptr || Shape->LockEnabled)
+        return false;
+
+    std::vector<ImVec2> W;
+    bool                Closed = false;
+    BuildWorkingPolyline(*Shape, W, Closed);
+    if (Closed)
+        return false;   // a closed loop has no free end to extend
+    if (W.size() < 2)
+        return false;
+
+    // The click must land near the run itself (the same tolerance gate Trim / Cut use), else a stray click far away would silently move an endpoint.
+    std::vector<float> CumulativeLength;
+    const float        Total = ResolveArcLengths(W, Closed, CumulativeLength);
+    if (Total < 1e-5f)
+        return false;
+    float       CursorGapSquared = 0.0f;
+    const float CursorArc = ResolveNearestArcLength(W, Closed, CumulativeLength, Total, CursorMm, CursorGapSquared);
+    (void)CursorArc;
+    if (CursorGapSquared > ToleranceMm * ToleranceMm)
+        return false;   // the click missed the outline — no-op
+
+    bool   StartEnd = false;
+    ImVec2 Origin(0, 0), Direction(0, 0);
+    if (!ResolveExtendEnd(W, CursorMm, StartEnd, Origin, Direction))
+        return false;
+
+    bool         ReachedBoundary = false;
+    const ImVec2 Target = ResolveExtendTarget(Store, Identifier, Origin, Direction, ReachedBoundary);
+
+    // Grow the run: the extended end gains the target point (the run keeps every existing vertex, so a curve's shape is preserved and only its
+    //    terminal segment lengthens). A start-end extension prepends; an end-end extension appends.
+    std::vector<ImVec2> Extended;
+    Extended.reserve(W.size() + 1);
+    if (StartEnd)
+    {
+        Extended.push_back(Target);
+        Extended.insert(Extended.end(), W.begin(), W.end());
+    }
+    else
+    {
+        Extended.insert(Extended.end(), W.begin(), W.end());
+        Extended.push_back(Target);
+    }
+
+    char KeepTitle[48];
+    std::snprintf(KeepTitle, sizeof(KeepTitle), "%s", Shape->Title);
+
+    ReplaceShapeWithPolyline(Store, Identifier, Extended);
+
+    Store.Hovered  = 0;
+    Store.Selected = Identifier;
+
+    char LogLabel[64];
+    std::snprintf(LogLabel, sizeof(LogLabel), "Extended %s", KeepTitle);
+    AppendParametricSketchEdit(Store, Identifier, LogLabel, "scissors");
+    return true;
+}
+
+bool ResolveExtendPreviewSpan(ParametricSketchShapeStore& Store,
+                              uint32_t                    Identifier,
+                              ImVec2                      CursorMm,
+                              float                       ToleranceMm,
+                              std::vector<ImVec2>&        OutSpan)
+{
+    OutSpan.clear();
+    ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);
+    if (Shape == nullptr || Shape->LockEnabled)
+        return false;
+
+    // Mirror ExtendShapeToBoundary's resolve EXACTLY (minus the mutation) so the highlight is the span the click would ADD.
+    std::vector<ImVec2> W;
+    bool                Closed = false;
+    BuildWorkingPolyline(*Shape, W, Closed);
+    if (Closed || W.size() < 2)
+        return false;
+
+    std::vector<float> CumulativeLength;
+    const float        Total = ResolveArcLengths(W, Closed, CumulativeLength);
+    if (Total < 1e-5f)
+        return false;
+    float CursorGapSquared = 0.0f;
+    ResolveNearestArcLength(W, Closed, CumulativeLength, Total, CursorMm, CursorGapSquared);
+    if (CursorGapSquared > ToleranceMm * ToleranceMm)
+        return false;
+
+    bool   StartEnd = false;
+    ImVec2 Origin(0, 0), Direction(0, 0);
+    if (!ResolveExtendEnd(W, CursorMm, StartEnd, Origin, Direction))
+        return false;
+
+    bool         ReachedBoundary = false;
+    const ImVec2 Target = ResolveExtendTarget(Store, Identifier, Origin, Direction, ReachedBoundary);
+
+    // The preview is just the ADDED span — the two-point run from the current end out to the target, so the user sees exactly what the click grows.
+    OutSpan.push_back(Origin);
+    OutSpan.push_back(Target);
+    return true;
+}
+
 bool CutShapeAtPoint(ParametricSketchShapeStore& Store, uint32_t Identifier, ImVec2 CursorMm, float ToleranceMm)
 {
     ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);

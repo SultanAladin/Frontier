@@ -434,8 +434,13 @@ ConsoleResult ConstructWorkspaceContextConsole(const SvgIconRegistry*           
 
                     if (Outcome.ActivatedAction >= 0)
                     {
+                        // 🔴 FAST-COMMIT: a single click on an action arms the tool and closes the console outright — no forced trip to the options
+                        //    slide. The options slide still EXISTS (Focus.OpenAction points at the picked action, so a later deliberate open lands on
+                        //    its rows), but picking a tool no longer stops there. Enter on slide 1 commits the same highlighted action (below).
                         Focus.OpenAction        = Outcome.ActivatedAction;
-                        Carousel.ShowingOptions = true;
+                        Result.ActivatedCluster = Focus.OpenCluster;
+                        Result.ActivatedAction  = Outcome.ActivatedAction;
+                        Result.CommitRequested  = true;
                     }
 
                     ImGui::SetCursorScreenPos(ImVec2(GridX, HeaderBase));
@@ -628,6 +633,27 @@ ConsoleResult ConstructWorkspaceContextConsole(const SvgIconRegistry*           
         }
 
         Canvas->PopClipRect();
+
+        // 🔴 ENTER commits the highlighted action — the keyboard twin of a click. It fires only when an action is actually resolved (a cluster with a
+        //    picked action, OpenAction >= 0) and only if a click this frame did not already commit, so the two paths never double-fire the same press.
+        //    Not gated on which slide is showing: Enter works whether you just picked the tool (slide 1) or opened its options (slide 2). Text-input focus
+        //    (a numeric field being typed into) suppresses it, so typing a value and hitting Enter confirms the FIELD, not the whole command.
+        const bool EnterPressed = ImGui::IsKeyPressed(ImGuiKey_Enter, false)
+                               || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+        if (!Result.CommitRequested && !ImGui::GetIO().WantTextInput && EnterPressed
+            && Focus.OpenCluster >= 0 && Focus.OpenCluster < Descriptor.ClusterCount)
+        {
+            const ClusterDescriptor& EnterCluster = Descriptor.Clusters[Focus.OpenCluster];
+            const bool ActionResolved = (EnterCluster.Actions != nullptr)
+                                     && (Focus.OpenAction >= 0) && (Focus.OpenAction < EnterCluster.ActionCount);
+            if (ActionResolved)
+            {
+                Result.ActivatedCluster = Focus.OpenCluster;
+                Result.ActivatedAction  = Focus.OpenAction;
+                Result.CommitRequested  = true;
+                Carousel.ShowingOptions = false;
+            }
+        }
 
         // The surface border, drawn last so it crosses both slides rather than being painted over by either.
         Canvas->AddRect(Origin, ImVec2(Origin.x + CardWidth, Origin.y + CardHeight),

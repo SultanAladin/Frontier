@@ -1527,6 +1527,44 @@
 .cp-solid{ box-shadow:inset 0 0 0 1px rgba(255,255,255,.09); }
 .cp-note{ font-size:10px; line-height:1.5; color:var(--faint); }
 
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   THE MASK PREVIEW
+------------------------------------------------------------------------------------------------------------------------*/
+
+/* The mask's own greyscale content, beside the on-mesh toggle. Reuses .cp-tile for the readback surface so
+   the mask tile and the channel tiles share one set of paint/checker/solid states. */
+.msk-preview{ display:flex; align-items:flex-start; gap:9px; padding:5px 1px 3px; }
+
+/* 🔴 Sized down from .cp-tile's 128px, and it must win on SPECIFICITY, not source order. This rule sits
+      before `.cp-tile{ width:128px; height:128px }` in this file, so a bare `.msk-tile` (0,1,0) would tie
+      and lose to it — the same trap `.cc-grid .cc-tile` documents above. Qualifying with .msk-preview makes
+      it (0,2,0) and it holds wherever it is written.
+   🔴 78px, not the rail's `aspect-ratio:1` treatment: this tile shares a row with a toggle and a reading
+      rather than sitting in a grid track, so a flexible width would let the caption's length decide how big
+      the mask is drawn. A mask is judged by its shape, and the shape has to stay a stable size to compare
+      against the last stroke. */
+.msk-preview .msk-tile{ width:78px; height:78px; border-radius:6px; }
+
+.msk-side{ display:flex; flex-direction:column; gap:6px; min-width:0; flex:1; }
+
+/* The on-mesh toggle. Styled as a pressable pill rather than a switch row: it changes what the VIEWPORT
+   shows, not a property of the layer, so it deliberately does not look like the settings rows around it. */
+.msk-onmesh{
+  display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
+  height:24px; padding:0 9px; border-radius:7px; cursor:pointer;
+  border:1px solid var(--hair-strong); background:var(--tile);
+  font-size:11px; color:var(--muted); user-select:none; white-space:nowrap;
+}
+.msk-onmesh:hover{ background:var(--tile-hi); color:var(--ink); }
+.msk-onmesh svg{ flex:0 0 auto; }
+
+/* 🔴 The ON state is tinted with the same red the shader paints hidden regions with, so the control and the
+      model agree at a glance. An --accent (near-white) active state would leave the user hunting for the
+      connection between a white pill and a red-and-white model. */
+.msk-onmesh.on{
+  border-color:rgba(216,60,60,.62); background:rgba(216,60,60,.16); color:#f0c9c9;
+}
+
 /* the inspector mounts inside the viewport, so its own stacking context has to clear the canvas */
 .layer-inspector{ position:absolute; inset:0; pointer-events:none; z-index:880; }
 .layer-inspector .summon-veil,

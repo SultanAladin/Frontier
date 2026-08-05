@@ -263,7 +263,7 @@ function ParseColour(Hex)
 // 🔴 Opacity and Flow both fold into Brush.Flow because the paint pass has ONE deposit strength. They
 //    are kept separate in the UI because they mean different things to a painter, and separating them
 //    for real needs per-stroke accumulation the pass does not have yet.
-function ApplyToBrush(Brush, Instrument, Params, Swatch)
+function ApplyToBrush(Brush, Instrument, Params, Swatch, OnMask)
 {
     if (!Brush) { return; }
 
@@ -271,6 +271,13 @@ function ApplyToBrush(Brush, Instrument, Params, Swatch)
     Brush.Hardness    = Instrument.Brush.Hardness;
     Brush.Spacing     = Instrument.Brush.Spacing;
     Brush.Flow        = (Params.Opacity / 100) * (Params.Flow / 100);
+
+    // 🔴 On a mask, the colour controls are left ALONE — the swatch is not pushed as ink and erase is not
+    //    cleared. A mask has no hue, so writing ink would be meaningless; and clearing erase used to reset
+    //    the mask's own deposited value, which made a mask stop responding the moment any tool control was
+    //    touched. Size, hardness, spacing and flow above still apply: a mask stroke is shaped by the
+    //    instrument exactly like a colour stroke, it just deposits a level instead of a pigment.
+    if (OnMask) { return; }
 
     if (Swatch) { Brush.Ink = ParseColour(Swatch); }
 
@@ -285,10 +292,16 @@ function ApplyToBrush(Brush, Instrument, Params, Swatch)
 export class ToolMenu
 {
     // `Host` is the element the card is appended to; `Brush` is the live brush object to drive.
-    constructor(Host, Brush, OnChange)
+    // `IsMasking` is an optional predicate the host supplies, answering whether strokes are currently
+    // landing in a mask — which swaps the card's colour swatches for a black/white value picker.
+    constructor(Host, Brush, OnChange, IsMasking)
     {
-        this.Brush    = Brush;
-        this.OnChange = OnChange ?? (() => {});
+        this.Brush     = Brush;
+        this.OnChange  = OnChange ?? (() => {});
+        this.IsMasking = IsMasking ?? null;
+
+        // Every mounted value picker's redraw, so an outside change (the E key) refreshes all of them.
+        this.MaskValueDraws = [];
 
         this.Active     = INSTRUMENTS[0];
         this.Params     = { ...INSTRUMENTS[0].Params };
@@ -413,6 +426,19 @@ export class ToolMenu
 
         Grid.querySelector("[data-Tile]").addEventListener("click", () => this.ShowOptions());
         this.Root.querySelector("[data-GridTitle]").textContent = this.Active.Label;
+
+        // 🔴 The mask value picker belongs on THIS pane — the one the right-click tap opens — not behind the
+        //    tile click that slides to properties. When masking, choosing black or white is the whole point of
+        //    summoning the card, so burying it one navigation step deep means the control the user asked for
+        //    is not where they asked for it. It is rebuilt with the grid rather than mounted once because
+        //    Select() re-renders this pane, which would otherwise discard the picker on any instrument change.
+        const OnMask = this.OnMask();
+        this.Root.querySelector("[data-GridTitle]").textContent = OnMask ? "Mask value" : this.Active.Label;
+        this.Root.querySelector(".PaneSubtitle").textContent    = OnMask
+            ? "Black hides · white reveals"
+            : "Pick an instrument";
+
+        if (OnMask) { Grid.appendChild(this.BuildMaskValue()); }
     }
 
     //--------------------------------------------------------------------------------------------------------------------
@@ -496,10 +522,14 @@ export class ToolMenu
             Pane.appendChild(this.BuildControl(Control));
         }
 
-        Pane.appendChild(this.BuildSwatches());
+        // Colour or value, never both — see BuildMaskValue for why offering a hue on a mask misleads.
+        const OnMask = this.OnMask();
+        Pane.appendChild(OnMask ? this.BuildMaskValue() : this.BuildSwatches());
 
         this.Root.querySelector("[data-OptionTitle]").textContent    = this.Active.Name;
-        this.Root.querySelector("[data-OptionSubtitle]").textContent = `${this.Active.Label} · ${this.Params.Size}px`;
+        this.Root.querySelector("[data-OptionSubtitle]").textContent = OnMask
+            ? `Masking · ${this.Params.Size}px`
+            : `${this.Active.Label} · ${this.Params.Size}px`;
 
         const Inert = VisibleControls(this.Active, this.Params).filter((C) => !C.Wired).map((C) => C.Label);
         this.Root.querySelector("[data-FootNote]").textContent =
@@ -625,6 +655,97 @@ export class ToolMenu
         return Field;
     }
 
+    // The mask's value picker: a black-to-white ramp plus the two chips that matter, hide and reveal.
+    //
+    // 🔴 This REPLACES the hue swatches rather than sitting beside them, and that is the point of the whole
+    //    control. A mask stores coverage, not colour, so a hue picker in the mask section offers a choice
+    //    that cannot be expressed — pick crimson and the mask records 0.85 grey, which looks like the picker
+    //    is broken. Showing only the values a mask can actually hold makes the constraint self-evident.
+    //
+    // 📝 A continuous ramp, not just the two chips, because a partial mask (a soft 40% blend) is a real thing
+    //    to want and the storage has always been able to hold it — only the UI could not ask for it.
+    BuildMaskValue()
+    {
+        const Row = document.createElement("div");
+        Row.className = "ControlRow";
+        Row.innerHTML =
+            `<div class="ControlHead">${Glyph("Pigment")}<span>Mask value</span>` +
+            `<span class="ControlValue" data-MaskReadout></span></div>` +
+            `<div class="MaskRamp" data-Ramp><div class="MaskRampKnob" data-RampKnob></div></div>` +
+            `<div class="SwatchRow">` +
+                `<button class="Swatch MaskChip" style="background:#000" data-MaskValue="0" title="Hide (black)"></button>` +
+                `<button class="Swatch MaskChip" style="background:#808080" data-MaskValue="0.5" title="Half"></button>` +
+                `<button class="Swatch MaskChip" style="background:#fff" data-MaskValue="1" title="Reveal (white)"></button>` +
+            `</div>`;
+
+        const Ramp     = Row.querySelector("[data-Ramp]");
+        const Knob     = Row.querySelector("[data-RampKnob]");
+        const Readout  = Row.querySelector("[data-MaskReadout]");
+
+        const Draw = () => {
+            const Level = this.MaskLevel();
+            Knob.style.left = `${Level * 100}%`;
+            Readout.textContent = `${Math.round(Level * 100)}% · ${Level > 0.5 ? "reveal" : "hide"}`;
+            for (const Chip of Row.querySelectorAll("[data-MaskValue]"))
+            {
+                Chip.classList.toggle("Active", Math.abs(Number(Chip.dataset.maskvalue) - Level) < 0.02);
+            }
+        };
+
+        // 📝 No Draw() call here: SetMaskLevel syncs every mounted picker, this one included.
+        const Set = (ClientX) => {
+            const Box = Ramp.getBoundingClientRect();
+            this.SetMaskLevel(Math.min(Math.max((ClientX - Box.left) / Box.width, 0), 1));
+        };
+
+        // 🔴 Pointer capture for the same reason the sliders use it: the ramp is thin and most drags leave it.
+        Ramp.addEventListener("pointerdown", (Event) => {
+            Ramp.setPointerCapture(Event.pointerId);
+            Set(Event.clientX);
+        });
+        Ramp.addEventListener("pointermove", (Event) => {
+            if (Ramp.hasPointerCapture(Event.pointerId)) { Set(Event.clientX); }
+        });
+        Ramp.addEventListener("pointerup", (Event) => {
+            if (Ramp.hasPointerCapture(Event.pointerId)) { Ramp.releasePointerCapture(Event.pointerId); }
+        });
+
+        for (const Chip of Row.querySelectorAll("[data-MaskValue]"))
+        {
+            Chip.addEventListener("click", () => this.SetMaskLevel(Number(Chip.dataset.maskvalue)));
+        }
+
+        Draw();
+
+        // 🔴 REGISTERED into a list, not stored as a single callback. Both the grid pane and the properties
+        //    pane can have a picker mounted at once, and a lone field would leave whichever built second as
+        //    the only one that ever refreshed — so pressing E would update one ramp and leave the other
+        //    showing a stale value, with the two visibly disagreeing about what the brush will paint.
+        //    Entries are filtered by isConnected on sync, so rebuilt panes drop out on their own.
+        this.MaskValueDraws.push({ Node: Row, Draw });
+        return Row;
+    }
+
+    // The live mask level off the brush, so the picker always reflects what a stroke would deposit —
+    // including a change made by the E key while the card was open.
+    MaskLevel() { return Math.min(Math.max(this.Brush?.MaskLevel ?? 0, 0), 1); }
+
+    SetMaskLevel(Level)
+    {
+        if (this.Brush) { this.Brush.MaskLevel = Level; }
+        // Every mounted picker refreshes, so the grid pane's ramp and the properties pane's ramp agree.
+        this.SyncMaskValue();
+        this.OnChange(this.Active, this.Params);
+    }
+
+    // Re-draw every mounted value picker after a change from anywhere — a chip, the ramp, or the E key.
+    // Safe when the card is closed or carries no picker; detached rows are pruned as they are found.
+    SyncMaskValue()
+    {
+        this.MaskValueDraws = this.MaskValueDraws.filter((Entry) => Entry.Node.isConnected);
+        for (const Entry of this.MaskValueDraws) { Entry.Draw(); }
+    }
+
     BuildSwatches()
     {
         const Row = document.createElement("div");
@@ -667,9 +788,16 @@ export class ToolMenu
     // Push state to the brush and tell the host something changed.
     Commit()
     {
-        ApplyToBrush(this.Brush, this.Active, this.Params, this.Swatch);
+        ApplyToBrush(this.Brush, this.Active, this.Params, this.Swatch, this.OnMask());
         this.OnChange(this.Active, this.Params);
     }
+
+    // Whether a mask paint target is focused, asked of the host rather than worked out here.
+    //
+    // 🔴 The menu deliberately does not import the layer stack or LayerMask. It is handed a brush and drives
+    //    it; giving it a view of the stack to answer one styling question would couple the tool card to the
+    //    layer model, and the host already resolves this every frame for the stroke path.
+    OnMask() { return this.IsMasking ? this.IsMasking() === true : false; }
 
     // The selected tool and its full parameter set, as an immutable snapshot for a stroke record.
     //
@@ -719,6 +847,11 @@ export class ToolMenu
     // Summon at a viewport position, clamped so the card never opens off-screen.
     Show(X, Y)
     {
+        // 🔴 The grid is re-rendered on every summon, because whether a mask is focused can have changed
+        //    since the card was last built — the user opens the mask tab, then right-clicks. Building it
+        //    once at construction would show the instrument tile to someone who is masking, which is the
+        //    "why isn't the picker there" case this control exists to answer.
+        this.RenderGrid(false);
         this.Root.classList.add("Open");
 
         // 📝 Measured, not assumed. The card is content-box sized, so its border box is wider than the

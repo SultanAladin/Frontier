@@ -212,6 +212,8 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │   │   │   │                                      //    + MSME fold + radial-depth write. Two sets (BVH + surfel), direct ceil(Cap/64), swap last
 │   │   │   ├── SurfelRadialDepth.{h,cpp}           // host occlusion constants (SurfelOcclusionParams 1.2/0.2/0.25/0.15, tile base index) + a CPU
 │   │   │   │                                      //    mirror of compute_surfel_depth_weight for the I4 gate oracle. NO dispatch of its own
+│   │   │   ├── SurfelCensusTrace.{h,cpp}           // per-frame spawn/kill/alive census -> CSV, on its own key (L is taken by the probe dump).
+│   │   │   │                                      //    Diagnostic only (spawned / diedTtl / diedPolice / keepAlive)
 │   │   │   └── Shaders/ (SurfelGrid.glsl [F1 helper + hashing], SurfelRecord.glsl, SurfelVisibilityReconstruct.glsl,
 │   │   │                 SurfelMoments.glsl, SurfelGuiding.glsl, SurfelRadialDepth.glsl, SurfelGather.glsl [Phase 2 modules],
 │   │   │                 SurfelPrepare.comp, SurfelGridClear/Count/Slot.comp, SurfelPrefixScanSegment/CollectSegment/
@@ -380,8 +382,14 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       │           ├── PolygonGlyphIdentity    // glyph names only (no ImGui — keeps the catalogue pure)
 │       │           ├── PolygonGlyphTable       // the stroke paths that draw them
 │       │           └── StratumBadgeTable       // the 7 two-tone header badges, one per TopologyStratum
+│       ├── Workspaces/                             // (live) per-workspace UI ported from Documentation/Prototypes — UI-ONLY, no GPU
+│       │   └── TexturePaint/  LayerStackPanel   // the paint-layer stack rail (ordinal 0 = TOP): identity tag · category glyph ·
+│       │                      // name/meta · opacity scrub · eye · blend caret, + add catalogue (4 categories), reorder drag,
+│       │                      // inline rename, delete, 12-layer cap + tally footer. Ported from PaintingSurface/Interface/
+│       │                      // LayerInspector.js + Layers/LayerStack.js. Token-addressed, NEVER by ordinal. Palette-free:
+│       │                      // draws entirely from the passed ThemeConfiguration. NOT the pillar-5 Workspaces/ document tree.
 │       ├── Icons/        SvgRasterizer (thorvg), SvgIconRegistry (Vulkan textures),   // keyed SVG glyph store, content-hash deduped
-│       │                 IconPackGlobal (g-), IconPackCad (cad-), IconPackScene (scene-)
+│       │                 IconPackGlobal (g-), IconPackCad (cad-), IconPackScene (scene-), IconPackPaint (paint-)
 │       ├── Dialogues/      ValidationDialogue, ConfirmDialogue   // ← retired
 │       ├── Settings/       RootPanel, SettingsPanel, GeneralPanel, AppearancePanel, AppearancePersistence,
 │       │                   LibraryPanel, NotificationPanel, PerformancePanel   // ← retired
@@ -433,6 +441,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       ├── SceneDirectoryInspectorValidation/ { SceneDirectoryInspectorValidationHost.cpp, SceneDirectoryInspector.{h,cpp}, SceneDirectoryInspectorPanel.{h,cpp}, InspectorContentProfile.{h,cpp}, InspectorGlyphs.{h,cpp}, Build.bat }  // directory rail = SHARED SketchOutliner panel via InspectorContentProfile (opaque ClassificationId == RecordClassification); non-host units ALSO compiled in-place by SketchModelViewport
 │       ├── SketchModelViewport/            { SketchModelViewportHost.cpp,            …Panel.{h,cpp}, SketchModelOffscreenSurface.{h,cpp}, SketchModelViewportChrome.{h,cpp}, SketchModelSummonedSurfaces.{h,cpp}, SketchModelWorkplaneOverlay.{h,cpp}, Build.bat }  // embeds two surfaces over the canvas: SceneDirectoryInspector card on Tab + ConstructionCatalogue console on right-click — both sibling folders' non-host .cpp compiled IN-PLACE (their Host.cpp skipped); links AuthoringParametric.lib + draws authored Workplane records as an ImGui DrawList overlay projected by the viewport camera
 │       ├── SketchOutliner/                 { SketchOutlinerValidationHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel (SKETCH profile) from EngineContext.lib
+│       ├── TexturePaintLayerStack/         { TexturePaintLayerStackHost.cpp, Build.bat }  // host-only; drives the shared Interface/Workspaces/TexturePaint LayerStackPanel from EngineContext.lib, registers the g- + paint- icon tiers, draws the rail in a 340 px column beside a live focus readout
 │       ├── TriangleCellOverlapValidation/  { TriangleCellOverlapValidationEntry.cpp, Build.bat }
 │       ├── VolumeBoundsValidation/         { VolumeBoundsValidationEntry.cpp,        Build.bat }
 │       ├── WorkspaceDock/                  { WorkspaceDockEntry.cpp,                 Build.bat }
@@ -452,7 +461,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │                                 RadixSortValidation.exe, TriangleCellOverlapValidation.exe, VolumeBoundsValidation.exe,
 │                                 GeometryTreeValidation.exe, GeometryArenaValidation.exe,
 │                                 WorkspaceDocumentWriter.exe, ConstructionCatalogueValidation.exe,
-│                                 SceneDirectoryInspectorValidation.exe }
+│                                 SceneDirectoryInspectorValidation.exe, TexturePaintLayerStack.exe }
 │
 ├── Documentation/                                 // per "Where to Save Documents"
 │   ├── Explainers/  Mockups/  Research/  Skills/  Assets/

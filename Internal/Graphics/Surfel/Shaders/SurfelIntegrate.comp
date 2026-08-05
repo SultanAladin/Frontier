@@ -139,7 +139,12 @@ layout(push_constant) uniform SurfelIntegrateConstants
     float TuneCellDiameter;     // [m] - live base cell edge (F10 window); seeds SurfelGrid.glsl's cell globals for the one-bounce gather
     float TuneBaseRadius;       // [m] - live cascade-0 disc radius (F10 window); the gather's coverage must match spawn/slotting
     float TuneNearFieldBias;    // [-] - live near-field bias (F10 window; carried for layout parity, unused by integrate)
-    float Pad0;
+    // 🔴 THE HOST SurfelIntegrateConstants MUST BE EDITED IN THE SAME COMMIT, IN THE SAME FIELD ORDER. Both the pipeline-layout range and the
+    //    vkCmdPushConstants size come from one sizeof(), so the two never disagree about HOW MUCH is copied — which is precisely why a field-order
+    //    mismatch is invisible here: every push still succeeds, the validator stays silent, and the shader simply reads one field out of another's
+    //    bytes. The failure surfaces as a plausible sample count, not as an error.
+    uint  Pad0;                 // [-] - reserved; keeps BoostSampleCount at its byte-matched offset
+    uint  BoostSampleCount;     // [-] - the ceiling on extra rays added above inconsistency 0.3
 } Constants;
 
 // The two names TwoLevelTrace.glsl reads as plain identifiers — aliased through the push block so the module stays agnostic about their source.
@@ -284,6 +289,34 @@ void main()
     uint BirthFrame = uint(Surfel.PositionAndSpare.w);
     uint SinceBirth = Constants.Frame - BirthFrame;
 
+    // 🔴 BIRTH RESET — A RECYCLED SLOT INHERITS THE DEAD SURFEL'S CONVERGED RADIANCE, AND THE ESTIMATOR THEN DEFENDS IT.
+    //    The moments buffer is indexed BY SLOT and SurfelAllocate.comp:83-85 writes only Position/Normal/Age — it never clears the moments entry. So the
+    //    read above hands a brand-new surfel the mean, short mean, variance, vbbr, inconsistency AND sample count of a completely different surfel that
+    //    lived at a different world position. Measured context: ~96 slots (9.4% of the field) were recycled every other frame, so this was not a rare
+    //    edge — it was the steady state, and it is the second, independent cause of the visible jitter.
+    //
+    //    Worse, the responsive-newborn branch further down (the `PreviousCount < 32.0` plain-running-average path) is keyed on the INHERITED count, so a
+    //    slot whose predecessor had converged past 32 samples skips the responsive path entirely and goes straight into full MSME. Catch-up is gated by
+    //    `Data.Vbbr` and the inconsistency EMA (SurfelMoments.glsl:106-113), both of which read "this estimate is settled, blend slowly" — so the newborn
+    //    inherits a stranger's irradiance AND the machinery that resists correcting it. Nothing NaNs and nothing errors; the surfel is simply wrong, and
+    //    stubbornly so, for many frames.
+    //
+    //    Zeroing here is the whole fix and it needs no new plumbing: it makes the EXISTING responsive branch fire as it was designed to, because
+    //    PreviousCount goes to 0. `SinceBirth == 0` is the exact first-integrate frame for this slot — SurfelAllocate stamps the spawn frame into
+    //    PositionAndSpare.w and integrate runs later in the same frame.
+    //    📝 Mean/ShortMean must be assigned EXPLICITLY, not left to SurfelSanitiseMSME above: that helper only scrubs non-finite values and clamps the
+    //       range, so a perfectly finite inherited mean passes through it untouched. High-uncertainty defaults (Vbbr/Inconsistency at 1.0, Variance at
+    //       1.0) match what the responsive branch itself installs, so a newborn reads as "no confidence yet" rather than "settled at zero".
+    if (SinceBirth == 0u)
+    {
+        State.Mean          = vec3(0.0);
+        State.ShortMean     = vec3(0.0);
+        State.Variance      = vec3(1.0);
+        State.Vbbr          = 1.0;
+        State.Inconsistency = 1.0;
+        PreviousCount       = 0.0;
+    }
+
     float SlgMass = SurfelGetTotalMass(Index);
 
     bool  HasGrid   = SlgMass > 1e-5;
@@ -295,8 +328,11 @@ void main()
     float ValidSamples = 0.0;
 
     // Adaptive sample count from MSME inconsistency; warmup floors it at 32.
-    uint BaseCount  = max(1u, Constants.BaseSampleCount);
-    uint BoostCount = (State.Inconsistency > 0.3) ? 12u : 0u;
+    uint BaseCount = max(1u, Constants.BaseSampleCount);
+
+    // 📝 RAY ALLOCATION (the ported path). A STEP: nothing below inconsistency 0.3, a full +BoostSampleCount above it. A variance-proportional
+    //    alternative (Neyman allocation over the same ceiling) was tried as an A/B and REMOVED with the rest of the convergence work.
+    uint BoostCount  = (State.Inconsistency > 0.3) ? Constants.BoostSampleCount : 0u;
     uint SampleCount = BaseCount + BoostCount;
 
     bool Warmup = (SinceBirth <= 4u);
@@ -383,11 +419,12 @@ void main()
                 float Scale = Y2 / Y;
                 HitAlbedo = clamp(HitAlbedo * Scale, vec3(0.0), vec3(1.0));
 
-                // Sun shadow ray from the hit point.
+                // Sun shadow ray from the hit point. Any-hit occlusion: the result is used only as a boolean gate, so it fires the twin that returns
+                // at the first blocker rather than the closest-hit walk whose distance/instance/barycentric would be discarded. Same answer, cheaper.
                 vec3 ShadowOrigin = HitPoint + HitNormal * Epsilon;
-                TraceHit ShadowHit = TraceTwoLevel(ShadowOrigin, Constants.SunDirection.xyz,
-                                                   SURFEL_TRACE_NEAR_LIMIT, SURFEL_TRACE_SUN_LIMIT);
-                if (!ShadowHit.HitCondition)
+                bool ShadowOccluded = TraceAnyHitTwoLevel(ShadowOrigin, Constants.SunDirection.xyz,
+                                                          SURFEL_TRACE_NEAR_LIMIT, SURFEL_TRACE_SUN_LIMIT);
+                if (!ShadowOccluded)
                 {
                     float NdotL = max(0.0, dot(HitNormal, Constants.SunDirection.xyz));
                     BounceLi += Constants.SunColour.xyz * HitAlbedo * NdotL * (1.0 / SURFEL_PI) * Constants.GiFromDirect;
@@ -395,7 +432,7 @@ void main()
 
                 // One-bounce gather over the grid (reads the moments read half).
                 vec3 Gi = SurfelLookupGI(HitPoint, HitNormal, Constants.CameraPosition.xyz, Constants.GridOrigin.xyz,
-                                         Constants.ReadOffsetElements, Constants.OcclusionParams);
+                                         Constants.ReadOffsetElements, Constants.OcclusionParams, Constants.Frame);
                 BounceLi += Gi * HitAlbedo * Constants.GiFromIndirect;
             }
             else

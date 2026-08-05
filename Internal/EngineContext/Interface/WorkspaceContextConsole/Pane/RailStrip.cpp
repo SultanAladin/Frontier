@@ -25,8 +25,7 @@ namespace
     constexpr float RailRowRounding  =  9.0f;   // [px] - .rail-item radius
     constexpr float RailGlyphEdge    = 18.0f;   // [px] - .r-ic
     constexpr float RailGlyphGutter  = 31.0f;   // [px] - row left edge to caption: 6 padding + 18 glyph + 7 gap
-    constexpr float RailMarkerWidth  =  3.0f;   // [px] - .rail-item.active::before width
-    constexpr float RailMarkerHeight = 15.0f;   // [px] - that bar's length
+    constexpr float RailMarkerWidth  =  3.0f;   // [px] - .rail-item.active::before width — the left-edge selected-row indicator bar (full row height)
     constexpr float RuleHeight       =  9.0f;   // [px] - vertical space .rail-sep occupies
     constexpr float TrailingInset    =  7.0f;   // [px] - right edge to the trailing figure
     constexpr float CaptionGap       =  9.0f;   // [px] - caption clip to the trailing figure
@@ -186,14 +185,12 @@ ConsoleRailOutcome InscribeRailStrip(const SvgIconRegistry*      Icons,
 
         if (Hovered)
         {
+            // 🔴 CLICK-TO-SELECT, not hover-to-swap. Hover only REPORTS the row (for the highlight below) — it no longer activates the cluster, so
+            //    moving the pointer across the rail merely highlights each family in passing while the grid stays on whatever the user last CLICKED.
+            //    Selection changes on a press alone. This is a console-wide rule (every workspace's rail), chosen over the old hover-preview because a
+            //    stray sweep through the rail would otherwise thrash the grid through every family it crossed. (ScrollSuppressesHover is now moot for
+            //    swapping — a scroll never selects either — but stays in the signature; the wheel drives the rail's own travel, handled by the caller.)
             Outcome.HoveredCluster = Row.ClusterIndex;
-            // ⚠️ Hover-to-swap is muted while the rail scrolls, but a CLICK always acts. Under the wheel the pointer holds still while rows travel
-            //    beneath it, so every row that passes would swap the grid and one throw would thrash through five clusters.
-            if (!ScrollSuppressesHover && !Row.SingleShot)
-            {
-                Outcome.ActivatedCluster = Row.ClusterIndex;
-                Outcome.SingleShotFired  = false;
-            }
         }
         if (Pressed)
         {
@@ -201,18 +198,26 @@ ConsoleRailOutcome InscribeRailStrip(const SvgIconRegistry*      Icons,
             Outcome.SingleShotFired  = Row.SingleShot;
         }
 
+        // 🔴 SELECTION INDICATOR MATCHES THE OUTLINER, exactly: a single flat AccentSubtle wash spanning the whole row, SQUARE (rounding 0), with NO
+        //    accent marker bar — the outliner draws one rectangle on Selected and nothing else, so the rail does the same. The SELECTED multi-action
+        //    family (and a hovered single-shot, which has no persistent selection) reads that wash; any other hovered row reads the subtler tile-hover
+        //    ground so the pointer still leaves a trail without competing with the selection.
         if (Active || (Hovered && Row.SingleShot))
         {
-            Canvas->AddRectFilled(RowMin, RowMax, Palette.RailSelectedFill, RailRowRounding);
+            Canvas->AddRectFilled(RowMin, RowMax, Palette.SelectionFill, 0.0f);
+        }
+        else if (Hovered)
+        {
+            Canvas->AddRectFilled(RowMin, RowMax, Palette.TileHoverFill, 0.0f);
         }
         if (Active)
         {
-            // The accent bar marking the open cluster sits flush to the rail's left edge rather than inside the row fill, so the eye reads it as an
-            // index marker on the column rather than as part of the row.
-            const float MarkerMidY = (RowMin.y + RowMax.y) * 0.5f;
-            Canvas->AddRectFilled(ImVec2(Origin.x, MarkerMidY - RailMarkerHeight * 0.5f),
-                                  ImVec2(Origin.x + RailMarkerWidth, MarkerMidY + RailMarkerHeight * 0.5f),
-                                  Palette.Accent, RailMarkerWidth);
+            // 🔴 The INDICATOR: a blue accent bar flush to the rail's left edge, marking the open cluster — the `|` before the list name. It spans the
+            //    FULL entry height (RowMin.y..RowMax.y), edge to edge with no inset, so it reads as tall as the row and butts straight against the next
+            //    entry with no gap between them. Square corners, so the block is a clean rectangle the height of the row it marks.
+            Canvas->AddRectFilled(ImVec2(Origin.x, RowMin.y),
+                                  ImVec2(Origin.x + RailMarkerWidth, RowMax.y),
+                                  Palette.SelectionMarker, 0.0f);
         }
 
         const float RowMidY     = (RowMin.y + RowMax.y) * 0.5f;

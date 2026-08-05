@@ -31,6 +31,11 @@ PaletteSpecification ResolveConsolePalette(const ThemeConfiguration& Theme)
     Resolved.KnobFill         = Theme.Palette.SliderKnob;
     Resolved.KnobInk          = Theme.Palette.KnobText;
 
+    // 📝 The selection indicator is a flat BLUE accent wash (like the outliner selection), no marker bar, no corners. Sourced from the console's own
+    //    blue accent (0x3B82F6) at a readable alpha rather than the near-invisible white AccentSubtle, so the highlight actually shows over the dark card.
+    Resolved.SelectionFill    = IM_COL32(0x3B, 0x82, 0xF6, 0x40);   // blue accent @ ~.25 — the selected rail row / hovered tile ground
+    Resolved.SelectionMarker  = IM_COL32(0x3B, 0x82, 0xF6, 0xFF);   // solid blue — the left-edge indicator bar on the selected rail row
+
     // 📝 Console tokens the shared theme has no field for, stated as the prototype's own literals so this is their single home. The pane
     //    deliberately sits one notch darker than the rail; a gated tile is a distinct fill rather than the tile fill at lower opacity; the
     //    chosen tile is an accent wash. These are the INTERSECTION both card prototypes agreed on.

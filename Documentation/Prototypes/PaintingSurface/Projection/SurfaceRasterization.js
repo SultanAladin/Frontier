@@ -35,6 +35,12 @@ struct ProjectionUniform
 @group(0) @binding(3) var          MaterialStore : texture_2d<f32>;   // r = metallic, g = roughness, b = height
 @group(0) @binding(4) var          EmissiveStore : texture_2d<f32>;   // rgb = emissive
 
+// 🔴 The FOCUSED layer's resolved mask, bound only so the mask-on-mesh inspection mode can show it. It is
+//    deliberately NOT read by the shading path: a mask decides where a layer contributes during
+//    compositing, and by the time this shader runs the stack is already flattened. Multiplying it in here
+//    would apply the focused layer's mask a second time, over the whole combined surface.
+@group(0) @binding(5) var          MaskStore : texture_2d<f32>;       // r = mask coverage
+
 struct SurfaceVarying
 {
     @builtin(position) ClipPosition   : vec4f,
@@ -227,7 +233,24 @@ fn SurfaceFragment(In : SurfaceVarying) -> @location(0) vec4f
     if (Mode > 2.5 && Mode < 3.5) { return vec4f(vec3f(Material.g), 1.0); }
     if (Mode > 3.5 && Mode < 4.5) { return vec4f(Emissive.rgb, 1.0); }
     if (Mode > 4.5 && Mode < 5.5) { return vec4f(ShadingNormal * 0.5 + vec3f(0.5), 1.0); }
-    if (Mode > 5.5)               { return vec4f(vec3f(Material.b), 1.0); }
+    if (Mode > 5.5 && Mode < 6.5) { return vec4f(vec3f(Material.b), 1.0); }
+
+    // The focused layer's mask, painted over the shaded surface rather than replacing it.
+    //
+    // 🔴 A mix rather than a flat grey return, and this is the whole point of the mode. A mask is a
+    //    SPATIAL selection, so what the user needs to see is WHERE on the model it falls — and a screen
+    //    full of grey values carries no landmarks to place them against. Keeping a dim shaded surface
+    //    underneath means the nose and the brow are still recognisable while the mask reads over them.
+    // 🔴 Red for the hidden side, not black. Black is what an unlit cavity already looks like, so a
+    //    black-masked region and a region merely facing away from the light would be indistinguishable —
+    //    exactly the confusion the mode exists to remove. Nothing else in this shader emits pure red.
+    if (Mode > 6.5)
+    {
+        let Coverage = textureSample(MaskStore, AtlasSampler, In.Coordinate).r;
+        let Ground   = Display * 0.28;
+        let Revealed = mix(vec3f(0.72, 0.10, 0.10), vec3f(1.0), Coverage);
+        return vec4f(Ground + Revealed * 0.72, 1.0);
+    }
 
     return vec4f(Display, 1.0);
 }`;
@@ -284,6 +307,13 @@ export class SurfaceRasterization
         this.DefaultMaterialView = this.DefaultMaterial.createView();
         this.DefaultEmissiveView = this.DefaultEmissive.createView();
 
+        // 🔴 The mask stand-in is WHITE, matching what EnsureMaskAtlas clears a white-fill mask to. White
+        //    means "applies everywhere", so a layer with no mask allocated reads as fully revealed — which
+        //    is the truth. A black default would render the mask-inspection mode as a solid red model on
+        //    every unmasked layer, indistinguishable from a mask that hides everything.
+        this.DefaultMask     = MakeConstant("DefaultMask", [255, 255, 255, 255]);
+        this.DefaultMaskView = this.DefaultMask.createView();
+
         this.BindLayout = Device.createBindGroupLayout({
             label: "SurfaceBindLayout",
             entries: [
@@ -291,7 +321,8 @@ export class SurfaceRasterization
                 { binding: 1, visibility: GPUShaderStage.FRAGMENT,                         texture: { sampleType: "float" } },
                 { binding: 2, visibility: GPUShaderStage.FRAGMENT,                         sampler: { type: "filtering" } },
                 { binding: 3, visibility: GPUShaderStage.FRAGMENT,                         texture: { sampleType: "float" } },
-                { binding: 4, visibility: GPUShaderStage.FRAGMENT,                         texture: { sampleType: "float" } }
+                { binding: 4, visibility: GPUShaderStage.FRAGMENT,                         texture: { sampleType: "float" } },
+                { binding: 5, visibility: GPUShaderStage.FRAGMENT,                         texture: { sampleType: "float" } }
             ]
         });
 
@@ -330,7 +361,9 @@ export class SurfaceRasterization
     //    height, and — worst — its RGB as emissive, which the fragment stage adds at 3× unlit, so an
     //    unpainted model would render as a white silhouette. Two 1×1 textures cost 8 bytes and remove
     //    the whole failure mode.
-    BindAtlas(AtlasView, MaterialView, EmissiveView)
+    // `MaskView` is the FOCUSED layer's resolved mask, for the mask-inspection mode only. Optional in the
+    // same way: a layer with no mask allocated falls back to the white stand-in and reads as revealed.
+    BindAtlas(AtlasView, MaterialView, EmissiveView, MaskView)
     {
         this.BindGroup = this.Device.createBindGroup({
             label:  "SurfaceBindGroup",
@@ -340,7 +373,8 @@ export class SurfaceRasterization
                 { binding: 1, resource: AtlasView },
                 { binding: 2, resource: this.AtlasSampler },
                 { binding: 3, resource: MaterialView ?? this.DefaultMaterialView },
-                { binding: 4, resource: EmissiveView ?? this.DefaultEmissiveView }
+                { binding: 4, resource: EmissiveView ?? this.DefaultEmissiveView },
+                { binding: 5, resource: MaskView     ?? this.DefaultMaskView }
             ]
         });
     }

@@ -77,7 +77,10 @@ struct SurfelIntegrateConstants
     float    TuneCellDiameter   = 1.0f;// [m] - live base cell edge (F10 window); the one-bounce gather's cell must match spawn/slotting
     float    TuneBaseRadius     = 1.2f;// [m] - live cascade-0 disc radius (F10 window)
     float    TuneNearFieldBias  = 1.0f;// [-] - live near-field bias (F10 window; layout parity, unused by integrate)
-    float    Pad0               = 0.0f;
+    // 🔴 MIRRORS SurfelIntegrate.comp's push block AND MUST MOVE WITH IT — same field order, same types. See the shader-side note: a mismatch here
+    //    pushes the right NUMBER of bytes with the wrong MEANING, so nothing errors and the sample count merely comes out wrong.
+    uint32_t Pad0               = 0;   // [-] - reserved; keeps BoostSampleCount at its byte-matched offset
+    uint32_t BoostSampleCount   = 12;  // [-] - extra-ray ceiling; 12 preserves the ported fixed-path behaviour exactly
 };
 
 // 📝 The integrate unit's owned handles. Two set layouts (BVH set 0, surfel set 1), one pipeline layout (both sets + the push range), one pipeline

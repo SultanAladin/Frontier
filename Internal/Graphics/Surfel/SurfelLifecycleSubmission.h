@@ -40,8 +40,19 @@ namespace Frontier
 //                                                            CONSTANTS
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Spawn tile geometry — MUST match local_size_x/y in SurfelSpawnRequest.comp. One workgroup owns an 8x8 pixel tile; one spawn request per tile.
-constexpr uint32_t SurfelSpawnTileEdge = 8;   // [-] - 8x8 pixel tile (webgiya GROUP_SIZE_X/Y)
+// 📝 Spawn tile geometry — MUST match local_size_x/y in SurfelSpawnRequest.comp. One workgroup owns one pixel tile; one spawn request per tile.
+//
+// 🔴 16x16, NOT the ported 8x8 (webgiya GROUP_SIZE_X/Y), following GIBS slide 17. The election hard-caps spawning at ONE surfel per tile per frame, so
+//    the tile edge IS the screen-space probe-density knob: quartering the tile count quarters the ceiling on how fast a region can fill, which is the
+//    "cleaner spawns" half of the flicker work. 256 lanes fits one workgroup (the Vulkan floor for maxComputeWorkGroupInvocations is 1024) so the
+//    lane->pixel mapping stays 1:1 and no lane loops over pixels.
+//
+//    ⚠️ THREE THINGS MOVE WITH THIS NUMBER and none of them are checked by the compiler or the validator:
+//      1. local_size_x/y in SurfelSpawnRequest.comp (a mismatch silently samples the wrong pixels — the dispatch still succeeds).
+//      2. The lane stride in that shader's LaneIndex (gl_LocalInvocationID.y * EDGE + .x).
+//      3. The lane field width in SurfelPackVote / the two unpack masks — 256 lanes need 8 bits, not 6. A 6-bit mask would alias lane 64 onto lane 0
+//         and the winning lane would write a DIFFERENT pixel's world position into the spawn request.
+constexpr uint32_t SurfelSpawnTileEdge = 16;   // [-] - 16x16 pixel tile (GIBS sl.17); was 8 (webgiya GROUP_SIZE_X/Y)
 
 // The Prepare/Age workgroup edges — MUST match local_size_x in SurfelPrepare.comp (256) and SurfelAge.comp / SurfelAllocate.comp (64).
 constexpr uint32_t SurfelPrepareWorkgroupEdge  = 256;
@@ -94,7 +105,7 @@ struct SurfelLifecycleSubmission
     VkSampler             PointSampler          = VK_NULL_HANDLE;   // [-] - nearest/clamp; a filtered id is a wrong id
 
     // --- Prepare / Age / Allocate: pool + tile buffers ---
-    VkDescriptorSetLayout PoolLayout          = VK_NULL_HANDLE;     // [-] - surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate
+    VkDescriptorSetLayout PoolLayout          = VK_NULL_HANDLE;     // [-] - surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate, offsets (b7), touched (b8), census (b9)
     VkPipelineLayout      PoolPipelineLayout  = VK_NULL_HANDLE;     // [-] - PoolLayout + push range
     VkPipeline            PreparePipeline     = VK_NULL_HANDLE;     // [-] - SurfelPrepare.comp
     VkPipeline            AgePipeline         = VK_NULL_HANDLE;     // [-] - SurfelAge.comp
@@ -125,6 +136,7 @@ struct SurfelLifecycleSubmission
     VkBuffer    BoundPoolSurfelBuffer   = VK_NULL_HANDLE;
     VkBuffer    BoundPoolOffsetsBuffer  = VK_NULL_HANDLE;   // pool set b7 (rent count)
     VkBuffer    BoundPoolTouchedBuffer  = VK_NULL_HANDLE;   // pool set b8 (income drain)
+    VkBuffer    BoundPoolCensusBuffer   = VK_NULL_HANDLE;   // pool set b9 (🩺 census tallies; NEVER aliased — a pool atomic is 4 bytes, the tallies need 5 ints)
 
     bool Prepared       = false;   // [-] - the one-time seed has been recorded
     bool ReadyCondition = false;   // [-] - true once every layout / pipeline / buffer is live
@@ -154,7 +166,8 @@ void RefreshSurfelLifecycleVisibility(SurfelLifecycleSubmission& Lifecycle,
                                       VkBuffer                   InstanceBuffer,
                                       VkBuffer                   FloorVertexBuffer   = VK_NULL_HANDLE,
                                       VkBuffer                   FloorIndexBuffer    = VK_NULL_HANDLE,
-                                      VkBuffer                   FloorInstanceBuffer = VK_NULL_HANDLE);
+                                      VkBuffer                   FloorInstanceBuffer = VK_NULL_HANDLE,
+                                      VkBuffer                   CensusCountersBuffer = VK_NULL_HANDLE);
 
 // Record the one-time Prepare seed (F21): ages -> SURFEL_LIFE_RECYCLED, free-list -> identity, stack atomics -> 0. A no-op after the first call
 // (Prepared latches) or when not ready. Must be recorded before the first slotting. CommandBuffer must be recording, OUTSIDE any rendering scope.
@@ -176,9 +189,15 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
 // grid Offsets slice), keep-alive income (touched 5..50 cancels metabolism), then +1 metabolism with TTL recycle to the free-list. Reads the grid
 // Offsets + the touched mailbox (pointed at Refresh) and needs the frame's SNAPPED grid origin (the same one slotting/spawn used) to hash each surfel's
 // cell. Independent of the spawn set (pool layout only). Run once per frame, after spawn. A no-op when not ready. Must be OUTSIDE any rendering scope.
+// 🔴 THE WORLD SCALE IS NOT OPTIONAL AND WAS PREVIOUSLY ABSENT. This pass HASHES each surfel's position (SurfelHashOfPosition divides by the live cell
+//    diameter), so the Constants it is given must carry the SAME TuneCellDiameter/TuneBaseRadius/CameraPosition this frame's slotting and spawn used. It
+//    is typed as the spawn constants so the caller physically cannot supply a different set — passing the frame's SurfelSpawnConstants is the whole
+//    contract. Before this parameter existed the pass silently used the BAKED defaults, so the crowding rent read the wrong cell's occupancy whenever
+//    the F10 cell-diameter slider was off default. Only the three fields named above are read; the matrices and screen dims are ignored.
 void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
                               const SurfelPool&           Pool,
                               const float                 GridOrigin[3],
+                              const SurfelSpawnConstants& Constants,
                               VkCommandBuffer             CommandBuffer);
 
 // Destroy every layout / pipeline / descriptor / buffer / sampler and reset to empty. The device must be idle. Safe on a never-initialized value.

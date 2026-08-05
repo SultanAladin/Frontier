@@ -86,16 +86,54 @@ export const CHANNEL_MODE_NOTE = {
 // 📝 Metallic is deliberately 0 or 1 and never in between. A partially metallic surface is not a real
 //    material — the channel selects between two different BRDF interpretations, and mid values only make
 //    sense as a blend across a boundary within one texel.
+// 🔴 Every preset is authored in the FIVE channels this prototype actually stores — baseColour,
+//    metallic, roughness, height, emission. The MaterialShelfDrawer library these are drawn from carries
+//    forty (clearcoat, sheen, flake, weave, tow anisotropy, subsurface, grain, grunge…), and none of
+//    those reach a shader input here: the raster reads three RGBA8 atlases and derives the normal from
+//    height. Carrying the extra channels across as authored numbers would put a full wall of sliders in
+//    the layer properties, every one of them inert — the same fault the mask pane's note calls out. So a
+//    clearcoat is folded into the roughness it produces, and a weave into the height it displaces.
+//
+// 🔴 `Family` groups the shelf's category rail and `Note` is the hero card's one-line read. Both live on
+//    the preset rather than in the shelf, because the shelf is a VIEW of this table: a preset added here
+//    must appear in the browser without a second edit, and the earlier hardcoded family list made every
+//    new category silently unreachable (the material rendered under "All" but no rail pill filtered to it).
 export const MATERIAL_PRESETS = {
     plastic: {
         Label:  "Plastic — Red",
+        Family: "Plastic",
+        Note:   "Injection-moulded ABS, glossy.",
         Tint:   "#c0392b",
         Values: { baseColour: [0.52, 0.06, 0.04], metallic: 0.0, roughness: 0.34,
                   emission: [0, 0, 0], height: 0.5 },
         Channels: ["baseColour", "metallic", "roughness"]
     },
+    polymerGrey: {
+        Label:  "Plastic — Grey Satin",
+        Family: "Plastic",
+        Note:   "Neutral grey polymer, semi-gloss.",
+        Tint:   "#4a4c50",
+        Values: { baseColour: [0.26, 0.27, 0.29], metallic: 0.0, roughness: 0.44,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    rubber: {
+        Label:  "Rubber — EPDM Black",
+        Family: "Plastic",
+        // 📝 A flat rubber is the useful bottom end of the roughness range: near-no highlight at all, so
+        //    it reads as an unlit silhouette next to the glazes and is the honest test that the roughness
+        //    channel reaches the shader.
+        Note:   "Flat EPDM rubber, no highlight.",
+        Tint:   "#16161a",
+        Values: { baseColour: [0.03, 0.03, 0.035], metallic: 0.0, roughness: 0.93,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+
     metal: {
         Label:  "Metal — Brushed Steel",
+        Family: "Metal",
+        Note:   "Directional brushed steel, satin.",
         Tint:   "#95a5a6",
         // Brushed steel is a bright dielectric-looking grey in linear terms; a proper metal takes its
         // base colour as its reflectance, so this triple IS the specular colour.
@@ -103,18 +141,143 @@ export const MATERIAL_PRESETS = {
                   emission: [0, 0, 0], height: 0.5 },
         Channels: ["baseColour", "metallic", "roughness"]
     },
+    chrome: {
+        Label:  "Metal — Chrome",
+        Family: "Metal",
+        Note:   "Mirror chrome, hard hotspot.",
+        Tint:   "#d8dde2",
+        // 🔴 0.04, not 0. The raster clamps roughness at a small floor before the GGX denominator, so a
+        //    literal zero lands ON the clamp and every mirror preset resolves to the same highlight —
+        //    which reads as "chrome and polished copper look identical".
+        Values: { baseColour: [0.85, 0.87, 0.90], metallic: 1.0, roughness: 0.04,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    copper: {
+        Label:  "Metal — Polished Copper",
+        Family: "Metal",
+        Note:   "Polished copper, warm reflection.",
+        Tint:   "#d98a6a",
+        Values: { baseColour: [0.95, 0.64, 0.54], metallic: 1.0, roughness: 0.16,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    gold: {
+        Label:  "Metal — Gold",
+        Family: "Metal",
+        Note:   "Soft-polished gold.",
+        Tint:   "#e0b23c",
+        Values: { baseColour: [1.0, 0.77, 0.34], metallic: 1.0, roughness: 0.20,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+
     ceramic: {
         Label:  "Ceramic — Glazed White",
+        Family: "Ceramic",
+        Note:   "Glazed porcelain, wet highlight.",
         Tint:   "#ecf0f1",
-        // A glaze is very smooth but NOT a mirror; 0.08 keeps a tight highlight without hitting the
+        // A glaze is very smooth but NOT a mirror; 0.09 keeps a tight highlight without hitting the
         // roughness floor the shader clamps at.
         Values: { baseColour: [0.86, 0.85, 0.82], metallic: 0.0, roughness: 0.09,
                   emission: [0, 0, 0], height: 0.5 },
         Channels: ["baseColour", "metallic", "roughness"]
+    },
+    terracotta: {
+        Label:  "Ceramic — Terracotta",
+        Family: "Ceramic",
+        Note:   "Unglazed earthenware, chalky.",
+        Tint:   "#7a3320",
+        Values: { baseColour: [0.48, 0.20, 0.12], metallic: 0.0, roughness: 0.78,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+
+    carPaint: {
+        Label:  "Coated — Car Paint Red",
+        Family: "Coated",
+        // 📝 The shelf's own Car Paint Red is a rough basecoat under a mirror lacquer. With no coat lobe
+        //    to render, the LOOK of the pair is a single smooth layer, so the authored roughness is the
+        //    coat's (0.06) rather than the basecoat's (0.42) — folding the coat in as the value it
+        //    actually produces instead of exposing a slider that reaches nothing.
+        Note:   "Basecoat red under lacquer.",
+        Tint:   "#8c1410",
+        Values: { baseColour: [0.55, 0.03, 0.03], metallic: 0.0, roughness: 0.06,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    pianoBlack: {
+        Label:  "Coated — Piano Black",
+        Family: "Coated",
+        Note:   "Lacquered black, mirror coat.",
+        Tint:   "#0b0b0d",
+        Values: { baseColour: [0.02, 0.02, 0.02], metallic: 0.0, roughness: 0.03,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    carbon: {
+        Label:  "Coated — Carbon Fibre",
+        Family: "Coated",
+        // 🔴 Metallic 0, not the shelf's 0.25. A part-metallic value is not a real material — the channel
+        //    selects between two BRDF interpretations — and the resin over a carbon twill is a dielectric.
+        //    The shelf's fraction stood in for a flake term this raster has no input for.
+        Note:   "Twill weave under gloss resin.",
+        Tint:   "#1b1c1f",
+        Values: { baseColour: [0.03, 0.033, 0.038], metallic: 0.0, roughness: 0.22,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+
+    clay: {
+        Label:  "Neutral — Calibration Clay",
+        Family: "Neutral",
+        // 📝 The matte neutral every other preset is judged against. Kept in the shelf on purpose: a flat
+        //    grey is what makes a lighting or normal-strength fault legible, because nothing in it can be
+        //    mistaken for authored colour.
+        Note:   "Matte neutral grey — calibration.",
+        Tint:   "#575757",
+        Values: { baseColour: [0.34, 0.34, 0.34], metallic: 0.0, roughness: 0.85,
+                  emission: [0, 0, 0], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness"]
+    },
+    emissivePanel: {
+        Label:  "Neutral — Emissive Panel",
+        Family: "Neutral",
+        // 🔴 The one preset that enables the emissive channel, so the shelf covers all five stored
+        //    channels rather than three. Its base colour stays dark: an emissive surface that also
+        //    reflects brightly reads as a lit white panel, and the emission is then unfalsifiable.
+        Note:   "Self-lit signal panel, cool white.",
+        Tint:   "#7fd2ff",
+        Values: { baseColour: [0.05, 0.06, 0.07], metallic: 0.0, roughness: 0.55,
+                  emission: [0.42, 0.68, 0.95], height: 0.5 },
+        Channels: ["baseColour", "metallic", "roughness", "emission"]
     }
 };
 
-export const MATERIAL_ORDER = ["plastic", "metal", "ceramic"];
+export const MATERIAL_ORDER = [
+    "plastic", "polymerGrey", "rubber",
+    "metal", "chrome", "copper", "gold",
+    "ceramic", "terracotta",
+    "carPaint", "pianoBlack", "carbon",
+    "clay", "emissivePanel"
+];
+
+// 🔴 Derived from the preset table in first-appearance order, never written out by hand. A hardcoded
+//    family list is what made every newly added category unreachable in the source shelf: the material
+//    showed under "All" but no rail pill filtered to it and the per-family counts under-reported.
+export const MATERIAL_FAMILIES = [
+    ...new Set(MATERIAL_ORDER.map((Key) => MATERIAL_PRESETS[Key]?.Family ?? "Other"))
+];
+
+// Which channels a material preset may be edited through, in the order the properties pane lists them.
+//
+// 📝 Read off the preset's own `Channels` rather than CHANNEL_ORDER, so a plastic offers no emissive row
+//    and the emissive panel does. `normal` never appears: it is derived from height at shade time, and a
+//    row for it would imply a value the layer does not carry.
+export function MaterialChannelRows(Preset)
+{
+    return [...(MATERIAL_PRESETS[Preset]?.Channels ?? [])];
+}
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                  GENERATOR RECIPES

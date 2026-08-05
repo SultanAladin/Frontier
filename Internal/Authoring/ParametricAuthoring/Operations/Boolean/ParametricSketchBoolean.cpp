@@ -293,9 +293,82 @@ namespace
         std::snprintf(Store.Notice, sizeof(Store.Notice), "%s", Message);
         Store.NoticeTimer = 4.0f;   // [s] - the view decays this each frame
     }
+
+    // Flatten one operand list into clip-ready REGIONS - the shared front half of the commit and the preview, so a previewed outcome is
+    //    byte-for-byte the region the commit will produce (a preview resolved by a second, drifting copy of this logic is worse than none).
+    //    Each region is { outer CCW, hole0 CW, hole1 CW, ... }; a curved operand enters densely tessellated because Clipper2 cannot carry an
+    //    analytic arc through a boolean. Returns false when an operand is missing, open, or degenerate - the caller decides whether to notice.
+    bool AssembleOperandRegions(ParametricSketchShapeStore&                    Store,
+                                const std::vector<uint32_t>&                   OperandIdentifiers,
+                                std::vector<std::vector<std::vector<ImVec2>>>& OutRegions,
+                                uint32_t&                                      OutBaseTint,
+                                uint32_t&                                      OutBaseFolder)
+    {
+        OutRegions.clear();
+        OutRegions.reserve(OperandIdentifiers.size());
+        OutBaseTint   = 0;
+        OutBaseFolder = 0;
+
+        const uint32_t BaseIdentifier = OperandIdentifiers.empty() ? 0u : OperandIdentifiers.front();
+        for (uint32_t Identifier : OperandIdentifiers)
+        {
+            ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);
+            if (!Shape || !Shape->ClosedEnabled)
+                return false;
+
+            constexpr int BooleanOperandBudget = 256;   // [-] - segments per curved operand fed to the clip (circle -> 256-gon)
+            std::vector<ImVec2> Loop;
+            EvaluateFilledPolygon(*Shape, Loop, BooleanOperandBudget);
+            if (Loop.size() < 3)
+                return false;
+
+            if (Identifier == BaseIdentifier)
+            {
+                OutBaseTint   = Shape->TintIndex;
+                OutBaseFolder = Shape->FolderIdentifier;
+            }
+
+            // This operand's region: its outer loop, then any holes it already carries (a Profile from an earlier boolean). Re-assert the
+            //    outer CCW + each hole CW so Clipper2's NonZero rule reads the holes as voids even for a hand-authored / re-imported hole.
+            std::vector<std::vector<ImVec2>> Region;
+            Region.reserve(1 + Shape->HoleLoops.size());
+            Region.push_back(std::move(Loop));
+            for (const std::vector<ImVec2>& Hole : Shape->HoleLoops)
+            {
+                if (Hole.size() < 3)
+                    continue;
+                std::vector<ImVec2> HoleLoop = Hole;
+                if (LoopTwiceArea(HoleLoop) >= 0.0f)   // a hole must wind CW (negative area) so NonZero punches it
+                    std::reverse(HoleLoop.begin(), HoleLoop.end());
+                Region.push_back(std::move(HoleLoop));
+            }
+            OutRegions.push_back(std::move(Region));
+        }
+        return OutRegions.size() >= 2;
+    }
+}
+
+std::vector<std::vector<ImVec2>> ResolveBooleanPreviewLoops(ParametricSketchShapeStore&  Store,
+                                                            const std::vector<uint32_t>& OperandIdentifiers,
+                                                            BooleanCategory              Op)
+{
+    if (OperandIdentifiers.size() < 2)
+        return {};
+
+    std::vector<std::vector<std::vector<ImVec2>>> OperandRegions;
+    uint32_t BaseTint = 0, BaseFolder = 0;
+    if (!AssembleOperandRegions(Store, OperandIdentifiers, OperandRegions, BaseTint, BaseFolder))
+        return {};   // silent: an open / missing operand is a preview no-op, not a notice
+
+    return SolveRegionBooleanWithHoles(OperandRegions, Op);
 }
 
 BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCategory Op)
+{
+    return AppendBooleanResult(Store, Op, false);   // historical behaviour: the operands are hidden after the commit
+}
+
+BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCategory Op, bool KeepOperands)
 {
     if (Store.SelectionSet.size() < 2)
     {
@@ -306,57 +379,13 @@ BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCat
     // Validate every operand is present + closed, and cache its flattened region (outer CCW + any holes it already carries, CW) BEFORE
     //    mutating the store. Carrying each operand's existing HoleLoops into the solve is what makes chained subtracts accumulate holes:
     //    a Profile cut once already stores its first void, so the second subtract must see that void or it re-emerges as solid.
+    // Flatten every operand into clip-ready regions BEFORE mutating anything. Carrying each operand's existing HoleLoops into the solve is
+    //    what makes chained subtracts accumulate holes: a Profile cut once already stores its first void, so the second subtract must see
+    //    that void or it re-emerges as solid. AssembleOperandRegions is shared with the preview, so what was previewed is what commits.
     std::vector<std::vector<std::vector<ImVec2>>> OperandRegions;
-    OperandRegions.reserve(Store.SelectionSet.size());
-    uint32_t BaseIdentifier = Store.SelectionSet.front();
-    uint32_t BaseTint = 0;
+    uint32_t BaseTint   = 0;
     uint32_t BaseFolder = 0;
-    for (uint32_t Identifier : Store.SelectionSet)
-    {
-        ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);
-        if (!Shape || !Shape->ClosedEnabled)
-        {
-            RaiseNotice(Store, "Boolean needs closed shapes");
-            return BooleanOutcome::NeedsClosedShapes;
-        }
-        // Flatten each operand DENSELY before the clip. Clipper2 is a straight-segment sweep-line — it cannot carry an analytic arc
-        //    through a boolean, so a curved operand must enter as a polyline, and the surviving result stores THAT polyline (the solve
-        //    runs once, not per-frame, so it cannot refine on later zoom). Sampling at the fixed per-category default (~64 for a circle)
-        //    left the result visibly faceted when zoomed; a high fixed budget makes each operand fine enough that the clipped region reads
-        //    as one smooth curve across normal working zoom. This is the standard CAD pipeline: tessellate fine, clip, keep the polyline.
-        constexpr int BooleanOperandBudget = 256;   // [-] - segments per curved operand fed to the clip (circle → 256-gon)
-        std::vector<ImVec2> Loop;
-        EvaluateFilledPolygon(*Shape, Loop, BooleanOperandBudget);
-        if (Loop.size() < 3)
-        {
-            RaiseNotice(Store, "Boolean needs closed shapes");
-            return BooleanOutcome::NeedsClosedShapes;
-        }
-        if (Identifier == BaseIdentifier)
-        {
-            BaseTint   = Shape->TintIndex;
-            BaseFolder = Shape->FolderIdentifier;
-        }
-
-        // This operand's region: its outer loop, then any holes it already carries (a Profile from an earlier boolean). Enforce the
-        //    outer CCW + each hole CW so Clipper2's NonZero rule reads the holes as voids — the winding stored on HoleLoops is already CW
-        //    (this file produced it), but re-assert it so a hand-authored or re-imported hole can never flip the interior fill.
-        std::vector<std::vector<ImVec2>> Region;
-        Region.reserve(1 + Shape->HoleLoops.size());
-        Region.push_back(std::move(Loop));
-        for (const std::vector<ImVec2>& Hole : Shape->HoleLoops)
-        {
-            if (Hole.size() < 3)
-                continue;
-            std::vector<ImVec2> HoleLoop = Hole;
-            if (LoopTwiceArea(HoleLoop) >= 0.0f)   // a hole must wind CW (negative area) so NonZero punches it
-                std::reverse(HoleLoop.begin(), HoleLoop.end());
-            Region.push_back(std::move(HoleLoop));
-        }
-        OperandRegions.push_back(std::move(Region));
-    }
-
-    if (OperandRegions.size() < 2)
+    if (!AssembleOperandRegions(Store, Store.SelectionSet, OperandRegions, BaseTint, BaseFolder))
     {
         RaiseNotice(Store, "Boolean needs closed shapes");
         return BooleanOutcome::NeedsClosedShapes;
@@ -400,11 +429,15 @@ BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCat
         AppendParametricSketchEdit(Store, Fresh.Identifier, LogLabel, "spline");
     }
 
-    // Hide the operands (recoverable via the outliner — not deleted).
-    for (uint32_t Identifier : Store.SelectionSet)
+    // Dispose of the operands: hide them (recoverable via the outliner — never deleted), or leave them displayed when the caller asked to
+    //    keep them, in which case the fresh result simply overlays its sources.
+    if (!KeepOperands)
     {
-        if (ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier))
-            Shape->Displayed = false;
+        for (uint32_t Identifier : Store.SelectionSet)
+        {
+            if (ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier))
+                Shape->Displayed = false;
+        }
     }
 
     Store.Selected = LastIdentifier;

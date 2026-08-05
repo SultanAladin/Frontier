@@ -181,11 +181,26 @@ export class StrokeDriver
         //    whole layer applies, so a layer whose CONTENT cannot be hand-painted still accepts strokes
         //    into its mask. The dabs land in the component's own greyscale atlas — one texture, not the
         //    channel fan-out — as a flat scalar the mask sequence reads back from red and weights by
-        //    coverage. Ink is ignored: a mask has no colour, only where-it-applies.
+        //    coverage. The brush COLOUR is ignored: a mask has no hue, only where-it-applies.
+        //
+        // 🔴 But the deposited VALUE is not hardcoded, and must not be. A mask deposit fixed at white is
+        //    unpaintable in the default configuration: a new mask fills white, so painting white over it is
+        //    a no-op and the user sees nothing happen no matter how many dabs land — the mask appears broken
+        //    when in fact every stroke arrived and wrote the value it was told to. The level comes from
+        //    Brush.MaskLevel, where 0 hides and 1 reveals, which is the hide/reveal pair every texture
+        //    painter provides and the only way to move a mask in both directions.
+        //
+        // 🔴 Read from MaskLevel and NOT from Brush.Erase, which an earlier revision used and which broke
+        //    mask painting outright. Erase is the channel brush's mode and ToolMenu.ApplyToBrush clears it on
+        //    every Commit — one slider drag reset the mask back to reveal-over-white, i.e. back to inert.
+        //    Any mask quantity must live somewhere the channel-paint UI does not overwrite as a side effect.
         const MaskTarget = ResolveMaskPaintTarget(Layer);
         if (MaskTarget)
         {
-            const MaskWrite = { Value: [1, 1, 1], Mask: [1, 1, 1] };
+            // 📝 Defaulted to 0 (hide) rather than 1, matching the brush's own default: against a white fill
+            //    only a dark stroke is visible, so an absent level must not land on the invisible value.
+            const MaskLevel = Math.min(Math.max(Brush?.MaskLevel ?? 0, 0), 1);
+            const MaskWrite = { Value: [MaskLevel, MaskLevel, MaskLevel], Mask: [1, 1, 1] };
             let   MaskDrawn = 0;
 
             while (this.Pending.length > 0)

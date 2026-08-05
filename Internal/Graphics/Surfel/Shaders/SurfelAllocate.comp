@@ -2,10 +2,15 @@
 /*==============================================================================================================================================
                                                             SURFELALLOCATE.COMP
 ==============================================================================================================================================*/
-// 🧩 Pass 2 of the lifecycle spawn (webgiya Allocate, surfelAllocatePass.ts). One lane per TILE. A tile that requested a spawn (TileAlloc[tile] == 1)
-//    pops one slot off the pool free-list stack (atomicAdd(+1) on the stack pointer), and writes the requested world position + normal into that
-//    surfel, resetting its age to 0 so it is live. The high-water mark is bumped so the count / slot / age passes see the new slot. If the pool is
-//    exhausted (stack pointer past capacity) the increment is rolled back and the tile drops its request.
+// 🧩 Pass 2 of the lifecycle spawn (webgiya Allocate, surfelAllocatePass.ts). A lane pops one slot off the pool free-list stack (atomicAdd(+1) on the
+//    stack pointer) and writes a requested world position + normal into that surfel, resetting its age to 0 so it is live. The high-water mark is bumped
+//    so the count / slot / age passes see the new slot. If the pool is exhausted (stack pointer past capacity) the increment is rolled back and the
+//    request is dropped.
+//
+//    🔴 ONE REQUEST SOURCE: the TILE ELECTION. One lane per SCREEN TILE, committing only where TileAlloc[tile] == 1. Sparse — most lanes bail — and hard
+//       capped at one probe per 8x8 pixel tile, which is what ties probe density to screen space. A second source (a surface micro-raster appending a
+//       compacted request list, committed by an indirect dispatch) was built alongside this as an A/B and REMOVED: it never placed better than the
+//       election it was meant to beat, and it carried a whole parallel spawn path to do it.
 //
 //    🔴 PHASE-1 REDUCTION. webgiya's Allocate ALSO does the "brain transplant" — copying a parent surfel's 72 SLG guiding floats, seeding the MSME
 //       moments from a per-tile irradiance estimate, and clearing the surfel's 4x4 radial-depth tile. All three touch the guiding / moments / depth
@@ -17,6 +22,11 @@
 //       atomic the validation gate reads stays honest.
 
 #include "SurfelRecord.glsl"
+
+// 🩺 Per-frame census (diagnostic only — see SurfelCensus.glsl). Binding 9 on the shared pool set; the tallies below are the BIRTH side of the
+//    churn measurement, and nothing in this pass reads them back.
+#define SURFEL_CENSUS_BINDING 9
+#include "SurfelCensus.glsl"
 
 layout(local_size_x = 64) in;
 
@@ -31,9 +41,9 @@ layout(std430, binding = 6) readonly buffer TileCandidateBuffer { vec4 TileCandi
 layout(push_constant) uniform PushBlock
 {
     int Capacity;
-    int TileCount;
-    int SyncPass;   // 0 == allocate lanes, 1 == the single alive-sync lane
-    int Pad0;
+    int TileCount;      // tile-path lane bound
+    int SyncPass;       // 0 == allocate lanes, 1 == the single alive-sync lane
+    int Pad0;           // [-] - vec4 alignment for the Age-only tail in PoolPushBlock; UNUSED here
 } Push;
 
 void main()
@@ -48,16 +58,21 @@ void main()
         return;
     }
 
+    // Resolve this lane's candidate pair from the tile election. Sparse: most lanes bail here.
     if (Index >= Push.TileCount) return;
     if (TileAlloc[Index] != 1) return;
+    vec4 Candidate       = TileCandidate[Index * 2 + 0];
+    vec4 CandidateNormal = TileCandidate[Index * 2 + 1];
 
     // Pop one slot off the free-list stack.
     int PrevAlloc = atomicAdd(PoolAlloc[0], 1);
     if (PrevAlloc >= Push.Capacity)
     {
         atomicAdd(PoolAlloc[0], -1);   // overflow — roll back, drop the request
+        SurfelCensusTally(SURFEL_CENSUS_SPAWN_FAILED);
         return;
     }
+    SurfelCensusTally(SURFEL_CENSUS_SPAWNED);
 
     int SurfelIndex = PoolFreeList[PrevAlloc];
 
@@ -65,8 +80,6 @@ void main()
     atomicMax(PoolMax[0], SurfelIndex + 1);
 
     // Commit the requested surface. w carries the spawn frame (webgiya posb.w), age resets to live.
-    vec4 Candidate = TileCandidate[Index * 2 + 0];
-    vec4 CandidateNormal = TileCandidate[Index * 2 + 1];
     Surfels[SurfelIndex].PositionAndSpare = Candidate;
     Surfels[SurfelIndex].Normal           = normalize(CandidateNormal.xyz);
     Surfels[SurfelIndex].Age              = 0;

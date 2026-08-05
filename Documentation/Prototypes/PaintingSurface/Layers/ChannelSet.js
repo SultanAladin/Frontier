@@ -62,7 +62,15 @@ export const CHANNEL_SLOTS = {
 
     // 🔴 Derived, never stored. Present in the table so the inspector can show a normal row and so any
     //    code that iterates channels sees it, but Component is null and writing to it is a fault.
-    normal:     { Atlas: null,       Component: null, Kind: "derived", Source: "height" }
+    normal:     { Atlas: null,       Component: null, Kind: "derived", Source: "height" },
+
+    // 🔴 NOT a paintable surface channel, and deliberately absent from CHANNEL_ORDER below. A layer mask is
+    //    not part of the material — it decides WHERE the material applies — so it must never appear in the
+    //    channel list, the channel chips, or the enable/disable pool. It lives here for one reason: it lets
+    //    ChannelPreview.Capture render a mask tile through the existing splat-and-readback path, by naming
+    //    the atlas key a mask stand-in supplies (see CaptureMask). Anything that walks CHANNEL_ORDER — which
+    //    is every consumer that lists channels to the user — will not see it.
+    maskCoverage: { Atlas: "maskCoverage", Component: 0, Kind: "scalar", Default: 1.0, Min: 0, Max: 1 }
 };
 
 // The order the inspector lists them in, and the order this prototype considers canonical.

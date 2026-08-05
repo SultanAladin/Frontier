@@ -816,7 +816,30 @@ namespace
         if (AddHit.Clicked && Report.Action == HistoryAction::None) { Report.Action = HistoryAction::ForkBranch; }
     }
 
-    // The revision timeline (renderRevisions): a vertical rail of rows. Advances Y past the whole list.
+    // Tint an ImU32 down to the given 0..255 alpha (the retired panel's TintAlpha — used for soft washes, faded rails, dimmed ink).
+    ImU32 TintAlpha(ImU32 Colour, unsigned Alpha)
+    {
+        return (Colour & 0x00FFFFFFu) | ((Alpha & 0xFFu) << IM_COL32_A_SHIFT);
+    }
+
+    // The pixel height one revision row occupies: the title/type band + an optional detail pill row + top/bottom body padding. Mirrors
+    // the retired WorkspaceHistoryPanel's EventHeight (.hxu-body padding + title + type pill + detail rows), so a subtitled row grows.
+    float RevisionRowHeight(const Revision& Rev)
+    {
+        const float EventPadY       = 6.0f;
+        const float TitleBand       = 18.0f;    // event title line
+        const float TypePillH       = 16.0f;    // uppercase type pill
+        const float DetailRowH      = 20.0f;    // one detail pill (the subtitle)
+        const float DetailGap       = 3.0f;
+        const float Detail = Rev.Subtitle.empty() ? 0.0f : (DetailGap + DetailRowH);
+        const float Inner  = TitleBand + 2.0f + TypePillH + Detail;
+        return EventPadY * 2.0f + ImMax(Inner, 20.0f);   // never shorter than the 20px node box
+    }
+
+    // The revision timeline (renderRevisions), restyled to the retired WorkspaceHistoryPanel's visual language: a ringed node holding the
+    //    category glyph, a connector rail above/below, then a body of title + uppercase tone-tinted type pill + a Key=Value-style detail
+    //    pill for the subtitle. The at-cursor row gets a soft hue wash + an inset ring + a filled glyph node; future rows fade to redoable.
+    //    Rows are variable-height (a subtitled row is taller), so Y advances by the summed heights and the caller's scroll math tracks it.
     void ConstructTimeline(ImDrawList* Draw, const Frontier::SvgIconRegistry* Icons, InspectorPanelState& State,
                            float X, float& Y, float Width, HistoryReport& Report)
     {
@@ -831,59 +854,96 @@ namespace
             return;
         }
 
-        const float RowH  = 42.0f;
-        const float RailX = X + 14.0f;
+        const float EventPadY  = 6.0f;
+        const float NodeRadius = 9.0f;
+        const float RailX      = X + 14.0f;
+        const float BodyX      = RailX + 18.0f;
+        const int   Last       = (int)Branch.Revisions.size() - 1;
+
+        float RowTop = Y;
         for (int Index = 0; Index < (int)Branch.Revisions.size(); ++Index)
         {
-            const Revision& Rev = Branch.Revisions[Index];
-            const bool AtCursor = Index == Branch.Cursor;
-            const bool Future   = Index > Branch.Cursor;
-            const float RowTop  = Y + Index * RowH;
-            const float NodeY   = RowTop + RowH * 0.5f;
+            const Revision& Rev    = Branch.Revisions[Index];
+            const bool  AtCursor   = Index == Branch.Cursor;
+            const bool  Future     = Index > Branch.Cursor;
+            const float RowH       = RevisionRowHeight(Rev);
+            const float RowBot     = RowTop + RowH;
+            const float NodeY      = RowTop + EventPadY + NodeRadius;
 
-            // row fill for the cursor
+            const ImU32 Hue     = 0xFF000000u | RevisionHue(Rev.Category);
+            const ImU32 HueSoft = TintAlpha(Hue, 40);   // ~0.16 alpha — the at-cursor wash (.hxu-col-soft)
+
+            // ── row wash + ring (.hxu-ev .at-cursor: a soft hue fill inset by an accented border) ──
             if (AtCursor)
             {
-                Draw->AddRectFilled(ImVec2(X, RowTop + 2.0f), ImVec2(X + Width, RowTop + RowH - 2.0f), Palette.RowActive, 4.0f);
-                Draw->AddRect(ImVec2(X, RowTop + 2.0f), ImVec2(X + Width, RowTop + RowH - 2.0f), Palette.BorderLine, 4.0f);
+                Draw->AddRectFilled(ImVec2(X, RowTop + 1.0f), ImVec2(X + Width, RowBot - 1.0f), HueSoft, 8.0f);
+                Draw->AddRect(ImVec2(X, RowTop + 1.0f), ImVec2(X + Width, RowBot - 1.0f), TintAlpha(Hue, 150), 8.0f, 0, 1.0f);
             }
 
-            // rail: line above (unless first) + node + line below (unless last)
-            const ImU32 Hue = 0xFF000000u | RevisionHue(Rev.Category);
-            const ImU32 FadedHue = Future ? ((Hue & 0x00FFFFFFu) | 0x66000000u) : Hue;
-            if (Index != 0)                              { Draw->AddLine(ImVec2(RailX, RowTop), ImVec2(RailX, NodeY - 6.0f), Palette.BorderLine, 1.4f); }
-            if (Index != (int)Branch.Revisions.size()-1) { Draw->AddLine(ImVec2(RailX, NodeY + 6.0f), ImVec2(RailX, RowTop + RowH), Palette.BorderLine, 1.4f); }
-            Draw->AddCircleFilled(ImVec2(RailX, NodeY), 5.5f, FadedHue);
-            if (AtCursor) { Draw->AddCircle(ImVec2(RailX, NodeY), 8.0f, Palette.Accent, 0, 1.6f); }
+            // ── rail (.hxu-rail): connector line above (unless first) + node + connector line below (unless last) ──
+            const ImU32 LineCol = TintAlpha(Hue, Future ? 24 : 60);
+            if (Index != 0)     { Draw->AddLine(ImVec2(RailX, RowTop), ImVec2(RailX, NodeY - NodeRadius), LineCol, 2.0f); }
+            if (Index != Last)  { Draw->AddLine(ImVec2(RailX, NodeY + NodeRadius), ImVec2(RailX, RowBot), LineCol, 2.0f); }
 
-            // body: title · type chip · time, then subtitle
-            const float BodyX = RailX + 16.0f;
+            // node (.hxu-node): the at-cursor node fills in the hue + a soft glow ring + a knocked-out glyph; the rest ring the hue.
+            const std::string NodeGlyph = RevisionGlyphName(Rev.Category);
+            const float GlyphBox = 12.0f;
+            const ImVec2 GlyphAt(RailX - GlyphBox * 0.5f, NodeY - GlyphBox * 0.5f);
+            if (AtCursor)
+            {
+                Draw->AddCircleFilled(ImVec2(RailX, NodeY), NodeRadius + 3.0f, HueSoft, 24);
+                Draw->AddCircleFilled(ImVec2(RailX, NodeY), NodeRadius, Hue, 24);
+                ConstructGlyph(Draw, Icons, NodeGlyph, GlyphAt, GlyphBox, Palette.KnobInk);
+            }
+            else
+            {
+                const unsigned NodeAlpha = Future ? 128u : 255u;
+                Draw->AddCircleFilled(ImVec2(RailX, NodeY), NodeRadius, Palette.WidgetFill, 24);
+                Draw->AddCircle(ImVec2(RailX, NodeY), NodeRadius, TintAlpha(Hue, NodeAlpha), 24, 2.0f);
+                ConstructGlyph(Draw, Icons, NodeGlyph, GlyphAt, GlyphBox, TintAlpha(Hue, NodeAlpha));
+            }
+
+            // ── body: event title (dimmed when future) + right-aligned time, then the tone-tinted type pill, then a detail pill ──
             const ImU32 TitleCol = Future ? Palette.TextFaint : Palette.TextPrimary;
-            Draw->AddText(ImVec2(BodyX, RowTop + 8.0f), TitleCol, Rev.Title.c_str());
+            float TextY = RowTop + EventPadY;
+            DrawClippedText(Draw, ImVec2(BodyX, TextY), TitleCol, Rev.Title.c_str(), Width - (BodyX - X) - 54.0f);
 
-            const char* TypeLabel = RevisionLabel(Rev.Category);
-            const ImVec2 TitleSize = ImGui::CalcTextSize(Rev.Title.c_str());
-            const ImVec2 ChipSize  = ImGui::CalcTextSize(TypeLabel);
-            const ImVec2 ChipMin(BodyX + TitleSize.x + 8.0f, RowTop + 7.0f);
-            const ImVec2 ChipMax(ChipMin.x + ChipSize.x + 10.0f, ChipMin.y + ChipSize.y + 4.0f);
-            const ImU32 ChipInk = RevisionToneColour(RevisionToneOf(Rev.Category));
-            Draw->AddRectFilled(ChipMin, ChipMax, (ChipInk & 0x00FFFFFFu) | 0x33000000u, 3.0f);
-            Draw->AddText(ImVec2(ChipMin.x + 5.0f, ChipMin.y + 2.0f), ChipInk, TypeLabel);
-
-            // time (right-aligned)
             const ImVec2 TimeSize = ImGui::CalcTextSize(Rev.TimeText.c_str());
-            Draw->AddText(ImVec2(X + Width - 8.0f - TimeSize.x, RowTop + 8.0f), Palette.TextFaint, Rev.TimeText.c_str());
+            Draw->AddText(ImVec2(X + Width - 8.0f - TimeSize.x, TextY), Palette.TextFaint, Rev.TimeText.c_str());
+            TextY += 18.0f + 2.0f;
 
+            // type pill (.hxu-type): an uppercase category tag tinted in the tone colour over an inset fill.
+            const char* TypeLabel = RevisionLabel(Rev.Category);
+            const ImU32  ToneInk  = RevisionToneColour(RevisionToneOf(Rev.Category));
+            const ImVec2 TypeSize = ImGui::CalcTextSize(TypeLabel);
+            const float  TypePillH = 16.0f;
+            const ImVec2 PillMin(BodyX, TextY);
+            const ImVec2 PillMax(BodyX + TypeSize.x + 14.0f, TextY + TypePillH);
+            Draw->AddRectFilled(PillMin, PillMax, Palette.MenuFill, TypePillH * 0.5f);
+            Draw->AddText(ImVec2(PillMin.x + 7.0f, PillMin.y + (TypePillH - TypeSize.y) * 0.5f),
+                          Future ? TintAlpha(ToneInk, 130) : ToneInk, TypeLabel);
+            TextY += TypePillH;
+
+            // detail pill (.hxu-detail): the subtitle as one inset pill, dimmed when future.
             if (!Rev.Subtitle.empty())
             {
-                Draw->AddText(ImVec2(BodyX, RowTop + 24.0f), Palette.TextDim, Rev.Subtitle.c_str());
+                const float DetailRowH = 20.0f;
+                TextY += 3.0f;
+                const ImVec2 DetMin(BodyX, TextY);
+                const ImVec2 DetMax(X + Width - 8.0f, TextY + DetailRowH);
+                Draw->AddRectFilled(DetMin, DetMax, Palette.MenuFill, DetailRowH * 0.5f);
+                const float DetTextY = DetMin.y + (DetailRowH - ImGui::GetTextLineHeight()) * 0.5f;
+                DrawClippedText(Draw, ImVec2(DetMin.x + 10.0f, DetTextY), Future ? Palette.TextDim : Palette.TextPrimary,
+                                Rev.Subtitle.c_str(), (DetMax.x - DetMin.x) - 20.0f);
             }
 
             char RowId[32]; std::snprintf(RowId, sizeof(RowId), "##rev%d", Index);
             const Hit RowHit = RegionButton(RowId, ImVec2(X, RowTop), ImVec2(Width, RowH));
             if (RowHit.Clicked && Report.Action == HistoryAction::None) { Report.Action = HistoryAction::JumpTo; Report.Index = Index; }
+
+            RowTop = RowBot;
         }
-        Y += Branch.Revisions.size() * RowH;
+        Y = RowTop;
     }
 
     void ApplyHistoryReport(InspectorPanelState& State, const HistoryReport& Report)
@@ -1004,7 +1064,11 @@ void ConstructSceneDirectoryInspectorPanel(const ThemeConfiguration& Theme,
         if (Top  + CardHeight > Io.DisplaySize.y - Pad) { Top  = ImMax(Pad, Io.DisplaySize.y - Pad - CardHeight); }
         State.SummonX = Left; State.SummonY = Top;
         State.SummonOpen = true;
-        State.OnInspect  = false;   // always open on slide 1
+        // A right-click PICK asks to open ON the inspect/Properties face (OpenOnInspect) and has already seated the row selection; honour it
+        // only when a selection actually resolved, else fall to slide 1. A plain Tab summon leaves OpenOnInspect false → the directory.
+        State.OnInspect  = State.OpenOnInspect && !State.Directory.SelectionSet.empty();
+        State.Face       = InspectorFace::Properties;   // the pick opens Properties, never History
+        State.OpenOnInspect   = false;   // one-shot: consumed
         State.OpenAge    = 0.0f;
         State.SummonRequested = false;
     }

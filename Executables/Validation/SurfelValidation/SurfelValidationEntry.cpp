@@ -1706,6 +1706,11 @@ struct GatherProbePipeline
 };
 
 // Byte-identical to SurfelGatherProbe.comp's push block: three vec4 + four uint (48 + 16 = 64 B).
+// 🔴 Frame WAS Pad0 AND IT IS NOT OPTIONAL FOR THIS PROBE. The gather now fades a newborn surfel in over SURFEL_FADE_IN_FRAMES using
+//    (Frame - PositionAndSpare.w). This probe seeds a surfel by hand, so its birth frame is whatever the seed wrote (0) — leaving Frame at 0 makes
+//    AgeFrames 0, the fade multiplies the weight by 0, and the "point just off the surfel reads ~seed" assertion FAILS looking exactly like a broken
+//    gather. The default below is therefore past the fade window on purpose: this probe tests the LOOKUP, not the fade, and must present its hand-seeded
+//    surfel as fully faded in. A test that wants to exercise the ramp sets Frame deliberately.
 struct GatherProbeConstants
 {
     float    CameraPosition[4]  = { 0, 0, 0, 0 };
@@ -1713,7 +1718,7 @@ struct GatherProbeConstants
     float    OcclusionParams[4] = { 1.2f, 0.2f, 0.25f, 0.15f };
     uint32_t ReadOffsetElements = 0;
     uint32_t PointCount         = 0;
-    uint32_t Pad0               = 0;
+    uint32_t Frame              = 4096;   // [-] - far past SURFEL_FADE_IN_FRAMES (16) so a hand-seeded surfel counts as fully faded in
     uint32_t Pad1               = 0;
 };
 

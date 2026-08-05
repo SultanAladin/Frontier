@@ -85,6 +85,788 @@ namespace
 //                                                    PARAMETER TABLES
 //----------------------------------------------------------------------------------------------------------------------
 
+const Frontier::ToolParameterDescriptor ParametersSketchDraw00[4] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamDistance",
+            "Length",
+            0.1f, 5000.0f, 100.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Angle",
+            -180.0f, 180.0f, 0.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamConstruction",
+            "Construction geometry",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::SnapTargets,
+            "ParamSnap",
+            "Snap to",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
+            { true, true, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw01[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Close on finish",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Segment",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Line", "Arc tangent", "Arc perp.", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::SnapTargets,
+            "ParamSnap",
+            "Snap to",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
+            { true, true, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw02[4] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamWidth",
+            "Width",
+            0.1f, 5000.0f, 120.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamHeight",
+            "Height",
+            0.1f, 5000.0f, 80.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Corner radius",
+            0.0f, 500.0f, 0.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamConstruction",
+            "Construction geometry",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw03[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamWidth",
+            "Width",
+            0.1f, 5000.0f, 120.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamHeight",
+            "Height",
+            0.1f, 5000.0f, 80.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Rotation",
+            -180.0f, 180.0f, 0.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw04[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamDistance",
+            "Centre span",
+            0.1f, 5000.0f, 100.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "End radius",
+            0.1f, 500.0f, 15.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Angle",
+            -180.0f, 180.0f, 0.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw05[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Radius",
+            0.1f, 2500.0f, 40.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Defined by",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Centre", "Diameter", nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamConstruction",
+            "Construction geometry",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw06[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Radius",
+            0.1f, 2500.0f, 50.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Included angle",
+            1.0f, 359.0f, 90.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamDirection",
+            "Direction",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "CCW", "CW", nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw07[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamWidth",
+            "Major radius",
+            0.1f, 2500.0f, 70.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamHeight",
+            "Minor radius",
+            0.1f, 2500.0f, 40.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Rotation",
+            -180.0f, 180.0f, 0.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw08[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Sides",
+            3.0f, 64.0f, 6.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Radius",
+            0.1f, 2500.0f, 50.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Radius is",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Inscribed", "Circumscribed", nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw09[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            1.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Periodic",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamTolerance",
+            "Fit tolerance",
+            0.001f, 5.0f, 0.01f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw10[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            2.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamSmooth",
+            "Tangent continuity",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw11[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            2.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Periodic",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::SnapTargets,
+            "ParamSnap",
+            "Snap to",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
+            { true, true, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw12[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamCount",
+            "Degree",
+            2.0f, 9.0f, 3.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Weight",
+            0.1f, 10.0f, 1.0f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Periodic",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw13[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Rho",
+            0.01f, 0.99f, 0.5f, "−",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Family",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Ellipse", "Parabola", "Hyperbola", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchDraw14[2] =
+{
+        {
+            Frontier::ToolParameterCategory::SnapTargets,
+            "ParamSnap",
+            "Snap to",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { "Grid", nullptr, nullptr, nullptr, nullptr, nullptr },
+            { true, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamConstruction",
+            "Construction geometry",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify00[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamRadius",
+            "Radius",
+            0.01f, 500.0f, 5.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamMode",
+            "Trim originals",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify01[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamDistance",
+            "Distance",
+            0.01f, 500.0f, 5.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamAngle",
+            "Angle",
+            1.0f, 89.0f, 45.0f, "°",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify02[1] =
+{
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Extent",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "To nearest", "To pick", "All", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify03[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamDistance",
+            "Distance",
+            0.01f, 5000.0f, 20.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamSnap",
+            "Extend to boundary",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify04[3] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamDistance",
+            "Distance",
+            -500.0f, 500.0f, 5.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Corners",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Arc", "Extend", "Chamfer", nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Both sides",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify05[1] =
+{
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "At",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Pick point", "Crossings", nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchModify06[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Slider,
+            "ParamSnap",
+            "Weld tolerance",
+            0.01f, 50.0f, 1.0f, "mm",
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamClosed",
+            "Close if ends meet",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchReference00[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamMirror",
+            "Keep source",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::AxisChoice,
+            "ParamAxis",
+            "Mirror line",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchReference01[1] =
+{
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamConstruction",
+            "Construction geometry",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
+const Frontier::ToolParameterDescriptor ParametersSketchReference02[2] =
+{
+        {
+            Frontier::ToolParameterCategory::Segmented,
+            "ParamMode",
+            "Result",
+            0.0f, 0.0f, 0.0f, nullptr,
+            { "Reference", "Editable", nullptr, nullptr, nullptr, nullptr }, 0,
+            false,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+        {
+            Frontier::ToolParameterCategory::Toggle,
+            "ParamLink",
+            "Track source geometry",
+            0.0f, 0.0f, 1.0f, nullptr,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
+            true,
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
+            { false, false, false, false, false, false },
+        },
+};
+
 const Frontier::ToolParameterDescriptor ParametersPrimitive00[6] =
 {
         {
@@ -872,747 +1654,6 @@ const Frontier::ToolParameterDescriptor ParametersPrimitive17[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersSketchDraw00[4] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Length",
-            0.1f, 5000.0f, 100.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Angle",
-            -180.0f, 180.0f, 0.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamConstruction",
-            "Construction geometry",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::SnapTargets,
-            "ParamSnap",
-            "Snap to",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
-            { true, true, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw01[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamClosed",
-            "Close on finish",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Segment",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Line", "Arc tangent", "Arc perp.", nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::SnapTargets,
-            "ParamSnap",
-            "Snap to",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
-            { true, true, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw02[4] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamWidth",
-            "Width",
-            0.1f, 5000.0f, 120.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamHeight",
-            "Height",
-            0.1f, 5000.0f, 80.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Corner radius",
-            0.0f, 500.0f, 0.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamConstruction",
-            "Construction geometry",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw03[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamWidth",
-            "Width",
-            0.1f, 5000.0f, 120.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamHeight",
-            "Height",
-            0.1f, 5000.0f, 80.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Rotation",
-            -180.0f, 180.0f, 0.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw04[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Centre span",
-            0.1f, 5000.0f, 100.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "End radius",
-            0.1f, 500.0f, 15.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Angle",
-            -180.0f, 180.0f, 0.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw05[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Radius",
-            0.1f, 2500.0f, 40.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Defined by",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Centre", "Diameter", nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamConstruction",
-            "Construction geometry",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw06[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Radius",
-            0.1f, 2500.0f, 50.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Included angle",
-            1.0f, 359.0f, 90.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamDirection",
-            "Direction",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "CCW", "CW", nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw07[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamWidth",
-            "Major radius",
-            0.1f, 2500.0f, 70.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamHeight",
-            "Minor radius",
-            0.1f, 2500.0f, 40.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Rotation",
-            -180.0f, 180.0f, 0.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw08[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamCount",
-            "Sides",
-            3.0f, 64.0f, 6.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Radius",
-            0.1f, 2500.0f, 50.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Radius is",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Inscribed", "Circumscribed", nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw09[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamCount",
-            "Degree",
-            1.0f, 9.0f, 3.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamClosed",
-            "Periodic",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamTolerance",
-            "Fit tolerance",
-            0.001f, 5.0f, 0.01f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw10[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamCount",
-            "Degree",
-            2.0f, 9.0f, 3.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamSmooth",
-            "Tangent continuity",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw11[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamCount",
-            "Degree",
-            2.0f, 9.0f, 3.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamClosed",
-            "Periodic",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::SnapTargets,
-            "ParamSnap",
-            "Snap to",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
-            { true, true, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw12[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamCount",
-            "Degree",
-            2.0f, 9.0f, 3.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Weight",
-            0.1f, 10.0f, 1.0f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamClosed",
-            "Periodic",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw13[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Rho",
-            0.01f, 0.99f, 0.5f, "−",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Family",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Ellipse", "Parabola", "Hyperbola", nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchDraw14[2] =
-{
-        {
-            Frontier::ToolParameterCategory::SnapTargets,
-            "ParamSnap",
-            "Snap to",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { "Grid", nullptr, nullptr, nullptr, nullptr, nullptr },
-            { true, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamConstruction",
-            "Construction geometry",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchModify00[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamRadius",
-            "Radius",
-            0.01f, 500.0f, 5.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamMode",
-            "Trim originals",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchModify01[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Distance",
-            0.01f, 500.0f, 5.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamAngle",
-            "Angle",
-            1.0f, 89.0f, 45.0f, "°",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchModify02[1] =
-{
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Extent",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "To nearest", "To pick", "All", nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchModify03[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Distance",
-            0.01f, 5000.0f, 20.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamSnap",
-            "Extend to boundary",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchModify04[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Distance",
-            -500.0f, 500.0f, 5.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Corners",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Arc", "Extend", "Chamfer", nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamClosed",
-            "Both sides",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchReference00[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamMirror",
-            "Keep source",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::AxisChoice,
-            "ParamAxis",
-            "Mirror line",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchReference01[1] =
-{
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamConstruction",
-            "Construction geometry",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersSketchReference02[2] =
-{
-        {
-            Frontier::ToolParameterCategory::Segmented,
-            "ParamMode",
-            "Result",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { "Reference", "Editable", nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::Toggle,
-            "ParamLink",
-            "Track source geometry",
-            0.0f, 0.0f, 1.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            true,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-};
-
 const Frontier::ToolParameterDescriptor ParametersSweep00[4] =
 {
         {
@@ -2028,43 +2069,6 @@ const Frontier::ToolParameterDescriptor ParametersCurve00[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
-            "ParamDistance",
-            "Length",
-            0.1f, 5000.0f, 100.0f, "mm",
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::AxisChoice,
-            "ParamDirection",
-            "Direction",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { false, false, false, false, false, false },
-        },
-        {
-            Frontier::ToolParameterCategory::SnapTargets,
-            "ParamSnap",
-            "Snap to",
-            0.0f, 0.0f, 0.0f, nullptr,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }, 0,
-            false,
-            { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
-            { "Grid", "Endpoint", nullptr, nullptr, nullptr, nullptr },
-            { true, true, false, false, false, false },
-        },
-};
-
-const Frontier::ToolParameterDescriptor ParametersCurve01[3] =
-{
-        {
-            Frontier::ToolParameterCategory::Slider,
             "ParamRadius",
             "Radius",
             0.1f, 2500.0f, 50.0f, "mm",
@@ -2098,7 +2102,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve01[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve02[3] =
+const Frontier::ToolParameterDescriptor ParametersCurve01[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2135,7 +2139,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve02[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve03[3] =
+const Frontier::ToolParameterDescriptor ParametersCurve02[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2172,7 +2176,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve03[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve04[4] =
+const Frontier::ToolParameterDescriptor ParametersCurve03[4] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2220,7 +2224,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve04[4] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve05[3] =
+const Frontier::ToolParameterDescriptor ParametersCurve04[3] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2257,7 +2261,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve05[3] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve06[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve05[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2283,7 +2287,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve06[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve07[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve06[2] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -2309,7 +2313,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve07[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve08[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve07[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2335,7 +2339,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve08[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve09[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve08[2] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -2361,7 +2365,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve09[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve10[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve09[2] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -2387,7 +2391,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve10[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve11[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve10[2] =
 {
         {
             Frontier::ToolParameterCategory::Segmented,
@@ -2413,7 +2417,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve11[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve12[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve11[2] =
 {
         {
             Frontier::ToolParameterCategory::Slider,
@@ -2439,7 +2443,7 @@ const Frontier::ToolParameterDescriptor ParametersCurve12[2] =
         },
 };
 
-const Frontier::ToolParameterDescriptor ParametersCurve13[2] =
+const Frontier::ToolParameterDescriptor ParametersCurve12[2] =
 {
         {
             Frontier::ToolParameterCategory::Toggle,
@@ -4391,6 +4395,44 @@ const Frontier::ToolParameterDescriptor ParametersAnnotation07[2] =
 // Field order: GlyphName, Label, Accelerator, DimensionMask, AcceptsAnyGeometry, NeedMask, MinimumCount, MinimumProfile,
 //   MinimumSolid, ExactSolid, MinimumCircle, BoundaryPresent, BoundaryFloor, BoundaryCeiling, RaisesDimension, Parameters, ParameterCount.
 
+const ConstructionOperation OperationsSketchDraw[15] =
+{
+    { "SketchLine", "Line", "L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw00, 4 },
+    { "SketchPolyline", "Polyline", "⇧L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw01, 3 },
+    { "SketchRectangle", "Rectangle", "R", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw02, 4 },
+    { "SketchCentreRect", "Centre Rect.", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw03, 3 },
+    { "SketchSlot", "Slot", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw04, 3 },
+    { "SketchCircle", "Circle", "C", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw05, 3 },
+    { "SketchArc", "Arc", "A", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw06, 3 },
+    { "SketchEllipse", "Ellipse", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw07, 3 },
+    { "SketchPolygon", "Polygon", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw08, 3 },
+    { "SketchSpline", "Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw09, 3 },
+    { "SketchBezier", "Bézier", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw10, 2 },
+    { "SketchBSpline", "B-Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw11, 3 },
+    { "SketchNurbs", "NURBS", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw12, 3 },
+    { "SketchConic", "Conic", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw13, 2 },
+    { "SketchPoint", "Point", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw14, 2 },
+};
+
+const ConstructionOperation OperationsSketchModify[8] =
+{
+    { "SketchFillet", "Fillet", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify00, 2 },
+    { "SketchChamfer", "Chamfer", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify01, 2 },
+    { "SketchTrim", "Trim", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify02, 1 },
+    { "SketchExtend", "Extend", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify03, 2 },
+    { "SketchOffset", "Offset", nullptr, 0x1Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify04, 3 },
+    { "SketchCut", "Cut", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify05, 1 },
+    { "SketchJoin", "Join", nullptr, 0x0Cu, false, 0x0001u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify06, 2 },
+    { "SketchRemove", "Remove", nullptr, 0x1Eu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, nullptr, 0 },
+};
+
+const ConstructionOperation OperationsSketchReference[3] =
+{
+    { "SketchMirrorLine", "Mirror", nullptr, 0x1Cu, false, 0x0009u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference00, 2 },
+    { "SketchConstruction", "To Construction", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference01, 1 },
+    { "SketchProject", "Project Edges", nullptr, 0x7Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference02, 2 },
+};
+
 const ConstructionOperation OperationsPrimitive[18] =
 {
     { "SolidBox", "Box", "⇧B", 0x7Fu, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersPrimitive00, 6 },
@@ -4413,41 +4455,6 @@ const ConstructionOperation OperationsPrimitive[18] =
     { "SolidThicken", "Thicken Shell", nullptr, 0x30u, false, 0x0080u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersPrimitive17, 3 },
 };
 
-const ConstructionOperation OperationsSketchDraw[15] =
-{
-    { "SketchLine", "Line", "L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw00, 4 },
-    { "SketchPolyline", "Polyline", "⇧L", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw01, 3 },
-    { "SketchRectangle", "Rectangle", "R", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw02, 4 },
-    { "SketchCentreRect", "Centre Rect.", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw03, 3 },
-    { "SketchSlot", "Slot", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw04, 3 },
-    { "SketchCircle", "Circle", "C", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw05, 3 },
-    { "SketchArc", "Arc", "A", 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw06, 3 },
-    { "SketchEllipse", "Ellipse", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw07, 3 },
-    { "SketchPolygon", "Polygon", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw08, 3 },
-    { "SketchSpline", "Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw09, 3 },
-    { "SketchBezier", "Bézier", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw10, 2 },
-    { "SketchBSpline", "B-Spline", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw11, 3 },
-    { "SketchNurbs", "NURBS", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw12, 3 },
-    { "SketchConic", "Conic", nullptr, 0x7Fu, false, 0x0001u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw13, 2 },
-    { "SketchPoint", "Point", nullptr, 0x7Fu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchDraw14, 2 },
-};
-
-const ConstructionOperation OperationsSketchModify[5] =
-{
-    { "SketchFillet", "Fillet", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify00, 2 },
-    { "SketchChamfer", "Chamfer", nullptr, 0x7Eu, true, 0x0101u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify01, 2 },
-    { "SketchTrim", "Trim", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify02, 1 },
-    { "SketchExtend", "Extend", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify03, 2 },
-    { "SketchOffset", "Offset", nullptr, 0x1Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchModify04, 3 },
-};
-
-const ConstructionOperation OperationsSketchReference[3] =
-{
-    { "SketchMirrorLine", "Mirror", nullptr, 0x1Cu, false, 0x0009u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference00, 2 },
-    { "SketchConstruction", "To Construction", nullptr, 0x0Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference01, 1 },
-    { "SketchProject", "Project Edges", nullptr, 0x7Cu, false, 0x0001u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersSketchReference02, 2 },
-};
-
 const ConstructionOperation OperationsSweep[12] =
 {
     { "SweepPrism", "Extrude", "E", 0x7Eu, true, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, true, ParametersSweep00, 4 },
@@ -4464,22 +4471,21 @@ const ConstructionOperation OperationsSweep[12] =
     { "SweepPocket", "Pocket", nullptr, 0x7Eu, true, 0x0080u, 0, 0, 1, 0, 0, false, 0, 0, false, ParametersSweep11, 3 },
 };
 
-const ConstructionOperation OperationsCurve[14] =
+const ConstructionOperation OperationsCurve[13] =
 {
-    { "CurveLine3d", "Line 3D", nullptr, 0x7Fu, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve00, 3 },
-    { "CurveArcTangent", "Tangent Arc", nullptr, 0x0Cu, false, 0x0100u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve01, 3 },
-    { "CurveInterpolate", "Interpolate", nullptr, 0x7Eu, true, 0x0000u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve02, 3 },
-    { "CurveApproximate", "Approximate", nullptr, 0x7Eu, true, 0x0000u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve03, 3 },
-    { "CurveHelix", "Helix", nullptr, 0x7Fu, false, 0x0008u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve04, 4 },
-    { "CurveSpiral", "Spiral", nullptr, 0x7Fu, false, 0x0008u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve05, 3 },
-    { "CurveIntersect", "Intersection", nullptr, 0x7Eu, true, 0x0000u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve06, 2 },
-    { "CurveProject", "Project Curve", nullptr, 0x0Cu, false, 0x0080u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve07, 2 },
-    { "CurveOffset", "Offset Curve", nullptr, 0x0Cu, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve08, 2 },
-    { "CurveBlend", "Blend Curve", nullptr, 0x0Cu, false, 0x0100u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve09, 2 },
-    { "CurveIsoparam", "Isoparametric", nullptr, 0x30u, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve10, 2 },
-    { "CurveEdgeExtract", "Extract Edges", nullptr, 0x70u, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve11, 2 },
-    { "CurveSection", "Section Curve", nullptr, 0x70u, false, 0x0400u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve12, 2 },
-    { "CurveBoundary", "Boundary", nullptr, 0x30u, false, 0x0200u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve13, 2 },
+    { "CurveArcTangent", "Tangent Arc", nullptr, 0x0Cu, false, 0x0100u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve00, 3 },
+    { "CurveInterpolate", "Interpolate", nullptr, 0x7Eu, true, 0x0000u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve01, 3 },
+    { "CurveApproximate", "Approximate", nullptr, 0x7Eu, true, 0x0000u, 3, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve02, 3 },
+    { "CurveHelix", "Helix", nullptr, 0x7Fu, false, 0x0008u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve03, 4 },
+    { "CurveSpiral", "Spiral", nullptr, 0x7Fu, false, 0x0008u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve04, 3 },
+    { "CurveIntersect", "Intersection", nullptr, 0x7Eu, true, 0x0000u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve05, 2 },
+    { "CurveProject", "Project Curve", nullptr, 0x0Cu, false, 0x0080u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve06, 2 },
+    { "CurveOffset", "Offset Curve", nullptr, 0x0Cu, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve07, 2 },
+    { "CurveBlend", "Blend Curve", nullptr, 0x0Cu, false, 0x0100u, 2, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve08, 2 },
+    { "CurveIsoparam", "Isoparametric", nullptr, 0x30u, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve09, 2 },
+    { "CurveEdgeExtract", "Extract Edges", nullptr, 0x70u, false, 0x0000u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve10, 2 },
+    { "CurveSection", "Section Curve", nullptr, 0x70u, false, 0x0400u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve11, 2 },
+    { "CurveBoundary", "Boundary", nullptr, 0x30u, false, 0x0200u, 0, 0, 0, 0, 0, false, 0, 0, false, ParametersCurve12, 2 },
 };
 
 const ConstructionOperation OperationsSurface[11] =
@@ -4578,12 +4584,12 @@ const ConstructionOperation OperationsAnnotation[8] =
 
 const ConstructionBand ConstructionBands[] =
 {
-    { "Solid Primitive", "SolidBox", OperationsPrimitive, 18 },
     { "Sketch Draw", "SketchLine", OperationsSketchDraw, 15 },
-    { "Sketch Modify", "SketchFillet", OperationsSketchModify, 5 },
+    { "Sketch Modify", "SketchFillet", OperationsSketchModify, 8 },
     { "Sketch Reference", "SketchMirrorLine", OperationsSketchReference, 3 },
+    { "Solid Primitive", "SolidBox", OperationsPrimitive, 18 },
     { "Profile Sweep", "SweepPrism", OperationsSweep, 12 },
-    { "Curve", "CurveLine3d", OperationsCurve, 14 },
+    { "3D Curves", "CurveInterpolate", OperationsCurve, 13 },
     { "Surface", "SurfacePlanar", OperationsSurface, 11 },
     { "Boolean", "BooleanUnion", OperationsBoolean, 9 },
     { "Pattern", "PatternLinear", OperationsPattern, 10 },

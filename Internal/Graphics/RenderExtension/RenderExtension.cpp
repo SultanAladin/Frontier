@@ -26,6 +26,7 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>   // getenv / strtol — the census auto-arm (FRONTIER_SURFEL_CENSUS)
 
 namespace Frontier
 {
@@ -1173,6 +1174,11 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                         RetrieveGeometryStreamPlacement(Extension.SceneStreams, Extension.FloorMeshOrdinal);
 
                     UploadVisibilityScene(Extension.FloorRaster, FloorInstances);
+
+                    // Retain the floor's transform for the surfel micro-raster's floor dispatch (it pushes the matrix rather than binding this
+                    // buffer — see RenderExtension.h). FloorInstances is a local that dies with this block, so copy it now or lose it.
+                    if (!FloorInstances.empty())
+                        std::memcpy(Extension.FloorInstanceModel, FloorInstances[0].Model, sizeof(Extension.FloorInstanceModel));
                     ISSUE_NOTICE("render-extension", "checkered floor merged: %u instances, %u triangles at vertex %u / index %u",
                                  (unsigned)FloorInstances.size(), (unsigned)(FloorPlacement.IndexCount / 3),
                                  (unsigned)FloorPlacement.VertexOffset, (unsigned)FloorPlacement.IndexOffset);
@@ -1258,6 +1264,37 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                             SurfelSpawnMaxTileCount, FRONTIER_SURFEL_SHADER_DIR);
         InitializeSurfelDebugInscription(Extension.SurfelDebug, Extension.Substrate.Host, SceneColourFormat, FRONTIER_SURFEL_SHADER_DIR);
 
+        // 🩺 The census counters buffer must exist BEFORE the Refresh below: Age/Allocate declare pool-set binding 9 unconditionally, and there is no
+        //    safe alias for it (every pool atomic is a single int — see SurfelCensusTrace.h), so a missing buffer leaves a declared binding undefined.
+        InitializeSurfelCensusTrace(Extension.SurfelCensus, Extension.Substrate.Host);
+
+        // 🩺 FRONTIER_SURFEL_CENSUS=1 auto-arms the census at startup, so the trace can be taken WITHOUT a hand on the K key. This is not a
+        //    convenience: the census answers a question about the first few hundred frames of pool life (does the population churn, and what kills
+        //    it), and by the time a human has alt-tabbed in and pressed K that window is already gone. Interactive runs are untouched — the variable
+        //    is absent, this is inert, and K still toggles.
+
+        // 🩺 FRONTIER_SURFEL_CENSUS=1 auto-arms the census at startup, so the trace can be taken WITHOUT a hand on the K key. This is not a
+        //    convenience: the census answers a question about the first few hundred frames of pool life (does the population churn, and what kills
+        //    it), and by the time a human has alt-tabbed in and pressed K that window is already gone. Interactive runs are untouched — the variable
+        //    is absent, this is inert, and K still toggles.
+        if (const char* CensusAutoArm = std::getenv("FRONTIER_SURFEL_CENSUS"))
+        {
+            const SurfelCensusRunLabel RunLabel = ComposeSurfelCensusRunLabel(Extension.SurfelTuning);
+
+            if (CensusAutoArm[0] == '1' && BeginSurfelCensusRecording(Extension.SurfelCensus, "SurfelDumps", &RunLabel))
+            {
+                Extension.SurfelCensusAutoFrames = 600u;   // past TTL=500 so an initial cohort can die of old age inside the window
+                if (const char* CensusFrameCount = std::getenv("FRONTIER_SURFEL_CENSUS_FRAMES"))
+                {
+                    const long Requested = std::strtol(CensusFrameCount, nullptr, 10);
+                    if (Requested > 0)
+                        Extension.SurfelCensusAutoFrames = (uint32_t)Requested;
+                }
+                printf("[surfel] census auto-armed for %u frames\n", Extension.SurfelCensusAutoFrames);
+                fflush(stdout);
+            }
+        }
+
         // Point the debug splat at the pool + grid buffers (idempotent; safe every frame later). The lifecycle's spawn set binds the visibility
         // image + the merged mesh buffers exactly as the shade does — heads always, floor when its run is genuinely resident (FloorGeometryBound),
         // else VK_NULL_HANDLE so the three floor bindings alias onto the heads and FloorShadeEnabled stays 0 in the spawn constants below.
@@ -1274,7 +1311,8 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                                              Extension.VisibilityRaster.InstanceBuffer,
                                              FloorResident ? Extension.SceneGeometry.VertexBuffer   : VK_NULL_HANDLE,
                                              FloorResident ? Extension.SceneGeometry.IndexBuffer    : VK_NULL_HANDLE,
-                                             FloorResident ? Extension.FloorRaster.InstanceBuffer   : VK_NULL_HANDLE);
+                                             FloorResident ? Extension.FloorRaster.InstanceBuffer   : VK_NULL_HANDLE,
+                                             Extension.SurfelCensus.CountersBuffer);
         }
 
         // -- Phase 3: point the SHADE's surfel set (set 1) at the SAME seven buffers the integrate writes, so the deferred gather reads the live cache.
@@ -1509,6 +1547,32 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                              Millis[RenderExtension::SurfelPassSlotIntegrate],
                              Millis[RenderExtension::SurfelPassSlotShade],
                              Millis[RenderExtension::SurfelPassSlotDebugSplat]);
+            }
+
+            // 🩺 Hand the just-collected GPU millis to the census so they land on the SAME CSV row as this frame's population counts.
+            // 🔴 THIS MUST SIT BETWEEN THE TWO COLLECTS, AND THAT IS THE WHOLE REASON THE MS COLUMNS MEAN ANYTHING. Both facilities run a 3-deep ring
+            //    and both read the slot trailing the one being recorded, so ResolvedMillis and the census row describe the same frame ONLY at this
+            //    point — after CollectGpuTimestampResults filled it, before CollectSurfelCensusRow consumes it. Move this above the timing collect and
+            //    every ms column lags its counts by a frame; move it below the census collect and it lags by a frame the other way. Neither shows up
+            //    as an error, and at steady state neither even looks wrong.
+            SupplySurfelCensusTimings(Extension.SurfelCensus, Extension.PassTiming.ResolvedMillis,
+                                      RenderExtension::SurfelPassSlotCount);
+
+            // 🩺 Census frame boundary, mirroring the timing collect directly above and for the identical reason: read the ring slot that TRAILS this
+            //    frame's, so the row is one frame late but the CPU never waits on the GPU. Appends one CSV row per frame while recording; a no-op otherwise.
+            CollectSurfelCensusRow(Extension.SurfelCensus);
+
+            // 🩺 Auto-armed traces close themselves after FRONTIER_SURFEL_CENSUS_FRAMES rows (default 600 — past TTL=500, so a cohort seeded at frame
+            //    zero has had time to die of old age and show up in diedTtl) and then request exit. Closing here rather than at process teardown is
+            //    what makes the CSV trustworthy: the file is fclosed on a row boundary instead of being truncated mid-write by a kill.
+            if (Extension.SurfelCensus.Recording && Extension.SurfelCensusAutoFrames > 0
+                && Extension.SurfelCensus.RowsWritten >= Extension.SurfelCensusAutoFrames)
+            {
+                const std::string ClosedPath = Extension.SurfelCensus.OutputPath;
+                const uint32_t    Rows       = EndSurfelCensusRecording(Extension.SurfelCensus);
+                printf("[surfel] census complete — %u frames -> %s\n", Rows, ClosedPath.c_str());
+                fflush(stdout);
+                Extension.Substrate.Window.CloseRequested = true;
             }
 
             // 🔴 Per-cell cap commit (F10 Apply). Consumed at the TOP of the preamble, before any surfel dispatch this frame, so the spawn gate + the
@@ -1943,6 +2007,10 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             {
                 RecordSurfelLifecyclePrepare(Extension.SurfelLifecycle, Extension.SurfelPoolResource, CommandBuffer);
 
+                // 🩺 Zero the census tallies BEFORE any pass that counts into them. Spawn/Allocate (births) and Age (deaths) both atomicAdd here, so a
+                //    missed clear turns every CSV row into a running total instead of a per-frame flow — and a running total still looks like data.
+                BeginSurfelCensusFrame(Extension.SurfelCensus, CommandBuffer);
+
                 SurfelSlottingConstants SlottingConstants;
                 AssembleSurfelSlottingConstants(Extension.ViewCamera, Extension.SurfelTuning, SlottingConstants);
                 BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSlotting);
@@ -1955,6 +2023,10 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                                              ? VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height } : Extent,
                                              Extension.SurfelFrameIndex, FloorResident, FloorDrawPlacement.IndexOffset,
                                              Extension.SurfelSpawnDensityScale, Extension.SurfelTuning, SpawnConstants);
+                // The SCREEN-TILE spawn election is the one spawn front-end: <=1 probe per 8x8 pixel tile, reconstructed from the visibility buffer. A
+                // surface micro-raster arm (one claim per grid cell, so density followed world area rather than the projection) was built alongside this
+                // as an A/B and REMOVED — it never placed better than the election it was meant to beat, and it carried a whole parallel spawn path
+                // (claim ledger, request list, indirect commit) to do it.
                 BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSpawn);
                 RecordSurfelLifecycleSpawn(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SpawnConstants,
                                            VkExtent2D{ Extension.VisibilityTarget.Width, Extension.VisibilityTarget.Height }, CommandBuffer);
@@ -1963,8 +2035,14 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 // Age reads the touched income mailbox + hashes each surfel's cell for the crowding rent, so it needs THIS frame's grid origin — the
                 // same camera-relative eye position the slotting/spawn used above (SlottingConstants.GridOrigin), keeping host and shader on one lattice.
                 BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotAge);
-                RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SlottingConstants.GridOrigin, CommandBuffer);
+                RecordSurfelLifecycleAge(Extension.SurfelLifecycle, Extension.SurfelPoolResource, SlottingConstants.GridOrigin,
+                                         SpawnConstants, CommandBuffer);
                 EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotAge);
+
+                // 🩺 Snapshot the census into this frame's ring slot. HERE, after Age, because Age is the LAST pass that tallies (Allocate — the birth
+                //    side — runs inside RecordSurfelLifecycleSpawn as its stage 2, so it is already complete). Records copies only; the host reads the
+                //    trailing ring slot next frame, so nothing here waits on the GPU.
+                RecordSurfelCensusCopy(Extension.SurfelCensus, Extension.SurfelPoolResource, CommandBuffer, Extension.SurfelFrameIndex);
 
                 // ── Phase 2: the per-surfel INTEGRATE (trace + MSME). Runs AFTER Age (so this frame's ages are settled) and AFTER the #26 TLAS chain (it
                 //    walks the tree the refit just wrote — B2 above already fenced the tree node buffer). B1 fences slotting's grid + the pool/moments-read
@@ -2458,6 +2536,38 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
             }
             Extension.SurfelDumpKeyLatch = SurfelDumpKeyDown;
 
+            // K — TOGGLE the per-frame population census (SurfelCensusTrace.h). Deliberately a separate key and a separate CSV from L above: L is a
+            // deep SNAPSHOT of one instant (every live surfel, for the viewer), this is a shallow TIME SERIES of births/deaths across many frames,
+            // and only the series can show CHURN — a pool spawning and killing 2000 a frame looks identical to a settled one in any snapshot. Press
+            // once to open surfel-census-NNNN.csv under the same SurfelDumps/ folder and start appending a row per frame, press again to close it.
+            // Unlike the L dump this needs NO deferred request: recording is a flag the frame's own command recording reads, and the readback is
+            // non-blocking (one frame late), so the toggle can take effect here and now.
+            const bool SurfelCensusKeyDown = PacketKeyHeld(Extension.Substrate.Window.Input, KeyIdentity::K);
+            if (SurfelCensusKeyDown && !Extension.SurfelCensusKeyLatch)
+            {
+                if (!Extension.SurfelCensus.ReadyCondition)
+                    printf("[surfel] census unavailable — the trace buffers did not build\n");
+                else if (Extension.SurfelCensus.Recording)
+                {
+                    const std::string ClosedPath = Extension.SurfelCensus.OutputPath;
+                    const uint32_t    Rows       = EndSurfelCensusRecording(Extension.SurfelCensus);
+                    printf("[surfel] census stopped — %u frames -> %s\n", Rows, ClosedPath.c_str());
+                }
+                else
+                {
+                    // Label from the LIVE tuning state, not from startup defaults: an interactive trace is normally taken right after flipping the F10
+                    // toggles, so the whole point is to record what they are set to at the moment K is pressed.
+                    const SurfelCensusRunLabel RunLabel = ComposeSurfelCensusRunLabel(Extension.SurfelTuning);
+
+                    if (BeginSurfelCensusRecording(Extension.SurfelCensus, "SurfelDumps", &RunLabel))
+                        printf("[surfel] census recording -> %s\n", Extension.SurfelCensus.OutputPath.c_str());
+                    else
+                        printf("[surfel] census could not open its CSV\n");
+                }
+                fflush(stdout);
+            }
+            Extension.SurfelCensusKeyLatch = SurfelCensusKeyDown;
+
             // Numpad + / - drive the live spawn-density multiplier: it scales the spawn-request throttle in SurfelSpawnRequest.comp, so more (or
             // fewer) surfels seed per frame from the same visibility pixels. Denser coverage is the direct lever on the "no surfel -> no GI"
             // clumpiness of screen-space spawn. Multiplicative steps, clamped to a sane band; edge-latched so one press is one step.
@@ -2853,6 +2963,9 @@ void FinalizeRenderExtension(RenderExtension& Extension)
     FinalizeSurfelLifecycleSubmission(Extension.SurfelLifecycle);
     FinalizeSurfelGridSlotting(Extension.SurfelSlotting);
     FinalizeSurfelPool(Extension.SurfelPoolResource);
+    // 🩺 Census last of the surfel chain: its counters buffer is BOUND into the lifecycle's pool set (binding 9), so it outlives the set that points at
+    // it. Also closes any CSV still open because the process exited mid-recording (the K toggle never got its second press).
+    FinalizeSurfelCensusTrace(Extension.SurfelCensus);
     // TLAS teardown, reverse of init (tree -> sort -> bounds), and BEFORE the arena release below because the binds borrowed the arena's buffers.
     // All safe on never-initialized state; device already idle at the top of this function.
     FinalizeInstanceTreeSubmission(Extension.TlasTree);

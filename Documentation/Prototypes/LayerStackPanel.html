@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<!--==============================================================================================================================================
+                                                            LAYERSTACKPANEL.HTML
+==============================================================================================================================================-->
+<!-- 🧩 An editable HTML mirror of what Binaries\Validation\LayerStackValidation.exe draws today, so the layout can be fixed HERE and then ported
+        back to Executables\Validation\LayerStackValidation\LayerStackPanel.cpp.
+
+     🔴 THIS IS A TRANSCRIPTION, NOT A REDESIGN. Every number below is lifted from the C++ so the two can be diffed mechanically. The palette is
+        ColorPaletteDescriptor.cpp; the geometry is the constant block at LayerStackPanel.cpp:44-55; the six-layer pose is
+        InitializeLayerStackSample (LayerRecordTable.cpp:198). Where the C++ and the source prototype disagree, the C++ wins here — the point is
+        to see the CURRENT state in a medium you can edit.
+
+     📝 Toggle the OUTLINE switch in the head to stroke every box, which is how the "reads as two stacked panels" fault is spotted.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Frontier — Layer Stack Panel (transcription)</title>
+<style>
+/*----------------------------------------------------------------------------------------------------------------------
+                                                    THEME TOKENS
+  Straight from Internal/EngineContext/Interface/Theme/ColorPaletteDescriptor.cpp — no translation.
+----------------------------------------------------------------------------------------------------------------------*/
+:root{
+    --desk:            #000000;   /* DeskBackground    */
+    --panel:           #0e0e0e;   /* PanelBackground   */
+    --panel-header:    #0e0e0e;   /* PanelHeader       */
+    --border:          #1c1c1c;   /* PanelBorder       */
+    --control:         #141414;   /* ControlBackground */
+    --control-hover:   #1a1a1a;   /* ControlHovered    */
+    --control-active:  #1f1f1f;   /* ControlActive     */
+    --accent:          #e8e8e8;   /* AccentPrimary     */
+    --accent-soft:     rgba(255,255,255,.122);
+    --marker:          #4a90e2;   /* SelectionMarker   */
+    --text:            #ededed;   /* TextPrimary       */
+    --text-dim:        #8a8a8a;   /* TextMuted         */
+    --on-accent:       #111111;   /* TextOnAccent      */
+    --track:           #141414;   /* SliderTrack       */
+    --fill:            #5a5a5a;   /* SliderFill        */
+    --knob:            #ffffff;   /* SliderKnob        */
+    --danger:          #e05a5a;   /* the ONE hardcoded literal in the C++ (mask delete hover) */
+
+    /* Geometry — LayerStackPanel.cpp:44-55 */
+    --row-h:      44px;
+    --row-gap:     2px;
+    --tag-w:       4px;
+    --tag-h:      28px;
+    --thumb:      30px;
+    --pill-w:     41px;
+    --eye:        20px;
+    --caret:      18px;
+    --spine:       3px;
+    --add-h:      30px;
+    --filter-h:   30px;
+    --mask-tool:  24px;
+    --head-h:     44px;
+    --foot-h:     26px;
+}
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; height:100%; }
+body{
+    background:var(--desk);
+    color:var(--text);
+    font:13px/1.35 "Segoe UI", system-ui, sans-serif;
+    display:flex; align-items:flex-start; gap:26px; padding:26px;
+}
+
+/* The rail is measured at the host's window width: PlatformWindow 420px wide (LayerStackValidationHost.cpp:55). */
+.rail{ width:420px; background:var(--panel); border:1px solid var(--border); position:relative; }
+
+/* -- micro-animation: the fold, the caret, every tone change ---------------------------------------------------------- */
+@keyframes Unfold{ from{ opacity:0; transform:translateY(-3px); } to{ opacity:1; transform:none; } }
+
+/* -- outline mode: stroke every box so seams and double-boxes are visible ------------------------------------------- */
+body.outline .rail *{ outline:1px solid rgba(255,80,80,.45); outline-offset:-1px; }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     PANE HEAD
+  ConstructLayerStackPanel, the 44px header: "Layers" over the surface name, tally hard right.
+----------------------------------------------------------------------------------------------------------------------*/
+.pane-head{
+    height:var(--head-h); background:var(--panel-header); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; padding:0 14px 0 12px;
+}
+.pane-head .t{ flex:1; }
+.pane-head .t b{ display:block; font-weight:500; font-size:13px; line-height:1.15; }
+.pane-head .t span{ display:block; font-size:11px; color:var(--text-dim); line-height:1.25; }
+.pane-head .tally{ font-size:13px; color:var(--text-dim); }
+
+/* The body carries the 7px indent the C++ applies with ImGui::Indent(7.0f). */
+.pane-body{ padding:6px 7px 0 7px; }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                  ADD + FILTER
+  InscribeAddAffordance (dashed-looking button, squares its bottom while the list is open) + InscribeFilterField.
+----------------------------------------------------------------------------------------------------------------------*/
+.add{
+    height:var(--add-h); width:100%; border-radius:9px; background:var(--panel-header);
+    border:1px solid var(--border); color:var(--text-dim);
+    display:flex; align-items:center; justify-content:center; gap:7px; cursor:pointer; font-size:13px;
+}
+.add:hover{ background:var(--control-hover); border-color:var(--control-active); color:var(--text); }
+.add.open{ border-bottom-left-radius:0; border-bottom-right-radius:0; border-bottom-color:transparent; }
+.add.capped{ color:rgba(138,138,138,.35); cursor:default; background:var(--panel-header); border-color:var(--border); }
+.add .plus{ width:9px; height:9px; position:relative; }
+.add .plus::before,.add .plus::after{ content:""; position:absolute; background:currentColor; }
+.add .plus::before{ left:50%; top:0; width:1.5px; height:100%; transform:translateX(-50%); }
+.add .plus::after{ top:50%; left:0; height:1.5px; width:100%; transform:translateY(-50%); }
+
+/* the kind list, flush beneath the button — one card, no seam */
+.kind-list{
+    border:1px solid var(--border); border-top:none; border-radius:0 0 9px 9px;
+    background:var(--panel-header); overflow:hidden;
+}
+.kind-list[hidden]{ display:none; }
+.kind{ display:flex; align-items:center; gap:10px; height:26px; padding:0 10px; cursor:pointer; }
+.kind:hover{ background:var(--control-hover); }
+.kind .sw{ width:9px; height:9px; border-radius:2px; flex:none; }
+.kind .lb{ font-size:12px; }
+.kind .sm{ margin-left:auto; font-size:11px; color:var(--text-dim); }
+
+.filter{
+    margin-top:5px; height:var(--filter-h); border-radius:9px; background:var(--panel-header);
+    border:1px solid var(--border); display:flex; align-items:center; gap:8px; padding:0 10px 0 8px;
+}
+.filter:focus-within{ border-color:var(--control-active); }
+.filter svg{ flex:none; opacity:.8; }
+.filter input{
+    flex:1; background:none; border:none; outline:none; color:var(--text); font:inherit; font-size:12.5px;
+}
+.filter input::placeholder{ color:rgba(138,138,138,.55); }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                   STACK ROWS
+  🔴 InscribeStackRow + InscribeInlineExpand are ONE CARD when open: the row owns top/left/right and DROPS its bottom
+     edge; the expand continues left/right and closes the bottom. .card is that wrapper — the border lives HERE, not on
+     the row and the body separately, which is exactly the two-boxes fault LayerInspector.css:186 names.
+----------------------------------------------------------------------------------------------------------------------*/
+.stack{ margin-top:4px; }
+
+/* Each entry is BUBBLE | TIMELINE | CARD, so the tag hue reads as an identity chip on a continuous track. */
+.entry{ display:flex; position:relative; }
+
+.entry .bubble{ width:34px; flex:none; padding-top:7px; }
+.entry .bubble .b{
+    width:26px; height:26px; border-radius:50%; display:grid; place-items:center;
+    font-size:11px; font-weight:600; letter-spacing:-.02em;
+    transition:background-color .25s, color .25s;
+}
+
+/* the continuous track: the segment is full-height, capped on the first and last entry */
+.entry .track-col{ width:16px; flex:none; display:flex; justify-content:center; position:relative; }
+.entry .track-col .seg-line{ position:absolute; width:7px; top:0; bottom:0; transition:background-color .25s; }
+.entry:first-child .track-col .seg-line{ top:20px; border-radius:4px 4px 0 0; }
+.entry:last-child  .track-col .seg-line{ bottom:auto; height:20px; border-radius:0 0 4px 4px; }
+.entry .track-col .knot{
+    position:absolute; top:20px; width:7px; height:7px; border-radius:50%; background:var(--knob);
+    box-shadow:0 0 0 3px var(--panel); transform:translateY(-50%);
+}
+
+.entry .card-col{ flex:1; min-width:0; padding:0 0 var(--row-gap) 8px; }
+
+.card{ position:relative; border:1px solid transparent; border-radius:12px; overflow:hidden;
+       transition:background-color .2s, border-color .2s; }
+.card.open{ border-color:var(--border); background:var(--panel-header); }
+.card.open.focus{ background:var(--control-active); }
+
+/* the focus spine, hard against the rail's left edge (the C++ draws it at TopLeft.x - 6) */
+.card.focus::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:var(--spine);
+    background:var(--accent); border-radius:2px; z-index:2;
+}
+
+.row{ height:var(--row-h); display:flex; align-items:center; gap:7px; padding:0 8px 0 8px; cursor:pointer; position:relative; }
+.card:not(.open) .row:hover{ background:var(--control-hover); }
+.card:not(.open).focus{ background:var(--control-active); border-color:var(--border); }
+.row.muted .thumb,.row.muted .txt{ opacity:.42; }
+
+.row .tag{ width:var(--tag-w); height:var(--tag-h); border-radius:2px; flex:none; }
+.row .thumb{
+    width:var(--thumb); height:var(--thumb); border-radius:8px; background:#000;
+    border:1px solid var(--border); position:relative; flex:none;
+}
+.row .thumb .ink{ position:absolute; inset:0; margin:auto; width:15px; height:15px; border-radius:3px; }
+.row .thumb .kind{ position:absolute; right:3px; top:3px; width:6px; height:6px; border-radius:50%; }
+
+.row .txt{ flex:1; min-width:0; }
+.row .txt b{ display:block; font-weight:400; font-size:13px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .txt span{ display:block; font-size:10.7px; color:var(--text-dim); line-height:1.25; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* the opacity pill is a horizontal SCRUB (cursor:ew-resize), not a click */
+.row .pill{
+    width:var(--pill-w); height:18px; border-radius:9px; background:#000; border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:11px; color:var(--text-dim);
+    cursor:ew-resize; flex:none; user-select:none;
+}
+.row .pill:hover{ border-color:var(--control-active); color:var(--text); }
+
+/* 🔴 Visibility is an EYE — open eye = shown, slashed eye = hidden. It is always on screen (it is the control, not a
+      hover affordance) and it is the ONLY visibility widget; the expand no longer repeats it as a Shown/Hidden pair. */
+.row .eye,.row .caret{
+    width:var(--eye); height:var(--eye); border-radius:6px; display:grid; place-items:center; flex:none; cursor:pointer;
+    color:var(--text-dim); transition:background-color .15s, color .15s;
+}
+.row .caret{ width:var(--caret); height:var(--caret); }
+.row .eye:hover{ background:var(--control-hover); color:var(--text); }
+.row .caret:hover{ background:var(--control-hover); }
+.row .eye svg,.row .caret svg{ display:block; }
+.row.muted .eye{ color:#48484a; }
+.row .caret svg{ transition:transform .25s ease; }
+.card.open .caret{ color:var(--text); }
+.card.open .caret svg{ transform:rotate(180deg); }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                  INLINE EXPAND
+  The card's lower half: Visible / Blend / Opacity / Paint / Tag, then the mask editor.
+----------------------------------------------------------------------------------------------------------------------*/
+.expand{ padding:5px 8px 8px 8px; animation:Unfold .2s ease; }
+
+/* BeginControlRow splits at LabelColumnRatio — the label column then the field. */
+.ctl{ display:flex; align-items:center; min-height:26px; gap:8px; }
+.ctl > .k{ width:38%; flex:none; font-size:12px; color:var(--text-dim); }
+.ctl > .v{ flex:1; min-width:0; }
+
+/* ConstructSelectionEntry — the segmented chip strip */
+.seg{ display:flex; gap:4px; }
+.seg button{
+    flex:1; height:22px; border-radius:8px; background:var(--control); border:1px solid var(--border);
+    color:var(--text-dim); font:inherit; font-size:11.5px; cursor:pointer; padding:0 6px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.seg button:hover{ background:var(--control-hover); color:var(--text); }
+.seg button.on{ background:var(--knob); border-color:var(--knob); color:var(--on-accent); }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     DROPDOWN
+  🔴 Blend mode is a DROPDOWN, not a chip strip: there are seven modes (BLEND_MODES, LayerStack.js:58) and a segmented
+     strip could only ever show the first four. The menu is absolutely positioned so opening it does not resize the card.
+----------------------------------------------------------------------------------------------------------------------*/
+.drop{ position:relative; }
+.drop .face{
+    height:24px; border-radius:8px; background:var(--control); border:1px solid var(--border);
+    display:flex; align-items:center; gap:6px; padding:0 8px; cursor:pointer; font-size:12px; color:var(--text);
+    transition:background-color .15s, border-color .15s;
+}
+.drop .face:hover{ background:var(--control-hover); border-color:var(--control-active); }
+.drop.open .face{ background:var(--control-active); border-color:var(--control-active); }
+.drop .face .lb{ flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.drop .face svg{ flex:none; color:var(--text-dim); transition:transform .2s ease; }
+.drop.open .face svg{ transform:rotate(180deg); }
+
+.drop .menu{
+    position:absolute; left:0; right:0; top:26px; z-index:5; padding:3px;
+    background:var(--panel-header); border:1px solid var(--control-active); border-radius:8px;
+    box-shadow:0 10px 26px rgba(0,0,0,.85); animation:Unfold .15s ease;
+}
+.drop .menu[hidden]{ display:none; }
+.drop .menu .opt{
+    height:22px; border-radius:6px; padding:0 7px; display:flex; align-items:center; gap:7px;
+    font-size:12px; color:var(--text-dim); cursor:pointer;
+}
+.drop .menu .opt:hover{ background:var(--control-hover); color:var(--text); }
+.drop .menu .opt.on{ color:var(--text); }
+.drop .menu .opt .tick{ width:8px; flex:none; color:var(--marker); font-size:10px; }
+
+/* ConstructValueSlider — black number pill + grey unit cap + grey track + white knob */
+.slider{ display:flex; align-items:center; gap:7px; }
+.slider .track{ flex:1; height:4px; border-radius:2px; background:var(--track); position:relative; cursor:ew-resize; }
+.slider .track .f{ position:absolute; left:0; top:0; bottom:0; border-radius:2px; background:var(--fill); }
+.slider .track .h{
+    position:absolute; top:50%; width:11px; height:11px; margin-left:-5.5px; border-radius:50%;
+    background:var(--knob); transform:translateY(-50%);
+}
+.slider .num{
+    display:flex; align-items:stretch; border-radius:9px; overflow:hidden; flex:none; height:18px; font-size:11px;
+}
+.slider .num .n{ background:#000; color:#fff; padding:0 7px; display:grid; place-items:center; min-width:30px; }
+.slider .num .u{ background:var(--control); color:var(--text-dim); padding:0 5px; display:grid; place-items:center; }
+
+/* ConstructColorEntry — a swatch plus its hex */
+.swatch{ display:flex; align-items:center; gap:8px; }
+.swatch .sw{ width:34px; height:18px; border-radius:5px; border:1px solid var(--border); flex:none; }
+.swatch .hex{ font-size:11px; color:var(--text-dim); font-family:ui-monospace, Consolas, monospace; }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                   MASK REGION
+----------------------------------------------------------------------------------------------------------------------*/
+.cap{ font-size:10.5px; letter-spacing:.08em; color:rgba(138,138,138,.75); margin:6px 0 4px; }
+
+.mask-head{ display:flex; align-items:center; gap:8px; height:34px; }
+.mask-head .tile{ width:30px; height:30px; border-radius:6px; border:1px solid var(--border); flex:none; }
+.mask-head .t{ flex:1; min-width:0; }
+.mask-head .t b{ display:block; font-weight:400; font-size:12.5px; line-height:1.2; }
+.mask-head .t span{ display:block; font-size:10.7px; color:var(--text-dim); }
+.mask-head .x{ width:18px; height:18px; display:grid; place-items:center; cursor:pointer; color:var(--text-dim); flex:none; }
+.mask-head .x:hover{ color:var(--danger); }
+
+.mask-tools{ display:flex; gap:4px; }
+.mask-tools button{
+    flex:1; height:var(--mask-tool); border-radius:6px; background:var(--panel-header);
+    border:1px solid var(--border); color:var(--text-dim); font:inherit; font-size:11.5px; cursor:pointer;
+}
+.mask-tools button:hover{ background:var(--control-hover); color:var(--text); }
+.mask-tools button.on{ background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+
+.comp{ display:flex; align-items:center; gap:10px; height:22px; border-radius:5px; padding:0 6px 0 5px; cursor:pointer; }
+.comp:hover{ background:var(--control-hover); }
+.comp .dot{ width:7px; height:7px; border-radius:50%; background:rgba(138,138,138,.4); flex:none; }
+.comp.on .dot{ background:var(--accent); }
+.comp .lb{ flex:1; font-size:12px; color:rgba(138,138,138,.6); }
+.comp.on .lb{ color:var(--text); }
+.comp .w{ font-size:11px; color:var(--text-dim); }
+
+.add-mask{
+    height:26px; border-radius:7px; background:var(--panel-header); border:1px solid var(--border);
+    color:var(--text-dim); display:flex; align-items:center; justify-content:center; gap:7px; cursor:pointer;
+    font-size:12px;
+}
+.add-mask:hover{ background:var(--control-hover); border-color:var(--control-active); color:var(--text); }
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                    FOOT TALLY
+----------------------------------------------------------------------------------------------------------------------*/
+.pane-foot{
+    height:var(--foot-h); border-top:1px solid var(--border); margin-top:4px;
+    display:flex; align-items:center; padding:0 12px; font-size:12px; color:var(--text-dim);
+}
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                    SIDE NOTES
+----------------------------------------------------------------------------------------------------------------------*/
+.notes{ width:430px; color:var(--text-dim); font-size:12.5px; line-height:1.6; }
+.notes h1{ font-size:14px; color:var(--text); margin:0 0 4px; font-weight:600; }
+.notes h2{ font-size:12px; color:var(--text); margin:16px 0 5px; font-weight:600; letter-spacing:.03em; }
+.notes code{ font-family:ui-monospace, Consolas, monospace; color:#c8c8c8; font-size:11.5px; }
+.notes ul{ margin:5px 0; padding-left:17px; }
+.notes li{ margin:3px 0; }
+.notes .sw{ display:inline-block; width:9px; height:9px; border-radius:2px; vertical-align:-1px; margin-right:3px; }
+.toggle{ display:flex; align-items:center; gap:8px; margin:12px 0 0; cursor:pointer; color:var(--text); font-size:12px; }
+.toggle input{ accent-color:var(--marker); }
+.notes .warn{ color:#d8a657; }
+</style>
+</head>
+<body>
+
+<div class="rail" id="rail"></div>
+
+<div class="notes">
+    <h1>Layer Stack — current C++ state, transcribed</h1>
+    This mirrors <code>LayerStackValidation.exe</code> as it draws <em>today</em>. Numbers come from
+    <code>LayerStackPanel.cpp:44-55</code>, colours from <code>ColorPaletteDescriptor.cpp</code>, the pose from
+    <code>InitializeLayerStackSample</code>. Edit this file to fix the layout, then the C++ follows.
+
+    <label class="toggle"><input type="checkbox" id="outline"> Outline every box (shows seams &amp; double-borders)</label>
+
+    <h2>What the C++ claims about the card</h2>
+    <ul>
+        <li>An <b>open row + its expand are ONE card</b>. The row is the head: it owns top/left/right and
+            <em>drops its bottom edge</em>; the expand closes the bottom.</li>
+        <li>An open head <b>stops recolouring on hover</b>, so the head can't light alone and split the card.</li>
+        <li>The opacity pill is a <b>drag</b> (<code>ew-resize</code>), not a click.</li>
+        <li>The caret toggles the fold <b>without</b> touching focus; clicking the row body focuses <em>and</em> opens.</li>
+    </ul>
+
+    <h2>Kind tints (LayerKinds.js)</h2>
+    <ul>
+        <li><span class="sw" style="background:#f97316"></span>Paint — hand-painted, accepts strokes</li>
+        <li><span class="sw" style="background:#3b82f6"></span>Fill — uniform authored values</li>
+        <li><span class="sw" style="background:#8b5cf6"></span>Material — a PBR preset, flooded</li>
+        <li><span class="sw" style="background:#10b981"></span>Generator — procedural over the UV atlas</li>
+    </ul>
+
+    <h2>Things worth questioning</h2>
+    <ul>
+        <li class="warn">The rail has <b>no scroll</b>. Twelve open layers overrun the pane; the C++ just keeps drawing.</li>
+        <li class="warn">There is <b>no drag-to-reorder</b> on screen. <code>RelocateLayer</code> exists in
+            <code>LayerRecordTable.h</code> but nothing calls it.</li>
+        <li class="warn">The head's tally is a bare count (<code>6</code>) while the foot says <code>6 / 12</code> — two
+            different readings of the same fact.</li>
+        <li class="warn">Rename is stubbed: <code>RenameOrdinal</code> is seeded to <code>-1</code> and never set.</li>
+        <li class="warn">The fold is <b>instant</b> — no micro-animation, unlike the card fold in ControlsGallery
+            (<code>FoldRate 0.28</code>).</li>
+    </ul>
+</div>
+
+<script>
+/*----------------------------------------------------------------------------------------------------------------------
+                                                    VOCABULARY
+  Transcribed from LayerStack.js / LayerKinds.js and the C++ tables.
+----------------------------------------------------------------------------------------------------------------------*/
+const BLEND_MODES = ["Normal","Multiply","Screen","Overlay","Add","Darken","Linear Dodge"];
+const LAYER_CAPACITY = 12;
+
+const KINDS = [
+    { Label:"Paint",     Tint:"#f97316", Summary:"Accepts brush strokes",      Paintable:true,  Flooded:false },
+    { Label:"Fill",      Tint:"#3b82f6", Summary:"Uniform authored values",    Paintable:false, Flooded:true  },
+    { Label:"Material",  Tint:"#8b5cf6", Summary:"A PBR preset, flooded",      Paintable:false, Flooded:true  },
+    { Label:"Generator", Tint:"#10b981", Summary:"Procedural over the atlas",  Paintable:false, Flooded:true  },
+];
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                      STATE
+  InitializeLayerStackSample (LayerRecordTable.cpp:198) — six layers, ordinal 0 is the TOPMOST.
+----------------------------------------------------------------------------------------------------------------------*/
+const State = {
+    SurfaceName:"Suzanne",
+    FilterTerm:"",
+    AddListOpen:false,
+    FocusOrdinal:0,
+    BlendMenuOrdinal:-1,   /* which layer has its blend dropdown open; -1 == none */
+    Layers:[
+        { Name:"Edge Wear",      Kind:0, BlendIndex:1, Opacity:78,  Shown:true,  Expanded:true,
+          Tag:"#f97316", Paint:"#2e2d2b", PaintsBaseColour:true,  ChannelTotal:3, StrokeCount:148,
+          MaskEnabled:true,  MaskFill:"Black", MaskInverted:false, MaskStrength:92,
+          Components:[{Label:"Curvature",Enabled:true,Weight:.72},{Label:"Grunge Noise",Enabled:true,Weight:.35}] },
+
+        { Name:"Cavity Dirt",    Kind:3, BlendIndex:1, Opacity:55,  Shown:false, Expanded:false,
+          Tag:"#10b981", Paint:"#2e2d2b", PaintsBaseColour:false, ChannelTotal:2, StrokeCount:0,
+          MaskEnabled:false, MaskFill:"White", MaskInverted:false, MaskStrength:100, Components:[] },
+
+        { Name:"Hand Detail",    Kind:0, BlendIndex:0, Opacity:100, Shown:true,  Expanded:false,
+          Tag:"#ef4444", Paint:"#2e2d2b", PaintsBaseColour:true,  ChannelTotal:3, StrokeCount:62,
+          MaskEnabled:false, MaskFill:"White", MaskInverted:false, MaskStrength:100, Components:[] },
+
+        { Name:"Roughness Lift", Kind:1, BlendIndex:4, Opacity:40,  Shown:true,  Expanded:false,
+          Tag:"#3b82f6", Paint:"#2e2d2b", PaintsBaseColour:false, ChannelTotal:1, StrokeCount:0,
+          MaskEnabled:false, MaskFill:"White", MaskInverted:false, MaskStrength:100, Components:[] },
+
+        { Name:"Brushed Copper", Kind:2, BlendIndex:0, Opacity:100, Shown:true,  Expanded:false,
+          Tag:"#8b5cf6", Paint:"#b87333", PaintsBaseColour:true,  ChannelTotal:5, StrokeCount:0,
+          MaskEnabled:true,  MaskFill:"White", MaskInverted:true,  MaskStrength:100,
+          Components:[{Label:"Position Gradient",Enabled:false,Weight:.50}] },
+
+        { Name:"Base Steel",     Kind:2, BlendIndex:0, Opacity:100, Shown:true,  Expanded:false,
+          Tag:"#94a3b8", Paint:"#4c4f53", PaintsBaseColour:true,  ChannelTotal:5, StrokeCount:0,
+          MaskEnabled:false, MaskFill:"White", MaskInverted:false, MaskStrength:100, Components:[] },
+    ],
+};
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                   MARK BUILDERS
+  The C++ draws every mark from primitives (no icon pack), so these are inline SVGs of the same shapes.
+----------------------------------------------------------------------------------------------------------------------*/
+const Chevron   = () => `<svg width="9" height="6" viewBox="0 0 9 6"><path d="M1 1.4 4.5 4.6 8 1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+const Magnifier = () => `<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="6" cy="6" r="4.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9.2 9.2 12.4 12.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+const CrossMark = () => `<svg width="9" height="9" viewBox="0 0 9 9"><path d="M.8.8 8.2 8.2M8.2.8 .8 8.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+
+// The eye: an almond of two arcs, with a pupil when open and a slash when hidden.
+function EyeMark(Open)
+{
+    const Body = `<path d="M1 7 Q7 1.2 13 7" fill="none" stroke="currentColor" stroke-width="1.4"/>
+                  <path d="M1 7 Q7 12.8 13 7" fill="none" stroke="currentColor" stroke-width="1.4"/>`;
+    const Inner = Open ? `<circle cx="7" cy="7" r="2.4" fill="currentColor"/>`
+                       : `<path d="M1.4 10.4 12.6 3.6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>`;
+    return `<svg width="14" height="14" viewBox="0 0 14 14">${Body}${Inner}</svg>`;
+}
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     HELPERS
+----------------------------------------------------------------------------------------------------------------------*/
+const Escape = (Text) => String(Text).replace(/[&<>"]/g, (Ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[Ch]));
+const PassesFilter = (Record) => !State.FilterTerm ||
+    Record.Name.toLowerCase().includes(State.FilterTerm.toLowerCase());
+const HiddenCount = () => State.Layers.filter((R) => !R.Shown).length;
+
+// A tag bubble carries its own hue, so its glyph must pick the readable ink (the YIQ split, App.tsx:119).
+function ResolveInkOver(Hex)
+{
+    const Red   = parseInt(Hex.slice(1, 3), 16);
+    const Green = parseInt(Hex.slice(3, 5), 16);
+    const Blue  = parseInt(Hex.slice(5, 7), 16);
+    return (Red * 299 + Green * 587 + Blue * 114) / 1000 >= 128 ? "#111111" : "#ffffff";
+}
+
+// The mask tile shows the RESOLVED shade: the fill, then the invert on top.
+function ResolveMaskTone(Record)
+{
+    const Base  = Record.MaskFill === "Black" ? 0 : 1;
+    const Light = Record.MaskInverted ? 1 - Base : Base;
+    const Byte  = Math.round(Light * 255);
+    return `rgb(${Byte},${Byte},${Byte})`;
+}
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     BUILDERS
+----------------------------------------------------------------------------------------------------------------------*/
+function BuildControlRow(Key, Field)
+{
+    return `<div class="ctl"><div class="k">${Key}</div><div class="v">${Field}</div></div>`;
+}
+
+function BuildSegment(Options, SelectedIndex, Action)
+{
+    const Chips = Options.map((Label, Index) =>
+        `<button class="${Index === SelectedIndex ? 'on' : ''}" data-act="${Action}" data-arg="${Index}">${Escape(Label)}</button>`
+    ).join("");
+    return `<div class="seg">${Chips}</div>`;
+}
+
+// The blend dropdown: a face carrying the current mode, and a menu of ALL seven when open.
+function BuildDropdown(Options, SelectedIndex, Ordinal, Open)
+{
+    const Items = Options.map((Label, Index) =>
+        `<div class="opt ${Index === SelectedIndex ? 'on' : ''}" data-act="blend-pick" data-arg="${Ordinal}:${Index}">
+            <div class="tick">${Index === SelectedIndex ? '&#10003;' : ''}</div>${Escape(Label)}
+        </div>`
+    ).join("");
+
+    return `<div class="drop ${Open ? 'open' : ''}">
+        <div class="face" data-act="blend-menu" data-arg="${Ordinal}">
+            <div class="lb">${Escape(Options[SelectedIndex])}</div>${Chevron()}
+        </div>
+        <div class="menu" ${Open ? "" : "hidden"}>${Items}</div>
+    </div>`;
+}
+
+function BuildSlider(Value, Minimum, Maximum, Unit, Action)
+{
+    const Ratio = (Value - Minimum) / (Maximum - Minimum);
+    return `<div class="slider">
+        <div class="track" data-scrub="${Action}" data-min="${Minimum}" data-max="${Maximum}">
+            <div class="f" style="width:${Ratio * 100}%"></div>
+            <div class="h" style="left:${Ratio * 100}%"></div>
+        </div>
+        <div class="num"><div class="n">${Math.round(Value)}</div><div class="u">${Unit}</div></div>
+    </div>`;
+}
+
+function BuildSwatch(Hex)
+{
+    return `<div class="swatch"><div class="sw" style="background:${Hex}"></div><div class="hex">${Hex}</div></div>`;
+}
+
+function BuildMaskRegion(Record, Ordinal)
+{
+    if (!Record.MaskEnabled)
+    {
+        return `<div class="cap">MASK</div>
+                <div class="add-mask" data-act="mask-add" data-arg="${Ordinal}"><span>+</span> Add mask</div>`;
+    }
+
+    const Meta = `${Record.MaskFill} fill${Record.MaskInverted ? " · inverted" : ""} · ${Record.Components.length} comp`;
+
+    const Tools = [
+        { Label:"White",  On:Record.MaskFill !== "Black", Act:"mask-white"  },
+        { Label:"Black",  On:Record.MaskFill === "Black", Act:"mask-black"  },
+        { Label:"Invert", On:Record.MaskInverted,         Act:"mask-invert" },
+    ].map((Tool) =>
+        `<button class="${Tool.On ? 'on' : ''}" data-act="${Tool.Act}" data-arg="${Ordinal}">${Tool.Label}</button>`
+    ).join("");
+
+    const Components = Record.Components.map((Component, Index) =>
+        `<div class="comp ${Component.Enabled ? 'on' : ''}" data-act="comp" data-arg="${Ordinal}:${Index}">
+            <div class="dot"></div><div class="lb">${Escape(Component.Label)}</div>
+            <div class="w">${Math.round(Component.Weight * 100)}%</div>
+        </div>`
+    ).join("");
+
+    return `<div class="cap">MASK</div>
+        <div class="mask-head">
+            <div class="tile" style="background:${ResolveMaskTone(Record)}"></div>
+            <div class="t"><b>Layer mask</b><span>${Escape(Meta)}</span></div>
+            <div class="x" data-act="mask-drop" data-arg="${Ordinal}">${CrossMark()}</div>
+        </div>
+        <div class="mask-tools">${Tools}</div>
+        ${BuildControlRow("Strength", BuildSlider(Record.MaskStrength, 0, 100, "%", `mask-strength:${Ordinal}`))}
+        ${Components}`;
+}
+
+function BuildExpand(Record, Ordinal)
+{
+    const Paint = Record.PaintsBaseColour ? BuildControlRow("Paint", BuildSwatch(Record.Paint)) : "";
+
+    return `<div class="expand">
+        ${BuildControlRow("Visible", BuildSegment(["Shown","Hidden"], Record.Shown ? 0 : 1, `visible:${Ordinal}`))}
+        ${BuildControlRow("Blend",   BuildSegment(BLEND_MODES.slice(0,4), Record.BlendIndex, `blend:${Ordinal}`))}
+        ${BuildControlRow("Opacity", BuildSlider(Record.Opacity, 0, 100, "%", `opacity:${Ordinal}`))}
+        ${Paint}
+        ${BuildControlRow("Tag", BuildSwatch(Record.Tag))}
+        ${BuildMaskRegion(Record, Ordinal)}
+    </div>`;
+}
+
+function BuildRow(Record, Ordinal)
+{
+    const Kind = KINDS[Record.Kind];
+    const Meta = `${Kind.Label} · ${BLEND_MODES[Record.BlendIndex]} · ${Record.ChannelTotal} ch`;
+    const Ink  = Record.PaintsBaseColour ? `<div class="ink" style="background:${Record.Paint}"></div>` : "";
+
+    return `<div class="row ${Record.Shown ? '' : 'muted'}" data-act="focus" data-arg="${Ordinal}">
+        <div class="tag" style="background:${Record.Tag}"></div>
+        <div class="thumb">${Ink}<div class="kind" style="background:${Kind.Tint}"></div></div>
+        <div class="txt"><b>${Escape(Record.Name)}</b><span>${Escape(Meta)}</span></div>
+        <div class="pill" data-scrub="opacity:${Ordinal}" data-min="0" data-max="100">${Math.round(Record.Opacity)}%</div>
+        <div class="eye"   data-act="visible-toggle" data-arg="${Ordinal}">${EyeMark(Record.Shown)}</div>
+        <div class="caret" data-act="fold"           data-arg="${Ordinal}">${Chevron()}</div>
+    </div>`;
+}
+
+function Render()
+{
+    const Cards = State.Layers.map((Record, Ordinal) =>
+    {
+        if (!PassesFilter(Record)) { return ""; }
+        const Classes = ["card"];
+        if (Record.Expanded)                  { Classes.push("open"); }
+        if (State.FocusOrdinal === Ordinal)   { Classes.push("focus"); }
+        return `<div class="${Classes.join(' ')}">
+            ${BuildRow(Record, Ordinal)}
+            ${Record.Expanded ? BuildExpand(Record, Ordinal) : ""}
+        </div>`;
+    }).join("");
+
+    const AtCapacity = State.Layers.length >= LAYER_CAPACITY;
+    const KindRows = KINDS.map((Kind, Ordinal) =>
+        `<div class="kind" data-act="add-kind" data-arg="${Ordinal}">
+            <div class="sw" style="background:${Kind.Tint}"></div>
+            <div class="lb">${Kind.Label}</div><div class="sm">${Escape(Kind.Summary)}</div>
+        </div>`
+    ).join("");
+
+    const Hidden = HiddenCount();
+    const Foot   = Hidden > 0 ? `${State.Layers.length} / ${LAYER_CAPACITY}   ·   ${Hidden} hidden`
+                              : `${State.Layers.length} / ${LAYER_CAPACITY}`;
+
+    document.getElementById("rail").innerHTML = `
+        <div class="pane-head">
+            <div class="t"><b>Layers</b><span>${Escape(State.SurfaceName)}</span></div>
+            <div class="tally">${State.Layers.length}</div>
+        </div>
+        <div class="pane-body">
+            <div class="add ${State.AddListOpen ? 'open' : ''} ${AtCapacity ? 'capped' : ''}" data-act="add-open">
+                ${AtCapacity ? `Layer cap of ${LAYER_CAPACITY} reached` : `<span class="plus"></span> Add Layer`}
+            </div>
+            <div class="kind-list" ${State.AddListOpen ? "" : "hidden"}>${KindRows}</div>
+            <div class="filter">
+                ${Magnifier()}
+                <input id="filter" type="text" placeholder="Filter…" value="${Escape(State.FilterTerm)}">
+            </div>
+            <div class="stack">${Cards}</div>
+        </div>
+        <div class="pane-foot">${Foot}</div>`;
+}
+
+/*----------------------------------------------------------------------------------------------------------------------
+                                                     VERBS
+  🔴 Mutations are applied and then the whole rail is re-rendered, mirroring the C++'s deferred-verb pass: acting
+     mid-iteration would shift the records the remaining rows draw from.
+----------------------------------------------------------------------------------------------------------------------*/
+const Verbs = {
+    "add-open":       ()          => { State.AddListOpen = !State.AddListOpen; },
+    "focus":          (Ordinal)   => { State.FocusOrdinal = Ordinal; State.Layers[Ordinal].Expanded = true; },
+    "fold":           (Ordinal)   => { State.Layers[Ordinal].Expanded = !State.Layers[Ordinal].Expanded; },
+    "visible-toggle": (Ordinal)   => { State.Layers[Ordinal].Shown = !State.Layers[Ordinal].Shown; },
+    "mask-add":       (Ordinal)   => { State.Layers[Ordinal].MaskEnabled = true; },
+    "mask-drop":      (Ordinal)   => { State.Layers[Ordinal].MaskEnabled = false; },
+    "mask-white":     (Ordinal)   => { State.Layers[Ordinal].MaskFill = "White"; },
+    "mask-black":     (Ordinal)   => { State.Layers[Ordinal].MaskFill = "Black"; },
+    "mask-invert":    (Ordinal)   => { State.Layers[Ordinal].MaskInverted = !State.Layers[Ordinal].MaskInverted; },
+};
+
+function InsertLayerOfKind(KindOrdinal)
+{
+    if (State.Layers.length >= LAYER_CAPACITY) { return; }
+    State.Layers.unshift({
+        Name:`${KINDS[KindOrdinal].Label} ${State.Layers.length + 1}`, Kind:KindOrdinal, BlendIndex:0,
+        Opacity:100, Shown:true, Expanded:false, Tag:KINDS[KindOrdinal].Tint, Paint:"#2e2d2b",
+        PaintsBaseColour:KINDS[KindOrdinal].Paintable || KindOrdinal === 2, ChannelTotal:3, StrokeCount:0,
+        MaskEnabled:false, MaskFill:"White", MaskInverted:false, MaskStrength:100, Components:[],
+    });
+    State.FocusOrdinal = 0;
+    State.AddListOpen  = false;
+}
+
+document.getElementById("rail").addEventListener("click", (Event) =>
+{
+    const Target = Event.target.closest("[data-act]");
+    if (!Target) { return; }
+    Event.stopPropagation();
+
+    const Action = Target.dataset.act;
+    const Argument = Target.dataset.arg || "";
+
+    if (Action === "add-kind")   { InsertLayerOfKind(Number(Argument)); Render(); return; }
+    if (Action === "comp")
+    {
+        const [Ordinal, Index] = Argument.split(":").map(Number);
+        const Component = State.Layers[Ordinal].Components[Index];
+        Component.Enabled = !Component.Enabled;
+        Render(); return;
+    }
+    if (Action === "visible")
+    {
+        const Ordinal = Number(Argument.split(":")[1] ?? Argument);
+        // a segmented Visible chip: index 0 == Shown
+        return;
+    }
+    if (Verbs[Action]) { Verbs[Action](Number(Argument)); Render(); }
+});
+
+// The segmented chips (Visible / Blend) carry their action on the button itself.
+document.getElementById("rail").addEventListener("click", (Event) =>
+{
+    const Chip = Event.target.closest(".seg button[data-act]");
+    if (!Chip) { return; }
+    const [Verb, OrdinalText] = Chip.dataset.act.split(":");
+    const Ordinal = Number(OrdinalText);
+    const Index   = Number(Chip.dataset.arg);
+
+    if (Verb === "visible") { State.Layers[Ordinal].Shown = (Index === 0); Render(); }
+    if (Verb === "blend")   { State.Layers[Ordinal].BlendIndex = Index;    Render(); }
+});
+
+/*---- the horizontal scrub shared by the row pill and every slider track --------------------------------------------*/
+let Scrub = null;
+
+document.getElementById("rail").addEventListener("pointerdown", (Event) =>
+{
+    const Target = Event.target.closest("[data-scrub]");
+    if (!Target) { return; }
+    Event.preventDefault();
+    Event.stopPropagation();
+
+    const [Verb, OrdinalText] = Target.dataset.scrub.split(":");
+    Scrub = {
+        Verb, Ordinal:Number(OrdinalText),
+        Minimum:Number(Target.dataset.min), Maximum:Number(Target.dataset.max),
+        Track:Target.classList.contains("track") ? Target : null,
+        LastX:Event.clientX,
+    };
+    Target.setPointerCapture?.(Event.pointerId);
+});
+
+window.addEventListener("pointermove", (Event) =>
+{
+    if (!Scrub) { return; }
+    const Record = State.Layers[Scrub.Ordinal];
+    const Span   = Scrub.Maximum - Scrub.Minimum;
+
+    let Value;
+    if (Scrub.Track)
+    {
+        // a track scrubs absolutely, from where the pointer is along its width
+        const Box = Scrub.Track.getBoundingClientRect();
+        Value = Scrub.Minimum + Span * Math.min(1, Math.max(0, (Event.clientX - Box.left) / Box.width));
+    }
+    else
+    {
+        // the row pill scrubs RELATIVELY (the C++ adds MouseDelta.x * 0.6)
+        const Current = Scrub.Verb === "opacity" ? Record.Opacity : Record.MaskStrength;
+        Value = Current + (Event.clientX - Scrub.LastX) * 0.6;
+        Scrub.LastX = Event.clientX;
+    }
+    Value = Math.min(Scrub.Maximum, Math.max(Scrub.Minimum, Value));
+
+    if (Scrub.Verb === "opacity")           { Record.Opacity      = Value; }
+    else if (Scrub.Verb === "mask-strength"){ Record.MaskStrength = Value; }
+    Render();
+});
+
+window.addEventListener("pointerup", () => { Scrub = null; });
+
+/*---- the filter box -------------------------------------------------------------------------------------------------*/
+document.getElementById("rail").addEventListener("input", (Event) =>
+{
+    if (Event.target.id !== "filter") { return; }
+    State.FilterTerm = Event.target.value;
+    Render();
+    const Field = document.getElementById("filter");
+    if (Field) { Field.focus(); Field.setSelectionRange(Field.value.length, Field.value.length); }
+});
+
+document.getElementById("outline").addEventListener("change", (Event) =>
+{
+    document.body.classList.toggle("outline", Event.target.checked);
+});
+
+Render();
+</script>
+</body>
+</html>

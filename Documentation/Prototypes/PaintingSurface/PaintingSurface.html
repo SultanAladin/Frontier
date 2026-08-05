@@ -6,6 +6,9 @@
 <link rel="stylesheet" href="PaintingSurface.css">
 <link rel="stylesheet" href="Interface/ToolMenu.css">
 <link rel="stylesheet" href="Interface/LayerInspector.css">
+<!-- 🔴 AFTER LayerInspector.css, which is where the live :root palette is defined. DesignTokens.css is not
+     linked by anything, so a sheet loaded before the inspector's would resolve every var() to nothing. -->
+<link rel="stylesheet" href="Interface/MaterialShelf.css">
 </head>
 <body>
 
@@ -28,7 +31,7 @@
     <div id="Hint">
         <b>drag paint</b> · right-<b>click</b> tools · right-drag orbit · middle-drag pan · wheel zoom ·
         <kbd>Tab</kbd> layers · <kbd>U</kbd> cycle channel view · <kbd>E</kbd> erase ·
-        <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
+        <kbd>Ctrl</kbd>+<kbd>Space</kbd> materials · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo
     </div>
 
     <div id="Fault" hidden></div>
@@ -49,6 +52,8 @@ import { StrokeDriver }                                         from "./Instrume
 import { ResolveObjectRadius, DefaultSpacing }                  from "./Deposit/DabFootprint.js";
 import { ToolMenu }                                            from "./Interface/ToolMenu.js";
 import { LayerInspector }                                     from "./Interface/LayerInspector.js";
+import { MaterialShelf }                                      from "./Interface/MaterialShelf.js";
+import { InvalidateMaterialSwatch }                           from "./Layers/MaterialSwatch.js";
 import { SeedLayerStack, LayerStack, RESOLUTIONS }              from "./Layers/LayerStack.js";
 import { LayerComposite }                                      from "./Layers/LayerComposite.js";
 import { MaskSequence, CreateMaskComponent, ResolveMaskPaintTarget,
@@ -122,7 +127,18 @@ const Brush = {
     Spacing:      DefaultSpacing,
     NormalCutoff: 0.0,        // [-]  - cos of the angle beyond which a dab stops depositing
     Ink:          [0.85, 0.16, 0.20],
-    Erase:        false
+    Erase:        false,
+    // The value a MASK stroke deposits: 1 reveals, 0 hides, and anything between is a partial mask.
+    //
+    // 🔴 A field of its own rather than a reading of Erase, and that separation is the whole fix for
+    //    "it's now not painting on the mask". Erase belongs to the CHANNEL brush and ToolMenu.ApplyToBrush
+    //    clears it on every Commit — which fires on every slider drag, swatch click and instrument pick —
+    //    so a mask level derived from Erase was silently reset to "reveal" by ordinary tool use. Painting
+    //    reveal over the default white fill is a no-op, so the mask stopped responding for reasons the
+    //    user had no way to connect to the tool card they had just touched.
+    // 🔴 Also a LEVEL rather than a boolean, because a mask is a greyscale quantity. A half-strength mask
+    //    is a legitimate thing to paint and a two-state flag cannot express it.
+    MaskLevel:    0.0
 };
 
 window.Brush = Brush;
@@ -272,7 +288,13 @@ async function Initialise()
 
     // 📝 Mounted on Stage rather than body so the card shares the viewport's stacking context and
     //    cannot be painted over by the canvas.
-    State.Menu = new ToolMenu(Element("Stage"), Brush, () => UpdateReadout());
+    // 🔴 The masking predicate is a CALLBACK, evaluated when the card renders rather than a flag pushed at
+    //    it. The focused layer and component change from the inspector, the keyboard and the probe, and any
+    //    of those would have to remember to notify the tool card — so the card asks instead, and cannot go
+    //    stale. This is the same resolve the stroke path uses, so the picker and the deposit cannot disagree.
+    State.Menu = new ToolMenu(
+        Element("Stage"), Brush, () => UpdateReadout(),
+        () => ResolveMaskPaintTarget(State.Stack?.Focus) !== null);
     window.ToolMenu = State.Menu;
 
     // 🔴 The inspector is handed window.LayerCommand — the SAME command surface the probe drives — rather
@@ -285,8 +307,31 @@ async function Initialise()
         // 📝 Handed the same cached entry point a probe calls, for the same reason as the command surface
         //    above: one path, so what the panel shows is what an assertion can measure.
         (Token, Channel) => window.CapturePreview(Token, Channel),
-        (Channel) => window.CaptureComposite(Channel));
+        (Channel) => window.CaptureComposite(Channel),
+        // The mask's own content, and the mask-on-mesh viewport mode. Same reasoning as above: the panel and
+        // a probe reach both through one seam.
+        (Token) => window.CaptureMask(Token),
+        { Set: (On) => window.SetMaskPreview(On), On: () => window.MaskPreviewOn() });
     window.LayerInspector = State.Inspector;
+
+    // The material browser. Mounted on Stage for the same reason as the inspector, and handed the same command
+    // surface — so a probe assigning a material and a user clicking a swatch travel the identical path.
+    //
+    // 📝 The stack is passed as well as the commands, but READ-ONLY: the shelf needs to know which layer has
+    //    focus and what kind it is before it can decide whether an assignment is legal. It never mutates it.
+    State.Shelf = new MaterialShelf(
+        Element("Stage"), State.Stack,
+        (Command, Payload) => window.LayerCommand(Command, Payload),
+        () =>
+        {
+            // 🔴 The inspector is refreshed too, not just the readout. An assignment changes the focused
+            //    layer's kind, name and channel set, and the properties pane is built from all three — without
+            //    this it keeps showing the previous material's rows until the user clicks the row again.
+            RefreshComposite(true);
+            State.Inspector?.Refresh();
+            UpdateReadout();
+        });
+    window.MaterialShelf = State.Shelf;
 
     AttachInput(Canvas);
 
@@ -308,10 +353,15 @@ async function Initialise()
 //    per channel and swaps which one holds the answer, so a bind group built before a resolve can end up
 //    pointing at the scratch target — which holds the second-from-last layer's result, not the finished
 //    stack. That reads as "the top layer does nothing", intermittently, depending on layer parity.
+// 🔴 The mask view is the FOCUSED layer's, and it is re-read here on every rebind rather than latched when
+//    the mask preview is switched on. A rebind happens after every flatten, and the focus can change
+//    between two of them — latching would leave the mask-inspection mode showing the mask of whichever
+//    layer happened to be focused when the toggle was pressed, which reads as "the preview is stuck".
 function BindResolved(Raster)
 {
-    const View = State.Composite.View;
-    Raster.BindAtlas(View.Colour, View.Material, View.Emissive);
+    const View  = State.Composite.View;
+    const Focus = State.Stack.Focus;
+    Raster.BindAtlas(View.Colour, View.Material, View.Emissive, Focus?.MaskView ?? null);
 }
 
 function EncodeSurface(Encoder, ColourView)
@@ -394,6 +444,18 @@ async function DrawAndVerify()
 
 function Present()
 {
+    // The shelf's slide is integrated here rather than on its own rAF loop, so there is ONE frame clock and
+    // the drawer cannot animate while the viewport is stalled on a resolve — which would look like the two
+    // halves of the UI running at different speeds.
+    //
+    // 🔴 The delta comes from the frame timestamps, not a fixed 1/60. A spring integrated with an assumed
+    //    step runs at a different speed on a 144 Hz display than on a 60 Hz one, so the drawer would snap
+    //    open on one machine and drift on another.
+    const Now       = performance.now();
+    const DeltaTime = State.ShelfClock ? (Now - State.ShelfClock) / 1000 : 1 / 60;
+    State.ShelfClock = Now;
+    State.Shelf?.Step(DeltaTime);
+
     // 🔴 Dabs are laid into the layer BEFORE the surface is drawn, in a separate submission. Encoding
     //    both into one encoder would sample the atlas in the same submission that renders to it, which
     //    is a read-write hazard on the same texture.
@@ -444,9 +506,16 @@ function UpdateReadout()
 
     const Instrument = State.Menu ? `${State.Menu.Active.Label} · ` : "";
 
+    // 🔴 A mask stroke reports its LEVEL, not erase. The two modes deposit different quantities and a
+    //    readout that says "ERASE" while the dab is actually writing a mask value describes the wrong brush.
+    const OnMask   = State.Stack ? ResolveMaskPaintTarget(State.Stack.Focus) !== null : false;
+    const Mode     = OnMask
+        ? ` · mask ${Brush.MaskLevel > 0.5 ? "REVEAL" : "HIDE"} ${Brush.MaskLevel.toFixed(2)}`
+        : (Brush.Erase ? " · ERASE" : "");
+
     Element("ReadoutBrush").textContent =
         `${Instrument}${Brush.PixelRadius.toFixed(0)} px · hard ${Brush.Hardness.toFixed(2)} · ` +
-        `flow ${Brush.Flow.toFixed(2)}${Brush.Erase ? " · ERASE" : ""}`;
+        `flow ${Brush.Flow.toFixed(2)}${Mode}`;
 
     const Stack = State.Stack;
     if (Stack)
@@ -463,8 +532,49 @@ function UpdateReadout()
 
 // 🔴 Indexed by the same integer the shader switches on. A name list that drifts from the shader's
 //    branches labels the viewport with the wrong channel, which is worse than no label at all.
-const DisplayModeNames = ["shaded", "base colour", "metallic", "roughness", "emissive", "normal", "height"];
+//
+// 📝 "mask" is index 7 and is NOT part of the U cycle below, which stays at seven. A mask is not a channel
+//    of the surface — it belongs to one layer rather than to the flattened result — so stepping into it
+//    while cycling channels would show a per-layer selection in the middle of a run of stack-wide views.
+//    It is reached only by the mask editor's own toggle.
+const DisplayModeNames = ["shaded", "base colour", "metallic", "roughness", "emissive", "normal", "height",
+                          "mask"];
 function DisplayModeName(Mode) { return DisplayModeNames[Mode] ?? "shaded"; }
+
+// The mask-on-mesh inspection mode's integer, shared by the shader branch, the name list and the toggle.
+const MaskDisplayMode = 7;
+
+// Turn the mask-on-mesh preview on or off. Returns the resulting state.
+//
+// 🔴 Turning it OFF restores "shaded" rather than whatever mode preceded it. Remembering the previous mode
+//    sounds friendlier but the previous mode is almost always shaded anyway, and the one case where it is
+//    not — the user was cycling channels with U, then opened a mask — makes releasing the mask preview drop
+//    them back into a raw roughness view they have to work out how to leave.
+window.SetMaskPreview = function (On)
+{
+    State.DisplayMode = On ? MaskDisplayMode : 0.0;
+
+    // The bind group carries the focused layer's mask, and the focus may have moved since the last flatten.
+    BindResolved(State.Raster);
+
+    State.Redraw = true;
+    UpdateReadout();
+    return State.DisplayMode === MaskDisplayMode;
+};
+
+window.MaskPreviewOn = function () { return State.DisplayMode === MaskDisplayMode; };
+
+// Whether a brush stroke would land in a MASK rather than in the layer's channels.
+//
+// 🔴 Exposed because it is the difference between "the mask is not painting" and "the mask is painting and
+//    I cannot see it", and no other reading distinguishes them. When a mask has no focused paint component
+//    every dab silently goes to the colour channels — the app looks like it ignored the mask — and a probe
+//    with no view of this routing decision cannot tell that apart from a broken preview. It resolves through
+//    exactly the function the stroke path calls, so it cannot report a route the dabs do not take.
+window.MaskPaintTargeted = function ()
+{
+    return ResolveMaskPaintTarget(State.Stack?.Focus) !== null;
+};
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        INPUT
@@ -664,6 +774,22 @@ function AttachInput(Canvas)
     window.addEventListener("contextmenu", (Event) => Event.preventDefault());
 
     window.addEventListener("keydown", (Event) => {
+        // Ctrl+Space toggles the material shelf.
+        //
+        // 🔴 Handled BEFORE the typing guard below, and deliberately. The shelf owns a search field, so once
+        //    the user has typed into it the guard's early return would swallow the very shortcut that closes
+        //    the drawer — leaving the only exit a click on the notch, with the keystroke that opened it dead.
+        //    A modified chord is safe to admit here: it types nothing, so it cannot corrupt a field's content.
+        //
+        // 📝 Chosen because it collides with nothing. Tab, Escape, U, E and Ctrl+Z/Y are all taken, and a bare
+        //    Space would be unusable next to a search box.
+        if (Event.code === "Space" && Event.ctrlKey && !Event.altKey && !Event.metaKey)
+        {
+            Event.preventDefault();
+            State.Shelf?.Toggle();
+            return;
+        }
+
         // 🔴 Typing must never reach the shortcuts below. The inspector has a filter box and an
         //    in-place rename, and without this guard typing a layer name called "Rust" would toggle
         //    the eraser on the "u"; those fields stop propagation themselves, but a contentEditable
@@ -708,9 +834,20 @@ function AttachInput(Canvas)
 
         if (Event.key === "e" || Event.key === "E")
         {
-            Brush.Erase = !Brush.Erase;
-            // Erasing writes the checker's own light tone back over the ink.
-            Brush.Ink   = Brush.Erase ? [0.847, 0.847, 0.863] : [0.85, 0.16, 0.20];
+            // 🔴 E means "the other value" in both worlds, but they are DIFFERENT quantities. Painting a mask,
+            //    it flips the mask level between hide and reveal; painting channels, it flips erase. Routing
+            //    both through Brush.Erase is what broke mask painting, because the tool card clears Erase.
+            if (ResolveMaskPaintTarget(State.Stack?.Focus))
+            {
+                Brush.MaskLevel = Brush.MaskLevel > 0.5 ? 0.0 : 1.0;
+                State.Menu?.SyncMaskValue?.();
+            }
+            else
+            {
+                Brush.Erase = !Brush.Erase;
+                // Erasing writes the checker's own light tone back over the ink.
+                Brush.Ink   = Brush.Erase ? [0.847, 0.847, 0.863] : [0.85, 0.16, 0.20];
+            }
             UpdateReadout();
             return;
         }
@@ -1209,6 +1346,42 @@ window.CaptureComposite = async function (ChannelKey)
     return Pending;
 };
 
+// One layer's RESOLVED mask, as a preview tile — the picture of the mask itself, in greyscale.
+//
+// 🔴 Reuses ChannelPreview.Capture through the same stand-in trick CaptureComposite uses: Capture only ever
+//    reads `Layer.Atlas[Slot.Atlas]` and the component to splat, so handing it an Atlas whose one entry is
+//    the mask texture, under a channel key whose slot names that entry, previews the mask with no second
+//    shader path. A hand-rolled readback here would be a fourth copy of the same pass to keep in step.
+//
+// 🔴 Component 0, so the red channel is splatted to grey. The mask atlas stores its coverage in .r and its
+//    other components carry the same value, but relying on that would make the tile silently wrong the day
+//    the mask format changes to pack something else alongside — asking for the one component that IS the
+//    mask is the honest read.
+//
+// 🔴 NOT cached on Stack.Revision. A stroke into a mask component deliberately does not bump the revision
+//    (that is why ReEvaluateMask forces the composite), so a revision-keyed cache would hand back the
+//    pre-stroke tile for the entire painting session — the mask would look like it never changed, which is
+//    precisely the "I cannot see the mask being painted" this exists to answer. The mask atlas is one
+//    texture and the tile is 64², so an uncached capture per rebuild is affordable.
+const MaskPreviewSlot = "maskCoverage";
+
+window.CaptureMask = async function (Token)
+{
+    if (!State.Preview) { return null; }
+
+    const Layer = State.Stack.Resolve(Token);
+    if (!Layer || !Layer.MaskTexture) { return null; }
+
+    // The mask atlas is evaluated lazily, so make sure what we are about to read is current before reading
+    // it. Evaluate() is a no-op when the mask carries no components to re-run.
+    State.Mask?.Evaluate(Layer);
+
+    const StandIn = { Atlas: { [MaskPreviewSlot]: Layer.MaskTexture } };
+
+    return State.Preview.Capture(StandIn, MaskPreviewSlot, AtlasExtent)
+        .catch((Fault) => { console.error(`CaptureMask ${Token} failed`, Fault); return null; });
+};
+
 window.ReadLayerStack = function ()
 {
     return {
@@ -1395,6 +1568,40 @@ window.LayerCommand = function (Command, Payload)
             break;
         }
 
+        // Retarget an existing layer onto a material preset, in place.
+        //
+        // 🔴 This is NOT `add` with extra steps. The point of retargeting is that the layer's identity survives
+        //    — its name, opacity, blend mode, stack position and mask all stay, and only the authored channel
+        //    values change. Adding a layer and deleting the old one instead would drop the mask and move the
+        //    row to the top of the stack, which reads as the browser destroying work rather than restyling it.
+        //
+        // 🔴 The enabled channel SET is replaced, not merged. An emissive panel followed by a plastic must stop
+        //    writing the emissive atlas, and a union would leave the emission authored at its old value with no
+        //    row in the properties pane to reach it — a layer glowing with no visible cause.
+        case "preset": {
+            const Layer  = Stack.Resolve(Argument.Token);
+            const Preset = MATERIAL_PRESETS[Argument.Preset];
+            if (!Layer || !Preset) { break; }
+
+            // 📝 A fill layer is promoted to `material` so the pane and the stack row agree with what it now
+            //    holds. Both kinds are flooded and non-paintable, so nothing about its content path changes.
+            Layer.Kind   = "material";
+            Layer.Preset = Argument.Preset;
+
+            for (const [Key, Value] of Object.entries(Preset.Values))
+            {
+                Layer.Values[Key] = Array.isArray(Value) ? Value.slice() : Value;
+            }
+            Layer.Enabled = new Set(Preset.Channels);
+
+            // 🔴 Re-flooded, and only AFTER the values and the enabled set are both in place. A flood reads
+            //    both, so flooding first writes the previous material's colour into the new channel set.
+            Layer.Flood(State.Device);
+            Stack.Touch();
+            Result = true;
+            break;
+        }
+
         //---- mask -------------------------------------------------------------------------------------
         // 🔴 Every mask verb re-evaluates the layer's component stack into its mask atlas and forces a
         //    re-flatten, because a mask change alters what the layer resolves to WITHOUT bumping Revision.
@@ -1406,6 +1613,22 @@ window.LayerCommand = function (Command, Payload)
             if (Layer)
             {
                 Layer.Mask.Enabled = Argument.Enabled !== false;
+
+                // 🔴 Enabling a mask SEEDS a focused paint component, and without this the whole mask feature
+                //    is unreachable from the UI. "Create mask" used to leave Components empty and FocusToken
+                //    null, so ResolveMaskPaintTarget returned null and every subsequent dab was routed to the
+                //    layer's CHANNELS instead — the user paints, the model changes colour, the mask stays a
+                //    uniform field, and nothing anywhere says the mask needed a component added and selected
+                //    before it could accept a stroke. A mask you cannot paint into is not a mask yet.
+                // 🔴 Guarded on the list being EMPTY so re-enabling an existing mask does not append a second
+                //    component on every toggle, which would silently stack duplicate paint layers.
+                if (Layer.Mask.Enabled && Layer.Mask.Components.length === 0)
+                {
+                    const Seed = CreateMaskComponent("paint", "Paint");
+                    Layer.Mask.Components.push(Seed);
+                    Layer.Mask.FocusToken = Seed.Token;
+                }
+
                 if (Layer.Mask.Enabled) { ReEvaluateMask(Layer); }
                 else                    { Layer.MaskView = null; RefreshComposite(true); }
                 Stack.Touch();

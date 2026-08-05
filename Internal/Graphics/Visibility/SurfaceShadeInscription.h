@@ -62,7 +62,7 @@ struct SurfaceShadeConstants
     float    TuneCellDiameter          = 1.0f;                                     // [m] - live base cell edge (F10 window); the gather's cell must match spawn/slotting/integrate
     float    TuneBaseRadius            = 1.2f;                                     // [m] - live cascade-0 disc radius (F10 window)
     float    TuneNearFieldBias         = 1.0f;                                     // [-] - live near-field bias (F10 window; layout parity, unused by the gather)
-    uint32_t PushPad0                  = 0;                                        // [-] - keep the block 16-byte aligned (matches the frag's PushPad0)
+    uint32_t PushPad0                  = 0;                                        // [-] - reserved; keeps the sun-shadow scalars below at their byte-matched offsets
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — must byte-match the six-scalar tail of the frag's ShadeConstants ----
     float    SunAngularRadius          = 0.03f;                                    // [rad] - sun-disc half-angle; 0 hard, larger softens the penumbra (real sun ~0.0047)

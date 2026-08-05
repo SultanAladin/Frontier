@@ -117,8 +117,14 @@ void main()
 
     TraceHit Hit = TraceTwoLevel(Ray.Origin.xyz, Ray.Direction.xyz, Ray.Origin.w, Ray.Direction.w);
 
+    // 🔴 THE ANY-HIT TWIN, RUN ON THE SAME RAY. TraceAnyHitTwoLevel claims to be bit-identical to Hit.HitCondition — a boolean occlusion answer that
+    //    stops at the first blocker instead of finding the closest one. Reading TwoLevelTrace.glsl proves nothing about that; only a device dispatch
+    //    over a real tree does, so the probe fires both and hands the host the pair (assertion 8) to compare. The result rides the previously-unused
+    //    .w lane of DistanceAndBarycentric — 1.0 = occluded, 0.0 = clear — so no struct field is added and DeviceResult stays 32 B.
+    bool Occluded = TraceAnyHitTwoLevel(Ray.Origin.xyz, Ray.Direction.xyz, Ray.Origin.w, Ray.Direction.w);
+
     TraceResult Result;
-    Result.DistanceAndBarycentric = vec4(Hit.Distance, Hit.Barycentric, 0.0);
+    Result.DistanceAndBarycentric = vec4(Hit.Distance, Hit.Barycentric, Occluded ? 1.0 : 0.0);
     Result.Identity               = uvec4(Hit.InstanceIndex,
                                           Hit.PrimitiveIndex,
                                           Hit.HitCondition      ? 1u : 0u,

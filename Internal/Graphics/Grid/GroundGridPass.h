@@ -85,6 +85,13 @@ struct GroundGridPass
     VkDescriptorSet       DepthSet       = VK_NULL_HANDLE;   // [-] - points at the renderer-owned scene depth view
     VkSampler             PointSampler   = VK_NULL_HANDLE;   // [-] - NEAREST + clamp; the shader texelFetches, so filtering is inert
     VkImageView           BoundDepthView = VK_NULL_HANDLE;   // [-] - view DepthSet currently references; Refresh rewrites only on change
+    // 🔴 A 1x1 D32 placeholder the set is written to at init, BEFORE the real depth target exists. The fragment shader statically declares the
+    //    set-0 depth sampler, so every draw must bind a set whose binding 0 is not just BOUND but WRITTEN (VUID-vkCmdDraw-None-08114 checks static
+    //    shader use, ignoring the DepthTestEnabled runtime guard). Refresh swaps DepthSet to the real view once it arrives; this owned image keeps
+    //    binding 0 valid during the startup frames in between. Never sampled — DepthTestEnabled is 0 while BoundDepthView is the placeholder.
+    VkImage               PlaceholderImage  = VK_NULL_HANDLE; // [-] - 1x1 D32 stand-in so binding 0 is always a written descriptor
+    VkDeviceMemory        PlaceholderMemory = VK_NULL_HANDLE; // [-] - backing allocation for PlaceholderImage
+    VkImageView           PlaceholderView   = VK_NULL_HANDLE; // [-] - depth-aspect view of the placeholder; the init descriptor write targets it
     bool                  ReadyCondition = false;            // [-] - True once the pipeline built (grid drawn only when ready)
 };
 

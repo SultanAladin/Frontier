@@ -531,4 +531,235 @@ TraceHit TraceTwoLevel(vec3 WorldOrigin, vec3 WorldDirection, float NearLimit, f
     return Hit;
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                                    ANY-HIT OCCLUSION QUERY
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🧩 The occlusion twin of TraceTwoLevel: it answers ONE boolean — is ANYTHING between Origin and MaximumDistance along the ray — and returns the
+//    instant it finds a blocker, without finishing the walk. A shadow ray, an ambient-occlusion ray and any "is the light visible" test want exactly
+//    this and nothing more; SurfaceShade's SunVisibility and SurfelIntegrate's sun ray already throw away every field of TraceHit except HitCondition,
+//    so they were paying the full closest-hit price — a tightening FarLimit, an ordered descent, a drained stack — to compute five fields they discard.
+//
+//    🔴 THE THREE DIFFERENCES FROM TraceTwoLevel ARE ALL COST, NOT CORRECTNESS, AND EACH IS A DELIBERATE DROP:
+//       1. FarLimit is a CONSTANT (MaximumDistance), never tightened. There is no "closest" to converge toward — the first hit ends the search — so
+//          the inout shrink that makes closest-hit fast is meaningless here and is simply not written.
+//       2. The near/far child SORT is dropped. Closest-hit enters the nearer child first so a hit tightens FarLimit before the farther child is tested;
+//          with no tightening and an any-hit early-out, which child is visited first cannot change the answer and only costs the two entry compares.
+//       3. The FIRST triangle intersection RETURNS immediately — no leaf loop continues, no stack drains. On a shadowed pixel (the expensive case,
+//          where a blocker exists) this is the whole win: the walk stops at the first blocker instead of proving it is the closest of many.
+//
+//    📝 THE RESULT IS BIT-IDENTICAL TO (TraceTwoLevel(...).HitCondition). Both use the same IntersectRayBox / IntersectRayTriangle with the same
+//       (NearLimit, FarLimit] acceptance, over the same two trees; this walk merely stops early and unordered. TwoLevelTraceProbe.comp should assert
+//       exactly that equality over a ray batch — a mismatch means an early-out dropped a branch it should have kept, not a tolerance issue.
+//
+//    ⚠️ OVERFLOW IS NOT REPORTED HERE, AND THAT IS SOUND FOR AN OCCLUSION QUERY WHERE TraceTwoLevel REPORTS IT FOR CLOSEST-HIT. A dropped far branch
+//       can only make this MISS a blocker it would otherwise have found — it can never invent one — so the failure mode is a too-bright pixel, never a
+//       phantom shadow. The top-level stack is sized (TopLevelStackSize = 64) to cover every realistic scene exactly as the closest-hit walk is, so
+//       the drop is unreachable in practice; the query returns a plain bool because a shadow term has nowhere to carry an overflow flag anyway.
+
+// Walk one mesh's SAH tree in LOCAL space, returning true the instant any triangle is struck within (NearLimit, FarLimit]. FarLimit is BY VALUE, not
+// inout — nothing tightens it. Mirrors TraceBottomLevel's descent exactly, minus the closest-hit bookkeeping.
+bool OccludeBottomLevel(uint NodeOffset, uint PrimitiveOffset, uint IndexOffset, uint VertexOffset,
+                        vec3 LocalOrigin, vec3 LocalDirection, vec3 InverseLocalDirection,
+                        float NearLimit, float FarLimit)
+{
+    uint Stack[BottomLevelStackSize];
+    uint StackDepth = 0u;
+
+    uint Current = 0u;   // the mesh's root
+
+    while (true)
+    {
+        uint WordBase = NodeOffset + Current * TreeWordsPerNode;
+
+        vec3 Minimum, Maximum;
+        ReadArenaNodeBox(WordBase, Minimum, Maximum);
+
+        float Entry;
+        bool  Reached = IntersectRayBox(LocalOrigin, InverseLocalDirection, Minimum, Maximum, NearLimit, FarLimit, Entry);
+
+        if (Reached)
+        {
+            uint SeventhWord = ArenaNodeWords[WordBase + 7u];
+
+            if (NodeIsLeaf(SeventhWord))
+            {
+                uint FirstEntry = ArenaNodeWords[WordBase + 6u];
+                uint EntryCount = SeventhWord & 0xFFFFu;
+
+                for (uint Step = 0u; Step < EntryCount; ++Step)
+                {
+                    uint Triangle = ArenaPrimitives[PrimitiveOffset + FirstEntry + Step];
+
+                    uint CornerBase = IndexOffset + Triangle * 3u;
+                    uint IndexA     = VertexOffset + MeshIndices[CornerBase + 0u];
+                    uint IndexB     = VertexOffset + MeshIndices[CornerBase + 1u];
+                    uint IndexC     = VertexOffset + MeshIndices[CornerBase + 2u];
+
+                    float Candidate;
+                    vec2  Weights;
+                    // 🔴 FarLimit is a local copy passed by value — IntersectRayTriangle reads it as the acceptance bound but the write-back that a
+                    //    closest-hit search performs on a hit is absent, because the very next line ends the whole traversal.
+                    if (IntersectRayTriangle(LocalOrigin, LocalDirection,
+                                             PositionForVertex(IndexA), PositionForVertex(IndexB), PositionForVertex(IndexC),
+                                             NearLimit, FarLimit, Candidate, Weights))
+                        return true;   // first blocker ends it — no closest to find
+                }
+            }
+            else
+            {
+                // The left child is the next node; word 6 is the relative hop to the right child (bottom-level rule — see TraceBottomLevel's 🔴).
+                uint LeftChild  = Current + 1u;
+                uint RightChild = Current + ArenaNodeWords[WordBase + 6u];
+
+                vec3 LeftMinimum, LeftMaximum, RightMinimum, RightMaximum;
+                ReadArenaNodeBox(NodeOffset + LeftChild  * TreeWordsPerNode, LeftMinimum,  LeftMaximum);
+                ReadArenaNodeBox(NodeOffset + RightChild * TreeWordsPerNode, RightMinimum, RightMaximum);
+
+                float LeftEntry, RightEntry;
+                bool  LeftReached  = IntersectRayBox(LocalOrigin, InverseLocalDirection, LeftMinimum,  LeftMaximum,  NearLimit, FarLimit, LeftEntry);
+                bool  RightReached = IntersectRayBox(LocalOrigin, InverseLocalDirection, RightMinimum, RightMaximum, NearLimit, FarLimit, RightEntry);
+
+                // 📝 NO NEAR/FAR ORDERING. Closest-hit picks the nearer child to descend first so a hit tightens the far bound; with no tightening and
+                //    an any-hit early-out, order cannot change the answer, so the left child is simply taken first and the right deferred.
+                if (LeftReached && RightReached)
+                {
+                    if (StackDepth < BottomLevelStackSize)
+                    {
+                        Stack[StackDepth] = RightChild;
+                        ++StackDepth;
+                    }
+                    Current = LeftChild;
+                    continue;
+                }
+                else if (LeftReached)
+                {
+                    Current = LeftChild;
+                    continue;
+                }
+                else if (RightReached)
+                {
+                    Current = RightChild;
+                    continue;
+                }
+            }
+        }
+
+        if (StackDepth == 0u)
+            break;
+
+        --StackDepth;
+        Current = Stack[StackDepth];
+    }
+
+    return false;
+}
+
+// Walk the whole scene and return true the instant any instance's mesh occludes the ray within (NearLimit, MaximumDistance]. The occlusion answer to
+// TraceTwoLevel's closest-hit answer; see the block comment above for why the three simplifications preserve the result exactly.
+bool TraceAnyHitTwoLevel(vec3 WorldOrigin, vec3 WorldDirection, float NearLimit, float MaximumDistance)
+{
+    // A scene with no instances occludes nothing (matches TraceTwoLevel's early return: reading node 0 of an absent tree is undefined).
+    if (TraceInstanceCount == 0u)
+        return false;
+
+    vec3 InverseWorldDirection = ReciprocalDirection(WorldDirection);
+
+    // FarLimit is FIXED for the whole walk — the caller's MaximumDistance, never tightened. This is the core difference from TraceTwoLevel.
+    float FarLimit = MaximumDistance;
+
+    uint Stack[TopLevelStackSize];
+    uint StackDepth = 0u;
+
+    uint Current = 0u;   // the root: internal node 0, or the lone leaf when InstanceCount is 1 (same one-instance rule as TraceTwoLevel)
+
+    while (true)
+    {
+        uint WordBase = Current * TreeWordsPerNode;
+
+        vec3 Minimum, Maximum;
+        ReadTreeNodeBox(WordBase, Minimum, Maximum);
+
+        float Entry;
+        bool  Reached = IntersectRayBox(WorldOrigin, InverseWorldDirection, Minimum, Maximum, NearLimit, FarLimit, Entry);
+
+        if (Reached)
+        {
+            uint SeventhWord = TreeNodeWords[WordBase + 7u];
+
+            if (NodeIsLeaf(SeventhWord))
+            {
+                uint InstanceIndex = TreeNodeWords[WordBase + 6u];
+
+                if (InstanceIndex < TraceInstanceCount)
+                {
+                    uint MeshOrdinal = Instances[InstanceIndex].MeshOrdinal;
+
+                    if (MeshOrdinal < TraceSliceCount)
+                    {
+                        mat4 InverseModel = Instances[InstanceIndex].InverseModel;
+
+                        vec3 LocalOrigin    = (InverseModel * vec4(WorldOrigin,    1.0)).xyz;
+                        vec3 LocalDirection = (InverseModel * vec4(WorldDirection, 0.0)).xyz;   // NOT normalised — the same t-units rule as TraceTwoLevel
+
+                        if (OccludeBottomLevel(Slices[MeshOrdinal].NodeOffset,
+                                               Slices[MeshOrdinal].PrimitiveOffset,
+                                               Slices[MeshOrdinal].IndexOffset,
+                                               Slices[MeshOrdinal].VertexOffset,
+                                               LocalOrigin, LocalDirection, ReciprocalDirection(LocalDirection),
+                                               NearLimit, FarLimit))
+                            return true;   // occluded — the whole scene walk ends here
+                    }
+                }
+            }
+            else
+            {
+                // Both top-level children are ABSOLUTE indices (top-level rule — see TraceTwoLevel's 🔴). No near/far sort, for the same reason as the
+                // bottom level: an any-hit walk cannot be reordered into a wrong answer.
+                uint LeftChild  = TreeNodeWords[WordBase + 6u];
+                uint RightChild = TreeNodeWords[WordBase + 7u];
+
+                vec3 LeftMinimum, LeftMaximum, RightMinimum, RightMaximum;
+                ReadTreeNodeBox(LeftChild  * TreeWordsPerNode, LeftMinimum,  LeftMaximum);
+                ReadTreeNodeBox(RightChild * TreeWordsPerNode, RightMinimum, RightMaximum);
+
+                float LeftEntry, RightEntry;
+                bool  LeftReached  = IntersectRayBox(WorldOrigin, InverseWorldDirection, LeftMinimum,  LeftMaximum,  NearLimit, FarLimit, LeftEntry);
+                bool  RightReached = IntersectRayBox(WorldOrigin, InverseWorldDirection, RightMinimum, RightMaximum, NearLimit, FarLimit, RightEntry);
+
+                if (LeftReached && RightReached)
+                {
+                    // A full stack drops the far branch. Unlike TraceTwoLevel this is not reported: a dropped branch can only miss a blocker, never
+                    // invent one, so the worst case is a too-bright pixel — a bool occlusion term has nowhere to carry an overflow flag regardless.
+                    if (StackDepth < TopLevelStackSize)
+                    {
+                        Stack[StackDepth] = RightChild;
+                        ++StackDepth;
+                    }
+                    Current = LeftChild;
+                    continue;
+                }
+                else if (LeftReached)
+                {
+                    Current = LeftChild;
+                    continue;
+                }
+                else if (RightReached)
+                {
+                    Current = RightChild;
+                    continue;
+                }
+            }
+        }
+
+        if (StackDepth == 0u)
+            break;
+
+        --StackDepth;
+        Current = Stack[StackDepth];
+    }
+
+    return false;
+}
+
 #endif

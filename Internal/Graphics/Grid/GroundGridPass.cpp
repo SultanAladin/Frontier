@@ -53,6 +53,184 @@ std::vector<char> RetrieveShaderBytes(const std::string& FilePath)
     return Bytes;
 }
 
+// 📝 First memory type allowed by the requirement bitmask carrying every required property bit — mirrors VisibilityDepth's selector.
+uint32_t SelectMemoryTypeIndex(VkPhysicalDevice      PhysicalDevice,
+                               uint32_t              CompatibleTypesBitmask,
+                               VkMemoryPropertyFlags RequiredProperties,
+                               bool&                 FoundEnabled)
+{
+    VkPhysicalDeviceMemoryProperties MemoryProperties = {};
+    vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &MemoryProperties);
+    for (uint32_t IndexIterator = 0; IndexIterator < MemoryProperties.memoryTypeCount; ++IndexIterator)
+    {
+        const bool TypeCompatible = (CompatibleTypesBitmask & (1u << IndexIterator)) != 0;
+        const bool PropertyMatch  = (MemoryProperties.memoryTypes[IndexIterator].propertyFlags & RequiredProperties) == RequiredProperties;
+        if (TypeCompatible && PropertyMatch) { FoundEnabled = true; return IndexIterator; }
+    }
+    FoundEnabled = false;
+    return 0;
+}
+
+// Build the 1x1 D32 placeholder image + device-local memory + depth view so the depth set can be WRITTEN at init, before any real scene depth
+// exists. SAMPLED so the descriptor is legal (never actually read — DepthTestEnabled stays 0 while it is bound). The contents are left undefined;
+// that is fine because the shader never samples it. On any failure every out handle is left null and the caller falls back to leaving the set
+// unwritten (which reintroduces 08114, so init treats that as a hard fault).
+bool ConstructPlaceholderDepth(const VulkanHost& Host,
+                               VkImage&          OutImage,
+                               VkDeviceMemory&   OutMemory,
+                               VkImageView&      OutView)
+{
+    OutImage  = VK_NULL_HANDLE;
+    OutMemory = VK_NULL_HANDLE;
+    OutView   = VK_NULL_HANDLE;
+
+    VkImageCreateInfo ImageInformation = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    ImageInformation.imageType     = VK_IMAGE_TYPE_2D;
+    ImageInformation.format        = VK_FORMAT_D32_SFLOAT;
+    ImageInformation.extent        = { 1, 1, 1 };
+    ImageInformation.mipLevels     = 1;
+    ImageInformation.arrayLayers   = 1;
+    ImageInformation.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ImageInformation.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ImageInformation.usage         = VK_IMAGE_USAGE_SAMPLED_BIT;
+    ImageInformation.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ImageInformation.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(Host.Device, &ImageInformation, Host.Allocator, &OutImage) != VK_SUCCESS)
+    {
+        OutImage = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryRequirements MemoryRequirements = {};
+    vkGetImageMemoryRequirements(Host.Device, OutImage, &MemoryRequirements);
+
+    bool MemoryTypeFound = false;
+    const uint32_t MemoryTypeIndex = SelectMemoryTypeIndex(Host.PhysicalDevice,
+                                                           MemoryRequirements.memoryTypeBits,
+                                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                           MemoryTypeFound);
+    if (!MemoryTypeFound)
+    {
+        vkDestroyImage(Host.Device, OutImage, Host.Allocator);
+        OutImage = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkMemoryAllocateInfo AllocateInformation = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+    AllocateInformation.allocationSize  = MemoryRequirements.size;
+    AllocateInformation.memoryTypeIndex = MemoryTypeIndex;
+    if (vkAllocateMemory(Host.Device, &AllocateInformation, Host.Allocator, &OutMemory) != VK_SUCCESS ||
+        vkBindImageMemory(Host.Device, OutImage, OutMemory, 0) != VK_SUCCESS)
+    {
+        if (OutMemory != VK_NULL_HANDLE) vkFreeMemory(Host.Device, OutMemory, Host.Allocator);
+        vkDestroyImage(Host.Device, OutImage, Host.Allocator);
+        OutImage  = VK_NULL_HANDLE;
+        OutMemory = VK_NULL_HANDLE;
+        return false;
+    }
+
+    VkImageViewCreateInfo ViewInformation = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    ViewInformation.image                       = OutImage;
+    ViewInformation.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+    ViewInformation.format                      = VK_FORMAT_D32_SFLOAT;
+    ViewInformation.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    ViewInformation.subresourceRange.levelCount = 1;
+    ViewInformation.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(Host.Device, &ViewInformation, Host.Allocator, &OutView) != VK_SUCCESS)
+    {
+        vkFreeMemory(Host.Device, OutMemory, Host.Allocator);
+        vkDestroyImage(Host.Device, OutImage, Host.Allocator);
+        OutImage  = VK_NULL_HANDLE;
+        OutMemory = VK_NULL_HANDLE;
+        OutView   = VK_NULL_HANDLE;
+        return false;
+    }
+
+    // 🔴 Move the placeholder from UNDEFINED to SHADER_READ_ONLY_OPTIMAL — the layout the descriptor is written with. The fragment shader guards
+    //    its texelFetch behind DepthTestEnabled, which is 0 while the placeholder is bound, but the validator's descriptor-access check
+    //    (VUID-vkCmdDraw-None-09600) treats a statically-referenced sampler as accessed and demands its image already be in the written layout —
+    //    a runtime-uniform branch does not prove the access dead. So a one-time transition on a transient pool + fence is required, not optional.
+    //    Failure here is fatal for the same reason the image is: an untransitioned placeholder trips 09600 on the first draw.
+    VkCommandPool TransitionPool = VK_NULL_HANDLE;
+    VkCommandPoolCreateInfo PoolCreate = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    PoolCreate.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    PoolCreate.queueFamilyIndex = Host.GraphicsQueueFamily;
+    bool TransitionOk = vkCreateCommandPool(Host.Device, &PoolCreate, Host.Allocator, &TransitionPool) == VK_SUCCESS;
+
+    VkCommandBuffer TransitionCommand = VK_NULL_HANDLE;
+    if (TransitionOk)
+    {
+        VkCommandBufferAllocateInfo CommandAllocate = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        CommandAllocate.commandPool        = TransitionPool;
+        CommandAllocate.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        CommandAllocate.commandBufferCount = 1;
+        TransitionOk = vkAllocateCommandBuffers(Host.Device, &CommandAllocate, &TransitionCommand) == VK_SUCCESS;
+    }
+    if (TransitionOk)
+    {
+        VkCommandBufferBeginInfo Begin = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        Begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(TransitionCommand, &Begin);
+
+        VkImageMemoryBarrier ToReadOnly = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        ToReadOnly.oldLayout                   = VK_IMAGE_LAYOUT_UNDEFINED;
+        ToReadOnly.newLayout                   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ToReadOnly.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+        ToReadOnly.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+        ToReadOnly.image                       = OutImage;
+        ToReadOnly.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        ToReadOnly.subresourceRange.levelCount = 1;
+        ToReadOnly.subresourceRange.layerCount = 1;
+        ToReadOnly.srcAccessMask               = 0;
+        ToReadOnly.dstAccessMask               = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(TransitionCommand,
+                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &ToReadOnly);
+        vkEndCommandBuffer(TransitionCommand);
+
+        VkSubmitInfo Submit = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        Submit.commandBufferCount = 1;
+        Submit.pCommandBuffers    = &TransitionCommand;
+        TransitionOk = vkQueueSubmit(Host.GraphicsQueue, 1, &Submit, VK_NULL_HANDLE) == VK_SUCCESS;
+        if (TransitionOk)
+            vkQueueWaitIdle(Host.GraphicsQueue);   // init-time only: safe to stall until the one-shot transition retires
+    }
+    if (TransitionPool != VK_NULL_HANDLE)
+        vkDestroyCommandPool(Host.Device, TransitionPool, Host.Allocator);   // frees TransitionCommand with it
+
+    if (!TransitionOk)
+    {
+        vkDestroyImageView(Host.Device, OutView, Host.Allocator);
+        vkFreeMemory(Host.Device, OutMemory, Host.Allocator);
+        vkDestroyImage(Host.Device, OutImage, Host.Allocator);
+        OutImage  = VK_NULL_HANDLE;
+        OutMemory = VK_NULL_HANDLE;
+        OutView   = VK_NULL_HANDLE;
+        return false;
+    }
+    return true;
+}
+
+// Point DepthSet binding 0 at DepthView with the SHADER_READ_ONLY layout the shader expects. Shared by the init placeholder write and Refresh.
+void WriteDepthDescriptor(const VulkanHost& Host, VkDescriptorSet Set, VkSampler Sampler, VkImageView DepthView)
+{
+    VkDescriptorImageInfo DepthInfo = {};
+    DepthInfo.sampler     = Sampler;
+    DepthInfo.imageView   = DepthView;
+    DepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet Write = {};
+    Write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Write.dstSet          = Set;
+    Write.dstBinding      = 0;
+    Write.descriptorCount = 1;
+    Write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Write.pImageInfo      = &DepthInfo;
+
+    vkUpdateDescriptorSets(Host.Device, 1, &Write, 0, nullptr);
+}
+
 // Wrap a SPIR-V byte buffer in a VkShaderModule. VK_NULL_HANDLE on failure.
 VkShaderModule ConstructShaderModule(const VulkanHost& Host, const std::vector<char>& Bytes)
 {
@@ -277,6 +455,19 @@ bool InitializeGroundGridPass(GroundGridPass& Pass,
         return false;
     }
 
+    // 🔴 Seat binding 0 with an owned 1x1 placeholder NOW, so the set is not merely bound but WRITTEN on the very first draw. The fragment shader
+    //    statically references set-0 binding-0, so a bound-but-unwritten descriptor trips VUID-vkCmdDraw-None-08114 during the startup frames before
+    //    the real scene depth exists (the DepthTestEnabled runtime guard does NOT satisfy the validator — it checks static shader use). Refresh later
+    //    rewrites the set to the real depth view; until then this keeps binding 0 valid. If it fails to build we treat it as fatal — leaving the set
+    //    unwritten would reintroduce exactly the fault this exists to prevent.
+    if (!ConstructPlaceholderDepth(Host, Pass.PlaceholderImage, Pass.PlaceholderMemory, Pass.PlaceholderView))
+    {
+        ISSUE_FAULT("ground-grid", "placeholder depth image creation failed — set 0 binding 0 would be unwritten");
+        return false;
+    }
+    WriteDepthDescriptor(Host, Pass.DepthSet, Pass.PointSampler, Pass.PlaceholderView);
+    Pass.BoundDepthView = Pass.PlaceholderView;
+
     Pass.ReadyCondition = true;
     ISSUE_NOTICE("ground-grid", "grid pass ready");
     return true;
@@ -289,22 +480,9 @@ void RefreshGroundGridPass(GroundGridPass& Pass, const VulkanHost& Host, const V
     if (!Depth.ReadyCondition || Depth.DepthView == VK_NULL_HANDLE)
         return;
     if (Pass.BoundDepthView == Depth.DepthView)
-        return;   // idempotent: the set already points at this view, so a per-frame call costs one compare
+        return;   // idempotent: the set already points at this view, so a per-frame call costs one compare (placeholder != real, so this fires once)
 
-    VkDescriptorImageInfo DepthInfo = {};
-    DepthInfo.sampler     = Pass.PointSampler;
-    DepthInfo.imageView   = Depth.DepthView;
-    DepthInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet Write = {};
-    Write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    Write.dstSet          = Pass.DepthSet;
-    Write.dstBinding      = 0;
-    Write.descriptorCount = 1;
-    Write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    Write.pImageInfo      = &DepthInfo;
-
-    vkUpdateDescriptorSets(Host.Device, 1, &Write, 0, nullptr);
+    WriteDepthDescriptor(Host, Pass.DepthSet, Pass.PointSampler, Depth.DepthView);
     Pass.BoundDepthView = Depth.DepthView;
 }
 
@@ -316,20 +494,26 @@ void RecordGroundGridPass(const GroundGridPass&      Pass,
     if (!Pass.ReadyCondition)
         return;
 
-    // 🔴 The depth test is forced OFF when the set was never pointed at a real view (Refresh not yet called, or the depth target
-    //    failed to build). Without this the shader would sample an unwritten descriptor and occlude the grid by garbage — and the
-    //    symptom would be a MISSING grid, which reads as "the grid pass is broken" rather than "the depth wiring is missing". The
-    //    local copy also keeps the caller's constants untouched, so the caller's own DepthTestEnabled intent is never silently edited.
-    const bool DepthReadable = Pass.DepthSet != VK_NULL_HANDLE && Pass.BoundDepthView != VK_NULL_HANDLE;
+    // 🔴 The depth test is forced OFF until the set points at a REAL scene-depth view (Refresh not yet called, or the depth target failed to
+    //    build). Binding 0 is always a WRITTEN descriptor now — at startup it holds the 1x1 placeholder — so the readable test must exclude the
+    //    placeholder explicitly: sampling it would occlude the grid against a 1x1 undefined-contents image. The symptom of getting this wrong is a
+    //    MISSING grid, which reads as "the grid pass is broken" rather than "depth not wired yet". The local copy keeps the caller's constants
+    //    untouched, so the caller's own DepthTestEnabled intent is never silently edited.
+    const bool DepthReadable = Pass.DepthSet != VK_NULL_HANDLE &&
+                               Pass.BoundDepthView != VK_NULL_HANDLE &&
+                               Pass.BoundDepthView != Pass.PlaceholderView;
 
     GroundGridConstants Effective = Constants;
     if (!DepthReadable)
         Effective.DepthTestEnabled = 0.0f;
 
-    // ⚠️ The set is bound whenever it is valid, even when DepthTestEnabled is 0: the fragment shader holds a static reference to the
-    //    sampler, and a driver may treat that as accessed regardless of the branch guarding it, so an unbound set 0 risks a
-    //    validation error on a draw that never reads depth.
-    if (DepthReadable)
+    // 🔴 Set 0 is bound whenever the set HANDLE is valid — NOT only when a real depth view is readable. The fragment shader statically declares
+    //    sampler2D SceneDepthImage at set=0,binding=0, so the pipeline "statically uses" set 0; Vulkan then requires a set bound at that slot on
+    //    every draw regardless of whether the branch guarding the texelFetch runs (VUID-vkCmdDraw-None-08600). Beyond merely BOUND, binding 0 must be
+    //    WRITTEN — a bound-but-unwritten descriptor trips VUID-vkCmdDraw-None-08114, which also keys off static shader use and ignores the runtime
+    //    DepthTestEnabled guard. Init writes the 1x1 placeholder into binding 0 so the descriptor is always valid; Refresh swaps to the real view. The
+    //    placeholder is never sampled (DepthReadable excludes it, forcing DepthTestEnabled to 0), so its undefined contents never reach the output.
+    if (Pass.DepthSet != VK_NULL_HANDLE)
         vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Pass.PipelineLayout,
                                 0, 1, &Pass.DepthSet, 0, nullptr);
 
@@ -379,6 +563,22 @@ void FinalizeGroundGridPass(GroundGridPass& Pass, const VulkanHost& Host)
     {
         vkDestroySampler(Host.Device, Pass.PointSampler, Host.Allocator);
         Pass.PointSampler = VK_NULL_HANDLE;
+    }
+    // The owned placeholder depth: view, then image, then its allocation. Safe on a partial build (any handle may be null).
+    if (Pass.PlaceholderView != VK_NULL_HANDLE)
+    {
+        vkDestroyImageView(Host.Device, Pass.PlaceholderView, Host.Allocator);
+        Pass.PlaceholderView = VK_NULL_HANDLE;
+    }
+    if (Pass.PlaceholderImage != VK_NULL_HANDLE)
+    {
+        vkDestroyImage(Host.Device, Pass.PlaceholderImage, Host.Allocator);
+        Pass.PlaceholderImage = VK_NULL_HANDLE;
+    }
+    if (Pass.PlaceholderMemory != VK_NULL_HANDLE)
+    {
+        vkFreeMemory(Host.Device, Pass.PlaceholderMemory, Host.Allocator);
+        Pass.PlaceholderMemory = VK_NULL_HANDLE;
     }
     Pass.BoundDepthView = VK_NULL_HANDLE;
     Pass.ReadyCondition = false;

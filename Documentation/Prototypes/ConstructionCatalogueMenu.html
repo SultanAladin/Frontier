@@ -661,6 +661,9 @@ const GLYPH = {
   SketchTrim:        S("M4 12h7",1.8)+D("M11 12h9",1.3,.4)+S("M15 8l4 4-4 4",1.5,.65)+B(11,12,1.8),
   SketchExtend:      S("M4 12h9",1.8)+D("M13 12h7",1.4,.6)+S("M17 9l3 3-3 3",1.6),
   SketchOffset:      S("M5 8h14",1.8)+D("M5 14h14",1.4)+S("M12 10v2",1.3,.6),
+  SketchCut:         S("M4 12h16",1.8)+S("M12 5v14",1.5,.7)+B(12,12,2)+D("M8 8l-3-3M16 8l3-3",1.2,.4),
+  SketchJoin:        S("M4 16a6 6 0 0 1 6-6",1.8)+S("M20 8a6 6 0 0 0-6 6",1.8)+B(12,11,2.1)+D("M10 10h4",1.3,.5),
+  SketchRemove:      D("M5 12h14",1.4,.45)+S("M8 8l8 8M16 8l-8 8",1.8)+B(12,12,1.5,.5),
   SketchMirrorLine:  D("M12 3v18",1.4,.8)+S("M9 7L4 12l5 5z",1.6)+S("M15 7l5 5-5 5z",1.6)+B(12,12,1.5,.6),
   SketchConstruction:D("M4 20L20 4",1.5,.8)+B(4,20,2.2,.7)+B(20,4,2.2,.7),
   SketchProject:     S("M4 4h7v7H4z",1.6,.8)+D("M11 7.5h7",1.3,.6)+S("M13 18h7v-7",1.7)+S("M16 15l4-4",1.3,.5),
@@ -1130,6 +1133,163 @@ const ANY = DIMENSIONS.slice();
 
 const BANDS = [
 
+  /*── Band 2 · SKETCH GEOMETRY (22) ─────────────────────────────────────────────
+     🔴 Every op in this band carries needs:["workplane"]. A sketch curve has no
+     meaning without a plane to lie in, so with no workplane set the whole band
+     greys AS A BLOCK and each tile offers the fix — one click, then 22 tiles wake
+     together. That block behaviour is why WorkplaneAbsent is its own state and not
+     just another ProfileShortfall: it is the only shortfall with an honest
+     one-click remedy. */
+  { key:"sketch-draw", label:"Sketch Draw", glyph:"SketchLine", ops:[
+      {glyph:"SketchLine",        label:"Line",         accel:"L", dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamDistance", label:"Length", min:0.1, max:5000, value:100, unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:-180, max:180, value:0, unit:"°"},
+          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
+          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
+      ]},
+      {glyph:"SketchPolyline",    label:"Polyline",     accel:"⇧L", dims:ANY, needs:["workplane"], params:[
+          {kind:"toggle",    ico:"ParamClosed",   label:"Close on finish", value:false},
+          {kind:"segmented", ico:"ParamMode",     label:"Segment",  options:["Line","Arc tangent","Arc perp."], value:0},
+          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
+      ]},
+      {glyph:"SketchRectangle",   label:"Rectangle",    accel:"R", dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamWidth",    label:"Width",  min:0.1, max:5000, value:120, unit:"mm"},
+          {kind:"slider",    ico:"ParamHeight",   label:"Height", min:0.1, max:5000, value:80,  unit:"mm"},
+          {kind:"slider",    ico:"ParamRadius",   label:"Corner radius", min:0, max:500, value:0, unit:"mm"},
+          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
+      ]},
+      {glyph:"SketchCentreRect",  label:"Centre Rect.", dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamWidth",    label:"Width",  min:0.1, max:5000, value:120, unit:"mm"},
+          {kind:"slider",    ico:"ParamHeight",   label:"Height", min:0.1, max:5000, value:80,  unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Rotation", min:-180, max:180, value:0, unit:"°"},
+      ]},
+      {glyph:"SketchSlot",        label:"Slot",         dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamDistance", label:"Centre span", min:0.1, max:5000, value:100, unit:"mm"},
+          {kind:"slider",    ico:"ParamRadius",   label:"End radius",  min:0.1, max:500, value:15, unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:-180, max:180, value:0, unit:"°"},
+      ]},
+      {glyph:"SketchCircle",      label:"Circle",       accel:"C", dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:40, unit:"mm"},
+          {kind:"segmented", ico:"ParamMode",     label:"Defined by", options:["Centre","Diameter"], value:0},
+          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
+      ]},
+      {glyph:"SketchArc",         label:"Arc",          accel:"A", dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Included angle", min:1, max:359, value:90, unit:"°"},
+          {kind:"segmented", ico:"ParamDirection",label:"Direction", options:["CCW","CW"], value:0},
+      ]},
+      {glyph:"SketchEllipse",     label:"Ellipse",      dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamWidth",    label:"Major radius", min:0.1, max:2500, value:70, unit:"mm"},
+          {kind:"slider",    ico:"ParamHeight",   label:"Minor radius", min:0.1, max:2500, value:40, unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Rotation", min:-180, max:180, value:0, unit:"°"},
+      ]},
+      {glyph:"SketchPolygon",     label:"Polygon",      dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Sides",  min:3, max:64, value:6, unit:"−"},
+          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
+          {kind:"segmented", ico:"ParamMode",     label:"Radius is", options:["Inscribed","Circumscribed"], value:0},
+      ]},
+      {glyph:"SketchSpline",      label:"Spline",       dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:1, max:9, value:3, unit:"−"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
+          {kind:"slider",    ico:"ParamTolerance",label:"Fit tolerance", min:0.001, max:5, value:0.01, unit:"mm"},
+      ]},
+      {glyph:"SketchBezier",      label:"Bézier",       dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
+          {kind:"toggle",    ico:"ParamSmooth",   label:"Tangent continuity", value:true},
+      ]},
+      {glyph:"SketchBSpline",     label:"B-Spline",     dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
+          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
+      ]},
+      {glyph:"SketchNurbs",       label:"NURBS",        dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
+          {kind:"slider",    ico:"ParamRadius",   label:"Weight", min:0.1, max:10, value:1, unit:"−"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
+      ]},
+      {glyph:"SketchConic",       label:"Conic",        dims:ANY, needs:["workplane"], params:[
+          {kind:"slider",    ico:"ParamRadius",   label:"Rho", min:0.01, max:0.99, value:0.5, unit:"−"},
+          {kind:"segmented", ico:"ParamMode",     label:"Family", options:["Ellipse","Parabola","Hyperbola"], value:0},
+      ]},
+      {glyph:"SketchPoint",       label:"Point",        dims:ANY, needs:["workplane"], params:[
+          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid"]},
+          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:true},
+      ]},
+  ]},
+
+  { sep:true },
+
+  /*── Band · SKETCH MODIFY ──────────────────────────────────────────────────────
+     Curve-editing ops that consume EXISTING sketch geometry rather than drawing a
+     new primitive from scratch: fillet/chamfer a shared corner, trim/extend an
+     edge to its neighbours, offset a wire. Split out of the flat Sketch Geometry
+     band so "draw a shape" and "edit an edge that already exists" no longer share
+     one undifferentiated list. */
+  { key:"sketch-modify", label:"Sketch Modify", glyph:"SketchFillet", ops:[
+      /* Fillet and Chamfer need a shared endpoint between two curves — the
+         "needs a shared endpoint" chip, not the vague "Wrong selection" that
+         FreeCAD #30460 shows for the analogous case. */
+      {glyph:"SketchFillet",      label:"Fillet",       needs:["workplane","tangent"], minCount:2, params:[
+          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.01, max:500, value:5, unit:"mm"},
+          {kind:"toggle",    ico:"ParamMode",     label:"Trim originals", value:true},
+      ]},
+      {glyph:"SketchChamfer",     label:"Chamfer",      needs:["workplane","tangent"], minCount:2, params:[
+          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:0.01, max:500, value:5, unit:"mm"},
+          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:1, max:89, value:45, unit:"°"},
+      ]},
+      {glyph:"SketchTrim",        label:"Trim",         needs:["workplane"], dims:["Edge","Wire"], params:[
+          {kind:"segmented", ico:"ParamMode",     label:"Extent", options:["To nearest","To pick","All"], value:0},
+      ]},
+      {glyph:"SketchExtend",      label:"Extend",       needs:["workplane"], dims:["Edge","Wire"], params:[
+          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:0.01, max:5000, value:20, unit:"mm"},
+          {kind:"toggle",    ico:"ParamSnap",     label:"Extend to boundary", value:true},
+      ]},
+      {glyph:"SketchOffset",      label:"Offset",       needs:["workplane"], dims:["Edge","Wire","Face"], params:[
+          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:-500, max:500, value:5, unit:"mm"},
+          {kind:"segmented", ico:"ParamMode",     label:"Corners", options:["Arc","Extend","Chamfer"], value:0},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Both sides", value:false},
+      ]},
+      /* Cut SPLITS one curve at the clicked point (Plasticity "Cut Curve") — a closed
+         loop opens, an open run divides into head + tail. One operand, no shared
+         endpoint needed, so no "tangent" chip: unlike Fillet it acts mid-span. */
+      {glyph:"SketchCut",         label:"Cut",          needs:["workplane"], dims:["Edge","Wire"], params:[
+          {kind:"segmented", ico:"ParamMode",     label:"At", options:["Pick point","Crossings"], value:0},
+      ]},
+      /* Join welds the multi-selection: all-open runs concatenate end-to-end (closing
+         into a Profile when the free ends meet), any closed operand routes to a boolean
+         Union instead. Needs ≥2 operands — the one op here that really does. */
+      {glyph:"SketchJoin",        label:"Join",         needs:["workplane"], dims:["Edge","Wire"], minCount:2, params:[
+          {kind:"slider",    ico:"ParamSnap",     label:"Weld tolerance", min:0.01, max:50, value:1, unit:"mm"},
+          {kind:"toggle",    ico:"ParamClosed",   label:"Close if ends meet", value:true},
+      ]},
+      /* Remove detaches the picked shape outright. No parameters, every dimension. */
+      {glyph:"SketchRemove",      label:"Remove",       needs:["workplane"], dims:["Vertex","Edge","Wire","Face"], params:[
+      ]},
+  ]},
+
+  { sep:true },
+
+  /*── Band · SKETCH REFERENCE ───────────────────────────────────────────────────
+     Ops that reference or re-cast existing geometry rather than draw or edit it in
+     place: mirror across an axis, demote to construction geometry, project 3D
+     edges down onto the active workplane. Kept apart from Sketch Modify because
+     these produce derived / linked geometry, not an edit of the source curve. */
+  { key:"sketch-reference", label:"Sketch Reference", glyph:"SketchMirrorLine", ops:[
+      {glyph:"SketchMirrorLine",  label:"Mirror",       needs:["workplane","axis"], dims:["Edge","Wire","Face"], params:[
+          {kind:"toggle",    ico:"ParamMirror",   label:"Keep source", value:true},
+          {kind:"axis",      ico:"ParamAxis",     label:"Mirror line"},
+      ]},
+      {glyph:"SketchConstruction",label:"To Construction", needs:["workplane"], dims:["Edge","Wire"], params:[
+          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:true},
+      ]},
+      {glyph:"SketchProject",     label:"Project Edges", needs:["workplane"], dims:["Edge","Wire","Face","Shell","Solid"], params:[
+          {kind:"segmented", ico:"ParamMode",     label:"Result", options:["Reference","Editable"], value:0},
+          {kind:"toggle",    ico:"ParamLink",     label:"Track source geometry", value:true},
+      ]},
+  ]},
+
+  { sep:true },
+
   /*── Band 1 · SOLID PRIMITIVE (18) ─────────────────────────────────────────────
      Creation, so it answers to `Nothing` — but unlike the modelling menu's
      primitives these stay offered on real geometry too, because a CAD document
@@ -1246,147 +1406,6 @@ const BANDS = [
 
   { sep:true },
 
-  /*── Band 2 · SKETCH GEOMETRY (22) ─────────────────────────────────────────────
-     🔴 Every op in this band carries needs:["workplane"]. A sketch curve has no
-     meaning without a plane to lie in, so with no workplane set the whole band
-     greys AS A BLOCK and each tile offers the fix — one click, then 22 tiles wake
-     together. That block behaviour is why WorkplaneAbsent is its own state and not
-     just another ProfileShortfall: it is the only shortfall with an honest
-     one-click remedy. */
-  { key:"sketch-draw", label:"Sketch Draw", glyph:"SketchLine", ops:[
-      {glyph:"SketchLine",        label:"Line",         accel:"L", dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Length", min:0.1, max:5000, value:100, unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:-180, max:180, value:0, unit:"°"},
-          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
-          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
-      ]},
-      {glyph:"SketchPolyline",    label:"Polyline",     accel:"⇧L", dims:ANY, needs:["workplane"], params:[
-          {kind:"toggle",    ico:"ParamClosed",   label:"Close on finish", value:false},
-          {kind:"segmented", ico:"ParamMode",     label:"Segment",  options:["Line","Arc tangent","Arc perp."], value:0},
-          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
-      ]},
-      {glyph:"SketchRectangle",   label:"Rectangle",    accel:"R", dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamWidth",    label:"Width",  min:0.1, max:5000, value:120, unit:"mm"},
-          {kind:"slider",    ico:"ParamHeight",   label:"Height", min:0.1, max:5000, value:80,  unit:"mm"},
-          {kind:"slider",    ico:"ParamRadius",   label:"Corner radius", min:0, max:500, value:0, unit:"mm"},
-          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
-      ]},
-      {glyph:"SketchCentreRect",  label:"Centre Rect.", dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamWidth",    label:"Width",  min:0.1, max:5000, value:120, unit:"mm"},
-          {kind:"slider",    ico:"ParamHeight",   label:"Height", min:0.1, max:5000, value:80,  unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Rotation", min:-180, max:180, value:0, unit:"°"},
-      ]},
-      {glyph:"SketchSlot",        label:"Slot",         dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Centre span", min:0.1, max:5000, value:100, unit:"mm"},
-          {kind:"slider",    ico:"ParamRadius",   label:"End radius",  min:0.1, max:500, value:15, unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:-180, max:180, value:0, unit:"°"},
-      ]},
-      {glyph:"SketchCircle",      label:"Circle",       accel:"C", dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:40, unit:"mm"},
-          {kind:"segmented", ico:"ParamMode",     label:"Defined by", options:["Centre","Diameter"], value:0},
-          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:false},
-      ]},
-      {glyph:"SketchArc",         label:"Arc",          accel:"A", dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Included angle", min:1, max:359, value:90, unit:"°"},
-          {kind:"segmented", ico:"ParamDirection",label:"Direction", options:["CCW","CW"], value:0},
-      ]},
-      {glyph:"SketchEllipse",     label:"Ellipse",      dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamWidth",    label:"Major radius", min:0.1, max:2500, value:70, unit:"mm"},
-          {kind:"slider",    ico:"ParamHeight",   label:"Minor radius", min:0.1, max:2500, value:40, unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Rotation", min:-180, max:180, value:0, unit:"°"},
-      ]},
-      {glyph:"SketchPolygon",     label:"Polygon",      dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamCount",    label:"Sides",  min:3, max:64, value:6, unit:"−"},
-          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
-          {kind:"segmented", ico:"ParamMode",     label:"Radius is", options:["Inscribed","Circumscribed"], value:0},
-      ]},
-      {glyph:"SketchSpline",      label:"Spline",       dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:1, max:9, value:3, unit:"−"},
-          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
-          {kind:"slider",    ico:"ParamTolerance",label:"Fit tolerance", min:0.001, max:5, value:0.01, unit:"mm"},
-      ]},
-      {glyph:"SketchBezier",      label:"Bézier",       dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
-          {kind:"toggle",    ico:"ParamSmooth",   label:"Tangent continuity", value:true},
-      ]},
-      {glyph:"SketchBSpline",     label:"B-Spline",     dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
-          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
-          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
-      ]},
-      {glyph:"SketchNurbs",       label:"NURBS",        dims:ANY, needs:["workplane"], params:[
-          {kind:"slider",    ico:"ParamCount",    label:"Degree", min:2, max:9, value:3, unit:"−"},
-          {kind:"slider",    ico:"ParamRadius",   label:"Weight", min:0.1, max:10, value:1, unit:"−"},
-          {kind:"toggle",    ico:"ParamClosed",   label:"Periodic", value:false},
-      ]},
-      {glyph:"SketchConic",       label:"Conic",        dims:ANY, needs:["workplane"], minCount:3, params:[
-          {kind:"slider",    ico:"ParamRadius",   label:"Rho", min:0.01, max:0.99, value:0.5, unit:"−"},
-          {kind:"segmented", ico:"ParamMode",     label:"Family", options:["Ellipse","Parabola","Hyperbola"], value:0},
-      ]},
-      {glyph:"SketchPoint",       label:"Point",        dims:ANY, needs:["workplane"], params:[
-          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid"]},
-          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:true},
-      ]},
-  ]},
-
-  { sep:true },
-
-  /*── Band · SKETCH MODIFY ──────────────────────────────────────────────────────
-     Curve-editing ops that consume EXISTING sketch geometry rather than drawing a
-     new primitive from scratch: fillet/chamfer a shared corner, trim/extend an
-     edge to its neighbours, offset a wire. Split out of the flat Sketch Geometry
-     band so "draw a shape" and "edit an edge that already exists" no longer share
-     one undifferentiated list. */
-  { key:"sketch-modify", label:"Sketch Modify", glyph:"SketchFillet", ops:[
-      /* Fillet and Chamfer need a shared endpoint between two curves — the
-         "needs a shared endpoint" chip, not the vague "Wrong selection" that
-         FreeCAD #30460 shows for the analogous case. */
-      {glyph:"SketchFillet",      label:"Fillet",       needs:["workplane","tangent"], minCount:2, params:[
-          {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.01, max:500, value:5, unit:"mm"},
-          {kind:"toggle",    ico:"ParamMode",     label:"Trim originals", value:true},
-      ]},
-      {glyph:"SketchChamfer",     label:"Chamfer",      needs:["workplane","tangent"], minCount:2, params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:0.01, max:500, value:5, unit:"mm"},
-          {kind:"slider",    ico:"ParamAngle",    label:"Angle",  min:1, max:89, value:45, unit:"°"},
-      ]},
-      {glyph:"SketchTrim",        label:"Trim",         needs:["workplane"], dims:["Edge","Wire"], params:[
-          {kind:"segmented", ico:"ParamMode",     label:"Extent", options:["To nearest","To pick","All"], value:0},
-      ]},
-      {glyph:"SketchExtend",      label:"Extend",       needs:["workplane"], dims:["Edge","Wire"], params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:0.01, max:5000, value:20, unit:"mm"},
-          {kind:"toggle",    ico:"ParamSnap",     label:"Extend to boundary", value:true},
-      ]},
-      {glyph:"SketchOffset",      label:"Offset",       needs:["workplane"], dims:["Edge","Wire","Face"], params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Distance", min:-500, max:500, value:5, unit:"mm"},
-          {kind:"segmented", ico:"ParamMode",     label:"Corners", options:["Arc","Extend","Chamfer"], value:0},
-          {kind:"toggle",    ico:"ParamClosed",   label:"Both sides", value:false},
-      ]},
-  ]},
-
-  { sep:true },
-
-  /*── Band · SKETCH REFERENCE ───────────────────────────────────────────────────
-     Ops that reference or re-cast existing geometry rather than draw or edit it in
-     place: mirror across an axis, demote to construction geometry, project 3D
-     edges down onto the active workplane. Kept apart from Sketch Modify because
-     these produce derived / linked geometry, not an edit of the source curve. */
-  { key:"sketch-reference", label:"Sketch Reference", glyph:"SketchMirrorLine", ops:[
-      {glyph:"SketchMirrorLine",  label:"Mirror",       needs:["workplane","axis"], dims:["Edge","Wire","Face"], params:[
-          {kind:"toggle",    ico:"ParamMirror",   label:"Keep source", value:true},
-          {kind:"axis",      ico:"ParamAxis",     label:"Mirror line"},
-      ]},
-      {glyph:"SketchConstruction",label:"To Construction", needs:["workplane"], dims:["Edge","Wire"], params:[
-          {kind:"toggle",    ico:"ParamConstruction", label:"Construction geometry", value:true},
-      ]},
-      {glyph:"SketchProject",     label:"Project Edges", needs:["workplane"], dims:["Edge","Wire","Face","Shell","Solid"], params:[
-          {kind:"segmented", ico:"ParamMode",     label:"Result", options:["Reference","Editable"], value:0},
-          {kind:"toggle",    ico:"ParamLink",     label:"Track source geometry", value:true},
-      ]},
-  ]},
-
-  { sep:true },
-
   /*── Band 3 · PROFILE SWEEP (12) ───────────────────────────────────────────────
      🔴 THE LAW'S HOME BAND. Every op here is raising:true, which means not one of
      them declares which dimensions it accepts a result for — `raiseDimension`
@@ -1476,12 +1495,7 @@ const BANDS = [
      reason to exist, and it is why splitting curves across two bands is right
      rather than redundant.
      Nothing here raises dimension: a curve produces a curve. */
-  { key:"curve", label:"Curve", glyph:"CurveLine3d", ops:[
-      {glyph:"CurveLine3d",      label:"Line 3D",       dims:ANY, params:[
-          {kind:"slider",    ico:"ParamDistance", label:"Length", min:0.1, max:5000, value:100, unit:"mm"},
-          {kind:"axis",      ico:"ParamDirection",label:"Direction"},
-          {kind:"snap",      ico:"ParamSnap",     label:"Snap to", on:["Grid","Endpoint"]},
-      ]},
+  { key:"curve", label:"3D Curves", glyph:"CurveInterpolate", ops:[
       {glyph:"CurveArcTangent",  label:"Tangent Arc",   dims:["Edge","Wire"], needs:["tangent"], params:[
           {kind:"slider",    ico:"ParamRadius",   label:"Radius", min:0.1, max:2500, value:50, unit:"mm"},
           {kind:"slider",    ico:"ParamAngle",    label:"Included angle", min:1, max:359, value:90, unit:"°"},

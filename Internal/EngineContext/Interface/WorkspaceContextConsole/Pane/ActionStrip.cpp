@@ -206,11 +206,15 @@ ConsoleActionOutcome InscribeActionStrip(const SvgIconRegistry*      Icons,
             Outcome.ActivatedAction = ActionIndex;
         }
 
-        const ImU32 Ground = Gated ? Palette.GatedTileFill : (Hovered ? Palette.TileHoverFill : Palette.TileFill);
-        Canvas->AddRectFilled(TileMin, TileMax, Ground, Metrics.TileRounding);
+        // 🔴 The hover/selection ground MATCHES THE OUTLINER INDICATOR: a flat AccentSubtle wash (Palette.SelectionFill), SQUARE (rounding 0) — the
+        //    highlight box under the pointer is a sharp-cornered rectangle in the same tint the outliner selection uses, not a rounded grey pill. The
+        //    resting tile keeps its authored TileFill + TileRounding; only the emphasised state takes the wash and loses its corners.
+        const ImU32 Ground        = Gated ? Palette.GatedTileFill : (Hovered ? Palette.SelectionFill : Palette.TileFill);
+        const float GroundRound   = Hovered ? 0.0f : Metrics.TileRounding;
+        Canvas->AddRectFilled(TileMin, TileMax, Ground, GroundRound);
         if (Hovered && !Gated)
         {
-            Canvas->AddRect(TileMin, TileMax, Palette.Hairline, Metrics.TileRounding, 0, 1.0f);
+            Canvas->AddRect(TileMin, TileMax, Palette.Hairline, 0.0f, 0, 1.0f);
         }
 
         // The artwork area, offered to the workspace before the console fills it. A painter that declines (or is absent) leaves the glyph path

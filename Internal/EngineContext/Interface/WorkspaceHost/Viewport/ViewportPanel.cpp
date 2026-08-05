@@ -29,21 +29,39 @@ namespace
     const float OrbitRadiansPerPixel = 0.008f;   // [rad/px] - Drag → orbit angle
     const float PanFractionPerPixel  = 0.0015f;  // [-/px]   - Drag → pan (scaled by Distance so the drag tracks the cursor)
     const float DollyFractionPerNotch = 0.10f;   // [-/notch]- Wheel → fraction of Distance
+    const float DollyFractionPerPixel = 0.005f;  // [-/px]   - Ctrl+MMB drag → fraction of Distance (drag up = eye in)
 
     // 📝 Apply the standard viewport navigation binds to the camera from ImGui input while the surface is hovered/active.
-    //    Left-drag orbits (3D) / does nothing planar; middle- (or shift-left-) drag pans; wheel dollies. Returns whether the
-    //    camera moved. Drives the render-canonical ViewportCamera through the shared Navigation verbs — one camera, one convention.
+    //    🔴 BLENDER convention — navigation lives entirely on the MIDDLE button, the left button is free for select / tools:
+    //         • MMB drag                → orbit (3D only)
+    //         • Shift + MMB drag        → pan
+    //         • Ctrl  + MMB drag        → dolly (drag up = in), in addition to the wheel
+    //         • Wheel                   → dolly
+    //    The three MMB gestures are mutually exclusive and tested MOST-SPECIFIC FIRST (Ctrl, then Shift, then bare), so a held
+    //    modifier always wins over plain orbit. Returns whether the camera moved. Drives the render-canonical ViewportCamera
+    //    through the shared Navigation verbs — one camera, one convention across every workspace.
     bool ApplyViewportNavigation(ViewportPanelState& State, bool Hovered, bool Active)
     {
         bool Changed = false;
         ImGuiIO& Io = ImGui::GetIO();
 
-        if (Active)
+        if (Active && Io.MouseDown[2])
         {
             const ImVec2 Drag = Io.MouseDelta;
-            if (Io.MouseDown[2] || (Io.MouseDown[0] && Io.KeyShift))
+            const bool   Moved = (Drag.x != 0.0f || Drag.y != 0.0f);
+
+            if (Io.KeyCtrl)
             {
-                if (Drag.x != 0.0f || Drag.y != 0.0f)
+                // Ctrl + MMB drag → dolly. Vertical drag drives it (drag up pulls the eye in), scaled by Distance like the wheel.
+                if (Drag.y != 0.0f)
+                {
+                    DollyViewportCamera(State.Camera, Drag.y * DollyFractionPerPixel * State.Camera.Distance);
+                    Changed = true;
+                }
+            }
+            else if (Io.KeyShift)
+            {
+                if (Moved)
                 {
                     // Pan slides Target in the view plane, scaled so a drag covers the same screen span at any zoom.
                     // 📝 The scale must track whatever actually sets the on-screen world extent, and that differs by lens: a
@@ -59,9 +77,9 @@ namespace
                     Changed = true;
                 }
             }
-            else if (Io.MouseDown[0] && State.Projection != ViewportProjection::Planar)
+            else if (State.Projection != ViewportProjection::Planar)
             {
-                if (Drag.x != 0.0f || Drag.y != 0.0f)
+                if (Moved)
                 {
                     // Orbit: drag-right turns the view right (−Yaw), drag-down raises the eye. ConstrainPitch is applied inside.
                     // 💡 Gated on the viewport being a 3D one (not Planar), NOT on the LENS. ViewportProjection is the panel's

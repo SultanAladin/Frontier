@@ -25,9 +25,14 @@
 
 #include "SurfelGrid.glsl"
 #include "SurfelRecord.glsl"
+#include "SurfelCoverage.glsl"
 #include "SurfelVisibilityReconstruct.glsl"
 
-layout(local_size_x = 8, local_size_y = 8) in;
+// 🔴 16x16 = 256 lanes, matching SurfelSpawnTileEdge in SurfelLifecycleSubmission.h — THE TWO MUST BE EDITED TOGETHER. A mismatch does not fail to
+//    compile and does not trip the validator: the dispatch simply covers the wrong pixel area, so the pass keeps "working" while sampling the wrong
+//    pixels. See that header's note for the full list of what moves with the edge (lane stride + the vote's lane-field width are in this file).
+#define SURFEL_SPAWN_TILE_EDGE 16u
+layout(local_size_x = 16, local_size_y = 16) in;
 
 // ---- set 0: the visibility reconstruction inputs, mirroring SurfaceShade.frag's set 0 (b0 id, b1/b2/b3 head mesh, b5/b6/b7 floor mesh) ----
 layout(set = 0, binding = 0) uniform usampler2D VisibilityBuffer;
@@ -73,10 +78,42 @@ const int SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE = 32;    // maxKeepAlive: t
 const int SURFEL_KILL_SIGNAL                         = 255;   // the despawn kill value written into the touched mailbox
 const int SURFEL_LIFE_RECYCLE                        = 0x8000000;   // "recycled" marker (a surfel flagged for recycle is not kept alive)
 
+// 🔴 THE DEAD BAND — the cure for a MEASURED two-frame limit cycle. Before this existed the spawn gate fired at ScoringWeight < 0.1 and the despawn
+//    vote fired at ScoringWeight > 3.0..3.5, which sounds like a wide gap and is not one: the two gates measure the cell from DIFFERENT PIXELS.
+//    Killing the one surfel a well-covered pixel is over-covered BY can drop a neighbouring, poorly-covered pixel straight past the spawn line, so
+//    the cell refills, becomes over-covered again, and votes to kill on the very next frame. The census caught it exactly:
+//        alive 1018 -> 922 -> 1018 -> 922 ...      spawned 0 -> 96 -> 0 -> 96 ...
+//    over 600 frames spawned=25424 vs diedPolice=25224 but diedTtl=only 865 — i.e. 99.2% of all deaths were despawn votes and ~9.4% of the field
+//    was recycled EVERY OTHER FRAME. Net population stayed flat at 1018, which is why it never looked like a fault: nothing in the population count
+//    moves. The visible symptom is jitter.
+//
+//    The fix is Falcor SurfelGI's shape (placementThreshold 2.0 / removalThreshold 4.0): spawn strictly BELOW a low bound, kill strictly ABOVE a
+//    distinctly higher one, and do NOTHING in between. The band must be wide enough that removing one surfel's contribution cannot carry the cell
+//    from above the kill line to below the spawn line, which is what makes the oscillation structurally impossible rather than merely unlikely.
+const float SURFEL_SPAWN_COVERAGE_CEILING  = 0.1;   // [-] - spawn only when the TIGHT sum is below this (unchanged; the shipped spawn threshold)
+const float SURFEL_DESPAWN_COVERAGE_FLOOR  = 4.0;   // [-] - kill only when the TIGHT sum is above this. Was 3.0..3.5; lifted to open the dead band
+
+// 🔴 YOUNG-SURFEL DESPAWN IMMUNITY — the second half of the cycle break, and the half that acts on the SLOT rather than the cell. The dead band stops
+//    a cell from flip-flopping; this stops the specific "spawn -> kill -> spawn" churn on a surfel that has not yet had time to earn its place. A
+//    newborn has integrated almost no rays (see SurfelIntegrate's SinceBirth <= 4 ray warmup), so killing it discards work that was never done and
+//    the tile immediately re-requests the same spot. Immunity is read from PositionAndSpare.w, which already carries the birth frame all the way from
+//    the tile election through SurfelAllocate — no new buffer, no new push field.
+const uint SURFEL_DESPAWN_IMMUNE_FRAMES = 8u;   // [-] - a surfel younger than this cannot be picked as a despawn victim
+
+// 🔴 THE LANE FIELD IS 8 BITS BECAUSE THE TILE IS 16x16. It was 6 bits (0x3F) for the 8x8 tile's 64 lanes; 256 lanes do not fit in 6, and a stale mask
+//    fails SILENTLY in the worst way — lane 64 aliases onto lane 0, so the tile elects one pixel and the WINNER WRITES A DIFFERENT PIXEL'S world
+//    position and normal into the spawn request. The surfel lands somewhere nothing asked for, which reads as scattered bad placement, not as a bug.
+//
+// 📝 Stealing 8 mantissa bits instead of 6 is safe here: the score is used ONLY to rank lanes inside one tile, never as a value. float32 keeps 23
+//    mantissa bits, so this still ranks to ~3e-5 relative — far finer than the coverage differences the election is choosing between — and the bits
+//    that are cleared are precisely the ones now carrying the tie-break. Scores are non-negative, so the uint compare orders them correctly.
+const uint SURFEL_VOTE_LANE_MASK  = 0xFFu;         // 8 bits — 256 lanes (16x16). Was 0x3Fu for 64 lanes (8x8).
+const uint SURFEL_VOTE_SCORE_MASK = 0xFFFFFF00u;   // the complement — the score bits kept above the lane field.
+
 uint SurfelPackVote(float Score, uint Lane)
 {
     uint ScoreBits = floatBitsToUint(Score);
-    return (ScoreBits & 0xFFFFFFC0u) | (Lane & 0x3Fu);
+    return (ScoreBits & SURFEL_VOTE_SCORE_MASK) | (Lane & SURFEL_VOTE_LANE_MASK);
 }
 
 // --- the visibility reconstruction, 1:1 with SurfaceShade.frag:322-416 (identity -> triangle corners -> ray/tri -> flat normal) ---
@@ -171,7 +208,7 @@ void main()
     SurfelSetTuning(Push.TuneCellDiameter, Push.TuneBaseRadius, Push.TuneNearFieldBias);
     SurfelSetPerCellCap(Push.PerCellCap);
 
-    uint LaneIndex = gl_LocalInvocationID.y * 8u + gl_LocalInvocationID.x;
+    uint LaneIndex = gl_LocalInvocationID.y * SURFEL_SPAWN_TILE_EDGE + gl_LocalInvocationID.x;
     int  TileIndex = int(gl_WorkGroupID.y) * Push.ScreenAndTiles.z + int(gl_WorkGroupID.x);
 
     if (LaneIndex == 0u)
@@ -215,10 +252,9 @@ void main()
             int Count = max(End - Start, 0);
             int Loop  = min(Count, SURFEL_MAX_SURFELS_PER_CELL * 2);
 
-            float TotalWeight   = 0.0;   // smoothed coverage (overscaled radius)
-            float ScoringWeight = 0.0;   // tight coverage (base radius)
-            float Highest       = 0.0;
-            float Second        = 0.0;
+            // The coverage measure now comes from SurfelCoverage.glsl so the eviction gate in SurfelAge can threshold the SAME quantity. The
+            // arithmetic is unchanged — see that module's extraction note; this loop's shape, bounds and keep-alive side effect are untouched.
+            SurfelCoverageTotals Totals = SurfelCoverageBegin();
 
             for (int I = 0; I < Loop; ++I)
             {
@@ -230,29 +266,23 @@ void main()
                 vec3  NeighbourNormal = Neighbour.Normal;
 
                 float SurfelRadius = SurfelRadiusForPositionEye(NeighbourPos, Push.CameraPosition.xyz);
-                vec3  Offset       = Hit.WorldPosition - NeighbourPos;
-                float DistanceLen  = length(Offset);
-                float AlignPenalty = abs(dot(Offset, NeighbourNormal)) * SURFEL_NORMAL_DIRECTION_SQUISH;
-                float Mahalanobis  = DistanceLen * (1.0 + AlignPenalty);
-                float DotNormal    = max(dot(NeighbourNormal, Hit.Normal), 0.0);
-
-                float Weight = smoothstep(SurfelRadius * SURFEL_RADIUS_OVERSCALE, 0.0, Mahalanobis) * DotNormal;
-                float Score  = smoothstep(SurfelRadius, 0.0, Mahalanobis) * DotNormal;
-                TotalWeight   += Weight;
-                ScoringWeight += Score;
-
-                if (Weight > Highest)      { Second = Highest; Highest = Weight; }
-                else if (Weight > Second)  { Second = Weight; }
+                SurfelCoverageWeights Sample = SurfelCoverageSample(Hit.WorldPosition, Hit.Normal,
+                                                                    NeighbourPos, NeighbourNormal, SurfelRadius);
+                SurfelCoverageAccumulate(Totals, Sample);
 
                 // KEEP-ALIVE (surfelFindMissingPass.ts:406-416): a covered pixel whose cell is not over-subscribed and that finds a
                 // well-aligned, same-cell surfel that is NOT flagged for recycle feeds it a small keep-alive income. Age subtracts this
                 // from the surfel's metabolism, so a contributing surfel ages slower and its cohort no longer dies in lockstep.
                 bool SameCellKeep = Count <= SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE
-                                    && DotNormal > 0.8
+                                    && Sample.DotNormal > 0.8
                                     && SurfelHashOfPosition(NeighbourPos - Push.GridOrigin.xyz) == Hash;
                 if (SameCellKeep && Neighbour.Age != SURFEL_LIFE_RECYCLE)
                     atomicMax(Touched[Sid], 5);
             }
+
+            float TotalWeight   = Totals.TotalWeight;
+            float ScoringWeight = Totals.ScoringWeight;
+            float Second        = Totals.Second;
 
             // DESPAWN vote (surfelFindMissingPass.ts:422-442): an OVER-covered pixel elects one winning lane per tile. Fullness scales the
             // thresholds toward stricter as the cell fills; a pixel past both the tight-scoring and second-best thresholds packs its scoring
@@ -260,7 +290,9 @@ void main()
             float Fullness        = smoothstep(float(SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE) * 0.75,
                                                float(SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE),
                                                float(Count));
-            float DespawnThreshold = mix(3.5, 3.0, Fullness);
+            // The fullness ramp is kept — a filling cell still gets STRICTER — but both ends now sit above the dead band's floor rather than
+            // straddling it. Was mix(3.5, 3.0): the 3.0 end sat close enough to the spawn line to close the band from the kill side.
+            float DespawnThreshold = mix(SURFEL_DESPAWN_COVERAGE_FLOOR + 0.5, SURFEL_DESPAWN_COVERAGE_FLOOR, Fullness);
             float SecondThreshold  = mix(0.9, 0.8, Fullness);
             if (ScoringWeight > DespawnThreshold && Second > SecondThreshold)
                 atomicMax(TileMaxVote, SurfelPackVote(ScoringWeight, LaneIndex));
@@ -280,7 +312,12 @@ void main()
             float Random      = float(Seed & 0x00FFFFFFu) / float(0x01000000u);
             bool  RandomOk    = Random < Probability;
 
-            bool GateCoverage = Second < 0.4 && ScoringWeight < 0.1 && Count < g_SurfelPerCellCap;
+            bool GateCoverage = Second < 0.4 && ScoringWeight < SURFEL_SPAWN_COVERAGE_CEILING && Count < g_SurfelPerCellCap;
+
+            // 📝 THE LOTTERY IS A THROUGHPUT THROTTLE. atomicMin over TotalWeight elects the least-covered lane in the tile, but with RandomOk in the
+            //    condition it ranks only among LOTTERY SURVIVORS: at 1920x1080 and 10 m an uncovered pixel votes with probability ~1/2600 per frame, so a
+            //    64-lane tile expects ~0.024 voters and the election usually has nothing to choose between. Dropping the lottery was tried as an A/B and
+            //    REMOVED with the rest of the convergence work; SpawnDensityScale is the live knob that governs this throttle.
             if (GateCoverage && RandomOk)
             {
                 // Vote to spawn — the least-covered (lowest total weight) lane wins the tile.
@@ -295,7 +332,7 @@ void main()
     uint DespawnVote = TileMaxVote;
     if (DespawnVote != 0u)
     {
-        uint DespawnLane = DespawnVote & 0x3Fu;
+        uint DespawnLane = DespawnVote & SURFEL_VOTE_LANE_MASK;
         if (LaneIndex == DespawnLane && PixelValid)
         {
             int   VictimSid    = -1;
@@ -315,13 +352,24 @@ void main()
                 vec3  NeighbourPos    = Neighbour.PositionAndSpare.xyz;
                 vec3  NeighbourNormal = Neighbour.Normal;
 
+                // 🔴 YOUNG-SURFEL IMMUNITY — see SURFEL_DESPAWN_IMMUNE_FRAMES. A surfel this young has integrated almost no rays (SurfelIntegrate
+                //    floors a newborn at 32 samples for its first 4 frames), so killing it throws away work that was never done AND leaves the cell
+                //    just as uncovered as before — the tile re-requests the same spot next frame, which is the churn half of the limit cycle. Skipping
+                //    it here does NOT cancel the despawn: the loop simply elects the best ELIGIBLE victim, and if every candidate is immune the cell
+                //    keeps its surfels for a few frames and re-votes once they have earned their keep.
+                //    Unsigned is correct — the birth frame is always <= the current frame, so the difference cannot wrap. An untouched slot reads
+                //    w == 0 and therefore looks "young" for the first few frames of the very first run only, which is harmless: a recycled slot is
+                //    always re-stamped by SurfelAllocate before it can be picked.
+                uint NeighbourBirthFrame = uint(max(Neighbour.PositionAndSpare.w, 0.0));
+                uint NeighbourAgeFrames  = uint(Push.ScreenAndTiles.w) - NeighbourBirthFrame;
+                if (NeighbourAgeFrames < SURFEL_DESPAWN_IMMUNE_FRAMES)
+                    continue;
+
                 float SurfelRadius = SurfelRadiusForPositionEye(NeighbourPos, Push.CameraPosition.xyz);
-                vec3  Offset       = PixelWorld - NeighbourPos;
-                float DistanceLen  = length(Offset);
-                float AlignPenalty = abs(dot(Offset, NeighbourNormal)) * SURFEL_NORMAL_DIRECTION_SQUISH;
-                float Mahalanobis  = DistanceLen * (1.0 + AlignPenalty);
-                float DirWeight    = max(dot(NeighbourNormal, PixelNormal), 0.0);
-                float Weight       = smoothstep(SurfelRadius * SURFEL_RADIUS_OVERSCALE, 0.0, Mahalanobis) * DirWeight;
+                // The victim pick uses the LOOSE weight, matching the vote that elected this lane. Same module, same arithmetic as the measure loop.
+                SurfelCoverageWeights Sample = SurfelCoverageSample(PixelWorld, PixelNormal,
+                                                                    NeighbourPos, NeighbourNormal, SurfelRadius);
+                float Weight = Sample.Weight;
 
                 if (Weight >= VictimWeight) { VictimWeight = Weight; VictimSid = Sid; }
             }
@@ -335,7 +383,7 @@ void main()
     uint Winner = TileMinVote;
     if (Winner != 0xFFFFFFFFu)
     {
-        uint WinningLane = Winner & 0x3Fu;
+        uint WinningLane = Winner & SURFEL_VOTE_LANE_MASK;
         if (LaneIndex == WinningLane)
         {
             TileAlloc[TileIndex] = 1;

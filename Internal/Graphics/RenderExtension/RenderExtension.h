@@ -39,6 +39,7 @@
 #include "Graphics/Surfel/SurfelLifecycleSubmission.h"
 #include "Graphics/Surfel/SurfelDebugInscription.h"
 #include "Graphics/Surfel/SurfelIntegrateSubmission.h"
+#include "Graphics/Surfel/SurfelCensusTrace.h"
 #include "Graphics/RenderExtension/SurfelTuningWindow.h"
 #include "Graphics/RenderExtension/GpuTimestampScope.h"
 #include "EngineContext/Scene/SceneExtension.h"
@@ -171,6 +172,10 @@ struct RenderExtension
     uint32_t                HeadMeshOrdinal  = 0;  // [-] - Ordinal of the heads mesh within SceneStreams / the arena (0 = first appended)
     uint32_t                FloorMeshOrdinal = 0;  // [-] - Ordinal of the floor slab; equals HeadMeshOrdinal only when no floor loaded
     bool                    FloorStreamPresent = false; // [-] - True when the floor actually appended a non-empty mesh (its ordinal is meaningful)
+    // 📝 The floor's single model matrix, RETAINED at load. The surfel micro-raster walks geometry rather than the visibility buffer, so it must cover
+    //    the floor partition explicitly — and that dispatch pushes this matrix instead of binding FloorRaster.InstanceBuffer, because re-pointing the
+    //    instance descriptor between the heads' dispatch and the floor's would race the in-flight heads. One instance, so one matrix is the whole set.
+    float                   FloorInstanceModel[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
     GeometryArenaSubmission GeometryArena;         // [-] - Bottom-level trees for every merged mesh, indexed by the ordinals above
     // 📝 Top-level acceleration structure (TLAS) — built on the GPU every frame over the scene instances so the Phase-2 surfel trace has a live
     //    two-level BVH to walk. Bound ONCE at load (the scene is static after load, so every buffer handle is stable — re-binding a set already
@@ -254,6 +259,13 @@ struct RenderExtension
     bool                      SurfelDumpKeyLatch       = false;              // [-] - edge latch so one L press requests a dump once
     bool                      SurfelDumpRequested      = false;              // [-] - one-shot: set by the L latch, consumed at the preamble seam (copy surfels+spawns off the GPU to disk)
     uint32_t                  SurfelDumpSequence       = 0;                  // [-] - monotonic per-dump counter; names each L-press snapshot (surfel-dump-0000.json …) so presses accumulate
+
+    // 🩺 Per-frame population census (K key), the TIME-SERIES counterpart to L's snapshot. K toggles recording on/off; while on, one CSV row per frame
+    //    carries the pool levels plus the GPU-counted spawn/death FLOWS. It answers what no snapshot can: whether the probe field churns. See
+    //    SurfelCensusTrace.h — the flows must be counted on the GPU because differencing AliveCount hides gross flow entirely.
+    SurfelCensusTrace         SurfelCensus;                                   // [-] - counters buffer + non-blocking staging ring + the open CSV
+    bool                      SurfelCensusKeyLatch     = false;              // [-] - edge latch so one K press toggles recording once
+    uint32_t                  SurfelCensusAutoFrames   = 0;                  // [-] - >0 only for an env-armed trace: close the CSV + exit after N rows
 
     // 📝 Live surfel-tuning debug window (F10). The renderer stands up its OWN ImGui-on-Vulkan context (context + imgui_impl_vulkan backend +
     //    shared theme) and renders the window INTO the substrate's swapchain command buffer inside the colour scope — NOT via VulkanImguiInterface

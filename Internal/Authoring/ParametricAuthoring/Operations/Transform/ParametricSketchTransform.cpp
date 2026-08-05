@@ -305,19 +305,30 @@ namespace
 //                                                    CLIPPER2-BACKED OFFSET
 //------------------------------------------------------------------------------------------------------------------------
 
-std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm)
+std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm,
+                                                 SketchOffsetCornerStyle CornerStyle)
 {
     std::vector<std::vector<ImVec2>> Result;
     if (Loop.size() < 3 || DistanceMm == 0.0f)
         return Result;
 
-    // A closed polygon offset: JoinType::Round makes a convex offset corner a true arc (the CAD default look), EndType::Polygon closes
-    //    the path so the whole region inflates / deflates. Clipper2 scales to its fixed-point grid internally at OffsetPrecision.
+    // Map the workspace corner style onto Clipper2's JoinType: Round (arc, the CAD default), Miter (sharp intersection, clamped by the miter
+    //    limit below), Bevel -> Square (a flat cut across the corner). The default caller passes Round, so existing behaviour is unchanged.
+    Clipper2Lib::JoinType Join = Clipper2Lib::JoinType::Round;
+    switch (CornerStyle)
+    {
+        case SketchOffsetCornerStyle::Miter: Join = Clipper2Lib::JoinType::Miter;  break;
+        case SketchOffsetCornerStyle::Bevel: Join = Clipper2Lib::JoinType::Square; break;
+        default:                             Join = Clipper2Lib::JoinType::Round;  break;
+    }
+
+    // A closed polygon offset: the JoinType above builds each convex corner, EndType::Polygon closes the path so the whole region inflates /
+    //    deflates. The 2.0 is Clipper2's miter limit (only consulted for JoinType::Miter). Clipper2 scales to its fixed-point grid at OffsetPrecision.
     Clipper2Lib::PathsD Source;
     Source.push_back(ConvertLoopToPath(Loop));
     const Clipper2Lib::PathsD Offset = Clipper2Lib::InflatePaths(Source,
                                                                  (double)DistanceMm,
-                                                                 Clipper2Lib::JoinType::Round,
+                                                                 Join,
                                                                  Clipper2Lib::EndType::Polygon,
                                                                  2.0,
                                                                  (int)OffsetPrecision);
@@ -340,10 +351,81 @@ std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop
 }
 
 //------------------------------------------------------------------------------------------------------------------------
+//                                                  OPEN-CURVE PARALLEL OFFSET
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Offset ONE open polyline by a signed distance into a SINGLE parallel open curve on one side (the Blender "offset open curve" result, not
+//    Clipper2's both-sided ribbon — Clipper2's open EndTypes all close the path). The sign picks the side: positive shifts along the LEFT normal
+//    (the segment direction rotated +90°), negative shifts right. Each interior vertex rides the AVERAGED adjacent-segment normal, lengthened by
+//    1/cos(half-angle) so the parallel curve holds a constant perpendicular distance through the joint (a true miter); the scale is clamped so a
+//    sharp reflex corner cannot fire the vertex off to infinity — it bevels instead, the graceful degenerate. The CornerStyle rides along for the
+//    caller's readout but a single open curve has only miter/bevel behaviour here (Round would need arc insertion — deferred). Returns the offset
+//    polyline, or empty when the source has < 2 points or the distance is ~zero.
+std::vector<ImVec2> SolveOpenCurveOffset(const std::vector<ImVec2>& Polyline, float DistanceMm)
+{
+    std::vector<ImVec2> Result;
+    const size_t Count = Polyline.size();
+    if (Count < 2 || DistanceMm == 0.0f)
+        return Result;
+
+    // The unit LEFT normal of the segment A→B (direction rotated +90°: (dx,dy) → (-dy,dx)). Zero-length segments contribute no normal.
+    auto SegmentNormal = [](const ImVec2& A, const ImVec2& B) -> ImVec2
+    {
+        const float Dx = B.x - A.x, Dy = B.y - A.y;
+        const float Length = std::sqrt(Dx * Dx + Dy * Dy);
+        if (Length < 1e-6f)
+            return ImVec2(0.0f, 0.0f);
+        return ImVec2(-Dy / Length, Dx / Length);
+    };
+
+    constexpr float MiterClampScale = 4.0f;   // [-] - cap the joint lengthening so a sharp corner bevels rather than spiking to infinity
+
+    Result.reserve(Count);
+    for (size_t Index = 0; Index < Count; ++Index)
+    {
+        // Endpoints ride the single adjacent segment's normal (a square butt cap at the requested distance). Interior vertices average the two
+        //    adjacent normals and lengthen by 1/cos(half-angle) = 1/|averaged normal| so the perpendicular distance stays exactly DistanceMm.
+        ImVec2 Normal;
+        if (Index == 0)
+        {
+            Normal = SegmentNormal(Polyline[0], Polyline[1]);
+        }
+        else if (Index + 1 == Count)
+        {
+            Normal = SegmentNormal(Polyline[Count - 2], Polyline[Count - 1]);
+        }
+        else
+        {
+            const ImVec2 NormalBefore = SegmentNormal(Polyline[Index - 1], Polyline[Index]);
+            const ImVec2 NormalAfter  = SegmentNormal(Polyline[Index],     Polyline[Index + 1]);
+            ImVec2       Averaged(NormalBefore.x + NormalAfter.x, NormalBefore.y + NormalAfter.y);
+            const float  AverageLength = std::sqrt(Averaged.x * Averaged.x + Averaged.y * Averaged.y);
+            if (AverageLength < 1e-6f)
+            {
+                // A ~180° reversal (the curve doubles back): the two normals cancel. Fall back to the incoming normal, unscaled.
+                Normal = NormalBefore;
+            }
+            else
+            {
+                // |Averaged| = 2·cos(half-angle) for two unit normals, so 1/half of that is the miter scale. Clamp it so a spike bevels.
+                float MiterScale = 2.0f / AverageLength;
+                if (MiterScale > MiterClampScale)
+                    MiterScale = MiterClampScale;
+                Normal = ImVec2(Averaged.x / AverageLength * MiterScale, Averaged.y / AverageLength * MiterScale);
+            }
+        }
+
+        Result.emplace_back(Polyline[Index].x + Normal.x * DistanceMm,
+                            Polyline[Index].y + Normal.y * DistanceMm);
+    }
+    return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
 //                                                        ORCHESTRATION
 //------------------------------------------------------------------------------------------------------------------------
 
-OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float DistanceMm)
+OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float DistanceMm, SketchOffsetCornerStyle CornerStyle)
 {
     // Work over the multi-select SelectionSet, or the lone Selected shape when nothing multi-picked (a single object select seeds only
     //    Store.Selected). Snapshot the sources BEFORE appending (appending grows Store.Shapes and could reallocate; ids stay stable).
@@ -362,13 +444,52 @@ OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float Distan
     }
 
     std::vector<uint32_t> AppendedIdentifiers;
-    int  ClosedSourceCount = 0;
+    int  OffsettableSourceCount = 0;
     for (uint32_t Identifier : SourceIdentifiers)
     {
         ParametricSketchShape* Shape = ResolveParametricSketchShape(Store, Identifier);
-        if (!Shape || !Shape->ClosedEnabled)
-            continue;                       // an open Line / curve has no area to offset this pass — skip it
-        ++ClosedSourceCount;
+        if (!Shape)
+            continue;
+
+        const uint32_t SourceTint      = Shape->TintIndex;
+        const uint32_t SourceFolder    = Shape->FolderIdentifier;
+        const float    SourceElevation = Shape->Elevation;
+
+        // ── OPEN source (a Line / Polyline / open curve): a single PARALLEL curve on the side the sign selects, staying an open Polyline (Curves
+        //    group, not a filled Profile). Flatten the open run the same way the view does (EvaluateShapePolyline — no forced closing point). ──
+        if (!Shape->ClosedEnabled)
+        {
+            std::vector<ImVec2> Open;
+            EvaluateShapePolyline(*Shape, Open, OffsetFlattenBudget);
+            if (Open.size() < 2)
+                continue;                   // a degenerate open source — nothing to offset
+            ++OffsettableSourceCount;
+
+            std::vector<ImVec2> Parallel = SolveOpenCurveOffset(Open, DistanceMm);
+            if (Parallel.size() < 2)
+                continue;
+
+            ParametricSketchShape Fresh = ConstructParametricSketchShape(ParametricSketchShapeCategory::Polyline, Parallel);
+            Fresh.Identifier       = Store.NextIdentifier++;
+            Fresh.ClosedEnabled    = false;
+            Fresh.FillEnabled      = false;
+            Fresh.Displayed        = true;
+            Fresh.TintIndex        = SourceTint;
+            Fresh.FolderIdentifier = SourceFolder;
+            Fresh.Elevation        = SourceElevation;
+            std::snprintf(Fresh.Title, sizeof(Fresh.Title), "Offset Curve %u", Fresh.Identifier);
+
+            Store.Shapes.push_back(Fresh);
+            AppendedIdentifiers.push_back(Fresh.Identifier);
+
+            char LogLabel[64];
+            std::snprintf(LogLabel, sizeof(LogLabel), "Added %s", Fresh.Title);
+            AppendParametricSketchEdit(Store, Fresh.Identifier, LogLabel, "spline");
+            continue;
+        }
+
+        // ── CLOSED source (Rectangle / Circle / Polygon / Profile): the region inflates / deflates into one Profile per surviving outer loop. ──
+        ++OffsettableSourceCount;
 
         // Flatten the source densely (the offsetter is a straight-segment sweep, like the boolean) into the region's outer loop.
         std::vector<ImVec2> Outline;
@@ -376,11 +497,7 @@ OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float Distan
         if (Outline.size() < 3)
             continue;
 
-        const uint32_t SourceTint   = Shape->TintIndex;
-        const uint32_t SourceFolder = Shape->FolderIdentifier;
-        const float    SourceElevation = Shape->Elevation;
-
-        std::vector<std::vector<ImVec2>> Offset = SolveLoopOffset(Outline, DistanceMm);
+        std::vector<std::vector<ImVec2>> Offset = SolveLoopOffset(Outline, DistanceMm, CornerStyle);
         if (Offset.empty())
             continue;                       // this shape collapsed under a large inward offset — try the next
 
@@ -417,9 +534,9 @@ OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float Distan
         }
     }
 
-    if (ClosedSourceCount == 0)
+    if (OffsettableSourceCount == 0)
     {
-        RaiseNotice(Store, "Offset needs a closed shape");
+        RaiseNotice(Store, "Offset needs a shape to offset");
         return OffsetOutcome::NeedsClosedShapes;
     }
     if (AppendedIdentifiers.empty())

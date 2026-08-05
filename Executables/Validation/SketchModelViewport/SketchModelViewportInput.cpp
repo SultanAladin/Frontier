@@ -41,8 +41,8 @@ void SustainSketchToolCycle(const SketchToolLatch& Latch, Frontier::ParametricSk
 {
     // 🔴 The cycle boundary: a shape sealed this frame IFF a tool is latched but the store's draw fell idle. AdvanceShapeDraw clears DrawingEnabled on
     //    the completing click (one shape per arm), so re-arming the latched category here re-opens the draw for the next click — the tool never turns
-    //    itself off. While a draw is still in progress (DrawingEnabled true) this is a no-op, so it never wipes half-placed points. Escape clears the
-    //    latch first (ClearSketchToolLatch), so an Escaped tool is NOT re-armed here and the cycle genuinely ends.
+    //    itself off. While a draw is still in progress (DrawingEnabled true) this is a no-op, so it never wipes half-placed points. Escape and right-click
+    //    now BOTH cancel only the stroke and leave the latch intact, so a cancelled draw re-arms here into a fresh blank stroke of the same tool.
     if (!Latch.Latched || Store.DrawingEnabled)
         return;
 

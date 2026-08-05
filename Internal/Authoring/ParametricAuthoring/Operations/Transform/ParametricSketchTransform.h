@@ -21,6 +21,16 @@ namespace Frontier
 //------------------------------------------------------------------------------------------------------------------------
 
 // ðŸ“ What AppendOffsetResult resolved to â€” the Properties panel maps each onto a chip / notice. Mirrors BooleanOutcome.
+// How an offset CORNER is built - the Clipper2 JoinType the offsetter uses at each convex vertex. Round is the CAD default (a true arc), Miter
+//    extends the two edges to their sharp intersection (clamped), Bevel (Square) cuts the corner off flat. The operator box's "Corners" dropdown
+//    selects one; the value maps 1:1 onto Clipper2Lib::JoinType inside SolveLoopOffset.
+enum class SketchOffsetCornerStyle
+{
+    Round = 0,   // [-] - a true arc at each convex corner (the CAD default)
+    Miter = 1,   // [-] - the two edges extended to their sharp intersection (clamped by Clipper2's miter limit)
+    Bevel = 2    // [-] - the corner cut off flat (Clipper2 Square)
+};
+
 enum class OffsetOutcome
 {
     Committed         = 0,   // [-] - one or more offset Profiles were appended; originals kept
@@ -55,14 +65,22 @@ enum class ArrayOutcome
 //    polygon offsetter. Returns the resulting loop set (outer loops CCW, hole loops CW) â€” a single loop usually, but a concave inward
 //    offset can split into several, and an outward offset of a self-near shape can merge. Empty when the offset collapses the region.
 //    JoinType is Round so an offset corner reads as a true arc (the CAD default); the caller flattens the analytic shape first.
-std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm);
+std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm,
+                                                 SketchOffsetCornerStyle CornerStyle = SketchOffsetCornerStyle::Round);
+
+// 📝 Offset ONE open polyline by a signed distance into a SINGLE parallel open curve on one side (the Blender "offset open curve" result, not
+//    Clipper2's both-sided ribbon). Positive shifts along the LEFT segment normal, negative shifts right. Interior joints ride the averaged
+//    adjacent normal lengthened to hold a constant perpendicular distance (a miter), clamped so a sharp corner bevels instead of spiking. Returns
+//    the offset polyline (same point count as the source), or empty when the source has < 2 points or the distance is ~zero.
+std::vector<ImVec2> SolveOpenCurveOffset(const std::vector<ImVec2>& Polyline, float DistanceMm);
 
 // ðŸ“ The orchestrator the Properties "Offset" button calls: for every CLOSED shape in the SelectionSet, flatten its outline (holes
 //    carried), offset it by DistanceMm, and append one Profile per surviving outer loop (its contained holes carried, tint + folder
 //    inherited from the source). The originals are KEPT (offset is additive construction, not a consuming boolean). Re-selects the new
 //    Profiles. Sets Store.Notice on a failure path; never mutates the store on a non-Committed outcome. A shape with no closed region is
 //    skipped (an open Line / curve cannot be area-offset this pass); the outcome is NeedsClosedShapes only when NONE offsetted.
-OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float DistanceMm);
+OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float DistanceMm,
+                                 SketchOffsetCornerStyle CornerStyle = SketchOffsetCornerStyle::Round);
 
 // ðŸ“ The orchestrator the Properties "Mirror across datum" button calls: reflect every selected shape that carries an enabled datum across
 //    that datum's active axis (DatumAnchor + DatumRotation orient the axes; DatumAxis picks them â€” Horizontal / Vertical, or Cross â†’ both,

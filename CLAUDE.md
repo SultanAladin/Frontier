@@ -41,6 +41,22 @@ Plans go in chat first — write a file only when the user says to save it.
 - When compile-checking a ported batch, emit the probe `.cpp` + `.obj` into `_ClaudeScratch/build/`,
   never into the ported subsystem's own folder.
 
+### 🔴 Exception — a prototype the user asked for is NOT scratch
+
+The scratch rule covers *disposable* work. It does **not** apply to a deliverable the user requested.
+
+| What | Where |
+|---|---|
+| An `.html` prototype **the user asked for** (+ its launcher `.bat`) | `Documentation/Prototypes/` |
+| Probe/harness/validation `.html`, build fragments, sabotage backups | `_ClaudeScratch/tmp/` |
+
+- Write the requested prototype **straight to `Documentation/Prototypes/`** — never build it in scratch
+  and copy it over, and never leave the only copy in scratch.
+- Assembly fragments (partial `<head>`/`<body>` chunks stitched by a script) are **not** viewable pages:
+  give them a non-`.html` extension such as `.part` so nothing in scratch resembles a deliverable.
+- Test-drivers, CDP probes and validators you invent to check your own work stay in `_ClaudeScratch/tmp/`
+  regardless of extension.
+
 ---
 
 ## Build & tooling

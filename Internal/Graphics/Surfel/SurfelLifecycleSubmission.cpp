@@ -162,7 +162,7 @@ void LifecycleStorageBarrier(VkCommandBuffer CommandBuffer)
                          0, 1, &Barrier, 0, nullptr, 0, nullptr);
 }
 
-// Build a storage-only set layout of N compute bindings starting at binding 0. Used for the spawn grid set (5) and the pool set (7).
+// Build a storage-only set layout of N compute bindings starting at binding 0. Used for the spawn grid set (6) and the pool set (10).
 VkDescriptorSetLayout ConstructStorageSetLayout(VulkanHost& Host, uint32_t BindingCount)
 {
     std::vector<VkDescriptorSetLayoutBinding> Bindings(BindingCount);
@@ -226,6 +226,28 @@ VkPipelineLayout ConstructPipelineLayout(VulkanHost& Host, const VkDescriptorSet
         return VK_NULL_HANDLE;
     return Layout;
 }
+
+// 🔴 THE ONE DEFINITION OF THE POOL PUSH BLOCK, byte-mirroring SurfelAllocate.comp / SurfelAge.comp / SurfelPrepare.comp's PushBlock. It was previously
+//    re-declared locally at each of the four record sites; that is four chances for one copy to drift from the shader with no compile error and no
+//    validation error — the shader would simply read one field's bytes as another's.
+//    📝 THE TAIL GROWS, THE PREFIX DOES NOT MOVE. The three shaders declare PREFIXES of this struct — Prepare stops after Capacity, Allocate stops after
+//       Pad0, only Age reads GridOrigin and beyond. A push block is a block-layout interface, so a shader that declares fewer TRAILING fields than the
+//       host pushes is legal and reads the ones it named at the offsets it named. That is ONLY true of the tail: inserting a field anywhere above
+//       GridOrigin would silently re-offset both other shaders.
+struct PoolPushBlock
+{
+    int32_t Capacity;
+    int32_t TileCount;
+    int32_t SyncPass;       // 0 = allocate lanes, 1 = alive-sync lane
+    int32_t Pad0;           // [-] - keeps GridOrigin below vec4-aligned. Every record site zero-inits with `= {}`.
+    float   GridOrigin[4];
+    // 🔴 THE LIVE WORLD SCALE THE AGE PASS WAS MISSING. SurfelHashOfPosition divides by the cell diameter, so without these the pass hashed with the
+    //    BAKED default while slotting hashed with the F10 value — the crowding rent has been reading a different cell's occupancy than the surfel's own
+    //    whenever the slider moved off default. See the matching note in SurfelAge.comp. CameraPosition is the RAW eye, not the snapped GridOrigin above.
+    float   CameraPosition[4];
+    float   TuneCellDiameter;  // [m] - MUST be the same value this frame's slotting hashed with
+    float   TuneBaseRadius;    // [m] - live cascade-0 disc radius
+};
 
 // Write a single storage-buffer descriptor.
 void WriteStorageDescriptor(VulkanHost& Host, VkDescriptorSet Set, uint32_t Binding, VkBuffer Buffer)
@@ -292,7 +314,9 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
     // --- set layouts ---
     Lifecycle.SpawnVisibilityLayout = ConstructSpawnVisibilityLayout(Host);
     Lifecycle.SpawnGridLayout       = ConstructStorageSetLayout(Host, 6);   // offsets, list, surfels, tileAlloc, tileCandidate, touched (b5, economy)
-    Lifecycle.PoolLayout            = ConstructStorageSetLayout(Host, 9);   // surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate, offsets (b7), touched (b8) — the last two economy-only
+    // 🔴 A binding a shader DECLARES but the layout omits is not a no-op: pipeline creation may still succeed and the dispatch then reads an undefined
+    //    descriptor. Every binding below must exist here AND be written before the first Allocate/Age.
+    Lifecycle.PoolLayout            = ConstructStorageSetLayout(Host, 10);  // surfels, pool, poolAlloc, poolMax, alive, tileAlloc, tileCandidate, offsets (b7), touched (b8), census (b9)
     if (Lifecycle.SpawnVisibilityLayout == VK_NULL_HANDLE || Lifecycle.SpawnGridLayout == VK_NULL_HANDLE || Lifecycle.PoolLayout == VK_NULL_HANDLE)
     {
         ReportLifecycle("set layout creation failed");
@@ -306,7 +330,6 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
     // The pool layout drives Prepare (push { int Capacity }), Allocate (push { int Capacity, TileCount, SyncPass, Pad }), and Age (which additionally
     // reads GridOrigin to hash each surfel's cell for the crowding rent). One shared push range sized to the whole block (32 bytes: 16 header + a padded
     // vec4 GridOrigin) keeps the pipeline layout single — the passes that don't use GridOrigin simply don't read it.
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     Lifecycle.PoolPipelineLayout = ConstructPipelineLayout(Host, &Lifecycle.PoolLayout, 1, sizeof(PoolPushBlock));
     if (Lifecycle.SpawnPipelineLayout == VK_NULL_HANDLE || Lifecycle.PoolPipelineLayout == VK_NULL_HANDLE)
     {
@@ -332,7 +355,7 @@ bool InitializeSurfelLifecycleSubmission(SurfelLifecycleSubmission& Lifecycle,
     // --- descriptor pool + three sets ---
     VkDescriptorPoolSize PoolSizes[2] = {};
     PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSizes[0].descriptorCount = 6 + 6 + 9;   // spawn visibility (6 SSBOs) + spawn grid (6: +touched) + pool (9: +offsets +touched)
+    PoolSizes[0].descriptorCount = 6 + 6 + 12;  // spawn visibility (6 SSBOs) + spawn grid (6: +touched) + pool (12: +offsets +touched +census +requests +requestCount)
     PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     PoolSizes[1].descriptorCount = 1;           // the id image
 
@@ -383,7 +406,8 @@ void RefreshSurfelLifecycleVisibility(SurfelLifecycleSubmission& Lifecycle,
                                       VkBuffer                   InstanceBuffer,
                                       VkBuffer                   FloorVertexBuffer,
                                       VkBuffer                   FloorIndexBuffer,
-                                      VkBuffer                   FloorInstanceBuffer)
+                                      VkBuffer                   FloorInstanceBuffer,
+                                      VkBuffer                   CensusCountersBuffer)
 {
     if (!Lifecycle.ReadyCondition || Lifecycle.Host == nullptr)
         return;
@@ -477,6 +501,18 @@ void RefreshSurfelLifecycleVisibility(SurfelLifecycleSubmission& Lifecycle,
         WriteStorageDescriptor(Host, Lifecycle.PoolSet, 8u, Pool.TouchedBuffer);
         Lifecycle.BoundPoolTouchedBuffer = Pool.TouchedBuffer;
     }
+
+    // --- pool set: the 🩺 census tally buffer (b9, diagnostic) ---
+    // 🔴 Age/Allocate declare this binding UNCONDITIONALLY and index it up to SURFEL_CENSUS_SLOT_COUNT-1, so the bound buffer must be AT LEAST that
+    //    many ints. There is deliberately NO alias fallback onto a pool atomic here: every one of those (alive / poolAlloc / poolMax) is a SINGLE int,
+    //    so aliasing would turn the tallies into out-of-bounds writes past a 4-byte allocation — silent memory corruption dressed up as a diagnostic.
+    //    The census buffer is therefore owned by the trace and allocated unconditionally at init (whether or not a recording is ever started), which
+    //    costs 20 bytes and keeps this binding always valid.
+    if (CensusCountersBuffer != VK_NULL_HANDLE && CensusCountersBuffer != Lifecycle.BoundPoolCensusBuffer)
+    {
+        WriteStorageDescriptor(Host, Lifecycle.PoolSet, 9u, CensusCountersBuffer);
+        Lifecycle.BoundPoolCensusBuffer = CensusCountersBuffer;
+    }
 }
 
 void RecordSurfelLifecyclePrepare(SurfelLifecycleSubmission& Lifecycle,
@@ -488,7 +524,6 @@ void RecordSurfelLifecyclePrepare(SurfelLifecycleSubmission& Lifecycle,
     if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE)
         return;
 
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock Push = {};
     Push.Capacity = (int32_t)Pool.Capacity;
 
@@ -537,7 +572,6 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
     LifecycleStorageBarrier(CommandBuffer);   // the requests must be visible to Allocate
 
     // --- Stage 2: SurfelAllocate over the tiles (pops pool slots, commits surfels) ---
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock AllocPush = {};
     AllocPush.Capacity  = (int32_t)Pool.Capacity;
     AllocPush.TileCount = (int32_t)TileCount;
@@ -560,6 +594,7 @@ void RecordSurfelLifecycleSpawn(SurfelLifecycleSubmission&   Lifecycle,
 void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
                               const SurfelPool&           Pool,
                               const float                 GridOrigin[3],
+                              const SurfelSpawnConstants& Constants,
                               VkCommandBuffer             CommandBuffer)
 {
     if (!Lifecycle.ReadyCondition)
@@ -567,7 +602,6 @@ void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
     if (!Pool.ReadyCondition || Pool.SurfelBuffer == VK_NULL_HANDLE)
         return;
 
-    struct PoolPushBlock { int32_t Capacity; int32_t TileCount; int32_t SyncPass; int32_t Pad0; float GridOrigin[4]; };
     PoolPushBlock Push = {};
     Push.Capacity = (int32_t)Pool.Capacity;
     // The snapped grid origin the slotting/spawn used this frame — hashes each surfel's cell for the crowding-rent count.
@@ -575,6 +609,14 @@ void RecordSurfelLifecycleAge(SurfelLifecycleSubmission& Lifecycle,
     Push.GridOrigin[1] = GridOrigin[1];
     Push.GridOrigin[2] = GridOrigin[2];
     Push.GridOrigin[3] = 0.0f;
+    // The live world scale — see the header note. These MUST be the frame's spawn/slotting values or this pass hashes onto a different lattice than the
+    // Offsets/List arrays it reads, which is a wrong-cell lookup with an entirely plausible-looking result.
+    Push.CameraPosition[0] = Constants.CameraPosition[0];
+    Push.CameraPosition[1] = Constants.CameraPosition[1];
+    Push.CameraPosition[2] = Constants.CameraPosition[2];
+    Push.CameraPosition[3] = 0.0f;
+    Push.TuneCellDiameter  = Constants.TuneCellDiameter;
+    Push.TuneBaseRadius    = Constants.TuneBaseRadius;
 
     vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Lifecycle.PoolPipelineLayout, 0, 1, &Lifecycle.PoolSet, 0, nullptr);
     vkCmdPushConstants(CommandBuffer, Lifecycle.PoolPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PoolPushBlock), &Push);

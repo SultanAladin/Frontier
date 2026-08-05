@@ -30,6 +30,8 @@ struct PaletteSpecification
     ImU32 CardFill;          // [-] - --menu        card + rail background
     ImU32 PaneFill;          // [-] - --menu-2      grid + options pane, one notch darker
     ImU32 RailSelectedFill;  // [-] - --rail-sel    active rail row
+    ImU32 SelectionFill;     // [-] - blue accent wash behind the selected rail row / hovered tile
+    ImU32 SelectionMarker;   // [-] - solid blue left-edge indicator bar on the selected rail row
     ImU32 TileFill;          // [-] - --tile        tile rest
     ImU32 TileHoverFill;     // [-] - --tile-hi     tile under pointer
     ImU32 TileChosenFill;    // [-] - accent wash over the pane on the selected tile

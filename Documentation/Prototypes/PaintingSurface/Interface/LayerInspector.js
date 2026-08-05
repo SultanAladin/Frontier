@@ -8,7 +8,7 @@ import { CLASSIFICATION_LABEL, CLASSIFICATION_TINT,
 import { CHANNEL_ORDER, CHANNEL_LABEL, CHANNEL_SLOTS,
          IsStoredChannel }                            from "../Layers/ChannelSet.js";
 import { CHANNEL_MODES, LAYER_KINDS, LAYER_KIND_ORDER, KindLabel, KindTint,
-         DefaultChannels } from "../Layers/LayerKinds.js";
+         DefaultChannels, MATERIAL_PRESETS, MaterialChannelRows } from "../Layers/LayerKinds.js";
 import { MASK_COMPONENT_CATEGORY, MASK_COMPONENT_ORDER, MASK_COMPONENT_PARAMS,
          MaskFillValue } from "../Layers/LayerMask.js";
 
@@ -317,7 +317,7 @@ const MenuPad    = 14;
 //    compositor early-returns on an unchanged revision — the slider would move and the viewport would not.
 export class LayerInspector
 {
-    constructor(Host, Stack, Commands, OnChange, Capture, CaptureComposite)
+    constructor(Host, Stack, Commands, OnChange, Capture, CaptureComposite, CaptureMask, MaskPreview)
     {
         this.Stack    = Stack;
         this.Commands = Commands;
@@ -330,6 +330,13 @@ export class LayerInspector
         //    compositor's resolved pair) and the host caches them under different keys, so folding them
         //    into one signature would put a `Token === null` branch in every caller of both.
         this.CaptureComposite = CaptureComposite ?? (async () => null);
+        // 📝 A third entry point, for the same reason the second one is separate: this reads ONE layer's
+        //    resolved mask atlas, which is neither a channel of that layer nor part of the flattened stack.
+        this.CaptureMask = CaptureMask ?? (async () => null);
+        // The mask-on-mesh viewport preview: `MaskPreview.Set(On)` toggles it, `MaskPreview.On()` reports it.
+        // 📝 Defaulted to a no-op that always reports off, so a DOM-only construction renders the toggle in
+        //    its off state and clicking it does nothing, rather than throwing on a missing host seam.
+        this.MaskPreview = MaskPreview ?? { Set: () => false, On: () => false };
 
         this.Root = document.createElement("div");
         this.Root.className = "layer-inspector";
@@ -1111,6 +1118,15 @@ export class LayerInspector
             return;
         }
 
+        // ---- the mask ITSELF, as a picture --------------------------------------------------------------
+        // 🔴 This is the mask's own greyscale content, read back from its resolved atlas — not a swatch of
+        //    the fill setting. The fill swatch below says what the mask STARTED as; only this says what it
+        //    IS after the components have run and a brush has been over it. Without it there is no way to
+        //    see a mask being painted at all: the mask never appears in the viewport (the compositor uses it
+        //    as a weight, so its effect is "the layer beneath shows through", which is not a picture of the
+        //    mask) and it is not one of the PBR channels the Combined card tiles.
+        Body.appendChild(this.BuildMaskPreview(Layer));
+
         // ---- preview + remove --------------------------------------------------------------------------
         const Base   = MaskFillValue(Mask);
         const Light  = Mask.Invert ? 1 - Base : Base;
@@ -1171,6 +1187,82 @@ export class LayerInspector
 
         // ---- component stack ---------------------------------------------------------------------------
         this.BuildMaskComponents(Body, Layer);
+    }
+
+    // The mask's resolved content as a greyscale tile, plus the on-mesh preview toggle beside it.
+    //
+    // 🔴 Synchronous return with a late fill, matching BuildChannelPreview and BuildCompositePreview: every
+    //    caller of this reaches it through Refresh(), which no one awaits, so returning a promise here would
+    //    make the pane build around an element that does not exist yet.
+    // 🔴 Guarded by the same PreviewGeneration counter as the channel tiles. A mask readback resolves after
+    //    an await, by which point the focus may have moved — and a mask tile is a plain grey field with no
+    //    landmarks, so the WRONG layer's mask is entirely indistinguishable from the right one's.
+    BuildMaskPreview(Layer)
+    {
+        const Host = document.createElement("div");
+        Host.className = "msk-preview";
+
+        const Tile = document.createElement("div");
+        Tile.className = "cp-tile msk-tile";
+
+        const Side = document.createElement("div");
+        Side.className = "msk-side";
+
+        const Note = document.createElement("div");
+        Note.className = "cp-note";
+        Note.textContent = "Reading…";
+
+        // ---- the on-mesh toggle -------------------------------------------------------------------------
+        // 🔴 Reads its state from the host rather than from a field on this panel. The mode is a property of
+        //    the VIEWPORT, and the panel is rebuilt on every mutation while the viewport's mode survives —
+        //    a local flag would reset to "off" on the next slider tick while the model stayed red.
+        const On     = this.MaskPreview.On() === true;
+        const Toggle = document.createElement("div");
+        Toggle.className = "msk-onmesh" + (On ? " on" : "");
+        Toggle.innerHTML = `${Icon("mask", 12)}<span></span>`;
+        Toggle.lastChild.textContent = On ? "On the model" : "Show on model";
+        Toggle.title = On
+            ? "Showing this mask over the model. Click to return to the shaded view."
+            : "Paint the mask over the model in the viewport: white reveals, red is hidden.";
+        Toggle.onclick = () => {
+            this.MaskPreview.Set(!this.MaskPreview.On());
+            this.Refresh();
+        };
+
+        Side.appendChild(Toggle);
+        Side.appendChild(Note);
+
+        Host.appendChild(Tile);
+        Host.appendChild(Side);
+
+        const Generation = this.PreviewGeneration ?? 0;
+
+        this.CaptureMask(Layer.Token).then((Preview) => {
+            if ((this.PreviewGeneration ?? 0) !== Generation) { return; }
+            if (!Tile.isConnected) { return; }
+
+            if (!Preview)
+            {
+                // 🔴 A flat swatch of the fill, NOT a checkerboard. The mask atlas is allocated lazily, so a
+                //    just-created mask has no storage — but unlike an unpainted channel that state is not
+                //    transparency: the compositor reads MaskFillValue for it, so the mask genuinely IS a
+                //    uniform white (or black) field. The checker idiom would claim there is nothing there.
+                const Level = MaskFillValue(Layer.Mask);
+                const Shade = Math.round((Layer.Mask.Invert ? 1 - Level : Level) * 255);
+                Tile.classList.add("cp-solid");
+                Tile.style.background = `rgb(${Shade},${Shade},${Shade})`;
+                Note.textContent = "Uniform — nothing painted into this mask yet.";
+                return;
+            }
+
+            Tile.style.backgroundImage = `url(${Preview.Image})`;
+            // MeanInk over a greyscale tile IS the mask's mean coverage, so it can be reported as a reading
+            // rather than left as an opaque number only a probe looks at.
+            Note.textContent = `${Preview.Extent}² · `
+                + `${Math.round(Preview.MeanInk * 100)}% revealed`;
+        });
+
+        return Host;
     }
 
     // The mask's ordered component stack, plus the add-component picker.
@@ -1572,6 +1664,10 @@ export class LayerInspector
             `<span class="mr-v">${ChannelsOf(Layer).length} / ${CHANNEL_PANELS.length} active</span>`;
         Body.appendChild(ChannelRow);
 
+        // The material's own settings, when this layer is one. Placed here, above Actions, so the thing the
+        // layer IS reads before the things that can be done to it.
+        this.RenderMaterialProperties(Body, Layer);
+
         Body.appendChild(SectionLabel("Actions"));
         Body.appendChild(this.BuildActions(Layer));
 
@@ -1580,6 +1676,101 @@ export class LayerInspector
         Cta.innerHTML = `<span>Channels</span>${Icon("chevron", 13)}<span class="cta-kbd">Tab</span>`;
         Cta.onclick = () => this.ShowChannels();
         Body.appendChild(Cta);
+    }
+
+    // A material layer's preset identity plus a row per channel the preset authors.
+    //
+    // 🔴 Only the channels the PRESET declares get a row, read from the layer's own enabled set rather than
+    //    from CHANNEL_PANELS. A plastic authors three channels and the emissive panel four; offering all six
+    //    would put a height and an emissive slider on every material that writes neither, and editing one
+    //    would change a value the layer's flood does not read — the same "the control does nothing" fault the
+    //    mask pane's note calls out. `normal` can never appear: it is derived from height at shade time.
+    //
+    // 🔴 Silent no-op for every other kind, checked on the LAYER not the preset. A fill layer retargeted by
+    //    the shelf becomes kind `material` and carries a preset; a paint layer never does. Keying this on
+    //    `Layer.Preset` alone would show material rows on a layer whose content is its strokes.
+    RenderMaterialProperties(Body, Layer)
+    {
+        if (Layer.Kind !== "material") { return; }
+
+        const Preset = MATERIAL_PRESETS[Layer.Preset];
+
+        // A material layer whose preset is missing is a real state, not an impossible one: the probe can add
+        // one with no preset at all. Saying so beats rendering an empty section that looks like a load failure.
+        if (!Preset)
+        {
+            Body.appendChild(SectionLabel("Material", "sliders"));
+            const Note = document.createElement("div");
+            Note.className = "tgt-hint";
+            Note.textContent = "No preset assigned. Open the material shelf with Ctrl+Space and click a swatch.";
+            Body.appendChild(Note);
+            return;
+        }
+
+        // 📝 The preset's family rides in the section's tail slot, which is what that slot is for — it is the
+        //    material's classification, not a second heading.
+        Body.appendChild(SectionLabel("Material", "sliders", Preset.Family ?? ""));
+
+        const Identity = document.createElement("div");
+        Identity.className = "meta-row";
+        Identity.innerHTML = `<span class="mr-k">Preset</span>` +
+            `<span class="mr-v">${Preset.Label}</span>`;
+        Body.appendChild(Identity);
+
+        if (Preset.Note)
+        {
+            const Note = document.createElement("div");
+            Note.className = "tgt-hint";
+            Note.textContent = Preset.Note;
+            Body.appendChild(Note);
+        }
+
+        // 🔴 Iterated over the preset's channel list INTERSECTED with what the layer actually has enabled, in
+        //    the panel table's order. The preset is the authored intent and the enabled set is the live truth;
+        //    they agree right after an assignment but the channels pane can disable one afterwards, and a row
+        //    for a disabled channel would edit a value the flood then skips.
+        const Rows = MaterialChannelRows(Layer.Preset)
+            .filter((Key) => PaintsChannel(Layer, Key))
+            .map((Key) => CHANNEL_PANELS.find((Panel) => Panel.Key === Key))
+            .filter((Panel) => Panel && Panel.Edit !== "derived");
+
+        for (const Panel of Rows)
+        {
+            if (Panel.Edit === "colour")
+            {
+                const Triple  = Layer.Values[Panel.Key];
+                const Current = Array.isArray(Triple) ? ColourToHex(Triple) : "#808080";
+
+                Body.appendChild(PropertyRow(Panel.Label, BuildColourField(Current, (Hex, Live) => {
+                    this.Commands("value",
+                        { Token: Layer.Token, Channel: Panel.Key, Value: HexToColour(Hex) });
+                    this.OnChange();
+                    if (!Live) { this.Refresh(); }
+                // 📝 The picker's open state is keyed per token AND channel, so editing a base colour does not
+                //    close an emissive picker on the rebuild that follows the commit.
+                }, this.PickerState(Layer.Token, Panel.Key))));
+                continue;
+            }
+
+            Body.appendChild(PropertyRow(Panel.Label, BuildSlider({
+                Min: Panel.Min, Max: Panel.Max, Step: Panel.Step,
+                Value: Number(Layer.Values[Panel.Key] ?? 0),
+                OnInput: (Next, Live) => {
+                    this.Commands("value", { Token: Layer.Token, Channel: Panel.Key, Value: Next });
+                    this.OnChange();
+                    if (!Live) { this.Refresh(); }
+                }
+            })));
+        }
+
+        // 🔴 Says the edit is the LAYER's, not the preset's. Both readings are plausible from the rows above,
+        //    and the difference matters: another layer on the same preset is untouched, and the shelf's swatch
+        //    keeps showing the authored material. Without this the user cannot tell whether they have just
+        //    edited one layer or the whole library.
+        const Scope = document.createElement("div");
+        Scope.className = "tgt-hint";
+        Scope.textContent = "Edits apply to this layer only. The preset in the shelf is unchanged.";
+        Body.appendChild(Scope);
     }
 
     // The selected mask component's settings, keyed off its category. This is the "different target kinds
@@ -1759,7 +1950,19 @@ export class LayerInspector
         //    nothing in the panel showed what the surface actually ends up looking like once the whole
         //    stack is flattened. That is the one thing the user is painting toward, and it belongs here
         //    rather than in the channel pane precisely because it is NOT a property of the focused layer.
-        Body.appendChild(this.BuildCompositePreview());
+        // 🔴 ...unless the carousel is aimed at the MASK, in which case the four PBR tiles are the wrong
+        //    picture entirely. A mask is greyscale coverage; base colour, metallic, roughness and emissive
+        //    say nothing about it, and showing them beside a mask editor invites reading them AS the mask —
+        //    which is exactly the "it paints colour" confusion. The mask's own tile takes their place, so the
+        //    identity rail always shows the thing the current target is being painted into.
+        if (this.TabOf(Layer) === "mask" && Layer.Mask?.Enabled)
+        {
+            Body.appendChild(this.BuildMaskIdentityPreview(Layer));
+        }
+        else
+        {
+            Body.appendChild(this.BuildCompositePreview());
+        }
 
         this.Part.IdentityFoot.innerHTML =
             `<span class="pf-hue" style="background:${Tint}"></span>` +
@@ -1778,6 +1981,28 @@ export class LayerInspector
     //    channel the engine gained or asking the host for a resolved atlas that does not exist.
     // 🔴 Synchronous return + late fill, for the same reason as BuildChannelPreview: RenderIdentity is
     //    called from Refresh(), which no caller awaits.
+    // The identity rail's mask counterpart to the Combined card: the same card shell, carrying the mask's own
+    // tile in place of the four PBR channel tiles.
+    //
+    // 📝 Reuses BuildMaskPreview rather than growing a second readback path, so the rail's tile and the mask
+    //    editor's tile cannot disagree about what the mask holds — and the on-mesh toggle comes along with
+    //    it, which is where the user is looking when they want to see the mask on the model.
+    BuildMaskIdentityPreview(Layer)
+    {
+        const Host = document.createElement("div");
+        Host.className = "composite-card";
+
+        const Head = document.createElement("div");
+        Head.className = "cc-head";
+        Head.innerHTML =
+            `<span class="cc-t">Mask</span>` +
+            `<span class="cc-s">${Layer.Mask.Components.length} comp · ${Layer.Mask.Opacity ?? 100}%</span>`;
+        Host.appendChild(Head);
+
+        Host.appendChild(this.BuildMaskPreview(Layer));
+        return Host;
+    }
+
     BuildCompositePreview()
     {
         const Host = document.createElement("div");

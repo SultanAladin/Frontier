@@ -25,15 +25,40 @@
 
 #include "SketchModelWorkplaneOverlay.h"
 #include "SketchModelShapeDraw.h"
+#include "SketchModelCommandTools.h"
 #include "SketchModelViewportInput.h"
+#include "SketchModelFilletModal.h"
+#include "SketchModelInsetModal.h"
+#include "SketchModelBooleanPopup.h"
 
 #include "ConstructionCatalogue.h"
 #include "ConstructionConsoleBridge.h"
+
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace Frontier { struct SvgIconRegistry; }
 
 namespace SketchModelViewportValidation
 {
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                          ENUMS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Which topological STRATUM a pick resolves against — the CAD "selection mode" (Blender's 1/2/3, the CadWorkspace prototype's vertex/edge/face
+//    filter). WholeShape is the historical behaviour (pick a whole ParametricSketchShape, green-highlighted); Vertex catches a shape's defining
+//    control points; Edge catches an outline segment. The stratum is what feeds the construction gate its ActiveDimension: WholeShape on an open
+//    curve reads Edge, on a closed profile reads Wire; a Vertex pick reads Vertex; an Edge pick reads Edge. Face is deferred — this 2D sketch
+//    surface has no pickable face element yet (a closed profile's INTERIOR is the nearest thing, handled through the Wire reading). A viewport-
+//    interaction rule, so it lives here beside the tool latch, NOT on the shared geometry store.
+enum class SelectionStratum
+{
+    WholeShape = 0,   // [-] - pick a whole shape (the historical idle-tool behaviour)
+    Vertex     = 1,   // [-] - pick a shape's defining control point
+    Edge       = 2,   // [-] - pick a shape's outline segment
+};
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                          STRUCTS
@@ -63,10 +88,69 @@ struct SketchModelSummonedState
     //    The outliner rows + History pane are projections mirrored from this store. Empty at rest — nothing drawn, nothing suppressed.
     Frontier::ParametricSketchShapeStore ShapeStore = {};   // [-] - drawn primitives + their edit-log history (world mm)
 
+    // 📝 Shape identity ⇄ outliner row. MirrorSketchShapeIntoDirectory issues a fresh directory RecordToken per sealed shape but the store's own
+    //    ShapeId is not carried on the row, so a right-click PICK (which resolves a store ShapeId) needs this back-map to reach the row whose
+    //    Properties card to open. One entry appended per seal; never pruned here (shapes are not deleted in this validation build). A ShapeId absent
+    //    from the map means the pick landed on a shape that was never mirrored — the right-click then opens nothing.
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> ShapeRowTokens = {};   // [-] - store ShapeId -> directory RecordToken
+
     // 📝 The sticky-tool latch: the last-committed Sketch tool stays active, so the user keeps drawing the same primitive click after click. A commit
     //    latches it; every seal re-arms the SAME tool for the next cycle; Escape clears it. Held here (not the shared store) because sticky drawing is
     //    a viewport-interaction rule. Clear at rest — no tool held, nothing re-armed.
     SketchToolLatch ToolLatch = {};   // [-] - the held tool + its category (the cycle owner)
+
+    // 📝 The active selection STRATUM (whole-shape / vertex / edge), cycled by the 1/2/3 hotkeys. It decides what a pick catches AND — through
+    //    ResolveActiveDimension — the ConstructionDimension fed to the gate each frame, so the Q console's Sketch-Modify ops (Fillet / Chamfer /
+    //    Trim / Extend / Offset) surface + gate live off the current selection instead of staying hidden under a pinned ActiveDimension = Nothing.
+    //    A viewport-interaction rule (like ToolLatch), not a property of the geometry model. WholeShape at rest.
+    SelectionStratum Stratum = SelectionStratum::WholeShape;   // [-] - the CAD selection mode (1 whole / 2 vertex / 3 edge)
+
+    // 📝 The one Bevel/Chamfer modal (the Plasticity `B` tool). Armed by a Fillet/Chamfer commit in the Q console: the next canvas click picks a
+    //    corner + Activates it, the drag sets the magnitude (sign chooses fillet↔chamfer), a confirm commits via FilletShapeCorner/ChamferShapeCorner.
+    //    Held here (not the shared store) because it is a viewport-interaction modal. Idle at rest — nothing armed, nothing previewed.
+    SketchModelFilletModal FilletModal = {};   // [-] - the corner-edit drag modal (Fillet/Chamfer)
+
+    // 📝 Set on the frame a Fillet/Chamfer op commits in the console, before a corner is picked: the modal is "armed to pick" but not yet Activated
+    //    on a corner. The next canvas click resolves the nearest corner vertex and Activates the modal on it. Cleared on Activate or cancel.
+    bool FilletPickPending = false;   // [-] - a Fillet/Chamfer op was chosen; awaiting the corner pick
+
+    // 📝 The last FilletModal.CommitSerial the panel logged a History revision for. The modal bumps CommitSerial once per fresh-corner commit; the
+    //    panel compares it here and, when it advanced, records ONE Sketch revision ("Filleted / Chamfered corner N") — so each corner edit shows in
+    //    the History panel like a drawn shape, while a redo-box re-adjust (which leaves the serial untouched) does NOT spam a new revision.
+    uint32_t FilletHistorySerial = 0;   // [-] - last CommitSerial logged to the revision store
+
+    // 📝 The four 2D MODIFY command tools (Trim / Cut / Join / Remove) as one sticky click-to-apply driver. Armed by the matching Sketch* commit in the
+    //    Q console; the next canvas click applies the tool's verb through the store, and the tool STAYS ARMED for the next target (sticky), releasing on
+    //    Escape / right-click / a new op. Held here (like FilletModal) because command-tool arming is a viewport-interaction rule. Idle at rest.
+    SketchModelCommandToolState CommandTools = {};   // [-] - the armed command tool + its Join pick set + weld tolerance
+
+    // 📝 The last CommandTools.ApplySerial the panel logged a History revision for — the command-tool twin of FilletHistorySerial. Bumped once per
+    //    successful apply; the panel compares it here and records ONE Sketch revision per apply ("Trimmed / Cut / Joined / Removed shape N").
+    uint32_t CommandHistorySerial = 0;   // [-] - last ApplySerial logged to the revision store
+
+    // 📝 The one OFFSET drag modal (the ported `I` tool). Armed by a SketchOffset commit in the Q console on the selected closed shapes: the pointer's
+    //    radial drag grows a signed offset distance (live preview), a confirm appends the offset Profiles (AppendOffsetResult, originals kept). Held here
+    //    beside FilletModal because offset arming is a viewport-interaction rule. Idle at rest.
+    SketchModelInsetModal InsetModal = {};   // [-] - the offset drag modal + its retained last commit (for the redo box)
+
+    // 📝 Set on the frame an Offset op commits in the console, before a shape is picked — the offset twin of FilletPickPending. Offset now follows the
+    //    Fillet/Chamfer TWO-PHASE flow (pick, then drag): the commit arms the tool "to pick" but does NOT Activate the drag; the NEXT canvas click over an
+    //    edge / face resolves the hovered shape and Activates the modal on THAT ONE shape. Cleared on Activate or cancel. (Was a one-shot immediate arm on
+    //    the whole selection; the pending phase makes "select tool, then point at the edge and drag" work like the chamfer tool.)
+    bool InsetPickPending = false;   // [-] - an Offset op was chosen; awaiting the edge / face pick
+
+    // 📝 The last InsetModal.CommitSerial the panel logged a History revision for — the offset twin of FilletHistorySerial. Bumped once per fresh
+    //    commit; the panel compares it here and records ONE Sketch revision per offset ("Offset N shape(s)"); a redo-box slide leaves it untouched.
+    uint32_t InsetHistorySerial = 0;   // [-] - last InsetModal.CommitSerial logged to the revision store
+
+    // 📝 The one BOOLEAN popup. Unlike every other sketch op this is NOT armed from the Q console — it reconciles itself against the live selection
+    //    each frame and opens the moment two closed shapes are selected, because a boolean's operands ARE the selection and no drag gesture is
+    //    needed. Dismissable (Esc / right-click / Cancel) and it will not re-open for the operand set it remembers being declined.
+    SketchModelBooleanPopup BooleanPopup = {};   // [-] - the boolean settings card + its operand order
+
+    // 📝 The last BooleanPopup.CommitSerial the panel logged a History revision for — the boolean twin of InsetHistorySerial. One Sketch revision
+    //    per applied boolean ("Union 2 shapes").
+    uint32_t BooleanHistorySerial = 0;   // [-] - last BooleanPopup.CommitSerial logged to the revision store
 
     bool  ConsoleOpen    = false;   // [-]  - the console is showing (closed until a right-click asks for it)
     float ConsoleAnchorX = 0.0f;    // [px] - where the console sits; set from the pointer on summon

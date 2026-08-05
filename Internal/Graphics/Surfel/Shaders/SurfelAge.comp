@@ -26,6 +26,11 @@
 #include "SurfelGrid.glsl"
 #include "SurfelRecord.glsl"
 
+// 🩺 Per-frame census (diagnostic only — see SurfelCensus.glsl). Binding 9 on the shared pool set; the tallies below are the DEATH side of the churn
+//    measurement, split BY CAUSE because TTL death and police execution imply different fixes. Nothing in this pass reads them back.
+#define SURFEL_CENSUS_BINDING 9
+#include "SurfelCensus.glsl"
+
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) buffer SurfelBuffer    { SurfelRecord Surfels[]; };
@@ -37,16 +42,40 @@ layout(std430, binding = 8) buffer TouchedBuffer  { int Touched[]; };      // pe
 
 layout(push_constant) uniform PushBlock
 {
+    // 🔴 THIS BLOCK IS SHARED WITH SurfelAllocate.comp AND SurfelPrepare.comp THROUGH ONE PoolPushBlock IN SurfelLifecycleSubmission.cpp. The names here
+    //    must sit at the SAME OFFSETS as that struct's — word 1 is TileCount and word 2 is SyncPass to those shaders, so neither is a free pad even
+    //    though this shader ignores them. Getting this wrong has no compile error: Age would read Allocate's tile count as its own flag.
+    //    📝 HOW AN AGE-ONLY FIELD IS ADDED. Each shader declares a PREFIX of the C++ struct: Prepare stops after Capacity, Allocate stops after Pad0,
+    //       only this shader reads GridOrigin and beyond. Declaring fewer TRAILING fields than the host pushes is legal block layout, so an Age-only
+    //       field is APPENDED TO THE TAIL of both this block and PoolPushBlock and needs no edit to the other two shaders. Inserting one anywhere ABOVE
+    //       GridOrigin would silently re-offset them both.
     int  Capacity;
-    int  Pad0;
-    int  Pad1;
-    int  Pad2;
+    int  TileCount;    // [-] - Allocate's lane bound; UNUSED here, do not repurpose
+    int  SyncPass;     // [-] - Allocate's lane selector; UNUSED here, do not repurpose
+    int  Pad0;         // [-] - vec4 alignment for GridOrigin; UNUSED here, do not repurpose
     vec4 GridOrigin;   // xyz snapped grid origin (matches the slotting/spawn origin this frame); w unused
+    // 🔴 THE LIVE WORLD SCALE, WHICH THIS PASS WAS MISSING ENTIRELY — AND THE CROWDING RENT HAS BEEN READING THE WRONG CELL SINCE IT SHIPPED.
+    //    SurfelHashOfPosition divides by g_SurfelCellDiameter (SurfelGrid.glsl:90), and every other pass that hashes seats the live value through
+    //    SurfelSetTuning first: Count, Slot, Integrate and SpawnRequest all do. Age was the ONE hashing pass that did not, so whenever the
+    //    F10 cell-diameter slider sat away from the baked SURFEL_GRID_CELL_DIAMETER default, this pass hashed each surfel into a DIFFERENT cell than the
+    //    slotting that built the Offsets array — and then read that cell's occupancy as its rent. Wrong cell, plausible number, no error anywhere: rent
+    //    was charged against a stranger's crowding. It stayed invisible because rent only nudges an age delta, so the symptom was a slightly-off
+    //    population rather than anything that looks like a lookup fault.
+    //    CameraPosition is the RAW eye, deliberately NOT the snapped GridOrigin above: SurfelRadiusForPositionEye measures true eye distance while the
+    //    grid indices come from the snapped origin (SurfelGrid.glsl:160-162). They are different points and swapping them mis-sizes every radius.
+    vec4  CameraPosition;    // [m] - xyz raw eye (radius scaling); w unused
+    float TuneCellDiameter;  // [m] - live base cell edge; MUST match the value slotting hashed with this frame
+    float TuneBaseRadius;    // [m] - live cascade-0 disc radius
 } Push;
 
 // SURFEL_TTL and SURFEL_MAX_SURFELS_PER_CELL come from SurfelGrid.glsl (included above) — do not redefine them here.
 const int SURFEL_LIFE_RECYCLE  = 0x8000000;
 const int SURFEL_LIFE_RECYCLED = 0x8000000 + 1;
+
+// 📝 The floor on the per-frame age delta for a PAID surfel — the smallest amount income can leave uncancelled. 1 means a fully-paid surfel ages at
+//    the base metabolism, reaching TTL=500 in 500 frames (~8s at 60fps) instead of never; an idle surfel still ages at Delta + rent, so the spread
+//    between contributor and freeloader — webgiya's staggering — survives. 0 restores the old uncapped cancel (and the frozen field with it).
+const int SURFEL_MIN_AGE_DELTA_WHEN_PAID = 1;
 
 // Economy constants — ported 1:1 from webgiya constants.ts.
 const int SURFEL_MAX_SURFELS_PER_CELL_FOR_KEEP_ALIVE = 32;   // SAFE_CAP: a cell over this starts charging rent
@@ -54,6 +83,11 @@ const int SURFEL_KILL_SIGNAL                         = 255;  // the despawn vote
 
 void main()
 {
+    // 🔴 SEAT THE LIVE WORLD SCALE BEFORE ANY HASH OR RADIUS HELPER RUNS — see the push-block note. SurfelHashOfPosition (the crowding rent) reads these
+    //    globals, and without this call they hold the baked defaults while the rest of the frame used the F10 values. The near-field bias is spawn-only,
+    //    so 1.0 (inert) is passed rather than plumbing a field this pass cannot use.
+    SurfelSetTuning(Push.TuneCellDiameter, Push.TuneBaseRadius, 1.0);
+
     int Index = int(gl_GlobalInvocationID.x);
     int Total = PoolMax[0];
     if (Index >= Total) return;
@@ -66,10 +100,13 @@ void main()
     if (Age >= SURFEL_TTL) return;   // already dead / recycled — leave it (mailbox still drained above, matching webgiya)
 
     int NextAge;
+    // 🩺 Census only: WHICH death path ran, so the row can split the causes. Held as the census slot itself so there is no second mapping to keep in sync.
+    int DeathCause = SURFEL_CENSUS_DIED_TTL;
     if (Income == SURFEL_KILL_SIGNAL)
     {
         // 1. POLICE EXECUTION — the despawn vote flagged this surfel; kill it now.
         NextAge = SURFEL_LIFE_RECYCLE;
+        DeathCause = SURFEL_CENSUS_DIED_POLICE;
     }
     else
     {
@@ -88,8 +125,21 @@ void main()
             Delta += (Excess * Excess) / 32;            // quadratic rent above 2×
 
         // 3. KEEP-ALIVE INCOME — income cancels the delta; you can stop age, never reverse it.
-        NextAge = Age + max(Delta - Income, 0);
+        // 🔴 THE FLOOR IS WHAT KEEPS THE FIELD FROM FREEZING. Income runs to 50 (SurfelGather.glsl's SURFEL_IMPORTANCE_INDIRECT_MAX) against a base
+        //    metabolism of 1, so an UNCAPPED cancel makes any surfel that wins a gather immortal. Measured: the field pinned at 864 surfels 14 frames
+        //    in and requested almost nothing for the next 1000 frames — immortal incumbents keep CellAlreadyCovered true, which suppresses the
+        //    challengers that would replace them, which keeps the incumbents winning. A closed loop with no camera term, so moving the view never
+        //    breaks it and coverage falls behind the eye. webgiya can afford the uncapped cancel because its despawn vote evicts the incumbent from
+        //    outside the loop; this path has no vote (diedPolice = 0 by construction), so the ONLY remaining eviction is age reaching TTL.
+        //    Flooring the delta at 1 keeps webgiya's staggering intact — a paid surfel still ages far slower than an idle one, so cohorts do not die
+        //    in lockstep — while guaranteeing every surfel reaches TTL in bounded time and re-opens its cell to a fresh claim.
+        NextAge = Age + max(Delta - Income, SURFEL_MIN_AGE_DELTA_WHEN_PAID);
         NextAge = max(0, NextAge);
+
+        // 🩺 Census: this surfel was PAID this frame. Counting the paid population is what shows whether income is reaching the field at all — if
+        //    keepAlive tracks alive while diedTtl stays high, income is arriving but cannot outrun the delta (the max(·,0) floor at line above).
+        if (Income > 0)
+            SurfelCensusTally(SURFEL_CENSUS_KEEP_ALIVE);
     }
 
     Surfels[Index].Age = NextAge;
@@ -101,5 +151,10 @@ void main()
         int FreedSlot = atomicAdd(PoolAlloc[0], -1) - 1;   // value BEFORE the subtract, minus one
         if (FreedSlot >= 0 && FreedSlot < Push.Capacity)
             PoolFreeList[FreedSlot] = Index;
+
+        // 🩺 Census: split the cause. Both paths land here (the police branch stamps SURFEL_LIFE_RECYCLE, which is far above SURFEL_TTL), so the branch's
+        //    recorded cause is the only thing that still knows which one ran. The split is the point: TTL deaths say the ECONOMY is killing probes on a
+        //    timer (fixable only in this pass), police deaths say the SPAWN pass is over-covering cells (fixable by better placement).
+        SurfelCensusTally(DeathCause);
     }
 }

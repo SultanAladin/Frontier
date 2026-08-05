@@ -915,6 +915,24 @@ bool ResolveTrimPreviewSpan(ParametricSketchShapeStore&   Store,
                             float                ToleranceMm,
                             std::vector<ImVec2>& OutSpan);
 
+// The Extend tool (AutoCAD EXTEND / Trim's mirror image): LENGTHEN the free END of the OPEN shape Identifier nearer to CursorMm until it REACHES the
+// first other curve ahead of it. The end's outgoing tangent (its terminal flatten segment) is cast forward as a ray at every other displayed, unlocked
+// shape and the NEAREST hit becomes the new endpoint; the tool is sticky, so a second click reaches the next boundary out. When NOTHING lies ahead the
+// end pushes out by a fixed fallback length instead, so the click always does something visible. Every existing vertex is KEPT (only the terminal
+// segment lengthens), so a curved run holds its shape. A CLOSED loop is rejected (no free end). Re-solves as a Polyline + logs an "Extended" edit.
+// Returns true when it changed the store; no-op false when the shape is absent / locked / closed, or the cursor missed the outline within ToleranceMm.
+bool ExtendShapeToBoundary(ParametricSketchShapeStore& Store, uint32_t Identifier, ImVec2 CursorMm, float ToleranceMm);
+
+// Resolve â€” WITHOUT mutating anything â€” the span an Extend click at CursorMm would ADD to shape Identifier, as a two-point world-mm run in OutSpan
+// (cleared first): the chosen end's current position out to the boundary it would reach (or the fixed fallback point when nothing is ahead). The view
+// strokes this as a live hover highlight so the growth is visible before committing â€” the Extend twin of ResolveTrimPreviewSpan. Returns true when a
+// span was resolved (OutSpan has 2 points); false (OutSpan empty) when the shape is absent / locked / closed or the cursor missed within ToleranceMm.
+bool ResolveExtendPreviewSpan(ParametricSketchShapeStore& Store,
+                              uint32_t                    Identifier,
+                              ImVec2                      CursorMm,
+                              float                       ToleranceMm,
+                              std::vector<ImVec2>&        OutSpan);
+
 // The Cut tool (Plasticity Cut Curve): SPLIT shape Identifier at the CLICKED point CursorMm (nearest point on its flattened outline
 // within ToleranceMm). A CLOSED shape opens at the cut point into one open piece (a rectangle stays a rectangle-shaped run but is no
 // longer a loop; a second cut then divides it into two); an OPEN run splits into a head + tail. The ANALYTIC round families stay exact:

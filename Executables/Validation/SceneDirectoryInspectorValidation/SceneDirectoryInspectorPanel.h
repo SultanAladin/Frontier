@@ -76,6 +76,11 @@ struct InspectorPanelState
     float                    RequestX = 0.0f;            // [px] - where it wants to open
     float                    RequestY = 0.0f;            // [px]
 
+    // 📝 One-shot: the pending summon should land ON the inspect/Properties face rather than slide 1 (the directory). A right-click PICK
+    //    that already resolved a row sets this so the card opens straight on that row's Properties, skipping the directory step. The applier
+    //    honours it AFTER placement (only when a selection exists) and self-clears it, so a plain Tab summon still opens on the directory.
+    bool                     OpenOnInspect = false;      // [-]  - deferred summon opens on inspect, not the directory
+
     // -- Per-card fold memory (foldMemory: classification/title -> collapsed) is small + string-keyed; kept as a parallel vector --
     std::vector<std::string> CollapsedCards;             // [-]  - "classification/Title" keys the reviewer collapsed
 };

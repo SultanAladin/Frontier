@@ -68,6 +68,19 @@ void NormalizeBooleanLoops(std::vector<std::vector<ImVec2>>& Loops);
 //    Sets Store.Notice on a failure path. Never mutates the store on a non-Committed outcome.
 BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCategory Op);
 
+// The same orchestrator with the operand disposal made explicit - the Boolean popup's "Keep operands" toggle. KeepOperands = false is the
+//    historical behaviour above (operands hidden, recoverable via the outliner); true leaves every operand DISPLAYED so the result overlays
+//    its sources. The result is appended, logged and reselected identically either way - the only difference is the operands' Displayed flag.
+BooleanOutcome AppendBooleanResult(ParametricSketchShapeStore& Store, BooleanCategory Op, bool KeepOperands);
+
+// Solve the boolean WITHOUT touching the store - the popup's live preview. Reads OperandIdentifiers in order (front = the Subtract base),
+//    flattens each operand exactly as the commit does (its outer loop + any holes it already carries), and returns the surviving loop set:
+//    outer loops CCW, hole loops CW, so the consumer can stroke outers and voids distinctly. Empty when fewer than two operands resolve, an
+//    operand is open / un-flattenable, or no region survives. Never sets Store.Notice - a preview must stay silent.
+std::vector<std::vector<ImVec2>> ResolveBooleanPreviewLoops(ParametricSketchShapeStore&   Store,
+                                                            const std::vector<uint32_t>& OperandIdentifiers,
+                                                            BooleanCategory              Op);
+
 } // namespace Frontier
 
 #endif   // FRONTIER_AUTHORING_PARAMETRICAUTHORING_OPERATIONS_BOOLEAN_PARAMETRICSKETCHBOOLEAN_H
