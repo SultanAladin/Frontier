@@ -1,0 +1,373 @@
+/*==============================================================================================================================================
+                                                       SURFELRADIANCEINTEGRATE.COMP
+==============================================================================================================================================*/
+// 🧩 Lifecycle's closing pass and the other half of Phase 7, ported 1:1 from W298/SurfelGI (SurfelIntegratePass.cs.slang). One invocation per LIVE
+//    surfel. Each invocation reads back the run of rays the census claimed and the trace filled, and turns them into four things:
+//       ① the frame's raw irradiance for this surfel — every ray's radiance, cosine-weighted and pdf-reweighted, averaged over the run
+//       ② the ray-guiding atlas — one luminance texel per ray, so a later frame can fire rays toward where the light actually was
+//       ③ the depth-moment atlas — distance and distance² toward the nearest occluder, which is what lets a gather reject a blocked surfel
+//       ④ the filtered radiance the shade reads, through the MSME (SurfelMeanEstimator.glsl)
+//    Writes SurfelRecordStorage and both atlases; reads the ray pool, the cell grid and — for irradiance sharing — its neighbours' records.
+//
+// 🔴 THE PDF DIVISION IS ONE HALF OF A CANCELLING PAIR AND MUST NOT BE "CORRECTED" ALONE. The trace stamps every non-guided ray with a probability
+//    density of 1/(16π), which is NOT the 1/(2π) a uniform hemisphere actually carries; the reweight below divides by that same 1/(16π), so the two
+//    cancel and the field's absolute scale matches upstream's. ⚠️ Fixing either side by itself rescales every surfel's radiance by 8x — bright enough
+//    to look like an exposure choice rather than an error. Both move together or neither does.
+//
+// 🔴 THE MSME RUNS LAST, AFTER THE SHARING BLEND, AND THAT ORDERING IS THE WHOLE POINT OF THE SHARING. The blend substitutes a neighbour's converged
+//    light for a noisy surfel's own estimate BEFORE the estimator sees it — so a freshly spawned surfel inherits its neighbourhood's answer as its
+//    first observation instead of converging to it over a hundred frames. Blending after the estimator would smooth the output and leave the
+//    estimator's own history just as noisy, which is a different (and worse) filter.
+//
+// ⚠️ THE SHARING READ IS RACY BY CONSTRUCTION AND THAT IS ACCEPTED, NOT OVERLOOKED. It reads OTHER surfels' depth tiles and radiance while other
+//    invocations of this same dispatch are writing them, so a given read may see this frame's value or last frame's. Upstream has the identical hazard.
+//    It is harmless here because every quantity involved is a temporally filtered cache whose two candidate values differ by one frame's blend — and
+//    the alternative (a second dispatch, or a full copy of the atlas) costs more than the difference is worth. The images are declared `coherent` so
+//    the read is at least well-defined rather than undefined.
+//
+// 📝 The invocation is indexed through LiveIndexStorage, not by surfel ordinal. The live set is compacted by the census, so this dispatch touches only
+//    surviving surfels and never walks the 65536-slot record table.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// 🔴 This pass carries its own push block (camera, the estimator's window, the three feature switches), so it takes the shared bindings' opt-out and
+//    re-supplies FetchCameraOrigin below. GLSL permits exactly one push_constant block per stage; see SurfelStoreBindings.glsl's note.
+#define SURFEL_STORE_BINDINGS_WITHOUT_LIFECYCLE_CONSTANTS
+#include "SurfelStoreBindings.glsl"
+
+#include "SurfelCellGrid.glsl"
+#include "SurfelSampling.glsl"
+#include "SurfelMeanEstimator.glsl"
+#include "SurfelAtlasAddressing.glsl"
+
+// 📝 32, matching upstream's kIntegrateGroupSize. Narrower than the lifecycle's 64 because each invocation here walks a ray run and a cell run, so the
+//    divergence within a group is far higher and a smaller group wastes fewer lanes on the tail.
+layout(local_size_x = 32) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                            SET 1
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE TWO ATLASES, AS STORAGE IMAGES. The formats are pinned by SurfelStore's allocation — R32_SFLOAT for the guiding map and R32G32_SFLOAT for the
+//    depth moments — and a layout qualifier that disagrees with the image's real format is undefined, not a validation error on every driver.
+// 📝 The guiding atlas holds a SCALAR luminance per texel, not a colour: it exists to bias where the next frame's rays are fired, and a direction only
+//    needs one number to be ranked. That is why the store sizes it single-channel.
+layout(r32f,  set = 1, binding = 0) coherent uniform image2D SurfelGuidingAtlas;
+layout(rg32f, set = 1, binding = 1) coherent uniform image2D SurfelDepthAtlas;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                         PUSH BLOCK
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE HOST MIRROR IS SurfelIrradianceConstants IN SurfelIrradianceSubmission.h, FIELD FOR FIELD IN THIS ORDER. Scalars only — a vec3 here carries
+//    16-byte alignment in std430 and would shift every field after it, which reads as a plausible-but-wrong camera rather than as an error.
+layout(push_constant) uniform SurfelIntegrateConstants
+{
+    float CameraX, CameraY, CameraZ;    // [m]  - the frame's camera origin; MUST be the same bytes the census and scatter were pushed
+    float ShortMeanWindow;              // [-]  - the MSME's fast-window blend (upstream gShortMeanWindow, 0.08)
+    float VarianceSensitivity;          // [-]  - how hard a noisy surfel leans on its neighbours' light; 0 disables the blend without a branch
+    uint  FrameOrdinal;                 // [-]  - carried for parity with the other passes; unused by the maths, read by the diagnostics
+    uint  GuidingCondition;             // [-]  - non-zero writes the guiding atlas (upstream gUseRayGuiding)
+    uint  DepthCondition;               // [-]  - non-zero writes the depth-moment atlas (upstream gUseSurfelDepth)
+    uint  SharingCondition;             // [-]  - non-zero enables the neighbour blend (upstream gUseIrradianceSharing)
+} Constants;
+
+// Re-supplied because the shared bindings' copy reads the lifecycle push block this pass opted out of. Same value, different block.
+vec3 FetchCameraOrigin() { return vec3(Constants.CameraX, Constants.CameraY, Constants.CameraZ); }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                      INTEGRATION CONSTANTS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 The trace's stamped density, repeated here rather than shared, because the two are a CANCELLING PAIR and a shared constant would let someone
+//    change both with one edit and never notice the scale had not moved. See the file header.
+const float SurfelNonGuidedDensity = 1.0 / (16.0 * SurfelPi);
+
+// Upstream's two atlas blend rates. Both are deliberately tiny: an atlas texel is written by whichever handful of rays happened to land in it this
+// frame, so it must move slowly enough that a single unlucky frame cannot redirect the next frame's whole sampling distribution.
+const float SurfelGuidingBlend = 1e-2;   // [-] - the guiding luminance's exponential rate
+const float SurfelDepthBlend   = 1e-2;   // [-] - the depth moments' rate
+
+// ⚠️ The guiding floor is what keeps every direction reachable. A texel driven to exactly zero would have zero probability in the guided CDF, so no ray
+//    would ever be fired there again — and the texel could then never be corrected. A dark direction must stay improbable, never impossible.
+const float SurfelGuidingFloor = 1e-3;
+
+// A texel this low has never been written at all, as opposed to written and found dark (which the floor above keeps at 1e-3). That distinction is what
+// HoleCondition reports: a tile with holes has no usable CDF yet and the trace must keep firing uniform rays into it.
+const float SurfelHoleThreshold = 1e-12;
+
+// The distance a MISSED ray records in the depth moments. 📝 A ray that reached the sky found no occluder, which is a real and useful observation — but
+// it has no finite length, so it is recorded as "far enough that nothing occludes". ⚠️ Recording zero instead would read as an occluder at the surfel's
+// own position and make the surfel reject every neighbour, which is the opposite of what the miss means.
+const float SurfelUnoccludedDistance = 1e3;   // [m]
+
+// The reach of the irradiance-sharing gather, upstream's kCellUnit * sqrt(2) — the half-diagonal of a cell, so a surfel shares with everything that can
+// plausibly sit on the same surface patch and with nothing across the room. Spelled as a literal rather than sqrt(2.0) so it is a constant expression on
+// every compiler.
+const float SurfelSharingReach = SurfelCellEdge * 1.41421356;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       ATLAS TILE WRITES
+//------------------------------------------------------------------------------------------------------------------------
+
+// One ray's luminance folded into the guiding tile. 📝 Exponential, not accumulate-and-divide: the tile has no per-texel sample count and adding one
+// would double the atlas's footprint to carry a number the blend rate already stands in for.
+void AdvanceGuidingTexel(ivec2 TileOrigin, vec3 LocalDirection, vec3 RayRadiance)
+{
+    const ivec2 Texel   = TileOrigin + ResolveSurfelTileTexel(LocalDirection, 0);
+    const float Current = imageLoad(SurfelGuidingAtlas, Texel).r;
+    const float Target  = dot(SurfelLumaWeights, RayRadiance);
+
+    imageStore(SurfelGuidingAtlas, Texel, vec4(max(SurfelGuidingFloor, Current + SurfelGuidingBlend * (Target - Current))));
+}
+
+// One ray's occluder distance folded into the depth tile, as the two moments a Chebyshev test needs.
+// 🔴 THE WEIGHT IS THE RAY'S ALIGNMENT WITH THE TEXEL IT LANDED IN, NOT A FLAT 1. ResolveSurfelTileTexel rounds a direction onto the nearest texel, so a
+//    ray at the edge of that texel's cone is only partly evidence about the direction the texel stands for. Weighting by the dot product is what stops
+//    the 5x5 payload quantizing the depth field into visible blocks — ⚠️ dropping it does not brighten or darken anything, it makes the occlusion test
+//    stair-step, which reads as blocky contact shadows in the gather.
+// 📝 Inset 1, so the payload stays strictly inside the tile's border and the border copy at the foot of main() has something to copy outward.
+void AdvanceDepthTexel(ivec2 TileOrigin, vec3 LocalDirection, float OccluderDistance)
+{
+    const ivec2 TileTexel = ResolveSurfelTileTexel(LocalDirection, 1);
+    const ivec2 Texel     = TileOrigin + TileTexel;
+
+    const float Alignment = clamp(dot(normalize(LocalDirection), ResolveSurfelTexelDirection(TileTexel, 1)), 0.0, 1.0);
+    if (Alignment <= 0.0)
+        return;
+
+    const vec2 Moments = vec2(OccluderDistance, OccluderDistance * OccluderDistance);
+    const vec2 Current = imageLoad(SurfelDepthAtlas, Texel).rg;
+
+    imageStore(SurfelDepthAtlas, Texel, vec4(Current + (Moments - Current) * SurfelDepthBlend * Alignment, 0.0, 0.0));
+}
+
+// Copy the payload's outer ring into the one-texel border. 🔴 THIS IS NOT COSMETIC AND IT IS NOT PADDING. The Phase-8 shade samples the depth tile
+// BILINEARLY, and a tap at the payload's edge reaches one texel beyond it; without this copy that tap reads the NEIGHBOURING surfel's tile, so one
+// surfel's occlusion is partly another's. The symptom is light leaking along tile boundaries in a pattern that looks like noise rather than like an
+// addressing bug. ⚠️ Edge clamp, not the mirrored wrap a full-sphere octahedral map needs — this map is hemispherical and its boundary is the equator,
+// where a clamp and a wrap agree.
+void CopySurfelDepthBorder(ivec2 TileOrigin)
+{
+    const int Low  = 1;
+    const int High = int(SurfelAtlasTileEdge) - 2;   // 5
+
+    for (int Along = Low; Along <= High; ++Along)
+    {
+        imageStore(SurfelDepthAtlas, TileOrigin + ivec2(Low - 1,  Along), imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(Low,   Along)));
+        imageStore(SurfelDepthAtlas, TileOrigin + ivec2(High + 1, Along), imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(High,  Along)));
+        imageStore(SurfelDepthAtlas, TileOrigin + ivec2(Along, Low - 1),  imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(Along, Low)));
+        imageStore(SurfelDepthAtlas, TileOrigin + ivec2(Along, High + 1), imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(Along, High)));
+    }
+
+    // The four corners are reached by a bilinear tap at a payload corner and are covered by neither edge run above.
+    imageStore(SurfelDepthAtlas, TileOrigin + ivec2(Low - 1,  Low - 1),  imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(Low,  Low)));
+    imageStore(SurfelDepthAtlas, TileOrigin + ivec2(High + 1, Low - 1),  imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(High, Low)));
+    imageStore(SurfelDepthAtlas, TileOrigin + ivec2(Low - 1,  High + 1), imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(Low,  High)));
+    imageStore(SurfelDepthAtlas, TileOrigin + ivec2(High + 1, High + 1), imageLoad(SurfelDepthAtlas, TileOrigin + ivec2(High, High)));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       THE OCCLUSION TEST
+//------------------------------------------------------------------------------------------------------------------------
+
+// How much of Source's light reaches Destination, from Source's own depth tile. Chebyshev's inequality over the two stored moments — the same variance
+// shadow-map test the clipmap uses, one surfel wide.
+// 📝 Nearest texel, not the bilinear sample ResolveSurfelAtlasSampleUv would give. This pass has the atlas bound as a STORAGE image (it is writing it),
+//    and binding the same image a second time as a sampled view purely to filter a read that the surrounding blend smooths anyway would cost a second
+//    descriptor and a second layout. The Phase-8 shade, which only reads, takes the bilinear path — that is what the border copy is for.
+// ⚠️ A tile that has never been written reads as zero moments, and zero mean means "an occluder at distance 0". Returning full visibility for that case
+//    is deliberate: an unwritten tile is an absence of evidence, and treating it as total occlusion would make every newly spawned surfel invisible to
+//    its neighbours at exactly the moment it most needs their light.
+float ResolveSurfelVisibility(uint SourceOrdinal, vec3 SourceNormal, vec3 TowardDestination, float Separation)
+{
+    const ivec2 TileTexel = ResolveSurfelTileTexel(transpose(ResolveTangentFrame(SourceNormal)) * TowardDestination, 1);
+    const vec2  Moments   = imageLoad(SurfelDepthAtlas, ResolveSurfelTileOrigin(SourceOrdinal) + TileTexel).rg;
+
+    if (Moments.x <= 0.0)
+        return 1.0;                 // never written; see the note above
+    if (Separation <= Moments.x)
+        return 1.0;                 // nearer than the mean occluder — unambiguously visible, no inequality needed
+
+    const float Variance   = max(0.0, Moments.y - Moments.x * Moments.x);
+    const float Difference = Separation - Moments.x;
+    return clamp(Variance / (Variance + Difference * Difference), 0.0, 1.0);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                             ENTRY
+//------------------------------------------------------------------------------------------------------------------------
+
+void main()
+{
+    const uint Invocation = gl_GlobalInvocationID.x;
+
+    // Early-out against the counter this pass reads itself, for the same reason every other surfel pass does: the frame's live count lives on the device
+    // and the host would have to stall to size a dispatch from it.
+    const uint LiveCount = min(CounterStorage.Slots[SurfelCounterValidSurfel], SurfelTotalLimit);
+    if (Invocation >= LiveCount) return;
+
+    const uint SurfelOrdinal = LiveIndexStorage.Ordinals[Invocation];
+    if (SurfelOrdinal >= SurfelTotalLimit) return;   // a corrupt live entry must not index past the records
+
+    Surfel Record = SurfelRecordStorage.Records[SurfelOrdinal];
+    if (Record.Radius <= 0.0) return;                // marked dead between the census and here
+
+    // ⚠️ A surfel the census starved (its claim landed past the shared budget) has RayCount 0 and its outcome run was never written. Returning leaves
+    //    its radiance and its estimator exactly as they were, which is the correct meaning of "no new evidence this frame" — averaging zero rays would
+    //    instead push a black observation through the estimator and make a starved frame darken the field.
+    const uint RayCount = Record.RayCount;
+    if (RayCount == 0u) return;
+
+    const uint RayOffset = Record.RayOffset;
+    if (RayOffset + RayCount > SurfelRayBudget) return;
+
+    const vec3  SurfelNormal   = normalize(FetchSurfelNormal(Record));
+    const vec3  SurfelPosition = FetchSurfelPosition(Record);
+    const ivec2 TileOrigin     = ResolveSurfelTileOrigin(SurfelOrdinal);
+
+    //-- ① reduce the frame's rays -------------------------------------------------------------------------------------------
+    vec3 Irradiance = vec3(0.0);
+
+    for (uint Step = 0u; Step < RayCount; ++Step)
+    {
+        const SurfelRayOutcome Outcome = RayOutcomeStorage.Outcomes[RayOffset + Step];
+
+        // 🔴 THE OWNERSHIP STAMP IS CHECKED, NOT ASSUMED. The ray pool is a shared arena claimed atomically, so a run that overlapped another surfel's —
+        //    which a corrupt counter or a lost barrier can produce — would otherwise fold a stranger's radiance into this surfel with no symptom beyond
+        //    a wrongly lit patch. Skipping the entry costs one comparison and makes that failure local.
+        if (Outcome.SurfelOrdinal != SurfelOrdinal)
+            continue;
+
+        const vec3 RayRadiance  = FetchRayOutcomeRadiance(Outcome);
+        const vec3 LocalDirection = FetchRayOutcomeLocalDirection(Outcome);
+        const vec3 WorldDirection = FetchRayOutcomeWorldDirection(Outcome);
+
+        // A run entry the trace never reached keeps the census's zeroed direction. Normalizing that is a division by zero, so it is skipped rather than
+        // clamped — it carries no radiance either way.
+        if (dot(LocalDirection, LocalDirection) < 1e-12)
+            continue;
+
+        if (Constants.GuidingCondition != 0u)
+            AdvanceGuidingTexel(TileOrigin, LocalDirection, RayRadiance);
+
+        if (Constants.DepthCondition != 0u)
+        {
+            // 📝 FirstRayLength is the distance to the nearest thing this ray struck, stamped by the trace on the FIRST segment only — later bounces
+            //    describe other surfaces' occlusion, not this surfel's. A zero means the ray reached the sky.
+            const float OccluderDistance = Outcome.FirstRayLength > 0.0 ? Outcome.FirstRayLength : SurfelUnoccludedDistance;
+            AdvanceDepthTexel(TileOrigin, LocalDirection, OccluderDistance);
+        }
+
+        // The Monte Carlo estimator: radiance x cosine / pdf. 🔴 The numerator's SurfelNonGuidedDensity cancels the trace's stamped pdf for a non-guided
+        //    ray and correctly reweights a guided one; see the file header.
+        const float CosineTerm = max(0.0, dot(WorldDirection, SurfelNormal));
+        Irradiance += RayRadiance * CosineTerm * (SurfelNonGuidedDensity / max(1e-12, Outcome.ProbabilityDensity));
+    }
+
+    Irradiance /= float(RayCount);
+
+    //-- ② report the guiding tile's state ----------------------------------------------------------------------------------
+    // The trace's future guided sampling needs both numbers: SumLuminance normalizes the tile into a CDF, and HoleCondition says whether that CDF is
+    // usable at all. 📝 Scanned over the WHOLE 7x7 tile rather than the 5x5 payload, because the guiding map is texel-fetched (never filtered) and so
+    // uses its border texels as real directions — unlike the depth map, whose border exists only to be tapped.
+    {
+        float SumLuminance = 0.0;
+        uint  HoleCondition = 0u;
+
+        for (int Row = 0; Row < int(SurfelAtlasTileEdge); ++Row)
+        {
+            for (int Column = 0; Column < int(SurfelAtlasTileEdge); ++Column)
+            {
+                const float Texel = imageLoad(SurfelGuidingAtlas, TileOrigin + ivec2(Column, Row)).r;
+                SumLuminance += Texel;
+                if (Texel <= SurfelHoleThreshold)
+                    HoleCondition = 1u;
+            }
+        }
+
+        Record.SumLuminance  = SumLuminance;
+        Record.HoleCondition = HoleCondition;
+    }
+
+    if (Constants.DepthCondition != 0u)
+        CopySurfelDepthBorder(TileOrigin);
+
+    //-- ③ borrow the neighbourhood's answer --------------------------------------------------------------------------------
+    // 💡 Irradiance sharing is what makes a new surfel converge in a few frames instead of a few hundred: its own rays are far too few to be trusted, but
+    //    the surfels already sitting on the same surface patch have been averaging for a long time and their answer is almost certainly this surfel's
+    //    answer too. The blend is driven by the estimator's own variance, so a converged surfel ignores its neighbours entirely and a noisy one leans on
+    //    them hard — no explicit "is this surfel new?" test is needed, and none would be as well-behaved.
+    // 📝 The CENTRE cell only, not the 125-cell neighbourhood the census walks. A surfel's useful donors are the ones within half a cell diagonal, and the
+    //    distance and normal tests below would reject almost everything the wider walk returned — so the wider walk would be pure cost.
+    if (Constants.SharingCondition != 0u)
+    {
+        const vec3  CameraOrigin = FetchCameraOrigin();
+        const ivec3 CentreCell   = ResolveCellCoordinate(SurfelPosition, CameraOrigin);
+
+        if (CellCoordinateValid(CentreCell))
+        {
+            const SurfelCellSpan Span = CellSpanStorage.Spans[FlattenCellIndex(CentreCell)];
+
+            vec3  Borrowed   = vec3(0.0);
+            float TotalWeight = 0.0;
+
+            for (uint Entry = 0u; Entry < Span.SurfelCount; ++Entry)
+            {
+                const uint TableSlot = Span.TableOffset + Entry;
+                if (TableSlot >= SurfelCellListCapacity)
+                    break;
+
+                const uint OtherOrdinal = CellListStorage.Ordinals[TableSlot];
+                if (OtherOrdinal == SurfelOrdinal || OtherOrdinal >= SurfelTotalLimit)
+                    continue;
+
+                const Surfel OtherRecord = SurfelRecordStorage.Records[OtherOrdinal];
+                if (OtherRecord.Radius <= 0.0)
+                    continue;
+
+                const vec3  OtherPosition = FetchSurfelPosition(OtherRecord);
+                const vec3  Separation    = OtherPosition - SurfelPosition;
+                const float Distance      = length(Separation);
+                if (Distance >= SurfelSharingReach || Distance <= 1e-6)
+                    continue;
+
+                // ⚠️ The normal test is what keeps light from crossing a corner. Two surfels a centimetre apart on the two faces of a wall are inside
+                //    each other's reach and see completely different light; without this term the inside of a room would bleed through to the outside.
+                const vec3  OtherNormal = normalize(FetchSurfelNormal(OtherRecord));
+                const float Facing      = dot(OtherNormal, SurfelNormal);
+                if (Facing <= 0.0)
+                    continue;
+
+                // Two surfels can face the same way, sit close, and still have a wall between them — a doorway's two jambs, say. The donor's own depth
+                // tile is the only record of that, so the test is run from ITS frame toward this surfel.
+                const float Visibility = ResolveSurfelVisibility(OtherOrdinal, OtherNormal, Separation / Distance, Distance);
+                if (Visibility <= 0.0)
+                    continue;
+
+                const float Weight = Facing * (1.0 - Distance / SurfelSharingReach) * Visibility;
+                Borrowed    += FetchSurfelRadiance(OtherRecord) * Weight;
+                TotalWeight += Weight;
+            }
+
+            if (TotalWeight > 0.0)
+            {
+                const vec3 Variance = vec3(Record.MeanEstimator.VarianceX, Record.MeanEstimator.VarianceY, Record.MeanEstimator.VarianceZ);
+                const float BorrowBlend = clamp(length(Variance) * Constants.VarianceSensitivity, 0.0, 1.0);
+                Irradiance = mix(Irradiance, Borrowed / TotalWeight, BorrowBlend);
+            }
+        }
+    }
+
+    //-- ④ filter and publish ------------------------------------------------------------------------------------------------
+    // 🔴 SANITISE AFTER ADVANCE, AND THE PUBLISHED RADIANCE IS READ BACK FROM THE SCRUBBED STATE — not from AdvanceSurfelMeanEstimator's return value. A
+    //    NaN that the advance produced would otherwise be written into Radiance even though the estimator itself was cleaned, and the shade would carry
+    //    it for as long as the surfel lives. One extra read, and the two can never disagree.
+    AdvanceSurfelMeanEstimator(Irradiance, Record.MeanEstimator, Constants.ShortMeanWindow);
+    SanitiseSurfelMeanEstimator(Record.MeanEstimator);
+
+    StoreSurfelRadiance(Record, vec3(Record.MeanEstimator.MeanX, Record.MeanEstimator.MeanY, Record.MeanEstimator.MeanZ));
+
+    SurfelRecordStorage.Records[SurfelOrdinal] = Record;
+}

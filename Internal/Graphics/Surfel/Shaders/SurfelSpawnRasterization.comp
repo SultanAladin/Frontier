@@ -1,0 +1,572 @@
+/*==============================================================================================================================================
+                                                      SURFELSPAWNRASTERIZATION.COMP
+==============================================================================================================================================*/
+// 🧩 Where new surfels come from, and where over-covered ones go. Ported 1:1 from W298/SurfelGI (SurfelGenerationPass.cs.slang). One invocation per
+//    PIXEL, grouped into 16x16 screen tiles; each tile elects one pixel and spawns AT MOST ONE surfel per frame at it. The tile also raises every
+//    surfel it can see (so the census knows it is still wanted), tallies references, and — when a tile is over-covered — marks its most redundant
+//    surfel for removal.
+//
+// 🔴 THE TILE IS THE UNIT OF DECISION, NOT THE PIXEL, AND THAT IS THE WHOLE ALGORITHM. Spawning per pixel would put a surfel at every one of a
+//    million pixels in the first frame; electing one pixel per 16x16 tile bounds the spawn rate at (pixels / 256) per frame and makes the field grow
+//    into a scene over a second or so rather than saturating instantly. 💡 The election picks the LEAST covered pixel in the tile — the place the
+//    existing field explains worst — which is why the field converges on gaps instead of piling onto what it already has.
+//
+// 🔴 THE COVERAGE VOTE IS AN atomicMin OVER A PACKED WORD, AND THE PACKING ORDER IS THE TIE-BREAK ORDER. Coverage occupies the HIGH bits so the
+//    comparison is dominated by it; a random byte sits below so that pixels of equal coverage — which is the common case in an empty region, where
+//    every pixel is covered by nothing — elect a DIFFERENT winner each frame instead of the same corner pixel forever. ⚠️ Reordering the fields, or
+//    dropping the random byte, makes an uncovered tile spawn its whole column of surfels down one screen line.
+//
+// 🔴 A SPAWN NEVER TOUCHES THE COUNTERS FOR A REMOVAL — IT WRITES THE RADIUS TO ZERO AND LETS THE CENSUS FREE THE SLOT. A raster thread that pushed a
+//    slot onto the vacancy stack itself would race the census, which is reading that same stack a pass earlier in the frame. Radius 0 is the field's
+//    one agreed "dead" mark (SurfelCellCensus.comp ②) and it costs one float.
+//
+// 📝 This pass reads the VISIBILITY BUFFER, not a G-buffer. Frontier's deferred path stores one 32-bit identity per pixel and reconstructs position
+//    and normal from it (SurfaceShade.frag); the reconstruction below is that same chain, kept in step with it by hand — ⚠️ the two must move together,
+//    since a divergence puts surfels slightly off the surface the shade will later read them from.
+
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+// This pass carries its own push block (the view transforms, the spawn thresholds), so it takes the shared bindings' opt-out and re-supplies the two
+// helpers that read the lifecycle block. See SurfelStoreBindings.glsl's note on why the push block is not shared.
+#define SURFEL_STORE_BINDINGS_WITHOUT_LIFECYCLE_CONSTANTS
+#include "SurfelStoreBindings.glsl"
+
+#include "SurfelCellGrid.glsl"
+#include "SurfelSampling.glsl"
+
+// 📝 16x16, matching SurfelTileEdge and upstream's kTileSize. The tile edge is not a tuning knob: the reference tally, the coverage threshold and the
+//    spawn rate are all expressed per tile, so changing it rescales three unrelated-looking numbers at once.
+layout(local_size_x = 16, local_size_y = 16) in;
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                  SET 1 — THE VISIBLE SURFACE
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 R32_UINT, and the sentinel is 0xFFFFFFFF — the same buffer VisibilityRaster.frag writes and SurfaceShade.frag reads. `usampler2D` rather than a
+//    storage image because the format is integer and the fetch is a texelFetch at an exact pixel; a sampled read of an integer format must never be
+//    filtered, which texelFetch guarantees by construction.
+layout(set = 1, binding = 0) uniform usampler2D VisibilityBuffer;
+
+// One RenderVertex, stride-32: position @0, normal @12, texcoord @24. Declared in full so std430's stride stays 32 — the same reason every other
+// consumer of this stream declares it in full.
+struct RenderVertex
+{
+    float PositionX; float PositionY; float PositionZ;
+    float NormalX;   float NormalY;   float NormalZ;
+    float TexU;      float TexV;
+};
+
+// 🔴 Mirrors SuzanneSceneInstance (Scene/SuzanneScene.h), pinned at 208 B. EVERY field including padding, or std430 mis-strides the array and instance
+//    N reads the tail of instance N-1.
+struct SceneInstance
+{
+    mat4 Model;              // @0
+    vec4 NormalBasis[3];     // @64
+    vec4 Tint;               // @112
+    uint PartitionId;        // @128
+    uint MaterialId;         // @132
+    uint MeshOrdinal;        // @136
+    uint Pad0;               // @140
+    mat4 InverseModel;       // @144
+};
+
+layout(std430, set = 1, binding = 1) readonly buffer SpawnVertexBlock   { RenderVertex  Vertices[];      };
+layout(std430, set = 1, binding = 2) readonly buffer SpawnIndexBlock    { uint          MeshIndices[];   };
+layout(std140, set = 1, binding = 3) readonly buffer SpawnInstanceBlock { SceneInstance Instances[];     };
+
+// The floor mesh rasterizes into the SAME visibility buffer from a partition range based high, out of its own three streams — so a floor pixel's
+// triangle cannot be fetched from the three above. ⚠️ When no floor document is loaded these are ALIASED onto the head buffers rather than left
+// unbound, so their lengths look healthy while holding head data; FloorCondition in the push block, not a length test, is what says they are real.
+layout(std430, set = 1, binding = 4) readonly buffer SpawnFloorVertexBlock   { RenderVertex  FloorVertices[];  };
+layout(std430, set = 1, binding = 5) readonly buffer SpawnFloorIndexBlock    { uint          FloorIndices[];   };
+layout(std140, set = 1, binding = 6) readonly buffer SpawnFloorInstanceBlock { SceneInstance FloorInstances[]; };
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                         PUSH BLOCK
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE HOST MIRROR IS SurfelSpawnConstants IN SurfelSpawnSubmission.h, FIELD FOR FIELD IN THIS ORDER. The mat4 leads because std430 gives it 16-byte
+//    alignment either way; every field after it is a scalar, for the same reason every surfel record is scalar — a vec3 here would shift the tail.
+layout(push_constant) uniform SurfelSpawnConstants
+{
+    mat4  InverseViewProjection;   // [-]   - clip -> world, matching SurfaceShade.frag's; the view ray is unprojected through it
+
+    float CameraX, CameraY, CameraZ;   // [m]     - the frame's camera origin; MUST be the same bytes every other surfel pass was pushed
+    float VerticalFieldOfView;         // [rad]   - vertical FOV, for the screen-projected radius
+    float TargetArea;                  // [px²]   - screen area one surfel aims to cover
+
+    float PlacementThreshold;          // [px²]   - a pixel covered by more than this much surfel area is already explained; no spawn
+    float RemovalThreshold;            // [px²]   - a tile covered by more than this is over-served; its most redundant surfel is marked dead
+    float ChanceMultiply;              // [-]     - scales the spawn probability; upstream gChanceMultiply
+    float ChancePower;                 // [-]     - the depth exponent in that probability; upstream gChancePower
+
+    // 🔴 THE EXTENT IS PUSHED, NOT READ FROM textureSize(VisibilityBuffer). The census sizes every surfel's radius against the extent IT was pushed, and
+    //    this pass's coverage test is the forward direction of that same solve — so the two must be the SAME bytes or coverage is measured against a
+    //    radius that was solved for a different screen. ⚠️ A textureSize() read here would be self-consistent and still disagree with the census.
+    uint  ResolutionX, ResolutionY;    // [px]    - the visibility buffer's extent
+    uint  FrameOrdinal;                // [-]     - seeds the per-pixel generator; MUST advance or the same pixel wins every frame
+    uint  PerCellLimit;                // [-]     - a cell holding this many surfels accepts no more (SurfelGridProportions::PerCellLimit)
+    uint  FloorPartitionBase;          // [-]     - partition ordinals at or above this belong to the floor mesh
+    uint  FloorCondition;              // [-]     - non-zero means the floor streams are real, not the head-buffer alias
+    uint  FloorIndexBase;              // [-]     - first index of the floor's run in the merged index stream
+    uint  LockEnabled;                 // [-]     - non-zero freezes the field: the tile still tallies, but nothing spawns or dies
+} Constants;
+
+// Re-supplied because the shared bindings' copies read the lifecycle push block this pass opted out of. Same values, different block.
+vec3  FetchCameraOrigin() { return vec3(Constants.CameraX, Constants.CameraY, Constants.CameraZ); }
+uvec2 FetchRenderExtent() { return uvec2(Constants.ResolutionX, Constants.ResolutionY); }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     THE VISIBILITY IDENTITY
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE IDENTITY SPLIT, MIRRORING VisibilityRaster.frag EXACTLY: partition in the high 12 bits, primitive in the low 20. These two constants and the
+//    sentinel are the entire contract between the raster and every consumer, and a shift that disagrees resolves a real-looking triangle from the
+//    wrong instance — geometry that exists, in the wrong place.
+const uint SurfelPrimitiveBits = 20u;
+const uint SurfelPrimitiveMask = (1u << SurfelPrimitiveBits) - 1u;
+const uint SurfelVisibilitySentinel = 0xFFFFFFFFu;
+
+// 🔴 THE ANCHOR PACK, SPELLED LOCALLY RATHER THAN INCLUDED. ComposeSurfaceAnchor lives in SurfelSurfaceAnchor.glsl, but that module reads the BVH's
+//    whole includer contract (Slices[], the two count aliases, PositionForVertex) which this pass has no reason to bind — it reconstructs from the
+//    RASTER's streams, not the tracer's. Four words, identical layout: instance, primitive, and the two barycentrics as raw float bits.
+// ⚠️ THIS AND SurfelSurfaceAnchor.glsl'S READER ARE ONE FORMAT WRITTEN TWICE. A field reordered here writes an anchor the trace decodes as a different
+//    triangle — geometry that exists, in the wrong place — with no diagnostic anywhere. Change both or neither.
+const uint SurfelAnchorAbsent = 0xFFFFFFFFu;
+
+uvec4 ComposeSurfaceAnchor(uint InstanceIndex, uint PrimitiveIndex, vec2 Barycentric)
+{
+    return uvec4(InstanceIndex, PrimitiveIndex, floatBitsToUint(Barycentric.x), floatBitsToUint(Barycentric.y));
+}
+
+// One reconstructed surface point. `Condition` false means the pixel held no shadeable surface — sky, or a floor pixel whose streams are the alias.
+struct SurfelVisibleSurface
+{
+    bool Condition;
+    vec3 Position;    // [m] - world
+    vec3 Normal;      // [-] - world, unit
+    float Depth;      // [m] - distance from the camera, the spawn probability's driver
+    uint InstanceIndex;
+    uint PrimitiveIndex;
+    vec2 Barycentric;
+
+    // 🔴 WHETHER THE THREE ORDINALS ABOVE MEAN ANYTHING TO THE TRACER. A floor pixel's instance index is rebased into the FLOOR instance array, which
+    //    is a different table from the one SurfelSurfaceAnchor.glsl decodes an anchor through — so writing that index as an anchor would make the trace
+    //    re-derive a real triangle from an unrelated mesh every frame, and the surfel would sit somewhere else entirely. ⚠️ False here means "seed this
+    //    surfel with no anchor": it keeps its stored position forever, which is exactly right for the static floor and is what the absent-anchor path in
+    //    SurfelSurfaceAnchor.glsl exists to support.
+    bool AnchorCondition;
+};
+
+vec3 PositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = Vertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+vec3 FloorPositionForVertex(uint VertexIndex)
+{
+    RenderVertex Vertex = FloorVertices[VertexIndex];
+    return vec3(Vertex.PositionX, Vertex.PositionY, Vertex.PositionZ);
+}
+
+// This pixel's world point on the near plane. Vulkan NDC is x,y in [-1,1] and z in [0,1]; subtracting the eye gives the view ray.
+vec3 UnprojectSpawnPixel(vec2 Ndc)
+{
+    const vec4 Clip = Constants.InverseViewProjection * vec4(Ndc, 0.0, 1.0);
+    return Clip.xyz / Clip.w;
+}
+
+// Möller-Trumbore, returning the (w0, w1, w2) that sum to one. A degenerate or parallel triangle falls back to the first corner, which reads as that
+// corner's position for the pixel rather than as a NaN that would propagate into a stored surfel position.
+vec3 ResolveRayTriangleWeights(vec3 Origin, vec3 Direction, vec3 Corner0, vec3 Corner1, vec3 Corner2)
+{
+    const vec3  Edge1 = Corner1 - Corner0;
+    const vec3  Edge2 = Corner2 - Corner0;
+    const vec3  PVector = cross(Direction, Edge2);
+    const float Determinant = dot(Edge1, PVector);
+    if (abs(Determinant) < 1e-12)
+        return vec3(1.0, 0.0, 0.0);
+
+    const float InverseDeterminant = 1.0 / Determinant;
+    const vec3  TVector = Origin - Corner0;
+    const float First   = dot(TVector, PVector) * InverseDeterminant;
+    const vec3  QVector = cross(TVector, Edge1);
+    const float Second  = dot(Direction, QVector) * InverseDeterminant;
+    return vec3(1.0 - First - Second, First, Second);
+}
+
+// 🧩 The whole reconstruction: identity -> triangle -> world position, geometric normal and camera distance. This mirrors SurfaceShade.frag's opening,
+//    including the floor's rebasing, because the spawn must land a surfel on EXACTLY the surface the shade will later read its light from.
+// 🔴 THE FLOOR'S PARTITION AND ITS PRIMITIVE ARE REBASED BY DIFFERENT NUMBERS. The partition is rebased by FloorPartitionBase (the raster added it to
+//    keep the two identity ranges disjoint), while the primitive is rebased by FloorIndexBase — gl_PrimitiveID restarts at zero for the floor's own
+//    draw while the index stream is merged. ⚠️ Applying one and not the other reconstructs a real triangle from the wrong mesh.
+// 📝 The normal is GEOMETRIC — the triangle's own plane, not the interpolated vertex normals — for the same reason SurfaceShade.frag derives it that
+//    way: the authored geometry is flat-shaded by construction and the stride-32 stream cannot carry face-varying normals.
+SurfelVisibleSurface ResolveVisibleSurface(ivec2 Texel)
+{
+    SurfelVisibleSurface Surface;
+    Surface.Condition      = false;
+    Surface.Position       = vec3(0.0);
+    Surface.Normal         = vec3(0.0);
+    Surface.Depth          = 0.0;
+    Surface.InstanceIndex  = 0u;
+    Surface.PrimitiveIndex = 0u;
+    Surface.Barycentric    = vec2(0.0);
+    Surface.AnchorCondition = false;
+
+    const uint Identity = texelFetch(VisibilityBuffer, Texel, 0).r;
+    if (Identity == SurfelVisibilitySentinel)
+        return Surface;
+
+    const uint Partition = Identity >> SurfelPrimitiveBits;
+    const uint Primitive = Identity &  SurfelPrimitiveMask;
+
+    const bool FloorSurface = Partition >= Constants.FloorPartitionBase;
+    if (FloorSurface && Constants.FloorCondition == 0u)
+        return Surface;   // the floor streams are the head-buffer alias; there is no real surface here to anchor to
+
+    vec3 World0, World1, World2;
+    uint InstanceIndex;
+
+    if (FloorSurface)
+    {
+        InstanceIndex = Partition - Constants.FloorPartitionBase;
+        if (InstanceIndex >= uint(FloorInstances.length()))
+            return Surface;
+
+        const uint IndexBase = Constants.FloorIndexBase + Primitive * 3u;
+        if (IndexBase + 2u >= uint(FloorIndices.length()))
+            return Surface;
+
+        const mat4 Model = FloorInstances[InstanceIndex].Model;
+        World0 = (Model * vec4(FloorPositionForVertex(FloorIndices[IndexBase + 0u]), 1.0)).xyz;
+        World1 = (Model * vec4(FloorPositionForVertex(FloorIndices[IndexBase + 1u]), 1.0)).xyz;
+        World2 = (Model * vec4(FloorPositionForVertex(FloorIndices[IndexBase + 2u]), 1.0)).xyz;
+    }
+    else
+    {
+        InstanceIndex = Partition;
+        if (InstanceIndex >= uint(Instances.length()))
+            return Surface;
+
+        const uint IndexBase = Primitive * 3u;
+        if (IndexBase + 2u >= uint(MeshIndices.length()))
+            return Surface;
+
+        const mat4 Model = Instances[InstanceIndex].Model;
+        World0 = (Model * vec4(PositionForVertex(MeshIndices[IndexBase + 0u]), 1.0)).xyz;
+        World1 = (Model * vec4(PositionForVertex(MeshIndices[IndexBase + 1u]), 1.0)).xyz;
+        World2 = (Model * vec4(PositionForVertex(MeshIndices[IndexBase + 2u]), 1.0)).xyz;
+    }
+
+    // ⚠️ gl_FragCoord's half-pixel is built in; a compute invocation's texel index is NOT, so the +0.5 here is what puts the ray through the pixel
+    //    CENTRE. Without it every reconstructed point sits at a pixel corner, which biases every barycentric and puts each surfel a fraction of a
+    //    triangle off the surface the shade samples.
+    const vec2 PixelCentre = vec2(Texel) + vec2(0.5);
+    const vec2 Ndc = (PixelCentre / vec2(FetchRenderExtent())) * 2.0 - 1.0;
+
+    const vec3 RayOrigin    = FetchCameraOrigin();
+    const vec3 RayDirection = normalize(UnprojectSpawnPixel(Ndc) - RayOrigin);
+
+    const vec3 Weights = ResolveRayTriangleWeights(RayOrigin, RayDirection, World0, World1, World2);
+    const vec3 WorldPosition = Weights.x * World0 + Weights.y * World1 + Weights.z * World2;
+
+    const vec3 FaceNormal = cross(World1 - World0, World2 - World0);
+    if (dot(FaceNormal, FaceNormal) < 1e-16)
+        return Surface;   // degenerate triangle; no orientable surface to anchor a surfel to
+
+    vec3 Normal = normalize(FaceNormal);
+
+    // 🔴 THE FACET IS ORIENTED TOWARD THE VIEWER. A visible triangle's winding can face either way after an instance's transform, and a surfel seeded
+    //    with a back-facing normal has its whole hemisphere pointing INTO the geometry — it then traces nothing but the inside of the body it sits on
+    //    and caches black. The flip costs one dot product and is the difference between a lit patch and a dead one.
+    if (dot(Normal, RayDirection) > 0.0)
+        Normal = -Normal;
+
+    Surface.Condition      = true;
+    Surface.Position       = WorldPosition;
+    Surface.Normal         = Normal;
+    Surface.Depth          = distance(WorldPosition, RayOrigin);
+    Surface.InstanceIndex  = InstanceIndex;
+    Surface.PrimitiveIndex = Primitive;
+    // The (u, v) convention SurfelSurfaceAnchor.glsl reads back: the point is A + u(B-A) + v(C-A), so the anchor stores weights .y and .z.
+    Surface.Barycentric    = vec2(Weights.y, Weights.z);
+    Surface.AnchorCondition = !FloorSurface;   // see the field's note; the floor's ordinals name a different table
+    return Surface;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                       THE TILE'S VOTES
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🔴 THE TWO PACKED VOTES, AND THE FIELD ORDER IS THE COMPARISON ORDER. Both words are compared as plain uints by one atomic, so whatever sits highest
+//    dominates. Coverage takes the top 16 bits; the random byte below it breaks ties (see the file header); the bottom byte carries the winner's
+//    position inside the tile, 4 bits per axis, which is exactly enough for a 16x16 tile.
+// ⚠️ The coverage is quantized to 16 bits by a float-to-uint cast. That is upstream's spelling and it is fine because coverage is a pixel AREA in the
+//    low hundreds — but a PlacementThreshold pushed above 65535 would saturate the field and make every pixel tie.
+const uint SurfelVoteCoverageShift = 16u;
+const uint SurfelVoteRandomShift   =  8u;
+const uint SurfelVoteAxisShift     =  4u;
+const uint SurfelVoteAxisMask      = 0xFu;
+
+uint ComposeSurfelVote(float Coverage, uint RandomByte, uvec2 TileLocal)
+{
+    const uint Quantized = min(uint(max(0.0, Coverage)), 0xFFFFu);
+    return (Quantized   << SurfelVoteCoverageShift)
+         | ((RandomByte & 0xFFu) << SurfelVoteRandomShift)
+         | ((TileLocal.x & SurfelVoteAxisMask) << SurfelVoteAxisShift)
+         | (TileLocal.y & SurfelVoteAxisMask);
+}
+
+uvec2 ResolveSurfelVoteTileLocal(uint Vote)
+{
+    return uvec2((Vote >> SurfelVoteAxisShift) & SurfelVoteAxisMask, Vote & SurfelVoteAxisMask);
+}
+
+// 🔴 THE REMOVAL VOTE CARRIES ITS ORDINAL IN THE SAME WORD, WHICH IS WHAT MAKES IT RACE-FREE. Upstream publishes the winning ordinal to a second
+//    groupshared slot right after its atomicMax, and that pair is not atomic — a thread whose vote LOST can still write its ordinal last, so the tile
+//    deletes a surfel that did not win. Packing both halves means the single atomicMax decides both at once. ⚠️ It fits only because ordinals run
+//    0..SurfelTotalLimit-1 = 0..65535, exactly sixteen bits; raising SurfelTotalLimit past 65536 breaks this packing and nothing else would say so.
+uint ComposeSurfelRedundancyVote(float Contribution, uint SurfelOrdinal)
+{
+    return (min(uint(max(0.0, Contribution)), 0xFFFFu) << 16u) | (SurfelOrdinal & 0xFFFFu);
+}
+
+// 📝 The tile's two elections. Groupshared rather than per-pixel because the decision is the TILE's: 256 pixels each holding a private minimum would
+//    spawn 256 surfels.
+shared uint TileLeastCovered;    // atomicMin - the pixel the existing field explains WORST; the spawn candidate
+shared uint TileMostRedundant;   // atomicMax - contribution in the high half, the owning ordinal in the low half
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                             ENTRY
+//------------------------------------------------------------------------------------------------------------------------
+
+void main()
+{
+    const ivec2 Texel     = ivec2(gl_GlobalInvocationID.xy);
+    const uvec2 TileLocal = gl_LocalInvocationID.xy;
+    const uvec2 Extent    = FetchRenderExtent();
+
+    // 🔴 EVERY THREAD MUST REACH EVERY BARRIER, SO AN OUT-OF-BOUNDS PIXEL IS NOT ALLOWED TO RETURN. A tile on the right or bottom edge of a
+    //    non-multiple-of-16 target has threads outside the buffer; returning from them makes the barriers below execute in non-uniform control flow,
+    //    which is undefined — on real hardware it hangs the tile. The flag is carried instead and every read is gated on it.
+    const bool InsideCondition = uint(Texel.x) < Extent.x && uint(Texel.y) < Extent.y;
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        TileLeastCovered  = 0xFFFFFFFFu;
+        TileMostRedundant = 0u;
+    }
+    barrier();
+
+    //-- ① this pixel's surface -----------------------------------------------------------------------------------------------
+    SurfelVisibleSurface Surface;
+    Surface.Condition = false;
+    if (InsideCondition)
+        Surface = ResolveVisibleSurface(Texel);
+
+    const vec3  CameraOrigin = FetchCameraOrigin();
+    const ivec3 CentreCell   = Surface.Condition ? ResolveCellCoordinate(Surface.Position, CameraOrigin) : ivec3(0);
+    const bool  CellCondition = Surface.Condition && CellCoordinateValid(CentreCell);
+
+    //-- ② how well the existing field already covers this pixel --------------------------------------------------------------
+    // 💡 Coverage is measured in PIXELS, not in surfel count: a distant surfel covering four pixels and a near one covering four hundred are not the
+    //    same evidence that a spot is served. The projected area is the forward direction of the census's radius solve, so a field in equilibrium has
+    //    every pixel's coverage sitting near TargetArea by construction.
+    // 📝 The CENTRE cell only. A surfel further than one cell from this pixel cannot project onto it at any radius the cap permits, so the wider walk
+    //    the census does would return only rejects.
+    float Coverage = 0.0;
+    uint  CellSurfelCount = 0u;
+
+    if (CellCondition)
+    {
+        const SurfelCellSpan Span = CellSpanStorage.Spans[FlattenCellIndex(CentreCell)];
+        CellSurfelCount = Span.SurfelCount;
+
+        for (uint Entry = 0u; Entry < Span.SurfelCount; ++Entry)
+        {
+            const uint TableSlot = Span.TableOffset + Entry;
+            if (TableSlot >= SurfelCellListCapacity)
+                break;
+
+            const uint SurfelOrdinal = CellListStorage.Ordinals[TableSlot];
+            if (SurfelOrdinal >= SurfelTotalLimit)
+                continue;
+
+            const Surfel Record = SurfelRecordStorage.Records[SurfelOrdinal];
+            if (Record.Radius <= 0.0)
+                continue;
+
+            const vec3  SurfelPosition = FetchSurfelPosition(Record);
+            const vec3  Separation     = Surface.Position - SurfelPosition;
+            const float SeparationLength = length(Separation);
+            if (SeparationLength >= Record.Radius)
+                continue;
+
+            // ⚠️ The normal test again, and for the same reason it appears in the integrate: two surfels a centimetre apart on the two faces of a wall
+            //    are inside each other's radius and describe completely different light. Without it a wall's far side counts as covered and never
+            //    spawns, so one face of every wall stays unlit.
+            if (dot(normalize(FetchSurfelNormal(Record)), Surface.Normal) <= 0.0)
+                continue;
+
+            const float Contribution = ResolveProjectedArea(Record.Radius, max(1e-4, Surface.Depth),
+                                                            Constants.VerticalFieldOfView, Extent);
+            Coverage += Contribution;
+
+            // 🔴 THE TOUCH MARK, AND IT IS THIS PASS'S OTHER JOB. LastSeen is what tells the census the surfel is still on screen and earns it a full
+            //    life; the tally is what keeps a SLEEPING surfel alive past the reference threshold. Both are per-frame and both are cleared by the
+            //    census, so a frame in which this pass does not run ages every surfel as if it had left the screen.
+            atomicOr(RecycleStorage.Records[SurfelOrdinal].Status, SurfelStatusLastSeen);
+            atomicAdd(ReferenceTallyStorage.Tally[SurfelOrdinal], 1u);
+
+            // The removal vote: the surfel contributing MOST at this pixel is the one whose absence would be felt least if the pixel is already
+            // over-served. One atomic decides the contribution and the ordinal together — see ComposeSurfelRedundancyVote.
+            atomicMax(TileMostRedundant, ComposeSurfelRedundancyVote(Contribution, SurfelOrdinal));
+        }
+    }
+
+    //-- ③ elect the tile's least-covered pixel ------------------------------------------------------------------------------
+    // Only a pixel that HAS a surface and a valid cell can be elected; everything else votes the maximum so it can never win.
+    SurfelRandomState Random = SeedSurfelRandom(uvec2(Texel), Constants.FrameOrdinal);
+    const uint RandomByte = uint(SurfelRandomFloat(Random) * 255.0);
+
+    if (CellCondition)
+        atomicMin(TileLeastCovered, ComposeSurfelVote(Coverage, RandomByte, TileLocal));
+
+    barrier();
+
+    //-- ④ the elected pixel spawns ------------------------------------------------------------------------------------------
+    if (Constants.LockEnabled != 0u)
+        return;   // uniform across the tile — the push constant is the same for every thread, so no barrier is skipped non-uniformly
+
+    const uint WinningVote = TileLeastCovered;
+    const bool RemovalCondition = Coverage > Constants.RemovalThreshold;
+
+    // The removal is decided by the same elected thread, so the two decisions cannot both fire for one tile in one frame — a tile that is
+    // simultaneously under-covered somewhere and over-covered elsewhere resolves toward the spawn, which is upstream's behaviour.
+    if (WinningVote == 0xFFFFFFFFu)
+        return;                                   // no pixel in this tile held a surface
+    if (ResolveSurfelVoteTileLocal(WinningVote) != TileLocal)
+        return;                                   // not the elected thread
+    if (!CellCondition)
+        return;
+
+    if (RemovalCondition)
+    {
+        // 🔴 RADIUS ZERO, NOT A VACANCY PUSH. See the file header: the census owns the free list and is reading it a pass earlier in this same frame.
+        // ⚠️ A zero word means no surfel ever voted, not "surfel 0 won" — the high half is the contribution and a real vote always carries one.
+        const uint WinningRedundancy = TileMostRedundant;
+        if (WinningRedundancy != 0u)
+        {
+            const uint RedundantOrdinal = WinningRedundancy & 0xFFFFu;
+            if (RedundantOrdinal < SurfelTotalLimit)
+                SurfelRecordStorage.Records[RedundantOrdinal].Radius = 0.0;
+        }
+        return;
+    }
+
+    // Already explained by the existing field.
+    if (Coverage > Constants.PlacementThreshold)
+        return;
+
+    // The cell is full. 📝 PerCellLimit gates SPAWNING only and bounds no allocation — the cell-to-surfel table is sized per (surfel, cell) pair, not
+    //    per cell (SurfelTypes.glsl). It exists so a single wall facing the camera cannot consume the whole field.
+    if (CellSurfelCount >= Constants.PerCellLimit)
+        return;
+
+    // 🔴 THE DEPTH-WEIGHTED CHANCE IS WHAT MAKES THE FIELD GROW OUTWARD FROM THE CAMERA RATHER THAN EVERYWHERE AT ONCE. A near pixel has a low
+    //    probability and a far one a high probability, because a near surface will be re-elected on many subsequent frames while a far one may leave
+    //    the screen first. ⚠️ Upstream's spelling exactly: pow(depth, power) * multiply, unclamped, compared against a uniform draw — with the default
+    //    tuning it exceeds 1 past a few metres, which simply means "always spawn out there".
+    const float SpawnChance = pow(max(0.0, Surface.Depth), Constants.ChancePower) * Constants.ChanceMultiply;
+    if (SurfelRandomFloat(Random) >= SpawnChance)
+        return;
+
+    //-- ⑤ take a slot -------------------------------------------------------------------------------------------------------
+    // 🔴 THE VACANCY STACK IS POPPED BY DECREMENTING THE TOP, AND THE GUARD IS ON THE PRE-DECREMENT VALUE. FreeSurfel is the stack HEIGHT, so the slot
+    //    to take is at index (height - 1). ⚠️ An empty stack decrements to 0xFFFFFFFF and the guard is what stops that being read as an enormous valid
+    //    height; upstream's `0 < free && free <= limit` is transcribed as-is because both halves are load-bearing — the upper half catches a counter
+    //    that a lost barrier left above the capacity.
+    const uint StackHeight = atomicAdd(CounterStorage.Slots[SurfelCounterFreeSurfel], 0xFFFFFFFFu);   // -1
+    if (StackHeight == 0u || StackHeight > SurfelTotalLimit)
+    {
+        atomicAdd(CounterStorage.Slots[SurfelCounterFreeSurfel], 1u);   // put it back; the stack was empty or corrupt
+        return;
+    }
+
+    const uint SurfelOrdinal = VacancyStorage.Ordinals[StackHeight - 1u];
+    if (SurfelOrdinal >= SurfelTotalLimit)
+        return;
+
+    //-- ⑥ seed it -----------------------------------------------------------------------------------------------------------
+    const float Radius = ResolveSurfelRadius(Surface.Depth, Constants.VerticalFieldOfView, Extent, Constants.TargetArea);
+    Surfel Record = SeedSurfel(Surface.Position, Surface.Normal, Radius);
+
+    // 🔴 THE NEW SURFEL INHERITS ITS NEIGHBOURHOOD'S LIGHT, IN ALL THREE PLACES. Radiance, Mean AND ShortMean — not just the first. The MSME's catch-up
+    //    blend is multiplied by vbbr, which seeds to ZERO, so a fresh estimator's Mean does not move for its first several frames NO MATTER what its
+    //    rays report (SurfelMeanEstimator.glsl's header). A surfel seeded black therefore sits black on screen for those frames and reads as a
+    //    flickering dark speck appearing wherever the camera moves. Seeding all three from the surrounding field is what makes a spawn invisible.
+    // 📝 Reusing this pixel's own coverage loop would need the loop's per-surfel radiance kept live across the barrier; re-walking the cell here costs a
+    //    second pass over one cell on exactly ONE thread per tile, which is the cheaper of the two.
+    {
+        vec3  Inherited  = vec3(0.0);
+        float TotalWeight = 0.0;
+
+        const SurfelCellSpan Span = CellSpanStorage.Spans[FlattenCellIndex(CentreCell)];
+        for (uint Entry = 0u; Entry < Span.SurfelCount; ++Entry)
+        {
+            const uint TableSlot = Span.TableOffset + Entry;
+            if (TableSlot >= SurfelCellListCapacity)
+                break;
+
+            const uint OtherOrdinal = CellListStorage.Ordinals[TableSlot];
+            if (OtherOrdinal >= SurfelTotalLimit || OtherOrdinal == SurfelOrdinal)
+                continue;
+
+            const Surfel OtherRecord = SurfelRecordStorage.Records[OtherOrdinal];
+            if (OtherRecord.Radius <= 0.0)
+                continue;
+
+            const float Facing = dot(normalize(FetchSurfelNormal(OtherRecord)), Surface.Normal);
+            if (Facing <= 0.0)
+                continue;
+
+            Inherited   += FetchSurfelRadiance(OtherRecord) * Facing;
+            TotalWeight += Facing;
+        }
+
+        if (TotalWeight > 0.0)
+        {
+            const vec3 Seeded = Inherited / TotalWeight;
+            StoreSurfelRadiance(Record, Seeded);
+            Record.MeanEstimator.MeanX = Seeded.x;
+            Record.MeanEstimator.MeanY = Seeded.y;
+            Record.MeanEstimator.MeanZ = Seeded.z;
+            Record.MeanEstimator.ShortMeanX = Seeded.x;
+            Record.MeanEstimator.ShortMeanY = Seeded.y;
+            Record.MeanEstimator.ShortMeanZ = Seeded.z;
+        }
+    }
+
+    SurfelRecordStorage.Records[SurfelOrdinal] = Record;
+
+    // 🔴 THE ANCHOR IS THE POINT OF THE WHOLE RECONSTRUCTION ABOVE. Without it the surfel keeps the position it was seeded at forever and a surfel on a
+    //    moving body lights the body's old location; with it the trace and the census re-derive the surface every frame (SurfelSurfaceAnchor.glsl).
+    // ⚠️ A slot is REUSED, so the previous tenant's anchor is still in it — the absent marker must be written explicitly, never left.
+    HitLocatorStorage.Anchors[SurfelOrdinal] = Surface.AnchorCondition
+        ? ComposeSurfaceAnchor(Surface.InstanceIndex, Surface.PrimitiveIndex, Surface.Barycentric)
+        : uvec4(SurfelAnchorAbsent, SurfelAnchorAbsent, 0u, 0u);
+
+    // Full life, frame zero, awake and already seen — so its first census keeps it rather than aging it out before it has traced a single ray.
+    SurfelRecycleRecord Recycle;
+    Recycle.Life   = SurfelMaximumLife;
+    Recycle.Frame  = 0u;
+    Recycle.Status = SurfelStatusLastSeen;
+    RecycleStorage.Records[SurfelOrdinal] = Recycle;
+
+    // ⚠️ The new surfel is NOT appended to the live set here. The census rebuilds that set from the PENDING list next frame, and a spawn that pushed
+    //    itself onto this frame's live set would be counted twice — once by its own push and once by the census — which desynchronizes ValidSurfel from
+    //    the list it indexes. It joins the field on its first census, one frame late, exactly as upstream's does.
+}
