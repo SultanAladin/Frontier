@@ -104,7 +104,9 @@ layout(push_constant) uniform SurfelSpawnConstants
     // 🔴 THE EXTENT IS PUSHED, NOT READ FROM textureSize(VisibilityBuffer). The census sizes every surfel's radius against the extent IT was pushed, and
     //    this pass's coverage test is the forward direction of that same solve — so the two must be the SAME bytes or coverage is measured against a
     //    radius that was solved for a different screen. ⚠️ A textureSize() read here would be self-consistent and still disagree with the census.
-    uint  ResolutionX, ResolutionY;    // [px]    - the visibility buffer's extent
+    //    📝 BOTH AXES RIDE ONE WORD, X LOW AND Y HIGH — see SurfelIrradianceSubmission.h. Spelled as two uints the block is 132 bytes and Vulkan
+    //    guarantees only 128, so the packing is what keeps this pass portable rather than dependent on the limit real drivers happen to report.
+    uint  ResolutionPacked;            // [px]    - the visibility buffer's extent, packed; unpack with ResolveSurfelSpawnExtent
     uint  FrameOrdinal;                // [-]     - seeds the per-pixel generator; MUST advance or the same pixel wins every frame
     uint  PerCellLimit;                // [-]     - a cell holding this many surfels accepts no more (SurfelGridProportions::PerCellLimit)
     uint  FloorPartitionBase;          // [-]     - partition ordinals at or above this belong to the floor mesh
@@ -115,7 +117,9 @@ layout(push_constant) uniform SurfelSpawnConstants
 
 // Re-supplied because the shared bindings' copies read the lifecycle push block this pass opted out of. Same values, different block.
 vec3  FetchCameraOrigin() { return vec3(Constants.CameraX, Constants.CameraY, Constants.CameraZ); }
-uvec2 FetchRenderExtent() { return uvec2(Constants.ResolutionX, Constants.ResolutionY); }
+// 📝 The host's ComposeSurfelSpawnExtent, read back. The two must be edited together.
+uvec2 ResolveSurfelSpawnExtent() { return uvec2(Constants.ResolutionPacked & 0xFFFFu, Constants.ResolutionPacked >> 16u); }
+uvec2 FetchRenderExtent()        { return ResolveSurfelSpawnExtent(); }
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     THE VISIBILITY IDENTITY

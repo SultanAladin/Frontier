@@ -56,8 +56,9 @@ struct SurfelIrradianceConstants
 };
 
 // 🔴 THE HOST MIRROR OF Shaders/SurfelSpawnRasterization.comp's PUSH BLOCK. The mat4 leads because std430 gives it 16-byte alignment either way; every
-//    field after it is a scalar. ⚠️ At 108 bytes this is inside the 128-byte portable push limit with 20 bytes of headroom — a field added past that
-//    needs a uniform buffer, not a bigger push.
+//    field after it is a scalar. ⚠️ THIS BLOCK IS EXACTLY 128 BYTES — THE WHOLE PORTABLE PUSH BUDGET, WITH NOTHING LEFT. Adding one more field puts it
+//    over Vulkan's guaranteed maxPushConstantsSize; the fix then is to move InverseViewProjection into a uniform buffer, NOT to assume the 256 bytes
+//    every desktop driver Frontier targets happens to report. The static_assert at the foot of this header is what will tell you.
 struct SurfelSpawnConstants
 {
     float    InverseViewProjection[16] = {};   // [-]   - clip -> world; the SAME matrix SurfaceShade.frag is pushed, or surfels land off-surface
@@ -83,6 +84,16 @@ struct SurfelSpawnConstants
     uint32_t FloorIndexBase = 0u;                  // [-]  - first index of the floor's run in the merged index stream
     uint32_t LockEnabled = 0u;                     // [-]  - non-zero freezes the field: the tile still tallies, nothing spawns or dies
 };
+
+// The one way to fill ResolutionPacked. ⚠️ An axis at or above 65536 cannot be represented and is CLAMPED rather than allowed to wrap into the other
+// axis' half of the word — a wrapped extent would read as a plausible-but-wrong resolution and quietly mis-scale every screen-space radius in the pass.
+// 📝 Mirrors ResolveSurfelSpawnExtent() in the shader; the two must be edited together.
+inline uint32_t ComposeSurfelSpawnExtent(uint32_t ResolutionX, uint32_t ResolutionY)
+{
+    const uint32_t ClampedX = ResolutionX > 0xFFFFu ? 0xFFFFu : ResolutionX;
+    const uint32_t ClampedY = ResolutionY > 0xFFFFu ? 0xFFFFu : ResolutionY;
+    return (ClampedY << 16u) | ClampedX;
+}
 
 // 📝 The seven resources the spawn's set 1 points at, in BINDING ORDER. Every one is borrowed. ⚠️ When no floor document is loaded the caller ALIASES
 //    the three floor handles onto the head handles rather than leaving them null — Vulkan forbids a partially-written set — and pushes
@@ -205,21 +216,21 @@ static_assert(offsetof(SurfelSpawnConstants, PlacementThreshold)   ==  84, "Spaw
 static_assert(offsetof(SurfelSpawnConstants, RemovalThreshold)     ==  88, "Spawn RemovalThreshold must sit at 88");
 static_assert(offsetof(SurfelSpawnConstants, ChanceMultiply)       ==  92, "Spawn ChanceMultiply must sit at 92");
 static_assert(offsetof(SurfelSpawnConstants, ChancePower)          ==  96, "Spawn ChancePower must sit at 96");
-static_assert(offsetof(SurfelSpawnConstants, ResolutionX)          == 100, "Spawn ResolutionX must sit at 100");
-static_assert(offsetof(SurfelSpawnConstants, ResolutionY)          == 104, "Spawn ResolutionY must sit at 104");
-static_assert(offsetof(SurfelSpawnConstants, FrameOrdinal)         == 108, "Spawn FrameOrdinal must sit at 108");
-static_assert(offsetof(SurfelSpawnConstants, PerCellLimit)         == 112, "Spawn PerCellLimit must sit at 112");
-static_assert(offsetof(SurfelSpawnConstants, FloorPartitionBase)   == 116, "Spawn FloorPartitionBase must sit at 116");
-static_assert(offsetof(SurfelSpawnConstants, FloorCondition)       == 120, "Spawn FloorCondition must sit at 120");
-static_assert(offsetof(SurfelSpawnConstants, FloorIndexBase)       == 124, "Spawn FloorIndexBase must sit at 124");
-static_assert(offsetof(SurfelSpawnConstants, LockEnabled)          == 128, "Spawn LockEnabled must sit at 128");
-static_assert(sizeof(SurfelSpawnConstants) == 132, "The spawn push block is 132 bytes; the GLSL block must match exactly");
+static_assert(offsetof(SurfelSpawnConstants, ResolutionPacked)     == 100, "Spawn ResolutionPacked must sit at 100");
+static_assert(offsetof(SurfelSpawnConstants, FrameOrdinal)         == 104, "Spawn FrameOrdinal must sit at 104");
+static_assert(offsetof(SurfelSpawnConstants, PerCellLimit)         == 108, "Spawn PerCellLimit must sit at 108");
+static_assert(offsetof(SurfelSpawnConstants, FloorPartitionBase)   == 112, "Spawn FloorPartitionBase must sit at 112");
+static_assert(offsetof(SurfelSpawnConstants, FloorCondition)       == 116, "Spawn FloorCondition must sit at 116");
+static_assert(offsetof(SurfelSpawnConstants, FloorIndexBase)       == 120, "Spawn FloorIndexBase must sit at 120");
+static_assert(offsetof(SurfelSpawnConstants, LockEnabled)          == 124, "Spawn LockEnabled must sit at 124");
+static_assert(sizeof(SurfelSpawnConstants) == 128, "The spawn push block is 128 bytes; the GLSL block must match exactly");
 
-// 🔴 THE SPAWN BLOCK IS 132 BYTES AND VULKAN GUARANTEES ONLY 128, SO THIS UNIT MUST CHECK maxPushConstantsSize AT INITIALIZE RATHER THAN ASSUME IT.
-//    Every desktop driver Frontier targets reports 256, but the guarantee is 128 and a static_assert cannot see a runtime limit — so the check lives in
-//    InitializeSurfelIrradianceSubmission and a device that cannot carry the block fails the build of this pass rather than corrupting its constants.
-//    ⚠️ If that check ever fires, the fix is to move InverseViewProjection into a uniform buffer, not to shrink a field.
+// 🔴 128 IS NOT A COMFORTABLE NUMBER HERE — IT IS THE ENTIRE PORTABLE BUDGET, MET EXACTLY. VkPhysicalDeviceLimits::maxPushConstantsSize is guaranteed to
+//    be AT LEAST 128 bytes and nothing more, so this pair of asserts is the whole portability guarantee for both blocks and there is no headroom left in
+//    the spawn's. ⚠️ A field added to SurfelSpawnConstants will trip the second assert; move InverseViewProjection into a uniform buffer at that point
+//    rather than shrinking a field or leaning on the 256 bytes real drivers report.
 static_assert(sizeof(SurfelIrradianceConstants) <= 128, "Push blocks above 128 B are not portably available");
+static_assert(sizeof(SurfelSpawnConstants)      <= 128, "Push blocks above 128 B are not portably available");
 
 } // namespace Frontier
 

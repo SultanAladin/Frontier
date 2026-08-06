@@ -446,6 +446,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │       ├── SketchOutliner/                 { SketchOutlinerValidationHost.cpp, Build.bat }  // host-only; drives the SHARED SketchOutliner panel (SKETCH profile) from EngineContext.lib
 │       ├── TexturePaintLayerStack/         { TexturePaintLayerStackHost.cpp, Build.bat }  // host-only; drives the shared Interface/Workspaces/TexturePaint LayerStackPanel from EngineContext.lib, registers the g- + paint- icon tiers, draws the rail in a 340 px column beside a live focus readout
 │       ├── TexturePaintValidation/         { TexturePaintValidationHost.cpp, TexturePaintSummonedCard.{h,cpp}, Build.bat }  // the texture-paint surface: one flat paint field with the PaintToolValidation instrument card summoned over it on RIGHT-CLICK (that sibling's non-host .cpp compiled IN-PLACE, its Host.cpp skipped — the card is deliberately outside EngineContext.lib because its strip store needs a rectangular raster); links thorvg.lib + /DTVG_STATIC for the embedded PaintIconStore
+│       ├── TexturePaintWorkspaceValidation/ { TexturePaintWorkspaceValidationHost.cpp, TexturePaintWorkspacePanel.{h,cpp}, Build.bat }  // the COMBINED workspace: left layer rail + centre paint field with the summoned instrument card + right property column, composed from the sibling panels 1:1 — LayerStackValidation + ChannelPropertyValidation (their non-host .cpp compiled IN-PLACE), TexturePaintValidation's summon, and the SHARED EngineContext LayerProperties mask card; frame order is load-bearing (field + card at WINDOW scope, then the two scroll children so nothing clips the card's self-pushed clip); UI shell only — no stroke/atlas passes yet
 │       ├── TriangleCellOverlapValidation/  { TriangleCellOverlapValidationEntry.cpp, Build.bat }
 │       ├── VolumeBoundsValidation/         { VolumeBoundsValidationEntry.cpp,        Build.bat }
 │       ├── WorkspaceDock/                  { WorkspaceDockEntry.cpp,                 Build.bat }
@@ -467,6 +468,7 @@ Frontier/                                          ← C:\Users\OS\Documents\Pro
 │                                 WorkspaceDocumentWriter.exe, ConstructionCatalogueValidation.exe,
 │                                 SceneDirectoryInspectorValidation.exe, TexturePaintLayerStack.exe,
 │                                 TexturePaintValidation.exe, RigidBodyDropValidation.exe,
+│                                 TexturePaintWorkspaceValidation.exe,
 │                                 Assets/,                     // the SHARED .wsdoc the render apps load — do NOT author over these
 │                                 RigidBodyDropScene/          // RigidBodyDropValidation's PRIVATE cwd: its own Assets/ + a Shaders junction
 │                                                              // (launch it through RunRigidBodyDropValidation.bat, which cd's here first)
