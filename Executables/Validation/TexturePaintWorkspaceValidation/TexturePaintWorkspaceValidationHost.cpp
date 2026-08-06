@@ -1,19 +1,18 @@
 /*==============================================================================================================================================
                                                     TEXTUREPAINTWORKSPACEVALIDATIONHOST.CPP
 ==============================================================================================================================================*/
-// 🧩 Standalone Vulkan validation host for the combined texture-paint workspace: the layer rail, the centre paint field with its
-//    right-click-summoned instrument card, and the property column of channel + mask cards. It stands up the shared Vulkan spine
+// 🧩 Standalone Vulkan validation host for the texture-paint shared-panel shell: Tab summons the blank two-slide header structure and
+//    right-click retains the existing paint-tool card. It stands up the shared Vulkan spine
 //    (PlatformWindow + VulkanHost + presentation surface + VulkanImguiInterface + the Win32 ImGui relay), then — once the ImGui Vulkan
 //    backend and its font texture exist — brings up the SvgIconRegistry plus the paint pack and the non-square strip store the instrument
-//    wells read. Each frame it drives the whole workspace in one docked-full window.
+//    wells read. Each frame it drives both summoned surfaces over one blank docked-full window.
 //
 //    🔴 Two texture tiers, both gated on the ImGui Vulkan backend: the registry (square nib crops + parameter glyphs, registered up front) and
 //       the strip store (the 5:1 landscape art, uploaded lazily). Both upload through ImGui_ImplVulkan_AddTexture, so both MUST come up after
 //       ImGui_ImplVulkan_Init and go down before the backend shuts down. Bring-up and teardown are exact reverses, gated on device-idle.
 //
-//    📝 Every third of the workspace is EMBEDDED, not re-implemented: the rail + channel panels are compiled in place from their sibling
-//       validation folders, and the summoned card pulls in PaintToolValidation's whole card as TexturePaintValidation already does. This app's
-//       Build.bat rebuilds the shared pillar libs (which ship the theme + the shared mask card) and links the four siblings' units in.
+//    📝 The paint-tool card is embedded from TexturePaintValidation/PaintToolValidation. The blank Tab panel is intentionally app-local until
+//       its shared content modules are specified.
 
 #include "Platform/Windowing/PlatformWindow.h"
 #include "Graphics/RenderExtension/Device/VulkanHost.h"
@@ -68,8 +67,7 @@ int main(int ArgumentCount, char** ArgumentValues)
     (void)ArgumentValues;
 
     // -- Window ---------------------------------------------------------------------------------------------------------
-    // 📝 Wider than the single-surface hosts: the three columns need the room, and 1400 px keeps the summoned card's 560 px box clear of
-    //    the rail and column without folding.
+    // 📝 Large enough to show the prototype's 860x740 card at native validation scale.
     PlatformWindow Window;
     if (!InitializePlatformWindow(Window, "Frontier \xE2\x80\x94 Texture Paint Workspace Validation", 1400, 900))
     {
@@ -105,17 +103,17 @@ int main(int ArgumentCount, char** ArgumentValues)
         return 1;
     }
 
-    // 📝 Clear to the prototype's own desk colour, so the rail, field and column sit on the backdrop they were designed against.
-    Interface.Window.ClearValue.color.float32[0] = 0.055f;
-    Interface.Window.ClearValue.color.float32[1] = 0.059f;
-    Interface.Window.ClearValue.color.float32[2] = 0.067f;
+    // 📝 Clear to the prototype's black desk colour behind the summoned cards.
+    Interface.Window.ClearValue.color.float32[0] = 0.000f;
+    Interface.Window.ClearValue.color.float32[1] = 0.000f;
+    Interface.Window.ClearValue.color.float32[2] = 0.000f;
     Interface.Window.ClearValue.color.float32[3] = 1.000f;
 
     // -- ImGui context + backends ---------------------------------------------------------------------------------------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& Io = ImGui::GetIO();
-    Io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Tab belongs to the workspace summon/carousel, not ImGui focus navigation.
     Io.IniFilename = nullptr;
 
     AttachImguiPlatform(Window);
@@ -164,7 +162,7 @@ int main(int ArgumentCount, char** ArgumentValues)
         fprintf(stderr, "[texturepaint-workspace] strip store failed to start; wells fall back to the nib crop\n");
     }
 
-    // -- The caller-owned workspace state, seeded to the combined opening pose -------------------------------------------
+    // -- The caller-owned summon state -----------------------------------------------------------------------------------
     TexturePaintWorkspaceValidation::TexturePaintWorkspaceState State;
     TexturePaintWorkspaceValidation::InitializeTexturePaintWorkspaceSample(State);
 

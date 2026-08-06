@@ -1,148 +1,214 @@
 /*==============================================================================================================================================
                                                           TEXTUREPAINTWORKSPACEPANEL.CPP
 ==============================================================================================================================================*/
-// 🧩 The three-column texture-paint workspace, drawn with the REAL panels. The layout mirrors the SLATE grid in
-//    Documentation/Prototypes/TexturePaint2.html — a narrow rail, a wide field, a property column — while each third keeps its owning
-//    validation's 1:1 port:
-//      .stack-rail  -> ConstructLayerStackPanel      (LayerStackValidation's Layers slide, rows + inline expand + mask editor)
-//      .paint-field -> the centre field + ConstructTexturePaintSummonedCard (TexturePaintValidation's right-click summon)
-//      .chan-panel  -> ConstructChannelPropertyPanel (ChannelPropertyValidation's chips + per-channel cards)
-//      .msk-card    -> ConstructLayerPropertiesPanel (the shared EngineContext mask card, Value/Texture/Generator + generator popup)
-//    🔴 The rail and column are SCROLL CHILDREN so tall content stays reachable; the centre field is window-scope because the summoned card
-//       clips and hit-tests itself. The order is fixed: field + card FIRST, then the children — see the header note.
-//    📝 No icons in the rail or channel panels (each is ported from primitives); the summoned card takes the registry + strip store the host
-//       brings up, and the shared mask card draws itself from theme controls alone.
+// Blank shared-panel shell for the texture-paint workspace. It deliberately contains only the prototype's pane headers and carousel motion.
 
 #include "TexturePaintWorkspacePanel.h"
 
-#include "EngineContext/Interface/Theme/ColorPaletteDescriptor.h"
-
 #include "imgui.h"
+#include "imgui_internal.h"
 
 using namespace Frontier;
 
 namespace TexturePaintWorkspaceValidation
 {
-
-//------------------------------------------------------------------------------------------------------------------------
-//                                                       INTERNAL HELPERS
-//------------------------------------------------------------------------------------------------------------------------
-
 namespace
 {
-    // -- Geometry ---------------------------------------------------------------------------------------------------------
-    // 📝 One block, transcribed from the SLATE grid (TexturePaint2.html's 296 / 336 rails) scaled for the wider validation window so a
-    //    side-by-side diff against the prototype stays mechanical. Tones come from the theme.
-    constexpr float RailWidth   = 340.0f;   // [px] - .stack-rail — the left layer rail
-    constexpr float ColumnWidth = 380.0f;   // [px] - the right property column
-    constexpr float Gutter      =   8.0f;   // [px] - breathing gap between the three thirds
+    constexpr float CardWidth    = 860.0f;
+    constexpr float CardHeight   = 740.0f;
+    constexpr float RailWidth    = 420.0f;
+    constexpr float PaneHeadH    = 46.0f;
+    constexpr float SlideSeconds = 0.38f;
+    constexpr float OpenSeconds  = 0.22f;
 
-    const ImU32 FieldFill = IM_COL32(18, 19, 23, 255);   // [-] - the centre field's surface tone
+    const ImU32 CardFill    = IM_COL32(14, 14, 14, 252);
+    const ImU32 PaneFill    = IM_COL32(14, 14, 14, 255);
+    const ImU32 DetailFill  = IM_COL32(11, 11, 11, 255);
+    const ImU32 HeadFill    = IM_COL32(18, 18, 20, 255);
+    const ImU32 Border      = IM_COL32(28, 28, 28, 255);
+    const ImU32 BorderHard  = IM_COL32(42, 42, 48, 255);
+    const ImU32 Text        = IM_COL32(237, 237, 237, 255);
+    const ImU32 Muted       = IM_COL32(138, 138, 138, 255);
+    const ImU32 Faint       = IM_COL32(106, 106, 106, 255);
 
-    // 📝 Draw the centre field as a filled surface with a faint crosshair, so it reads as a place with a location rather than a flat void —
-    //    the only way to see the summoned card is placed at the CURSOR. The hint line shows until the card stands.
-    void InscribePaintField(ImVec2 FieldOrigin, ImVec2 FieldSpan, bool CardSummoned)
+    float SolveCubicBezier(float Progress, float X1, float Y1, float X2, float Y2)
     {
-        ImDrawList* Canvas = ImGui::GetWindowDrawList();
-
-        const ImVec2 FieldMaximum(FieldOrigin.x + FieldSpan.x, FieldOrigin.y + FieldSpan.y);
-        Canvas->AddRectFilled(FieldOrigin, FieldMaximum, FieldFill);
-
-        const ImVec2 FieldCentre(FieldOrigin.x + FieldSpan.x * 0.5f, FieldOrigin.y + FieldSpan.y * 0.5f);
-        const float  ArmLength = 9.0f;                                     // [px] - half-span of each crosshair arm
-        Canvas->AddLine(ImVec2(FieldCentre.x - ArmLength, FieldCentre.y), ImVec2(FieldCentre.x + ArmLength, FieldCentre.y), IM_COL32(255, 255, 255, 28));
-        Canvas->AddLine(ImVec2(FieldCentre.x, FieldCentre.y - ArmLength), ImVec2(FieldCentre.x, FieldCentre.y + ArmLength), IM_COL32(255, 255, 255, 28));
-
-        if (!CardSummoned)
+        if (Progress <= 0.0f) { return 0.0f; }
+        if (Progress >= 1.0f) { return 1.0f; }
+        float Low = 0.0f, High = 1.0f, Guess = Progress;
+        for (int Iteration = 0; Iteration < 20; ++Iteration)
         {
-            const char* Hint = "right-click the field to summon the instrument card";
-            const ImVec2 HintSpan = ImGui::CalcTextSize(Hint);
-            Canvas->AddText(ImVec2(FieldCentre.x - HintSpan.x * 0.5f, FieldCentre.y + 24.0f), IM_COL32(255, 255, 255, 64), Hint);
+            const float O = 1.0f - Guess;
+            const float X = 3.0f * O * O * Guess * X1 + 3.0f * O * Guess * Guess * X2 + Guess * Guess * Guess;
+            if (X < Progress) { Low = Guess; } else { High = Guess; }
+            Guess = (Low + High) * 0.5f;
         }
+        const float O = 1.0f - Guess;
+        return 3.0f * O * O * Guess * Y1 + 3.0f * O * Guess * Guess * Y2 + Guess * Guess * Guess;
     }
 
-    // 📝 Open a full-height scroll child and draw one panel into it. The caller sets the cursor first; the child takes the given width and
-    //    the host window's whole height. The AlwaysVerticalScrollbar flag keeps the rail and column scrollable the moment content grows.
-    template <typename Callback>
-    void WithScrollChild(const char* Identifier, float Width, float Height,
-                         const ThemeConfiguration& Theme, Callback&& Draw)
+    void Advance(float& Value, bool On, float Dt, float Seconds)
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        if (ImGui::BeginChild(Identifier, ImVec2(Width, Height), false, ImGuiWindowFlags_AlwaysVerticalScrollbar))
+        const float Target = On ? 1.0f : 0.0f;
+        const float Step = Seconds > 0.0f ? Dt / Seconds : 1.0f;
+        Value = Target > Value ? ImMin(Target, Value + Step) : ImMax(Target, Value - Step);
+    }
+
+    bool RegionButton(const char* Id, ImVec2 TopLeft, ImVec2 Size)
+    {
+        ImGui::SetCursorScreenPos(TopLeft);
+        return ImGui::InvisibleButton(Id, Size);
+    }
+
+    void DrawHeader(ImDrawList* Draw, ImVec2 TopLeft, float Width, const char* Label, const char* Sub,
+                    bool Back, bool Forward, const char* ButtonId, bool& Activated)
+    {
+        const ImVec2 Max(TopLeft.x + Width, TopLeft.y + PaneHeadH);
+        Draw->AddRectFilled(TopLeft, Max, HeadFill);
+        Draw->AddLine(ImVec2(TopLeft.x, Max.y), Max, Border);
+
+        float TextX = TopLeft.x + 10.0f;
+        if (Back)
         {
-            Draw(Theme);
+            Draw->AddText(ImVec2(TextX, TopLeft.y + 14.0f), Muted, "<");
+            TextX += 24.0f;
         }
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
+        else
+        {
+            const ImVec2 IconMin(TextX, TopLeft.y + 10.0f), IconMax(TextX + 26.0f, TopLeft.y + 36.0f);
+            Draw->AddRectFilled(IconMin, IconMax, IM_COL32(0, 0, 0, 255), 7.0f);
+            Draw->AddRect(IconMin, IconMax, Border, 7.0f);
+            Draw->AddCircleFilled(ImVec2(TextX + 13.0f, TopLeft.y + 23.0f), 3.0f, Muted);
+            TextX += 35.0f;
+        }
+
+        Draw->AddText(ImVec2(TextX, TopLeft.y + 7.0f), Text, Label);
+        Draw->AddText(ImVec2(TextX, TopLeft.y + 24.0f), Faint, Sub);
+        if (Forward) { Draw->AddText(ImVec2(Max.x - 21.0f, TopLeft.y + 14.0f), Muted, ">"); }
+
+        if (ButtonId != nullptr && RegionButton(ButtonId, TopLeft, ImVec2(Width, PaneHeadH))) { Activated = true; }
+    }
+
+    void DrawSlide(ImDrawList* Draw, ImVec2 TopLeft, const char* LeftLabel, const char* LeftSub,
+                   const char* RightLabel, const char* RightSub, bool Back, bool Forward,
+                   const char* ButtonId, bool& Activated)
+    {
+        const float DetailWidth = CardWidth - RailWidth;
+        Draw->AddRectFilled(TopLeft, ImVec2(TopLeft.x + RailWidth, TopLeft.y + CardHeight), PaneFill);
+        Draw->AddRectFilled(ImVec2(TopLeft.x + RailWidth, TopLeft.y),
+                            ImVec2(TopLeft.x + CardWidth, TopLeft.y + CardHeight), DetailFill);
+        Draw->AddLine(ImVec2(TopLeft.x + RailWidth, TopLeft.y),
+                      ImVec2(TopLeft.x + RailWidth, TopLeft.y + CardHeight), Border);
+
+        bool Ignored = false;
+        DrawHeader(Draw, TopLeft, RailWidth, LeftLabel, LeftSub, Back, false, Back ? ButtonId : nullptr, Activated);
+        DrawHeader(Draw, ImVec2(TopLeft.x + RailWidth, TopLeft.y), DetailWidth,
+                   RightLabel, RightSub, false, Forward, Forward ? ButtonId : nullptr, Forward ? Activated : Ignored);
     }
 }
-
-
-//------------------------------------------------------------------------------------------------------------------------
-//                                                      PUBLIC FUNCTIONS
-//------------------------------------------------------------------------------------------------------------------------
 
 void InitializeTexturePaintWorkspaceSample(TexturePaintWorkspaceState& State)
 {
-    LayerStackValidation::InitializeLayerStackSample(State.Layers);
-    ChannelPropertyValidation::InitializeChannelPropertySample(State.Channels);
-    Frontier::InitializeLayerPropertiesSample(State.Mask);
-    TexturePaintValidation::InitializeTexturePaintSummonedCard(State.Summoned);
+    State = TexturePaintWorkspaceState{};
+    TexturePaintValidation::InitializeTexturePaintSummonedCard(State.PaintTools);
 }
-
 
 void ConstructTexturePaintWorkspacePanel(const ThemeConfiguration& Theme,
-                                         TexturePaintWorkspaceState&        State,
-                                         SvgIconRegistry*                   Icons,
-                                         PaintIconStore*                    StripStore)
+                                         TexturePaintWorkspaceState& State,
+                                         SvgIconRegistry* Icons,
+                                         PaintIconStore* StripStore)
 {
-    const ColorPaletteDescriptor& Palette = Theme.Palette;
-
-    // ---- the three thirds, resolved from the window each frame so a resize re-lays everything ---------------------------------
+    const ImGuiIO& Io = ImGui::GetIO();
     const ImVec2 WindowOrigin = ImGui::GetWindowPos();
-    const ImVec2 WindowSpan   = ImGui::GetWindowSize();
-    const float  Height       = WindowSpan.y;
+    const ImVec2 WindowSpan = ImGui::GetWindowSize();
 
-    const ImVec2 RailOrigin(WindowOrigin.x, WindowOrigin.y);
-    const ImVec2 RailSpan(RailWidth, Height);
+    // Right-click remains exclusively the paint-tool opener across the blank viewport.
+    TexturePaintValidation::ConfineTexturePaintField(State.PaintTools, WindowOrigin, WindowSpan);
+    TexturePaintValidation::ConstructTexturePaintSummonedCard(Theme, State.PaintTools, Icons, StripStore);
 
-    const ImVec2 ColumnOrigin(WindowOrigin.x + WindowSpan.x - ColumnWidth, WindowOrigin.y);
-    const ImVec2 ColumnSpan(ColumnWidth, Height);
+    if (ImGui::IsKeyPressed(ImGuiKey_Tab, false) && !Io.WantTextInput)
+    {
+        if (!State.PanelOpen)
+        {
+            State.PanelRequested = true;
+            State.RequestX = Io.MousePos.x;
+            State.RequestY = Io.MousePos.y;
+        }
+        else { State.SlideForward = !State.SlideForward; }
+    }
+    if (State.PanelOpen && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        if (State.SlideForward) { State.SlideForward = false; }
+        else { State.PanelOpen = false; }
+    }
 
-    const float  FieldLeft   = WindowOrigin.x + RailWidth + Gutter;
-    const float  FieldRight  = ColumnOrigin.x - Gutter;
-    const ImVec2 FieldOrigin(FieldLeft, WindowOrigin.y);
-    const ImVec2 FieldSpan(FieldRight - FieldLeft, Height);
+    if (State.PanelRequested)
+    {
+        const float Pad = 12.0f;
+        float Left = State.RequestX + 10.0f;
+        float Top = State.RequestY + 10.0f;
+        if (Left + CardWidth > Io.DisplaySize.x - Pad) { Left = ImMax(Pad, Io.DisplaySize.x - Pad - CardWidth); }
+        if (Top + CardHeight > Io.DisplaySize.y - Pad) { Top = ImMax(Pad, Io.DisplaySize.y - Pad - CardHeight); }
+        State.PanelX = Left;
+        State.PanelY = Top;
+        State.PanelOpen = true;
+        State.SlideForward = false;
+        State.SlideTravel = 0.0f;
+        State.OpenAge = 0.0f;
+        State.PanelRequested = false;
+    }
 
-    // ---- 1. the centre field + the summoned card, at WINDOW scope ---------------------------------------------
-    //    🔴 Nothing here may open a BeginChild: the card draws through the window draw list into a clip it pushes itself, and its panes
-    //       hit-test manually against that clip — an active child would confine both to the child's rectangle. The children come AFTER.
-    InscribePaintField(FieldOrigin, FieldSpan, State.Summoned.CardSummoned);
+    Advance(State.SlideTravel, State.SlideForward, Io.DeltaTime, SlideSeconds);
+    if (State.PanelOpen) { State.OpenAge = ImMin(OpenSeconds, State.OpenAge + Io.DeltaTime); }
+    if (!State.PanelOpen) { return; }
 
-    TexturePaintValidation::ConfineTexturePaintField(State.Summoned, FieldOrigin, FieldSpan);
-    TexturePaintValidation::ConstructTexturePaintSummonedCard(Theme, State.Summoned, Icons, StripStore);
+    const ImVec2 CardTL(State.PanelX, State.PanelY);
+    const ImVec2 CardBR(CardTL.x + CardWidth, CardTL.y + CardHeight);
+    const bool OverCard = Io.MousePos.x >= CardTL.x && Io.MousePos.x <= CardBR.x &&
+                          Io.MousePos.y >= CardTL.y && Io.MousePos.y <= CardBR.y;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !OverCard) { State.PanelOpen = false; return; }
 
-    // ---- 2. the two scroll children, AFTER the card so they never clip it ---------------------------------------
-    //    🔴 The summon clamp keeps the card inside the field, and the children never reach into it, so their later draw order cannot land
-    //       on the box. The left rail takes the layer panel 1:1; the right column stacks the channel cards with the shared mask card.
-    ImGui::SetCursorScreenPos(RailOrigin);
-    WithScrollChild("##tpp-layer-rail", RailSpan.x, Height, Theme,
-                    [&](const ThemeConfiguration& Themed) { LayerStackValidation::ConstructLayerStackPanel(Themed, State.Layers); });
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), Io.DisplaySize, IM_COL32(0, 0, 0, 90));
 
-    ImGui::SetCursorScreenPos(ColumnOrigin);
-    WithScrollChild("##tpp-properties", ColumnSpan.x, Height, Theme,
-                    [&](const ThemeConfiguration& Themed)
-                    {
-                        ChannelPropertyValidation::ConstructChannelPropertyPanel(Themed, State.Channels);
-                        Frontier::ConstructLayerPropertiesPanel(Themed, State.Mask);
-                    });
+    ImGui::SetNextWindowPos(CardTL);
+    ImGui::SetNextWindowSize(ImVec2(CardWidth, CardHeight));
+    if (State.OpenAge <= 0.0f) { ImGui::SetNextWindowFocus(); }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(0, 0, 0, 0));
+    ImGui::Begin("##TexturePaintWorkspaceCard", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings);
 
-    // ---- 3. the gutters: hairline rules so the three thirds read as one composed surface -------------------------------------
-    ImDrawList* Canvas = ImGui::GetWindowDrawList();
-    Canvas->AddLine(ImVec2(RailOrigin.x + RailSpan.x, WindowOrigin.y),
-                    ImVec2(RailOrigin.x + RailSpan.x, WindowOrigin.y + Height), Palette.PanelBorder, Theme.Metrics.BorderThickness);
-    Canvas->AddLine(ImVec2(ColumnOrigin.x, WindowOrigin.y),
-                    ImVec2(ColumnOrigin.x, WindowOrigin.y + Height), Palette.PanelBorder, Theme.Metrics.BorderThickness);
+    ImDrawList* Draw = ImGui::GetWindowDrawList();
+    const float Pop = SolveCubicBezier(State.OpenAge / OpenSeconds, 0.16f, 1.0f, 0.3f, 1.0f);
+    const float Scale = 0.98f + 0.02f * Pop;
+    const ImVec2 Centre((CardTL.x + CardBR.x) * 0.5f, (CardTL.y + CardBR.y) * 0.5f);
+    const ImVec2 PopTL(Centre.x - CardWidth * 0.5f * Scale, Centre.y - CardHeight * 0.5f * Scale);
+    const ImVec2 PopBR(Centre.x + CardWidth * 0.5f * Scale, Centre.y + CardHeight * 0.5f * Scale);
+    Draw->AddRectFilled(PopTL, PopBR, CardFill, 14.0f);
+    Draw->AddRect(PopTL, PopBR, BorderHard, 14.0f);
+
+    Draw->PushClipRect(CardTL, CardBR, true);
+    const float Travel = SolveCubicBezier(State.SlideTravel, 0.4f, 0.0f, 0.2f, 1.0f);
+    const float Dx = -Travel * CardWidth;
+    bool Forward = false, Back = false;
+    // 📝 Blank shared-panel shell: the pane-head chrome renders with NO labels yet — the layer-stack / properties / channels content they
+    //    used to name is deliberately absent, and their replacement is awaiting further instructions. Only the header bands and the
+    //    carousel motion survive the strip.
+    DrawSlide(Draw, ImVec2(CardTL.x + Dx, CardTL.y),
+              "", "", "", "",
+              false, true, "##tpw-forward", Forward);
+    DrawSlide(Draw, ImVec2(CardTL.x + Dx + CardWidth, CardTL.y),
+              "", "", "", "",
+              true, false, "##tpw-back", Back);
+    Draw->PopClipRect();
+
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    if (Forward) { State.SlideForward = true; }
+    if (Back) { State.SlideForward = false; }
 }
 
-}   // namespace TexturePaintWorkspaceValidation
+} // namespace TexturePaintWorkspaceValidation

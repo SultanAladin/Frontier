@@ -2,20 +2,13 @@
 REM ============================================================================
 REM  TexturePaintWorkspaceValidation\Build.bat - build
 REM  TexturePaintWorkspaceValidation.exe: a standalone Vulkan validation host
-REM  for the COMBINED texture-paint workspace. Opens one native Vulkan window +
-REM  ImGui interface, brings up the SvgIconRegistry against the host, registers
-REM  the global icon pack plus the paint pack, starts the non-square strip
-REM  store, and drives the three-column workspace every frame: the left layer
-REM  rail, the centre paint field with the instrument card summoned over it on
-REM  RIGHT-CLICK, and the right property column of channel + mask cards.
+REM  for the texture-paint shared-panel shell. Opens one native Vulkan window +
+REM  ImGui interface, brings up the SvgIconRegistry and paint assets, then drives
+REM  the blank Tab-summoned carousel plus the retained right-click paint tools.
 REM
-REM  Every third is EMBEDDED, not re-implemented: the rail and channel panels
-REM  are compiled in place from the sibling LayerStackValidation and
-REM  ChannelPropertyValidation app folders, and the summoned card pulls
-REM  PaintToolValidation's whole card in as TexturePaintValidation already
-REM  does - so this build compiles four sibling folders IN PLACE, skipping
-REM  each one's own *ValidationHost.cpp (they carry main()). The shared mask
-REM  card ships in EngineContext.lib, which the pillar build below provides.
+REM  The paint card is embedded from PaintToolValidation through
+REM  TexturePaintValidation. Layer-stack, channel-property and mask-property
+REM  implementations are intentionally absent from this blank shell.
 REM
 REM  It draws NO renderer passes, so NO shaders are staged. It writes its OWN
 REM  exe under Binaries\Validation and never touches the others.
@@ -57,8 +50,8 @@ if errorlevel 1 (
 
 REM --- Ensure the shared pillar libs exist + are current ----------------------
 REM  Platform (window + surface + relay), Graphics (Vulkan host + ImGui interface),
-REM  EngineContext (theme + shared LayerProperties mask card + console + SvgIconRegistry
-REM  + SvgRasterizer + vendored ImGui core).
+REM  EngineContext (theme + console + SvgIconRegistry + SvgRasterizer + vendored
+REM  ImGui core).
 call "%ROOT%\Internal\Platform\Build.bat"
 if errorlevel 1 goto :fail
 call "%ROOT%\Internal\Graphics\Build.bat"
@@ -81,17 +74,14 @@ if not exist "%LIBDIR%\Platform.lib" (
 REM --- Include roots (pillar-rooted headers + ImGui + thorvg + Vulkan; no GLFW) -
 REM  thorvg's own include is needed HERE because the embedded PaintIconStore.cpp
 REM  calls tvg:: directly for its rectangular raster.
-REM  The embedded panels are compiled in place from the four sibling app folders,
-REM  so their headers must all be on the include path.
+REM  The embedded paint card is compiled in place from its two sibling folders.
 set "IMGUI=%ROOT%\ExternalPackages\imgui"
 set "THORVGINC=%ROOT%\ExternalPackages\thorvg\inc"
 set "PTDIR=%APPDIR%\..\PaintToolValidation"
 set "TPDIR=%APPDIR%\..\TexturePaintValidation"
-set "LSVDIR=%APPDIR%\..\LayerStackValidation"
-set "CPVDIR=%APPDIR%\..\ChannelPropertyValidation"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVGINC%" /I"%VULKAN%\Include" /I"%PTDIR%" /I"%TPDIR%" /I"%LSVDIR%" /I"%CPVDIR%""
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVGINC%" /I"%VULKAN%\Include" /I"%PTDIR%" /I"%TPDIR%""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
 REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
 REM  TVG_STATIC switches the vendored thorvg.h off its default __declspec(dllimport):
@@ -137,38 +127,6 @@ for /R "%PTDIR%" %%F in (*.cpp) do (
 REM --- Compile the summon card, in place from TexturePaintValidation -----------
 REM  Only its host carries main(); TexturePaintSummonedCard.cpp links in.
 for /R "%TPDIR%" %%F in (*.cpp) do (
-    set "UNIT=%%~nF"
-    echo !UNIT! | findstr /I /C:"ValidationHost" >nul
-    if errorlevel 1 (
-        echo [compile] !UNIT!
-        cl %CXXFLAGS% %DEFINES% %INCLUDES% "%%F" /Fo"%OBJ%\!UNIT!.obj" /Fd"%OBJ%\%NAME%.pdb"
-        if errorlevel 1 (
-            echo [%NAME%] COMPILE FAILED
-            goto :fail
-        )
-        echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
-    )
-)
-
-REM --- Compile the layer rail, in place from LayerStackValidation --------------
-REM  Its host carries main(); the record table + the rail panel link in.
-for /R "%LSVDIR%" %%F in (*.cpp) do (
-    set "UNIT=%%~nF"
-    echo !UNIT! | findstr /I /C:"ValidationHost" >nul
-    if errorlevel 1 (
-        echo [compile] !UNIT!
-        cl %CXXFLAGS% %DEFINES% %INCLUDES% "%%F" /Fo"%OBJ%\!UNIT!.obj" /Fd"%OBJ%\%NAME%.pdb"
-        if errorlevel 1 (
-            echo [%NAME%] COMPILE FAILED
-            goto :fail
-        )
-        echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
-    )
-)
-
-REM --- Compile the channel cards, in place from ChannelPropertyValidation ------
-REM  Its host carries main(); the slot table + the channel panel link in.
-for /R "%CPVDIR%" %%F in (*.cpp) do (
     set "UNIT=%%~nF"
     echo !UNIT! | findstr /I /C:"ValidationHost" >nul
     if errorlevel 1 (

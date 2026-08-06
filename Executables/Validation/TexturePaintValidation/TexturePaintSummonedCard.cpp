@@ -113,11 +113,27 @@ void ConstructTexturePaintSummonedCard(const Frontier::ThemeConfiguration& Theme
     const Frontier::PaintCardPalette Palette = Frontier::ResolvePaintCardPalette(Theme);
     const Frontier::PaintCardMetrics Metrics = Frontier::ResolvePaintCardMetrics(Theme);
 
+    // 🔴 OUTSIDE-PRESS DISMISSAL — the card's embedded console never raises a DismissRequested (it is built with a default-zero result), so
+    //    without this the card would stand forever once a right-press opened it. A press on one of the card's own panes is left for the card to
+    //    answer; a press anywhere outside the box closes it, the same contract the Tab-summoned surfaces use (SceneDirectoryInspector's
+    //    `left-click outside the card closes`). Both buttons dismiss, matching the right-press opener. The press that OPENED the card can never
+    //    reach here — it was consumed by the latch the frame the card was still closed.
+    if (State.CardSummoned)
+    {
+        const ImVec2 BoxLeft(State.CardCentreX - Metrics.CardWidth * 0.5f, State.CardCentreY - Metrics.CardHeight * 0.5f);
+        const bool OverBox = Io.MousePos.x >= BoxLeft.x && Io.MousePos.x <= BoxLeft.x + Metrics.CardWidth &&
+                             Io.MousePos.y >= BoxLeft.y && Io.MousePos.y <= BoxLeft.y + Metrics.CardHeight;
+        if (!OverBox && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+        {
+            Frontier::ClosePaintToolPanel(State.Card);
+        }
+    }
+
     Frontier::ConstructPaintToolPanel(State.Card, Theme, Palette, Metrics, Icons, StripStore,
                                       ImVec2(State.CardCentreX, State.CardCentreY));
 
-    // 🔴 The card owns its own dismissal — it folds the console's DismissRequested into CardOpen itself, and clears it on the Select footer.
-    //    So the summon flag TRACKS the card rather than deciding for it; a dismissal this frame is already visible here.
+    // 🔴 The summon flag TRACKS the card rather than deciding for it: the dismissal above (or the card's own Select footer) already spent
+    //    CardOpen this frame, so the flag is re-read from the card's report, not driven by a choice made here.
     State.CardSummoned = State.Card.CardOpen;
 
     // -- The frame TAIL: apply a latched press now that the card has reported and spent this frame's dismissal. --
