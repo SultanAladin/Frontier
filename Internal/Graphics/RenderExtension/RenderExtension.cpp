@@ -330,9 +330,198 @@ void AssembleSurfaceShadeConstants(const ViewportCamera& Subject, uint32_t Compo
     //    surfels were placed on, or the lookup lands in a different cell than the one holding them.
 }
 
-// 🚧 The three surfel push-block assemblers (slotting / spawn / debug splat) went with the webgiya strip. The W298 port writes its own against
-//    SurfelTuningState + the flat camera-relative cell grid; the one contract worth carrying forward is that every one of them fed the SAME raw eye
-//    position as the grid origin, so host and shader stayed on one lattice.
+// Point the spawn's surface set (set 1) at this frame's visibility view and the six geometry streams. Factored out because it has TWO callers that must
+// stay byte-identical: the one-time wire at init and the resize path, which rebuilt the id view and left the descriptor pointing at a destroyed handle.
+// Returns false unchanged when the chain is not up or a handle is missing.
+//
+// ⚠️ THE THREE FLOOR HANDLES ARE ALIASED ONTO THE HEAD HANDLES WHEN NO FLOOR LOADED, NEVER LEFT NULL. Vulkan forbids a partially-written set, and
+//    RefreshSurfelSpawnSurfaceBinding refuses a null rather than writing one — so an absent floor would leave the whole set unwritten and the spawn
+//    silently standing down. The push's FloorCondition carries the truth instead (0 = the aliased handles are not real floor geometry).
+// 📝 Since the geometry merge the floor's vertices and indices ARE the merged pair, so the alias is only genuinely an alias for the instance buffer.
+// 🔴 The device must be idle at every call site. Both are: init runs before the first frame, and the resize path already holds a vkDeviceWaitIdle.
+bool RefreshSurfelSpawnBinding(RenderExtension& Extension)
+{
+    if (!Extension.SurfelChainReady || Extension.VisibilityTarget.IdView == VK_NULL_HANDLE)
+        return false;
+
+    // 🔴 NEAREST, and the shader only ever texelFetch()es through it — an identity is an ordinal, so a filtered id is a wrong id naming a triangle that
+    //    was never at that pixel. Borrowed from the resolve rather than created here: it owns the id buffer's read path and its sampler is already the
+    //    nearest/clamp one this binding requires, so a second identical sampler would only be a second thing to keep in step.
+    const VkSampler PointSampler = Extension.VisibilityResolve.PointSampler != VK_NULL_HANDLE
+                                 ? Extension.VisibilityResolve.PointSampler
+                                 : Extension.SurfaceShade.PointSampler;
+    if (PointSampler == VK_NULL_HANDLE)
+        return false;
+
+    const bool FloorReal = Extension.SurfaceShade.FloorGeometryBound
+                        && Extension.FloorRaster.InstanceBuffer != VK_NULL_HANDLE;
+
+    SurfelSpawnSurfaceBinding Surface = {};
+    Surface.VisibilityView    = Extension.VisibilityTarget.IdView;
+    Surface.VisibilitySampler = PointSampler;
+    Surface.Vertices          = Extension.SceneGeometry.VertexBuffer;
+    Surface.MeshIndices       = Extension.SceneGeometry.IndexBuffer;
+    Surface.Instances         = Extension.VisibilityRaster.InstanceBuffer;
+    Surface.FloorVertices     = Extension.SceneGeometry.VertexBuffer;
+    Surface.FloorIndices      = Extension.SceneGeometry.IndexBuffer;
+    Surface.FloorInstances    = FloorReal ? Extension.FloorRaster.InstanceBuffer : Extension.VisibilityRaster.InstanceBuffer;
+
+    return RefreshSurfelSpawnSurfaceBinding(Extension.SurfelIrradiance, Surface);
+}
+
+// One compute→compute fence between two surfel stages. Every hazard in the chain has the same shape — a dispatch's storage writes must be visible to the
+// next dispatch's reads — so it is one helper rather than four hand-rolled barriers that could drift apart.
+// 📝 A plain VkMemoryBarrier covers the atlases as well as the buffers: both images live permanently in GENERAL (SurfelIrradianceSubmission.h states the
+//    invariant), so nothing here needs a layout transition and an image barrier would only restate the same access mask per-image.
+void FenceSurfelStage(VkCommandBuffer CommandBuffer)
+{
+    VkMemoryBarrier StageBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    StageBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    StageBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    vkCmdPipelineBarrier(CommandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0, 1, &StageBarrier, 0, nullptr, 0, nullptr);
+}
+
+// Record the whole per-frame surfel chain — lifecycle → trace → integrate → spawn, with a fence between each — at the frame's one legal compute seam.
+// FloorCondition / FloorIndexBase come from the caller because they are derived from this frame's draw placement, which the preamble already resolved.
+//
+// 🔴 THE CAMERA ORIGIN IS RESOLVED ONCE, HERE, AND THE SAME FLOATS GO TO ALL FOUR PASSES. The cell grid is camera-relative and ResolveCellCoordinate's
+//    round() is free to break a half-cell tie either way, so two origins inside one frame put a boundary surfel in the census's cell and the scatter's
+//    neighbour — one reserved slot is then never written and the gather misses a surfel that exists. The extent is resolved once for the same reason:
+//    the lifecycle's screen-projected radius and the spawn's must agree about how big a pixel is.
+// 🔴 THE ORDER IS THE CONTRACT, NOT A PREFERENCE. The census must run before the trace reads the cell grid; the trace must finish before the integrate
+//    reweights its outcomes; the integrate must PUBLISH before the spawn seeds a new surfel from its neighbours' radiance. Recording the spawn earlier
+//    is not an error the driver reports — it seeds every new surfel from last frame's field, which compounds while the camera moves.
+void RecordSurfelChain(RenderExtension& Extension, VkCommandBuffer CommandBuffer, VkExtent2D Extent,
+                       uint32_t FloorCondition, uint32_t FloorIndexBase)
+{
+    const Vector3f Origin = Extension.ObserverCacheSeeded ? Extension.CachedObserverPosition
+                                                          : EvaluateObserverPosition(Extension.ViewCamera);
+    const float    VerticalFieldOfView = Extension.ViewCamera.FieldOfView;
+    const uint32_t ResolutionX = Extent.width;
+    const uint32_t ResolutionY = Extent.height;
+
+    // The ray ladder's ceiling is the F10 panel's knob, clamped into what the outcome pool was sized for. Its floor stays at the ported default: a
+    // sleeping surfel is capped at the minimum, so raising the floor would deny the estimator the cheap-when-quiet half of its budget.
+    const uint32_t RayCeiling = (uint32_t)std::clamp(Extension.LightingTuning.RayCountPerSurfel, 1, (int)SurfelRaysPerSurfel);
+
+    // ---- ① Lifecycle: counter reset → cell census → offset scan → scatter ----
+    SurfelLifecycleConstants LifecycleConstants;
+    LifecycleConstants.CameraX = Origin.XCoord;
+    LifecycleConstants.CameraY = Origin.YCoord;
+    LifecycleConstants.CameraZ = Origin.ZCoord;
+    LifecycleConstants.ResolutionX = ResolutionX;
+    LifecycleConstants.ResolutionY = ResolutionY;
+    LifecycleConstants.VerticalFieldOfView = VerticalFieldOfView;
+    LifecycleConstants.TargetArea      = (float)Extension.SurfelField.Proportions.TargetArea;
+    LifecycleConstants.MinimumRayCount  = 2u;
+    LifecycleConstants.MaximumRayCount  = RayCeiling;
+    LifecycleConstants.CellCount        = Extension.SurfelField.CellCount;
+
+    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotLifecycle);
+    RecordSurfelLifecycle(Extension.SurfelLifecycle, Extension.SurfelField, LifecycleConstants, CommandBuffer);
+    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotLifecycle);
+    FenceSurfelStage(CommandBuffer);
+
+    // ---- ② Trace: one bounce per claimed ray, through the software two-level BVH ----
+    // ☀️ The SAME Z-up sun the shade is pushed and the SAME premultiplied radiance, so a bounce is lit at the exposure the direct pass uses. A second
+    //    derivation here would light the indirect term against a different key and the two would never agree.
+    float SunX = 0.0f, SunY = 0.0f, SunZ = 1.0f;
+    Atmosphere::ResolveSolarDirectionSceneFrame(Extension.SkyPass.Profile, SunX, SunY, SunZ);
+
+    SurfelRadianceConstants RadianceConstants;
+    RadianceConstants.CameraX = Origin.XCoord;
+    RadianceConstants.CameraY = Origin.YCoord;
+    RadianceConstants.CameraZ = Origin.ZCoord;
+    RadianceConstants.SunDirectionX = SunX;
+    RadianceConstants.SunDirectionY = SunY;
+    RadianceConstants.SunDirectionZ = SunZ;
+    RadianceConstants.SunRadianceR = Extension.LightingTuning.SunColour[0] * Extension.LightingTuning.SunIntensity;
+    RadianceConstants.SunRadianceG = Extension.LightingTuning.SunColour[1] * Extension.LightingTuning.SunIntensity;
+    RadianceConstants.SunRadianceB = Extension.LightingTuning.SunColour[2] * Extension.LightingTuning.SunIntensity;
+
+    // 🔴 HORIZON AND ZENITH CARRY THE SAME TONE ON PURPOSE — THIS IS A FLAT HEMISPHERE, NOT A GRADIENT THAT HAPPENS TO BE UNTUNED. Two reasons, and
+    //    either alone is sufficient. ① The tone is SurfaceShade.frag's AmbientColour, the flat fill the gather fades out of, so switching GI on cannot
+    //    change the scene's overall level — it only redistributes it, which is what makes the F10 toggle a readable A/B instead of an exposure jump.
+    //    ② The trace's ResolveMissRadiance blends horizon→zenith on the ray's **Y** component (it is Y-up, matching the atmosphere profile), while
+    //    Frontier's scene frame is Z-UP — so a genuine gradient pushed through it would put the bright half of the sky on a wall. Equal ends make that
+    //    disagreement inert rather than wrong.
+    // 🚧 The real fix is for the trace's miss to read the atmosphere's sky-view LUT, which is also what would let a gradient be correct; logged in
+    //    EngineDocs/Backlog.md. Until then the flat tone is the honest value, not a placeholder that looks tuned.
+    RadianceConstants.SkyHorizonR = 0.10f; RadianceConstants.SkyHorizonG = 0.12f; RadianceConstants.SkyHorizonB = 0.16f;
+    RadianceConstants.SkyZenithR  = 0.10f; RadianceConstants.SkyZenithG  = 0.12f; RadianceConstants.SkyZenithB  = 0.16f;
+    RadianceConstants.SkyIntensity = 1.0f;
+    RadianceConstants.AlbedoScale  = 1.0f;
+    RadianceConstants.FrameOrdinal = Extension.SurfelFrameOrdinal;
+    RadianceConstants.BounceLimit  = (uint32_t)std::max(Extension.LightingTuning.RayBounceLimit, 1);
+    RadianceConstants.InstanceCount = Extension.VisibilityRaster.InstanceCount;
+    RadianceConstants.SliceCount    = (uint32_t)Extension.GeometryArena.Slices.size();
+
+    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotTrace);
+    RecordSurfelRadianceTrace(Extension.SurfelRadiance, Extension.SurfelField, RadianceConstants, CommandBuffer);
+    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotTrace);
+    FenceSurfelStage(CommandBuffer);
+
+    // ---- ③ Integrate: MSME reweight into both atlases ----
+    SurfelIrradianceConstants IrradianceConstants;
+    IrradianceConstants.CameraX = Origin.XCoord;
+    IrradianceConstants.CameraY = Origin.YCoord;
+    IrradianceConstants.CameraZ = Origin.ZCoord;
+    IrradianceConstants.FrameOrdinal = Extension.SurfelFrameOrdinal;
+
+    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotIntegrate);
+    RecordSurfelIrradianceIntegrate(Extension.SurfelIrradiance, Extension.SurfelField, IrradianceConstants, CommandBuffer);
+    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotIntegrate);
+    FenceSurfelStage(CommandBuffer);
+
+    // ---- ④ Spawn: screen-space placement + removal, reading the id buffer ----
+    // 🔴 The SAME inverse view-projection the shade is pushed, derived the same way from the same camera. The spawn unprojects a pixel to a world point
+    //    and glues a surfel there; a matrix a frame out of step would land the whole field slightly off every surface, which reads as light leaking
+    //    rather than as a camera bug.
+    SurfelSpawnConstants SpawnConstants;
+    {
+        const FocalOrientation Frame          = SolveOrbitOrientation(Extension.ViewCamera);
+        const Matrix4f         Projection     = EvaluateProjectionFrame(Extension.ViewCamera);
+        const Matrix4f         ViewProjection = MultiplyMatrix(Projection, Frame.ViewMatrix);
+        const Matrix4f         Inverse        = InvertMatrix(ViewProjection);
+        for (int Column = 0; Column < 4; Column++)
+            for (int Row = 0; Row < 4; Row++)
+                SpawnConstants.InverseViewProjection[Column * 4 + Row] = Inverse.Column[Column][Row];
+    }
+    SpawnConstants.CameraX = Origin.XCoord;
+    SpawnConstants.CameraY = Origin.YCoord;
+    SpawnConstants.CameraZ = Origin.ZCoord;
+    SpawnConstants.VerticalFieldOfView = VerticalFieldOfView;
+    SpawnConstants.TargetArea          = (float)Extension.SurfelField.Proportions.TargetArea;
+    SpawnConstants.ResolutionPacked    = ComposeSurfelSpawnExtent(ResolutionX, ResolutionY);
+    SpawnConstants.FrameOrdinal        = Extension.SurfelFrameOrdinal;
+    SpawnConstants.PerCellLimit        = Extension.SurfelField.Proportions.PerCellLimit;
+    SpawnConstants.FloorPartitionBase  = FloorPartitionBase;
+    SpawnConstants.FloorCondition      = FloorCondition;
+    SpawnConstants.FloorIndexBase      = FloorIndexBase;
+
+    BeginGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSpawn);
+    RecordSurfelSpawn(Extension.SurfelIrradiance, Extension.SurfelField, SpawnConstants, CommandBuffer);
+    EndGpuTimestampScope(Extension.PassTiming, CommandBuffer, RenderExtension::SurfelPassSlotSpawn);
+
+    // The spawn's record writes are what the SHADE reads (through set 1) inside the radiance scope that opens next, and the shade is a FRAGMENT stage —
+    // so this last fence is not another compute→compute hazard and cannot use the helper above.
+    VkMemoryBarrier ShadeBarrier = { VK_STRUCTURE_TYPE_MEMORY_BARRIER };
+    ShadeBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    ShadeBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(CommandBuffer,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0, 1, &ShadeBarrier, 0, nullptr, 0, nullptr);
+
+    // Non-blocking population readback: copies the counter into its host-visible mirror, which RetrieveSurfelPopulation reads ONE FRAME LATER. Recorded
+    // last so it reflects the field this frame actually settled on.
+    RecordSurfelCounterReadback(Extension.SurfelField, CommandBuffer);
+
+    // 🔴 MUST advance every frame: it seeds the trace's per-ray and the spawn's per-pixel generators. A frozen ordinal fires the same ray directions and
+    //    proposes the same pixels forever, so the estimator converges to one sample instead of averaging.
+    ++Extension.SurfelFrameOrdinal;
+}
 
 #ifdef FRONTIER_POLYGON_AUTHORING
 // Fill the component overlay's push data. Shares the camera derivation with the shade above, but takes the FORWARD view-projection rather than its
@@ -1126,11 +1315,6 @@ bool InitializeRenderExtension(RenderExtension& Extension,
     // Placed outside the load branches on purpose — it must run even when a document failed to load, so the two sets never disagree.
     FinalizeSceneOccupancy(Extension);
 
-    // 🚧 The surfel GI init (pool + hash grid + lifecycle + debug splat + census, and the shade's set-1 surfel bindings) went with the webgiya strip.
-    //    The W298 port stands its storage up HERE, after the scene load, for the reasons that still hold: the allocations submit one-shot clears on the
-    //    UploadPool, and anything reading geometry binds the merged mesh buffers — neither exists until the document has loaded. Keep it best-effort so
-    //    a failed init leaves ReadyCondition false and every record no-ops, exactly like the clipmap visualization, leaving the colour path unaffected.
-    //
     // 🔴 FRONTIER_SURFEL_SHADER_DIR is NOT surfel-only despite the name — the TLAS chain below (bounds / radix sort / tree) resolves its shaders
     //    through it, so it must stay defined even with no GI present.
 #ifndef FRONTIER_SURFEL_SHADER_DIR
@@ -1204,6 +1388,98 @@ bool InitializeRenderExtension(RenderExtension& Extension,
                 ISSUE_NOTICE("render-extension", "surface-shade sun-shadow BVH wired against the TLAS");
             }
         }
+    }
+
+    // ================================================================================================================================
+    //  SURFEL GI (W298/SurfelGI) — the store, its three submissions, and the four descriptor sets nothing else can write
+    // ================================================================================================================================
+    // 📝 Stood up AFTER the TLAS for the same reason the TLAS came after the scene load: the trace's set 1 is the acceleration structure, so the
+    //    handles it borrows must already exist. Everything here is best-effort — a failure at any step leaves SurfelChainReady false, the per-frame
+    //    record no-ops, the shade's SurfelSetReady stays false, and the flat ambient fill runs. An absent field costs no colour-path change.
+    //
+    // 🔴 THE STORE MUST COME UP BEFORE THE SUBMISSIONS AND IT NEEDS THE UPLOAD POOL. InitializeSurfelStore submits and WAITS on the seed writes (the
+    //    counter's FreeSurfel = SurfelTotalLimit and the vacancy table's iota — a zero-filled counter reads as "no free slots" and the field stays
+    //    empty forever with no error anywhere), so it needs a graphics-family command pool. UploadPool is the one the scene load created; if the
+    //    raster never came up there is no pool and no scene to light either, so standing down is the honest outcome rather than a second pool.
+    //
+    // 🔴 THE PROPORTIONS ARE THE DEFAULTS, NOT THE F10 PANEL'S SurfelCellExtent. Every per-cell buffer is sized from CellDimension here and resident
+    //    for the renderer's life, so a live cell-edge edit would mean reallocating the store mid-frame. The panel's knob stays inert until it has a
+    //    reallocation path; the two values agree at 0.25 m so the slider reads the truth today.
+    if (Extension.UploadPool != VK_NULL_HANDLE)
+    {
+        const SurfelGridProportions SurfelProportions = {};
+        if (InitializeSurfelStore(Extension.SurfelField, Extension.Substrate.Host, Extension.UploadPool, SurfelProportions))
+        {
+            const bool LifecycleOk = InitializeSurfelLifecycleSubmission(Extension.SurfelLifecycle, Extension.Substrate.Host,
+                                                                         Extension.SurfelField, FRONTIER_SURFEL_SHADER_DIR);
+            const bool RadianceOk  = InitializeSurfelRadianceSubmission(Extension.SurfelRadiance, Extension.Substrate.Host,
+                                                                        Extension.SurfelField, FRONTIER_SURFEL_SHADER_DIR);
+            const bool IrradianceOk = InitializeSurfelIrradianceSubmission(Extension.SurfelIrradiance, Extension.Substrate.Host,
+                                                                           Extension.SurfelField, FRONTIER_SURFEL_SHADER_DIR);
+            Extension.SurfelChainReady = LifecycleOk && RadianceOk && IrradianceOk;
+
+            if (Extension.SurfelChainReady)
+                ISSUE_NOTICE("render-extension", "surfel field resident: %u slots, %u cells, %.1f MiB device",
+                             Extension.SurfelField.Capacity, Extension.SurfelField.CellCount,
+                             (double)ResolveSurfelStoreFootprint(Extension.SurfelField) / (1024.0 * 1024.0));
+            else
+                ISSUE_CAUTION("render-extension", "surfel submissions failed (lifecycle %d / trace %d / integrate %d) — no global illumination",
+                              LifecycleOk ? 1 : 0, RadianceOk ? 1 : 0, IrradianceOk ? 1 : 0);
+        }
+        else
+        {
+            ISSUE_CAUTION("render-extension", "surfel store allocation failed — no global illumination");
+        }
+    }
+
+    // -- The trace's scene set (set 1): the seven read-only streams TwoLevelTrace.glsl walks. Written ONCE here for the same static-scene reason the
+    //    TLAS binds once — re-writing a set already recorded into an in-flight command buffer is undefined. Gated on TlasReady because five of the
+    //    seven handles are the acceleration structure's; without it the trace records nothing and only the direct pass lights the frame.
+    // 🔴 The trace does NOT own the barrier that makes the tree's per-frame refit visible to it — the recorder does, and that fence already exists at
+    //    the TLAS seam below (it was written as a no-cost fence precisely so this consumer would need only its descriptor write and its dispatch).
+    if (Extension.SurfelChainReady && Extension.TlasReady)
+    {
+        VkBuffer ArenaNode = VK_NULL_HANDLE, ArenaPrimitive = VK_NULL_HANDLE, ArenaSlice = VK_NULL_HANDLE, ArenaParent = VK_NULL_HANDLE;
+        RetrieveGeometryArenaBuffers(Extension.GeometryArena, ArenaNode, ArenaPrimitive, ArenaSlice, ArenaParent);
+        VkBuffer TreeNode = VK_NULL_HANDLE, TreeParent = VK_NULL_HANDLE;
+        RetrieveInstanceTreeBuffers(Extension.TlasTree, TreeNode, TreeParent);
+
+        SurfelSceneBinding TraceScene = {};
+        TraceScene.Instances       = Extension.VisibilityRaster.InstanceBuffer;
+        TraceScene.Slices          = ArenaSlice;
+        TraceScene.ArenaNodes      = ArenaNode;
+        TraceScene.ArenaPrimitives = ArenaPrimitive;
+        TraceScene.TreeNodes       = TreeNode;
+        TraceScene.MeshIndices     = Extension.SceneGeometry.IndexBuffer;
+        TraceScene.Vertices        = Extension.SceneGeometry.VertexBuffer;
+
+        if (RefreshSurfelRadianceSceneBinding(Extension.SurfelRadiance, TraceScene))
+            ISSUE_NOTICE("render-extension", "surfel trace wired against the TLAS");
+        else
+            ISSUE_CAUTION("render-extension", "surfel trace scene bind failed — the field spawns and integrates but casts no rays");
+    }
+
+    // -- The spawn's surface set (set 1): the visibility buffer plus six geometry streams. Re-written on every resize (the id view is extent-sized), so
+    //    this first call shares its body with the resize path below rather than being the only one.
+    // ⚠️ The three floor handles are ALIASED onto the head handles when no floor loaded, never left null — Vulkan forbids a partially-written set — and
+    //    FloorCondition is pushed 0 so the shader knows they are not real. Since the geometry merge the floor's vertices/indices ARE the merged pair, so
+    //    only the instance buffer is genuinely a different allocation.
+    if (Extension.SurfelChainReady)
+        RefreshSurfelSpawnBinding(Extension);
+
+    // -- The shade's field set (set 1): the read side. Three of the store's buffers plus its depth-moment atlas, which the store owns for its whole life
+    //    — so unlike the id-buffer binding this runs ONCE and never on resize. Raising SurfelSetReady is what unlocks the shade's push gate; until it
+    //    happens the frag's GlobalIlluminationEnabled is forced to 0 and it reads no surfel memory at all.
+    if (Extension.SurfelChainReady && Extension.SurfaceShade.ReadyCondition)
+    {
+        if (RefreshSurfaceShadeSurfelBindings(Extension.SurfaceShade,
+                                              Extension.SurfelField.SurfelRecords.Buffer,
+                                              Extension.SurfelField.CellSpan.Buffer,
+                                              Extension.SurfelField.CellList.Buffer,
+                                              Extension.SurfelField.DepthAtlas.View))
+            ISSUE_NOTICE("render-extension", "surface-shade surfel gather wired against the field");
+        else
+            ISSUE_CAUTION("render-extension", "surface-shade surfel bind failed — the field runs but the shade reads the flat ambient fill");
     }
 
     // -- GPU wall-clock probe (measure-first). Best-effort: a device without graphics-queue timestamps leaves PassTiming.ReadyCondition false and every
@@ -1457,6 +1733,13 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                 Extension.HoveredPartition       = NoSelectionSentinel;
                 Extension.ReportedHoverPartition = NoSelectionSentinel;   // the log latch mirrors the hover it reports
 #endif
+
+                // The surfel spawn samples the same rebuilt id view (it is the screen-space half of the field), so its surface set is stale in exactly
+                // the way the shade's and the resolve's are. Re-pointed under the same extent-change device-idle; the helper hands every other handle
+                // back unchanged, and its own guard makes this inert when the chain never came up.
+                // 📝 Only the SPAWN's set moves on a resize. The shade's field set points at store buffers and the depth atlas, which the store owns for
+                //    its whole life — those never change handle, so re-pointing them here would be a write with nothing to write.
+                RefreshSurfelSpawnBinding(Extension);
             }
 
             // Hardware visibility raster: draw the Suzanne scene into the R32_UINT id buffer with depth testing against the D32 target. This
@@ -1717,14 +2000,30 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
 
 
             // ================================================================================================================================
-            //  🚧 SURFEL GI — the per-frame compute chain was removed with the webgiya strip
+            //  SURFEL GI — the per-frame compute chain: lifecycle → trace → integrate → spawn
             // ================================================================================================================================
-            // 📝 THE ONE LEGAL SEAM, documented because the W298 port re-records exactly here: compute is illegal inside a dynamic-rendering scope, and
-            //    the radiance scope opens right below. This spot — after the visibility image is handed to sampling (a screen-space spawn texelFetches
-            //    its id) and before any scope opens — is the only place inside the command buffer and outside every scope.
-            // 🔴 Whatever records here must gate on VisibilityWritten: a screen-space spawn reconstructs world pos/normal from the id buffer, and on an
-            //    idle frame that buffer holds undefined bytes — spawning from them seeds surfels out of stale memory. It must also gate on the F10
-            //    panel's GI master toggle, so switching GI off costs nothing rather than merely hiding the result.
+            // 📝 THE ONE LEGAL SEAM: compute is illegal inside a dynamic-rendering scope, and the radiance scope opens right below. This spot — after the
+            //    visibility image is handed to sampling (the screen-space spawn texelFetches its id) and before any scope opens — is the only place
+            //    inside the command buffer and outside every scope.
+            //
+            // 🔴 VisibilityWritten IS PART OF THE GATE, NOT DECORATION. The spawn reconstructs world position and normal from the id buffer, and on an
+            //    idle frame that buffer was never transitioned to COLOR_ATTACHMENT nor written — spawning from it seeds surfels out of stale memory, at
+            //    plausible-looking positions that no surface is at.
+            // 🔴 THE F10 MASTER TOGGLE GATES THE RECORD, NOT ONLY THE SHADE'S PUSH. Gating just the push would leave the whole lifecycle/trace/integrate/
+            //    spawn cost running to feed a read the shade discards, which makes the toggle a display filter that costs the same either way — the
+            //    opposite of what it is for. This gate is what makes GI-off a true A/B against the pre-port renderer.
+            if (Extension.SurfelChainReady && VisibilityWritten && Extension.LightingTuning.GlobalIlluminationEnabled)
+            {
+                // The floor half of the spawn's identity decode, from the SAME placement the draws above used. Sourced from FloorGeometryBound rather
+                // than from whether a floor document loaded, for the reason the shade's own flag is: when the floor is absent the spawn's b4-b6 are
+                // aliased onto the head buffers, so a non-zero condition would reconstruct floor pixels out of head triangles.
+                const bool FloorSpawnable = Extension.SurfaceShade.FloorGeometryBound
+                                         && Extension.FloorRaster.InstanceCount > 0
+                                         && FloorDrawPlacement.IndexCount > 0;
+                RecordSurfelChain(Extension, CommandBuffer, Extent,
+                                  FloorSpawnable ? 1u : 0u,
+                                  FloorSpawnable ? FloorDrawPlacement.IndexOffset : 0u);
+            }
 
             // The shade's per-pixel shadow jitter rotates every frame so a temporal pass can average. Advanced unconditionally — it is not surfel
             // state and must keep turning with no GI substrate present.
@@ -1822,12 +2121,22 @@ void SynthesizeOutputSequence(RenderExtension& Extension)
                     //    aliased-binding case where no floor run exists to be based.
                     ShadeConstants.FloorIndexBase = FloorShadeable ? FloorDrawPlacement.IndexOffset : 0u;
 
-                    // 🚧 The Phase-3 surfel GI gather fields went with the webgiya strip: the shade runs its FLAT AMBIENT fill unconditionally until the
-                    //    W298 port wires an irradiance-atlas read here. Phase 8 pushes its GI tail at this seam, gated as:
-                    //        GiEnabled = (LightingTuning.GlobalIlluminationEnabled && SurfelStore live && set 1 pointed) ? 1 : 0
-                    //    🔴 The F10 master toggle must ALSO gate the surfel chain's per-frame RECORD (see the compute seam earlier in this frame body),
-                    //       not just this push. Gating only here would leave the full trace/integrate cost running to feed a read the shade discards —
-                    //       the toggle would look like a display filter and cost the same either way, which is the opposite of what it is for.
+                    // ---- One-bounce surfel GI (the field's read side; set 1) ----
+                    // 🔴 SurfelSetReady, NOT "a SurfelStore exists" — the flag is the inscription's own record that all four set-1 descriptors were
+                    //    POINTED at live handles. The three buffer bindings are storage descriptors: reading an unpointed one is undefined memory, not a
+                    //    zero, so the honest gate is the one the writer of those descriptors owns. RecordSurfaceShadeInscription re-forces this to 0 on
+                    //    the same flag; gating here as well keeps the push and the record telling the same story rather than relying on that backstop.
+                    // ⚠️ The two knobs are pushed UNCONDITIONALLY, even with GI off. They are inert when the enable is 0 (the frag never reads them), and
+                    //    pushing them anyway means flipping the toggle on picks up the panel's current values immediately instead of one frame late.
+                    ShadeConstants.GlobalIlluminationEnabled =
+                        (Extension.LightingTuning.GlobalIlluminationEnabled && Extension.SurfaceShade.SurfelSetReady) ? 1u : 0u;
+                    ShadeConstants.IndirectIntensity    = Extension.LightingTuning.IndirectIntensity;
+                    ShadeConstants.SkyOcclusionStrength = Extension.LightingTuning.SkyOcclusionStrength;
+
+                    // 🚧 STILL OWED, and it is a COST bug rather than a correctness one: the F10 master toggle must ALSO gate the surfel chain's per-frame
+                    //    RECORD once that chain is wired into this frame body. Gating only the push leaves the full spawn/trace/integrate cost running to
+                    //    feed a read the shade discards — the toggle then looks like a display filter and costs the same either way, which is the opposite
+                    //    of what it is for. Harmless today only because no surfel chain is recorded here yet.
 
                     // ---- Primary sun shadow (area-sampled BVH; set 2) ----
                     // The trace's ShadowInstanceCount / ShadowSliceCount, from the SAME sources the TLAS was built against (the scene is static after

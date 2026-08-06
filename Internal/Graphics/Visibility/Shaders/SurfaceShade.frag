@@ -155,9 +155,46 @@ layout(std140, set = 0, binding = 7) readonly buffer FloorInstanceBlock
     SceneInstance FloorInstances[];
 };
 
-// 🚧 SET 1 — the surfel state (moments struct, seven buffer bindings, SurfelRecord.glsl) was removed with the webgiya strip. The shade runs its FLAT
-//    AMBIENT fill until the W298 port binds its irradiance atlas here. The layout contract that still applies: whatever set 1 becomes must mirror the
-//    producing pass's spelling EXACTLY, or host and shader disagree on layout with no diagnostic.
+//------------------------------------------------------------------------------------------------------------------------
+//                                      SET 1 — THE SURFEL FIELD (one-bounce indirect)
+//------------------------------------------------------------------------------------------------------------------------
+
+// 🧩 The READ side of the W298 surfel port. Three of SurfelStore's buffers plus one of its two atlases — everything
+//    AccumulateSurfelIrradiance walks, and nothing else. 🔴 THE STRUCTS ARE INCLUDED, NOT TRANSCRIBED: SurfelTypes.glsl is the single
+//    declaration of Surfel (100 B) and SurfelCellSpan (8 B), and a hand-written copy here would be a fourth place the scalar-only layout
+//    has to stay right. Every member of those records is a scalar float/uint deliberately — a GLSL vec3 carries 16-byte alignment where
+//    the upstream float3 is 12 tight bytes, so a "tidier" vec3 shifts every field after it with no diagnostic.
+//
+// 🔴 THE GUIDING ATLAS IS DELIBERATELY NOT BOUND HERE. SurfelStore owns two: the R32_SFLOAT irradiance/guiding map, which is a
+//    TRACE-SIDE structure (it steers where a surfel fires its next rays), and the R32G32_SFLOAT depth-moment map, which is the only one a
+//    reader needs. A surfel's outgoing radiance already lives in its RECORD, published by SurfelRadianceIntegrate.comp ④ — so the gather
+//    reads radiance from b0 and uses b3 solely for the Chebyshev occlusion test. Binding the guiding map here would be a descriptor
+//    nothing samples.
+//
+// ⚠️ BOTH ATLASES STAY IN VK_IMAGE_LAYOUT_GENERAL FOR THEIR WHOLE LIFE, AND THIS SAMPLED READ DOES NOT CHANGE THAT. InitializeSurfelStore
+//    leaves them in GENERAL because the integrate holds them as storage images; b3's descriptor is therefore written with
+//    imageLayout = VK_IMAGE_LAYOUT_GENERAL rather than SHADER_READ_ONLY_OPTIMAL. Sampling from GENERAL is legal and costs a possible
+//    optimal-tiling win — which is the correct trade against the alternative SurfelIrradianceSubmission.h warns about: a
+//    GENERAL -> SHADER_READ_ONLY -> GENERAL round trip every frame, whose second half nothing in the surfel chain would own.
+//
+// 🔴 THE SPELLING IS THE CONTRACT WITH SurfaceShadeInscription.cpp, WHICH BUILDS THIS LAYOUT FROM THE SAME FOUR ORDINALS. Three storage
+//    buffers then one combined image sampler; a set whose types match but whose ORDER differs hands the gather the cell table as surfel
+//    records and produces a plausible field of nonsense with no validation error.
+#include "SurfelTypes.glsl"
+
+layout(std430, set = 1, binding = 0) readonly buffer SurfelRecordBlock   { Surfel         SurfelRecords[];      };
+layout(std430, set = 1, binding = 1) readonly buffer SurfelCellSpanBlock { SurfelCellSpan SurfelCellSpans[];    };
+layout(std430, set = 1, binding = 2) readonly buffer SurfelCellListBlock { uint           SurfelCellOrdinals[]; };
+
+// The depth-moment atlas: .r = mean occluder distance [m], .g = mean of squares. LINEAR / clamp on the host side — the filter is the whole
+// point of the one-texel tile border (see SurfelAtlasAddressing.glsl), so a NEAREST sampler here would stair-step every contact shadow
+// while still compiling and still looking roughly right.
+layout(set = 1, binding = 3) uniform sampler2D SurfelDepthAtlas;
+
+// The gather itself — pulled in AFTER the four declarations above are in scope, exactly as TwoLevelTrace.glsl is pulled in after set 2's.
+// It reads them by BARE NAME and declares nothing of its own. ⚠️ Renaming any of the four above breaks this include at its first use, not
+// at the include line.
+#include "SurfelIrradianceAccumulation.glsl"
 
 layout(push_constant) uniform ShadeConstants
 {
@@ -170,9 +207,14 @@ layout(push_constant) uniform ShadeConstants
     uint FloorShadeEnabled;       // [-] - 1 shades the floor from b5-b7, 0 discards it (the b5-b7 alias is not real floor data)
     uint FloorIndexBase;          // [-] - first index of the floor's run in b6; gl_PrimitiveID restarts per draw, b6 is a merged buffer
 
-    // 🚧 The Phase-3 surfel GI gather fields (GridOrigin, OcclusionParams, read-offset / GI-enable / capacity, the three world-scale tunables and
-    //    PushPad0) were removed with the webgiya strip. The W298 port re-adds its own tail here — and must re-add it to SurfaceShadeConstants in
-    //    SurfaceShadeInscription.h in the SAME edit, since the two byte-match with no diagnostic when they drift.
+    // ---- Surfel GI (set 1) — three scalars, byte-matched by SurfaceShadeConstants ----
+    // 🔴 NO CAMERA FIELD HERE, BY DESIGN. The surfel grid is camera-relative and the gather needs that origin — but CameraPosition is already
+    //    in this block, above, so the gather takes Constants.CameraPosition.xyz. ⚠️ Those bytes must be the SAME ones the lifecycle, census and
+    //    scatter were pushed this frame (see SurfelStoreBindings.glsl's 🔴 note): a boundary surfel whose cell is resolved from a different origin
+    //    lands in a cell the field never wrote, which reads as the indirect quietly vanishing rather than as an error.
+    uint  GlobalIlluminationEnabled;  // [-] - 1 gathers the surfel field, 0 keeps the flat ambient fill (the host's F10 master toggle, ANDed with "set 1 is real")
+    float IndirectIntensity;          // [×] - scales the gathered indirect only; the flat fill it fades into is NOT scaled, so the A/B stays honest
+    float SkyOcclusionStrength;       // [-] - how far coverage is allowed to displace the flat fill: 0 leaves it untouched, 1 lets a fully covered pixel replace it
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — six scalars, byte-matched by SurfaceShadeConstants ----
     float SunAngularRadius;       // [rad] - half-angle of the sun disc; 0 gives a hard shadow, ~0.0047 is the real sun (soft penumbra)
@@ -814,8 +856,8 @@ void main()
     //    mix(DiffuseColour, F0, Metallic) implicitly assumed the environment reflects with a roughness-independent weight, which is what made a smooth
     //    metal and a rough metal take identical indirect energy — the split-sum pair is exactly the pre-integration that distinguishes them. This is the
     //    one place the DFG term is load-bearing rather than a correction: it is the environment BRDF, evaluated against a constant environment.
-    // ⚠️ Still a FLAT ambient, not an irradiance probe — the split changes how the fill is WEIGHTED, not where it comes from. The W298 GI port replaces
-    //    the AmbientColour source at this seam; the weighting below stays correct when it does.
+    // ⚠️ The split changes how the fill is WEIGHTED, not where it comes from — and that separation is why the surfel gather below could replace the fill's
+    //    SOURCE without touching a line of this. AmbientAlbedo weights whatever arrives, flat constant or gathered bounce alike.
     vec2 AmbientDfg          = EnvironmentBrdfApproximate(NoV, Roughness);
     vec3 AmbientSpecular     = (F0 * AmbientDfg.x + vec3(AmbientDfg.y)) * SpecularEnergy;
     // The diffuse share of the ambient takes what the specular share did not reflect, mirroring the direct lobe's energy split.
@@ -826,10 +868,37 @@ void main()
     //    can see; the direct sun's occlusion is already resolved exactly by the area-sampled shadow ray above. Folding AO into LightEnergy would
     //    double-darken every contact region the shadow already handles, and would darken it by a term that has no directional information at all.
     float AmbientOcclusion = clamp(Preset.TransmissionRefraction.z, 0.0, 1.0);
-    // 🚧 The one-bounce surfel gather that FULLY REPLACED this flat fill went with the webgiya strip, so the flat ambient runs unconditionally again.
-    //    The W298 port restores the replacement at this exact seam, gated on the F10 panel's GI master toggle so the flat look stays one click away
-    //    for a direct A/B.
-    Radiance += AmbientColour * AmbientAlbedo * AmbientOcclusion;
+
+    // 🧩 THE ONE-BOUNCE SURFEL GATHER — the read end of the whole W298 chain, and the only place in the renderer where the surfel field becomes visible.
+    //    Everything above this line is a flat constant fill; everything the gather returns is light that actually bounced off scene geometry.
+    //
+    // 💡 WHY THIS IS A BLEND AND NOT A REPLACEMENT, which is the one design decision in this block. The gather returns a coverage-weighted MEAN radiance
+    //    plus a COVERAGE — not a sum — precisely so a partially-covered pixel has an answer. The surfel field is sparse by construction: it is seeded from
+    //    screen tiles over several frames, it has a hard 16 m reach (SurfelCellGrid.glsl), and a freshly-revealed surface has NO surfels at all for the
+    //    frames before the spawn reaches it. Replacing the fill outright means every one of those cases goes BLACK — which reads as a shading bug, not as
+    //    missing cache. So coverage drives a mix: fully-covered surfaces take the gathered indirect, uncovered surfaces keep the flat fill they had before
+    //    the port, and the boundary between them fades rather than steps. A surface converging from 0 to full coverage BRIGHTENS toward its real bounce
+    //    light instead of flashing dark and filling in.
+    //
+    // 🔴 SkyOcclusionStrength IS A CEILING ON THE FADE, NOT AN OCCLUSION MULTIPLIER — the name is upstream's and it misleads. It caps how far coverage is
+    //    allowed to displace the flat fill: at 1.0 a fully-covered pixel is pure gathered GI (the honest answer), at 0.5 even full coverage keeps half the
+    //    flat fill, and at 0.0 the fill is never displaced — which makes the gather a no-op, indistinguishable from the master toggle being off.
+    //    ⚠️ So 0.0 is the DEGENERATE end of this knob, not a debug mode. Read it as "trust in the field", and leave it at 1.0 unless the field is being
+    //       deliberately faded out for an A/B against the flat look.
+    //
+    // 📝 The weighting is deliberately unchanged from the flat path: AmbientAlbedo (the split-sum pair) and AmbientOcclusion still scale whatever the fill
+    //    is, because both are statements about the SURFACE, not about where the indirect light came from. IndirectIntensity scales ONLY the gathered term —
+    //    the flat fill must stay put as the A/B reference, or turning the intensity up would brighten the thing it is being compared against.
+    vec3 AmbientSource = AmbientColour;
+    if (Constants.GlobalIlluminationEnabled != 0u)
+    {
+        // ⚠️ Constants.CameraPosition.xyz, not RayOrigin — the gather's grid origin must be the SAME BYTES every surfel pass was pushed, or a boundary
+        //    surfel lands in a different cell here than the scatter wrote it into (see the round()-tie note in SurfelCellGrid.glsl).
+        vec4  Gathered = AccumulateSurfelIrradiance(WorldPosition, Normal, Constants.CameraPosition.xyz);
+        float Coverage = clamp(Gathered.a, 0.0, 1.0) * clamp(Constants.SkyOcclusionStrength, 0.0, 1.0);
+        AmbientSource  = mix(AmbientColour, Gathered.rgb * Constants.IndirectIntensity, Coverage);
+    }
+    Radiance += AmbientSource * AmbientAlbedo * AmbientOcclusion;
 
     // ---- Emissive ----
     // Enters BELOW the coat (an LED under a lacquer layer is dimmed by it), which is why this sits after the coat attenuation.

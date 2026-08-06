@@ -1,26 +1,20 @@
 @echo off
 REM ============================================================================
-REM  LayerStackValidation\Build.bat - build LayerStackValidation.exe: a standalone
-REM  Vulkan validation host for the Layers slide of the paint-surface inspector,
-REM  ported from Documentation\Prototypes\PaintingSurface\Interface\LayerInspector.js.
-REM  Opens a native Vulkan window + ImGui interface, resolves the shared theme,
-REM  and drives ConstructLayerStackPanel each frame until the window closes.
+REM  LayerStackValidation\Build.bat - build LayerStackValidation.exe:
+REM  a standalone Vulkan validation host for the paint-layer stack rail.
+REM  Opens one native Vulkan window + ImGui interface, brings up the
+REM  SvgIconRegistry and global icon pack, then drives the full
+REM  ConstructLayerStackPanel each frame.
 REM
-REM  The property-panel scaffolding + controls live in EngineContext.lib; the
-REM  Vulkan host + ImGui interface live in Graphics.lib; the window + surface +
-REM  relay live in Platform.lib. So this app rebuilds the shared pillar libs first
-REM  via their own Build.bat, then compiles its own units (record table + panel +
-REM  host) and links EngineContext + Graphics + Platform plus vulkan-1.lib and the
-REM  OS libs. It draws NO renderer passes, so NO shaders are staged, and it draws
-REM  every mark from primitives, so thorvg is NOT needed. It writes its OWN exe
-REM  under Binaries\Validation.
+REM  It draws NO renderer passes, so NO shaders are staged. It writes its OWN
+REM  exe under Binaries\Validation and never touches the others.
 REM
 REM  Run this through the PowerShell tool, never Bash.
 REM ============================================================================
 setlocal EnableDelayedExpansion EnableExtensions
 set "APPDIR=%~dp0"
 if "%APPDIR:~-1%"=="\" set "APPDIR=%APPDIR:~0,-1%"
-for %%I in ("%APPDIR%\..\..\..") do set "ROOT=%%~fI"
+for %%I in ("%APPDIR%\..\..\..\") do set "ROOT=%%~fI"
 
 set "NAME=LayerStackValidation"
 set "OUTDIR=%ROOT%\Binaries\Validation"
@@ -52,7 +46,8 @@ if errorlevel 1 (
 
 REM --- Ensure the shared pillar libs exist + are current ----------------------
 REM  Platform (window + surface + relay), Graphics (Vulkan host + ImGui interface),
-REM  EngineContext (property-panel scaffolding + controls + vendored ImGui core).
+REM  EngineContext (theme + console + SvgIconRegistry + SvgRasterizer + vendored
+REM  ImGui core).
 call "%ROOT%\Internal\Platform\Build.bat"
 if errorlevel 1 goto :fail
 call "%ROOT%\Internal\Graphics\Build.bat"
@@ -72,17 +67,19 @@ if not exist "%LIBDIR%\Platform.lib" (
     goto :fail
 )
 
-REM --- Include roots (pillar-rooted headers + ImGui + Vulkan; no GLFW) ---------
+REM --- Include roots (pillar-rooted headers + ImGui + thorvg + Vulkan; no GLFW) -
 set "IMGUI=%ROOT%\ExternalPackages\imgui"
+set "THORVGINC=%ROOT%\ExternalPackages\thorvg\inc"
 set "VULKAN=%VULKAN_SDK%"
 if not defined VULKAN set "VULKAN=C:\VulkanSDK\1.4.335.0"
-set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%VULKAN%\Include""
+set "INCLUDES=/I"%ROOT%\Internal" /I"%IMGUI%" /I"%IMGUI%\backends" /I"%THORVGINC%" /I"%VULKAN%\Include""
 REM  FRONTIER_DEVELOPMENT_PROFILE keeps Trace/Notice diagnostics AND turns on the
-REM  Vulkan validation layer by default. Swap to FRONTIER_SHIPPING_PROFILE for lean builds.
-set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE"
+REM  Vulkan validation layer by default.
+REM  TVG_STATIC switches the vendored thorvg.h off its default __declspec(dllimport).
+set "DEFINES=/DUNICODE /D_UNICODE /D%DEFINE% /DFRONTIER_DEVELOPMENT_PROFILE /DTVG_STATIC"
 set "CXXFLAGS=/nologo /c /std:c++17 /EHsc /MD /utf-8 /Zi /FS /O2 /W3 /wd4244 /wd4267"
 
-REM --- Compile this app's own units (record table + panel + host) --------------
+REM --- Compile this app's own units (the host only — panel lives in EngineContext) ---
 set "OBJRSP=%OBJ%\link_objs.rsp"
 if exist "%OBJRSP%" del /Q "%OBJRSP%"
 for /R "%APPDIR%" %%F in (*.cpp) do (
@@ -96,8 +93,9 @@ for /R "%APPDIR%" %%F in (*.cpp) do (
     echo "%OBJ%\!UNIT!.obj">>"%OBJRSP%"
 )
 
-REM --- Link the shared libs + Vulkan / system libs (no GLFW, no thorvg) --------
-set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib""
+REM --- Link the shared libs + thorvg + Vulkan / system libs (no GLFW) ----------
+set "THORVGLIB=%ROOT%\ExternalPackages\thorvg\lib\thorvg.lib"
+set "LINKLIBS="%LIBDIR%\EngineContext.lib" "%LIBDIR%\Graphics.lib" "%LIBDIR%\Platform.lib" "%THORVGLIB%""
 set "SYSLIBS="%VULKAN%\Lib\vulkan-1.lib" user32.lib gdi32.lib shell32.lib dwmapi.lib"
 
 echo [%NAME%] linking -^> %OUTPUT%

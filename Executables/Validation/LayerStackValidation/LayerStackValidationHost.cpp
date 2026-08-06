@@ -1,11 +1,17 @@
 /*==============================================================================================================================================
-                                                    LAYERSTACKVALIDATIONHOST.CPP
+                                                     LAYERSTACKVALIDATIONHOST.CPP
 ==============================================================================================================================================*/
-// 🧩 Standalone Vulkan validation host for the Layers slide ported from Documentation/Prototypes/PaintingSurface/Interface/LayerInspector.js. It
-//    stands up the shared Vulkan spine (PlatformWindow + VulkanHost + presentation surface + VulkanImguiInterface + the Win32 ImGui relay), then
-//    drives ConstructLayerStackPanel inside one docked-full window so a human can add and drop layers, focus and fold rows, scrub the opacity
-//    pill, toggle visibility, filter the rail, and drive each layer's blend / paint / tag / mask against the prototype side by side.
-//    📝 No SvgIconRegistry here: the panel draws every mark from primitives, so there is no icon pack to bring up and nothing to tear down.
+// 🧩 Standalone Vulkan validation host for the paint-layer stack rail. Opens one native Vulkan window + ImGui interface, brings up the
+//    SvgIconRegistry and the global icon pack, then drives the full ConstructLayerStackPanel each frame. Every colour and metric comes
+//    from the shared ThemeConfiguration.
+//
+//    📝 No paint extension, no strip store, no mask atlas — this host exercises the UI rail only. The layer store is seeded once at start-up
+//       by InitializeLayerStackSample, and thereafter the user may add, rename, reorder, fold, scrub, hide and delete layers live.
+//
+//    🔴 The registry MUST come up AFTER ImGui_ImplVulkan_Init and go down BEFORE ImGui_ImplVulkan_Shutdown — it uploads through
+//       ImGui_ImplVulkan_AddTexture, so its lifetime is gated on the backend.
+
+#include "EngineContext/Interface/Workspaces/TexturePaint/LayerStackPanel.h"
 
 #include "Platform/Windowing/PlatformWindow.h"
 #include "Graphics/RenderExtension/Device/VulkanHost.h"
@@ -14,7 +20,8 @@
 #include "EngineContext/Interface/WorkspaceHost/ImguiPlatformRelay.h"
 #include "EngineContext/Interface/Theme/ThemeResolver.h"
 
-#include "LayerStackPanel.h"
+#include "EngineContext/Interface/Icons/SvgIconRegistry.h"
+#include "EngineContext/Interface/Icons/IconPackGlobal.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -25,7 +32,7 @@
 using namespace Frontier;
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                        INTERNAL HELPERS
+//                                                       INTERNAL HELPERS
 //------------------------------------------------------------------------------------------------------------------------
 
 namespace
@@ -49,12 +56,11 @@ int main(int ArgumentCount, char** ArgumentValues)
     (void)ArgumentValues;
 
     // -- Window ---------------------------------------------------------------------------------------------------------
-    // 📝 Narrower than the channel slide: the prototype's rail is a 214px column inside a 428px-tall summoned card, so
-    //    the layer stack is styled against a NARROW pane, not a wide inspector.
+    // 📝 420×850 matches the prototype's narrow stack rail at native validation scale.
     PlatformWindow Window;
-    if (!InitializePlatformWindow(Window, "Frontier \xE2\x80\x94 Layer Stack Validation", 420, 1000))
+    if (!InitializePlatformWindow(Window, "Frontier \xE2\x80\x94 Layer Stack Validation", 420, 850))
     {
-        fprintf(stderr, "[layer-validation] window creation failed\n");
+        fprintf(stderr, "[layerstack] window creation failed\n");
         return 1;
     }
 
@@ -70,7 +76,7 @@ int main(int ArgumentCount, char** ArgumentValues)
     }
     if (!ConstructPresentationSurface(Window, Host.Instance))
     {
-        fprintf(stderr, "[layer-validation] surface creation failed\n");
+        fprintf(stderr, "[layerstack] surface creation failed\n");
         FinalizeVulkanHost(Host);
         FinalizePlatformWindow(Window);
         return 1;
@@ -86,17 +92,16 @@ int main(int ArgumentCount, char** ArgumentValues)
         return 1;
     }
 
-    // 📝 Clear to pure black — ControlsGallery's DeskBackground, the tone the prototype was styled against.
-    Interface.Window.ClearValue.color.float32[0] = 0.0f;
-    Interface.Window.ClearValue.color.float32[1] = 0.0f;
-    Interface.Window.ClearValue.color.float32[2] = 0.0f;
-    Interface.Window.ClearValue.color.float32[3] = 1.0f;
+    // 📝 Clear to the prototype's black desk colour behind the panel.
+    Interface.Window.ClearValue.color.float32[0] = 0.000f;
+    Interface.Window.ClearValue.color.float32[1] = 0.000f;
+    Interface.Window.ClearValue.color.float32[2] = 0.000f;
+    Interface.Window.ClearValue.color.float32[3] = 1.000f;
 
     // -- ImGui context + backends ---------------------------------------------------------------------------------------
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& Io = ImGui::GetIO();
-    Io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     Io.IniFilename = nullptr;
 
     AttachImguiPlatform(Window);
@@ -117,14 +122,27 @@ int main(int ArgumentCount, char** ArgumentValues)
     InitInfo.CheckVkResultFn              = &ReportVkResult;
     ImGui_ImplVulkan_Init(&InitInfo);
 
-    // 📝 Resolve the shared theme once and mirror it into ImGui's style. The panel resolves its own palette and metrics
-    //    from this same configuration, so the controls and the chrome scale together.
+    // 📝 The theme is resolved once; the panel reads its own palette and metrics from it each frame.
     const ThemeConfiguration Theme = ResolveActiveTheme();
     EnforceThemeStyle(Theme);
 
-    // -- The caller-owned rail state, seeded to the prototype's opening pose ----------------------------------------------
-    LayerStackValidation::LayerStackState State;
-    LayerStackValidation::InitializeLayerStackSample(State);
+    // -- Icon registry (needs the ImGui Vulkan backend live) ------------------------------------------------------------
+    SvgIconRegistry Icons;
+    if (!InitializeSvgIconRegistry(Icons, Host))
+    {
+        fprintf(stderr, "[layerstack] SVG icon registry failed to start\n");
+    }
+    else
+    {
+        if (!RegisterGlobalIconPack(Icons))
+        {
+            fprintf(stderr, "[layerstack] global icon pack registration failed\n");
+        }
+    }
+
+    // -- Seed the layer store with a baseline document ------------------------------------------------------------------
+    LayerStackPanelState State;
+    InitializeLayerStackSample(State);
 
     // -- Frame loop -----------------------------------------------------------------------------------------------------
     while (!QueryWindowCloseRequested(Window))
@@ -147,9 +165,9 @@ int main(int ArgumentCount, char** ArgumentValues)
         const ImGuiWindowFlags HostFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                                            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                            ImGuiWindowFlags_NoBringToFrontOnFocus;
-        if (ImGui::Begin("Layers", nullptr, HostFlags))
+        if (ImGui::Begin("Layer Stack Validation", nullptr, HostFlags))
         {
-            LayerStackValidation::ConstructLayerStackPanel(Theme, State);
+            ConstructLayerStackPanel(Theme, State, &Icons);
         }
         ImGui::End();
         ImGui::PopStyleVar();
@@ -160,6 +178,8 @@ int main(int ArgumentCount, char** ArgumentValues)
 
     // -- Teardown (reverse of bring-up, each Vulkan step gated on device-idle) -------------------------------------------
     vkDeviceWaitIdle(Host.Device);
+
+    FinalizeSvgIconRegistry(Icons);
 
     ImGui_ImplVulkan_Shutdown();
     DetachImguiPlatform(Window);

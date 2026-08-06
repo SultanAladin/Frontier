@@ -34,7 +34,11 @@
 #include "Graphics/Acceleration/InstanceBoundsSubmission.h"
 #include "Graphics/Acceleration/RadixSortSubmission.h"
 #include "Graphics/Acceleration/InstanceTreeSubmission.h"
-// 🚧 Surfel GI includes removed with the webgiya strip; the W298 port re-adds SurfelStore.h + its submissions here.
+// 📝 The W298 surfel-GI chain: the store's device memory, the lifecycle (census/scan/scatter), the trace, and the integrate + spawn pair.
+#include "Graphics/Surfel/SurfelStore.h"
+#include "Graphics/Surfel/SurfelLifecycleSubmission.h"
+#include "Graphics/Surfel/SurfelRadianceSubmission.h"
+#include "Graphics/Surfel/SurfelIrradianceSubmission.h"
 #include "Graphics/RenderExtension/LightingTuningWindow.h"
 #include "Graphics/RenderExtension/GpuTimestampScope.h"
 #include "EngineContext/Scene/SceneExtension.h"
@@ -225,23 +229,41 @@ struct RenderExtension
     bool                    ReportedInspectionShortfall = false;       // [-] - Latch for the capacity-truncation caution, so it states the onset once
 #endif
 
-    // 🚧 Surfel GI — STRIPPED. The webgiya-derived surfel substrate (cascaded hash grid, prefix-sum slotting, TTL lifecycle, MSME integrate, debug
-    //    splat, census/dump diagnostics, F10 tuning window) was removed wholesale ahead of the W298/SurfelGI port. The shade currently runs its FLAT
-    //    AMBIENT fill; no surfel state exists on the device. The replacement lands as SurfelStore + SurfelLifecycleSubmission +
-    //    SurfelRadianceSubmission over a flat camera-relative cell grid, traced against the software BVH (TwoLevelTrace.glsl) rather than an RT
-    //    extension. ImGui is retained here because the tuning window is rebuilt against the new parameter block in a later phase.
+    // -- Surfel GI (W298/SurfelGI). One store plus three submissions over a FLAT camera-relative cell grid, traced against the software BVH
+    //    (TwoLevelTrace.glsl) rather than an RT extension. The per-frame order is fixed and the barriers between the stages belong to the recorder:
+    //        lifecycle (counter reset -> census -> offset scan -> scatter) -> trace -> integrate -> spawn
+    //
+    // 🔴 EVERY PASS MUST BE PUSHED THE SAME CAMERA ORIGIN BYTES. The cell grid is camera-relative and ResolveCellCoordinate's round() is free to break a
+    //    half-cell tie either way, so two origins inside one frame put a boundary surfel in the census's cell and the scatter's neighbour — one reserved
+    //    slot is then never written. RecordSurfelChain resolves the origin ONCE and hands the same floats to all four.
+    //
+    // 📝 Best-effort throughout, matching the clipmap visualization: a failed init leaves ReadyCondition false, every record no-ops, and the shade's
+    //    SurfelSetReady stays false so the push gate holds GI at 0 and the flat ambient fill runs. No colour-path change from an absent field.
+    SurfelStore                SurfelField;             // [-] - the store: 13 buffers + both atlases, sized from SurfelGridProportions
+    SurfelLifecycleSubmission  SurfelLifecycle;         // [-] - counter reset / census / offset scan / scatter
+    SurfelRadianceSubmission   SurfelRadiance;          // [-] - the one-bounce trace against the TLAS
+    SurfelIrradianceSubmission SurfelIrradiance;        // [-] - MSME integrate + screen-space spawn
+    bool                       SurfelChainReady = false;// [-] - true once the store AND all three submissions came up; the per-frame record gates on it
+    uint32_t                   SurfelFrameOrdinal = 0;  // [-] - seeds the trace's and spawn's per-ray/per-pixel generators; MUST advance every frame
+
+    // ImGui is retained here because the F10 tuning window drives the knobs above.
     bool                      ImguiReady               = false;              // [-] - true once the ImGui context + Vulkan backend init succeeded; every ImGui call gates on it
     ThemeConfiguration        ImguiTheme;                                    // [-] - the shared theme resolved once at init (ControlsGallery look)
     LightingTuningState       LightingTuning;                                // [-] - live sun (elevation/azimuth/intensity/colour) + sun-shadow knobs the sky and shade both read (F10 toggles)
     uint32_t                  ShadowJitterFrame        = 0;                  // [-] - monotonic frame counter rotating the shade's per-pixel shadow jitter so a temporal pass can average
 
-    // 📝 GPU wall-clock instrumentation. One best-effort timestamp scope brackets the per-frame shade work; ResolvedMillis reads one frame late so the
-    //    CPU never stalls. A device without graphics-queue timestamps leaves PassTiming.ReadyCondition false and every bracket no-ops. The surfel
-    //    slots are gone with the strip; the enum keeps the shade slot so the record site and the console readout still agree on the index.
+    // 📝 GPU wall-clock instrumentation. Best-effort timestamp scopes bracket each per-frame pass; ResolvedMillis reads one frame late so the CPU never
+    //    stalls. A device without graphics-queue timestamps leaves PassTiming.ReadyCondition false and every bracket no-ops.
+    // ⚠️ The index is the contract between the record site and the console readout — an enumerator inserted in the middle relabels every pass after it.
+    //    Append, never insert. Shade stays 0 so the existing readout keeps its meaning.
     enum SurfelPassSlot : uint32_t
     {
         SurfelPassSlotShade      = 0u,   // RecordSurfaceShadeInscription
-        SurfelPassSlotCount      = 1u,
+        SurfelPassSlotLifecycle  = 1u,   // RecordSurfelLifecycle (all four dispatches under one bracket)
+        SurfelPassSlotTrace      = 2u,   // RecordSurfelRadianceTrace
+        SurfelPassSlotIntegrate  = 3u,   // RecordSurfelIrradianceIntegrate
+        SurfelPassSlotSpawn      = 4u,   // RecordSurfelSpawn
+        SurfelPassSlotCount      = 5u,
     };
     GpuTimestampScope         PassTiming;                                    // [-] - the query-pool probe; best-effort, one-frame-late, no CPU stall
     uint32_t                  PassReportFrame          = 0;                  // [-] - frame counter for throttling the per-pass ms console notice (every N frames)

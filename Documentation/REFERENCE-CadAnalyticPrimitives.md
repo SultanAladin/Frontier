@@ -175,7 +175,7 @@ Folder: `Authoring\ParametricAuthoring\Operations\`.
 | Trim hover preview | `ResolveTrimPreviewSpan` | `…Store.h:856` |
 | Cut / split at point | `CutShapeAtPoint` | `…Store.h:869` |
 | Join open runs | `AssembleOpenShapes` | `…Store.h:878` |
-| Offset a loop | `SolveLoopOffset` | `Operations\Transform\ParametricSketchTransform.h:58` |
+| Offset a region (outer + holes) | `SolveRegionOffset` | `Operations\Transform\ParametricSketchTransform.h:68` |
 | Mirror (live/parametric) | `ReflowMirrorChildren` | `…\ParametricSketchTransform.h:80` |
 | Array (live/parametric) | `ReflowArrayChildren` | `…\ParametricSketchTransform.h:94` |
 | Boolean — two loops | `SolveLoopBoolean` | `Operations\Boolean\ParametricSketchBoolean.h:45` |

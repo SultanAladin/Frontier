@@ -40,8 +40,14 @@ constexpr uint32_t BindingFloorIndices    = 6;
 constexpr uint32_t BindingFloorInstances  = 7;
 constexpr uint32_t BindingCount           = 8;
 
-// 🚧 The webgiya surfel GI set (set 1) and its seven binding constants went with the strip. Index 1 is now an EMPTY reserved layout — see the init block
-//    below for why it is held open rather than deleted. The W298 port declares its irradiance-atlas bindings here, matching its shader's set-1 numbers.
+// The surfel-field set (set 1) — the W298 GI gather's read side. Three of SurfelStore's buffers plus its depth-moment atlas, numbered to match
+// SurfaceShade.frag's set-1 declarations exactly. 🔴 THE ORDER IS THE CONTRACT AND IT HAS NO DIAGNOSTIC: b0..b2 are all storage buffers, so swapping two
+// of them satisfies the layout, passes validation, and hands the gather the cell table as surfel records — a field of plausible nonsense.
+constexpr uint32_t SurfelBindingRecords    = 0;   // b0 Surfel[] records, stride 100      (ro)
+constexpr uint32_t SurfelBindingCellSpans  = 1;   // b1 SurfelCellSpan[] occupancy        (ro)
+constexpr uint32_t SurfelBindingCellList   = 2;   // b2 cell -> surfel ordinal table      (ro)
+constexpr uint32_t SurfelBindingDepthAtlas = 3;   // b3 R32G32_SFLOAT depth moments   (sampled)
+constexpr uint32_t SurfelBindingCount      = 4;
 
 // The BVH set (set 2) — the primary sun shadow's ray trace. Set 0 already carries the instance SSBO + merged vertex/index streams the BVH was built
 // over (the trace's Instances/MeshIndices/PositionForVertex resolve to those in the frag), so set 2 carries ONLY the four acceleration buffers set 0
@@ -247,20 +253,29 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         return false;
     }
 
-    // -- Set 1 (RESERVED): an EMPTY layout, zero bindings, held open purely to keep index 1 occupied. -----------------------------------------------
-    // 🚧 This slot held the webgiya surfel GI cache (seven storage buffers) and is where the W298 port's irradiance atlas lands in Phase 8. It is kept
-    //    as an empty layout rather than deleted because vkCmdBindDescriptorSets binds by CONTIGUOUS index: the sun-shadow BVH below is declared at
-    //    `set = 2` in SurfaceShade.frag, and a set at index 2 is illegal without a real layout at index 1. Deleting this outright would force the frag's
-    //    set-2 declarations down to `set = 1` today and back up to 2 in Phase 8 — two renumberings of a binding that has no diagnostic when it drifts.
-    //    An empty layout costs one handle and nothing per frame. Phase 8 gives it real bindings; no index moves.
-    VkDescriptorSetLayoutCreateInfo ReservedLayoutInfo = {};
-    ReservedLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    ReservedLayoutInfo.bindingCount = 0;
-    ReservedLayoutInfo.pBindings    = nullptr;
-    if (vkCreateDescriptorSetLayout(Host.Device, &ReservedLayoutInfo, Host.Allocator, &Shade.ReservedSetLayout) != VK_SUCCESS)
+    // -- Set 1 (surfel field): three read-only storage buffers + one sampled atlas, all fragment stage. This slot was an EMPTY reserved layout while the
+    //    W298 port was landing, held open only because vkCmdBindDescriptorSets binds by CONTIGUOUS index and the sun-shadow BVH below is declared at
+    //    `set = 2` — a set at index 2 is illegal without a real layout at index 1. Filling it renumbered nothing, which is exactly what the empty layout
+    //    was protecting. 🔴 IT MUST STILL BUILD EVEN WITH NO SurfelStore IN THE APPLICATION: the layout is a pipeline property, the WRITES are what wait
+    //    for the store (RefreshSurfaceShadeSurfelBindings). A shade with no GI still binds a real-but-unpointed set 1 and pushes
+    //    GlobalIlluminationEnabled = 0, so the gather is never reached. ------------------------------------------------------------------------------
+    VkDescriptorSetLayoutBinding SurfelBindings[SurfelBindingCount] = {};
+    for (uint32_t Index = 0; Index < SurfelBindingCount; ++Index)
     {
-        Shade.ReservedSetLayout = VK_NULL_HANDLE;
-        ISSUE_CAUTION("surface-shade", "reserved set-1 layout creation failed — index 2 becomes a gap, direct shadows will drop");
+        SurfelBindings[Index].binding         = Index;
+        SurfelBindings[Index].descriptorType  = (Index == SurfelBindingDepthAtlas) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                                                                                  : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        SurfelBindings[Index].descriptorCount = 1;
+        SurfelBindings[Index].stageFlags      = VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo SurfelLayoutInfo = {};
+    SurfelLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    SurfelLayoutInfo.bindingCount = SurfelBindingCount;
+    SurfelLayoutInfo.pBindings    = SurfelBindings;
+    if (vkCreateDescriptorSetLayout(Host.Device, &SurfelLayoutInfo, Host.Allocator, &Shade.SurfelSetLayout) != VK_SUCCESS)
+    {
+        Shade.SurfelSetLayout = VK_NULL_HANDLE;
+        ISSUE_CAUTION("surface-shade", "surfel field set-1 layout creation failed — index 2 becomes a gap, GI and direct shadows will drop");
     }
 
     // -- Set 2 (primary sun shadow): the BVH — four storage buffers, all fragment stage. Best-effort like set 1: if this layout fails the shade still
@@ -286,8 +301,8 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     }
 
     // 🔴 The set-2 layout only makes sense atop the set-1 layout: the pipeline binds sets by contiguous index, so a set at index 2 requires a real
-    //    layout at index 1. If the reserved layout failed but the shadow layout built, DROP the shadow set — a gap at index 1 is illegal.
-    if (Shade.ReservedSetLayout == VK_NULL_HANDLE && Shade.ShadowSetLayout != VK_NULL_HANDLE)
+    //    layout at index 1. If the surfel layout failed but the shadow layout built, DROP the shadow set — a gap at index 1 is illegal.
+    if (Shade.SurfelSetLayout == VK_NULL_HANDLE && Shade.ShadowSetLayout != VK_NULL_HANDLE)
     {
         vkDestroyDescriptorSetLayout(Host.Device, Shade.ShadowSetLayout, Host.Allocator);
         Shade.ShadowSetLayout = VK_NULL_HANDLE;
@@ -297,14 +312,14 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     // -- Descriptor pool + set. ONE sampler (the id image), SIX storage buffers (three head + three floor) and ONE uniform buffer (the material
     //    table). ⚠️ These counts must track the binding list above exactly: an undersized pool fails allocation outright rather than degrading, which
     //    is the good outcome, but it fails at bring-up far from the binding that caused it. -------------------------------------------------------
-    // Set 0 needs 1 sampler + 6 storage + 1 uniform; set 1 is the RESERVED empty layout and contributes no descriptors (only a maxSets slot); set 2 (the
-    // sun-shadow BVH) adds 4 storage. Size the pool for all three sets even if a later layout failed above — an over-sized pool is harmless, and this
-    // keeps the counts a simple sum rather than a conditional. maxSets = 3 for the three sets.
+    // Set 0 needs 1 sampler + 6 storage + 1 uniform; set 1 (the surfel field) adds 3 storage + 1 sampler; set 2 (the sun-shadow BVH) adds 4 storage. Size
+    // the pool for all three sets even if a later layout failed above — an over-sized pool is harmless, and this keeps the counts a simple sum rather than
+    // a conditional. maxSets = 3 for the three sets.
     VkDescriptorPoolSize PoolSizes[3] = {};
     PoolSizes[0].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    PoolSizes[0].descriptorCount = 1;
+    PoolSizes[0].descriptorCount = 2;                        // 1 (set 0 id image) + 1 (set 1 depth atlas)
     PoolSizes[1].type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    PoolSizes[1].descriptorCount = 6 + ShadowBindingCount;   // 6 (set 0) + 0 (set 1 reserved, empty) + 4 (set 2 BVH)
+    PoolSizes[1].descriptorCount = 6 + 3 + ShadowBindingCount;   // 6 (set 0) + 3 (set 1 field) + 4 (set 2 BVH)
     PoolSizes[2].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     PoolSizes[2].descriptorCount = 1;
 
@@ -334,20 +349,21 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         return false;
     }
 
-    // Allocate the RESERVED set from the same pool. It has no descriptors, but it must still be a real allocated set: the record binds index 1 to keep
-    // set 2 contiguous, and vkCmdBindDescriptorSets rejects VK_NULL_HANDLE in the array. A failure leaves ReservedSet null, which the record reads as
-    // "index 1 is empty" and consequently drops the sun shadow — so it caution-logs rather than passing silently.
-    if (Shade.ReservedSetLayout != VK_NULL_HANDLE)
+    // Allocate the surfel-field set from the same pool. Left UNPOINTED until RefreshSurfaceShadeSurfelBindings runs against a live SurfelStore — and it
+    // must still be a real allocated set even in an application that has no store at all, because the record binds index 1 to keep set 2 contiguous and
+    // vkCmdBindDescriptorSets rejects VK_NULL_HANDLE in the array. A failure leaves SurfelSet null, which the record reads as "index 1 is empty" and
+    // consequently drops BOTH the GI gather and the sun shadow — so it caution-logs rather than passing silently.
+    if (Shade.SurfelSetLayout != VK_NULL_HANDLE)
     {
-        VkDescriptorSetAllocateInfo ReservedSetAllocate = {};
-        ReservedSetAllocate.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        ReservedSetAllocate.descriptorPool     = Shade.DescriptorPool;
-        ReservedSetAllocate.descriptorSetCount = 1;
-        ReservedSetAllocate.pSetLayouts        = &Shade.ReservedSetLayout;
-        if (vkAllocateDescriptorSets(Host.Device, &ReservedSetAllocate, &Shade.ReservedSet) != VK_SUCCESS)
+        VkDescriptorSetAllocateInfo SurfelSetAllocate = {};
+        SurfelSetAllocate.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        SurfelSetAllocate.descriptorPool     = Shade.DescriptorPool;
+        SurfelSetAllocate.descriptorSetCount = 1;
+        SurfelSetAllocate.pSetLayouts        = &Shade.SurfelSetLayout;
+        if (vkAllocateDescriptorSets(Host.Device, &SurfelSetAllocate, &Shade.SurfelSet) != VK_SUCCESS)
         {
-            Shade.ReservedSet = VK_NULL_HANDLE;
-            ISSUE_CAUTION("surface-shade", "reserved set-1 allocation failed — index 2 becomes a gap, direct shadows will drop");
+            Shade.SurfelSet = VK_NULL_HANDLE;
+            ISSUE_CAUTION("surface-shade", "surfel field set-1 allocation failed — index 2 becomes a gap, GI and direct shadows will drop");
         }
     }
 
@@ -385,6 +401,26 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
         return false;
     }
 
+    // -- Linear sampler (linear / clamp) — for the surfel DEPTH ATLAS only. 🔴 A SECOND SAMPLER RATHER THAN A REUSE OF THE POINT ONE, AND THE FILTER IS THE
+    //    WHOLE REASON THE ATLAS HAS A BORDER. Each surfel's tile is a 5x5 payload inside a 7x7 tile, and the one-texel border exists precisely so a
+    //    bilinear tap at the payload edge lands on a copy of the edge instead of the neighbouring surfel's data (SurfelAtlasAddressing.glsl). A NEAREST tap
+    //    here would compile, run, and look roughly right while quantizing every occlusion test into 25 cells — stair-stepped contact shadows that read as an
+    //    artefact of the gather rather than of the sampler. ⚠️ Best-effort: a failure leaves LinearSampler null, which the surfel Refresh refuses, so GI
+    //    stays off and the shade keeps its flat fill. It must NOT fail the whole pass, since everything else here is independent of GI. ---------------
+    VkSamplerCreateInfo LinearSamplerInfo = {};
+    LinearSamplerInfo.sType        = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    LinearSamplerInfo.magFilter    = VK_FILTER_LINEAR;
+    LinearSamplerInfo.minFilter    = VK_FILTER_LINEAR;
+    LinearSamplerInfo.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    LinearSamplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    LinearSamplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    LinearSamplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(Host.Device, &LinearSamplerInfo, Host.Allocator, &Shade.LinearSampler) != VK_SUCCESS)
+    {
+        Shade.LinearSampler = VK_NULL_HANDLE;
+        ISSUE_CAUTION("surface-shade", "linear sampler creation failed — surfel GI cannot be pointed, the flat ambient fill stands");
+    }
+
     // -- The owned material UBO (14 records; immutable after upload) -----------------------------------------------------
     const VkDeviceSize MaterialBytes = (VkDeviceSize)SurfacePresetCount * sizeof(SurfacePresetParameters);
     if (!ConstructHostBuffer(Host, MaterialBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, Shade.MaterialBuffer, Shade.MaterialMemory))
@@ -401,14 +437,14 @@ bool InitializeSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     PushRange.offset     = 0;
     PushRange.size       = sizeof(SurfaceShadeConstants);
 
-    // One to three sets, filled by contiguous index: set 0 shade always; set 1 the reserved empty layout; set 2 sun-shadow BVH when ITS layout built
-    // (which the block above guarantees implies set 1 exists too, so there is never a gap). The frag declares set 0 and set 2 — nothing in set 1 — so a
-    // shorter layout is only valid when the trailing set genuinely failed, in which case ShadowEnabled is forced off and no draw reaches an access into
-    // the unbound set.
+    // One to three sets, filled by contiguous index: set 0 shade always; set 1 the surfel field; set 2 sun-shadow BVH when ITS layout built (which the
+    // block above guarantees implies set 1 exists too, so there is never a gap). The frag declares all three, so a shorter layout is only valid when the
+    // trailing set genuinely failed — in which case the matching push toggle (GlobalIlluminationEnabled / ShadowEnabled) is forced off and no draw reaches
+    // an access into the unbound set.
     VkDescriptorSetLayout SetLayouts[3] = { Shade.SetLayout, VK_NULL_HANDLE, VK_NULL_HANDLE };
     uint32_t              SetLayoutCount = 1u;
-    if (Shade.ReservedSetLayout != VK_NULL_HANDLE)
-        SetLayouts[SetLayoutCount++] = Shade.ReservedSetLayout;
+    if (Shade.SurfelSetLayout != VK_NULL_HANDLE)
+        SetLayouts[SetLayoutCount++] = Shade.SurfelSetLayout;
     if (Shade.ShadowSetLayout != VK_NULL_HANDLE)
         SetLayouts[SetLayoutCount++] = Shade.ShadowSetLayout;
 
@@ -678,6 +714,73 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
     Shade.FloorGeometryBound         = FloorPresent;
 }
 
+bool RefreshSurfaceShadeSurfelBindings(SurfaceShadeInscription& Shade,
+                                       VkBuffer                 SurfelRecordBuffer,
+                                       VkBuffer                 SurfelCellSpanBuffer,
+                                       VkBuffer                 SurfelCellListBuffer,
+                                       VkImageView              SurfelDepthView)
+{
+    // The field set must exist (Initialize built it) and every resource must be live, or there is nothing valid to point at. LinearSampler is part of
+    // that precondition, not an afterthought: a combined-image-sampler write with a null sampler is invalid, and the filter is load-bearing anyway.
+    if (!Shade.ReadyCondition || Shade.SurfelSet == VK_NULL_HANDLE || Shade.Host == nullptr)
+        return false;
+    if (SurfelRecordBuffer == VK_NULL_HANDLE || SurfelCellSpanBuffer == VK_NULL_HANDLE ||
+        SurfelCellListBuffer == VK_NULL_HANDLE || SurfelDepthView == VK_NULL_HANDLE || Shade.LinearSampler == VK_NULL_HANDLE)
+        return false;
+
+    // Idempotent, same rule as the other Refreshes: rewriting a set bound by an in-flight command buffer is undefined, so only write on a change. 📝 For
+    // this set that is the steady state — the store owns all four for its whole life — so after the first call this returns true having done nothing.
+    const bool Unchanged = Shade.BoundSurfelRecordBuffer   == SurfelRecordBuffer
+                        && Shade.BoundSurfelCellSpanBuffer == SurfelCellSpanBuffer
+                        && Shade.BoundSurfelCellListBuffer == SurfelCellListBuffer
+                        && Shade.BoundSurfelDepthView      == SurfelDepthView
+                        && Shade.SurfelSetReady;
+    if (Unchanged)
+        return true;
+
+    VkDescriptorBufferInfo RecordInfo   = { SurfelRecordBuffer,   0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo CellSpanInfo = { SurfelCellSpanBuffer, 0, VK_WHOLE_SIZE };
+    VkDescriptorBufferInfo CellListInfo = { SurfelCellListBuffer, 0, VK_WHOLE_SIZE };
+
+    // 🔴 VK_IMAGE_LAYOUT_GENERAL, NOT SHADER_READ_ONLY_OPTIMAL. Both surfel atlases stay in GENERAL for their whole life because the integrate holds them
+    //    as storage images (the invariant SurfelIrradianceSubmission.h states). Declaring the read at GENERAL costs a possible optimal-tiling win and buys
+    //    the absence of a per-frame GENERAL -> READ_ONLY -> GENERAL round trip that this pass would have to own BOTH halves of — the second half running
+    //    after the shade but before the next frame's integrate, which is a seam no existing barrier sits on.
+    VkDescriptorImageInfo DepthAtlasInfo = {};
+    DepthAtlasInfo.sampler     = Shade.LinearSampler;
+    DepthAtlasInfo.imageView   = SurfelDepthView;
+    DepthAtlasInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    const VkDescriptorBufferInfo* Infos[3] = { &RecordInfo, &CellSpanInfo, &CellListInfo };
+    const uint32_t Bindings[3] = { SurfelBindingRecords, SurfelBindingCellSpans, SurfelBindingCellList };
+
+    VkWriteDescriptorSet Writes[SurfelBindingCount] = {};
+    for (uint32_t Index = 0; Index < 3; ++Index)
+    {
+        Writes[Index].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        Writes[Index].dstSet          = Shade.SurfelSet;
+        Writes[Index].dstBinding      = Bindings[Index];
+        Writes[Index].descriptorCount = 1;
+        Writes[Index].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        Writes[Index].pBufferInfo     = Infos[Index];
+    }
+    Writes[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    Writes[3].dstSet          = Shade.SurfelSet;
+    Writes[3].dstBinding      = SurfelBindingDepthAtlas;
+    Writes[3].descriptorCount = 1;
+    Writes[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    Writes[3].pImageInfo      = &DepthAtlasInfo;
+
+    vkUpdateDescriptorSets(Shade.Host->Device, SurfelBindingCount, Writes, 0, nullptr);
+
+    Shade.BoundSurfelRecordBuffer   = SurfelRecordBuffer;
+    Shade.BoundSurfelCellSpanBuffer = SurfelCellSpanBuffer;
+    Shade.BoundSurfelCellListBuffer = SurfelCellListBuffer;
+    Shade.BoundSurfelDepthView      = SurfelDepthView;
+    Shade.SurfelSetReady            = true;
+    return true;
+}
+
 void RefreshSurfaceShadeBvhBindings(SurfaceShadeInscription& Shade,
                                     VkBuffer                 SliceBuffer,
                                     VkBuffer                 ArenaNodeBuffer,
@@ -754,22 +857,24 @@ void RecordSurfaceShadeInscription(const SurfaceShadeInscription& Shade,
     vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Shade.Pipeline);
 
     // Bind sets by contiguous index, and force OFF the toggle for any set that is not live so the frag never touches an unbound access:
-    //   set 0 (shade)      — always bound
-    //   set 1 (reserved)    — the EMPTY placeholder; bound with no descriptor set of its own (see below)
+    //   set 0 (shade)       — always bound
+    //   set 1 (surfel field)— bound whenever the set exists; GlobalIlluminationEnabled = 0 unless it is also POINTED (see below)
     //   set 2 (sun-shadow)  — bound when live AND index 1 is occupied, else ShadowEnabled = 0 (unshadowed fallback)
     SurfaceShadeConstants Pushed = Constants;
     VkDescriptorSet Sets[3] = { Shade.ShadeSet, VK_NULL_HANDLE, VK_NULL_HANDLE };
     uint32_t        SetCount = 1;
 
-    // 🔴 Index 1 is a RESERVED EMPTY set, held open so set 2 keeps its index across the GI strip. vkCmdBindDescriptorSets cannot skip an index, and an
-    //    empty layout has no descriptors to allocate a set FOR — so index 1 is filled with the ReservedSet allocated from an empty layout at init. The
-    //    frag declares nothing in set 1, so binding it costs nothing and reads nothing. The W298 port's irradiance atlas takes this slot back in Phase 8
-    //    by giving the layout real bindings; NOTHING here has to be renumbered when it does.
-    if (Shade.ReservedSet != VK_NULL_HANDLE)
-        Sets[SetCount++] = Shade.ReservedSet;
+    // 🔴 THE SET IS BOUND ON EXISTENCE, THE GATHER IS ENABLED ON READINESS — TWO DIFFERENT CONDITIONS, AND CONFLATING THEM BREAKS THE SUN SHADOW.
+    //    vkCmdBindDescriptorSets cannot skip an index, so set 2 is unreachable unless index 1 carries SOMETHING; an application with no SurfelStore at all
+    //    must therefore still bind its unpointed set 1, exactly as the reserved empty set used to be bound. What that application must NOT do is READ it,
+    //    which is what forcing GlobalIlluminationEnabled to 0 guarantees — an unpointed storage descriptor is undefined memory, not a safely empty buffer.
+    if (Shade.SurfelSet != VK_NULL_HANDLE)
+        Sets[SetCount++] = Shade.SurfelSet;
+    if (!Shade.SurfelSetReady)
+        Pushed.GlobalIlluminationEnabled = 0u;
 
     // Set 2 sits at index 2, so it can only be bound when index 1 is already occupied (SetCount == 2 here). Init guarantees the shadow layout is
-    // dropped whenever the reserved layout is absent, so this condition simply mirrors that invariant at record time.
+    // dropped whenever the surfel layout is absent, so this condition simply mirrors that invariant at record time.
     if (SetCount == 2 && Shade.ShadowSet != VK_NULL_HANDLE && Shade.ShadowSetReady)
     {
         Sets[SetCount++] = Shade.ShadowSet;
@@ -802,12 +907,14 @@ void FinalizeSurfaceShadeInscription(SurfaceShadeInscription& Shade)
         vkDestroyPipelineLayout(Device, Shade.PipelineLayout, Allocator);
     if (Shade.PointSampler != VK_NULL_HANDLE)
         vkDestroySampler(Device, Shade.PointSampler, Allocator);
+    if (Shade.LinearSampler != VK_NULL_HANDLE)
+        vkDestroySampler(Device, Shade.LinearSampler, Allocator);           // set 1 b3 only; created best-effort, so it may legitimately be null
     if (Shade.DescriptorPool != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(Device, Shade.DescriptorPool, Allocator);   // frees ShadeSet + ShadowSet
+        vkDestroyDescriptorPool(Device, Shade.DescriptorPool, Allocator);   // frees ShadeSet + SurfelSet + ShadowSet
     if (Shade.SetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(Device, Shade.SetLayout, Allocator);
-    if (Shade.ReservedSetLayout != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(Device, Shade.ReservedSetLayout, Allocator);
+    if (Shade.SurfelSetLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(Device, Shade.SurfelSetLayout, Allocator);
     if (Shade.ShadowSetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(Device, Shade.ShadowSetLayout, Allocator);
     if (Shade.MaterialBuffer != VK_NULL_HANDLE)

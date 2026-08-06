@@ -79,8 +79,12 @@ struct LightingTuningState
     //       slider that moves but changes nothing on screen is indistinguishable from a broken feature, so the card greys the not-yet-wired rows and
     //       each phase flips its own row live as it binds the matching W298 RuntimeParams field.
     bool  GlobalIlluminationEnabled = false;  // [-] - MASTER: false skips the surfel chain entirely and the shade uses the flat ambient fill
-    float IndirectIntensity         = 1.0f;   // [-] - multiplier on the gathered indirect radiance before it reaches LightEnergy
-    float SkyOcclusionStrength      = 1.0f;   // [-] - how strongly surfel coverage darkens the flat sky term (0 = never occlude)
+    float IndirectIntensity         = 1.0f;   // [×] - scales the GATHERED indirect only, never the flat fill it fades into (that stays the A/B reference)
+    // 🔴 A CEILING ON THE FADE, not an occlusion amount — the name is upstream's. It caps how far surfel coverage may displace the flat ambient fill:
+    //    1 = a fully-covered surface takes pure gathered GI, 0 = the fill is never displaced, which makes the gather a no-op. So 0 is the DEGENERATE end
+    //    of this knob, not "never occlude". See the gather seam in SurfaceShade.frag for why the fade exists (a sparse field must not black out surfaces
+    //    it has not reached yet).
+    float SkyOcclusionStrength      = 1.0f;   // [-] - trust in the field: how far coverage may displace the flat fill
     int   RayCountPerSurfel         = 8;      // [-] - rays cast per live surfel per frame; the dominant trace cost
     int   RayBounceLimit            = 1;      // [-] - path depth (1 = single bounce, the GIBS default)
     float SurfelCellExtent          = 0.25f;  // [m] - world edge of one grid cell; sets surfel density and the field's reach

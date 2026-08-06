@@ -25,6 +25,7 @@
 #include "Graphics/Visibility/VisibilityImage.h"
 
 #include <vulkan/vulkan.h>
+#include <cstddef>   // offsetof, for the push-block layout asserts at the foot of this header
 #include <cstdint>
 
 namespace Frontier
@@ -51,9 +52,14 @@ struct SurfaceShadeConstants
     uint32_t FloorShadeEnabled         = 0;                                        // [-] - 1 shades the floor from its own buffers, 0 discards it (P6.3a)
     uint32_t FloorIndexBase            = 0;                                        // [-] - first INDEX of the floor's run in b6 (elements, not bytes)
 
-    // 🚧 The Phase-3 surfel GI gather fields went with the webgiya strip, removed here and in SurfaceShade.frag's ShadeConstants in ONE edit. The W298
-    //    port re-adds its tail to BOTH in one edit too: the two byte-match with no diagnostic, so a one-sided change reads every later scalar from the
-    //    wrong offset — the sun-shadow block below would silently take its knobs from GI bytes.
+    // ---- Surfel GI (set 1) — must byte-match the three-scalar GI block of the frag's ShadeConstants ----
+    // 🔴 THE GATHER'S CAMERA ORIGIN IS CameraPosition ABOVE, NOT A FIELD OF ITS OWN. The surfel grid is camera-relative, and every pass in a frame
+    //    must resolve its cell coordinate from the SAME bytes (SurfelStoreBindings.glsl states why: round() ties are non-canonical, so two origins
+    //    that differ in the last bit can put a boundary surfel in two different cells). Reusing the field the reconstruction already needs is what
+    //    makes "the same bytes" structural instead of a caller's discipline.
+    uint32_t GlobalIlluminationEnabled = 0;                                        // [-] - 1 gathers the surfel field; the record forces 0 when set 1 is not pointed
+    float    IndirectIntensity         = 1.0f;                                     // [×] - scales the gathered indirect only, never the flat fill it fades into
+    float    SkyOcclusionStrength      = 1.0f;                                     // [-] - how far coverage may displace the flat fill; 0 keeps the flat look with the gather still running
 
     // ---- Primary sun shadow (area-sampled BVH ray; set 2) — must byte-match the six-scalar tail of the frag's ShadeConstants ----
     float    SunAngularRadius          = 0.03f;                                    // [rad] - sun-disc half-angle; 0 hard, larger softens the penumbra (real sun ~0.0047)
@@ -63,6 +69,36 @@ struct SurfaceShadeConstants
     uint32_t ShadowInstanceCount       = 0;                                        // [-] - TLAS leaves (TraceInstanceCount for the shadow trace)
     uint32_t ShadowSliceCount          = 0;                                        // [-] - slice table entries (TraceSliceCount for the shadow trace)
 };
+
+// 🔴 THE ONLY CHECK ON THE BYTE-MATCH WITH SurfaceShade.frag's ShadeConstants. The block had no asserts while its tail was static; the GI insertion in
+//    the MIDDLE is exactly the edit that needs them, because a one-sided change shifts every scalar after it and the six sun-shadow knobs would then
+//    read GI bytes — ShadowSampleCount taking SkyOcclusionStrength's float pattern as a ray count, with nothing to report it. std430 scalars have
+//    4-byte alignment and no interior padding, and the vec4s below the matrix are 16-byte aligned either way, so these offsets are the whole contract.
+static_assert(offsetof(SurfaceShadeConstants, InverseViewProjection)      ==   0, "Shade InverseViewProjection must sit at 0");
+static_assert(offsetof(SurfaceShadeConstants, CameraPosition)            ==  64, "Shade CameraPosition must sit at 64");
+static_assert(offsetof(SurfaceShadeConstants, LightDirection)            ==  80, "Shade LightDirection must sit at 80");
+static_assert(offsetof(SurfaceShadeConstants, SunRadiance)               ==  96, "Shade SunRadiance must sit at 96");
+static_assert(offsetof(SurfaceShadeConstants, CompositeFeatureMask)      == 112, "Shade CompositeFeatureMask must sit at 112");
+static_assert(offsetof(SurfaceShadeConstants, FloorPartitionBase)        == 116, "Shade FloorPartitionBase must sit at 116");
+static_assert(offsetof(SurfaceShadeConstants, FloorShadeEnabled)         == 120, "Shade FloorShadeEnabled must sit at 120");
+static_assert(offsetof(SurfaceShadeConstants, FloorIndexBase)            == 124, "Shade FloorIndexBase must sit at 124");
+static_assert(offsetof(SurfaceShadeConstants, GlobalIlluminationEnabled) == 128, "Shade GlobalIlluminationEnabled must sit at 128");
+static_assert(offsetof(SurfaceShadeConstants, IndirectIntensity)         == 132, "Shade IndirectIntensity must sit at 132");
+static_assert(offsetof(SurfaceShadeConstants, SkyOcclusionStrength)      == 136, "Shade SkyOcclusionStrength must sit at 136");
+static_assert(offsetof(SurfaceShadeConstants, SunAngularRadius)          == 140, "Shade SunAngularRadius must sit at 140");
+static_assert(offsetof(SurfaceShadeConstants, ShadowSampleCount)         == 144, "Shade ShadowSampleCount must sit at 144");
+static_assert(offsetof(SurfaceShadeConstants, ShadowEnabled)             == 148, "Shade ShadowEnabled must sit at 148");
+static_assert(offsetof(SurfaceShadeConstants, ShadowFrame)               == 152, "Shade ShadowFrame must sit at 152");
+static_assert(offsetof(SurfaceShadeConstants, ShadowInstanceCount)       == 156, "Shade ShadowInstanceCount must sit at 156");
+static_assert(offsetof(SurfaceShadeConstants, ShadowSliceCount)          == 160, "Shade ShadowSliceCount must sit at 160");
+static_assert(sizeof(SurfaceShadeConstants) == 164, "The shade push block is 164 bytes; the GLSL block must match exactly");
+
+// ⚠️ 164 BYTES EXCEEDS VULKAN'S GUARANTEED maxPushConstantsSize OF 128, KNOWINGLY — the block was already 152 before the GI tail, so this is the same
+//    acceptance ComponentOverlayInscription.h records for its 172-byte block: every desktop device Frontier targets reports 256, and this one does.
+//    🔴 The 256 ceiling below is a REAL limit, not a formality: cross it and the driver truncates the tail rather than failing the pipeline, so the
+//    sun-shadow scalars would arrive as garbage. At that point InverseViewProjection moves into a uniform buffer — it is 64 of these bytes and the
+//    only field with an obvious home elsewhere — rather than any field being shrunk.
+static_assert(sizeof(SurfaceShadeConstants) <= 256, "The shade push block must fit the device's reported maxPushConstantsSize");
 
 // 🔴 FloorIndexBase exists because gl_PrimitiveID is per-DRAW while b6 is now a MERGED index buffer. Since the floor and heads share one allocation
 //    (see GeometryStreamConcatenation), the floor's triangles begin at its placement's IndexOffset, but the raster stamped each one with a primitive
@@ -106,13 +142,22 @@ struct SurfaceShadeInscription
     VkBuffer              BoundFloorInstanceBuffer = VK_NULL_HANDLE; // [-] - the borrowed floor instance SSBO b7 currently points at
     bool                  FloorGeometryBound = false;        // [-] - true when b5-b7 hold the REAL floor buffers rather than the head-buffer alias
 
-    // ---- The RESERVED descriptor set (set 1) — an empty layout holding index 1 open ----
-    // 🚧 This slot held the webgiya surfel GI cache (seven storage buffers) and is where the W298 port's irradiance atlas lands. It survives the strip as
-    //    a ZERO-BINDING layout because the sun-shadow BVH below is declared `set = 2` in SurfaceShade.frag, and Vulkan binds sets by contiguous index —
-    //    a set at index 2 is illegal without a real layout at index 1. Keeping it empty avoids renumbering the frag's set-2 declarations down to 1 now
-    //    and back up to 2 when the atlas arrives. The set carries no descriptors, so nothing points at it and nothing reads it.
-    VkDescriptorSetLayout ReservedSetLayout = VK_NULL_HANDLE; // [-] - set 1: zero bindings; the W298 irradiance atlas fills it
-    VkDescriptorSet       ReservedSet       = VK_NULL_HANDLE; // [-] - allocated from DescriptorPool; bound at index 1 so set 2 stays reachable
+    // ---- Surfel GI: the field descriptor set (set 1) — three of SurfelStore's buffers plus its depth atlas ----
+    // 🧩 The slot the reserved zero-binding layout was holding open. It exists at index 1 because the sun-shadow BVH below is declared `set = 2` in
+    //    SurfaceShade.frag and Vulkan binds sets by CONTIGUOUS index — so this set was never optional, only empty. Filling it renumbered nothing.
+    //    All four resources are BORROWED from SurfelStore, which owns them for its whole life; unlike the visibility image they never change handle,
+    //    so this Refresh runs once rather than per resize. Best-effort in the same shape as the BVH set: a build failure leaves SurfelSetReady false
+    //    and the record forces GlobalIlluminationEnabled = 0, so the shade falls back to its flat ambient fill rather than reading undefined memory.
+    // ⚠️ The layout must exist even when the store does not, or set 2 becomes unreachable. Initialize builds it unconditionally; only the WRITES wait
+    //    for the store.
+    VkDescriptorSetLayout SurfelSetLayout  = VK_NULL_HANDLE; // [-] - set 1: b0 Surfel records, b1 cell spans, b2 cell list (ro storage), b3 depth atlas (sampled)
+    VkDescriptorSet       SurfelSet        = VK_NULL_HANDLE; // [-] - the bound field set; allocated from DescriptorPool alongside ShadeSet / ShadowSet
+    VkSampler             LinearSampler    = VK_NULL_HANDLE; // [-] - linear / clamp, for b3 ONLY — the tile border exists to be filtered, so PointSampler is wrong here
+    VkBuffer              BoundSurfelRecordBuffer   = VK_NULL_HANDLE; // [-] - b0 (SurfelStore record buffer)
+    VkBuffer              BoundSurfelCellSpanBuffer = VK_NULL_HANDLE; // [-] - b1 (per-cell occupancy)
+    VkBuffer              BoundSurfelCellListBuffer = VK_NULL_HANDLE; // [-] - b2 (cell -> surfel ordinal table)
+    VkImageView           BoundSurfelDepthView      = VK_NULL_HANDLE; // [-] - b3 (the R32G32_SFLOAT depth-moment atlas view)
+    bool                  SurfelSetReady   = false;          // [-] - true once the field layout + set exist AND all four resources are pointed
 
     // ---- Primary sun shadow: the BVH descriptor set (set 2) — the acceleration buffers the shade never had ----
     // Same two-level BVH SurfelIntegrate.comp reads, but the shade REUSES set 0's instance SSBO + merged vertex/index streams (the trace's Instances/
@@ -174,8 +219,20 @@ void RefreshSurfaceShadeInscription(SurfaceShadeInscription& Shade,
                                     VkBuffer                 FloorInstanceBuffer = VK_NULL_HANDLE,
                                     VkDeviceSize             FloorInstanceBytes  = 0);
 
-// 🚧 RefreshSurfaceShadeSurfelBindings went with the webgiya strip: set 1 is now an empty reserved layout with no buffers to point at. The W298 port
-//    re-adds a Refresh here for its irradiance atlas, against the same set index.
+// Surfel GI: point the field descriptor set (set 1) at the borrowed SurfelStore buffers and its depth-moment atlas so the shade's gather can read the
+// field. Writes the four bindings (records / cell spans / cell list / depth atlas), re-pointing only on a handle change, and raises SurfelSetReady.
+// Idempotent and cheap; a no-op returning false when the field layout is not built or any handle is null — SurfelSetReady then stays false and the
+// record forces GlobalIlluminationEnabled = 0. The device must be idle (an in-flight frame may still read the set). SurfelStore owns all four for its
+// whole life, so this need run only once.
+//
+// 🔴 THE ATLAS DESCRIPTOR IS WRITTEN WITH VK_IMAGE_LAYOUT_GENERAL, NOT SHADER_READ_ONLY_OPTIMAL. Both surfel atlases live in GENERAL permanently because
+//    the integrate holds them as storage images (SurfelIrradianceSubmission.h states the invariant). Declaring the read at GENERAL is what keeps this
+//    pass from owning a per-frame GENERAL -> READ_ONLY -> GENERAL round trip whose second half nothing downstream would perform.
+bool RefreshSurfaceShadeSurfelBindings(SurfaceShadeInscription& Shade,
+                                       VkBuffer                 SurfelRecordBuffer,
+                                       VkBuffer                 SurfelCellSpanBuffer,
+                                       VkBuffer                 SurfelCellListBuffer,
+                                       VkImageView              SurfelDepthView);
 
 // Primary sun shadow: point the BVH descriptor set (set 2) at the borrowed GeometryArena + InstanceTree buffers so the shade's shadow ray can trace
 // the scene. Writes the four whole-buffer bindings (Slices / ArenaNodeWords / ArenaPrimitives / TreeNodeWords), re-pointing only on a handle change.

@@ -23,7 +23,7 @@ namespace Frontier
 // ðŸ“ What AppendOffsetResult resolved to â€” the Properties panel maps each onto a chip / notice. Mirrors BooleanOutcome.
 // How an offset CORNER is built - the Clipper2 JoinType the offsetter uses at each convex vertex. Round is the CAD default (a true arc), Miter
 //    extends the two edges to their sharp intersection (clamped), Bevel (Square) cuts the corner off flat. The operator box's "Corners" dropdown
-//    selects one; the value maps 1:1 onto Clipper2Lib::JoinType inside SolveLoopOffset.
+//    selects one; the value maps 1:1 onto Clipper2Lib::JoinType inside SolveRegionOffset.
 enum class SketchOffsetCornerStyle
 {
     Round = 0,   // [-] - a true arc at each convex corner (the CAD default)
@@ -61,12 +61,15 @@ enum class ArrayOutcome
 //                                                        FREE FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
 
-// ðŸ“ Offset ONE closed world-mm loop by a signed distance (positive = outward / inflate, negative = inward / deflate) via Clipper2's
-//    polygon offsetter. Returns the resulting loop set (outer loops CCW, hole loops CW) â€” a single loop usually, but a concave inward
-//    offset can split into several, and an outward offset of a self-near shape can merge. Empty when the offset collapses the region.
-//    JoinType is Round so an offset corner reads as a true arc (the CAD default); the caller flattens the analytic shape first.
-std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm,
-                                                 SketchOffsetCornerStyle CornerStyle = SketchOffsetCornerStyle::Round);
+// 📝 Offset ONE closed world-mm REGION by a signed distance (positive = outward / inflate, negative = inward / deflate) via Clipper2's
+//    polygon offsetter. Loops is the region as authored — its outer loop first, its hole loops after (the same convention
+//    SolveRegionBooleanWithHoles takes). The holes ride into ClipperOffset as sibling paths, so a punched region's voids move against the
+//    outer boundary (an inflate shrinks them, a deflate grows them) instead of being discarded. Returns the resulting loop set (outer loops
+//    CCW, hole loops CW) — a single loop usually, but a concave inward offset can split into several, and an outward offset of a
+//    self-near shape can merge. Empty when the offset collapses the region. JoinType is Round so an offset corner reads as a true arc (the
+//    CAD default); the caller flattens the analytic shape first.
+std::vector<std::vector<ImVec2>> SolveRegionOffset(const std::vector<std::vector<ImVec2>>& Loops, float DistanceMm,
+                                                   SketchOffsetCornerStyle CornerStyle = SketchOffsetCornerStyle::Round);
 
 // 📝 Offset ONE open polyline by a signed distance into a SINGLE parallel open curve on one side (the Blender "offset open curve" result, not
 //    Clipper2's both-sided ribbon). Positive shifts along the LEFT segment normal, negative shifts right. Interior joints ride the averaged
@@ -82,12 +85,13 @@ std::vector<ImVec2> SolveOpenCurveOffset(const std::vector<ImVec2>& Polyline, fl
 OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float DistanceMm,
                                  SketchOffsetCornerStyle CornerStyle = SketchOffsetCornerStyle::Round);
 
-// ðŸ“ The orchestrator the Properties "Mirror across datum" button calls: reflect every selected shape that carries an enabled datum across
-//    that datum's active axis (DatumAnchor + DatumRotation orient the axes; DatumAxis picks them â€” Horizontal / Vertical, or Cross â†’ both,
-//    a 4-up with the original). Each reflected copy re-solves from its reflected defining points (the DuplicateParametricSketchShape idiom), carrying
-//    tint / folder / elevation / fill and its (reflected) hole loops; closed loops reverse winding to keep the outer-CCW / hole-CW convention
-//    a reflection would otherwise flip. Originals are KEPT (mirror is additive construction). Re-selects the new copies. Sets Store.Notice on a
-//    failure path; never mutates the store on a non-Committed outcome. Corner fillets are not carried onto the copy this pass (re-addable via B).
+// 📝 The orchestrator the Properties "Mirror across datum" button calls: reflect every selected shape that carries an enabled datum across
+//    that datum's active axis (DatumAnchor + DatumRotation orient the axes; DatumAxis picks them — Horizontal / Vertical, or Cross → both,
+//    a 4-up with the original). Each reflected copy CLONES the source's exact solved geometry and reflects it (the ConstructMirrorCopy idiom —
+//    never a re-solve, so a vertex-edited or rotated source keeps its true outline), carrying tint / folder / elevation / fill, its (reflected)
+//    hole loops, and its corner fillets (index-remapped under the closed-loop reversal); closed loops reverse winding to keep the outer-CCW /
+//    hole-CW convention a reflection would otherwise flip. Originals are KEPT (mirror is additive construction). Re-selects the source. Sets
+//    Store.Notice on a failure path; never mutates the store on a non-Committed outcome.
 MirrorOutcome AppendMirrorResult(ParametricSketchShapeStore& Store);
 
 // ðŸ“ Refresh every DRIVEN mirror child (a shape with MirrorSource != 0) from its live source: reflect the source across the source datum's

@@ -4,6 +4,22 @@ Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---
 
+## Banned-name audit of `Internal/` — scan report (2026-08-06)
+
+Full scan saved at `Documentation/AUDIT-NamingScan.md`. Ran every banned word from
+`SKILL-Naming.md` over all 697 `Internal/` files; the report holds the master banned-word table,
+raw occurrence counts, and the identifier-level violations with file locations. Clean: `System`
+`Core` `Hierarchy` `Subsystem` `Entity` `Kind` `Manager` `Kernel` (only in "never use X" comments).
+Open violations: kinship (`ArenaParent`/`TreeParent`/`FirstChild`… in `GeometryTreeBuild.cpp`,
+`InstanceTreeRefit.comp`, `DraughtBoolean.cpp`), `Node` (`ArenaNode`/`TreeNode`/`LeafNode`…),
+`Mesh` (`DrawVisibilityMesh`…), `Shell` (`ToolCardShell`/`OpenShell`/`LinkedShell`…), `Element`,
+`Object`, `Item`, `Data`, `Base`, unapproved `…Record` composites (`PartitionCullRecord`,
+`SurfelRecycleRecord`…), `Frame`, `Stage`, `Helper` (`SurfelSampling.glsl:107`), plus the
+user-owned deferred `…Pass`/`…Inscription` renames (§2). No files changed in `Internal/` — report
+only.
+
+---
+
 ## Precompute surfel distribution for static meshes (2026-08-03)
 
 Surfel GI coverage is currently **view-dependent**: `SurfelSpawnRequest.comp` seeds surfels from visibility

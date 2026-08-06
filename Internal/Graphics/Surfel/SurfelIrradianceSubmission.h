@@ -21,8 +21,11 @@
 //    initialize, because the store owns both images for its whole life and they never change handle.
 //
 // ⚠️ BOTH ATLASES MUST BE IN VK_IMAGE_LAYOUT_GENERAL WHEN THE INTEGRATE RUNS. InitializeSurfelStore leaves them there and nothing in this chain moves
-//    them, so in the steady state this costs nothing — but a Phase-8 shade that transitions them to SHADER_READ_ONLY_OPTIMAL for its sampled read must
-//    transition them BACK before the next frame's integrate. That transition belongs to whoever introduces the read, not here.
+//    them, so in the steady state this costs nothing.
+//    📝 RESOLVED — the shade's read does NOT transition them. SurfaceShadeInscription writes its depth-atlas descriptor with imageLayout GENERAL and
+//       samples through it, which a combined-image-sampler descriptor is entitled to do, so the atlases stay in GENERAL for their whole life and the
+//       per-frame round trip this note warned about never exists. 🔴 Any future consumer that DOES want SHADER_READ_ONLY_OPTIMAL owns transitioning them
+//       back before the next frame's integrate — the cheaper answer above is the reason nobody has had to.
 
 #pragma once
 #ifndef FRONTIER_GRAPHICS_SURFEL_SURFELIRRADIANCESUBMISSION_H

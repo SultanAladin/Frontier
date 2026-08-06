@@ -504,6 +504,12 @@ BoundaryValidationOutcome ValidateBrepEnvelope(const FullBrepBody& Body, Envelop
 // The axis-aligned bounds of every live vertex. False (bounds untouched) on an empty body.
 bool ResolveBrepBounds(const FullBrepBody& Body, BoundaryVector& OutMinimum, BoundaryVector& OutMaximum);
 
+// Derive the weld tolerance for a body whose geometry spans BoundingDiagonalMm (world mm): 1e-6 of the span, floored at 1e-7 mm (100 pm).
+// RELATIVE, never fixed — a body's coincidence radius must scale with the geometry it welds (a fixed 1e-4 mm welds distinct micro features
+// together and cannot absorb noise at construction scale). The canonical 100 mm part lands back at 1e-4 mm, the historical default, so
+// existing behaviour is unchanged at that scale; a non-positive diagonal (no geometry to judge from) returns that same default.
+double ResolveBrepWeldTolerance(double BoundingDiagonalMm);
+
 } // namespace Frontier
 
 #endif   // FRONTIER_AUTHORING_PARAMETRICAUTHORING_BOUNDARY_BOUNDARYTOPOLOGY_H

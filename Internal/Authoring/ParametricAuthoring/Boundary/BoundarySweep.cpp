@@ -21,20 +21,6 @@ namespace
     //    scale blows up as the corner closes; clamping it caps the drafted corner's excursion at four times the nominal reach.
     constexpr double MiterClamp = 4.0;
 
-    // 📝 Two axes spanning the plane perpendicular to Axis, so a ring's miter normals (which are meaningful in the profile plane, not in world XY)
-    //    can be computed for an arbitrary sweep direction rather than only for +Z.
-    void ResolvePlaneFrame(BoundaryVector Axis, BoundaryVector& OutRight, BoundaryVector& OutUp)
-    {
-        // Seed from whichever world axis is least aligned with the sweep, so the cross product never degenerates.
-        BoundaryVector Seed{ 0.0, 0.0, 1.0 };
-        if (std::fabs(Axis.ZCoord) > 0.9) Seed = BoundaryVector{ 1.0, 0.0, 0.0 };
-
-        bool Resolved = false;
-        OutRight = NormalizeBoundaryVector(CrossBoundaryVector(Seed, Axis), Resolved);
-        if (!Resolved) OutRight = BoundaryVector{ 1.0, 0.0, 0.0 };
-        OutUp = CrossBoundaryVector(Axis, OutRight);
-    }
-
     // 📝 The in-plane outward normal at each corner of a ring, mitered so a constant perpendicular offset is held through the joint (the same
     //    construction SolveOpenCurveOffset uses in 2D, lifted into the profile plane).
     //
@@ -136,11 +122,269 @@ namespace
     {
         return Specification.GroupTagBase + static_cast<uint32_t>(Category);
     }
+
+    // ── Winding + hole-ring audit helpers. The audit works in the plane PERPENDICULAR to the sweep axis (a sketch profile's own plane): every ring
+    //    projects into an orthonormal (Right, Up) frame, so all containment / crossing tests run in plain 2D. ─────────────────────────────────
+
+    // 📝 The Newell normal of a ring — exact for a planar ring, robust to a slightly non-planar one. For a ring wound counter-clockwise seen from
+    //    +Axis it points along +Axis, so its dot with Axis carries the winding sign.
+    BoundaryVector EvaluateRingNewellNormal(const std::vector<BoundaryVector>& Ring)
+    {
+        BoundaryVector Normal;
+        const size_t Count = Ring.size();
+        if (Count < 3) return Normal;
+        for (size_t Index = 0; Index < Count; ++Index)
+        {
+            const BoundaryVector& A = Ring[Index];
+            const BoundaryVector& B = Ring[(Index + 1) % Count];
+            Normal.XCoord += (A.YCoord - B.YCoord) * (A.ZCoord + B.ZCoord);
+            Normal.YCoord += (A.ZCoord - B.ZCoord) * (A.XCoord + B.XCoord);
+            Normal.ZCoord += (A.XCoord - B.XCoord) * (A.YCoord + B.YCoord);
+        }
+        return Normal;
+    }
+
+    // 📝 The winding sign of Ring seen from +Axis: +1 counter-clockwise, -1 clockwise, 0 when the ring has no clean winding (zero area, or its plane
+    //    not perpendicular to the sweep — a tilted ring cannot be swept into a prism whose caps and walls hold the winding contract). The
+    //    normalised-Newell dot makes the test scale-independent: a planar ring's unit Newell normal is ±Axis.
+    int EvaluateRingWinding(const std::vector<BoundaryVector>& Ring, const BoundaryVector& Axis)
+    {
+        bool Normalized = false;
+        const BoundaryVector UnitNormal = NormalizeBoundaryVector(EvaluateRingNewellNormal(Ring), Normalized);
+        if (!Normalized) return 0;
+        const double Projection = DotBoundaryVector(UnitNormal, Axis);
+        if (Projection > 0.5) return +1;
+        if (Projection < -0.5) return -1;
+        return 0;
+    }
+
+    struct SweepPlaneFrame
+    {
+        BoundaryVector Right;   // [-] - unit, spans the profile plane with Up
+        BoundaryVector Up;      // [-] - unit
+    };
+
+    SweepPlaneFrame ResolveSweepPlaneFrame(const BoundaryVector& Axis)
+    {
+        SweepPlaneFrame Frame;
+        // Seed from whichever world axis is least aligned with the sweep, so the cross product never degenerates.
+        BoundaryVector Seed{ 0.0, 0.0, 1.0 };
+        if (std::fabs(Axis.ZCoord) > 0.9) Seed = BoundaryVector{ 1.0, 0.0, 0.0 };
+        bool Resolved = false;
+        Frame.Right = NormalizeBoundaryVector(CrossBoundaryVector(Seed, Axis), Resolved);
+        if (!Resolved) Frame.Right = BoundaryVector{ 1.0, 0.0, 0.0 };
+        Frame.Up = CrossBoundaryVector(Axis, Frame.Right);
+        return Frame;
+    }
+
+    struct PlanePoint2D
+    {
+        double U = 0.0;   // [mm] - along the frame's Right
+        double V = 0.0;   // [mm] - along the frame's Up
+    };
+
+    std::vector<PlanePoint2D> ProjectRing(const std::vector<BoundaryVector>& Ring, const SweepPlaneFrame& Frame)
+    {
+        std::vector<PlanePoint2D> Projected;
+        Projected.reserve(Ring.size());
+        for (const BoundaryVector& Point : Ring)
+            Projected.push_back(PlanePoint2D{ DotBoundaryVector(Point, Frame.Right), DotBoundaryVector(Point, Frame.Up) });
+        return Projected;
+    }
+
+    bool PointInsidePolygon2D(double X, double Y, const std::vector<PlanePoint2D>& Polygon)
+    {
+        bool Inside = false;
+        const size_t Count = Polygon.size();
+        for (size_t Index = 0, Previous = Count - 1; Index < Count; Previous = Index++)
+        {
+            const double Xi = Polygon[Index].U,    Yi = Polygon[Index].V;
+            const double Xj = Polygon[Previous].U, Yj = Polygon[Previous].V;
+            if (((Yi > Y) != (Yj > Y)) && (X < (Xj - Xi) * (Y - Yi) / (Yj - Yi) + Xi))
+                Inside = !Inside;
+        }
+        return Inside;
+    }
+
+    // 📝 The signed 2D cross product (B−A)×(C−A): positive when C lies left of the directed line A→B. The orientation predicate every
+    //    crossing / containment test builds on.
+    double Orientation2D(const PlanePoint2D& A, const PlanePoint2D& B, const PlanePoint2D& C)
+    {
+        return (B.U - A.U) * (C.V - A.V) - (B.V - A.V) * (C.U - A.U);
+    }
+
+    // 📝 Proper segment crossing: each segment's endpoints STRICTLY straddle the other's line (opposite-signed orientations). Shared endpoints and
+    //    collinear touch are not crossings — adjacent ring edges meet at a vertex by definition and must not trip the audit.
+    bool SegmentsProperlyCross(const PlanePoint2D& A, const PlanePoint2D& B, const PlanePoint2D& C, const PlanePoint2D& D)
+    {
+        constexpr double OrientationEpsilon = 1.0e-9;   // [mm²] - below this an orientation reads as collinear
+        const double O1 = Orientation2D(A, B, C);
+        const double O2 = Orientation2D(A, B, D);
+        const double O3 = Orientation2D(C, D, A);
+        const double O4 = Orientation2D(C, D, B);
+        const bool  StraddleFirst  = (O1 >  OrientationEpsilon && O2 < -OrientationEpsilon)
+                                  || (O1 < -OrientationEpsilon && O2 >  OrientationEpsilon);
+        const bool  StraddleSecond = (O3 >  OrientationEpsilon && O4 < -OrientationEpsilon)
+                                  || (O3 < -OrientationEpsilon && O4 >  OrientationEpsilon);
+        return StraddleFirst && StraddleSecond;
+    }
+
+    bool RingSelfIntersects(const std::vector<PlanePoint2D>& Ring)
+    {
+        const size_t Count = Ring.size();
+        if (Count < 3) return false;
+        for (size_t First = 0; First < Count; ++First)
+        {
+            const PlanePoint2D& A = Ring[First];
+            const PlanePoint2D& B = Ring[(First + 1) % Count];
+            for (size_t Second = First + 1; Second < Count; ++Second)
+            {
+                // Adjacent edge pairs share a vertex — skip them (the wrap pair e0 / eN-1 too).
+                if (Second == First || Second == (First + 1) % Count || (First == 0 && Second + 1 == Count)) continue;
+                const PlanePoint2D& C = Ring[Second];
+                const PlanePoint2D& D = Ring[(Second + 1) % Count];
+                if (SegmentsProperlyCross(A, B, C, D)) return true;
+            }
+        }
+        return false;
+    }
+
+    // 📝 Whether every point of Inner lies inside Outer AND no Inner edge crosses an Outer edge. A hole whose boundary crosses the outer ring
+    //    would punch a cavity that breaks the solid's exterior — it must read as outside, not merely "mostly inside".
+    bool RingInsideRing(const std::vector<PlanePoint2D>& Inner, const std::vector<PlanePoint2D>& Outer)
+    {
+        for (const PlanePoint2D& Point : Inner)
+            if (!PointInsidePolygon2D(Point.U, Point.V, Outer)) return false;
+        for (size_t First = 0; First < Inner.size(); ++First)
+        {
+            const PlanePoint2D& A = Inner[First];
+            const PlanePoint2D& B = Inner[(First + 1) % Inner.size()];
+            for (size_t Second = 0; Second < Outer.size(); ++Second)
+            {
+                const PlanePoint2D& C = Outer[Second];
+                const PlanePoint2D& D = Outer[(Second + 1) % Outer.size()];
+                if (SegmentsProperlyCross(A, B, C, D)) return false;
+            }
+        }
+        return true;
+    }
+
+    // 📝 Whether two hole rings overlap: one contains the other (a vertex of one inside the other) or their boundaries properly cross. Disjoint
+    //    holes share neither, so a nested pair — which has no well-defined "which void wins" region — is flagged.
+    bool HolesOverlap(const std::vector<PlanePoint2D>& FirstHole, const std::vector<PlanePoint2D>& SecondHole)
+    {
+        for (const PlanePoint2D& Point : FirstHole)
+            if (PointInsidePolygon2D(Point.U, Point.V, SecondHole)) return true;
+        for (const PlanePoint2D& Point : SecondHole)
+            if (PointInsidePolygon2D(Point.U, Point.V, FirstHole)) return true;
+        for (size_t First = 0; First < FirstHole.size(); ++First)
+        {
+            const PlanePoint2D& A = FirstHole[First];
+            const PlanePoint2D& B = FirstHole[(First + 1) % FirstHole.size()];
+            for (size_t Second = 0; Second < SecondHole.size(); ++Second)
+            {
+                const PlanePoint2D& C = SecondHole[Second];
+                const PlanePoint2D& D = SecondHole[(Second + 1) % SecondHole.size()];
+                if (SegmentsProperlyCross(A, B, C, D)) return true;
+            }
+        }
+        return false;
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS
 //------------------------------------------------------------------------------------------------------------------------
+
+SweepProfileValidation ValidateSweepProfile(const SweepProfile& Profile, const BoundaryVector& Direction)
+{
+    SweepProfileValidation Validation;
+
+    bool AxisResolved = false;
+    const BoundaryVector Axis = NormalizeBoundaryVector(Direction, AxisResolved);
+    if (!AxisResolved)
+    {
+        Validation.SoundStatus = false;
+        Validation.Findings.emplace_back("sweep direction is degenerate");
+        return Validation;
+    }
+    const SweepPlaneFrame Frame = ResolveSweepPlaneFrame(Axis);
+
+    // Outer ring: the sweep's wall-normal logic assumes outer-CCW seen from +Direction, so its winding is load-bearing.
+    const int OuterWinding = EvaluateRingWinding(Profile.OuterRing, Axis);
+    if (OuterWinding == 0)
+    {
+        Validation.SoundStatus = false;
+        Validation.OuterCCW    = false;
+        Validation.Findings.emplace_back("outer ring is degenerate (no area in the sweep plane)");
+    }
+    else if (OuterWinding < 0)
+    {
+        Validation.OuterCCW = false;
+        Validation.Findings.emplace_back("outer ring wound clockwise; normalised by reversal");
+    }
+    const std::vector<PlanePoint2D> OuterProjection = ProjectRing(Profile.OuterRing, Frame);
+    if (RingSelfIntersects(OuterProjection))
+    {
+        Validation.SoundStatus = false;
+        Validation.RingsSimple = false;
+        Validation.Findings.emplace_back("outer ring self-intersects");
+    }
+
+    // Hole rings: winding (CW seen from +Direction), containment inside the outer, simplicity, pairwise disjointness.
+    std::vector<std::vector<PlanePoint2D>> HoleProjections;
+    for (const std::vector<BoundaryVector>& Hole : Profile.InnerRings)
+    {
+        if (Hole.size() < 3)
+        {
+            Validation.HoleWindingsCW.push_back(1);   // nothing to normalise — the sweep skips a degenerate hole anyway
+            Validation.Findings.emplace_back("hole ring with too few points skipped");
+            continue;
+        }
+
+        const int HoleWinding = EvaluateRingWinding(Hole, Axis);
+        if (HoleWinding == 0)
+        {
+            Validation.SoundStatus = false;
+            Validation.HolesCW     = false;
+            Validation.HoleWindingsCW.push_back(0);
+            Validation.Findings.emplace_back("hole ring is degenerate (no area in the sweep plane)");
+            continue;
+        }
+        const bool HoleIsCW = (HoleWinding < 0);
+        Validation.HoleWindingsCW.push_back(HoleIsCW ? 1 : 0);
+        if (!HoleIsCW)
+        {
+            Validation.HolesCW = false;
+            Validation.Findings.emplace_back("hole ring wound counter-clockwise; normalised by reversal");
+        }
+
+        const std::vector<PlanePoint2D> HoleProjection = ProjectRing(Hole, Frame);
+        if (RingSelfIntersects(HoleProjection))
+        {
+            Validation.SoundStatus = false;
+            Validation.RingsSimple = false;
+            Validation.Findings.emplace_back("hole ring self-intersects");
+        }
+        if (!RingInsideRing(HoleProjection, OuterProjection))
+        {
+            Validation.SoundStatus = false;
+            Validation.HolesContained = false;
+            Validation.Findings.emplace_back("hole ring not fully inside the outer ring");
+        }
+        for (const std::vector<PlanePoint2D>& Prior : HoleProjections)
+        {
+            if (HolesOverlap(Prior, HoleProjection))
+            {
+                Validation.SoundStatus = false;
+                Validation.HolesDisjoint = false;
+                Validation.Findings.emplace_back("hole rings overlap or nest");
+            }
+        }
+        HoleProjections.push_back(HoleProjection);
+    }
+    return Validation;
+}
 
 const char* ResolveSweepOutcomeLabel(SweepOutcomeCategory Category)
 {
@@ -152,6 +396,7 @@ const char* ResolveSweepOutcomeLabel(SweepOutcomeCategory Category)
         case SweepOutcomeCategory::DegenerateAxis:    return "Sweep direction could not be resolved";
         case SweepOutcomeCategory::OpenProfileCapped: return "An open profile cannot be capped — swept as an uncapped sheet";
         case SweepOutcomeCategory::ValidationFault:   return "Swept boundary failed its structural audit and was rolled back";
+        case SweepOutcomeCategory::WindingFault:      return "Profile failed its winding / hole-ring audit";
     }
     return "";
 }
@@ -196,7 +441,25 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
         return false;
     }
 
-    const bool CapsPossible  = Profile.ClosedEnabled;
+    // 🔴 Winding / hole-ring pre-flight, BEFORE anything attaches. The outward-wall and cap-normal logic BELOW assumes the winding contract (outer
+    //    CCW / holes CW seen from +Direction); a violation would silently flip wall quads and invert cap normals, and a malformed hole (outside the
+    //    outer, self-crossing, nested) would tear the cavity. Structural faults reject the sweep with nothing left behind; a PURE winding inversion
+    //    is sound and is normalised by reversal on the working copy, so a caller that hands a well-formed but inverted ring still gets a correct solid.
+    const SweepProfileValidation WindingAudit = ValidateSweepProfile(Profile, Axis);
+    if (!WindingAudit.SoundStatus)
+    {
+        Outcome.Category = SweepOutcomeCategory::WindingFault;
+        Outcome.Notice   = WindingAudit.Findings.empty() ? ResolveSweepOutcomeLabel(Outcome.Category) : WindingAudit.Findings.front();
+        return false;
+    }
+    SweepProfile Work = Profile;
+    if (!WindingAudit.OuterCCW)
+        std::reverse(Work.OuterRing.begin(), Work.OuterRing.end());
+    for (size_t Index = 0; Index < Work.InnerRings.size() && Index < WindingAudit.HoleWindingsCW.size(); ++Index)
+        if (WindingAudit.HoleWindingsCW[Index] == 0)
+            std::reverse(Work.InnerRings[Index].begin(), Work.InnerRings[Index].end());
+
+    const bool CapsPossible  = Work.ClosedEnabled;
     const bool CapsRequested = Specification.StartCapEnabled || Specification.EndCapEnabled;
     const bool CapsDropped   = CapsRequested && !CapsPossible;
 
@@ -211,7 +474,7 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
     Outcome.ResolvedSweep           = Specification;
     Outcome.ResolvedSweep.Direction = Axis;
     Outcome.ResolvedSweep.Distance  = Distance;
-    Outcome.ClosedProfile           = Profile.ClosedEnabled;
+    Outcome.ClosedProfile           = Work.ClosedEnabled;
 
     double StartOffset = 0.0, EndOffset = 0.0;
     ResolveSweepOffsets(Specification.SymmetricEnabled, Distance, StartOffset, EndOffset);
@@ -226,7 +489,7 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
     {
         if (Ring.size() < MinimumRing) return false;
         const std::vector<BoundaryVector> Normals =
-            (std::fabs(DraftReach) > DraftEpsilon) ? ResolveRingMiterNormals(Ring, Axis, Profile.ClosedEnabled)
+            (std::fabs(DraftReach) > DraftEpsilon) ? ResolveRingMiterNormals(Ring, Axis, Work.ClosedEnabled)
                                                    : std::vector<BoundaryVector>(Ring.size(), BoundaryVector{});
 
         SweepRingRecord Entry;
@@ -252,7 +515,7 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
         return true;
     };
 
-    if (!RaiseRing(Profile.OuterRing, false))
+    if (!RaiseRing(Work.OuterRing, false))
     {
         DetachEnvelope(Body, Envelope);
         Outcome = SweepOutcome{};
@@ -260,7 +523,7 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
         Outcome.Notice   = ResolveSweepOutcomeLabel(Outcome.Category);
         return false;
     }
-    for (const std::vector<BoundaryVector>& Hole : Profile.InnerRings)
+    for (const std::vector<BoundaryVector>& Hole : Work.InnerRings)
         RaiseRing(Hole, true);   // a degenerate hole is skipped rather than failing the whole sweep
 
     // ── Caps. The start cap is the outer ring REVERSED (so its Newell normal opposes the sweep and points out of the solid); the end cap takes the
@@ -293,7 +556,7 @@ bool ExtrudeProfileIntoBrep(FullBrepBody&             Body,
     for (const SweepRingRecord& Ring : Outcome.Rings)
     {
         const size_t Count = Ring.StartRing.size();
-        const size_t Spans = Profile.ClosedEnabled ? Count : (Count > 0 ? Count - 1 : 0);
+        const size_t Spans = Work.ClosedEnabled ? Count : (Count > 0 ? Count - 1 : 0);
         const uint32_t WallTag = ComposeGroupTag(Specification,
                                                  Ring.HoleRing ? SweepGroupCategory::InnerWall : SweepGroupCategory::OuterWall);
         for (size_t Index = 0; Index < Spans; ++Index)

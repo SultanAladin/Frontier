@@ -1,11 +1,13 @@
 //==========================================================================================================================================
 //                                                            ParametricSketchTransform.cpp
 //==========================================================================================================================================
-// 🧩 2D construction transforms for the parametricSketching workspace. Phase 1 is Offset: each selected closed shape is flattened densely (Clipper2
+// 🧩 2D construction transforms for the parametricSketching workspace. Offset: each selected closed shape is flattened densely (Clipper2
 //    is a straight-segment offsetter — an analytic arc must enter as a polyline), inflated / deflated by a signed world-mm distance through
-//    Clipper2's ClipperOffset, and the surviving outer loops are re-emitted as analytic Profiles (contained holes carried), the originals
-//    kept. The Clipper2 conversion + winding conventions mirror ParametricSketchBoolean.cpp so both engines read the same loop orientation (outer
-//    CCW, hole CW). Mirror / Array land in later phases atop the same file.
+//    Clipper2's ClipperOffset (outer + hole rings fed jointly, so a punched region's voids survive), and the surviving outer loops are
+//    re-emitted as analytic Profiles (contained holes carried), the originals kept. The Clipper2 conversion + winding conventions mirror
+//    ParametricSketchBoolean.cpp so both engines read the same loop orientation (outer CCW, hole CW). Mirror reflects each selected shape
+//    across its datum's active axis (ConstructMirrorCopy: clone-then-flip, never a re-solve); Array stamps linear / radial / instance-on-points
+//    copies (ConstructArrayCopy).
 
 #include "ParametricSketchTransform.h"
 
@@ -120,36 +122,66 @@ namespace
                       Point.y - 2.0f * NormalProjection * AxisNormal.y);
     }
 
-    // 📝 Build one mirror copy of Source reflected across the datum line (Anchor + unit AxisNormal): reflect every defining point + hole loop,
-    //    reverse the winding of a closed loop (a reflection is determinant-negative → it flips CCW↔CW; reversing restores outer-CCW / hole-CW),
-    //    then re-solve from the reflected points via ConstructParametricSketchShape so every analytic scalar rebuilds. Carries tint / folder / elevation
-    //    / fill; corner fillets are dropped this pass (a point reversal shifts CornerIndex — re-addable via B). Returns the sealed copy (no id).
+    // 📝 Build one mirror copy of Source reflected across the datum line (Anchor + unit AxisNormal). Clone the source's EXACT solved geometry —
+    //    never re-solve through ConstructParametricSketchShape, which snaps a per-vertex-edited or rotated shape back to its category's ideal
+    //    form (a dragged / rotated Rectangle collapses to its axis-aligned bounding box). A reflection is an IMPROPER (determinant-negative)
+    //    affine, so every defining point + hole point reflects across the line, and a CLOSED loop's order REVERSES to restore its winding (a
+    //    reflection flips CCW↔CW; reversing restores outer-CCW / hole-CW). The solved scalars carry through the reflection — Centre reflects and
+    //    the orientation angles transform as α → 2φ − α + 180° where φ = the line normal's angle (the exact map ReflectPoint applies) — so a
+    //    filled circle / arc / ellipse / polygon copy stays exact without a re-solve. Carries tint / folder / elevation / fill; a corner fillet
+    //    survives too, its CornerIndex remapped under the reversal (original corner i sits at N−1−i). Returns the sealed copy (no id).
     ParametricSketchShape ConstructMirrorCopy(const ParametricSketchShape& Source, ImVec2 Anchor, ImVec2 AxisNormal)
     {
-        std::vector<ImVec2> ReflectedPoints;
-        ReflectedPoints.reserve(Source.Points.size());
-        for (const ImVec2& Point : Source.Points)
-            ReflectedPoints.push_back(ReflectPoint(Point, Anchor, AxisNormal));
+        ParametricSketchShape Fresh = Source;
+        Fresh.MirrorSource    = 0;   // a clone carries none of the source's driven-link identity — the caller re-stamps the mirror link fields
+        Fresh.MirrorAxisIndex = 0;
+        Fresh.ArraySource     = 0;
+        Fresh.ArrayMode       = 0;
+        Fresh.ArrayInstance   = 0;
+        Fresh.ArrayEnabled    = 0;   // the clone must never itself drive an array (that would chain drivers / recurse the reflow)
+        Fresh.DatumEnabled    = false;
+
+        for (ImVec2& Point : Fresh.Points)
+            Point = ReflectPoint(Point, Anchor, AxisNormal);
         if (Source.ClosedEnabled)
-            std::reverse(ReflectedPoints.begin(), ReflectedPoints.end());
-
-        ParametricSketchShape Fresh = ConstructParametricSketchShape(Source.Category, ReflectedPoints, Source.SideCount, Source.Rho, Source.Degree);
-        Fresh.ClosedEnabled    = Source.ClosedEnabled;
-        Fresh.FillEnabled      = Source.FillEnabled;
-        Fresh.Displayed        = true;
-        Fresh.TintIndex        = Source.TintIndex;
-        Fresh.FolderIdentifier = Source.FolderIdentifier;
-        Fresh.Elevation        = Source.Elevation;
-
-        for (const std::vector<ImVec2>& Hole : Source.HoleLoops)
+            std::reverse(Fresh.Points.begin(), Fresh.Points.end());   // a reflection flips winding — reversing restores the outer-CCW loop
+        for (std::vector<ImVec2>& Hole : Fresh.HoleLoops)
         {
-            std::vector<ImVec2> ReflectedHole;
-            ReflectedHole.reserve(Hole.size());
-            for (const ImVec2& Point : Hole)
-                ReflectedHole.push_back(ReflectPoint(Point, Anchor, AxisNormal));
-            std::reverse(ReflectedHole.begin(), ReflectedHole.end());   // holes are closed loops — restore CW winding after the reflection
-            Fresh.HoleLoops.push_back(std::move(ReflectedHole));
+            for (ImVec2& Point : Hole)
+                Point = ReflectPoint(Point, Anchor, AxisNormal);
+            std::reverse(Hole.begin(), Hole.end());   // holes are closed loops — restore CW winding after the reflection
         }
+
+        // Carry the solved scalars through the reflection so the round / curve families stay exact without a re-solve. ReflectPoint reflects a
+        //    vector at angle α to 2φ − α + 180° (φ = the line normal's angle), so the orientation angles transform by that same rule.
+        Fresh.Centre = ReflectPoint(Source.Centre, Anchor, AxisNormal);
+        const float LineNormalAngle = std::atan2(AxisNormal.y, AxisNormal.x);              // [rad] - φ, the reflection line normal's angle
+        const float ReflectedAngle  = 2.0f * LineNormalAngle + 3.14159265f;                // [rad] - the α → 2φ − α + 180° constant
+        if (Source.ClosedEnabled)
+        {
+            Fresh.StartAngle = ReflectedAngle - Source.StartAngle;
+            Fresh.Rotation   = ReflectedAngle - Source.Rotation;
+        }
+        else
+        {
+            // An OPEN run keeps its traversal order (no winding to restore); a CCW arc's reflection is a CW arc, so its parameterization reads
+            //    from the OTHER end: the sweep end angle flips the sign of the start under the reflection, sweep magnitude unchanged.
+            Fresh.StartAngle = ReflectedAngle - (Source.StartAngle + Source.SweepAngle);
+            Fresh.Rotation   = ReflectedAngle - Source.Rotation;
+        }
+        // Radius / MajorAxis / MinorAxis / SweepAngle / Rho / Degree / SideCount are reflection-invariant magnitudes — kept from the clone as-is.
+
+        // A corner fillet survives, but the closed-loop reversal remaps its corner: original corner i sits at index N−1−i in the reversed loop.
+        if (Source.ClosedEnabled && Fresh.Points.size() >= 2)
+        {
+            const size_t Count = Fresh.Points.size();
+            for (ParametricSketchCornerFillet& Fillet : Fresh.CornerFillets)
+                if (Fillet.CornerIndex >= 0 && Fillet.CornerIndex < (int)Count)
+                    Fillet.CornerIndex = (int)(Count - 1 - Fillet.CornerIndex);
+        }
+
+        Fresh.Displayed          = true;
+        Fresh.CachedOutlineValid = false;
         return Fresh;
     }
 
@@ -305,11 +337,11 @@ namespace
 //                                                    CLIPPER2-BACKED OFFSET
 //------------------------------------------------------------------------------------------------------------------------
 
-std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop, float DistanceMm,
-                                                 SketchOffsetCornerStyle CornerStyle)
+std::vector<std::vector<ImVec2>> SolveRegionOffset(const std::vector<std::vector<ImVec2>>& Loops, float DistanceMm,
+                                                   SketchOffsetCornerStyle CornerStyle)
 {
     std::vector<std::vector<ImVec2>> Result;
-    if (Loop.size() < 3 || DistanceMm == 0.0f)
+    if (Loops.empty() || Loops.front().size() < 3 || DistanceMm == 0.0f)
         return Result;
 
     // Map the workspace corner style onto Clipper2's JoinType: Round (arc, the CAD default), Miter (sharp intersection, clamped by the miter
@@ -322,10 +354,17 @@ std::vector<std::vector<ImVec2>> SolveLoopOffset(const std::vector<ImVec2>& Loop
         default:                             Join = Clipper2Lib::JoinType::Round;  break;
     }
 
-    // A closed polygon offset: the JoinType above builds each convex corner, EndType::Polygon closes the path so the whole region inflates /
+    // A closed region offset: the JoinType above builds each convex corner, EndType::Polygon closes the path so the whole region inflates /
     //    deflates. The 2.0 is Clipper2's miter limit (only consulted for JoinType::Miter). Clipper2 scales to its fixed-point grid at OffsetPrecision.
+    //    🔴 The region's HOLE loops ride in as sibling paths: ClipperOffset offsets nested paths JOINTLY, so a hole boundary moves against the outer
+    //       (a positive inflate shrinks the void, a negative deflate grows it) instead of being ignored — a punched profile's voids survive the offset.
     Clipper2Lib::PathsD Source;
-    Source.push_back(ConvertLoopToPath(Loop));
+    Source.reserve(Loops.size());
+    for (const std::vector<ImVec2>& Loop : Loops)
+        if (Loop.size() >= 3)
+            Source.push_back(ConvertLoopToPath(Loop));
+    if (Source.empty())
+        return Result;
     const Clipper2Lib::PathsD Offset = Clipper2Lib::InflatePaths(Source,
                                                                  (double)DistanceMm,
                                                                  Join,
@@ -491,13 +530,22 @@ OffsetOutcome AppendOffsetResult(ParametricSketchShapeStore& Store, float Distan
         // ── CLOSED source (Rectangle / Circle / Polygon / Profile): the region inflates / deflates into one Profile per surviving outer loop. ──
         ++OffsettableSourceCount;
 
-        // Flatten the source densely (the offsetter is a straight-segment sweep, like the boolean) into the region's outer loop.
+        // Flatten the source densely (the offsetter is a straight-segment sweep, like the boolean) into its region: the CCW outer loop + every CW
+        //    hole ring. A Profile's HoleLoops are already verbatim flat loops in world mm (the analytic shapes carry none), so only the outer needs
+        //    the polygon flatten. Feeding the holes jointly is what keeps a punched profile's voids — see SolveRegionOffset.
+        std::vector<std::vector<ImVec2>> Region;
         std::vector<ImVec2> Outline;
         EvaluateFilledPolygon(*Shape, Outline, OffsetFlattenBudget);
         if (Outline.size() < 3)
             continue;
+        Region.push_back(std::move(Outline));
+        for (const std::vector<ImVec2>& Hole : Shape->HoleLoops)
+        {
+            if (Hole.size() >= 3)
+                Region.push_back(Hole);
+        }
 
-        std::vector<std::vector<ImVec2>> Offset = SolveLoopOffset(Outline, DistanceMm, CornerStyle);
+        std::vector<std::vector<ImVec2>> Offset = SolveRegionOffset(Region, DistanceMm, CornerStyle);
         if (Offset.empty())
             continue;                       // this shape collapsed under a large inward offset — try the next
 
@@ -671,7 +719,8 @@ void ReflowMirrorChildren(ParametricSketchShapeStore& Store)
             continue;
 
         // Rebuild the reflected geometry, then graft it onto the child while preserving the child's identity + presentation. ConstructMirrorCopy
-        //    re-solves every analytic scalar from the reflected points, so the copy tracks a source category change too. Re-resolve Source each
+        //    clones the source's exact solved geometry and reflects it (never re-solves), so a vertex-edited or rotated source keeps its true
+        //    outline, and a source category change still tracks because the clone copies the category field. Re-resolve Source each
         //    call? No — ConstructMirrorCopy only READS Source and appends to a fresh struct; it never touches Store.Shapes, so Source stays valid.
         ParametricSketchShape Rebuilt = ConstructMirrorCopy(*Source, Source->DatumAnchor, Match->Normal);
         if (Rebuilt.Points.size() < 2)

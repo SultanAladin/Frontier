@@ -1350,4 +1350,19 @@ bool ResolveBrepBounds(const FullBrepBody& Body, BoundaryVector& OutMinimum, Bou
     return Seeded;
 }
 
+double ResolveBrepWeldTolerance(double BoundingDiagonalMm)
+{
+    // 🔴 RELATIVE, never fixed: the weld radius is the coincidence resolution of the whole body, so it must scale with the geometry it welds.
+    //    A fixed 1e-4 mm is absurdly coarse against a micromachined part (distinct features weld together) and effectively invisible against a
+    //    meter-scale document (coordinate noise never welds, so seams survive). 1e-6 of the swept span is the fraction: the canonical 100 mm
+    //    part lands back at 1e-4 mm (the historical default), so nothing changes at that scale. A non-positive diagonal (no geometry to judge
+    //    scale from) keeps the historical default.
+    if (BoundingDiagonalMm <= 0.0)
+        return 1.0e-4;
+    constexpr double RelativeFraction = 1.0e-6;   // [-] - the coincidence radius as a share of the span
+    constexpr double FloorTolerance   = 1.0e-7;   // [mm] - 100 pm; never weld below this even for micro-scale parts
+    const double Tolerance = BoundingDiagonalMm * RelativeFraction;
+    return (Tolerance < FloorTolerance) ? FloorTolerance : Tolerance;
+}
+
 } // namespace Frontier

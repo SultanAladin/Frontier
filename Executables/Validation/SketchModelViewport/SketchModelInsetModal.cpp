@@ -318,7 +318,8 @@ std::vector<SketchInsetPreviewLoop> ResolveSketchInsetModalPreview(const SketchM
             continue;
 
         // An OPEN curve previews as a single OPEN parallel curve (the SAME SolveOpenCurveOffset the commit runs); a CLOSED region previews its
-        //    inflated / deflated CLOSED loops (EvaluateFilledPolygon + SolveLoopOffset). Both are pure reads — nothing in the store is mutated.
+        //    inflated / deflated CLOSED loops (EvaluateFilledPolygon + SolveRegionOffset). The region carries the shape's hole rings too, so a
+        //    punched profile previews its voids exactly as the commit will offset them. Both are pure reads — nothing in the store is mutated.
         if (!Shape->ClosedEnabled)
         {
             std::vector<ImVec2> Open;
@@ -331,12 +332,19 @@ std::vector<SketchInsetPreviewLoop> ResolveSketchInsetModalPreview(const SketchM
             continue;
         }
 
+        std::vector<std::vector<ImVec2>> Region;
         std::vector<ImVec2> Outline;
         Frontier::EvaluateFilledPolygon(*Shape, Outline, PreviewFlatten);
         if (Outline.size() < 3)
             continue;
+        Region.push_back(std::move(Outline));
+        for (const std::vector<ImVec2>& Hole : Shape->HoleLoops)
+        {
+            if (Hole.size() >= 3)
+                Region.push_back(Hole);
+        }
 
-        std::vector<std::vector<ImVec2>> Offset = Frontier::SolveLoopOffset(Outline, Modal.Magnitude, Modal.CornerStyle);
+        std::vector<std::vector<ImVec2>> Offset = Frontier::SolveRegionOffset(Region, Modal.Magnitude, Modal.CornerStyle);
         for (std::vector<ImVec2>& Loop : Offset)
             if (Loop.size() >= 2)
                 Loops.push_back(SketchInsetPreviewLoop{ std::move(Loop), true });

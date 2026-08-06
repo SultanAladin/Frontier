@@ -176,8 +176,10 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
     //    genuinely do nothing then — the renderer skips recording the surfel chain outright rather than computing a field the shade ignores.
     //
     //    🔴 Rows whose owning phase has not landed are greyed EVEN WITH GI ON, and say so in their label. A live-looking slider that moves but changes
-    //       nothing reads as a broken feature, which is a worse signal than an honestly disabled control. Each phase drops the "(phase N)" suffix and
-    //       flips Enabled to State.GlobalIlluminationEnabled as it wires its RuntimeParams field. --------------------------------------------------------
+    //       nothing reads as a broken feature, which is a worse signal than an honestly disabled control. Each phase drops its parenthetical and flips
+    //       Enabled to State.GlobalIlluminationEnabled as it wires the matching field.
+    //       📝 Live now: the two shade-side knobs (phase 8 pushes them). Still greyed: the trace ladders and cell extent, because nothing in this renderer
+    //          records the surfel chain yet, and the overlay, because its splat pass is not in the tree. -------------------------------------------------
     if (BeginPropertyCard(Theme, "Global illumination (surfel)", &State.GlobalIlluminationExpanded))
     {
         BooleanEntryDescriptor GlobalIlluminationOn = {};
@@ -186,15 +188,23 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
         GlobalIlluminationOn.Enabled = true;
         ConstructBooleanEntry(Theme, GlobalIlluminationOn);
 
-        // 🚧 Phase 8 wires these two into the shade's gather (Enabled -> State.GlobalIlluminationEnabled).
+        // 📝 LIVE as of phase 8 — both ride the shade push block into SurfaceShade.frag's gather, so a drag lands on the next recorded frame.
+        //    ⚠️ Enabled tracks the master switch ONLY, not whether the surfel set is actually pointed. The renderer's push gate zeroes the gather when the
+        //       store is absent; the panel cannot see that, and greying on it would make the rows flicker with descriptor readiness.
         ValueSliderDescriptor Indirect = {};
-        Indirect.Label = "Indirect intensity (phase 8)"; Indirect.Value = &State.IndirectIntensity;
-        Indirect.Minimum = 0.0f; Indirect.Maximum = 4.0f; Indirect.Format = "%.2f"; Indirect.Unit = "\xC3\x97"; Indirect.Enabled = false;   // × multiplier
+        Indirect.Label = "Indirect intensity"; Indirect.Value = &State.IndirectIntensity;
+        Indirect.Minimum = 0.0f; Indirect.Maximum = 4.0f; Indirect.Format = "%.2f"; Indirect.Unit = "\xC3\x97";   // × multiplier
+        Indirect.Enabled = State.GlobalIlluminationEnabled;
         ConstructValueSlider(Theme, Indirect);
 
+        // 🔴 THIS IS THE FADE CEILING, NOT AN OCCLUSION AMOUNT — it caps how far surfel coverage may displace the flat ambient fill. 1.0 = fully-covered
+        //    surfaces take pure gathered GI; 0.0 = the fill is never displaced, which makes the gather a no-op indistinguishable from GI being off. The
+        //    label says "sky occlusion" because that is upstream's name for the same scalar; read it as trust in the field. See the seam in
+        //    SurfaceShade.frag for why the fade exists at all (a sparse field must not black out the surfaces it has not reached yet).
         ValueSliderDescriptor SkyOcclusion = {};
-        SkyOcclusion.Label = "Sky occlusion (phase 8)"; SkyOcclusion.Value = &State.SkyOcclusionStrength;
-        SkyOcclusion.Minimum = 0.0f; SkyOcclusion.Maximum = 1.0f; SkyOcclusion.Format = "%.2f"; SkyOcclusion.Enabled = false;
+        SkyOcclusion.Label = "Sky occlusion"; SkyOcclusion.Value = &State.SkyOcclusionStrength;
+        SkyOcclusion.Minimum = 0.0f; SkyOcclusion.Maximum = 1.0f; SkyOcclusion.Format = "%.2f";
+        SkyOcclusion.Enabled = State.GlobalIlluminationEnabled;
         ConstructValueSlider(Theme, SkyOcclusion);
 
         // 🚧 Phase 6 owns the trace: rays per surfel is the dominant cost through the software BVH, so it stays discrete rather than a free slider that
@@ -220,9 +230,11 @@ void DrawLightingTuningWindow(const ThemeConfiguration& Theme, LightingTuningSta
         CellExtent.Minimum = 0.05f; CellExtent.Maximum = 1.0f; CellExtent.Format = "%.2f"; CellExtent.Unit = "m"; CellExtent.Enabled = false;
         ConstructValueSlider(Theme, CellExtent);
 
-        // 🚧 Phase 5 stands the debug splat back up; it needs live surfels to draw.
+        // 🚧 STAYS GREYED THROUGH PHASE 9, and deliberately so. There is no SurfelDebugInscription in the tree (see FolderStructure.md — the splat pass went
+        //    with the strip and has not been re-ported), and the surfel chain is not recorded into the frame yet either, so the overlay has both no pipeline
+        //    to draw with and nothing to draw. Whoever re-ports the splat flips this row; wiring the toggle first would give it a control that does nothing.
         BooleanEntryDescriptor DebugOverlay = {};
-        DebugOverlay.Label = "Debug overlay (phase 5)";
+        DebugOverlay.Label = "Debug overlay (no splat pass)";
         DebugOverlay.Value = &State.SurfelDebugOverlay;
         DebugOverlay.Enabled = false;
         ConstructBooleanEntry(Theme, DebugOverlay);

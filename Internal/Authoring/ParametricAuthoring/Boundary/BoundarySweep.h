@@ -45,7 +45,9 @@ enum class SweepOutcomeCategory
     ZeroDistance      = 2,   // [-] - the requested distance rounds to nothing
     DegenerateAxis    = 3,   // [-] - the direction vector could not be normalized
     OpenProfileCapped = 4,   // [-] - caps were requested on an open profile (an open run bounds no face); the sweep still built, uncapped
-    ValidationFault   = 5    // [-] - the boundary failed its structural audit and was ROLLED BACK (see the rollback contract below)
+    ValidationFault   = 5,   // [-] - the boundary failed its structural audit and was ROLLED BACK (see the rollback contract below)
+    WindingFault      = 6    // [-] - the profile failed its winding / hole-ring audit (a self-intersection, a hole outside the outer ring, or
+                             //        nested holes); nothing was attached. A pure winding inversion is NOT this — it is normalised, not rejected.
 };
 
 // 📝 Provenance stamped on every face / vertex the sweep creates, so the viewport can filter a pick ("only the end cap", "walls only") and so a later
@@ -136,6 +138,28 @@ inline bool QuerySweepConstructed(SweepOutcomeCategory Category)
 {
     return Category == SweepOutcomeCategory::Completed || Category == SweepOutcomeCategory::OpenProfileCapped;
 }
+
+// 📝 The result of the profile winding + hole-ring audit. SoundStatus is false only for a STRUCTURAL fault that a winding reversal cannot fix:
+//    a self-intersecting ring, a hole not fully inside the outer ring, a nested / overlapping pair of holes, or a degenerate (zero-area) ring.
+//    A pure winding inversion (an outer wound clockwise, a hole wound counter-clockwise) is SOUND — ExtrudeProfileIntoBrep normalises it by
+//    reversal on its internal working copy, so a caller that hands a well-formed but inverted ring still gets a correct solid. HoleWindingsCW
+//    reports each hole ring's winding for the normaliser (1 = already CW seen from +Direction, 0 = inverted).
+struct SweepProfileValidation
+{
+    bool                    SoundStatus    = true;   // [-] - no structural fault (a pure winding inversion is still sound)
+    bool                    OuterCCW       = true;   // [-] - the outer ring runs CCW seen from +Direction (or was normalised to)
+    bool                    HolesCW        = true;   // [-] - every hole ring runs CW seen from +Direction (or was normalised to)
+    bool                    HolesContained = true;   // [-] - every hole ring lies inside the outer ring
+    bool                    RingsSimple    = true;   // [-] - no ring self-intersects
+    bool                    HolesDisjoint  = true;   // [-] - no two hole rings overlap or nest
+    std::vector<int>         HoleWindingsCW;          // [-] - per hole ring: 1 = already CW from +Direction, 0 = inverted (needs reversal)
+    std::vector<std::string> Findings;                // [-] - one reader line per violation
+};
+
+// Audit Profile's rings against the sweep winding contract (outer CCW / holes CW seen from +Direction): each ring's winding by its Newell
+// normal, hole containment inside the outer ring, ring simplicity, and pairwise hole disjointness. Pure read — never mutates Profile. A
+// non-perpendicular or degenerate sweep direction yields a structurally unsound result. Run by ExtrudeProfileIntoBrep as its pre-flight gate.
+SweepProfileValidation ValidateSweepProfile(const SweepProfile& Profile, const BoundaryVector& Direction);
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                         PUBLIC FUNCTIONS
