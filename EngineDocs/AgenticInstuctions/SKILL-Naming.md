@@ -22,7 +22,7 @@ then gate. Never hand a naming problem back to the user; run these steps first.
 
    | Register | Words |
    |---|---|
-   | Contiguous memory | Footprint · Slot · Vacancy · Region · Store · Table · Reclamation · Atlas |
+   | Contiguous memory | Footprint · Slot · Vacancy · Region ·  · Table · Reclamation · Atlas |
    | Topology / geometry | Complex · Loop · Patch · Contour · Cycle · Boundary · Field · Sequence |
    | Math / analysis | Linearizer · Projection · Predicate · Evaluation · Interpolant · Solver |
    | Connectivity | Adjacency · Enclosure · Lateral · Tier · Nesting · Traversal |
@@ -74,53 +74,8 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
   `Inscription`; existing `…Inscription` files are deferred renames (see §2).
 
 > \*`Traversal` exempt only at `Topology/Selection/SelectionTraversal.{h,cpp}` (user direction).
-> †bare `Record` banned; composite `RecordEntry`/`RecordStore`/`RecordToken` (§4) is approved.
+> †bare `Record` banned; composite `RecordEntry``/`RecordToken` (§4) is approved.
 
----
-
-# 2. Approved Replacements
-
-| Banned | Approved replacement |
-|---|---|
-| `Core` | `Root`/`Origin`/`Index`/`Internal`. Foundation folder = `Root/`, coordinator = `RootSystem`. |
-| `system` (coordinator suffix) | `…Division` (`SceneDivision`, `RenderDivision`, `TopologyDivision`). |
-| `Commit` | `Finalize`/`Enforce`/`Align`/`Resolve`. |
-| `compose` | `Stack`/`Order` (`WindowStack`, `SubmissionOrder`). |
-| `mesh` | `PolygonComplex` (editable) / `PolygonSurface` (render) / `DisplayPolygons` (tessellated) / `PolygonLoop` (face-cycle). |
-| `harness` | `…Validation` (`TopologyValidation`) — `proof`/`Trial` both rejected. |
-| `shell` | `WorkspaceHost` (UI chrome). `SolidShell` (CAD B-rep) exempt; bare `Shell` barred. |
-| `popover` | `ContextMenu`. |
-| `Tween` | `EvaluateKeyedEase`/`EaseTable` (proposed; `glide` rejected). |
-| `Kind` | `.Category` field / `…Category` enum suffix / `RecordClassification` (`Role` rejected). |
-| `binding` | `InputMap`/`KeyAssignment` (proposed). |
-| `backend` | `…Substrate` (`InputSubstrate`); ingest act = `Decode…`/`Inspect…`. |
-| `Common`/`Util`/`Helper` | cross-subsystem → `MicroUtils/`; local shared code → a named file. |
-| `stage`/`Pass`, `Emission`/`Emit` | render-unit mechanism suffix — see table below. |
-| `Hierarchy` | `SceneDirectory` (owning tree), `Nesting`, `DepthTier`. |
-| `Entity`/`Element` | `RecordEntry`; store `RecordStore`; tag `RecordClassification`. |
-| `Designation` | `…Token` (`RecordToken`), via `TokenIssuer` + `TokenAuthentication`. |
-| `Subsystem` | `Extensions/<Name>/`, a `…Division` coordinator, or name it for what it does. |
-
-**Render-unit suffixes (choose by mechanism — NOT interchangeable):**
-
-| Suffix | Use when the unit… | Example |
-|---|---|---|
-| `…Rasterization` | rasterizes geometry into targets — the default draw unit AND overlays / decals / glyphs composited onto an existing target (both cases rasterize into the target) | `PlexusFieldRasterization` · `DecalTextRasterization` |
-| `…Submission` | records + submits a batched GPU workload | `ShadowBatchSubmission` |
-| `…Sequence` | is an ordered multi-step chain | `PostProcessSequence` |
-
-**Authorized-for-reuse nouns:** `Specification Format Profile Division` (short/plain; never bombastic).
-**Exemptions:** `SelectionTraversal` keeps `Traversal`; `SolidShell` keeps `Shell`;
-`CoordinateSystem`/`TransformSystem` keep `System` (math-frame noun, not the coordinator suffix).
-**Rejected (never use):** `proof`, `Trial`/`Trials`, `glide`, `Role`.
-**Deferred renames (user-owned code):** `PlexusFieldPass`→`PlexusFieldRasterization`,
-`GaussianBlurPass`→`GaussianBlurRasterization`, `DecalTextPass`→`DecalTextRasterization`,
-`LoginPillPass`→`LoginPillRasterization`; every shipped `…Inscription` (`…SurfaceInscription`,
-`GlyphInscription`, `ShadowTileTagInscription`, `RadianceResolveInscription`, …)→`…Rasterization`;
-editor `WorkspaceBakeStage` still pending. New code never uses `stage`/`Pass`/`Emission`/`Inscription`.
-**Workspace name (2026-07-07):** the B-rep/surfacing workspace is `DraftingWorkspace` (British
-`DraughtingWorkspace` an accepted alternative — note at class site). Not `Cad`/`CAD` (kernel folder
-`Authoring/Modeling/Cad/` keeps its name).
 
 ---
 
