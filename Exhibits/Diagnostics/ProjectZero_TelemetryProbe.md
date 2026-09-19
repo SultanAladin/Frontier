@@ -7,81 +7,81 @@ Development/debug-only probe (compiled out of ship builds). All records were hel
 | Event | At [ms] |
 |---|---:|
 | Boot | 0.000 |
-| StartupComplete | 110255.526 |
-| FirstFrameComplete | 110688.396 |
-| Shutdown | 447416.007 |
+| StartupComplete | 6329.295 |
+| FirstFrameComplete | 6383.619 |
+| Shutdown | 22968.544 |
 
 ## Startup Phases
 
 | Phase | Begin [ms] | End [ms] | Duration [ms] |
 |---|---:|---:|---:|
-| SceneDecode | 40.636 | 643.525 | 602.889 |
-| TextureDecode | 643.526 | 1724.635 | 1081.109 |
-| CwbvhBuild | 1758.221 | 3165.817 | 1407.596 |
-| VulkanBringUp | 3167.114 | 103257.052 | 100089.937 |
-| ShadingTableBake | 103258.159 | 104515.321 | 1257.163 |
-| SceneUpload | 104515.334 | 104685.331 | 169.997 |
-| InterfaceBringUp | 110000.826 | 110255.524 | 254.698 |
+| SceneDecode | 9.206 | 569.407 | 560.201 |
+| TextureDecode | 569.408 | 1475.243 | 905.835 |
+| CwbvhBuild | 1505.041 | 2194.914 | 689.873 |
+| VulkanBringUp | 2195.975 | 4740.243 | 2544.268 |
+| ShadingTableBake | 4740.721 | 5543.541 | 802.820 |
+| SceneUpload | 5543.547 | 5678.484 | 134.937 |
+| InterfaceBringUp | 6215.215 | 6329.293 | 114.079 |
 
 ## Shader Loads and Bring-up Stages
 
 | Kind | Name | At [ms] | Duration [ms] |
 |---|---|---:|---:|
-| Stage | BringInstance | 3751.315 | 165.549 |
-| Stage | BringSurface | 3751.382 | 0.064 |
-| Stage | BringPhysicalDevice | 3756.012 | 4.627 |
-| Stage | BringLogicalDevice | 3938.293 | 182.276 |
-| Stage | BringSwapchain | 6390.572 | 2452.271 |
-| Stage | BringStorageImage | 6434.338 | 43.759 |
-| Stage | BringCommandRecording | 6434.969 | 0.623 |
-| Shader | Engine/Shaders/ReSTIRViewport.spv | 6484.191 | 43.510 |
-| Stage | BringComputePipeline | 102438.906 | 96003.932 |
-| Shader | Engine/Shaders/AtrousDenoise.spv | 102525.620 | 41.941 |
-| Stage | BringDenoisePipeline | 102557.429 | 118.515 |
-| Shader | Engine/Shaders/LuminanceReduce.spv | 102631.825 | 24.443 |
-| Stage | BringLuminanceReduction | 102661.346 | 103.912 |
-| Stage | BringSkyRecord | 102661.903 | 0.552 |
-| Stage | BringMoonRecord | 102662.242 | 0.336 |
-| Stage | BringPostRecord | 102662.581 | 0.337 |
-| Stage | BringStarTables | 102662.943 | 0.360 |
-| Stage | BringDescriptorSet | 102663.342 | 0.395 |
-| Stage | BringCycleSlots | 102683.330 | 19.982 |
-| Stage | BringImGui | 102844.687 | 161.353 |
-| Shader | Engine/Shaders/ClusterCull.spv | 102888.283 | 39.673 |
-| Shader | Engine/Shaders/HiZReduce.spv | 102930.462 | 24.712 |
-| Shader | Engine/Shaders/SurfaceResolve.spv | 102954.727 | 22.326 |
-| Shader | Engine/Shaders/VisibilityRaster.vert.spv | 102975.435 | 20.083 |
-| Shader | Engine/Shaders/VisibilityRaster.frag.spv | 102991.097 | 15.658 |
-| Shader | Engine/Shaders/ShadowRaster.vert.spv | 103023.676 | 31.031 |
-| Shader | Engine/Shaders/ShadowRaster.frag.spv | 103099.952 | 76.269 |
-| Shader | Engine/Shaders/ShadowResolve.spv | 103200.769 | 96.795 |
-| Stage | BringVisibility | 103256.904 | 412.212 |
-| Shader | Engine/Shaders/InterfaceRaster.vert.spv | 110056.652 | 42.092 |
-| Shader | Engine/Shaders/InterfaceRaster.frag.spv | 110092.076 | 35.416 |
+| Stage | BringInstance | 3596.868 | 1155.137 |
+| Stage | BringSurface | 3596.944 | 0.073 |
+| Stage | BringPhysicalDevice | 3601.933 | 4.986 |
+| Stage | BringLogicalDevice | 3835.955 | 234.018 |
+| Stage | BringSwapchain | 4583.967 | 748.007 |
+| Stage | BringStorageImage | 4602.718 | 18.746 |
+| Stage | BringCommandRecording | 4603.007 | 0.284 |
+| Shader | Engine/Shaders/ReSTIRViewport.spv | 4616.446 | 11.568 |
+| Stage | BringComputePipeline | 4650.729 | 47.718 |
+| Shader | Engine/Shaders/AtrousDenoise.spv | 4662.167 | 10.373 |
+| Stage | BringDenoisePipeline | 4663.165 | 12.430 |
+| Shader | Engine/Shaders/LuminanceReduce.spv | 4666.266 | 1.840 |
+| Stage | BringLuminanceReduction | 4666.744 | 3.577 |
+| Stage | BringSkyRecord | 4667.177 | 0.429 |
+| Stage | BringMoonRecord | 4667.509 | 0.330 |
+| Stage | BringPostRecord | 4667.816 | 0.306 |
+| Stage | BringStarTables | 4668.099 | 0.280 |
+| Stage | BringDescriptorSet | 4668.364 | 0.263 |
+| Stage | BringCycleSlots | 4668.459 | 0.091 |
+| Stage | BringImGui | 4671.003 | 2.543 |
+| Shader | Engine/Shaders/ClusterCull.spv | 4687.739 | 14.000 |
+| Shader | Engine/Shaders/HiZReduce.spv | 4691.445 | 2.238 |
+| Shader | Engine/Shaders/SurfaceResolve.spv | 4709.660 | 17.567 |
+| Shader | Engine/Shaders/VisibilityRaster.vert.spv | 4712.311 | 2.030 |
+| Shader | Engine/Shaders/VisibilityRaster.frag.spv | 4714.414 | 2.100 |
+| Shader | Engine/Shaders/ShadowRaster.vert.spv | 4718.186 | 2.395 |
+| Shader | Engine/Shaders/ShadowRaster.frag.spv | 4720.714 | 2.524 |
+| Shader | Engine/Shaders/ShadowResolve.spv | 4732.919 | 11.550 |
+| Stage | BringVisibility | 4740.150 | 69.144 |
+| Shader | Engine/Shaders/InterfaceRaster.vert.spv | 6220.886 | 3.641 |
+| Shader | Engine/Shaders/InterfaceRaster.frag.spv | 6237.685 | 16.793 |
 
 ## Frames
 
-10329 frames recorded. Full per-frame rows: ProjectZero_TelemetryProbe_Frames.csv
+146 frames recorded. Full per-frame rows: ProjectZero_TelemetryProbe_Frames.csv
 
 | Column | Mean [ms] | Peak [ms] |
 |---|---:|---:|
-| Frame Δτ | 31.7990 | 100.0000 |
-| CPU InputAndUi | 0.4261 | 205.4924 |
-| CPU CelestialTick | 0.0192 | 3.4885 |
-| CPU EditorAndPanels | 3.0930 | 144.9689 |
-| CPU SimulationAndInterface | 0.0710 | 21.0047 |
-| CPU ScenePush | 0.0124 | 0.4274 |
-| CPU RecordAndPresent | 28.5043 | 316.4254 |
-| CPU FrameCapWait | 0.0019 | 0.2451 |
-| GPU Cull | 0.0851 | 0.3494 |
-| GPU Raster | 7.1083 | 26.6473 |
-| GPU HiZ | 0.0361 | 0.4917 |
-| GPU Resolve | 0.6447 | 4.3481 |
-| GPU Kernel | 22.3324 | 80.5675 |
+| Frame Δτ | 82.2400 | 100.0000 |
+| CPU InputAndUi | 1.0008 | 69.7685 |
+| CPU CelestialTick | 0.0184 | 0.0561 |
+| CPU EditorAndPanels | 2.8940 | 22.2007 |
+| CPU SimulationAndInterface | 0.0746 | 0.1610 |
+| CPU ScenePush | 0.0132 | 0.0569 |
+| CPU RecordAndPresent | 108.8039 | 277.0937 |
+| CPU FrameCapWait | 0.0021 | 0.0348 |
+| GPU Cull | 0.0913 | 0.2104 |
+| GPU Raster | 7.2839 | 12.9397 |
+| GPU HiZ | 0.0863 | 0.3306 |
+| GPU Resolve | 1.5826 | 3.1643 |
+| GPU Kernel | 101.0101 | 131.4042 |
 | GPU Shadow | 0.0000 | 0.0000 |
-| GPU ReSTIR | 22.3324 | 80.5675 |
-| GPU Post | 0.4429 | 1.7063 |
+| GPU ReSTIR | 101.0101 | 131.4042 |
+| GPU Post | 2.7804 | 3.9701 |
 | GPU Sky | 0.0000 | 0.0000 |
 | GPU Volume | 0.0000 | 0.0000 |
 
-10327 of 10329 frames carried valid device timestamps.
+144 of 146 frames carried valid device timestamps.
