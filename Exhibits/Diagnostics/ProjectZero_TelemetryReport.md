@@ -2,706 +2,821 @@
 
 | Timestamp | Severity | Category | Record Description |
 |:---|:---:|:---|:---|
-| 2026-09-19 22:05:52.708 | INFO | Bootstrap | Project-Zero windowed ReSTIR renderer starting. |
-| 2026-09-19 22:05:53.387 | INFO | Scene | Showcase: 229506 triangles, 499 instances, 2045 clusters, 241 materials, 3368 luminaires, bounds [-40.00 -40.00 0.00]..[40.00 40.00 6.00] m |
-| 2026-09-19 22:05:54.417 | INFO | Textures | Textures: 6 resident (0 placeholder), 64.0 MB with mips, decoded in 1029 ms |
-| 2026-09-19 22:05:54.417 | INFO | Materials | Materials: 241 descriptors -> 241 records, 241 slabs (limit 1, 0 folded), 499 placements, 0 cameras, 0 punctual lights |
-| 2026-09-19 22:05:54.453 | INFO | Interface | Panel light Low: rgb (0.000 0.008 0.042) from 4 figures, 5% coverage, 3370 luminaires now. |
-| 2026-09-19 22:05:55.389 | INFO | Traversal | CWBVH: 229508 triangles → 39627 nodes, 3095.9 KB nodes + 16137.3 KB leaves (85.8 B/tri), SAH 13.84, built in 932.9 ms (spatial splits) |
-| 2026-09-19 22:08:01.751 | INFO | Bootstrap | Window and Vulkan swapchain ready. |
-| 2026-09-19 22:08:03.861 | INFO | Traversal | Two-level: 500 instances -> 500 BLASes over 229508 triangles, top level 598 nodes, shared blobs 2631.4 KB + 10758.2 KB, built in 603.9 ms |
-| 2026-09-19 22:08:03.912 | INFO | Moons | 6 textures resident, moon slots 0..5. |
-| 2026-09-19 22:08:03.914 | INFO | Stars | 9683 stars in 1024 cells uploaded to binding 23. |
-| 2026-09-19 22:08:05.312 | INFO | Bootstrap | Entering render loop. |
-| 2026-09-19 22:08:05.404 | INFO | Interface | Director ready: TAB switches screens. The card carries 2 converted vector segments. |
-| 2026-09-19 22:08:05.783 | INFO | Audio | Panel bound to audio: drag the progress bar to change the engine note. |
-| 2026-09-19 22:08:05.784 | INFO | Interface | Spatial interface ready: 14 figures, depth test off. |
-| 2026-09-19 22:08:05.816 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 7 taps. |
-| 2026-09-19 22:08:17.877 | INFO | Performance | CPU 75.84 ms/frame (13.2 fps, worst 100.00 ms over 66 frames), RSS 822 MiB |
-| 2026-09-19 22:08:17.879 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 75.8438 [ms] |
-| 2026-09-19 22:08:17.881 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:08:17.887 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 13.185 [fps] |
-| 2026-09-19 22:08:17.888 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 66 [count] |
-| 2026-09-19 22:08:17.891 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 821.809 [MiB] |
-| 2026-09-19 22:08:17.893 | INFO | GpuTiming | GPU 158.47 ms total | cull 0.08 · raster 8.48 · HiZ 0.08 · resolve 1.88 · ReSTIR 147.94 · shadow 0.00 · post 3.68 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:08:17.898 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 158.472 [ms] |
-| 2026-09-19 22:08:17.904 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.08336 [ms] |
-| 2026-09-19 22:08:17.908 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.48256 [ms] |
-| 2026-09-19 22:08:17.910 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.084544 [ms] |
-| 2026-09-19 22:08:17.913 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.87773 [ms] |
-| 2026-09-19 22:08:17.914 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 147.943 [ms] |
-| 2026-09-19 22:08:17.920 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:08:17.923 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 3.67699 [ms] |
-| 2026-09-19 22:08:17.926 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:08:17.927 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:08:17.932 | INFO | Visibility | Clusters 2046 tested -> 1996 frustum, 1996 cone, 1996 visible | draws 1996+0, 224480 triangles |
-| 2026-09-19 22:08:17.941 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:08:17.944 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1996 [count] |
-| 2026-09-19 22:08:17.946 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1996 [count] |
-| 2026-09-19 22:08:17.948 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1996 [count] |
-| 2026-09-19 22:08:17.953 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 224480 [count] |
-| 2026-09-19 22:08:17.956 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1996 [count] |
-| 2026-09-19 22:08:17.958 | INFO | Performance | GPU-BOUND | 922 kpx x (8 candidates + 3 extra + 3 spatial taps), 5 denoise levels, present FIFO | kernel 93% of GPU frame |
-| 2026-09-19 22:08:17.967 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
-| 2026-09-19 22:08:17.974 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 8 [count] |
-| 2026-09-19 22:08:17.977 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 3 [count] |
-| 2026-09-19 22:08:17.981 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 3 [count] |
-| 2026-09-19 22:08:17.984 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 5 [count] |
-| 2026-09-19 22:08:17.987 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:08:17.988 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 93.3564 [percent] |
-| 2026-09-19 22:08:29.474 | INFO | Performance | CPU 76.74 ms/frame (13.0 fps, worst 100.00 ms over 66 frames), RSS 946 MiB |
-| 2026-09-19 22:08:29.475 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 76.7389 [ms] |
-| 2026-09-19 22:08:29.478 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:08:29.479 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 13.0063 [fps] |
-| 2026-09-19 22:08:29.480 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 66 [count] |
-| 2026-09-19 22:08:29.481 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 945.785 [MiB] |
-| 2026-09-19 22:08:29.483 | INFO | GpuTiming | GPU 157.75 ms total | cull 0.09 · raster 8.99 · HiZ 0.09 · resolve 1.72 · ReSTIR 146.85 · shadow 0.00 · post 3.51 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:08:29.487 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 157.748 [ms] |
-| 2026-09-19 22:08:29.492 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.093504 [ms] |
-| 2026-09-19 22:08:29.495 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.99446 [ms] |
-| 2026-09-19 22:08:29.496 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.088096 [ms] |
-| 2026-09-19 22:08:29.498 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.71827 [ms] |
-| 2026-09-19 22:08:29.501 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 146.854 [ms] |
-| 2026-09-19 22:08:29.502 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:08:29.507 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 3.51205 [ms] |
-| 2026-09-19 22:08:29.510 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:08:29.512 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:08:29.514 | INFO | Visibility | Clusters 2046 tested -> 1972 frustum, 1972 cone, 1972 visible | draws 1972+0, 221682 triangles |
-| 2026-09-19 22:08:29.516 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:08:29.519 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1972 [count] |
-| 2026-09-19 22:08:29.523 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1972 [count] |
-| 2026-09-19 22:08:29.529 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1972 [count] |
-| 2026-09-19 22:08:29.530 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 221682 [count] |
-| 2026-09-19 22:08:29.534 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1972 [count] |
-| 2026-09-19 22:08:29.538 | INFO | Performance | GPU-BOUND | 963 kpx x (8 candidates + 3 extra + 3 spatial taps), 5 denoise levels, present FIFO | kernel 93% of GPU frame |
-| 2026-09-19 22:08:29.543 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:08:29.544 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 8 [count] |
-| 2026-09-19 22:08:29.550 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 3 [count] |
-| 2026-09-19 22:08:29.554 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 3 [count] |
-| 2026-09-19 22:08:29.556 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 5 [count] |
-| 2026-09-19 22:08:29.559 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:08:29.561 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 93.0938 [percent] |
-| 2026-09-19 22:08:37.949 | INFO | Performance | CPU 82.11 ms/frame (12.5 fps, worst 100.00 ms over 61 frames), RSS 969 MiB |
-| 2026-09-19 22:08:37.951 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 82.1078 [ms] |
-| 2026-09-19 22:08:37.953 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:08:37.954 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 12.5222 [fps] |
-| 2026-09-19 22:08:37.956 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 61 [count] |
-| 2026-09-19 22:08:37.958 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 969.125 [MiB] |
-| 2026-09-19 22:08:37.960 | INFO | GpuTiming | GPU 169.70 ms total | cull 0.08 · raster 7.29 · HiZ 0.09 · resolve 1.25 · ReSTIR 160.98 · shadow 0.00 · post 3.54 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:08:37.962 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 169.696 [ms] |
-| 2026-09-19 22:08:37.964 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.083168 [ms] |
-| 2026-09-19 22:08:37.966 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.2872 [ms] |
-| 2026-09-19 22:08:37.968 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.08912 [ms] |
-| 2026-09-19 22:08:37.969 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.25341 [ms] |
-| 2026-09-19 22:08:37.971 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 160.983 [ms] |
-| 2026-09-19 22:08:37.978 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:08:37.980 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 3.5365 [ms] |
-| 2026-09-19 22:08:37.982 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:08:37.983 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:08:37.985 | INFO | Visibility | Clusters 2046 tested -> 1633 frustum, 1633 cone, 1633 visible | draws 1539+94, 183102 triangles |
-| 2026-09-19 22:08:37.987 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:08:37.993 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1633 [count] |
-| 2026-09-19 22:08:37.996 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1633 [count] |
-| 2026-09-19 22:08:37.998 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1633 [count] |
-| 2026-09-19 22:08:37.999 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 183102 [count] |
-| 2026-09-19 22:08:38.001 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1633 [count] |
-| 2026-09-19 22:08:38.007 | INFO | Performance | GPU-BOUND | 963 kpx x (8 candidates + 3 extra + 3 spatial taps), 5 denoise levels, present FIFO | kernel 95% of GPU frame |
-| 2026-09-19 22:08:38.012 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:08:38.014 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 8 [count] |
-| 2026-09-19 22:08:38.016 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 3 [count] |
-| 2026-09-19 22:08:38.024 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 3 [count] |
-| 2026-09-19 22:08:38.026 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 5 [count] |
-| 2026-09-19 22:08:38.031 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:08:38.032 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 94.8656 [percent] |
-| 2026-09-19 22:08:52.152 | INFO | Performance | CPU 82.26 ms/frame (12.1 fps, worst 100.00 ms over 62 frames), RSS 790 MiB |
-| 2026-09-19 22:08:52.154 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 82.2554 [ms] |
-| 2026-09-19 22:08:52.157 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:08:52.160 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 12.1193 [fps] |
-| 2026-09-19 22:08:52.161 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 62 [count] |
-| 2026-09-19 22:08:52.163 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 790.402 [MiB] |
-| 2026-09-19 22:08:52.165 | INFO | GpuTiming | GPU 294.85 ms total | cull 0.08 · raster 6.38 · HiZ 0.09 · resolve 1.99 · ReSTIR 286.31 · shadow 0.00 · post 2.55 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:08:52.168 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 294.852 [ms] |
-| 2026-09-19 22:08:52.169 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.078144 [ms] |
-| 2026-09-19 22:08:52.171 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 6.37891 [ms] |
-| 2026-09-19 22:08:52.176 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.09152 [ms] |
-| 2026-09-19 22:08:52.179 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.99475 [ms] |
-| 2026-09-19 22:08:52.181 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 286.309 [ms] |
-| 2026-09-19 22:08:52.182 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:08:52.185 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 2.55478 [ms] |
-| 2026-09-19 22:08:52.186 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:08:52.191 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:08:52.192 | INFO | Visibility | Clusters 2046 tested -> 1624 frustum, 1624 cone, 1616 visible | draws 1616+0, 182502 triangles |
-| 2026-09-19 22:08:52.196 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:08:52.198 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1624 [count] |
-| 2026-09-19 22:08:52.200 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1624 [count] |
-| 2026-09-19 22:08:52.201 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1616 [count] |
-| 2026-09-19 22:08:52.206 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 182502 [count] |
-| 2026-09-19 22:08:52.209 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1616 [count] |
-| 2026-09-19 22:08:52.210 | INFO | Performance | GPU-BOUND | 963 kpx x (8 candidates + 3 extra + 3 spatial taps), 5 denoise levels, present FIFO | kernel 97% of GPU frame |
-| 2026-09-19 22:08:52.214 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:08:52.217 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 8 [count] |
-| 2026-09-19 22:08:52.218 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 3 [count] |
-| 2026-09-19 22:08:52.221 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 3 [count] |
-| 2026-09-19 22:08:52.226 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 5 [count] |
-| 2026-09-19 22:08:52.227 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:08:52.229 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 97.1025 [percent] |
-| 2026-09-19 22:08:56.056 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 9 taps. |
-| 2026-09-19 22:08:57.761 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 9 taps. |
-| 2026-09-19 22:09:11.094 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 9 taps. |
-| 2026-09-19 22:09:11.757 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 9 taps. |
-| 2026-09-19 22:09:12.132 | INFO | Performance | CPU 77.13 ms/frame (12.5 fps, worst 100.00 ms over 65 frames), RSS 837 MiB |
-| 2026-09-19 22:09:12.134 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 77.1306 [ms] |
-| 2026-09-19 22:09:12.136 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:12.137 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 12.5001 [fps] |
-| 2026-09-19 22:09:12.139 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 65 [count] |
-| 2026-09-19 22:09:12.141 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 836.742 [MiB] |
-| 2026-09-19 22:09:12.145 | INFO | GpuTiming | GPU 69.56 ms total | cull 0.09 · raster 7.66 · HiZ 0.04 · resolve 1.34 · ReSTIR 60.44 · shadow 0.00 · post 0.92 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:12.150 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 69.5617 [ms] |
-| 2026-09-19 22:09:12.151 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.085856 [ms] |
-| 2026-09-19 22:09:12.155 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.66323 [ms] |
-| 2026-09-19 22:09:12.159 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038944 [ms] |
-| 2026-09-19 22:09:12.163 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.3353 [ms] |
-| 2026-09-19 22:09:12.164 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 60.4383 [ms] |
-| 2026-09-19 22:09:12.167 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:12.168 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.918945 [ms] |
-| 2026-09-19 22:09:12.171 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:12.175 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:12.177 | INFO | Visibility | Clusters 2046 tested -> 1624 frustum, 1624 cone, 1615 visible | draws 1615+0, 182374 triangles |
-| 2026-09-19 22:09:12.181 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:12.182 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1624 [count] |
-| 2026-09-19 22:09:12.185 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1624 [count] |
-| 2026-09-19 22:09:12.187 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1615 [count] |
-| 2026-09-19 22:09:12.191 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 182374 [count] |
-| 2026-09-19 22:09:12.193 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1615 [count] |
-| 2026-09-19 22:09:12.196 | INFO | Performance | GPU-BOUND | 963 kpx x (16 candidates + 4 extra + 4 spatial taps), 5 denoise levels, present FIFO | kernel 87% of GPU frame |
-| 2026-09-19 22:09:12.200 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:12.201 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 16 [count] |
-| 2026-09-19 22:09:12.207 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 4 [count] |
-| 2026-09-19 22:09:12.209 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 4 [count] |
-| 2026-09-19 22:09:12.212 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 5 [count] |
-| 2026-09-19 22:09:12.213 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:12.218 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 86.8846 [percent] |
-| 2026-09-19 22:09:12.443 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: PCSS @ 1024 px, 9 taps. |
-| 2026-09-19 22:09:13.891 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:09:14.435 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:09:17.790 | INFO | Performance | CPU 61.33 ms/frame (15.0 fps, worst 100.00 ms over 82 frames), RSS 915 MiB |
-| 2026-09-19 22:09:17.792 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 61.3312 [ms] |
-| 2026-09-19 22:09:17.794 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:17.796 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 15.0321 [fps] |
-| 2026-09-19 22:09:17.798 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 82 [count] |
-| 2026-09-19 22:09:17.800 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 914.988 [MiB] |
-| 2026-09-19 22:09:17.802 | INFO | GpuTiming | GPU 59.63 ms total | cull 0.10 · raster 8.29 · HiZ 0.04 · resolve 1.37 · ReSTIR 49.84 · shadow 0.00 · post 0.59 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:17.805 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 59.6263 [ms] |
-| 2026-09-19 22:09:17.807 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.096832 [ms] |
-| 2026-09-19 22:09:17.809 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.28643 [ms] |
-| 2026-09-19 22:09:17.810 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.040224 [ms] |
-| 2026-09-19 22:09:17.815 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.36602 [ms] |
-| 2026-09-19 22:09:17.818 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 49.8368 [ms] |
-| 2026-09-19 22:09:17.820 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:17.821 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.591133 [ms] |
-| 2026-09-19 22:09:17.824 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:17.825 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:17.829 | INFO | Visibility | Clusters 2046 tested -> 1624 frustum, 1624 cone, 1615 visible | draws 1615+0, 182374 triangles |
-| 2026-09-19 22:09:17.833 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:17.834 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1624 [count] |
-| 2026-09-19 22:09:17.836 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1624 [count] |
-| 2026-09-19 22:09:17.838 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1615 [count] |
-| 2026-09-19 22:09:17.840 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 182374 [count] |
-| 2026-09-19 22:09:17.841 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1615 [count] |
-| 2026-09-19 22:09:17.846 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 84% of GPU frame |
-| 2026-09-19 22:09:17.852 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:17.854 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:17.855 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:17.858 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:17.862 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:17.866 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:17.869 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 83.5819 [percent] |
-| 2026-09-19 22:09:23.397 | INFO | Performance | CPU 61.19 ms/frame (16.7 fps, worst 100.00 ms over 83 frames), RSS 942 MiB |
-| 2026-09-19 22:09:23.403 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 61.1926 [ms] |
-| 2026-09-19 22:09:23.404 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:23.406 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 16.667 [fps] |
-| 2026-09-19 22:09:23.409 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 83 [count] |
-| 2026-09-19 22:09:23.411 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 942.305 [MiB] |
-| 2026-09-19 22:09:23.413 | INFO | GpuTiming | GPU 65.35 ms total | cull 0.08 · raster 8.34 · HiZ 0.04 · resolve 1.18 · ReSTIR 55.72 · shadow 0.00 · post 0.58 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:23.420 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 65.3526 [ms] |
-| 2026-09-19 22:09:23.425 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.079008 [ms] |
-| 2026-09-19 22:09:23.429 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.33715 [ms] |
-| 2026-09-19 22:09:23.431 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038912 [ms] |
-| 2026-09-19 22:09:23.436 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.18166 [ms] |
-| 2026-09-19 22:09:23.438 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 55.7158 [ms] |
-| 2026-09-19 22:09:23.440 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:23.442 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.583073 [ms] |
-| 2026-09-19 22:09:23.444 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:23.445 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:23.447 | INFO | Visibility | Clusters 2046 tested -> 1624 frustum, 1624 cone, 1615 visible | draws 1615+0, 182374 triangles |
-| 2026-09-19 22:09:23.455 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:23.458 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1624 [count] |
-| 2026-09-19 22:09:23.459 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1624 [count] |
-| 2026-09-19 22:09:23.462 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1615 [count] |
-| 2026-09-19 22:09:23.463 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 182374 [count] |
-| 2026-09-19 22:09:23.475 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1615 [count] |
-| 2026-09-19 22:09:23.478 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 85% of GPU frame |
-| 2026-09-19 22:09:23.481 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:23.486 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:23.489 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:23.490 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:23.492 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:23.495 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:23.506 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 85.2542 [percent] |
-| 2026-09-19 22:09:28.650 | INFO | Performance | CPU 57.47 ms/frame (16.9 fps, worst 100.00 ms over 87 frames), RSS 969 MiB |
-| 2026-09-19 22:09:28.652 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 57.473 [ms] |
-| 2026-09-19 22:09:28.655 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:28.656 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 16.9226 [fps] |
-| 2026-09-19 22:09:28.658 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 87 [count] |
-| 2026-09-19 22:09:28.660 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 968.98 [MiB] |
-| 2026-09-19 22:09:28.661 | INFO | GpuTiming | GPU 45.16 ms total | cull 0.07 · raster 3.43 · HiZ 0.04 · resolve 0.36 · ReSTIR 41.26 · shadow 0.00 · post 0.78 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:28.664 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 45.1641 [ms] |
-| 2026-09-19 22:09:28.667 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.07168 [ms] |
-| 2026-09-19 22:09:28.673 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 3.43485 [ms] |
-| 2026-09-19 22:09:28.675 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038912 [ms] |
-| 2026-09-19 22:09:28.677 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.356352 [ms] |
-| 2026-09-19 22:09:28.679 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 41.2623 [ms] |
-| 2026-09-19 22:09:28.680 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:28.682 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.781055 [ms] |
-| 2026-09-19 22:09:28.686 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:28.689 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:28.693 | INFO | Visibility | Clusters 2046 tested -> 816 frustum, 816 cone, 816 visible | draws 816+0, 91750 triangles |
-| 2026-09-19 22:09:28.694 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:28.696 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 816 [count] |
-| 2026-09-19 22:09:28.698 | INFO | TelemetryMetrics | Measurement: ClustersCone = 816 [count] |
-| 2026-09-19 22:09:28.704 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 816 [count] |
-| 2026-09-19 22:09:28.706 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 91750 [count] |
-| 2026-09-19 22:09:28.708 | INFO | TelemetryMetrics | Measurement: DrawCalls = 816 [count] |
-| 2026-09-19 22:09:28.710 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 91% of GPU frame |
-| 2026-09-19 22:09:28.712 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:28.717 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:28.719 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:28.722 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:28.724 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:28.726 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
-| 2026-09-19 22:09:28.727 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 91.3609 [percent] |
-| 2026-09-19 22:09:33.897 | INFO | Performance | CPU 46.36 ms/frame (21.3 fps, worst 100.00 ms over 109 frames), RSS 969 MiB |
-| 2026-09-19 22:09:33.900 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 46.3621 [ms] |
-| 2026-09-19 22:09:33.907 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:33.911 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 21.3272 [fps] |
-| 2026-09-19 22:09:33.912 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 109 [count] |
-| 2026-09-19 22:09:33.915 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 969.367 [MiB] |
-| 2026-09-19 22:09:33.928 | INFO | GpuTiming | GPU 56.47 ms total | cull 0.08 · raster 7.92 · HiZ 0.04 · resolve 0.93 · ReSTIR 47.49 · shadow 0.00 · post 0.66 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:33.932 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 56.4694 [ms] |
-| 2026-09-19 22:09:33.935 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.081664 [ms] |
-| 2026-09-19 22:09:33.938 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.92006 [ms] |
-| 2026-09-19 22:09:33.941 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038912 [ms] |
-| 2026-09-19 22:09:33.944 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.934016 [ms] |
-| 2026-09-19 22:09:33.947 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 47.4947 [ms] |
-| 2026-09-19 22:09:33.960 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:33.973 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.660065 [ms] |
-| 2026-09-19 22:09:33.975 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:33.984 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:33.985 | INFO | Visibility | Clusters 2046 tested -> 1862 frustum, 1862 cone, 1825 visible | draws 1825+0, 205682 triangles |
-| 2026-09-19 22:09:33.991 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:33.993 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1862 [count] |
-| 2026-09-19 22:09:34.000 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1862 [count] |
-| 2026-09-19 22:09:34.002 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1825 [count] |
-| 2026-09-19 22:09:34.012 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 205682 [count] |
-| 2026-09-19 22:09:34.015 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1825 [count] |
-| 2026-09-19 22:09:34.018 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 84% of GPU frame |
-| 2026-09-19 22:09:34.027 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:34.031 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:34.034 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:34.036 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:34.047 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:34.050 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:34.052 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 84.107 [percent] |
-| 2026-09-19 22:09:39.149 | INFO | Performance | CPU 54.61 ms/frame (18.6 fps, worst 100.00 ms over 92 frames), RSS 1115 MiB |
-| 2026-09-19 22:09:39.151 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 54.6121 [ms] |
-| 2026-09-19 22:09:39.153 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:39.155 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 18.5591 [fps] |
-| 2026-09-19 22:09:39.159 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 92 [count] |
-| 2026-09-19 22:09:39.161 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 1114.79 [MiB] |
-| 2026-09-19 22:09:39.165 | INFO | GpuTiming | GPU 54.27 ms total | cull 0.09 · raster 8.99 · HiZ 0.04 · resolve 1.23 · ReSTIR 43.92 · shadow 0.00 · post 0.47 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:39.168 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 54.2717 [ms] |
-| 2026-09-19 22:09:39.170 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.0864 [ms] |
-| 2026-09-19 22:09:39.178 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.99408 [ms] |
-| 2026-09-19 22:09:39.179 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.039808 [ms] |
-| 2026-09-19 22:09:39.181 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.23146 [ms] |
-| 2026-09-19 22:09:39.184 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 43.9199 [ms] |
-| 2026-09-19 22:09:39.185 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:39.222 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.472736 [ms] |
-| 2026-09-19 22:09:39.233 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:39.255 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:39.263 | INFO | Visibility | Clusters 2046 tested -> 1862 frustum, 1862 cone, 1825 visible | draws 1825+0, 205682 triangles |
-| 2026-09-19 22:09:39.268 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:39.271 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1862 [count] |
-| 2026-09-19 22:09:39.273 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1862 [count] |
-| 2026-09-19 22:09:39.278 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1825 [count] |
-| 2026-09-19 22:09:39.283 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 205682 [count] |
-| 2026-09-19 22:09:39.286 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1825 [count] |
-| 2026-09-19 22:09:39.288 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 81% of GPU frame |
-| 2026-09-19 22:09:39.295 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:39.301 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:39.303 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:39.305 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:39.309 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:39.313 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:39.315 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 80.9261 [percent] |
-| 2026-09-19 22:09:44.283 | INFO | Performance | CPU 48.27 ms/frame (20.0 fps, worst 100.00 ms over 104 frames), RSS 1116 MiB |
-| 2026-09-19 22:09:44.284 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 48.2691 [ms] |
-| 2026-09-19 22:09:44.286 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:44.288 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 20.0092 [fps] |
-| 2026-09-19 22:09:44.290 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 104 [count] |
-| 2026-09-19 22:09:44.294 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 1115.76 [MiB] |
-| 2026-09-19 22:09:44.295 | INFO | GpuTiming | GPU 45.53 ms total | cull 0.09 · raster 7.90 · HiZ 0.04 · resolve 0.98 · ReSTIR 36.53 · shadow 0.00 · post 0.46 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:44.297 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 45.5346 [ms] |
-| 2026-09-19 22:09:44.300 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.08544 [ms] |
-| 2026-09-19 22:09:44.301 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.89718 [ms] |
-| 2026-09-19 22:09:44.303 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.039072 [ms] |
-| 2026-09-19 22:09:44.305 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.983136 [ms] |
-| 2026-09-19 22:09:44.310 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 36.5297 [ms] |
-| 2026-09-19 22:09:44.312 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:44.315 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.458241 [ms] |
-| 2026-09-19 22:09:44.316 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:44.319 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:44.320 | INFO | Visibility | Clusters 2046 tested -> 1862 frustum, 1862 cone, 1825 visible | draws 1825+0, 205682 triangles |
-| 2026-09-19 22:09:44.324 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:44.327 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1862 [count] |
-| 2026-09-19 22:09:44.329 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1862 [count] |
-| 2026-09-19 22:09:44.331 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1825 [count] |
-| 2026-09-19 22:09:44.333 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 205682 [count] |
-| 2026-09-19 22:09:44.335 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1825 [count] |
-| 2026-09-19 22:09:44.337 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 80% of GPU frame |
-| 2026-09-19 22:09:44.343 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:44.345 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:44.348 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:44.350 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:44.351 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:44.353 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:44.357 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 80.2242 [percent] |
-| 2026-09-19 22:09:49.399 | INFO | Performance | CPU 42.45 ms/frame (23.5 fps, worst 100.00 ms over 119 frames), RSS 750 MiB |
-| 2026-09-19 22:09:49.401 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 42.4486 [ms] |
-| 2026-09-19 22:09:49.403 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:49.405 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 23.5449 [fps] |
-| 2026-09-19 22:09:49.407 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 119 [count] |
-| 2026-09-19 22:09:49.408 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 750.234 [MiB] |
-| 2026-09-19 22:09:49.414 | INFO | GpuTiming | GPU 51.22 ms total | cull 0.07 · raster 6.04 · HiZ 0.04 · resolve 0.90 · ReSTIR 44.17 · shadow 0.00 · post 0.62 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:49.419 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 51.2196 [ms] |
-| 2026-09-19 22:09:49.420 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.074432 [ms] |
-| 2026-09-19 22:09:49.424 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 6.03789 [ms] |
-| 2026-09-19 22:09:49.426 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038784 [ms] |
-| 2026-09-19 22:09:49.430 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.902144 [ms] |
-| 2026-09-19 22:09:49.432 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 44.1663 [ms] |
-| 2026-09-19 22:09:49.435 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:49.436 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.621887 [ms] |
-| 2026-09-19 22:09:49.439 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:49.440 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:49.446 | INFO | Visibility | Clusters 2046 tested -> 1424 frustum, 1424 cone, 1424 visible | draws 1424+0, 160254 triangles |
-| 2026-09-19 22:09:49.448 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:49.451 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1424 [count] |
-| 2026-09-19 22:09:49.452 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1424 [count] |
-| 2026-09-19 22:09:49.455 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1424 [count] |
-| 2026-09-19 22:09:49.456 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 160254 [count] |
-| 2026-09-19 22:09:49.462 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1424 [count] |
-| 2026-09-19 22:09:49.465 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 86% of GPU frame |
-| 2026-09-19 22:09:49.469 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:49.471 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:49.473 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:49.477 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:49.479 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:49.481 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:49.485 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 86.2294 [percent] |
-| 2026-09-19 22:09:54.591 | INFO | Performance | CPU 48.90 ms/frame (20.3 fps, worst 100.00 ms over 103 frames), RSS 813 MiB |
-| 2026-09-19 22:09:54.593 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 48.9 [ms] |
-| 2026-09-19 22:09:54.595 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:54.596 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 20.2845 [fps] |
-| 2026-09-19 22:09:54.598 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 103 [count] |
-| 2026-09-19 22:09:54.599 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 813.453 [MiB] |
-| 2026-09-19 22:09:54.601 | INFO | GpuTiming | GPU 48.22 ms total | cull 0.10 · raster 8.37 · HiZ 0.04 · resolve 1.00 · ReSTIR 38.71 · shadow 0.00 · post 0.69 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:54.609 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 48.2179 [ms] |
-| 2026-09-19 22:09:54.612 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.102432 [ms] |
-| 2026-09-19 22:09:54.614 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.36822 [ms] |
-| 2026-09-19 22:09:54.621 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038912 [ms] |
-| 2026-09-19 22:09:54.623 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.00278 [ms] |
-| 2026-09-19 22:09:54.627 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 38.7055 [ms] |
-| 2026-09-19 22:09:54.631 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:54.634 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.686462 [ms] |
-| 2026-09-19 22:09:54.638 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:54.640 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:54.643 | INFO | Visibility | Clusters 2046 tested -> 1928 frustum, 1928 cone, 1923 visible | draws 1923+0, 215912 triangles |
-| 2026-09-19 22:09:54.645 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:54.646 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1928 [count] |
-| 2026-09-19 22:09:54.648 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1928 [count] |
-| 2026-09-19 22:09:54.654 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1923 [count] |
-| 2026-09-19 22:09:54.656 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 215912 [count] |
-| 2026-09-19 22:09:54.657 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1923 [count] |
-| 2026-09-19 22:09:54.658 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 80% of GPU frame |
-| 2026-09-19 22:09:54.661 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:54.662 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:54.664 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:54.665 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:54.670 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:54.671 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:54.673 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 80.2721 [percent] |
-| 2026-09-19 22:09:59.634 | INFO | Performance | CPU 49.97 ms/frame (19.8 fps, worst 100.00 ms over 101 frames), RSS 872 MiB |
-| 2026-09-19 22:09:59.636 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 49.9749 [ms] |
-| 2026-09-19 22:09:59.638 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:09:59.639 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 19.8166 [fps] |
-| 2026-09-19 22:09:59.642 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 101 [count] |
-| 2026-09-19 22:09:59.643 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 871.695 [MiB] |
-| 2026-09-19 22:09:59.645 | INFO | GpuTiming | GPU 49.29 ms total | cull 0.12 · raster 10.33 · HiZ 0.04 · resolve 1.31 · ReSTIR 37.48 · shadow 0.00 · post 0.63 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:09:59.648 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 49.2869 [ms] |
-| 2026-09-19 22:09:59.650 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.118848 [ms] |
-| 2026-09-19 22:09:59.652 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 10.3324 [ms] |
-| 2026-09-19 22:09:59.656 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038624 [ms] |
-| 2026-09-19 22:09:59.657 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.31277 [ms] |
-| 2026-09-19 22:09:59.660 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 37.4842 [ms] |
-| 2026-09-19 22:09:59.661 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:09:59.663 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.625088 [ms] |
-| 2026-09-19 22:09:59.665 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:09:59.668 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:09:59.669 | INFO | Visibility | Clusters 2046 tested -> 1928 frustum, 1928 cone, 1923 visible | draws 1923+0, 215912 triangles |
-| 2026-09-19 22:09:59.673 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:09:59.675 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1928 [count] |
-| 2026-09-19 22:09:59.678 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1928 [count] |
-| 2026-09-19 22:09:59.679 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1923 [count] |
-| 2026-09-19 22:09:59.681 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 215912 [count] |
-| 2026-09-19 22:09:59.683 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1923 [count] |
-| 2026-09-19 22:09:59.688 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 76% of GPU frame |
-| 2026-09-19 22:09:59.691 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:09:59.693 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:09:59.694 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:09:59.697 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:09:59.699 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:09:59.705 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:09:59.707 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 76.0531 [percent] |
-| 2026-09-19 22:10:03.545 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:03.879 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:04.338 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:04.830 | INFO | Performance | CPU 53.09 ms/frame (19.0 fps, worst 100.00 ms over 95 frames), RSS 892 MiB |
-| 2026-09-19 22:10:04.832 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 53.0919 [ms] |
-| 2026-09-19 22:10:04.834 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:04.836 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 18.9583 [fps] |
-| 2026-09-19 22:10:04.837 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 95 [count] |
-| 2026-09-19 22:10:04.839 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 891.559 [MiB] |
-| 2026-09-19 22:10:04.841 | INFO | GpuTiming | GPU 65.31 ms total | cull 0.09 · raster 8.26 · HiZ 0.05 · resolve 1.03 · ReSTIR 55.89 · shadow 0.00 · post 1.01 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:04.844 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 65.3146 [ms] |
-| 2026-09-19 22:10:04.847 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.08832 [ms] |
-| 2026-09-19 22:10:04.853 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.26237 [ms] |
-| 2026-09-19 22:10:04.855 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047616 [ms] |
-| 2026-09-19 22:10:04.857 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.0281 [ms] |
-| 2026-09-19 22:10:04.858 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 55.8882 [ms] |
-| 2026-09-19 22:10:04.861 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:04.862 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 1.01117 [ms] |
-| 2026-09-19 22:10:04.868 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:04.869 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:04.872 | INFO | Visibility | Clusters 2046 tested -> 1928 frustum, 1928 cone, 1909 visible | draws 1909+0, 214184 triangles |
-| 2026-09-19 22:10:04.873 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:04.876 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1928 [count] |
-| 2026-09-19 22:10:04.877 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1928 [count] |
-| 2026-09-19 22:10:04.883 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1909 [count] |
-| 2026-09-19 22:10:04.885 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 214184 [count] |
-| 2026-09-19 22:10:04.888 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1909 [count] |
-| 2026-09-19 22:10:04.889 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 86% of GPU frame |
-| 2026-09-19 22:10:04.892 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:04.896 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:04.898 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:04.901 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:04.902 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:04.904 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:10:04.905 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 85.5677 [percent] |
-| 2026-09-19 22:10:06.902 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:07.324 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:10.050 | INFO | Performance | CPU 38.47 ms/frame (27.2 fps, worst 100.00 ms over 130 frames), RSS 960 MiB |
-| 2026-09-19 22:10:10.052 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 38.4711 [ms] |
-| 2026-09-19 22:10:10.055 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:10.056 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 27.1552 [fps] |
-| 2026-09-19 22:10:10.058 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 130 [count] |
-| 2026-09-19 22:10:10.060 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 959.941 [MiB] |
-| 2026-09-19 22:10:10.062 | INFO | GpuTiming | GPU 28.75 ms total | cull 0.08 · raster 8.43 · HiZ 0.05 · resolve 1.08 · ReSTIR 19.10 · shadow 0.00 · post 0.84 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:10.064 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 28.7453 [ms] |
-| 2026-09-19 22:10:10.067 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.083744 [ms] |
-| 2026-09-19 22:10:10.071 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.43229 [ms] |
-| 2026-09-19 22:10:10.073 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047104 [ms] |
-| 2026-09-19 22:10:10.075 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.08438 [ms] |
-| 2026-09-19 22:10:10.077 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 19.0978 [ms] |
-| 2026-09-19 22:10:10.078 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:10.080 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.83744 [ms] |
-| 2026-09-19 22:10:10.082 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:10.083 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:10.089 | INFO | Visibility | Clusters 2046 tested -> 1928 frustum, 1928 cone, 1909 visible | draws 1909+0, 214184 triangles |
-| 2026-09-19 22:10:10.091 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:10.092 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1928 [count] |
-| 2026-09-19 22:10:10.094 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1928 [count] |
-| 2026-09-19 22:10:10.096 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1909 [count] |
-| 2026-09-19 22:10:10.098 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 214184 [count] |
-| 2026-09-19 22:10:10.103 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1909 [count] |
-| 2026-09-19 22:10:10.104 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 66% of GPU frame |
-| 2026-09-19 22:10:10.107 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:10.110 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:10.111 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:10.114 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:10.119 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:10.121 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
-| 2026-09-19 22:10:10.122 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 66.4379 [percent] |
-| 2026-09-19 22:10:15.060 | INFO | Performance | CPU 35.02 ms/frame (28.2 fps, worst 100.00 ms over 143 frames), RSS 810 MiB |
-| 2026-09-19 22:10:15.061 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 35.0182 [ms] |
-| 2026-09-19 22:10:15.063 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:15.065 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 28.2198 [fps] |
-| 2026-09-19 22:10:15.066 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 143 [count] |
-| 2026-09-19 22:10:15.070 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 809.984 [MiB] |
-| 2026-09-19 22:10:15.072 | INFO | GpuTiming | GPU 25.81 ms total | cull 0.08 · raster 4.16 · HiZ 0.05 · resolve 0.48 · ReSTIR 21.04 · shadow 0.00 · post 0.86 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:15.075 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 25.8069 [ms] |
-| 2026-09-19 22:10:15.077 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.078912 [ms] |
-| 2026-09-19 22:10:15.078 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 4.15946 [ms] |
-| 2026-09-19 22:10:15.080 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.048352 [ms] |
-| 2026-09-19 22:10:15.086 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.483328 [ms] |
-| 2026-09-19 22:10:15.087 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 21.0369 [ms] |
-| 2026-09-19 22:10:15.091 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:15.093 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.860353 [ms] |
-| 2026-09-19 22:10:15.094 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:15.096 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:15.099 | INFO | Visibility | Clusters 2046 tested -> 939 frustum, 939 cone, 939 visible | draws 939+0, 105118 triangles |
-| 2026-09-19 22:10:15.101 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:15.103 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 939 [count] |
-| 2026-09-19 22:10:15.104 | INFO | TelemetryMetrics | Measurement: ClustersCone = 939 [count] |
-| 2026-09-19 22:10:15.107 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 939 [count] |
-| 2026-09-19 22:10:15.108 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 105118 [count] |
-| 2026-09-19 22:10:15.111 | INFO | TelemetryMetrics | Measurement: DrawCalls = 939 [count] |
-| 2026-09-19 22:10:15.116 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 82% of GPU frame |
-| 2026-09-19 22:10:15.119 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:15.121 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:15.124 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:15.126 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:15.130 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:15.132 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
-| 2026-09-19 22:10:15.134 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 81.5164 [percent] |
-| 2026-09-19 22:10:15.734 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:16.304 | INFO | Shadows | Shadow path: ReSTIR ray-traced (GI on - shadow maps idle; inline shadow rays are counted inside GpuReSTIRMs, so GpuShadowMs=0 is expected). Opaque rays use the bounded closest-hit path and spatial winners are revalidated at the current pixel. Tier stage if GI is switched off: Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:20.699 | INFO | Performance | CPU 55.37 ms/frame (20.4 fps, worst 100.00 ms over 91 frames), RSS 841 MiB |
-| 2026-09-19 22:10:20.701 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 55.3681 [ms] |
-| 2026-09-19 22:10:20.703 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:20.705 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 20.3756 [fps] |
-| 2026-09-19 22:10:20.707 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 91 [count] |
-| 2026-09-19 22:10:20.712 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 841.43 [MiB] |
-| 2026-09-19 22:10:20.714 | INFO | GpuTiming | GPU 69.61 ms total | cull 0.07 · raster 3.70 · HiZ 0.05 · resolve 0.45 · ReSTIR 65.34 · shadow 0.00 · post 0.93 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:20.720 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 69.6067 [ms] |
-| 2026-09-19 22:10:20.725 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.068352 [ms] |
-| 2026-09-19 22:10:20.726 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 3.70195 [ms] |
-| 2026-09-19 22:10:20.729 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047904 [ms] |
-| 2026-09-19 22:10:20.730 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.447296 [ms] |
-| 2026-09-19 22:10:20.735 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 65.3411 [ms] |
-| 2026-09-19 22:10:20.736 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:20.739 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.931328 [ms] |
-| 2026-09-19 22:10:20.741 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:20.745 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:20.749 | INFO | Visibility | Clusters 2046 tested -> 939 frustum, 939 cone, 939 visible | draws 939+0, 105118 triangles |
-| 2026-09-19 22:10:20.750 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:20.753 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 939 [count] |
-| 2026-09-19 22:10:20.754 | INFO | TelemetryMetrics | Measurement: ClustersCone = 939 [count] |
-| 2026-09-19 22:10:20.757 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 939 [count] |
-| 2026-09-19 22:10:20.758 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 105118 [count] |
-| 2026-09-19 22:10:20.765 | INFO | TelemetryMetrics | Measurement: DrawCalls = 939 [count] |
-| 2026-09-19 22:10:20.766 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 94% of GPU frame |
-| 2026-09-19 22:10:20.769 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:20.773 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:20.775 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:20.778 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:20.783 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:20.785 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:10:20.787 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 93.872 [percent] |
-| 2026-09-19 22:10:21.858 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:22.275 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
-| 2026-09-19 22:10:25.911 | INFO | Performance | CPU 32.83 ms/frame (35.4 fps, worst 100.00 ms over 153 frames), RSS 819 MiB |
-| 2026-09-19 22:10:25.912 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 32.8336 [ms] |
-| 2026-09-19 22:10:25.914 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:25.916 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 35.4219 [fps] |
-| 2026-09-19 22:10:25.917 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 153 [count] |
-| 2026-09-19 22:10:25.919 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 818.883 [MiB] |
-| 2026-09-19 22:10:25.920 | INFO | GpuTiming | GPU 29.77 ms total | cull 0.08 · raster 7.99 · HiZ 0.05 · resolve 0.79 · ReSTIR 20.85 · shadow 0.00 · post 0.75 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:25.923 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 29.7674 [ms] |
-| 2026-09-19 22:10:25.925 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.081504 [ms] |
-| 2026-09-19 22:10:25.926 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.9921 [ms] |
-| 2026-09-19 22:10:25.928 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047104 [ms] |
-| 2026-09-19 22:10:25.931 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.79456 [ms] |
-| 2026-09-19 22:10:25.933 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 20.8521 [ms] |
-| 2026-09-19 22:10:25.936 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:25.937 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.750113 [ms] |
-| 2026-09-19 22:10:25.940 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:25.941 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:25.943 | INFO | Visibility | Clusters 2046 tested -> 1808 frustum, 1808 cone, 1807 visible | draws 1789+18, 203714 triangles |
-| 2026-09-19 22:10:25.947 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:25.948 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1808 [count] |
-| 2026-09-19 22:10:25.949 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1808 [count] |
-| 2026-09-19 22:10:25.951 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1807 [count] |
-| 2026-09-19 22:10:25.952 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 203714 [count] |
-| 2026-09-19 22:10:25.954 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1807 [count] |
-| 2026-09-19 22:10:25.955 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 70% of GPU frame |
-| 2026-09-19 22:10:25.958 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:25.959 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:25.963 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:25.964 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:25.965 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:25.966 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:10:25.968 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 70.0502 [percent] |
-| 2026-09-19 22:10:30.905 | INFO | Performance | CPU 37.60 ms/frame (26.4 fps, worst 100.00 ms over 133 frames), RSS 870 MiB |
-| 2026-09-19 22:10:30.907 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 37.5957 [ms] |
-| 2026-09-19 22:10:30.909 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:30.911 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 26.4122 [fps] |
-| 2026-09-19 22:10:30.912 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 133 [count] |
-| 2026-09-19 22:10:30.914 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 869.602 [MiB] |
-| 2026-09-19 22:10:30.916 | INFO | GpuTiming | GPU 33.82 ms total | cull 0.08 · raster 10.22 · HiZ 0.05 · resolve 0.38 · ReSTIR 23.08 · shadow 0.00 · post 0.82 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:30.918 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 33.8171 [ms] |
-| 2026-09-19 22:10:30.922 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.084832 [ms] |
-| 2026-09-19 22:10:30.923 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 10.2226 [ms] |
-| 2026-09-19 22:10:30.925 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.0472 [ms] |
-| 2026-09-19 22:10:30.927 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.382528 [ms] |
-| 2026-09-19 22:10:30.928 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 23.0799 [ms] |
-| 2026-09-19 22:10:30.930 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:30.931 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.818655 [ms] |
-| 2026-09-19 22:10:30.933 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:30.938 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:30.940 | INFO | Visibility | Clusters 2046 tested -> 1992 frustum, 1992 cone, 1976 visible | draws 1976+0, 222904 triangles |
-| 2026-09-19 22:10:30.943 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:30.943 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1992 [count] |
-| 2026-09-19 22:10:30.945 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1992 [count] |
-| 2026-09-19 22:10:30.947 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1976 [count] |
-| 2026-09-19 22:10:30.949 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 222904 [count] |
-| 2026-09-19 22:10:30.953 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1976 [count] |
-| 2026-09-19 22:10:30.955 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 68% of GPU frame |
-| 2026-09-19 22:10:30.959 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:30.961 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:30.962 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:30.964 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:30.969 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:30.971 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:10:30.972 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 68.2493 [percent] |
-| 2026-09-19 22:10:36.133 | INFO | Performance | CPU 40.31 ms/frame (24.7 fps, worst 100.00 ms over 125 frames), RSS 889 MiB |
-| 2026-09-19 22:10:36.135 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 40.3089 [ms] |
-| 2026-09-19 22:10:36.137 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
-| 2026-09-19 22:10:36.139 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 24.744 [fps] |
-| 2026-09-19 22:10:36.141 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 125 [count] |
-| 2026-09-19 22:10:36.146 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 888.895 [MiB] |
-| 2026-09-19 22:10:36.147 | INFO | GpuTiming | GPU 38.99 ms total | cull 0.10 · raster 9.39 · HiZ 0.05 · resolve 1.81 · ReSTIR 27.64 · shadow 0.00 · post 1.18 · sky 0.00 · volume 0.00 |
-| 2026-09-19 22:10:36.150 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 38.9895 [ms] |
-| 2026-09-19 22:10:36.152 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.097536 [ms] |
-| 2026-09-19 22:10:36.154 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.38906 [ms] |
-| 2026-09-19 22:10:36.155 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.051584 [ms] |
-| 2026-09-19 22:10:36.164 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.81453 [ms] |
-| 2026-09-19 22:10:36.166 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 27.6368 [ms] |
-| 2026-09-19 22:10:36.168 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
-| 2026-09-19 22:10:36.169 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 1.18374 [ms] |
-| 2026-09-19 22:10:36.171 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
-| 2026-09-19 22:10:36.175 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
-| 2026-09-19 22:10:36.177 | INFO | Visibility | Clusters 2046 tested -> 1877 frustum, 1877 cone, 1877 visible | draws 1877+0, 211576 triangles |
-| 2026-09-19 22:10:36.181 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
-| 2026-09-19 22:10:36.182 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1877 [count] |
-| 2026-09-19 22:10:36.184 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1877 [count] |
-| 2026-09-19 22:10:36.185 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1877 [count] |
-| 2026-09-19 22:10:36.187 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 211576 [count] |
-| 2026-09-19 22:10:36.191 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1877 [count] |
-| 2026-09-19 22:10:36.196 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 71% of GPU frame |
-| 2026-09-19 22:10:36.198 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
-| 2026-09-19 22:10:36.200 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
-| 2026-09-19 22:10:36.202 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
-| 2026-09-19 22:10:36.203 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
-| 2026-09-19 22:10:36.207 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
-| 2026-09-19 22:10:36.208 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
-| 2026-09-19 22:10:36.213 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 70.8827 [percent] |
+| 2026-09-20 14:44:43.939 | INFO | Bootstrap | Project-Zero windowed ReSTIR renderer starting. |
+| 2026-09-20 14:44:49.148 | INFO | Scene | Showcase: 229506 triangles, 499 instances, 2045 clusters, 241 materials, 3368 luminaires, bounds [-40.00 -40.00 0.00]..[40.00 40.00 6.00] m |
+| 2026-09-20 14:44:56.078 | INFO | Textures | Textures: 6 resident (0 placeholder), 64.0 MB with mips, decoded in 6927 ms |
+| 2026-09-20 14:44:56.080 | INFO | Materials | Materials: 241 descriptors -> 241 records, 241 slabs (limit 1, 0 folded), 499 placements, 0 cameras, 0 punctual lights |
+| 2026-09-20 14:44:56.544 | INFO | Interface | Panel light Low: rgb (0.000 0.008 0.042) from 4 figures, 5% coverage, 3370 luminaires now. |
+| 2026-09-20 14:45:01.730 | INFO | Traversal | CWBVH: 229508 triangles → 39627 nodes, 3095.9 KB nodes + 16137.3 KB leaves (85.8 B/tri), SAH 13.84, built in 4653.6 ms (spatial splits) |
+| 2026-09-20 14:49:12.262 | INFO | Bootstrap | Window and Vulkan swapchain ready. |
+| 2026-09-20 14:49:14.186 | INFO | Traversal | Two-level: 500 instances -> 500 BLASes over 229508 triangles, top level 598 nodes, shared blobs 2631.4 KB + 10758.2 KB, built in 507.9 ms |
+| 2026-09-20 14:49:14.279 | INFO | Moons | 6 textures resident, moon slots 0..5. |
+| 2026-09-20 14:49:14.281 | INFO | Stars | 9683 stars in 1024 cells uploaded to binding 23. |
+| 2026-09-20 14:49:18.462 | INFO | Bootstrap | Entering render loop. |
+| 2026-09-20 14:49:18.562 | INFO | Interface | Director ready: TAB switches screens. The card carries 2 converted vector segments. |
+| 2026-09-20 14:49:19.115 | INFO | Audio | Panel bound to audio: drag the progress bar to change the engine note. |
+| 2026-09-20 14:49:19.116 | INFO | Interface | Spatial interface ready: 14 figures, depth test off. |
+| 2026-09-20 14:49:19.166 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
+| 2026-09-20 14:49:25.120 | INFO | Performance | CPU 52.77 ms/frame (18.9 fps, worst 100.00 ms over 95 frames), RSS 814 MiB |
+| 2026-09-20 14:49:25.121 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 52.7741 [ms] |
+| 2026-09-20 14:49:25.122 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:25.122 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 18.9487 [fps] |
+| 2026-09-20 14:49:25.124 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 95 [count] |
+| 2026-09-20 14:49:25.126 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 813.867 [MiB] |
+| 2026-09-20 14:49:25.128 | INFO | GpuTiming | GPU 56.02 ms total | cull 0.08 · raster 6.83 · HiZ 0.05 · resolve 0.77 · ReSTIR 48.29 · shadow 0.00 · post 0.88 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:25.130 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 56.0151 [ms] |
+| 2026-09-20 14:49:25.132 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.078368 [ms] |
+| 2026-09-20 14:49:25.133 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 6.8295 [ms] |
+| 2026-09-20 14:49:25.137 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.045216 [ms] |
+| 2026-09-20 14:49:25.138 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.772032 [ms] |
+| 2026-09-20 14:49:25.141 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 48.29 [ms] |
+| 2026-09-20 14:49:25.148 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:25.150 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.882557 [ms] |
+| 2026-09-20 14:49:25.151 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:25.153 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:25.155 | INFO | Visibility | Clusters 2046 tested -> 1649 frustum, 1649 cone, 1649 visible | draws 1649+0, 185548 triangles |
+| 2026-09-20 14:49:25.161 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:25.162 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1649 [count] |
+| 2026-09-20 14:49:25.164 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1649 [count] |
+| 2026-09-20 14:49:25.166 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1649 [count] |
+| 2026-09-20 14:49:25.168 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 185548 [count] |
+| 2026-09-20 14:49:25.169 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1649 [count] |
+| 2026-09-20 14:49:25.171 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 86% of GPU frame |
+| 2026-09-20 14:49:25.176 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:25.178 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:25.180 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:25.183 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:25.184 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:25.186 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:49:25.187 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 86.2089 [percent] |
+| 2026-09-20 14:49:30.512 | INFO | Performance | CPU 51.62 ms/frame (18.7 fps, worst 100.00 ms over 97 frames), RSS 753 MiB |
+| 2026-09-20 14:49:30.514 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 51.6189 [ms] |
+| 2026-09-20 14:49:30.517 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:30.519 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 18.7299 [fps] |
+| 2026-09-20 14:49:30.520 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 97 [count] |
+| 2026-09-20 14:49:30.522 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 753.145 [MiB] |
+| 2026-09-20 14:49:30.524 | INFO | GpuTiming | GPU 47.66 ms total | cull 0.09 · raster 9.19 · HiZ 0.05 · resolve 1.20 · ReSTIR 37.13 · shadow 0.00 · post 0.72 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:30.527 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 47.6618 [ms] |
+| 2026-09-20 14:49:30.528 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.092864 [ms] |
+| 2026-09-20 14:49:30.530 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.19347 [ms] |
+| 2026-09-20 14:49:30.536 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.046336 [ms] |
+| 2026-09-20 14:49:30.539 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.20218 [ms] |
+| 2026-09-20 14:49:30.541 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 37.1269 [ms] |
+| 2026-09-20 14:49:30.544 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:30.547 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.724224 [ms] |
+| 2026-09-20 14:49:30.551 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:30.553 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:30.555 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:30.556 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:30.557 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:30.559 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:30.560 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:30.562 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:30.563 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:30.568 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 78% of GPU frame |
+| 2026-09-20 14:49:30.569 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:30.570 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:30.571 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:30.572 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:30.574 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:30.575 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:49:30.576 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 77.8966 [percent] |
+| 2026-09-20 14:49:35.561 | INFO | Performance | CPU 43.48 ms/frame (23.1 fps, worst 100.00 ms over 115 frames), RSS 788 MiB |
+| 2026-09-20 14:49:35.563 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 43.4798 [ms] |
+| 2026-09-20 14:49:35.566 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:35.568 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 23.0994 [fps] |
+| 2026-09-20 14:49:35.569 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 115 [count] |
+| 2026-09-20 14:49:35.571 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 788.477 [MiB] |
+| 2026-09-20 14:49:35.573 | INFO | GpuTiming | GPU 40.20 ms total | cull 0.09 · raster 8.65 · HiZ 0.05 · resolve 1.35 · ReSTIR 30.07 · shadow 0.00 · post 0.65 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:35.575 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 40.2029 [ms] |
+| 2026-09-20 14:49:35.576 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.085728 [ms] |
+| 2026-09-20 14:49:35.578 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.65114 [ms] |
+| 2026-09-20 14:49:35.580 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.045088 [ms] |
+| 2026-09-20 14:49:35.586 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.35066 [ms] |
+| 2026-09-20 14:49:35.588 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 30.0703 [ms] |
+| 2026-09-20 14:49:35.590 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:35.592 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.654816 [ms] |
+| 2026-09-20 14:49:35.593 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:35.595 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:35.602 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:35.604 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:35.606 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:35.608 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:35.609 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:35.611 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:35.617 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:35.618 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 75% of GPU frame |
+| 2026-09-20 14:49:35.620 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:35.622 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:35.624 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:35.625 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:35.627 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:35.632 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:49:35.634 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 74.7963 [percent] |
+| 2026-09-20 14:49:40.630 | INFO | Performance | CPU 43.59 ms/frame (23.0 fps, worst 100.00 ms over 115 frames), RSS 820 MiB |
+| 2026-09-20 14:49:40.632 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 43.5852 [ms] |
+| 2026-09-20 14:49:40.634 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:40.636 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 22.993 [fps] |
+| 2026-09-20 14:49:40.638 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 115 [count] |
+| 2026-09-20 14:49:40.640 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 820.012 [MiB] |
+| 2026-09-20 14:49:40.642 | INFO | GpuTiming | GPU 39.67 ms total | cull 0.09 · raster 9.01 · HiZ 0.05 · resolve 0.90 · ReSTIR 29.62 · shadow 0.00 · post 0.63 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:40.644 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 39.669 [ms] |
+| 2026-09-20 14:49:40.645 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.085856 [ms] |
+| 2026-09-20 14:49:40.647 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.0105 [ms] |
+| 2026-09-20 14:49:40.649 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.04592 [ms] |
+| 2026-09-20 14:49:40.651 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.901792 [ms] |
+| 2026-09-20 14:49:40.653 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 29.6249 [ms] |
+| 2026-09-20 14:49:40.661 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:40.664 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.631264 [ms] |
+| 2026-09-20 14:49:40.668 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:40.673 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:40.675 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:40.677 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:40.679 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:40.681 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:40.685 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:40.690 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:40.692 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:40.694 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 75% of GPU frame |
+| 2026-09-20 14:49:40.695 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:40.697 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:40.699 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:40.704 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:40.706 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:40.708 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:49:40.710 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 74.6803 [percent] |
+| 2026-09-20 14:49:45.639 | INFO | Performance | CPU 35.22 ms/frame (29.1 fps, worst 100.00 ms over 142 frames), RSS 737 MiB |
+| 2026-09-20 14:49:45.641 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 35.2178 [ms] |
+| 2026-09-20 14:49:45.644 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:45.646 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 29.132 [fps] |
+| 2026-09-20 14:49:45.649 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 142 [count] |
+| 2026-09-20 14:49:45.651 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 736.836 [MiB] |
+| 2026-09-20 14:49:45.653 | INFO | GpuTiming | GPU 24.89 ms total | cull 0.09 · raster 8.37 · HiZ 0.05 · resolve 1.01 · ReSTIR 15.37 · shadow 0.00 · post 0.61 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:45.656 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 24.8873 [ms] |
+| 2026-09-20 14:49:45.659 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.092608 [ms] |
+| 2026-09-20 14:49:45.661 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.36723 [ms] |
+| 2026-09-20 14:49:45.663 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047104 [ms] |
+| 2026-09-20 14:49:45.672 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.00678 [ms] |
+| 2026-09-20 14:49:45.674 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 15.3736 [ms] |
+| 2026-09-20 14:49:45.677 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:45.678 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.605728 [ms] |
+| 2026-09-20 14:49:45.680 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:45.683 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:45.685 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:45.688 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:45.690 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:45.692 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:45.695 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:45.702 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:45.706 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:45.708 | INFO | Performance | CPU-BOUND or presenting-limited | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 62% of GPU frame |
+| 2026-09-20 14:49:45.709 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:45.712 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:45.715 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:45.717 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:45.719 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:45.722 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:49:45.724 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 61.7728 [percent] |
+| 2026-09-20 14:49:50.722 | INFO | Performance | CPU 36.83 ms/frame (26.5 fps, worst 100.00 ms over 136 frames), RSS 724 MiB |
+| 2026-09-20 14:49:50.724 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 36.8253 [ms] |
+| 2026-09-20 14:49:50.727 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:50.731 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 26.5004 [fps] |
+| 2026-09-20 14:49:50.733 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 136 [count] |
+| 2026-09-20 14:49:50.736 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 723.574 [MiB] |
+| 2026-09-20 14:49:50.745 | INFO | GpuTiming | GPU 40.57 ms total | cull 0.09 · raster 8.35 · HiZ 0.05 · resolve 1.06 · ReSTIR 31.03 · shadow 0.00 · post 0.59 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:50.747 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 40.5715 [ms] |
+| 2026-09-20 14:49:50.750 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.086176 [ms] |
+| 2026-09-20 14:49:50.758 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.35018 [ms] |
+| 2026-09-20 14:49:50.760 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.047104 [ms] |
+| 2026-09-20 14:49:50.762 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.05587 [ms] |
+| 2026-09-20 14:49:50.765 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 31.0322 [ms] |
+| 2026-09-20 14:49:50.768 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:50.775 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.587744 [ms] |
+| 2026-09-20 14:49:50.778 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:50.781 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:50.785 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:50.791 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:50.793 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:50.796 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:50.798 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:50.800 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:50.803 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:50.810 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 76% of GPU frame |
+| 2026-09-20 14:49:50.812 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:50.815 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:50.817 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:50.820 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:50.822 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:50.824 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:49:50.827 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 76.4876 [percent] |
+| 2026-09-20 14:49:55.759 | INFO | Performance | CPU 35.48 ms/frame (29.1 fps, worst 100.00 ms over 141 frames), RSS 724 MiB |
+| 2026-09-20 14:49:55.761 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 35.4772 [ms] |
+| 2026-09-20 14:49:55.763 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:49:55.765 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 29.088 [fps] |
+| 2026-09-20 14:49:55.766 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 141 [count] |
+| 2026-09-20 14:49:55.768 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 723.59 [MiB] |
+| 2026-09-20 14:49:55.770 | INFO | GpuTiming | GPU 26.65 ms total | cull 0.10 · raster 8.36 · HiZ 0.05 · resolve 0.91 · ReSTIR 17.23 · shadow 0.00 · post 0.57 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:49:55.772 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 26.6459 [ms] |
+| 2026-09-20 14:49:55.776 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.098752 [ms] |
+| 2026-09-20 14:49:55.778 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.35901 [ms] |
+| 2026-09-20 14:49:55.779 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.046656 [ms] |
+| 2026-09-20 14:49:55.781 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.90832 [ms] |
+| 2026-09-20 14:49:55.790 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 17.2332 [ms] |
+| 2026-09-20 14:49:55.792 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:49:55.793 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.567007 [ms] |
+| 2026-09-20 14:49:55.795 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:49:55.797 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:49:55.801 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:49:55.804 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:49:55.806 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:49:55.808 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:49:55.810 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:49:55.812 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:49:55.813 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:49:55.820 | INFO | Performance | CPU-BOUND or presenting-limited | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 65% of GPU frame |
+| 2026-09-20 14:49:55.822 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:49:55.824 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:49:55.825 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:49:55.827 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:49:55.828 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:49:55.832 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:49:55.834 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 64.6747 [percent] |
+| 2026-09-20 14:50:00.806 | INFO | Performance | CPU 34.75 ms/frame (27.8 fps, worst 100.00 ms over 145 frames), RSS 724 MiB |
+| 2026-09-20 14:50:00.810 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 34.7529 [ms] |
+| 2026-09-20 14:50:00.813 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:00.814 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 27.8078 [fps] |
+| 2026-09-20 14:50:00.817 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 145 [count] |
+| 2026-09-20 14:50:00.818 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 723.602 [MiB] |
+| 2026-09-20 14:50:00.825 | INFO | GpuTiming | GPU 28.36 ms total | cull 0.13 · raster 8.58 · HiZ 0.05 · resolve 1.19 · ReSTIR 18.42 · shadow 0.00 · post 0.55 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:00.827 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 28.3587 [ms] |
+| 2026-09-20 14:50:00.828 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.129984 [ms] |
+| 2026-09-20 14:50:00.830 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.57597 [ms] |
+| 2026-09-20 14:50:00.832 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.04848 [ms] |
+| 2026-09-20 14:50:00.833 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.18838 [ms] |
+| 2026-09-20 14:50:00.838 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 18.4159 [ms] |
+| 2026-09-20 14:50:00.840 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:00.842 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.54653 [ms] |
+| 2026-09-20 14:50:00.844 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:00.848 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:00.850 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1949+0, 218760 triangles |
+| 2026-09-20 14:50:00.856 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:00.857 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:50:00.859 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:50:00.861 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:50:00.862 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 218760 [count] |
+| 2026-09-20 14:50:00.864 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:50:00.865 | INFO | Performance | CPU-BOUND or presenting-limited | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 65% of GPU frame |
+| 2026-09-20 14:50:00.870 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:50:00.872 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:00.874 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:00.876 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:00.878 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:00.879 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:50:00.880 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 64.9391 [percent] |
+| 2026-09-20 14:50:06.092 | INFO | Performance | CPU 56.08 ms/frame (19.7 fps, worst 100.00 ms over 90 frames), RSS 790 MiB |
+| 2026-09-20 14:50:06.093 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 56.0805 [ms] |
+| 2026-09-20 14:50:06.096 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:06.098 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 19.676 [fps] |
+| 2026-09-20 14:50:06.099 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 90 [count] |
+| 2026-09-20 14:50:06.101 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 790.039 [MiB] |
+| 2026-09-20 14:50:06.106 | INFO | GpuTiming | GPU 74.25 ms total | cull 0.08 · raster 4.45 · HiZ 0.04 · resolve 0.87 · ReSTIR 68.82 · shadow 0.00 · post 0.74 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:06.108 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 74.247 [ms] |
+| 2026-09-20 14:50:06.110 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.076128 [ms] |
+| 2026-09-20 14:50:06.112 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 4.44525 [ms] |
+| 2026-09-20 14:50:06.114 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.043968 [ms] |
+| 2026-09-20 14:50:06.120 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.865312 [ms] |
+| 2026-09-20 14:50:06.125 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 68.8164 [ms] |
+| 2026-09-20 14:50:06.127 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:06.130 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.742882 [ms] |
+| 2026-09-20 14:50:06.133 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:06.135 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:06.138 | INFO | Visibility | Clusters 2046 tested -> 989 frustum, 989 cone, 989 visible | draws 985+4, 110872 triangles |
+| 2026-09-20 14:50:06.142 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:06.144 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 989 [count] |
+| 2026-09-20 14:50:06.149 | INFO | TelemetryMetrics | Measurement: ClustersCone = 989 [count] |
+| 2026-09-20 14:50:06.151 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 989 [count] |
+| 2026-09-20 14:50:06.154 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 110872 [count] |
+| 2026-09-20 14:50:06.156 | INFO | TelemetryMetrics | Measurement: DrawCalls = 989 [count] |
+| 2026-09-20 14:50:06.158 | INFO | Performance | GPU-BOUND | 922 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 93% of GPU frame |
+| 2026-09-20 14:50:06.160 | INFO | TelemetryMetrics | Measurement: RenderPixels = 921600 [px] |
+| 2026-09-20 14:50:06.162 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:06.167 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:06.170 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:06.171 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:06.173 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:06.175 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 92.6857 [percent] |
+| 2026-09-20 14:50:12.681 | INFO | Performance | CPU 75.99 ms/frame (14.8 fps, worst 100.00 ms over 66 frames), RSS 739 MiB |
+| 2026-09-20 14:50:12.682 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 75.9856 [ms] |
+| 2026-09-20 14:50:12.685 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:12.687 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 14.7849 [fps] |
+| 2026-09-20 14:50:12.689 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 66 [count] |
+| 2026-09-20 14:50:12.690 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 738.664 [MiB] |
+| 2026-09-20 14:50:12.692 | INFO | GpuTiming | GPU 125.88 ms total | cull 0.07 · raster 2.02 · HiZ 0.05 · resolve 0.34 · ReSTIR 123.41 · shadow 0.00 · post 0.75 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:12.693 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 125.883 [ms] |
+| 2026-09-20 14:50:12.700 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.072608 [ms] |
+| 2026-09-20 14:50:12.703 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 2.01712 [ms] |
+| 2026-09-20 14:50:12.704 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.046816 [ms] |
+| 2026-09-20 14:50:12.707 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.339424 [ms] |
+| 2026-09-20 14:50:12.708 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 123.407 [ms] |
+| 2026-09-20 14:50:12.714 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:12.716 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.747139 [ms] |
+| 2026-09-20 14:50:12.718 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:12.719 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:12.721 | INFO | Visibility | Clusters 2046 tested -> 500 frustum, 500 cone, 496 visible | draws 496+0, 55552 triangles |
+| 2026-09-20 14:50:12.722 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:12.725 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 500 [count] |
+| 2026-09-20 14:50:12.726 | INFO | TelemetryMetrics | Measurement: ClustersCone = 500 [count] |
+| 2026-09-20 14:50:12.733 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 496 [count] |
+| 2026-09-20 14:50:12.735 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 55552 [count] |
+| 2026-09-20 14:50:12.736 | INFO | TelemetryMetrics | Measurement: DrawCalls = 496 [count] |
+| 2026-09-20 14:50:12.739 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 98% of GPU frame |
+| 2026-09-20 14:50:12.740 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:12.745 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:12.749 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:12.751 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:12.753 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:12.754 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:12.756 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 98.0331 [percent] |
+| 2026-09-20 14:50:18.817 | INFO | Performance | CPU 65.47 ms/frame (14.5 fps, worst 100.00 ms over 77 frames), RSS 796 MiB |
+| 2026-09-20 14:50:18.821 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 65.4706 [ms] |
+| 2026-09-20 14:50:18.824 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:18.826 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 14.5309 [fps] |
+| 2026-09-20 14:50:18.828 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 77 [count] |
+| 2026-09-20 14:50:18.830 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 796.492 [MiB] |
+| 2026-09-20 14:50:18.832 | INFO | GpuTiming | GPU 61.21 ms total | cull 0.10 · raster 10.09 · HiZ 0.05 · resolve 1.30 · ReSTIR 49.67 · shadow 0.00 · post 0.80 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:18.833 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 61.2082 [ms] |
+| 2026-09-20 14:50:18.836 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.099328 [ms] |
+| 2026-09-20 14:50:18.838 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 10.0926 [ms] |
+| 2026-09-20 14:50:18.842 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.0472 [ms] |
+| 2026-09-20 14:50:18.848 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 1.29565 [ms] |
+| 2026-09-20 14:50:18.851 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 49.6734 [ms] |
+| 2026-09-20 14:50:18.855 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:18.857 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.801311 [ms] |
+| 2026-09-20 14:50:18.862 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:18.863 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:18.865 | INFO | Visibility | Clusters 2046 tested -> 2000 frustum, 2000 cone, 2000 visible | draws 2000+0, 225248 triangles |
+| 2026-09-20 14:50:18.867 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:18.870 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2000 [count] |
+| 2026-09-20 14:50:18.871 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2000 [count] |
+| 2026-09-20 14:50:18.878 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2000 [count] |
+| 2026-09-20 14:50:18.881 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 225248 [count] |
+| 2026-09-20 14:50:18.883 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2000 [count] |
+| 2026-09-20 14:50:18.885 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 81% of GPU frame |
+| 2026-09-20 14:50:18.887 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:18.894 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:18.896 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:18.899 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:18.900 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:18.902 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:18.904 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 81.1548 [percent] |
+| 2026-09-20 14:50:20.996 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
+| 2026-09-20 14:50:21.448 | INFO | Shadows | Shadow path: rasterised maps (GI off) - Hard @ 1024 px, 1 taps. |
+| 2026-09-20 14:50:23.989 | INFO | Performance | CPU 48.65 ms/frame (19.9 fps, worst 100.00 ms over 103 frames), RSS 743 MiB |
+| 2026-09-20 14:50:23.991 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 48.6467 [ms] |
+| 2026-09-20 14:50:23.993 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:23.995 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 19.9118 [fps] |
+| 2026-09-20 14:50:23.997 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 103 [count] |
+| 2026-09-20 14:50:23.998 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 743.137 [MiB] |
+| 2026-09-20 14:50:24.000 | INFO | GpuTiming | GPU 36.75 ms total | cull 0.09 · raster 8.71 · HiZ 0.04 · resolve 0.72 · ReSTIR 27.19 · shadow 0.00 · post 0.44 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:24.002 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 36.7468 [ms] |
+| 2026-09-20 14:50:24.011 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.087168 [ms] |
+| 2026-09-20 14:50:24.014 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.71405 [ms] |
+| 2026-09-20 14:50:24.015 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.035328 [ms] |
+| 2026-09-20 14:50:24.019 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.71904 [ms] |
+| 2026-09-20 14:50:24.025 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 27.1912 [ms] |
+| 2026-09-20 14:50:24.027 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:24.030 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.438368 [ms] |
+| 2026-09-20 14:50:24.032 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:24.033 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:24.035 | INFO | Visibility | Clusters 2046 tested -> 2000 frustum, 2000 cone, 2000 visible | draws 2000+0, 225248 triangles |
+| 2026-09-20 14:50:24.041 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:24.043 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2000 [count] |
+| 2026-09-20 14:50:24.045 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2000 [count] |
+| 2026-09-20 14:50:24.047 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2000 [count] |
+| 2026-09-20 14:50:24.049 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 225248 [count] |
+| 2026-09-20 14:50:24.051 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2000 [count] |
+| 2026-09-20 14:50:24.057 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 74% of GPU frame |
+| 2026-09-20 14:50:24.063 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:24.064 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:24.069 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:24.075 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:24.077 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:24.079 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:50:24.080 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 73.9961 [percent] |
+| 2026-09-20 14:50:29.187 | INFO | Performance | CPU 51.74 ms/frame (20.1 fps, worst 100.00 ms over 97 frames), RSS 778 MiB |
+| 2026-09-20 14:50:29.189 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 51.7373 [ms] |
+| 2026-09-20 14:50:29.191 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:29.193 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 20.094 [fps] |
+| 2026-09-20 14:50:29.201 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 97 [count] |
+| 2026-09-20 14:50:29.203 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 778.426 [MiB] |
+| 2026-09-20 14:50:29.206 | INFO | GpuTiming | GPU 50.89 ms total | cull 0.09 · raster 8.80 · HiZ 0.04 · resolve 0.43 · ReSTIR 41.53 · shadow 0.00 · post 0.47 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:29.207 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 50.8857 [ms] |
+| 2026-09-20 14:50:29.210 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.089472 [ms] |
+| 2026-09-20 14:50:29.212 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.8032 [ms] |
+| 2026-09-20 14:50:29.217 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.035168 [ms] |
+| 2026-09-20 14:50:29.221 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.4304 [ms] |
+| 2026-09-20 14:50:29.223 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 41.5275 [ms] |
+| 2026-09-20 14:50:29.225 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:29.228 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.472931 [ms] |
+| 2026-09-20 14:50:29.229 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:29.237 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:29.241 | INFO | Visibility | Clusters 2046 tested -> 2015 frustum, 2015 cone, 2015 visible | draws 2015+0, 226580 triangles |
+| 2026-09-20 14:50:29.243 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:29.244 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2015 [count] |
+| 2026-09-20 14:50:29.250 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2015 [count] |
+| 2026-09-20 14:50:29.252 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2015 [count] |
+| 2026-09-20 14:50:29.254 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 226580 [count] |
+| 2026-09-20 14:50:29.256 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2015 [count] |
+| 2026-09-20 14:50:29.259 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 82% of GPU frame |
+| 2026-09-20 14:50:29.264 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:29.266 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:29.270 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:29.275 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:29.277 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:29.283 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:29.285 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 81.6093 [percent] |
+| 2026-09-20 14:50:34.308 | INFO | Performance | CPU 48.16 ms/frame (20.3 fps, worst 100.00 ms over 104 frames), RSS 739 MiB |
+| 2026-09-20 14:50:34.310 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 48.1557 [ms] |
+| 2026-09-20 14:50:34.312 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:34.314 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 20.3331 [fps] |
+| 2026-09-20 14:50:34.316 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 104 [count] |
+| 2026-09-20 14:50:34.317 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 739.375 [MiB] |
+| 2026-09-20 14:50:34.319 | INFO | GpuTiming | GPU 43.65 ms total | cull 0.08 · raster 9.15 · HiZ 0.03 · resolve 0.99 · ReSTIR 33.39 · shadow 0.00 · post 0.45 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:34.321 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 43.6476 [ms] |
+| 2026-09-20 14:50:34.322 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.083616 [ms] |
+| 2026-09-20 14:50:34.325 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.14925 [ms] |
+| 2026-09-20 14:50:34.331 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.034816 [ms] |
+| 2026-09-20 14:50:34.333 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.9856 [ms] |
+| 2026-09-20 14:50:34.335 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 33.3943 [ms] |
+| 2026-09-20 14:50:34.336 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:34.338 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.451008 [ms] |
+| 2026-09-20 14:50:34.344 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:34.346 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:34.348 | INFO | Visibility | Clusters 2046 tested -> 1955 frustum, 1955 cone, 1955 visible | draws 1955+0, 220654 triangles |
+| 2026-09-20 14:50:34.350 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:34.351 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1955 [count] |
+| 2026-09-20 14:50:34.353 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1955 [count] |
+| 2026-09-20 14:50:34.354 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1955 [count] |
+| 2026-09-20 14:50:34.356 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 220654 [count] |
+| 2026-09-20 14:50:34.362 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1955 [count] |
+| 2026-09-20 14:50:34.364 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 77% of GPU frame |
+| 2026-09-20 14:50:34.366 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:34.368 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:34.375 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:34.377 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:34.380 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:34.381 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:34.383 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 76.5089 [percent] |
+| 2026-09-20 14:50:39.355 | INFO | Performance | CPU 36.33 ms/frame (28.0 fps, worst 100.00 ms over 138 frames), RSS 824 MiB |
+| 2026-09-20 14:50:39.356 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 36.3346 [ms] |
+| 2026-09-20 14:50:39.359 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:39.361 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 28.0141 [fps] |
+| 2026-09-20 14:50:39.362 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 138 [count] |
+| 2026-09-20 14:50:39.364 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 823.891 [MiB] |
+| 2026-09-20 14:50:39.366 | INFO | GpuTiming | GPU 28.41 ms total | cull 0.08 · raster 8.23 · HiZ 0.03 · resolve 0.70 · ReSTIR 19.36 · shadow 0.00 · post 0.37 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:39.370 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 28.412 [ms] |
+| 2026-09-20 14:50:39.372 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.08 [ms] |
+| 2026-09-20 14:50:39.374 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.23053 [ms] |
+| 2026-09-20 14:50:39.376 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.03488 [ms] |
+| 2026-09-20 14:50:39.377 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.704512 [ms] |
+| 2026-09-20 14:50:39.380 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 19.3621 [ms] |
+| 2026-09-20 14:50:39.381 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:39.386 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.371105 [ms] |
+| 2026-09-20 14:50:39.387 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:39.389 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:39.390 | INFO | Visibility | Clusters 2046 tested -> 1712 frustum, 1712 cone, 1712 visible | draws 1712+0, 193132 triangles |
+| 2026-09-20 14:50:39.392 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:39.394 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1712 [count] |
+| 2026-09-20 14:50:39.395 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1712 [count] |
+| 2026-09-20 14:50:39.396 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1712 [count] |
+| 2026-09-20 14:50:39.398 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 193132 [count] |
+| 2026-09-20 14:50:39.402 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1712 [count] |
+| 2026-09-20 14:50:39.403 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 68% of GPU frame |
+| 2026-09-20 14:50:39.405 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:39.407 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:39.408 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:39.410 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:39.412 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:39.413 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:50:39.418 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 68.1475 [percent] |
+| 2026-09-20 14:50:44.393 | INFO | Performance | CPU 33.32 ms/frame (29.7 fps, worst 100.00 ms over 152 frames), RSS 800 MiB |
+| 2026-09-20 14:50:44.395 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 33.3241 [ms] |
+| 2026-09-20 14:50:44.397 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:44.399 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 29.6513 [fps] |
+| 2026-09-20 14:50:44.400 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 152 [count] |
+| 2026-09-20 14:50:44.403 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 799.785 [MiB] |
+| 2026-09-20 14:50:44.404 | INFO | GpuTiming | GPU 34.26 ms total | cull 0.06 · raster 2.06 · HiZ 0.04 · resolve 0.49 · ReSTIR 31.61 · shadow 0.00 · post 0.52 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:44.406 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 34.263 [ms] |
+| 2026-09-20 14:50:44.407 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.060544 [ms] |
+| 2026-09-20 14:50:44.411 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 2.06061 [ms] |
+| 2026-09-20 14:50:44.413 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.035424 [ms] |
+| 2026-09-20 14:50:44.415 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.493728 [ms] |
+| 2026-09-20 14:50:44.417 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 31.6127 [ms] |
+| 2026-09-20 14:50:44.423 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:44.426 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.519489 [ms] |
+| 2026-09-20 14:50:44.427 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:44.429 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:44.431 | INFO | Visibility | Clusters 2046 tested -> 550 frustum, 550 cone, 478 visible | draws 479+0, 53688 triangles |
+| 2026-09-20 14:50:44.432 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:44.437 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 550 [count] |
+| 2026-09-20 14:50:44.439 | INFO | TelemetryMetrics | Measurement: ClustersCone = 550 [count] |
+| 2026-09-20 14:50:44.441 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 478 [count] |
+| 2026-09-20 14:50:44.443 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 53688 [count] |
+| 2026-09-20 14:50:44.445 | INFO | TelemetryMetrics | Measurement: DrawCalls = 479 [count] |
+| 2026-09-20 14:50:44.447 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 92% of GPU frame |
+| 2026-09-20 14:50:44.449 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:44.455 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:44.457 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:44.462 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:44.464 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:44.471 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:44.473 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 92.2648 [percent] |
+| 2026-09-20 14:50:49.497 | INFO | Performance | CPU 40.81 ms/frame (24.6 fps, worst 100.00 ms over 123 frames), RSS 741 MiB |
+| 2026-09-20 14:50:49.499 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 40.8107 [ms] |
+| 2026-09-20 14:50:49.501 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:49.503 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 24.5639 [fps] |
+| 2026-09-20 14:50:49.505 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 123 [count] |
+| 2026-09-20 14:50:49.509 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 740.719 [MiB] |
+| 2026-09-20 14:50:49.518 | INFO | GpuTiming | GPU 61.11 ms total | cull 0.07 · raster 3.92 · HiZ 0.03 · resolve 0.54 · ReSTIR 56.55 · shadow 0.00 · post 0.56 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:49.520 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 61.1076 [ms] |
+| 2026-09-20 14:50:49.522 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.069856 [ms] |
+| 2026-09-20 14:50:49.523 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 3.92054 [ms] |
+| 2026-09-20 14:50:49.525 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.034816 [ms] |
+| 2026-09-20 14:50:49.527 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.536288 [ms] |
+| 2026-09-20 14:50:49.530 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 56.5461 [ms] |
+| 2026-09-20 14:50:49.534 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:49.537 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.560928 [ms] |
+| 2026-09-20 14:50:49.539 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:49.540 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:49.542 | INFO | Visibility | Clusters 2046 tested -> 888 frustum, 888 cone, 888 visible | draws 883+5, 99326 triangles |
+| 2026-09-20 14:50:49.544 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:49.549 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 888 [count] |
+| 2026-09-20 14:50:49.551 | INFO | TelemetryMetrics | Measurement: ClustersCone = 888 [count] |
+| 2026-09-20 14:50:49.552 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 888 [count] |
+| 2026-09-20 14:50:49.554 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 99326 [count] |
+| 2026-09-20 14:50:49.556 | INFO | TelemetryMetrics | Measurement: DrawCalls = 888 [count] |
+| 2026-09-20 14:50:49.557 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 93% of GPU frame |
+| 2026-09-20 14:50:49.559 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:49.560 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:49.566 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:49.568 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:49.571 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:49.572 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:50:49.575 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 92.5353 [percent] |
+| 2026-09-20 14:50:54.582 | INFO | Performance | CPU 51.83 ms/frame (19.5 fps, worst 100.00 ms over 97 frames), RSS 741 MiB |
+| 2026-09-20 14:50:54.584 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 51.8339 [ms] |
+| 2026-09-20 14:50:54.589 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:54.591 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 19.5383 [fps] |
+| 2026-09-20 14:50:54.594 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 97 [count] |
+| 2026-09-20 14:50:54.600 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 740.719 [MiB] |
+| 2026-09-20 14:50:54.603 | INFO | GpuTiming | GPU 40.83 ms total | cull 0.08 · raster 5.32 · HiZ 0.04 · resolve 0.40 · ReSTIR 35.00 · shadow 0.00 · post 0.53 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:54.604 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 40.8346 [ms] |
+| 2026-09-20 14:50:54.607 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.077184 [ms] |
+| 2026-09-20 14:50:54.608 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 5.32237 [ms] |
+| 2026-09-20 14:50:54.613 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.035616 [ms] |
+| 2026-09-20 14:50:54.615 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.401792 [ms] |
+| 2026-09-20 14:50:54.616 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 34.9977 [ms] |
+| 2026-09-20 14:50:54.617 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:54.618 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.526207 [ms] |
+| 2026-09-20 14:50:54.619 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:54.620 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:54.622 | INFO | Visibility | Clusters 2046 tested -> 1210 frustum, 1210 cone, 1210 visible | draws 1210+0, 135722 triangles |
+| 2026-09-20 14:50:54.623 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:54.624 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1210 [count] |
+| 2026-09-20 14:50:54.631 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1210 [count] |
+| 2026-09-20 14:50:54.632 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1210 [count] |
+| 2026-09-20 14:50:54.634 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 135722 [count] |
+| 2026-09-20 14:50:54.635 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1210 [count] |
+| 2026-09-20 14:50:54.637 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 86% of GPU frame |
+| 2026-09-20 14:50:54.638 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:54.643 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:54.645 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:54.647 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:54.649 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:54.650 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:50:54.651 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 85.7059 [percent] |
+| 2026-09-20 14:50:59.603 | INFO | Performance | CPU 36.52 ms/frame (27.1 fps, worst 100.00 ms over 138 frames), RSS 778 MiB |
+| 2026-09-20 14:50:59.605 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 36.5183 [ms] |
+| 2026-09-20 14:50:59.608 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:50:59.610 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 27.0924 [fps] |
+| 2026-09-20 14:50:59.612 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 138 [count] |
+| 2026-09-20 14:50:59.614 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 778.363 [MiB] |
+| 2026-09-20 14:50:59.616 | INFO | GpuTiming | GPU 27.77 ms total | cull 0.09 · raster 7.09 · HiZ 0.03 · resolve 0.40 · ReSTIR 20.15 · shadow 0.00 · post 0.57 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:50:59.622 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 27.773 [ms] |
+| 2026-09-20 14:50:59.624 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.094144 [ms] |
+| 2026-09-20 14:50:59.625 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 7.09382 [ms] |
+| 2026-09-20 14:50:59.627 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.034816 [ms] |
+| 2026-09-20 14:50:59.629 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.400928 [ms] |
+| 2026-09-20 14:50:59.632 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 20.1493 [ms] |
+| 2026-09-20 14:50:59.638 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:50:59.640 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.569057 [ms] |
+| 2026-09-20 14:50:59.642 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:50:59.644 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:50:59.646 | INFO | Visibility | Clusters 2046 tested -> 1425 frustum, 1425 cone, 1424 visible | draws 1424+0, 160020 triangles |
+| 2026-09-20 14:50:59.652 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:50:59.654 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1425 [count] |
+| 2026-09-20 14:50:59.656 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1425 [count] |
+| 2026-09-20 14:50:59.658 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1424 [count] |
+| 2026-09-20 14:50:59.662 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 160020 [count] |
+| 2026-09-20 14:50:59.669 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1424 [count] |
+| 2026-09-20 14:50:59.670 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 73% of GPU frame |
+| 2026-09-20 14:50:59.672 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:50:59.674 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:50:59.676 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:50:59.677 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:50:59.683 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:50:59.685 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:50:59.687 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 72.5499 [percent] |
+| 2026-09-20 14:51:04.623 | INFO | Performance | CPU 25.32 ms/frame (44.3 fps, worst 95.90 ms over 198 frames), RSS 741 MiB |
+| 2026-09-20 14:51:04.625 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 25.317 [ms] |
+| 2026-09-20 14:51:04.628 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 95.9036 [ms] |
+| 2026-09-20 14:51:04.629 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 44.2601 [fps] |
+| 2026-09-20 14:51:04.631 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 198 [count] |
+| 2026-09-20 14:51:04.633 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.059 [MiB] |
+| 2026-09-20 14:51:04.635 | INFO | GpuTiming | GPU 16.13 ms total | cull 0.13 · raster 6.34 · HiZ 0.04 · resolve 0.38 · ReSTIR 9.24 · shadow 0.00 · post 0.51 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:04.636 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 16.1303 [ms] |
+| 2026-09-20 14:51:04.638 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.128384 [ms] |
+| 2026-09-20 14:51:04.640 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 6.34125 [ms] |
+| 2026-09-20 14:51:04.641 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.037216 [ms] |
+| 2026-09-20 14:51:04.643 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.38048 [ms] |
+| 2026-09-20 14:51:04.644 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 9.24294 [ms] |
+| 2026-09-20 14:51:04.651 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:04.653 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.505984 [ms] |
+| 2026-09-20 14:51:04.655 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:04.656 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:04.658 | INFO | Visibility | Clusters 2046 tested -> 1425 frustum, 1425 cone, 1424 visible | draws 1424+0, 160020 triangles |
+| 2026-09-20 14:51:04.660 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:04.661 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1425 [count] |
+| 2026-09-20 14:51:04.666 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1425 [count] |
+| 2026-09-20 14:51:04.668 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1424 [count] |
+| 2026-09-20 14:51:04.669 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 160020 [count] |
+| 2026-09-20 14:51:04.671 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1424 [count] |
+| 2026-09-20 14:51:04.672 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 57% of GPU frame |
+| 2026-09-20 14:51:04.674 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:04.675 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:04.677 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:04.681 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:04.684 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:04.685 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:51:04.687 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 57.3018 [percent] |
+| 2026-09-20 14:51:09.694 | INFO | Performance | CPU 25.86 ms/frame (32.7 fps, worst 83.74 ms over 195 frames), RSS 741 MiB |
+| 2026-09-20 14:51:09.695 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 25.858 [ms] |
+| 2026-09-20 14:51:09.698 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 83.7399 [ms] |
+| 2026-09-20 14:51:09.700 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 32.6679 [fps] |
+| 2026-09-20 14:51:09.702 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 195 [count] |
+| 2026-09-20 14:51:09.705 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.059 [MiB] |
+| 2026-09-20 14:51:09.706 | INFO | GpuTiming | GPU 44.41 ms total | cull 0.12 · raster 8.50 · HiZ 0.04 · resolve 0.90 · ReSTIR 34.85 · shadow 0.00 · post 0.60 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:09.709 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 44.4092 [ms] |
+| 2026-09-20 14:51:09.715 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.118304 [ms] |
+| 2026-09-20 14:51:09.719 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 8.50157 [ms] |
+| 2026-09-20 14:51:09.721 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.037312 [ms] |
+| 2026-09-20 14:51:09.723 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.903456 [ms] |
+| 2026-09-20 14:51:09.725 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 34.8486 [ms] |
+| 2026-09-20 14:51:09.726 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:09.731 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.60173 [ms] |
+| 2026-09-20 14:51:09.735 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:09.737 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:09.740 | INFO | Visibility | Clusters 2046 tested -> 1949 frustum, 1949 cone, 1949 visible | draws 1948+1, 219364 triangles |
+| 2026-09-20 14:51:09.741 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:09.745 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 1949 [count] |
+| 2026-09-20 14:51:09.747 | INFO | TelemetryMetrics | Measurement: ClustersCone = 1949 [count] |
+| 2026-09-20 14:51:09.750 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 1949 [count] |
+| 2026-09-20 14:51:09.752 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 219364 [count] |
+| 2026-09-20 14:51:09.754 | INFO | TelemetryMetrics | Measurement: DrawCalls = 1949 [count] |
+| 2026-09-20 14:51:09.756 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 78% of GPU frame |
+| 2026-09-20 14:51:09.760 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:09.762 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:09.766 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:09.768 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:09.770 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:09.772 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:51:09.778 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 78.4715 [percent] |
+| 2026-09-20 14:51:14.730 | INFO | Performance | CPU 34.57 ms/frame (28.9 fps, worst 100.00 ms over 145 frames), RSS 741 MiB |
+| 2026-09-20 14:51:14.732 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 34.5701 [ms] |
+| 2026-09-20 14:51:14.734 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:51:14.736 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 28.8961 [fps] |
+| 2026-09-20 14:51:14.737 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 145 [count] |
+| 2026-09-20 14:51:14.739 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.125 [MiB] |
+| 2026-09-20 14:51:14.741 | INFO | GpuTiming | GPU 36.59 ms total | cull 0.09 · raster 9.91 · HiZ 0.04 · resolve 0.44 · ReSTIR 26.11 · shadow 0.00 · post 0.41 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:14.743 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 36.5926 [ms] |
+| 2026-09-20 14:51:14.745 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.09472 [ms] |
+| 2026-09-20 14:51:14.746 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.90986 [ms] |
+| 2026-09-20 14:51:14.748 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.035232 [ms] |
+| 2026-09-20 14:51:14.748 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.438272 [ms] |
+| 2026-09-20 14:51:14.750 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 26.1145 [ms] |
+| 2026-09-20 14:51:14.752 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:14.753 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.4112 [ms] |
+| 2026-09-20 14:51:14.754 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:14.758 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:14.761 | INFO | Visibility | Clusters 2046 tested -> 2037 frustum, 2037 cone, 2037 visible | draws 2037+0, 228644 triangles |
+| 2026-09-20 14:51:14.762 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:14.763 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2037 [count] |
+| 2026-09-20 14:51:14.764 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2037 [count] |
+| 2026-09-20 14:51:14.765 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2037 [count] |
+| 2026-09-20 14:51:14.766 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 228644 [count] |
+| 2026-09-20 14:51:14.767 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2037 [count] |
+| 2026-09-20 14:51:14.768 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 71% of GPU frame |
+| 2026-09-20 14:51:14.769 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:14.770 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:14.773 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:14.774 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:14.775 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:14.777 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:51:14.777 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 71.3656 [percent] |
+| 2026-09-20 14:51:19.727 | INFO | Performance | CPU 28.96 ms/frame (37.5 fps, worst 86.51 ms over 173 frames), RSS 741 MiB |
+| 2026-09-20 14:51:19.729 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 28.9602 [ms] |
+| 2026-09-20 14:51:19.732 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 86.5113 [ms] |
+| 2026-09-20 14:51:19.733 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 37.4702 [fps] |
+| 2026-09-20 14:51:19.737 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 173 [count] |
+| 2026-09-20 14:51:19.739 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.16 [MiB] |
+| 2026-09-20 14:51:19.740 | INFO | GpuTiming | GPU 24.01 ms total | cull 0.13 · raster 10.16 · HiZ 0.04 · resolve 0.42 · ReSTIR 13.27 · shadow 0.00 · post 0.29 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:19.742 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 24.014 [ms] |
+| 2026-09-20 14:51:19.744 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.126016 [ms] |
+| 2026-09-20 14:51:19.749 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 10.1608 [ms] |
+| 2026-09-20 14:51:19.751 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.038912 [ms] |
+| 2026-09-20 14:51:19.753 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.415008 [ms] |
+| 2026-09-20 14:51:19.755 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 13.2733 [ms] |
+| 2026-09-20 14:51:19.756 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:19.757 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.287232 [ms] |
+| 2026-09-20 14:51:19.758 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:19.762 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:19.763 | INFO | Visibility | Clusters 2046 tested -> 2037 frustum, 2037 cone, 2037 visible | draws 2037+0, 228644 triangles |
+| 2026-09-20 14:51:19.764 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:19.766 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2037 [count] |
+| 2026-09-20 14:51:19.767 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2037 [count] |
+| 2026-09-20 14:51:19.770 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2037 [count] |
+| 2026-09-20 14:51:19.771 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 228644 [count] |
+| 2026-09-20 14:51:19.773 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2037 [count] |
+| 2026-09-20 14:51:19.774 | INFO | Performance | CPU-BOUND or presenting-limited | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 55% of GPU frame |
+| 2026-09-20 14:51:19.779 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:19.780 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:19.781 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:19.782 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:19.783 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:19.784 | INFO | TelemetryMetrics | Measurement: GpuBound = 0 [bool] |
+| 2026-09-20 14:51:19.786 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 55.2732 [percent] |
+| 2026-09-20 14:51:24.761 | INFO | Performance | CPU 25.20 ms/frame (40.4 fps, worst 84.61 ms over 199 frames), RSS 741 MiB |
+| 2026-09-20 14:51:24.763 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 25.1968 [ms] |
+| 2026-09-20 14:51:24.765 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 84.6136 [ms] |
+| 2026-09-20 14:51:24.767 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 40.3912 [fps] |
+| 2026-09-20 14:51:24.768 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 199 [count] |
+| 2026-09-20 14:51:24.772 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.125 [MiB] |
+| 2026-09-20 14:51:24.777 | INFO | GpuTiming | GPU 23.31 ms total | cull 0.10 · raster 9.22 · HiZ 0.04 · resolve 0.39 · ReSTIR 13.56 · shadow 0.00 · post 0.28 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:24.779 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 23.3115 [ms] |
+| 2026-09-20 14:51:24.783 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.101728 [ms] |
+| 2026-09-20 14:51:24.785 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.22426 [ms] |
+| 2026-09-20 14:51:24.790 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.03664 [ms] |
+| 2026-09-20 14:51:24.792 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.387072 [ms] |
+| 2026-09-20 14:51:24.794 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 13.5618 [ms] |
+| 2026-09-20 14:51:24.795 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:24.797 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.280384 [ms] |
+| 2026-09-20 14:51:24.798 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:24.799 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:24.801 | INFO | Visibility | Clusters 2046 tested -> 2037 frustum, 2037 cone, 2037 visible | draws 2037+0, 228644 triangles |
+| 2026-09-20 14:51:24.802 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:24.808 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2037 [count] |
+| 2026-09-20 14:51:24.810 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2037 [count] |
+| 2026-09-20 14:51:24.812 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2037 [count] |
+| 2026-09-20 14:51:24.814 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 228644 [count] |
+| 2026-09-20 14:51:24.815 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2037 [count] |
+| 2026-09-20 14:51:24.817 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 58% of GPU frame |
+| 2026-09-20 14:51:24.819 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:24.823 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:24.825 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:24.826 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:24.828 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:24.829 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:51:24.831 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 58.1764 [percent] |
+| 2026-09-20 14:51:29.774 | INFO | Performance | CPU 30.53 ms/frame (30.8 fps, worst 100.00 ms over 164 frames), RSS 741 MiB |
+| 2026-09-20 14:51:29.776 | INFO | TelemetryMetrics | Measurement: FrameTimeMeanMs = 30.5294 [ms] |
+| 2026-09-20 14:51:29.779 | INFO | TelemetryMetrics | Measurement: FrameTimePeakMs = 100 [ms] |
+| 2026-09-20 14:51:29.780 | INFO | TelemetryMetrics | Measurement: FramesPerSecond = 30.816 [fps] |
+| 2026-09-20 14:51:29.782 | INFO | TelemetryMetrics | Measurement: FrameSampleCount = 164 [count] |
+| 2026-09-20 14:51:29.785 | INFO | TelemetryMetrics | Measurement: ResidentMemory = 741.188 [MiB] |
+| 2026-09-20 14:51:29.786 | INFO | GpuTiming | GPU 33.92 ms total | cull 0.08 · raster 9.54 · HiZ 0.04 · resolve 0.49 · ReSTIR 23.77 · shadow 0.00 · post 0.40 · sky 0.00 · volume 0.00 |
+| 2026-09-20 14:51:29.788 | INFO | TelemetryMetrics | Measurement: GpuFrameTotalMs = 33.9232 [ms] |
+| 2026-09-20 14:51:29.790 | INFO | TelemetryMetrics | Measurement: GpuCullMs = 0.084288 [ms] |
+| 2026-09-20 14:51:29.791 | INFO | TelemetryMetrics | Measurement: GpuRasterMs = 9.54029 [ms] |
+| 2026-09-20 14:51:29.797 | INFO | TelemetryMetrics | Measurement: GpuHiZMs = 0.036512 [ms] |
+| 2026-09-20 14:51:29.799 | INFO | TelemetryMetrics | Measurement: GpuResolveMs = 0.489472 [ms] |
+| 2026-09-20 14:51:29.801 | INFO | TelemetryMetrics | Measurement: GpuReSTIRMs = 23.7726 [ms] |
+| 2026-09-20 14:51:29.803 | INFO | TelemetryMetrics | Measurement: GpuShadowMs = 0 [ms] |
+| 2026-09-20 14:51:29.804 | INFO | TelemetryMetrics | Measurement: GpuPostMs = 0.397024 [ms] |
+| 2026-09-20 14:51:29.807 | INFO | TelemetryMetrics | Measurement: GpuSkyMs = 0 [ms] |
+| 2026-09-20 14:51:29.813 | INFO | TelemetryMetrics | Measurement: GpuVolumeMs = 0 [ms] |
+| 2026-09-20 14:51:29.816 | INFO | Visibility | Clusters 2046 tested -> 2030 frustum, 2030 cone, 2030 visible | draws 2030+0, 227724 triangles |
+| 2026-09-20 14:51:29.818 | INFO | TelemetryMetrics | Measurement: ClustersTested = 2046 [count] |
+| 2026-09-20 14:51:29.820 | INFO | TelemetryMetrics | Measurement: ClustersFrustum = 2030 [count] |
+| 2026-09-20 14:51:29.822 | INFO | TelemetryMetrics | Measurement: ClustersCone = 2030 [count] |
+| 2026-09-20 14:51:29.827 | INFO | TelemetryMetrics | Measurement: ClustersVisible = 2030 [count] |
+| 2026-09-20 14:51:29.829 | INFO | TelemetryMetrics | Measurement: TrianglesDrawn = 227724 [count] |
+| 2026-09-20 14:51:29.831 | INFO | TelemetryMetrics | Measurement: DrawCalls = 2030 [count] |
+| 2026-09-20 14:51:29.832 | INFO | Performance | GPU-BOUND | 963 kpx x (1 candidates + 0 extra + 0 spatial taps), 4 denoise levels, present FIFO | kernel 70% of GPU frame |
+| 2026-09-20 14:51:29.834 | INFO | TelemetryMetrics | Measurement: RenderPixels = 963030 [px] |
+| 2026-09-20 14:51:29.835 | INFO | TelemetryMetrics | Measurement: ReSTIRCandidates = 1 [count] |
+| 2026-09-20 14:51:29.836 | INFO | TelemetryMetrics | Measurement: ReSTIRExtra = 0 [count] |
+| 2026-09-20 14:51:29.837 | INFO | TelemetryMetrics | Measurement: ReSTIRSpatialTaps = 0 [count] |
+| 2026-09-20 14:51:29.838 | INFO | TelemetryMetrics | Measurement: DenoiseLevels = 4 [count] |
+| 2026-09-20 14:51:29.842 | INFO | TelemetryMetrics | Measurement: GpuBound = 1 [bool] |
+| 2026-09-20 14:51:29.843 | INFO | TelemetryMetrics | Measurement: ReSTIRShareOfFrame = 70.0778 [percent] |
+| 2026-09-20 14:51:34.289 | INFO | Shutdown | Render loop exited cleanly. |
