@@ -31,3 +31,10 @@ Full engine migration, whole-editor integration, compliance repair, and Windows 
 Do not replace the checkout wholesale or rewrite the entire engine without a reviewed scope.
 No Linux binary delivery unless requested. No macOS setup now. No GitHub Actions without permission.
 Keep this plan ongoing until work and evidence support completion, then move it to `../Completed/`.
+
+## Control Centre batch
+
+Ported the theme/typography layouts and font discovery, excluding renderer and GI settings.
+Added the quick panel, stable font catalogue, licensed font recovery, and persistent applied preferences.
+Five Debug and sanitizer tests pass. A Windows x64 Release binary cross-builds; runtime/GPU checks remain pending.
+See `Exhibits/ControlCentre/README.md` for commands and evidence. No Actions are authorised.

@@ -1,4 +1,5 @@
 #include "IconArt.h"
+#include "AssetDirectory.h"
 #include <thorvg.h>
 #include <algorithm>
 #include <cmath>
@@ -52,30 +53,11 @@ std::string Unsupported(const std::string& Svg) {
     return Message;
 }
 // Only the default asset root is discovered. Explicit custom roots must fail honestly.
-std::filesystem::path ResolveRoot(const std::filesystem::path& Root) {
-    namespace fs = std::filesystem;
-    std::error_code Error;
-    if (Root != fs::path("UI/Assets/Icons") || fs::is_directory(Root, Error))
-        return fs::absolute(Root);
-    fs::path Executable;
-#ifdef _WIN32
-    wchar_t Buffer[32768];
-    const DWORD Length = GetModuleFileNameW(nullptr, Buffer, 32768);
-    if (Length && Length < 32768) Executable = std::wstring(Buffer, Length);
-#elif defined(__linux__)
-    Executable = fs::read_symlink("/proc/self/exe", Error);
-#endif
-    if (!Executable.empty()) {
-        for (auto Parent = Executable.parent_path(); !Parent.empty();) {
-            const auto Candidate = Parent / Root;
-            if (fs::is_regular_file(Candidate / "sun.svg", Error)) return Candidate;
-            const auto Next = Parent.parent_path();
-            if (Next == Parent) break;
-            Parent = Next;
-        }
-    }
-    return fs::absolute(Root);
+std::filesystem::path ResolveRoot(const std::filesystem::path& Root)
+{
+    return ResolveAssetDirectory(Root);
 }
+
 std::string SourceMarker(const std::string& Source) {
     uint64_t Hash = 14695981039346656037ull;
     for (unsigned char Byte : Source) { Hash ^= Byte; Hash *= 1099511628211ull; }

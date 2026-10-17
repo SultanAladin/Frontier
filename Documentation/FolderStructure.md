@@ -23,7 +23,9 @@ Frontier/
 │   └── Render/                # Blank; Git retention marker only
 ├── UI/
 │   ├── Editor/                # Production editor UI foundations
-│   └── Assets/Icons/          # Original and compatibility SVGs
+│   └── Assets/
+│       ├── Icons/            # Original and compatibility SVGs
+│       └── Fonts/            # Ignored downloads, OFL notices, generated inventory
 ├── Exhibits/
 │   ├── <ValidationName>/
 │   │   ├── README.md
@@ -56,3 +58,8 @@ map their ownership and build dependencies before any import or relocation.
 `Automation/Patches/` owns the six inherited ImGui patches. Dependency pins live in
 `Automation/UIDependencies.json`. No scene renderer is ported or built by the new CMake target.
 Inherited `Internal/Graphics/` remains untouched and is not linked into this target.
+
+`Exhibits/ControlCentre/` owns current appearance interaction tests, native CPU images, and build evidence.
+`Automation/FontSources.json`, `PrepareFonts.py`, and `FontRequirements.txt` define open-font recovery.
+`Automation/WindowsToolchain.cmake` supports Windows cross-compilation on the editing host.
+`Automation/PackageWindows.py` packages only Windows binaries and their runtime assets under ignored `Binaries/`.

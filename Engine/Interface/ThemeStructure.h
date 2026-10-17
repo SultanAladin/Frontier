@@ -128,16 +128,16 @@ public:
     ThemeStructure(const ThemeStructure&) = default;
     ThemeStructure& operator=(const ThemeStructure&) = default;
 
-    void                    AssignTheme(ThemeCategory DesiredTheme) noexcept;
+    void                    ConfigureTheme(ThemeCategory DesiredTheme) noexcept;
     [[nodiscard]] ThemeCategory QueryActiveTheme() const noexcept { return ActiveTheme; }
 
-    void                    AssignAccent(AccentCategory DesiredAccent) noexcept;
+    void                    ConfigureAccent(AccentCategory DesiredAccent) noexcept;
     [[nodiscard]] AccentCategory QueryActiveAccent() const noexcept { return ActiveAccent; }
 
-    void                    AssignCornerRadius(float RadiusPixels) noexcept;
+    void                    ConfigureCornerRadius(float RadiusPixels) noexcept;
     [[nodiscard]] float     QueryCornerRadius() const noexcept { return CornerRadiusPixels; }
 
-    void                    AssignFontFamily(FontFamilyCategory DesiredFamily) noexcept { ActiveFontFamily = DesiredFamily; }
+    void                    ConfigureFontFamily(FontFamilyCategory DesiredFamily) noexcept { ActiveFontFamily = DesiredFamily; }
     [[nodiscard]] FontFamilyCategory QueryActiveFontFamily() const noexcept { return ActiveFontFamily; }
 
     [[nodiscard]] const ThemePalette& QueryPalette() const noexcept;

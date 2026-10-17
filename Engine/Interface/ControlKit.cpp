@@ -50,7 +50,7 @@ ColorQuad Blend(ColorQuad From, ColorQuad To, float T) noexcept
 
 } // namespace
 
-void ControlKit::AssignTheme(const ThemeStructure& Theme, ColorQuad WarningColour, ColorQuad SuccessColour, ColorQuad InfoColour, ColorQuad CautionColour) noexcept
+void ControlKit::ConfigureTheme(const ThemeStructure& Theme, ColorQuad WarningColour, ColorQuad SuccessColour, ColorQuad InfoColour, ColorQuad CautionColour) noexcept
 {
     const ThemePalette& P = Theme.QueryPalette();
     ControlKitPalette& K = ActivePalette;

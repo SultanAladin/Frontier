@@ -169,17 +169,17 @@ ThemeStructure::ThemeStructure() noexcept
 //                                                    THEME ACCESSORS
 //------------------------------------------------------------------------------------------------------------------------
 
-void ThemeStructure::AssignTheme(ThemeCategory DesiredTheme) noexcept
+void ThemeStructure::ConfigureTheme(ThemeCategory DesiredTheme) noexcept
 {
     ActiveTheme = DesiredTheme;
 }
 
-void ThemeStructure::AssignAccent(AccentCategory DesiredAccent) noexcept
+void ThemeStructure::ConfigureAccent(AccentCategory DesiredAccent) noexcept
 {
     ActiveAccent = DesiredAccent;
 }
 
-void ThemeStructure::AssignCornerRadius(float RadiusPixels) noexcept
+void ThemeStructure::ConfigureCornerRadius(float RadiusPixels) noexcept
 {
     CornerRadiusPixels = std::clamp(RadiusPixels, 0.0f, 32.0f);
 }

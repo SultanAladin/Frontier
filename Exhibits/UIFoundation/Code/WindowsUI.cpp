@@ -11,7 +11,9 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <tchar.h>
-#include "UI/Editor/FoundationPanel.h"
+#include "UI/Editor/ControlCentrePanel.h"
+#include <cstdlib>
+#include <filesystem>
 #include "Engine/Interface/IconPresentation.h"
 
 // Data
@@ -57,7 +59,10 @@ int main(int, char**)
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     Frontier::IconPresentation::Attach("UI/Assets/Icons");
-    Frontier::ActivationOwnership Panel(new Frontier::FoundationPanel());
+    const char* LocalDirectory = std::getenv("LOCALAPPDATA");
+    const std::filesystem::path Preferences = LocalDirectory
+        ? std::filesystem::path(LocalDirectory) / "Frontier/Appearance.toml" : std::filesystem::path{};
+    Frontier::ActivationOwnership Panel(new Frontier::ControlCentrePanel("UI/Assets/Fonts", Preferences));
     if (!Panel->Initialize() || !Panel->Activate()) return 1;
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
@@ -150,12 +155,13 @@ int main(int, char**)
         }
 
         // Start the Dear ImGui frame
+        static_cast<Frontier::ControlCentrePanel*>(Panel.get())->PrepareInterface();
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
         (void)Panel->Integrate(io.DeltaTime);
-        static_cast<Frontier::FoundationPanel*>(Panel.get())->RecordInterface();
+        static_cast<Frontier::ControlCentrePanel*>(Panel.get())->RecordInterface();
 
         // Rendering
         ImGui::Render();

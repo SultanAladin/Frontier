@@ -1,7 +1,7 @@
 #============================================================================================================================================
 #                                                         ENCODEEVIDENCE.PY
 #============================================================================================================================================
-# 🧩 Encode the actual RGB pixels emitted by InterfaceValidation into a lossless PNG.
+# 🧩 Encode the actual RGB pixels emitted by native validation programs into a lossless PNG.
 
 from pathlib import Path
 import struct
@@ -30,7 +30,7 @@ def Main():
     Output += EncodeChunk(b'IDAT', zlib.compress(Rows))
     Output += EncodeChunk(b'IEND', b'')
     Path(sys.argv[2]).write_bytes(Output)
-    print(f'Encoded actual SVG raster output: {Width} x {Height}; no synthetic artwork')
+    print(f'Encoded actual RGB evidence: {Width} x {Height}; no synthetic artwork')
 
 
 if __name__ == '__main__':

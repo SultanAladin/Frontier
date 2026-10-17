@@ -12,6 +12,11 @@ execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/
 if(NOT DEPENDENCY_STATUS EQUAL 0)
     message(FATAL_ERROR "Run python Automation/PrepareUI.py before configuring; configure never downloads.")
 endif()
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareFonts.py" --verify
+    RESULT_VARIABLE FONT_STATUS)
+if(NOT FONT_STATUS EQUAL 0)
+    message(FATAL_ERROR "Prepare fonts first: pip install -r Automation/FontRequirements.txt; python Automation/PrepareFonts.py")
+endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
@@ -27,10 +32,14 @@ add_library(FrontierInterface STATIC
     Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
     Engine/Interface/ControlKit.cpp Engine/Interface/TextEntryState.cpp
-    Engine/Interface/ThemeStructure.cpp Engine/Interface/VectorCodec.cpp)
-target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}")
+    Engine/Interface/ThemeStructure.cpp Engine/Interface/VectorCodec.cpp
+    Engine/Interface/AssetDirectory.cpp Engine/Interface/FontCodec.cpp
+    Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
+    Engine/Interface/AppearanceCodec.cpp)
+target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
-add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp)
+add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
@@ -40,12 +49,16 @@ if(WIN32)
         "${IMGUI_ROOT}/backends/imgui_impl_win32.cpp" "${IMGUI_ROOT}/backends/imgui_impl_dx11.cpp")
     target_include_directories(FrontierUI PRIVATE "${IMGUI_ROOT}/backends")
     target_compile_definitions(FrontierUI PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(FrontierUI PRIVATE FrontierEditorUI d3d11 dxgi d3dcompiler dwmapi)
+    if(NOT DEFINED FRONTIER_D3DCOMPILER)
+        set(FRONTIER_D3DCOMPILER d3dcompiler)
+    endif()
+    target_link_libraries(FrontierUI PRIVATE FrontierEditorUI d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
     add_custom_command(TARGET FrontierUI POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/UI/Assets" "$<TARGET_FILE_DIR:FrontierUI>/UI/Assets")
     install(TARGETS FrontierUI RUNTIME DESTINATION .)
     install(DIRECTORY UI/Assets DESTINATION UI)
     install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)
+    install(FILES ExternalPackages/tomlpp/LICENSE DESTINATION Notices RENAME TomlPlusPlus-LICENSE.txt)
     install(FILES ExternalPackages/thorvg/LICENSE DESTINATION Notices RENAME ThorVG-LICENSE.txt)
     install(FILES Engine/Interface/Lucide.NOTICE Documentation/SourceNotices.md DESTINATION Notices)
 endif()
@@ -58,6 +71,12 @@ if(BUILD_TESTING)
         target_compile_definitions(ActivationValidation${EDITOR_MODE} PRIVATE FRONTIER_EDITOR=${EDITOR_MODE})
         add_test(NAME ActivationValidation${EDITOR_MODE} COMMAND ActivationValidation${EDITOR_MODE})
     endforeach()
+    add_test(NAME FontCatalogueValidation COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/Exhibits/ControlCentre/Code/FontCatalogueValidation.py")
+    add_executable(ControlCentreValidation Exhibits/ControlCentre/Code/ControlCentreValidation.cpp)
+    target_link_libraries(ControlCentreValidation PRIVATE FrontierEditorUI)
+    add_test(NAME ControlCentreValidation COMMAND ControlCentreValidation
+        "${CMAKE_SOURCE_DIR}/UI/Assets/Fonts" "${CMAKE_BINARY_DIR}/control-centre-evidence")
     add_executable(InterfaceValidation Exhibits/UIFoundation/Code/InterfaceValidation.cpp)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation

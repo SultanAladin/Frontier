@@ -1,0 +1,19 @@
+{
+  "archive_sha256": "4b4af16458395d7fb8b86fe99a113aed8a15a0d1ef7c7894e3a617368462ac4b",
+  "archive_bytes": 4608390,
+  "entries": 270,
+  "verified_payload_hashes": 269,
+  "verified_current_source_hashes": 51,
+  "font_faces": 30,
+  "font_families": [
+    "Archivo",
+    "Inter",
+    "JetBrains Mono",
+    "Space Grotesk"
+  ],
+  "binary_sha256": "1f0445019da0769b37c1e4d7746cc260d28588d8bee6dcd810641b072c2f704a",
+  "windows_runtime_verified": false,
+  "source_revision_at_packaging": "d4c942dbbb5a623ecd232105aa91fc11f2514ca1",
+  "uncommitted_changes_at_packaging": true,
+  "toolchain": "Zig 0.13.0 / Clang 18.1.6; x86_64-windows-gnu; static C++ runtime"
+}

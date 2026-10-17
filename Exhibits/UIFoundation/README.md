@@ -1,5 +1,8 @@
 # UI Foundation Exhibit
 
+This records the first UI foundation batch. For the current Windows executable, Control Centre, font setup,
+and verification status, see `../ControlCentre/README.md`.
+
 ## Scope and provenance
 
 Selective port from `SultanAladin/Frontier-` commit `338293863d7df4e585dec0c4acae45fe9c524ed5`.
@@ -24,7 +27,9 @@ Prerequisites: Python 3.9+, Git, CMake 3.21+, and a C++20 Windows toolchain with
 For MSVC, use a Visual Studio x64 developer terminal:
 
 ```powershell
+python -m pip install -r Automation/FontRequirements.txt
 python Automation/PrepareUI.py
+python Automation/PrepareFonts.py
 cmake -S . -B Build/UI -A x64
 cmake --build Build/UI --config Release
 ctest --test-dir Build/UI -C Release --output-on-failure
@@ -33,7 +38,7 @@ cd Binaries/UI
 .\FrontierUI.exe
 ```
 
-Setup downloads only checksum-pinned ImGui and ThorVG. Configure never downloads; it verifies preparation.
+Setup downloads checksum-pinned ImGui, ThorVG, and toml++; fonts are prepared separately. Configure never downloads; it verifies preparation.
 All six inherited ImGui patches apply before compilation. A repeat setup is idempotent.
 Downloaded dependency source stays ignored under `ExternalPackages/`, with its original licences.
 MinGW/Clang users must select an appropriate generator/toolchain; the `-A x64` command is MSVC-specific.
@@ -67,7 +72,7 @@ and `-fsanitize=address,undefined` to executable linking. All three tests passed
 | DPI atlas retirement       | Four scales exercised using CPU texture acknowledgements. |
 | ImGui patches              | Six apply, verify, skip reapplication, revert/reapply.|
 | Address/undefined checking | All three tests passed.                              |
-| Windows executable         | Blocked: no Windows SDK/MSVC or installed cross-toolchain. |
+| Windows executable (first batch) | Blocked: no Windows SDK/MSVC or installed cross-toolchain. |
 | Windows GPU rendering      | Not run; no Windows runtime/display available.       |
 
 ## Visible evidence and limitations

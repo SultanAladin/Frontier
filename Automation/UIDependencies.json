@@ -20,6 +20,16 @@
       "proof": true,
       "origin": "existing verified pin",
       "witness": "inc/thorvg.h"
+    },
+    {
+      "name": "tomlpp",
+      "repository": "marzer/tomlplusplus",
+      "revision": "1e8829b793b66ad17011732a146b8077d379b011",
+      "url": "https://codeload.github.com/marzer/tomlplusplus/tar.gz/1e8829b793b66ad17011732a146b8077d379b011",
+      "sha256": "8f6131576dbfd77c72d3073ad3969f2bda086961e15937ddb6dc9b4b4238ae01",
+      "proof": true,
+      "origin": "existing verified pin",
+      "witness": "include/toml++/toml.hpp"
     }
   ]
 }

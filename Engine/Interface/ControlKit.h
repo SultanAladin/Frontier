@@ -31,7 +31,7 @@ struct ControlKitTokens
 };
 
 // Runtime colour set every widget reads through ControlKit::Palette(). Defaults are the UIComponents.html :root dark
-//    tokens; ControlKit::AssignTheme() re-derives them from the applied ThemeStructure so the theme applies globally.
+//    tokens; ControlKit::ConfigureTheme() re-derives them from the applied ThemeStructure so the theme applies globally.
 struct ControlKitPalette
 {
     ColorQuad Panel        { 0x12 / 255.0f, 0x12 / 255.0f, 0x12 / 255.0f, 1.0f };   // --panel          ← palette.PanelBackground
@@ -151,11 +151,11 @@ class ControlKit
 {
 public:
     // ── Theme ───────────────────────────────────────────────────────────────────────────────────────────────────────
-    // The active palette every widget reads. AssignTheme derives it from the applied theme + semantic swatch colours;
+    // The active palette every widget reads. ConfigureTheme derives it from the applied theme + semantic swatch colours;
     //    ResetPalette restores the UIComponents dark defaults.
     [[nodiscard]] static const ControlKitPalette& Palette() noexcept { return ActivePalette; }
-    static void AssignTheme(const ThemeStructure& Theme, ColorQuad WarningColour, ColorQuad SuccessColour, ColorQuad InfoColour, ColorQuad CautionColour) noexcept;
-    static void AssignPalette(const ControlKitPalette& Explicit) noexcept { ActivePalette = Explicit; }
+    static void ConfigureTheme(const ThemeStructure& Theme, ColorQuad WarningColour, ColorQuad SuccessColour, ColorQuad InfoColour, ColorQuad CautionColour) noexcept;
+    static void ConfigurePalette(const ControlKitPalette& Explicit) noexcept { ActivePalette = Explicit; }
     // BlendPalette lerps every colour slot From → To (smoothstepped T) for live theme transitions.
     static void BlendPalette(const ControlKitPalette& From, const ControlKitPalette& To, float T) noexcept;
     static void ResetPalette() noexcept { ActivePalette = ControlKitPalette{}; }

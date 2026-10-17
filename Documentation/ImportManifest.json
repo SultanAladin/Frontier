@@ -4,7 +4,9 @@
   "notes": [
     "Selective port, not a wholesale import.",
     "Destination hashes identify reviewed adaptations.",
-    "Interface names/formatting still require the tracked compliance audit."
+    "Interface names/formatting still require the tracked compliance audit.",
+    "Current destination hashes include the Control Centre batch.",
+    "ControlCentrePanel is a UI-only adaptation, not a whole-host import. Font binaries are recovered from FontSources.json."
   ],
   "files": [
     {
@@ -12,14 +14,14 @@
       "source": "Engine/DisplayPresentation/ControlKit.cpp",
       "destination": "Engine/Interface/ControlKit.cpp",
       "source_sha256": "a55d56c9dd6bb0f45b24321a3813e6f72a6f99d3069ef2370e13f9a4cc3e3919",
-      "destination_sha256": "a55d56c9dd6bb0f45b24321a3813e6f72a6f99d3069ef2370e13f9a4cc3e3919"
+      "destination_sha256": "5737c603911ee3f7442683231e8b5480a870d90cab05d07c39b4fc3ad6c5d320"
     },
     {
       "origin": "Frontier-",
       "source": "Engine/DisplayPresentation/ControlKit.h",
       "destination": "Engine/Interface/ControlKit.h",
       "source_sha256": "b0577ea5236fbe49cac6b5b8d3e47ad55da64ef51c489da3e936058968b67f9e",
-      "destination_sha256": "b0577ea5236fbe49cac6b5b8d3e47ad55da64ef51c489da3e936058968b67f9e"
+      "destination_sha256": "27c52ca92856687e5473b523ecb4716e1420b5cf25de64909dd728b1f60b6252"
     },
     {
       "origin": "Frontier-",
@@ -40,7 +42,7 @@
       "source": "Engine/DisplayPresentation/IconArt.cpp",
       "destination": "Engine/Interface/IconArt.cpp",
       "source_sha256": "6ce7ed0459185d454e495724dac5753fe518b7944ca1e12abc04afd092caf20c",
-      "destination_sha256": "2dc53bd18d942e29a1a980bc968af24f6f2640e0b451115d2fbf06b5b3a1b533"
+      "destination_sha256": "5b64bfa3d1246fe2976363a9e64b0b58b410eb974a122c76abce825cb9a09e79"
     },
     {
       "origin": "Frontier-",
@@ -96,14 +98,14 @@
       "source": "Engine/DisplayPresentation/ThemeStructure.cpp",
       "destination": "Engine/Interface/ThemeStructure.cpp",
       "source_sha256": "2858db5c4e854f0d97889225fdd1f3412c9d7b8676553bc21713abbcf62f18b2",
-      "destination_sha256": "5682e5bcd967e0ebdd1e36fe1a5014498a360c29a83e736948697fac983ff8ca"
+      "destination_sha256": "44c9e77e5ce54071102209e6d7fd2103752c7712f31eb6618a4d26743e4038c2"
     },
     {
       "origin": "Frontier-",
       "source": "Engine/DisplayPresentation/ThemeStructure.h",
       "destination": "Engine/Interface/ThemeStructure.h",
       "source_sha256": "907d189abb3f052f628264142a3652473fad267c1a66b1e59e873a2d5ecf5b7b",
-      "destination_sha256": "4b74b36106213c7ad78d4d637626876316719ae99ed146b220d3d73503d6d919"
+      "destination_sha256": "ff18b05e7e434b30a14c737daf5d48c99b73f9b63b7fdfcb8f2903411291eddc"
     },
     {
       "origin": "Frontier-",
@@ -1748,14 +1750,63 @@
       "source": "Tools/Build/ThorVGSoftware.cmake",
       "destination": "Automation/ThorVGSoftware.cmake",
       "source_sha256": "4d280ab44aea9847cb56b8a5b0a44e841581e64ef35d237fb7cced7326393c3f",
-      "destination_sha256": "a9f55c91b913b8d461d49971accb9f46010cfa067c3f9907648908ef16cbe20b"
+      "destination_sha256": "c74d530ef7458e2a43d232e384a14385e396d8cfbc44678582f29a42f1701a0c"
     },
     {
       "origin": "ImGui 3bae66c735670619baf51391eba7f3d90a25d125",
       "source": "ExternalPackages/imgui/examples/example_win32_directx11/main.cpp",
       "destination": "Exhibits/UIFoundation/Code/WindowsUI.cpp",
       "source_sha256": "2b2b9facb8187d44ce1bcbbd66c2853ab264bf93f7c8e606aecd7b69a4101b64",
-      "destination_sha256": "47c67b8d22110ca611b8d6702551ba2c9238757eb91529b2cf06957c071be765"
+      "destination_sha256": "b0158f5b129a5a95201368f94705b6f004b60775d339f2bd252878400195eef4"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/AppearanceInspector.h",
+      "destination": "Engine/Interface/AppearanceInspector.h",
+      "source_sha256": "9016466b48ab218f963b703aa6a2722a7d7f6d6ba8581801142c5c59e12e6e6e",
+      "destination_sha256": "d8c7ae12c17d3f9fbf4d96703b8371bd9b426439bdec99efde25011fcb61217f"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/AppearanceInspector.cpp",
+      "destination": "Engine/Interface/AppearanceInspector.cpp",
+      "source_sha256": "802aecb5f32de25ee15f6a04ad8405dc0c5747c7445f06de88cd885eb6f8ed5d",
+      "destination_sha256": "21e3f6b5962b8e8cd14e8d70367556e3ccbcf667b2adcd83cebeb5176501a9dd"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/FontCodec.h",
+      "destination": "Engine/Interface/FontCodec.h",
+      "source_sha256": "848a4abad6a9e9736939b67da8f8479f47be4b8eb61cd76ff940410069d40833",
+      "destination_sha256": "d7b59ffbb00c3741f290ef1d6dd2b217890849e64aaf6a8ee40734fe8a9115f3"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/FontCodec.cpp",
+      "destination": "Engine/Interface/FontCodec.cpp",
+      "source_sha256": "12d591d1670a57be892e77db01d2575ff1020ddc70e5e6a1fef722894bdb0fa2",
+      "destination_sha256": "86e0a60392e29ca4615e188941467fd21de7044b794803d3df4541a759000728"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/TypefaceRegistry.h",
+      "destination": "Engine/Interface/TypefaceRegistry.h",
+      "source_sha256": "09e4bff99c901a0852bde06647f05a9b6fdd3bc641b2de9ca71016dc1ef248dc",
+      "destination_sha256": "5e94c4ddccd8f5a78819d535b1c833df253d4f68d0d49bab40b99eb12b6ad717"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Engine/DisplayPresentation/TypefaceRegistry.cpp",
+      "destination": "Engine/Interface/TypefaceRegistry.cpp",
+      "source_sha256": "28b6b60e6cf8547406ce8080bf1623fad58df880cf27c4c652ad60b70689a228",
+      "destination_sha256": "9cbe851ef4e102d2673b8188140dc4ed0c717a99cd21be056de806bd1528f416"
+    },
+    {
+      "origin": "Frontier-",
+      "source": "Exhibits/Workbench/IconArt/CpuDraw.h",
+      "destination": "Exhibits/ControlCentre/Code/CpuRasterization.h",
+      "source_sha256": "76afa39eff97692fb9418de8c05d6f7aefb27237de418e51014482b0e899abd2",
+      "destination_sha256": "9cc27dbeff2ae453621ac98f730376b6d12137533c72346c6b17fff4cbec9cfa"
     }
   ]
 }
