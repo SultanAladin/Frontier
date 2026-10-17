@@ -1,0 +1,3424 @@
+<!DOCTYPE html>
+<!--==============================================================================================================================================
+                                                             PROJECTBROWSER.HTML
+==============================================================================================================================================-->
+<!-- 🧩 Interactive HTML prototype of the Waterfall INC Project Browser & Document Reader (SourceImages/Project Browser). -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Frontier — Project Browser</title>
+<style>
+/*------------------------------------------------------------------------------------------------------------------------
+                                                       THEME TOKENS
+------------------------------------------------------------------------------------------------------------------------*/
+:root {
+    --bg-void:          #000000;
+    --bg-rail:          #050505;
+    --bg-stage:         #000000;
+    --bg-header:        #050505;
+    --bg-card:          #0c0c0c;
+    --bg-card-hover:    #131313;
+    --bg-card-Selected: #171717;
+    --bg-control:       #101010;
+    --bg-control-hover: #1a1a1a;
+    --bg-composer:      #111111;
+    --bg-floating-pill: #080808;
+
+    --border-hairline:  #222222;
+    --border-card:      #292929;
+    --border-control:   #333333;
+    --border-active:    #bcbcbc;
+    --crosshair-color:  #606060;
+
+    --icon-fold-body:   #919191;
+    --icon-fold-flap:   #5e5e5e;
+    --icon-fold-glyph:  #111111;
+
+    --badge-bg:         #919191;
+    --badge-fg:         #222222;
+
+    --text-primary:     #eeeeee;
+    --text-secondary:   #bdbdbd;
+    --text-body:        #aaaaaa;
+    --text-muted:       #888888;
+    --text-faint:       #666666;
+
+    --accent-star:      #e5b54f;
+    --accent-danger:    #d96868;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-void);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   APPLICATION LAYOUT
+------------------------------------------------------------------------------------------------------------------------*/
+.WorkspaceHost {
+    display: grid;
+    grid-template-columns: 216px 1fr 336px;
+    width: 100vw;
+    height: 100vh;
+    background: var(--bg-stage);
+    transition: grid-template-columns 0.22s ease;
+}
+
+.WorkspaceHost.LeftRailCollapsed {
+    grid-template-columns: 0px 1fr 336px;
+}
+
+.WorkspaceHost.RightRailCollapsed {
+    grid-template-columns: 216px 1fr 0px;
+}
+
+.WorkspaceHost.LeftRailCollapsed.RightRailCollapsed {
+    grid-template-columns: 0px 1fr 0px;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                               TECHNICAL CROSSHAIR DIVIDERS
+------------------------------------------------------------------------------------------------------------------------*/
+.CrosshairRule {
+    position: relative;
+    height: 1px;
+    background: var(--border-hairline);
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.CrosshairRule::before,
+.CrosshairRule::after {
+    content: '+';
+    position: absolute;
+    top: 50%;
+    transform: translateY(-52%);
+    font-family: monospace;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--crosshair-color);
+    background: inherit;
+    padding: 0 2px;
+    pointer-events: none;
+}
+
+.CrosshairRule::before {
+    left: 0;
+}
+
+.CrosshairRule::after {
+    right: 0;
+}
+
+.CrosshairCluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-faint);
+    font-family: monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   LEFT NAVIGATION RAIL
+------------------------------------------------------------------------------------------------------------------------*/
+.LeftNavigationRail {
+    background: var(--bg-rail);
+    border-right: 1px solid var(--border-hairline);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.RailHeader {
+    height: 62px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.RailHeaderTitle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.RailHeaderTitle svg {
+    width: 15px;
+    height: 15px;
+    color: var(--text-muted);
+}
+
+.RailModeSwitch {
+    display: inline-flex;
+    background: #000000;
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.RailModeBtn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 3px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.RailModeBtn.Active {
+    background: var(--bg-card);
+    color: var(--text-primary);
+}
+
+.RailRuleWrap {
+    padding: 0 18px;
+}
+
+.RailScrollRegion {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Folder list in Browser Mode */
+.DirectorySectionLabel {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-muted);
+    padding: 0 6px;
+    margin-bottom: 4px;
+}
+
+.DirectoryList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.DirectoryRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 11px;
+    border-radius: 7px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: 0.14s ease;
+    font-size: 12.5px;
+}
+
+.DirectoryRow:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+}
+
+.DirectoryRow.Active {
+    background: var(--bg-card);
+    border-color: var(--border-card);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.DirectoryRowLeft {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.DirectoryRowLeft svg {
+    width: 15px;
+    height: 15px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.DirectoryRow.Active .DirectoryRowLeft svg {
+    color: var(--text-primary);
+}
+
+.DirectoryCount {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.22);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+/* Page Thumbnails in Reader Mode (matches 5016b84759c3224f6009c09a329a360e.jpg) */
+.PageThumbnailStack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding-top: 4px;
+}
+
+.PageThumbnailItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.PageThumbnailCard {
+    width: 108px;
+    height: 136px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    border: 1.5px solid var(--border-card);
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    transition: 0.16s ease;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+}
+
+.PageThumbnailItem:hover .PageThumbnailCard {
+    border-color: #727272;
+    transform: translateY(-1px);
+}
+
+.PageThumbnailItem.Active .PageThumbnailCard {
+    border: 2px solid var(--border-active);
+    box-shadow: 0 0 0 2px rgba(184, 184, 196, 0.12), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.MiniLineGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.MiniLine {
+    height: 2px;
+    background: #606060;
+    border-radius: 1px;
+}
+
+.MiniLine.Title {
+    height: 2.5px;
+    width: 55%;
+    margin: 0 auto 3px;
+    background: #929292;
+}
+
+.PageThumbnailNumber {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.PageThumbnailItem.Active .PageThumbnailNumber {
+    color: var(--text-primary);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   CENTER WORKSPACE STAGE
+------------------------------------------------------------------------------------------------------------------------*/
+.CenterWorkspace {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100vh;
+    background: var(--bg-stage);
+    position: relative;
+}
+
+.StageTopBar {
+    height: 62px;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    background: var(--bg-header);
+    flex-shrink: 0;
+}
+
+.TopBarLeft {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.TopBarCenter {
+    text-align: center;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 420px;
+}
+
+.TopBarRight {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.SquareIconBtn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--bg-control);
+    border: 1px solid var(--border-control);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: 0.15s ease;
+    position: relative;
+}
+
+.SquareIconBtn:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+    border-color: #525252;
+}
+
+.SquareIconBtn.Active {
+    background: #202020;
+    color: var(--text-primary);
+    border-color: #7d7d7d;
+}
+
+.SquareIconBtn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.StageRuleWrap {
+    padding: 0 28px;
+    background: var(--bg-header);
+}
+
+/* Sub-toolbar for search, filtering, and adding files in Browser Grid Mode */
+.BrowserControlStrip {
+    padding: 18px 28px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.FilterPills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.FilterPill {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 7px;
+    background: var(--bg-control);
+    border: 1px solid var(--border-hairline);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.FilterPill:hover {
+    color: var(--text-secondary);
+    border-color: var(--border-control);
+}
+
+.FilterPill.Active {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-color: #565656;
+}
+
+.BrowserSearchGroup {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.SearchBox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 11px;
+    background: var(--bg-control);
+    border: 1px solid var(--border-hairline);
+    border-radius: 7px;
+    width: 210px;
+}
+
+.SearchBox svg {
+    width: 13px;
+    height: 13px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.SearchBox input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    width: 100%;
+    font-family: inherit;
+}
+
+.SearchBox input::placeholder {
+    color: var(--text-muted);
+}
+
+.ActionBtnPrimary {
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 7px;
+    background: #202020;
+    border: 1px solid #515151;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: 0.15s;
+}
+
+.ActionBtnPrimary:hover {
+    background: #292929;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                       FILE CARDS GRID (1e731f0abffefa1a575d6d8789d2ffb6.jpg)
+------------------------------------------------------------------------------------------------------------------------*/
+.StageScrollCanvas {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 28px 40px;
+}
+
+.SectionBanner {
+    text-align: center;
+    margin: 8px 0 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.SectionBannerTitle {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: 3.6px;
+    text-transform: uppercase;
+    color: #c6c6c6;
+}
+
+.CardsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 24px;
+    align-items: start;
+}
+
+.ProjectCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 8px;
+    padding: 14px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+}
+
+.ProjectCard:hover {
+    background: var(--bg-card-hover);
+    border-color: #505050;
+    transform: translateY(-2px);
+}
+
+.ProjectCard.Selected {
+    background: var(--bg-card-Selected);
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 1px rgba(184, 184, 196, 0.25), 0 12px 28px rgba(0, 0, 0, 0.36);
+}
+
+.CardTopRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 22px;
+}
+
+.CardStarBtn,
+.CardMenuBtn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: 0.14s;
+}
+
+.CardStarBtn:hover,
+.CardMenuBtn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.CardStarBtn.Starred {
+    color: var(--accent-star);
+}
+
+.CardIconZone {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 12px 0 18px;
+}
+
+/* Folded-corner document icon matching reference images */
+.FoldedDocIcon {
+    width: 56px;
+    height: 66px;
+    background: var(--icon-fold-body);
+    border-radius: 10px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+    transition: transform 0.16s ease;
+}
+
+.ProjectCard:hover .FoldedDocIcon {
+    transform: scale(1.04);
+}
+
+.FoldedDocIcon::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 16px;
+    height: 16px;
+    background: var(--icon-fold-flap);
+    border-bottom-left-radius: 5px;
+}
+
+.FoldedDocIcon svg {
+    width: 26px;
+    height: 26px;
+    color: var(--icon-fold-glyph);
+    margin-top: 4px;
+}
+
+.FoldedDocIcon.Large {
+    width: 104px;
+    height: 122px;
+    border-radius: 16px;
+    clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+}
+
+.FoldedDocIcon.Large::after {
+    width: 28px;
+    height: 28px;
+    border-bottom-left-radius: 9px;
+}
+
+.FoldedDocIcon.Large svg {
+    width: 46px;
+    height: 46px;
+}
+
+.CardTitle {
+    text-align: center;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.42;
+    min-height: 36px;
+    padding: 0 6px;
+    margin-bottom: 18px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.CardFooter {
+    margin-top: 14px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.CardFilesizeLabel {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.3;
+}
+
+.CardFilesizeValue {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.CollaboratorBadges {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.InitialBadge {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--badge-bg);
+    color: var(--badge-fg);
+    font-size: 10.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.InitialBadge.Medium {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                   DOCUMENT READER VIEW (5016b84759c3224f6009c09a329a360e.jpg)
+------------------------------------------------------------------------------------------------------------------------*/
+.DocumentReaderStage {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 44px 96px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.DocumentSheet {
+    width: 100%;
+    max-width: 680px;
+    min-height: 760px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 8px;
+    padding: 54px 64px 72px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38);
+    transform-origin: top center;
+    transition: transform 0.16s ease;
+    user-select: text;
+}
+
+.DocSheetCompany {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+
+.DocSheetHeading {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    margin-bottom: 36px;
+}
+
+.DocSheetBody p {
+    font-size: 12.5px;
+    line-height: 1.78;
+    color: var(--text-body);
+    margin-bottom: 22px;
+}
+
+.DocSheetBody h4 {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 26px 0 14px;
+}
+
+/* Floating Bottom Reader Pill (5016b84759c3224f6009c09a329a360e.jpg) */
+.ReaderFloatingToolbar {
+    position: absolute;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    height: 44px;
+    padding: 0 14px;
+    background: var(--bg-floating-pill);
+    border: 1px solid #313131;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+    z-index: 20;
+}
+
+.ToolbarIconBtn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: 0.14s;
+}
+
+.ToolbarIconBtn:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+}
+
+.ToolbarIconBtn svg {
+    width: 15px;
+    height: 15px;
+}
+
+.ToolbarPageCounter {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    padding: 0 6px;
+    min-width: 38px;
+    text-align: center;
+}
+
+.ToolbarDivider {
+    width: 1px;
+    height: 18px;
+    background: var(--border-hairline);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                 RIGHT INSPECTOR RAIL (819ffc4e2d1006acb8a82cdc7b1527fd.jpg)
+------------------------------------------------------------------------------------------------------------------------*/
+.RightInspectorRail {
+    background: var(--bg-rail);
+    border-left: 1px solid var(--border-hairline);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* File Preview Inspector Mode */
+.PreviewDetailsPane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.PreviewHeroZone {
+    padding: 34px 24px 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.PreviewInfoBlock {
+    padding: 0 24px 22px;
+}
+
+.PreviewFileName {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.38;
+    margin-bottom: 6px;
+}
+
+.PreviewFileMeta {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.3px;
+    margin-bottom: 22px;
+}
+
+.PreviewSectionHeading {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.PreviewDescriptionText {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-muted);
+}
+
+.SharedWithList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.SharedWithRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.SharedWithIdentity {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font-size: 12px;
+    color: var(--text-body);
+}
+
+.PreviewBottomActions {
+    margin-top: auto;
+    padding: 0 18px 18px;
+}
+
+.ActionGrid3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    padding: 18px 0;
+    position: relative;
+}
+
+.ActionCell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.ActionCell span {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    transition: 0.14s;
+}
+
+.ActionCell:hover span {
+    color: var(--text-primary);
+}
+
+.ActionCell:hover .SquareIconBtn {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+    border-color: #5c5c5c;
+}
+
+/* Comments Inspector Mode (Threaded Cards & Flat Stream) */
+.CommentsScrollList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.CommentItemWrap {
+    position: relative;
+}
+
+/* Threaded tree connector lines matching left panel of 819ffc4e2d1006acb8a82cdc7b1527fd.jpg */
+.CommentsScrollList.CardsMode .CommentItemWrap.ThreadedReply {
+    padding-left: 16px;
+}
+
+.CommentsScrollList.CardsMode .CommentItemWrap.ThreadedReply::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: -14px;
+    bottom: 50%;
+    width: 11px;
+    border-left: 1px solid #494949;
+    border-bottom: 1px solid #494949;
+}
+
+.CommentsScrollList.CardsMode .CommentItemWrap.ThreadedContinuation::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 20px;
+    bottom: -14px;
+    border-left: 1px solid #494949;
+}
+
+.CommentBox {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 8px;
+    padding: 13px 14px;
+    transition: border-color 0.14s;
+}
+
+.CommentBox:hover {
+    border-color: #4e4e4e;
+}
+
+/* Stream mode (Right panel of 819ffc4e2d1006acb8a82cdc7b1527fd.jpg) */
+.CommentsScrollList.StreamMode .CommentBox {
+    background: transparent;
+    border-color: transparent;
+    padding: 6px 2px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 0;
+}
+
+.CommentHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.CommentAuthorBlock {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.CommentAuthorName {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.25;
+}
+
+.CommentTimestamp {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+
+.ReplySquareBtn {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: var(--bg-control);
+    border: 1px solid var(--border-control);
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: 0.14s;
+}
+
+.ReplySquareBtn:hover {
+    color: var(--text-primary);
+    border-color: #5d5d5d;
+}
+
+.ReplySquareBtn svg {
+    width: 12px;
+    height: 12px;
+}
+
+.CommentBodyText {
+    font-size: 12px;
+    line-height: 1.56;
+    color: var(--text-body);
+    user-select: text;
+}
+
+.CommentsScrollList.StreamMode .CommentBodyText {
+    padding-left: 36px;
+}
+
+/* Comment Composer Footer */
+.CommentComposer {
+    background: var(--bg-composer);
+    border-top: 1px solid var(--border-hairline);
+    padding: 12px 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ReplyBanner {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 2px solid var(--border-active);
+    padding: 5px 9px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.ReplyBanner.Visible {
+    display: flex;
+}
+
+.ReplyBanner button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.ComposerToolsRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ComposerLeftIcons {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ComposerToolIcon {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    transition: color 0.14s;
+}
+
+.ComposerToolIcon:hover {
+    color: var(--text-primary);
+}
+
+.ComposerToolIcon svg {
+    width: 15px;
+    height: 15px;
+}
+
+.ComposerInputRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.ComposerInput {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 12.5px;
+    font-family: inherit;
+}
+
+.ComposerInput::placeholder {
+    color: var(--text-muted);
+}
+
+.SendCommentBtn {
+    height: 30px;
+    padding: 0 16px;
+    border-radius: 6px;
+    background: #262626;
+    border: 1px solid #515151;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.14s;
+}
+
+.SendCommentBtn:hover {
+    background: #303030;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                               CONTEXT MENU & DIALOGUES
+------------------------------------------------------------------------------------------------------------------------*/
+.ContextMenu {
+    position: fixed;
+    z-index: 100;
+    width: 184px;
+    background: #0b0b0b;
+    border: 1px solid #414141;
+    border-radius: 8px;
+    padding: 5px;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55);
+    display: none;
+}
+
+.ContextMenu.Open {
+    display: block;
+}
+
+.ContextMenuItem {
+    width: 100%;
+    padding: 8px 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-family: inherit;
+    text-align: left;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ContextMenuItem:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.ContextMenuItem.Danger {
+    color: var(--accent-danger);
+}
+
+/* Modal Dialogue */
+.ModalBackdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 9, 14, 0.72);
+    backdrop-filter: blur(3px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 120;
+}
+
+.ModalBackdrop.Open {
+    display: flex;
+}
+
+.ModalCard {
+    width: 400px;
+    background: var(--bg-rail);
+    border: 1px solid var(--border-control);
+    border-radius: 10px;
+    padding: 22px 24px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+}
+
+.ModalTitle {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text-primary);
+}
+
+.FormField {
+    margin-bottom: 14px;
+}
+
+.FormField label {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.FormField input,
+.FormField select,
+.FormField textarea {
+    width: 100%;
+    background: var(--bg-control);
+    border: 1px solid var(--border-control);
+    border-radius: 7px;
+    padding: 8px 11px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 12.5px;
+    outline: none;
+}
+
+.FormField textarea {
+    resize: vertical;
+    min-height: 70px;
+}
+
+.ModalActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.BtnSecondary {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 7px;
+    background: transparent;
+    border: 1px solid var(--border-control);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #323232;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #484848;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                             OLED WORKSPACE / SCENE INSPECTION
+------------------------------------------------------------------------------------------------------------------------*/
+:root { color-scheme: dark; }
+[hidden] { display: none !important; }
+button, select, input { font-family: inherit; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, canvas:focus-visible {
+    outline: 2px solid #9edac8; outline-offset: 3px;
+}
+.WorkspaceHost { grid-template-columns: 216px minmax(0, 1fr) 300px; }
+.WorkspaceHost.LeftRailCollapsed { grid-template-columns: 0 minmax(0, 1fr) 300px; }
+.StageTopBar { display: flex; gap: 18px; padding: 0 22px; height: 62px; }
+.TopBarLeft { gap: 10px; flex-shrink: 0; }
+.TopBarCenter { flex: 1; text-align: left; color: var(--text-muted); font-size: 12px; font-weight: 400; min-width: 0; }
+.WorkspaceSelect { background: #101010; border: 1px solid #303030; border-radius: 6px; color: #dedede; padding: 7px 28px 7px 10px; font-size: 12px; max-width: 100%; cursor: pointer; }
+.WorkspaceSelect:disabled { cursor: default; opacity: .6; }
+.StageRuleWrap { padding: 0 22px; }
+.BrowserControlStrip { padding: 18px 22px 0; gap: 12px; flex-wrap: nowrap; }
+.BrowserSearchGroup { flex: 1; justify-content: flex-end; min-width: 0; }
+.SearchBox { width: min(230px, 100%); }
+.ActionBtnPrimary { white-space: nowrap; }
+.FilterDropdown { position: relative; flex-shrink: 0; z-index: 6; }
+.FilterDropdown summary { list-style: none; cursor: pointer; border: 1px solid #303030; background: #101010; border-radius: 6px; padding: 6px 11px; display: flex; align-items: center; gap: 14px; }
+.FilterDropdown summary::-webkit-details-marker { display: none; }
+.FilterDropdown summary::after { content: '⌄'; color: #aaa; }
+#FilterCount { font: 10px monospace; color: #a4d8c8; }
+.FilterMenu { position: absolute; top: 42px; left: 0; width: 285px; padding: 16px; background: #080808; border: 1px solid #333; border-radius: 9px; box-shadow: 0 14px 40px #000c; }
+.FilterMenuHeading { font-size: 10px; color: #888; letter-spacing: 1.6px; margin-bottom: 12px; }
+.FilterMenu select { width: 100%; }
+#ActiveFilterSequence { list-style: none; display: flex; flex-direction: column; gap: 5px; margin-top: 10px; max-height: 235px; overflow-y: auto; }
+#ActiveFilterSequence li { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px; border: 1px solid #252525; border-radius: 5px; color: #ccc; font-size: 12px; }
+.RemoveFilter { background: transparent; border: 0; color: #aaa; cursor: pointer; width: 28px; height: 28px; font-size: 18px; }
+.RemoveFilter:hover { color: #fff; }
+#FilterHint { color: #999; font-size: 11px; line-height: 1.6; margin: 12px 0; }
+.StarFilter { display: flex; align-items: center; gap: 9px; border-top: 1px solid #252525; padding-top: 12px; margin-bottom: 14px; }
+input[type=checkbox], input[type=range] { accent-color: #a4d8c8; }
+.SectionBanner { align-items: flex-start; margin: 8px 0 22px; }
+.SectionBanner .CrosshairCluster { display: none; }
+.SectionBannerTitle { font-size: 10px; letter-spacing: 1.7px; color: #888; }
+.RailHeader { padding: 0 16px; gap: 7px; }
+.LeftNavigationRail .RailHeaderTitle svg { display: none; }
+.RailHeaderTitle { font-size: 12px; }
+.RailModeBtn { padding: 5px 7px; font-size: 11px; }
+.CardsGrid { grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); }
+.SceneViewport { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #000; }
+#SceneCanvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; outline-offset: -3px; }
+#SceneCanvas:active { cursor: grabbing; }
+.SceneCaption { position: absolute; top: 25px; left: 26px; pointer-events: none; }
+.SceneEyebrow { font: 10px monospace; letter-spacing: 2px; color: #8ba69e; margin-bottom: 8px; }
+.SceneCaption h1 { font-size: 19px; font-weight: 500; letter-spacing: -.5px; }
+.SceneCaption p { color: #888; font-size: 11px; margin-top: 7px; }
+.SceneChannelSelect { position: absolute; right: 22px; top: 25px; }
+.SceneAxisLabel { position: absolute; left: 26px; bottom: 89px; color: #717171; font: 10px monospace; letter-spacing: 1px; pointer-events: none; }
+.SceneToolbar { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); padding: 6px; display: flex; align-items: center; gap: 6px; border: 1px solid #303030; border-radius: 9px; background: #080808ee; white-space: nowrap; }
+.SceneToolbar button { height: 30px; padding: 0 11px; border: 0; border-radius: 5px; color: #aaa; background: transparent; cursor: pointer; font-size: 11px; }
+.SceneToolbar button:hover, .SceneToolbar button[aria-pressed=true] { background: #222; color: #d2f0e5; }
+.SceneToolbar label { display: flex; align-items: center; gap: 8px; color: #888; font-size: 10px; border-left: 1px solid #303030; padding: 0 8px; }
+.SceneToolbar input { width: 64px; }
+.SceneFailure { position: absolute; inset: 130px 30px auto; padding: 20px; background: #101010; border: 1px solid #444; border-radius: 8px; color: #ccc; user-select: text; }
+.SceneMaterialPanel { padding: 22px 20px; overflow-y: auto; flex: 1; }
+.ScenePanelEyebrow { font: 10px monospace; letter-spacing: 1.6px; color: #888; margin-bottom: 14px; }
+.SceneMaterialPanel > select { width: 100%; margin-bottom: 20px; }
+.SurfaceChip { height: 60px; background: #88b1a6; border-radius: 7px; border: 1px solid #ffffff26; margin-bottom: 8px; }
+.SurfaceDescription { font-size: 11px; color: #929292; line-height: 1.65; margin-bottom: 23px; }
+.ChannelControl { padding: 15px 0; border-top: 1px solid #242424; }
+.ChannelLabel { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
+.ChannelLabel output { font: 11px monospace; color: #9eb9b0; }
+.ChannelControl input[type=range] { width: 100%; height: 16px; cursor: pointer; }
+.ChannelControl input[type=color] { width: 100%; height: 30px; background: #101010; border: 1px solid #333; border-radius: 4px; padding: 2px; cursor: pointer; }
+.ChannelFootnote { font-size: 10px; color: #888; line-height: 1.6; margin-top: 5px; }
+.SceneStats { border-top: 1px solid #262626; margin-top: 25px; padding-top: 16px; font: 10px/1.9 monospace; color: #888; }
+.SceneStats strong { font-weight: 400; color: #b6c9c3; }
+.SceneStats select { width: 100%; margin: 10px 0; }
+.SceneAssemblyList { padding: 0 12px; display: flex; flex-direction: column; gap: 4px; }
+.AssemblyRow { background: none; border: 1px solid transparent; color: #aaa; padding: 11px 8px; display: flex; align-items: center; gap: 9px; border-radius: 5px; text-align: left; cursor: pointer; font-size: 11px; }
+.AssemblyRow.Active { border-color: #33413c; background: #0e1713; color: #c8e7db; }
+.SurfaceSwatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.AssemblyOrdinal { margin-left: auto; color: #777; font: 9px monospace; }
+.SceneRailNote { margin: 30px 20px; color: #777; font-size: 10px; line-height: 1.9; }
+.SceneReturn { margin-left: 20px; font-size: 11px; }
+@media (max-width: 1200px) {
+    .WorkspaceHost { grid-template-columns: 190px minmax(0, 1fr) 270px; }
+    .WorkspaceHost.LeftRailCollapsed { grid-template-columns: 0 minmax(0, 1fr) 270px; }
+    .TopBarCenter { display: none; }
+    .StageTopBar { justify-content: space-between; gap: 10px; }
+    .SceneCaption h1 { font-size: 16px; }
+    .SceneChannelSelect { top: 100px; left: 26px; right: auto; }
+    .RailHeader { padding: 0 10px; }
+}
+@media (max-width: 950px) {
+    .WorkspaceHost, .WorkspaceHost.LeftRailCollapsed { grid-template-columns: 0 minmax(0, 1fr) 250px; }
+    .SceneToolbar { gap: 0; }
+    .SceneToolbar button { padding: 0 7px; }
+    .SceneToolbar input { width: 45px; }
+}
+@media (max-width: 650px) {
+    html, body { overflow: auto; }
+    .WorkspaceHost, .WorkspaceHost.LeftRailCollapsed { display: flex; flex-direction: column; height: auto; min-height: 100vh; }
+    .LeftNavigationRail { display: none; }
+    .CenterWorkspace { height: 78vh; min-height: 540px; flex: none; }
+    .RightInspectorRail { max-height: none; border-top: 1px solid #333; min-height: 300px; }
+    .StageTopBar { padding: 0 12px; }
+    .BrowserControlStrip { padding: 15px 12px 0; }
+    .InspectorSelect { max-width: 110px; }
+    .SearchBox { width: 125px; }
+    .ActionBtnPrimary { padding: 0 7px; }
+    .DocumentReaderStage { padding: 20px 15px 90px; }
+    .DocumentSheet { padding: 32px 24px; }
+    .SceneMaterialPanel { max-height: none; }
+}
+
+</style>
+</head>
+<body>
+
+<div class="WorkspaceHost" id="WorkspaceHost">
+    <!--================================================================================================================
+                                                    LEFT NAVIGATION RAIL
+    =================================================================================================================-->
+    <aside class="LeftNavigationRail">
+        <div class="RailHeader">
+            <div class="RailHeaderTitle" id="LeftRailTitle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="16" rx="2"/>
+                    <line x1="7" y1="8" x2="17" y2="8"/>
+                    <line x1="7" y1="12" x2="17" y2="12"/>
+                    <line x1="7" y1="16" x2="13" y2="16"/>
+                </svg>
+                <span id="LeftRailLabel">Folders</span>
+            </div>
+            <div class="RailModeSwitch">
+                <button class="RailModeBtn Active" id="RailTabFolders" onclick="ActivateLeftRailMode('Folders')">Folders</button>
+                <button class="RailModeBtn" id="RailTabPages" onclick="ActivateLeftRailMode('Pages')">Pages</button>
+            </div>
+        </div>
+
+        <div class="RailRuleWrap">
+            <div class="CrosshairRule"></div>
+        </div>
+
+        <div class="RailScrollRegion" id="LeftRailContent"></div>
+    </aside>
+
+    <!--================================================================================================================
+                                                   CENTER WORKSPACE STAGE
+    =================================================================================================================-->
+    <main class="CenterWorkspace">
+        <header class="StageTopBar">
+            <div class="TopBarLeft">
+                <button class="SquareIconBtn" title="Toggle folders" aria-label="Toggle folders" onclick="ToggleLeftRailVisibility()">☰</button>
+                <select class="WorkspaceSelect" id="WorkspaceViewSelect" aria-label="Workspace view" onchange="ConfigureStageMode(this.value)">
+                    <option value="Grid">Project Browser</option>
+                    <option value="Reader">Document Reader</option>
+                    <option value="Scene">Scene Viewer</option>
+                </select>
+            </div>
+            <div class="TopBarCenter" id="StageCenterTitle">Waterfall INC</div>
+            <select class="WorkspaceSelect InspectorSelect" id="InspectorSelect" aria-label="Inspector view" onchange="ConfigureInspectorMode(this.value)">
+                <option value="Preview">File details</option>
+                <option value="Comments" selected>Comments</option>
+                <option value="Material" disabled>Material</option>
+            </select>
+        </header>
+
+        <div class="StageRuleWrap">
+            <div class="CrosshairRule"></div>
+        </div>
+
+        <!-- BROWSER GRID CONTROLS -->
+        <div class="BrowserControlStrip" id="BrowserControlStrip">
+            <details class="FilterDropdown" id="FilterDropdown">
+                <summary>Filters <span id="FilterCount">0</span></summary>
+                <div class="FilterMenu">
+                    <div class="FilterMenuHeading">SHOW FILE TYPES</div>
+                    <select class="WorkspaceSelect" id="CategoryAddSelect" aria-label="Add file type filter" onchange="AppendCategoryFilter(this.value)"></select>
+                    <ol id="ActiveFilterSequence" aria-label="Active file type filters"></ol>
+                    <p id="FilterHint">No type filters — showing all files.</p>
+                    <label class="StarFilter"><input type="checkbox" id="StarFilterInput" onchange="ToggleStarredFilter()"> Starred only</label>
+                    <button class="BtnSecondary" onclick="ClearCategoryFilters()">Clear filters</button>
+                </div>
+            </details>
+
+            <div class="BrowserSearchGroup">
+                <div class="SearchBox">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input type="text" aria-label="Search project files" id="SearchQueryInput" placeholder="Filter project files..." oninput="EvaluateSearchQuery(this.value)">
+                </div>
+                <button class="ActionBtnPrimary" onclick="OpenCreateDocumentModal()">
+                    <span>+ New File</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- MODE 1: PROJECT BROWSER CARD GRID -->
+        <div class="StageScrollCanvas" id="BrowserGridStage">
+            <div class="SectionBanner">
+                <div class="CrosshairCluster">++ &nbsp; + &nbsp; ++</div>
+                <div class="SectionBannerTitle" id="ActiveDirectoryHeading">PROJECT FILES</div>
+            </div>
+            <div class="CardsGrid" id="ProjectCardsContainer"></div>
+        </div>
+
+        <!-- MODE 2: DOCUMENT READER STAGE -->
+        <div class="DocumentReaderStage" id="DocumentReaderStage" style="display: none;">
+            <article class="DocumentSheet" id="DocumentSheetSurface"></article>
+        </div>
+
+        <!-- SCENE VIEWER: self-contained, demand-rendered WebGL 2 -->
+        <section class="SceneViewport" id="SceneViewport" aria-label="Technical scene viewer" hidden>
+            <canvas id="SceneCanvas" tabindex="0" aria-label="Rotary actuator. Drag to orbit, Shift-drag to pan, scroll or plus/minus to zoom. Arrow keys orbit; Home resets."></canvas>
+            <div class="SceneCaption">
+                <div class="SceneEyebrow">SCENE 01 / ENGINEERING</div>
+                <h1>Rotary actuator</h1>
+                <p>Assembly inspection · procedural geometry</p>
+            </div>
+            <select class="WorkspaceSelect SceneChannelSelect" id="SceneChannelSelect" aria-label="Scene shading channel" onchange="RequestSceneRasterization()">
+                <option value="0">Lit / EON + GGX</option><option value="1">Albedo</option><option value="2">Specular F₀</option><option value="3">Metallic</option><option value="4">Roughness</option>
+            </select>
+            <div class="SceneAxisLabel">Y UP &nbsp; / &nbsp; DRAG TO ORBIT · SHIFT TO PAN · SCROLL TO ZOOM</div>
+            <div class="SceneToolbar" aria-label="Scene navigation">
+                <button onclick="ResetSceneCamera()" title="Reset camera (Home)">Reset view</button>
+                <button id="SceneSpinButton" aria-pressed="false" onclick="ToggleSceneSpin()">Orbit</button>
+                <button id="SceneGridButton" aria-pressed="true" onclick="ToggleSceneGrid()">Grid</button>
+                <label>Explode <input type="range" id="SceneExplode" min="0" max="1" step="0.01" value="0" aria-label="Assembly separation" oninput="RequestSceneRasterization()"></label>
+            </div>
+            <div class="SceneFailure" id="SceneFailure" role="status" hidden></div>
+        </section>
+
+        <!-- FLOATING READER PILL (visible in Document Reader Mode) -->
+        <div class="ReaderFloatingToolbar" id="ReaderFloatingToolbar" style="display: none;">
+            <button class="ToolbarIconBtn" title="Toggle Left Sidebar" onclick="ToggleLeftRailVisibility()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <rect x="3" y="4" width="18" height="16" rx="2"/>
+                    <line x1="9" y1="4" x2="9" y2="20"/>
+                </svg>
+            </button>
+            <div class="ToolbarDivider"></div>
+            <button class="ToolbarIconBtn" title="Previous Page" onclick="StepDocumentPage(-1)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="18 15 12 9 6 15"/>
+                </svg>
+            </button>
+            <div class="ToolbarPageCounter" id="ReaderPageCounter">1/3</div>
+            <button class="ToolbarIconBtn" title="Next Page" onclick="StepDocumentPage(1)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </button>
+            <div class="ToolbarDivider"></div>
+            <button class="ToolbarIconBtn" title="Zoom Out" onclick="AdjustReaderZoom(-0.1)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="9"/>
+                    <line x1="8" y1="12" x2="16" y2="12"/>
+                </svg>
+            </button>
+            <button class="ToolbarIconBtn" title="Zoom In" onclick="AdjustReaderZoom(0.1)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="12" cy="12" r="9"/>
+                    <line x1="12" y1="8" x2="12" y2="16"/>
+                    <line x1="8" y1="12" x2="16" y2="12"/>
+                </svg>
+            </button>
+            <button class="ToolbarIconBtn" title="Reset Zoom / Expand" onclick="ResetReaderZoom()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <polyline points="15 3 21 3 21 9"/>
+                    <polyline points="9 21 3 21 3 15"/>
+                    <line x1="21" y1="3" x2="14" y2="10"/>
+                    <line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+            </button>
+            <button class="ToolbarIconBtn" title="Print Document" onclick="window.print()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <polyline points="6 9 6 2 18 2 18 9"/>
+                    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                    <rect x="6" y="14" width="12" height="8"/>
+                </svg>
+            </button>
+        </div>
+    </main>
+
+    <!--================================================================================================================
+                                                   RIGHT INSPECTOR RAIL
+    =================================================================================================================-->
+    <aside class="RightInspectorRail">
+        <div class="RailHeader">
+            <div class="RailHeaderTitle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="16" rx="2"/>
+                    <line x1="7" y1="8" x2="17" y2="8"/>
+                    <line x1="7" y1="12" x2="17" y2="12"/>
+                    <line x1="7" y1="16" x2="12" y2="16"/>
+                </svg>
+                <span id="RightInspectorTitle">Comments</span>
+            </div>
+
+            <div class="RailModeSwitch" id="CommentLayoutSwitch">
+                <button class="RailModeBtn Active" id="CommentModeCardsBtn" onclick="ConfigureCommentStyle('Cards')">Cards</button>
+                <button class="RailModeBtn" id="CommentModeStreamBtn" onclick="ConfigureCommentStyle('Stream')">Stream</button>
+            </div>
+        </div>
+
+        <div class="RailRuleWrap">
+            <div class="CrosshairRule"></div>
+        </div>
+
+        <section class="SceneMaterialPanel" id="SceneMaterialPanel" aria-label="Scene material channels" hidden>
+            <div class="ScenePanelEyebrow">SELECTED MATERIAL</div>
+            <select class="WorkspaceSelect" id="SceneSurfaceSelect" aria-label="Material group" onchange="SelectSceneSurface(Number(this.value))"></select>
+            <div class="SurfaceChip" id="SurfaceColourChip"></div>
+            <p class="SurfaceDescription" id="SurfaceDescription"></p>
+            <div class="ChannelControl">
+                <label class="ChannelLabel" for="SurfaceAlbedo">Albedo <output id="SurfaceAlbedoText"></output></label>
+                <input type="color" id="SurfaceAlbedo" oninput="AdjustSceneSurface('Albedo', this.value)">
+                <div class="ChannelFootnote">sRGB colour → linear lighting</div>
+            </div>
+            <div class="ChannelControl">
+                <label class="ChannelLabel" for="SurfaceSpecular">Specular <output id="SurfaceSpecularText"></output></label>
+                <input type="range" id="SurfaceSpecular" min="0" max="1" step="0.01" oninput="AdjustSceneSurface('Specular', Number(this.value))">
+                <div class="ChannelFootnote">Dielectric F₀ = 0.16 × specular². Metals use albedo.</div>
+            </div>
+            <div class="ChannelControl">
+                <label class="ChannelLabel" for="SurfaceMetallic">Metallic <output id="SurfaceMetallicText"></output></label>
+                <input type="range" id="SurfaceMetallic" min="0" max="1" step="0.01" oninput="AdjustSceneSurface('Metallic', Number(this.value))">
+            </div>
+            <div class="ChannelControl">
+                <label class="ChannelLabel" for="SurfaceRoughness">Roughness <output id="SurfaceRoughnessText"></output></label>
+                <input type="range" id="SurfaceRoughness" min="0.04" max="1" step="0.01" oninput="AdjustSceneSurface('Roughness', Number(this.value))">
+                <div class="ChannelFootnote">Shared by EON diffuse and the GGX specular lobe.</div>
+            </div>
+            <button class="BtnSecondary" onclick="RestoreSceneSurface()">Restore material</button>
+            <div class="SceneStats">
+                <strong>EON diffuse / compensated GGX</strong><br>
+                Four authored channels · two studio lights<br>
+                <span id="SceneGeometryStats">Geometry not uploaded</span><br>
+                <span id="SceneTiming">On-demand rendering · idle when still</span>
+                <select class="WorkspaceSelect" id="SceneResolution" aria-label="Render resolution" onchange="RequestSceneRasterization()"><option value="1">Economy / 1× pixels</option><option value="1.5" selected>Balanced / up to 1.5×</option><option value="2">Sharp / up to 2×</option></select>
+                Approximate studio environment. No shadow maps, ray tracing or post effects. Timing is CPU submission only, not GPU time.
+            </div>
+        </section>
+
+        <!-- VIEW A: FILE PREVIEW DETAILS PANE -->
+        <div class="PreviewDetailsPane" id="InspectorPreviewPane" style="display: none;">
+            <div class="PreviewHeroZone" id="PreviewHeroIcon"></div>
+
+            <div class="PreviewInfoBlock">
+                <div class="PreviewFileName" id="PreviewFileName">Licence Agreement on Waterfall INC.pdf</div>
+                <div class="PreviewFileMeta" id="PreviewFileMeta">2.3 MB, 01H:30M:45S</div>
+
+                <div class="PreviewSectionHeading">File Description</div>
+                <div class="PreviewDescriptionText" id="PreviewDescriptionText"></div>
+            </div>
+
+            <div class="RailRuleWrap" style="margin-bottom: 20px;">
+                <div class="CrosshairRule"></div>
+            </div>
+
+            <div class="PreviewInfoBlock">
+                <div class="PreviewSectionHeading">File Shared With:</div>
+                <div class="SharedWithList" id="PreviewSharedList"></div>
+            </div>
+
+            <div class="PreviewBottomActions">
+                <div class="CrosshairRule"></div>
+                <div class="ActionGrid3">
+                    <div class="ActionCell" onclick="TriggerCollaboratorShare()">
+                        <button class="SquareIconBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                <polyline points="15 3 21 3 21 9"/>
+                                <line x1="10" y1="14" x2="21" y2="3"/>
+                            </svg>
+                        </button>
+                        <span>Share</span>
+                    </div>
+                    <div class="ActionCell" onclick="OpenEditDocumentModal()">
+                        <button class="SquareIconBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <path d="M12 20h9"/>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                            </svg>
+                        </button>
+                        <span>Edit</span>
+                    </div>
+                    <div class="ActionCell" onclick="DeleteSelectedDocument()">
+                        <button class="SquareIconBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                <path d="M10 11v6"/>
+                                <path d="M14 11v6"/>
+                            </svg>
+                        </button>
+                        <span>Delete</span>
+                    </div>
+                </div>
+                <div class="CrosshairRule"></div>
+            </div>
+        </div>
+
+        <!-- VIEW B: COMMENTS THREAD PANE -->
+        <div class="CommentsScrollList CardsMode" id="InspectorCommentsPane"></div>
+
+        <!-- COMMENT COMPOSER FOOTER -->
+        <div class="CommentComposer" id="CommentComposerFooter">
+            <div class="ReplyBanner" id="ReplyBanner">
+                <span id="ReplyBannerText">Replying to comment</span>
+                <button onclick="ClearReplyTarget()">✕</button>
+            </div>
+            <div class="ComposerToolsRow">
+                <div class="ComposerLeftIcons">
+                    <button class="ComposerToolIcon" title="Quote Selection" onclick="InsertPromptSnippet('Please review section 1.B — ')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                    </button>
+                    <button class="ComposerToolIcon" title="Reference Page" onclick="InsertPromptSnippet('[Page ' + ActiveReaderPage + '] ')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                    </button>
+                    <button class="ComposerToolIcon" title="Voice Note Marker" onclick="InsertPromptSnippet('[Voice Note 00:18] ')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                        </svg>
+                    </button>
+                </div>
+                <button class="ComposerToolIcon" title="Insert Reaction" onclick="InsertPromptSnippet('✔️ Approved! ')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                        <line x1="9" y1="9" x2="9.01" y2="9"/>
+                        <line x1="15" y1="9" x2="15.01" y2="9"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="ComposerInputRow">
+                <input type="text" class="ComposerInput" id="CommentDraftInput" placeholder="Type your comment" onkeydown="if(event.key==='Enter') FinalizeCommentSubmission()">
+                <button class="SendCommentBtn" onclick="FinalizeCommentSubmission()">Send</button>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<!--====================================================================================================================
+                                               CARD CONTEXT MENU & MODAL
+=====================================================================================================================-->
+<div class="ContextMenu" id="CardContextMenu">
+    <button class="ContextMenuItem" onclick="ExecuteCardMenuAction('Open')">
+        <span>Open in Reader</span>
+        <span>↵</span>
+    </button>
+    <button class="ContextMenuItem" onclick="ExecuteCardMenuAction('Preview')">
+        <span>Inspect File Details</span>
+        <span>i</span>
+    </button>
+    <button class="ContextMenuItem" onclick="ExecuteCardMenuAction('Star')">
+        <span>Toggle Starred</span>
+        <span>★</span>
+    </button>
+    <button class="ContextMenuItem" onclick="ExecuteCardMenuAction('Edit')">
+        <span>Edit Metadata</span>
+        <span>✎</span>
+    </button>
+    <button class="ContextMenuItem" onclick="ExecuteCardMenuAction('Duplicate')">
+        <span>Duplicate Entry</span>
+        <span>⧉</span>
+    </button>
+    <button class="ContextMenuItem Danger" onclick="ExecuteCardMenuAction('Delete')">
+        <span>Delete File</span>
+        <span>✕</span>
+    </button>
+</div>
+
+<div class="ModalBackdrop" id="DocumentModalBackdrop" onclick="if(event.target===this) CloseDocumentModal()">
+    <div class="ModalCard">
+        <div class="ModalTitle" id="ModalHeaderTitle">New Project Document</div>
+        <div class="FormField">
+            <label>File Name</label>
+            <input type="text" id="ModalFileNameInput" placeholder="e.g. Q4 Revenue Projections.xls">
+        </div>
+        <div class="FormField">
+            <label>Category & Format</label>
+            <select id="ModalFileCategorySelect">
+                <option value="PDF">Document (.pdf)</option>
+                <option value="XLS">Spreadsheet (.xls)</option>
+                <option value="SKETCH">Design Surface (.sketch)</option>
+                <option value="VIDEO">Video Recording (.mp4)</option>
+            </select>
+        </div>
+        <div class="FormField">
+            <label>File Size</label>
+            <input type="text" id="ModalFileSizeInput" placeholder="e.g. 4.2 MB" value="3.4 MB">
+        </div>
+        <div class="FormField">
+            <label>File Description</label>
+            <textarea id="ModalFileDescInput" placeholder="Brief summary of the file contents..."></textarea>
+        </div>
+        <div class="ModalActions">
+            <button class="BtnSecondary" onclick="CloseDocumentModal()">Cancel</button>
+            <button class="ActionBtnPrimary" onclick="FinalizeDocumentModal()">Save File</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   ARCHIVE SPECIFICATION
+------------------------------------------------------------------------------------------------------------------------*/
+const CollaboratorDirectory = {
+    A: "Alexander Mikolaenko (You)",
+    G: "George Williamson",
+    M: "Miles O'Bennon",
+    N: "Natalie Vesper"
+};
+
+const DirectoryFolders = [
+    { Token: "ALL",       Title: "All Project Files" },
+    { Token: "WATERFALL", Title: "Waterfall INC" },
+    { Token: "LEGAL",     Title: "Legal & Contracts" },
+    { Token: "DESIGN",    Title: "Design & Prototyping" },
+    { Token: "MARKETING", Title: "Marketing & Growth" },
+    { Token: "STARRED",   Title: "Starred Archive" }
+];
+
+let ArchiveCatalog = [
+    {
+        Token: "scene-actuator", Title: "Rotary Actuator Assembly.scene", Category: "SCENE", Folder: "DESIGN",
+        Filesize: "Procedural", DurationMeta: "WebGL 2 · interactive geometry", StarredEnabled: true,
+        Collaborators: ["A", "G"], Description: "A lit technical assembly with editable albedo, specular, metallic and roughness. Double-click to inspect in the Scene Viewer.",
+        Pages: [{ Heading: "ROTARY ACTUATOR ASSEMBLY", Sections: ["Open the Scene Viewer to orbit the assembly and edit its surface channels."] }], Comments: []
+    },
+    {
+        Token: "doc-xls-marketing",
+        Title: "Marketing Strategy on Waterfall INC.xls",
+        Category: "XLS",
+        Folder: "MARKETING",
+        Filesize: "1.6 MB",
+        DurationMeta: "1.6 MB, 00H:42M:10S",
+        StarredEnabled: false,
+        Collaborators: ["A"],
+        Description: "Quarterly channel allocation, customer acquisition funnel metrics, and regional rollout milestones for Waterfall INC.",
+        Pages: [
+            {
+                Heading: "Q4 MARKETING & ACQUISITION STRATEGY",
+                Sections: [
+                    "1. Executive Overview — This workbook consolidates multi-channel campaign budgets, conversion velocity benchmarks, and enterprise partner targets across North America and EMEA.",
+                    "2. Funnel Attribution — Direct enterprise demos account for 62% of qualified pipeline, while organic technical documentation contributes 28% with a 3.4x lower acquisition cost.",
+                    "3. Regional Allocation — Tier-1 launch markets receive 70% of paid search capacity during weeks 1–6, shifting toward retention and expansion cohorts in weeks 7–12."
+                ]
+            },
+            {
+                Heading: "CHANNEL BUDGET BREAKDOWN & KPI MATRIX",
+                Sections: [
+                    "A. Enterprise Outbound: $140,000 quarterly cap · Target CAC $1,180 · Projected 118 closed seats.",
+                    "B. Product-Led Community: $65,000 quarterly cap · Interactive sandbox demos and technical workshops.",
+                    "C. Partner Co-Marketing: Joint webinars and integration showcases with regional cloud providers."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "M",
+                AuthorName: "Miles O'Bennon",
+                TimeLabel: "3 hours ago",
+                Text: "Updated the Q4 conversion multipliers on sheet 2. Please verify the EMEA ramp assumptions before Friday's board sync.",
+                ThreadedReply: false
+            },
+            {
+                AuthorInitial: "A",
+                AuthorName: "Alexander Mikolaenko",
+                TimeLabel: "1 hour ago",
+                Text: "Verified and cross-checked against last month's cohort retention numbers. Ready for sign-off.",
+                ThreadedReply: true
+            }
+        ]
+    },
+    {
+        Token: "doc-pdf-licence",
+        Title: "Licence Agreement on Waterfall INC.pdf",
+        Category: "PDF",
+        Folder: "LEGAL",
+        Filesize: "2.3 MB",
+        DurationMeta: "2.5 GB, 01H:30M:45S",
+        StarredEnabled: false,
+        Collaborators: ["A"],
+        Description: "I literally just learned that my favorite board game in the whole world (Monopoly) is based on Atlantic City!",
+        Pages: [
+            {
+                Heading: "SOFTWARE END USER LICENSE AGREEMENT",
+                Sections: [
+                    "This End User License Agreement (\"License\") is an agreement between you and Electronic Arts Inc, its subsidiaries and affiliates (\"EA\"). This License governs your use of this application and all related software, documentation, and updates and upgrades that replace or supplement the application and are not distributed with a separate license (together, the \"Application\"). This Application is licensed to you free of charge. You do not own the Application.",
+                    "By installing or using the Application, you consent to be bound by this License. Sections 1.C and 2 below describe the data EA may collect and use in the course of providing services and support to you in connection with the Application. Section 3, below, describes your Origin privacy settings and how they affect the disclosure of your information within this Application and on Origin services in the mobile environment. Section 17, below, requires all disputes that cannot be informally resolved between us to be submitted to binding arbitration on an individual basis. If you do not agree to any portion of this License, do not install or use the Application.",
+                    "1. License Grant and Terms of Use.",
+                    "A. Grant. EA grants you a personal, limited, non-exclusive license to install and use the Application for your personal, noncommercial use solely as set forth in this License and any accompanying documentation. Your acquired rights are subject to your compliance with this License. Any commercial use is prohibited. You are expressly prohibited fromublicensing, renting, leasing or otherwise distributing the Application or rights to use the Application. The term of your license shall commence on the date that you start to download, install or otherwise use the Application, and shall end on the earlier of the date that you dispose of the Application; or EA's termination of this License.",
+                    "B. Copies. You may download this Application from an authorized source. The number of copies that you can download during a consecutive period of days may be limited. You may not make a copy of the Application available on a network where it could be used by multiple users at the same time. You may not make the Application available over a network where it could be downloaded by multiple users."
+                ]
+            },
+            {
+                Heading: "SECTION 2 — DATA CONSENT & PRIVACY GOVERNANCE",
+                Sections: [
+                    "2.A. Diagnostic Telemetry — When you connect to online services, diagnostic and performance telemetry may be transmitted to maintain session stability, verify license authenticity, and resolve software defects.",
+                    "2.B. Storage & Retention — Telemetry records are anonymized and stored within encrypted regional vaults in compliance with applicable data protection regulations.",
+                    "2.C. Audit Rights — Enterprise licensees may request quarterly compliance summaries through the Waterfall INC Legal Portal."
+                ]
+            },
+            {
+                Heading: "SECTION 3 — ARBITRATION & GOVERNING LAW",
+                Sections: [
+                    "3.A. Informal Resolution — Both parties agree to attempt informal written resolution for at least thirty (30) days before initiating formal arbitration proceedings.",
+                    "3.B. Severability — If any provision of this Agreement is held unenforceable, the remaining provisions shall continue in full force and effect."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "M",
+                AuthorName: "Miles O'Bennon",
+                TimeLabel: "2 hours ago",
+                Text: "Hey everyone! We need to polish this stuff as soon as possible. There are a lot of things that needs to be reworked, rewritten and etc. When you'll finish these improvements, call Sam Jones and send him this document, so she could overview it and approve",
+                ThreadedReply: false
+            },
+            {
+                AuthorInitial: "G",
+                AuthorName: "George Williamson",
+                TimeLabel: "35 min ago",
+                Text: "Take a closer look at this chapter, i think we need to rewrite that...",
+                ThreadedReply: false
+            },
+            {
+                AuthorInitial: "G",
+                AuthorName: "George Williamson",
+                TimeLabel: "35 min ago",
+                Text: "Also check out the spelling!!!",
+                ThreadedReply: false,
+                ThreadRoot: true
+            },
+            {
+                AuthorInitial: "A",
+                AuthorName: "Alexander Mikolaenko",
+                TimeLabel: "32 min ago",
+                Text: "Already did that, as well as the spelling, check the updates and please give a feedback as soon as possible.",
+                ThreadedReply: true,
+                ThreadedContinuation: true
+            },
+            {
+                AuthorInitial: "G",
+                AuthorName: "George Williamson",
+                TimeLabel: "24 min ago",
+                Text: "Great work Alexander! Congrats!))",
+                ThreadedReply: true
+            }
+        ]
+    },
+    {
+        Token: "doc-sketch-drone",
+        Title: "Drone Test Drive Tour.sketch",
+        Category: "SKETCH",
+        Folder: "DESIGN",
+        Filesize: "18.6 MB",
+        DurationMeta: "18.6 MB, 02H:14M:08S",
+        StarredEnabled: false,
+        Collaborators: ["N", "G", "A"],
+        Description: "Interactive dark-mode artboards, telemetry HUD overlays, and flight path card components for the autonomous drone test tour.",
+        Pages: [
+            {
+                Heading: "ARTBOARD 01 — FLIGHT TELEMETRY HUD & CARD SYSTEM",
+                Sections: [
+                    "Primary artboard specification: 1440×900 dark slate canvas (#000000) with 1px technical crosshair rules (+ — +) and modular 220×245px file cards.",
+                    "Interactive states include hover elevation, active selection border (#bcbcbc), and inline collaborator initial badges (N, G, A)."
+                ]
+            },
+            {
+                Heading: "ARTBOARD 02 — ROUTE WAYPOINT INSPECTOR",
+                Sections: [
+                    "Displays live altitude, battery reserve, and wind-shear vectors along the 14.2 km coastal test corridor."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "N",
+                AuthorName: "Natalie Vesper",
+                TimeLabel: "4 hours ago",
+                Text: "Exported all 2x vector symbols and updated the crosshair divider component across the popup screens.",
+                ThreadedReply: false
+            },
+            {
+                AuthorInitial: "G",
+                AuthorName: "George Williamson",
+                TimeLabel: "1 hour ago",
+                Text: "The contrast on the dark cards looks super crisp now.",
+                ThreadedReply: true
+            }
+        ]
+    },
+    {
+        Token: "doc-pdf-architecture",
+        Title: "Waterfall Cloud Security Specification.pdf",
+        Category: "PDF",
+        Folder: "WATERFALL",
+        Filesize: "4.8 MB",
+        DurationMeta: "4.8 MB, 00H:55M:20S",
+        StarredEnabled: true,
+        Collaborators: ["G", "A"],
+        Description: "Zero-trust encryption topology, hardware key rotation schedule, and multi-region failover verification protocol.",
+        Pages: [
+            {
+                Heading: "ZERO-TRUST ENCRYPTION & VAULT TOPOLOGY",
+                Sections: [
+                    "All project artifacts are segmented into per-tenant isolated storage blocks signed with Ed25519 identity tokens.",
+                    "Automated cross-region replication maintains a recovery point objective (RPO) under 15 seconds."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "G",
+                AuthorName: "George Williamson",
+                TimeLabel: "Yesterday",
+                Text: "Security audit passed with zero high-severity findings.",
+                ThreadedReply: false
+            }
+        ]
+    },
+    {
+        Token: "doc-xls-budget",
+        Title: "Series B Financial Forecast 2026.xls",
+        Category: "XLS",
+        Folder: "WATERFALL",
+        Filesize: "3.1 MB",
+        DurationMeta: "3.1 MB, 01H:12M:00S",
+        StarredEnabled: true,
+        Collaborators: ["M", "A"],
+        Description: "36-month ARR runway model, headcount plan, and gross margin sensitivity tables for Waterfall INC.",
+        Pages: [
+            {
+                Heading: "ARR RUNWAY & GROSS MARGIN PROJECTION",
+                Sections: [
+                    "Net dollar retention projected at 128% across enterprise seats with gross margin expanding from 76% to 82% in FY27."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "M",
+                AuthorName: "Miles O'Bennon",
+                TimeLabel: "5 hours ago",
+                Text: "Locked the Q3 actuals column so formulas cannot be overwritten.",
+                ThreadedReply: false
+            }
+        ]
+    },
+    {
+        Token: "doc-video-demo",
+        Title: "Autonomous Flight Field Test 03.mp4",
+        Category: "VIDEO",
+        Folder: "DESIGN",
+        Filesize: "64.2 MB",
+        DurationMeta: "64.2 MB, 00H:18M:33S",
+        StarredEnabled: false,
+        Collaborators: ["N", "G", "A"],
+        Description: "4K 60fps onboard telemetry capture from the coastal autonomous obstacle avoidance test loop.",
+        Pages: [
+            {
+                Heading: "VIDEO STREAM TRANSCRIPT & TIMECODE LOG",
+                Sections: [
+                    "00:00:14 — Autonomous takeoff sequence initialized; optical flow lock confirmed at 12m AGL.",
+                    "00:06:42 — Dynamic obstacle avoidance maneuver executed around lateral wind-turbine pylon.",
+                    "00:17:50 — Precision landing pad touchdown within 1.8 cm radial tolerance."
+                ]
+            }
+        ],
+        Comments: [
+            {
+                AuthorInitial: "N",
+                AuthorName: "Natalie Vesper",
+                TimeLabel: "2 hours ago",
+                Text: "Frame 06:42 is the exact clip we should feature in the keynote reel.",
+                ThreadedReply: false
+            }
+        ]
+    }
+];
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                   RUNTIME STATE
+------------------------------------------------------------------------------------------------------------------------*/
+let SelectedDocumentToken   = "doc-pdf-licence";
+let ActiveDirectoryFilter   = "ALL";
+let ActiveCategorySequence  = [];
+const CategoryFilterTitles = { PDF: "Documents (.pdf)", XLS: "Spreadsheets (.xls)", SKETCH: "Design (.sketch)", VIDEO: "Videos (.mp4)", SCENE: "Scenes (.scene)" };
+let SearchFilterText        = "";
+let StarredOnlyEnabled      = false;
+let StagePresentationMode   = "Grid";       // "Grid" | "Reader" | "Scene"
+let LeftRailDisplayMode     = "Folders";    // "Folders" | "Pages"
+let RightInspectorMode      = "Comments";   // "Preview" | "Comments"
+let CommentVisualStyle      = "Cards";      // "Cards" | "Stream"
+let ActiveReaderPage        = 1;
+let ActiveReaderZoom        = 1.0;
+let ActiveReplyCommentIndex = null;
+let ContextMenuTargetToken  = null;
+let ModalEditingMode        = "Create";     // "Create" | "Edit"
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                CATEGORY GLYPH RENDERER
+------------------------------------------------------------------------------------------------------------------------*/
+function SynthesizeCategoryGlyph(Category, LargeEnabled = false)
+{
+    let GlyphSvg = "";
+    if (Category === "XLS")
+    {
+        GlyphSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round">
+            <line x1="6" y1="5" x2="18" y2="19"/>
+            <line x1="18" y1="5" x2="6" y2="19"/>
+        </svg>`;
+    }
+    else if (Category === "PDF")
+    {
+        GlyphSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4c-1.5 4-4.5 11-7 14 2.5-1 8.5-3 14-2-3-2.5-5.5-8-7-12z"/>
+            <circle cx="12" cy="4.5" r="1.5"/>
+            <circle cx="5" cy="18" r="1.5"/>
+            <circle cx="19" cy="16" r="1.5"/>
+        </svg>`;
+    }
+    else if (Category === "SCENE")
+    {
+        GlyphSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5M12 12v10"/></svg>`;
+    }
+    else if (Category === "SKETCH")
+    {
+        GlyphSvg = `<svg viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="12 3 21 9.5 12 21 3 9.5"/>
+        </svg>`;
+    }
+    else
+    {
+        GlyphSvg = `<svg viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="8 5 19 12 8 19"/>
+        </svg>`;
+    }
+
+    const SizeClass = LargeEnabled ? "FoldedDocIcon Large" : "FoldedDocIcon";
+    return `<div class="${SizeClass}">${GlyphSvg}</div>`;
+}
+
+function ResolveSelectedDocument()
+{
+    return ArchiveCatalog.find(Entry => Entry.Token === SelectedDocumentToken) || ArchiveCatalog[0];
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                              LEFT NAVIGATION RAIL RENDERER
+------------------------------------------------------------------------------------------------------------------------*/
+function RenderLeftNavigationRail()
+{
+    const Container = document.getElementById("LeftRailContent");
+    const LabelNode = document.getElementById("LeftRailLabel");
+    document.getElementById("RailTabFolders").classList.toggle("Active", LeftRailDisplayMode === "Folders");
+    document.getElementById("RailTabPages").classList.toggle("Active", LeftRailDisplayMode === "Pages");
+
+    if (StagePresentationMode === "Scene")
+    {
+        LabelNode.textContent = "Assembly";
+        document.getElementById("RailTabFolders").classList.remove("Active");
+        Container.innerHTML = `<div class="DirectorySectionLabel">ACTUATOR / MATERIAL GROUPS</div><div class="SceneAssemblyList">${SceneSurfaces.map((Surface, Index) => `<button class="AssemblyRow ${Index === SelectedSurfaceIndex ? 'Active' : ''}" onclick="SelectSceneSurface(${Index})"><span class="SurfaceSwatch" style="background:${Surface.Albedo}"></span><span>${Surface.Title}</span><span class="AssemblyOrdinal">0${Index + 1}</span></button>`).join('')}</div><div class="SceneRailNote">ROTARY ACTUATOR<br><br>Procedural inspection assembly.<br>Housing · cooling fins · copper windings · shaft · fasteners.<br><br>Select a material group to edit its four surface channels.</div><button class="BtnSecondary SceneReturn" onclick="ConfigureStageMode('Grid')">← Project files</button>`;
+        return;
+    }
+
+    if (LeftRailDisplayMode === "Folders")
+    {
+        LabelNode.textContent = "Folders";
+        let Html = `<div class="DirectorySectionLabel">Workspace Directories</div><div class="DirectoryList">`;
+        for (const Folder of DirectoryFolders)
+        {
+            const Count = Folder.Token === "ALL"
+                ? ArchiveCatalog.length
+                : Folder.Token === "STARRED"
+                    ? ArchiveCatalog.filter(Item => Item.StarredEnabled).length
+                    : ArchiveCatalog.filter(Item => Item.Folder === Folder.Token).length;
+
+            const ActiveClass = ActiveDirectoryFilter === Folder.Token ? "DirectoryRow Active" : "DirectoryRow";
+            Html += `
+                <div class="${ActiveClass}" onclick="SelectDirectoryFolder('${Folder.Token}', '${Folder.Title}')">
+                    <div class="DirectoryRowLeft">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span>${Folder.Title}</span>
+                    </div>
+                    <span class="DirectoryCount">${Count}</span>
+                </div>`;
+        }
+        Html += `</div>`;
+        Container.innerHTML = Html;
+    }
+    else
+    {
+        LabelNode.textContent = "Pages";
+        const Doc = ResolveSelectedDocument();
+        const Pages = Doc ? Doc.Pages : [];
+        let Html = `<div class="PageThumbnailStack">`;
+        Pages.forEach((PageEntry, Index) => {
+            const PageNumber = Index + 1;
+            const ActiveClass = ActiveReaderPage === PageNumber ? "PageThumbnailItem Active" : "PageThumbnailItem";
+            Html += `
+                <div class="${ActiveClass}" onclick="SelectDocumentPage(${PageNumber})">
+                    <div class="PageThumbnailCard">
+                        <div class="MiniLine Title"></div>
+                        <div class="MiniLineGroup">
+                            <div class="MiniLine" style="width:100%"></div>
+                            <div class="MiniLine" style="width:92%"></div>
+                            <div class="MiniLine" style="width:96%"></div>
+                            <div class="MiniLine" style="width:74%"></div>
+                        </div>
+                        <div class="MiniLineGroup" style="margin-top:4px">
+                            <div class="MiniLine" style="width:95%"></div>
+                            <div class="MiniLine" style="width:88%"></div>
+                            <div class="MiniLine" style="width:90%"></div>
+                            <div class="MiniLine" style="width:60%"></div>
+                        </div>
+                        <div class="MiniLineGroup" style="margin-top:4px">
+                            <div class="MiniLine" style="width:92%"></div>
+                            <div class="MiniLine" style="width:84%"></div>
+                            <div class="MiniLine" style="width:48%"></div>
+                        </div>
+                    </div>
+                    <div class="PageThumbnailNumber">${PageNumber}</div>
+                </div>`;
+        });
+        Html += `</div>`;
+        Container.innerHTML = Html;
+    }
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                CENTER STAGE RENDERER
+------------------------------------------------------------------------------------------------------------------------*/
+function RenderCenterWorkspace()
+{
+    const GridEnabled   = StagePresentationMode === "Grid";
+    const ReaderEnabled = StagePresentationMode === "Reader";
+    const SceneEnabled  = StagePresentationMode === "Scene";
+    document.getElementById("WorkspaceViewSelect").value = StagePresentationMode;
+    document.getElementById("BrowserGridStage").style.display = GridEnabled ? "block" : "none";
+    document.getElementById("BrowserControlStrip").style.display = GridEnabled ? "flex" : "none";
+    document.getElementById("DocumentReaderStage").style.display = ReaderEnabled ? "flex" : "none";
+    document.getElementById("ReaderFloatingToolbar").style.display = ReaderEnabled ? "flex" : "none";
+    document.getElementById("SceneViewport").hidden = !SceneEnabled;
+    document.getElementById("StageCenterTitle").textContent = SceneEnabled ? "Rotary actuator / 01" : ReaderEnabled ? ResolveSelectedDocument()?.Title || "Document Reader" : "Waterfall INC";
+    if (GridEnabled) RenderCardsCatalog();
+    if (ReaderEnabled) RenderDocumentReaderSheet();
+    if (SceneEnabled) RequestSceneRasterization();
+    RenderRightInspector();
+}
+
+function RenderCardsCatalog()
+{
+    const Container = document.getElementById("ProjectCardsContainer");
+    const Filtered = ArchiveCatalog.filter(Entry => {
+        if (ActiveDirectoryFilter === "STARRED" && !Entry.StarredEnabled) return false;
+        if (ActiveDirectoryFilter !== "ALL" && ActiveDirectoryFilter !== "STARRED" && Entry.Folder !== ActiveDirectoryFilter) return false;
+        if (ActiveCategorySequence.length && !ActiveCategorySequence.includes(Entry.Category)) return false;
+        if (StarredOnlyEnabled && !Entry.StarredEnabled) return false;
+        if (SearchFilterText && !Entry.Title.toLowerCase().includes(SearchFilterText.toLowerCase())) return false;
+        return true;
+    });
+
+    if (Filtered.length === 0)
+    {
+        Container.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--text-muted);">
+                No project files match the active filter criteria.
+            </div>`;
+        return;
+    }
+
+    Container.innerHTML = Filtered.map(Entry => {
+        const SelectedClass = Entry.Token === SelectedDocumentToken ? "ProjectCard Selected" : "ProjectCard";
+        const StarClass     = Entry.StarredEnabled ? "CardStarBtn Starred" : "CardStarBtn";
+        const BadgesHtml    = Entry.Collaborators.map(Code => `<span class="InitialBadge" title="${CollaboratorDirectory[Code] || Code}">${Code}</span>`).join("");
+
+        return `
+            <div class="${SelectedClass}"
+                 onclick="SelectProjectCard('${Entry.Token}')"
+                 ondblclick="OpenDocumentInReader('${Entry.Token}')">
+                <div class="CardTopRow">
+                    <button class="${StarClass}" title="Star File" onclick="event.stopPropagation(); ToggleDocumentStar('${Entry.Token}')">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="${Entry.StarredEnabled ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.8">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                        </svg>
+                    </button>
+                    <button class="CardMenuBtn" title="Card Options" onclick="event.stopPropagation(); SummonCardContextMenu(event, '${Entry.Token}')">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="5" r="1.7"/>
+                            <circle cx="12" cy="12" r="1.7"/>
+                            <circle cx="12" cy="19" r="1.7"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="CardIconZone">
+                    ${SynthesizeCategoryGlyph(Entry.Category, false)}
+                </div>
+
+                <div class="CardTitle">${Entry.Title}</div>
+
+                <div class="CrosshairRule"></div>
+
+                <div class="CardFooter">
+                    <div>
+                        <div class="CardFilesizeLabel">Filesize:</div>
+                        <div class="CardFilesizeValue">${Entry.Filesize}</div>
+                    </div>
+                    <div class="CollaboratorBadges">
+                        ${BadgesHtml}
+                    </div>
+                </div>
+            </div>`;
+    }).join("");
+}
+
+function RenderDocumentReaderSheet()
+{
+    const Doc = ResolveSelectedDocument();
+    const Surface = document.getElementById("DocumentSheetSurface");
+    const Counter = document.getElementById("ReaderPageCounter");
+    if (!Doc) return;
+
+    const TotalPages = Doc.Pages.length;
+    if (ActiveReaderPage > TotalPages) ActiveReaderPage = TotalPages;
+    if (ActiveReaderPage < 1) ActiveReaderPage = 1;
+
+    const PageData = Doc.Pages[ActiveReaderPage - 1];
+    Counter.textContent = `${ActiveReaderPage}/${TotalPages}`;
+    Surface.style.transform = `scale(${ActiveReaderZoom})`;
+
+    const Paragraphs = PageData.Sections.map(Paragraph => {
+        if (/^[0-9]+\./.test(Paragraph))
+        {
+            return `<h4>${Paragraph}</h4>`;
+        }
+        return `<p>${Paragraph}</p>`;
+    }).join("");
+
+    Surface.innerHTML = `
+        <div class="DocSheetCompany">WATERFALL INC</div>
+        <div class="DocSheetHeading">${PageData.Heading}</div>
+        <div class="DocSheetBody">${Paragraphs}</div>
+    `;
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                               RIGHT INSPECTOR RENDERER
+------------------------------------------------------------------------------------------------------------------------*/
+function RenderRightInspector()
+{
+    const Doc          = ResolveSelectedDocument();
+    const PreviewPane  = document.getElementById("InspectorPreviewPane");
+    const CommentsPane = document.getElementById("InspectorCommentsPane");
+    const Composer     = document.getElementById("CommentComposerFooter");
+    const TitleNode    = document.getElementById("RightInspectorTitle");
+    const StyleSwitch  = document.getElementById("CommentLayoutSwitch");
+
+    const SceneEnabled = StagePresentationMode === "Scene";
+    document.getElementById("SceneMaterialPanel").hidden = !SceneEnabled;
+    document.getElementById("InspectorSelect").disabled = SceneEnabled;
+    document.getElementById("InspectorSelect").value = SceneEnabled ? "Material" : RightInspectorMode;
+    if (SceneEnabled)
+    {
+        TitleNode.textContent = "Surface channels";
+        PreviewPane.style.display = CommentsPane.style.display = Composer.style.display = StyleSwitch.style.display = "none";
+        return;
+    }
+
+    if (!Doc) return;
+
+    if (RightInspectorMode === "Preview")
+    {
+        TitleNode.textContent      = "File Preview";
+        StyleSwitch.style.display  = "none";
+        PreviewPane.style.display  = "flex";
+        CommentsPane.style.display = "none";
+        Composer.style.display     = "none";
+
+        document.getElementById("PreviewHeroIcon").innerHTML        = SynthesizeCategoryGlyph(Doc.Category, true);
+        document.getElementById("PreviewFileName").textContent      = Doc.Title;
+        document.getElementById("PreviewFileMeta").textContent      = Doc.DurationMeta;
+        document.getElementById("PreviewDescriptionText").textContent = Doc.Description;
+
+        const SharedList = document.getElementById("PreviewSharedList");
+        SharedList.innerHTML = Doc.Collaborators.map(Code => `
+            <div class="SharedWithRow">
+                <div class="SharedWithIdentity">
+                    <span class="InitialBadge Medium">${Code}</span>
+                    <span>${CollaboratorDirectory[Code] || Code}</span>
+                </div>
+            </div>
+        `).join("");
+    }
+    else
+    {
+        TitleNode.textContent      = "Comments";
+        StyleSwitch.style.display  = "inline-flex";
+        PreviewPane.style.display  = "none";
+        CommentsPane.style.display = "flex";
+        Composer.style.display     = "flex";
+
+        document.getElementById("CommentModeCardsBtn").classList.toggle("Active", CommentVisualStyle === "Cards");
+        document.getElementById("CommentModeStreamBtn").classList.toggle("Active", CommentVisualStyle === "Stream");
+
+        CommentsPane.className = CommentVisualStyle === "Cards"
+            ? "CommentsScrollList CardsMode"
+            : "CommentsScrollList StreamMode";
+
+        CommentsPane.innerHTML = Doc.Comments.map((Comment, Index) => {
+            let WrapClass = "CommentItemWrap";
+            if (Comment.ThreadedReply) WrapClass += " ThreadedReply";
+            if (Comment.ThreadedContinuation || Comment.ThreadRoot) WrapClass += " ThreadedContinuation";
+
+            return `
+                <div class="${WrapClass}">
+                    <div class="CommentBox">
+                        <div class="CommentHeader">
+                            <div class="CommentAuthorBlock">
+                                <span class="InitialBadge Medium">${Comment.AuthorInitial}</span>
+                                <div>
+                                    <div class="CommentAuthorName">${Comment.AuthorName}</div>
+                                    <div class="CommentTimestamp">${Comment.TimeLabel}</div>
+                                </div>
+                            </div>
+                            <button class="ReplySquareBtn" title="Reply to ${Comment.AuthorName}" onclick="ActivateReplyTarget(${Index}, '${Comment.AuthorName.replace(/'/g, "\\'")}')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="9 14 4 9 9 4"/>
+                                    <path d="M20 20v-7a4 4 0 0 0-4-4H4"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="CommentBodyText">${Comment.Text}</div>
+                    </div>
+                </div>`;
+        }).join("");
+    }
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                 INTERACTION CONTROLLERS
+------------------------------------------------------------------------------------------------------------------------*/
+function SelectProjectCard(DocumentToken)
+{
+    SelectedDocumentToken = DocumentToken;
+    ActiveReaderPage      = 1;
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+    RenderRightInspector();
+}
+
+function OpenDocumentInReader(DocumentToken)
+{
+    SelectedDocumentToken = DocumentToken;
+    ActiveReaderPage      = 1;
+    StagePresentationMode = ResolveSelectedDocument()?.Category === "SCENE" ? "Scene" : "Reader";
+    LeftRailDisplayMode   = StagePresentationMode === "Reader" ? "Pages" : "Folders";
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+    RenderRightInspector();
+}
+
+function ConfigureStageMode(Mode)
+{
+    StagePresentationMode = Mode;
+    LeftRailDisplayMode   = Mode === "Reader" ? "Pages" : "Folders";
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+}
+
+function ToggleStagePresentation()
+{
+    ConfigureStageMode(StagePresentationMode === "Grid" ? "Reader" : "Grid");
+}
+
+function ActivateLeftRailMode(Mode)
+{
+    LeftRailDisplayMode = Mode;
+    RenderLeftNavigationRail();
+}
+
+function ConfigureInspectorMode(Mode)
+{
+    RightInspectorMode = Mode;
+    RenderRightInspector();
+}
+
+function ConfigureCommentStyle(Style)
+{
+    CommentVisualStyle = Style;
+    RenderRightInspector();
+}
+
+function SelectDirectoryFolder(FolderToken, FolderTitle)
+{
+    ActiveDirectoryFilter = FolderToken;
+    StagePresentationMode = "Grid";
+    document.getElementById("ActiveDirectoryHeading").textContent =
+        FolderToken === "ALL" ? "PROJECT FILES" : FolderTitle.toUpperCase();
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+}
+
+function RenderCategoryFilters()
+{
+    const Available = Object.entries(CategoryFilterTitles).filter(([Token]) => !ActiveCategorySequence.includes(Token));
+    const Select = document.getElementById("CategoryAddSelect");
+    Select.innerHTML = `<option value="">${Available.length ? "+ Add file type…" : "All file types added"}</option>` + Available.map(([Token, Title]) => `<option value="${Token}">${Title}</option>`).join("");
+    Select.disabled = !Available.length;
+    document.getElementById("ActiveFilterSequence").innerHTML = ActiveCategorySequence.map(Token => `<li><span>${CategoryFilterTitles[Token]}</span><button class="RemoveFilter" aria-label="Remove ${CategoryFilterTitles[Token]}" onclick="RemoveCategoryFilter('${Token}')">×</button></li>`).join("");
+    document.getElementById("FilterCount").textContent = ActiveCategorySequence.length + Number(StarredOnlyEnabled);
+    document.getElementById("FilterHint").textContent = ActiveCategorySequence.length ? "Matches any listed type. New types append below." : "No type filters — showing all files.";
+    document.getElementById("StarFilterInput").checked = StarredOnlyEnabled;
+}
+
+function AppendCategoryFilter(Token)
+{
+    if (!CategoryFilterTitles[Token] || ActiveCategorySequence.includes(Token)) return;
+    ActiveCategorySequence.push(Token);
+    RenderCategoryFilters();
+    RenderCardsCatalog();
+}
+
+function RemoveCategoryFilter(Token)
+{
+    ActiveCategorySequence = ActiveCategorySequence.filter(Category => Category !== Token);
+    RenderCategoryFilters();
+    RenderCardsCatalog();
+    document.getElementById("CategoryAddSelect").focus();
+}
+
+function ClearCategoryFilters()
+{
+    ActiveCategorySequence = [];
+    StarredOnlyEnabled = false;
+    RenderCategoryFilters();
+    RenderCardsCatalog();
+}
+
+function EvaluateSearchQuery(QueryText)
+{
+    SearchFilterText = QueryText;
+    RenderCardsCatalog();
+}
+
+function ToggleStarredFilter()
+{
+    StarredOnlyEnabled = !StarredOnlyEnabled;
+    RenderCategoryFilters();
+    RenderCardsCatalog();
+}
+
+function ToggleDocumentStar(DocumentToken)
+{
+    const Entry = ArchiveCatalog.find(Item => Item.Token === DocumentToken);
+    if (Entry)
+    {
+        Entry.StarredEnabled = !Entry.StarredEnabled;
+        RenderLeftNavigationRail();
+        RenderCardsCatalog();
+    }
+}
+
+function SelectDocumentPage(PageNumber)
+{
+    ActiveReaderPage      = PageNumber;
+    StagePresentationMode = "Reader";
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+}
+
+function StepDocumentPage(Delta)
+{
+    const Doc = ResolveSelectedDocument();
+    if (!Doc) return;
+    const NextPage = ActiveReaderPage + Delta;
+    if (NextPage >= 1 && NextPage <= Doc.Pages.length)
+    {
+        ActiveReaderPage = NextPage;
+        RenderLeftNavigationRail();
+        RenderDocumentReaderSheet();
+    }
+}
+
+function AdjustReaderZoom(Delta)
+{
+    ActiveReaderZoom = Math.min(1.35, Math.max(0.75, +(ActiveReaderZoom + Delta).toFixed(2)));
+    RenderDocumentReaderSheet();
+}
+
+function ResetReaderZoom()
+{
+    ActiveReaderZoom = 1.0;
+    RenderDocumentReaderSheet();
+}
+
+function ToggleLeftRailVisibility()
+{
+    document.getElementById("WorkspaceHost").classList.toggle("LeftRailCollapsed");
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                              COMMENTS & COLLABORATION
+------------------------------------------------------------------------------------------------------------------------*/
+function ActivateReplyTarget(CommentIndex, AuthorName)
+{
+    ActiveReplyCommentIndex = CommentIndex;
+    const Banner = document.getElementById("ReplyBanner");
+    document.getElementById("ReplyBannerText").textContent = `Replying to ${AuthorName}`;
+    Banner.classList.add("Visible");
+    document.getElementById("CommentDraftInput").focus();
+}
+
+function ClearReplyTarget()
+{
+    ActiveReplyCommentIndex = null;
+    document.getElementById("ReplyBanner").classList.remove("Visible");
+}
+
+function InsertPromptSnippet(Snippet)
+{
+    const Input = document.getElementById("CommentDraftInput");
+    Input.value = Input.value + Snippet;
+    Input.focus();
+}
+
+function FinalizeCommentSubmission()
+{
+    const Input = document.getElementById("CommentDraftInput");
+    const Text  = Input.value.trim();
+    const Doc   = ResolveSelectedDocument();
+    if (!Text || !Doc) return;
+
+    const NewComment = {
+        AuthorInitial: "A",
+        AuthorName: "Alexander Mikolaenko",
+        TimeLabel: "Just now",
+        Text: Text,
+        ThreadedReply: ActiveReplyCommentIndex !== null
+    };
+
+    if (ActiveReplyCommentIndex !== null && ActiveReplyCommentIndex < Doc.Comments.length)
+    {
+        Doc.Comments[ActiveReplyCommentIndex].ThreadRoot = true;
+        Doc.Comments.splice(ActiveReplyCommentIndex + 1, 0, NewComment);
+    }
+    else
+    {
+        Doc.Comments.push(NewComment);
+    }
+
+    Input.value = "";
+    ClearReplyTarget();
+    RenderRightInspector();
+
+    const Pane = document.getElementById("InspectorCommentsPane");
+    Pane.scrollTop = Pane.scrollHeight;
+}
+
+function TriggerCollaboratorShare()
+{
+    const Doc = ResolveSelectedDocument();
+    if (!Doc) return;
+    const AllCodes = ["A", "G", "M", "N"];
+    const NextCode = AllCodes.find(Code => !Doc.Collaborators.includes(Code));
+    if (NextCode)
+    {
+        Doc.Collaborators.push(NextCode);
+    }
+    else if (Doc.Collaborators.length > 1)
+    {
+        Doc.Collaborators = ["A", "G"];
+    }
+    RenderCardsCatalog();
+    RenderRightInspector();
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                            CONTEXT MENU & MODAL HANDLERS
+------------------------------------------------------------------------------------------------------------------------*/
+function SummonCardContextMenu(Event, DocumentToken)
+{
+    ContextMenuTargetToken = DocumentToken;
+    SelectedDocumentToken  = DocumentToken;
+    RenderCardsCatalog();
+    RenderRightInspector();
+
+    const Menu = document.getElementById("CardContextMenu");
+    Menu.classList.add("Open");
+    const X = Math.min(Event.clientX, window.innerWidth - 200);
+    const Y = Math.min(Event.clientY, window.innerHeight - 220);
+    Menu.style.left = `${X}px`;
+    Menu.style.top  = `${Y}px`;
+}
+
+window.addEventListener("click", () => {
+    document.getElementById("CardContextMenu").classList.remove("Open");
+});
+
+function ExecuteCardMenuAction(Action)
+{
+    const Token = ContextMenuTargetToken || SelectedDocumentToken;
+    if (!Token) return;
+
+    if (Action === "Open")
+    {
+        OpenDocumentInReader(Token);
+    }
+    else if (Action === "Preview")
+    {
+        SelectedDocumentToken = Token;
+        ConfigureInspectorMode("Preview");
+        RenderCardsCatalog();
+    }
+    else if (Action === "Star")
+    {
+        ToggleDocumentStar(Token);
+    }
+    else if (Action === "Edit")
+    {
+        SelectedDocumentToken = Token;
+        OpenEditDocumentModal();
+    }
+    else if (Action === "Duplicate")
+    {
+        const Source = ArchiveCatalog.find(Item => Item.Token === Token);
+        if (Source)
+        {
+            const Copy = JSON.parse(JSON.stringify(Source));
+            Copy.Token = "doc-copy-" + Date.now();
+            Copy.Title = Source.Title.replace(/(\.[^.]+)$/, " (Copy)$1");
+            ArchiveCatalog.unshift(Copy);
+            SelectedDocumentToken = Copy.Token;
+            RenderLeftNavigationRail();
+            RenderCenterWorkspace();
+            RenderRightInspector();
+        }
+    }
+    else if (Action === "Delete")
+    {
+        SelectedDocumentToken = Token;
+        DeleteSelectedDocument();
+    }
+}
+
+function OpenCreateDocumentModal()
+{
+    ModalEditingMode = "Create";
+    document.getElementById("ModalHeaderTitle").textContent    = "New Project Document";
+    document.getElementById("ModalFileNameInput").value        = "";
+    document.getElementById("ModalFileCategorySelect").value   = "PDF";
+    document.getElementById("ModalFileSizeInput").value        = "2.4 MB";
+    document.getElementById("ModalFileDescInput").value        = "";
+    document.getElementById("DocumentModalBackdrop").classList.add("Open");
+    document.getElementById("ModalFileNameInput").focus();
+}
+
+function OpenEditDocumentModal()
+{
+    const Doc = ResolveSelectedDocument();
+    if (!Doc) return;
+    ModalEditingMode = "Edit";
+    document.getElementById("ModalHeaderTitle").textContent    = "Edit Document Metadata";
+    document.getElementById("ModalFileNameInput").value        = Doc.Title;
+    document.getElementById("ModalFileCategorySelect").value   = Doc.Category;
+    document.getElementById("ModalFileSizeInput").value        = Doc.Filesize;
+    document.getElementById("ModalFileDescInput").value        = Doc.Description;
+    document.getElementById("DocumentModalBackdrop").classList.add("Open");
+}
+
+function CloseDocumentModal()
+{
+    document.getElementById("DocumentModalBackdrop").classList.remove("Open");
+}
+
+function FinalizeDocumentModal()
+{
+    const RawTitle = document.getElementById("ModalFileNameInput").value.trim() || "Untitled Specification.pdf";
+    const Category = document.getElementById("ModalFileCategorySelect").value;
+    const SizeText = document.getElementById("ModalFileSizeInput").value.trim() || "1.8 MB";
+    const DescText = document.getElementById("ModalFileDescInput").value.trim() || "Project specification authored in Waterfall INC workspace.";
+
+    if (ModalEditingMode === "Edit")
+    {
+        const Doc = ResolveSelectedDocument();
+        if (Doc)
+        {
+            Doc.Title        = RawTitle;
+            Doc.Category     = Category;
+            Doc.Filesize     = SizeText;
+            Doc.DurationMeta = `${SizeText}, 00H:45M:12S`;
+            Doc.Description  = DescText;
+        }
+    }
+    else
+    {
+        const NewEntry = {
+            Token: "doc-" + Date.now(),
+            Title: RawTitle,
+            Category: Category,
+            Folder: ActiveDirectoryFilter === "ALL" || ActiveDirectoryFilter === "STARRED" ? "WATERFALL" : ActiveDirectoryFilter,
+            Filesize: SizeText,
+            DurationMeta: `${SizeText}, 00H:15M:00S`,
+            StarredEnabled: false,
+            Collaborators: ["A", "G"],
+            Description: DescText,
+            Pages: [
+                {
+                    Heading: RawTitle.toUpperCase(),
+                    Sections: [
+                        DescText,
+                        "1. Scope & Deliverables — Authored within the Waterfall INC Project Browser.",
+                        "2. Verification — Ready for team review and inline comment annotation."
+                    ]
+                }
+            ],
+            Comments: [
+                {
+                    AuthorInitial: "A",
+                    AuthorName: "Alexander Mikolaenko",
+                    TimeLabel: "Just now",
+                    Text: "Created initial document entry.",
+                    ThreadedReply: false
+                }
+            ]
+        };
+        ArchiveCatalog.unshift(NewEntry);
+        SelectedDocumentToken = NewEntry.Token;
+    }
+
+    CloseDocumentModal();
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+    RenderRightInspector();
+}
+
+function DeleteSelectedDocument()
+{
+    if (ArchiveCatalog.length <= 1) return;
+    ArchiveCatalog = ArchiveCatalog.filter(Item => Item.Token !== SelectedDocumentToken);
+    SelectedDocumentToken = ArchiveCatalog[0].Token;
+    RenderLeftNavigationRail();
+    RenderCenterWorkspace();
+    RenderRightInspector();
+}
+
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                              PROCEDURAL SCENE / SURFACE CHANNELS
+------------------------------------------------------------------------------------------------------------------------*/
+const SceneSurfaceDefaults = [
+    { Title: "Actuator housing", Albedo: "#87b2a3", Specular: .5, Metallic: .65, Roughness: .3, Description: "Machined housing and radial cooling fins." },
+    { Title: "Copper windings", Albedo: "#d99565", Specular: .5, Metallic: 1, Roughness: .24, Description: "Exposed copper winding rings and terminals." },
+    { Title: "Shaft & fasteners", Albedo: "#c5cdd2", Specular: .5, Metallic: 1, Roughness: .18, Description: "Steel shaft, flange bolts and tie rods." },
+    { Title: "Graphite seals", Albedo: "#282c2b", Specular: .5, Metallic: 0, Roughness: .7, Description: "Insulating gaskets and recessed bearing seals." },
+    { Title: "Mounting plate", Albedo: "#747f82", Specular: .5, Metallic: .85, Roughness: .4, Description: "Mounting plate and structural support brackets." }
+];
+const SceneSurfaces = SceneSurfaceDefaults.map(Surface => ({ ...Surface }));
+let SelectedSurfaceIndex = 0;
+let SceneDevice = null;
+let ScenePending = 0;
+let SceneSpinEnabled = false;
+let SceneGridEnabled = true;
+let SceneContextLost = false;
+let ScenePreviousTime = 0;
+const SceneCamera = { Azimuth: .85, Elevation: .43, Distance: 10.5, Target: [0, 1.1, 0] };
+
+function SelectSceneSurface(Index)
+{
+    SelectedSurfaceIndex = Math.max(0, Math.min(SceneSurfaces.length - 1, Index));
+    const Surface = SceneSurfaces[SelectedSurfaceIndex];
+    document.getElementById("SceneSurfaceSelect").value = SelectedSurfaceIndex;
+    document.getElementById("SurfaceDescription").textContent = Surface.Description;
+    for (const Channel of ["Albedo", "Specular", "Metallic", "Roughness"])
+    {
+        document.getElementById("Surface" + Channel).value = Surface[Channel];
+        document.getElementById("Surface" + Channel + "Text").textContent = Channel === "Albedo" ? Surface[Channel].toUpperCase() : Surface[Channel].toFixed(2);
+    }
+    document.getElementById("SurfaceColourChip").style.background = Surface.Albedo;
+    if (StagePresentationMode === "Scene") RenderLeftNavigationRail();
+}
+
+function AdjustSceneSurface(Channel, Amount)
+{
+    SceneSurfaces[SelectedSurfaceIndex][Channel] = Amount;
+    SelectSceneSurface(SelectedSurfaceIndex);
+    RequestSceneRasterization();
+}
+
+function RestoreSceneSurface()
+{
+    Object.assign(SceneSurfaces[SelectedSurfaceIndex], SceneSurfaceDefaults[SelectedSurfaceIndex]);
+    SelectSceneSurface(SelectedSurfaceIndex);
+    RequestSceneRasterization();
+}
+
+function ResetSceneCamera()
+{
+    Object.assign(SceneCamera, { Azimuth: .85, Elevation: .43, Distance: 10.5, Target: [0, 1.1, 0] });
+    RequestSceneRasterization();
+}
+
+function ToggleSceneSpin()
+{
+    SceneSpinEnabled = !SceneSpinEnabled;
+    document.getElementById("SceneSpinButton").setAttribute("aria-pressed", SceneSpinEnabled);
+    ScenePreviousTime = 0;
+    RequestSceneRasterization();
+}
+
+function ToggleSceneGrid()
+{
+    SceneGridEnabled = !SceneGridEnabled;
+    document.getElementById("SceneGridButton").setAttribute("aria-pressed", SceneGridEnabled);
+    RequestSceneRasterization();
+}
+
+function SceneUnitVector(Vector)
+{
+    const Length = Math.hypot(...Vector) || 1;
+    return Vector.map(Component => Component / Length);
+}
+
+function SceneCrossProduct(Left, Right)
+{
+    return [Left[1]*Right[2]-Left[2]*Right[1], Left[2]*Right[0]-Left[0]*Right[2], Left[0]*Right[1]-Left[1]*Right[0]];
+}
+
+function SceneDotProduct(Left, Right)
+{
+    return Left.reduce((Sum, Component, Index) => Sum + Component * Right[Index], 0);
+}
+
+// Positions and normals are baked once into a single interleaved GPU allocation.
+// The final three floats are an assembly separation vector, evaluated in the vertex shader.
+function GenerateActuatorTriangles()
+{
+    const Vertices = [];
+    function Triangle(Corners, Normals, Surface, Separation)
+    {
+        for (let Index = 0; Index < 3; Index++) Vertices.push(...Corners[Index], ...Normals[Index], Surface, ...Separation);
+    }
+    function Quad(Corners, Normals, Surface, Separation)
+    {
+        Triangle([Corners[0], Corners[1], Corners[2]], [Normals[0], Normals[1], Normals[2]], Surface, Separation);
+        Triangle([Corners[0], Corners[2], Corners[3]], [Normals[0], Normals[2], Normals[3]], Surface, Separation);
+    }
+    function Box(Centre, Span, Surface, Separation = [0, 0, 0])
+    {
+        for (let Axis = 0; Axis < 3; Axis++) for (const Sign of [-1, 1])
+        {
+            const Tangent = (Axis + 1) % 3, Bitangent = (Axis + 2) % 3;
+            const Normal = [0, 0, 0]; Normal[Axis] = Sign;
+            const Corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(Pair => {
+                const Point = [...Centre];
+                Point[Axis] += Sign * Span[Axis] / 2;
+                Point[Tangent] += Pair[0] * Span[Tangent] / 2;
+                Point[Bitangent] += Pair[1] * Span[Bitangent] / 2;
+                return Point;
+            });
+            Quad(Corners, [Normal, Normal, Normal, Normal], Surface, Separation);
+        }
+    }
+    function Tube(Centre, Radius, Bore, Length, Surface, Separation = [0, 0, 0], Axis = 0, Segments = 48)
+    {
+        const Tangent = (Axis + 1) % 3, Bitangent = (Axis + 2) % 3;
+        function Point(Angle, Radial, Depth)
+        {
+            const Position = [...Centre];
+            Position[Axis] += Depth;
+            Position[Tangent] += Math.cos(Angle) * Radial;
+            Position[Bitangent] += Math.sin(Angle) * Radial;
+            return Position;
+        }
+        function RadialNormal(Angle, Sign)
+        {
+            const Normal = [0,0,0]; Normal[Tangent] = Math.cos(Angle)*Sign; Normal[Bitangent] = Math.sin(Angle)*Sign; return Normal;
+        }
+        for (let Segment = 0; Segment < Segments; Segment++)
+        {
+            const A = Segment * Math.PI * 2 / Segments, B = (Segment + 1) * Math.PI * 2 / Segments;
+            for (const [Radial, Sign] of [[Radius, 1], [Bore, -1]])
+            {
+                if (!Radial) continue;
+                Quad([Point(A,Radial,-Length/2),Point(B,Radial,-Length/2),Point(B,Radial,Length/2),Point(A,Radial,Length/2)],
+                    [RadialNormal(A,Sign),RadialNormal(B,Sign),RadialNormal(B,Sign),RadialNormal(A,Sign)],Surface,Separation);
+            }
+            for (const Sign of [-1,1])
+            {
+                const Normal = [0,0,0]; Normal[Axis] = Sign;
+                Quad([Point(A,Bore,Sign*Length/2),Point(B,Bore,Sign*Length/2),Point(B,Radius,Sign*Length/2),Point(A,Radius,Sign*Length/2)],
+                    [Normal,Normal,Normal,Normal],Surface,Separation);
+            }
+        }
+    }
+    Box([0,-.06,0], [16,.08,16], 6);
+    for (let Line = -8; Line <= 8; Line++)
+    {
+        Box([Line,0,0],[.012,.004,16],5);
+        Box([0,0,Line],[16,.004,.012],5);
+    }
+    Box([0,.2,0], [6.2,.32,3.2],4,[0,-.15,0]);
+    for (const X of [-1.65,1.65])
+    {
+        Box([X,.73,0],[.58,1.05,1.8],4,[0,-.2,0]);
+        Box([X,.46,0],[1,.18,2.7],4,[0,-.2,0]);
+        for (const Z of [-1.15,1.15]) Tube([X,.59,Z],.13,.045,.12,2,[0,-.2,0],1,6);
+    }
+    const Height = 1.8;
+    Tube([0,Height,0],.89,.3,2.7,0);
+    Tube([-.25,Height,0],.93,.89,1.8,3);
+    for (let Index = 0; Index < 12; Index++) Tube([-.98+Index*.14,Height,0],1.03,.88,.055,0);
+    for (const X of [-1.28,1.28])
+    {
+        Tube([X,Height,0],.98,.3,.19,1,[Math.sign(X)*.45,0,0]);
+        Tube([X*1.17,Height,0],1.08,.3,.17,0,[Math.sign(X)*.8,0,0]);
+        Tube([X*1.29,Height,0],.69,.25,.08,3,[Math.sign(X)*1.0,0,0]);
+        Tube([X*1.34,Height,0],.48,.25,.12,2,[Math.sign(X)*1.1,0,0]);
+        for (let Bolt = 0; Bolt < 8; Bolt++)
+        {
+            const Angle = Bolt*Math.PI/4;
+            Tube([X*1.27,Height+.86*Math.cos(Angle),.86*Math.sin(Angle)],.105,.035,.13,2,[Math.sign(X)*1.15,0,0],0,6);
+        }
+    }
+    Tube([2,Height,0],.25,0,1.5,2,[1.7,0,0]);
+    Tube([2.75,Height,0],.34,.12,.18,2,[1.9,0,0]);
+    Box([2.25,Height+.26,0],[.6,.06,.11],3,[1.7,0,0]);
+    Tube([-1.95,Height,0],.3,0,.55,2,[-1.6,0,0]);
+    for (const Angle of [Math.PI/4,3*Math.PI/4,5*Math.PI/4,7*Math.PI/4])
+        Tube([0,Height+.79*Math.cos(Angle),.79*Math.sin(Angle)],.045,0,3.2,2);
+    Box([.5,2.92,0],[.9,.38,.8],3,[0,.7,0]);
+    Box([.5,3.14,0],[1.02,.09,.92],0,[0,1,0]);
+    for (const X of [.25,.75]) Tube([X,3.29,0],.12,.045,.24,1,[0,1.2,0],1,16);
+    for (const X of [-2.65,2.65]) for (const Z of [-1.25,1.25])
+        Tube([X,.41,Z],.13,.05,.1,2,[0,-.15,0],1,6);
+    return new Float32Array(Vertices);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                         EON DIFFUSE / ENERGY-COMPENSATED GGX
+------------------------------------------------------------------------------------------------------------------------*/
+// EON: Fujii single scattering + OpenPBR energy compensation. Equations reference:
+// https://github.com/AcademySoftwareFoundation/MaterialX/blob/main/libraries/pbrlib/genglsl/lib/mx_microfacet_diffuse.glsl
+// Directional albedo is tabulated at startup, avoiding acos per fragment. This 64×32 RGBA8 LUT
+// stores the missing energy scaled by four. Finite resolution introduces a small approximation.
+function GenerateEonLookup()
+{
+    const Pixels = new Uint8Array(64*32*4);
+    for (let Row = 0; Row < 32; Row++) for (let Column = 0; Column < 64; Column++)
+    {
+        const Roughness = Row / 31, Cosine = Math.max(.0001, Column / 63);
+        const Sine = Math.sqrt(Math.max(0, 1-Cosine*Cosine));
+        const A = 1/(1+(.5-2/(3*Math.PI))*Roughness);
+        const G = Sine*(Math.acos(Cosine)-Sine*Cosine) + 2*((Sine/Cosine)*(1-Sine*Sine*Sine)-Sine)/3;
+        const Missing = Math.max(0,1-(A+Roughness*A*G/Math.PI));
+        const Offset = (Row*64+Column)*4;
+        Pixels[Offset] = Math.round(Math.min(1,Missing*4)*255);
+        Pixels[Offset+3] = 255;
+    }
+    return Pixels;
+}
+
+const SceneVertexSource = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 Position;
+layout(location=1) in vec3 Normal;
+layout(location=2) in float Surface;
+layout(location=3) in vec3 Separation;
+uniform mat4 ViewProjection;
+uniform float Explode;
+out vec3 WorldPosition;
+out vec3 WorldNormal;
+flat out int SurfaceIndex;
+void main()
+{
+    WorldPosition = Position + Separation * Explode;
+    WorldNormal = Normal;
+    SurfaceIndex = int(Surface + .5);
+    gl_Position = ViewProjection * vec4(WorldPosition, 1.0);
+}`;
+
+const SceneFragmentSource = `#version 300 es
+precision highp float;
+in vec3 WorldPosition;
+in vec3 WorldNormal;
+flat in int SurfaceIndex;
+uniform vec4 AlbedoMetallic[7];
+uniform vec2 SpecularRoughness[7];
+uniform vec3 Eye;
+uniform sampler2D EonLookup;
+uniform int Channel;
+uniform bool GridEnabled;
+out vec4 RadianceOutput;
+const float Pi = 3.14159265359;
+float Fifth(float X) { float X2=X*X; return X2*X2*X; }
+vec3 Fresnel(vec3 F0, float Cosine) { return F0+(1.0-F0)*Fifth(1.0-Cosine); }
+vec2 EnvironmentIntegral(float NoV, float Roughness)
+{
+    vec4 Fit = Roughness*vec4(-1.0,-.0275,-.572,.022)+vec4(1.0,.0425,1.04,-.04);
+    float A = min(Fit.x*Fit.x, exp2(-9.28*NoV))*Fit.x+Fit.y;
+    return vec2(-1.04,1.04)*A+Fit.zw;
+}
+float EonMissing(float Cosine, float Roughness)
+{
+    return texture(EonLookup, vec2((Cosine*63.0+.5)/64.0,(Roughness*31.0+.5)/32.0)).r*.25;
+}
+vec3 DiffuseEon(vec3 Albedo, float Roughness, float NoV, float NoL, float VoL)
+{
+    float Correlation = VoL-NoV*NoL;
+    float Angular = Correlation > 0.0 ? Correlation/max(NoV,NoL) : Correlation;
+    float A = 1.0/(1.0+(.5-2.0/(3.0*Pi))*Roughness);
+    float Average = A*(1.0+(2.0/3.0-28.0/(15.0*Pi))*Roughness);
+    vec3 Multiple = Albedo*Albedo*Average/(1.0-Albedo*max(0.0,1.0-Average));
+    return (Albedo*A*(1.0+Roughness*Angular) + Multiple*EonMissing(NoV,Roughness)*EonMissing(NoL,Roughness)/max(1e-5,1.0-Average))/Pi;
+}
+vec3 EvaluateLight(vec3 Normal, vec3 View, vec3 Light, vec3 Energy, vec3 Albedo, vec3 F0, float Metallic, float Roughness, vec3 Compensation)
+{
+    float NoL = max(dot(Normal,Light),0.0);
+    if (NoL <= 0.0) return vec3(0.0);
+    float NoV = max(dot(Normal,View),.0001);
+    vec3 HalfDirection = normalize(View+Light);
+    float NoH = max(dot(Normal,HalfDirection),0.0);
+    float VoH = max(dot(View,HalfDirection),0.0);
+    float Alpha = Roughness*Roughness, Alpha2 = Alpha*Alpha;
+    float Denominator = NoH*NoH*(Alpha2-1.0)+1.0;
+    float Distribution = Alpha2/(Pi*Denominator*Denominator);
+    float Visibility = .5/max(NoL*sqrt(NoV*NoV*(1.0-Alpha2)+Alpha2)+NoV*sqrt(NoL*NoL*(1.0-Alpha2)+Alpha2),.00001);
+    vec3 F = Fresnel(F0,VoH);
+    vec3 Diffuse = DiffuseEon(Albedo,Roughness,NoV,NoL,dot(View,Light))*(1.0-Metallic)*(1.0-F);
+    return (Diffuse + Distribution*Visibility*F*Compensation)*Energy*NoL;
+}
+vec3 ToSrgb(vec3 Linear)
+{
+    return mix(12.92*Linear,1.055*pow(max(Linear,vec3(0.0)),vec3(1.0/2.4))-.055,step(vec3(.0031308),Linear));
+}
+void main()
+{
+    if (SurfaceIndex == 5 && !GridEnabled) discard;
+    if (SurfaceIndex >= 5)
+    {
+        float Fade = 1.0-smoothstep(4.0,9.0,length(WorldPosition.xz));
+        float Grey = SurfaceIndex == 5 ? .085*Fade : .008;
+        RadianceOutput = vec4(vec3(Grey),1.0);
+        return;
+    }
+    vec3 Albedo = AlbedoMetallic[SurfaceIndex].rgb;
+    float Metallic = AlbedoMetallic[SurfaceIndex].a;
+    float Specular = SpecularRoughness[SurfaceIndex].x;
+    float Roughness = max(.04,SpecularRoughness[SurfaceIndex].y);
+    vec3 F0 = mix(vec3(.16*Specular*Specular),Albedo,Metallic);
+    if (Channel != 0)
+    {
+        vec3 Display = Channel==1 ? ToSrgb(Albedo) : Channel==2 ? ToSrgb(F0) : vec3(Channel==3 ? Metallic : Roughness);
+        RadianceOutput = vec4(Display,1.0); return;
+    }
+    vec3 Normal = normalize(WorldNormal), View = normalize(Eye-WorldPosition);
+    if (dot(Normal,View) < 0.0) Normal = -Normal;
+    float NoV = max(dot(Normal,View),.0001);
+    vec2 Dfg = EnvironmentIntegral(NoV,Roughness);
+    vec3 Compensation = 1.0+F0*(1.0/max(Dfg.x+Dfg.y,.001)-1.0);
+    vec3 Radiance = EvaluateLight(Normal,View,normalize(vec3(2,5,3)),vec3(3.6,3.9,4.2),Albedo,F0,Metallic,Roughness,Compensation);
+    Radiance += EvaluateLight(Normal,View,normalize(vec3(-3,2,-4)),vec3(2.5,1.9,1.3),Albedo,F0,Metallic,Roughness,Compensation);
+    // Analytic studio fill, not image-based lighting or a physical environment convolution.
+    vec3 Reflection = reflect(-View,Normal);
+    float Softbox = pow(max(dot(Reflection,normalize(vec3(-.5,1.0,1.0))),0.0),mix(100.0,2.0,Roughness));
+    vec3 Studio = mix(vec3(.06,.07,.08),vec3(.65,.72,.78),smoothstep(-.2,.9,Reflection.y)) + vec3(1.8)*Softbox;
+    Radiance += Studio*(F0*Dfg.x+Dfg.y)*Compensation;
+    Radiance += Albedo*(1.0-Metallic)*(1.0-Fresnel(F0,NoV))*(.08+.2*max(Normal.y,0.0));
+    // A single display transform. This standalone canvas is not the engine HDR radiance target.
+    vec3 Mapped = clamp((Radiance*(2.51*Radiance+.03))/(Radiance*(2.43*Radiance+.59)+.14),0.0,1.0);
+    RadianceOutput = vec4(ToSrgb(Mapped),1.0);
+}`;
+
+function AllocateSceneDevice()
+{
+    const Canvas = document.getElementById("SceneCanvas");
+    const Gl = Canvas.getContext("webgl2", { alpha: false, antialias: true, depth: true, powerPreference: "low-power" });
+    if (!Gl) throw new Error("WebGL 2 is unavailable. Enable hardware acceleration or open this preview in a WebGL 2 browser. Project files and the reader remain available.");
+    function Compile(Source, Type)
+    {
+        const Shader = Gl.createShader(Type);
+        Gl.shaderSource(Shader, Source); Gl.compileShader(Shader);
+        if (!Gl.getShaderParameter(Shader, Gl.COMPILE_STATUS))
+        {
+            const Message = Gl.getShaderInfoLog(Shader); Gl.deleteShader(Shader); throw new Error(Message);
+        }
+        return Shader;
+    }
+    const Vertex = Compile(SceneVertexSource, Gl.VERTEX_SHADER), Fragment = Compile(SceneFragmentSource, Gl.FRAGMENT_SHADER);
+    const Program = Gl.createProgram(); Gl.attachShader(Program, Vertex); Gl.attachShader(Program, Fragment); Gl.linkProgram(Program);
+    Gl.deleteShader(Vertex); Gl.deleteShader(Fragment);
+    if (!Gl.getProgramParameter(Program, Gl.LINK_STATUS)) throw new Error(Gl.getProgramInfoLog(Program));
+    Gl.useProgram(Program);
+    const Vertices = GenerateActuatorTriangles();
+    const Allocation = Gl.createBuffer(); Gl.bindBuffer(Gl.ARRAY_BUFFER, Allocation); Gl.bufferData(Gl.ARRAY_BUFFER, Vertices, Gl.STATIC_DRAW);
+    for (const [Location, Width, Offset] of [[0,3,0],[1,3,12],[2,1,24],[3,3,28]])
+    {
+        Gl.enableVertexAttribArray(Location); Gl.vertexAttribPointer(Location, Width, Gl.FLOAT, false, 40, Offset);
+    }
+    const Lookup = Gl.createTexture(); Gl.bindTexture(Gl.TEXTURE_2D, Lookup);
+    Gl.texImage2D(Gl.TEXTURE_2D,0,Gl.RGBA,64,32,0,Gl.RGBA,Gl.UNSIGNED_BYTE,GenerateEonLookup());
+    Gl.texParameteri(Gl.TEXTURE_2D,Gl.TEXTURE_MIN_FILTER,Gl.LINEAR); Gl.texParameteri(Gl.TEXTURE_2D,Gl.TEXTURE_MAG_FILTER,Gl.LINEAR);
+    Gl.texParameteri(Gl.TEXTURE_2D,Gl.TEXTURE_WRAP_S,Gl.CLAMP_TO_EDGE); Gl.texParameteri(Gl.TEXTURE_2D,Gl.TEXTURE_WRAP_T,Gl.CLAMP_TO_EDGE);
+    Gl.enable(Gl.DEPTH_TEST); Gl.clearColor(0,0,0,1);
+    const Uniforms = {};
+    for (const Name of ["ViewProjection","Explode","Eye","EonLookup","Channel","GridEnabled","AlbedoMetallic","SpecularRoughness"])
+        Uniforms[Name] = Gl.getUniformLocation(Program, Name === "AlbedoMetallic" || Name === "SpecularRoughness" ? Name+"[0]" : Name);
+    Gl.uniform1i(Uniforms.EonLookup,0);
+    document.getElementById("SceneGeometryStats").textContent = (Vertices.length/30).toLocaleString()+" triangles · 1 draw call";
+    return { Gl, Uniforms, VertexCount: Vertices.length/10 };
+}
+
+function SceneViewProjection(Aspect)
+{
+    const Eye = SceneCamera.Target.map((Coordinate, Axis) => Coordinate + SceneCamera.Distance * [Math.cos(SceneCamera.Elevation)*Math.sin(SceneCamera.Azimuth),Math.sin(SceneCamera.Elevation),Math.cos(SceneCamera.Elevation)*Math.cos(SceneCamera.Azimuth)][Axis]);
+    const Z = SceneUnitVector(Eye.map((Coordinate, Axis) => Coordinate-SceneCamera.Target[Axis]));
+    const X = SceneUnitVector(SceneCrossProduct([0,1,0],Z)), Y = SceneCrossProduct(Z,X);
+    const View = [X[0],Y[0],Z[0],0,X[1],Y[1],Z[1],0,X[2],Y[2],Z[2],0,-SceneDotProduct(X,Eye),-SceneDotProduct(Y,Eye),-SceneDotProduct(Z,Eye),1];
+    const Focal = 1/Math.tan(Math.PI/8), Near=.1, Far=100;
+    const Projection = [Focal/Aspect,0,0,0,0,Focal,0,0,0,0,(Far+Near)/(Near-Far),-1,0,0,2*Far*Near/(Near-Far),0];
+    const Product = new Float32Array(16);
+    for (let Column=0;Column<4;Column++) for (let Row=0;Row<4;Row++) for (let Axis=0;Axis<4;Axis++)
+        Product[Column*4+Row] += Projection[Axis*4+Row]*View[Column*4+Axis];
+    return { Eye, Product };
+}
+
+function RequestSceneRasterization()
+{
+    if (ScenePending || SceneContextLost || StagePresentationMode !== "Scene" || document.hidden) return;
+    ScenePending = requestAnimationFrame(RasterizeScene);
+}
+
+function RasterizeScene(Time)
+{
+    ScenePending = 0;
+    if (StagePresentationMode !== "Scene" || document.hidden || SceneContextLost) { ScenePreviousTime=0; return; }
+    const Failure = document.getElementById("SceneFailure");
+    try
+    {
+        if (!SceneDevice) SceneDevice = AllocateSceneDevice();
+        const { Gl, Uniforms } = SceneDevice;
+        const Canvas = Gl.canvas;
+        const Rectangle = Canvas.getBoundingClientRect();
+        if (Rectangle.width < 1 || Rectangle.height < 1) return;
+        const Scale = Math.min(window.devicePixelRatio || 1, Number(document.getElementById("SceneResolution").value));
+        const Width = Math.max(1,Math.round(Rectangle.width*Scale)), Height = Math.max(1,Math.round(Rectangle.height*Scale));
+        if (Canvas.width !== Width || Canvas.height !== Height) { Canvas.width=Width; Canvas.height=Height; }
+        if (SceneSpinEnabled && ScenePreviousTime) SceneCamera.Azimuth += Math.min(.05,(Time-ScenePreviousTime)/1000)*.22;
+        ScenePreviousTime = Time;
+        const Start = performance.now();
+        const { Eye, Product } = SceneViewProjection(Width/Height);
+        Gl.viewport(0,0,Width,Height); Gl.clear(Gl.COLOR_BUFFER_BIT|Gl.DEPTH_BUFFER_BIT);
+        Gl.uniformMatrix4fv(Uniforms.ViewProjection,false,Product); Gl.uniform3fv(Uniforms.Eye,Eye);
+        Gl.uniform1f(Uniforms.Explode,Number(document.getElementById("SceneExplode").value));
+        Gl.uniform1i(Uniforms.Channel,Number(document.getElementById("SceneChannelSelect").value));
+        Gl.uniform1i(Uniforms.GridEnabled,SceneGridEnabled);
+        const Colours = [], Scalars = [];
+        for (const Surface of SceneSurfaces)
+        {
+            for (const Offset of [1,3,5])
+            {
+                const Srgb = parseInt(Surface.Albedo.slice(Offset,Offset+2),16)/255;
+                Colours.push(Srgb <= .04045 ? Srgb/12.92 : ((Srgb+.055)/1.055)**2.4);
+            }
+            Colours.push(Surface.Metallic); Scalars.push(Surface.Specular,Surface.Roughness);
+        }
+        Colours.push(0,0,0,0,0,0,0,0); Scalars.push(0,1,0,1);
+        Gl.uniform4fv(Uniforms.AlbedoMetallic,Colours); Gl.uniform2fv(Uniforms.SpecularRoughness,Scalars);
+        Gl.drawArrays(Gl.TRIANGLES,0,SceneDevice.VertexCount);
+        document.getElementById("SceneTiming").textContent = "CPU submit "+(performance.now()-Start).toFixed(2)+" ms · "+Width+" × "+Height;
+        Failure.hidden = true;
+        if (SceneSpinEnabled) RequestSceneRasterization();
+    }
+    catch (Fault)
+    {
+        Failure.textContent = "Scene unavailable: "+Fault.message;
+        Failure.hidden = false;
+    }
+}
+
+function AttachSceneNavigation()
+{
+    const Canvas = document.getElementById("SceneCanvas");
+    let Pointer = null;
+    Canvas.addEventListener("pointerdown", Event => {
+        if (Pointer || Event.button > 1) return;
+        Pointer = { Token: Event.pointerId, X: Event.clientX, Y: Event.clientY, Pan: Event.shiftKey || Event.button===1 };
+        Canvas.setPointerCapture(Event.pointerId); Canvas.focus();
+    });
+    Canvas.addEventListener("pointermove", Event => {
+        if (!Pointer || Pointer.Token !== Event.pointerId) return;
+        const DeltaX = Event.clientX-Pointer.X, DeltaY = Event.clientY-Pointer.Y;
+        Pointer.X=Event.clientX; Pointer.Y=Event.clientY;
+        if (Pointer.Pan || Event.shiftKey)
+        {
+            const Scale=SceneCamera.Distance*.0015;
+            SceneCamera.Target[0] -= DeltaX*Math.cos(SceneCamera.Azimuth)*Scale;
+            SceneCamera.Target[2] += DeltaX*Math.sin(SceneCamera.Azimuth)*Scale;
+            SceneCamera.Target[1] += DeltaY*Scale;
+        }
+        else
+        {
+            SceneCamera.Azimuth -= DeltaX*.008;
+            SceneCamera.Elevation = Math.max(.06,Math.min(1.45,SceneCamera.Elevation+DeltaY*.006));
+        }
+        RequestSceneRasterization();
+    });
+    for (const EventName of ["pointerup","pointercancel","lostpointercapture"])
+        Canvas.addEventListener(EventName, Event => { if (Pointer?.Token === Event.pointerId) Pointer=null; });
+    Canvas.addEventListener("wheel", Event => {
+        Event.preventDefault();
+        SceneCamera.Distance = Math.max(5,Math.min(24,SceneCamera.Distance*Math.exp(Math.max(-100,Math.min(100,Event.deltaY))*.001)));
+        RequestSceneRasterization();
+    }, { passive: false });
+    Canvas.addEventListener("keydown", Event => {
+        if (!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","+","=","-","Home"].includes(Event.key)) return;
+        Event.preventDefault();
+        if (Event.key === "Home") { ResetSceneCamera(); return; }
+        if (Event.key === "ArrowLeft") SceneCamera.Azimuth -= .1;
+        if (Event.key === "ArrowRight") SceneCamera.Azimuth += .1;
+        if (Event.key === "ArrowUp") SceneCamera.Elevation = Math.min(1.45,SceneCamera.Elevation+.08);
+        if (Event.key === "ArrowDown") SceneCamera.Elevation = Math.max(.06,SceneCamera.Elevation-.08);
+        if (Event.key === "+" || Event.key === "=") SceneCamera.Distance = Math.max(5,SceneCamera.Distance*.9);
+        if (Event.key === "-") SceneCamera.Distance = Math.min(24,SceneCamera.Distance*1.1);
+        RequestSceneRasterization();
+    });
+    Canvas.addEventListener("webglcontextlost", Event => {
+        Event.preventDefault(); SceneContextLost=true; SceneDevice=null;
+        if (ScenePending) cancelAnimationFrame(ScenePending);
+        ScenePending=0;
+        document.getElementById("SceneFailure").textContent="Graphics context lost. Waiting for the browser to restore it…";
+        document.getElementById("SceneFailure").hidden=false;
+    });
+    Canvas.addEventListener("webglcontextrestored", () => { SceneContextLost=false; RequestSceneRasterization(); });
+    new ResizeObserver(RequestSceneRasterization).observe(Canvas);
+    document.addEventListener("visibilitychange", () => { ScenePreviousTime=0; RequestSceneRasterization(); });
+    document.addEventListener("pointerdown", Event => {
+        const Dropdown = document.getElementById("FilterDropdown");
+        if (!Dropdown.contains(Event.target)) Dropdown.open=false;
+    });
+    document.addEventListener("keydown", Event => {
+        if (Event.key === "Escape") document.getElementById("FilterDropdown").open=false;
+    });
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                    INITIALIZATION
+------------------------------------------------------------------------------------------------------------------------*/
+document.getElementById("SceneSurfaceSelect").innerHTML = SceneSurfaces.map((Surface, Index) => `<option value="${Index}">${Surface.Title}</option>`).join("");
+SelectSceneSurface(0);
+RenderCategoryFilters();
+AttachSceneNavigation();
+RenderLeftNavigationRail();
+RenderCenterWorkspace();
+RenderRightInspector();
+</script>
+</body>
+</html>
