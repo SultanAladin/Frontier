@@ -22,3 +22,7 @@ _ClaudeScratch/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Python tooling intermediates.
+__pycache__/
+*.pyc

@@ -1,0 +1,32 @@
+# Frontier
+
+General-purpose, cross-platform editor with reusable engine code.
+EngineUpdate establishes documentation, audits inherited violations, and repairs code in reviewed batches.
+
+## Start here
+
+- Read [agent instructions](CLAUDE.md) and the four mandatory skills before contributing.
+- Follow the [folder map](Documentation/FolderStructure.md) and [workflow](Documentation/Rules/AgentWorkflow.md).
+- Track all progress and findings in the [single tracker](Documentation/Tracker.md).
+- Follow the [active plan](Documentation/Plans/Ongoing/EngineUpdate.md).
+- Retain reproducible evidence under [Exhibits](Exhibits/README.md).
+
+## Baseline status
+
+Approved source baseline: `SultanAladin/Frontier-` at `338293863d7df4e585dec0c4acae45fe9c524ed5`.
+This checkout is `SultanAladin/Frontier`, initially at `4a77bfd17f23536e32781718553ec6a171e39021`.
+A selective UI foundation port is now present; the rest of the linked engine has not been imported or merged.
+See [port evidence and Windows build steps](Exhibits/UIFoundation/README.md).
+The working branch remains `arena/73e163a3-frontier`.
+
+## Builds and binaries
+
+The user runs Windows; Windows binaries are the default requested binary deliverable.
+Do not build or package Linux binaries unless asked. Preserve cross-platform source portability.
+MSVC is the current user toolchain; supported GCC, MinGW-w64, and Clang configurations are also permitted.
+No macOS setup or binary downloads are currently in scope. No Android application exists in this scope.
+
+The new root CMake target builds only the selected UI foundations and Windows UI exhibit, not the old engine.
+Local CPU checks passed; Windows compilation and GPU execution remain unverified.
+Do not mix inherited build instructions with this selective target.
+Local verification is automatic; GitHub Actions require explicit permission.

@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "packages": [
+    {
+      "name": "imgui",
+      "repository": "ocornut/imgui",
+      "revision": "3bae66c735670619baf51391eba7f3d90a25d125",
+      "url": "https://codeload.github.com/ocornut/imgui/tar.gz/3bae66c735670619baf51391eba7f3d90a25d125",
+      "sha256": "0b99c7baed551f76058bc6fe83d806dc55c912280e9d2d268879a1c9751cef20",
+      "proof": true,
+      "origin": "existing verified pin",
+      "witness": "imgui.cpp"
+    },
+    {
+      "name": "thorvg",
+      "repository": "thorvg/thorvg",
+      "revision": "6715f99ac106b6d4587f384a78c59fe957cfd2a3",
+      "url": "https://codeload.github.com/thorvg/thorvg/tar.gz/6715f99ac106b6d4587f384a78c59fe957cfd2a3",
+      "sha256": "60f878d34b0c27ab743fb786831baab08efe36b32858d3aa4f314c3511b9fe3a",
+      "proof": true,
+      "origin": "existing verified pin",
+      "witness": "inc/thorvg.h"
+    }
+  ]
+}
