@@ -30,6 +30,15 @@
       "proof": true,
       "origin": "existing verified pin",
       "witness": "include/toml++/toml.hpp"
+    },
+    {
+      "name": "glfw",
+      "repository": "glfw/glfw",
+      "revision": "a74efa0d5628b74adc0426af4c5710e287fa7c2c",
+      "url": "https://codeload.github.com/glfw/glfw/tar.gz/a74efa0d5628b74adc0426af4c5710e287fa7c2c",
+      "sha256": "7e85e39ade1efdda00734d323a0230b5c938074e9fb2ddbe453bdbb281064d2c",
+      "origin": "GLFW 3.4 release tag",
+      "witness": "include/GLFW/glfw3.h"
     }
   ]
 }

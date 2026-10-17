@@ -8,7 +8,7 @@ namespace Frontier {
 // Rasterization happens at NewFramePre, never inside Draw(). Single UI thread only.
 class IconPresentation final {
 public:
-    static void Attach(const std::filesystem::path& Root = "UI/Assets/Icons");
+    static void Attach(const std::filesystem::path& Root = "EngineContent/Icons");
     // False means no attached/texture-capable adapter (caller may use its legacy glyph).
     // Unsupported artwork still returns true: the strict, visible substitute is drawn.
     static bool Draw(ImDrawList* List, IconSymbol Symbol, ImVec2 Min, float Size,

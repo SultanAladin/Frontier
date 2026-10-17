@@ -25,7 +25,7 @@ bool ControlCentrePanel::InitializeContent() noexcept
 {
     try
     {
-        if (ImGui::GetCurrentContext() == nullptr || Typefaces.Load(FontDirectory.string()) == 0)
+        if (ImGui::GetCurrentContext() == nullptr || Typefaces.Load(FontDirectory) == 0)
         {
             Diagnostic = "No usable fonts. Run python Automation/PrepareFonts.py before launching.";
             return false;
@@ -55,10 +55,8 @@ bool ControlCentrePanel::InitializeContent() noexcept
 
 void ControlCentrePanel::IntegrateContent(double Δτ) noexcept
 {
-    const float Duration = static_cast<float>(std::min(Δτ, 0.1));
-    const float Target   = QuickOpen ? 1.0f : 0.0f;
-    Expansion += (Target - Expansion) * (1.0f - std::exp(-Duration * 18.0f));
-    Appearance.IntegrateFontStrip(Duration);
+    Notch.Integrate(Δτ);
+    Appearance.IntegrateFontStrip(static_cast<float>(std::min(Δτ, 0.1)));
 }
 
 void ControlCentrePanel::FinalizeContent() noexcept
@@ -130,48 +128,103 @@ bool ControlCentrePanel::FinalizePreferences() noexcept
 
 void ControlCentrePanel::RecordQuickPanel() noexcept
 {
-    const auto Display = ImGui::GetIO().DisplaySize;
-    ImGui::SetNextWindowPos(ImVec2(Display.x * 0.5f, 14.0f), ImGuiCond_Always, ImVec2(0.5f, 0.0f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(420.0f, Display.x - 24.0f), 0.0f));
-    const auto Options = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
-    if (ImGui::Begin("Quick panel", nullptr, Options))
+    auto       &IO      = ImGui::GetIO();
+    const auto  Display = IO.DisplaySize;
+    const float Scale   = Appearance.QueryApplied().InterfaceScale / 100.0f;
+    Notch.ConfigureExtent(Display.x, Display.y, Scale);
+    const auto Origin = ImGui::GetMainViewport()->Pos;
+    ImGui::SetNextWindowPos(Origin);
+    ImGui::SetNextWindowSize(Display);
+    const bool Visible = Notch.QueryHeight() > 0.5f || Notch.QueryOpen();
+    auto       Options = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                   ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
+    if (!Visible)
+        Options |= ImGuiWindowFlags_NoInputs;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("Frontier notch overlay", nullptr, Options);
+    auto       *Commands = ImGui::GetWindowDrawList();
+    const auto &Palette  = ControlKit::Palette();
+    const auto  Colour   = [](ColorQuad Tone)
+    { return ImGui::ColorConvertFloat4ToU32(ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha)); };
+    const auto At     = [&](float X, float Y) { return ImVec2(Origin.x + X, Origin.y + Y); };
+    const auto ShadeY = Notch.QueryHeight();
+    if (Visible)
     {
-        if (ImGui::Button(QuickOpen ? "Control Centre  -" : "Control Centre  +", ImVec2(-1, 32)))
-            QuickOpen = !QuickOpen;
-        if (QuickOpen || Expansion > 0.05f)
+        Commands->AddRectFilled(Origin, At(Display.x, Display.y),
+                                IM_COL32(0, 0, 0, static_cast<int>(102 * Notch.QueryProgress())));
+        Commands->AddRectFilled(Origin, At(Display.x, ShadeY), Colour(Palette.Field));
+    }
+    const auto Contour = Notch.QueryContour();
+    ImVec2     Vertices[4];
+    for (size_t Index = 0; Index < Contour.size(); ++Index)
+        Vertices[Index] = At(Contour[Index].X, Contour[Index].Y);
+    Commands->AddConvexPolyFilled(Vertices, 4, Colour(Palette.Raised));
+    const auto NotchBounds   = Notch.QueryNotchExtent();
+    const auto CaptionExtent = ImGui::CalcTextSize("Frontier");
+    Commands->AddText(At(NotchBounds.MinimumX + (NotchBounds.Width() - CaptionExtent.x) * 0.5f,
+                         ShadeY + (NotchBounds.Height() - CaptionExtent.y) * 0.5f - 2 * Scale),
+                      Colour(Palette.TextDim), "Frontier");
+    const auto Grip = Notch.QueryGripExtent();
+    Commands->AddRectFilled(At(Grip.MinimumX, Grip.MinimumY), At(Grip.MaximumX, Grip.MaximumY),
+                            Colour(Palette.TextDim));
+    bool CardContact = false;
+    if (Visible)
+    {
+        const float Width =
+            CentreOpen ? std::max(200.0f, Display.x - 80 * Scale) : std::min(420 * Scale, Display.x - 32);
+        const float Height =
+            CentreOpen ? std::max(160.0f, Display.y - 100 * Scale) : std::min(480 * Scale, Display.y - 80);
+        const auto Card =
+            Spanning((Display.x - Width) * 0.5f, (Display.y - Height) * 0.5f + ShadeY - Display.y, Width, Height);
+        Commands->AddRectFilled(At(Card.MinimumX, Card.MinimumY), At(Card.MaximumX, Card.MaximumY),
+                                Colour(Palette.Raised), 24 * Scale);
+        ImGui::SetCursorScreenPos(At(Card.MinimumX + 16 * Scale, Card.MinimumY + 12 * Scale));
+        ImGui::BeginChild("Notch card", ImVec2(Width - 32 * Scale, Height - 24 * Scale), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_NoBackground);
+        ImGui::BeginDisabled(!Notch.QueryOpen() || Notch.QueryDragging());
+        if (CentreOpen)
+            RecordAppearance();
+        else
         {
-            ImGui::BeginDisabled(!QuickOpen);
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * Expansion);
-            const auto Icon = [](IconSymbol Symbol)
-            {
-                const auto Origin = ImGui::GetCursorScreenPos();
-                (void)IconPresentation::Draw(ImGui::GetWindowDrawList(), Symbol, Origin, 24.0f);
-                ImGui::Dummy(ImVec2(24.0f, 24.0f));
-                ImGui::SameLine();
-            };
-            Icon(IconSymbol::AssetFolderFonts);
-            if (ImGui::Button("Fonts", ImVec2(140, 32)))
+            ImGui::TextUnformatted("Control Centre");
+            ImGui::Dummy(ImVec2(0, 24 * Scale));
+            if (ImGui::Button("Fonts", ImVec2((Width - 48 * Scale) * 0.5f, 100 * Scale)))
                 ActivatePage(AppearancePage::Fonts);
             ImGui::SameLine();
-            if (ImGui::Button("Theme", ImVec2(140, 32)))
+            if (ImGui::Button("Theme", ImVec2((Width - 48 * Scale) * 0.5f, 100 * Scale)))
                 ActivatePage(AppearancePage::Theme);
+            ImGui::Dummy(ImVec2(0, 24 * Scale));
             ImGui::Checkbox("Show tooltips", &TooltipsEnabled);
             if (TooltipsEnabled && ImGui::IsItemHovered())
                 ImGui::SetTooltip("Interface help tooltips only.");
             auto Preferences = Appearance.QueryDraft();
-            if (ImGui::SliderFloat("UI scale", &Preferences.InterfaceScale, 75.0f, 150.0f, "%.0f%%"))
+            if (ImGui::SliderFloat("UI scale", &Preferences.InterfaceScale, 75, 150, "%.0f%%"))
                 Appearance.ConfigureDraft(Preferences);
             if (ImGui::Button("Apply preferences"))
                 (void)FinalizePreferences();
             ImGui::SameLine();
             if (ImGui::Button("Discard"))
                 ResetPreferences();
-            ImGui::PopStyleVar();
-            ImGui::EndDisabled();
         }
+        ImGui::EndDisabled();
+        const auto  Mouse   = IO.MousePos;
+        const float CursorX = Mouse.x - Origin.x;
+        const float CursorY = Mouse.y - Origin.y;
+        // Header and blank quick-card space carry the sheet. Typography sliders and scroll content keep ownership.
+        CardContact = Card.Encloses(CursorX, CursorY) && (!CentreOpen || CursorY < Card.MinimumY + 42 * Scale) &&
+                      !ImGui::IsAnyItemActive() && !ImGui::IsAnyItemHovered();
+        ImGui::EndChild();
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !Card.Encloses(CursorX, CursorY) &&
+            !Grip.Encloses(CursorX, CursorY) && !NotchBounds.Encloses(CursorX, CursorY))
+            Notch.ConfigureOpen(false);
     }
+    Notch.IntegratePointer(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y,
+                           ImGui::IsMouseClicked(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                           ImGui::IsMouseReleased(ImGuiMouseButton_Left), IO.DeltaTime, CardContact);
+    if (Notch.QueryDragging() || NotchBounds.Encloses(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y))
+        ImGui::SetNextFrameWantCaptureMouse(true);
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -180,71 +233,60 @@ void ControlCentrePanel::RecordQuickPanel() noexcept
 
 void ControlCentrePanel::RecordAppearance() noexcept
 {
-    if (!CentreOpen)
-        return;
-    const auto DisplayExtent = ImGui::GetIO().DisplaySize;
-    ImGui::SetNextWindowPos(ImVec2(30, 220), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(
-        ImVec2(std::min(960.0f, DisplayExtent.x - 40.0f), std::min(640.0f, DisplayExtent.y - 240.0f)),
-        ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(760, 320), ImVec2(1600, 1600));
-    if (ImGui::Begin("Control Centre", &CentreOpen))
+    if (ImGui::Button("< Quick panel"))
+        CentreOpen = false;
+    ImGui::SameLine();
+    if (ImGui::Button("Fonts"))
+        SelectedPage = AppearancePage::Fonts;
+    ImGui::SameLine();
+    if (ImGui::Button("Theme"))
+        SelectedPage = AppearancePage::Theme;
+    ImGui::SameLine();
+    ImGui::Text("%u installed font archives", Typefaces.QueryFamilyCount());
+    if (ImGui::BeginChild("Appearance content", ImVec2(0, -64), ImGuiChildFlags_None))
     {
-        if (ImGui::Button("Fonts"))
-            ActivatePage(AppearancePage::Fonts);
-        ImGui::SameLine();
-        if (ImGui::Button("Theme"))
-            ActivatePage(AppearancePage::Theme);
-        ImGui::SameLine();
-        ImGui::Text("%u installed font families", Typefaces.QueryFamilyCount());
-        const float FooterHeight = 76.0f;
-        if (ImGui::BeginChild("Appearance content", ImVec2(0, -FooterHeight), ImGuiChildFlags_None,
-                              ImGuiWindowFlags_HorizontalScrollbar))
+        const float Scale  = Appearance.QueryApplied().InterfaceScale / 100.0f;
+        const auto  Origin = ImGui::GetCursorScreenPos();
+        const float Width  = std::max(200.0f, (ImGui::GetContentRegionAvail().x - 12) / Scale);
+        const auto  Body   = Spanning(Origin.x / Scale, Origin.y / Scale, Width, 10000);
+        PixelSpace  Surface;
+        const auto  Display = ImGui::GetIO().DisplaySize;
+        if (Surface.Begin(SurfaceLayer::Window, Display.x, Display.y, Scale))
         {
-            const float       InterfaceScale = Appearance.QueryApplied().InterfaceScale / 100.0f;
-            const auto        Origin         = ImGui::GetCursorScreenPos();
-            const float       Width = std::max(780.0f, (ImGui::GetContentRegionAvail().x - 12.0f) / InterfaceScale);
-            const PlaneExtent Body  = Spanning(Origin.x / InterfaceScale, Origin.y / InterfaceScale, Width, 10000);
-            PixelSpace        Surface;
-            const auto        Display = ImGui::GetIO().DisplaySize;
-            if (Surface.Begin(SurfaceLayer::Window, Display.x, Display.y, InterfaceScale))
-            {
-                ControlPointer Pointer;
-                Pointer.X        = ImGui::GetIO().MousePos.x / InterfaceScale;
-                Pointer.Y        = ImGui::GetIO().MousePos.y / InterfaceScale;
-                Pointer.Pressed  = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-                Pointer.Released = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-                Pointer.Down     = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-                Pointer.Enabled  = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-                // Native scrolling owns the offset; Origin already includes that offset.
-                const float ContentHeight = SelectedPage == AppearancePage::Fonts
-                                                ? Appearance.ConstructFontsTabLayout(Surface, Body, 0, Pointer, 1)
-                                                : Appearance.ConstructThemeTabLayout(Surface, Body, 0, Pointer, 1);
-                ImGui::Dummy(ImVec2(Width * InterfaceScale, ContentHeight * InterfaceScale));
-            }
+            ControlPointer Pointer;
+            Pointer.X        = ImGui::GetIO().MousePos.x / Scale;
+            Pointer.Y        = ImGui::GetIO().MousePos.y / Scale;
+            Pointer.Pressed  = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+            Pointer.Released = ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+            Pointer.Down     = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+            Pointer.Enabled  = Notch.QueryOpen() && !Notch.QueryDragging() &&
+                              ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+            const float ContentHeight = SelectedPage == AppearancePage::Fonts
+                                            ? Appearance.ConstructFontsTabLayout(Surface, Body, 0, Pointer, 1)
+                                            : Appearance.ConstructThemeTabLayout(Surface, Body, 0, Pointer, 1);
+            ImGui::Dummy(ImVec2(Width * Scale, ContentHeight * Scale));
         }
-        ImGui::EndChild();
-        ImGui::BeginDisabled(!Appearance.QueryDirty());
-        if (ImGui::Button("Apply"))
-            (void)FinalizePreferences();
-        ImGui::SameLine();
-        if (ImGui::Button("Discard changes"))
-            ResetPreferences();
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::Text("%u unsaved changes", Appearance.QueryDifference().Count);
-        ImGui::TextWrapped("%s", Diagnostic.c_str());
     }
-    ImGui::End();
+    ImGui::EndChild();
+    ImGui::BeginDisabled(!Appearance.QueryDirty());
+    if (ImGui::Button("Apply"))
+        (void)FinalizePreferences();
+    ImGui::SameLine();
+    if (ImGui::Button("Discard changes"))
+        ResetPreferences();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::Text("%u unsaved changes", Appearance.QueryDifference().Count);
+    ImGui::TextWrapped("%s", Diagnostic.c_str());
 }
 
 void ControlCentrePanel::RecordInterface() noexcept
 {
     if (QueryPhase() != ActivationPhase::Active)
         return;
-    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Comma))
-        CentreOpen = !CentreOpen;
-    RecordAppearance();
+    if ((ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Comma, false)) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        Notch.ConfigureOpen(!Notch.QueryOpen() && !ImGui::IsKeyPressed(ImGuiKey_Escape, false));
     RecordQuickPanel();
 }
 } // namespace Frontier

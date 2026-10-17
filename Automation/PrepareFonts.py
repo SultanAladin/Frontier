@@ -48,6 +48,14 @@ def GenerateCatalogue(FontRoot):
             Rejected.append({'file': FontPath.relative_to(FontRoot).as_posix(), 'error': str(Error)})
     Report = {'format': 1, 'faces': Entries, 'rejected': Rejected}
     WriteAtomic(FontRoot / 'FontCatalogue.json', (json.dumps(Report, indent=2) + '\n').encode())
+    # Runtime C++ descriptors use TOML; JSON is retained only as a tooling/report interchange.
+    Lines = ['format = 1', '']
+    for Entry in Entries:
+        Lines.append('[[faces]]')
+        for Name, Content in Entry.items():
+            Lines.append(Name + ' = ' + json.dumps(Content, ensure_ascii=True))
+        Lines.append('')
+    WriteAtomic(FontRoot / 'FontCatalogue.toml', ('\n'.join(Lines) + '\n').encode())
     print(f'Catalogue: {len(Entries)} faces, {len(set(Entry["family"] for Entry in Entries))} families, '
           f'{len(Rejected)} rejected files')
     if Rejected:
@@ -58,7 +66,7 @@ def Main():
     Parser = argparse.ArgumentParser(description=__doc__)
     Parser.add_argument('--scan-only', action='store_true', help='No network; enumerate local fonts only')
     Parser.add_argument('--verify', action='store_true', help='Check pinned files without downloading')
-    Parser.add_argument('--root', type=Path, default=RepositoryRoot / 'UI/Assets/Fonts')
+    Parser.add_argument('--root', type=Path, default=RepositoryRoot / 'EngineContent/FontArchives')
     Arguments = Parser.parse_args()
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text())
     if not Arguments.scan_only:

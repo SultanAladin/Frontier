@@ -10,6 +10,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
 RepositoryRoot = Path(__file__).resolve().parents[3]
 (RepositoryRoot / '_ClaudeScratch/tmp').mkdir(parents=True, exist_ok=True)
@@ -25,7 +29,7 @@ class FontCatalogueValidation(unittest.TestCase):
             FontRoot = Path(Temporary)
             Family = FontRoot / 'LocalFonts'
             Family.mkdir()
-            Source = RepositoryRoot / 'UI/Assets/Fonts/Archivo/Archivo-Regular.ttf'
+            Source = RepositoryRoot / 'EngineContent/FontArchives/Archivo/Archivo-Regular.ttf'
             shutil.copy2(Source, Family / 'Archivo-Regular.ttf')
             Result = self.Invoke(FontRoot, '--scan-only')
             self.assertEqual(Result.returncode, 0, Result.stdout + Result.stderr)
@@ -34,11 +38,14 @@ class FontCatalogueValidation(unittest.TestCase):
             Document = json.loads(Initial)
             self.assertEqual(len(Document['faces']), 1)
             self.assertEqual(Document['faces'][0]['family'], 'Archivo')
+            Runtime = tomllib.loads((FontRoot / 'FontCatalogue.toml').read_text())
+            self.assertEqual(Runtime['faces'], Document['faces'])
             self.assertEqual(self.Invoke(FontRoot, '--scan-only').returncode, 0)
             self.assertEqual(Initial, Catalogue.read_bytes())
             (Family / 'Archivo-Regular.ttf').unlink()
             self.assertEqual(self.Invoke(FontRoot, '--scan-only').returncode, 0)
             self.assertEqual(json.loads(Catalogue.read_bytes())['faces'], [])
+            self.assertNotIn('faces', tomllib.loads((FontRoot / 'FontCatalogue.toml').read_text()))
 
     def test_corrupt_font_is_not_silently_accepted(self):
         with tempfile.TemporaryDirectory(dir=RepositoryRoot / '_ClaudeScratch/tmp') as Temporary:

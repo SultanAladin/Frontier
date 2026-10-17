@@ -13,6 +13,9 @@ execute_process(COMMAND "${FRONTIER_ZIG}" version OUTPUT_VARIABLE ZIG_VERSION OU
 if(NOT ZIG_VERSION STREQUAL "0.13.0")
     message(FATAL_ERROR "This cross-toolchain is pinned to ziglang==0.13.0")
 endif()
+set(CMAKE_C_COMPILER "${FRONTIER_ZIG}")
+set(CMAKE_C_COMPILER_ARG1 "cc")
+set(CMAKE_C_FLAGS_INIT "-target x86_64-windows-gnu -static")
 set(CMAKE_CXX_COMPILER "${FRONTIER_ZIG}")
 set(CMAKE_CXX_COMPILER_ARG1 "c++")
 set(CMAKE_CXX_FLAGS_INIT "-target x86_64-windows-gnu -static")
@@ -29,3 +32,9 @@ set(CMAKE_RANLIB "${FRONTIER_ZIG_TOOLS}/ranlib" CACHE FILEPATH "Zig archive inde
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 set(FRONTIER_D3DCOMPILER d3dcompiler_47 CACHE STRING "Windows shader compiler import library")
+
+# Static-library try-compiles cannot test DLL availability. Win32 threads require no pthread import library.
+set(CMAKE_HAVE_LIBC_PTHREAD FALSE CACHE INTERNAL "Windows uses Win32 threads" FORCE)
+set(CMAKE_HAVE_PTHREADS_CREATE FALSE CACHE INTERNAL "No pthreads library on this target" FORCE)
+set(CMAKE_HAVE_PTHREAD_CREATE FALSE CACHE INTERNAL "No pthread library on this target" FORCE)
+set(THREADS_HAVE_PTHREAD_ARG FALSE CACHE INTERNAL "No POSIX thread flags on this target" FORCE)

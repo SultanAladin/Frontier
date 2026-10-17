@@ -1,9 +1,9 @@
 /*==========================================================================================================================================
-                                                             ASSETDIRECTORY.CPP
+                                                             CONTENTDIRECTORY.CPP
 ==========================================================================================================================================*/
-// 🧩 Locate packaged UI assets independently of the working directory.
+// 🧩 Locate packaged engine content independently of the working directory.
 
-#include "AssetDirectory.h"
+#include "ContentDirectory.h"
 #include <string>
 
 #ifdef _WIN32
@@ -22,14 +22,14 @@ namespace Frontier
 //                                                   DIRECTORY RESOLUTION
 //------------------------------------------------------------------------------------------------------------------------
 
-std::filesystem::path ResolveAssetDirectory(const std::filesystem::path &Requested)
+std::filesystem::path ResolveContentDirectory(const std::filesystem::path &Requested)
 {
     namespace fs = std::filesystem;
     std::error_code Failure;
-    if (Requested.is_absolute() || fs::is_directory(Requested, Failure))
+    if (Requested.is_absolute())
         return fs::absolute(Requested);
     const auto Generic = Requested.generic_string();
-    if (Generic.rfind("UI/Assets/", 0) != 0)
+    if (Generic != "EngineContent/FontArchives" && Generic != "EngineContent/Icons")
         return fs::absolute(Requested);
 
     fs::path Executable;

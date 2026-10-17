@@ -38,9 +38,9 @@ def Main():
             raise RuntimeError('Expected Windows x64 executable')
         if struct.unpack_from('<H', Payload, PeOffset + 24)[0] != 0x20b:
             raise RuntimeError('Expected PE32+ executable')
-        Catalogue = json.loads((Installation / 'UI/Assets/Fonts/FontCatalogue.json').read_text())
+        Catalogue = json.loads((Installation / 'EngineContent/FontArchives/FontCatalogue.json').read_text())
         for Entry in Catalogue['faces']:
-            Font = Installation / 'UI/Assets/Fonts' / Entry['file']
+            Font = Installation / 'EngineContent/FontArchives' / Entry['file']
             if hashlib.sha256(Font.read_bytes()).hexdigest() != Entry['sha256']:
                 raise RuntimeError('Bundled font catalogue differs from installed files')
         shutil.copy2(RepositoryRoot / 'Exhibits/ControlCentre/WindowsReadme.md', Installation / 'README.md')

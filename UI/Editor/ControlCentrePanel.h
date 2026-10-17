@@ -8,6 +8,7 @@
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include "Engine/Interface/AppearanceCodec.h"
 #include "Engine/Interface/TypefaceRegistry.h"
+#include "Engine/Interface/NotchMotion.h"
 #include <filesystem>
 #include <string>
 
@@ -26,7 +27,7 @@ enum class AppearancePage
 class ControlCentrePanel final : public ActivationSequence
 {
   public:
-    explicit ControlCentrePanel(std::filesystem::path FontDirectory   = "UI/Assets/Fonts",
+    explicit ControlCentrePanel(std::filesystem::path FontDirectory   = "EngineContent/FontArchives",
                                 std::filesystem::path PreferencesPath = {});
     void PrepareInterface() noexcept;
     void RecordInterface() noexcept;
@@ -34,14 +35,17 @@ class ControlCentrePanel final : public ActivationSequence
     {
         SelectedPage = Page;
         CentreOpen   = true;
+        Notch.ConfigureOpen(true);
     }
     [[nodiscard]] bool                    FinalizePreferences() noexcept;
     void                                  ResetPreferences() noexcept { Appearance.Discard(); }
     [[nodiscard]] AppearanceInspector    &QueryAppearance() noexcept { return Appearance; }
     [[nodiscard]] const TypefaceRegistry &QueryTypefaces() const noexcept { return Typefaces; }
     [[nodiscard]] const std::string      &QueryDiagnostic() const noexcept { return Diagnostic; }
-    [[nodiscard]] bool                    QueryCentreOpen() const noexcept { return CentreOpen; }
-    [[nodiscard]] bool                    QueryQuickOpen() const noexcept { return QuickOpen; }
+    [[nodiscard]] bool                    QueryCentreOpen() const noexcept { return CentreOpen && Notch.QueryOpen(); }
+    [[nodiscard]] bool                    QueryQuickOpen() const noexcept { return Notch.QueryOpen(); }
+
+    [[nodiscard]] const NotchMotion &QueryNotch() const noexcept { return Notch; }
 
   protected:
     bool InitializeContent() noexcept override;
@@ -60,9 +64,8 @@ class ControlCentrePanel final : public ActivationSequence
     std::string           Diagnostic;
     AppearancePage        SelectedPage    = AppearancePage::Fonts;
     uint32_t              AppliedRevision = ~0u;
-    bool                  CentreOpen      = true;
-    bool                  QuickOpen       = true;
+    bool                  CentreOpen      = false;
+    NotchMotion           Notch;
     bool                  TooltipsEnabled = true;
-    float                 Expansion       = 0.0f;
 };
 } // namespace Frontier

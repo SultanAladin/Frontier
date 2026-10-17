@@ -1,5 +1,5 @@
 #include "IconArt.h"
-#include "AssetDirectory.h"
+#include "ContentDirectory.h"
 #include <thorvg.h>
 #include <algorithm>
 #include <cmath>
@@ -55,7 +55,7 @@ std::string Unsupported(const std::string& Svg) {
 // Only the default asset root is discovered. Explicit custom roots must fail honestly.
 std::filesystem::path ResolveRoot(const std::filesystem::path& Root)
 {
-    return ResolveAssetDirectory(Root);
+    return ResolveContentDirectory(Root);
 }
 
 std::string SourceMarker(const std::string& Source) {

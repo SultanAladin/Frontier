@@ -19,7 +19,7 @@ The Windows host uses the pinned existing ImGui Win32 and DX11 backends.
 The upstream Frontier Vulkan scene renderer and its shaders, lighting, shadows, and visibility code are excluded.
 ThorVG software rasterization converts SVG artwork into RGBA textures; this is UI artwork processing only.
 All 151 icon symbols use their original SVGs or inherited, fingerprint-checked SVG compatibility variants.
-Compatibility substitutions and limitations remain documented in `UI/Assets/Icons/ThorVG/manifest.json`.
+Compatibility substitutions and limitations remain documented in `EngineContent/Icons/ThorVG/manifest.json`.
 
 ## Windows reproduction
 
@@ -106,7 +106,7 @@ Lifecycle and editor configuration must be consistent within a binary; do not mi
 ## Notices
 
 The official example's MIT licence is retained in `Code/ImGui.LICENSE`.
-See `Engine/Interface/Lucide.NOTICE`, `UI/Assets/Icons/Slate-NOTICE.md`, and `Documentation/SourceNotices.md`.
+See `Engine/Interface/Lucide.NOTICE`, `EngineContent/Icons/Slate-NOTICE.md`, and `Documentation/SourceNotices.md`.
 No new licence grant is asserted for inherited Frontier or Slate artwork.
 
 Whitespace checks pass outside the inherited patch payloads. Full `git diff --check` reports unified-diff

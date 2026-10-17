@@ -22,10 +22,8 @@ Frontier/
 │   ├── Lifecycle/             # Shared activation sequence
 │   └── Render/                # Blank; Git retention marker only
 ├── UI/
-│   ├── Editor/                # Production editor UI foundations
-│   └── Assets/
-│       ├── Icons/            # Original and compatibility SVGs
-│       └── Fonts/            # Ignored downloads, OFL notices, generated inventory
+│   └── Editor/                # Lifecycle-owned production editor UI
+├── EngineContent/             # Shared Icons/ and downloaded FontArchives/
 ├── Exhibits/
 │   ├── <ValidationName>/
 │   │   ├── README.md
@@ -63,3 +61,19 @@ Inherited `Internal/Graphics/` remains untouched and is not linked into this tar
 `Automation/FontSources.json`, `PrepareFonts.py`, and `FontRequirements.txt` define open-font recovery.
 `Automation/WindowsToolchain.cmake` supports Windows cross-compilation on the editing host.
 `Automation/PackageWindows.py` packages only Windows binaries and their runtime assets under ignored `Binaries/`.
+
+## Shared content and dependencies
+
+```text
+EngineContent/
+├── Icons/                     # Tracked original/compatibility SVGs
+└── FontArchives/<font name>/  # Ignored font downloads, OFL notices, TOML descriptors
+ExternalPackages/
+├── glfw/                      # GLFW 3.4 platform windows/input
+├── tomlpp/                    # Native TOML formats
+├── imgui/                     # Pinned UI + approved patches
+└── thorvg/                    # SVG rasterization
+```
+
+ContentDirectory resolves bundled content from the executable independently of the launch working directory.
+The font catalogue has a native TOML form; JSON remains only an automation/report interchange.

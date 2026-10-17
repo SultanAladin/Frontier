@@ -26,7 +26,7 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 ## Verification
 
 `Exhibits/ControlCentre/README.md` contains current commands, results, evidence, and limitations.
-All five local tests passed in Debug and with address/undefined-behaviour sanitizers.
+All six local tests passed in Debug and with address/undefined-behaviour sanitizers.
 All 151 SVG symbols remain ready. Native Control Centre images are CPU raster output, not Windows GPU captures.
 Windows x64 cross-compilation succeeded using Zig 0.13.0 / Clang 18.1.6 obtained through PyPI.
 The unsigned Windows executable is packaged with fonts, SVGs, licences, and integrity metadata under ignored Binaries.
@@ -38,7 +38,7 @@ No GitHub Actions are authorised.
 The port preserves existing APIs for this bounded batch; it is not a clean naming/formatting certification.
 Examples requiring repair: `VectorGlyphRecord`, short local names, comment vocabulary,
 namespace brace layout, header banners, and non-approved decorative glyphs in inherited source comments.
-The imported official Windows example retains third-party conventions; its provenance and licence are explicit.
+The earlier official Windows example is now GLFW-hosted; its original display-adapter provenance remains explicit.
 The four mandatory skill documents have not been weakened or edited to waive these findings.
 
 ## Scope history
@@ -49,3 +49,13 @@ No full baseline replacement or inherited C++ relocation has occurred.
 
 The selected theme/control configuration APIs now use `Configure...` rather than the banned `Assign...` verbs.
 The new appearance files use Allman braces, flat namespace indentation, and descriptive file headers.
+
+## Drawer and content correction
+
+- Replaced the floating settings window with the reference top-edge trapezoidal drawer and inherited spring motion.
+- Actual upward mouse swipe closes the sheet; added flick, axis lock, resize, focus-loss, and scaled-geometry tests.
+- Renamed ContentDirectory and moved shared content into EngineContent/Icons and EngineContent/FontArchives.
+- Native discovery reads metadata from TOML; Unicode file loading and corrupt-face rejection are exercised.
+- GLFW 3.4 is pinned under ExternalPackages and used by the Windows host. toml++ remains the C++ format dependency.
+- CLAUDE.md records Vulkan/Slang primacy, GLFW window ownership, content conventions, and TOML runtime formats.
+- Windows runtime/GPU checks remain pending; no Actions are authorised.

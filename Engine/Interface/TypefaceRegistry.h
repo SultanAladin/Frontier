@@ -7,6 +7,7 @@
 
 #include "FontCodec.h"
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,8 +46,10 @@ class TypefaceRegistry
 
     // Scan + load. Must run after the display backend context exists and before the first frame. Returns the number
     //    of families accepted into the strip. Safe to call once; later calls are ignored.
-    uint32_t           Load(std::string_view ArchiveRoot = "UI/Assets/Fonts") noexcept;
+    uint32_t           Load(const std::filesystem::path &ArchiveRoot = "EngineContent/FontArchives") noexcept;
     [[nodiscard]] bool QueryLoaded() const noexcept { return Loaded; }
+
+    [[nodiscard]] uint32_t QueryRejectedFaceCount() const noexcept { return RejectedFaces; }
 
     // Families in tile order.
     [[nodiscard]] uint32_t QueryFamilyCount() const noexcept { return static_cast<uint32_t>(Families.size()); }
@@ -77,6 +80,7 @@ class TypefaceRegistry
     std::vector<TypefaceFamily> Families;
     FontCodec                   Codec;
     bool                        Loaded;
+    uint32_t                    RejectedFaces = 0;
 
     static TypefaceRegistry *Current;
 };

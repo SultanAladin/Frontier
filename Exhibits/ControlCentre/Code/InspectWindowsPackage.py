@@ -10,6 +10,10 @@ import json
 import zipfile
 
 import pefile
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
 
 RepositoryRoot = Path(__file__).resolve().parents[3]
 
@@ -38,9 +42,14 @@ def Main():
         for Name in Imports:
             if Name.lower() not in AllowedLibraries and not Name.lower().startswith('api-ms-win-crt-'):
                 raise RuntimeError('Unexpected runtime dependency: ' + Name)
-        Catalogue = json.loads(Archive.read('UI/Assets/Fonts/FontCatalogue.json'))
+        Catalogue = json.loads(Archive.read('EngineContent/FontArchives/FontCatalogue.json'))
+        RuntimeCatalogue = tomllib.loads(Archive.read('EngineContent/FontArchives/FontCatalogue.toml').decode())
+        if RuntimeCatalogue['faces'] != Catalogue['faces']:
+            raise RuntimeError('Native TOML inventory differs from packaging inventory')
+        if any(Name.startswith('UI/Assets/') for Name in Archive.namelist()):
+            raise RuntimeError('Old content layout leaked into the bundle')
         for Face in Catalogue['faces']:
-            if hashlib.sha256(Archive.read('UI/Assets/Fonts/' + Face['file'])).hexdigest() != Face['sha256']:
+            if hashlib.sha256(Archive.read('EngineContent/FontArchives/' + Face['file'])).hexdigest() != Face['sha256']:
                 raise RuntimeError('Bundled face differs from the catalogue')
         Results = RepositoryRoot / 'Exhibits/ControlCentre/Results'
         Results.mkdir(parents=True, exist_ok=True)

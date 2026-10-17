@@ -4,11 +4,13 @@
 // 🧩 Register discovered typefaces and resolve available weights in the current ImGui atlas.
 
 #include "TypefaceRegistry.h"
-#include "AssetDirectory.h"
+#include "ContentDirectory.h"
 #include <cctype>
 #include "imgui.h"
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
+#include <cstring>
 
 namespace Frontier
 {
@@ -56,20 +58,47 @@ void *TypefaceRegistry::LoadFace(const std::string &Path) noexcept
     Config.OversampleH = 2; // font antialiasing "on" default; the Fonts tab switch flips RasterizerMultiply/oversample
     Config.OversampleV = 1;
     Config.PixelSnapH  = false;
-    // Legacy (static-atlas) backends need a size; dynamic-atlas backends ignore it and rasterise per draw size.
-    const std::string Resolved = Path; // font archives are repository-relative too
-    ImFont           *Font     = IO.Fonts->AddFontFromFileTTF(Resolved.c_str(), 16.0f, &Config);
+    // Read through filesystem::path, not ImGui's narrow fopen path: Windows content paths may be Unicode.
+    std::ifstream Input(DecodeContentPath(Path), std::ios::binary | std::ios::ate);
+    if (!Input)
+        return nullptr;
+    const auto Length = Input.tellg();
+    if (Length < 12 || Length > 32 * 1024 * 1024)
+        return nullptr;
+    std::vector<unsigned char> Bytes(static_cast<size_t>(Length));
+    Input.seekg(0);
+    if (!Input.read(reinterpret_cast<char *>(Bytes.data()), Length))
+        return nullptr;
+    const auto Read16 = [&](size_t Offset) { return (uint32_t(Bytes[Offset]) << 8) | Bytes[Offset + 1]; };
+    const auto Read32 = [&](size_t Offset) { return (Read16(Offset) << 16) | Read16(Offset + 2); };
+    if (Read32(0) != 0x00010000 && Read32(0) != 0x4F54544F)
+        return nullptr;
+    const auto TableCount = Read16(4);
+    if (TableCount == 0 || 12u + TableCount * 16u > Bytes.size())
+        return nullptr;
+    for (uint32_t TableIndex = 0; TableIndex < TableCount; ++TableIndex)
+    {
+        const auto Offset = Read32(12 + TableIndex * 16 + 8);
+        const auto Extent = Read32(12 + TableIndex * 16 + 12);
+        if (Offset > Bytes.size() || Extent > Bytes.size() - Offset)
+            return nullptr;
+    }
+    void *OwnedBytes = IM_ALLOC(Bytes.size());
+    if (!OwnedBytes)
+        return nullptr;
+    std::memcpy(OwnedBytes, Bytes.data(), Bytes.size());
+    ImFont *Font = IO.Fonts->AddFontFromMemoryTTF(OwnedBytes, static_cast<int>(Bytes.size()), 16.0f, &Config);
     return Font;
 }
 
-uint32_t TypefaceRegistry::Load(std::string_view ArchiveRoot) noexcept
+uint32_t TypefaceRegistry::Load(const std::filesystem::path &ArchiveRoot) noexcept
 {
     if (Loaded)
         return QueryFamilyCount();
     if (ImGui::GetCurrentContext() == nullptr)
         return 0u;
 
-    if (!Codec.ScanDirectory(ResolveAssetDirectory(std::string(ArchiveRoot)).string()))
+    if (!Codec.ScanDirectory(EncodeContentPath(ResolveContentDirectory(ArchiveRoot))))
         return 0u;
     std::vector<const FontFamilyIndex *> Ordered;
     for (const char *Wanted : PreferredFamilies)
@@ -106,7 +135,10 @@ uint32_t TypefaceRegistry::Load(std::string_view ArchiveRoot) noexcept
                 continue;
             void *Handle = LoadFace(V->FilePath);
             if (!Handle)
+            {
+                ++RejectedFaces;
                 continue;
+            }
             Family.Faces.push_back(TypefaceFace{W, Handle});
         }
 

@@ -5,8 +5,8 @@ Imported Frontier source and SVGs originate from `SultanAladin/Frontier-` at
 No project-wide licence was present in that imported Frontier snapshot. This port does not invent a licence grant.
 The owner must establish applicable permissions before external redistribution or relicensing.
 
-Original icon attribution and compatibility notes remain in `UI/Assets/Icons/Slate-NOTICE.md` and
-`UI/Assets/Icons/ThorVG/manifest.json`. These are inherited provenance records, not local regeneration instructions:
+Original icon attribution and compatibility notes remain in `EngineContent/Icons/Slate-NOTICE.md` and
+`EngineContent/Icons/ThorVG/manifest.json`. These are inherited provenance records, not local regeneration instructions:
 referenced upstream gallery scripts and sources have not all been ported. Manifest reference paths identify
 upstream originals; they are not promises of files in this checkout.
 
@@ -33,3 +33,10 @@ General Sans and Clash Display are not fetched as part of this open-font selecti
 Toml++ is pinned in `Automation/UIDependencies.json`; its MIT licence is retained with the download and installation.
 Zig 0.13.0 is used only as the cross-toolchain; its downloaded distribution stays outside Git in ignored scratch.
 No source licence is replaced or extended by the generated binary package.
+
+The drawer correction additionally adapts the same baseline's `ControlCentreHost.{h,cpp}` geometry and gestures
+and imports `MotionIntegrator.{h,cpp}` for bounded spring integration. Renderer controls are excluded.
+GLFW 3.4 is revision/SHA-pinned in `Automation/UIDependencies.json`; its zlib/libpng licence is retained in
+`ExternalPackages/glfw/LICENSE.md` and copied into the Windows bundle as `Notices/GLFW-LICENSE.md`.
+Original SVG filenames may retain historical `asset-` prefixes to preserve artwork provenance;
+production icon identifiers now use Content terminology.

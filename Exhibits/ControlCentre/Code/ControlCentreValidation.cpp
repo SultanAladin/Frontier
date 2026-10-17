@@ -6,6 +6,7 @@
 #include "UI/Editor/ControlCentrePanel.h"
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Interface/FontCodec.h"
+#include "Engine/Interface/ContentDirectory.h"
 #include "CpuRasterization.h"
 #include <imgui_internal.h>
 #include <filesystem>
@@ -59,6 +60,14 @@ int main(int ArgumentCount, char **Arguments)
         std::filesystem::create_directories(Evidence);
         const auto PreferencesPath = Evidence / "Appearance.toml";
         std::filesystem::remove(PreferencesPath);
+        const auto OriginalDirectory = std::filesystem::current_path();
+        const auto LaunchDirectory   = Evidence / "UnrelatedLaunch";
+        std::filesystem::create_directories(LaunchDirectory / "EngineContent/FontArchives");
+        std::filesystem::current_path(LaunchDirectory);
+        const auto ResolvedFonts = ResolveContentDirectory("EngineContent/FontArchives");
+        std::filesystem::current_path(OriginalDirectory);
+        Require(std::filesystem::equivalent(ResolvedFonts, Fonts),
+                "Launch directory shadowed executable-relative bundled fonts");
         FontCodec Catalogue;
         Require(Catalogue.ScanDirectory(Fonts.string()), "Native font discovery failed");
         Require(Catalogue.QueryFamilyCount() == 4 && Catalogue.QueryTotalVariantCount() == 30,
@@ -88,6 +97,21 @@ int main(int ArgumentCount, char **Arguments)
         ImGui::GetPlatformIO().Renderer_TextureMaxWidth  = 4096;
         ImGui::GetPlatformIO().Renderer_TextureMaxHeight = 4096;
         IconPresentation::Attach((Fonts.parent_path() / "Icons").string());
+        const auto UnicodeFonts = Evidence / std::filesystem::path(u8"字形 Δ");
+        std::filesystem::create_directories(UnicodeFonts);
+        std::filesystem::copy_file(Fonts / "Archivo/Archivo-Regular.ttf", UnicodeFonts / "unusual.ttf",
+                                   std::filesystem::copy_options::overwrite_existing);
+        std::ofstream(UnicodeFonts / "Broken-Regular.ttf") << "corrupted typeface";
+        std::ofstream(UnicodeFonts / "FontCatalogue.toml")
+            << "format = 1\n[[faces]]\nfamily = \"Archivo\"\nfile = \"unusual.ttf\"\nweight = 400\nitalic = false\n";
+        TypefaceRegistry UnicodeRegistry;
+        Require(UnicodeRegistry.Load(UnicodeFonts) == 1 && UnicodeRegistry.ResolveFamilyIndex("Archivo") == 0,
+                "Unicode content path or metadata-based discovery failed");
+        Require(UnicodeRegistry.QueryRejectedFaceCount() == 1, "Corrupt font was not rejected safely");
+        FontCodec RoundTrip;
+        Require(RoundTrip.IngestToml(EncodeContentPath(UnicodeFonts / "Archivo.toml")) &&
+                    RoundTrip.QueryVariant("Archivo", FontWeightCategory::Regular),
+                "Font archive TOML did not round-trip");
         ActivationOwnership Ownership(new ControlCentrePanel(Fonts, PreferencesPath));
         auto               *Panel = static_cast<ControlCentrePanel *>(Ownership.get());
         Require(Panel->Initialize() && Panel->Activate(), "Control Centre initialization failed");
@@ -113,11 +137,36 @@ int main(int ArgumentCount, char **Arguments)
         };
         for (int Ordinal = 0; Ordinal < 30; ++Ordinal)
             Integrate();
+        Capture(Evidence / "ClosedNotch.ppm");
+        Click(Panel->QueryNotch().QueryNotchExtent());
+        Require(Panel->QueryQuickOpen(), "Notch tap did not open drawer");
+        for (int Ordinal = 0; Ordinal < 90; ++Ordinal)
+            Integrate();
+        Capture(Evidence / "QuickPanel.ppm");
+        const auto  Grip  = Panel->QueryNotch().QueryGripExtent();
+        const float GripX = (Grip.MinimumX + Grip.MaximumX) * 0.5f;
+        const float GripY = (Grip.MinimumY + Grip.MaximumY) * 0.5f;
+        IO.AddMousePosEvent(GripX, GripY);
+        Integrate();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        Integrate();
+        IO.AddMousePosEvent(GripX, GripY - 120);
+        Integrate();
+        Require(Panel->QueryNotch().QueryHeight() < IO.DisplaySize.y - 100, "Swipe did not carry the sheet");
+        Integrate();
+        Capture(Evidence / "SwipeUp.ppm");
+        IO.AddMousePosEvent(GripX, GripY - 240);
+        Integrate();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        Integrate();
+        Require(!Panel->QueryQuickOpen(), "Upward mouse swipe failed to close drawer");
+        for (int Ordinal = 0; Ordinal < 90; ++Ordinal)
+            Integrate();
+        Require(Panel->QueryNotch().QueryHeight() == 0, "Dismissed sheet failed to settle closed");
+        Panel->ActivatePage(AppearancePage::Fonts);
+        for (int Ordinal = 0; Ordinal < 90; ++Ordinal)
+            Integrate();
         Capture(Evidence / "Fonts.ppm");
-        Click(Spanning(IO.DisplaySize.x * 0.5f - 100, 26, 200, 18));
-        Require(!Panel->QueryQuickOpen(), "Quick-panel collapse did not respond");
-        Click(Spanning(IO.DisplaySize.x * 0.5f - 100, 26, 200, 18));
-        Require(Panel->QueryQuickOpen(), "Quick-panel expansion did not respond");
         IO.AddKeyEvent(ImGuiMod_Ctrl, true);
         IO.AddKeyEvent(ImGuiKey_Comma, true);
         Integrate();
@@ -126,7 +175,8 @@ int main(int ArgumentCount, char **Arguments)
         IO.AddKeyEvent(ImGuiMod_Ctrl, false);
         Integrate();
         Panel->ActivatePage(AppearancePage::Fonts);
-        Integrate();
+        for (int Ordinal = 0; Ordinal < 90; ++Ordinal)
+            Integrate();
         for (auto *Window : ImGui::GetCurrentContext()->Windows)
             if (std::strstr(Window->Name, "Appearance content"))
                 ImGui::SetScrollY(Window, 850.0f);

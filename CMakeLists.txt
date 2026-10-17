@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(FrontierUIFoundation LANGUAGES CXX)
+project(FrontierUIFoundation LANGUAGES C CXX)
 
 # No scene renderer target or sources are included in this selective port.
 option(FRONTIER_HOST_VERIFICATION "Build local verification tools on a non-Windows editing host" OFF)
@@ -33,9 +33,10 @@ add_library(FrontierInterface STATIC
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
     Engine/Interface/ControlKit.cpp Engine/Interface/TextEntryState.cpp
     Engine/Interface/ThemeStructure.cpp Engine/Interface/VectorCodec.cpp
-    Engine/Interface/AssetDirectory.cpp Engine/Interface/FontCodec.cpp
+    Engine/Interface/ContentDirectory.cpp Engine/Interface/FontCodec.cpp
     Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
-    Engine/Interface/AppearanceCodec.cpp)
+    Engine/Interface/AppearanceCodec.cpp Engine/Interface/MotionIntegrator.cpp
+    Engine/Interface/NotchMotion.cpp)
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
@@ -44,20 +45,27 @@ target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
 if(WIN32)
-    # Existing Dear ImGui platform/GPU adapters only, not a Frontier scene renderer.
+    # GLFW owns windows/input; DX11 is only this ImGui exhibit's display adapter, not the primary renderer.
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(ExternalPackages/glfw EXCLUDE_FROM_ALL)
     add_executable(FrontierUI Exhibits/UIFoundation/Code/WindowsUI.cpp
-        "${IMGUI_ROOT}/backends/imgui_impl_win32.cpp" "${IMGUI_ROOT}/backends/imgui_impl_dx11.cpp")
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_dx11.cpp")
     target_include_directories(FrontierUI PRIVATE "${IMGUI_ROOT}/backends")
     target_compile_definitions(FrontierUI PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(NOT DEFINED FRONTIER_D3DCOMPILER)
         set(FRONTIER_D3DCOMPILER d3dcompiler)
     endif()
-    target_link_libraries(FrontierUI PRIVATE FrontierEditorUI d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
+    target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
     add_custom_command(TARGET FrontierUI POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
-        "${CMAKE_SOURCE_DIR}/UI/Assets" "$<TARGET_FILE_DIR:FrontierUI>/UI/Assets")
+        "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:FrontierUI>/EngineContent")
     install(TARGETS FrontierUI RUNTIME DESTINATION .)
-    install(DIRECTORY UI/Assets DESTINATION UI)
+    install(DIRECTORY EngineContent DESTINATION .)
     install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)
+    install(FILES ExternalPackages/glfw/LICENSE.md DESTINATION Notices RENAME GLFW-LICENSE.md)
     install(FILES ExternalPackages/tomlpp/LICENSE DESTINATION Notices RENAME TomlPlusPlus-LICENSE.txt)
     install(FILES ExternalPackages/thorvg/LICENSE DESTINATION Notices RENAME ThorVG-LICENSE.txt)
     install(FILES Engine/Interface/Lucide.NOTICE Documentation/SourceNotices.md DESTINATION Notices)
@@ -73,12 +81,15 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME FontCatalogueValidation COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/Exhibits/ControlCentre/Code/FontCatalogueValidation.py")
+    add_executable(NotchValidation Exhibits/ControlCentre/Code/NotchValidation.cpp)
+    target_link_libraries(NotchValidation PRIVATE FrontierInterface)
+    add_test(NAME NotchValidation COMMAND NotchValidation)
     add_executable(ControlCentreValidation Exhibits/ControlCentre/Code/ControlCentreValidation.cpp)
     target_link_libraries(ControlCentreValidation PRIVATE FrontierEditorUI)
     add_test(NAME ControlCentreValidation COMMAND ControlCentreValidation
-        "${CMAKE_SOURCE_DIR}/UI/Assets/Fonts" "${CMAKE_BINARY_DIR}/control-centre-evidence")
+        "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives" "${CMAKE_BINARY_DIR}/control-centre-evidence")
     add_executable(InterfaceValidation Exhibits/UIFoundation/Code/InterfaceValidation.cpp)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation
-        "${CMAKE_SOURCE_DIR}/UI/Assets/Icons" "${CMAKE_BINARY_DIR}/evidence")
+        "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
 endif()

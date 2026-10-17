@@ -16,6 +16,29 @@ They are authoritative and override agent defaults within their scope:
 Report missing rules before affected work. Do not silently skip them or invent exceptions.
 These paths remain authoritative until an approved relocation updates every reference.
 
+## Content, formats, and rendering
+
+- Use **Content Directory**, `ContentDirectory`, and `EngineContent/`.
+  Do not introduce `AssetDirectory` or `UI/Assets/`.
+- Shared fonts belong in `EngineContent/FontArchives/<font name>/`, with the original licence beside each collection.
+- Shared SVG content belongs in `EngineContent/Icons/`. Resolve bundled content relative to the executable first;
+  launching from another working directory must not hide fonts or pick an unrelated partial collection.
+- All engine-authored C++ configuration and serialization formats use **TOML**, decoded/encoded with **toml++**.
+  Preserve established schemas and extensions; inspect existing codecs before creating another format.
+  `Appearance.toml` stores applied theme/typography; `FontCatalogue.toml` and per-font archive TOMLs describe fonts.
+  JSON lock manifests and exhibit reports are automation interchange, not new C++ runtime serialization formats.
+  External file formats such as OpenType, SVG, and shaders are not converted into TOML.
+- **Vulkan is the primary rendering API. Slang (`.slang`) is the primary shader language.**
+  DX11 is permitted for the isolated ImGui display exhibit; it is not a replacement engine-renderer architecture.
+  Keep the scene renderer excluded from the current selective UI port.
+- **GLFW owns platform windows and input.** Use a no-OpenGL-context window for Vulkan or the DX11 ImGui exhibit.
+- Third-party sources belong under the existing ignored `ExternalPackages/`, restored from pinned dependencies.
+  Reuse the existing toml++, GLFW, ImGui, and ThorVG dependency setup; do not vendor duplicate copies elsewhere.
+- The Control Centre is a top-edge drawer, not a separate floating settings window. Retain the reference's
+  trapezoid, travelling sheet, bottom grip, axis-locked drag, and upward swipe/flick dismissal.
+  Typography sliders and scroll content retain their pointer ownership; drag the header, quick-card blank space,
+  notch, or bottom grip to carry the sheet. GI and renderer settings remain excluded.
+
 ## Work and verification
 
 Complete the requested work, run relevant local verification, then deliver results with evidence.

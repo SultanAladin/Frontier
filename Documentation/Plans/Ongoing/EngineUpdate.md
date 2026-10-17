@@ -36,5 +36,8 @@ Keep this plan ongoing until work and evidence support completion, then move it 
 
 Ported the theme/typography layouts and font discovery, excluding renderer and GI settings.
 Added the quick panel, stable font catalogue, licensed font recovery, and persistent applied preferences.
-Five Debug and sanitizer tests pass. A Windows x64 Release binary cross-builds; runtime/GPU checks remain pending.
+Six Debug and sanitizer tests pass. A Windows x64 Release binary cross-builds; runtime/GPU checks remain pending.
 See `Exhibits/ControlCentre/README.md` for commands and evidence. No Actions are authorised.
+
+Corrected the drawer to the archived trapezoid/gesture reference, migrated content into EngineContent,
+and integrated GLFW. Native font discovery reads TOML metadata and uses Unicode-capable file access.

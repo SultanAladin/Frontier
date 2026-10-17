@@ -6,7 +6,9 @@ Build/
 Binaries/
 
 # Sample meshes / textures / assets — tracked separately.
-EngineContent/
+EngineContent/*
+!EngineContent/Icons/
+!EngineContent/README.md
 
 # Agent scratch space.
 _ClaudeScratch/
@@ -28,4 +30,4 @@ __pycache__/
 *.pyc
 
 # Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
-UI/Assets/Fonts/
+EngineContent/FontArchives/
