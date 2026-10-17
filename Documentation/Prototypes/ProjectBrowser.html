@@ -1463,6 +1463,43 @@ input[type=checkbox], input[type=range] { accent-color: #a4d8c8; }
     .SceneMaterialPanel { max-height: none; }
 }
 
+
+/* Technical plate: restrained labels, registration marks, monochrome contours. */
+.DraftingSheet { display: none; pointer-events: none; position: absolute; inset: 0; }
+.DraftingEnabled .DraftingSheet { display: block; }
+.DraftingEnabled .SceneEyebrow { color: #999; }
+.DraftingEnabled .SceneCaption { top: 35px; left: 32px; }
+.DraftingEnabled .SceneCaption h1 { font-size: 26px; font-weight: 400; letter-spacing: -1px; }
+.DraftingEnabled .SceneChannelSelect { top: 35px; right: 32px; }
+.DraftingEnabled .SceneToolbar { border-radius: 3px; }
+.DraftingEnabled .AssemblyRow.Active { color: #ddd; background: #141414; border-color: #333; }
+.DraftingEnabled .SurfaceSwatch { filter: grayscale(1); }
+.DraftingCrosshair { position: absolute; font: 24px/1 monospace; color: #444; font-weight: 200; }
+.CrosshairNorthWest { top: 8px; left: 8px; }
+.CrosshairNorthEast { top: 8px; right: 8px; }
+.CrosshairSouthWest { bottom: 8px; left: 8px; }
+.CrosshairSouthEast { bottom: 8px; right: 8px; }
+.DraftingSheetRule { position: absolute; top: 132px; left: 32px; right: 32px; display: flex; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid #262626; font: 9px monospace; letter-spacing: 1.2px; color: #888; }
+.DraftingSheetFooter { position: absolute; bottom: 83px; left: 32px; right: 32px; display: flex; justify-content: space-between; gap: 10px; font: 8px monospace; letter-spacing: 1px; color: #777; }
+.DraftingEnabled .SceneAxisLabel { display: none; }
+.DraftingEnabled .SceneMaterialPanel > :not(.DraftingInspectionPanel):not(.SceneStats) { display: none; }
+.DraftingInspectionPanel h2 { font-size: 22px; font-weight: 400; letter-spacing: -.7px; }
+.DraftingDescription { margin: 14px 0; font-size: 11px; line-height: 1.8; color: #999; }
+.DraftingDescription strong { font-weight: 500; color: #ddd; }
+.DraftingSectionTitle { display: flex; gap: 15px; border-top: 1px solid #292929; padding-top: 18px; margin: 26px 0 17px; font-size: 12px; }
+.DraftingSectionTitle span { color: #777; font: 11px monospace; }
+.DraftingControlLabel { display: block; margin-bottom: 8px; color: #999; font-size: 10px; }
+.DraftingInspectionPanel select { width: 100%; margin-bottom: 18px; }
+.DraftingDimensions { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 15px; font-size: 11px; }
+.DraftingDimensions dt { color: #bbb; }
+.DraftingDimensions dd { font: 11px monospace; color: #888; }
+.DraftingEnabled input[type=range], .DraftingEnabled input[type=checkbox] { accent-color: #ccc; }
+@media(max-width: 1200px) {
+    .DraftingEnabled .SceneChannelSelect { top: 103px; left: 32px; right: auto; }
+    .DraftingSheetRule { top: 156px; }
+    .DraftingSheetFooter { font-size: 7px; letter-spacing: 0; }
+}
+
 </style>
 </head>
 <body>
@@ -1566,13 +1603,19 @@ input[type=checkbox], input[type=range] { accent-color: #a4d8c8; }
         <section class="SceneViewport" id="SceneViewport" aria-label="Technical scene viewer" hidden>
             <canvas id="SceneCanvas" tabindex="0" aria-label="Rotary actuator. Drag to orbit, Shift-drag to pan, scroll or plus/minus to zoom. Arrow keys orbit; Home resets."></canvas>
             <div class="SceneCaption">
-                <div class="SceneEyebrow">SCENE 01 / ENGINEERING</div>
+                <div class="SceneEyebrow" id="SceneEyebrow">SCENE 01 / ENGINEERING</div>
                 <h1>Rotary actuator</h1>
-                <p>Assembly inspection · procedural geometry</p>
+                <p id="SceneCaptionNote">Assembly inspection · procedural geometry</p>
             </div>
-            <select class="WorkspaceSelect SceneChannelSelect" id="SceneChannelSelect" aria-label="Scene shading channel" onchange="RequestSceneRasterization()">
-                <option value="0">Lit / EON + GGX</option><option value="1">Albedo</option><option value="2">Specular F₀</option><option value="3">Metallic</option><option value="4">Roughness</option>
+            <select class="WorkspaceSelect SceneChannelSelect" id="SceneChannelSelect" aria-label="Scene rendering style" onchange="ConfigureScenePresentation()">
+                <option value="0">Lit / EON + GGX</option><option value="5">CAD / Assembly</option><option value="1">Albedo</option><option value="2">Specular F₀</option><option value="3">Metallic</option><option value="4">Roughness</option>
             </select>
+            <div class="DraftingSheet" aria-hidden="true">
+                <span class="DraftingCrosshair CrosshairNorthWest">+</span><span class="DraftingCrosshair CrosshairNorthEast">+</span>
+                <span class="DraftingCrosshair CrosshairSouthWest">+</span><span class="DraftingCrosshair CrosshairSouthEast">+</span>
+                <div class="DraftingSheetRule"><span>01 &nbsp; / &nbsp; ASSEMBLY OVERVIEW</span><span>RTA–001</span></div>
+                <div class="DraftingSheetFooter"><span>FRONTIER / TECHNICAL STUDIES</span><span id="DraftingProjectionLabel">ORTHOGRAPHIC · FREE ORBIT</span></div>
+            </div>
             <div class="SceneAxisLabel">Y UP &nbsp; / &nbsp; DRAG TO ORBIT · SHIFT TO PAN · SCROLL TO ZOOM</div>
             <div class="SceneToolbar" aria-label="Scene navigation">
                 <button onclick="ResetSceneCamera()" title="Reset camera (Home)">Reset view</button>
@@ -1660,7 +1703,30 @@ input[type=checkbox], input[type=range] { accent-color: #a4d8c8; }
             <div class="CrosshairRule"></div>
         </div>
 
-        <section class="SceneMaterialPanel" id="SceneMaterialPanel" aria-label="Scene material channels" hidden>
+        <section class="SceneMaterialPanel" id="SceneMaterialPanel" aria-label="Scene inspection" hidden>
+            <div class="DraftingInspectionPanel" hidden>
+                <div class="ScenePanelEyebrow">TECHNICAL STUDY / 001</div>
+                <h2>Rotary actuator</h2>
+                <p class="DraftingDescription">Visible contours and mechanical boundaries.<br>Black surfaces conceal the rear edges.</p>
+                <div class="DraftingSectionTitle"><span>01</span> Projection</div>
+                <label class="DraftingControlLabel" for="DraftingCameraSelect">Orthographic view</label>
+                <select class="WorkspaceSelect" id="DraftingCameraSelect" onchange="ConfigureDraftingCamera(this.value)">
+                    <option value="Orbit">Free orbit</option><option value="Isometric">Isometric</option>
+                    <option value="Front">Front / +Z</option><option value="Side">End / +X</option><option value="Top">Top / +Y</option>
+                </select>
+                <div class="ChannelControl">
+                    <label class="ChannelLabel" for="DraftingInk">Line brightness <output id="DraftingInkText">60%</output></label>
+                    <input id="DraftingInk" type="range" min="0.25" max="0.9" value="0.6" step="0.01" oninput="document.getElementById('DraftingInkText').textContent=Math.round(this.value*100)+'%'; RequestSceneRasterization()">
+                </div>
+                <label class="StarFilter"><input id="DraftingHiddenEdges" type="checkbox" onchange="RequestSceneRasterization()"> Reveal hidden edges</label>
+                <div class="ChannelFootnote">Occluded contours appear faintly. No triangle diagonals or tessellation cage.</div>
+                <div class="DraftingSectionTitle"><span>02</span> Assembly extent</div>
+                <dl class="DraftingDimensions"><dt>Length / X</dt><dd id="DraftingExtentX">—</dd><dt>Height / Y</dt><dd id="DraftingExtentY">—</dd><dt>Width / Z</dt><dd id="DraftingExtentZ">—</dd></dl>
+                <p class="ChannelFootnote">Assembled bounds in model units (u). Illustrative geometry, not a manufacturing drawing.</p>
+                <div class="DraftingSectionTitle"><span>03</span> Inspection</div>
+                <p class="DraftingDescription">Use <strong>Explode</strong> below the drawing to separate the flanges, shaft and terminals. Orbit, pan and zoom remain available.</p>
+                <button class="BtnSecondary" onclick="document.getElementById('SceneExplode').value=0; ConfigureDraftingCamera('Isometric')">Reset assembly view</button>
+            </div>
             <div class="ScenePanelEyebrow">SELECTED MATERIAL</div>
             <select class="WorkspaceSelect" id="SceneSurfaceSelect" aria-label="Material group" onchange="SelectSceneSurface(Number(this.value))"></select>
             <div class="SurfaceChip" id="SurfaceColourChip"></div>
@@ -1686,12 +1752,12 @@ input[type=checkbox], input[type=range] { accent-color: #a4d8c8; }
             </div>
             <button class="BtnSecondary" onclick="RestoreSceneSurface()">Restore material</button>
             <div class="SceneStats">
-                <strong>EON diffuse / compensated GGX</strong><br>
-                Four authored channels · two studio lights<br>
+                <strong id="SceneShadingLabel">EON diffuse / compensated GGX</strong><br>
+                <span id="SceneShadingNote">Four authored channels · two studio lights</span><br>
                 <span id="SceneGeometryStats">Geometry not uploaded</span><br>
                 <span id="SceneTiming">On-demand rendering · idle when still</span>
                 <select class="WorkspaceSelect" id="SceneResolution" aria-label="Render resolution" onchange="RequestSceneRasterization()"><option value="1">Economy / 1× pixels</option><option value="1.5" selected>Balanced / up to 1.5×</option><option value="2">Sharp / up to 2×</option></select>
-                Approximate studio environment. No shadow maps, ray tracing or post effects. Timing is CPU submission only, not GPU time.
+                <span id="SceneShadingCaveat">Approximate studio environment. No shadow maps, ray tracing or post effects.</span> Timing is CPU submission only, not GPU time.
             </div>
         </section>
 
@@ -2428,7 +2494,9 @@ function RenderRightInspector()
     document.getElementById("InspectorSelect").value = SceneEnabled ? "Material" : RightInspectorMode;
     if (SceneEnabled)
     {
-        TitleNode.textContent = "Surface channels";
+        const DraftingEnabled = document.getElementById("SceneChannelSelect").value === "5";
+        TitleNode.textContent = DraftingEnabled ? "Assembly details" : "Surface channels";
+        document.querySelector('#InspectorSelect option[value="Material"]').textContent = DraftingEnabled ? "Assembly" : "Material";
         PreviewPane.style.display = CommentsPane.style.display = Composer.style.display = StyleSwitch.style.display = "none";
         return;
     }
@@ -2927,6 +2995,8 @@ let SceneDevice = null;
 let ScenePending = 0;
 let SceneSpinEnabled = false;
 let SceneGridEnabled = true;
+let LitGridEnabled = true;
+let DraftingGridEnabled = false;
 let SceneContextLost = false;
 let ScenePreviousTime = 0;
 const SceneCamera = { Azimuth: .85, Elevation: .43, Distance: 10.5, Target: [0, 1.1, 0] };
@@ -2963,12 +3033,14 @@ function RestoreSceneSurface()
 function ResetSceneCamera()
 {
     Object.assign(SceneCamera, { Azimuth: .85, Elevation: .43, Distance: 10.5, Target: [0, 1.1, 0] });
+    ConfigureDraftingCamera("Orbit");
     RequestSceneRasterization();
 }
 
 function ToggleSceneSpin()
 {
     SceneSpinEnabled = !SceneSpinEnabled;
+    if (SceneSpinEnabled) ConfigureDraftingCamera("Orbit");
     document.getElementById("SceneSpinButton").setAttribute("aria-pressed", SceneSpinEnabled);
     ScenePreviousTime = 0;
     RequestSceneRasterization();
@@ -3128,6 +3200,7 @@ function GenerateEonLookup()
 
 const SceneVertexSource = `#version 300 es
 precision highp float;
+precision highp int;
 layout(location=0) in vec3 Position;
 layout(location=1) in vec3 Normal;
 layout(location=2) in float Surface;
@@ -3147,6 +3220,7 @@ void main()
 
 const SceneFragmentSource = `#version 300 es
 precision highp float;
+precision highp int;
 in vec3 WorldPosition;
 in vec3 WorldNormal;
 flat in int SurfaceIndex;
@@ -3201,6 +3275,14 @@ vec3 ToSrgb(vec3 Linear)
 }
 void main()
 {
+    if (Channel == 5)
+    {
+        // Opaque black depth coverage with optional faint grid; no material lighting.
+        if (SurfaceIndex == 6 || (SurfaceIndex == 5 && !GridEnabled)) discard;
+        float GridInk = SurfaceIndex == 5 ? .055*(1.0-smoothstep(4.0,9.0,length(WorldPosition.xz))) : 0.0;
+        RadianceOutput = vec4(vec3(GridInk),1.0);
+        return;
+    }
     if (SurfaceIndex == 5 && !GridEnabled) discard;
     if (SurfaceIndex >= 5)
     {
@@ -3237,27 +3319,196 @@ void main()
     RadianceOutput = vec4(ToSrgb(Mapped),1.0);
 }`;
 
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                             DRAFTING CONTOURS / HIDDEN LINE DEPTH
+------------------------------------------------------------------------------------------------------------------------*/
+function ConfigureScenePresentation()
+{
+    const DraftingEnabled = document.getElementById("SceneChannelSelect").value === "5";
+    const PreviousDraftingEnabled = document.getElementById("WorkspaceHost").classList.contains("DraftingEnabled");
+    if (DraftingEnabled !== PreviousDraftingEnabled)
+    {
+        if (DraftingEnabled) { LitGridEnabled = SceneGridEnabled; SceneGridEnabled = DraftingGridEnabled; }
+        else { DraftingGridEnabled = SceneGridEnabled; SceneGridEnabled = LitGridEnabled; }
+        document.getElementById("SceneGridButton").setAttribute("aria-pressed", SceneGridEnabled);
+    }
+    document.getElementById("WorkspaceHost").classList.toggle("DraftingEnabled", DraftingEnabled);
+    document.querySelector(".DraftingInspectionPanel").hidden = !DraftingEnabled;
+    document.getElementById("SceneEyebrow").textContent = DraftingEnabled ? "RTA–001 / PRODUCT STUDY" : "SCENE 01 / ENGINEERING";
+    document.getElementById("SceneCaptionNote").textContent = DraftingEnabled ? "Assembly drawing · hidden-line inspection" : "Assembly inspection · procedural geometry";
+    document.getElementById("SceneShadingLabel").textContent = DraftingEnabled ? "Depth-tested mechanical contours" : "EON diffuse / compensated GGX";
+    document.getElementById("SceneShadingNote").textContent = DraftingEnabled ? "Creases + boundaries + view silhouettes" : "Four authored channels · two studio lights";
+    document.getElementById("SceneShadingCaveat").textContent = DraftingEnabled ? "Polygon contours, not analytic CAD curves. Material channels are unchanged; switch to Lit to edit them." : "Approximate studio environment. No shadow maps, ray tracing or post effects.";
+    RenderRightInspector();
+    RequestSceneRasterization();
+}
+
+function ConfigureDraftingCamera(Projection)
+{
+    const Angles = { Isometric: [Math.PI/4,Math.atan(1/Math.sqrt(2))], Front: [0,0], Side: [Math.PI/2,0], Top: [0,Math.PI/2-.0001] };
+    if (Angles[Projection])
+    {
+        [SceneCamera.Azimuth,SceneCamera.Elevation] = Angles[Projection];
+        SceneCamera.Target = [0,1.65,0];
+        SceneCamera.Distance = 11;
+        SceneSpinEnabled = false;
+        document.getElementById("SceneSpinButton").setAttribute("aria-pressed", "false");
+    }
+    document.getElementById("DraftingCameraSelect").value = Projection;
+    document.getElementById("DraftingProjectionLabel").textContent = "ORTHOGRAPHIC · " + (Projection === "Orbit" ? "FREE ORBIT" : Projection.toUpperCase());
+    RequestSceneRasterization();
+}
+
+// Weld within a surface/separation group so independent moving components stay independent.
+// Coplanar triangle diagonals disappear. Smooth polygon seams are retained only as silhouette
+// candidates, evaluated from the two adjacent face normals on the GPU as the camera rotates.
+function GenerateDraftingContours(Vertices)
+{
+    const Adjacency = new Map();
+    const Minimum = [Infinity,Infinity,Infinity], Maximum = [-Infinity,-Infinity,-Infinity];
+    function CoordinateKey(Position)
+    {
+        return Position.map(Coordinate => Math.round(Coordinate*100000)).join(",");
+    }
+    for (let Offset = 0; Offset < Vertices.length; Offset += 30)
+    {
+        if (Vertices[Offset+6] >= 5) continue;
+        const Corners = [0,10,20].map(Shift => Array.from(Vertices.slice(Offset+Shift,Offset+Shift+3)));
+        for (const Position of Corners) for (let Axis=0; Axis<3; Axis++)
+        {
+            Minimum[Axis] = Math.min(Minimum[Axis],Position[Axis]);
+            Maximum[Axis] = Math.max(Maximum[Axis],Position[Axis]);
+        }
+        const EdgeA = Corners[1].map((Coordinate,Axis) => Coordinate-Corners[0][Axis]);
+        const EdgeB = Corners[2].map((Coordinate,Axis) => Coordinate-Corners[0][Axis]);
+        const Cross = SceneCrossProduct(EdgeA,EdgeB);
+        if (Math.hypot(...Cross) < 1e-9) continue;
+        let Normal = SceneUnitVector(Cross);
+        const AuthoredNormal = [0,1,2].map(Axis => Vertices[Offset+3+Axis]+Vertices[Offset+13+Axis]+Vertices[Offset+23+Axis]);
+        if (SceneDotProduct(Normal,AuthoredNormal)<0) Normal=Normal.map(Coordinate => -Coordinate);
+        const Separation = Array.from(Vertices.slice(Offset+7,Offset+10));
+        const Group = Vertices[Offset+6]+":"+CoordinateKey(Separation)+":";
+        for (let Edge=0; Edge<3; Edge++)
+        {
+            const Start=Corners[Edge], End=Corners[(Edge+1)%3];
+            const Keys=[CoordinateKey(Start),CoordinateKey(End)].sort();
+            const Token=Group+Keys.join("/");
+            const Existing=Adjacency.get(Token);
+            if (Existing) Existing.Normals.push(Normal);
+            else Adjacency.set(Token,{Start,End,Separation,Normals:[Normal]});
+        }
+    }
+    const Contours=[];
+    for (const Edge of Adjacency.values())
+    {
+        const NormalA=Edge.Normals[0], NormalB=Edge.Normals[1] || NormalA;
+        const Cosine=SceneDotProduct(NormalA,NormalB);
+        if (Edge.Normals.length===2 && Cosine>.9999) continue;
+        const Crease=Edge.Normals.length!==2 || Cosine<Math.cos(25*Math.PI/180) ? 1 : 0;
+        for (const Position of [Edge.Start,Edge.End])
+            Contours.push(...Position,...Edge.Separation,...NormalA,...NormalB,Crease);
+    }
+    for (const [Axis,Name] of ["X","Y","Z"].entries())
+        document.getElementById("DraftingExtent"+Name).textContent=(Maximum[Axis]-Minimum[Axis]).toFixed(2)+" u";
+    return new Float32Array(Contours);
+}
+
+const DraftingVertexSource = `#version 300 es
+precision highp float;
+precision highp int;
+layout(location=0) in vec3 Position;
+layout(location=1) in vec3 Separation;
+layout(location=2) in vec3 NormalA;
+layout(location=3) in vec3 NormalB;
+layout(location=4) in float Crease;
+uniform mat4 ViewProjection;
+uniform vec3 ViewDirection;
+uniform float Explode;
+void main()
+{
+    float FacingA=dot(NormalA,ViewDirection), FacingB=dot(NormalB,ViewDirection);
+    bool Silhouette=FacingA*FacingB<=0.0 && abs(FacingA-FacingB)>.00001;
+    // Orthographic facing is constant along an edge: both endpoints make the same decision.
+    gl_Position=Crease>.5 || Silhouette ? ViewProjection*vec4(Position+Separation*Explode,1.0) : vec4(2.0,2.0,2.0,1.0);
+}`;
+
+const DraftingFragmentSource = `#version 300 es
+precision highp float;
+precision highp int;
+uniform float Ink;
+out vec4 ContourColour;
+void main() { ContourColour=vec4(vec3(Ink),1.0); }
+`;
+
+function CompileSceneProgram(Gl, VertexSource, FragmentSource)
+{
+    const Shaders=[];
+    const Program=Gl.createProgram();
+    try
+    {
+        for (const [Source,Type] of [[VertexSource,Gl.VERTEX_SHADER],[FragmentSource,Gl.FRAGMENT_SHADER]])
+        {
+            const Shader=Gl.createShader(Type); Shaders.push(Shader);
+            Gl.shaderSource(Shader,Source); Gl.compileShader(Shader);
+            if (!Gl.getShaderParameter(Shader,Gl.COMPILE_STATUS)) throw new Error(Gl.getShaderInfoLog(Shader));
+            Gl.attachShader(Program,Shader);
+        }
+        Gl.linkProgram(Program);
+        if (!Gl.getProgramParameter(Program,Gl.LINK_STATUS)) throw new Error(Gl.getProgramInfoLog(Program));
+        return Program;
+    }
+    catch (Fault) { Gl.deleteProgram(Program); throw Fault; }
+    finally { for (const Shader of Shaders) Gl.deleteShader(Shader); }
+}
+
+function AllocateDraftingContours(Device)
+{
+    const Gl=Device.Gl;
+    const Program=CompileSceneProgram(Gl,DraftingVertexSource,DraftingFragmentSource);
+    const Contours=GenerateDraftingContours(Device.Vertices);
+    const Layout=Gl.createVertexArray(); Gl.bindVertexArray(Layout);
+    const Allocation=Gl.createBuffer(); Gl.bindBuffer(Gl.ARRAY_BUFFER,Allocation);
+    Gl.bufferData(Gl.ARRAY_BUFFER,Contours,Gl.STATIC_DRAW);
+    for (const [Location,Width,Offset] of [[0,3,0],[1,3,12],[2,3,24],[3,3,36],[4,1,48]])
+    {
+        Gl.enableVertexAttribArray(Location); Gl.vertexAttribPointer(Location,Width,Gl.FLOAT,false,52,Offset);
+    }
+    const Uniforms={};
+    for (const Name of ["ViewProjection","ViewDirection","Explode","Ink"]) Uniforms[Name]=Gl.getUniformLocation(Program,Name);
+    Gl.bindVertexArray(null);
+    return { Program,Layout,Uniforms,VertexCount:Contours.length/13 };
+}
+
+function RasterizeDraftingContours(Device, Product, Eye, Explode)
+{
+    const Gl=Device.Gl, Contours=Device.Contours;
+    Gl.useProgram(Contours.Program); Gl.bindVertexArray(Contours.Layout);
+    Gl.uniformMatrix4fv(Contours.Uniforms.ViewProjection,false,Product);
+    Gl.uniform3fv(Contours.Uniforms.ViewDirection,SceneUnitVector(Eye.map((Coordinate,Axis) => Coordinate-SceneCamera.Target[Axis])));
+    Gl.uniform1f(Contours.Uniforms.Explode,Explode);
+    const Ink=Number(document.getElementById("DraftingInk").value);
+    Gl.depthMask(false);
+    if (document.getElementById("DraftingHiddenEdges").checked)
+    {
+        Gl.depthFunc(Gl.GREATER); Gl.uniform1f(Contours.Uniforms.Ink,Ink*.22);
+        Gl.drawArrays(Gl.LINES,0,Contours.VertexCount);
+    }
+    Gl.depthFunc(Gl.LEQUAL); Gl.uniform1f(Contours.Uniforms.Ink,Ink);
+    Gl.drawArrays(Gl.LINES,0,Contours.VertexCount);
+    Gl.depthMask(true); Gl.depthFunc(Gl.LESS);
+    Gl.bindVertexArray(Device.TriangleLayout); Gl.useProgram(Device.Program);
+}
+
 function AllocateSceneDevice()
 {
     const Canvas = document.getElementById("SceneCanvas");
     const Gl = Canvas.getContext("webgl2", { alpha: false, antialias: true, depth: true, powerPreference: "low-power" });
     if (!Gl) throw new Error("WebGL 2 is unavailable. Enable hardware acceleration or open this preview in a WebGL 2 browser. Project files and the reader remain available.");
-    function Compile(Source, Type)
-    {
-        const Shader = Gl.createShader(Type);
-        Gl.shaderSource(Shader, Source); Gl.compileShader(Shader);
-        if (!Gl.getShaderParameter(Shader, Gl.COMPILE_STATUS))
-        {
-            const Message = Gl.getShaderInfoLog(Shader); Gl.deleteShader(Shader); throw new Error(Message);
-        }
-        return Shader;
-    }
-    const Vertex = Compile(SceneVertexSource, Gl.VERTEX_SHADER), Fragment = Compile(SceneFragmentSource, Gl.FRAGMENT_SHADER);
-    const Program = Gl.createProgram(); Gl.attachShader(Program, Vertex); Gl.attachShader(Program, Fragment); Gl.linkProgram(Program);
-    Gl.deleteShader(Vertex); Gl.deleteShader(Fragment);
-    if (!Gl.getProgramParameter(Program, Gl.LINK_STATUS)) throw new Error(Gl.getProgramInfoLog(Program));
+    const Program = CompileSceneProgram(Gl, SceneVertexSource, SceneFragmentSource);
     Gl.useProgram(Program);
     const Vertices = GenerateActuatorTriangles();
+    const TriangleLayout = Gl.createVertexArray(); Gl.bindVertexArray(TriangleLayout);
     const Allocation = Gl.createBuffer(); Gl.bindBuffer(Gl.ARRAY_BUFFER, Allocation); Gl.bufferData(Gl.ARRAY_BUFFER, Vertices, Gl.STATIC_DRAW);
     for (const [Location, Width, Offset] of [[0,3,0],[1,3,12],[2,1,24],[3,3,28]])
     {
@@ -3273,7 +3524,7 @@ function AllocateSceneDevice()
         Uniforms[Name] = Gl.getUniformLocation(Program, Name === "AlbedoMetallic" || Name === "SpecularRoughness" ? Name+"[0]" : Name);
     Gl.uniform1i(Uniforms.EonLookup,0);
     document.getElementById("SceneGeometryStats").textContent = (Vertices.length/30).toLocaleString()+" triangles · 1 draw call";
-    return { Gl, Uniforms, VertexCount: Vertices.length/10 };
+    return { Gl, Program, TriangleLayout, Vertices, Uniforms, VertexCount: Vertices.length/10, Contours: null };
 }
 
 function SceneViewProjection(Aspect)
@@ -3283,7 +3534,11 @@ function SceneViewProjection(Aspect)
     const X = SceneUnitVector(SceneCrossProduct([0,1,0],Z)), Y = SceneCrossProduct(Z,X);
     const View = [X[0],Y[0],Z[0],0,X[1],Y[1],Z[1],0,X[2],Y[2],Z[2],0,-SceneDotProduct(X,Eye),-SceneDotProduct(Y,Eye),-SceneDotProduct(Z,Eye),1];
     const Focal = 1/Math.tan(Math.PI/8), Near=.1, Far=100;
-    const Projection = [Focal/Aspect,0,0,0,0,Focal,0,0,0,0,(Far+Near)/(Near-Far),-1,0,0,2*Far*Near/(Near-Far),0];
+    const DraftingEnabled = document.getElementById("SceneChannelSelect").value === "5";
+    const Span = SceneCamera.Distance / Focal / Math.min(1,Aspect);
+    const Projection = DraftingEnabled
+        ? [1/(Span*Aspect),0,0,0,0,1/Span,0,0,0,0,-2/(Far-Near),0,0,-.15,-(Far+Near)/(Far-Near),1]
+        : [Focal/Aspect,0,0,0,0,Focal,0,0,0,0,(Far+Near)/(Near-Far),-1,0,0,2*Far*Near/(Near-Far),0];
     const Product = new Float32Array(16);
     for (let Column=0;Column<4;Column++) for (let Row=0;Row<4;Row++) for (let Axis=0;Axis<4;Axis++)
         Product[Column*4+Row] += Projection[Axis*4+Row]*View[Column*4+Axis];
@@ -3305,6 +3560,9 @@ function RasterizeScene(Time)
     {
         if (!SceneDevice) SceneDevice = AllocateSceneDevice();
         const { Gl, Uniforms } = SceneDevice;
+        const DraftingEnabled = document.getElementById("SceneChannelSelect").value === "5";
+        if (DraftingEnabled && !SceneDevice.Contours) SceneDevice.Contours = AllocateDraftingContours(SceneDevice);
+        Gl.useProgram(SceneDevice.Program); Gl.bindVertexArray(SceneDevice.TriangleLayout);
         const Canvas = Gl.canvas;
         const Rectangle = Canvas.getBoundingClientRect();
         if (Rectangle.width < 1 || Rectangle.height < 1) return;
@@ -3332,7 +3590,14 @@ function RasterizeScene(Time)
         }
         Colours.push(0,0,0,0,0,0,0,0); Scalars.push(0,1,0,1);
         Gl.uniform4fv(Uniforms.AlbedoMetallic,Colours); Gl.uniform2fv(Uniforms.SpecularRoughness,Scalars);
+        if (DraftingEnabled) { Gl.enable(Gl.POLYGON_OFFSET_FILL); Gl.polygonOffset(1,1); }
         Gl.drawArrays(Gl.TRIANGLES,0,SceneDevice.VertexCount);
+        Gl.disable(Gl.POLYGON_OFFSET_FILL);
+        if (DraftingEnabled) RasterizeDraftingContours(SceneDevice,Product,Eye,Number(document.getElementById("SceneExplode").value));
+        const DrawCount = DraftingEnabled ? 2+Number(document.getElementById("DraftingHiddenEdges").checked) : 1;
+        document.getElementById("SceneGeometryStats").textContent = DraftingEnabled
+            ? (SceneDevice.Contours.VertexCount/2).toLocaleString()+" candidate edges · "+DrawCount+" draw calls"
+            : (SceneDevice.VertexCount/3).toLocaleString()+" triangles · 1 draw call";
         document.getElementById("SceneTiming").textContent = "CPU submit "+(performance.now()-Start).toFixed(2)+" ms · "+Width+" × "+Height;
         Failure.hidden = true;
         if (SceneSpinEnabled) RequestSceneRasterization();
@@ -3366,6 +3631,7 @@ function AttachSceneNavigation()
         }
         else
         {
+            ConfigureDraftingCamera("Orbit");
             SceneCamera.Azimuth -= DeltaX*.008;
             SceneCamera.Elevation = Math.max(.06,Math.min(1.45,SceneCamera.Elevation+DeltaY*.006));
         }
@@ -3382,6 +3648,7 @@ function AttachSceneNavigation()
         if (!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","+","=","-","Home"].includes(Event.key)) return;
         Event.preventDefault();
         if (Event.key === "Home") { ResetSceneCamera(); return; }
+        if (Event.key.startsWith("Arrow")) ConfigureDraftingCamera("Orbit");
         if (Event.key === "ArrowLeft") SceneCamera.Azimuth -= .1;
         if (Event.key === "ArrowRight") SceneCamera.Azimuth += .1;
         if (Event.key === "ArrowUp") SceneCamera.Elevation = Math.min(1.45,SceneCamera.Elevation+.08);
