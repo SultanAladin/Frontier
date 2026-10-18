@@ -334,3 +334,16 @@ not a fabricated safe result. Chrome reputation itself cannot be guaranteed or b
   combinations and Defender scan passed; unsigned readiness was true. Packaging refused a PowerShell
   single-string splat that expanded the option into characters. No binary was published. Replaced it
   with an explicitly typed string array and added an actual Python argument-boundary assertion in CI.
+
+- Final run <https://github.com/SultanAladin/Frontier/actions/runs/39149823906> passed at `e412b34`:
+  both applications, ten shader entries, five acceptance tests, four packaging refusals, 72 signature/scan
+  policy combinations, fresh Defender scan, packaging, archive checksum verification and GitHub publication.
+- Published the explicitly authorized **UNSIGNED** Windows preview directly on GitHub:
+  <https://github.com/SultanAladin/Frontier/releases/tag/frontier-windows-39149823906>.
+  ZIP and SHA-256 asset are available. No Arena-rehosted binary is offered. No signing is claimed.
+- Remaining: user verifies Chrome accepts the direct GitHub download without overriding protection;
+  only then perform the documented interactive Windows/GPU/input checklist. If blocked, stop distribution
+  handoff and investigate/report the precise verdict instead of changing names/hosts repeatedly.
+- Defender command uses a custom scan with `-DisableRemediation`; Microsoft documents that this ignores
+  file exclusions and scans archives, while leaving detections unremediated for the gate to reject:
+  <https://learn.microsoft.com/en-us/defender-endpoint/command-line-arguments-microsoft-defender-antivirus>.
