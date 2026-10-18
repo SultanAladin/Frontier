@@ -79,7 +79,12 @@ jobs:
       - name: Package and verify executable, content and shader placement
         if: steps.distribution.outputs.distribution_ready == 'true'
         run: |
-          $UnsignedArguments = if ($env:ALLOW_UNSIGNED_PREVIEW -eq 'true') { @('--allow-unsigned-preview') } else { @() }
+          [string[]]$UnsignedArguments = @()
+          if ($env:ALLOW_UNSIGNED_PREVIEW -eq 'true') {
+            $UnsignedArguments = @('--allow-unsigned-preview')
+            python -c "import sys; assert sys.argv[1:] == ['--allow-unsigned-preview']" @UnsignedArguments
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
           python Automation/PackageWorkspacesWindows.py @UnsignedArguments --build Build/Windows --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Upload verified Windows applications

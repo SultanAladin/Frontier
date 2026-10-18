@@ -329,3 +329,8 @@ not a fabricated safe result. Chrome reputation itself cannot be guaranteed or b
 - Publication can be explicitly requested by workflow inputs or the approved push marker
   `[publish-windows-unsigned-preview]`; ordinary pushes do not create releases. Only this session branch
   is used. No master push/merge or Linux package is involved.
+
+- First authorized run `39149413532`: Windows build, five acceptance tests, 72 signature/scan policy
+  combinations and Defender scan passed; unsigned readiness was true. Packaging refused a PowerShell
+  single-string splat that expanded the option into characters. No binary was published. Replaced it
+  with an explicitly typed string array and added an actual Python argument-boundary assertion in CI.
