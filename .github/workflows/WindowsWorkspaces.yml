@@ -12,6 +12,8 @@ jobs:
   Windows:
     runs-on: windows-2022
     timeout-minutes: 40
+    env:
+      PYTHONUTF8: 1
     defaults:
       run:
         shell: pwsh
@@ -28,7 +30,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force Build/Diagnostics | Out-Null
-          python -m pip install -r Automation/FontRequirements.txt
+          python -m pip install -r Automation/FontRequirements.txt 2>&1 | Tee-Object Build/Diagnostics/Python.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python Automation/PrepareUI.py 2>&1 | Tee-Object Build/Diagnostics/Dependencies.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -62,6 +64,15 @@ jobs:
           path: Binaries/SolidArc-TextureWorkspace-Windows-x64.zip
           if-no-files-found: error
           retention-days: 14
+      - name: Expose actionable diagnostic tails in check annotations
+        if: failure()
+        run: |
+          Get-ChildItem Build/Diagnostics/*.log -ErrorAction SilentlyContinue | ForEach-Object {
+            $Tail = (Get-Content $_.FullName -Tail 35) -join "`n"
+            if ($Tail.Length -gt 7000) { $Tail = $Tail.Substring($Tail.Length - 7000) }
+            $Tail = $Tail.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=$($_.Name)::$Tail"
+          }
       - name: Upload diagnostics even after failure
         if: always()
         uses: actions/upload-artifact@v4
