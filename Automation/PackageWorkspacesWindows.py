@@ -24,7 +24,14 @@ def Main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--build', type=Path, required=True)
     Parser.add_argument('--output', type=Path, required=True)
+    Parser.add_argument('--security-report', type=Path, required=True)
     Arguments = Parser.parse_args()
+    Security = json.loads(Arguments.security_report.read_text(encoding='utf-8-sig'))
+    if not Security.get('distribution_ready') or not Security.get('defender', {}).get('clean'):
+        raise RuntimeError('Distribution withheld: signature/antivirus verification is incomplete')
+    Signatures = {Entry['application']: Entry for Entry in Security.get('signatures', [])}
+    if set(Signatures) != {'Frontier', 'TextureWorkspace'} or any(Entry['status'] != 'Valid' for Entry in Signatures.values()):
+        raise RuntimeError('Distribution withheld: both trusted publisher signatures are required')
     Build = Arguments.build.resolve()
     ShaderDirectory = Build / 'ShaderArchives/Surface'
     Compilation = json.loads((ShaderDirectory / 'ShaderCompilation.json').read_text())
@@ -37,7 +44,7 @@ def Main():
     Scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=Scratch, prefix='workspace-delivery-') as Temporary:
         Installation = Path(Temporary)
-        for Name in ('SolidArc', 'TextureWorkspace'):
+        for Name in ('Frontier', 'TextureWorkspace'):
             Executable = Build / 'Release' / (Name + '.exe')
             Payload = Executable.read_bytes()
             Offset = struct.unpack_from('<I', Payload, 0x3c)[0]
@@ -46,8 +53,8 @@ def Main():
                     struct.unpack_from('<H', Payload, Offset + 24)[0] != 0x20b:
                 raise RuntimeError('Expected Windows x64 PE32+: ' + Name)
             shutil.copy2(Executable, Installation / Executable.name)
-            (Installation / ('Run' + Name + '.cmd')).write_bytes(
-                ('@echo off\r\ncd /d "%~dp0"\r\nstart "" "%~dp0' + Name + '.exe"\r\n').encode())
+            if Digest(Installation / Executable.name) != Signatures[Name]['sha256']:
+                raise RuntimeError('Executable changed after security verification: ' + Name)
         shutil.copytree(RepositoryRoot / 'EngineContent', Installation / 'EngineContent')
         RuntimeShaders = Installation / 'EngineContent/ShaderArchives/Surface'
         shutil.copytree(ShaderDirectory, RuntimeShaders, dirs_exist_ok=True)
@@ -76,17 +83,13 @@ def Main():
         shutil.copy2(RepositoryRoot / 'Engine/Interface/Lucide.NOTICE', Notices / 'Lucide.NOTICE')
         shutil.copy2(RepositoryRoot / 'Documentation/SourceNotices.md', Notices / 'SourceNotices.md')
         shutil.copy2(RepositoryRoot / 'Exhibits/TextureStudio/WindowsWorkspacesReadme.md', Installation / 'README.md')
-        (Installation / 'CollectDiagnostics.cmd').write_bytes(
-            b'@echo off\r\ncd /d "%~dp0"\r\nmkdir Diagnostics 2>nul\r\n'
-            b'copy "%LOCALAPPDATA%\\Frontier\\Logs\\SolidArc-*.log" Diagnostics\\\r\n'
-            b'copy "%LOCALAPPDATA%\\Frontier\\Logs\\TextureWorkspace-*.log" Diagnostics\\\r\n'
-            b'copy "%TEMP%\\Frontier\\Logs\\SolidArc-*.log" Diagnostics\\\r\n'
-            b'copy "%TEMP%\\Frontier\\Logs\\TextureWorkspace-*.log" Diagnostics\\\r\npause\r\n')
+        shutil.copy2(Arguments.security_report, Installation / 'DistributionChecks.json')
         Metadata = {
             'format': 1, 'target': 'Windows x64', 'toolchain': 'GitHub Actions windows-2022 / MSVC / static CRT',
             'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=RepositoryRoot, text=True).strip(),
-            'scopes': {'SolidArc': ['Project Browser'], 'TextureWorkspace': ['Material Library', 'Preview', 'Inspector']},
+            'scopes': {'Frontier': ['Project Browser'], 'TextureWorkspace': ['Material Library', 'Preview', 'Inspector']},
             'windows_interactive_gpu_verified': False,
+            'distribution_checks': Security,
             'shader_compilation': Compilation,
             'files': {Filename.relative_to(Installation).as_posix(): Digest(Filename)
                       for Filename in sorted(Installation.rglob('*')) if Filename.is_file()},
@@ -101,7 +104,9 @@ def Main():
             if Archive.testzip() is not None:
                 raise RuntimeError('ZIP integrity validation failed')
         print('Windows application/shader package verified:', Arguments.output)
-        print('SHA256:', Digest(Arguments.output))
+        Checksum = Digest(Arguments.output)
+        Arguments.output.with_suffix('.zip.sha256').write_text(Checksum + '  ' + Arguments.output.name + '\n')
+        print('SHA256:', Checksum)
         print('Interactive Windows Vulkan startup remains a user acceptance check.')
 
 

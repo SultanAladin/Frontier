@@ -114,7 +114,7 @@ struct MaterialLibraryRendering::RenderingAllocation
         if (!Selected) return;
         auto Scattering = PreviewScattering;
         Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1, Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
-        Scattering.Illumination.ViewFromSurface = {1,0,0,0,0,1,0,0,0,0,1,0,-16.f * uint32_t(Inspection.Shape),0,-3,1};
+        Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
         Scattering.Illumination.LightColourExposure[3] *= Inspection.Exposure;
         switch (Inspection.Environment)
         {
@@ -255,7 +255,9 @@ void MaterialLibraryRendering::ConfigurePreview(const MaterialPreviewConfigurati
     Rendering.ReconfigurePreview();
     DiagnosticJournal::Append("PreviewConfiguration", "shape=" + std::to_string(uint32_t(Configuration.Shape)) +
         " environment=" + std::to_string(uint32_t(Configuration.Environment)) + " zoom=" + std::to_string(Configuration.Zoom) +
-        " exposure=" + std::to_string(Configuration.Exposure));
+        " exposure=" + std::to_string(Configuration.Exposure) +
+        " pan=" + std::to_string(Configuration.PanX) + "," + std::to_string(Configuration.PanY) +
+        " orbit=" + std::to_string(Configuration.Yaw) + "," + std::to_string(Configuration.Pitch));
 }
 MaterialPreviewConfiguration MaterialLibraryRendering::QueryPreviewConfiguration() const
 {
@@ -273,9 +275,12 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     if (Rendering.Selected && Rendering.PreviewDirty)
     {
         auto Projection = Rendering.Projection;
-        Projection.ClipFromSurface[0] = Rendering.Inspection.Zoom;
-        Projection.ClipFromSurface[5] = -Rendering.Inspection.Zoom;
-        Projection.ClipFromSurface[12] = -16.f * uint32_t(Rendering.Inspection.Shape) * Rendering.Inspection.Zoom;
+        const auto Camera = ConstructMaterialPreviewProjection(Rendering.Inspection);
+        Projection.ClipFromSurface = Camera.ClipFromSurface;
+        const auto &View = Camera.ViewFromSurface;
+        Projection.ViewNormalRow0 = {View[0],View[4],View[8],0};
+        Projection.ViewNormalRow1 = {View[1],View[5],View[9],0};
+        Projection.ViewNormalRow2 = {View[2],View[6],View[10],0};
         Rendering.Preview.ConstructCommands(Commands, Projection, Rendering.Selected->Textures, *Rendering.PreviewParameters);
         DiagnosticJournal::Append("PreviewSubmit", "serial=" + std::to_string(SubmissionSerial));
         Rendering.RecordedPreview = true;

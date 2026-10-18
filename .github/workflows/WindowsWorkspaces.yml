@@ -45,23 +45,35 @@ jobs:
           $Compiler = (Resolve-Path Build/ShaderTools/node_modules/slang-loader/vendor/slang-wasm.js).Path
           cmake -S . -B Build/Windows -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON "-DFRONTIER_SLANG_WASM=$Compiler" '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' 2>&1 | Tee-Object Build/Diagnostics/Configure.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Compile SolidArc, Texture Workspace, shader entries and acceptance tests
+      - name: Compile Frontier, Texture Workspace, shader entries and acceptance tests
         run: |
-          cmake --build Build/Windows --config Release --parallel 4 --target SolidArc TextureStudio FrontierSurfaceShaders MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
+          cmake --build Build/Windows --config Release --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Execute Windows CPU and native UI acceptance tests
         run: |
           ctest --test-dir Build/Windows -C Release --output-on-failure -R '^(MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Package and verify executable, content and shader placement
+      - name: Verify fail-closed distribution checks
         run: |
-          python Automation/PackageWorkspacesWindows.py --build Build/Windows --output Binaries/SolidArc-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
+          python Exhibits/TextureStudio/Code/WindowsDistributionValidation.py 2>&1 | Tee-Object Build/Diagnostics/DistributionValidation.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - name: Upload Windows test applications
+      - name: Verify publisher signatures and antivirus scan before distribution
+        id: distribution
+        run: |
+          ./Automation/VerifyWindowsDistribution.ps1 -BinaryDirectory Build/Windows/Release -ReportPath Build/Diagnostics/DistributionChecks.json
+      - name: Package and verify executable, content and shader placement
+        if: steps.distribution.outputs.distribution_ready == 'true'
+        run: |
+          python Automation/PackageWorkspacesWindows.py --build Build/Windows --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Upload verified Windows applications
+        if: steps.distribution.outputs.distribution_ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: SolidArc-TextureWorkspace-Windows-x64
-          path: Binaries/SolidArc-TextureWorkspace-Windows-x64.zip
+          name: Frontier-TextureWorkspace-Windows-x64
+          path: |
+            Binaries/Frontier-TextureWorkspace-Windows-x64.zip
+            Binaries/Frontier-TextureWorkspace-Windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 14
       - name: Expose actionable diagnostic tails in check annotations

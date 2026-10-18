@@ -1,5 +1,5 @@
 /*==========================================================================================================================================
-                                                           WINDOWSSOLIDARC.CPP
+                                                           WINDOWSFRONTIER.CPP
 ==========================================================================================================================================*/
 // 🧩 Run only the native Project Browser; project selection never activates another workspace in this test application.
 
@@ -38,15 +38,15 @@ std::filesystem::path ChooseProjectPath(GLFWwindow *Window, bool Save)
 
 int main()
 {
-    Frontier::DiagnosticJournal::Initialize("SolidArc");
-    Frontier::DiagnosticJournal::Append("Startup", "SolidArc Project Browser ONLY; editor activation disabled");
+    Frontier::DiagnosticJournal::Initialize("Frontier");
+    Frontier::DiagnosticJournal::Append("Startup", "Frontier Project Browser ONLY; editor activation disabled");
     Frontier::ActivationOwnership AppearanceOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     std::unique_ptr<Frontier::ProjectBrowserPanel> Browser;
     GLFWwindow *Window = nullptr;
     std::string SelectedProject;
     Frontier::ApplicationWindowCallbacks Callbacks;
-    Callbacks.Title = "SolidArc - Project Browser";
+    Callbacks.Title = "Frontier - Project Browser";
     Callbacks.Initialize = [&](GLFWwindow *Current)
     {
         Window = Current;
@@ -56,7 +56,7 @@ int main()
         AppearanceOwnership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences));
         Appearance = static_cast<Frontier::ControlCentrePanel *>(AppearanceOwnership.get());
         if (!Appearance->Initialize() || !Appearance->Activate())
-            throw std::runtime_error("SolidArc appearance initialization failed: " + Appearance->QueryDiagnostic());
+            throw std::runtime_error("Frontier appearance initialization failed: " + Appearance->QueryDiagnostic());
         Browser = std::make_unique<Frontier::ProjectBrowserPanel>([&](bool Save) { return ChooseProjectPath(Window, Save); });
         Frontier::DiagnosticJournal::Append("Startup", "Project Browser initialized");
     };
@@ -92,7 +92,7 @@ int main()
     {
         Browser.reset();
         AppearanceOwnership.reset();
-        Frontier::DiagnosticJournal::Append("Shutdown", "SolidArc application resources reclaimed");
+        Frontier::DiagnosticJournal::Append("Shutdown", "Frontier application resources reclaimed");
     };
     return Frontier::RunWindowsApplication(Callbacks);
 }

@@ -40,6 +40,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] PanelDockspace &QueryPanels() noexcept { return Panels; }
     std::function<MaterialPreviewImage(const std::filesystem::path &)> QueryThumbnail;
     std::function<MaterialPreviewImage()> QueryPreview;
+    std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
     std::function<void(const MaterialPreviewConfiguration &)> ConfigurePreview;
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const noexcept { return Inspection; }
     [[nodiscard]] PlaneExtent QueryPreviewControlExtent(size_t Index) const noexcept
@@ -59,7 +60,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] MaterialLibrary &QueryLibrary() noexcept { return Library; }
 
   private:
-    std::array<PlaneExtent, 6> InspectionExtents{};
+    std::array<PlaneExtent, 8> InspectionExtents{};
     MaterialPreviewConfiguration Inspection;
     MaterialLibrary Library;
     PanelDockspace Panels;

@@ -295,8 +295,8 @@ void MaterialLibraryPanel::ConstructViewport()
     if (Entry) ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 136 * Scale, 9 * Scale, 0x7b7c6d, Entry->Description.c_str());
     const float Bottom = Origin.y + Available.y;
     Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), EncodeMaterialInk(0x151515));
-    ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "ORTHOGRAPHIC     MATERIAL INSPECTION");
-    ConstructMaterialCaption(Origin.x + Available.x - 115 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
+    ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "Drag orbit  /  Shift-MMB pan  /  Wheel zoom");
+    if (Available.x > 500 * Scale) ConstructMaterialCaption(Origin.x + Available.x - 75 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
     const auto Previous = Inspection;
     const auto ConfigureExtent = [&](size_t Index)
     {
@@ -306,6 +306,48 @@ void MaterialLibraryPanel::ConstructViewport()
     };
     ImGui::PushID("MaterialInspection");
     ImGui::BeginDisabled(!ConfigurePreview);
+    // 📝 One canvas owns gestures until release; widgets and popup menus cannot also drive the camera.
+    InspectionExtents[7] = {};
+    const ImVec2 CanvasMinimum(Origin.x, Origin.y + 165 * Scale);
+    const ImVec2 CanvasMaximum(Origin.x + Available.x, Bottom - 205 * Scale);
+    if (CanvasMaximum.y > CanvasMinimum.y)
+    {
+        ImGui::SetCursorScreenPos(CanvasMinimum);
+        ImGui::InvisibleButton("InspectionCanvas", ImVec2(Available.x, CanvasMaximum.y - CanvasMinimum.y),
+            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
+        ConfigureExtent(7);
+        const auto &Input = ImGui::GetIO();
+        const bool Hovered = ImGui::IsItemHovered();
+        const auto Δ = EvaluateNavigationDelta ? EvaluateNavigationDelta({Input.MouseDelta.x, Input.MouseDelta.y}) : PlanePoint{Input.MouseDelta.x, Input.MouseDelta.y};
+        const float Sensitivity = EvaluateNavigationDelta ? EvaluateNavigationDelta({1,0}).X : 1;
+        if (ImGui::IsItemActive())
+        {
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
+            {
+                Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
+                Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
+            }
+            else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 2.f);
+            else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
+                Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .01f, -1.45f, 1.45f);
+            }
+        }
+        if (Hovered && !Input.WantTextInput)
+        {
+            if (Input.MouseWheel != 0) Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 2.f);
+            if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_Home) || ImGui::IsMouseDoubleClicked(0))
+                ResetMaterialPreviewView(Inspection);
+            if (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
+            if (ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) Inspection.PanX = std::max(-2.f, Inspection.PanX - .05f);
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) Inspection.PanX = std::min(2.f, Inspection.PanX + .05f);
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) Inspection.PanY = std::max(-2.f, Inspection.PanY - .05f);
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) Inspection.PanY = std::min(2.f, Inspection.PanY + .05f);
+        }
+    }
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 155 * Scale));
@@ -330,7 +372,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::EndChild();
     InspectionExtents[5] = {ExposureOrigin.x, ExposureOrigin.y + 34 * Scale,
         ExposureOrigin.x + ExposureWidth, ExposureOrigin.y + 58 * Scale};
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 154 * Scale) * .5f), Bottom - 196 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 240 * Scale) * .5f), Bottom - 196 * Scale));
     const auto ZoomOrigin = ImGui::GetCursorScreenPos();
     Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
         EncodeMaterialInk(0x181818), 14 * Scale);
@@ -348,12 +390,13 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::SameLine(0, 0);
     if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
     ConfigureExtent(2);
+    ImGui::SameLine();
+    if (ImGui::Button("Reset view", ImVec2(90 * Scale, 28 * Scale))) ResetMaterialPreviewView(Inspection);
+    ConfigureExtent(6);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Centre / fit and reset orbit. F or Home over preview.");
     ImGui::EndGroup();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
-    if (ConfigurePreview && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && !ImGui::IsAnyItemActive() &&
-        ImGui::GetIO().MouseWheel != 0)
-        Inspection.Zoom = std::clamp(Inspection.Zoom + ImGui::GetIO().MouseWheel * .1f, .5f, 2.f);
     ImGui::EndDisabled();
     if (Previous != Inspection && ConfigurePreview) ConfigurePreview(Inspection);
     ImGui::PopID();
@@ -800,7 +843,7 @@ void MaterialLibraryPanel::ConstructInterface()
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6 * Scale, 8.49f * Scale));
     // 📝 STB pixel height spans ascent/descent; CSS sizes the em. DM Sans hhea spans 1302/1000 em.
     ImGui::PushFont(static_cast<ImFont *>(ReferenceTypeface), 10 * 1.302f * Scale);
-    ImGui::Begin("Texture Studio", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+    ImGui::Begin("TextureWorkspace", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
     auto *Ink = ImGui::GetWindowDrawList();
     const auto Origin = Viewport->WorkPos;
@@ -850,7 +893,7 @@ void MaterialLibraryPanel::ConstructInterface()
     if (ClosingRequested && !ImGui::IsPopupOpen("Unsaved material")) ImGui::OpenPopup("Unsaved material");
     if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        ImGui::TextUnformatted("Save your material before closing Texture Studio?");
+        ImGui::TextUnformatted("Save your material before closing TextureWorkspace?");
         if (ImGui::Button("Save and close") && Library.SaveMaterial()) CloseAuthorized = true;
         ImGui::SameLine();
         if (ImGui::Button("Discard and close")) CloseAuthorized = true;

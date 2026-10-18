@@ -74,13 +74,13 @@ if(WIN32)
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
     target_compile_definitions(FrontierUI PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
     target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw)
-    add_executable(SolidArc Experimental/SolidArc/Native/WindowsSolidArc.cpp
+    add_executable(Frontier Experimental/Frontier/Native/WindowsFrontier.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
-    target_include_directories(SolidArc PRIVATE "${IMGUI_ROOT}/backends"
+    target_include_directories(Frontier PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(SolidArc PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
-    target_link_libraries(SolidArc PRIVATE FrontierEditorUI glfw)
+    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_link_libraries(Frontier PRIVATE FrontierEditorUI glfw)
     add_executable(TextureStudio Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
@@ -92,6 +92,19 @@ if(WIN32)
     add_custom_command(TARGET TextureStudio POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"
             "$<TARGET_FILE_DIR:TextureStudio>/EngineContent/MaterialArchives/TextureStudio")
+    if(MSVC)
+        enable_language(RC)
+        foreach(WORKSPACE_TARGET Frontier TextureStudio)
+            if(WORKSPACE_TARGET STREQUAL "TextureStudio")
+                set(WORKSPACE_APPLICATION "TextureWorkspace")
+            else()
+                set(WORKSPACE_APPLICATION "Frontier")
+            endif()
+            configure_file(Automation/WindowsApplicationVersion.rc.in
+                "${CMAKE_BINARY_DIR}/${WORKSPACE_APPLICATION}Version.rc" @ONLY)
+            target_sources(${WORKSPACE_TARGET} PRIVATE "${CMAKE_BINARY_DIR}/${WORKSPACE_APPLICATION}Version.rc")
+        endforeach()
+    endif()
     # Retain the original DX11 exhibit without making DX11 a dependency of the Vulkan editor.
     add_executable(FrontierUIDX11 Exhibits/UIFoundation/Code/WindowsUI.cpp
         Engine/Interface/WindowsApplication.cpp
@@ -104,7 +117,7 @@ if(WIN32)
     target_link_libraries(FrontierUIDX11 PRIVATE FrontierEditorUI glfw d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
     execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         OUTPUT_VARIABLE FRONTIER_BUILD_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
-    foreach(UI_TARGET FrontierUI FrontierUIDX11 TextureStudio SolidArc)
+    foreach(UI_TARGET FrontierUI FrontierUIDX11 TextureStudio Frontier)
         target_compile_definitions(${UI_TARGET} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
             FRONTIER_BUILD_REVISION="${FRONTIER_BUILD_REVISION}")
         target_link_libraries(${UI_TARGET} PRIVATE comdlg32 shell32)
@@ -114,7 +127,7 @@ if(WIN32)
         add_custom_command(TARGET ${UI_TARGET} POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:${UI_TARGET}>/EngineContent")
     endforeach()
-    install(TARGETS FrontierUI FrontierUIDX11 TextureStudio SolidArc RUNTIME DESTINATION .)
+    install(TARGETS FrontierUI FrontierUIDX11 TextureStudio Frontier RUNTIME DESTINATION .)
     install(DIRECTORY ExternalPackages/vulkan-headers/LICENSES DESTINATION Notices/Vulkan-Headers)
     install(DIRECTORY EngineContent DESTINATION .)
     install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)

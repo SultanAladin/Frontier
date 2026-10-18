@@ -47,6 +47,28 @@ int main(int Count, char **Arguments)
         Inspection = {};
         Inspection.Exposure = 4.01f;
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Out-of-range exposure accepted.");
+        Inspection = {};
+        Inspection.PanX = std::numeric_limits<float>::infinity();
+        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Infinite pan accepted.");
+        Inspection = {};
+        Inspection.Pitch = 2;
+        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unbounded orbit pitch accepted.");
+        Inspection = {};
+        Inspection.Shape = MaterialPreviewShape::Cube;
+        Inspection.PanX = .3f;
+        Inspection.PanY = -.2f;
+        Inspection.Yaw = .8f;
+        Inspection.Pitch = -.4f;
+        const auto Camera = ConstructMaterialPreviewProjection(Inspection);
+        Confirm(std::abs(Camera.ClipFromSurface[0] * 48 + Camera.ClipFromSurface[12] - Inspection.PanX) < .0001f &&
+            std::abs(Camera.ClipFromSurface[1] * 48 + Camera.ClipFromSurface[13] - Inspection.PanY) < .0001f,
+            "Rotating an offset inspection shape lost its camera centre.");
+        Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
+        Inspection.Exposure = 2;
+        ResetMaterialPreviewView(Inspection);
+        Confirm(Inspection.Shape == MaterialPreviewShape::Cube && Inspection.Environment == MaterialPreviewEnvironment::CoolRim &&
+            Inspection.Exposure == 2 && Inspection.PanX == 0 && Inspection.Yaw == 0 && Inspection.Zoom == 1,
+            "View reset changed authored inspection lighting/shape.");
         std::string Diagnostic;
         const auto Geometry = ConstructMaterialInspectionGeometry();
         Confirm(ValidateSurfaceGeometry(Geometry, Diagnostic), Diagnostic.c_str());
@@ -114,6 +136,66 @@ int main(int Count, char **Arguments)
         Click(2);
         Click(1);
         Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "Zoom percentage reset did not respond.");
+        const auto DragCanvas = [&](int Button, float Horizontal, float Vertical, bool Shift = false)
+        {
+            const auto Canvas = Panel.QueryPreviewControlExtent(7);
+            const ImVec2 Centre((Canvas.MinimumX + Canvas.MaximumX) / 2, (Canvas.MinimumY + Canvas.MaximumY) / 2);
+            IO.AddMousePosEvent(Centre.x, Centre.y);
+            IO.AddKeyEvent(ImGuiMod_Shift, Shift);
+            Integrate();
+            IO.AddMouseButtonEvent(Button, true);
+            Integrate();
+            IO.AddMousePosEvent(Centre.x + Horizontal, Centre.y + Vertical);
+            Integrate();
+            IO.AddMouseButtonEvent(Button, false);
+            IO.AddKeyEvent(ImGuiMod_Shift, false);
+            Integrate();
+        };
+        DragCanvas(2, 30, 20);
+        Confirm(Panel.QueryPreviewConfiguration().PanX > 0 && Panel.QueryPreviewConfiguration().PanY > 0,
+            "MMB pan did not respond to actual pointer drag.");
+        Click(6);
+        Confirm(Panel.QueryPreviewConfiguration().PanX == 0 && Panel.QueryPreviewConfiguration().PanY == 0,
+            "Reset view did not centre the specimen.");
+        DragCanvas(0, 20, 15, true);
+        Confirm(Panel.QueryPreviewConfiguration().PanX > 0 && Panel.QueryPreviewConfiguration().Yaw == 0,
+            "Shift-left drag did not pan independently of orbit.");
+        Click(6);
+        DragCanvas(0, 35, 20);
+        Confirm(Panel.QueryPreviewConfiguration().Yaw != 0 && Panel.QueryPreviewConfiguration().Pitch != 0,
+            "Left drag did not orbit the specimen.");
+        const auto BeforeRelease = Panel.QueryPreviewConfiguration();
+        IO.AddMousePosEvent(10,10);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration() == BeforeRelease, "Released pointer continued moving the camera.");
+        Click(6);
+        DragCanvas(1, 0, -30);
+        Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Right drag did not zoom.");
+        Click(6);
+        const auto Canvas = Panel.QueryPreviewControlExtent(7);
+        IO.AddMousePosEvent((Canvas.MinimumX + Canvas.MaximumX) / 2, (Canvas.MinimumY + Canvas.MaximumY) / 2);
+        Integrate();
+        IO.AddMouseWheelEvent(0,1);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Canvas wheel zoom did not respond.");
+        IO.AddKeyEvent(ImGuiKey_F,true);
+        Integrate();
+        IO.AddKeyEvent(ImGuiKey_F,false);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "F did not reset the camera.");
+        IO.AddKeyEvent(ImGuiKey_RightArrow,true);
+        Integrate();
+        IO.AddKeyEvent(ImGuiKey_RightArrow,false);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().PanX > 0, "Keyboard pan did not respond.");
+        Click(6);
+        const auto BeforeWidgetWheel = Panel.QueryPreviewConfiguration();
+        const auto ShapeExtent = Panel.QueryPreviewControlExtent(3);
+        IO.AddMousePosEvent((ShapeExtent.MinimumX + ShapeExtent.MaximumX) / 2, (ShapeExtent.MinimumY + ShapeExtent.MaximumY) / 2);
+        Integrate();
+        IO.AddMouseWheelEvent(0,1);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration() == BeforeWidgetWheel, "Wheel over a selector leaked into preview navigation.");
         const auto SelectPreset = [&](size_t Control, int Index)
         {
             Click(Control);
@@ -152,7 +234,7 @@ int main(int Count, char **Arguments)
         Ownership.reset();
         ImGui::DestroyContext();
         std::ofstream Report(Arguments[1]);
-        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"actual_zoom_pointer_events\":true,\"actual_shape_environment_exposure_pointer_events\":true}\n";
+        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"actual_zoom_pointer_events\":true,\"pan_orbit_wheel_keyboard_release_and_widget_isolation\":true,\"actual_shape_environment_exposure_pointer_events\":true}\n";
         Confirm(bool(Report), "Could not write preview acceptance report.");
         std::cout << "Material inspection checks passed: " << Checks << '\n';
         return 0;

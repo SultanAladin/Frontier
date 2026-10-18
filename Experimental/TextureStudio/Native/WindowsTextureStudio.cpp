@@ -62,7 +62,7 @@ int RunTextureWorkspace()
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
-    Callbacks.Title = "Texture Studio - Material Library";
+    Callbacks.Title = "TextureWorkspace - Material Library";
     Callbacks.MaterialRendering = true;
     Callbacks.Initialize = [&](GLFWwindow *CurrentWindow)
     {
@@ -109,7 +109,7 @@ int RunTextureWorkspace()
             if (!Frontier::ProjectSpaceCodec::Decode(Preferences, Document, Message)) LayoutBlocked = true;
             else if (const auto Layout = Document.Sections["workspace"]["texture_studio_layout"]; Layout)
                 LayoutBlocked = !Layout.is_table() || !Library->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-            if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("Texture Studio layout read refused; defaults remain session-only. " + Message);
+            if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }
     };
     Callbacks.InitializeVulkan = [&](Frontier::VulkanPresentation &Display)
@@ -161,6 +161,7 @@ int RunTextureWorkspace()
         if (MainVisible)
         {
             if (Rendering) Rendering->RequestLibrary(Library->QueryLibrary().QueryDirectory(), {});
+            Library->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement) { return Appearance->QueryInput().QueryApplied().EvaluatePointerDelta(Displacement); };
             Library->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
             Library->ConstructInterface();
             const auto &Catalogue = Library->QueryLibrary();
@@ -186,7 +187,7 @@ int RunTextureWorkspace()
             if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_layout"))
             {
                 Frontier::DiagnosticJournal::Append("LayoutSaveError", Message);
-                std::cerr << "Texture Studio layout not saved: " << Message << '\n';
+                std::cerr << "TextureWorkspace layout not saved: " << Message << '\n';
             }
         }
         LibraryOwnership.reset();

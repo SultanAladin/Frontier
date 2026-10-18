@@ -196,7 +196,7 @@ contracts, formats, diagnostics, theme/fonts and GPU resources. No React wrapper
 | Fracture Editor | Partitioning, fracture constraints and inspection | Fracture workspace | Planned |
 | VFX / Particle Workspace | Particle sources, motion and visual-effect inspection | VFX/particle workspace | Planned |
 
-**SolidArc test executable opens only the Project Browser.** Opening/selecting a project is validated and logged,
+**Frontier test executable opens only the Project Browser.** Opening/selecting a project is validated and logged,
 but this test executable must not silently enter the general editor or a CAD viewport. Texture Workspace exposes
 only the three material panels, not Pattern/Texture/Stamp/Baking tabs. Existing painting prototypes remain intact.
 
@@ -211,9 +211,9 @@ only the three material panels, not Pattern/Texture/Stamp/Baking tabs. Existing 
    documents, credentials or every pointer movement. Flush actionable events; retain eight runs, 8 MiB per run.
 5. Publish the required sources on this session branch (user explicitly approved), dispatch Windows GitHub Actions,
    compile shaders from `Engine/Render/Shader` and place runtime SPIR-V in `EngineContent/ShaderArchives/Surface`.
-6. Produce one test artifact with SolidArc.exe, TextureWorkspace.exe, shared content, licences, SHA manifest,
+6. Produce one test artifact with Frontier.exe, TextureWorkspace.exe, shared content, licences, SHA manifest,
    launch instructions and diagnostic collection instructions. CI logs are uploaded even if compilation fails.
-7. User acceptance: Windows startup, browser-only SolidArc, material-only Texture Workspace, all four shapes,
+7. User acceptance: Windows startup, browser-only Frontier, material-only Texture Workspace, all four shapes,
    zoom/reset, all four environments/exposure, green paint and Apply/Revert/Save; collect logs on any failure.
 
 ### Next after this build
@@ -243,3 +243,16 @@ only the three material panels, not Pattern/Texture/Stamp/Baking tabs. Existing 
 - Interactive Windows Vulkan startup and hardware-driver execution are **not** certified by the CPU CI tests.
   Use the packaged README checklist and send logs on failure. GitHub artifacts are retained for fourteen days.
 - Evidence-only documentation is recorded after the compiled revision; no application code is changed by that record.
+
+
+### Correction and distribution hold — 2026-10-18
+
+The application names are **Frontier** and **TextureWorkspace**. The browser-only entry point is now under
+`Experimental/Frontier/Native`; the incorrectly named application target/directory has been removed.
+Prior binary downloads linked above are superseded and are not recommended for testing.
+
+Before another binary is offered: verify pointer zoom/pan/orbit, wheel/keyboard input, reset/fit, pointer release,
+widget/popup isolation, shared sensitivity/invert-pitch and GPU camera/normal transforms. Atlas thumbnails must
+remain unaffected. Remove archive command scripts. Require valid publisher signatures, current clean Defender
+results and executable hashes matching the security report. Unavailable signing/scanning means **hold distribution**,
+not a fabricated safe result. Chrome reputation itself cannot be guaranteed or bypassed by this work.

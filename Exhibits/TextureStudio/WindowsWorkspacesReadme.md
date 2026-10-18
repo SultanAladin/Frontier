@@ -5,19 +5,23 @@ are required. Shader binaries are included; no compiler or Vulkan SDK installati
 
 | Executable | Scope |
 |---|---|
-| `SolidArc.exe` | Project Browser only. Create/open/select validates projects but deliberately stays in the browser. |
+| `Frontier.exe` | Project Browser only. Create/open/select validates projects but deliberately stays in the browser. |
 | `TextureWorkspace.exe` | Material Library, Preview and Inspector only. No painting/pattern/stamp/baking tabs. |
 
-Use the adjacent `RunSolidArc.cmd` / `RunTextureWorkspace.cmd`, or launch either executable directly.
+Launch `Frontier.exe` or `TextureWorkspace.exe` directly. No command or PowerShell launch scripts are bundled.
 Both resolve bundled engine content relative to their executable. Materials are copied to
 `%LOCALAPPDATA%/Frontier/TextureStudio/Materials` before editing so the packaged presets remain unchanged.
 Existing personal materials are preserved, not overwritten by an updated test archive.
 
 ## Acceptance checklist
 
-- Launch both applications. SolidArc must never enter the general editor/CAD workspace.
+- Launch both applications. Frontier must never enter the general editor/CAD workspace.
 - In Texture Workspace select Racing Green and another material; allow the first shader-ball render to complete.
-- Use the minus / percentage reset / plus pill and mouse wheel over empty preview space.
+- Use minus / percentage reset / plus, or the wheel over the specimen canvas.
+- Left-drag to orbit; middle-drag or Shift-left-drag to pan; right-drag vertically to zoom.
+- Reset View, F, Home or double-click recentres/refits and resets orbit. Arrow keys pan while hovering the canvas.
+- Test that release stops dragging, sliders/popups do not move the camera, and shared sensitivity/invert-pitch
+  preferences affect orbit. Geometry, lighting and exposure stay unchanged when only the view is reset.
 - Switch Shader Ball, Sphere, Plane and Cube. Switch Studio Softbox, Warm Courtyard, Cool Rim and Overcast.
 - Change Exposure. Only the large preview should change; catalogue thumbnails keep their fixed lighting/geometry.
 - Edit a supported coefficient, Apply, Revert and Save. Invalid source must preserve the last valid preview.
@@ -25,13 +29,13 @@ Existing personal materials are preserved, not overwritten by an updated test ar
 
 ## Diagnostic collection
 
-Logs: `%LOCALAPPDATA%/Frontier/Logs/SolidArc-*.log` and `TextureWorkspace-*.log`.
+Logs: `%LOCALAPPDATA%/Frontier/Logs/Frontier-*.log` and `TextureWorkspace-*.log`.
 If LOCALAPPDATA is unavailable, look in `%TEMP%/Frontier/Logs`. Files are flushed after events, capped at 8 MiB
 per run, and retain the latest eight runs per application. Startup paths, font/icon recovery, Vulkan device/driver,
 shader byte counts, material operations, preview settings, GPU submissions and severe failures are recorded.
 
-Run `CollectDiagnostics.cmd` to copy these files into a `Diagnostics` folder beside the executables.
-Send that folder, `Package.json`, GPU/Windows version, reproduction steps and a screenshot of any error.
+Copy the newest log files from that folder using File Explorer. Send them with `Package.json`, your GPU/Windows
+version, reproduction steps and a screenshot of any error.
 Logs contain local file paths but not document source or credentials; review them before sharing.
 A native severe-failure dialog remains available when normal rendering fails. Hard termination/power loss cannot
 be guaranteed to generate a final entry; compile/package success is not user GPU-driver/startup certification.
@@ -43,3 +47,12 @@ entry points are compiled by CI; runtime binaries reside in `EngineContent/Shade
 The CI CPU/native UI tests do not create an interactive Windows Vulkan window. Runtime GPU/driver acceptance
 still requires the checklist above. Seven automotive procedural recipes are implemented; remaining materials
 retain the previously documented supported physical subset. Exact reference appearance is not yet certified.
+
+
+## Download trust
+
+Earlier test downloads are superseded; a browser warning is not evidence that a download is safe or malicious.
+Do not disable Chrome Safe Browsing, antivirus or Windows protection to run a test build.
+Binary distribution now requires valid trusted-publisher signatures and a current clean local Defender scan.
+Missing signing capability or unavailable scanning withholds binary uploads; checksums alone do not establish safety.
+Even signed, scanned software can receive reputation warnings. Report the exact Chrome warning for diagnosis.

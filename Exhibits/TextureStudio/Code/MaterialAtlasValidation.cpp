@@ -142,6 +142,16 @@ int main(int Count, char **Arguments)
         Inspection.Exposure = .25f;
         Rendering.ConfigurePreview(Inspection);
         AssertRasterCondition(CaptureInspection() != Zoomed, "Exposure did not change GPU pixels.");
+        const auto BeforePan = CaptureInspection();
+        Inspection.PanX = .3f;
+        Inspection.PanY = -.2f;
+        Rendering.ConfigurePreview(Inspection);
+        const auto Panned = CaptureInspection();
+        AssertRasterCondition(Panned != BeforePan, "Pan did not change GPU image pixels.");
+        Inspection.Yaw = .65f;
+        Inspection.Pitch = -.25f;
+        Rendering.ConfigurePreview(Inspection);
+        AssertRasterCondition(CaptureInspection() != Panned, "Orbit did not change GPU image pixels.");
         AssertRasterCondition(CaptureLibrary() == Resident && Rendering.QueryBakeCount() == 2,
             "Preview configuration changed thumbnail atlas pixels or rebaked clean tiles.");
         AssertRasterCondition(Rendering.QueryPreviewView() == StablePreviewView && Rendering.QueryAtlasView() == StableAtlasView,
