@@ -256,3 +256,18 @@ widget/popup isolation, shared sensitivity/invert-pitch and GPU camera/normal tr
 remain unaffected. Remove archive command scripts. Require valid publisher signatures, current clean Defender
 results and executable hashes matching the security report. Unavailable signing/scanning means **hold distribution**,
 not a fabricated safe result. Chrome reputation itself cannot be guaranteed or bypassed by this work.
+
+
+### Navigation correction acceptance
+
+- [Windows build and test run 39146539736](https://github.com/SultanAladin/Frontier/actions/runs/39146539736)
+  passed for `dcfe53f`: Frontier and TextureWorkspace compiled, including Windows version resources and all ten
+  Slang shader entries; all five Windows CPU/native ImGui tests and four fail-closed packaging tests passed.
+- Local strict and address/undefined-sanitizer navigation tests passed with actual button, drag, wheel and keyboard
+  events. Software-Vulkan readbacks verified pan and orbit alter the preview while keeping thumbnails and views stable.
+- The native host delegates pointer sensitivity and pitch inversion to the shared applied input preferences.
+- Updated visible evidence: `Exhibits/TextureStudio/Images/MaterialInspectionControls.png`.
+- **No new executable download offered:** CI withheld packaging/upload because distribution trust requirements
+  were not satisfied. Chrome warning resolution is not claimed. Next: obtain exact Chrome warning, configure
+  legitimate trusted CI signing, obtain a current clean antivirus result, then reconsider distribution. Never request
+  signing private keys in chat or recommend disabling protection. Interactive Windows/GPU startup remains unverified.
