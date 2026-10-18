@@ -271,3 +271,41 @@ not a fabricated safe result. Chrome reputation itself cannot be guaranteed or b
   were not satisfied. Chrome warning resolution is not claimed. Next: obtain exact Chrome warning, configure
   legitimate trusted CI signing, obtain a current clean antivirus result, then reconsider distribution. Never request
   signing private keys in chat or recommend disabling protection. Interactive Windows/GPU startup remains unverified.
+
+
+### Reference distribution investigation
+
+- Inspected `SultanAladin/Frontier-`, not this repository, at historical revisions
+  `7dd674484d7387cd360cc892b5a113414b37f78f` and `61c5be6de9df9c3a8a0cd28bece730d8693a3bd4`.
+  The original UI import revision predates these workflows. No new Actions run was started.
+- The desktop packager also used Python ZIP compression and included a diagnostic `.cmd`; its inspected
+  workflow/toolchain/packager contains no application signing step. Neither scripts nor missing signing
+  has been established as the cause of Chrome blocking this delivery.
+- Standalone binaries used MSVC Release/static CRT on Windows 2022 and GitHub artifact/prerelease delivery.
+- Networking used Epic's official configured bootstrapper, checked against the vendor binary, and direct
+  GitHub releases with checksums and extracted GUI tests. This does not sign its custom application and
+  is not an appropriate substitute launcher for Frontier/TextureWorkspace. Certificates were not inspected.
+- User screenshot identifies arena.ai as the blocked download origin. Direct GitHub delivery is a meaningful
+  provenance difference, not evidence of the cause or a reason to rehost a blocked archive unchanged.
+- Evidence: `Exhibits/TextureStudio/Results/ReferenceDistributionComparison.json`. Next: identify the
+  user's exact previously accepted reference artifact, compare actual archive contents/PE signatures and
+  antivirus results against the blocked archive, then use traceable GitHub distribution for a verified build.
+  Existing release hold remains. No runtime changes made for this investigation.
+
+
+### Direct GitHub distribution correction
+
+- Google documents separate dangerous, suspicious, unverified and insecure download categories:
+  <https://support.google.com/chrome/answer/6261569?hl=en>. Enterprise documentation distinguishes
+  file, URL and host verdicts: <https://support.google.com/chrome/a/answer/7579271?hl=en>.
+  The screenshot alone does not expose the exact Safe Browsing verdict or detection reason.
+- Added an opt-in GitHub prerelease job following the reference's direct-download provenance. It needs
+  successful Windows trust verification, validates the original archive SHA-256 again, and publishes
+  the original ZIP/checksum without Arena rehosting. Normal pushes do not create releases.
+- Existing signature/antivirus hold remains; no self-signing, vendor launcher substitution, renamed
+  blocked archive or protection bypass. A direct GitHub URL is not evidence that Chrome will accept it.
+- Added per-application signature statuses and Defender readiness to check annotations and the Actions
+  summary. Full scanner details remain in DistributionChecks.json.
+- Local checks: workflow YAML parses; publication is opt-in, trust-dependent and least-privilege;
+  checksum mismatch refusal is configured; four packaging refusal cases pass. Windows execution of
+  the new summary/publication steps still requires CI; publication remains untested until trust is ready.

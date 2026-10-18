@@ -54,6 +54,24 @@ if ($env:GITHUB_OUTPUT)
 {
     "distribution_ready=$($Ready.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
 }
+$SignatureSummary = ($Signatures | ForEach-Object { "$($_.application)=$($_.status)" }) -join '; '
+Write-Output "::notice title=Distribution verification::$SignatureSummary; Defender=$($Scanner.status); ready=$Ready"
+if ($env:GITHUB_STEP_SUMMARY)
+{
+    @(
+        '## Windows distribution verification',
+        '',
+        '| Check | Result |',
+        '|---|---|',
+        "| Publisher signatures | $SignatureSummary |",
+        "| Defender scan | $($Scanner.status) |",
+        "| Definitions updated (UTC) | $($Scanner.signature_updated) |",
+        "| Distribution ready | $Ready |",
+        '',
+        'The full report is in Windows-build-diagnostics/DistributionChecks.json.',
+        'These checks do not certify Chrome reputation; do not bypass a download block.'
+    ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+}
 if (-not $Ready)
 {
     Write-Output '::warning::Binary downloads withheld: trusted signatures and a current clean antivirus scan are required.'

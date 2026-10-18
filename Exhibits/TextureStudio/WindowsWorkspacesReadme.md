@@ -56,3 +56,13 @@ Do not disable Chrome Safe Browsing, antivirus or Windows protection to run a te
 Binary distribution now requires valid trusted-publisher signatures and a current clean local Defender scan.
 Missing signing capability or unavailable scanning withholds binary uploads; checksums alone do not establish safety.
 Even signed, scanned software can receive reputation warnings. Report the exact Chrome warning for diagnosis.
+
+
+### Direct GitHub delivery
+
+Verified packages can be published using **Windows standalone workspaces → Run workflow → publish_release**.
+This is opt-in: normal branch pushes never publish a release. Publication requires the existing trust checks,
+then rechecks the archive checksum before uploading the original ZIP and its checksum to a GitHub prerelease.
+Download from that release page, not an Arena-rehosted copy. This matches reference-project provenance;
+it is not a method for clearing or bypassing a dangerous-download verdict. A blocked package stays withheld.
+Signature and antivirus statuses are also shown in the Actions summary and annotations, not just the report.
