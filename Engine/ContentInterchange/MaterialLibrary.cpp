@@ -216,6 +216,7 @@ bool MaterialLibrary::Refresh()
 
 void MaterialLibrary::ConfigureFilter(std::string Requested)
 {
+    std::replace(Requested.begin(), Requested.end(), '\\', '/');
     Search = FoldMaterialText(std::move(Requested));
     FilterEntries();
 }
@@ -224,8 +225,13 @@ void MaterialLibrary::FilterEntries()
 {
     Visible.clear();
     for (size_t Index = 0; Index < Entries.size(); ++Index)
-        if (Search.empty() || FoldMaterialText(Entries[Index].Name+" "+Entries[Index].Category+" "+EncodeContentPath(Entries[Index].RelativePath)).find(Search) != std::string::npos)
+    {
+        // 📝 Search paths use portable separators and UTF-8, not the Windows-native backslash encoding.
+        const auto RelativeText = Entries[Index].RelativePath.generic_u8string();
+        const std::string RelativeName(RelativeText.begin(), RelativeText.end());
+        if (Search.empty() || FoldMaterialText(Entries[Index].Name + " " + Entries[Index].Category + " " + RelativeName).find(Search) != std::string::npos)
             Visible.push_back(Index);
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------

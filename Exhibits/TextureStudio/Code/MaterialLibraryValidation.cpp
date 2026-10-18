@@ -65,6 +65,8 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(Library.QueryVisible().size() == 1, "ASCII case-insensitive name search failed.");
         Library.ConfigureFilter("Nested/");
         Confirm(Library.QueryVisible().size() == 1, "Relative path search failed.");
+        Library.ConfigureFilter("Nested\\");
+        Confirm(Library.QueryVisible().size() == 1, "Windows separator path search failed.");
         Library.ConfigureFilter("");
         Confirm(Library.OpenMaterial("Nested/Reference.material"), "Nested material did not open.");
         Confirm(Library.QuerySource() == Minimal && !Library.QueryModified() && !Library.QueryUnapplied(), "Opening changed authored source or dirty status.");

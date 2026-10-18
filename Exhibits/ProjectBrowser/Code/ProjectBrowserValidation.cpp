@@ -67,9 +67,9 @@ int main(int ArgumentCount, char **Arguments)
         Require(!Browser.SelectProject(Corrupt), "Corrupt project must be refused");
         Require(Browser.SelectProject(Created) && Browser.RequestOpenProject(), "Valid selection must hand off");
         Require(Browser.ConsumeLaunchPath() == Created && Browser.ConsumeLaunchPath().empty(), "Hand-off must be consumed once");
-        std::ofstream(Created, std::ios::trunc) << "invalid after selection";
+        std::ofstream(Created, std::ios::trunc | std::ios::binary) << "invalid after selection";
         Require(!Browser.RequestOpenProject(), "Changed project must be revalidated before launch");
-        std::ofstream(Created, std::ios::trunc) << OriginalProject;
+        std::ofstream(Created, std::ios::trunc | std::ios::binary) << OriginalProject;
         Require(Browser.SelectProject(Created), "Restored project must select");
         ImGui::CreateContext();
         auto &IO = ImGui::GetIO();
