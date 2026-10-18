@@ -1,0 +1,15 @@
+{
+  "Revision": "9671944018766a294c3cdb22f9b6f3ffc5543e48",
+  "WindowsRun": "https://github.com/SultanAladin/Frontier/actions/runs/39148623800",
+  "BuildAndTests": "passed",
+  "FrontierSignature": "NotSigned",
+  "TextureWorkspaceSignature": "NotSigned",
+  "Defender": "passed",
+  "DistributionReady": false,
+  "BinaryPublished": false,
+  "GitHubPublication": "configured opt-in; not executed",
+  "ChromeWarningCleared": false,
+  "OriginalBlockedArchiveScanned": false,
+  "Evidence": "Windows check annotation: Frontier=NotSigned; TextureWorkspace=NotSigned; Defender=passed; ready=False",
+  "Limits": "A clean Defender scan of the rebuilt output does not establish why Chrome blocked the original archive or certify the new Chrome verdict."
+}

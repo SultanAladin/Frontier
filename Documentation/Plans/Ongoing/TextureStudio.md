@@ -309,3 +309,23 @@ not a fabricated safe result. Chrome reputation itself cannot be guaranteed or b
 - Local checks: workflow YAML parses; publication is opt-in, trust-dependent and least-privilege;
   checksum mismatch refusal is configured; four packaging refusal cases pass. Windows execution of
   the new summary/publication steps still requires CI; publication remains untested until trust is ready.
+
+- Windows run <https://github.com/SultanAladin/Frontier/actions/runs/39148623800> passed at `9671944`.
+  Its verification annotation reports `Frontier=NotSigned; TextureWorkspace=NotSigned; Defender=passed; ready=False`.
+  This is a clean scan of the rebuilt output, not the original blocked ZIP. Packaging/upload remain skipped
+  under the newly added signed-only policy; optional release publication was not invoked. Evidence:
+  `Exhibits/TextureStudio/Results/DownloadTrustChecks.json`. Chrome verdict is still unverified.
+
+
+### Authorized unsigned GitHub preview
+
+- User explicitly selected **Scanned unsigned preview** after comparing it with the signed-only hold.
+  This supersedes the earlier unconditional signed-only distribution rule for explicitly authorized previews.
+- Both the CI report and packager must explicitly authorize unsigned output; default remains signed-only.
+  Only `Valid` or explicitly authorized `NotSigned` statuses are accepted; invalid/untrusted signatures
+  remain blocked. A fresh current clean Defender scan and executable hash match remain mandatory.
+- Unsigned output is disclosed in the GitHub release title, `UNSIGNED-PREVIEW.txt`, signature report and
+  package manifest. No browser block override is recommended. Chrome acceptance remains unverified.
+- Publication can be explicitly requested by workflow inputs or the approved push marker
+  `[publish-windows-unsigned-preview]`; ordinary pushes do not create releases. Only this session branch
+  is used. No master push/merge or Linux package is involved.

@@ -53,16 +53,23 @@ retain the previously documented supported physical subset. Exact reference appe
 
 Earlier test downloads are superseded; a browser warning is not evidence that a download is safe or malicious.
 Do not disable Chrome Safe Browsing, antivirus or Windows protection to run a test build.
-Binary distribution now requires valid trusted-publisher signatures and a current clean local Defender scan.
-Missing signing capability or unavailable scanning withholds binary uploads; checksums alone do not establish safety.
+Binary distribution requires a current clean local Defender scan. Publisher signatures must be valid unless an
+unsigned preview is explicitly authorized in CI and packaging. Invalid or untrusted signatures remain blocked.
+An unsigned preview is labelled in the release title, `UNSIGNED-PREVIEW.txt` and the packaged signature report.
+Unavailable or failed scanning withholds binary uploads; checksums alone do not establish safety.
 Even signed, scanned software can receive reputation warnings. Report the exact Chrome warning for diagnosis.
 
 
 ### Direct GitHub delivery
 
 Verified packages can be published using **Windows standalone workspaces → Run workflow → publish_release**.
-This is opt-in: normal branch pushes never publish a release. Publication requires the existing trust checks,
+This is opt-in: ordinary branch pushes never publish a release. Publication requires the authorized trust checks,
 then rechecks the archive checksum before uploading the original ZIP and its checksum to a GitHub prerelease.
 Download from that release page, not an Arena-rehosted copy. This matches reference-project provenance;
 it is not a method for clearing or bypassing a dangerous-download verdict. A blocked package stays withheld.
 Signature and antivirus statuses are also shown in the Actions summary and annotations, not just the report.
+
+Unsigned previews require **allow_unsigned_preview** as well as **publish_release** when dispatching a workflow.
+An explicitly approved push containing `[publish-windows-unsigned-preview]` requests the same policy and release
+from that exact branch revision, including when manual dispatch is unavailable on a non-default branch.
+The normal/default policy stays signed-only. No scan is skipped under either policy.

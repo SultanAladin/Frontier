@@ -2,6 +2,11 @@ name: Windows standalone workspaces
 on:
   workflow_dispatch:
     inputs:
+      allow_unsigned_preview:
+        description: Explicitly authorize a scanned, clearly labelled unsigned preview
+        type: boolean
+        required: false
+        default: false
       publish_release:
         description: Publish a verified Windows package directly on GitHub
         type: boolean
@@ -18,10 +23,12 @@ jobs:
   Windows:
     outputs:
       distribution_ready: ${{ steps.distribution.outputs.distribution_ready }}
+      unsigned_preview_authorized: ${{ steps.distribution.outputs.unsigned_preview_authorized }}
     runs-on: windows-2022
     timeout-minutes: 40
     env:
       PYTHONUTF8: 1
+      ALLOW_UNSIGNED_PREVIEW: ${{ inputs.allow_unsigned_preview == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-unsigned-preview]')) }}
     defaults:
       run:
         shell: pwsh
@@ -68,11 +75,12 @@ jobs:
       - name: Verify publisher signatures and antivirus scan before distribution
         id: distribution
         run: |
-          ./Automation/VerifyWindowsDistribution.ps1 -BinaryDirectory Build/Windows/Release -ReportPath Build/Diagnostics/DistributionChecks.json
+          ./Automation/VerifyWindowsDistribution.ps1 -BinaryDirectory Build/Windows/Release -ReportPath Build/Diagnostics/DistributionChecks.json -AllowUnsignedPreview:([Convert]::ToBoolean($env:ALLOW_UNSIGNED_PREVIEW))
       - name: Package and verify executable, content and shader placement
         if: steps.distribution.outputs.distribution_ready == 'true'
         run: |
-          python Automation/PackageWorkspacesWindows.py --build Build/Windows --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
+          $UnsignedArguments = if ($env:ALLOW_UNSIGNED_PREVIEW -eq 'true') { @('--allow-unsigned-preview') } else { @() }
+          python Automation/PackageWorkspacesWindows.py @UnsignedArguments --build Build/Windows --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Upload verified Windows applications
         if: steps.distribution.outputs.distribution_ready == 'true'
@@ -112,8 +120,9 @@ jobs:
     name: Publish verified Windows download on GitHub
     needs: Windows
     if: >-
-      github.event_name == 'workflow_dispatch' && inputs.publish_release &&
-      needs.Windows.outputs.distribution_ready == 'true'
+      needs.Windows.outputs.distribution_ready == 'true' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-unsigned-preview]')))
     runs-on: windows-2022
     permissions:
       contents: write
@@ -135,11 +144,13 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          UNSIGNED_PREVIEW_AUTHORIZED: ${{ needs.Windows.outputs.unsigned_preview_authorized }}
         run: |
+          $Qualifier = if ($env:UNSIGNED_PREVIEW_AUTHORIZED -eq 'true') { 'UNSIGNED preview' } else { 'preview' }
           gh release create "frontier-windows-$env:GITHUB_RUN_ID" `
             'VerifiedWindows/Frontier-TextureWorkspace-Windows-x64.zip' `
             'VerifiedWindows/Frontier-TextureWorkspace-Windows-x64.zip.sha256' `
             --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" `
-            --title 'Frontier and TextureWorkspace Windows preview' --prerelease `
-            --notes "Verified Windows package from $env:GITHUB_SHA. See the matching Actions run for signatures, antivirus results and acceptance tests. Browser reputation and interactive Windows GPU startup are not certified."
+            --title "Frontier and TextureWorkspace Windows $Qualifier" --prerelease `
+            --notes "Windows $Qualifier from $env:GITHUB_SHA. A clean Defender scan does not certify browser reputation. Do not bypass Chrome or antivirus blocks. See the matching Actions run for signatures, antivirus results and acceptance tests. Browser reputation and interactive Windows GPU startup are not certified."
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

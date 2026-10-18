@@ -1,10 +1,11 @@
 #============================================================================================================================================
 #                                                   VERIFYWINDOWSDISTRIBUTION.PS1
 #============================================================================================================================================
-# 🧩 Record trusted publisher signatures and local Defender results; withhold downloads when either cannot be verified.
+# 🧩 Record publisher signatures and local Defender results; unsigned previews require explicit authorization.
 
 param([Parameter(Mandatory=$true)][string]$BinaryDirectory,
-      [Parameter(Mandatory=$true)][string]$ReportPath)
+      [Parameter(Mandatory=$true)][string]$ReportPath,
+      [switch]$AllowUnsignedPreview)
 $ErrorActionPreference = 'Stop'
 $Signatures = @()
 foreach ($Application in @('Frontier', 'TextureWorkspace'))
@@ -39,10 +40,12 @@ catch
 {
     $Scanner.detail = $_.Exception.Message
 }
-$Signed = @($Signatures | Where-Object { $_.status -ne 'Valid' }).Count -eq 0
-$Ready = $Signed -and $Scanner.clean
+$AcceptedStatuses = if ($AllowUnsignedPreview) { @('Valid', 'NotSigned') } else { @('Valid') }
+$SignaturesAccepted = @($Signatures | Where-Object { $_.status -notin $AcceptedStatuses }).Count -eq 0
+$Ready = $SignaturesAccepted -and $Scanner.clean
 $Report = [ordered]@{
     distribution_ready = $Ready
+    unsigned_preview_authorized = [bool]$AllowUnsignedPreview
     signatures = $Signatures
     defender = $Scanner
     chrome_warning_cleared = $false
@@ -52,6 +55,7 @@ $Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ReportPath -Encodi
 Write-Output ($Report | ConvertTo-Json -Depth 8)
 if ($env:GITHUB_OUTPUT)
 {
+    "unsigned_preview_authorized=$(([bool]$AllowUnsignedPreview).ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
     "distribution_ready=$($Ready.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
 }
 $SignatureSummary = ($Signatures | ForEach-Object { "$($_.application)=$($_.status)" }) -join '; '
@@ -67,6 +71,7 @@ if ($env:GITHUB_STEP_SUMMARY)
         "| Defender scan | $($Scanner.status) |",
         "| Definitions updated (UTC) | $($Scanner.signature_updated) |",
         "| Distribution ready | $Ready |",
+        "| Unsigned preview authorized | $([bool]$AllowUnsignedPreview) |",
         '',
         'The full report is in Windows-build-diagnostics/DistributionChecks.json.',
         'These checks do not certify Chrome reputation; do not bypass a download block.'
@@ -74,7 +79,7 @@ if ($env:GITHUB_STEP_SUMMARY)
 }
 if (-not $Ready)
 {
-    Write-Output '::warning::Binary downloads withheld: trusted signatures and a current clean antivirus scan are required.'
+    Write-Output '::warning::Binary downloads withheld: accepted signatures and a current clean antivirus scan are required; unsigned previews need explicit authorization.'
 }
 if ($Scanner.status -eq 'failed')
 {

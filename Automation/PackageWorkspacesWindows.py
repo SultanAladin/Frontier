@@ -20,18 +20,31 @@ def Digest(Filename):
     return hashlib.sha256(Filename.read_bytes()).hexdigest()
 
 
+
+def VerifyDistributionAuthorization(Security, UnsignedPreviewEnabled=False):
+    if not Security.get('distribution_ready') or not Security.get('defender', {}).get('clean') or \
+            Security.get('defender', {}).get('status') != 'passed':
+        raise RuntimeError('Distribution withheld: signature/antivirus verification is incomplete')
+    Entries = Security.get('signatures', [])
+    Signatures = {Entry['application']: Entry for Entry in Entries}
+    AcceptedStatuses = {'Valid'}
+    if UnsignedPreviewEnabled and Security.get('unsigned_preview_authorized') is True:
+        AcceptedStatuses.add('NotSigned')
+    if len(Entries) != 2 or set(Signatures) != {'Frontier', 'TextureWorkspace'} or \
+            any(Entry['status'] not in AcceptedStatuses for Entry in Signatures.values()):
+        raise RuntimeError('Distribution withheld: publisher signatures do not meet the authorized policy')
+    return Signatures
+
+
 def Main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--build', type=Path, required=True)
     Parser.add_argument('--output', type=Path, required=True)
     Parser.add_argument('--security-report', type=Path, required=True)
+    Parser.add_argument('--allow-unsigned-preview', action='store_true')
     Arguments = Parser.parse_args()
     Security = json.loads(Arguments.security_report.read_text(encoding='utf-8-sig'))
-    if not Security.get('distribution_ready') or not Security.get('defender', {}).get('clean'):
-        raise RuntimeError('Distribution withheld: signature/antivirus verification is incomplete')
-    Signatures = {Entry['application']: Entry for Entry in Security.get('signatures', [])}
-    if set(Signatures) != {'Frontier', 'TextureWorkspace'} or any(Entry['status'] != 'Valid' for Entry in Signatures.values()):
-        raise RuntimeError('Distribution withheld: both trusted publisher signatures are required')
+    Signatures = VerifyDistributionAuthorization(Security, Arguments.allow_unsigned_preview)
     Build = Arguments.build.resolve()
     ShaderDirectory = Build / 'ShaderArchives/Surface'
     Compilation = json.loads((ShaderDirectory / 'ShaderCompilation.json').read_text())
@@ -84,6 +97,13 @@ def Main():
         shutil.copy2(RepositoryRoot / 'Documentation/SourceNotices.md', Notices / 'SourceNotices.md')
         shutil.copy2(RepositoryRoot / 'Exhibits/TextureStudio/WindowsWorkspacesReadme.md', Installation / 'README.md')
         shutil.copy2(Arguments.security_report, Installation / 'DistributionChecks.json')
+        if any(Entry['status'] == 'NotSigned' for Entry in Signatures.values()):
+            (Installation / 'UNSIGNED-PREVIEW.txt').write_text(
+                'This is an explicitly authorized UNSIGNED Windows preview.\n'
+                'The rebuilt output passed the recorded Defender scan; that does not certify Chrome reputation.\n'
+                'Source revision, executable hashes and scan results are in Package.json and DistributionChecks.json.\n'
+                'Do not disable browser or antivirus protection. If Chrome blocks this download, stop and report it.\n',
+                encoding='utf-8')
         Metadata = {
             'format': 1, 'target': 'Windows x64', 'toolchain': 'GitHub Actions windows-2022 / MSVC / static CRT',
             'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=RepositoryRoot, text=True).strip(),
