@@ -43,6 +43,8 @@ No new top-level ownership categories without approval. Update this map after ap
 
 ## Existing layout awaiting migration review
 
+`Experimental/TextureStudio/` holds the TextureStudio (Alloy) React/Three application imported from `streamlinkinbox/Frontier@773b2f5` — see its `IMPORT.md`.
+
 `Internal/`, `Executables/`, `Applications/`, `Automation/`, `memory/`,
 `Documentation/Prototypes/`, and `Documentation/Research/` remain inherited locations.
 Do not delete or move them blindly. Existing diagnostics remain in `Exhibits/Diagnostics/`.
