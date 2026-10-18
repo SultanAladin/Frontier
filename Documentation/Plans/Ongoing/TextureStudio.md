@@ -225,3 +225,21 @@ only the three material panels, not Pattern/Texture/Stamp/Baking tabs. Existing 
 - Implement UV standalone/embedded parity, then parametric sketching; begin Fluid/Fracture/VFX as independently
   tested applications with domain-specific icons, content and GPU budgets. These future applications are planned,
   not represented as implemented by the current CI build.
+
+
+### Windows Actions acceptance record — 2026-10-18
+
+- **Passed:** [Windows Actions run 39142811899](https://github.com/SultanAladin/Frontier/actions/runs/39142811899).
+- Built revision: `c586fd707283afea78462f8e467d6c85ba4c44e5` on `arena/73e163a3-frontier`.
+- [Download Windows test applications](https://github.com/SultanAladin/Frontier/actions/runs/39142811899/artifacts/12142541200).
+- [Build diagnostics](https://github.com/SultanAladin/Frontier/actions/runs/39142811899/artifacts/12141379773).
+- Both native Windows x64 executables linked; all ten Slang entries compiled and packaged in the runtime directory.
+- Five Windows CPU/native ImGui acceptance tests passed. Local GPU shape/environment/zoom/exposure, stable image
+  views and thumbnail isolation passed; strict/sanitized material transactions each passed 259 checks, and actual
+  preview pointer input passed both strict and sanitized execution.
+- CI exposed and corrected Windows checkout line endings, native path separators after lexical normalization,
+  and a binary-preservation test fixture. Authored material comments, conflict refusal and last-valid Apply remain tested.
+- Runtime logs: `%LOCALAPPDATA%/Frontier/Logs`. `CollectDiagnostics.cmd` copies logs beside the test executables.
+- Interactive Windows Vulkan startup and hardware-driver execution are **not** certified by the CPU CI tests.
+  Use the packaged README checklist and send logs on failure. GitHub artifacts are retained for fourteen days.
+- Evidence-only documentation is recorded after the compiled revision; no application code is changed by that record.
