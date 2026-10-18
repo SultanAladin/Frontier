@@ -39,6 +39,12 @@ std::string FoldMaterialText(std::string Text)
     return Text;
 }
 
+std::filesystem::path NormalizeMaterialPath(const std::filesystem::path &Path)
+{
+    // 📝 lexical normalization uses native separators on Windows; retain portable UTF-8 separators in library selections.
+    return std::filesystem::path(Path.lexically_normal().generic_u8string());
+}
+
 std::string DecodeMaterialSource(const std::filesystem::path &Path)
 {
     std::ifstream Input(Path, std::ios::binary | std::ios::ate);
@@ -142,7 +148,7 @@ bool MaterialLibrary::Refresh()
             if (Position->is_symlink()) { Position.disable_recursion_pending(); continue; }
             if (!Position->is_regular_file() || FoldMaterialText(EncodeContentPath(Position->path().extension())) != ".material") continue;
             MaterialCatalogueEntry Entry;
-            Entry.RelativePath = Position->path().lexically_relative(Directory);
+            Entry.RelativePath = NormalizeMaterialPath(Position->path().lexically_relative(Directory));
             Entry.Name = EncodeContentPath(Entry.RelativePath.stem());
             try
             {
@@ -244,7 +250,7 @@ bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
     {
         auto ReplacementSource = DecodeMaterialSource(ResolveMaterial(RelativePath));
         auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(ReplacementSource), Directory));
-        Selection = RelativePath.lexically_normal();
+        Selection = NormalizeMaterialPath(RelativePath);
         Source = std::move(ReplacementSource);
         SavedSource = Source;
         AppliedSource = Source;

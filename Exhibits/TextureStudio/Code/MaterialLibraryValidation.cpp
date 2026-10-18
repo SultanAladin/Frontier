@@ -55,7 +55,12 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(Library.ConfigureDirectory(Content), "Library did not open.");
         Confirm(Library.QueryEntries().size() == 7, "Recursive catalogue missed material files or included unrelated formats.");
         size_t Invalid = 0;
-        for (const auto &Entry : Library.QueryEntries()) Invalid += !Entry.Diagnostic.empty();
+        for (const auto &Entry : Library.QueryEntries())
+        {
+            Invalid += !Entry.Diagnostic.empty();
+            Confirm(EncodeContentPath(Entry.RelativePath).find('\\') == std::string::npos,
+                "Stored material selection uses platform-native separators.");
+        }
         Confirm(Invalid == 2, "Invalid and oversized files did not remain discoverable with diagnostics.");
         const auto Locations = Library.QueryEntries();
         Confirm(Library.Refresh(), "Catalogue refresh failed.");
@@ -88,7 +93,9 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(Library.ApplySource(), "Valid edited material failed to compile.");
         Confirm(Library.QueryModified() && !Library.QueryUnapplied(), "Apply incorrectly saved the file.");
         Confirm(ExtractText(Content/"Nested/Reference.material") == Minimal, "Apply wrote to disk.");
-        Confirm(Library.SaveMaterial() && ExtractText(Content/"Nested/Reference.material") == Edited, "Save changed comments/source bytes.");
+        const bool Saved = Library.SaveMaterial();
+        Confirm(Saved, Library.QueryDiagnostic().c_str());
+        Confirm(ExtractText(Content/"Nested/Reference.material") == Edited, "Save changed comments/source bytes.");
         Confirm(!Library.QueryModified(), "Save left material dirty.");
         EncodeText(Content/"Nested/Reference.material", Minimal+"# External edit\n");
         Library.ReplaceSource(Edited+"# Local edit\n");
