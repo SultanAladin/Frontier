@@ -1,0 +1,11 @@
+Format = 1
+Name = "Handmade Mulberry Paper"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6724431569576875, 0.5647115057049292, 0.35153259950043936]
+Roughness = 0.96
+Metallic = 0
+Ior = 1.47
+Coverage = 1.0
+Anisotropy = 0

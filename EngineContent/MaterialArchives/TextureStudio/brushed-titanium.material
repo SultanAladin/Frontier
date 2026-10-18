@@ -1,0 +1,19 @@
+Format = 1
+Name = "Brushed Titanium"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.23455058216100522, 0.238397573812271, 0.21952619972926923]
+Roughness = 0.38
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.65
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.25
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.15

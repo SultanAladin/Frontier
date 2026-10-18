@@ -1,0 +1,11 @@
+Format = 1
+Name = "Woven Fabric"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.184474994500441, 0.18116424424986022, 0.14995978981060856]
+Roughness = 0.93
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

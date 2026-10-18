@@ -1,0 +1,11 @@
+Format = 1
+Name = "Rusted Iron"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.39157247774972326, 0.41254261348390375, 0.39675523072562685]
+Roughness = 0.36
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Titanium Metal"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.45641102318040466, 0.44520119451622786, 0.40197777983219574]
+Roughness = 0.34
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

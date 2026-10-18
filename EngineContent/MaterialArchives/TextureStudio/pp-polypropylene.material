@@ -1,0 +1,11 @@
+Format = 1
+Name = "PP Polypropylene"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5840784178911641, 0.5647115057049292, 0.47353149614800955]
+Roughness = 0.43
+Metallic = 0
+Ior = 1.49
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Indigo Denim"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.021219010376003558, 0.0466650863368801, 0.0953074666309647]
+Roughness = 0.85
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

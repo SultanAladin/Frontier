@@ -1,0 +1,78 @@
+name: Windows standalone workspaces
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/73e163a3-frontier]
+permissions:
+  contents: read
+concurrency:
+  group: windows-workspaces-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  Windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Recover pinned UI dependencies and fonts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force Build/Diagnostics | Out-Null
+          python -m pip install -r Automation/FontRequirements.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python Automation/PrepareUI.py 2>&1 | Tee-Object Build/Diagnostics/Dependencies.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python Automation/PrepareFonts.py 2>&1 | Tee-Object Build/Diagnostics/Fonts.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Provision pinned portable Slang compiler
+        run: |
+          npm install --prefix Build/ShaderTools --no-audit --no-fund --ignore-scripts slang-loader@0.0.7
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Configure Windows x64 applications and compiled shaders
+        run: |
+          $Compiler = (Resolve-Path Build/ShaderTools/node_modules/slang-loader/vendor/slang-wasm.js).Path
+          cmake -S . -B Build/Windows -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON "-DFRONTIER_SLANG_WASM=$Compiler" '-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>' 2>&1 | Tee-Object Build/Diagnostics/Configure.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Compile SolidArc, Texture Workspace, shader entries and acceptance tests
+        run: |
+          cmake --build Build/Windows --config Release --parallel 4 --target SolidArc TextureStudio FrontierSurfaceShaders MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Execute Windows CPU and native UI acceptance tests
+        run: |
+          ctest --test-dir Build/Windows -C Release --output-on-failure -R '^(MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Package and verify executable, content and shader placement
+        run: |
+          python Automation/PackageWorkspacesWindows.py --build Build/Windows --output Binaries/SolidArc-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Upload Windows test applications
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolidArc-TextureWorkspace-Windows-x64
+          path: Binaries/SolidArc-TextureWorkspace-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostics even after failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-build-diagnostics
+          path: |
+            Build/Diagnostics
+            Build/Windows/Testing/Temporary
+            Build/Windows/ShaderArchives/Surface
+            Build/Windows/MaterialLibraryEvidence
+            Build/Windows/MaterialPreviewConfigurationChecks.json
+            Build/Windows/IconDomainChecks.json
+          if-no-files-found: warn
+          retention-days: 14

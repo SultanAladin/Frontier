@@ -1,0 +1,11 @@
+Format = 1
+Name = "PBT Polyester"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.4620769996544071, 0.45641102318040466, 0.3564001441459435]
+Roughness = 0.42
+Metallic = 0
+Ior = 1.57
+Coverage = 1.0
+Anisotropy = 0

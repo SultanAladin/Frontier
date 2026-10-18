@@ -1,0 +1,19 @@
+Format = 1
+Name = "Meadow Grass Blades"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.033104766570885055, 0.10461648409110419, 0.0202885630566524]
+Roughness = 0.78
+Metallic = 0
+Ior = 1.45
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.45
+Coverage = 0.06

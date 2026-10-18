@@ -1,0 +1,11 @@
+Format = 1
+Name = "PEEK Polymer"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.3277780980565422, 0.25415209433082675, 0.15292615199615017]
+Roughness = 0.45
+Metallic = 0
+Ior = 1.65
+Coverage = 1.0
+Anisotropy = 0

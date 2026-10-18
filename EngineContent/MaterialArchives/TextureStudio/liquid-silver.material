@@ -1,0 +1,19 @@
+Format = 1
+Name = "Liquid Silver"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.4178850708481375, 0.45078578283822346, 0.4341536361747489]
+Roughness = 0.2
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.05
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.14
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.4

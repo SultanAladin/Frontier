@@ -1,0 +1,11 @@
+Format = 1
+Name = "PVC-U Rigid"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6514056374198242, 0.6583748172794486, 0.6104955708078648]
+Roughness = 0.35
+Metallic = 0
+Ior = 1.54
+Coverage = 1.0
+Anisotropy = 0

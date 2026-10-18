@@ -1,0 +1,11 @@
+Format = 1
+Name = "Black Selvedge Denim"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.017641954488384078, 0.02315336617811041, 0.026241221894849898]
+Roughness = 0.84
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,213 @@
+cmake_minimum_required(VERSION 3.21)
+project(FrontierUIFoundation LANGUAGES C CXX)
+
+# UI-first port with a separately validated Vulkan CAD offscreen unit; native viewport integration remains explicit.
+option(FRONTIER_HOST_VERIFICATION "Build local verification tools on a non-Windows editing host" OFF)
+if(NOT WIN32 AND NOT FRONTIER_HOST_VERIFICATION)
+    message(FATAL_ERROR "Windows is the delivery target. Use host verification only for local checks.")
+endif()
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareUI.py" --verify
+    RESULT_VARIABLE DEPENDENCY_STATUS)
+if(NOT DEPENDENCY_STATUS EQUAL 0)
+    message(FATAL_ERROR "Run python Automation/PrepareUI.py before configuring; configure never downloads.")
+endif()
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Automation/PrepareFonts.py" --verify
+    RESULT_VARIABLE FONT_STATUS)
+if(NOT FONT_STATUS EQUAL 0)
+    message(FATAL_ERROR "Prepare fonts first: pip install -r Automation/FontRequirements.txt; python Automation/PrepareFonts.py")
+endif()
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+    add_compile_options(/utf-8 /W4)
+endif()
+include(Automation/ThorVGSoftware.cmake)
+set(IMGUI_ROOT "${CMAKE_SOURCE_DIR}/ExternalPackages/imgui")
+add_library(FrontierImGui STATIC
+    "${IMGUI_ROOT}/imgui.cpp" "${IMGUI_ROOT}/imgui_draw.cpp"
+    "${IMGUI_ROOT}/imgui_tables.cpp" "${IMGUI_ROOT}/imgui_widgets.cpp")
+target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
+add_library(FrontierTextFiles STATIC Engine/Interface/TextFileReplacement.cpp)
+target_include_directories(FrontierTextFiles PUBLIC "${CMAKE_SOURCE_DIR}")
+add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLibrary.cpp)
+target_include_directories(FrontierMaterialLibrary PUBLIC "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_link_libraries(FrontierMaterialLibrary PUBLIC FrontierSurfaceRasterization FrontierTextFiles)
+add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp)
+target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface)
+target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
+add_library(FrontierInterface STATIC
+    Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
+    Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
+    Engine/Interface/ControlKit.cpp Engine/Interface/TextEntryState.cpp
+    Engine/Interface/ThemeStructure.cpp Engine/Interface/VectorCodec.cpp
+    Engine/Interface/ContentDirectory.cpp Engine/Interface/FontCodec.cpp
+    Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
+    Engine/Interface/AppearanceCodec.cpp Engine/Interface/MotionIntegrator.cpp
+    Engine/Interface/PanelExpansionTab.cpp Engine/Interface/ConfigurationInspector.cpp
+    Engine/Interface/ConfigurationStructure.cpp Engine/Interface/InputPreferencesCodec.cpp
+    Engine/Interface/MonitorPlacement.cpp Engine/Interface/PanelDockspaceMonitor.cpp
+    Engine/Interface/PanelDockspace.cpp Engine/Interface/PanelDockspaceLayout.cpp Engine/Interface/NotificationSequence.cpp Engine/Interface/ConfirmationDialogue.cpp
+    Engine/ContentInterchange/ProjectSpaceCodec.cpp)
+target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static FrontierTextFiles)
+add_library(FrontierEditorUI STATIC UI/Editor/ProjectBrowserPanel.cpp UI/Editor/FoundationPanel.cpp UI/Editor/EditorWorkspace.cpp UI/Editor/ControlCentrePanel.cpp UI/Editor/ContentBrowserPanel.cpp)
+target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
+target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
+
+if(WIN32)
+    # GLFW owns windows/input; DX11 is only this ImGui exhibit's display adapter, not the primary renderer.
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(ExternalPackages/glfw EXCLUDE_FROM_ALL)
+    # Vulkan is the editor UI default. GLFW + the pinned ImGui Vulkan adapter own secondary-window presentation.
+    add_executable(FrontierUI Exhibits/UIFoundation/Code/WindowsUI.cpp
+        Engine/Interface/WindowsApplication.cpp
+        Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    target_include_directories(FrontierUI PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(FrontierUI PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw)
+    add_executable(SolidArc Experimental/SolidArc/Native/WindowsSolidArc.cpp
+        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    target_include_directories(SolidArc PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(SolidArc PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_link_libraries(SolidArc PRIVATE FrontierEditorUI glfw)
+    add_executable(TextureStudio Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
+        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    set_target_properties(TextureStudio PROPERTIES OUTPUT_NAME TextureWorkspace)
+    target_include_directories(TextureStudio PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(TextureStudio PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_link_libraries(TextureStudio PRIVATE FrontierEditorUI FrontierTextureStudioUI glfw)
+    add_custom_command(TARGET TextureStudio POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"
+            "$<TARGET_FILE_DIR:TextureStudio>/EngineContent/MaterialArchives/TextureStudio")
+    # Retain the original DX11 exhibit without making DX11 a dependency of the Vulkan editor.
+    add_executable(FrontierUIDX11 Exhibits/UIFoundation/Code/WindowsUI.cpp
+        Engine/Interface/WindowsApplication.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_dx11.cpp")
+    target_include_directories(FrontierUIDX11 PRIVATE "${IMGUI_ROOT}/backends")
+    target_compile_definitions(FrontierUIDX11 PRIVATE FRONTIER_UI_VULKAN=0)
+    if(NOT DEFINED FRONTIER_D3DCOMPILER)
+        set(FRONTIER_D3DCOMPILER d3dcompiler)
+    endif()
+    target_link_libraries(FrontierUIDX11 PRIVATE FrontierEditorUI glfw d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
+    execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE FRONTIER_BUILD_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
+    foreach(UI_TARGET FrontierUI FrontierUIDX11 TextureStudio SolidArc)
+        target_compile_definitions(${UI_TARGET} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
+            FRONTIER_BUILD_REVISION="${FRONTIER_BUILD_REVISION}")
+        target_link_libraries(${UI_TARGET} PRIVATE comdlg32 shell32)
+        if(MSVC)
+            target_link_options(${UI_TARGET} PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+        endif()
+        add_custom_command(TARGET ${UI_TARGET} POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:${UI_TARGET}>/EngineContent")
+    endforeach()
+    install(TARGETS FrontierUI FrontierUIDX11 TextureStudio SolidArc RUNTIME DESTINATION .)
+    install(DIRECTORY ExternalPackages/vulkan-headers/LICENSES DESTINATION Notices/Vulkan-Headers)
+    install(DIRECTORY EngineContent DESTINATION .)
+    install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)
+    install(FILES ExternalPackages/glfw/LICENSE.md DESTINATION Notices RENAME GLFW-LICENSE.md)
+    install(FILES ExternalPackages/tomlpp/LICENSE DESTINATION Notices RENAME TomlPlusPlus-LICENSE.txt)
+    install(FILES ExternalPackages/stb/LICENSE DESTINATION Notices RENAME Stb-LICENSE.txt)
+    install(FILES ExternalPackages/thorvg/LICENSE DESTINATION Notices RENAME ThorVG-LICENSE.txt)
+    install(FILES Engine/Interface/Lucide.NOTICE Documentation/SourceNotices.md DESTINATION Notices)
+endif()
+
+include(CTest)
+include(Automation/SurfaceRasterization.cmake)
+if(BUILD_TESTING)
+    add_executable(MaterialPreviewConfigurationValidation Exhibits/TextureStudio/Code/MaterialPreviewConfigurationValidation.cpp)
+    target_link_libraries(MaterialPreviewConfigurationValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME MaterialPreviewConfigurationValidation COMMAND MaterialPreviewConfigurationValidation
+        "${CMAKE_BINARY_DIR}/MaterialPreviewConfigurationChecks.json")
+    set_tests_properties(MaterialPreviewConfigurationValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(MaterialAtlasValidation Exhibits/TextureStudio/Code/MaterialAtlasValidation.cpp)
+    target_link_libraries(MaterialAtlasValidation PRIVATE FrontierMaterialLibrary ${CMAKE_DL_LIBS})
+    add_executable(IconDomainValidation Exhibits/TextureStudio/Code/IconDomainValidation.cpp)
+    target_link_libraries(IconDomainValidation PRIVATE FrontierInterface)
+    add_test(NAME IconDomainValidation COMMAND IconDomainValidation "${CMAKE_BINARY_DIR}/IconDomainChecks.json")
+    set_tests_properties(IconDomainValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(AutomotivePaintValidation Exhibits/TextureStudio/Code/AutomotivePaintValidation.cpp)
+    target_link_libraries(AutomotivePaintValidation PRIVATE FrontierMaterialLibrary ${CMAKE_DL_LIBS})
+    if(TARGET FrontierSurfaceShaders)
+        add_dependencies(AutomotivePaintValidation FrontierSurfaceShaders)
+        if(FRONTIER_VULKAN_DRIVER)
+            add_test(NAME AutomotivePaintValidation COMMAND AutomotivePaintValidation
+                "${FRONTIER_VULKAN_DRIVER}" "${FRONTIER_SURFACE_SHADER_DIRECTORY}"
+                "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio" "${CMAKE_BINARY_DIR}/AutomotivePaintEvidence")
+            set_tests_properties(AutomotivePaintValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+        endif()
+    endif()
+    add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
+    target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation
+        "${CMAKE_SOURCE_DIR}/Exhibits/Renderer/Materials" "${CMAKE_BINARY_DIR}/MaterialLibraryEvidence")
+    set_tests_properties(MaterialLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endif()
+if(BUILD_TESTING)
+    add_executable(ProjectBrowserValidation Exhibits/ProjectBrowser/Code/ProjectBrowserValidation.cpp)
+    target_link_libraries(ProjectBrowserValidation PRIVATE FrontierEditorUI)
+    add_test(NAME ProjectBrowserValidation COMMAND ProjectBrowserValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/Defaults/BlankProject/Blank.projectspace"
+        "${CMAKE_BINARY_DIR}/project-browser-validation")
+    add_executable(MonitorPlacementValidation Exhibits/Docking/Code/MonitorPlacementValidation.cpp)
+    target_link_libraries(MonitorPlacementValidation PRIVATE FrontierInterface)
+    add_test(NAME MonitorPlacementValidation COMMAND MonitorPlacementValidation)
+    foreach(EDITOR_MODE 0 1)
+        add_executable(ActivationValidation${EDITOR_MODE} Exhibits/UIFoundation/Code/ActivationValidation.cpp)
+        target_include_directories(ActivationValidation${EDITOR_MODE} PRIVATE "${CMAKE_SOURCE_DIR}")
+        target_compile_definitions(ActivationValidation${EDITOR_MODE} PRIVATE FRONTIER_EDITOR=${EDITOR_MODE})
+        add_test(NAME ActivationValidation${EDITOR_MODE} COMMAND ActivationValidation${EDITOR_MODE})
+    endforeach()
+    add_test(NAME FontCatalogueValidation COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/Exhibits/ControlCentre/Code/FontCatalogueValidation.py")
+    add_executable(InputPreferencesValidation Exhibits/ControlCentre/Code/InputPreferencesValidation.cpp)
+    target_link_libraries(InputPreferencesValidation PRIVATE FrontierInterface)
+    add_test(NAME InputPreferencesValidation COMMAND InputPreferencesValidation "${CMAKE_BINARY_DIR}/input-evidence")
+    add_executable(PanelExpansionValidation Exhibits/ControlCentre/Code/PanelExpansionValidation.cpp)
+    target_link_libraries(PanelExpansionValidation PRIVATE FrontierInterface)
+    add_test(NAME PanelExpansionValidation COMMAND PanelExpansionValidation)
+    add_executable(ContentDirectoryValidation Exhibits/ContentBrowser/Code/ContentDirectoryValidation.cpp)
+    target_link_libraries(ContentDirectoryValidation PRIVATE FrontierInterface)
+    add_test(NAME ContentDirectoryValidation COMMAND ContentDirectoryValidation "${CMAKE_BINARY_DIR}/content-directory-evidence")
+    add_executable(ContentBrowserValidation Exhibits/ContentBrowser/Code/ContentBrowserValidation.cpp)
+    target_link_libraries(ContentBrowserValidation PRIVATE FrontierEditorUI)
+    add_test(NAME ContentBrowserValidation COMMAND ContentBrowserValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives" "${CMAKE_BINARY_DIR}/content-browser-evidence")
+    add_executable(ControlCentreValidation Exhibits/ControlCentre/Code/ControlCentreValidation.cpp)
+    target_link_libraries(ControlCentreValidation PRIVATE FrontierEditorUI)
+    add_test(NAME ControlCentreValidation COMMAND ControlCentreValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives" "${CMAKE_BINARY_DIR}/control-centre-evidence")
+    add_executable(WorkspaceLayoutValidation Exhibits/Docking/Code/WorkspaceLayoutValidation.cpp)
+    target_link_libraries(WorkspaceLayoutValidation PRIVATE FrontierEditorUI)
+    add_test(NAME WorkspaceLayoutValidation COMMAND WorkspaceLayoutValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_CURRENT_BINARY_DIR}/workspace-layout-evidence")
+    add_executable(DockingValidation Exhibits/Docking/Code/DockingValidation.cpp)
+    target_link_libraries(DockingValidation PRIVATE FrontierEditorUI)
+    add_test(NAME DockingValidation COMMAND DockingValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/docking-evidence")
+    add_executable(NotificationValidation Exhibits/Notifications/Code/NotificationValidation.cpp)
+    target_link_libraries(NotificationValidation PRIVATE FrontierEditorUI)
+    add_test(NAME NotificationValidation COMMAND NotificationValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/notification-evidence")
+    add_executable(ProjectSpaceValidation Exhibits/ProjectSpace/Code/ProjectSpaceValidation.cpp)
+    target_link_libraries(ProjectSpaceValidation PRIVATE FrontierEditorUI)
+    add_test(NAME ProjectSpaceValidation COMMAND ProjectSpaceValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/projectspace-evidence")
+    add_executable(InterfaceValidation Exhibits/UIFoundation/Code/InterfaceValidation.cpp)
+    target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
+    add_test(NAME InterfaceValidation COMMAND InterfaceValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
+endif()

@@ -1,0 +1,11 @@
+Format = 1
+Name = "LDPE Polyethylene"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6795424696330938, 0.6938717612919899, 0.5775804404296506]
+Roughness = 0.4
+Metallic = 0
+Ior = 1.51
+Coverage = 1.0
+Anisotropy = 0

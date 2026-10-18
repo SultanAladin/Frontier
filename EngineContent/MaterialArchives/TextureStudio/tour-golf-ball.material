@@ -1,0 +1,19 @@
+Format = 1
+Name = "Tour Golf Ball"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7912979403326302, 0.7835377915261935, 0.7379104087727308]
+Roughness = 0.25
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.15
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.65

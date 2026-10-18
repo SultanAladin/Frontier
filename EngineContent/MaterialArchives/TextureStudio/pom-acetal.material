@@ -1,0 +1,11 @@
+Format = 1
+Name = "POM Acetal"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7454042095403874, 0.7379104087727308, 0.6375968739940326]
+Roughness = 0.3
+Metallic = 0
+Ior = 1.48
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,19 @@
+Format = 1
+Name = "Zellige Ceramic Tiles"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.030713443732993635, 0.13843161503245183, 0.1301364766903643]
+Roughness = 0.28
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.85

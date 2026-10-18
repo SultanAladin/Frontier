@@ -1,0 +1,11 @@
+Format = 1
+Name = "Natural Cotton"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5711248294648731, 0.5209955732043543, 0.4232676699860717]
+Roughness = 0.9
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.15

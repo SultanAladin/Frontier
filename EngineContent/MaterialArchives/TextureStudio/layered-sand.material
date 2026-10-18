@@ -1,0 +1,11 @@
+Format = 1
+Name = "Layered Sand"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.39675523072562685, 0.24228112246555486, 0.09989872824711389]
+Roughness = 0.88
+Metallic = 0
+Ior = 1.544
+Coverage = 1.0
+Anisotropy = 0

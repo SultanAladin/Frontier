@@ -1,0 +1,11 @@
+Format = 1
+Name = "18K Rose Gold"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.799102738014409, 0.4341536361747489, 0.3277780980565422]
+Roughness = 0.21
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
