@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tyre Tread Array — Topology Prototype</title>
+  <style>
+    :root {
+      --bg: #0b1117;
+      --panel: #111a22;
+      --panel-2: #16222c;
+      --panel-3: #1b2a35;
+      --line: #2b3a46;
+      --line-soft: rgba(132, 158, 174, .16);
+      --text: #e5edf1;
+      --muted: #8da0ad;
+      --faint: #5d717d;
+      --cyan: #6ed8da;
+      --cyan-strong: #35c5ce;
+      --green: #91e7a8;
+      --orange: #ff9b66;
+      --yellow: #f4d36f;
+      --red: #ff6c7d;
+      --blue: #6fa9d9;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .28);
+      --radius: 12px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      min-width: 1020px;
+      background:
+        radial-gradient(900px 600px at 78% -20%, rgba(48, 125, 137, .13), transparent 70%),
+        var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      letter-spacing: .01em;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .app-shell { min-height: 100%; display: flex; flex-direction: column; }
+    .topbar {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(10, 16, 22, .88);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 210px;
+      color: #dbe8ed;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .18em;
+    }
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--cyan-strong);
+      border-radius: 7px;
+      color: var(--cyan);
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0;
+      box-shadow: inset 0 0 14px rgba(53, 197, 206, .18);
+    }
+    .top-title {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .05em;
+    }
+    .top-spacer { flex: 1; }
+    .build-pill, .mode-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .build-pill::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px rgba(145, 231, 168, .7);
+    }
+    .mode-pill { padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; color: #b5c8d1; }
+
+    .subbar {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line-soft);
+      background: rgba(17, 26, 34, .64);
+    }
+    .crumb { color: var(--faint); font-size: 11px; }
+    .crumb strong { color: #b9cbd2; font-weight: 600; }
+    .crumb-separator { color: #48606c; }
+    .subbar-spacer { flex: 1; }
+    .top-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #16212a;
+      color: #b6c6ce;
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .top-action:hover { border-color: #537282; color: var(--text); background: #1b2b35; }
+    .top-action.primary { border-color: rgba(110, 216, 218, .64); color: var(--cyan); }
+
+    .layout { flex: 1; display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 20px 16px 24px 22px;
+      border-right: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, rgba(18, 29, 37, .9), rgba(12, 19, 25, .72));
+    }
+    .eyebrow {
+      color: var(--cyan);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .side-heading { margin: 5px 0 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+    .side-copy { margin: 7px 0 0; color: var(--muted); line-height: 1.45; font-size: 11px; }
+    .section-rule { height: 1px; background: var(--line-soft); margin: 1px 0 -4px; }
+
+    .recipe-list { display: flex; flex-direction: column; gap: 5px; }
+    .recipe-step {
+      position: relative;
+      display: grid;
+      grid-template-columns: 27px 1fr 13px;
+      align-items: center;
+      gap: 9px;
+      width: 100%;
+      min-height: 53px;
+      padding: 8px 9px 8px 8px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: background .15s, border-color .15s, transform .15s;
+    }
+    .recipe-step:hover { background: rgba(40, 61, 72, .4); border-color: rgba(80, 112, 125, .28); }
+    .recipe-step.active {
+      background: linear-gradient(90deg, rgba(55, 113, 120, .27), rgba(31, 48, 58, .52));
+      border-color: rgba(110, 216, 218, .42);
+      box-shadow: inset 2px 0 var(--cyan-strong);
+    }
+    .recipe-step.done .step-number { color: var(--green); border-color: rgba(145, 231, 168, .5); }
+    .step-number {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #425661;
+      border-radius: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .recipe-step.active .step-number { color: var(--cyan); border-color: var(--cyan); background: rgba(110, 216, 218, .08); }
+    .step-title { color: #d3e0e5; font-size: 12px; font-weight: 600; }
+    .step-note { margin-top: 3px; color: var(--faint); font-size: 10px; line-height: 1.25; }
+    .step-chevron { color: #59707c; font-size: 16px; transform: translateY(-1px); }
+
+    .control-group { display: flex; flex-direction: column; gap: 11px; }
+    .control-heading { display: flex; align-items: center; justify-content: space-between; }
+    .control-heading h3 { margin: 0; color: #c6d4da; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+    .fit-badge { padding: 3px 6px; border: 1px solid rgba(145, 231, 168, .34); border-radius: 4px; color: var(--green); font-size: 9px; letter-spacing: .08em; }
+    .field { display: grid; grid-template-columns: 1fr auto; gap: 6px 11px; align-items: center; }
+    .field label { color: var(--muted); font-size: 11px; }
+    .field output { color: #dce8eb; font-variant-numeric: tabular-nums; font-size: 11px; }
+    .field input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--cyan-strong); }
+    input[type="range"] { height: 4px; margin: 0; cursor: pointer; }
+    .number-row { display: flex; gap: 7px; }
+    .number-field { flex: 1; display: flex; align-items: center; gap: 7px; padding: 0 8px; height: 32px; border: 1px solid var(--line); border-radius: 6px; background: #0f181f; }
+    .number-field span { color: var(--faint); font-size: 10px; }
+    .number-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: #dce8eb; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .number-field input::-webkit-inner-spin-button { opacity: .45; }
+
+    .toggle-list { display: flex; flex-direction: column; gap: 8px; }
+    .toggle { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; cursor: pointer; }
+    .toggle input { position: absolute; opacity: 0; pointer-events: none; }
+    .toggle-mark { width: 27px; height: 16px; padding: 2px; border: 1px solid #405560; border-radius: 20px; background: #19252d; transition: background .15s, border-color .15s; }
+    .toggle-mark::after { content: ""; display: block; width: 10px; height: 10px; border-radius: 50%; background: #6f848e; transition: transform .15s, background .15s; }
+    .toggle input:checked + .toggle-mark { border-color: rgba(110, 216, 218, .7); background: rgba(50, 150, 157, .35); }
+    .toggle input:checked + .toggle-mark::after { transform: translateX(11px); background: var(--cyan); }
+
+    .sidebar-foot { margin-top: auto; padding-top: 13px; border-top: 1px solid var(--line-soft); }
+    .sidebar-foot p { margin: 0; color: var(--faint); font-size: 10px; line-height: 1.5; }
+    .sidebar-foot code { color: #a6cbd0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .workspace { min-width: 0; padding: 22px 26px 28px; overflow: auto; }
+    .workspace-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 17px; }
+    .workspace-head h1 { margin: 4px 0 5px; font-size: 23px; line-height: 1.1; font-weight: 650; letter-spacing: -.035em; }
+    .workspace-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .head-spacer { flex: 1; }
+    .stage-badge { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .stage-badge strong { color: var(--cyan); font-size: 11px; letter-spacing: .13em; }
+    .stage-badge span { color: var(--faint); font-size: 10px; }
+
+    .viewport-card {
+      position: relative;
+      min-height: 520px;
+      border: 1px solid #2a3c48;
+      border-radius: var(--radius);
+      background: #0e161d;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .viewport-toolbar {
+      position: absolute;
+      z-index: 2;
+      left: 15px;
+      right: 15px;
+      top: 13px;
+      display: flex;
+      align-items: center;
+      pointer-events: none;
+    }
+    .viewport-toolbar > * { pointer-events: auto; }
+    .view-label { display: inline-flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid rgba(63, 91, 103, .7); border-radius: 6px; background: rgba(13, 21, 28, .83); color: #b7c9d0; font-size: 10px; letter-spacing: .1em; }
+    .view-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px rgba(110, 216, 218, .65); }
+    .view-tools { margin-left: auto; display: flex; gap: 6px; }
+    .icon-action { width: 30px; height: 28px; border: 1px solid rgba(63, 91, 103, .75); border-radius: 6px; background: rgba(13, 21, 28, .83); color: #99afb9; cursor: pointer; }
+    .icon-action:hover { color: var(--cyan); border-color: var(--cyan-strong); }
+    #stageCanvas { display: block; width: 100%; height: 520px; }
+    .canvas-caption { position: absolute; left: 17px; bottom: 14px; color: #69818c; font-size: 10px; letter-spacing: .06em; pointer-events: none; }
+
+    .legend-strip { display: flex; align-items: center; gap: 17px; min-height: 45px; padding: 0 4px; border-bottom: 1px solid var(--line-soft); }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
+    .legend-line { width: 19px; height: 3px; border-radius: 2px; background: var(--green); }
+    .legend-line.orange { background: var(--orange); }
+    .legend-line.yellow { background: var(--yellow); }
+    .legend-line.black { height: 2px; background: #111820; border: 1px solid #526673; }
+    .legend-spacer { flex: 1; }
+    .legend-note { color: var(--faint); font-size: 10px; }
+
+    .lower-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: 13px; margin-top: 14px; }
+    .info-card { min-height: 150px; padding: 16px 17px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 29, 37, .76); }
+    .info-card h2 { margin: 0 0 12px; color: #d5e1e5; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+    .explanation { display: grid; grid-template-columns: 28px 1fr; gap: 9px; align-items: start; }
+    .explanation-index { color: var(--cyan); font-family: ui-monospace, monospace; font-size: 11px; }
+    .explanation strong { display: block; margin-bottom: 4px; color: #dce8eb; font-size: 13px; font-weight: 600; }
+    .explanation p { margin: 0; color: var(--muted); line-height: 1.48; font-size: 11px; }
+    .readout-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+    .readout { padding: 9px 10px; border: 1px solid rgba(74, 99, 110, .45); border-radius: 7px; background: rgba(9, 16, 22, .44); }
+    .readout label { display: block; color: var(--faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .readout output { display: block; margin-top: 4px; color: #dce8eb; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .readout output.good { color: var(--green); }
+
+    @media (max-width: 1120px) {
+      body { min-width: 0; }
+      .layout { grid-template-columns: 275px minmax(0, 1fr); }
+      .workspace { padding-left: 18px; padding-right: 18px; }
+      .lower-grid { grid-template-columns: 1fr; }
+      .top-title { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">F</span><span>FRONTIER / GEOMETRY</span></div>
+      <div class="top-title">Parametric surface studies</div>
+      <div class="top-spacer"></div>
+      <div class="build-pill">live prototype</div>
+      <div class="mode-pill">single tread band</div>
+    </header>
+
+    <div class="subbar">
+      <div class="crumb">PROTOTYPES</div><div class="crumb-separator">/</div><div class="crumb"><strong>tyre tread array</strong></div>
+      <div class="subbar-spacer"></div>
+      <button class="top-action" id="resetButton" type="button">Reset study</button>
+      <button class="top-action primary" id="playButton" type="button"><span id="playIcon">▶</span><span id="playLabel">Play construction</span></button>
+    </div>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div>
+          <div class="eyebrow">Construction recipe</div>
+          <h2 class="side-heading">Do not shortcut the topology</h2>
+          <p class="side-copy">One repeat is authored first. It is made into a clean polygon strip, copied on a straight rail, bridged on matching boundary loops, then wrapped.</p>
+        </div>
+
+        <div class="recipe-list" id="recipeList">
+          <button class="recipe-step active" data-stage="1" type="button">
+            <span class="step-number">01</span><span><span class="step-title">Primitive path</span><span class="step-note">author the chevron guide</span></span><span class="step-chevron">›</span>
+          </button>
+          <button class="recipe-step" data-stage="2" type="button">
+            <span class="step-number">02</span><span><span class="step-title">Polygon + flow</span><span class="step-note">turn the path into a quad strip</span></span><span class="step-chevron">›</span>
+          </button>
+          <button class="recipe-step" data-stage="3" type="button">
+            <span class="step-number">03</span><span><span class="step-title">Straight array</span><span class="step-note">repeat the identical patch</span></span><span class="step-chevron">›</span>
+          </button>
+          <button class="recipe-step" data-stage="4" type="button">
+            <span class="step-number">04</span><span><span class="step-title">Matched bridge</span><span class="step-note">join endpoint loops only</span></span><span class="step-chevron">›</span>
+          </button>
+          <button class="recipe-step" data-stage="5" type="button">
+            <span class="step-number">05</span><span><span class="step-title">Bend to tyre</span><span class="step-note">close the circumference</span></span><span class="step-chevron">›</span>
+          </button>
+        </div>
+
+        <div class="section-rule"></div>
+
+        <div class="control-group">
+          <div class="control-heading"><h3>Fit to circumference</h3><span class="fit-badge">AUTO FIT</span></div>
+          <div class="field">
+            <label for="diameterRange">Tyre outside diameter</label><output id="diameterOutput">680 mm</output>
+            <input id="diameterRange" type="range" min="520" max="920" step="1" value="680" />
+          </div>
+          <div class="field">
+            <label for="patchRange">Patch span</label><output id="patchOutput">104 mm</output>
+            <input id="patchRange" type="range" min="60" max="150" step="1" value="104" />
+          </div>
+          <div class="field">
+            <label for="gapRange">Target seam gap</label><output id="gapOutput">16 mm</output>
+            <input id="gapRange" type="range" min="4" max="36" step="1" value="16" />
+          </div>
+        </div>
+
+        <div class="number-row">
+          <div class="number-field"><span>OD</span><input id="diameterNumber" type="number" min="520" max="920" value="680" aria-label="Tyre outside diameter" /></div>
+          <div class="number-field"><span>W</span><input id="widthNumber" type="number" min="160" max="420" value="260" aria-label="Tyre tread width" /></div>
+        </div>
+
+        <div class="section-rule"></div>
+
+        <div class="control-group">
+          <div class="control-heading"><h3>Viewport overlays</h3></div>
+          <div class="toggle-list">
+            <label class="toggle"><input id="topologyToggle" type="checkbox" checked /><span class="toggle-mark"></span><span>show green topology flow</span></label>
+            <label class="toggle"><input id="nodesToggle" type="checkbox" checked /><span class="toggle-mark"></span><span>show interior vertices</span></label>
+            <label class="toggle"><input id="bridgesToggle" type="checkbox" checked /><span class="toggle-mark"></span><span>show seam bridges</span></label>
+          </div>
+        </div>
+
+        <div class="sidebar-foot">
+          <p><code>Rule:</code> no rectangular filler grid. Every bridge uses the same ordered boundary vertices as its neighbour. The same loop-first bridge can be reused for boolean-derived outlines after tracing and quad filling.</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <div class="workspace-head">
+          <div>
+            <div class="eyebrow">Topology-first tread authoring</div>
+            <h1 id="stageTitle">01 / Primitive path</h1>
+            <p id="stageSubtitle">Find the repeat as a simple chevron guide before making any surface.</p>
+          </div>
+          <div class="head-spacer"></div>
+          <div class="stage-badge"><strong id="stageCounter">STAGE 1 OF 5</strong><span>unwrapped → closed loop</span></div>
+        </div>
+
+        <section class="viewport-card">
+          <div class="viewport-toolbar">
+            <div class="view-label" id="viewLabel">ORTHOGRAPHIC / UNWRAPPED</div>
+            <div class="view-tools"><button class="icon-action" id="zoomOut" type="button" aria-label="Zoom out">−</button><button class="icon-action" id="zoomIn" type="button" aria-label="Zoom in">+</button><button class="icon-action" id="fitView" type="button" aria-label="Fit view">⌗</button></div>
+          </div>
+          <canvas id="stageCanvas" aria-label="Interactive tyre tread construction viewport"></canvas>
+          <div class="canvas-caption" id="canvasCaption">UNWRAPPED BAND / SINGLE REPEAT</div>
+        </section>
+
+        <div class="legend-strip">
+          <div class="legend-item"><span class="legend-line orange"></span><span>start boundary loop</span></div>
+          <div class="legend-item"><span class="legend-line yellow"></span><span>end boundary loop</span></div>
+          <div class="legend-item"><span class="legend-line"></span><span>interior quad flow</span></div>
+          <div class="legend-item"><span class="legend-line black"></span><span>intentional seam / gap</span></div>
+          <div class="legend-spacer"></div>
+          <div class="legend-note">The dark gap is not a missing surface — it is the seam reserved for the bridge.</div>
+        </div>
+
+        <div class="lower-grid">
+          <section class="info-card">
+            <h2>What this stage proves</h2>
+            <div class="explanation"><div class="explanation-index" id="explanationIndex">01</div><div><strong id="explanationTitle">A repeatable primitive, not a box</strong><p id="explanationText">The black guide is the tread idea. It has two ordered endpoint loops, so the next operation can copy the exact same boundary rather than inventing a square grid around it.</p></div></div>
+          </section>
+          <section class="info-card">
+            <h2>Geometry readout</h2>
+            <div class="readout-grid">
+              <div class="readout"><label>circumference</label><output id="circumferenceReadout">2,136.3 mm</output></div>
+              <div class="readout"><label>repeat count</label><output id="countReadout" class="good">17 pieces</output></div>
+              <div class="readout"><label>fitted pitch</label><output id="pitchReadout">125.7 mm</output></div>
+              <div class="readout"><label>fitted seam</label><output id="seamReadout" class="good">21.7 mm</output></div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("stageCanvas");
+      const ctx = canvas.getContext("2d");
+      const viewportCard = document.querySelector(".viewport-card");
+      const root = document.documentElement;
+
+      const state = {
+        stage: 1,
+        diameter: 680,
+        patchSpan: 104,
+        targetGap: 16,
+        width: 260,
+        topology: true,
+        nodes: true,
+        bridges: true,
+        zoom: 1,
+        playing: false,
+        playTimer: null,
+        dpr: 1,
+        w: 0,
+        h: 0
+      };
+
+      const stageData = {
+        1: {
+          title: "01 / Primitive path",
+          subtitle: "Find the repeat as a simple chevron guide before making any surface.",
+          view: "ORTHOGRAPHIC / UNWRAPPED",
+          caption: "UNWRAPPED BAND / SINGLE REPEAT",
+          proofTitle: "A repeatable primitive, not a box",
+          proofText: "The black guide is the tread idea. It has two ordered endpoint loops, so the next operation can copy the exact same boundary rather than inventing a square grid around it."
+        },
+        2: {
+          title: "02 / Polygon + flow",
+          subtitle: "Turn that guide into a polygon strip whose quads follow the chevron.",
+          view: "ORTHOGRAPHIC / PATCH MESH",
+          caption: "POLYGON PATCH / GREEN FLOW",
+          proofTitle: "The polygon follows the pattern",
+          proofText: "The green interior vertices are swept along the guide. The result is a narrow, clean quad strip with matching start and end loops — not a rectangular field of unrelated quads."
+        },
+        3: {
+          title: "03 / Straight array",
+          subtitle: "Repeat the identical patch on a straight line while keeping every seam open.",
+          view: "ORTHOGRAPHIC / LINEAR ARRAY",
+          caption: "STRAIGHT ARRAY / OPEN SEAMS",
+          proofTitle: "Copy first, bridge second",
+          proofText: "Every instance is the same patch. The paired black lines are deliberate open seams; they leave the corresponding endpoint vertices visible for the bridge operation."
+        },
+        4: {
+          title: "04 / Matched bridge",
+          subtitle: "Bridge only the matching endpoint loops — the topology stays local to the tread.",
+          view: "ORTHOGRAPHIC / SEAM BRIDGE",
+          caption: "MATCHED LOOPS / BRIDGE QUADS",
+          proofTitle: "A bridge, not a filler grid",
+          proofText: "Each coloured seam quad connects row 0 to row 0, row 1 to row 1, and so on. It follows the sloped patch edges and preserves the low-poly flow through the repeat."
+        },
+        5: {
+          title: "05 / Bend to tyre",
+          subtitle: "Use the fitted pitch to wrap the bridged array into one closed tread band.",
+          view: "PERSPECTIVE / CLOSED LOOP",
+          caption: "ONE TREAD BAND / CLOSED CIRCUMFERENCE",
+          proofTitle: "The straight array becomes the tyre",
+          proofText: "The circumference is divided into an integer number of equal pitches first. The bridge stays the same; only the array's longitudinal coordinate is mapped to angle around the tyre."
+        }
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const fmt = (n, digits = 1) => n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+      function metrics() {
+        const circumference = Math.PI * state.diameter;
+        const nominalPitch = state.patchSpan + state.targetGap;
+        const count = Math.max(4, Math.round(circumference / nominalPitch));
+        const fittedPitch = circumference / count;
+        const fittedGap = fittedPitch - state.patchSpan;
+        return { circumference, nominalPitch, count, fittedPitch, fittedGap, gapRatio: fittedGap / fittedPitch };
+      }
+
+      function updateReadout() {
+        const m = metrics();
+        $("diameterOutput").textContent = `${state.diameter} mm`;
+        $("patchOutput").textContent = `${state.patchSpan} mm`;
+        $("gapOutput").textContent = `${state.targetGap} mm`;
+        $("diameterRange").value = state.diameter;
+        $("diameterNumber").value = state.diameter;
+        $("widthNumber").value = state.width;
+        $("circumferenceReadout").textContent = `${fmt(m.circumference)} mm`;
+        $("countReadout").textContent = `${m.count} pieces`;
+        $("pitchReadout").textContent = `${fmt(m.fittedPitch)} mm`;
+        $("seamReadout").textContent = `${fmt(m.fittedGap)} mm`;
+        $("seamReadout").classList.toggle("good", m.fittedGap >= 5);
+      }
+
+      function setStage(stage) {
+        state.stage = clamp(Number(stage), 1, 5);
+        document.querySelectorAll(".recipe-step").forEach((button) => {
+          const n = Number(button.dataset.stage);
+          button.classList.toggle("active", n === state.stage);
+          button.classList.toggle("done", n < state.stage);
+        });
+        const data = stageData[state.stage];
+        $("stageTitle").textContent = data.title;
+        $("stageSubtitle").textContent = data.subtitle;
+        $("stageCounter").textContent = `STAGE ${state.stage} OF 5`;
+        $("viewLabel").textContent = data.view;
+        $("canvasCaption").textContent = data.caption;
+        $("explanationIndex").textContent = String(state.stage).padStart(2, "0");
+        $("explanationTitle").textContent = data.proofTitle;
+        $("explanationText").textContent = data.proofText;
+        draw();
+      }
+
+      // A normalized source path. Its first and last points share the same height,
+      // so the ordered boundary rings match when instances are bridged.
+      const sourcePath = [
+        { x: 0.00, y: 0.50 },
+        { x: 0.16, y: 0.18 },
+        { x: 0.34, y: 0.76 },
+        { x: 0.50, y: 0.18 },
+        { x: 0.66, y: 0.76 },
+        { x: 0.84, y: 0.18 },
+        { x: 1.00, y: 0.50 }
+      ];
+      const laneFractions = [-1, -0.34, 0.34, 1];
+
+      function normalizedGrid() {
+        const half = 0.078;
+        return laneFractions.map((lane) => sourcePath.map((point, index) => {
+          const previous = sourcePath[Math.max(0, index - 1)];
+          const next = sourcePath[Math.min(sourcePath.length - 1, index + 1)];
+          const tx = next.x - previous.x;
+          const ty = next.y - previous.y;
+          const length = Math.hypot(tx, ty) || 1;
+          // Rotate the tangent to get the cross-strip direction.
+          const nx = -ty / length;
+          const ny = tx / length;
+          return { x: point.x + nx * half * lane, y: point.y + ny * half * lane };
+        }));
+      }
+      const sourceGrid = normalizedGrid();
+
+      function mapGrid(grid, x, y, width, height) {
+        return grid.map((row) => row.map((p) => ({ x: x + p.x * width, y: y + p.y * height })));
+      }
+
+      function pathLine(points, close = false) {
+        ctx.beginPath();
+        points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        if (close) ctx.closePath();
+      }
+
+      function strokePath(points, color, width = 1, dash = []) {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.setLineDash(dash);
+        pathLine(points);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function fillQuad(a, b, c, d, fill, stroke = null, lineWidth = 1) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth; ctx.stroke(); }
+      }
+
+      function drawNode(p, color = "#91e7a8", radius = 2.5, alpha = 1) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.strokeStyle = "#0e161d"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPatch(grid, options = {}) {
+        const {
+          fill = true,
+          fillAlpha = 1,
+          lineAlpha = 1,
+          simple = false,
+          highlight = false,
+          bridge = false,
+          nodeAlpha = 1
+        } = options;
+        const rows = grid.length;
+        const cols = grid[0].length;
+        const fills = [
+          ["#29444d", "#2e4a52", "#2a414a"],
+          ["#31535b", "#385b61", "#345159"],
+          ["#29444d", "#2e4a52", "#2a414a"]
+        ];
+
+        if (fill) {
+          ctx.save();
+          ctx.globalAlpha = fillAlpha;
+          for (let r = 0; r < rows - 1; r++) {
+            for (let c = 0; c < cols - 1; c++) {
+              const tint = simple ? "#2a4149" : fills[r][c % fills[r].length];
+              fillQuad(grid[r][c], grid[r][c + 1], grid[r + 1][c + 1], grid[r + 1][c], tint, "rgba(7, 13, 18, .76)", 1);
+            }
+          }
+          ctx.restore();
+        }
+
+        if (!simple) {
+          // Cross-sections and longitudinal rails are deliberately drawn as the
+          // swept chevron, rather than as an unrelated rectangular grid.
+          if (state.topology) {
+            for (let r = 1; r < rows - 1; r++) {
+              strokePath(grid[r], `rgba(145, 231, 168, ${lineAlpha})`, highlight ? 1.55 : 1.1);
+            }
+            for (let c = 0; c < cols; c++) {
+              const cross = grid.map((row) => row[c]);
+              strokePath(cross, `rgba(145, 231, 168, ${lineAlpha * .82})`, 1);
+            }
+          }
+
+          strokePath(grid[0], `rgba(255, 155, 102, ${lineAlpha})`, highlight ? 2.1 : 1.4);
+          strokePath(grid[rows - 1], `rgba(244, 211, 111, ${lineAlpha})`, highlight ? 2.1 : 1.4);
+          strokePath(grid[0].map((_, i) => grid[0][i]), `rgba(255, 255, 255, ${lineAlpha * .09})`, .7);
+
+          if (state.nodes) {
+            grid.forEach((row, r) => row.forEach((point, c) => {
+              const interior = r > 0 && r < rows - 1;
+              drawNode(point, interior ? "#91e7a8" : (c === 0 ? "#ff9b66" : c === cols - 1 ? "#f4d36f" : "#b6c7cd"), interior ? 2.2 : 2.5, nodeAlpha);
+            }));
+          }
+        } else {
+          strokePath(grid[0], `rgba(222, 234, 238, ${lineAlpha * .58})`, 1.1);
+          strokePath(grid[rows - 1], `rgba(222, 234, 238, ${lineAlpha * .58})`, 1.1);
+        }
+
+        // Endpoint loops are always explicit. They are what the bridge consumes.
+        ctx.save();
+        ctx.globalAlpha = lineAlpha;
+        strokePath(grid.map((row) => row[0]), highlight ? "#ff9b66" : "rgba(255, 155, 102, .78)", highlight ? 2 : 1.4);
+        strokePath(grid.map((row) => row[cols - 1]), highlight ? "#f4d36f" : "rgba(244, 211, 111, .78)", highlight ? 2 : 1.4);
+        ctx.restore();
+
+        if (bridge) {
+          for (let r = 0; r < rows - 1; r++) {
+            fillQuad(grid[r][cols - 1], grid[r + 1][cols - 1], grid[r + 1][0], grid[r][0], "rgba(91, 198, 193, .42)", "rgba(110, 216, 218, .9)", 1.2);
+          }
+        }
+      }
+
+      function drawBackdrop(gridMode = true) {
+        ctx.clearRect(0, 0, state.w, state.h);
+        const bg = ctx.createLinearGradient(0, 0, 0, state.h);
+        bg.addColorStop(0, "#101a22"); bg.addColorStop(1, "#0c141b");
+        ctx.fillStyle = bg; ctx.fillRect(0, 0, state.w, state.h);
+        if (gridMode) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(126, 157, 170, .07)";
+          ctx.lineWidth = 1;
+          const step = 32;
+          for (let x = 0; x <= state.w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, state.h); ctx.stroke(); }
+          for (let y = 0; y <= state.h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(state.w, y); ctx.stroke(); }
+          ctx.restore();
+        }
+      }
+
+      function drawText(text, x, y, options = {}) {
+        ctx.save();
+        ctx.fillStyle = options.color || "#8da0ad";
+        ctx.font = options.font || "11px Inter, system-ui, sans-serif";
+        ctx.textAlign = options.align || "left";
+        ctx.textBaseline = options.baseline || "alphabetic";
+        if (options.rotate) { ctx.translate(x, y); ctx.rotate(options.rotate); ctx.fillText(text, 0, 0); }
+        else ctx.fillText(text, x, y);
+        ctx.restore();
+      }
+
+      function drawDimension(x1, y1, x2, y2, label, color = "#728892") {
+        ctx.save();
+        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const tick = 5;
+        for (const [x, y] of [[x1, y1], [x2, y2]]) {
+          ctx.beginPath(); ctx.moveTo(x - Math.sin(angle) * tick, y + Math.cos(angle) * tick); ctx.lineTo(x + Math.sin(angle) * tick, y - Math.cos(angle) * tick); ctx.stroke();
+        }
+        drawText(label, (x1 + x2) / 2, (y1 + y2) / 2 - 6, { color, align: "center", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        ctx.restore();
+      }
+
+      function drawTag(text, x, y, color = "#91e7a8", align = "left") {
+        ctx.save();
+        ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+        const width = ctx.measureText(text).width + 14;
+        const left = align === "right" ? x - width : x;
+        ctx.fillStyle = "rgba(9, 16, 22, .88)";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(left, y - 15, width, 22, 5); ctx.fill(); ctx.stroke();
+        drawText(text, left + 7, y, { color, font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        ctx.restore();
+      }
+
+      function drawStage1() {
+        drawBackdrop(true);
+        const widthScale = clamp(state.width / 260, .78, 1.28);
+        const w = Math.min(430, state.w * .5) * state.zoom;
+        const h = Math.min(310, state.h * .59) * widthScale * state.zoom;
+        const x = state.w * .49 - w / 2;
+        const y = state.h * .53 - h / 2;
+        const grid = mapGrid(sourceGrid, x, y, w, h);
+
+        drawText("SOURCE PRIMITIVE", x, y - 68, { color: "#6ed8da", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        drawText("one authored repeat", x, y - 48, { color: "#718791", font: "11px Inter, system-ui, sans-serif" });
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(110, 216, 218, .2)"; ctx.setLineDash([4, 5]); ctx.lineWidth = 1;
+        ctx.strokeRect(x - 26, y - 26, w + 52, h + 52);
+        ctx.restore();
+
+        // The primitive is a single thick guide; no surface is implied at this stage.
+        const center = sourcePath.map((p) => ({ x: x + p.x * w, y: y + p.y * h }));
+        strokePath(center, "#dce8eb", 3.3);
+        strokePath(center, "#16242c", 1.2);
+        center.forEach((p, i) => drawNode(p, i === 0 ? "#ff9b66" : i === center.length - 1 ? "#f4d36f" : "#91e7a8", i === 0 || i === center.length - 1 ? 4 : 3));
+
+        // Show the eventual endpoint loops as ghosted parallel boundaries.
+        strokePath(grid[0], "rgba(255, 155, 102, .52)", 1.2, [4, 4]);
+        strokePath(grid[grid.length - 1], "rgba(244, 211, 111, .52)", 1.2, [4, 4]);
+        strokePath(grid.map((row) => row[0]), "rgba(255, 155, 102, .82)", 1.5);
+        strokePath(grid.map((row) => row[grid[0].length - 1]), "rgba(244, 211, 111, .82)", 1.5);
+
+        drawTag("A / start loop", x - 26, y - 37, "#ff9b66");
+        drawTag("B / end loop", x + w - 2, y + h + 41, "#f4d36f", "right");
+        drawDimension(x, y + h + 61, x + w, y + h + 61, "repeat span / pitch basis");
+
+        // A deliberately empty seam area, shown before polygon conversion.
+        const gapX = x + w + 55;
+        ctx.save(); ctx.strokeStyle = "#0a1015"; ctx.lineWidth = 3; ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.moveTo(gapX, y + 22); ctx.lineTo(gapX, y + h - 22); ctx.stroke(); ctx.restore();
+        drawText("reserved seam", gapX + 15, y + h / 2 + 4, { color: "#5f747f", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        drawText("no filler faces", gapX + 15, y + h / 2 + 20, { color: "#4d626d", font: "10px Inter, system-ui, sans-serif" });
+
+        drawText("The shape is the data. Surface comes next.", state.w / 2, state.h - 42, { color: "#78909a", align: "center", font: "11px Inter, system-ui, sans-serif" });
+      }
+
+      function drawStage2() {
+        drawBackdrop(true);
+        const widthScale = clamp(state.width / 260, .78, 1.28);
+        const w = Math.min(500, state.w * .56) * state.zoom;
+        const h = Math.min(330, state.h * .62) * widthScale * state.zoom;
+        const x = state.w * .46 - w / 2;
+        const y = state.h * .51 - h / 2;
+        const grid = mapGrid(sourceGrid, x, y, w, h);
+
+        drawText("POLYGON PATCH", x, y - 60, { color: "#6ed8da", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        drawText("quad strips follow the guide path", x, y - 40, { color: "#718791", font: "11px Inter, system-ui, sans-serif" });
+        drawPatch(grid, { fill: true, fillAlpha: 1, highlight: true });
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(110, 216, 218, .2)"; ctx.lineWidth = 1; ctx.setLineDash([4, 5]);
+        ctx.strokeRect(x - 24, y - 24, w + 48, h + 48);
+        ctx.restore();
+        drawTag("ordered boundary A", x - 24, y - 32, "#ff9b66");
+        drawTag("ordered boundary B", x + w - 6, y + h + 38, "#f4d36f", "right");
+
+        const noteX = Math.min(state.w - 245, x + w + 70);
+        const noteY = y + 38;
+        drawTag("green = swept flow", noteX, noteY, "#91e7a8");
+        drawText("every interior rail", noteX, noteY + 28, { color: "#9db0b8", font: "11px Inter, system-ui, sans-serif" });
+        drawText("turns with the V", noteX, noteY + 45, { color: "#9db0b8", font: "11px Inter, system-ui, sans-serif" });
+        strokePath([{ x: noteX - 15, y: noteY + 10 }, { x: x + w * .7, y: y + h * .46 }], "rgba(145, 231, 168, .65)", 1, [3, 4]);
+
+        drawText("No rectangular background topology is introduced.", state.w / 2, state.h - 42, { color: "#78909a", align: "center", font: "11px Inter, system-ui, sans-serif" });
+      }
+
+      function arrayLayout() {
+        const available = state.w - 122;
+        const gapRatio = clamp(metrics().gapRatio, .06, .28);
+        const tileStep = Math.min(124, available / 7.2);
+        const tileGap = tileStep * gapRatio;
+        const patchW = tileStep - tileGap;
+        const count = 8;
+        const total = count * tileStep - tileGap;
+        const x0 = (state.w - total) / 2;
+        const widthScale = clamp(state.width / 260, .78, 1.28);
+        const h = Math.min(305, state.h * .56) * widthScale * state.zoom;
+        const y = state.h * .51 - h / 2;
+        return { gapRatio, tileStep, tileGap, patchW, count, total, x0, y, h };
+      }
+
+      function drawArrayRuler(layout, label) {
+        const y = layout.y - 47;
+        drawText(label, layout.x0, y - 24, { color: "#6ed8da", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        ctx.save(); ctx.strokeStyle = "rgba(127, 158, 169, .42)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(layout.x0, y); ctx.lineTo(layout.x0 + layout.total, y); ctx.stroke();
+        for (let i = 0; i <= layout.count; i++) {
+          const x = layout.x0 + i * layout.tileStep - (i === layout.count ? layout.tileGap : 0);
+          ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5); ctx.stroke();
+          if (i < layout.count) drawText(String(i + 1).padStart(2, "0"), x + layout.patchW / 2, y - 10, { color: "#6f858f", align: "center", font: "9px ui-monospace, monospace" });
+        }
+        ctx.restore();
+        drawText("same patch · same vertex order", layout.x0 + layout.total, y - 24, { color: "#7b939d", align: "right", font: "10px Inter, system-ui, sans-serif" });
+      }
+
+      function drawSeamGap(x, y, h, bridged = false) {
+        ctx.save();
+        ctx.strokeStyle = bridged ? "rgba(14, 29, 34, .85)" : "#070c10";
+        ctx.lineWidth = bridged ? 2 : 3;
+        ctx.setLineDash(bridged ? [2, 4] : [6, 5]);
+        ctx.beginPath(); ctx.moveTo(x - 2, y + 10); ctx.lineTo(x - 2, y + h - 10); ctx.moveTo(x + 2, y + 10); ctx.lineTo(x + 2, y + h - 10); ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawStage3() {
+        drawBackdrop(true);
+        const a = arrayLayout();
+        drawArrayRuler(a, "STRAIGHT ARRAY / OPEN SEAMS");
+        const grids = [];
+        for (let i = 0; i < a.count; i++) {
+          const x = a.x0 + i * a.tileStep;
+          const grid = mapGrid(sourceGrid, x, a.y, a.patchW, a.h);
+          grids.push(grid);
+          drawPatch(grid, { fill: true, fillAlpha: i === 0 ? 1 : .79, lineAlpha: i === 0 ? 1 : .45, highlight: i === 0, nodeAlpha: i === 0 ? 1 : .32 });
+          if (i < a.count - 1) drawSeamGap(x + a.patchW + a.tileGap / 2, a.y, a.h, false);
+        }
+        drawTag("instance 01 / source", a.x0 - 9, a.y + a.h + 42, "#6ed8da");
+        drawTag("open seam", a.x0 + a.tileStep * 4.15, a.y - 18, "#8da0ad");
+        drawText("The array is still straight. Nothing has been bent or bridged yet.", state.w / 2, state.h - 39, { color: "#78909a", align: "center", font: "11px Inter, system-ui, sans-serif" });
+      }
+
+      function drawStage4() {
+        drawBackdrop(true);
+        const a = arrayLayout();
+        drawArrayRuler(a, "MATCHED BRIDGE / LOCAL SEAMS");
+        const grids = [];
+        for (let i = 0; i < a.count; i++) {
+          const x = a.x0 + i * a.tileStep;
+          const grid = mapGrid(sourceGrid, x, a.y, a.patchW, a.h);
+          grids.push(grid);
+          drawPatch(grid, { fill: true, fillAlpha: i === 0 ? 1 : .72, lineAlpha: i === 0 ? 1 : .36, highlight: i === 0, nodeAlpha: i === 0 ? 1 : .25 });
+        }
+        if (state.bridges) {
+          for (let i = 0; i < grids.length - 1; i++) {
+            const left = grids[i]; const right = grids[i + 1];
+            const cols = left[0].length;
+            for (let r = 0; r < left.length - 1; r++) {
+              fillQuad(left[r][cols - 1], left[r + 1][cols - 1], right[r + 1][0], right[r][0], `rgba(89, 193, 190, ${i === 0 ? .62 : .35})`, `rgba(110, 216, 218, ${i === 0 ? .95 : .52})`, i === 0 ? 1.35 : .8);
+            }
+          }
+        }
+        for (let i = 0; i < a.count - 1; i++) {
+          const seamX = a.x0 + i * a.tileStep + a.patchW + a.tileGap / 2;
+          drawSeamGap(seamX, a.y, a.h, true);
+        }
+        const selectedSeam = a.x0 + a.tileStep + a.patchW + a.tileGap / 2;
+        drawTag("bridge matched row-to-row", selectedSeam + 18, a.y + a.h * .48, "#6ed8da");
+        strokePath([{ x: selectedSeam + 13, y: a.y + a.h * .48 - 8 }, { x: selectedSeam, y: a.y + a.h * .48 }], "rgba(110, 216, 218, .8)", 1, [3, 3]);
+        drawText("No filler faces across the whole band — only the boundary loops are joined.", state.w / 2, state.h - 39, { color: "#78909a", align: "center", font: "11px Inter, system-ui, sans-serif" });
+      }
+
+      function ellipsePath(cx, cy, rx, ry) {
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      }
+
+      function ringPoint(cx, cy, rx, ry, theta, radial) {
+        return { x: cx + Math.cos(theta) * rx * radial, y: cy + Math.sin(theta) * ry * radial };
+      }
+
+      function mapRingGrid(theta, step, cx, cy, rx, ry, bandDepth) {
+        return sourceGrid.map((row) => row.map((p) => {
+          const localTheta = theta + (p.x - .5) * step;
+          // y is the radial coordinate of the unwrapped patch. The outer edge is
+          // intentionally slightly lifted from the sidewall to read as tread.
+          const radial = 1.005 - (.055 + p.y * bandDepth);
+          return ringPoint(cx, cy, rx, ry, localTheta, radial);
+        }));
+      }
+
+      function drawRingPatch(grid, theta, step, active, alpha, bridgeNext) {
+        const rows = grid.length;
+        const cols = grid[0].length;
+        const fills = ["#2a4a52", "#315760", "#29464f"];
+        ctx.save(); ctx.globalAlpha = alpha;
+        for (let r = 0; r < rows - 1; r++) {
+          for (let c = 0; c < cols - 1; c++) {
+            fillQuad(grid[r][c], grid[r][c + 1], grid[r + 1][c + 1], grid[r + 1][c], fills[r], "rgba(5, 10, 14, .65)", .8);
+          }
+        }
+        if (active && state.topology) {
+          for (let r = 1; r < rows - 1; r++) strokePath(grid[r], "rgba(145, 231, 168, .92)", 1.35);
+          for (let c = 0; c < cols; c++) strokePath(grid.map((row) => row[c]), "rgba(145, 231, 168, .72)", .9);
+        }
+        strokePath(grid[0], active ? "#ff9b66" : "rgba(255, 155, 102, .44)", active ? 1.7 : .8);
+        strokePath(grid[rows - 1], active ? "#f4d36f" : "rgba(244, 211, 111, .44)", active ? 1.7 : .8);
+        strokePath(grid.map((row) => row[0]), active ? "#ff9b66" : "rgba(255, 155, 102, .6)", active ? 1.7 : .8);
+        strokePath(grid.map((row) => row[cols - 1]), active ? "#f4d36f" : "rgba(244, 211, 111, .6)", active ? 1.7 : .8);
+        if (active && state.nodes) grid.forEach((row, r) => row.forEach((p) => drawNode(p, r > 0 && r < rows - 1 ? "#91e7a8" : "#dce8eb", 2, .94)));
+        ctx.restore();
+
+        if (bridgeNext && state.bridges) {
+          // A ring bridge is represented by a thin dark seam plus a translucent
+          // connector. It remains a seam in the display so its topology is legible.
+          const nextTheta = theta + step;
+          const next = mapRingGrid(nextTheta, step, cxForRing, cyForRing, rxForRing, ryForRing, bandDepthForRing);
+          for (let r = 0; r < rows - 1; r++) {
+            fillQuad(grid[r][cols - 1], grid[r + 1][cols - 1], next[r + 1][0], next[r][0], "rgba(89, 193, 190, .26)", "rgba(110, 216, 218, .38)", .6);
+          }
+        }
+      }
+
+      // Set by drawStage5 before drawRingPatch so the bridge helper remains compact.
+      let cxForRing = 0, cyForRing = 0, rxForRing = 0, ryForRing = 0, bandDepthForRing = 0;
+
+      function drawStage5() {
+        drawBackdrop(false);
+        const m = metrics();
+        const cx = state.w * .5;
+        const cy = state.h * .53;
+        const rx = Math.min(state.w * .30, 276) * state.zoom;
+        const ry = Math.min(state.h * .355, 194) * state.zoom;
+        const innerRx = rx * .58;
+        const innerRy = ry * .58;
+        const bandDepth = clamp(.14 + (state.width - 160) / 1100, .14, .36);
+        cxForRing = cx; cyForRing = cy; rxForRing = rx; ryForRing = ry; bandDepthForRing = bandDepth;
+
+        // Ground shadow.
+        ctx.save(); ctx.globalAlpha = .45; ctx.filter = "blur(15px)"; ctx.fillStyle = "#020608"; ctx.beginPath(); ctx.ellipse(cx, cy + ry * .94, rx * .76, 19, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+
+        // Sidewall as a single annulus. The tread pieces sit on its outer band.
+        ctx.save();
+        ctx.beginPath(); ctx.ellipse(cx, cy, rx * 1.02, ry * 1.02, 0, 0, Math.PI * 2); ctx.ellipse(cx, cy, innerRx, innerRy, 0, 0, Math.PI * 2, true);
+        const rubber = ctx.createRadialGradient(cx - rx * .18, cy - ry * .25, 10, cx, cy, rx * 1.05);
+        rubber.addColorStop(0, "#303d46"); rubber.addColorStop(.45, "#1e2a32"); rubber.addColorStop(1, "#0b1116");
+        ctx.fillStyle = rubber; ctx.fill("evenodd");
+        ctx.strokeStyle = "rgba(126, 154, 164, .34)"; ctx.lineWidth = 1; ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(cx, cy, innerRx, innerRy, 0, 0, Math.PI * 2); ctx.strokeStyle = "rgba(126, 154, 164, .24)"; ctx.stroke();
+        ctx.restore();
+
+        drawText("CLOSED TREAD BAND", cx, cy - ry - 58, { color: "#6ed8da", align: "center", font: "10px ui-monospace, SFMono-Regular, Menlo, monospace" });
+        drawText(`${m.count} equal pitches around π × ${state.diameter} mm`, cx, cy - ry - 38, { color: "#718791", align: "center", font: "11px Inter, system-ui, sans-serif" });
+
+        const N = m.count;
+        const fullStep = Math.PI * 2 / N;
+        const gapRatio = clamp(m.gapRatio, .055, .28);
+        const occupiedStep = fullStep * (1 - gapRatio);
+        const start = -Math.PI / 2 - fullStep * .5;
+        const activeIndex = Math.floor(N * .16);
+        const ringGrids = [];
+
+        // Draw rear first and front last. The highlighted repeat is on the front-right.
+        const order = Array.from({ length: N }, (_, i) => i).sort((a, b) => Math.sin(start + a * fullStep) - Math.sin(start + b * fullStep));
+        order.forEach((i) => {
+          const theta = start + i * fullStep;
+          const grid = mapRingGrid(theta, occupiedStep, cx, cy, rx, ry, bandDepth);
+          ringGrids[i] = grid;
+          const frontness = clamp((Math.sin(theta) + 1) / 2, 0, 1);
+          const active = i === activeIndex;
+          drawRingPatch(grid, theta, occupiedStep, active, active ? 1 : .42 + frontness * .34, false);
+        });
+
+        // Bridge after all patches so the connectors sit on top of the seam but
+        // remain visually subordinate to the selected patch.
+        if (state.bridges) {
+          order.forEach((i) => {
+            const theta = start + i * fullStep;
+            const nextTheta = start + ((i + 1) % N) * fullStep;
+            const left = ringGrids[i];
+            const right = ringGrids[(i + 1) % N] || mapRingGrid(nextTheta, occupiedStep, cx, cy, rx, ry, bandDepth);
+            const alpha = i === activeIndex ? .76 : .18;
+            for (let r = 0; r < sourceGrid.length - 1; r++) {
+              const cols = left[0].length;
+              fillQuad(left[r][cols - 1], left[r + 1][cols - 1], right[r + 1][0], right[r][0], `rgba(89, 193, 190, ${alpha})`, `rgba(110, 216, 218, ${alpha + .1})`, i === activeIndex ? 1 : .55);
+            }
+          });
+        }
+
+        // Keep each seam readable as the black paired lines from the reference.
+        order.forEach((i) => {
+          const theta = start + i * fullStep + occupiedStep / 2;
+          const inner = ringPoint(cx, cy, rx, ry, theta, .81);
+          const outer = ringPoint(cx, cy, rx, ry, theta, .98);
+          ctx.save(); ctx.strokeStyle = i === activeIndex ? "#152126" : "rgba(4, 9, 13, .64)"; ctx.lineWidth = i === activeIndex ? 2.4 : 1.2; ctx.setLineDash([3, 4]);
+          ctx.beginPath(); ctx.moveTo(inner.x, inner.y); ctx.lineTo(outer.x, outer.y); ctx.stroke(); ctx.restore();
+        });
+
+        const focusTheta = start + activeIndex * fullStep;
+        const focus = ringPoint(cx, cy, rx, ry, focusTheta, .93);
+        drawTag("selected repeat", focus.x + 18, focus.y - 23, "#6ed8da");
+        strokePath([{ x: focus.x + 14, y: focus.y - 15 }, { x: focus.x + 1, y: focus.y - 2 }], "rgba(110, 216, 218, .75)", 1, [3, 3]);
+
+        // Circumference arrow and dimension.
+        ctx.save(); ctx.strokeStyle = "rgba(110, 216, 218, .7)"; ctx.lineWidth = 1.1; ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.arc(cx, cy, rx * 1.13, Math.PI * .86, Math.PI * 1.46); ctx.stroke();
+        ctx.restore();
+        drawText("bend / close", cx - rx * 1.02, cy - ry * .54, { color: "#6ed8da", font: "10px ui-monospace, monospace" });
+
+        drawText("one band only · topology travels with the patch", cx, state.h - 36, { color: "#78909a", align: "center", font: "11px Inter, system-ui, sans-serif" });
+      }
+
+      function draw() {
+        if (!state.w || !state.h) return;
+        ctx.save();
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        if (state.stage === 1) drawStage1();
+        else if (state.stage === 2) drawStage2();
+        else if (state.stage === 3) drawStage3();
+        else if (state.stage === 4) drawStage4();
+        else drawStage5();
+        ctx.restore();
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        state.w = Math.max(1, rect.width);
+        state.h = Math.max(1, rect.height);
+        state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(state.w * state.dpr);
+        canvas.height = Math.round(state.h * state.dpr);
+        draw();
+      }
+
+      function setNumberValue(input, key, min, max) {
+        const value = clamp(Number(input.value) || min, min, max);
+        state[key] = value;
+        input.value = value;
+        updateReadout(); draw();
+      }
+
+      document.querySelectorAll(".recipe-step").forEach((button) => button.addEventListener("click", () => setStage(button.dataset.stage)));
+      $("diameterRange").addEventListener("input", (event) => { state.diameter = Number(event.target.value); updateReadout(); draw(); });
+      $("patchRange").addEventListener("input", (event) => { state.patchSpan = Number(event.target.value); updateReadout(); draw(); });
+      $("gapRange").addEventListener("input", (event) => { state.targetGap = Number(event.target.value); updateReadout(); draw(); });
+      $("diameterNumber").addEventListener("change", (event) => setNumberValue(event.target, "diameter", 520, 920));
+      $("widthNumber").addEventListener("change", (event) => setNumberValue(event.target, "width", 160, 420));
+      $("topologyToggle").addEventListener("change", (event) => { state.topology = event.target.checked; draw(); });
+      $("nodesToggle").addEventListener("change", (event) => { state.nodes = event.target.checked; draw(); });
+      $("bridgesToggle").addEventListener("change", (event) => { state.bridges = event.target.checked; draw(); });
+      $("zoomIn").addEventListener("click", () => { state.zoom = clamp(state.zoom + .1, .78, 1.35); draw(); });
+      $("zoomOut").addEventListener("click", () => { state.zoom = clamp(state.zoom - .1, .78, 1.35); draw(); });
+      $("fitView").addEventListener("click", () => { state.zoom = 1; draw(); });
+      $("resetButton").addEventListener("click", () => {
+        state.diameter = 680; state.patchSpan = 104; state.targetGap = 16; state.width = 260; state.zoom = 1; state.topology = true; state.nodes = true; state.bridges = true;
+        $("topologyToggle").checked = true; $("nodesToggle").checked = true; $("bridgesToggle").checked = true; setStage(1); updateReadout();
+      });
+
+      function stopPlaying() {
+        state.playing = false;
+        if (state.playTimer) window.clearInterval(state.playTimer);
+        state.playTimer = null;
+        $("playIcon").textContent = "▶";
+        $("playLabel").textContent = "Play construction";
+      }
+      $("playButton").addEventListener("click", () => {
+        if (state.playing) { stopPlaying(); return; }
+        state.playing = true;
+        $("playIcon").textContent = "Ⅱ";
+        $("playLabel").textContent = "Pause construction";
+        setStage(1);
+        state.playTimer = window.setInterval(() => {
+          if (state.stage >= 5) { stopPlaying(); return; }
+          setStage(state.stage + 1);
+        }, 1550);
+      });
+
+      if (window.ResizeObserver) new ResizeObserver(resizeCanvas).observe(viewportCard);
+      window.addEventListener("resize", resizeCanvas);
+      updateReadout();
+      resizeCanvas();
+    })();
+  </script>
+</body>
+</html>
