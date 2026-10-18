@@ -51,8 +51,8 @@ int RunTextureWorkspace()
     if (!std::filesystem::exists(ShaderDirectory) && ShaderDirectory == "EngineContent/ShaderArchives/Surface")
         ShaderDirectory = ExecutableDirectory / ShaderDirectory;
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
-    Frontier::DiagnosticJournal::Append("Paths", "Executable=" + ExecutableDirectory.string());
-    Frontier::DiagnosticJournal::Append("Paths", "Content=" + ContentRoot.string() + " shaders=" + ShaderDirectory.string());
+    Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
+    Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
     Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
@@ -206,7 +206,7 @@ int main()
     {
         Frontier::DiagnosticJournal::Append("SEVERE", Failure.what());
         const auto Description = std::string("Startup failed: ") + Failure.what() + "\nLogs: " +
-            Frontier::DiagnosticJournal::QueryFilename().string();
+            Frontier::DiagnosticJournal::EncodePath(Frontier::DiagnosticJournal::QueryFilename());
         MessageBoxA(nullptr, Description.c_str(), "Texture Workspace - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
         return 1;
     }

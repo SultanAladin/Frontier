@@ -308,7 +308,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::BeginDisabled(!ConfigurePreview);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 132 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 155 * Scale));
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
     int Shape = int(Inspection.Shape);
     if (ImGui::Combo("##PreviewShape", &Shape, "Shader ball\0Sphere\0Plane\0Cube\0")) Inspection.Shape = MaterialPreviewShape(Shape);
@@ -321,11 +321,22 @@ void MaterialLibraryPanel::ConstructViewport()
         Inspection.Environment = MaterialPreviewEnvironment(Environment);
     RememberExtent(4);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Environment lighting preset");
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 96 * Scale));
-    ImGui::SetNextItemWidth(std::min(200 * Scale, Available.x * .7f));
-    ImGui::SliderFloat("Exposure", &Inspection.Exposure, .25f, 4.f, "%.2f x");
-    RememberExtent(5);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 154 * Scale) * .5f), Bottom - 176 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 117 * Scale));
+    const float ExposureWidth = std::min(320 * Scale, std::max(30.f, Available.x - 36 * Scale));
+    const auto ExposureOrigin = ImGui::GetCursorScreenPos();
+    ImGui::BeginChild("InspectionExposure", ImVec2(ExposureWidth, 64 * Scale), false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    (void)ConstructProperty("Exposure", .25f, 4.f, Inspection.Exposure, "×", true, .01f);
+    ImGui::EndChild();
+    InspectionExtents[5] = {ExposureOrigin.x, ExposureOrigin.y + 34 * Scale,
+        ExposureOrigin.x + ExposureWidth, ExposureOrigin.y + 58 * Scale};
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 154 * Scale) * .5f), Bottom - 196 * Scale));
+    const auto ZoomOrigin = ImGui::GetCursorScreenPos();
+    Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
+        EncodeMaterialInk(0x181818), 14 * Scale);
+    Ink->AddRect(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
+        EncodeMaterialInk(0xffffff, 20), 14 * Scale);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::BeginGroup();
     if (ImGui::Button("-##ZoomOut", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
     RememberExtent(0);
@@ -338,6 +349,7 @@ void MaterialLibraryPanel::ConstructViewport()
     if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
     RememberExtent(2);
     ImGui::EndGroup();
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
     if (ConfigurePreview && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && !ImGui::IsAnyItemActive() &&
         ImGui::GetIO().MouseWheel != 0)

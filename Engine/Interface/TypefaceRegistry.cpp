@@ -94,7 +94,7 @@ void *TypefaceRegistry::LoadFace(const std::string &Path) noexcept
 
 uint32_t TypefaceRegistry::Load(const std::filesystem::path &ArchiveRoot) noexcept
 {
-    DiagnosticJournal::Append("Fonts", "Archive=" + ResolveContentDirectory(ArchiveRoot).string());
+    DiagnosticJournal::Append("Fonts", "Archive=" + DiagnosticJournal::EncodePath(ResolveContentDirectory(ArchiveRoot)));
     if (Loaded)
         return QueryFamilyCount();
     if (ImGui::GetCurrentContext() == nullptr)

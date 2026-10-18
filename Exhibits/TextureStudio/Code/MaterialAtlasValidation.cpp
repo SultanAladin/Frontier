@@ -183,7 +183,7 @@ int main(int Count, char **Arguments)
         Report << "{\"result\":\"passed\",\"gpu_execution\":true,\"hardware_execution\":false,\"windows_execution\":false,"
             "\"atlas_images\":1,\"shared_pipelines\":5,\"geometry_uploads\":1,"
             "\"checks\":[\"shared authored material evaluation\",\"GPU-to-GPU atlas copies\",\"dirty tile isolation\","
-            "\"slot replacement\",\"replicated gutters\",\"bounded UVs and slot refusal\",\"library submission readiness\",\"clean residency and no-op invalidation\",\"applied material invalidation\",\"root replacement and diagnostics\",\"cache eviction and stale token refusal\"]}\n";
+            "\"slot replacement\",\"replicated gutters\",\"bounded UVs and slot refusal\",\"library submission readiness\",\"clean residency and no-op invalidation\",\"applied material invalidation\",\"root replacement and diagnostics\",\"cache eviction and stale token refusal\",\"four GPU inspection shapes\",\"four GPU lighting environments\",\"GPU zoom and exposure\",\"preview-only dirtying\",\"stable preview and atlas image views\"]}\n";
         std::cout << "PASS: material GPU atlas, dirty tile isolation, gutters and shared residency\n";
         return 0;
     }

@@ -21,6 +21,15 @@ namespace Frontier
 class DiagnosticJournal
 {
   public:
+    static std::string EncodePath(const std::filesystem::path &Filename) noexcept
+    {
+        try
+        {
+            const auto Text = Filename.u8string();
+            return std::string(Text.begin(), Text.end());
+        }
+        catch (...) { return "[unrepresentable diagnostic path]"; }
+    }
     static void Initialize(std::string_view Application)
     {
         std::lock_guard<std::mutex> Exclusion(Synchronization);

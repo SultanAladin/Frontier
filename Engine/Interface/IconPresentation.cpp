@@ -88,7 +88,7 @@ Presentation* Find() {
 bool Valid(IconSymbol S) { return static_cast<unsigned>(S) < Count; }
 }
 void IconPresentation::Attach(const std::filesystem::path& Root) {
-    DiagnosticJournal::Append("Icons", "Attach " + Root.string());
+    DiagnosticJournal::Append("Icons", "Attach " + DiagnosticJournal::EncodePath(Root));
     if (!ImGui::GetCurrentContext() || Find()) return;
     auto P = std::make_unique<Presentation>(Root);
     ImGuiContextHook H;

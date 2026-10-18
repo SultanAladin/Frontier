@@ -293,7 +293,7 @@ int RunWindowsApplication(const ApplicationWindowCallbacks &Callbacks)
         DiagnosticJournal::Append("SEVERE", Failure.what());
         std::cerr << "Severe application failure: " << Failure.what() << '\n';
         wchar_t Description[2048]{};
-        const auto Message = std::string(Failure.what()) + "\n\nDiagnostic file: " + DiagnosticJournal::QueryFilename().string();
+        const auto Message = std::string(Failure.what()) + "\n\nDiagnostic file: " + DiagnosticJournal::EncodePath(DiagnosticJournal::QueryFilename());
         const auto Length = static_cast<int>(std::min<size_t>(Message.size(), 2047));
         const auto Decoded = MultiByteToWideChar(CP_UTF8, 0, Message.c_str(), Length, Description, 2047);
         MessageBoxW(nullptr, Decoded > 0 ? Description : L"An application failure prevented normal operation.",

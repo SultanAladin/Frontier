@@ -7,6 +7,7 @@
 #include "Engine/Render/MaterialPreviewGeometry.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -110,11 +111,45 @@ int main(int Count, char **Arguments)
         Click(2);
         Click(1);
         Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "Zoom percentage reset did not respond.");
-        Confirm(Notifications >= 4, "Preview settings callbacks were not delivered.");
+        const auto SelectPreset = [&](size_t Control, int Index)
+        {
+            Click(Control);
+            Integrate();
+            Integrate();
+            auto *Context = ImGui::GetCurrentContext();
+            Confirm(!Context->OpenPopupStack.empty(), "Preview selector did not open a popup.");
+            auto *Popup = Context->OpenPopupStack.back().Window;
+            Confirm(Popup != nullptr, "Preview selector popup has no window.");
+            const float RowHeight = Popup->FontRefSize + ImGui::GetStyle().ItemSpacing.y;
+            const auto Position = Popup->DC.CursorStartPos;
+            IO.AddMousePosEvent(Position.x + 20, Position.y + Index * RowHeight + Popup->FontRefSize * .5f);
+            Integrate();
+            IO.AddMouseButtonEvent(0,true);
+            Integrate();
+            IO.AddMouseButtonEvent(0,false);
+            Integrate();
+        };
+        for (int Index = 1; Index <= 3; ++Index)
+        {
+            SelectPreset(3, Index);
+            Confirm(int(Panel.QueryPreviewConfiguration().Shape) == Index, "Preview shape selector did not respond to pointer selection.");
+            SelectPreset(4, Index);
+            Confirm(int(Panel.QueryPreviewConfiguration().Environment) == Index, "Environment selector did not respond to pointer selection.");
+        }
+        const auto ExposureExtent = Panel.QueryPreviewControlExtent(5);
+        IO.AddMousePosEvent(ExposureExtent.MinimumX + (ExposureExtent.MaximumX - ExposureExtent.MinimumX) * .85f,
+            (ExposureExtent.MinimumY + ExposureExtent.MaximumY) * .5f);
+        Integrate();
+        IO.AddMouseButtonEvent(0,true);
+        Integrate();
+        IO.AddMouseButtonEvent(0,false);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Exposure != 1, "Shared exposure slider did not respond to pointer input.");
+        Confirm(Notifications >= 11, "Preview settings callbacks were not delivered.");
         Ownership.reset();
         ImGui::DestroyContext();
         std::ofstream Report(Arguments[1]);
-        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"actual_zoom_pointer_events\":true}\n";
+        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"actual_zoom_pointer_events\":true,\"actual_shape_environment_exposure_pointer_events\":true}\n";
         Confirm(bool(Report), "Could not write preview acceptance report.");
         std::cout << "Material inspection checks passed: " << Checks << '\n';
         return 0;

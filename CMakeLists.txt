@@ -133,6 +133,8 @@ if(BUILD_TESTING)
     add_test(NAME MaterialPreviewConfigurationValidation COMMAND MaterialPreviewConfigurationValidation
         "${CMAKE_BINARY_DIR}/MaterialPreviewConfigurationChecks.json")
     set_tests_properties(MaterialPreviewConfigurationValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(MaterialWorkspaceEvidence Exhibits/TextureStudio/Code/MaterialWorkspaceEvidence.cpp)
+    target_link_libraries(MaterialWorkspaceEvidence PRIVATE FrontierTextureStudioUI ${CMAKE_DL_LIBS})
     add_executable(MaterialAtlasValidation Exhibits/TextureStudio/Code/MaterialAtlasValidation.cpp)
     target_link_libraries(MaterialAtlasValidation PRIVATE FrontierMaterialLibrary ${CMAKE_DL_LIBS})
     add_executable(IconDomainValidation Exhibits/TextureStudio/Code/IconDomainValidation.cpp)

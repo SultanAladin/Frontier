@@ -66,7 +66,7 @@ int main()
         const auto Requested = Browser->ConsumeLaunchPath();
         if (!Requested.empty())
         {
-            SelectedProject = Requested.string();
+            SelectedProject = Frontier::DiagnosticJournal::EncodePath(Requested);
             Frontier::DiagnosticJournal::Append("ProjectSelection", SelectedProject + "; remaining in Project Browser by build scope");
         }
     };

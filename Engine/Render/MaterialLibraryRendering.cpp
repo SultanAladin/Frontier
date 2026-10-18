@@ -167,7 +167,7 @@ MaterialLibraryRendering::~MaterialLibraryRendering() = default;
 void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory)
 {
     if (Allocation) throw std::runtime_error("Material library rendering already initialized.");
-    DiagnosticJournal::Append("MaterialGPU", "Initialize shader directory: " + ShaderDirectory.string());
+    DiagnosticJournal::Append("MaterialGPU", "Initialize shader directory: " + DiagnosticJournal::EncodePath(ShaderDirectory));
     auto Resident = std::make_unique<RenderingAllocation>();
     const std::array<const char *, 10> Names{"CadSurfaceVertex", "CadSurfaceFragment", "CadEdgeVertex", "CadEdgeFragment",
         "MatCapSurfaceVertex", "MatCapSurfaceFragment", "PreviewPbrSurfaceVertex", "PreviewPbrSurfaceFragment", "MaterialSurfaceVertex", "MaterialSurfaceFragment"};
@@ -239,7 +239,7 @@ void MaterialLibraryRendering::ConfigureSelection(const std::filesystem::path &P
     Rendering.Selected = std::move(Replacement);
     Rendering.PreviewScattering = Material.Scattering;
     Rendering.ReconfigurePreview();
-    DiagnosticJournal::Append("MaterialSelection", Path.string() + " fingerprint=" + std::to_string(Digest));
+    DiagnosticJournal::Append("MaterialSelection", DiagnosticJournal::EncodePath(Path) + " fingerprint=" + std::to_string(Digest));
     Rendering.SelectedFingerprint = Digest;
     Rendering.Selection = Path;
     Rendering.PreviewDirty = true;
@@ -316,7 +316,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     Rendering.Atlas.ConstructCopy(Commands, Rendering.Tile, uint32_t(Dirty - Rendering.Slots.begin()));
     Dirty->Fingerprint = Digest;
     Rendering.RecordedSlot = int(Dirty - Rendering.Slots.begin());
-    DiagnosticJournal::Append("AtlasBake", Dirty->Path.string() + " slot=" + std::to_string(Rendering.RecordedSlot));
+    DiagnosticJournal::Append("AtlasBake", DiagnosticJournal::EncodePath(Dirty->Path) + " slot=" + std::to_string(Rendering.RecordedSlot));
     Dirty->Diagnostic.clear();
     Rendering.Diagnostic.clear();
 }

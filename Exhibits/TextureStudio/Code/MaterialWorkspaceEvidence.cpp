@@ -51,6 +51,7 @@ int main(int Count, char **Arguments)
             const auto &Uv = Slot.Uv;
             return MaterialPreviewImage{Slot.Ready ? 2ull : 0ull, Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
+        Panel->ConfigurePreview = [&](const auto &Configuration) { Rendering.ConfigurePreview(Configuration); };
         Panel->QueryPreview = [&]() { return MaterialPreviewImage{Rendering.QueryPreviewReady() ? 3ull : 0ull}; };
         Rendering.RequestLibrary(Panel->QueryLibrary().QueryDirectory(), {});
         Rendering.ConfigureSelection(Panel->QueryLibrary().QuerySelection(), *Panel->QueryLibrary().QueryApplied());
