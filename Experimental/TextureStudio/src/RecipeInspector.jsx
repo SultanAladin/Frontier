@@ -100,24 +100,24 @@ export default function RecipeInspector({ params: p, update, setParams }) {
           </div>
         </>,
       )}
-      {recipe.supportsMetalScratches &&
+      {recipe.supportsScratches &&
         section(
           "scratches",
-          "Metal scratches",
+          recipe.supportsMetalScratches ? "Metal scratches" : "Scratches",
           <>
             <label className="scratch-switch">
               <span>Enable scratches</span>
               <input
                 type="checkbox"
                 role="switch"
-                aria-label="Enable metal scratches"
+                aria-label="Enable scratches"
                 checked={p.metalScratches === true}
                 onChange={(e) => update("metalScratches", e.target.checked)}
               />
             </label>
             <p className="help-text">
-              Optional surface cuts. Existing metal finish stays unchanged when
-              off. Direction is independent of the brushed-metal direction.
+              Optional surface cuts. The base finish stays unchanged when off.
+              Direction is independent of other surface grain directions.
             </p>
             {p.metalScratches === true && group("scratches")}
           </>,

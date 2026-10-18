@@ -295,7 +295,7 @@ test("sand grain size/specular affect the real viewport and corrugated steel off
     page.getByLabel("Corrugation profile", { exact: true }),
   ).toHaveValue("2");
   await expect(
-    page.getByLabel("Enable metal scratches", { exact: true }),
+    page.getByLabel("Enable scratches", { exact: true }),
   ).toBeVisible();
   expect(errors).toEqual([]);
 });

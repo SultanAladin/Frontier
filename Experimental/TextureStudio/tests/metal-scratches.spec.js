@@ -8,6 +8,7 @@ import {
 import {
   getRecipe,
   supportsMetalScratches,
+  supportsScratches,
   applyRecipeControl,
   recipeControlValue,
 } from "../src/materialProfiles.js";
@@ -28,7 +29,7 @@ test("metal scratches are opt-in, bounded and independent of the metal finish", 
       getRecipe(oldStudy).controls.find((c) => c.id === "density"),
     ),
   ).toBeCloseTo(2.6 / 12);
-  for (const p of materials.filter(supportsMetalScratches)) {
+  for (const p of materials.filter(supportsScratches)) {
     expect(p.metalScratches).toBe(false);
     const on = normalizeMaterial({ ...p, metalScratches: true });
     const controls = getRecipe(on).controls.filter(
@@ -62,10 +63,33 @@ test("metal scratches are opt-in, bounded and independent of the metal finish", 
     a.dispose();
     b.dispose();
   }
-  for (const p of materials.filter((p) => !supportsMetalScratches(p)))
+  for (const p of materials.filter((p) => !supportsScratches(p)))
     expect(
       normalizeMaterial({ ...p, metalScratches: true }).metalScratches,
     ).toBe(false);
+});
+
+test("plastics carry scratches as a finish option, like metals", () => {
+  for (const id of ["piano-black", "grained-abs", "worn-polymer"]) {
+    const p = materials.find((m) => m.id === id);
+    expect(p, id).toBeTruthy();
+    expect(supportsScratches(p)).toBe(true);
+    expect(supportsMetalScratches(p)).toBe(false);
+    expect(getRecipe(p).supportsScratches).toBe(true);
+    const on = normalizeMaterial({ ...p, metalScratches: true });
+    // The toggle must survive normalization (it was previously stripped
+    // for every non-metal) and expose the scratch control group.
+    expect(on.metalScratches).toBe(true);
+    expect(
+      getRecipe(on).controls.filter((c) => c.group === "scratches").length,
+    ).toBeGreaterThan(5);
+    const a = createMaterial(p),
+      b = createMaterial(on);
+    expect(a.customProgramCacheKey()).not.toBe(b.customProgramCacheKey());
+    expect(b.userData.params.metalScratches).toBe(true);
+    a.dispose();
+    b.dispose();
+  }
 });
 
 test("GPU: accepted scratch shape unchanged, greater density, additive metal bake and reversible switch", async ({
@@ -97,7 +121,7 @@ test("GPU: accepted scratch shape unchanged, greater density, additive metal bak
     );
   };
   await ready();
-  const toggle = page.getByRole("switch", { name: "Enable metal scratches" });
+  const toggle = page.getByRole("switch", { name: "Enable scratches" });
   await expect(toggle).not.toBeChecked();
   const before = await page.locator("canvas").evaluate((c) => c.toDataURL());
   await toggle.check();

@@ -1341,6 +1341,14 @@ export function supportsMetalScratches(p) {
   return [1, 6, 16, 21].includes(p.type);
 }
 
+// Scratches are a surface-finish option, not a metal-only phenomenon:
+// polished/brushed metal, brake discs, rust and corrugated sheet (above)
+// plus gloss, grained and worn plastics can all carry them. The serialized
+// toggle key stays `metalScratches` so saved documents keep their meaning.
+export function supportsScratches(p) {
+  return supportsMetalScratches(p) || [8, 9, 10].includes(p.type);
+}
+
 export function getRecipe(p) {
   const id = materialFamily(p),
     base = recipes[id] || recipes.woven;
@@ -1384,7 +1392,7 @@ export function getRecipe(p) {
       ),
     );
 
-  if (supportsMetalScratches(p) && p.metalScratches === true) {
+  if (supportsScratches(p) && p.metalScratches === true) {
     controls.push(
       ...recipes.scratches.controls
         .filter((c) => c.id !== "roughness")
@@ -1438,6 +1446,7 @@ export function getRecipe(p) {
         : base.fixed,
     id,
     iridescent,
+    supportsScratches: supportsScratches(p),
     supportsMetalScratches: supportsMetalScratches(p),
     title: iridescent ? "Iridescent automotive paint" : base.title,
     controls,
@@ -1521,7 +1530,7 @@ export function boundMaterial(p) {
       ? Number(result.ribProfile)
       : 0;
   result.metalScratches =
-    supportsMetalScratches(result) && result.metalScratches === true;
+    supportsScratches(result) && result.metalScratches === true;
   return result;
 }
 

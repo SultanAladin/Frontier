@@ -211,7 +211,7 @@ test("standalone page renders, edits and exports without external assets", async
   await page
     .getByRole("button", { name: "Apply Pure Aluminium", exact: true })
     .click();
-  await page.getByRole("switch", { name: "Enable metal scratches" }).check();
+  await page.getByRole("switch", { name: "Enable scratches" }).check();
   await page.getByLabel("Scratch density value", { exact: true }).fill("60");
   await frame(page);
   const scratchedSource = await downloadText(
