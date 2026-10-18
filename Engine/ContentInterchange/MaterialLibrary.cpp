@@ -110,6 +110,7 @@ std::filesystem::path MaterialLibrary::ResolveMaterial(const std::filesystem::pa
 
 bool MaterialLibrary::ConfigureDirectory(const std::filesystem::path &Requested)
 {
+    DiagnosticJournal::Append("MaterialDirectory", DiagnosticJournal::EncodePath(Requested));
     try
     {
         if (!std::filesystem::is_directory(Requested)) throw std::runtime_error("Library directory does not exist.");
@@ -246,6 +247,7 @@ void MaterialLibrary::FilterEntries()
 
 bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
 {
+    DiagnosticJournal::Append("MaterialOpen", DiagnosticJournal::EncodePath(RelativePath));
     try
     {
         auto ReplacementSource = DecodeMaterialSource(ResolveMaterial(RelativePath));
@@ -403,7 +405,7 @@ bool MaterialLibrary::ConfigurePaint(const AutomotivePaint &Paint)
 
 bool MaterialLibrary::ApplySource()
 {
-    DiagnosticJournal::Append("MaterialOperation", "ApplySource");
+    DiagnosticJournal::Append("MaterialOperation", "ApplySource " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
     try
     {
         if (Selection.empty()) throw std::runtime_error("Select a material first.");
@@ -419,7 +421,7 @@ bool MaterialLibrary::ApplySource()
 
 bool MaterialLibrary::RevertSource()
 {
-    DiagnosticJournal::Append("MaterialOperation", "RevertSource");
+    DiagnosticJournal::Append("MaterialOperation", "RevertSource " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
     const auto Previous = Source;
     Source = SavedSource;
     if (ApplySource()) return true;
@@ -429,7 +431,7 @@ bool MaterialLibrary::RevertSource()
 
 bool MaterialLibrary::SaveMaterial()
 {
-    DiagnosticJournal::Append("MaterialOperation", "SaveMaterial");
+    DiagnosticJournal::Append("MaterialOperation", "SaveMaterial " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
     try
     {
         if (Selection.empty()) throw std::runtime_error("Select a material first.");

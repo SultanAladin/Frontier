@@ -192,7 +192,7 @@ inline SurfaceGeometry ConstructMaterialInspectionGeometry()
                 Corner.Position[(Axis + 1) % 3] = Coordinate[0] * .62f;
                 Corner.Position[(Axis + 2) % 3] = Coordinate[1] * .62f;
                 Corner.Normal[Axis] = Sign;
-                Corner.Tangent = {0,0,0,1};
+                Corner.Tangent = {0,0,0,Sign};
                 Corner.Tangent[(Axis + 1) % 3] = 1;
                 Corner.Coordinates = {(Coordinate[0] + 1) / 2, (Coordinate[1] + 1) / 2};
                 // 📝 Tilt the specimen to expose three faces, retaining orthogonal unit normals/tangents.

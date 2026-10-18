@@ -298,7 +298,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "ORTHOGRAPHIC     MATERIAL INSPECTION");
     ConstructMaterialCaption(Origin.x + Available.x - 115 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
     const auto Previous = Inspection;
-    const auto RememberExtent = [&](size_t Index)
+    const auto ConfigureExtent = [&](size_t Index)
     {
         const auto Minimum = ImGui::GetItemRectMin();
         const auto Maximum = ImGui::GetItemRectMax();
@@ -312,14 +312,14 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
     int Shape = int(Inspection.Shape);
     if (ImGui::Combo("##PreviewShape", &Shape, "Shader ball\0Sphere\0Plane\0Cube\0")) Inspection.Shape = MaterialPreviewShape(Shape);
-    RememberExtent(3);
+    ConfigureExtent(3);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change preview object; catalogue thumbnails remain unchanged.");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(std::min(160 * Scale, Available.x * .44f));
     int Environment = int(Inspection.Environment);
     if (ImGui::Combo("##PreviewEnvironment", &Environment, "Studio softbox\0Warm courtyard\0Cool rim\0Overcast\0"))
         Inspection.Environment = MaterialPreviewEnvironment(Environment);
-    RememberExtent(4);
+    ConfigureExtent(4);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Environment lighting preset");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 117 * Scale));
     const float ExposureWidth = std::min(320 * Scale, std::max(30.f, Available.x - 36 * Scale));
@@ -339,15 +339,15 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::BeginGroup();
     if (ImGui::Button("-##ZoomOut", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
-    RememberExtent(0);
+    ConfigureExtent(0);
     ImGui::SameLine(0, 0);
     const auto ZoomCaption = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##ZoomReset";
     if (ImGui::Button(ZoomCaption.c_str(), ImVec2(76 * Scale, 28 * Scale))) Inspection.Zoom = 1;
-    RememberExtent(1);
+    ConfigureExtent(1);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset zoom to 100%%");
     ImGui::SameLine(0, 0);
     if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
-    RememberExtent(2);
+    ConfigureExtent(2);
     ImGui::EndGroup();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);

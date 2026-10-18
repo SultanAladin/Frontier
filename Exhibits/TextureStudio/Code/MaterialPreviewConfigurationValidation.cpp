@@ -51,13 +51,16 @@ int main(int Count, char **Arguments)
         const auto Geometry = ConstructMaterialInspectionGeometry();
         Confirm(ValidateSurfaceGeometry(Geometry, Diagnostic), Diagnostic.c_str());
         std::array<size_t,4> Populations{};
+        size_t NegativeCubeTangents = 0;
         for (const auto &Corner : Geometry.Corners)
         {
             const int Region = int(std::round(Corner.Position[0] / 16.f));
             Confirm(Region >= 0 && Region <= 3, "Inspection geometry escaped separated regions.");
             ++Populations[size_t(Region)];
+            if (Region == 3 && Corner.Tangent[3] == -1) ++NegativeCubeTangents;
         }
         for (auto Population : Populations) Confirm(Population > 0, "Inspection surface missing.");
+        Confirm(NegativeCubeTangents == 12, "Negative cube faces lost normal-map tangent handedness.");
         DiagnosticJournal::Initialize("InspectionValidation");
         DiagnosticJournal::Append("Acceptance", "Preview controls validation\nembedded newline");
         const auto Log = DiagnosticJournal::QueryFilename();
