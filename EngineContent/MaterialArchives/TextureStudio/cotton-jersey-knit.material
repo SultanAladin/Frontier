@@ -1,0 +1,11 @@
+Format = 1
+Name = "Cotton Jersey Knit"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.26635560480286247, 0.2874408377269175, 0.2961382707983211]
+Roughness = 0.88
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

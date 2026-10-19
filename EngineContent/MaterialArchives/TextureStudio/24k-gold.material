@@ -1,0 +1,11 @@
+Format = 1
+Name = "24K Gold"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [1, 0.6583748172794486, 0.23074004852434915]
+Roughness = 0.16
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

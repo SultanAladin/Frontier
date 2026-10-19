@@ -1,0 +1,19 @@
+Format = 1
+Name = "Bull Grain Black Leather"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.017641954488384078, 0.01599629336550963, 0.01520851442291271]
+Roughness = 0.47
+Metallic = 0
+Ior = 1.48
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.18
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.24

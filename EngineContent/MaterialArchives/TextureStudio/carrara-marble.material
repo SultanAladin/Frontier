@@ -1,0 +1,19 @@
+Format = 1
+Name = "Carrara Marble"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7230551289219693, 0.7156935005064807, 0.6514056374198242]
+Roughness = 0.18
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.4

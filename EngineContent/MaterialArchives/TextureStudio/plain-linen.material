@@ -1,0 +1,11 @@
+Format = 1
+Name = "Plain Linen"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5028864580325687, 0.4341536361747489, 0.32314320911295075]
+Roughness = 0.94
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.2

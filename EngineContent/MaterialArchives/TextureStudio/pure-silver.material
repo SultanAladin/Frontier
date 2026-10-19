@@ -1,0 +1,11 @@
+Format = 1
+Name = "Pure Silver"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.8879231178819663, 0.8713671191987973, 0.7912979403326302]
+Roughness = 0.12
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

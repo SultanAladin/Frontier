@@ -1,0 +1,11 @@
+Format = 1
+Name = "Midnight Velvet"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.01520851442291271, 0.03954623527673283, 0.05448027644244237]
+Roughness = 0.86
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

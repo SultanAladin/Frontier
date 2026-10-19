@@ -1,0 +1,278 @@
+/*==========================================================================================================================================
+                                                         MATERIALSURFACE.SLANG
+==========================================================================================================================================*/
+// 🧩 Authored UV/tangent material evaluation with typed trilinear textures and the shared ordered-scattering equations.
+
+#include "ScatteringEvaluation.slang"
+#include "AutomotivePaint.slang"
+
+struct SurfaceNormalProjection
+{
+    column_major float4x4 ClipFromSurface;
+    float4 ViewNormalRow0;
+    float4 ViewNormalRow1;
+    float4 ViewNormalRow2;
+    float4 SurfaceTint;
+};
+struct MaterialScattering
+{
+    PreviewScattering Illumination;
+    float4 UvScaleOffset;
+    float4 RadianceNormal;
+    uint4 TextureUse[8];
+    float4 StratumUv[8];
+    float4 StratumNormal[8];
+    float4 DirectionalOptics[8];
+    AutomotivePaint Paint;
+    uint4 PreviewConfiguration;
+};
+[[vk::push_constant]] ConstantBuffer<SurfaceNormalProjection> Projection;
+[[vk::binding(0,0)]] Texture2DArray<float4> MaterialTextures[4];
+[[vk::binding(1,0)]] SamplerState MaterialSampler;
+[[vk::binding(0,1)]] ConstantBuffer<MaterialScattering> Material;
+
+struct MaterialInput
+{
+    float3 Position : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 Coordinates : TEXCOORD0;
+    float4 Tangent : TANGENT0;
+};
+struct MaterialPixel
+{
+    float4 Position : SV_Position;
+    float3 ViewPosition : TEXCOORD0;
+    float3 ViewNormal : NORMAL0;
+    float2 Coordinates : TEXCOORD1;
+    float4 ViewTangent : TEXCOORD2;
+    float3 MaterialPosition : TEXCOORD3;
+    nointerpolation uint SubjectRole : TEXCOORD4;
+};
+
+[shader("vertex")]
+MaterialPixel MaterialSurfaceVertex(MaterialInput Corner)
+{
+    MaterialPixel Pixel;
+    Pixel.Position = mul(Projection.ClipFromSurface,float4(Corner.Position,1));
+    Pixel.ViewPosition = mul(Material.Illumination.ViewFromSurface,float4(Corner.Position,1)).xyz;
+    Pixel.ViewNormal = float3(dot(Projection.ViewNormalRow0.xyz,Corner.Normal),
+                             dot(Projection.ViewNormalRow1.xyz,Corner.Normal),
+                             dot(Projection.ViewNormalRow2.xyz,Corner.Normal));
+    float3x3 Linear = (float3x3)Material.Illumination.ViewFromSurface;
+    Pixel.ViewTangent = float4(mul(Linear,Corner.Tangent.xyz),Corner.Tangent.w*(determinant(Linear)<0 ? -1 : 1));
+    Pixel.Coordinates = Corner.Coordinates*Material.UvScaleOffset.xy+Material.UvScaleOffset.zw;
+    Pixel.SubjectRole = Material.PreviewConfiguration.x == 1 && Corner.Coordinates.x < 0 ? uint(-Corner.Coordinates.x) : 0;
+    Pixel.MaterialPosition = Corner.Position;
+    if (Material.PreviewConfiguration.x > 1) Pixel.MaterialPosition.x -= 16 * float(Material.PreviewConfiguration.x - 1);
+    if (Material.PreviewConfiguration.x == 1 && Pixel.SubjectRole == 0)
+    {
+        float Angle = Corner.Coordinates.y * π, Longitude = Corner.Coordinates.x * 2 * π;
+        float Height = 1.43 * cos(Angle);
+        float Radius = max(.001, 1.43 * sin(Angle) - .032 * exp(-pow(abs((Height - .69) / .021), 6)) -
+            .023 * exp(-pow(abs((Height - .6) / .014), 6)) - .028 * exp(-pow(abs((Height + .81) / .018), 6)) -
+            .028 * exp(-pow(abs((Height + .89) / .018), 6)) - .028 * exp(-pow(abs((Height + .97) / .018), 6)));
+        Pixel.MaterialPosition = float3(Radius * sin(Longitude), Height, Radius * cos(Longitude));
+    }
+    return Pixel;
+}
+
+struct MaterialAngularStratum
+{
+    float3 Normal;
+    float3 Tangent;
+    float3 Bitangent;
+    float2 Spread;
+    float Occlusion;
+};
+float3 ProjectAngularDirection(MaterialAngularStratum Angular,float3 Direction)
+{
+    return float3(dot(Angular.Tangent,Direction),dot(Angular.Bitangent,Direction),dot(Angular.Normal,Direction));
+}
+float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStratum Angular[8],
+                                float3 View,float3 Light,bool EnvironmentEnabled)
+{
+    float3 Accumulated = 0;
+    float3 Half = NormalizeDirection(View+Light);
+    float ViewHalf = saturate(dot(View,Half));
+    for (uint Index = 0; Index < Scattering.Configuration.x; ++Index)
+    {
+        ScatteringStratum Stratum = Scattering.Strata[Index];
+        float3 LocalView = ProjectAngularDirection(Angular[Index],View);
+        float3 LocalLight = ProjectAngularDirection(Angular[Index],Light);
+        float3 LocalHalf = ProjectAngularDirection(Angular[Index],Half);
+        bool ExactEnabled = Material.DirectionalOptics[Index].z != 0;
+        float Distribution = EvaluateAnisotropicDistribution(LocalHalf,Angular[Index].Spread);
+        float Visibility = EvaluateAnisotropicVisibility(LocalView,LocalLight,Angular[Index].Spread);
+        float3 Evaluation = EvaluateScatteringReflection(Stratum,Stratum.AlbedoRoughness.rgb,ViewHalf,
+                                                        Distribution,Visibility,ExactEnabled)*max(0,LocalLight.z);
+        if (LocalView.z <= 0 || LocalLight.z <= 0) Evaluation = 0;
+        if (EnvironmentEnabled) Evaluation *= Angular[Index].Occlusion;
+        if (Stratum.Classification.x == 1)
+        {
+            float Reflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
+            Reflectance *= Reflectance;
+            float Entrance = ExactEnabled ? EvaluateExactDielectricReflectance(LocalLight.z,1,Stratum.Optics.y) :
+                Reflectance+(1-Reflectance)*pow(1-saturate(LocalLight.z),5);
+            float Exit = ExactEnabled ? EvaluateExactDielectricReflectance(LocalView.z,1,Stratum.Optics.y) :
+                Reflectance+(1-Reflectance)*pow(1-saturate(LocalView.z),5);
+            Entrance = LocalLight.z <= 0 ? 1 : Entrance;
+            Exit = LocalView.z <= 0 ? 1 : Exit;
+            float3 Absorption = exp(-Stratum.AbsorptionThickness.rgb*Stratum.AbsorptionThickness.w*
+                                    (1/max(.001,LocalView.z)+1/max(.001,LocalLight.z)));
+            Evaluation += Accumulated*(1-Entrance)*(1-Exit)*Absorption;
+        }
+        Accumulated = lerp(Accumulated,Evaluation,Stratum.Optics.z);
+    }
+    return Accumulated;
+}
+float EvaluateStudioPanel(float3 Direction, float3 Centre, float2 HalfExtent)
+{
+    Centre = normalize(Centre);
+    float3 Right = normalize(cross(float3(0,1,0), Centre));
+    float3 Up = cross(Centre, Right);
+    float Forward = dot(Direction, Centre);
+    float2 Coordinates = abs(float2(dot(Direction, Right), dot(Direction, Up)) / max(.001, Forward));
+    float2 Coverage = 1 - smoothstep(HalfExtent, HalfExtent + .025, Coordinates);
+    return Forward > 0 ? Coverage.x * Coverage.y : 0;
+}
+float3 EvaluateMaterialEnvironmentRadiance(PreviewScattering Scattering, float3 Direction)
+{
+    float3 Radiance = EvaluateEnvironmentRadiance(Scattering, Direction);
+    if (Material.PreviewConfiguration.y != 0)
+    {
+        const float Strength = Scattering.EnvironmentHorizon.w;
+        Radiance += Strength * float3(3.8,3.7,3.5) * EvaluateStudioPanel(Direction, float3(-.5,.5,.8), float2(.48,.65));
+        Radiance += Strength * float3(1.9,2,2.2) * EvaluateStudioPanel(Direction, float3(.8,.25,.55), float2(.15,.7));
+        Radiance += Strength * float3(2.1,2.1,2) * EvaluateStudioPanel(Direction, float3(.05,.9,-.4), float2(1.1,.25));
+        Radiance += Strength * float3(1.6,1.7,1.8) * EvaluateStudioPanel(Direction, float3(-.8,.3,-.5), float2(.2,.7));
+    }
+    return Radiance;
+}
+float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 GeometricNormal,float3 View)
+{
+    if (Scattering.EnvironmentHorizon.w == 0) return 0;
+    float3 Tangent = NormalizeDirection(cross(abs(GeometricNormal.z)<.999 ? float3(0,0,1) : float3(0,1,0),GeometricNormal));
+    float3 Bitangent = cross(GeometricNormal,Tangent);
+    float3 Accumulated = 0;
+    uint Components = Scattering.Configuration.x+1;
+    // 📝 Balance a geometric-normal cosine proposal with one rotated anisotropic GGX half-vector proposal per stratum.
+    uint Samples = Material.PreviewConfiguration.y != 0 ? 32 : 8;
+    for (uint Component = 0; Component < Components; ++Component)
+        for (uint SampleIndex = 0; SampleIndex < Samples; ++SampleIndex)
+        {
+            float First = (SampleIndex+.5)/Samples;
+            float Second = frac(SampleIndex*.61803398875+Component*.371);
+            float φ = 2*π*Second;
+            float3 Direction = float3(sqrt(First)*cos(φ),sqrt(First)*sin(φ),sqrt(1-First));
+            float3 Light = Tangent*Direction.x+Bitangent*Direction.y+GeometricNormal*Direction.z;
+            if (Component != 0)
+            {
+                MaterialAngularStratum Stratum = Angular[Component-1];
+                // 📝 Stretch an isotropic GGX slope sample, then normalize; its density is D(H)*NdotH, not a visible-normal density.
+                float Radius = sqrt(First/(1-First));
+                Direction = NormalizeDirection(float3(Stratum.Spread*float2(cos(φ),sin(φ))*Radius,1));
+                float3 Half = Stratum.Tangent*Direction.x+Stratum.Bitangent*Direction.y+Stratum.Normal*Direction.z;
+                if (dot(View,Half) <= 0) continue;
+                Light = reflect(-View,Half);
+            }
+            float3 Half = NormalizeDirection(View+Light);
+            float ViewHalf = max(1e-6,dot(View,Half));
+            float Density = max(0,dot(GeometricNormal,Light))/π;
+            for (uint Index = 0; Index < Scattering.Configuration.x; ++Index)
+            {
+                float3 LocalHalf = ProjectAngularDirection(Angular[Index],Half);
+                Density += EvaluateAnisotropicDistribution(LocalHalf,Angular[Index].Spread)*max(0,LocalHalf.z)/(4*ViewHalf);
+            }
+            Density /= Components;
+            if (Density <= 1e-12) continue;
+            Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*
+                           EvaluateMaterialEnvironmentRadiance(Scattering,Light)/Density;
+        }
+    return Accumulated/(Components*Samples);
+}
+
+[shader("fragment")]
+float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
+{
+    PreviewScattering Scattering = Material.Illumination;
+    if (Pixel.SubjectRole != 0)
+    {
+        Scattering.Configuration.x = Pixel.SubjectRole == 1 ? 2 : 1;
+        float3 Tint = Pixel.SubjectRole == 1 ? float3(.015209,.015996,.019382) :
+                      Pixel.SubjectRole == 2 ? float3(.006512,.006995,.008568) : float3(.135633,.144128,.165132);
+        Scattering.Strata[0].AlbedoRoughness = float4(Tint, Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .35 : .32);
+        Scattering.Strata[0].Optics = float4(Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .6 : .85,1.5,1,0);
+        Scattering.Strata[0].Classification = 0;
+        Scattering.Strata[0].AbsorptionThickness = 0;
+        if (Pixel.SubjectRole == 1)
+        {
+            Scattering.Strata[1].AlbedoRoughness = float4(1,1,1,.1);
+            Scattering.Strata[1].Optics = float4(0,1.5,.1,0);
+            Scattering.Strata[1].Classification = uint4(1,0,0,0);
+            Scattering.Strata[1].AbsorptionThickness = 0;
+        }
+    }
+    PaintSurface Paint;
+    bool PaintEnabled = Material.Paint.Configuration.x != 0 && Pixel.SubjectRole == 0;
+    if (PaintEnabled) Paint = EvaluatePaintSurface(Material.Paint, Pixel.MaterialPosition,
+        Scattering.Strata[0].AlbedoRoughness.rgb, Scattering.Strata[0].AlbedoRoughness.w, Scattering.Strata[0].Optics.x);
+    MaterialAngularStratum Angular[8];
+    float3 GeometricNormal = NormalizeDirection(Pixel.ViewNormal);
+    float3 Tangent = NormalizeDirection(Pixel.ViewTangent.xyz-GeometricNormal*dot(GeometricNormal,Pixel.ViewTangent.xyz));
+    float3 Bitangent = cross(GeometricNormal,Tangent)*(Pixel.ViewTangent.w < 0 ? -1 : 1);
+    uint Selection = 0;
+    for (uint Index = 0; Index < Scattering.Configuration.x; ++Index)
+    {
+        uint4 TextureSelection = Material.TextureUse[Index];
+        uint Mask = Pixel.SubjectRole == 0 ? TextureSelection.x : 0;
+        Selection |= Mask;
+        float2 Coordinates = Pixel.Coordinates*Material.StratumUv[Index].xy+Material.StratumUv[Index].zw;
+        float4 Albedo = MaterialTextures[0].Sample(MaterialSampler,float3(Coordinates,TextureSelection.y));
+        float3 Orm = MaterialTextures[1].Sample(MaterialSampler,float3(Coordinates,TextureSelection.z)).rgb;
+        float3 TangentNormal = MaterialTextures[2].Sample(MaterialSampler,float3(Coordinates,TextureSelection.w)).rgb*2-1;
+        if ((Mask & 1) != 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Albedo.rgb;
+        if (Index == 0 && Pixel.SubjectRole == 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Projection.SurfaceTint.rgb;
+        if ((Mask & 2) != 0)
+        {
+            Scattering.Strata[Index].AlbedoRoughness.w = clamp(Scattering.Strata[Index].AlbedoRoughness.w*Orm.g,.045,1);
+            if (Scattering.Strata[Index].Classification.x == 0) Scattering.Strata[Index].Optics.x *= Orm.b;
+        }
+        float3 Normal = GeometricNormal;
+        if (PaintEnabled)
+        {
+            if (Index == 0)
+            {
+                Scattering.Strata[0].AlbedoRoughness.rgb = Paint.Albedo * Projection.SurfaceTint.rgb;
+                Scattering.Strata[0].AlbedoRoughness.w = Paint.Roughness;
+                Scattering.Strata[0].Optics.x = Paint.Metallic;
+            }
+            Normal = DerivePaintNormal(Material.Paint, Paint, Normal, Pixel.ViewPosition, Scattering.Strata[Index].Classification.x != 0);
+        }
+        if ((Mask & 4) != 0)
+        {
+            float2 Scale = Material.UvScaleOffset.xy*Material.StratumUv[Index].xy;
+            TangentNormal.xy *= Material.RadianceNormal.w*Material.StratumNormal[Index].x*
+                                float2(Scale.x < 0 ? -1 : 1,Scale.y < 0 ? -1 : 1);
+            TangentNormal = NormalizeDirection(TangentNormal);
+            Normal = NormalizeDirection(Tangent*TangentNormal.x+Bitangent*TangentNormal.y+Normal*TangentNormal.z);
+        }
+        float3 LocalTangent = NormalizeDirection(Tangent-Normal*dot(Normal,Tangent));
+        float3 LocalBitangent = cross(Normal,LocalTangent)*(Pixel.ViewTangent.w < 0 ? -1 : 1);
+        float Sine;
+        float Cosine;
+        sincos((Pixel.SubjectRole == 0 ? Material.DirectionalOptics[Index].y : 0),Sine,Cosine);
+        Angular[Index].Normal = Normal;
+        Angular[Index].Tangent = LocalTangent*Cosine+LocalBitangent*Sine;
+        Angular[Index].Bitangent = -LocalTangent*Sine+LocalBitangent*Cosine;
+        Angular[Index].Spread = DeriveAnisotropicSpread(Scattering.Strata[Index].AlbedoRoughness.w,Pixel.SubjectRole == 0 ? Material.DirectionalOptics[Index].x : 0);
+        Angular[Index].Occlusion = (Mask & 2) != 0 ? Orm.r : 1;
+    }
+    float3 View = Scattering.Configuration.z != 0 ? NormalizeDirection(-Pixel.ViewPosition) : float3(0,0,1);
+    float3 Light = NormalizeDirection(Scattering.LightDirectionIntensity.xyz);
+    float3 Radiance = EvaluateMaterialSequence(Scattering,Angular,View,Light,false)*
+                      Scattering.LightDirectionIntensity.w*Scattering.LightColourExposure.rgb;
+    Radiance += IntegrateMaterialEnvironment(Scattering,Angular,GeometricNormal,View);
+    float3 Luminous = MaterialTextures[3].Sample(MaterialSampler,float3(Pixel.Coordinates,0)).rgb;
+    if (Pixel.SubjectRole == 0) Radiance += Material.RadianceNormal.rgb*((Selection & 8) != 0 ? Luminous : float3(1));
+    return float4(EncodeDisplay(Radiance,Scattering.LightColourExposure.w),1);
+}

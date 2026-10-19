@@ -1,0 +1,11 @@
+Format = 1
+Name = "Terracotta Clay"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.40197777983219574, 0.09758734714186246, 0.05126945837404324]
+Roughness = 0.89
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

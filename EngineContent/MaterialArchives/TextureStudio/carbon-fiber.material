@@ -1,0 +1,19 @@
+Format = 1
+Name = "Carbon Fiber"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.1651321945016676, 0.1714411007328226, 0.1912016827407914]
+Roughness = 0.3
+Metallic = 0.8
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.85
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.9

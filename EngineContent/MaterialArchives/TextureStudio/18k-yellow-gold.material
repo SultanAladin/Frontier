@@ -1,0 +1,11 @@
+Format = 1
+Name = "18K Yellow Gold"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.846873231509858, 0.5394794890121071, 0.22696587351009836]
+Roughness = 0.2
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

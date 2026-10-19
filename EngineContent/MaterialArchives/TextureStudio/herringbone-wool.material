@@ -1,0 +1,11 @@
+Format = 1
+Name = "Herringbone Wool"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.20863687014525575, 0.21952619972926923, 0.19461783044157582]
+Roughness = 0.91
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.2

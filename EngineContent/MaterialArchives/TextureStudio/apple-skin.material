@@ -1,0 +1,19 @@
+Format = 1
+Name = "Apple Skin"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.27467731206038465, 0.014443843596092545, 0.02217388479338738]
+Roughness = 0.28
+Metallic = 0
+Ior = 1.45
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.22
+Metallic = 0.0
+Ior = 1.45
+Coverage = 0.3

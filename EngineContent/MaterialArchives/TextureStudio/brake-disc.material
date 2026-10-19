@@ -1,0 +1,19 @@
+Format = 1
+Name = "Brake Disc"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.25015828472995344, 0.26225065752969623, 0.24620132670783548]
+Roughness = 0.42
+Metallic = 0.96
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.35
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.06

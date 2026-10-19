@@ -1,0 +1,11 @@
+Format = 1
+Name = "Kraft Paper"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.33245153634617935, 0.184474994500441, 0.08021982031446831]
+Roughness = 0.89
+Metallic = 0
+Ior = 1.47
+Coverage = 1.0
+Anisotropy = 0
