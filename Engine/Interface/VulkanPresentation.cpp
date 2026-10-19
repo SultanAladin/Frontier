@@ -55,7 +55,6 @@ struct VulkanPresentation::PresentationAllocation
     VkDevice                 Device         = VK_NULL_HANDLE;
     VkQueue                  Queue          = VK_NULL_HANDLE;
     uint32_t                 QueueFamily    = 0;
-    VkQueueFlags             QueueCapabilities = 0;
     ImGui_ImplVulkanH_Window Main;
     bool                     RendererReady = false;
     bool                     Rebuild       = false;
@@ -143,7 +142,6 @@ struct VulkanPresentation::PresentationAllocation
                 {
                     PhysicalDevice = Candidate;
                     QueueFamily    = Index;
-                    QueueCapabilities = Queues[Index].queueFlags;
                     DiagnosticJournal::Append("VulkanDevice", "Selected " + std::string(DeviceProperties.deviceName) + " graphics queue=" + std::to_string(Index));
                     break;
                 }
@@ -252,7 +250,7 @@ VulkanRasterAccess VulkanPresentation::QueryRasterAccess() const
         Resolve<PFN_vkGetDeviceProcAddr>(Display.Instance, "vkGetDeviceProcAddr"),
         Resolve<PFN_vkGetPhysicalDeviceMemoryProperties>(Display.Instance, "vkGetPhysicalDeviceMemoryProperties"),
         Resolve<PFN_vkGetPhysicalDeviceFormatProperties>(Display.Instance, "vkGetPhysicalDeviceFormatProperties"),
-        Display.GetPhysicalDeviceProperties, Display.QueueCapabilities};
+        Display.GetPhysicalDeviceProperties};
 }
 void VulkanPresentation::ConfigureRendering(std::function<void(VkCommandBuffer, uint64_t, uint64_t)> Construct,
                                            std::function<void()> Confirm)

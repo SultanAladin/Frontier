@@ -403,32 +403,6 @@ bool MaterialLibrary::ConfigurePaint(const AutomotivePaint &Paint)
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
 }
 
-bool MaterialLibrary::ApplyCoefficients()
-{
-    try
-    {
-        if (!Applied) throw std::runtime_error("Select a material first.");
-        const auto Definition = DecodeSurfaceMaterial(Source);
-        const auto Previous = DecodeSurfaceMaterial(AppliedSource);
-        if (Definition.TextureSources != Previous.TextureSources || Definition.StratumTextureSources != Previous.StratumTextureSources ||
-            Definition.Scattering.Illumination.Configuration[0] != Previous.Scattering.Illumination.Configuration[0])
-            return ApplySource();
-        auto Scattering = CompileMaterialScattering(Definition.Scattering);
-        // 📝 Texture slices are assigned during texture compilation, not by the TOML decoder.
-        for (size_t Index = 0; Index < Scattering.TextureUse.size(); ++Index)
-            for (size_t Slot = 1; Slot < 4; ++Slot) Scattering.TextureUse[Index][Slot] = Applied->Scattering.TextureUse[Index][Slot];
-        auto ReplacementSource = Source;
-        auto ReplacementName = Definition.Name;
-        Applied->Scattering = Scattering;
-        Applied->Name.swap(ReplacementName);
-        AppliedSource.swap(ReplacementSource);
-        ++Revision;
-        Diagnostic.clear();
-        return true;
-    }
-    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
-}
-
 bool MaterialLibrary::ApplySource()
 {
     DiagnosticJournal::Append("MaterialOperation", "ApplySource " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));

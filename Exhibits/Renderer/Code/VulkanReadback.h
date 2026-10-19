@@ -48,7 +48,6 @@ struct RasterValidationDevice
     VkDevice Device = VK_NULL_HANDLE;
     VkQueue Queue = VK_NULL_HANDLE;
     uint32_t QueueFamily = 0;
-    VkQueueFlags QueueCapabilities = 0;
     VkPhysicalDeviceMemoryProperties Memory{};
     VkPhysicalDeviceProperties Properties{};
     VkCommandPool Pool = VK_NULL_HANDLE;
@@ -149,7 +148,6 @@ struct RasterValidationDevice
                     {
                         Physical = Candidate;
                         QueueFamily = Index;
-                        QueueCapabilities = Descriptions[Index].queueFlags;
                         break;
                     }
                 if (Physical) break;
@@ -217,7 +215,7 @@ struct RasterValidationDevice
     Frontier::VulkanRasterAccess QueryAccess() const
     {
         return {Device, Physical, ResolveTrackedDevice, GetPhysicalDeviceMemoryProperties,
-                GetPhysicalDeviceFormatProperties, GetPhysicalDeviceProperties, QueueCapabilities};
+                GetPhysicalDeviceFormatProperties, GetPhysicalDeviceProperties};
     }
 
 //------------------------------------------------------------------------------------------------------------------------

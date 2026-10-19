@@ -11,7 +11,7 @@
 
 struct WorkspaceIconEvidence
 {
-    Frontier::IconArt VectorAuthoring{"EngineContent/Icons"};
+    Frontier::IconArt Artwork{"EngineContent/Icons"};
     std::map<Frontier::IconSymbol, std::shared_ptr<const Frontier::IconRaster>> Rasters;
     void Configure(Frontier::MaterialLibraryPanel &Panel)
     {
@@ -19,7 +19,7 @@ struct WorkspaceIconEvidence
         {
             if (!Frontier::IconArt::Available(Symbol, Frontier::IconDomain::Texture)) throw std::runtime_error("Cross-workspace icon leak.");
             auto &Raster = Rasters[Symbol];
-            if (!Raster) Raster = VectorAuthoring.Rasterize(Symbol, 24, 24, 1, Frontier::IconPolicy::Strict, Frontier::IconDomain::Texture);
+            if (!Raster) Raster = Artwork.Rasterize(Symbol, 24, 24, 1, Frontier::IconPolicy::Strict, Frontier::IconDomain::Texture);
             if (Raster->Result != Frontier::IconResult::Ready) throw std::runtime_error(Raster->Diagnostic);
             const auto Colour = ImGui::ColorConvertFloat4ToU32(ImVec4(Tint.Red, Tint.Green, Tint.Blue, Tint.Alpha * ImGui::GetStyle().Alpha));
             ImGui::GetWindowDrawList()->AddImage(ImTextureRef(64 + uint64_t(Symbol)), ImVec2(Point.X, Point.Y),

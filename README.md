@@ -27,9 +27,8 @@ Do not build or package Linux binaries unless asked. Preserve cross-platform sou
 MSVC is the current user toolchain; supported GCC, MinGW-w64, and Clang configurations are also permitted.
 No macOS setup or binary downloads are currently in scope. No Android application exists in this scope.
 
-The root CMake targets build selected UI foundations, Windows UI exhibits and the new shared Vulkan CAD/MatCap unit,
-not the old engine wholesale. See [CAD/MatCap raster evidence and boundaries](Exhibits/Renderer/README.md).
-Historical first-batch checks passed in Debug and with sanitizers; Windows x64 cross-compilation succeeded.
+The new root CMake target builds only the selected UI foundations and Windows UI exhibit, not the old engine.
+Six local checks passed in Debug and with sanitizers. Windows x64 cross-compilation succeeded.
 Windows runtime/GPU execution and native MSVC verification remain outstanding.
 Do not mix inherited build instructions with this selective target.
 Local verification is automatic; GitHub Actions require explicit permission.

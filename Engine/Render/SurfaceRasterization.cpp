@@ -1075,19 +1075,6 @@ void SurfaceScatteringResidence::Initialize(const SurfaceRasterPrograms &Program
     Resident->MaterialParameterSelections = Scattering.TextureUse;
     Allocation = std::move(Resident);
 }
-void SurfaceScatteringResidence::ConfigureRetiredScattering(const MaterialScattering &Scattering)
-{
-    if (!Allocation || !Allocation->MaterialParametersEnabled || !ValidateMaterialScattering(Scattering))
-        throw std::runtime_error("Only retired, initialized material parameter storage can be reused.");
-    void *Mapped = nullptr;
-    RequireRasterSuccess(Allocation->MapMemory(Allocation->Access.Device, Allocation->ScatteringParameters.Memory,
-        0, sizeof(Scattering), 0, &Mapped));
-    std::memcpy(Mapped, &Scattering, sizeof(Scattering));
-    Allocation->UnmapMemory(Allocation->Access.Device, Allocation->ScatteringParameters.Memory);
-    Allocation->MaterialParameterCount = Scattering.Illumination.Configuration[0];
-    Allocation->MaterialParameterSelections = Scattering.TextureUse;
-}
-
 SurfaceMaterialResidence::SurfaceMaterialResidence() = default;
 SurfaceMaterialResidence::~SurfaceMaterialResidence() = default;
 void SurfaceMaterialResidence::Finalize() noexcept

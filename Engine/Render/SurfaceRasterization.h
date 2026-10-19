@@ -26,7 +26,6 @@ struct VulkanRasterAccess
     PFN_vkGetPhysicalDeviceMemoryProperties    QueryMemory   = nullptr;
     PFN_vkGetPhysicalDeviceFormatProperties    QueryFormat   = nullptr;
     PFN_vkGetPhysicalDeviceProperties          QueryLimits   = nullptr;
-    VkQueueFlags                              QueueCapabilities = 0;
 };
 
 struct RasterShader
@@ -176,7 +175,7 @@ private:
     std::shared_ptr<SurfaceRasterization::RasterAllocation> Allocation;
 };
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     FENCE-RETIRED SCATTERING PARAMETERS
+//                                                     IMMUTABLE SCATTERING PARAMETERS
 //------------------------------------------------------------------------------------------------------------------------
 
 class SurfaceScatteringResidence
@@ -188,8 +187,6 @@ public:
     SurfaceScatteringResidence &operator=(const SurfaceScatteringResidence &) = delete;
     void Initialize(const SurfaceRasterPrograms &Programs, const PreviewScattering &Scattering);
     void Initialize(const SurfaceRasterPrograms &Programs, const MaterialScattering &Scattering);
-    // ⚠️ Caller must retire every submission referencing this residence before replacing its bytes.
-    void ConfigureRetiredScattering(const MaterialScattering &Scattering);
     void Finalize() noexcept;
 
 private:

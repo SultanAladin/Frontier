@@ -50,7 +50,6 @@ class MaterialLibrary
     bool OpenMaterial(const std::filesystem::path &RelativePath);
     void ReplaceSource(std::string Source);
     bool ApplySource();
-    bool ApplyCoefficients();
     bool ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient);
     bool ConfigurePaint(const AutomotivePaint &Paint);
     bool ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum);

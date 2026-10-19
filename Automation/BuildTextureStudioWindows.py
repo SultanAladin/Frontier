@@ -4,7 +4,6 @@
 # 🧩 Link and package the standalone Windows x64 material editor using an explicitly provisioned, pinned cross-toolchain.
 
 from concurrent.futures import ThreadPoolExecutor
-from VectorShaderArchives import VerifyVectorShaderArchives
 from pathlib import Path
 import argparse
 import hashlib
@@ -64,13 +63,12 @@ def Main():
     Cmake = (RepositoryRoot / 'CMakeLists.txt').read_text()
     NativeSources = []
     for Target in ('FrontierImGui', 'FrontierInterface', 'FrontierEditorUI', 'FrontierTextureStudioUI',
-                   'FrontierMaterialLibrary', 'FrontierTextFiles', 'FrontierVectorAuthoring', 'TextureStudio'):
+                   'FrontierMaterialLibrary', 'FrontierTextFiles', 'TextureStudio'):
         Section = re.search(r'add_(?:library|executable)\(' + Target + r'\s+(.*?)\)', Cmake, re.S).group(1)
         NativeSources += [RepositoryRoot / Name.replace('${IMGUI_ROOT}', 'ExternalPackages/imgui').strip('"')
                           for Name in re.findall(r'"?[^\s"]+\.cpp"?', Section)]
     NativeSources += [RepositoryRoot / 'Engine/Render' / (Name + '.cpp') for Name in
-                      ('SurfaceRasterization', 'SurfaceMaterial', 'MaterialThumbnailAtlas', 'MaterialLibraryRendering',
-                       'VectorCoverageRasterization', 'VectorAuthoringCoverageRendering', 'VectorSelectionEvaluation')]
+                      ('SurfaceRasterization', 'SurfaceMaterial', 'MaterialThumbnailAtlas', 'MaterialLibraryRendering')]
     NativeSources = sorted(set(NativeSources))
     DependencyHeaders = sorted(Source for Source in (RepositoryRoot / 'ExternalPackages').rglob('*')
                                if Source.is_file() and Source.suffix in ('.h', '.hpp', '.inc', '.inl'))
@@ -118,7 +116,6 @@ def Main():
     shutil.copytree(RepositoryRoot / 'EngineContent', Payload / 'EngineContent', dirs_exist_ok=True)
     ShaderOutput = Payload / 'EngineContent/ShaderArchives/Surface'
     ShaderOutput.mkdir(parents=True, exist_ok=True)
-    VectorArchives = VerifyVectorShaderArchives(RepositoryRoot, Arguments.shaders.resolve())
     ShaderManifest = json.loads((Arguments.shaders.resolve() / 'ShaderCompilation.json').read_text())
     for Source in ShaderManifest['sources']:
         if hashlib.sha256((RepositoryRoot / Source['file']).read_bytes()).hexdigest() != Source['sha256']:
@@ -130,10 +127,8 @@ def Main():
         if hashlib.sha256(Shader.read_bytes()).hexdigest() != Entry['spirv_sha256']:
             raise RuntimeError('Stale or damaged shader archive: ' + Entry['entry'])
     shutil.copy2(Arguments.shaders.resolve() / 'ShaderCompilation.json', ShaderOutput / 'ShaderCompilation.json')
-    for Filename in VectorArchives:
-        shutil.copy2(Arguments.shaders.resolve() / Filename, ShaderOutput / Filename)
-    if len(list(ShaderOutput.glob('*.spv'))) != 12:
-        raise RuntimeError('Expected ten surface and two vector shader archives.')
+    if len(list(ShaderOutput.glob('*.spv'))) != 10:
+        raise RuntimeError('Expected all ten verified Slang surface shader entries.')
     Notices = Payload / 'Notices'
     Notices.mkdir(exist_ok=True)
     for Project, Filename in [('imgui', 'LICENSE.txt'), ('glfw', 'LICENSE.md'), ('tomlpp', 'LICENSE'),

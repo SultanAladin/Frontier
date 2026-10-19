@@ -12,10 +12,10 @@ This is not a full engine import or a completed native editor.
 - `Engine/Interface/`: existing pixel primitives, controls, theme, glyph paths, SVG decoding and ImGui atlas adapter.
 - `Engine/Lifecycle/ActivationSequence.h`: new shared lifecycle for controls and scene allocations.
 - `UI/Editor/FoundationPanel.*`: small native UI consumer of the lifecycle and imported drawing path.
-- `Code/WindowsUI.cpp`: adapted official ImGui GLFW/DX11 example, not a new scene renderer.
+- `Code/WindowsUI.cpp`: adapted official ImGui Win32/DX11 example, not a new scene renderer.
 - `Engine/Render/`: blank apart from a Git directory-retention marker.
 
-The Windows host uses the pinned existing ImGui GLFW and DX11 backends.
+The Windows host uses the pinned existing ImGui Win32 and DX11 backends.
 The upstream Frontier Vulkan scene renderer and its shaders, lighting, shadows, and visibility code are excluded.
 ThorVG software rasterization converts SVG artwork into RGBA textures; this is UI artwork processing only.
 All 151 icon symbols use their original SVGs or inherited, fingerprint-checked SVG compatibility variants.

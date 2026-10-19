@@ -36,8 +36,6 @@ class MaterialLibraryRendering
     void InvalidateThumbnails() noexcept;
     [[nodiscard]] bool AuthenticateThumbnail(const std::filesystem::path &RelativePath, uint64_t Generation) const;
     [[nodiscard]] uint64_t QueryBakeCount() const noexcept;
-    [[nodiscard]] uint64_t QueryPreviewParameterAllocationCount() const noexcept;
-    [[nodiscard]] uint64_t QueryTextureAllocationCount() const noexcept;
     [[nodiscard]] VkImage QueryPreviewImage() const noexcept;
     [[nodiscard]] VkImage QueryAtlasImage() const noexcept;
     [[nodiscard]] uint32_t QueryAtlasExtent() const noexcept;

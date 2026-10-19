@@ -69,10 +69,6 @@ int main(int Count, char **Arguments)
             if (Preview) PreviewPixels = std::move(Pixels);
             else AtlasPixels = std::move(Pixels);
         }
-        // 📝 Dock seating can change aspect after the first preview; capture the final GPU image rather than a stale first frame.
-        PreviewPixels = Device.Capture(Rendering.QueryPreviewImage(), {512, 512},
-            [&](VkCommandBuffer Commands) { Rendering.ConstructCommands(Commands, 18, 19); },
-            [&]() { Rendering.ConfirmSubmission(); });
         AssertRasterCondition(Rendering.QueryBakeCount() >= 8 && Rendering.QueryPreviewReady(), "Visible HTML library thumbnails were not baked.");
         const int Edge = int(Rendering.QueryAtlasExtent());
         auto Textures = Icons.QueryTextures();

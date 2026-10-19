@@ -16,11 +16,6 @@ namespace Frontier
 //                                                     REGISTRATION AND PLACEMENT
 //------------------------------------------------------------------------------------------------------------------------
 
-void PanelDockspace::PreserveDockspace() const
-{
-    if (Dockspace) ImGui::DockSpace(Dockspace, ImVec2(0, 0), ImGuiDockNodeFlags_KeepAliveOnly);
-}
-
 bool PanelDockspace::Register(DockPanelSpecification Specification)
 {
     if (Seated || Entries.size() >= 16 || Specification.Key.empty() || Specification.Key.size() > 64 ||
@@ -29,8 +24,7 @@ bool PanelDockspace::Register(DockPanelSpecification Specification)
         std::any_of(Entries.begin(), Entries.end(),
                     [&](const auto &Entry) { return Entry.Specification.Key == Specification.Key; }))
         return false;
-    const auto Prefix = WorkspaceIdentity == "Frontier shared panels" ? std::string{} : std::to_string(WorkspaceIdentity.size()) + ":" + WorkspaceIdentity + ":";
-    const auto Name = Specification.Caption + "###FrontierPanel-" + Prefix + Specification.Key;
+    const auto Name = Specification.Caption + "###FrontierPanel-" + Specification.Key;
     Entries.push_back({std::move(Specification), Name, 0});
     return true;
 }
@@ -53,29 +47,9 @@ void PanelDockspace::ConfigureTabExtent(float Width, float Height) noexcept
     }
 }
 
-bool PanelDockspace::ConfigureIdentity(std::string Identity)
-{
-    if (Seated || Identity.empty() || Identity.size() > 64 || Identity.find_first_of("#\r\n") != std::string::npos) return false;
-    WorkspaceIdentity = std::move(Identity);
-    const auto Prefix = WorkspaceIdentity == "Frontier shared panels" ? std::string{} : std::to_string(WorkspaceIdentity.size()) + ":" + WorkspaceIdentity + ":";
-    for (auto &Entry : Entries) Entry.WindowName = Entry.Specification.Caption + "###FrontierPanel-" + Prefix + Entry.Specification.Key;
-    return true;
-}
-
-bool PanelDockspace::ConfigureStackedPanel(std::string UpperKey, std::string LowerKey, float UpperExtent)
-{
-    if (Seated || !DefaultColumns.empty() || UpperKey == LowerKey || !std::isfinite(UpperExtent) || UpperExtent < 28 || UpperExtent > 1024) return false;
-    for (const auto &Stack : DefaultStacks)
-        if (Stack.UpperKey == UpperKey || Stack.LowerKey == LowerKey || Stack.LowerKey == UpperKey || Stack.UpperKey == LowerKey) return false;
-    for (const auto &Key : {UpperKey, LowerKey})
-        if (std::none_of(Entries.begin(), Entries.end(), [&](const auto &Entry) { return Entry.Specification.Key == Key; })) return false;
-    DefaultStacks.push_back({std::move(UpperKey), std::move(LowerKey), UpperExtent});
-    return true;
-}
-
 bool PanelDockspace::ConfigureColumns(const std::vector<std::pair<std::string, float>> &Columns)
 {
-    if (Seated || Columns.size() < 2 || Columns.size() + DefaultStacks.size() != Entries.size()) return false;
+    if (Seated || Columns.size() < 2 || Columns.size() != Entries.size()) return false;
     for (size_t Index = 0; Index < Columns.size(); ++Index)
     {
         const auto &[Key, Weight] = Columns[Index];
@@ -83,11 +57,6 @@ bool PanelDockspace::ConfigureColumns(const std::vector<std::pair<std::string, f
             std::none_of(Entries.begin(), Entries.end(), [&](const auto &Entry) { return Entry.Specification.Key == Key; })) return false;
         for (size_t Previous = 0; Previous < Index; ++Previous)
             if (Columns[Previous].first == Key) return false;
-    }
-    for (const auto &Stack : DefaultStacks)
-    {
-        if (std::none_of(Columns.begin(), Columns.end(), [&](const auto &Column) { return Column.first == Stack.LowerKey; }) ||
-            std::any_of(Columns.begin(), Columns.end(), [&](const auto &Column) { return Column.first == Stack.UpperKey; })) return false;
     }
     DefaultColumns = Columns;
     return true;
@@ -211,12 +180,11 @@ void PanelDockspace::ConstructInterface(float Scale)
         ImGui::SetNextWindowViewport(Main->ID);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-        const auto HostCaption = WorkspaceIdentity == "Frontier shared panels" ? std::string("Frontier panel dockspace") : "Frontier panel dockspace###" + WorkspaceIdentity;
-        ImGui::Begin(HostCaption.c_str(), nullptr,
+        ImGui::Begin("Frontier panel dockspace", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
                          ImGuiWindowFlags_NoNavFocus);
-        Dockspace = ImGui::GetID(WorkspaceIdentity.c_str());
+        Dockspace = ImGui::GetID("Frontier shared panels");
         if (!Seated)
         {
             ImGui::DockBuilderRemoveNode(Dockspace);
@@ -242,16 +210,6 @@ void PanelDockspace::ConstructInterface(float Scale)
                         Destination = ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Left, Weight / RemainingWeight, nullptr, &Remaining);
                     RemainingWeight -= Weight;
                     const auto Entry = std::find_if(Entries.begin(), Entries.end(), [&](const auto &Panel) { return Panel.Specification.Key == Key; });
-                    for (const auto &Stack : DefaultStacks)
-                    {
-                        if (Stack.LowerKey != Key) continue;
-                        const auto Upper = std::find_if(Entries.begin(), Entries.end(), [&](const auto &Panel) { return Panel.Specification.Key == Stack.UpperKey; });
-                        ImGuiID Lower = Destination;
-                        const float Fraction = std::clamp((Stack.UpperExtent * Scale) / std::max(1.f, Extent.y), .01f, .8f);
-                        const auto UpperRegion = ImGui::DockBuilderSplitNode(Destination, ImGuiDir_Up, Fraction, nullptr, &Lower);
-                        ImGui::DockBuilderDockWindow(Upper->WindowName.c_str(), UpperRegion);
-                        Destination = Lower;
-                    }
                     ImGui::DockBuilderDockWindow(Entry->WindowName.c_str(), Destination);
                 }
             }

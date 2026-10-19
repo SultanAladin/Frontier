@@ -551,17 +551,17 @@ ControlHit ControlKit::Dropdown(PixelSpace &Surface, const PlaneExtent &Extent, 
     Hit.Pressed = Hit.Hovered && Pointer.Pressed;
     Hit.Clicked = Hit.Hovered && Pointer.Released;
 
-    const float       H = Extent.Height(), R = std::min(ControlKitTokens::DropdownRowRadius, H * 0.5f);
+    const float       H = Extent.Height(), R = H * 0.5f;
     const float       CaretW = 44.0f;
     const PlaneExtent Caret  = Spanning(Extent.MaximumX - CaretW, Extent.MinimumY, CaretW, H);
-    Surface.FillRectangle(Extent, Faded(Palette().Inset, Opacity), R);
+    Surface.FillRectangle(Extent, Faded(Palette().Field, Opacity), R);
     Surface.FillRectangle(Spanning(Caret.MinimumX - R, Extent.MinimumY, CaretW + R, H),
                           Faded(Hit.Hovered ? Palette().Raised : Palette().Inset, Opacity), R);
     Surface.FillRectangle(Spanning(Caret.MinimumX - R, Extent.MinimumY, R, H),
-                          Faded(Palette().Inset, Opacity)); // square the seam
+                          Faded(Palette().Field, Opacity)); // square the seam
     Surface.FillRectangle(Spanning(Caret.MinimumX, Extent.MinimumY, 1.0f, H), Faded(Palette().Stroke, Opacity));
     OutlineRounded(Surface, Extent, Faded(Palette().Stroke, Opacity), R);
-    TextLeading(Surface, Extent, ControlKitTokens::DropdownPaddingX, Faded(Palette().Text, Opacity), Current, 13.5f);
+    TextLeading(Surface, Extent, 16.0f, Faded(Palette().Text, Opacity), Current, 13.5f);
     GlyphCentred(Surface, Caret, 16.0f, Faded(Palette().TextDim, Opacity),
                  Open ? ControlCentreIconCategory::ChevronUp : ControlCentreIconCategory::ChevronDown);
     return Hit;
@@ -570,8 +570,7 @@ ControlHit ControlKit::Dropdown(PixelSpace &Surface, const PlaneExtent &Extent, 
 PlaneExtent ControlKit::DropdownMenuExtent(const PlaneExtent &ButtonExtent, uint32_t Count) noexcept
 {
     return Spanning(ButtonExtent.MinimumX, ButtonExtent.MaximumY + 8.0f, ButtonExtent.Width(),
-                    2 * ControlKitTokens::DropdownPaddingY + Count * DropdownOptionHeight
-                        + (Count > 0u ? (Count - 1u) * ControlKitTokens::DropdownRowGap : 0.0f));
+                    12.0f + Count * DropdownOptionHeight + (Count > 0u ? (Count - 1u) * 2.0f : 0.0f));
 }
 
 ControlHit ControlKit::DropdownMenu(PixelSpace &Surface, const PlaneExtent &ButtonExtent, const char *const *Options,
@@ -580,15 +579,12 @@ ControlHit ControlKit::DropdownMenu(PixelSpace &Surface, const PlaneExtent &Butt
 {
     ControlHit        Hit{};
     const PlaneExtent Menu = DropdownMenuExtent(ButtonExtent, Count);
-    auto Background = Palette().Panel;
-    Background.Alpha = 1;
-    Surface.FillRectangle(Menu, Faded(Background, Opacity), ControlKitTokens::DropdownCornerRadius);
-    OutlineRounded(Surface, Menu, Faded(Palette().StrokeStrong, Opacity), ControlKitTokens::DropdownCornerRadius);
-    float Y = Menu.MinimumY + ControlKitTokens::DropdownPaddingY;
+    Surface.FillRectangle(Menu, Faded(Palette().Field, Opacity), 20.0f);
+    OutlineRounded(Surface, Menu, Faded(Palette().StrokeStrong, Opacity), 20.0f);
+    float Y = Menu.MinimumY + 6.0f;
     for (uint32_t I = 0u; I < Count; ++I)
     {
-        const PlaneExtent Row   = Spanning(Menu.MinimumX + ControlKitTokens::DropdownPaddingX, Y,
-                                                std::max(0.f, Menu.Width() - 2 * ControlKitTokens::DropdownPaddingX), DropdownOptionHeight);
+        const PlaneExtent Row   = Spanning(Menu.MinimumX + 6.0f, Y, Menu.Width() - 12.0f, DropdownOptionHeight);
         const bool        Hover = Over(Row, Pointer);
         if (Hover)
         {
@@ -602,12 +598,12 @@ ControlHit ControlKit::DropdownMenu(PixelSpace &Surface, const PlaneExtent &Butt
             }
         }
         if (I == Selected)
-            Surface.FillRectangle(Row, Faded(Hover ? Palette().Raised : Palette().Selected, Opacity), ControlKitTokens::DropdownRowRadius);
+            Surface.FillRectangle(Row, Faded(Palette().Raised, Opacity), DropdownOptionHeight * 0.5f);
         else if (Hover)
-            Surface.FillRectangle(Row, Faded(Palette().Raised, Opacity), ControlKitTokens::DropdownRowRadius);
-        TextLeading(Surface, Row, ControlKitTokens::DropdownPaddingX, Faded(Palette().Text, Opacity),
+            Surface.FillRectangle(Row, Faded(Palette().Inset, Opacity), DropdownOptionHeight * 0.5f);
+        TextLeading(Surface, Row, 14.0f, Faded(I == Selected || Hover ? Palette().Text : Palette().TextDim, Opacity),
                     Options[I], 13.0f);
-        Y += DropdownOptionHeight + ControlKitTokens::DropdownRowGap;
+        Y += DropdownOptionHeight + 2.0f;
     }
     Hit.Hovered = Hit.Hovered || Over(Menu, Pointer);
     return Hit;

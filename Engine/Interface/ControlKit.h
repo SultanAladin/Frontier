@@ -28,12 +28,6 @@ struct ControlKitTokens
     static constexpr float RowHeight     = 36.0f;  // --row-h
     static constexpr float LabelWidth    = 110.0f; // .crow > .clabel
     static constexpr float RowGap        = 14.0f;  // .crow gap
-    static constexpr float DropdownCornerRadius = 8.0f;
-    static constexpr float DropdownRowRadius    = 6.0f;
-    static constexpr float DropdownPaddingX     = 12.0f;
-    static constexpr float DropdownPaddingY     = 10.0f;
-    static constexpr float DropdownRowHeight    = 28.0f;
-    static constexpr float DropdownRowGap       = 4.0f;
     static constexpr float DisabledAlpha = 0.35f;  // .btn[disabled]
 };
 
@@ -275,14 +269,14 @@ class ControlKit
     static void ScrollIndicator(PixelSpace &Surface, const PlaneExtent &View, float Offset, float ContentHeight,
                                 float Opacity = 1.0f) noexcept;
 
-    // Rounded dropdown field with split caret cell. Returns Clicked when the button is clicked (host opens the menu).
+    // .dd-btn  pill with split caret cell. Returns Clicked when the button is clicked (host opens the menu).
     static ControlHit Dropdown(PixelSpace &Surface, const PlaneExtent &Extent, const char *Current, bool Open,
                                const ControlPointer &Pointer, float Opacity = 1.0f) noexcept;
     // .dd-menu  floating list under the button; returns chosen index via OutIndex (unchanged when none).
     static ControlHit DropdownMenu(PixelSpace &Surface, const PlaneExtent &ButtonExtent, const char *const *Options,
                                    uint32_t Count, uint32_t Selected, const ControlPointer &Pointer, uint32_t &OutIndex,
                                    float Opacity = 1.0f) noexcept;
-    static constexpr float           DropdownOptionHeight = ControlKitTokens::DropdownRowHeight;
+    static constexpr float           DropdownOptionHeight = 36.0f; // 9 px pad × 2 + 13 px text leading
     [[nodiscard]] static PlaneExtent DropdownMenuExtent(const PlaneExtent &ButtonExtent, uint32_t Count) noexcept;
 
     // Notch <section>: p-6, bg inputBg (white/5), border panelBorder, radius = corner radius; returns content extent.

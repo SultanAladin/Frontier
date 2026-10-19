@@ -33,7 +33,6 @@ class PanelDockspace
 {
   public:
     void                      RecoverPlatformWindows();
-    void                      PreserveDockspace() const;
     bool                      Register(DockPanelSpecification Specification);
     [[nodiscard]] toml::table EncodeLayout() const;
     bool                      ConfigureLayout(const toml::table &Layout, std::string &Diagnostic);
@@ -45,8 +44,6 @@ class PanelDockspace
     }
     void ConfigureWorkspaceInsets(float Top, float Bottom) noexcept;
     void ConfigureTabExtent(float Width, float Height) noexcept;
-    bool ConfigureIdentity(std::string Identity);
-    bool ConfigureStackedPanel(std::string UpperKey, std::string LowerKey, float UpperExtent);
     bool ConfigureColumns(const std::vector<std::pair<std::string, float>> &Columns);
     bool ConfigureOpen(const std::string &Key, bool Open) noexcept;
     bool ConfigureDetached(const std::string &Key, bool Detached) noexcept;
@@ -90,13 +87,6 @@ class PanelDockspace
     bool                                          Seated          = false;
     bool                                          DetachedEnabled = false;
     bool                                          Reattach        = false;
-    struct DockPanelStack
-    {
-        std::string UpperKey, LowerKey;
-        float UpperExtent = 32;
-    };
-    std::string WorkspaceIdentity = "Frontier shared panels";
-    std::vector<DockPanelStack> DefaultStacks;
     std::vector<std::pair<std::string, float>> DefaultColumns;
     float TopInset = 24, BottomInset = 24;
     float TabWidth = 110, TabHeight = 24;

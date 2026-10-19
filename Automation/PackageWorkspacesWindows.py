@@ -37,7 +37,6 @@ def VerifyDistributionAuthorization(Security, UnsignedPreviewEnabled=False):
 
 
 def Main():
-    from VectorShaderArchives import VerifyVectorShaderArchives
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--build', type=Path, required=True)
     Parser.add_argument('--output', type=Path, required=True)
@@ -48,7 +47,6 @@ def Main():
     Signatures = VerifyDistributionAuthorization(Security, Arguments.allow_unsigned_preview)
     Build = Arguments.build.resolve()
     ShaderDirectory = Build / 'ShaderArchives/Surface'
-    VerifyVectorShaderArchives(RepositoryRoot, ShaderDirectory)
     Compilation = json.loads((ShaderDirectory / 'ShaderCompilation.json').read_text())
     if len(Compilation['entries']) != 10:
         raise RuntimeError('Expected ten compiled shader entries')

@@ -85,10 +85,8 @@ def Main():
     Images.mkdir(parents=True, exist_ok=True)
     Execute('cpu_capture_encoding', [sys.executable, 'Exhibits/UIFoundation/Code/EncodeEvidence.py',
                                     LastOutput / 'MaterialLibrary.ppm', Images / 'MaterialLibrary.png'])
-    Execute('dropdown_capture_encoding', [sys.executable, 'Exhibits/UIFoundation/Code/EncodeEvidence.py',
-                                         LastOutput / 'NativeDropdownMaterial.ppm', Images / 'NativeDropdownMaterial.png'])
     Sources = [Source for Source in Sources if not Source.startswith('ExternalPackages/')]
-    Sources += ['Engine/Interface/DropdownControls.h', 'Engine/ContentInterchange/MaterialLibrary.h', 'UI/TextureStudio/MaterialLibraryPanel.h',
+    Sources += ['Engine/ContentInterchange/MaterialLibrary.h', 'UI/TextureStudio/MaterialLibraryPanel.h',
                 'UI/Editor/ControlCentrePanel.h', 'UI/Editor/ControlCentrePanel.cpp',
                 'Engine/Interface/WindowsApplication.h', 'Engine/Interface/WindowsApplication.cpp',
                 'Engine/Interface/VulkanPresentation.h', 'Engine/Interface/VulkanPresentation.cpp',

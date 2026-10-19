@@ -5,7 +5,6 @@
 
 #pragma once
 #include <array>
-#include <algorithm>
 #include <cstddef>
 #include <cmath>
 #include <cstdint>
@@ -23,20 +22,6 @@ struct alignas(16) AutomotivePaint
 };
 static_assert(sizeof(AutomotivePaint) == 272);
 static_assert(offsetof(AutomotivePaint, Palette) == 64);
-
-inline std::array<float, 3> EvaluatePaintTint(const AutomotivePaint &Paint, float Position)
-{
-    const uint32_t Count = std::clamp(Paint.Configuration[3], 1u, 12u);
-    auto Tint = Paint.Palette[0];
-    if (Paint.Configuration[2] == 0) Tint = Paint.Palette[std::min(Count - 1, uint32_t(std::clamp(Position, 0.f, 1.f) * Count))];
-    else if (Paint.Configuration[2] == 1)
-        for (uint32_t Index = 1; Index < Count; ++Index)
-        {
-            const float α = std::clamp((Position - Paint.Palette[Index - 1][3]) / std::max(.0001f, Paint.Palette[Index][3] - Paint.Palette[Index - 1][3]), 0.f, 1.f);
-            for (size_t Channel = 0; Channel < 3; ++Channel) Tint[Channel] = std::lerp(Tint[Channel], Paint.Palette[Index][Channel], α);
-        }
-    return {Tint[0], Tint[1], Tint[2]};
-}
 
 inline bool ValidateAutomotivePaint(const AutomotivePaint &Paint)
 {

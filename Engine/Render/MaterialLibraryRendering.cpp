@@ -8,7 +8,6 @@
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
 #include <cstring>
-#include <chrono>
 #include <fstream>
 #include <limits>
 #include <optional>
@@ -18,37 +17,25 @@ namespace Frontier
 {
 namespace
 {
-void AccumulateMaterialFingerprint(uint64_t &Digest, const void *Bytes, size_t Count)
-{
-    const auto *Octets = static_cast<const unsigned char *>(Bytes);
-    for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
-}
-uint64_t ComputeMaterialTextureFingerprint(const CompiledSurfaceMaterial &Material)
+uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material)
 {
     uint64_t Digest = 14695981039346656037ull;
+    const auto Accumulate = [&](const void *Bytes, size_t Count)
+    {
+        const auto *Octets = static_cast<const unsigned char *>(Bytes);
+        for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
+    };
+    Accumulate(&Material.Scattering, sizeof(Material.Scattering));
     for (const auto &Texture : Material.Textures)
     {
-        AccumulateMaterialFingerprint(Digest, &Texture.Category, sizeof(Texture.Category));
-        AccumulateMaterialFingerprint(Digest, &Texture.Layers, sizeof(Texture.Layers));
-        const auto LevelCount = Texture.Levels.size(), ByteCount = Texture.Rgba.size();
-        AccumulateMaterialFingerprint(Digest, &LevelCount, sizeof(LevelCount));
-        AccumulateMaterialFingerprint(Digest, &ByteCount, sizeof(ByteCount));
+        Accumulate(&Texture.Layers, sizeof(Texture.Layers));
         for (const auto &Level : Texture.Levels)
         {
-            AccumulateMaterialFingerprint(Digest, &Level.Width, sizeof(Level.Width));
-            AccumulateMaterialFingerprint(Digest, &Level.Height, sizeof(Level.Height));
-            AccumulateMaterialFingerprint(Digest, &Level.Offset, sizeof(Level.Offset));
+            Accumulate(&Level.Width, sizeof(Level.Width));
+            Accumulate(&Level.Height, sizeof(Level.Height));
         }
-        AccumulateMaterialFingerprint(Digest, Texture.Rgba.data(), Texture.Rgba.size());
+        Accumulate(Texture.Rgba.data(), Texture.Rgba.size());
     }
-    return Digest;
-}
-uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material, std::optional<uint64_t> TextureFingerprint = {})
-{
-    uint64_t Digest = 14695981039346656037ull;
-    const auto TextureDigest = TextureFingerprint ? *TextureFingerprint : ComputeMaterialTextureFingerprint(Material);
-    AccumulateMaterialFingerprint(Digest, &Material.Scattering, sizeof(Material.Scattering));
-    AccumulateMaterialFingerprint(Digest, &TextureDigest, sizeof(TextureDigest));
     return Digest;
 }
 std::vector<uint32_t> DecodePreviewShader(const std::filesystem::path &Path)
@@ -76,7 +63,7 @@ struct MaterialLibraryRendering::RenderingAllocation
     MaterialThumbnailAtlas Atlas;
     struct MaterialGpuResidence
     {
-        std::shared_ptr<SurfaceMaterialResidence> Textures;
+        SurfaceMaterialResidence Textures;
         SurfaceScatteringResidence Parameters;
     };
     struct ThumbnailSlot
@@ -97,9 +84,6 @@ struct MaterialLibraryRendering::RenderingAllocation
         std::shared_ptr<SurfaceScatteringResidence> Parameters;
     };
     std::vector<PreviewRetirement> PreviewRetirements;
-    std::vector<std::shared_ptr<SurfaceScatteringResidence>> PreviewParameterVacancies;
-    uint64_t PreviewParameterAllocations = 0, TextureAllocations = 0, SelectedTextureFingerprint = 0;
-    std::chrono::steady_clock::time_point PreviewDiagnosticTime{};
     MaterialScattering PreviewScattering;
     MaterialPreviewConfiguration Inspection;
     std::shared_ptr<SurfaceScatteringResidence> PreviewParameters;
@@ -113,7 +97,7 @@ struct MaterialLibraryRendering::RenderingAllocation
     std::string Diagnostic;
     SurfaceNormalProjection Projection;
 
-    std::shared_ptr<MaterialGpuResidence> CompileResidence(const CompiledSurfaceMaterial &Material, std::shared_ptr<SurfaceMaterialResidence> Textures = {})
+    std::shared_ptr<MaterialGpuResidence> CompileResidence(const CompiledSurfaceMaterial &Material)
     {
         auto Residence = std::make_shared<MaterialGpuResidence>();
         auto Scattering = Material.Scattering;
@@ -121,13 +105,7 @@ struct MaterialLibraryRendering::RenderingAllocation
         Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
         Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
         Scattering.Illumination.ViewFromSurface = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,-3,1};
-        if (!Textures)
-        {
-            Textures = std::make_shared<SurfaceMaterialResidence>();
-            Textures->Initialize(Programs, Material.Textures);
-            ++TextureAllocations;
-        }
-        Residence->Textures = std::move(Textures);
+        Residence->Textures.Initialize(Programs, Material.Textures);
         Residence->Parameters.Initialize(Programs, Scattering);
         return Residence;
     }
@@ -162,19 +140,8 @@ struct MaterialLibraryRendering::RenderingAllocation
             Scattering.Illumination.LightDirectionIntensity = {-.2f,.9f,.4f,.7f};
             break;
         }
-        std::shared_ptr<SurfaceScatteringResidence> Replacement;
-        if (PreviewParameterVacancies.empty())
-        {
-            Replacement = std::make_shared<SurfaceScatteringResidence>();
-            Replacement->Initialize(Programs, Scattering);
-            ++PreviewParameterAllocations;
-        }
-        else
-        {
-            Replacement = std::move(PreviewParameterVacancies.back());
-            PreviewParameterVacancies.pop_back();
-            Replacement->ConfigureRetiredScattering(Scattering);
-        }
+        auto Replacement = std::make_shared<SurfaceScatteringResidence>();
+        Replacement->Initialize(Programs, Scattering);
         if (PreviewParameters) PreviewRetirements.push_back({SubmittedSerial, std::move(PreviewParameters)});
         PreviewParameters = std::move(Replacement);
         PreviewDirty = true;
@@ -265,12 +232,9 @@ void MaterialLibraryRendering::ConfigureSelection(const std::filesystem::path &P
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
-    const auto TextureDigest = ComputeMaterialTextureFingerprint(Material);
-    const auto Digest = ComputeMaterialFingerprint(Material, TextureDigest);
+    const auto Digest = ComputeMaterialFingerprint(Material);
     if (Rendering.Selection == Path && Rendering.SelectedFingerprint == Digest) return;
-    const bool ReuseTextures = Rendering.Selected && Rendering.Selection == Path && Rendering.SelectedTextureFingerprint == TextureDigest;
-    auto Replacement = Rendering.CompileResidence(Material, ReuseTextures ? Rendering.Selected->Textures : nullptr);
-    Rendering.SelectedTextureFingerprint = TextureDigest;
+    auto Replacement = Rendering.CompileResidence(Material);
     if (Rendering.Selected) Rendering.InFlight.push_back({Rendering.SubmittedSerial, std::move(Rendering.Selected)});
     Rendering.Selected = std::move(Replacement);
     Rendering.PreviewScattering = Material.Scattering;
@@ -287,28 +251,13 @@ void MaterialLibraryRendering::ConfigurePreview(const MaterialPreviewConfigurati
     if (!Allocation || !ValidateMaterialPreviewConfiguration(Configuration)) throw std::runtime_error("Invalid material inspection configuration.");
     auto &Rendering = *Allocation;
     if (Rendering.Inspection == Configuration) return;
-    const bool LightingChanged = Configuration.Shape != Rendering.Inspection.Shape ||
-        Configuration.Environment != Rendering.Inspection.Environment || Configuration.Exposure != Rendering.Inspection.Exposure;
     Rendering.Inspection = Configuration;
     Rendering.ReconfigurePreview();
-    const auto DiagnosticTime = std::chrono::steady_clock::now();
-    if (LightingChanged || DiagnosticTime - Rendering.PreviewDiagnosticTime >= std::chrono::milliseconds(250))
-    {
-        Rendering.PreviewDiagnosticTime = DiagnosticTime;
-        DiagnosticJournal::Append("PreviewConfiguration", "shape=" + std::to_string(uint32_t(Configuration.Shape)) +
+    DiagnosticJournal::Append("PreviewConfiguration", "shape=" + std::to_string(uint32_t(Configuration.Shape)) +
         " environment=" + std::to_string(uint32_t(Configuration.Environment)) + " zoom=" + std::to_string(Configuration.Zoom) +
         " exposure=" + std::to_string(Configuration.Exposure) +
         " pan=" + std::to_string(Configuration.PanX) + "," + std::to_string(Configuration.PanY) +
         " orbit=" + std::to_string(Configuration.Yaw) + "," + std::to_string(Configuration.Pitch));
-    }
-}
-uint64_t MaterialLibraryRendering::QueryPreviewParameterAllocationCount() const noexcept
-{
-    return Allocation ? Allocation->PreviewParameterAllocations : 0;
-}
-uint64_t MaterialLibraryRendering::QueryTextureAllocationCount() const noexcept
-{
-    return Allocation ? Allocation->TextureAllocations : 0;
 }
 MaterialPreviewConfiguration MaterialLibraryRendering::QueryPreviewConfiguration() const
 {
@@ -318,9 +267,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
-    for (auto &Residence : Rendering.PreviewRetirements)
-        if (Residence.Serial <= CompletedSerial) Rendering.PreviewParameterVacancies.push_back(std::move(Residence.Parameters));
-    std::erase_if(Rendering.PreviewRetirements, [](const auto &Residence) { return !Residence.Parameters; });
+    std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     Rendering.SubmittedSerial = SubmissionSerial;
     Rendering.RecordedSlot = -1;
@@ -334,10 +281,8 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Projection.ViewNormalRow0 = {View[0],View[4],View[8],0};
         Projection.ViewNormalRow1 = {View[1],View[5],View[9],0};
         Projection.ViewNormalRow2 = {View[2],View[6],View[10],0};
-        Rendering.Preview.ConstructCommands(Commands, Projection, *Rendering.Selected->Textures, *Rendering.PreviewParameters);
-        if (SubmissionSerial % 120 == 0)
-            DiagnosticJournal::Append("PreviewSubmit", "serial=" + std::to_string(SubmissionSerial) +
-                " parameter-allocations=" + std::to_string(Rendering.PreviewParameterAllocations));
+        Rendering.Preview.ConstructCommands(Commands, Projection, Rendering.Selected->Textures, *Rendering.PreviewParameters);
+        DiagnosticJournal::Append("PreviewSubmit", "serial=" + std::to_string(SubmissionSerial));
         Rendering.RecordedPreview = true;
         // 📝 First-use geometry/texture uploads belong to one target recording until accepted submission.
         // Alternate preview work and tile work rather than recording the same pending transfers twice.
@@ -372,7 +317,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     // ⚠️ GPU allocation/recording failures propagate to the application's severe-failure presentation.
     if (!Material) Material = Rendering.CompileResidence(*Compiled);
     Rendering.InFlight.push_back({SubmissionSerial, Material});
-    Rendering.Tile.ConstructCommands(Commands, Rendering.Projection, *Material->Textures, Material->Parameters);
+    Rendering.Tile.ConstructCommands(Commands, Rendering.Projection, Material->Textures, Material->Parameters);
     Rendering.Atlas.ConstructCopy(Commands, Rendering.Tile, uint32_t(Dirty - Rendering.Slots.begin()));
     Dirty->Fingerprint = Digest;
     Rendering.RecordedSlot = int(Dirty - Rendering.Slots.begin());

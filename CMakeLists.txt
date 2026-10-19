@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
 # UI-first port with a separately validated Vulkan CAD offscreen unit; native viewport integration remains explicit.
-option(FRONTIER_DEVELOPMENT_CONSOLE "Open the default native development console" ON)
-add_compile_definitions(FRONTIER_DEVELOPMENT_CONSOLE=$<BOOL:${FRONTIER_DEVELOPMENT_CONSOLE}>)
 option(FRONTIER_HOST_VERIFICATION "Build local verification tools on a non-Windows editing host" OFF)
 if(NOT WIN32 AND NOT FRONTIER_HOST_VERIFICATION)
     message(FATAL_ERROR "Windows is the delivery target. Use host verification only for local checks.")
@@ -36,25 +34,13 @@ add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLib
 target_include_directories(FrontierMaterialLibrary PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierMaterialLibrary PUBLIC FrontierSurfaceRasterization FrontierTextFiles)
-add_library(FrontierVectorAuthoring STATIC
-    Engine/ContentInterchange/VectorAuthoringDocument.cpp
-    Engine/ContentInterchange/VectorAuthoringEditing.cpp
-    Engine/ContentInterchange/VectorAuthoringArrayPlacement.cpp
-    Engine/ContentInterchange/VectorAuthoringProperties.cpp
-    Engine/ContentInterchange/VectorAuthoringSelectionEditing.cpp
-    Engine/ContentInterchange/CubicPathEditing.cpp)
-target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
-    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
-add_library(FrontierTextureStudioUI STATIC
-    UI/TextureStudio/MaterialLibraryPanel.cpp
-    UI/TextureStudio/VectorMaskControls.cpp
-    UI/TextureStudio/PatternWorkspacePanel.cpp)
-target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
+add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp)
+target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
 add_library(FrontierInterface STATIC
     Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
-    Engine/Interface/ControlKit.cpp Engine/Interface/VectorAuthoringControls.cpp Engine/Interface/TextEntryState.cpp
+    Engine/Interface/ControlKit.cpp Engine/Interface/TextEntryState.cpp
     Engine/Interface/ThemeStructure.cpp Engine/Interface/VectorCodec.cpp
     Engine/Interface/ContentDirectory.cpp Engine/Interface/FontCodec.cpp
     Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
@@ -154,7 +140,6 @@ endif()
 
 include(CTest)
 include(Automation/SurfaceRasterization.cmake)
-include(Automation/VectorCoverage.cmake)
 if(BUILD_TESTING)
     add_executable(MaterialPreviewConfigurationValidation Exhibits/TextureStudio/Code/MaterialPreviewConfigurationValidation.cpp)
     target_link_libraries(MaterialPreviewConfigurationValidation PRIVATE FrontierTextureStudioUI)
@@ -240,33 +225,4 @@ if(BUILD_TESTING)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation
         "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
-endif()
-
-if(BUILD_TESTING)
-    add_executable(PatternWorkspaceValidation Exhibits/TextureStudio/Code/PatternWorkspaceValidation.cpp)
-    target_include_directories(PatternWorkspaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
-    target_link_libraries(PatternWorkspaceValidation PRIVATE FrontierTextureStudioUI ${CMAKE_DL_LIBS})
-    if(TARGET FrontierVectorCoverageShaders)
-        add_dependencies(PatternWorkspaceValidation FrontierVectorCoverageShaders)
-        if(FRONTIER_VULKAN_DRIVER)
-            add_test(NAME PatternWorkspaceValidation COMMAND PatternWorkspaceValidation "${FRONTIER_VULKAN_DRIVER}"
-                "${VECTOR_COVERAGE_ARCHIVE}" "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives/DMSans/DMSans-Regular.ttf"
-                "${CMAKE_BINARY_DIR}/PatternWorkspaceEvidence")
-            set_tests_properties(PatternWorkspaceValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-        endif()
-    endif()
-    add_executable(CubicPathValidation Exhibits/TextureStudio/Code/CubicPathValidation.cpp)
-    target_link_libraries(CubicPathValidation PRIVATE FrontierVectorAuthoring)
-    add_test(NAME CubicPathValidation COMMAND CubicPathValidation)
-    add_executable(VectorSelectionValidation Exhibits/TextureStudio/Code/VectorSelectionValidation.cpp)
-    target_link_libraries(VectorSelectionValidation PRIVATE FrontierVectorAuthoring)
-    add_test(NAME VectorSelectionValidation COMMAND VectorSelectionValidation)
-    add_executable(VectorAuthoringEditingValidation Exhibits/TextureStudio/Code/VectorAuthoringEditingValidation.cpp)
-    target_link_libraries(VectorAuthoringEditingValidation PRIVATE FrontierVectorAuthoring)
-    add_test(NAME VectorAuthoringEditingValidation COMMAND VectorAuthoringEditingValidation)
-    add_executable(VectorAuthoringDocumentValidation Exhibits/TextureStudio/Code/VectorAuthoringDocumentValidation.cpp)
-    target_link_libraries(VectorAuthoringDocumentValidation PRIVATE FrontierTextureStudioUI)
-    add_test(NAME VectorAuthoringDocumentValidation COMMAND VectorAuthoringDocumentValidation
-        "${CMAKE_BINARY_DIR}/VectorAuthoringDocumentChecks.json")
-    set_tests_properties(VectorAuthoringDocumentValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 endif()

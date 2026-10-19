@@ -4,9 +4,7 @@
 // 🧩 Persist bounded, timestamped application diagnostics without material contents or credentials.
 
 #pragma once
-#include "WorkspaceBuildConfiguration.h"
 #include <algorithm>
-#include <sstream>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -72,16 +70,13 @@ class DiagnosticJournal
         try
         {
             std::lock_guard<std::mutex> Exclusion(Synchronization);
-            if (!Stream.is_open() || !Stream || Written >= 8 * 1024 * 1024) return;
+            if (!Stream || Written >= 8 * 1024 * 1024) return;
             const auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - Origin).count();
             const std::string Text(Description.substr(0, 8192));
-            std::ostringstream Line;
-            Line << Elapsed << "ms [" << Category.substr(0, 64) << "] ";
-            for (char Character : Text) Line << (Character == '\n' || Character == '\r' ? ' ' : Character);
-            Line << '\n';
-            Stream << Line.str();
-            if constexpr (WorkspaceBuildConfiguration::DevelopmentConsoleEnabled) std::cerr << Line.str();
+            Stream << Elapsed << "ms [" << Category.substr(0, 64) << "] ";
+            for (char Character : Text) Stream << (Character == '\n' || Character == '\r' ? ' ' : Character);
+            Stream << '\n';
             Written += Text.size() + Category.size() + 32;
             if (Written >= 8 * 1024 * 1024) Stream << "Diagnostic byte ceiling reached; further entries suppressed.\n";
             Stream.flush();

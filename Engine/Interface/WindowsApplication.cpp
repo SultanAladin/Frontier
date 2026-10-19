@@ -4,8 +4,6 @@
 // 🧩 Share native window, input, UI presentation and failure handling without application-specific panel dependencies.
 
 #include "WindowsApplication.h"
-#include "Engine/Diagnostics/WorkspaceBuildConfiguration.h"
-#include <cstdio>
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -289,19 +287,6 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
 
 int RunWindowsApplication(const ApplicationWindowCallbacks &Callbacks)
 {
-    if constexpr (WorkspaceBuildConfiguration::DevelopmentConsoleEnabled)
-    {
-        if (!GetConsoleWindow() && AllocConsole())
-        {
-            FILE *Output = nullptr;
-            (void)freopen_s(&Output, "CONOUT$", "w", stdout);
-            (void)freopen_s(&Output, "CONOUT$", "w", stderr);
-            SetConsoleTitleW(L"Frontier development console");
-            SetConsoleOutputCP(CP_UTF8);
-            DiagnosticJournal::Append("Console", "Default-on development console opened.");
-        }
-    }
-
     try { return ConstructApplicationWindow(Callbacks); }
     catch (const std::exception &Failure)
     {

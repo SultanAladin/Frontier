@@ -19,11 +19,3 @@ See `Documentation/Rules/Evidence.md` at repository root.
 
 - `ControlCentre/`: typography/theme interactions, downloaded font inventory, Windows package inspection.
 - `UIFoundation/`: historical first-batch foundation, lifecycle, glyph, and CPU raster evidence.
-
-- `SpaceFormats/index.html`: single-page pinned-source audit, plan, original brief, and embedded native UI evidence.
-
-- `ContentBrowser/`: read-only native browsing, shared expansion control, real-file tests and CPU captures.
-
-- `Renderer/`: actual native Vulkan/Slang CAD readbacks, ABI/input/lifecycle checks and portability evidence.
-
-- `TextureStudio/`: shared material-library IO and native ImGui interactions, CPU command captures and Windows object compilation.

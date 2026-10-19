@@ -133,6 +133,5 @@ inline bool ValidateMaterialPyramid(const MaterialTexturePyramid &Texture)
 }
 
 
-MaterialScattering CompileMaterialScattering(MaterialScattering Scattering);
 CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Material,const std::filesystem::path &ContentDirectory);
 } // namespace Frontier

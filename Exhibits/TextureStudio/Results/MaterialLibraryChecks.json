@@ -1,6 +1,6 @@
 {
   "result": "passed",
-  "checks": 343,
+  "checks": 259,
   "native_imgui_cpu_execution": true,
   "native_window_execution": false,
   "standalone_executable_linked": false,
@@ -45,7 +45,7 @@
         "ExternalPackages/imgui/imgui_widgets.cpp",
         "Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp",
         "-o",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/MaterialLibraryValidation-strict"
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/MaterialLibraryValidation-strict"
       ],
       "exit_code": 0,
       "stdout": "",
@@ -53,12 +53,12 @@
     },
     "strict_execution": {
       "command": [
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/MaterialLibraryValidation-strict",
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/MaterialLibraryValidation-strict",
         "/home/user/Frontier/Exhibits/Renderer/Materials",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/strict"
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/strict"
       ],
       "exit_code": 0,
-      "stdout": "PASS: 343 material catalogue, source transaction and native ImGui checks\nREPORT /home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/strict/16113898557603/MaterialLibraryChecks.json\n",
+      "stdout": "PASS: 259 material catalogue, source transaction and native ImGui checks\nREPORT /home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/strict/2681906262759/MaterialLibraryChecks.json\n",
       "stderr": ""
     },
     "sanitized_build": {
@@ -92,7 +92,7 @@
         "ExternalPackages/imgui/imgui_widgets.cpp",
         "Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp",
         "-o",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/MaterialLibraryValidation-sanitized"
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/MaterialLibraryValidation-sanitized"
       ],
       "exit_code": 0,
       "stdout": "",
@@ -100,31 +100,20 @@
     },
     "sanitized_execution": {
       "command": [
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/MaterialLibraryValidation-sanitized",
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/MaterialLibraryValidation-sanitized",
         "/home/user/Frontier/Exhibits/Renderer/Materials",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/sanitized"
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/sanitized"
       ],
       "exit_code": 0,
-      "stdout": "PASS: 343 material catalogue, source transaction and native ImGui checks\nREPORT /home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/sanitized/16198858906129/MaterialLibraryChecks.json\n",
+      "stdout": "PASS: 259 material catalogue, source transaction and native ImGui checks\nREPORT /home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/sanitized/2753764459848/MaterialLibraryChecks.json\n",
       "stderr": ""
     },
     "cpu_capture_encoding": {
       "command": [
         "/usr/bin/python3",
         "Exhibits/UIFoundation/Code/EncodeEvidence.py",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/strict/16113898557603/MaterialLibrary.ppm",
+        "/home/user/Frontier/_ClaudeScratch/tmp/MaterialTransactionsFinal/strict/2681906262759/MaterialLibrary.ppm",
         "/home/user/Frontier/Exhibits/TextureStudio/Images/MaterialLibrary.png"
-      ],
-      "exit_code": 0,
-      "stdout": "Encoded actual RGB evidence: 1280 x 900; no synthetic artwork\n",
-      "stderr": ""
-    },
-    "dropdown_capture_encoding": {
-      "command": [
-        "/usr/bin/python3",
-        "Exhibits/UIFoundation/Code/EncodeEvidence.py",
-        "/home/user/Frontier/_ClaudeScratch/build/DropdownMaterialLibrary/strict/16113898557603/NativeDropdownMaterial.ppm",
-        "/home/user/Frontier/Exhibits/TextureStudio/Images/NativeDropdownMaterial.png"
       ],
       "exit_code": 0,
       "stdout": "Encoded actual RGB evidence: 1280 x 900; no synthetic artwork\n",
@@ -146,27 +135,23 @@
     },
     {
       "file": "CMakeLists.txt",
-      "sha256": "86a1feaf577e8b9de83b01c41f7d5f6649864c630084ebdcf10604be3fd5e676"
+      "sha256": "ab3acf3295f6c6a57a74cca7fc1df7b9ab6240e1b2460ce0aee89ca08ea6392a"
     },
     {
       "file": "Engine/ContentInterchange/MaterialLibrary.cpp",
-      "sha256": "0f360280a63e5cb5dc734ac5a7e86f2bc61146b80ea6663725e9e3edf5951483"
+      "sha256": "593065bda5672169dd7f15a7b9fe27d69ebc0e97816eb932c89f462584326f65"
     },
     {
       "file": "Engine/ContentInterchange/MaterialLibrary.h",
-      "sha256": "dc666d75b8f0d58627b393e37814237676e4e989f94c1ffb9c5177be162e1f3f"
+      "sha256": "bcfef89c4235d88664e06a4e6c8dade0f1180d5725e33b1fdfe83a586e7eaecf"
     },
     {
       "file": "Engine/Interface/ControlKit.cpp",
-      "sha256": "3cddfef1fdf975ef31bc115f22b594cf5a1a7cbb6ee71768c35801173b695e73"
+      "sha256": "1a1db5c6bb57b7531474215f69b2f43331e677321b3e5441d0df2c586af984ff"
     },
     {
       "file": "Engine/Interface/ControlKit.h",
-      "sha256": "fd8d64387b333b580073ececba5ab71c876ed4b5d310230e8bcdec08d12bc083"
-    },
-    {
-      "file": "Engine/Interface/DropdownControls.h",
-      "sha256": "80f82fc05f4697bd6bc5f17e1f6960c0e5001b5168b96aaa1c3a2d9dca6aaa79"
+      "sha256": "a4d37a131a93689b52724958a907cd9b9ac232321ce0b9c350d4d04e0049cfc7"
     },
     {
       "file": "Engine/Interface/MonitorPlacement.cpp",
@@ -174,11 +159,11 @@
     },
     {
       "file": "Engine/Interface/PanelDockspace.cpp",
-      "sha256": "51c591e5dbb8639f9efe643c9a47d82a33e6450d8a3e1b3f59dc79cb65613dc3"
+      "sha256": "01e44d9ea618a1ac4734df3132ccae8e29f2c770c763dfe0f058e18fe6dfe67b"
     },
     {
       "file": "Engine/Interface/PanelDockspace.h",
-      "sha256": "ba1e9662ed70886e981232c134a4d3d2a4601d60820ecd5027c11fe6d6a6c29a"
+      "sha256": "0de24b3655cfc806d70d3e6e48cf9032eff7e18f803fda0f12e778d13065951f"
     },
     {
       "file": "Engine/Interface/PanelDockspaceLayout.cpp",
@@ -198,7 +183,7 @@
     },
     {
       "file": "Engine/Interface/VulkanPresentation.cpp",
-      "sha256": "56d17889504f36b6c2b7fee770fb0792ad7bf71d1f81ab7f5b36f903df570653"
+      "sha256": "9e79e58a2bc5a06b478c934f02cf183ed16c5edcc922f033c61ed3e385d10fb1"
     },
     {
       "file": "Engine/Interface/VulkanPresentation.h",
@@ -206,7 +191,7 @@
     },
     {
       "file": "Engine/Interface/WindowsApplication.cpp",
-      "sha256": "748c977e41f556b3002185910446669c6fcf086ea1cded0b85dfa3379deefe0c"
+      "sha256": "70c3f656c48f9b22c8c7ec82cceeee02780846c769fe496e736fd556869c50b8"
     },
     {
       "file": "Engine/Interface/WindowsApplication.h",
@@ -214,11 +199,11 @@
     },
     {
       "file": "Engine/Render/MaterialLibraryRendering.cpp",
-      "sha256": "971503fef894202013c065f0e01f6c5908c3c0edda29bbe88388e581af30b53a"
+      "sha256": "c70cbd6aa47ebd2cd14f8937546771e7ba3cecc2598975b5995d21545cb7011b"
     },
     {
       "file": "Engine/Render/MaterialLibraryRendering.h",
-      "sha256": "614bce7333fc58655f7696d4f4269e57aac42d3eaf1c5a779fb3d4bad96e4b20"
+      "sha256": "e097e410126b0e34c8e51692925794bb41c56dc1a4355a6a03fc5a1c4ad27561"
     },
     {
       "file": "Engine/Render/MaterialPreviewGeometry.h",
@@ -234,7 +219,7 @@
     },
     {
       "file": "Engine/Render/SurfaceMaterial.cpp",
-      "sha256": "31e9ee3365277b0436b4f250ec2e205ff4354bd9baa3a100964c777b3e97d104"
+      "sha256": "5ef0c388273ba538c00cda3b52f337c0888ab6b43c0a03ec2f1c263d9b7603b6"
     },
     {
       "file": "EngineContent/MaterialArchives/TextureStudio/14k-yellow-gold.material",
@@ -754,7 +739,7 @@
     },
     {
       "file": "Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp",
-      "sha256": "9da30cf317272e066dfc9ca1d16dcd860cdae0a810cce247ab6f3e4ea5d61e92"
+      "sha256": "81d83fea85a64071938335703759ad231c0d578bbd5d31145ae8a516a631fe0d"
     },
     {
       "file": "Exhibits/TextureStudio/Code/RasterizeLibraryEvidence.h",
@@ -762,7 +747,7 @@
     },
     {
       "file": "Exhibits/TextureStudio/Code/VerifyMaterialLibrary.py",
-      "sha256": "488d576c7110187d50dfaeb8a6371174bd1028b3c3bc16de452133b7d163424d"
+      "sha256": "7936ab85577bf9274b8d62745c4bc97988b3880f6c5517365be425fa5cd750e6"
     },
     {
       "file": "Exhibits/UIFoundation/Code/WindowsUI.cpp",
@@ -770,7 +755,7 @@
     },
     {
       "file": "Experimental/TextureStudio/Native/WindowsTextureStudio.cpp",
-      "sha256": "57777ee1289eadbcc44b43c2876799c959dc9acb867967c9ab144146c2964cd2"
+      "sha256": "38424eb1dfed33ea6021af969d79960c00396a1228d5d4854b1e360e488edf8f"
     },
     {
       "file": "UI/Editor/ControlCentrePanel.cpp",
@@ -782,11 +767,11 @@
     },
     {
       "file": "UI/TextureStudio/MaterialLibraryPanel.cpp",
-      "sha256": "25edd385b09fd81ba158c46d5939ca00617cc702b45f4ea9a40e8d249f13079e"
+      "sha256": "56ac8da85a24996a562601ab930d19467fec22d6ede868d336543802cea365d4"
     },
     {
       "file": "UI/TextureStudio/MaterialLibraryPanel.h",
-      "sha256": "0fa8340d2c310ce47d74b9c691397d5acab5620c57d95d0c67c4b64a02c584a0"
+      "sha256": "4145ebc0ac93d53edf675d28c89fdc6b80ebf190d676411c855ecac97d2ff7de"
     }
   ]
 }

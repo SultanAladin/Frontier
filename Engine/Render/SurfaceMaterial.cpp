@@ -303,26 +303,27 @@ MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image
     return Pyramid;
 }
 
-MaterialScattering CompileMaterialScattering(MaterialScattering Scattering)
+CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Material,const std::filesystem::path &ContentDirectory)
 {
-    if (!ValidateMaterialScattering(Scattering)) throw std::runtime_error("Material scattering cannot be compiled.");
-    auto &Paint = Scattering.Paint;
+    if (!ValidateMaterialScattering(Material.Scattering)) throw std::runtime_error("Material scattering cannot be compiled.");
+    CompiledSurfaceMaterial Compiled{Material.Name,Material.Scattering,{}};
+    auto &Paint = Compiled.Scattering.Paint;
     Paint.AverageTint = {};
     if (Paint.Configuration[0])
         for (uint32_t Sample = 0; Sample < 48; ++Sample)
         {
             const float Position = (float(Sample) + .5f) / 48;
-            const auto Spectrum = EvaluatePaintTint(Paint, Position);
+            auto Spectrum = Paint.Palette[0];
+            if (Paint.Configuration[2] == 0) Spectrum = Paint.Palette[std::min(Paint.Configuration[3] - 1, uint32_t(Position * Paint.Configuration[3]))];
+            else if (Paint.Configuration[2] == 1)
+                for (size_t Index = 1; Index < Paint.Configuration[3]; ++Index)
+                {
+                    const float Blend = std::clamp((Position - Paint.Palette[Index - 1][3]) /
+                        std::max(.0001f, Paint.Palette[Index][3] - Paint.Palette[Index - 1][3]), 0.f, 1.f);
+                    for (size_t Channel = 0; Channel < 3; ++Channel) Spectrum[Channel] = std::lerp(Spectrum[Channel], Paint.Palette[Index][Channel], Blend);
+                }
             for (size_t Channel = 0; Channel < 3; ++Channel) Paint.AverageTint[Channel] += Spectrum[Channel] / 48;
         }
-    return Scattering;
-}
-
-CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Material,const std::filesystem::path &ContentDirectory)
-{
-    if (!ValidateMaterialScattering(Material.Scattering)) throw std::runtime_error("Material scattering cannot be compiled.");
-    CompiledSurfaceMaterial Compiled{Material.Name,Material.Scattering,{}};
-    Compiled.Scattering = CompileMaterialScattering(Material.Scattering);
     const std::array<std::array<uint8_t,4>,4> Defaults{{{255,255,255,255},{255,255,255,255},{128,128,255,255},{255,255,255,255}}};
     const auto Directory = std::filesystem::weakly_canonical(ContentDirectory);
     const auto DecodeTexture = [&](const std::string &Source,size_t Slot)

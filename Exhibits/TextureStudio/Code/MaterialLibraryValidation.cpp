@@ -4,7 +4,6 @@
 // 🧩 Exercise real library IO, failed-apply retention, source conflicts and native ImGui edit actions without claiming a window launch.
 
 #include "UI/TextureStudio/MaterialLibraryPanel.h"
-#include "Engine/Interface/DropdownControls.h"
 #include "RasterizeLibraryEvidence.h"
 #include <imgui_internal.h>
 #include "Engine/Interface/ContentDirectory.h"
@@ -147,7 +146,6 @@ int main(int ArgumentCount, char **Arguments)
         ImGui::CreateContext();
         auto &IO = ImGui::GetIO();
         IO.IniFilename = nullptr;
-        IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         if (std::filesystem::is_regular_file("EngineContent/FontArchives/Inter/Inter-Regular.otf"))
             IO.Fonts->AddFontFromFileTTF("EngineContent/FontArchives/Inter/Inter-Regular.otf", 14);
         else IO.Fonts->AddFontDefault();
@@ -174,7 +172,6 @@ int main(int ArgumentCount, char **Arguments)
         {
             Confirm(Extent.Width() > 0 && Extent.Height() > 0, "Material operation has no interactive extent.");
             IO.AddMousePosEvent((Extent.MinimumX+Extent.MaximumX)/2, (Extent.MinimumY+Extent.MaximumY)/2);
-            IntegrateInterface(1280, 1);
             IO.AddMouseButtonEvent(0, true);
             IntegrateInterface(1280, 1);
             IO.AddMouseButtonEvent(0, false);
@@ -208,9 +205,9 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(!Panel->QueryPanels().QueryDetachedWindows(), "Detached OS windows enabled by default.");
         const float OriginalRoughness = Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3];
         Click(Panel->QueryRoughnessExtent());
-        Confirm(Panel->QueryLibrary().QueryModified() && !Panel->QueryLibrary().QueryUnapplied(), "Shared slider did not apply a live unsaved edit.");
-        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3] != OriginalRoughness,
-                "Shared slider did not change the actual rendered material.");
+        Confirm(Panel->QueryLibrary().QueryModified() && Panel->QueryLibrary().QueryUnapplied(), "Shared slider did not edit the draft.");
+        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3] == OriginalRoughness,
+                "Shared slider bypassed the Apply transaction.");
         Click(Panel->QueryApplyExtent());
         Confirm(!Panel->QueryLibrary().QueryUnapplied(), "Structured property edit did not apply.");
         Click(Panel->QueryRevertExtent());
@@ -236,69 +233,6 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(!Panel->QueryLibrary().QueryUnapplied(), "Automotive inspector edit did not apply.");
         Confirm(Panel->QueryLibrary().RevertSource(), "Automotive inspector edit did not revert.");
         Panel->ReplaceSource(Panel->QueryLibrary().QuerySource());
-        ImGuiWindow *Properties = nullptr;
-        for (auto *Window : ImGui::GetCurrentContext()->Windows)
-            if (Window->ParentWindow == InspectorWindow && std::string(Window->Name).find("/Material properties_") != std::string::npos && Window->Active) Properties = Window;
-        Confirm(Properties != nullptr, "Material property scroll region is absent.");
-        auto Toggle = Panel->QueryPaintControlExtent(0);
-        ImGui::SetScrollY(Properties, Properties->Scroll.y + Toggle.MinimumY - Properties->InnerRect.Min.y - 24);
-        IntegrateInterface(1280, 1);
-        IntegrateInterface(1280, 1);
-        const auto DiskSource = ExtractText("EngineContent/MaterialArchives/TextureStudio/racing-green.material");
-        Confirm(Panel->QueryPaintColourCount() == 5, "Palette did not expose five editable colours.");
-        const auto BeforeToggle = Panel->QueryLibrary().QueryRevision();
-        Click(Panel->QueryPaintControlExtent(0));
-        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Paint.Configuration[0] == 0 &&
-            Panel->QueryLibrary().QueryRevision() > BeforeToggle && !Panel->QueryLibrary().QueryUnapplied(),
-            "Procedural toggle did not change the live material.");
-        Click(Panel->QueryPaintControlExtent(0));
-        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Paint.Configuration[0] == 1, "Procedural toggle did not restore paint.");
-        const auto SelectMode = [&](int Mode)
-        {
-            Click(Panel->QueryPaintControlExtent(1));
-            IntegrateInterface(1280, 1);
-            IntegrateInterface(1280, 1);
-            const auto &Popup = ImGui::GetCurrentContext()->OpenPopupStack;
-            Confirm(!Popup.empty() && Popup.back().Window, "Flake colour dropdown did not open.");
-            Confirm(std::abs(Popup.back().Window->WindowPadding.x - DropdownControlSurface::PaddingX) < .01f
-                && std::abs(Popup.back().Window->WindowPadding.y - DropdownControlSurface::PaddingY) < .01f
-                && std::abs(Popup.back().Window->WindowRounding - DropdownControlSurface::CornerRadius) < .01f,
-                "Material dropdown bypassed the shared padded/rounded surface.");
-            EncodeLibraryDrawCapture(Output / "NativeDropdownMaterial.ppm", *ImGui::GetDrawData(), Pixels, AtlasWidth, AtlasHeight);
-            Click(Panel->QueryMenuOptionExtent(size_t(Mode)));
-            IntegrateInterface(1280, 1);
-            Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Paint.Configuration[2] == uint32_t(Mode),
-                "Flake colour mode did not reach the applied material.");
-        };
-        SelectMode(1);
-        Confirm(Panel->QueryPaintColourCount() == 5, "Ramp lost its editable colour stops.");
-        SelectMode(2);
-        Confirm(Panel->QueryPaintColourCount() == 1, "Single mode retained static palette boxes.");
-        const auto &Single = Panel->QueryLibrary().QueryApplied()->Scattering.Paint;
-        for (size_t Channel = 0; Channel < 3; ++Channel)
-            Confirm(std::abs(Single.AverageTint[Channel] - Single.Palette[0][Channel]) < .000001f,
-                "Single colour did not refresh the derived shader tint.");
-        Click(Panel->QueryPaintControlExtent(2));
-        IntegrateInterface(1280, 1);
-        const auto &ColourPopup = ImGui::GetCurrentContext()->OpenPopupStack;
-        Confirm(!ColourPopup.empty() && ColourPopup.back().Window, "Colour picker did not open.");
-        Confirm(ColourPopup.back().Window->WindowPadding.x >= 14 && ColourPopup.back().Window->WindowRounding >= 16,
-            "Colour picker is not padded and rounded.");
-        Confirm(!(ColourPopup.back().Window->Flags & ImGuiWindowFlags_NoBackground), "Colour picker disabled its opaque background.");
-        // 📝 The first Escape may cancel a focused colour input; the next dismisses its popup.
-        for (int EscapeCount = 0; EscapeCount < 3 && !ImGui::GetCurrentContext()->OpenPopupStack.empty(); ++EscapeCount)
-        {
-            IO.AddKeyEvent(ImGuiKey_Escape, true);
-            IntegrateInterface(1280, 1);
-            IO.AddKeyEvent(ImGuiKey_Escape, false);
-            IntegrateInterface(1280, 1);
-        }
-        Confirm(ImGui::GetCurrentContext()->OpenPopupStack.empty(), "Escape did not close the colour picker.");
-        SelectMode(0);
-        Confirm(Panel->QueryPaintColourCount() == 5, "Returning to Palette lost the retained colour choices.");
-        Confirm(ExtractText("EngineContent/MaterialArchives/TextureStudio/racing-green.material") == DiskSource,
-            "Live inspector edits silently saved the source file.");
-        Confirm(Panel->QueryLibrary().QueryModified() && Panel->QueryLibrary().RevertSource(), "Live inspector changes did not remain revertible.");
         Panel->ReplaceSource("Unsaved closing draft");
         Confirm(!Panel->RequestClose(), "Closing discarded unsaved material without confirmation.");
         IntegrateInterface(1280, 1);

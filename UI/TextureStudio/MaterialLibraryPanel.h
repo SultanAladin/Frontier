@@ -40,7 +40,6 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] PanelDockspace &QueryPanels() noexcept { return Panels; }
     std::function<MaterialPreviewImage(const std::filesystem::path &)> QueryThumbnail;
     std::function<MaterialPreviewImage()> QueryPreview;
-    std::function<void()> ActivatePattern;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
     std::function<void(const MaterialPreviewConfiguration &)> ConfigurePreview;
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const noexcept { return Inspection; }
@@ -58,25 +57,11 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] PlaneExtent QuerySaveExtent() const noexcept { return SaveExtent; }
     [[nodiscard]] PlaneExtent QueryRoughnessExtent() const noexcept { return RoughnessExtent; }
     [[nodiscard]] PlaneExtent QueryRevertExtent() const noexcept { return RevertExtent; }
-    [[nodiscard]] PlaneExtent QueryMenuOptionExtent(size_t Index) const noexcept
-    {
-        return Index < MenuOptionExtents.size() ? MenuOptionExtents[Index] : PlaneExtent{};
-    }
-    [[nodiscard]] PlaneExtent QueryPaintControlExtent(size_t Index) const noexcept
-    {
-        return Index < PaintControlExtents.size() ? PaintControlExtents[Index] : PlaneExtent{};
-    }
-    [[nodiscard]] uint32_t QueryPaintColourCount() const noexcept { return PaintColourCount; }
     [[nodiscard]] MaterialLibrary &QueryLibrary() noexcept { return Library; }
 
   private:
     std::array<PlaneExtent, 8> InspectionExtents{};
-    std::array<PlaneExtent, 12> MenuOptionExtents{};
-    std::array<PlaneExtent, 14> PaintControlExtents{};
-    uint32_t PaintColourCount = 0;
     MaterialPreviewConfiguration Inspection;
-    MaterialPreviewConfiguration PublishedInspection;
-    MaterialPreviewMotion Navigation;
     MaterialLibrary Library;
     PanelDockspace Panels;
     bool SourceVisible = false;

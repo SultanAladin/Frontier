@@ -69,24 +69,6 @@ int main(int Count, char **Arguments)
         Confirm(Inspection.Shape == MaterialPreviewShape::Cube && Inspection.Environment == MaterialPreviewEnvironment::CoolRim &&
             Inspection.Exposure == 2 && Inspection.PanX == 0 && Inspection.Yaw == 0 && Inspection.Zoom == 1,
             "View reset changed authored inspection lighting/shape.");
-        Inspection = {}; Inspection.ViewportAspect = 2;
-        const auto Wide = ConstructMaterialPreviewProjection(Inspection);
-        Inspection.ViewportAspect = 1;
-        const auto Square = ConstructMaterialPreviewProjection(Inspection);
-        Confirm(std::abs(Wide.ClipFromSurface[0] * 2 - Square.ClipFromSurface[0]) < .00001f, "Wide preview projection did not compensate viewport aspect.");
-        MaterialPreviewMotion Motion; Inspection = {}; Inspection.PanX = 1; Inspection.Zoom = 2;
-        Motion.ConfigureDestination(Inspection); Motion.Advance(.12f);
-        Confirm(std::abs(Motion.QueryDisplayed().PanX - (1.f - std::exp(-1.f))) < .0001f, "120 ms destination motion is not exponential.");
-        Confirm(Motion.QueryDisplayed().Zoom > 1 && Motion.QueryDisplayed().Zoom < 2, "Displayed zoom snapped instead of converging.");
-        for (const int Rate : {4, 30, 60, 144})
-        {
-            Motion.Reset({}); Motion.ConfigureDestination(Inspection);
-            for (int Sample = 0; Sample < Rate; ++Sample) Motion.Advance(1.f / Rate);
-            Confirm(std::abs(Motion.QueryDisplayed().PanX - (1.f - std::exp(-1.f / .12f))) < .0001f, "Motion convergence depends on frame rate.");
-        }
-        Motion.Advance(0, true); Confirm(Motion.QueryDisplayed() == Inspection, "Reduced motion did not snap destination.");
-        Motion.Reset({}); Confirm(Motion.QueryDisplayed().PanX == 0, "Motion reset did not reset displayed camera.");
-        Confirm(!Motion.Advance(std::numeric_limits<float>::quiet_NaN()), "NaN frame time altered the displayed camera.");
         std::string Diagnostic;
         const auto Geometry = ConstructMaterialInspectionGeometry();
         Confirm(ValidateSurfaceGeometry(Geometry, Diagnostic), Diagnostic.c_str());
@@ -154,13 +136,12 @@ int main(int Count, char **Arguments)
         Click(2);
         Click(1);
         Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "Zoom percentage reset did not respond.");
-        const auto DragCanvas = [&](int Button, float Horizontal, float Vertical, bool Shift = false, bool Control = false)
+        const auto DragCanvas = [&](int Button, float Horizontal, float Vertical, bool Shift = false)
         {
             const auto Canvas = Panel.QueryPreviewControlExtent(7);
             const ImVec2 Centre((Canvas.MinimumX + Canvas.MaximumX) / 2, (Canvas.MinimumY + Canvas.MaximumY) / 2);
             IO.AddMousePosEvent(Centre.x, Centre.y);
             IO.AddKeyEvent(ImGuiMod_Shift, Shift);
-            IO.AddKeyEvent(ImGuiMod_Ctrl, Control);
             Integrate();
             IO.AddMouseButtonEvent(Button, true);
             Integrate();
@@ -168,12 +149,11 @@ int main(int Count, char **Arguments)
             Integrate();
             IO.AddMouseButtonEvent(Button, false);
             IO.AddKeyEvent(ImGuiMod_Shift, false);
-            IO.AddKeyEvent(ImGuiMod_Ctrl, false);
             Integrate();
         };
-        DragCanvas(2, 30, 20, true);
+        DragCanvas(2, 30, 20);
         Confirm(Panel.QueryPreviewConfiguration().PanX > 0 && Panel.QueryPreviewConfiguration().PanY > 0,
-            "Blender Shift-MMB pan did not respond to actual pointer drag.");
+            "MMB pan did not respond to actual pointer drag.");
         Click(6);
         Confirm(Panel.QueryPreviewConfiguration().PanX == 0 && Panel.QueryPreviewConfiguration().PanY == 0,
             "Reset view did not centre the specimen.");
@@ -181,16 +161,16 @@ int main(int Count, char **Arguments)
         Confirm(Panel.QueryPreviewConfiguration().PanX > 0 && Panel.QueryPreviewConfiguration().Yaw == 0,
             "Shift-left drag did not pan independently of orbit.");
         Click(6);
-        DragCanvas(2, 35, 20);
+        DragCanvas(0, 35, 20);
         Confirm(Panel.QueryPreviewConfiguration().Yaw != 0 && Panel.QueryPreviewConfiguration().Pitch != 0,
-            "Blender MMB did not orbit the specimen.");
+            "Left drag did not orbit the specimen.");
         const auto BeforeRelease = Panel.QueryPreviewConfiguration();
         IO.AddMousePosEvent(10,10);
         Integrate();
         Confirm(Panel.QueryPreviewConfiguration() == BeforeRelease, "Released pointer continued moving the camera.");
         Click(6);
-        DragCanvas(2, 0, -30, false, true);
-        Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Blender Ctrl-MMB did not zoom.");
+        DragCanvas(1, 0, -30);
+        Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Right drag did not zoom.");
         Click(6);
         const auto Canvas = Panel.QueryPreviewControlExtent(7);
         IO.AddMousePosEvent((Canvas.MinimumX + Canvas.MaximumX) / 2, (Canvas.MinimumY + Canvas.MaximumY) / 2);
@@ -225,11 +205,9 @@ int main(int Count, char **Arguments)
             Confirm(!Context->OpenPopupStack.empty(), "Preview selector did not open a popup.");
             auto *Popup = Context->OpenPopupStack.back().Window;
             Confirm(Popup != nullptr, "Preview selector popup has no window.");
-            Confirm(Popup->WindowPadding.x >= 8 && Popup->WindowPadding.y >= 8 && Popup->WindowRounding >= 14,
-                "Material dropdown lost padding or rounded corners.");
-            const auto Extent = Panel.QueryMenuOptionExtent(size_t(Index));
-            Confirm(Extent.Height() >= 28, "Material dropdown option has no padded hit region.");
-            IO.AddMousePosEvent((Extent.MinimumX + Extent.MaximumX) / 2, (Extent.MinimumY + Extent.MaximumY) / 2);
+            const float RowHeight = Popup->FontRefSize + ImGui::GetStyle().ItemSpacing.y;
+            const auto Position = Popup->DC.CursorStartPos;
+            IO.AddMousePosEvent(Position.x + 20, Position.y + Index * RowHeight + Popup->FontRefSize * .5f);
             Integrate();
             IO.AddMouseButtonEvent(0,true);
             Integrate();
