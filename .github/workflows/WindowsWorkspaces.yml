@@ -13,7 +13,7 @@ on:
         required: false
         default: false
       debug_preview:
-        description: Build a Debug configuration with Pattern GPU trace logging
+        description: Build Debug with Pattern GPU trace logging (pushes also accept a [debug-preview] commit marker)
         type: boolean
         required: false
         default: false
@@ -35,7 +35,7 @@ jobs:
     env:
       PYTHONUTF8: 1
       ALLOW_UNSIGNED_PREVIEW: ${{ inputs.allow_unsigned_preview == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-unsigned-preview]')) }}
-      BUILD_CONFIGURATION: ${{ inputs.debug_preview == true && 'Debug' || 'Release' }}
+      BUILD_CONFIGURATION: ${{ (inputs.debug_preview == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[debug-preview]'))) && 'Debug' || 'Release' }}
     defaults:
       run:
         shell: pwsh
