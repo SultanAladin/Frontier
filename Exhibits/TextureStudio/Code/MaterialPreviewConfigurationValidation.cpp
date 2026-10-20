@@ -189,6 +189,13 @@ int main(int Count, char **Arguments)
             "Canvas wheel zoom did not reach the supported 500% magnification.");
         Click(6);
         Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "Preview did not reset cleanly from 500% magnification.");
+        // 📝 Preview keys only drive the camera while the pointer hovers the inspection canvas, so parked
+        // widget/popup input cannot move it. Return the pointer there before exercising F and arrow keys.
+        IO.AddMousePosEvent((Canvas.MinimumX + Canvas.MaximumX) / 2, (Canvas.MinimumY + Canvas.MaximumY) / 2);
+        Integrate();
+        IO.AddMouseWheelEvent(0,1);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Canvas wheel zoom did not respond before F reset.");
         IO.AddKeyEvent(ImGuiKey_F,true);
         Integrate();
         IO.AddKeyEvent(ImGuiKey_F,false);

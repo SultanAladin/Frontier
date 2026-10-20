@@ -68,12 +68,14 @@ int main(int ArgumentCount, char** Arguments)
         for (unsigned SymbolIndex = 0; SymbolIndex < Count; ++SymbolIndex)
         {
             const auto Symbol = static_cast<IconSymbol>(SymbolIndex);
-            auto Raster = Artwork.Rasterize(Symbol, 48, 48);
+            // 📝 Scoped catalogues deny Texture/Fluid symbols to the default Editor domain by design
+            // (see IconDomainValidation); exercise every symbol inside its owning workspace instead.
+            auto Raster = Artwork.Rasterize(Symbol, 48, 48, 1.0f, IconPolicy::Strict, IconArt::Domain(Symbol));
             Inventory << IconArt::Name(Symbol) << ',' << IconArt::ResultName(Raster->Result) << ','
                       << Raster->Width << ',' << Raster->Height << ',' << Raster->Substitute << '\n';
             Require(Raster->Result == IconResult::Ready && !Raster->Substitute, "SVG artwork not ready");
             Require(Raster->Rgba.size() == 48 * 48 * 4, "Unexpected raster dimensions");
-            auto Reused = Artwork.Rasterize(Symbol, 48, 48);
+            auto Reused = Artwork.Rasterize(Symbol, 48, 48, 1.0f, IconPolicy::Strict, IconArt::Domain(Symbol));
             Require(Raster == Reused, "Identical raster request did not reuse cache");
             bool Visible = false;
             for (unsigned Vertical = 0; Vertical < 48; ++Vertical)

@@ -386,7 +386,10 @@ int main(int ArgumentCount, char **Arguments)
                     "Could not close all panels");
             Frame();
             Frame();
-            auto       *Root     = ImGui::FindWindowByName("Frontier panel dockspace");
+            // 📝 FindWindowByName hashes the full window name, including the ### identity suffix the
+            // dockspace host appends; the bare label never resolves. Guard before dereferencing.
+            auto       *Root     = ImGui::FindWindowByName("Frontier panel dockspace###Frontier shared panels");
+            Require(Root != nullptr, "Panel dockspace host window is missing");
             const auto *EmptyBar = ImGui::GetCurrentContext()->TabBars.GetByKey(Root->GetID("Closed panel catalogue"));
             Require(EmptyBar && EmptyBar->Tabs.Size == 1, "Closing the last panel lost the plus/reopen control");
             const auto &OnlyTab = EmptyBar->Tabs[0];

@@ -132,3 +132,18 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   `node Automation/CompileVectorSurface.mjs <Slang-WASM-JS> <shader-directory>`; run
   `python Exhibits/TextureStudio/Code/VerifyVectorSurface.py --driver <Vulkan-driver> --shader <VectorSurfaceCompute.spv> --destination <scratch>`.
 
+#### Session rebuild on `arena/db2f9953-frontier` (2026-10-20)
+
+- Restored pinned UI deps + fonts in a fresh sandbox, configured with `-DFRONTIER_HOST_VERIFICATION=ON`,
+  built all host targets (GCC 12.2, Debug) and ran the full CPU suite: **21/21 CTests passed** (~70 s).
+- Repaired four stale validation harnesses (no production-code changes): font inventory 4/30 → 5/35
+  (`ControlCentreValidation`), per-domain icon rasterization (`InterfaceValidation`, Texture/Fluid symbols are
+  denied to the Editor domain by design), canvas hover before preview F/arrow keys plus a non-vacuous F check
+  (`MaterialPreviewConfigurationValidation`), and the full `###`-suffixed dockspace window name plus a null guard
+  (`DockingValidation`, previously a null-`ImGuiWindow` SEGV). Docking also passes under ASan/UBSan.
+- New `Exhibits/index.html` hub embeds the recorded HTML/native captures, per-workspace port status vs the Alloy
+  reference (`Experimental/TextureStudio`), and this rebuild log; served from `Exhibits/` for preview.
+- Still blocked in sandbox: SwiftShader/Vulkan readbacks (no `slangc`/driver), Windows link/run, Alloy `npm`
+  verification. Carried UI defects (Project Browser 1:1, zoom FPS, layer cards, toggles, dropdown reuse,
+  slider/ramp/gradient editors, rotation math, drag latency) remain queued after this rebuild.
+

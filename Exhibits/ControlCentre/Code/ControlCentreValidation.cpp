@@ -95,9 +95,11 @@ int main(int ArgumentCount, char **Arguments)
                 "Launch directory shadowed executable-relative content root");
         FontCodec Catalogue;
         Require(Catalogue.ScanDirectory(Fonts.string()), "Native font discovery failed");
-        Require(Catalogue.QueryFamilyCount() == 4 && Catalogue.QueryTotalVariantCount() == 30,
+        // 📝 Pinned manifest Automation/FontSources.json now ships 5 families / 35 accepted faces (DM Sans added
+        // for TextureStudio parity); the catalogue rejects the 5 OFL notices. Keep these counts in lockstep.
+        Require(Catalogue.QueryFamilyCount() == 5 && Catalogue.QueryTotalVariantCount() == 35,
                 "Downloaded font inventory differs");
-        Require(Catalogue.ScanDirectory(Fonts.string()) && Catalogue.QueryTotalVariantCount() == 30,
+        Require(Catalogue.ScanDirectory(Fonts.string()) && Catalogue.QueryTotalVariantCount() == 35,
                 "Repeated discovery duplicates fonts");
         const auto LocalFonts = Evidence / "LocalFonts";
         std::filesystem::create_directories(LocalFonts);
@@ -110,7 +112,7 @@ int main(int ArgumentCount, char **Arguments)
         Require(!Catalogue.ScanDirectory(LocalFonts.string()) && Catalogue.QueryTotalVariantCount() == 0,
                 "Removed font survived through a stale descriptor");
         Require(Catalogue.ScanEngineAndGameContent(Fonts.string(), LocalFonts.string()) &&
-                    Catalogue.QueryTotalVariantCount() == 30,
+                    Catalogue.QueryTotalVariantCount() == 35,
                 "Empty application fonts erased shared fonts");
 
         ImGui::CreateContext();
@@ -140,7 +142,7 @@ int main(int ArgumentCount, char **Arguments)
         ActivationOwnership Ownership(new ControlCentrePanel(Fonts, PreferencesPath));
         auto               *Panel = static_cast<ControlCentrePanel *>(Ownership.get());
         Require(Panel->Initialize() && Panel->Activate(), "Control Centre initialization failed");
-        Require(Panel->QueryTypefaces().QueryFamilyCount() == 4, "Registry did not load downloaded fonts");
+        Require(Panel->QueryTypefaces().QueryFamilyCount() == 5, "Registry did not load downloaded fonts");
         const auto Integrate = [&]()
         {
             (void)Panel->Integrate(1.0 / 60.0);
