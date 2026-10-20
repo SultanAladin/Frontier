@@ -51,6 +51,10 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python Automation/PrepareFonts.py 2>&1 | Tee-Object Build/Diagnostics/Fonts.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Validate web Pattern to native geometry import
+        run: |
+          node --test Automation/ConvertWebPattern.test.mjs 2>&1 | Tee-Object Build/Diagnostics/PatternImport.log
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Provision pinned portable Slang compiler
         run: |
           npm install --prefix Build/ShaderTools --no-audit --no-fund --ignore-scripts slang-loader@0.0.7
