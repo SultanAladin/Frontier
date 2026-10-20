@@ -1,6 +1,10 @@
 Format = 1
 Name = "Practice Golf Ball"
 
+[Textures]
+Orm = "Textures/practice-golf-orm.png"
+Normal = "Textures/practice-golf-normal.png"
+
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.5647115057049292, 0.6866853124353134, 0.033104766570885055]
@@ -9,6 +13,8 @@ Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 6
+UvScaleOffset = [4, 4, 0, 0]
 
 [[Strata]]
 Category = "Coating"

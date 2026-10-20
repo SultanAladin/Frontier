@@ -140,6 +140,23 @@ int main(int ArgumentCount, char **Arguments)
         for (const auto &Entry : ReferenceLibrary.QueryEntries())
             Confirm(Entry.Diagnostic.empty() && !Entry.Category.empty() && !Entry.RecipeControls.empty(), "HTML preset metadata/physical definition is invalid.");
         Confirm(ReferenceLibrary.OpenMaterial("racing-green.material"), "Racing Green did not compile.");
+        for (const auto *Path : {"tour-golf-ball.material", "practice-golf-ball.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Golf preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Textures[1].Levels[0].Width == 512 && Compiled->Textures[2].Levels[0].Width == 512,
+                    "Golf preset ORM/normal detail textures did not compile.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 6, "Golf preset normal/ORM mask differs.");
+        }
+        for (const auto *Path : {"monocrystalline-solar.material", "polycrystalline-solar.material", "black-solar-module.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Solar preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Textures[0].Levels[0].Width == 512 && Compiled->Textures[1].Levels[0].Width == 512 &&
+                        Compiled->Textures[2].Levels[0].Width == 512,
+                    "Solar preset albedo/ORM/normal detail textures did not compile.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Solar preset texture mask differs.");
+        }
         Confirm(ReferenceLibrary.ConfigureStratumColour(0, {.1f, .2f, .3f}), "Structured albedo failed.");
         Confirm(ReferenceLibrary.ConfigureStratumCoefficient(1, "Coverage", .8f), "Structured coat coverage failed.");
         Confirm(!ReferenceLibrary.ConfigureStratumColour(0, {-1, 0, 0}), "Invalid albedo accepted.");

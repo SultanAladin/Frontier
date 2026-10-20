@@ -167,3 +167,23 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - TOML-backed preset gallery (six shipped .vector.toml files, built-in fallback).
 - Apply-to-material gating with persistent snapshot per material.
 - Linux host verification: full ctest 22/22 green (669 preset checks).
+
+## Windows preview round 4, batch 1 (branch arena/db2f9953-frontier, unreleased)
+- Pattern gallery preset thumbnails: CPU-drawn ImDrawList vector previews replaying each preset's
+  instructions with VectorCoverage.slang corner/rotation conventions; click-to-open + hover tooltip.
+- Project Browser Details rail: full projectspace metadata (identity/template/format/version, content
+  roots, level/catalogue/pin counts, startup level, workspace theme/accent/font/scale) + Open button.
+- Editor activation: opening a project launches EditorWorkspace (proven WindowsUI pattern ported into
+  WindowsFrontier) with a top bar (back, project name/stats, Control centre / Theme / Settings buttons
+  driving the ControlCentre drawer), a Viewport summary tab, and return-to-browser teardown.
+- Materials: procedural detail textures (Automation/GenerateSurfaceDetailTextures.py) wired into five
+  presets — tour/practice golf-ball dimple normal+ORM (TextureMask 6, 4x repeat), three solar-module
+  cell/busbar albedo+ORM+normal sets (TextureMask 7, 2x repeat, shared ORM/normal).
+- Correction to the round-2 note: the material preview already renders through MaterialSurface with full
+  texture bindings (normal/height included) whenever a material residence exists; PreviewPbrSurface is
+  only the albedo-only fallback. Golf/solar relief was a data gap, not a shader gap — no shader port needed.
+- Height remains pattern-authored (AuthoringMaps[2] via Apply-to-material); .material files have no height slot.
+- Linux host verification: full ctest 22/22 green (Docking close-all updated for the Viewport tab;
+  MaterialLibraryValidation now compiles all five texture-wired presets incl. PNG decode).
+- Still open: rotation-axis mapping vs user expectation, asset-browser HTML 1:1 (HTML file not in repo),
+  remaining surface-detail ports (orange-peel, scratches, weaves need shader/UBO targets), zoom-FPS check.

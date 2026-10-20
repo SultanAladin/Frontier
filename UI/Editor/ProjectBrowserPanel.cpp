@@ -166,11 +166,63 @@ void ProjectBrowserPanel::ConstructDetails()
         ImGui::TextWrapped("Select a project to inspect its settings.");
         return;
     }
+    const float Scale = ImGui::GetStyle().FontScaleDpi;
+    const float LabelColumn = 118 * Scale;
+    const auto Row = [&](const char *Label, const std::string &Value)
+    {
+        ImGui::TextDisabled("%s", Label);
+        ImGui::SameLine(LabelColumn);
+        ImGui::TextWrapped("%s", Value.empty() ? "—" : Value.c_str());
+    };
+    const auto Count = [&](const char *Key)
+    {
+        const auto *Rows = SelectedProject.Sections[Key].as_array();
+        return Rows ? Rows->size() : 0;
+    };
     const auto Name = SelectedProject.Sections["project"]["name"].value_or(std::string("Project"));
     ImGui::TextWrapped("%s", Name.c_str());
+    ImGui::TextDisabled("Editable projectspace · read without modification");
     ImGui::Spacing();
-    ImGui::TextWrapped("%s", EncodeContentPath(SelectedPath.filename()).c_str());
-    ImGui::TextUnformatted("Editable projectspace");
+    ImGui::SeparatorText("Identity");
+    Row("File", EncodeContentPath(SelectedPath.filename()));
+    Row("Identity", SelectedProject.Sections["project"]["identity"].value_or(std::string{}));
+    Row("Template rev", std::to_string(SelectedProject.Sections["project"]["template_revision"].value_or<int64_t>(0)));
+    Row("Format", SelectedProject.Sections["format"].value_or(std::string{}));
+    Row("Version", std::to_string(SelectedProject.Sections["version"].value_or<int64_t>(0)));
+    ImGui::Spacing();
+    ImGui::SeparatorText("Contents");
+    if (const auto *Roots = SelectedProject.Sections["content_roots"].as_array())
+    {
+        ImGui::TextDisabled("Content roots");
+        for (const auto &Root : *Roots)
+        {
+            const auto Locator = Root.value<std::string>().value_or(std::string{});
+            ImGui::BulletText("%s", Locator.empty() ? "—" : Locator.c_str());
+        }
+    }
+    Row("Levels", std::to_string(Count("levels")));
+    Row("Catalogue", std::to_string(Count("catalogue")));
+    Row("Dependency pins", std::to_string(Count("dependency_pins")));
+    ImGui::Spacing();
+    ImGui::SeparatorText("Engine");
+    Row("Startup level", SelectedProject.Sections["engine"]["startup_level"].value_or(std::string{}));
+    Row("Config version", std::to_string(SelectedProject.Sections["engine"]["configuration_version"].value_or<int64_t>(0)));
+    if (SelectedProject.AppearancePresent)
+    {
+        static constexpr const char *Themes[] = {"Oled", "Dark", "Dim", "Light", "Sepia", "Dracula", "Nord", "GitHub"};
+        static constexpr const char *Accents[] = {"White", "Orange", "Amber", "Lime", "Emerald", "Cyan", "Blue", "Violet", "Fuchsia", "Rose"};
+        const auto &Applied = SelectedProject.Appearance.Preferences;
+        const auto Theme = static_cast<size_t>(Applied.Theme), Accent = static_cast<size_t>(Applied.Accent);
+        ImGui::Spacing();
+        ImGui::SeparatorText("Workspace");
+        Row("Theme", Theme < 8 ? Themes[Theme] : "Custom");
+        Row("Accent", Accent < 10 ? Accents[Accent] : "Custom");
+        Row("Font", SelectedProject.Appearance.RequestedFamily);
+        Row("Interface scale", std::to_string(int(Applied.InterfaceScale)) + "%");
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::Button("Open in Frontier", ImVec2(-1, 0))) RequestOpenProject();
     ImGui::TextWrapped("Existing project files are read without modification. No sample content is inserted.");
 }
 

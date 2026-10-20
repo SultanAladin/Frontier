@@ -447,6 +447,112 @@ void PatternWorkspacePanel::ConstructHeader()
     ImGui::End();
 }
 
+void PatternWorkspacePanel::ConstructPresetThumbnail(const char *Caption, const VectorAuthoringDocument &Document, float Width)
+{
+    // CPU-drawn vector preview: replays the preset instructions with the same corner/rotation conventions as
+    // VectorCoverage.slang (first corner straight up, world = centre + R(+rotation) * local) so the card matches the tile.
+    ImGui::SetCursorPosX(16 * Scale);
+    const float Height = 76 * Scale;
+    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+    const ImVec2 Size(Width, Height);
+    ImGui::InvisibleButton((std::string("##thumbnail-") + Caption).c_str(), Size);
+    const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
+    size_t Shapes = 0;
+    float MinimumX = 1e30f, MinimumY = 1e30f, MaximumX = -1e30f, MaximumY = -1e30f;
+    for (const auto &Instruction : Document.Instructions)
+    {
+        if (Instruction.Topology[0] > 5) continue;
+        ++Shapes;
+        MinimumX = std::min(MinimumX, Instruction.Bounds[0] - Instruction.Bounds[2]);
+        MinimumY = std::min(MinimumY, Instruction.Bounds[1] - Instruction.Bounds[3]);
+        MaximumX = std::max(MaximumX, Instruction.Bounds[0] + Instruction.Bounds[2]);
+        MaximumY = std::max(MaximumY, Instruction.Bounds[1] + Instruction.Bounds[3]);
+    }
+    ImDrawList *Draw = ImGui::GetWindowDrawList();
+    const ImVec2 Far(Origin.x + Size.x, Origin.y + Size.y);
+    Draw->AddRectFilled(Origin, Far, IM_COL32(22, 24, 30, 255), 6 * Scale);
+    if (Shapes > 0)
+    {
+        const float Pad = 6 * Scale;
+        const float ExtentX = std::max(MaximumX - MinimumX, 1e-3f), ExtentY = std::max(MaximumY - MinimumY, 1e-3f);
+        const float Unit = std::min((Size.x - 2 * Pad) / ExtentX, (Size.y - 2 * Pad) / ExtentY);
+        const float OffsetX = Origin.x + Pad + ((Size.x - 2 * Pad) - ExtentX * Unit) * .5f - MinimumX * Unit;
+        const float OffsetY = Origin.y + Pad + ((Size.y - 2 * Pad) - ExtentY * Unit) * .5f - MinimumY * Unit;
+        const auto Project = [&](float X, float Y) { return ImVec2(OffsetX + X * Unit, OffsetY + Y * Unit); };
+        for (const auto &Instruction : Document.Instructions)
+        {
+            const uint32_t Category = Instruction.Topology[0];
+            if (Category > 5) continue;
+            const float Opacity = Instruction.Transform[2];
+            if (Opacity <= 0) continue;
+            const float Rotation = Instruction.Transform[0];
+            const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
+            const auto Place = [&](float LocalX, float LocalY)
+            { return Project(Instruction.Bounds[0] + Cosine * LocalX - Sine * LocalY, Instruction.Bounds[1] + Sine * LocalX + Cosine * LocalY); };
+            const auto Pack = [&](const std::array<float, 4> &Colour)
+            {
+                return IM_COL32(int(std::clamp(Colour[0], 0.f, 1.f) * 255), int(std::clamp(Colour[1], 0.f, 1.f) * 255),
+                    int(std::clamp(Colour[2], 0.f, 1.f) * 255), int(std::clamp(Colour[3] * Opacity, 0.f, 1.f) * 255));
+            };
+            const bool Filled = Instruction.Paint[3] != 0;
+            const float StrokeWidth = std::max(Instruction.Transform[1] * Unit, 1.f);
+            const bool Stroked = Instruction.Transform[1] > 0;
+            const uint32_t FillColour = Pack(Instruction.Colour);
+            const uint32_t LineColour = (Instruction.Topology[3] & VectorCoverageStrokeColourExplicit) != 0 ? Pack(Instruction.StrokeColour) : FillColour;
+            if (Category == 0)
+            {
+                const float HX = Instruction.Bounds[2], HY = Instruction.Bounds[3];
+                const ImVec2 A = Place(-HX, -HY), B = Place(HX, -HY), C = Place(HX, HY), D = Place(-HX, HY);
+                if (Filled) Draw->AddQuadFilled(A, B, C, D, FillColour);
+                if (Stroked) Draw->AddQuad(A, B, C, D, LineColour, StrokeWidth);
+            }
+            else if (Category == 1)
+            {
+                Draw->PathClear();
+                for (int Step = 0; Step < 28; ++Step)
+                {
+                    const float Angle = 6.28318530718f * Step / 28;
+                    Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2], std::sin(Angle) * Instruction.Bounds[3]));
+                }
+                if (Filled) Draw->PathFillConvex(FillColour);
+                if (Stroked) { Draw->PathClear(); for (int Step = 0; Step <= 28; ++Step) { const float Angle = 6.28318530718f * (Step % 28) / 28; Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2], std::sin(Angle) * Instruction.Bounds[3])); } Draw->PathStroke(LineColour, true, StrokeWidth); }
+            }
+            else
+            {
+                uint32_t Count = Category == 2 ? 4 : Category == 3 ? 3 : uint32_t(std::max(Instruction.Paint[2], 3.f));
+                if (Category == 5) Count *= 2;
+                Draw->PathClear();
+                for (uint32_t Corner = 0; Corner < Count; ++Corner)
+                {
+                    const float Angle = -1.57079632679f + 6.28318530718f * Corner / Count;
+                    const float Radius = Category == 5 && Corner % 2 == 1 ? Instruction.Paint[1] : 1;
+                    Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2] * Radius, std::sin(Angle) * Instruction.Bounds[3] * Radius));
+                }
+                if (Filled) Draw->PathFillConvex(FillColour);
+                if (Stroked) { Draw->PathClear(); for (uint32_t Corner = 0; Corner <= Count; ++Corner) { const float Angle = -1.57079632679f + 6.28318530718f * (Corner % Count) / Count; const float Radius = Category == 5 && Corner % 2 == 1 ? Instruction.Paint[1] : 1; Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2] * Radius, std::sin(Angle) * Instruction.Bounds[3] * Radius)); } Draw->PathStroke(LineColour, true, StrokeWidth); }
+            }
+        }
+    }
+    else
+    {
+        const char *Empty = "Empty preset";
+        Draw->AddText(ImVec2(Origin.x + (Size.x - ImGui::CalcTextSize(Empty).x) * .5f, Origin.y + (Size.y - ImGui::GetTextLineHeight()) * .5f), IM_COL32(140, 145, 155, 255), Empty);
+    }
+    Draw->AddRect(Origin, Far, Hovered ? IM_COL32(217, 217, 204, 255) : IM_COL32(58, 62, 72, 255), 6 * Scale, 0, Hovered ? 2.f : 1.f);
+    if (Hovered)
+    {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(Caption);
+        ImGui::TextDisabled("%zu shapes · click to replace the tile (Undo restores)", Shapes);
+        ImGui::EndTooltip();
+    }
+    if (Clicked)
+    {
+        try { ApplyPresetDocument(Document); }
+        catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+    }
+}
+
 void PatternWorkspacePanel::ConstructLibrary()
 {
     CapturePanel("Library");
@@ -459,7 +565,8 @@ void PatternWorkspacePanel::ConstructLibrary()
     {
         for (const auto &Preset : PresetDocuments)
         {
-            if (Controls.Button(Preset.first.c_str(), ImGui::GetContentRegionAvail().x - 16 * Scale))
+            ConstructPresetThumbnail(Preset.first.c_str(), Preset.second, ImGui::GetContentRegionAvail().x - 16 * Scale);
+            if (Controls.Button(("Open " + Preset.first).c_str(), ImGui::GetContentRegionAvail().x - 16 * Scale))
             {
                 try { ApplyPresetDocument(Preset.second); }
                 catch (const std::exception &Failure) { Diagnostic = Failure.what(); }

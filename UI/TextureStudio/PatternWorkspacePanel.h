@@ -111,6 +111,7 @@ private:
     void ConstructCanvas();
     void ConstructInspector();
     void ConstructCloseDialogue();
+    void ConstructPresetThumbnail(const char *Caption, const VectorAuthoringDocument &Document, float Width);
     void ConstructPrimitive(uint32_t Category, const char *Caption);
     void ApplyLibraryPreset(size_t Index);
     void ApplyPresetDocument(VectorAuthoringDocument Document);

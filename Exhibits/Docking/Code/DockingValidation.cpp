@@ -382,7 +382,8 @@ int main(int ArgumentCount, char **Arguments)
             Frame();
             IO.AddKeyEvent(ImGuiKey_Escape, false);
             Settle();
-            Require(Panels.ConfigureOpen("content", false) && Panels.ConfigureOpen("notifications", false),
+            Require(Panels.ConfigureOpen("content", false) && Panels.ConfigureOpen("notifications", false) &&
+                        Panels.ConfigureOpen("viewport", false),
                     "Could not close all panels");
             Frame();
             Frame();

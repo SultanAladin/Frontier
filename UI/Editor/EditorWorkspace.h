@@ -6,9 +6,21 @@
 #pragma once
 #include "ControlCentrePanel.h"
 #include "Engine/Interface/PanelDockspace.h"
+#include <functional>
+#include <string>
 
 namespace Frontier
 {
+struct EditorProjectSummary
+{
+    std::string Name     = "Untitled project";
+    std::string Location;
+    std::string Identity;
+    size_t      Levels   = 0;
+    size_t      Roots    = 0;
+    size_t      Catalogue = 0;
+    std::string StartupLevel;
+};
 class EditorWorkspace
 {
   public:
@@ -16,6 +28,9 @@ class EditorWorkspace
     ~EditorWorkspace();
     EditorWorkspace(const EditorWorkspace &)              = delete;
     EditorWorkspace   &operator=(const EditorWorkspace &) = delete;
+    void ConfigureProject(EditorProjectSummary Summary) { Project = std::move(Summary); }
+    [[nodiscard]] const EditorProjectSummary &QueryProject() const noexcept { return Project; }
+    std::function<void()> EvaluateReturnToBrowser;
     bool               FinalizeLayout();
     void               IntegrateLayoutPersistence(double ElapsedSeconds);
     [[nodiscard]] bool QueryLayoutRestored() const noexcept
@@ -34,8 +49,11 @@ class EditorWorkspace
     }
 
   private:
+    void ConstructTopBar(float Scale);
+    void ConstructViewport();
     ControlCentrePanel &Centre;
     PanelDockspace      Panels;
+    EditorProjectSummary Project;
     bool                DockableBrowser   = false;
     bool                LayoutRestored    = false;
     bool                LayoutBlocked     = false;
