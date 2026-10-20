@@ -497,8 +497,18 @@ void ReorderVectorAuthoringSelection(
     auto Replacement = Document;
     const auto Selected = [&](const auto &Layer) { return Tokens.contains(Layer.Token); };
     if (Order == VectorSelectionOrder::Back || Order == VectorSelectionOrder::Front)
-        std::stable_partition(Replacement.Layers.begin(), Replacement.Layers.end(),
-            [&](const auto &Layer) { return Selected(Layer) == (Order == VectorSelectionOrder::Back); });
+    {
+        const bool SelectedFirst = Order == VectorSelectionOrder::Back;
+        std::vector<VectorAuthoringLayer> ReorderedLayers;
+        ReorderedLayers.reserve(Replacement.Layers.size());
+        for (size_t Pass = 0; Pass < 2; ++Pass)
+        {
+            const bool PartitionSelected = Pass == 0 ? SelectedFirst : !SelectedFirst;
+            for (const auto &Layer : Replacement.Layers)
+                if (Selected(Layer) == PartitionSelected) ReorderedLayers.push_back(Layer);
+        }
+        Replacement.Layers = std::move(ReorderedLayers);
+    }
     else if (Order == VectorSelectionOrder::Backward)
     {
         for (size_t Index = 1; Index < Replacement.Layers.size(); ++Index)
