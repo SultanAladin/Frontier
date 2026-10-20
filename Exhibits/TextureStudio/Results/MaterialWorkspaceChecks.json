@@ -703,5 +703,7 @@
       "file": "EngineContent/MaterialArchives/TextureStudio/Library.toml",
       "sha256": "fd000a3e2c9ae0074746c37d677e05facb1e417bfc50214750df855a7f1609e9"
     }
-  ]
+  ],
+  "rerendered_utc": "2026-10-20T17:01:13.328683+00:00",
+  "rerender_note": "Re-executed in this sandbox: pinned UI dependencies fetched via Automation/PrepareUI.py, Slang 2026.19 compiled the ten SPIR-V surface entries, Thorvg built from pinned source with THORVG_SVG/PNG/JPG_LOADER_SUPPORT, and SwiftShader software Vulkan produced the atlas and preview readbacks. CPU ImGui composition, 1440x1000. Windows native window execution remains false."
 }
