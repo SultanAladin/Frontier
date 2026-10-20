@@ -75,7 +75,9 @@ Download from that release page, not an Arena-rehosted copy. This matches refere
 it is not a method for clearing or bypassing a dangerous-download verdict. A blocked package stays withheld.
 Signature and antivirus statuses are also shown in the Actions summary and annotations, not just the report.
 
-Unsigned previews require **allow_unsigned_preview** as well as **publish_release** when dispatching a workflow.
-An explicitly approved push containing `[publish-windows-unsigned-preview]` requests the same policy and release
-from that exact branch revision, including when manual dispatch is unavailable on a non-default branch.
+Unsigned test artifacts require **allow_unsigned_preview** when dispatching; select **debug_preview** to include
+Pattern bridge traces. On this branch, a deliberate push whose commit message contains both
+`[debug-preview]` and `[publish-windows-unsigned-preview]` requests a Debug trace build and its scanned, clearly
+labelled Actions artifact. Debug packages are never published as GitHub releases. A non-Debug release publication
+still requires the separate **publish_release** input (or the documented explicit push publication policy).
 The normal/default policy stays signed-only. No scan is skipped under either policy.
