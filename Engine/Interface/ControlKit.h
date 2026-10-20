@@ -34,7 +34,7 @@ struct ControlKitTokens
     static constexpr float DropdownPaddingY     = 10.0f;
     static constexpr float DropdownRowHeight    = 28.0f;
     static constexpr float DropdownRowGap       = 8.0f;
-    static constexpr float DisabledAlpha = 0.35f; // .btn[disabled]
+    static constexpr float DisabledAlpha = 0.35f;  // .btn[disabled]
 };
 
 // Runtime colour set every widget reads through ControlKit::Palette(). Defaults are the UIComponents.html :root dark
