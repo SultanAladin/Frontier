@@ -205,11 +205,9 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(!Panel->QueryPanels().QueryDetachedWindows(), "Detached OS windows enabled by default.");
         const float OriginalRoughness = Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3];
         Click(Panel->QueryRoughnessExtent());
-        Confirm(Panel->QueryLibrary().QueryModified() && Panel->QueryLibrary().QueryUnapplied(), "Shared slider did not edit the draft.");
-        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3] == OriginalRoughness,
-                "Shared slider bypassed the Apply transaction.");
-        Click(Panel->QueryApplyExtent());
-        Confirm(!Panel->QueryLibrary().QueryUnapplied(), "Structured property edit did not apply.");
+        Confirm(Panel->QueryLibrary().QueryModified() && !Panel->QueryLibrary().QueryUnapplied(), "Released structured slider did not live-apply its draft.");
+        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[0].AlbedoRoughness[3] != OriginalRoughness,
+                "Released structured slider did not update the applied material used by the renderer.");
         Click(Panel->QueryRevertExtent());
         Confirm(!Panel->QueryLibrary().QueryModified(), "Structured property edit did not revert.");
         IntegrateInterface(1280, 1);
@@ -227,10 +225,9 @@ int main(int ArgumentCount, char **Arguments)
         const auto GlossDefinition = DecodeSurfaceMaterial(Panel->QueryLibrary().QuerySource());
         Confirm(Panel->QueryLibrary().QueryDiagnostic().empty() && GlossDefinition.Scattering.Illumination.Strata[1].AlbedoRoughness[3] >= .045f,
                 "Clearcoat gloss endpoint generated an invalid native roughness.");
-        Confirm(Panel->QueryLibrary().QueryModified() && GlossDefinition.Scattering.Illumination.Strata[1].Optics[2] > .97f,
-                "Clearcoat gloss endpoint did not drive the actual coating.");
-        Click(Panel->QueryApplyExtent());
-        Confirm(!Panel->QueryLibrary().QueryUnapplied(), "Automotive inspector edit did not apply.");
+        Confirm(Panel->QueryLibrary().QueryModified() && !Panel->QueryLibrary().QueryUnapplied() &&
+                Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Strata[1].Optics[2] > .97f,
+                "Clearcoat gloss endpoint did not live-update the applied coating.");
         Confirm(Panel->QueryLibrary().RevertSource(), "Automotive inspector edit did not revert.");
         Panel->ReplaceSource(Panel->QueryLibrary().QuerySource());
         Panel->ReplaceSource("Unsaved closing draft");

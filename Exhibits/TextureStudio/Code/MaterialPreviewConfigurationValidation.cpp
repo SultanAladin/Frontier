@@ -39,6 +39,11 @@ int main(int Count, char **Arguments)
         Inspection.Zoom = .49f;
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Out-of-range zoom accepted.");
         Inspection = {};
+        Inspection.Zoom = 5;
+        Confirm(ValidateMaterialPreviewConfiguration(Inspection), "500% preview zoom rejected.");
+        Inspection.Zoom = 5.01f;
+        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Zoom above the 500% limit accepted.");
+        Inspection = {};
         Inspection.Environment = MaterialPreviewEnvironment(4);
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown environment accepted.");
         Inspection = {};
@@ -178,6 +183,12 @@ int main(int Count, char **Arguments)
         IO.AddMouseWheelEvent(0,1);
         Integrate();
         Confirm(Panel.QueryPreviewConfiguration().Zoom > 1, "Canvas wheel zoom did not respond.");
+        IO.AddMouseWheelEvent(0,100);
+        Integrate();
+        Confirm(std::abs(Panel.QueryPreviewConfiguration().Zoom - 5) < .001f,
+            "Canvas wheel zoom did not reach the supported 500% magnification.");
+        Click(6);
+        Confirm(Panel.QueryPreviewConfiguration().Zoom == 1, "Preview did not reset cleanly from 500% magnification.");
         IO.AddKeyEvent(ImGuiKey_F,true);
         Integrate();
         IO.AddKeyEvent(ImGuiKey_F,false);

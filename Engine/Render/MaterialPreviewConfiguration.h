@@ -39,7 +39,7 @@ struct MaterialPreviewConfiguration
 inline bool ValidateMaterialPreviewConfiguration(const MaterialPreviewConfiguration &Configuration)
 {
     return uint32_t(Configuration.Shape) <= 3 && uint32_t(Configuration.Environment) <= 3 &&
-        std::isfinite(Configuration.Zoom) && Configuration.Zoom >= .5f && Configuration.Zoom <= 2 &&
+        std::isfinite(Configuration.Zoom) && Configuration.Zoom >= .5f && Configuration.Zoom <= 5 &&
         std::isfinite(Configuration.Exposure) && Configuration.Exposure >= .25f && Configuration.Exposure <= 4 &&
         std::isfinite(Configuration.PanX) && std::abs(Configuration.PanX) <= 2 &&
         std::isfinite(Configuration.PanY) && std::abs(Configuration.PanY) <= 2 &&

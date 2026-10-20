@@ -380,7 +380,7 @@ void MaterialLibraryPanel::ConstructViewport()
                 Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
             }
             else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
-                Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 2.f);
+                Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 5.f);
             else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
             {
                 Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
@@ -389,10 +389,10 @@ void MaterialLibraryPanel::ConstructViewport()
         }
         if (Hovered && !Input.WantTextInput)
         {
-            if (Input.MouseWheel != 0) Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 2.f);
+            if (Input.MouseWheel != 0) Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 5.f);
             if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_Home) || ImGui::IsMouseDoubleClicked(0))
                 ResetMaterialPreviewView(Inspection);
-            if (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
+            if (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)) Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f);
             if (ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
             if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) Inspection.PanX = std::max(-2.f, Inspection.PanX - .05f);
             if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) Inspection.PanX = std::min(2.f, Inspection.PanX + .05f);
@@ -444,7 +444,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ConfigureExtent(1);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset zoom to 100%%");
     ImGui::SameLine(0, 0);
-    if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f);
+    if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f);
     ConfigureExtent(2);
     ImGui::SameLine();
     if (ImGui::Button("Reset view", ImVec2(90 * Scale, 28 * Scale))) ResetMaterialPreviewView(Inspection);
@@ -506,7 +506,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
         }
         else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
         {
-            Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 2.f);
+            Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 5.f);
             Changed = true;
         }
         else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
@@ -518,7 +518,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     }
     if (Hovered && Input.MouseWheel != 0)
     {
-        Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 2.f);
+        Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 5.f);
         Changed = true;
     }
     if (Image.Texture)
@@ -531,7 +531,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     const std::string ZoomLabel = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##FullscreenZoomReset";
     if (ImGui::Button(ZoomLabel.c_str(), ImVec2(80, 30))) { Inspection.Zoom = 1; Changed = true; }
     ImGui::SameLine();
-    if (ImGui::Button("+##FullscreenZoomIn", ImVec2(42, 30))) { Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f); Changed = true; }
+    if (ImGui::Button("+##FullscreenZoomIn", ImVec2(42, 30))) { Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f); Changed = true; }
     ImGui::SameLine();
     if (ImGui::Button("Fit object", ImVec2(92, 30))) { ResetMaterialPreviewView(Inspection); Changed = true; }
     if (Changed && ConfigurePreview) ConfigurePreview(Inspection);
@@ -604,10 +604,16 @@ void MaterialLibraryPanel::ConstructActions()
         const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
         return PlaneExtent{Minimum.x, Minimum.y, Maximum.x, Maximum.y};
     };
+    ImGui::BeginDisabled(!Library.QueryUnapplied());
     if (ImGui::Button("Apply")) (void)Library.ApplySource();
+    ImGui::EndDisabled();
     ApplyExtent = Extent();
     ImGui::SameLine();
-    if (ImGui::Button("Revert") && Library.RevertSource()) SynchronizeSource();
+    if (ImGui::Button("Revert") && Library.RevertSource())
+    {
+        PendingLivePreviewApply = false;
+        SynchronizeSource();
+    }
     RevertExtent = Extent();
     ImGui::SameLine();
     if (ImGui::Button("Save")) (void)Library.SaveMaterial();
@@ -953,7 +959,16 @@ void MaterialLibraryPanel::ConstructInspector()
                 ImGui::Dummy(ImVec2(CardWidth, 1));
             }
         }
-        if (Changed) SynchronizeSource();
+        if (Changed)
+        {
+            SynchronizeSource();
+            PendingLivePreviewApply = true;
+        }
+        // 📝 Structured controls apply to the live preview when the gesture ends; disk persistence remains an explicit Save.
+        if (PendingLivePreviewApply && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            if (Library.ApplySource()) PendingLivePreviewApply = false;
+        }
     }
     catch (const std::exception &Failure) { ImGui::TextWrapped("%s", Failure.what()); }
     ImGui::EndChild();

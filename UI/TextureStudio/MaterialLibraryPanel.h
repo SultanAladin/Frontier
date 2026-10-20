@@ -70,6 +70,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool SourceVisible = false;
     bool CollectionVisible = false, LayersVisible = false;
     bool FullscreenPreview = false;
+    bool PendingLivePreviewApply = false;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;
