@@ -1,7 +1,7 @@
 /*==========================================================================================================================================
                                                         WINDOWSTEXTURESTUDIO.CPP
 ==========================================================================================================================================*/
-// 🧩 Start a standalone native Material Library through the same Engine window/presentation loop as Frontier.
+// 🧩 Integrate native Pattern authoring and the selected-material preview into the shared Vulkan workspace loop.
 
 #define GLFW_INCLUDE_NONE
 #include "Engine/Interface/WindowsApplication.h"
@@ -62,9 +62,10 @@ int RunTextureWorkspace()
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
     Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
     Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
-    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership;
+    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
+    Frontier::PatternWorkspacePanel *Pattern = nullptr;
     GLFWwindow *Window = nullptr;
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
