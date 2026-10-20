@@ -127,28 +127,38 @@ float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStra
     }
     return Accumulated;
 }
-float EvaluateStudioPanel(float3 Direction, float3 Centre, float2 HalfExtent)
+float3 IntegrateStudioSoftboxes(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 View)
 {
-    Centre = normalize(Centre);
-    float3 Right = normalize(cross(float3(0,1,0), Centre));
-    float3 Up = cross(Centre, Right);
-    float Forward = dot(Direction, Centre);
-    float2 Coordinates = abs(float2(dot(Direction, Right), dot(Direction, Up)) / max(.001, Forward));
-    float2 Coverage = 1 - smoothstep(HalfExtent, HalfExtent + .025, Coordinates);
-    return Forward > 0 ? Coverage.x * Coverage.y : 0;
-}
-float3 EvaluateMaterialEnvironmentRadiance(PreviewScattering Scattering, float3 Direction)
-{
-    float3 Radiance = EvaluateEnvironmentRadiance(Scattering, Direction);
-    if (Material.PreviewConfiguration.y != 0)
+    float3 Accumulated = 0;
+    const float Strength = Scattering.EnvironmentHorizon.w;
+    for (uint Panel = 0; Panel < 4; ++Panel)
     {
-        const float Strength = Scattering.EnvironmentHorizon.w;
-        Radiance += Strength * float3(3.8,3.7,3.5) * EvaluateStudioPanel(Direction, float3(-.5,.5,.8), float2(.48,.65));
-        Radiance += Strength * float3(1.9,2,2.2) * EvaluateStudioPanel(Direction, float3(.8,.25,.55), float2(.15,.7));
-        Radiance += Strength * float3(2.1,2.1,2) * EvaluateStudioPanel(Direction, float3(.05,.9,-.4), float2(1.1,.25));
-        Radiance += Strength * float3(1.6,1.7,1.8) * EvaluateStudioPanel(Direction, float3(-.8,.3,-.5), float2(.2,.7));
+        float3 Centre;
+        float2 HalfExtent;
+        float3 Radiance;
+        if (Panel == 0)
+        {
+            Centre = float3(-.5,.5,.8); HalfExtent = float2(.48,.65); Radiance = float3(3.8,3.7,3.5);
+        }
+        else if (Panel == 1)
+        {
+            Centre = float3(.8,.25,.55); HalfExtent = float2(.15,.7); Radiance = float3(1.9,2,2.2);
+        }
+        else if (Panel == 2)
+        {
+            Centre = float3(.05,.9,-.4); HalfExtent = float2(1.1,.25); Radiance = float3(2.1,2.1,2);
+        }
+        else
+        {
+            Centre = float3(-.8,.3,-.5); HalfExtent = float2(.2,.7); Radiance = float3(1.6,1.7,1.8);
+        }
+        float SolidAngle = 4*atan(HalfExtent.x*HalfExtent.y/
+            sqrt(1+dot(HalfExtent,HalfExtent)));
+        float3 Light = NormalizeDirection(Centre);
+        // 📝 Integrate each rectangular emitter by its solid angle at the centre direction, avoiding sparse per-pixel panel samples.
+        Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*Radiance*Strength*SolidAngle;
     }
-    return Radiance;
+    return Accumulated;
 }
 float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 GeometricNormal,float3 View)
 {
@@ -157,8 +167,8 @@ float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngular
     float3 Bitangent = cross(GeometricNormal,Tangent);
     float3 Accumulated = 0;
     uint Components = Scattering.Configuration.x+1;
-    // 📝 Balance a geometric-normal cosine proposal with one rotated anisotropic GGX half-vector proposal per stratum.
-    uint Samples = Material.PreviewConfiguration.y != 0 ? 32 : 8;
+    // 📝 Smooth sky-radiance quadrature remains separate from the analytic rectangular softbox integral.
+    const uint Samples = 8;
     for (uint Component = 0; Component < Components; ++Component)
         for (uint SampleIndex = 0; SampleIndex < Samples; ++SampleIndex)
         {
@@ -188,9 +198,12 @@ float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngular
             Density /= Components;
             if (Density <= 1e-12) continue;
             Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*
-                           EvaluateMaterialEnvironmentRadiance(Scattering,Light)/Density;
+                           EvaluateEnvironmentRadiance(Scattering,Light)/Density;
         }
-    return Accumulated/(Components*Samples);
+    Accumulated /= Components*Samples;
+    if (Material.PreviewConfiguration.y != 0)
+        Accumulated += IntegrateStudioSoftboxes(Scattering,Angular,View);
+    return Accumulated;
 }
 
 [shader("fragment")]

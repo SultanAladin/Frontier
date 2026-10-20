@@ -23,6 +23,7 @@ article{background:#191d19;border:1px solid #30362f;border-radius:9px;overflow:h
 <div><h1>Native Float32 surface maps</h1><p>GPU-authored vector channels, typed RGBA32F storage, and isolated gold-thread properties.</p></div>
 <a class="download" href="Outputs/SurfaceFloatSamples.zip" download>Download 14 Float32 samples</a>
 </header>
+<section><h2>Material-library preview grain investigation · 20 October 2026</h2><article><div style="padding:14px 13px 0"><p>The reported 200% preview from build <code>730272b5</code> is visibly noisy; the earlier captures on this page do not prove that desktop preview was clean. The material shader has now been revised to integrate the four studio softboxes as rectangular area lights and keep sky sampling separate (eight samples). Portable Slang-to-SPIR-V compilation passed. A fresh GPU capture/runtime comparison is still required, so this is a status note—not a claim that the visual issue is resolved.</p></div><h3>Current verification status</h3><p>Shader compilation: passed · Native GPU preview capture: pending · Windows desktop visual confirmation: pending</p></article></section>
 <section><h2>Actual native Vulkan channel captures</h2><div class="grid">
 <article><img src="Images/NativePatternSurfaceChannels.gif" alt="Seven GPU Float32 map captures: colour, height, normal, roughness, metalness, opacity, and occlusion"><h3>Seven Float32 channels</h3><p>Actual C++ Vulkan readbacks, displayed as 8-bit GIF frames. The PFM samples retain Float32 values.</p></article>
 </div></section>
