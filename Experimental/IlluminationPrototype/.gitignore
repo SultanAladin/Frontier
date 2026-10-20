@@ -1,0 +1,9 @@
+node_modules/
+Tools/node_modules/
+*.png
+*.log
+__pycache__/
+Tools/.browser/
+
+# Generated public copy of the locked standalone WASM module; restored by Tools/Serve.py.
+Runtime/

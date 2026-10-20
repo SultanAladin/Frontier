@@ -1,0 +1,3 @@
+
+=== harness: 48 frames, 0 errors, 0 warnings, 3.8 s
+Slate integration: Jolt active; plume sources/transport/march exercised (48 steps); scaled HMI focus and cockpit cameras exercised

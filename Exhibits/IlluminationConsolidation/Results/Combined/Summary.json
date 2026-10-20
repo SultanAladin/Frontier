@@ -1,0 +1,55 @@
+{
+    "Backend": "Dawn null",
+    "Viewport": "320x180",
+    "Checks": [
+        {
+            "Name": "UnitTests",
+            "ExitCode": 0
+        },
+        {
+            "Name": "VehicleStability",
+            "ExitCode": 0
+        },
+        {
+            "Name": "VehicleStability-spring",
+            "ExitCode": 0
+        },
+        {
+            "Name": "VehicleStability-shell",
+            "ExitCode": 0
+        },
+        {
+            "Name": "VehicleStability-solid",
+            "ExitCode": 0
+        },
+        {
+            "Name": "CombinedToggles",
+            "ExitCode": 0
+        },
+        {
+            "Name": "TyreModels",
+            "ExitCode": 0
+        },
+        {
+            "Name": "Effects",
+            "ExitCode": 0
+        },
+        {
+            "Name": "PlumeHmi",
+            "ExitCode": 0
+        },
+        {
+            "Name": "Orbit",
+            "ExitCode": 0
+        },
+        {
+            "Name": "SoftwareBvh",
+            "ExitCode": 0
+        },
+        {
+            "Name": "Stress",
+            "ExitCode": 0
+        }
+    ],
+    "UnitTests": 88
+}

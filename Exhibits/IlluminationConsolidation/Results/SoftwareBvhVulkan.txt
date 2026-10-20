@@ -1,0 +1,3 @@
+
+=== harness: 4 frames, 0 errors, 0 warnings, 69.3 s
+saved /home/user/Frontier/Exhibits/IlluminationConsolidation/Results/SoftwareBvhScene.png 64x64

@@ -42,3 +42,9 @@ The Control Centre exposes only interface appearance settings, not GI or rendere
 
 Primary rendering: Vulkan with Slang shaders. GLFW owns windows/input; the isolated ImGui exhibit may use DX11.
 The Control Centre uses the reference trapezoidal notch and upward swipe-to-close drawer.
+
+## Combined browser illumination prototype
+
+[Run the consolidated WebGPU prototype](Experimental/IlluminationPrototype/README.md): ReSTIR GI,
+screen traces, software BVH, clustered actual lights, real IES and reduced-order XPBD tyres.
+This stays separate from the native C++/Vulkan editor. [Executed verification](Exhibits/IlluminationConsolidation/README.md).

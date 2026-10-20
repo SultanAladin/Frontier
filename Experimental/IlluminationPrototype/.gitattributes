@@ -1,0 +1,4 @@
+# Generated distribution embeds byte-sensitive WASM strings; never normalize it as source text.
+Archive/Application.js -text -diff -whitespace linguist-generated=true
+# Preserve the upstream photometric file verbatim, including its original whitespace.
+Archive/Photometry/*.ies -text -whitespace

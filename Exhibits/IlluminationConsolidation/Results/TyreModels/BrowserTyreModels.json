@@ -1,0 +1,206 @@
+{
+  "Browser": "153.0.8010.0",
+  "Models": [
+    {
+      "Model": "spring",
+      "ShaderCode": 0,
+      "RecordBytes": 7888,
+      "Wheels": [
+        {
+          "DeflectionM": 0.014050468977367187,
+          "ForceN": 3133.254590212942,
+          "VolumeM3": 0.034,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.014051224716314346,
+          "ForceN": 3133.4231199984474,
+          "VolumeM3": 0.034,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.014545766836875211,
+          "ForceN": 3243.706014490089,
+          "VolumeM3": 0.034,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.014546522575822592,
+          "ForceN": 3243.8745442756035,
+          "VolumeM3": 0.034,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        }
+      ],
+      "Errors": [],
+      "Frame": 5
+    },
+    {
+      "Model": "xpbd",
+      "ShaderCode": 1,
+      "RecordBytes": 7888,
+      "Wheels": [
+        {
+          "DeflectionM": 0.016677589470235628,
+          "ForceN": 3132.7594227284726,
+          "VolumeM3": 0.033763323391256664,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.016677168170321513,
+          "ForceN": 3132.6186208749205,
+          "VolumeM3": 0.033763333930328134,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.017009084804264506,
+          "ForceN": 3243.5478561253367,
+          "VolumeM3": 0.03375503083552307,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        },
+        {
+          "DeflectionM": 0.01700866350435039,
+          "ForceN": 3243.4070542717845,
+          "VolumeM3": 0.03375504137459455,
+          "FemTableSolveResidualN": 0,
+          "Category": "xpbd"
+        }
+      ],
+      "Errors": [],
+      "Frame": 8
+    },
+    {
+      "Model": "shell",
+      "ShaderCode": 2,
+      "RecordBytes": 7888,
+      "Wheels": [
+        {
+          "DeflectionM": 0.04253331978148771,
+          "ForceN": 3132.803461341575,
+          "VolumeM3": 0.03369244404273463,
+          "FemTableSolveResidualN": 0.0007004610662839952,
+          "Category": "shell"
+        },
+        {
+          "DeflectionM": 0.04253331763783472,
+          "ForceN": 3132.8024070260726,
+          "VolumeM3": 0.0336924440376915,
+          "FemTableSolveResidualN": 0.0007004610018071875,
+          "Category": "shell"
+        },
+        {
+          "DeflectionM": 0.04319829958257233,
+          "ForceN": 3243.1878201112313,
+          "VolumeM3": 0.03368764832565905,
+          "FemTableSolveResidualN": 0.0007093551049031969,
+          "Category": "shell"
+        },
+        {
+          "DeflectionM": 0.04319829743891934,
+          "ForceN": 3243.186743012226,
+          "VolumeM3": 0.033687648320868784,
+          "FemTableSolveResidualN": 0.000709354998788321,
+          "Category": "shell"
+        }
+      ],
+      "Errors": [],
+      "Frame": 11
+    },
+    {
+      "Model": "solid",
+      "ShaderCode": 3,
+      "RecordBytes": 7888,
+      "Wheels": [
+        {
+          "DeflectionM": 0.01512492350349361,
+          "ForceN": 3133.0576669026836,
+          "VolumeM3": 0.03377809243705403,
+          "FemTableSolveResidualN": 0.0008345374183649436,
+          "Category": "solid"
+        },
+        {
+          "DeflectionM": 0.01512492350289298,
+          "ForceN": 3133.0576668867106,
+          "VolumeM3": 0.03377809243707965,
+          "FemTableSolveResidualN": 0.000834537418105505,
+          "Category": "solid"
+        },
+        {
+          "DeflectionM": 0.01565736579181812,
+          "ForceN": 3243.457544175487,
+          "VolumeM3": 0.03377029721236963,
+          "FemTableSolveResidualN": 0.0008277440778654183,
+          "Category": "solid"
+        },
+        {
+          "DeflectionM": 0.01565736579121749,
+          "ForceN": 3243.4575441576008,
+          "VolumeM3": 0.033770297212394954,
+          "FemTableSolveResidualN": 0.000827744077641602,
+          "Category": "solid"
+        }
+      ],
+      "Errors": [],
+      "Frame": 14
+    }
+  ],
+  "Errors": [],
+  "ComparisonSmokeTest": {
+    "Key": "TyreModel",
+    "Adapter": "google · swiftshader",
+    "ScreenExtent": [
+      153,
+      171
+    ],
+    "TraceExtent": [
+      77,
+      86
+    ],
+    "Warmup": 0,
+    "Frames": 2,
+    "VehicleFrozen": false,
+    "Quality": "low",
+    "Results": [
+      {
+        "Model": "shell",
+        "Enabled": false,
+        "CpuSubmissionMs": {
+          "Count": 2,
+          "Median": 2299,
+          "P95": 2299,
+          "P99": 2299
+        },
+        "GpuNamedWorkloadsMs": {
+          "Count": 1,
+          "Median": 6735.0102799999995,
+          "P95": 6735.0102799999995,
+          "P99": 6735.0102799999995
+        }
+      },
+      {
+        "Model": "solid",
+        "Enabled": true,
+        "CpuSubmissionMs": {
+          "Count": 2,
+          "Median": 2997.8000000002794,
+          "P95": 2997.8000000002794,
+          "P99": 2997.8000000002794
+        },
+        "GpuNamedWorkloadsMs": {
+          "Count": 1,
+          "Median": 7090.468666,
+          "P95": 7090.468666,
+          "P99": 7090.468666
+        }
+      }
+    ],
+    "Note": "Fixed-view paired test. CPU submission and named GPU workload subtotals only; not whole-frame FPS."
+  },
+  "Note": "Actual software-GPU screenshots in albedo inspection mode to show shape without GI/exposure noise, at low trace resolution. Each pose CPU-settled for 3 seconds, then frozen for capture. Comparison timings are only a control-path smoke test, not performance evidence."
+}

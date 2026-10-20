@@ -1,0 +1,3 @@
+
+=== harness: 16 frames, 0 errors, 0 warnings, 6.5 s
+Four tyre models validated, including shell/solid FEM and shared raster/BVH deformation.

@@ -1,0 +1,11 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+page.waitForFunction: Timeout 120000ms exceeded.
+    at /home/user/Frontier/Experimental/IlluminationPrototype/Tools/BrowserValidation.mjs:39:20 {
+  log: [],
+  name: 'TimeoutError'
+}
+
+Node.js v22.22.3

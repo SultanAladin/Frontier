@@ -1,0 +1,179 @@
+{
+  "Scope": "Pinned donor vehicle solver and, where present, thermal model, wheel shader and README.",
+  "Conclusion": "Inspected tyre paths are spring/contact dynamics and analytic vertex deformation, not shell or solid FEM.",
+  "Limitation": "This is not a claim that no FEM code exists in any other repository, branch or historical revision.",
+  "Findings": [
+    {
+      "Source": {
+        "Name": "d984ba1b-slate",
+        "Repository": "SultanAladin/Slate",
+        "Folder": "Exhibits/IlluminationHost",
+        "Revision": "c552cb26bf2be710baaefe64b830fe6db28f7ae7"
+      },
+      "Evidence": {
+        "Source/VehicleSolver.js": {
+          "Sha256": "3dd6a3b0938a7387032bc7bb84d5ddfb201498e4f5cfbb6d2093d0a2e6ec50ea",
+          "Quotes": [
+            "//    lattice; here each corner casts its strut axis onto DriveCourse's CourseHeight() and resolves a point contact.",
+            "const TyreSidewallStiffness = 25000.0;     // [N/m]",
+            "const TyreAirStiffness      = 0.9;         // [N/m/Pa]"
+          ]
+        },
+        "Source/TyreThermalSolver.js": {
+          "Sha256": "e68616622ac700de1b92a2453e7c2af90e04d42b1003ae7dabb990bee880d5bf",
+          "Quotes": [
+            "//    What differs: there is no XPBD carcass here, so the enclosed volume is the rest volume and the gas law reads"
+          ]
+        },
+        "Shader/VehicleVisual.wgsl": {
+          "Sha256": "b42e5c4fc37af93a85dc32c167e926a213c7655550f20eb21090f9719885289c",
+          "Quotes": [
+            "let PatchSpan = clamp(0.44 / sqrt(max(0.15, PNorm)), 0.20, 1.15);",
+            "DR = -Deflection * Envelope * RadialFrac;",
+            "let BulgeIntensity = 0.48 / (0.4 + 0.6 * sqrt(PNorm));",
+            "DY = sign(Position.y) * (Deflection * BulgeIntensity * Envelope * SidewallFactor);"
+          ]
+        },
+        "README.md": {
+          "Sha256": "db972b82d7feab8e56e886e596940442b3fb5a763dd22ad0c9fa660f71af3729",
+          "Quotes": [
+            "Unreal Engine's Chaos Flesh volumetric / PB-FEM deformation continuum:"
+          ]
+        }
+      }
+    },
+    {
+      "Source": {
+        "Name": "b55d93c0-slate",
+        "Repository": "SultanAladin/Slate",
+        "Folder": "Exhibits/VehicleProvingGrounds",
+        "Revision": "8a7004983b10c079564becb932ae9b444716b9c4"
+      },
+      "Evidence": {
+        "Source/VehicleSolver.js": {
+          "Sha256": "3dd6a3b0938a7387032bc7bb84d5ddfb201498e4f5cfbb6d2093d0a2e6ec50ea",
+          "Quotes": [
+            "//    lattice; here each corner casts its strut axis onto DriveCourse's CourseHeight() and resolves a point contact.",
+            "const TyreSidewallStiffness = 25000.0;     // [N/m]",
+            "const TyreAirStiffness      = 0.9;         // [N/m/Pa]"
+          ]
+        },
+        "Source/TyreThermalSolver.js": {
+          "Sha256": "e68616622ac700de1b92a2453e7c2af90e04d42b1003ae7dabb990bee880d5bf",
+          "Quotes": [
+            "//    What differs: there is no XPBD carcass here, so the enclosed volume is the rest volume and the gas law reads"
+          ]
+        },
+        "Shader/VehicleVisual.wgsl": {
+          "Sha256": "b42e5c4fc37af93a85dc32c167e926a213c7655550f20eb21090f9719885289c",
+          "Quotes": [
+            "let PatchSpan = clamp(0.44 / sqrt(max(0.15, PNorm)), 0.20, 1.15);",
+            "DR = -Deflection * Envelope * RadialFrac;",
+            "let BulgeIntensity = 0.48 / (0.4 + 0.6 * sqrt(PNorm));",
+            "DY = sign(Position.y) * (Deflection * BulgeIntensity * Envelope * SidewallFactor);"
+          ]
+        },
+        "README.md": {
+          "Sha256": "0215339db9f3aa0feeeca39f15e31e70790601c75f0917737703b9f037fe57a1",
+          "Quotes": [
+            "Unreal Engine's Chaos Flesh volumetric / PB-FEM deformation continuum:"
+          ]
+        }
+      }
+    },
+    {
+      "Source": {
+        "Name": "c6cba543-slate",
+        "Repository": "SultanAladin/Slate",
+        "Folder": "Exhibits/IlluminationHost",
+        "Revision": "dd045df64ce230b39069a8ded93535917a1a69df"
+      },
+      "Evidence": {
+        "Source/VehicleSolver.js": {
+          "Sha256": "2103a7a96d8b68c6063c8b64925e88ebcbde38494f2390e10db770923e9c35a2",
+          "Quotes": [
+            "//    lattice; here each corner casts its strut axis onto DriveCourse's CourseHeight() and resolves a point contact."
+          ]
+        }
+      }
+    },
+    {
+      "Source": {
+        "Name": "85b411ac-frontier",
+        "Repository": "streamlinkinbox/Frontier",
+        "Folder": "Experimental/VehicleHmiPrototype",
+        "Revision": "dfc92a02930d5c94a8e72ddc293efe42e2cc64a8"
+      },
+      "Evidence": {
+        "Source/VehicleSolver.js": {
+          "Sha256": "3dd6a3b0938a7387032bc7bb84d5ddfb201498e4f5cfbb6d2093d0a2e6ec50ea",
+          "Quotes": [
+            "//    lattice; here each corner casts its strut axis onto DriveCourse's CourseHeight() and resolves a point contact.",
+            "const TyreSidewallStiffness = 25000.0;     // [N/m]",
+            "const TyreAirStiffness      = 0.9;         // [N/m/Pa]"
+          ]
+        },
+        "Source/TyreThermalSolver.js": {
+          "Sha256": "e68616622ac700de1b92a2453e7c2af90e04d42b1003ae7dabb990bee880d5bf",
+          "Quotes": [
+            "//    What differs: there is no XPBD carcass here, so the enclosed volume is the rest volume and the gas law reads"
+          ]
+        },
+        "Shader/VehicleVisual.wgsl": {
+          "Sha256": "b42e5c4fc37af93a85dc32c167e926a213c7655550f20eb21090f9719885289c",
+          "Quotes": [
+            "let PatchSpan = clamp(0.44 / sqrt(max(0.15, PNorm)), 0.20, 1.15);",
+            "DR = -Deflection * Envelope * RadialFrac;",
+            "let BulgeIntensity = 0.48 / (0.4 + 0.6 * sqrt(PNorm));",
+            "DY = sign(Position.y) * (Deflection * BulgeIntensity * Envelope * SidewallFactor);"
+          ]
+        },
+        "README.md": {
+          "Sha256": "db972b82d7feab8e56e886e596940442b3fb5a763dd22ad0c9fa660f71af3729",
+          "Quotes": [
+            "Unreal Engine's Chaos Flesh volumetric / PB-FEM deformation continuum:"
+          ]
+        }
+      }
+    },
+    {
+      "Source": {
+        "Name": "21530081-frontier",
+        "Repository": "c7egoist/Frontier",
+        "Folder": "Experimental/VehicleHmiPrototype",
+        "Revision": "21c553b620c1aca3ae3a794ee369b4edaa337361"
+      },
+      "Evidence": {
+        "Source/VehicleSolver.js": {
+          "Sha256": "3dd6a3b0938a7387032bc7bb84d5ddfb201498e4f5cfbb6d2093d0a2e6ec50ea",
+          "Quotes": [
+            "//    lattice; here each corner casts its strut axis onto DriveCourse's CourseHeight() and resolves a point contact.",
+            "const TyreSidewallStiffness = 25000.0;     // [N/m]",
+            "const TyreAirStiffness      = 0.9;         // [N/m/Pa]"
+          ]
+        },
+        "Source/TyreThermalSolver.js": {
+          "Sha256": "e68616622ac700de1b92a2453e7c2af90e04d42b1003ae7dabb990bee880d5bf",
+          "Quotes": [
+            "//    What differs: there is no XPBD carcass here, so the enclosed volume is the rest volume and the gas law reads"
+          ]
+        },
+        "Shader/VehicleVisual.wgsl": {
+          "Sha256": "b42e5c4fc37af93a85dc32c167e926a213c7655550f20eb21090f9719885289c",
+          "Quotes": [
+            "let PatchSpan = clamp(0.44 / sqrt(max(0.15, PNorm)), 0.20, 1.15);",
+            "DR = -Deflection * Envelope * RadialFrac;",
+            "let BulgeIntensity = 0.48 / (0.4 + 0.6 * sqrt(PNorm));",
+            "DY = sign(Position.y) * (Deflection * BulgeIntensity * Envelope * SidewallFactor);"
+          ]
+        },
+        "README.md": {
+          "Sha256": "bf67dc520967ed6b3a2e98098739c233a09312c5adeb02b338ba05832d56fa29",
+          "Quotes": [
+            "Unreal Engine's Chaos Flesh volumetric / PB-FEM deformation continuum:"
+          ]
+        }
+      }
+    }
+  ]
+}

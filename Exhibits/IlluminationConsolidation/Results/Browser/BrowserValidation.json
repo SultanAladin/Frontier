@@ -1,0 +1,128 @@
+{
+  "Browser": "153.0.8010.0",
+  "Adapter": "google · swiftshader",
+  "States": [
+    {
+      "Frame": 4,
+      "Screen": false,
+      "BVH": false,
+      "Xpbd": false,
+      "Photometry": "50975.6K3 (Preliminary)",
+      "Errors": []
+    },
+    {
+      "Frame": 6,
+      "Screen": true,
+      "BVH": false,
+      "Xpbd": true,
+      "Photometry": "50975.6K3 (Preliminary)",
+      "Errors": []
+    }
+  ],
+  "Benchmarks": [
+    {
+      "Key": "ClusteredLights",
+      "Adapter": "google · swiftshader",
+      "ScreenExtent": [
+        153,
+        151
+      ],
+      "TraceExtent": [
+        77,
+        76
+      ],
+      "Warmup": 2,
+      "Frames": 6,
+      "VehicleFrozen": true,
+      "Quality": "low",
+      "Results": [
+        {
+          "Enabled": false,
+          "CpuSubmissionMs": {
+            "Count": 6,
+            "Median": 8,
+            "P95": 746.1999999997206,
+            "P99": 746.1999999997206
+          },
+          "GpuNamedWorkloadsMs": {
+            "Count": 3,
+            "Median": 6380.081005000002,
+            "P95": 7964.039035,
+            "P99": 7964.039035
+          }
+        },
+        {
+          "Enabled": true,
+          "CpuSubmissionMs": {
+            "Count": 6,
+            "Median": 4.199999999720603,
+            "P95": 6.899999999906868,
+            "P99": 6.899999999906868
+          },
+          "GpuNamedWorkloadsMs": {
+            "Count": 3,
+            "Median": 6444.127565,
+            "P95": 6691.275259,
+            "P99": 6691.275259
+          }
+        }
+      ],
+      "Note": "Fixed-view paired test. CPU submission and named GPU workload subtotals only; not whole-frame FPS."
+    },
+    {
+      "Key": "ScreenTraversal",
+      "Adapter": "google · swiftshader",
+      "ScreenExtent": [
+        153,
+        151
+      ],
+      "TraceExtent": [
+        77,
+        76
+      ],
+      "Warmup": 2,
+      "Frames": 6,
+      "VehicleFrozen": true,
+      "Quality": "low",
+      "Results": [
+        {
+          "Enabled": false,
+          "CpuSubmissionMs": {
+            "Count": 6,
+            "Median": 8.799999999813735,
+            "P95": 2546.399999999907,
+            "P99": 2546.399999999907
+          },
+          "GpuNamedWorkloadsMs": {
+            "Count": 3,
+            "Median": 6617.882447000002,
+            "P95": 6625.599872000001,
+            "P99": 6625.599872000001
+          }
+        },
+        {
+          "Enabled": true,
+          "CpuSubmissionMs": {
+            "Count": 6,
+            "Median": 4.800000000279397,
+            "P95": 6,
+            "P99": 6
+          },
+          "GpuNamedWorkloadsMs": {
+            "Count": 3,
+            "Median": 7289.624518000001,
+            "P95": 7557.108932000001,
+            "P99": 7557.108932000001
+          }
+        }
+      ],
+      "Note": "Fixed-view paired test. CPU submission and named GPU workload subtotals only; not whole-frame FPS."
+    }
+  ],
+  "Errors": [],
+  "Viewport": [
+    1280,
+    720
+  ],
+  "Note": "SwiftShader software GPU, SDF continuation with screen traces. BVH mode validated separately on Dawn null. Short fixed-view paired timings per toggle; no universal speed claim."
+}

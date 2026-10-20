@@ -77,3 +77,9 @@ ExternalPackages/
 
 ContentDirectory resolves bundled content from the executable independently of the launch working directory.
 The font catalogue has a native TOML form; JSON remains only an automation/report interchange.
+
+## Browser illumination prototype
+
+`Experimental/IlluminationPrototype/` owns the single WebGPU application, imported sources/content, prototype tools
+and Windows batch launcher. `Exhibits/IlluminationConsolidation/` retains source pins, verification and captures.
+This does not alter the selective native CMake target or port WGSL into the production Vulkan/Slang renderer.

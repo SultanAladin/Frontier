@@ -1,0 +1,3 @@
+
+=== harness: 24 frames, 0 errors, 0 warnings, 2.9 s
+Combined validation: BVH/SDF, screen GI/reflections, actual-light culling, real IES and XPBD toggled OFF and ON in one app.

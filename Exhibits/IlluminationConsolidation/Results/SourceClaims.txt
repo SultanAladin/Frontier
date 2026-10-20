@@ -1,0 +1,46 @@
+TAP version 13
+# Subtest: all five browser vehicles explicitly use point contact instead of an XPBD lattice
+ok 1 - all five browser vehicles explicitly use point contact instead of an XPBD lattice
+  ---
+  duration_ms: 3.896692
+  type: 'test'
+  ...
+# Subtest: the three Slate variants wire nearest-depth screen tracing into GI and reflections
+ok 2 - the three Slate variants wire nearest-depth screen tracing into GI and reflections
+  ---
+  duration_ms: 1.170159
+  type: 'test'
+  ...
+# Subtest: emissive card radiance is separate from actual-light clustering
+ok 3 - emissive card radiance is separate from actual-light clustering
+  ---
+  duration_ms: 0.671474
+  type: 'test'
+  ...
+# Subtest: b55 has real index lists but a cell can drop contributing lights at its cap
+ok 4 - b55 has real index lists but a cell can drop contributing lights at its cap
+  ---
+  duration_ms: 6.245874
+  type: 'test'
+  ...
+# Subtest: d984 bitmask retains all 32 co-located actual lights
+ok 5 - d984 bitmask retains all 32 co-located actual lights
+  ---
+  duration_ms: 18.872991
+  type: 'test'
+  ...
+# Subtest: the RTX label uses WGSL software BVH traversal and reuses the old screen-trace bit
+ok 6 - the RTX label uses WGSL software BVH traversal and reuses the old screen-trace bit
+  ---
+  duration_ms: 0.837354
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 96.986969

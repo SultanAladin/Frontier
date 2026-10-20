@@ -1,0 +1,51 @@
+{
+  "Platform": "linux",
+  "Architecture": "x64",
+  "Cpu": "Intel(R) Xeon(R) Processor @ 2.60GHz",
+  "Node": "v22.22.3",
+  "OuterStep": 0.008333333333333333,
+  "InternalStep": 0.0020833333333333333,
+  "Steps": 2400,
+  "Repetitions": 9,
+  "Note": "Total CPU time for 20 simulated seconds per repetition. Different tyre physics, not a rendering-quality comparison. XPBD curves prewarmed.",
+  "Results": {
+    "Point": {
+      "Milliseconds": {
+        "Count": 9,
+        "Median": 236.61110699999972,
+        "P95": 261.1372720000004,
+        "P99": 261.1372720000004
+      },
+      "RawMilliseconds": [
+        235.62937399999998,
+        236.472528,
+        230.86441000000013,
+        245.4096900000004,
+        245.96575900000016,
+        261.1372720000004,
+        257.2558060000001,
+        236.61110699999972,
+        221.28068099999928
+      ]
+    },
+    "XPBD": {
+      "Milliseconds": {
+        "Count": 9,
+        "Median": 252.8955850000002,
+        "P95": 273.6125689999999,
+        "P99": 273.6125689999999
+      },
+      "RawMilliseconds": [
+        253.33200899999997,
+        246.3017440000001,
+        242.60031200000003,
+        243.01739300000008,
+        272.1880289999999,
+        273.6125689999999,
+        269.4096439999994,
+        252.8955850000002,
+        238.14846000000034
+      ]
+    }
+  }
+}

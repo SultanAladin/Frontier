@@ -1,0 +1,3 @@
+
+=== harness: 12 frames, 0 errors, 0 warnings, 1.6 s
+Verified trace selection: rtx

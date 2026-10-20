@@ -1,0 +1,25 @@
+pass  rest, 220 kPa                                body 509.7 mm, swing 0.00 mm, loads 3133/3133/3243/3243 N
+pass  rest, 60 kPa                                 body 500.6 mm, swing 0.00 mm, loads 3133/3133/3243/3243 N
+pass  rest, both fronts flat                       body 499.5 mm, swing 0.04 mm, loads 3139/3139/3238/3238 N
+pass  rest, all four flat                          body 488.7 mm, swing 0.00 mm, loads 3133/3133/3243/3243 N
+pass  rest, FL blowout                             body 505.2 mm, swing 0.00 mm, loads 2532/3740/3858/2623 N
+pass  rest, FR blowout                             body 505.2 mm, swing 0.00 mm, loads 3740/2532/2623/3858 N
+pass  rest, RL blowout                             body 504.9 mm, swing 0.00 mm, loads 3765/2496/2626/3867 N
+pass  rest, RR blowout                             body 504.9 mm, swing 0.00 mm, loads 2496/3765/3867/2626 N
+pass  FL vs FR blowout mirror                      worst load mismatch 0.01 %
+pass  RL vs RR blowout mirror                      worst load mismatch 0.00 %
+pass  FL blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 0.2 m
+pass  FR blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 0.2 m
+pass  RL blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 5.3 m
+pass  RR blowout at 25 m/s                         upright 1.000, airborne frames 0, off the line ≤ 5.3 m
+pass  both fronts blown at 25 m/s                  upright 1.000, airborne frames 0, off the line ≤ 0.0 m
+pass  all four blown at 20 m/s                     upright 1.000, airborne frames 0, off the line ≤ 0.0 m
+pass  FL shredded at 25 m/s                        upright 0.999, airborne frames 0, off the line ≤ 4.8 m
+pass  RR shredded, coasting at 25 m/s              upright 0.998, airborne frames 0, off the line ≤ 1.2 m
+pass  220 kPa, slalom at 25 m/s                    upright 1.000, airborne frames 0, off the line ≤ 6.1 m
+pass  60 kPa, slalom at 25 m/s                     upright 1.000, airborne frames 0, off the line ≤ 6.0 m
+pass  both fronts flat, slalom at 15 m/s           upright 1.000, airborne frames 0, off the line ≤ 2.8 m
+pass  donuts left vs right mirror                  sliding MJ 0.08/0.28/0.62/0.65 vs 0.28/0.08/0.66/0.62
+pass  coasting backwards, RR shredded              speed 6.34 m/s, fastest wheel 13.0 rad/s
+
+all passed

@@ -1,0 +1,32 @@
+{
+  "Backend": "vulkan",
+  "PositionToleranceM": 0.0003,
+  "NormalComponentTolerance": 0.003,
+  "Results": [
+    {
+      "Model": "spring",
+      "Vertices": 385,
+      "MaximumPositionErrorM": 0.00009477138519281558,
+      "MaximumNormalComponentError": 0.000021880989110073523
+    },
+    {
+      "Model": "xpbd",
+      "Vertices": 385,
+      "MaximumPositionErrorM": 0.00009483893457423731,
+      "MaximumNormalComponentError": 0.000017941359087503272
+    },
+    {
+      "Model": "shell",
+      "Vertices": 385,
+      "MaximumPositionErrorM": 0.000005271945120843835,
+      "MaximumNormalComponentError": 0.0003005156419293442
+    },
+    {
+      "Model": "solid",
+      "Vertices": 385,
+      "MaximumPositionErrorM": 0.0000020145134461690972,
+      "MaximumNormalComponentError": 0.0001106234020546229
+    }
+  ],
+  "Errors": []
+}

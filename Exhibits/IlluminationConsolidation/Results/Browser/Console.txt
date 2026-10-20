@@ -1,0 +1,45 @@
+info: [bring-up] 0.23 s · Negotiating the WebGPU device
+info: [bring-up] 0.24 s · Retrieving shaders and the ControlVehicle archives
+info: [bring-up] 3.51 s · Transferring distance volume: ControlVehicle body
+info: [bring-up] 4.28 s · Transferring distance volume: ControlVehicle wheel (left)
+info: [bring-up] 4.99 s · Transferring distance volume: ControlVehicle wheel (right)
+info: [bring-up] 5.09 s · Transferring distance volume: Jersey
+info: [bring-up] 5.15 s · Transferring distance volume: Kerb
+info: [bring-up] 5.25 s · Transferring distance volume: Ramp
+info: [bring-up] 5.28 s · Transferring distance volume: HangarAccent
+info: [bring-up] 5.30 s · Transferring distance volume: HangarPanel
+info: [bring-up] 5.37 s · Transferring distance volume: HangarRoof
+info: [bring-up] 5.44 s · Transferring distance volume: LampStrip
+info: [bring-up] 5.49 s · Transferring distance volume: Cabinet
+info: [bring-up] 5.53 s · Transferring distance volume: TyreStack
+info: [bring-up] 5.58 s · Transferring distance volume: TunnelWall
+info: [bring-up] 5.73 s · Transferring distance volume: TunnelRoof
+info: [bring-up] 5.77 s · Transferring distance volume: TunnelLamp
+info: [bring-up] 5.84 s · Transferring distance volume: Tower
+info: [bring-up] 6.03 s · Transferring distance volume: TowerCabin
+info: [bring-up] 6.16 s · Transferring distance volume: TowerRoof
+info: [bring-up] 6.19 s · Transferring distance volume: TrafficHead
+info: [bring-up] 6.23 s · Transferring distance volume: PoleHead
+info: [bring-up] 6.97 s · Transferring distance volume: GardenAluminium
+info: [bring-up] 7.70 s · Transferring distance volume: GardenGold
+info: [bring-up] 8.38 s · Transferring distance volume: GardenGlass
+info: [bring-up] 8.43 s · Transferring distance volume: GardenMirror
+info: [bring-up] 8.58 s · Transferring distance volume: Cone
+info: [bring-up] 8.64 s · Transferring distance volume: Wood box
+info: [bring-up] 8.69 s · Transferring distance volume: Glass box
+info: [bring-up] 8.78 s · Transferring distance volume: Concrete prism
+info: [bring-up] 8.84 s · Transferring distance volume: Tempered glass box
+info: [bring-up] 8.91 s · Transferring distance volume: ABS plastic box
+info: [bring-up] 8.95 s · Transferring distance volume: Stone box
+info: [bring-up] 9.00 s · Transferring distance volume: Concrete box
+info: [bring-up] 9.08 s · Transferring distance volume: Stress crate
+info: [bring-up] 9.08 s · Allocating surface cards
+info: [bring-up] 9.10 s · Constructing TLAS + Binned-SAH BLAS ray-tracing hierarchy
+info: [bring-up] 9.28 s · Building the scene distance field cascades
+info: [bring-up] 10.10 s · Baking fracture patterns
+info: [bring-up] 10.24 s · Compiling lighting programs
+info: [bring-up] 11.23 s · Compiling surface and resampling programs
+info: [bring-up] 30.81 s · Compiling the cabin, mirrors and sparks
+info: [bring-up] 31.06 s · Compiling drift smoke programs
+info: [bring-up] 31.71 s · Capturing surface cards
+info: [bring-up] 32.44 s · Ready

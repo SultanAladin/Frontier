@@ -1,0 +1,3 @@
+
+=== harness: 36 frames, 0 errors, 0 warnings, 3.4 s
+effects integration: sparks, shredded wheel and Garage modes exercised

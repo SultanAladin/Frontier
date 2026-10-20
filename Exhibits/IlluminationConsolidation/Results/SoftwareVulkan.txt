@@ -1,0 +1,3 @@
+
+=== harness: 4 frames, 0 errors, 0 warnings, 152.8 s
+saved /home/user/Frontier/Exhibits/IlluminationConsolidation/Results/CombinedScene.png 320x180

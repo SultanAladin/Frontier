@@ -1,0 +1,303 @@
+
+> frontier-vehicle-hmi-prototype@0.1.0 test
+> node --test Tools/*.test.mjs
+
+TAP version 13
+# Subtest: LightingSystem manages automotive light modes and roof fixtures correctly
+ok 1 - LightingSystem manages automotive light modes and roof fixtures correctly
+  ---
+  duration_ms: 0.601336
+  type: 'test'
+  ...
+# Subtest: LightingSystem packs street lamps and automotive headlights without buffer overflow
+ok 2 - LightingSystem packs street lamps and automotive headlights without buffer overflow
+  ---
+  duration_ms: 2.447061
+  type: 'test'
+  ...
+# Subtest: Roof fixture polygon generation produces valid geometry for SlimLED and RallyPod
+ok 3 - Roof fixture polygon generation produces valid geometry for SlimLED and RallyPod
+  ---
+  duration_ms: 0.746493
+  type: 'test'
+  ...
+# Subtest: speed FOV smooths to its cap in forward and reverse, with finite bounded shake
+ok 4 - speed FOV smooths to its cap in forward and reverse, with finite bounded shake
+  ---
+  duration_ms: 4.112177
+  type: 'test'
+  ...
+# Subtest: HMI/inspection/free camera and disabled effects retain exact camera geometry
+ok 5 - HMI/inspection/free camera and disabled effects retain exact camera geometry
+  ---
+  duration_ms: 0.675972
+  type: 'test'
+  ...
+# Subtest: overlay schema includes exposure binding 12 and resources use the same schema
+ok 6 - overlay schema includes exposure binding 12 and resources use the same schema
+  ---
+  duration_ms: 0.520669
+  type: 'test'
+  ...
+# Subtest: real Jolt WASM bodies fall, settle, sleep, reset and leave no bodies after cleanup
+ok 7 - real Jolt WASM bodies fall, settle, sleep, reset and leave no bodies after cleanup
+  ---
+  duration_ms: 87.621397
+  type: 'test'
+  ...
+# Subtest: Jolt static colliders prevent fast loose-body wall tunnelling and can be rebuilt
+ok 8 - Jolt static colliders prevent fast loose-body wall tunnelling and can be rebuilt
+  ---
+  duration_ms: 3.323221
+  type: 'test'
+  ...
+# Subtest: Jolt loose-body collisions exchange impulses with the custom-tyre chassis proxy
+ok 9 - Jolt loose-body collisions exchange impulses with the custom-tyre chassis proxy
+  ---
+  duration_ms: 4.4969
+  type: 'test'
+  ...
+# Subtest: real cone hulls settle and tyre-support impulses wake Jolt bodies
+ok 10 - real cone hulls settle and tyre-support impulses wake Jolt bodies
+  ---
+  duration_ms: 30.298456
+  type: 'test'
+  ...
+# Subtest: RTX Full ReSTIR GI Path Tracer
+    # Subtest: sets RTX Raytracing as the default renderer mode in IlluminationHost and InspectorPages
+    ok 1 - sets RTX Raytracing as the default renderer mode in IlluminationHost and InspectorPages
+      ---
+      duration_ms: 2.077154
+      type: 'test'
+      ...
+    # Subtest: encodes and decodes octahedral unit normals accurately across all octants
+    ok 2 - encodes and decodes octahedral unit normals accurately across all octants
+      ---
+      duration_ms: 0.350265
+      type: 'test'
+      ...
+    # Subtest: builds Two-Level BVH (TLAS + Binned-SAH BLAS) over all 56 FacetSets and intersects vehicle, cabin, ground, and poles
+    ok 3 - builds Two-Level BVH (TLAS + Binned-SAH BLAS) over all 56 FacetSets and intersects vehicle, cabin, ground, and poles
+      ---
+      duration_ms: 282.221781
+      type: 'test'
+      ...
+    # Subtest: dynamically registers Voronoi fracture fragments into BLAS and TLAS upon prop destruction
+    ok 4 - dynamically registers Voronoi fracture fragments into BLAS and TLAS upon prop destruction
+      ---
+      duration_ms: 172.225565
+      type: 'test'
+      ...
+    # Subtest: contains complete ReSTIR Path Tracer and Multi-Bounce Ray-Traced Reflection stages in WGSL shaders
+    ok 5 - contains complete ReSTIR Path Tracer and Multi-Bounce Ray-Traced Reflection stages in WGSL shaders
+      ---
+      duration_ms: 0.601272
+      type: 'test'
+      ...
+    1..5
+ok 11 - RTX Full ReSTIR GI Path Tracer
+  ---
+  duration_ms: 458.293068
+  type: 'suite'
+  ...
+# Subtest: either brightness control at zero turns the display black; no baked canvas dimming
+ok 12 - either brightness control at zero turns the display black; no baked canvas dimming
+  ---
+  duration_ms: 1.030032
+  type: 'test'
+  ...
+# Subtest: exposure-compensated screen colours survive the final ACES fit without washing out
+ok 13 - exposure-compensated screen colours survive the final ACES fit without washing out
+  ---
+  duration_ms: 1.229974
+  type: 'test'
+  ...
+# Subtest: Slate wheel, integrated hexagon and tablet retain the requested poses and sizes
+ok 14 - Slate wheel, integrated hexagon and tablet retain the requested poses and sizes
+  ---
+  duration_ms: 18.51505
+  type: 'test'
+  ...
+# Subtest: HUD size/offset changes cannot move the physical cockpit or seated camera
+ok 15 - HUD size/offset changes cannot move the physical cockpit or seated camera
+  ---
+  duration_ms: 0.711867
+  type: 'test'
+  ...
+# Subtest: touch ray uses the new Slate tablet plane and rejects off-tablet rays
+ok 16 - touch ray uses the new Slate tablet plane and rejects off-tablet rays
+  ---
+  duration_ms: 0.356047
+  type: 'test'
+  ...
+# Subtest: reference tyre source emits patch and arch smoke with rearward momentum, then releases
+ok 17 - reference tyre source emits patch and arch smoke with rearward momentum, then releases
+  ---
+  duration_ms: 1.354408
+  type: 'test'
+  ...
+# Subtest: reference plume fades and retires with no source; disabled clears residency
+ok 18 - reference plume fades and retires with no source; disabled clears residency
+  ---
+  duration_ms: 0.244845
+  type: 'test'
+  ...
+# Subtest: Garage ray picking rejects background and resolves the actual nearest material
+ok 19 - Garage ray picking rejects background and resolves the actual nearest material
+  ---
+  duration_ms: 0.813905
+  type: 'test'
+  ...
+# Subtest: seeded mixture produces mostly fine filings, some streaks and rare chips with distinct properties
+ok 20 - seeded mixture produces mostly fine filings, some streaks and rare chips with distinct properties
+  ---
+  duration_ms: 16.385216
+  type: 'test'
+  ...
+# Subtest: contact pulses vary density, stay bounded, expire and reset safely
+ok 21 - contact pulses vary density, stay bounded, expire and reset safely
+  ---
+  duration_ms: 2.434702
+  type: 'test'
+  ...
+# Subtest: variation slider neutralizes added class properties; varied particles still cool and retire
+ok 22 - variation slider neutralizes added class properties; varied particles still cool and retire
+  ---
+  duration_ms: 38.112936
+  type: 'test'
+  ...
+# Subtest: spark intensity modulation is stable at fixed age and fades before lifetime cutoff
+ok 23 - spark intensity modulation is stable at fixed age and fades before lifetime cutoff
+  ---
+  duration_ms: 0.167174
+  type: 'test'
+  ...
+# Subtest: paint and rim records update the shared world material buffer only
+ok 24 - paint and rim records update the shared world material buffer only
+  ---
+  duration_ms: 1.962361
+  type: 'test'
+  ...
+# Subtest: Garage controls apply materials and cycle all inspection modes
+ok 25 - Garage controls apply materials and cycle all inspection modes
+  ---
+  duration_ms: 10.952845
+  type: 'test'
+  ...
+# Subtest: material drags only apply on the matching picked car surface and cancel safely
+ok 26 - material drags only apply on the matching picked car surface and cancel safely
+  ---
+  duration_ms: 0.697498
+  type: 'test'
+  ...
+# Subtest: blue emissive rim and matte finishes can be dragged onto their matching surfaces
+ok 27 - blue emissive rim and matte finishes can be dragged onto their matching surfaces
+  ---
+  duration_ms: 0.391092
+  type: 'test'
+  ...
+# Subtest: rim finish changes affect selected accent faces, never the black rim base or tyre
+ok 28 - rim finish changes affect selected accent faces, never the black rim base or tyre
+  ---
+  duration_ms: 0.487112
+  type: 'test'
+  ...
+# Subtest: swept sparks hit a thin wall, ground, ramp and convex debris without endpoint overlap
+ok 29 - swept sparks hit a thin wall, ground, ramp and convex debris without endpoint overlap
+  ---
+  duration_ms: 2.761149
+  type: 'test'
+  ...
+# Subtest: spark integration bounces, cools monotonically, retires particles and clears GPU draw count
+ok 30 - spark integration bounces, cools monotonically, retires particles and clears GPU draw count
+  ---
+  duration_ms: 2.546799
+  type: 'test'
+  ...
+# Subtest: shredded wheels write rim channels only; transitions reset trails; debris and disabled marks lay nothing
+ok 31 - shredded wheels write rim channels only; transitions reset trails; debris and disabled marks lay nothing
+  ---
+  duration_ms: 1.207434
+  type: 'test'
+  ...
+# Subtest: vehicle record preserves cabin articulation, wheel damage and volumetric deformation; every raster path shares it
+ok 32 - vehicle record preserves cabin articulation, wheel damage and volumetric deformation; every raster path shares it
+  ---
+  duration_ms: 0.617328
+  type: 'test'
+  ...
+# Subtest: countersteer is symmetric, bounded, optional and yields to manual input; reverse/airborne restore manual control
+ok 33 - countersteer is symmetric, bounded, optional and yields to manual input; reverse/airborne restore manual control
+  ---
+  duration_ms: 0.648644
+  type: 'test'
+  ...
+# Subtest: assisted left/right slide recovery stays grounded, finite and symmetric on the flat pad
+ok 34 - assisted left/right slide recovery stays grounded, finite and symmetric on the flat pad
+  ---
+  duration_ms: 361.912247
+  type: 'test'
+  ...
+# Subtest: independent orbit preserves user angles across repeated frames and vehicle translation
+ok 35 - independent orbit preserves user angles across repeated frames and vehicle translation
+  ---
+  duration_ms: 3.118123
+  type: 'test'
+  ...
+# Subtest: orbit permits repeated full yaw rotations while zoom and pitch remain safe
+ok 36 - orbit permits repeated full yaw rotations while zoom and pitch remain safe
+  ---
+  duration_ms: 0.174221
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation encodes physical contact angle, deflection, and pressure
+ok 37 - volumetric tyre deformation encodes physical contact angle, deflection, and pressure
+  ---
+  duration_ms: 44.902069
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation responds to inflation pressure and deflation/flat tyres
+ok 38 - volumetric tyre deformation responds to inflation pressure and deflation/flat tyres
+  ---
+  duration_ms: 0.212447
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation handles cornering lateral distortion and steer rotation
+ok 39 - volumetric tyre deformation handles cornering lateral distortion and steer rotation
+  ---
+  duration_ms: 0.146311
+  type: 'test'
+  ...
+# Subtest: shredding keeps the complete metal rim on both sides, not just its small hub
+ok 40 - shredding keeps the complete metal rim on both sides, not just its small hub
+  ---
+  duration_ms: 26.358351
+  type: 'test'
+  ...
+# Subtest: tablet scale matches touch edges, leaves cluster/driver fixed, and is encoded for every render path
+ok 41 - tablet scale matches touch edges, leaves cluster/driver fixed, and is encoded for every render path
+  ---
+  duration_ms: 0.74471
+  type: 'test'
+  ...
+# Subtest: HMI focus faces the screen and fits it in portrait and landscape viewports
+ok 42 - HMI focus faces the screen and fits it in portrait and landscape viewports
+  ---
+  duration_ms: 2.770947
+  type: 'test'
+  ...
+# Subtest: sparks have bounded subpixel/thin footprints instead of unbounded near-camera dots
+ok 43 - sparks have bounded subpixel/thin footprints instead of unbounded near-camera dots
+  ---
+  duration_ms: 0.382457
+  type: 'test'
+  ...
+1..43
+# tests 47
+# suites 1
+# pass 47
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1743.524576

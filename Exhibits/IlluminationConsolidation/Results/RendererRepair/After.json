@@ -1,0 +1,50 @@
+{
+  "Adapter": "google · swiftshader · swiftshader-device-subzero- · SwiftShader driver 5.0.0",
+  "Screen": [
+    64,
+    64
+  ],
+  "Trace": [
+    32,
+    32
+  ],
+  "Samples": [
+    {
+      "Card lighting": 6256.787456,
+      "Shadow": 154.599424,
+      "Surface": 163.971072,
+      "Direct": 222.363648,
+      "ReSTIR GI": 138.805248,
+      "Diffuse reconstruction": 4.718592,
+      "Reflection": 88.735744,
+      "Glossy reconstruction": 4.128768,
+      "Resolve": 1.703936
+    },
+    {
+      "Card lighting": 5871.632384,
+      "Shadow": 139.067392,
+      "Surface": 158.859264,
+      "Direct": 206.045184,
+      "ReSTIR GI": 149.487616,
+      "Diffuse reconstruction": 2.818048,
+      "Reflection": 48.82432,
+      "Glossy reconstruction": 2.031616,
+      "Resolve": 0.786432
+    },
+    {
+      "Card lighting": 562.036736,
+      "Shadow": 137.035776,
+      "Surface": 167.77216,
+      "Direct": 209.453056,
+      "ReSTIR GI": 106.233856,
+      "Diffuse reconstruction": 4.063232,
+      "Reflection": 44.367872,
+      "Glossy reconstruction": 3.735552,
+      "Resolve": 1.376256
+    }
+  ],
+  "Triangles": 45314,
+  "Occupants": 1149,
+  "Errors": [],
+  "Note": "Fixed pose, spring model, screen/IES/clustering OFF, low quality, 1 bounce/candidate. Tiny software GPU regression probe; no hardware FPS claim."
+}

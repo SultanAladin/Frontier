@@ -1,0 +1,545 @@
+TAP version 13
+# Subtest: LightingSystem manages automotive light modes and roof fixtures correctly
+ok 1 - LightingSystem manages automotive light modes and roof fixtures correctly
+  ---
+  duration_ms: 1.193935
+  type: 'test'
+  ...
+# Subtest: LightingSystem packs street lamps and automotive headlights without buffer overflow
+ok 2 - LightingSystem packs street lamps and automotive headlights without buffer overflow
+  ---
+  duration_ms: 2.913562
+  type: 'test'
+  ...
+# Subtest: Roof fixture polygon generation produces valid geometry for SlimLED and RallyPod
+ok 3 - Roof fixture polygon generation produces valid geometry for SlimLED and RallyPod
+  ---
+  duration_ms: 1.091222
+  type: 'test'
+  ...
+# Subtest: demonstration adds four real point/spot records anchored in world space within cluster bounds
+ok 4 - demonstration adds four real point/spot records anchored in world space within cluster bounds
+  ---
+  duration_ms: 2.25498
+  type: 'test'
+  ...
+# Subtest: speed FOV smooths to its cap in forward and reverse, with finite bounded shake
+ok 5 - speed FOV smooths to its cap in forward and reverse, with finite bounded shake
+  ---
+  duration_ms: 5.507285
+  type: 'test'
+  ...
+# Subtest: HMI/inspection/free camera and disabled effects retain exact camera geometry
+ok 6 - HMI/inspection/free camera and disabled effects retain exact camera geometry
+  ---
+  duration_ms: 0.777814
+  type: 'test'
+  ...
+# Subtest: overlay schema includes exposure binding 12 and resources use the same schema
+ok 7 - overlay schema includes exposure binding 12 and resources use the same schema
+  ---
+  duration_ms: 0.741661
+  type: 'test'
+  ...
+# Subtest: requesting timestamps for an omitted/empty pass does not reuse stale GPU queries
+ok 8 - requesting timestamps for an omitted/empty pass does not reuse stale GPU queries
+  ---
+  duration_ms: 1.279213
+  type: 'test'
+  ...
+# Subtest: real Jolt WASM bodies fall, settle, sleep, reset and leave no bodies after cleanup
+ok 9 - real Jolt WASM bodies fall, settle, sleep, reset and leave no bodies after cleanup
+  ---
+  duration_ms: 127.734222
+  type: 'test'
+  ...
+# Subtest: Jolt static colliders prevent fast loose-body wall tunnelling and can be rebuilt
+ok 10 - Jolt static colliders prevent fast loose-body wall tunnelling and can be rebuilt
+  ---
+  duration_ms: 6.732765
+  type: 'test'
+  ...
+# Subtest: Jolt loose-body collisions exchange impulses with the custom-tyre chassis proxy
+ok 11 - Jolt loose-body collisions exchange impulses with the custom-tyre chassis proxy
+  ---
+  duration_ms: 32.378493
+  type: 'test'
+  ...
+# Subtest: real cone hulls settle and tyre-support impulses wake Jolt bodies
+ok 12 - real cone hulls settle and tyre-support impulses wake Jolt bodies
+  ---
+  duration_ms: 37.022842
+  type: 'test'
+  ...
+# Subtest: glass authoring converts IOR to normal-incidence reflectance
+ok 13 - glass authoring converts IOR to normal-incidence reflectance
+  ---
+  duration_ms: 0.912909
+  type: 'test'
+  ...
+# Subtest: mirror and metal records are smooth full metals with measured F0
+ok 14 - mirror and metal records are smooth full metals with measured F0
+  ---
+  duration_ms: 1.30623
+  type: 'test'
+  ...
+# Subtest: showcase glass is smooth, clear and transmissive
+ok 15 - showcase glass is smooth, clear and transmissive
+  ---
+  duration_ms: 0.341268
+  type: 'test'
+  ...
+# Subtest: vehicle glass stays opaque in the record
+ok 16 - vehicle glass stays opaque in the record
+  ---
+  duration_ms: 0.181476
+  type: 'test'
+  ...
+# Subtest: sphere facets wind outward with radial smooth normals
+ok 17 - sphere facets wind outward with radial smooth normals
+  ---
+  duration_ms: 6.437196
+  type: 'test'
+  ...
+# Subtest: garden shapes and placements sit north of the start straight
+ok 18 - garden shapes and placements sit north of the start straight
+  ---
+  duration_ms: 1.252895
+  type: 'test'
+  ...
+# Subtest: real BEGA profile retains absolute candela, angular samples and integrated flux
+ok 19 - real BEGA profile retains absolute candela, angular samples and integrated flux
+  ---
+  duration_ms: 37.683789
+  type: 'test'
+  ...
+# Subtest: LM-63 interpolation, candela multiplier, quadrant and bilateral symmetry
+ok 20 - LM-63 interpolation, candela multiplier, quadrant and bilateral symmetry
+  ---
+  duration_ms: 128.481815
+  type: 'test'
+  ...
+# Subtest: malformed or unsupported photometry is rejected without corrupting a loaded profile
+ok 21 - malformed or unsupported photometry is rejected without corrupting a loaded profile
+  ---
+  duration_ms: 32.872559
+  type: 'test'
+  ...
+# Subtest: uniform light table fits WebGPU's 64KiB binding and agrees with WGSL scalar offsets
+ok 22 - uniform light table fits WebGPU's 64KiB binding and agrees with WGSL scalar offsets
+  ---
+  duration_ms: 25.256116
+  type: 'test'
+  ...
+# Subtest: spatial masks retain all 32 lights and conservatively cover sampled contributing points
+ok 23 - spatial masks retain all 32 lights and conservatively cover sampled contributing points
+  ---
+  duration_ms: 28.941417
+  type: 'test'
+  ...
+# Subtest: screen, smoke and encoded bounce fields have disjoint feature bits
+ok 24 - screen, smoke and encoded bounce fields have disjoint feature bits
+  ---
+  duration_ms: 1.37049
+  type: 'test'
+  ...
+# Subtest: Software BVH ReSTIR GI
+    # Subtest: exposes software BVH tracing and the original c7 BVH default in IlluminationHost and InspectorPages
+    ok 1 - exposes software BVH tracing and the original c7 BVH default in IlluminationHost and InspectorPages
+      ---
+      duration_ms: 2.022311
+      type: 'test'
+      ...
+    # Subtest: encodes and decodes octahedral unit normals accurately across all octants
+    ok 2 - encodes and decodes octahedral unit normals accurately across all octants
+      ---
+      duration_ms: 0.484928
+      type: 'test'
+      ...
+    # Subtest: builds Two-Level BVH (TLAS + Binned-SAH BLAS) over all 56 FacetSets and intersects vehicle, cabin, ground, and poles
+    ok 3 - builds Two-Level BVH (TLAS + Binned-SAH BLAS) over all 56 FacetSets and intersects vehicle, cabin, ground, and poles
+      ---
+      duration_ms: 548.418616
+      type: 'test'
+      ...
+    # Subtest: dynamically registers Voronoi fracture fragments into BLAS and TLAS upon prop destruction
+    ok 4 - dynamically registers Voronoi fracture fragments into BLAS and TLAS upon prop destruction
+      ---
+      duration_ms: 414.741059
+      type: 'test'
+      ...
+    # Subtest: contains complete ReSTIR Path Tracer and Multi-Bounce Ray-Traced Reflection stages in WGSL shaders
+    ok 5 - contains complete ReSTIR Path Tracer and Multi-Bounce Ray-Traced Reflection stages in WGSL shaders
+      ---
+      duration_ms: 0.869889
+      type: 'test'
+      ...
+    1..5
+ok 25 - Software BVH ReSTIR GI
+  ---
+  duration_ms: 967.722415
+  type: 'suite'
+  ...
+# Subtest: either brightness control at zero turns the display black; no baked canvas dimming
+ok 26 - either brightness control at zero turns the display black; no baked canvas dimming
+  ---
+  duration_ms: 1.285328
+  type: 'test'
+  ...
+# Subtest: exposure-compensated screen colours survive the final ACES fit without washing out
+ok 27 - exposure-compensated screen colours survive the final ACES fit without washing out
+  ---
+  duration_ms: 1.109302
+  type: 'test'
+  ...
+# Subtest: screen GI history excludes view-dependent direct specular peaks
+ok 28 - screen GI history excludes view-dependent direct specular peaks
+  ---
+  duration_ms: 1.1388
+  type: 'test'
+  ...
+# Subtest: a screen intersection without valid radiance coverage falls through to the world tracer
+ok 29 - a screen intersection without valid radiance coverage falls through to the world tracer
+  ---
+  duration_ms: 0.443051
+  type: 'test'
+  ...
+# Subtest: ConstructTargets chains halved levels down to one texel
+ok 30 - ConstructTargets chains halved levels down to one texel
+  ---
+  duration_ms: 1.993649
+  type: 'test'
+  ...
+# Subtest: ConstructTargets floors odd extents without dropping a pixel
+ok 31 - ConstructTargets floors odd extents without dropping a pixel
+  ---
+  duration_ms: 0.237212
+  type: 'test'
+  ...
+# Subtest: ConstructTraversalGroups binds current, prior, attributes and exitance per parity
+ok 32 - ConstructTraversalGroups binds current, prior, attributes and exitance per parity
+  ---
+  duration_ms: 0.400842
+  type: 'test'
+  ...
+# Subtest: RecordReduction dispatches the transfer plus one reduction per level
+ok 33 - RecordReduction dispatches the transfer plus one reduction per level
+  ---
+  duration_ms: 0.509387
+  type: 'test'
+  ...
+# Subtest: Slate wheel, integrated hexagon and tablet retain the requested poses and sizes
+ok 34 - Slate wheel, integrated hexagon and tablet retain the requested poses and sizes
+  ---
+  duration_ms: 23.478422
+  type: 'test'
+  ...
+# Subtest: HUD size/offset changes cannot move the physical cockpit or seated camera
+ok 35 - HUD size/offset changes cannot move the physical cockpit or seated camera
+  ---
+  duration_ms: 0.854956
+  type: 'test'
+  ...
+# Subtest: touch ray uses the new Slate tablet plane and rejects off-tablet rays
+ok 36 - touch ray uses the new Slate tablet plane and rejects off-tablet rays
+  ---
+  duration_ms: 0.369908
+  type: 'test'
+  ...
+# Subtest: reference tyre source emits patch and arch smoke with rearward momentum, then releases
+ok 37 - reference tyre source emits patch and arch smoke with rearward momentum, then releases
+  ---
+  duration_ms: 1.860034
+  type: 'test'
+  ...
+# Subtest: reference plume fades and retires with no source; disabled clears residency
+ok 38 - reference plume fades and retires with no source; disabled clears residency
+  ---
+  duration_ms: 0.298364
+  type: 'test'
+  ...
+# Subtest: Garage ray picking rejects background and resolves the actual nearest material
+ok 39 - Garage ray picking rejects background and resolves the actual nearest material
+  ---
+  duration_ms: 1.311825
+  type: 'test'
+  ...
+# Subtest: seeded mixture produces mostly fine filings, some streaks and rare chips with distinct properties
+ok 40 - seeded mixture produces mostly fine filings, some streaks and rare chips with distinct properties
+  ---
+  duration_ms: 18.364947
+  type: 'test'
+  ...
+# Subtest: contact pulses vary density, stay bounded, expire and reset safely
+ok 41 - contact pulses vary density, stay bounded, expire and reset safely
+  ---
+  duration_ms: 3.67185
+  type: 'test'
+  ...
+# Subtest: variation slider neutralizes added class properties; varied particles still cool and retire
+ok 42 - variation slider neutralizes added class properties; varied particles still cool and retire
+  ---
+  duration_ms: 43.293616
+  type: 'test'
+  ...
+# Subtest: spark intensity modulation is stable at fixed age and fades before lifetime cutoff
+ok 43 - spark intensity modulation is stable at fixed age and fades before lifetime cutoff
+  ---
+  duration_ms: 0.220967
+  type: 'test'
+  ...
+# Subtest: XPBD uses nonzero accumulated constraint multipliers, converges and enforces road nonpenetration
+ok 44 - XPBD uses nonzero accumulated constraint multipliers, converges and enforces road nonpenetration
+  ---
+  duration_ms: 5.701578
+  type: 'test'
+  ...
+# Subtest: radial response is monotone, pressure-sensitive, finite and returns to the rest volume
+ok 45 - radial response is monotone, pressure-sensitive, finite and returns to the rest volume
+  ---
+  duration_ms: 22.333608
+  type: 'test'
+  ...
+# Subtest: XPBD response participates in chassis equilibrium and matches 30/60/120Hz outer timesteps
+ok 46 - XPBD response participates in chassis equilibrium and matches 30/60/120Hz outer timesteps
+  ---
+  duration_ms: 539.143347
+  type: 'test'
+  ...
+# Subtest: render record uploads the exact XPBD lattice used by the tyre force solve
+ok 47 - render record uploads the exact XPBD lattice used by the tyre force solve
+  ---
+  duration_ms: 55.491463
+  type: 'test'
+  ...
+# Subtest: paired timing capture restores settings and reports CPU/GPU samples separately
+ok 48 - paired timing capture restores settings and reports CPU/GPU samples separately
+  ---
+  duration_ms: 0.929954
+  type: 'test'
+  ...
+# Subtest: gas pressure responds to XPBD volume rather than temperature alone
+ok 49 - gas pressure responds to XPBD volume rather than temperature alone
+  ---
+  duration_ms: 1.87996
+  type: 'test'
+  ...
+# Subtest: chase-camera orbit does not decay back behind the vehicle
+ok 50 - chase-camera orbit does not decay back behind the vehicle
+  ---
+  duration_ms: 1.504468
+  type: 'test'
+  ...
+# Subtest: CST membrane passes a plane-stress constant-strain energy patch and rigid-motion tests
+ok 51 - CST membrane passes a plane-stress constant-strain energy patch and rigid-motion tests
+  ---
+  duration_ms: 2.462866
+  type: 'test'
+  ...
+# Subtest: solid tetrahedra pass constant-strain energy, shear and rigid-motion patches
+ok 52 - solid tetrahedra pass constant-strain energy, shear and rigid-motion patches
+  ---
+  duration_ms: 1.711394
+  type: 'test'
+  ...
+# Subtest: shell topology and assembled elastic energy retain rigid-motion null modes
+ok 53 - shell topology and assembled elastic energy retain rigid-motion null modes
+  ---
+  duration_ms: 51.643974
+  type: 'test'
+  ...
+# Subtest: shell FEM solves contact equilibrium, fixed beads, symmetry, pressure and nonpenetration
+ok 54 - shell FEM solves contact equilibrium, fixed beads, symmetry, pressure and nonpenetration
+  ---
+  duration_ms: 135.502346
+  type: 'test'
+  ...
+# Subtest: shell FEM pressure interpolation avoids nearest-bin force steps
+ok 55 - shell FEM pressure interpolation avoids nearest-bin force steps
+  ---
+  duration_ms: 40.812361
+  type: 'test'
+  ...
+# Subtest: shell FEM participates in chassis equilibrium, shader upload and damage fallback
+ok 56 - shell FEM participates in chassis equilibrium, shader upload and damage fallback
+  ---
+  duration_ms: 228.813481
+  type: 'test'
+  ...
+# Subtest: solid topology and assembled elastic energy retain rigid-motion null modes
+ok 57 - solid topology and assembled elastic energy retain rigid-motion null modes
+  ---
+  duration_ms: 88.112498
+  type: 'test'
+  ...
+# Subtest: solid FEM solves contact equilibrium, fixed beads, symmetry, pressure and nonpenetration
+ok 58 - solid FEM solves contact equilibrium, fixed beads, symmetry, pressure and nonpenetration
+  ---
+  duration_ms: 3000.383405
+  type: 'test'
+  ...
+# Subtest: solid FEM pressure interpolation avoids nearest-bin force steps
+ok 59 - solid FEM pressure interpolation avoids nearest-bin force steps
+  ---
+  duration_ms: 1188.753638
+  type: 'test'
+  ...
+# Subtest: solid FEM participates in chassis equilibrium, shader upload and damage fallback
+ok 60 - solid FEM participates in chassis equilibrium, shader upload and damage fallback
+  ---
+  duration_ms: 156.890335
+  type: 'test'
+  ...
+# Subtest: model A/B comparison runs physics, selects distinct models and restores settings
+ok 61 - model A/B comparison runs physics, selects distinct models and restores settings
+  ---
+  duration_ms: 1.328676
+  type: 'test'
+  ...
+# Subtest: paint and rim records update the shared world material buffer only
+ok 62 - paint and rim records update the shared world material buffer only
+  ---
+  duration_ms: 3.862048
+  type: 'test'
+  ...
+# Subtest: Garage controls apply materials and cycle all inspection modes
+ok 63 - Garage controls apply materials and cycle all inspection modes
+  ---
+  duration_ms: 18.981675
+  type: 'test'
+  ...
+# Subtest: material drags only apply on the matching picked car surface and cancel safely
+ok 64 - material drags only apply on the matching picked car surface and cancel safely
+  ---
+  duration_ms: 0.870592
+  type: 'test'
+  ...
+# Subtest: blue emissive rim and matte finishes can be dragged onto their matching surfaces
+ok 65 - blue emissive rim and matte finishes can be dragged onto their matching surfaces
+  ---
+  duration_ms: 1.324188
+  type: 'test'
+  ...
+# Subtest: rim finish changes affect selected accent faces, never the black rim base or tyre
+ok 66 - rim finish changes affect selected accent faces, never the black rim base or tyre
+  ---
+  duration_ms: 0.403969
+  type: 'test'
+  ...
+# Subtest: swept sparks hit a thin wall, ground, ramp and convex debris without endpoint overlap
+ok 67 - swept sparks hit a thin wall, ground, ramp and convex debris without endpoint overlap
+  ---
+  duration_ms: 3.244343
+  type: 'test'
+  ...
+# Subtest: spark integration bounces, cools monotonically, retires particles and clears GPU draw count
+ok 68 - spark integration bounces, cools monotonically, retires particles and clears GPU draw count
+  ---
+  duration_ms: 2.865684
+  type: 'test'
+  ...
+# Subtest: shredded wheels write rim channels only; transitions reset trails; debris and disabled marks lay nothing
+ok 69 - shredded wheels write rim channels only; transitions reset trails; debris and disabled marks lay nothing
+  ---
+  duration_ms: 1.643665
+  type: 'test'
+  ...
+# Subtest: vehicle record preserves cabin articulation, wheel damage and volumetric deformation; every raster path shares it
+ok 70 - vehicle record preserves cabin articulation, wheel damage and volumetric deformation; every raster path shares it
+  ---
+  duration_ms: 0.822704
+  type: 'test'
+  ...
+# Subtest: countersteer is symmetric, bounded, optional and yields to manual input; reverse/airborne restore manual control
+ok 71 - countersteer is symmetric, bounded, optional and yields to manual input; reverse/airborne restore manual control
+  ---
+  duration_ms: 0.826655
+  type: 'test'
+  ...
+# Subtest: assisted left/right slide recovery stays grounded, finite and symmetric on the flat pad
+ok 72 - assisted left/right slide recovery stays grounded, finite and symmetric on the flat pad
+  ---
+  duration_ms: 550.199723
+  type: 'test'
+  ...
+# Subtest: independent orbit preserves user angles across repeated frames and vehicle translation
+ok 73 - independent orbit preserves user angles across repeated frames and vehicle translation
+  ---
+  duration_ms: 4.21809
+  type: 'test'
+  ...
+# Subtest: orbit permits repeated full yaw rotations while zoom and pitch remain safe
+ok 74 - orbit permits repeated full yaw rotations while zoom and pitch remain safe
+  ---
+  duration_ms: 0.284945
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation encodes physical contact angle, deflection, and pressure
+ok 75 - volumetric tyre deformation encodes physical contact angle, deflection, and pressure
+  ---
+  duration_ms: 84.080234
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation responds to inflation pressure and deflation/flat tyres
+ok 76 - volumetric tyre deformation responds to inflation pressure and deflation/flat tyres
+  ---
+  duration_ms: 0.316397
+  type: 'test'
+  ...
+# Subtest: volumetric tyre deformation handles cornering lateral distortion and steer rotation
+ok 77 - volumetric tyre deformation handles cornering lateral distortion and steer rotation
+  ---
+  duration_ms: 0.233056
+  type: 'test'
+  ...
+# Subtest: independent wheel BLAS refits deform once, tightly enclose all triangles and skip unchanged uploads
+ok 78 - independent wheel BLAS refits deform once, tightly enclose all triangles and skip unchanged uploads
+  ---
+  duration_ms: 133.30285
+  type: 'test'
+  ...
+# Subtest: ray shaders consume predeformed triangles without per-candidate deformation or padded node bounds
+ok 79 - ray shaders consume predeformed triangles without per-candidate deformation or padded node bounds
+  ---
+  duration_ms: 0.842069
+  type: 'test'
+  ...
+# Subtest: cached rest projections agree with uncached deformation for all four tyre models
+ok 80 - cached rest projections agree with uncached deformation for all four tyre models
+  ---
+  duration_ms: 1593.0954
+  type: 'test'
+  ...
+# Subtest: shredding keeps the complete metal rim on both sides, not just its small hub
+ok 81 - shredding keeps the complete metal rim on both sides, not just its small hub
+  ---
+  duration_ms: 40.837311
+  type: 'test'
+  ...
+# Subtest: tablet scale matches touch edges, leaves cluster/driver fixed, and is encoded for every render path
+ok 82 - tablet scale matches touch edges, leaves cluster/driver fixed, and is encoded for every render path
+  ---
+  duration_ms: 5.108735
+  type: 'test'
+  ...
+# Subtest: HMI focus faces the screen and fits it in portrait and landscape viewports
+ok 83 - HMI focus faces the screen and fits it in portrait and landscape viewports
+  ---
+  duration_ms: 0.445515
+  type: 'test'
+  ...
+# Subtest: sparks have bounded subpixel/thin footprints instead of unbounded near-camera dots
+ok 84 - sparks have bounded subpixel/thin footprints instead of unbounded near-camera dots
+  ---
+  duration_ms: 0.879788
+  type: 'test'
+  ...
+1..84
+# tests 88
+# suites 1
+# pass 88
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 10982.156622

@@ -1,0 +1,70 @@
+{
+    "Node": "v22.22.3",
+    "Platform": "linux",
+    "Backend": "Dawn null",
+    "Viewport": "320x180",
+    "Sources": [
+        {
+            "Name": "d984ba1b-slate",
+            "Repository": "SultanAladin/Slate",
+            "Folder": "Exhibits/IlluminationHost",
+            "Revision": "c552cb26bf2be710baaefe64b830fe6db28f7ae7",
+            "Files": 155,
+            "UnitTests": 46,
+            "Stability": "passed",
+            "NullFrames": 12,
+            "TraceSelections": [
+                "screen"
+            ]
+        },
+        {
+            "Name": "b55d93c0-slate",
+            "Repository": "SultanAladin/Slate",
+            "Folder": "Exhibits/VehicleProvingGrounds",
+            "Revision": "8a7004983b10c079564becb932ae9b444716b9c4",
+            "Files": 157,
+            "UnitTests": 64,
+            "Stability": "passed",
+            "NullFrames": 12,
+            "TraceSelections": [
+                "screen"
+            ]
+        },
+        {
+            "Name": "c6cba543-slate",
+            "Repository": "SultanAladin/Slate",
+            "Folder": "Exhibits/IlluminationHost",
+            "Revision": "dd045df64ce230b39069a8ded93535917a1a69df",
+            "Files": 67,
+            "UnitTests": null,
+            "Stability": "not bundled",
+            "NullFrames": 12,
+            "TraceSelections": []
+        },
+        {
+            "Name": "85b411ac-frontier",
+            "Repository": "streamlinkinbox/Frontier",
+            "Folder": "Experimental/VehicleHmiPrototype",
+            "Revision": "dfc92a02930d5c94a8e72ddc293efe42e2cc64a8",
+            "Files": 145,
+            "UnitTests": 42,
+            "Stability": "passed",
+            "NullFrames": 12,
+            "TraceSelections": []
+        },
+        {
+            "Name": "21530081-frontier",
+            "Repository": "c7egoist/Frontier",
+            "Folder": "Experimental/VehicleHmiPrototype",
+            "Revision": "21c553b620c1aca3ae3a794ee369b4edaa337361",
+            "Files": 148,
+            "UnitTests": 47,
+            "Stability": "passed",
+            "NullFrames": 12,
+            "TraceSelections": [
+                "rtx",
+                "gtx"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,33 @@
+
+> validate:browser
+> node BrowserEnvironment.mjs
+
+{
+  "Browser": "153.0.8010.0",
+  "Adapter": "google · swiftshader",
+  "States": [
+    {
+      "Frame": 4,
+      "Screen": false,
+      "BVH": false,
+      "Xpbd": false,
+      "Photometry": "50975.6K3 (Preliminary)",
+      "Errors": []
+    },
+    {
+      "Frame": 6,
+      "Screen": true,
+      "BVH": false,
+      "Xpbd": true,
+      "Photometry": "50975.6K3 (Preliminary)",
+      "Errors": []
+    }
+  ],
+  "Benchmarks": [],
+  "Errors": [],
+  "Viewport": [
+    1280,
+    720
+  ],
+  "Note": "SwiftShader software GPU, SDF continuation with screen traces. BVH mode validated separately with the dedicated Dawn fixture. Short fixed-view paired timings per toggle; no universal speed claim."
+}

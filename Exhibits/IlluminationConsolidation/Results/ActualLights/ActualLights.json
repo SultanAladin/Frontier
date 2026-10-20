@@ -1,0 +1,734 @@
+{
+  "State": {
+    "Lights": [
+      {
+        "Type": 6,
+        "Position": [
+          -45,
+          9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          -15,
+          9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          15,
+          9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          45,
+          9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          -30,
+          -9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          4.286263797015736e-17,
+          -9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          30,
+          -9.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          -47.3,
+          30,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          -12.7,
+          44,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          -55.3,
+          -24,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          20,
+          -37.3,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          8.7,
+          30,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          84.3,
+          -36,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          84.3,
+          8,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          84.3,
+          44,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          115.7,
+          -36,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          115.7,
+          8,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          115.7,
+          44,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          144.3,
+          -24,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 6,
+        "Position": [
+          144.3,
+          24,
+          10.8
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.88,
+          0.65
+        ],
+        "Intensity": 1,
+        "Reach": 32,
+        "Params": [
+          0.7,
+          0.2,
+          1,
+          1
+        ]
+      },
+      {
+        "Type": 2,
+        "Position": [
+          -37.80020052111342,
+          0.6500001391002532,
+          0.7110304710708697
+        ],
+        "Direction": [
+          1,
+          -1.2335831023335686e-8,
+          0.00010619173554005101
+        ],
+        "Colour": [
+          0.92,
+          0.96,
+          1
+        ],
+        "Intensity": 35,
+        "Reach": 60,
+        "Params": [
+          0.9,
+          0.6,
+          0,
+          1
+        ]
+      },
+      {
+        "Type": 2,
+        "Position": [
+          -37.800200537123764,
+          -0.6499998608997468,
+          0.7110302240654456
+        ],
+        "Direction": [
+          1,
+          -1.2335831023335686e-8,
+          0.00010619173554005101
+        ],
+        "Colour": [
+          0.92,
+          0.96,
+          1
+        ],
+        "Intensity": 35,
+        "Reach": 60,
+        "Params": [
+          0.9,
+          0.6,
+          0,
+          1
+        ]
+      },
+      {
+        "Type": 0,
+        "Position": [
+          -37.000279611671004,
+          3.0000043721703906,
+          3.5197403454958476
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.38,
+          0.12
+        ],
+        "Intensity": 120,
+        "Reach": 12,
+        "Params": [
+          0.9,
+          0.55,
+          0,
+          1
+        ]
+      },
+      {
+        "Type": 0,
+        "Position": [
+          -37.00027963004365,
+          -2.9999956278296094,
+          3.5197453784194295
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          0.25,
+          0.5,
+          1
+        ],
+        "Intensity": 120,
+        "Reach": 12,
+        "Params": [
+          0.9,
+          0.55,
+          0,
+          1
+        ]
+      },
+      {
+        "Type": 5,
+        "Position": [
+          -32.000279611671004,
+          3.0000043572347757,
+          3.5201873067717315
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          1,
+          0.38,
+          0.12
+        ],
+        "Intensity": 120,
+        "Reach": 12,
+        "Params": [
+          0.9,
+          0.55,
+          0,
+          1
+        ]
+      },
+      {
+        "Type": 5,
+        "Position": [
+          -32.00027963004365,
+          -2.9999956427652243,
+          3.5201923396953134
+        ],
+        "Direction": [
+          0,
+          0,
+          -1
+        ],
+        "Colour": [
+          0.25,
+          0.5,
+          1
+        ],
+        "Intensity": 120,
+        "Reach": 12,
+        "Params": [
+          0.9,
+          0.55,
+          0,
+          1
+        ]
+      }
+    ],
+    "Clustered": true,
+    "Emission": 0,
+    "Demo": true,
+    "Errors": []
+  },
+  "Errors": [],
+  "Console": [
+    "info: [bring-up] 0.30 s · Negotiating the WebGPU device",
+    "info: [bring-up] 0.31 s · Retrieving shaders and the ControlVehicle archives",
+    "info: [bring-up] 6.41 s · Transferring distance volume: ControlVehicle body",
+    "info: [bring-up] 7.95 s · Transferring distance volume: ControlVehicle wheel (left)",
+    "info: [bring-up] 9.45 s · Transferring distance volume: ControlVehicle wheel (right)",
+    "info: [bring-up] 9.63 s · Transferring distance volume: Jersey",
+    "info: [bring-up] 9.76 s · Transferring distance volume: Kerb",
+    "info: [bring-up] 10.02 s · Transferring distance volume: Ramp",
+    "info: [bring-up] 10.08 s · Transferring distance volume: HangarAccent",
+    "info: [bring-up] 10.14 s · Transferring distance volume: HangarPanel",
+    "info: [bring-up] 10.29 s · Transferring distance volume: HangarRoof",
+    "info: [bring-up] 10.46 s · Transferring distance volume: LampStrip",
+    "info: [bring-up] 10.57 s · Transferring distance volume: Cabinet",
+    "info: [bring-up] 10.66 s · Transferring distance volume: TyreStack",
+    "info: [bring-up] 10.78 s · Transferring distance volume: TunnelWall",
+    "info: [bring-up] 11.07 s · Transferring distance volume: TunnelRoof",
+    "info: [bring-up] 11.16 s · Transferring distance volume: TunnelLamp",
+    "info: [bring-up] 11.30 s · Transferring distance volume: Tower",
+    "info: [bring-up] 11.68 s · Transferring distance volume: TowerCabin",
+    "info: [bring-up] 11.97 s · Transferring distance volume: TowerRoof",
+    "info: [bring-up] 12.02 s · Transferring distance volume: TrafficHead",
+    "info: [bring-up] 12.11 s · Transferring distance volume: PoleHead",
+    "info: [bring-up] 13.67 s · Transferring distance volume: GardenAluminium",
+    "info: [bring-up] 15.25 s · Transferring distance volume: GardenGold",
+    "info: [bring-up] 16.86 s · Transferring distance volume: GardenGlass",
+    "info: [bring-up] 16.96 s · Transferring distance volume: GardenMirror",
+    "info: [bring-up] 17.30 s · Transferring distance volume: Cone",
+    "info: [bring-up] 17.45 s · Transferring distance volume: Wood box",
+    "info: [bring-up] 17.55 s · Transferring distance volume: Glass box",
+    "info: [bring-up] 17.74 s · Transferring distance volume: Concrete prism",
+    "info: [bring-up] 17.84 s · Transferring distance volume: Tempered glass box",
+    "info: [bring-up] 17.97 s · Transferring distance volume: ABS plastic box",
+    "info: [bring-up] 18.07 s · Transferring distance volume: Stone box",
+    "info: [bring-up] 18.18 s · Transferring distance volume: Concrete box",
+    "info: [bring-up] 18.35 s · Transferring distance volume: Stress crate",
+    "info: [bring-up] 18.35 s · Allocating surface cards",
+    "info: [bring-up] 18.37 s · Constructing TLAS + Binned-SAH BLAS ray-tracing hierarchy",
+    "info: [bring-up] 18.74 s · Building the scene distance field cascades",
+    "info: [bring-up] 19.77 s · Baking fracture patterns",
+    "info: [bring-up] 19.98 s · Compiling lighting programs",
+    "info: [bring-up] 21.32 s · Compiling surface and resampling programs",
+    "info: [bring-up] 41.71 s · Compiling the cabin, mirrors and sparks",
+    "info: [bring-up] 42.04 s · Compiling drift smoke programs",
+    "info: [bring-up] 42.87 s · Capturing surface cards",
+    "info: [bring-up] 44.13 s · Ready"
+  ]
+}
