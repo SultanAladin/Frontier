@@ -153,3 +153,9 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - CI run 39483329514: Windows + Publish jobs success; Release unsigned preview at frontier-windows-39483329514.
 - Linux host verification on ba9b105: full ctest 21/21 green; VectorSelectionValidation rotation/resize 1431/1431 pass (CPU).
 - Confirmed open shader gap: PreviewPbrSurface samples albedo only; height/normal have no bindings (next round).
+
+## Windows preview round 2 (branch arena/db2f9953-frontier, commits ba9b105..2fd6ea4)
+- ba9b105: settle-gated Pattern Float32 bridge (drag perf), preview clip rects, dark-slate default stroke.
+- 6b13015: parked material drafts across selection, full-bleed cover-fit preview + title scrim, exposure card, auto-size layer cards.
+- 2fd6ea4: draped cloth preview shape, six-seamless-preset Pattern gallery, redesigned close dialogs.
+- Linux host verification: full ctest 22/22 green (incl. 638 pattern-preset checks, cloth fold assertions).
