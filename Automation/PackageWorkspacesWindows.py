@@ -39,6 +39,7 @@ def VerifyDistributionAuthorization(Security, UnsignedPreviewEnabled=False):
 def Main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--build', type=Path, required=True)
+    Parser.add_argument('--configuration', choices=('Debug', 'Release'), default='Release')
     Parser.add_argument('--output', type=Path, required=True)
     Parser.add_argument('--security-report', type=Path, required=True)
     Parser.add_argument('--allow-unsigned-preview', action='store_true')
@@ -58,7 +59,7 @@ def Main():
     with tempfile.TemporaryDirectory(dir=Scratch, prefix='workspace-delivery-') as Temporary:
         Installation = Path(Temporary)
         for Name in ('Frontier', 'TextureWorkspace'):
-            Executable = Build / 'Release' / (Name + '.exe')
+            Executable = Build / Arguments.configuration / (Name + '.exe')
             Payload = Executable.read_bytes()
             Offset = struct.unpack_from('<I', Payload, 0x3c)[0]
             if Payload[:2] != b'MZ' or Payload[Offset:Offset + 4] != b'PE\0\0' or \
@@ -107,7 +108,10 @@ def Main():
         Metadata = {
             'format': 1, 'target': 'Windows x64', 'toolchain': 'GitHub Actions windows-2022 / MSVC / static CRT',
             'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=RepositoryRoot, text=True).strip(),
-            'scopes': {'Frontier': ['Project Browser'], 'TextureWorkspace': ['Material Library', 'Preview', 'Inspector']},
+            'configuration': Arguments.configuration,
+            'debug_pattern_gpu_logging': Arguments.configuration == 'Debug',
+            'scopes': {'Frontier': ['Project Browser'], 'TextureWorkspace': ['Material Library', 'Preview', 'Inspector', 'Experimental Pattern preview']},
+            'pattern_material_application': 'preview only; persistent/scene-level application disabled',
             'windows_interactive_gpu_verified': False,
             'distribution_checks': Security,
             'shader_compilation': Compilation,

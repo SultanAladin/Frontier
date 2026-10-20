@@ -29,14 +29,30 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <string_view>
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     STANDALONE APPLICATION
 //------------------------------------------------------------------------------------------------------------------------
 
+namespace
+{
+#ifdef _DEBUG
+void AppendPatternPreviewDebug(std::string_view Description)
+{
+    Frontier::DiagnosticJournal::Append("PatternPreviewDebug", Description);
+}
+#else
+void AppendPatternPreviewDebug(std::string_view) noexcept {}
+#endif
+}
+
 int RunTextureWorkspace()
 {
-    Frontier::DiagnosticJournal::Append("Startup", "Texture Workspace: Material Library / Preview / Inspector only");
+    Frontier::DiagnosticJournal::Append("Startup", "Texture Workspace: Material Library / Preview / Inspector / experimental Pattern preview");
+#ifdef _DEBUG
+    AppendPatternPreviewDebug("Debug-only Pattern GPU tracing active; log=%LOCALAPPDATA%/Frontier/Logs/TextureWorkspace-*.log");
+#endif
     std::filesystem::path Directory;
     std::filesystem::path ShaderDirectory = "EngineContent/ShaderArchives/Surface";
     int ArgumentCount = 0;
@@ -142,8 +158,16 @@ int RunTextureWorkspace()
             if (!Input.read(Source.data(), Bytes)) return std::nullopt;
             return Source;
         };
-        Pattern->ActivateMaterial = [&]() { PatternActive = false; };
-        Library->ActivatePattern = [&]() { PatternActive = true; };
+        Pattern->ActivateMaterial = [&]()
+        {
+            PatternActive = false;
+            AppendPatternPreviewDebug("Pattern workspace deactivated; Material Library preview selected.");
+        };
+        Library->ActivatePattern = [&]()
+        {
+            PatternActive = true;
+            AppendPatternPreviewDebug("Pattern workspace activated; Float32 authoring-map generation enabled.");
+        };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -194,6 +218,7 @@ int RunTextureWorkspace()
         Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
         MaterialBridge = std::make_unique<Frontier::VectorSurfaceMaterialBridge>();
         MaterialBridge->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSurfaceCompute.spv", 512, 512);
+        AppendPatternPreviewDebug("Vulkan material bridge initialized; authoring_extent=512x512; channels=Colour,Normal,Roughness,Metalness,Occlusion; shader=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory / "VectorSurfaceCompute.spv"));
         AtlasDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryAtlasView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         PreviewDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryPreviewView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
@@ -218,10 +243,12 @@ int RunTextureWorkspace()
             CoverageRendering->ConstructCommands(Commands, Completed, Serial);
             if (PatternBridgeSubmission && PatternBridgeSubmission <= Completed)
             {
+                AppendPatternPreviewDebug("GPU readback retired; submission=" + std::to_string(PatternBridgeSubmission) + "; completed=" + std::to_string(Completed));
                 auto ReplacementMaps = MaterialBridge->RetrieveAuthoringMaps(Completed);
                 if (Pattern->QueryDocument() == SubmittedPatternDocument)
                 {
                     PatternAuthoringMaps = std::move(ReplacementMaps);
+                    AppendPatternPreviewDebug("Float32 authoring maps accepted; extent=512x512; channel_count=5; applying to selected-material preview.");
                     if (const auto *Applied = Library->QueryLibrary().QueryApplied())
                     {
                         auto PreviewMaterial = *Applied;
@@ -230,22 +257,29 @@ int RunTextureWorkspace()
                         RenderingRevision = Library->QueryLibrary().QueryRevision();
                     }
                 }
-                else PatternAuthoringMaps.reset();
+                else
+                {
+                    PatternAuthoringMaps.reset();
+                    AppendPatternPreviewDebug("Discarded retired Float32 maps because the authored Pattern changed while GPU work was in flight.");
+                }
                 PatternBridgeSubmission = 0;
             }
             if (PatternActive && !PatternBridgeSubmission && MaterialBridge->ConfigureDocument(Pattern->QueryDocument(), Completed))
             {
                 SubmittedPatternDocument = Pattern->QueryDocument();
+                AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                 PatternAuthoringMaps.reset();
                 if (const auto *Applied = Library->QueryLibrary().QueryApplied())
                 {
                     Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
                     RenderingRevision = Library->QueryLibrary().QueryRevision();
+                    AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
                 }
                 if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
                 {
                     PatternBridgeSubmission = Serial;
                     PatternBridgeRecorded = true;
+                    AppendPatternPreviewDebug("GPU Float32 map generation commands recorded; submission=" + std::to_string(Serial));
                 }
             }
             Rendering->ConstructCommands(Commands, Completed, Serial);
@@ -255,6 +289,7 @@ int RunTextureWorkspace()
             if (PatternBridgeRecorded)
             {
                 MaterialBridge->ConfirmSubmission();
+                AppendPatternPreviewDebug("GPU Float32 map generation submission confirmed; submission=" + std::to_string(PatternBridgeSubmission));
                 PatternBridgeRecorded = false;
             }
             CoverageRendering->ConfirmSubmission();

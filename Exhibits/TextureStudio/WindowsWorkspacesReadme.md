@@ -6,7 +6,7 @@ are required. Shader binaries are included; no compiler or Vulkan SDK installati
 | Executable | Scope |
 |---|---|
 | `Frontier.exe` | Project Browser only. Create/open/select validates projects but deliberately stays in the browser. |
-| `TextureWorkspace.exe` | Material Library, Preview and Inspector only. No painting/pattern/stamp/baking tabs. |
+| `TextureWorkspace.exe` | Material Library, Preview, Inspector and an experimental native Pattern workspace. Stamp and baking remain deferred. |
 
 Launch `Frontier.exe` or `TextureWorkspace.exe` directly. No command or PowerShell launch scripts are bundled.
 Both resolve bundled engine content relative to their executable. Materials are copied to
@@ -25,6 +25,9 @@ Existing personal materials are preserved, not overwritten by an updated test ar
 - Switch Shader Ball, Sphere, Plane and Cube. Switch Studio Softbox, Warm Courtyard, Cool Rim and Overcast.
 - Change Exposure. Only the large preview should change; catalogue thumbnails keep their fixed lighting/geometry.
 - Edit a supported coefficient, Apply, Revert and Save. Invalid source must preserve the last valid preview.
+- In the experimental Pattern workspace, author a simple shape, inspect its Colour/Normal/Height-derived preview,
+  then change the document and verify the Float32 maps update. This is preview-only: do not treat it as a saved
+  material or scene assignment. The independent material-application validation gate is still open.
 - Restart, resize, collapse panels and test a second monitor only if that preference is explicitly enabled.
 
 ## Diagnostic collection
@@ -32,7 +35,10 @@ Existing personal materials are preserved, not overwritten by an updated test ar
 Logs: `%LOCALAPPDATA%/Frontier/Logs/Frontier-*.log` and `TextureWorkspace-*.log`.
 If LOCALAPPDATA is unavailable, look in `%TEMP%/Frontier/Logs`. Files are flushed after events, capped at 8 MiB
 per run, and retain the latest eight runs per application. Startup paths, font/icon recovery, Vulkan device/driver,
-shader byte counts, material operations, preview settings, GPU submissions and severe failures are recorded.
+shader byte counts, material operations, preview settings, GPU submissions and severe failures are recorded. In a
+Debug preview, Pattern Float32 bridge events are tagged `PatternPreviewDebug`: bridge setup, document counts,
+recorded/confirmed submission serials, completed readback, and whether maps were accepted or discarded as stale.
+The trace contains no Pattern source. Release builds omit these per-event debug traces.
 
 Copy the newest log files from that folder using File Explorer. Send them with `Package.json`, your GPU/Windows
 version, reproduction steps and a screenshot of any error.

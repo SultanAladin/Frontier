@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      debug_preview:
+        description: Build a Debug configuration with Pattern GPU trace logging
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [arena/73e163a3-frontier]
 permissions:
@@ -24,16 +29,23 @@ jobs:
     outputs:
       distribution_ready: ${{ steps.distribution.outputs.distribution_ready }}
       unsigned_preview_authorized: ${{ steps.distribution.outputs.unsigned_preview_authorized }}
+      build_configuration: ${{ steps.configuration.outputs.build_configuration }}
     runs-on: windows-2022
     timeout-minutes: 40
     env:
       PYTHONUTF8: 1
       ALLOW_UNSIGNED_PREVIEW: ${{ inputs.allow_unsigned_preview == true || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-unsigned-preview]')) }}
+      BUILD_CONFIGURATION: ${{ inputs.debug_preview == true && 'Debug' || 'Release' }}
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+      - name: Record build configuration
+        id: configuration
+        run: |
+          "build_configuration=$env:BUILD_CONFIGURATION" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+          Write-Output "Windows configuration: $env:BUILD_CONFIGURATION"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -66,11 +78,11 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Compile Frontier, Texture Workspace, shader entries and acceptance tests
         run: |
-          cmake --build Build/Windows --config Release --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders VectorAuthoringImportValidation MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
+          cmake --build Build/Windows --config $env:BUILD_CONFIGURATION --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders VectorAuthoringImportValidation MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Execute Windows CPU and native UI acceptance tests
         run: |
-          ctest --test-dir Build/Windows -C Release --output-on-failure -R '^(WebPatternNativeImportFixture|WebPatternNativeImportValidation|MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
+          ctest --test-dir Build/Windows -C $env:BUILD_CONFIGURATION --output-on-failure -R '^(WebPatternNativeImportFixture|WebPatternNativeImportValidation|MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify fail-closed distribution checks
         run: |
@@ -79,7 +91,7 @@ jobs:
       - name: Verify publisher signatures and antivirus scan before distribution
         id: distribution
         run: |
-          ./Automation/VerifyWindowsDistribution.ps1 -BinaryDirectory Build/Windows/Release -ReportPath Build/Diagnostics/DistributionChecks.json -AllowUnsignedPreview:([Convert]::ToBoolean($env:ALLOW_UNSIGNED_PREVIEW))
+          ./Automation/VerifyWindowsDistribution.ps1 -BinaryDirectory "Build/Windows/$env:BUILD_CONFIGURATION" -ReportPath Build/Diagnostics/DistributionChecks.json -AllowUnsignedPreview:([Convert]::ToBoolean($env:ALLOW_UNSIGNED_PREVIEW))
       - name: Package and verify executable, content and shader placement
         if: steps.distribution.outputs.distribution_ready == 'true'
         run: |
@@ -89,7 +101,7 @@ jobs:
             python -c "import sys; assert sys.argv[1:] == ['--allow-unsigned-preview']" @UnsignedArguments
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
-          python Automation/PackageWorkspacesWindows.py @UnsignedArguments --build Build/Windows --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
+          python Automation/PackageWorkspacesWindows.py @UnsignedArguments --build Build/Windows --configuration $env:BUILD_CONFIGURATION --security-report Build/Diagnostics/DistributionChecks.json --output Binaries/Frontier-TextureWorkspace-Windows-x64.zip 2>&1 | Tee-Object Build/Diagnostics/Package.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Upload verified Windows applications
         if: steps.distribution.outputs.distribution_ready == 'true'
@@ -130,6 +142,7 @@ jobs:
     needs: Windows
     if: >-
       needs.Windows.outputs.distribution_ready == 'true' &&
+      needs.Windows.outputs.build_configuration != 'Debug' &&
       ((github.event_name == 'workflow_dispatch' && inputs.publish_release) ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-windows-unsigned-preview]')))
     runs-on: windows-2022
