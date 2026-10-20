@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 // 🧩 Port the approved Pattern layout to native controls; retain actual GPU canvas images and atomic source edits across dock presentations.
 
+#include "Engine/ContentInterchange/PatternLibraryPresets.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "PatternWorkspacePanel.h"
 #include "VectorMaskControls.h"
@@ -269,6 +270,18 @@ void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Ca
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
 }
 
+void PatternWorkspacePanel::ApplyLibraryPreset(size_t Index)
+{
+    try
+    {
+        auto Document = ConstructPatternLibraryPreset(Index);
+        if (Document.Layers.empty()) throw std::runtime_error("Pattern preset has no motifs.");
+        Finalize(std::move(Document), {});
+        SearchText[0] = 0; Filter = 0;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
 bool PatternWorkspacePanel::Save()
 {
     if (!SaveSource) return false;
@@ -392,11 +405,16 @@ void PatternWorkspacePanel::ConstructLibrary()
     CapturePanel("Library");
     if (ImGui::GetContentRegionAvail().y < 35 * Scale) return;
     ImGui::SetCursorPosX(16 * Scale);
-    ImGui::TextDisabled("START WITH A STRUCTURE");
+    ImGui::TextDisabled("SEAMLESS PRESETS");
     ImGui::SetCursorPosX(16 * Scale);
-    ImGui::TextWrapped("Native source presets are being ported. Adding shapes never replaces existing vector.");
-    for (uint32_t Category = 0; Category < 6; ++Category)
-        if (Controls.Button(ShapeCaptions[Category], ImGui::GetContentRegionAvail().x - 16 * Scale)) ConstructPrimitive(Category, ShapeCaptions[Category]);
+    ImGui::TextWrapped("Gallery starting points. Loading a preset replaces the tile; Undo restores. Add single shapes from the Layers + menu.");
+    for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
+    {
+        const char *Caption = QueryPatternLibraryPresetName(Index);
+        if (Controls.Button(Caption, ImGui::GetContentRegionAvail().x - 16 * Scale)) ApplyLibraryPreset(Index);
+        const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+        ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+    }
 }
 
 void PatternWorkspacePanel::ConstructLayers()
@@ -1797,14 +1815,26 @@ void PatternWorkspacePanel::ConstructInspector()
 void PatternWorkspacePanel::ConstructCloseDialogue()
 {
     if (CloseRequested && !ImGui::IsPopupOpen("Unsaved pattern")) ImGui::OpenPopup("Unsaved pattern");
-    if (ImGui::BeginPopupModal("Unsaved pattern", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
+    if (ImGui::BeginPopupModal("Unsaved pattern", nullptr, ImGuiWindowFlags_NoResize))
     {
-        ImGui::TextUnformatted("Save changes to this pattern?");
-        if (Controls.Button("Save and close") && Save()) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
-        ImGui::SameLine();
-        if (Controls.Button("Discard changes")) { History.Reset(SavedDocument); CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
-        ImGui::SameLine();
-        if (Controls.Button("Cancel")) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (CancelClose) CancelClose(); }
+        const auto Dialogue = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(Dialogue.x, Dialogue.y + 4 * Scale), "UNSAVED PATTERN", 7 * Scale, 0x8b8d79);
+        Caption(ImVec2(Dialogue.x, Dialogue.y + 26 * Scale), "Save this pattern?", 17 * Scale, 0xdcdccd, LightTypeface);
+        ImGui::Dummy(ImVec2(1, 58 * Scale));
+        const auto &Name = QueryDocument().Name;
+        ImGui::TextWrapped("\u201c%s\u201d has unsaved changes. Save keeps them; Discard restores the last save.",
+            Name.empty() ? "Untitled pattern" : Name.c_str());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 3 * ButtonWidth - 2 * ButtonGap - 16 * Scale);
+        if (Controls.Button("Cancel", ButtonWidth)) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (CancelClose) CancelClose(); }
+        ImGui::SameLine(0, ButtonGap);
+        if (Controls.Button("Discard", ButtonWidth)) { History.Reset(SavedDocument); CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
+        ImGui::SameLine(0, ButtonGap);
+        if (Controls.Button("Save and close", ButtonWidth, true) && Save()) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
         ImGui::EndPopup();
     }
 }

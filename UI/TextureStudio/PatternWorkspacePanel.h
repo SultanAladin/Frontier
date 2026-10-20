@@ -106,6 +106,7 @@ private:
     void ConstructInspector();
     void ConstructCloseDialogue();
     void ConstructPrimitive(uint32_t Category, const char *Caption);
+    void ApplyLibraryPreset(size_t Index);
     void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens);
     void EvaluateEdit(const std::function<void(VectorAuthoringDocument &)> &Edit);
     void RestoreHistory(bool Redo);

@@ -417,10 +417,10 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 155 * Scale));
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
-    const char *ShapeOptions[]{"Shader ball", "Sphere", "Plane", "Cube"};
+    const char *ShapeOptions[]{"Shader ball", "Sphere", "Plane", "Cube", "Draped cloth"};
     int Shape = int(Inspection.Shape);
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
-    if (ConstructMaterialSelection("Preview shape", ShapeOptions[Shape], ShapeOptions, 4, Shape, Scale))
+    if (ConstructMaterialSelection("Preview shape", ShapeOptions[Shape], ShapeOptions, 5, Shape, Scale))
         Inspection.Shape = MaterialPreviewShape(Shape);
     ConfigureExtent(3);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change preview object; catalogue thumbnails remain unchanged.");
@@ -1152,18 +1152,35 @@ void MaterialLibraryPanel::ConstructInterface()
     }
     ConstructCreation();
     if (ClosingRequested && !ImGui::IsPopupOpen("Unsaved material")) ImGui::OpenPopup("Unsaved material");
-    if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
+    if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_NoResize))
     {
-        ImGui::TextUnformatted("Save your material before closing TextureWorkspace?");
+        const auto Dialogue = ImGui::GetCursorScreenPos();
+        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "UNSAVED MATERIAL");
+        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Save your changes?",
+            static_cast<ImFont *>(HeadingTypeface));
+        ImGui::Dummy(ImVec2(1, 58 * Scale));
+        const auto *Unsaved = QuerySelectedMaterial(Library);
+        ImGui::TextWrapped("\u201c%s\u201d has unsaved edits. Save keeps them; Discard loses them.",
+            Unsaved ? Unsaved->Name.c_str() : "This material");
         if (Library.QueryParkedEdits()) ImGui::TextWrapped("%u other material(s) hold parked edits; only the current material is saved here.",
             (unsigned)Library.QueryParkedCount());
-        if (ImGui::Button("Save and close") && Library.SaveMaterial()) CloseAuthorized = true;
-        ImGui::SameLine();
-        if (ImGui::Button("Discard and close")) CloseAuthorized = true;
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel closing")) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
-        if (CloseAuthorized) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
         if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 3 * ButtonWidth - 2 * ButtonGap - 16 * Scale);
+        if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine(0, ButtonGap);
+        if (ImGui::Button("Discard", ImVec2(ButtonWidth, 32 * Scale))) CloseAuthorized = true;
+        ImGui::SameLine(0, ButtonGap);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
+        if (ImGui::Button("Save and close", ImVec2(ButtonWidth, 32 * Scale)) && Library.SaveMaterial()) CloseAuthorized = true;
+        ImGui::PopStyleColor(3);
+        if (CloseAuthorized) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();
     }
     if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());

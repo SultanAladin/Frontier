@@ -26,7 +26,7 @@ int main(int Count, char **Arguments)
         Confirm(Count == 2, "Expected JSON report destination.");
         MaterialPreviewConfiguration Inspection;
         Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Default inspection configuration rejected.");
-        for (uint32_t Shape = 0; Shape <= 3; ++Shape)
+        for (uint32_t Shape = 0; Shape <= 4; ++Shape)
             for (uint32_t Environment = 0; Environment <= 3; ++Environment)
             {
                 Inspection.Shape = MaterialPreviewShape(Shape);
@@ -47,7 +47,7 @@ int main(int Count, char **Arguments)
         Inspection.Environment = MaterialPreviewEnvironment(4);
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown environment accepted.");
         Inspection = {};
-        Inspection.Shape = MaterialPreviewShape(4);
+        Inspection.Shape = MaterialPreviewShape(5);
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown shape accepted.");
         Inspection = {};
         Inspection.Exposure = 4.01f;
@@ -77,17 +77,27 @@ int main(int Count, char **Arguments)
         std::string Diagnostic;
         const auto Geometry = ConstructMaterialInspectionGeometry();
         Confirm(ValidateSurfaceGeometry(Geometry, Diagnostic), Diagnostic.c_str());
-        std::array<size_t,4> Populations{};
+        std::array<size_t,5> Populations{};
         size_t NegativeCubeTangents = 0;
+        float ClothLowZ = 1, ClothHighZ = -1, ClothLowNormalZ = 1, ClothHighNormalZ = -1;
         for (const auto &Corner : Geometry.Corners)
         {
             const int Region = int(std::round(Corner.Position[0] / 16.f));
-            Confirm(Region >= 0 && Region <= 3, "Inspection geometry escaped separated regions.");
+            Confirm(Region >= 0 && Region <= 4, "Inspection geometry escaped separated regions.");
             ++Populations[size_t(Region)];
             if (Region == 3 && Corner.Tangent[3] == -1) ++NegativeCubeTangents;
+            if (Region == 4)
+            {
+                ClothLowZ = std::min(ClothLowZ, Corner.Position[2]);
+                ClothHighZ = std::max(ClothHighZ, Corner.Position[2]);
+                ClothLowNormalZ = std::min(ClothLowNormalZ, Corner.Normal[2]);
+                ClothHighNormalZ = std::max(ClothHighNormalZ, Corner.Normal[2]);
+            }
         }
         for (auto Population : Populations) Confirm(Population > 0, "Inspection surface missing.");
         Confirm(NegativeCubeTangents == 12, "Negative cube faces lost normal-map tangent handedness.");
+        Confirm(ClothHighZ - ClothLowZ > .2f, "Draped cloth swatch is flat.");
+        Confirm(ClothHighNormalZ - ClothLowNormalZ > .05f, "Draped cloth folds did not perturb normals.");
         DiagnosticJournal::Initialize("InspectionValidation");
         DiagnosticJournal::Append("Acceptance", "Preview controls validation\nembedded newline");
         const auto Log = DiagnosticJournal::QueryFilename();
@@ -232,10 +242,11 @@ int main(int Count, char **Arguments)
             IO.AddMouseButtonEvent(0,false);
             Integrate();
         };
-        for (int Index = 1; Index <= 3; ++Index)
+        for (int Index = 1; Index <= 4; ++Index)
         {
             SelectPreset(3, Index);
             Confirm(int(Panel.QueryPreviewConfiguration().Shape) == Index, "Preview shape selector did not respond to pointer selection.");
+            if (Index > 3) continue;
             SelectPreset(4, Index);
             Confirm(int(Panel.QueryPreviewConfiguration().Environment) == Index, "Environment selector did not respond to pointer selection.");
         }
