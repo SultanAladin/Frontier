@@ -29,7 +29,7 @@ struct MaterialScattering
 [[vk::push_constant]] ConstantBuffer<SurfaceNormalProjection> Projection;
 [[vk::binding(0,0)]] Texture2DArray<float4> MaterialTextures[4];
 [[vk::binding(1,0)]] SamplerState MaterialSampler;
-[[vk::binding(2,0)]] Texture2DArray<float4> AuthoringMaps[5];
+[[vk::binding(2,0)]] Texture2DArray<float4> AuthoringMaps[6];
 [[vk::binding(0,1)]] ConstantBuffer<MaterialScattering> Material;
 
 struct MaterialInput
@@ -104,8 +104,9 @@ float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStra
         bool ExactEnabled = Material.DirectionalOptics[Index].z != 0;
         float Distribution = EvaluateAnisotropicDistribution(LocalHalf,Angular[Index].Spread);
         float Visibility = EvaluateAnisotropicVisibility(LocalView,LocalLight,Angular[Index].Spread);
+        float SpecularLevel = Stratum.Classification.x == 1 ? .5 : Material.DirectionalOptics[Index].w;
         float3 Evaluation = EvaluateScatteringReflection(Stratum,Stratum.AlbedoRoughness.rgb,ViewHalf,
-                                                        Distribution,Visibility,ExactEnabled)*max(0,LocalLight.z);
+                                                        Distribution,Visibility,ExactEnabled,SpecularLevel)*max(0,LocalLight.z);
         if (LocalView.z <= 0 || LocalLight.z <= 0) Evaluation = 0;
         if (EnvironmentEnabled) Evaluation *= Angular[Index].Occlusion;
         if (Stratum.Classification.x == 1)
@@ -233,9 +234,10 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
         float3 TangentNormal = MaterialTextures[2].Sample(MaterialSampler,float3(Coordinates,TextureSelection.w)).rgb*2-1;
         float4 AuthoredColour = AuthoringMaps[0].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredNormal = AuthoringMaps[1].Sample(MaterialSampler,float3(Coordinates,0));
-        float4 AuthoredRoughness = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates,0));
-        float4 AuthoredMetalness = AuthoringMaps[3].Sample(MaterialSampler,float3(Coordinates,0));
-        float4 AuthoredOcclusion = AuthoringMaps[4].Sample(MaterialSampler,float3(Coordinates,0));
+        float4 AuthoredHeight = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates,0));
+        float4 AuthoredRoughness = AuthoringMaps[3].Sample(MaterialSampler,float3(Coordinates,0));
+        float4 AuthoredMetalness = AuthoringMaps[4].Sample(MaterialSampler,float3(Coordinates,0));
+        float4 AuthoredOcclusion = AuthoringMaps[5].Sample(MaterialSampler,float3(Coordinates,0));
         float AuthoringEnabled = Pixel.SubjectRole == 0 ? 1 : 0;
         if ((Mask & 1) != 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Albedo.rgb;
         if (Index == 0 && Pixel.SubjectRole == 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Projection.SurfaceTint.rgb;
@@ -262,7 +264,23 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
             }
             Normal = DerivePaintNormal(Material.Paint, Paint, Normal, Pixel.ViewPosition, Scattering.Strata[Index].Classification.x != 0);
         }
-        if ((Mask & 4) != 0 || (AuthoredNormal.a > 0 && AuthoringEnabled > 0))
+        // 📝 Evaluate derivatives before the channel-coverage branch so all fragments share a valid quad footprint.
+        float2 CoordinateX = ddx(Coordinates);
+        float2 CoordinateY = ddy(Coordinates);
+        if (AuthoredHeight.a > 0 && AuthoringEnabled > 0)
+        {
+            // 📝 Convert adjacent height samples into a tangent-space slope; the independent normal map remains composable.
+            float HeightLeft = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates-CoordinateX,0)).r;
+            float HeightRight = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates+CoordinateX,0)).r;
+            float HeightUpper = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates-CoordinateY,0)).r;
+            float HeightLower = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates+CoordinateY,0)).r;
+            float HeightStrength = Material.StratumNormal[Index].y;
+            float3 HeightNormal = NormalizeDirection(float3(-(HeightRight-HeightLeft)*HeightStrength,
+                -(HeightLower-HeightUpper)*HeightStrength,1));
+            TangentNormal = NormalizeDirection(lerp(TangentNormal,NormalizeDirection(TangentNormal+HeightNormal-float3(0,0,1)),
+                saturate(AuthoredHeight.a)*AuthoringEnabled));
+        }
+        if ((Mask & 4) != 0 || (AuthoredNormal.a > 0 && AuthoringEnabled > 0) || (AuthoredHeight.a > 0 && AuthoringEnabled > 0))
         {
             if (AuthoredNormal.a > 0 && AuthoringEnabled > 0)
                 TangentNormal = NormalizeDirection(lerp(TangentNormal,AuthoredNormal.rgb*2-1,

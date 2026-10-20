@@ -69,6 +69,9 @@ std::optional<float> QueryRecipeCoefficient(MaterialDefinition &Definition, std:
     if (Key == "ior" || Key == "coatIor") return Stratum.Optics[1];
     if (Key == "coat") return Stratum.Optics[2];
     if (Key == "anisotropy") return Definition.Scattering.DirectionalOptics[Index][0];
+    if (Key == "specular") return Definition.Scattering.DirectionalOptics[Index][3];
+    if (Key == "heightStrength") return Definition.Scattering.StratumNormal[Index][1];
+    if (Key == "normalStrength") return Definition.Scattering.StratumNormal[Index][0];
     if (Definition.Scattering.Paint.Configuration[3])
     {
         if (Key == "flakeLayers") return float(Definition.Scattering.Paint.Configuration[1]);
@@ -658,7 +661,7 @@ void MaterialLibraryPanel::ConstructInspector()
             {
                 ImGui::PushID(int(Index));
                 auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
-                const float CardHeight = 198 * Scale;
+                const float CardHeight = 264 * Scale;
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
@@ -671,8 +674,22 @@ void MaterialLibraryPanel::ConstructInspector()
                 ImGui::Separator();
                 if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
                     Changed = Library.ConfigureStratumCoefficient(Index, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
+                if (Stratum.Classification[0] != 0)
+                {
+                    if (ConstructProperty("Coverage", 0.f, 1.f, Stratum.Optics[2]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "Coverage", Stratum.Optics[2]) || Changed;
+                }
+                else if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
                     Changed = Library.ConfigureStratumCoefficient(Index, "Metallic", Stratum.Optics[0]) || Changed;
+                if (Stratum.Classification[0] == 0)
+                {
+                    if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Index][3]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "Specular", Definition.Scattering.DirectionalOptics[Index][3]) || Changed;
+                    if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][0]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "NormalStrength", Definition.Scattering.StratumNormal[Index][0]) || Changed;
+                    if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][1]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "HeightStrength", Definition.Scattering.StratumNormal[Index][1]) || Changed;
+                }
                 ImGui::EndChild();
                 ImGui::PopStyleColor();
                 ImGui::PopStyleVar(2);
@@ -707,7 +724,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
                 const float ControlsTop = Finish ? 140 : Flakes ?
                     (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
-                const float Rows = float(Controls.empty() && Finish ? 3 : Controls.size());
+                const float Rows = float((Controls.empty() && Finish ? 3 : Controls.size()) + (Finish ? 3 : 0));
                 const bool Collapsed = FoldedInspectorCards.contains(Group);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
                 PixelSpace Surface;
@@ -897,7 +914,10 @@ void MaterialLibraryPanel::ConstructInspector()
                             {
                                 const uint32_t Index = Target.Key.starts_with("coat") ? 1 : 0;
                                 const char *Field = Target.Key == "roughness" || Target.Key == "coatRoughness" ? "Roughness" :
-                                    Target.Key == "metalness" ? "Metallic" : Target.Key == "ior" || Target.Key == "coatIor" ? "Ior" : Target.Key == "coat" ? "Coverage" : "Anisotropy";
+                                    Target.Key == "metalness" ? "Metallic" : Target.Key == "ior" || Target.Key == "coatIor" ? "Ior" :
+                                    Target.Key == "coat" ? "Coverage" : Target.Key == "specular" ? "Specular" :
+                                    Target.Key == "heightStrength" ? "HeightStrength" :
+                                    Target.Key == "normalStrength" ? "NormalStrength" : "Anisotropy";
                                 Changed = Library.ConfigureStratumCoefficient(Index, Field, std::string_view(Field) == "Roughness" ? std::max(.045f, Coefficient) : Coefficient) || Changed;
                             }
                         }
@@ -911,6 +931,18 @@ void MaterialLibraryPanel::ConstructInspector()
                     if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3])) Changed = Library.ConfigureStratumCoefficient(0, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
                     if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0])) Changed = Library.ConfigureStratumCoefficient(0, "Metallic", Stratum.Optics[0]) || Changed;
                     if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[0][0])) Changed = Library.ConfigureStratumCoefficient(0, "Anisotropy", Definition.Scattering.DirectionalOptics[0][0]) || Changed;
+                }
+                if (Finish)
+                {
+                    auto &Specular = Definition.Scattering.DirectionalOptics[0][3];
+                    auto &NormalStrength = Definition.Scattering.StratumNormal[0][0];
+                    auto &HeightStrength = Definition.Scattering.StratumNormal[0][1];
+                    if (ConstructProperty("Specular", 0.f, 1.f, Specular))
+                        Changed = Library.ConfigureStratumCoefficient(0, "Specular", Specular) || Changed;
+                    if (ConstructProperty("Normal strength", 0.f, 4.f, NormalStrength))
+                        Changed = Library.ConfigureStratumCoefficient(0, "NormalStrength", NormalStrength) || Changed;
+                    if (ConstructProperty("Height strength", 0.f, 4.f, HeightStrength))
+                        Changed = Library.ConfigureStratumCoefficient(0, "HeightStrength", HeightStrength) || Changed;
                 }
                 ImGui::EndChild();
                 ConstructMaterialCaption(Start.x + 17 * Scale, CardY + CardHeight - 29 * Scale, 8 * Scale, 0x7b7b6b,

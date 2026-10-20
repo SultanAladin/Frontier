@@ -123,7 +123,9 @@ int main(int ArgumentCount,char **Arguments)
         Confirm(EncodeSurfaceMaterial(RoundTrip) == EncodeSurfaceMaterial(Definition),"Material TOML round trip changed authored meaning");
         for (const auto &Invalid : {"Format=2\nName='x'", "Format=1\nName='x'\nUnknown=1", "Format=1\nName='x'\n[[Strata]]\nCategory='Transmission'",
             "Format=1\nName='x'\n[[Strata]]\nCategory='Coating'", "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nRoughness=nan",
-            "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nMetallic=2", "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nTextureMask=16"}) Reject(Invalid);
+            "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nMetallic=2", "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nTextureMask=16",
+            "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nSpecular=1.1",
+            "Format=1\nName='x'\n[[Strata]]\nCategory='Opaque'\nHeightStrength=-0.1"}) Reject(Invalid);
         Reject(Minimal+"Roughness = 'bad'\n");
         Reject(Minimal+"Albedo = [1, 2]\n");
         auto Compiled = CompileSurfaceMaterial(Definition,ContentDirectory);
@@ -178,7 +180,7 @@ int main(int ArgumentCount,char **Arguments)
                 Confirm(std::abs(Pixels[Centre+Channel]-255*EncodePreviewDisplay(Angular[Channel]*2,1)) <= 2,
                         "Authored-material GPU pixel differs from independent scalar reference");
             Confirm(Pixels[Centre+3] == 255,"Material source alpha changed opaque output");
-            Confirm(Textures.QueryUploadCount() == 9,"Material/authoring image upload count invalid");
+            Confirm(Textures.QueryUploadCount() == 10,"Material/authoring image upload count invalid");
             return Pixels;
         };
         const auto Plain = CompareReference(Compiled,1);
@@ -203,8 +205,8 @@ int main(int ArgumentCount,char **Arguments)
         const std::array<float,4> AuthoredRoughness{.76f,0,0,.75f};
         const std::array<float,4> AuthoredMetalness{.82f,0,0,.5f};
         AuthoredMaps.AuthoringMaps[0] = ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::Albedo,AuthoredColour);
-        AuthoredMaps.AuthoringMaps[2] = ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,AuthoredRoughness);
-        AuthoredMaps.AuthoringMaps[3] = ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,AuthoredMetalness);
+        AuthoredMaps.AuthoringMaps[3] = ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,AuthoredRoughness);
+        AuthoredMaps.AuthoringMaps[4] = ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,AuthoredMetalness);
         SurfaceMaterialResidence AuthoredMapTextures;
         AuthoredMapTextures.Initialize(Fixtures.Programs,AuthoredMaps.Textures,AuthoredMaps.AuthoringMaps);
         SurfaceScatteringResidence AuthoredMapParameters;
@@ -231,9 +233,10 @@ int main(int ArgumentCount,char **Arguments)
         const std::array<float,16> GoldColour{1,1,1,0,1,1,1,0,.9f,.66f,.18f,1,.9f,.66f,.18f,1};
         const std::array<float,16> GoldMetalness{0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1};
         const std::array<float,16> GoldNormal{.5f,.5f,1,0,.5f,.5f,1,0,.5f,.5f,1,0,.5f,.5f,1,0};
+        const std::array<float,16> NeutralHeight{.5f,.5f,.5f,0,.5f,.5f,.5f,0,.5f,.5f,.5f,0,.5f,.5f,.5f,0};
         const std::array<float,16> NeutralRoughness{1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0};
         const std::array<float,16> NeutralOcclusion{1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0};
-        const std::array<std::span<const float>,5> GoldMapSamples{GoldColour,GoldNormal,NeutralRoughness,GoldMetalness,NeutralOcclusion};
+        const std::array<std::span<const float>,6> GoldMapSamples{GoldColour,GoldNormal,NeutralHeight,NeutralRoughness,GoldMetalness,NeutralOcclusion};
         GoldThread.AuthoringMaps = ConstructAuthoringMaterialMaps(4,1,GoldMapSamples);
         SurfaceMaterialResidence GoldTextures;
         GoldTextures.Initialize(Fixtures.Programs,GoldThread.Textures,GoldThread.AuthoringMaps);
@@ -306,14 +309,14 @@ int main(int ArgumentCount,char **Arguments)
         MaterialBridge.Initialize(Fixtures.Device.QueryAccess(),RasterShader{VectorShaderWords,"main"},
             AuthoringMapResolution,AuthoringMapResolution);
         Confirm(MaterialBridge.ConfigureDocument(AuthoringDocument,0),
-            "Float32 material bridge did not configure its five authoring channels");
+            "Float32 material bridge did not configure its six authoring channels");
         ConfirmVulkanResult(Fixtures.Device.ResetCommandPool(Fixtures.Device.Device,Fixtures.Device.Pool,0));
         ConfirmVulkanResult(Fixtures.Device.ResetFences(Fixtures.Device.Device,1,&Fixtures.Device.Completion));
         VkCommandBufferBeginInfo BridgeBegin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         BridgeBegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         ConfirmVulkanResult(Fixtures.Device.BeginCommandBuffer(Fixtures.Device.Commands,&BridgeBegin));
         Confirm(MaterialBridge.ConstructCommands(Fixtures.Device.Commands,0,VectorSerial),
-            "Float32 material bridge failed to record its five image dispatch/readback operations");
+            "Float32 material bridge failed to record its six image dispatch/readback operations");
         ConfirmVulkanResult(Fixtures.Device.EndCommandBuffer(Fixtures.Device.Commands));
         VkSubmitInfo BridgeSubmission{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         BridgeSubmission.commandBufferCount = 1;
@@ -328,11 +331,15 @@ int main(int ArgumentCount,char **Arguments)
         auto GpuAuthoringMaps = MaterialBridge.RetrieveAuthoringMaps(VectorSerial);
         const size_t FabricMapTexel = (160*AuthoringMapResolution+160)*4;
         const size_t GoldMapTexel = (256*AuthoringMapResolution+256)*4;
-        Confirm(std::abs(GpuAuthoringMaps[2].FloatRgba[FabricMapTexel]-.42f) < .003f &&
-                std::abs(GpuAuthoringMaps[2].FloatRgba[GoldMapTexel]-.18f) < .003f &&
-                std::abs(GpuAuthoringMaps[3].FloatRgba[FabricMapTexel]-.68f) < .003f &&
-                std::abs(GpuAuthoringMaps[3].FloatRgba[GoldMapTexel]-1.f) < .003f,
+        Confirm(std::abs(GpuAuthoringMaps[3].FloatRgba[FabricMapTexel]-.42f) < .003f &&
+                std::abs(GpuAuthoringMaps[3].FloatRgba[GoldMapTexel]-.18f) < .003f &&
+                std::abs(GpuAuthoringMaps[4].FloatRgba[FabricMapTexel]-.68f) < .003f &&
+                std::abs(GpuAuthoringMaps[4].FloatRgba[GoldMapTexel]-1.f) < .003f,
             "GPU material bridge mixed gold-thread roughness/metalness into dielectric fabric.");
+        Confirm(GpuAuthoringMaps[2].FloatRgba[FabricMapTexel+3] > .9f &&
+                GpuAuthoringMaps[2].FloatRgba[GoldMapTexel+3] > .9f &&
+                std::abs(GpuAuthoringMaps[2].FloatRgba[FabricMapTexel] - GpuAuthoringMaps[2].FloatRgba[GoldMapTexel]) > .05f,
+            "GPU material bridge did not preserve independent authored height-map samples.");
         Confirm(!MaterialBridge.ConfigureDocument(AuthoringDocument,VectorSerial),
             "Equivalent authoring document invalidated the Float32 material-map cache");
         AuthoringDocument.Layers[0].SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Roughness)].Strength = .61f;
@@ -355,10 +362,10 @@ int main(int ArgumentCount,char **Arguments)
         MaterialBridge.ConfirmSubmission();
         ConfirmVulkanResult(Fixtures.Device.WaitForFences(Fixtures.Device.Device,1,&Fixtures.Device.Completion,VK_TRUE,UINT64_MAX));
         const auto RevisedMaps = MaterialBridge.RetrieveAuthoringMaps(VectorSerial);
-        Confirm(std::abs(RevisedMaps[2].FloatRgba[FabricMapTexel]-.61f) < .003f &&
-                std::abs(RevisedMaps[2].FloatRgba[GoldMapTexel]-.18f) < .003f &&
-                std::abs(RevisedMaps[3].FloatRgba[FabricMapTexel]-.68f) < .003f &&
-                std::abs(RevisedMaps[3].FloatRgba[GoldMapTexel]-1.f) < .003f,
+        Confirm(std::abs(RevisedMaps[3].FloatRgba[FabricMapTexel]-.61f) < .003f &&
+                std::abs(RevisedMaps[3].FloatRgba[GoldMapTexel]-.18f) < .003f &&
+                std::abs(RevisedMaps[4].FloatRgba[FabricMapTexel]-.68f) < .003f &&
+                std::abs(RevisedMaps[4].FloatRgba[GoldMapTexel]-1.f) < .003f,
             "Per-layer roughness update changed dielectric fabric without preserving separate gold-thread response");
         float MaximumFabricNormalChange = 0;
         for (size_t Pixel = 0; Pixel < size_t(AuthoringMapResolution) * AuthoringMapResolution * 4; ++Pixel)
@@ -382,14 +389,56 @@ int main(int ArgumentCount,char **Arguments)
         GpuAuthoredParameters.Initialize(Fixtures.Programs,GpuAuthoredMaterial.Scattering);
         const auto GpuAuthoredPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
             GpuAuthoredTextures,GpuAuthoredParameters);
+        auto HeightOnlyMaterial = CompileSurfaceMaterial(Definition,ContentDirectory);
+        HeightOnlyMaterial.AuthoringMaps[2] = GpuAuthoredMaterial.AuthoringMaps[2];
+        HeightOnlyMaterial.Scattering.Illumination.EnvironmentHorizon[3] = 0;
+        HeightOnlyMaterial.Scattering.Illumination.LightDirectionIntensity = {.6f,.3f,.74f,2};
+        HeightOnlyMaterial.Scattering.Illumination.LightColourExposure = {1,1,1,1};
+        auto HeightFlatParameters = HeightOnlyMaterial.Scattering;
+        HeightFlatParameters.StratumNormal[0][1] = 0;
+        SurfaceMaterialResidence HeightOnlyTextures;
+        HeightOnlyTextures.Initialize(Fixtures.Programs,HeightOnlyMaterial.Textures,HeightOnlyMaterial.AuthoringMaps);
+        SurfaceScatteringResidence HeightFlatResidence;
+        HeightFlatResidence.Initialize(Fixtures.Programs,HeightFlatParameters);
+        const auto HeightFlatPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
+            HeightOnlyTextures,HeightFlatResidence);
+        HeightFlatParameters.StratumNormal[0][1] = 4;
+        SurfaceScatteringResidence HeightReliefResidence;
+        HeightReliefResidence.Initialize(Fixtures.Programs,HeightFlatParameters);
+        const auto HeightReliefPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
+            HeightOnlyTextures,HeightReliefResidence);
+        size_t HeightChangedPixels = 0;
+        for (size_t Pixel = 0; Pixel < 128*128; ++Pixel)
+            for (size_t Channel = 0; Channel < 3; ++Channel)
+                if (std::abs(int(HeightFlatPixels[Pixel*4+Channel])-int(HeightReliefPixels[Pixel*4+Channel])) > 1)
+                {
+                    ++HeightChangedPixels;
+                    break;
+                }
+        Confirm(HeightChangedPixels > 8,
+            "Changing the height-map strength did not change integrated material-preview pixels.");
+        auto SpecularParameters = HeightOnlyMaterial.Scattering;
+        SpecularParameters.StratumNormal[0][1] = 0;
+        SpecularParameters.DirectionalOptics[0][3] = 0;
+        SurfaceScatteringResidence SpecularZeroResidence;
+        SpecularZeroResidence.Initialize(Fixtures.Programs,SpecularParameters);
+        const auto SpecularZeroPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
+            HeightOnlyTextures,SpecularZeroResidence);
+        SpecularParameters.DirectionalOptics[0][3] = 1;
+        SurfaceScatteringResidence SpecularFullResidence;
+        SpecularFullResidence.Initialize(Fixtures.Programs,SpecularParameters);
+        const auto SpecularFullPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
+            HeightOnlyTextures,SpecularFullResidence);
+        Confirm(SpecularZeroPixels != SpecularFullPixels,
+            "Changing dielectric specular level did not change integrated material-preview pixels.");
         const auto BridgeCaptureDirectory = Destination/"PbrBridgeFrames";
         std::filesystem::create_directories(BridgeCaptureDirectory);
         EncodeRasterCapture(BridgeCaptureDirectory/"MaterialBaseline.ppm",Plain,128,128);
         EncodeRasterCapture(BridgeCaptureDirectory/"GpuAuthoringMaps.ppm",GpuAuthoredPixels,128,128);
         const size_t GpuTexel = GoldMapTexel;
         const auto &GpuColourMap = GpuAuthoredMaterial.AuthoringMaps[0].FloatRgba;
-        const auto &GpuRoughnessMap = GpuAuthoredMaterial.AuthoringMaps[2].FloatRgba;
-        const auto &GpuMetalnessMap = GpuAuthoredMaterial.AuthoringMaps[3].FloatRgba;
+        const auto &GpuRoughnessMap = GpuAuthoredMaterial.AuthoringMaps[3].FloatRgba;
+        const auto &GpuMetalnessMap = GpuAuthoredMaterial.AuthoringMaps[4].FloatRgba;
         auto GpuReference = GpuAuthoredMaterial.Scattering.Illumination;
         for (size_t Channel = 0; Channel < 3; ++Channel)
             GpuReference.Strata[0].AlbedoRoughness[Channel] = std::lerp(
@@ -503,7 +552,7 @@ int main(int ArgumentCount,char **Arguments)
         const auto NeutralOcclusionPixels = Fixtures.Device.ExtractCapture(Fixtures.Plane,Projection,
             NeutralOcclusionTextures,AuthoredOcclusionParameters);
         const std::array<float,4> AuthoredOcclusionPixel{.1f,.1f,.1f,1};
-        AuthoredOcclusionMaterial.AuthoringMaps[4] = ConstructFloatMaterialPyramid(1,1,
+        AuthoredOcclusionMaterial.AuthoringMaps[5] = ConstructFloatMaterialPyramid(1,1,
             MaterialTextureCategory::OcclusionRoughnessMetallic,AuthoredOcclusionPixel);
         SurfaceMaterialResidence AuthoredOcclusionTextures;
         AuthoredOcclusionTextures.Initialize(Fixtures.Programs,AuthoredOcclusionMaterial.Textures,
@@ -717,7 +766,7 @@ int main(int ArgumentCount,char **Arguments)
             const auto Bracket = Fixtures.CaptureMaterial(0,Material.Scattering,Textures);
             const auto Sphere = Fixtures.CaptureMaterial(1,Material.Scattering,Textures);
             Confirm(QueryBrightPixelCount(Sphere) > 1000,"Material specimen absent");
-            Confirm(Textures.QueryUploadCount() == 9,"Target changes reuploaded material/authoring textures");
+            Confirm(Textures.QueryUploadCount() == 10,"Target changes reuploaded material/authoring textures");
             Confirm(Fixtures.CaptureMaterial(0,Material.Scattering,Textures) == Bracket,"Material round trip changed native pixels");
             EncodeRasterCapture(Destination/(std::string("Material")+Name+"Bracket.ppm"),Bracket,960,720);
             EncodeRasterCapture(Destination/(std::string("Material")+Name+"Sphere.ppm"),Sphere,720,720);

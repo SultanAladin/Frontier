@@ -272,7 +272,7 @@ void MaterialLibrary::ReplaceSource(std::string Replacement)
 
 bool MaterialLibrary::ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient)
 {
-    if (Name != "Roughness" && Name != "Metallic" && Name != "Anisotropy" && Name != "Coverage" && Name != "Ior")
+    if (Name != "Roughness" && Name != "Metallic" && Name != "Anisotropy" && Name != "Coverage" && Name != "Ior" && Name != "Specular" && Name != "HeightStrength" && Name != "NormalStrength")
     {
         Diagnostic = "Unsupported structured material coefficient.";
         return false;

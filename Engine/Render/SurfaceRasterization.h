@@ -207,7 +207,7 @@ public:
     SurfaceMaterialResidence &operator=(const SurfaceMaterialResidence &) = delete;
     void Initialize(const SurfaceRasterPrograms &Programs,const std::array<MaterialTexturePyramid,4> &Textures);
     void Initialize(const SurfaceRasterPrograms &Programs,const std::array<MaterialTexturePyramid,4> &Textures,
-                    const std::array<MaterialTexturePyramid,5> &AuthoringMaps);
+                    const std::array<MaterialTexturePyramid,6> &AuthoringMaps);
     void Finalize() noexcept;
     [[nodiscard]] uint64_t QueryUploadCount() const noexcept;
 

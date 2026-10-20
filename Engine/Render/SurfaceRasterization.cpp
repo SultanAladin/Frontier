@@ -45,7 +45,7 @@ struct SurfaceRasterization::RasterAllocation
     uint32_t MaterialParameterCount = 0;
     std::array<std::array<uint32_t,4>,8> MaterialParameterSelections{};
     std::array<std::shared_ptr<RasterAllocation>,4> MaterialImages;
-    std::array<std::shared_ptr<RasterAllocation>,5> AuthoringMapImages;
+    std::array<std::shared_ptr<RasterAllocation>,6> AuthoringMapImages;
     std::vector<VkBufferImageCopy> MaterialMipCopies;
     VkDescriptorSetLayout MaterialSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout MaterialLayout = VK_NULL_HANDLE;
@@ -457,7 +457,7 @@ struct SurfaceRasterization::RasterAllocation
             throw std::runtime_error("Material parameter capacity unavailable.");
         VkDescriptorSetLayoutBinding Inputs[]{{0,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,4,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
                                              {1,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
-                                             {2,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,5,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}};
+                                             {2,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,6,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}};
         VkDescriptorSetLayoutCreateInfo Declaration{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
         Declaration.bindingCount = 3;
         Declaration.pBindings = Inputs;
@@ -526,10 +526,10 @@ struct SurfaceRasterization::RasterAllocation
     }
 
     void ConstructMaterialTextures(const std::array<MaterialTexturePyramid,4> &Textures,
-                                   const std::array<MaterialTexturePyramid,5> &AuthoringMaps)
+                                   const std::array<MaterialTexturePyramid,6> &AuthoringMaps)
     {
         VkDescriptorImageInfo Images[4]{};
-        VkDescriptorImageInfo AuthoringImages[5]{};
+        VkDescriptorImageInfo AuthoringImages[6]{};
         for (size_t Index = 0; Index < Textures.size(); ++Index)
         {
             auto Image = std::make_shared<RasterAllocation>();
@@ -550,7 +550,7 @@ struct SurfaceRasterization::RasterAllocation
             AuthoringImages[Index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             AuthoringMapImages[Index] = std::move(Image);
         }
-        const VkDescriptorPoolSize Sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,9},{VK_DESCRIPTOR_TYPE_SAMPLER,1}};
+        const VkDescriptorPoolSize Sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,10},{VK_DESCRIPTOR_TYPE_SAMPLER,1}};
         VkDescriptorPoolCreateInfo Pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         Pool.maxSets = 1;
         Pool.poolSizeCount = 2;
@@ -577,7 +577,7 @@ struct SurfaceRasterization::RasterAllocation
         Writes[1].pImageInfo = &Sampler;
         Writes[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         Writes[2].dstBinding = 2;
-        Writes[2].descriptorCount = 5;
+        Writes[2].descriptorCount = 6;
         Writes[2].pImageInfo = AuthoringImages;
         UpdateDescriptorSets(Access.Device,3,Writes,0,nullptr);
         MaterialTexturesEnabled = true;
@@ -1114,16 +1114,17 @@ void SurfaceMaterialResidence::Initialize(const SurfaceRasterPrograms &Programs,
 {
     const std::array<float,4> NeutralColour{1,1,1,0}, NeutralNormal{.5f,.5f,1,0};
     const std::array<float,4> NeutralRoughness{1,0,0,0}, NeutralMetalness{0,0,0,0}, NeutralOcclusion{1,0,0,0};
-    const std::array<MaterialTexturePyramid,5> AuthoringMaps{
+    const std::array<MaterialTexturePyramid,6> AuthoringMaps{
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::Albedo,NeutralColour),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::TangentNormal,NeutralNormal),
+        ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralRoughness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralRoughness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralMetalness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralOcclusion)};
     Initialize(Programs,Textures,AuthoringMaps);
 }
 void SurfaceMaterialResidence::Initialize(const SurfaceRasterPrograms &Programs,
-    const std::array<MaterialTexturePyramid,4> &Textures,const std::array<MaterialTexturePyramid,5> &AuthoringMaps)
+    const std::array<MaterialTexturePyramid,4> &Textures,const std::array<MaterialTexturePyramid,6> &AuthoringMaps)
 {
     if (Allocation || !Programs.Allocation || !Programs.Allocation->MaterialSurface)
         throw std::runtime_error("Material textures require an active material program.");

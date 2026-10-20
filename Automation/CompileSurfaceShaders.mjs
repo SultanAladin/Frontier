@@ -115,6 +115,11 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
                 Assert.equal(Images.type.elementType.array,true);
                 const Sampler=Reflection.parameters.find(Parameter=>Parameter.name==='MaterialSampler');
                 Assert.equal(Sampler.binding.index,1);
+                const AuthoringMaps=Reflection.parameters.find(Parameter=>Parameter.name==='AuthoringMaps');
+                Assert.equal(AuthoringMaps?.binding.index,2);
+                Assert.equal(AuthoringMaps?.type.elementCount,6);
+                Assert.equal(AuthoringMaps?.type.elementType.baseShape,'texture2D');
+                Assert.equal(AuthoringMaps?.type.elementType.array,true);
             }
             if(Name.endsWith('Vertex'))
             {

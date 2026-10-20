@@ -33,10 +33,15 @@ struct alignas(16) MaterialScattering
     std::array<std::array<float,4>,8> StratumNormal = []
     {
         std::array<std::array<float,4>,8> Normals{};
-        Normals.fill({1,0,0,0});
+        Normals.fill({1,1,0,0});
         return Normals;
     }();
-    std::array<std::array<float,4>,8> DirectionalOptics{}; // [-,rad,enum,reserved] - anisotropy, rotation, exact Fresnel, reserved
+    std::array<std::array<float,4>,8> DirectionalOptics = []
+    {
+        std::array<std::array<float,4>,8> Optics{};
+        Optics.fill({0,0,0,.5f});
+        return Optics;
+    }(); // [-,rad,enum,0-1] - anisotropy, rotation, exact Fresnel, dielectric specular level
     AutomotivePaint Paint;
     std::array<uint32_t, 4> PreviewConfiguration{}; // Runtime-only specimen classification and studio lighting; reserved zero.
 };
@@ -84,9 +89,10 @@ enum class MaterialAuthoringMap : uint32_t
 {
     Colour = 0,
     TangentNormal = 1,
-    Roughness = 2,
-    Metalness = 3,
-    Occlusion = 4
+    Height = 2,
+    Roughness = 3,
+    Metalness = 4,
+    Occlusion = 5
 };
 
 struct CompiledSurfaceMaterial
@@ -94,7 +100,7 @@ struct CompiledSurfaceMaterial
     std::string Name;
     MaterialScattering Scattering;
     std::array<MaterialTexturePyramid,4> Textures;
-    std::array<MaterialTexturePyramid,5> AuthoringMaps;
+    std::array<MaterialTexturePyramid,6> AuthoringMaps;
 };
 
 inline bool ValidateMaterialScattering(const MaterialScattering &Material)
@@ -114,10 +120,12 @@ inline bool ValidateMaterialScattering(const MaterialScattering &Material)
         for (float Coefficient : Material.StratumUv[Index])
             if (!std::isfinite(Coefficient) || std::abs(Coefficient) > 1024) return false;
         const auto &Normal = Material.StratumNormal[Index];
-        if (!std::isfinite(Normal[0]) || Normal[0] < 0 || Normal[0] > 4 || Normal[1] || Normal[2] || Normal[3]) return false;
+        if (!std::isfinite(Normal[0]) || Normal[0] < 0 || Normal[0] > 4 ||
+            !std::isfinite(Normal[1]) || Normal[1] < 0 || Normal[1] > 4 || Normal[2] || Normal[3]) return false;
         const auto &Optics = Material.DirectionalOptics[Index];
         for (float Coefficient : Optics) if (!std::isfinite(Coefficient)) return false;
-        if (std::abs(Optics[0]) > .9f || std::abs(Optics[1]) > 100 || (Optics[2] != 0 && Optics[2] != 1) || Optics[3]) return false;
+        if (std::abs(Optics[0]) > .9f || std::abs(Optics[1]) > 100 || (Optics[2] != 0 && Optics[2] != 1) ||
+            Optics[3] < 0 || Optics[3] > 1) return false;
         if (Index < Material.Illumination.Configuration[0] && Optics[2] == 1 && Material.Illumination.Strata[Index].Optics[0] != 0) return false;
     }
     return true;
@@ -149,8 +157,8 @@ inline bool ValidateMaterialPyramid(const MaterialTexturePyramid &Texture)
 
 MaterialTexturePyramid ConstructFloatMaterialPyramid(uint32_t Width, uint32_t Height,
     MaterialTextureCategory Category, std::span<const float> FloatRgba);
-std::array<MaterialTexturePyramid,5> ConstructAuthoringMaterialMaps(uint32_t Width, uint32_t Height,
-    const std::array<std::span<const float>,5> &FloatRgba);
+std::array<MaterialTexturePyramid,6> ConstructAuthoringMaterialMaps(uint32_t Width, uint32_t Height,
+    const std::array<std::span<const float>,6> &FloatRgba);
 
 CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Material,const std::filesystem::path &ContentDirectory);
 } // namespace Frontier

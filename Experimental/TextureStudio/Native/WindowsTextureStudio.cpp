@@ -89,7 +89,7 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
-    std::optional<std::array<Frontier::MaterialTexturePyramid, 5>> PatternAuthoringMaps;
+    std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
     const std::filesystem::path PatternPreviewPath = "Pattern/live-preview";
     uint64_t PatternBridgeSubmission = 0;
@@ -251,7 +251,7 @@ int RunTextureWorkspace()
                 if (Pattern->QueryDocument() == SubmittedPatternDocument)
                 {
                     PatternAuthoringMaps = std::move(ReplacementMaps);
-                    AppendPatternPreviewDebug("Float32 authoring maps accepted; extent=512x512; channel_count=5; applying to selected-material preview.");
+                    AppendPatternPreviewDebug("Float32 authoring maps accepted; extent=512x512; channel_count=6; applying to selected-material preview.");
                     if (const auto *Applied = Library->QueryLibrary().QueryApplied())
                     {
                         auto PreviewMaterial = *Applied;

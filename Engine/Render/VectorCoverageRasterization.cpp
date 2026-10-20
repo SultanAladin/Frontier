@@ -377,10 +377,10 @@ namespace Frontier
 {
 namespace
 {
-constexpr std::array<VectorAuthoringSurfaceChannel,5> AuthoringMaterialChannels{
+constexpr std::array<VectorAuthoringSurfaceChannel,6> AuthoringMaterialChannels{
     VectorAuthoringSurfaceChannel::Colour,VectorAuthoringSurfaceChannel::Normal,
-    VectorAuthoringSurfaceChannel::Roughness,VectorAuthoringSurfaceChannel::Metalness,
-    VectorAuthoringSurfaceChannel::Occlusion};
+    VectorAuthoringSurfaceChannel::Height,VectorAuthoringSurfaceChannel::Roughness,
+    VectorAuthoringSurfaceChannel::Metalness,VectorAuthoringSurfaceChannel::Occlusion};
 }
 
 VectorSurfaceMaterialBridge::VectorSurfaceMaterialBridge() = default;
@@ -422,7 +422,7 @@ bool VectorSurfaceMaterialBridge::ConfigureDocument(const VectorAuthoringDocumen
 {
     if (!Initialized || Recorded || ReadbacksPending || LastSubmission > CompletedSerial)
         throw std::runtime_error("Float32 material bridge still owns an unretired authoring submission.");
-    std::array<VectorSurfaceProgram,5> Replacement;
+    std::array<VectorSurfaceProgram,6> Replacement;
     for (size_t Index = 0; Index < Replacement.size(); ++Index)
         Replacement[Index] = CompileVectorSurface(Document,AuthoringMaterialChannels[Index]);
     if (ProgramsConfigured && Replacement == Programs) return false;
@@ -462,13 +462,13 @@ void VectorSurfaceMaterialBridge::ConfirmSubmission() noexcept
     ReadbacksPending = true;
 }
 
-std::array<MaterialTexturePyramid,5> VectorSurfaceMaterialBridge::RetrieveAuthoringMaps(uint64_t CompletedSerial)
+std::array<MaterialTexturePyramid,6> VectorSurfaceMaterialBridge::RetrieveAuthoringMaps(uint64_t CompletedSerial)
 {
     if (CompiledMaps) return *CompiledMaps;
     if (!ReadbacksPending || LastSubmission > CompletedSerial)
         throw std::runtime_error("Float32 authoring maps have not retired from their GPU submission.");
-    std::array<std::vector<float>,5> Samples;
-    std::array<std::span<const float>,5> SampleSpans;
+    std::array<std::vector<float>,6> Samples;
+    std::array<std::span<const float>,6> SampleSpans;
     for (size_t Index = 0; Index < Samples.size(); ++Index)
     {
         Samples[Index] = Rasterizations[Index].RetrieveFloatReadback(CompletedSerial);

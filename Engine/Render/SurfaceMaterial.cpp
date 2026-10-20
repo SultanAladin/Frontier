@@ -141,7 +141,7 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
     {
         auto *Stratum = Strata->get(Index)->as_table();
         if (!Stratum) throw std::runtime_error("Stratum must be a table.");
-        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel"});
+        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel","Specular","HeightStrength"});
         const auto Category = (*Stratum)["Category"].value<std::string>();
         if (!Category || (*Category != "Opaque" && *Category != "Coating"))
             throw std::runtime_error("Unsupported scattering Category; supported: Opaque, Coating. Transmission/SSS are not implemented.");
@@ -161,9 +161,11 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
         Material.Scattering.TextureUse[Index][0] = uint32_t(Mask.value_or(0));
         Material.Scattering.StratumUv[Index] = DecodeSpectrum<4>((*Stratum)["UvScaleOffset"],{1,1,0,0});
         Material.Scattering.StratumNormal[Index][0] = DecodeCoefficient((*Stratum)["NormalStrength"],1);
+        Material.Scattering.StratumNormal[Index][1] = DecodeCoefficient((*Stratum)["HeightStrength"],1);
         auto &Directional = Material.Scattering.DirectionalOptics[Index];
         Directional[0] = DecodeCoefficient((*Stratum)["Anisotropy"],0);
         Directional[1] = DecodeCoefficient((*Stratum)["Rotation"],0);
+        Directional[3] = DecodeCoefficient((*Stratum)["Specular"],.5f);
         if ((*Stratum).contains("Fresnel"))
         {
             const auto Fresnel = (*Stratum)["Fresnel"].value<std::string>();
@@ -230,6 +232,8 @@ std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
         Stratum.insert("NormalStrength",double(Material.Scattering.StratumNormal[Index][0]));
         Stratum.insert("Anisotropy",double(Material.Scattering.DirectionalOptics[Index][0]));
         Stratum.insert("Rotation",double(Material.Scattering.DirectionalOptics[Index][1]));
+        Stratum.insert("Specular",double(Material.Scattering.DirectionalOptics[Index][3]));
+        Stratum.insert("HeightStrength",double(Material.Scattering.StratumNormal[Index][1]));
         Stratum.insert("Fresnel",Material.Scattering.DirectionalOptics[Index][2] == 1 ? "Dielectric" : "Schlick");
         toml::table Textures;
         const std::array<const char *,3> Names{"Albedo","Orm","Normal"};
@@ -305,14 +309,14 @@ MaterialTexturePyramid ConstructFloatMaterialPyramid(uint32_t Width, uint32_t He
     return Pyramid;
 }
 
-std::array<MaterialTexturePyramid,5> ConstructAuthoringMaterialMaps(uint32_t Width,uint32_t Height,
-    const std::array<std::span<const float>,5> &FloatRgba)
+std::array<MaterialTexturePyramid,6> ConstructAuthoringMaterialMaps(uint32_t Width,uint32_t Height,
+    const std::array<std::span<const float>,6> &FloatRgba)
 {
-    constexpr std::array<MaterialTextureCategory,5> Categories{
+    constexpr std::array<MaterialTextureCategory,6> Categories{
         MaterialTextureCategory::Albedo,MaterialTextureCategory::TangentNormal,
         MaterialTextureCategory::OcclusionRoughnessMetallic,MaterialTextureCategory::OcclusionRoughnessMetallic,
-        MaterialTextureCategory::OcclusionRoughnessMetallic};
-    std::array<MaterialTexturePyramid,5> Pyramids;
+        MaterialTextureCategory::OcclusionRoughnessMetallic,MaterialTextureCategory::OcclusionRoughnessMetallic};
+    std::array<MaterialTexturePyramid,6> Pyramids;
     for (size_t Index = 0; Index < Pyramids.size(); ++Index)
         Pyramids[Index] = ConstructFloatMaterialPyramid(Width,Height,Categories[Index],FloatRgba[Index]);
     return Pyramids;
@@ -383,6 +387,7 @@ CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Materia
     Compiled.AuthoringMaps = {
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::Albedo,NeutralColour),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::TangentNormal,NeutralNormal),
+        ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralRoughness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralRoughness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralMetalness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralOcclusion)};

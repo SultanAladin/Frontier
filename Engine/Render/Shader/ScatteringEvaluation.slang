@@ -69,12 +69,14 @@ float EvaluateExactDielectricReflectance(float Cosine,float IncidentIor,float Tr
     return .5*(Perpendicular*Perpendicular+Parallel*Parallel);
 }
 float3 EvaluateScatteringReflection(ScatteringStratum Stratum,float3 Albedo,float ViewHalf,
-                                   float Distribution,float Visibility,bool ExactDielectricEnabled)
+                                   float Distribution,float Visibility,bool ExactDielectricEnabled,float SpecularLevel)
 {
     float Reflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
     Reflectance *= Reflectance;
-    float3 FresnelOrigin = lerp(float3(Reflectance),Albedo,Stratum.Optics.x);
-    float3 Fresnel = ExactDielectricEnabled ? float3(EvaluateExactDielectricReflectance(ViewHalf,1,Stratum.Optics.y)) :
+    float3 DielectricReflectance = float3(Reflectance * SpecularLevel * 2);
+    float3 FresnelOrigin = lerp(DielectricReflectance,Albedo,Stratum.Optics.x);
+    float3 Fresnel = ExactDielectricEnabled ?
+        lerp(float3(EvaluateExactDielectricReflectance(ViewHalf,1,Stratum.Optics.y) * SpecularLevel * 2),Albedo,Stratum.Optics.x) :
         FresnelOrigin+(1-FresnelOrigin)*pow(1-ViewHalf,5);
     float3 Evaluation = Distribution*Visibility*Fresnel;
     if (Stratum.Classification.x == 0) Evaluation += (1-Fresnel)*(1-Stratum.Optics.x)*Albedo/π;
@@ -100,7 +102,7 @@ float3 EvaluateScatteringSequence(PreviewScattering Scattering,float3 Normal,flo
         float Distribution = EvaluateGgxDistribution(NormalHalf,Stratum.AlbedoRoughness.w);
         float Reflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
         Reflectance *= Reflectance;
-        float3 Evaluation = EvaluateScatteringReflection(Stratum,Albedo,ViewHalf,Distribution,Visibility,false);
+        float3 Evaluation = EvaluateScatteringReflection(Stratum,Albedo,ViewHalf,Distribution,Visibility,false,.5);
         if (Stratum.Classification.x == 1)
         {
             float Entrance = Reflectance+(1-Reflectance)*pow(1-NormalLight,5);

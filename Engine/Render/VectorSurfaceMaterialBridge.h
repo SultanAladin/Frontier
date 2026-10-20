@@ -1,7 +1,7 @@
 /*============================================================================================================================================
                                                      VECTORSURFACEMATERIALBRIDGE.H
 ============================================================================================================================================*/
-// 🧩 Stage five retired Float32 vector channels into coherent PBR material-map pyramids.
+// 🧩 Stage six retired Float32 vector channels into coherent PBR material-map pyramids.
 
 #pragma once
 #include "Engine/Render/SurfaceMaterial.h"
@@ -22,12 +22,12 @@ public:
     bool ConfigureDocument(const VectorAuthoringDocument &Document,uint64_t CompletedSerial);
     bool ConstructCommands(VkCommandBuffer Commands,uint64_t CompletedSerial,uint64_t SubmissionSerial);
     void ConfirmSubmission() noexcept;
-    [[nodiscard]] std::array<MaterialTexturePyramid,5> RetrieveAuthoringMaps(uint64_t CompletedSerial);
+    [[nodiscard]] std::array<MaterialTexturePyramid,6> RetrieveAuthoringMaps(uint64_t CompletedSerial);
     void Finalize() noexcept;
 private:
-    std::array<VectorCoverageRasterization,5> Rasterizations;
-    std::array<VectorSurfaceProgram,5> Programs;
-    std::optional<std::array<MaterialTexturePyramid,5>> CompiledMaps;
+    std::array<VectorCoverageRasterization,6> Rasterizations;
+    std::array<VectorSurfaceProgram,6> Programs;
+    std::optional<std::array<MaterialTexturePyramid,6>> CompiledMaps;
     uint64_t LastSubmission = 0,PendingSubmission = 0;
     bool Initialized = false,ProgramsConfigured = false,Dirty = false,Recorded = false,ReadbacksPending = false;
 };

@@ -174,9 +174,10 @@ int main(int Count, char **Arguments)
         (void)CaptureInspection();
         const auto CapturePatternPreview = [&](float Red, float Green, float NormalX = .5f, float NormalZ = 1.f)
         {
-            std::array<std::vector<float>,5> AuthoringSamples{{
-                {Red,Green,.05f,1}, {NormalX,.5f,NormalZ,1}, {0,0,0,0}, {0,0,0,0}, {1,1,1,0}}};
-            std::array<std::span<const float>,5> AuthoringViews;
+            std::array<std::vector<float>,6> AuthoringSamples{{
+                {Red,Green,.05f,1}, {NormalX,.5f,NormalZ,1}, {.5f,.5f,.5f,0},
+                {0,0,0,0}, {0,0,0,0}, {1,1,1,0}}};
+            std::array<std::span<const float>,6> AuthoringViews;
             for (size_t Index = 0; Index < AuthoringSamples.size(); ++Index) AuthoringViews[Index] = AuthoringSamples[Index];
             auto PatternMaterial = Compiled;
             PatternMaterial.AuthoringMaps = ConstructAuthoringMaterialMaps(1,1,AuthoringViews);
