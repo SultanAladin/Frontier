@@ -11,6 +11,7 @@ EngineContent/*
 !EngineContent/README.md
 !EngineContent/Defaults/
 !EngineContent/MaterialArchives/
+!EngineContent/PatternArchives/
 
 # Agent scratch space.
 _ClaudeScratch/

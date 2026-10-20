@@ -9,7 +9,9 @@
 #include "VectorMaskControls.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <numbers>
 #include <cctype>
 
@@ -101,6 +103,41 @@ void PatternWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
     GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
     MaskSelection = 0; PointToken = 0; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); AutomaticPen = false;
     Diagnostic.clear();
+}
+
+bool PatternWorkspacePanel::ConfigurePresetDirectory(const std::filesystem::path &Directory)
+{
+    std::vector<std::pair<std::string, VectorAuthoringDocument>> Replacement;
+    try
+    {
+        if (!Directory.empty() && std::filesystem::is_directory(Directory))
+        {
+            std::vector<std::filesystem::path> Files;
+            for (const auto &Entry : std::filesystem::directory_iterator(Directory))
+                if (Entry.is_regular_file() && Entry.path().extension() == ".toml") Files.push_back(Entry.path());
+            std::sort(Files.begin(), Files.end());
+            for (const auto &File : Files)
+            {
+                std::ifstream Input(File, std::ios::binary | std::ios::ate);
+                const auto Bytes = Input.tellg();
+                if (!Input || Bytes < 0 || Bytes > 600000) continue;
+                std::string Source(size_t(Bytes), '\0');
+                Input.seekg(0);
+                if (!Input.read(Source.data(), Bytes)) continue;
+                try
+                {
+                    auto Document = DecodeVectorAuthoring(Source);
+                    if (!Document.Stamp && !Document.Layers.empty())
+                        Replacement.emplace_back(Document.Name.empty() ? File.stem().string() : Document.Name, std::move(Document));
+                }
+                catch (const std::exception &) { continue; }
+            }
+        }
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+    if (Replacement.empty()) return false;
+    PresetDocuments = std::move(Replacement);
+    return true;
 }
 
 const VectorAuthoringDocument &PatternWorkspacePanel::QueryDocument() const
@@ -262,6 +299,7 @@ void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Ca
         Source.Colour = {.8627f, .4627f, .3529f, 1};
         Source.ColourEnd = {.35f, .55f, .45f, 1};
         Source.StrokeColour = {.23f, .24f, .28f, 1};
+        Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
         if (Document.Layers.empty()) Document.Name = "Custom pattern";
         const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
         Finalize(std::move(Document), {Token});
@@ -274,12 +312,16 @@ void PatternWorkspacePanel::ApplyLibraryPreset(size_t Index)
 {
     try
     {
-        auto Document = ConstructPatternLibraryPreset(Index);
-        if (Document.Layers.empty()) throw std::runtime_error("Pattern preset has no motifs.");
-        Finalize(std::move(Document), {});
-        SearchText[0] = 0; Filter = 0;
+        ApplyPresetDocument(ConstructPatternLibraryPreset(Index));
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::ApplyPresetDocument(VectorAuthoringDocument Document)
+{
+    if (Document.Layers.empty()) throw std::runtime_error("Pattern preset has no motifs.");
+    Finalize(std::move(Document), {});
+    SearchText[0] = 0; Filter = 0;
 }
 
 bool PatternWorkspacePanel::Save()
@@ -302,6 +344,13 @@ bool PatternWorkspacePanel::RequestClose()
     if (!QueryModified()) return true;
     CloseRequested = true;
     return false;
+}
+
+bool PatternWorkspacePanel::ConsumeMaterialApplyRequest() noexcept
+{
+    const bool Requested = ApplyToMaterialRequested;
+    ApplyToMaterialRequested = false;
+    return Requested;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -387,13 +436,11 @@ void PatternWorkspacePanel::ConstructHeader()
         DropdownControlSurface::EndMenu();
     }
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 168 * Scale, Origin.y + 9 * Scale));
-    ImGui::BeginDisabled();
-    Controls.Button("Apply to material", 116 * Scale);
+    if (Controls.Button("Apply to material", 116 * Scale)) ApplyToMaterialRequested = true;
     Controls.Tooltip(
         "Apply to material",
-        "Float32 maps now update the selected material preview after GPU readback. "
-        "Persistent or scene-level application remains gated until the integrated native host capture is validated.");
-    ImGui::EndDisabled();
+        "Snapshot the current pattern onto the selected material preview. "
+        "Pattern edits never touch materials until applied.");
     if (HeaderButton("Close pattern studio", -44, "M6 6L18 18M6 18L18 6", bool(ActivateMaterial)))
         if (RequestClose()) ActivateMaterial();
     Controls.ControlHeight = 30;
@@ -408,6 +455,20 @@ void PatternWorkspacePanel::ConstructLibrary()
     ImGui::TextDisabled("SEAMLESS PRESETS");
     ImGui::SetCursorPosX(16 * Scale);
     ImGui::TextWrapped("Gallery starting points. Loading a preset replaces the tile; Undo restores. Add single shapes from the Layers + menu.");
+    if (!PresetDocuments.empty())
+    {
+        for (const auto &Preset : PresetDocuments)
+        {
+            if (Controls.Button(Preset.first.c_str(), ImGui::GetContentRegionAvail().x - 16 * Scale))
+            {
+                try { ApplyPresetDocument(Preset.second); }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+            }
+            const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+            ControlExtents[Preset.first] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+        }
+        return;
+    }
     for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
     {
         const char *Caption = QueryPatternLibraryPresetName(Index);
@@ -1343,6 +1404,7 @@ void PatternWorkspacePanel::ConstructCanvas()
                     std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
                 Source.StrokeColour = {.23f, .24f, .28f, 1};
+                Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
                 if (!GestureDraft)
                 {
                     auto Draft = *GestureSource;

@@ -90,6 +90,9 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
     std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
+    std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> AssignedPatternMaps;
+    std::filesystem::path AssignedPatternSelection;
+    bool PatternApplyRequested = false;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
     std::optional<Frontier::VectorAuthoringDocument> ObservedPatternDocument;
     const std::filesystem::path PatternPreviewPath = "Pattern/live-preview";
@@ -145,6 +148,7 @@ int RunTextureWorkspace()
         PatternOwnership.reset(new Frontier::PatternWorkspacePanel());
         Pattern = static_cast<Frontier::PatternWorkspacePanel *>(PatternOwnership.get());
         if (!Pattern->Initialize() || !Pattern->Activate()) throw std::runtime_error("Pattern workspace activation failed.");
+        (void)Pattern->ConfigurePresetDirectory(ContentRoot / "EngineContent/PatternArchives/TextureStudio");
         PatternSource = Directory / "pattern-workspace.vector.toml";
         Pattern->SaveSource = [&](std::string_view Source)
         {
@@ -241,10 +245,28 @@ int RunTextureWorkspace()
         {
             return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
         };
+        const auto AssignPatternMapsToPreview = [&]()
+        {
+            // 📝 Pattern edits only reach the selected material through an explicit Apply to material press.
+            if (!PatternAuthoringMaps) return false;
+            const auto *Applied = Library->QueryLibrary().QueryApplied();
+            if (!Applied) return false;
+            auto PreviewMaterial = *Applied;
+            PreviewMaterial.AuthoringMaps = *PatternAuthoringMaps;
+            AssignedPatternMaps = *PatternAuthoringMaps;
+            AssignedPatternSelection = Library->QueryLibrary().QuerySelection();
+            Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
+            RenderingRevision = Library->QueryLibrary().QueryRevision();
+            return true;
+        };
         Display.ConfigureRendering([&](VkCommandBuffer Commands, uint64_t Completed, uint64_t Serial)
         {
             SelectionEvaluation->ConstructCommands(Commands, Completed, Serial);
             CoverageRendering->ConstructCommands(Commands, Completed, Serial);
+            if (Pattern->ConsumeMaterialApplyRequest()) PatternApplyRequested = true;
+            if (PatternApplyRequested && !PatternBridgeSubmission && PatternAuthoringMaps &&
+                Pattern->QueryDocument() == SubmittedPatternDocument && AssignPatternMapsToPreview())
+                PatternApplyRequested = false;
             if (PatternBridgeSubmission && PatternBridgeSubmission <= Completed)
             {
                 AppendPatternPreviewDebug("GPU readback retired; submission=" + std::to_string(PatternBridgeSubmission) + "; completed=" + std::to_string(Completed));
@@ -252,14 +274,8 @@ int RunTextureWorkspace()
                 if (Pattern->QueryDocument() == SubmittedPatternDocument)
                 {
                     PatternAuthoringMaps = std::move(ReplacementMaps);
-                    AppendPatternPreviewDebug("Float32 authoring maps accepted; extent=512x512; channel_count=6; applying to selected-material preview.");
-                    if (const auto *Applied = Library->QueryLibrary().QueryApplied())
-                    {
-                        auto PreviewMaterial = *Applied;
-                        PreviewMaterial.AuthoringMaps = *PatternAuthoringMaps;
-                        Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
-                        RenderingRevision = Library->QueryLibrary().QueryRevision();
-                    }
+                    AppendPatternPreviewDebug("Float32 authoring maps accepted; extent=512x512; channel_count=6; awaiting Apply to material.");
+                    if (PatternApplyRequested && AssignPatternMapsToPreview()) PatternApplyRequested = false;
                 }
                 else
                 {
@@ -268,9 +284,9 @@ int RunTextureWorkspace()
                 }
                 PatternBridgeSubmission = 0;
             }
-            if (PatternActive && !PatternBridgeSubmission)
+            if (PatternActive && !PatternBridgeSubmission && Pattern->QueryAuthoringSettled())
             {
-                // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the document settles.
+                // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
                 const auto CurrentPattern = Pattern->QueryDocument();
                 if (CurrentPattern == SubmittedPatternDocument) ObservedPatternDocument.reset();
                 else if (ObservedPatternDocument && *ObservedPatternDocument == CurrentPattern)
@@ -281,11 +297,16 @@ int RunTextureWorkspace()
                         SubmittedPatternDocument = CurrentPattern;
                         AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                         PatternAuthoringMaps.reset();
-                        if (const auto *Applied = Library->QueryLibrary().QueryApplied())
+                        const bool AssignedSnapshotLive = AssignedPatternMaps.has_value() &&
+                            AssignedPatternSelection == Library->QueryLibrary().QuerySelection();
+                        if (!AssignedSnapshotLive)
                         {
-                            Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
-                            RenderingRevision = Library->QueryLibrary().QueryRevision();
-                            AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
+                            if (const auto *Applied = Library->QueryLibrary().QueryApplied())
+                            {
+                                Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
+                                RenderingRevision = Library->QueryLibrary().QueryRevision();
+                                AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
+                            }
                         }
                         if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
                         {
@@ -377,10 +398,11 @@ int RunTextureWorkspace()
                 const auto &Catalogue = Library->QueryLibrary();
                 if (Rendering && Catalogue.QueryApplied() && RenderingRevision != Catalogue.QueryRevision())
                 {
-                    if (PatternAuthoringMaps)
+                    if (Catalogue.QuerySelection() != AssignedPatternSelection) AssignedPatternMaps.reset();
+                    if (AssignedPatternMaps)
                     {
                         auto PreviewMaterial = *Catalogue.QueryApplied();
-                        PreviewMaterial.AuthoringMaps = *PatternAuthoringMaps;
+                        PreviewMaterial.AuthoringMaps = *AssignedPatternMaps;
                         Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
                     }
                     else Rendering->ConfigureSelection(Catalogue.QuerySelection(), *Catalogue.QueryApplied());

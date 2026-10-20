@@ -68,6 +68,19 @@ int main(int Count, char **Arguments)
         Confirm(std::abs(Camera.ClipFromSurface[0] * 48 + Camera.ClipFromSurface[12] - Inspection.PanX) < .0001f &&
             std::abs(Camera.ClipFromSurface[1] * 48 + Camera.ClipFromSurface[13] - Inspection.PanY) < .0001f,
             "Rotating an offset inspection shape lost its camera centre.");
+        float YawedLow = std::numeric_limits<float>::max(), YawedHigh = std::numeric_limits<float>::lowest();
+        for (float Theta : {0.f, .7f, -1.2f, 2.4f})
+        {
+            MaterialPreviewConfiguration Yawed;
+            Yawed.Shape = MaterialPreviewShape::Cube;
+            Yawed.Yaw = Theta;
+            Yawed.Pitch = -.4f;
+            const auto Pose = ConstructMaterialPreviewProjection(Yawed);
+            const float Height = Pose.ClipFromSurface[1] * 48 + Pose.ClipFromSurface[9] + Pose.ClipFromSurface[13];
+            YawedLow = std::min(YawedLow, Height);
+            YawedHigh = std::max(YawedHigh, Height);
+        }
+        Confirm(YawedHigh - YawedLow < .00001f, "Yaw orbit induced vertical sway.");
         Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
         Inspection.Exposure = 2;
         ResetMaterialPreviewView(Inspection);

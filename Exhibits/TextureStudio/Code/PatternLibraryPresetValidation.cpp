@@ -6,7 +6,10 @@
 #include "Engine/ContentInterchange/PatternLibraryPresets.h"
 #include "Engine/Render/VectorCoverage.h"
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <set>
 
 using namespace Frontier;
 
@@ -45,7 +48,25 @@ int main()
             }
             const auto Program = ConstructVectorAuthoringCoverage(Document);
             ValidateVectorCoverage(Program);
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Document)) == Document, "Preset TOML round-trip changed artwork.");
         }
+        std::set<std::string> ShippedNames;
+        for (const auto &Entry : std::filesystem::directory_iterator("EngineContent/PatternArchives/TextureStudio"))
+        {
+            if (!Entry.is_regular_file() || Entry.path().extension() != ".toml") continue;
+            std::ifstream Input(Entry.path(), std::ios::binary | std::ios::ate);
+            Confirm(bool(Input), "Shipped preset file unreadable.");
+            std::string Source(size_t(Input.tellg()), '\0');
+            Input.seekg(0);
+            Confirm(bool(Input.read(Source.data(), Source.size())), "Shipped preset file truncated.");
+            const auto Document = DecodeVectorAuthoring(Source);
+            Confirm(!Document.Layers.empty() && !Document.Name.empty(), "Shipped preset file holds no named artwork.");
+            ValidateVectorCoverage(ConstructVectorAuthoringCoverage(Document));
+            ShippedNames.insert(Document.Name);
+        }
+        Confirm(ShippedNames.size() == QueryPatternLibraryPresetCount(), "Shipped preset file count differs.");
+        for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
+            Confirm(ShippedNames.contains(QueryPatternLibraryPresetName(Index)), "Shipped preset gallery name differs.");
         bool Refused = false;
         try { (void)ConstructPatternLibraryPreset(QueryPatternLibraryPresetCount()); }
         catch (const std::exception &) { Refused = true; }

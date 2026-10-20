@@ -25,6 +25,34 @@ ColorQuad DecodeMaterialSpectrum(uint32_t Rgb)
 {
     return {float((Rgb >> 16) & 255) / 255, float((Rgb >> 8) & 255) / 255, float(Rgb & 255) / 255, 1};
 }
+// 📝 Rounded, padded tooltip card shared by every material hover hint.
+struct MaterialTooltipScope
+{
+    explicit MaterialTooltipScope(float Scale)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14 * Scale, 10 * Scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10 * Scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8 * Scale, 5 * Scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(.098f, .098f, .106f, .97f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .10f));
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(320 * Scale);
+    }
+    ~MaterialTooltipScope()
+    {
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(4);
+    }
+};
+void PresentMaterialTooltip(float Scale, const char *Title, const char *Body)
+{
+    MaterialTooltipScope Scope(Scale);
+    if (Title && Title[0]) ImGui::TextUnformatted(Title);
+    if (Body && Body[0]) ImGui::TextDisabled("%s", Body);
+}
 void ConstructMaterialCaption(float X, float Y, float Size, uint32_t Rgb, const char *Caption, ImFont *Typeface = nullptr)
 {
     ImGui::GetWindowDrawList()->AddText(Typeface ? Typeface : ImGui::GetFont(), Size * 1.302f, ImVec2(X, Y - Size * .15f), EncodeMaterialInk(Rgb, unsigned(255 * ImGui::GetStyle().Alpha)), Caption);
@@ -304,7 +332,7 @@ void MaterialLibraryPanel::ConstructCatalogue()
         if (Library.QueryParked(Entry.RelativePath) || (Library.QuerySelection() == Entry.RelativePath && Library.QueryModified()))
             CardInk->AddCircleFilled(ImVec2(Position.x + CardWidth - 14 * Scale, Position.y + 14 * Scale), 5 * Scale, EncodeMaterialInk(0xd8b25c));
         CardInk->PopClipRect();
-        if (Hovered) ImGui::SetTooltip("%s\n%s", Entry.Name.c_str(), Entry.Description.c_str());
+        if (Hovered) PresentMaterialTooltip(Scale, Entry.Name.c_str(), Entry.Description.c_str());
         ImGui::PopID();
     }
     ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, GridOrigin.y + ((Visible.size() + 1) / 2) * (CardHeight + Gap)));
@@ -352,7 +380,7 @@ void MaterialLibraryPanel::ConstructViewport()
     }
     const auto FullscreenMinimum = ImGui::GetItemRectMin(), FullscreenMaximum = ImGui::GetItemRectMax();
     FullscreenPreviewExtent = {FullscreenMinimum.x, FullscreenMinimum.y, FullscreenMaximum.x, FullscreenMaximum.y};
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open a fitted, full-work-area material preview (Escape to close).");
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Fullscreen preview", "Fitted full-work-area preview. Escape to close.");
     const auto *Entry = QuerySelectedMaterial(Library);
     ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 68 * Scale, 8 * Scale, 0x92917c,
         Entry && !Entry->Category.empty() ? ("01  /  " + Entry->Category + " COLLECTION").c_str() : "MATERIAL COLLECTION");
@@ -423,7 +451,7 @@ void MaterialLibraryPanel::ConstructViewport()
     if (ConstructMaterialSelection("Preview shape", ShapeOptions[Shape], ShapeOptions, 5, Shape, Scale))
         Inspection.Shape = MaterialPreviewShape(Shape);
     ConfigureExtent(3);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change preview object; catalogue thumbnails remain unchanged.");
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Preview shape", "Change preview object; catalogue thumbnails remain unchanged.");
     ImGui::SameLine();
     const char *EnvironmentOptions[]{"Studio softbox", "Warm courtyard", "Cool rim", "Overcast"};
     int Environment = int(Inspection.Environment);
@@ -431,7 +459,7 @@ void MaterialLibraryPanel::ConstructViewport()
     if (ConstructMaterialSelection("Preview environment", EnvironmentOptions[Environment], EnvironmentOptions, 4, Environment, Scale))
         Inspection.Environment = MaterialPreviewEnvironment(Environment);
     ConfigureExtent(4);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Environment lighting preset");
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Environment", "Environment lighting preset.");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 117 * Scale));
     const float ExposureWidth = std::min(320 * Scale, std::max(30.f, Available.x - 36 * Scale));
     const auto ExposureOrigin = ImGui::GetCursorScreenPos();
@@ -459,14 +487,14 @@ void MaterialLibraryPanel::ConstructViewport()
     const auto ZoomCaption = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##ZoomReset";
     if (ImGui::Button(ZoomCaption.c_str(), ImVec2(76 * Scale, 28 * Scale))) Inspection.Zoom = 1;
     ConfigureExtent(1);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset zoom to 100%%");
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Reset zoom", "Reset zoom to 100%.");
     ImGui::SameLine(0, 0);
     if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f);
     ConfigureExtent(2);
     ImGui::SameLine();
     if (ImGui::Button("Reset view", ImVec2(90 * Scale, 28 * Scale))) ResetMaterialPreviewView(Inspection);
     ConfigureExtent(6);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Centre / fit and reset orbit. F or Home over preview.");
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Reset view", "Centre / fit and reset orbit. F or Home over preview.");
     ImGui::EndGroup();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
@@ -609,7 +637,7 @@ bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum,
         Changed = true;
     }
     if (Changed && Step >= 1) Position = std::clamp(std::round(Position / Step) * Step, Minimum, Maximum);
-    if (Unavailable && Hovered) ImGui::SetTooltip("%s", Unavailable);
+    if (Unavailable && Hovered) PresentMaterialTooltip(Scale, "Unavailable", Unavailable);
     ImGui::PopID();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 84 * Scale));
     ImGui::Dummy(ImVec2(1, 0));
@@ -790,7 +818,7 @@ void MaterialLibraryPanel::ConstructInspector()
                     float Spectrum[3]{};
                     for (size_t Channel = 0; Channel < 3; ++Channel)
                         Spectrum[Channel] = Albedo[Channel] <= .0031308f ? 12.92f * Albedo[Channel] : 1.055f * std::pow(Albedo[Channel], 1.f / 2.4f) - .055f;
-                    if (ImGui::ColorEdit3("##Colour", Spectrum, ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel))
+                    if (ImGui::ColorEdit3("##Colour", Spectrum, ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
                     {
                         std::array<float, 3> Linear{};
                         for (size_t Channel = 0; Channel < 3; ++Channel)
@@ -862,12 +890,27 @@ void MaterialLibraryPanel::ConstructInspector()
                             Spectrum[Channel] = Linear <= .0031308f ? 12.92f * Linear : 1.055f * std::pow(Linear, 1.f / 2.4f) - .055f;
                         }
                         if (ImGui::ColorEdit3("##Flake tint", Spectrum, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs |
-                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoBorder))
+                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoTooltip))
                         {
                             for (size_t Channel = 0; Channel < 3; ++Channel)
                                 Paint.Palette[Index][Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
                                     std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
                             Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                        if (ImGui::IsItemHovered())
+                        {
+                            MaterialTooltipScope Scope(Scale);
+                            const int Red = int(Spectrum[0] * 255 + .5f), Green = int(Spectrum[1] * 255 + .5f), Blue = int(Spectrum[2] * 255 + .5f);
+                            const auto Preview = ImGui::GetCursorScreenPos();
+                            ImGui::Dummy(ImVec2(36 * Scale, 20 * Scale));
+                            ImGui::GetWindowDrawList()->AddRectFilled(Preview, ImVec2(Preview.x + 36 * Scale, Preview.y + 20 * Scale),
+                                IM_COL32(Red, Green, Blue, 255), 5 * Scale);
+                            ImGui::SameLine();
+                            char Hex[16];
+                            std::snprintf(Hex, sizeof(Hex), "#%02X%02X%02X", Red, Green, Blue);
+                            ImGui::TextUnformatted(Hex);
+                            ImGui::TextDisabled("R: %d G: %d B: %d", Red, Green, Blue);
+                            ImGui::TextDisabled("(%.2f, %.2f, %.2f)", Spectrum[0], Spectrum[1], Spectrum[2]);
                         }
                         if (Mode == 1 && PaletteCount > 1)
                         {
@@ -1139,15 +1182,35 @@ void MaterialLibraryPanel::ConstructInterface()
     }
     ImGui::PopFont();
     if (DirectoryRequested) { ImGui::OpenPopup("Open material library"); DirectoryRequested = false; }
-    if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
+    if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_NoResize))
     {
+        const auto Dialogue = ImGui::GetCursorScreenPos();
+        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL LIBRARY");
+        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Open material library",
+            static_cast<ImFont *>(HeadingTypeface));
+        ImGui::Dummy(ImVec2(1, 58 * Scale));
+        ImGui::TextWrapped("Switch to a different .material catalogue folder.");
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(-1);
         ImGui::InputTextWithHint("##Directory", "Material library folder", DirectoryText.data(), DirectoryText.size());
-        ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
-        if (ImGui::Button("Open") && ConfigureDirectory(DecodeContentPath(DirectoryText.data()))) ImGui::CloseCurrentPopup();
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        if (Library.QueryModified() || Library.QueryParkedEdits())
+            ImGui::TextWrapped("Save or revert current edits before switching libraries.");
         if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 2 * ButtonWidth - ButtonGap - 16 * Scale);
+        if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) ImGui::CloseCurrentPopup();
+        ImGui::SameLine(0, ButtonGap);
+        ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
+        if (ImGui::Button("Open", ImVec2(ButtonWidth, 32 * Scale)) && ConfigureDirectory(DecodeContentPath(DirectoryText.data()))) ImGui::CloseCurrentPopup();
+        ImGui::PopStyleColor(3);
+        ImGui::EndDisabled();
         ImGui::EndPopup();
     }
     ConstructCreation();

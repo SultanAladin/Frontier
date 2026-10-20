@@ -1,0 +1,823 @@
+enclosures = []
+format = 'frontier.vector_artwork'
+name = 'Starfield'
+segments = []
+stamp = false
+token_clock = 16
+version = 1
+
+[[instructions]]
+bounds = [ 64.0, 64.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 192.0, 64.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 320.0, 64.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 448.0, 64.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 64.0, 192.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 192.0, 192.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 320.0, 192.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 448.0, 192.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 64.0, 320.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 192.0, 320.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 320.0, 320.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 448.0, 320.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 64.0, 448.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 192.0, 448.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 320.0, 448.0, 92.0, 92.0 ]
+colour = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+colour_end = [ 0.86269998550415039, 0.4627000093460083, 0.35289999842643738, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[instructions]]
+bounds = [ 448.0, 448.0, 92.0, 92.0 ]
+colour = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+colour_end = [ 0.34999999403953552, 0.55000001192092896, 0.44999998807907104, 1.0 ]
+paint = [ 0.0, 0.44999998807907104, 6.0, 1.0 ]
+stroke_colour = [ 0.23000000417232513, 0.23999999463558197, 0.2800000011920929, 1.0 ]
+topology = [ 5, 0, 0, 2147483648 ]
+transform = [ 0.0, 0.0, 1.0, 0.0 ]
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 1'
+root = 0
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 1
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 2'
+root = 1
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 2
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 3'
+root = 2
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 3
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 4'
+root = 3
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 4
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 5'
+root = 4
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 5
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 6'
+root = 5
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 6
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 7'
+root = 6
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 7
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 8'
+root = 7
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 8
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 9'
+root = 8
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 9
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 10'
+root = 9
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 10
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 11'
+root = 10
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 11
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 12'
+root = 11
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 12
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 13'
+root = 12
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 13
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 14'
+root = 13
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 14
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 15'
+root = 14
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 15
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0
+
+[[layers]]
+enclosure_token = 0
+locked = false
+mask_enabled = true
+mask_inverted = false
+mask_luminance = false
+name = 'Star 16'
+root = 15
+surface_relief = 1.0
+surface_structure = 'freeform'
+textile_geometry = 'unclassified'
+token = 16
+visible = true
+
+    [layers.surface_channels.colour]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.height]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.metalness]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.normal]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.occlusion]
+    enabled = false
+    strength = 1.0
+
+    [layers.surface_channels.opacity]
+    enabled = true
+    strength = 1.0
+
+    [layers.surface_channels.roughness]
+    enabled = true
+    strength = 1.0

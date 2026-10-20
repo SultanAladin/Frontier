@@ -7,6 +7,7 @@
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/ContentInterchange/CubicPathEditing.h"
+#include <filesystem>
 #include <map>
 #include "Engine/Lifecycle/ActivationSequence.h"
 
@@ -20,6 +21,7 @@ public:
     void ConfigureInterfaceScale(float Scale);
     void ConfigureTypeface(void *Regular, void *Light = nullptr);
     void ConfigureDocument(VectorAuthoringDocument Document);
+    bool ConfigurePresetDirectory(const std::filesystem::path &Directory);
     [[nodiscard]] const VectorAuthoringDocument &QueryDocument() const;
     [[nodiscard]] const std::vector<uint32_t> &QuerySelection() const noexcept { return Selection; }
     [[nodiscard]] const std::vector<size_t> &QueryAnchorSelection() const noexcept { return SelectedAnchors; }
@@ -29,8 +31,10 @@ public:
     [[nodiscard]] PlaneExtent QueryPanelExtent(const std::string &Caption) const;
     [[nodiscard]] PlaneExtent QueryBoardExtent() const noexcept { return BoardExtent; }
     [[nodiscard]] bool QueryModified() const { return QueryDocument() != SavedDocument; }
+    [[nodiscard]] bool QueryAuthoringSettled() const noexcept { return Gesture == 0 && !PenSource; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     bool RequestClose();
+    bool ConsumeMaterialApplyRequest() noexcept;
     std::function<uint64_t(const VectorCoverageProgram &)> QueryCoverage;
     std::function<std::optional<uint32_t>(const VectorAuthoringDocument &, PlanePoint)> QuerySelectionToken;
     std::function<bool(std::string_view)> SaveSource;
@@ -49,6 +53,7 @@ private:
     uint64_t GestureRevision = 0;
     uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
+    bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
     void InsertSelection(bool InPlace);
@@ -60,6 +65,7 @@ private:
     PanelDockspace Panels;
     VectorAuthoringControlSurface Controls;
     std::map<std::string, PlaneExtent> ControlExtents, PanelExtents;
+    std::vector<std::pair<std::string, VectorAuthoringDocument>> PresetDocuments;
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     std::optional<VectorAuthoringDocument> PenSource, PenPreview;
     CubicPath PendingPath;
@@ -107,6 +113,7 @@ private:
     void ConstructCloseDialogue();
     void ConstructPrimitive(uint32_t Category, const char *Caption);
     void ApplyLibraryPreset(size_t Index);
+    void ApplyPresetDocument(VectorAuthoringDocument Document);
     void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens);
     void EvaluateEdit(const std::function<void(VectorAuthoringDocument &)> &Edit);
     void RestoreHistory(bool Redo);

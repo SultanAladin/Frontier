@@ -5,6 +5,7 @@
 
 #pragma once
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
+#include "Engine/Render/VectorCoverage.h"
 #include <cstdio>
 #include <stdexcept>
 
@@ -36,6 +37,7 @@ inline VectorAuthoringDocument ConstructPatternLibraryPreset(size_t Index)
         Source.Colour = Palette[Ink % Palette.size()];
         Source.ColourEnd = Source.Colour;
         Source.StrokeColour = {.23f, .24f, .28f, 1};
+        Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
         std::snprintf(Caption, sizeof(Caption), "%s %d", Stem, Ordinal);
         ConstructVectorAuthoringPrimitive(Document, Source, Caption);
     };
