@@ -121,41 +121,43 @@ float3 EvaluateEnvironmentRadiance(PreviewScattering Scattering,float3 Direction
 float3 IntegrateEnvironment(PreviewScattering Scattering,float3 Normal,float3 View,float3 AlbedoMultiplier)
 {
     if (Scattering.EnvironmentHorizon.w == 0) return 0;
-    float3 Tangent = NormalizeDirection(cross(abs(Normal.z)<.999 ? float3(0,0,1) : float3(0,1,0),Normal));
-    float3 Bitangent = cross(Normal,Tangent);
+    // 📝 Integrate the cosine-weighted vertical sky analytically; approximate each rough specular lobe by its broadened reflection direction.
+    // This removes the sparse per-pixel quadrature that produced visible stipple in polished preview materials.
+    float3 Up = NormalizeDirection(Scattering.EnvironmentUp.xyz);
+    float DiffuseHeight = saturate(.5+dot(Up,Normal)/3);
+    float3 DiffuseRadiance = lerp(Scattering.EnvironmentHorizon.rgb*.35,
+        Scattering.EnvironmentZenith.rgb,DiffuseHeight)*Scattering.EnvironmentHorizon.w;
+    float3 Reflection = NormalizeDirection(reflect(-View,Normal));
     float3 Accumulated = 0;
-    uint Components = Scattering.Configuration.x+1;
-    // 📝 Balance the cosine distribution with one GGX distribution per stratum; eight deterministic samples each.
-    // This is a bounded preview quadrature, not a converged reference integrator or a prefiltered environment archive.
-    for (uint Component = 0; Component < Components; ++Component)
-        for (uint SampleIndex = 0; SampleIndex < 8; ++SampleIndex)
+    for (uint Index = 0; Index < Scattering.Configuration.x; ++Index)
+    {
+        ScatteringStratum Stratum = Scattering.Strata[Index];
+        float3 Albedo = Stratum.AlbedoRoughness.rgb*(Index == 0 ? AlbedoMultiplier : float3(1));
+        float Metallic = saturate(Stratum.Optics.x);
+        float IorReflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
+        IorReflectance *= IorReflectance;
+        float NormalView = saturate(dot(Normal,View));
+        float3 F0 = lerp(float3(IorReflectance),Albedo,Metallic);
+        float3 Fresnel = F0+(1-F0)*pow(1-NormalView,5);
+        float Roughness = Stratum.AlbedoRoughness.w;
+        float Broadening = saturate(Roughness*Roughness*1.5);
+        float3 ReflectionDirection = NormalizeDirection(lerp(Reflection,Normal,Broadening));
+        float3 SpecularRadiance = EvaluateEnvironmentRadiance(Scattering,ReflectionDirection);
+        float3 Evaluation = Fresnel*SpecularRadiance;
+        if (Stratum.Classification.x == 0)
+            Evaluation += Albedo*(1-Metallic)*(1-Fresnel)*DiffuseRadiance;
+        else
         {
-            float First = (SampleIndex+.5)/8;
-            float Second = frac(SampleIndex*.61803398875+Component*.371);
-            float φ = 2*π*Second;
-            float Cosine = sqrt(1-First);
-            if (Component != 0)
-            {
-                float Roughness = Scattering.Strata[Component-1].AlbedoRoughness.w;
-                float α = Roughness*Roughness;
-                Cosine = sqrt((1-First)/(1+(α*α-1)*First));
-            }
-            float Sine = sqrt(max(0,1-Cosine*Cosine));
-            float3 Direction = Tangent*(Sine*cos(φ))+Bitangent*(Sine*sin(φ))+Normal*Cosine;
-            float3 Light = Component == 0 ? Direction : reflect(-View,Direction);
-            float NormalLight = dot(Normal,Light);
-            if (NormalLight <= 0) continue;
-            float3 Half = NormalizeDirection(View+Light);
-            float NormalHalf = saturate(dot(Normal,Half));
-            float ViewHalf = max(1e-6,dot(View,Half));
-            float Density = NormalLight/π;
-            for (uint Index = 0; Index < Scattering.Configuration.x; ++Index)
-                Density += EvaluateGgxDistribution(NormalHalf,Scattering.Strata[Index].AlbedoRoughness.w)*NormalHalf/(4*ViewHalf);
-            Density /= Components;
-            Accumulated += EvaluateScatteringSequence(Scattering,Normal,View,Light,AlbedoMultiplier)*
-                           EvaluateEnvironmentRadiance(Scattering,Light)*NormalLight/max(1e-8,Density);
+            float NormalLight = saturate(dot(Normal,ReflectionDirection));
+            float Entrance = IorReflectance+(1-IorReflectance)*pow(1-NormalView,5);
+            float Exit = IorReflectance+(1-IorReflectance)*pow(1-NormalLight,5);
+            float3 Absorption = exp(-Stratum.AbsorptionThickness.rgb*Stratum.AbsorptionThickness.w*
+                (1/max(.001,NormalView)+1/max(.001,NormalLight)));
+            Evaluation += Accumulated*(1-Entrance)*(1-Exit)*Absorption;
         }
-    return Accumulated/(8*Components);
+        Accumulated = lerp(Accumulated,Evaluation,Stratum.Optics.z);
+    }
+    return Accumulated;
 }
 float3 EncodeDisplay(float3 Radiance,float Exposure)
 {
