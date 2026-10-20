@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier · Material Workspace — proof index</title>
+<style>
+  :root{
+    --bg:#000; --panel:#0d0d0d; --panel-2:#111113; --border:#1c1c1c;
+    --ink:#ededed; --muted:#8a8a8a; --faint:#5f5f5f;
+    --marker:#4a90e2; --danger:#e05a5a; --ok:#4fd18b; --warn:#e0a34a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--ink)}
+  body{
+    font:13px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+    padding:28px 24px 48px;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:19px;font-weight:600;letter-spacing:.1px}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:5px}
+  h2{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+     color:var(--faint);margin:30px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--border)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+  a.card{
+    display:block;text-decoration:none;color:inherit;
+    background:var(--panel);border:1px solid var(--border);border-radius:11px;
+    padding:13px 15px;transition:border-color .14s,background .14s,transform .14s;
+  }
+  a.card:hover{border-color:#2f2f36;background:var(--panel-2);transform:translateY(-1px)}
+  .ct{font-size:13.5px;font-weight:600}
+  .cd{color:var(--muted);font-size:12px;margin-top:4px}
+  .cmeta{color:var(--faint);font-size:11px;margin-top:8px;font-family:ui-monospace,Consolas,monospace}
+  .tag{display:inline-block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+       padding:2px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted);
+       margin-left:8px;vertical-align:2px}
+  .t-ok{color:var(--ok);border-color:#1d3a2c}
+  .t-warn{color:var(--warn);border-color:#3a2f1d}
+  .t-bad{color:var(--danger);border-color:#3a1d1d}
+  ul.notes{margin:8px 0 0 18px;color:var(--muted);font-size:12.5px}
+  ul.notes li{margin:4px 0}
+  code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+       background:#151517;border:1px solid var(--border);border-radius:4px;padding:1px 5px;color:#c8c8c8}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Material Workspace — proof index</h1>
+  <div class="sub">
+    Served from the repo root on port <code>8080</code>. Every card below opens the real prototype file
+    at its own path — nothing here is a mock-up.
+  </div>
+
+  <h2>Material workspace</h2>
+  <div class="grid">
+    <a class="card" href="MaterialShelf/MaterialShelfDrawer.html">
+      <div class="ct">Material Shelf Drawer<span class="tag t-warn">WebGPU</span></div>
+      <div class="cd">Live PBR drawer over a full-page GPU viewport. The closest existing thing to the
+        Material Workspace on this branch.</div>
+      <div class="cmeta">MaterialShelf/MaterialShelfDrawer.html · 404 613 B</div>
+    </a>
+    <a class="card" href="TexturePaintLayerStack.html">
+      <div class="ct">Texture Paint Layer Stack<span class="tag t-ok">renders</span></div>
+      <div class="cd">Layer rail: add 4 kinds, focus, rename, visibility, opacity scrub, reorder,
+        delete, filter, 12-cap tally, plus the inline fold-open properties card.</div>
+      <div class="cmeta">TexturePaintLayerStack.html · 101 102 B</div>
+    </a>
+    <a class="card" href="TexturePaintUI.html">
+      <div class="ct">Surface Inspector<span class="tag t-ok">renders</span></div>
+      <div class="cd">Two-slide carousel: stack ⇄ properties, layer ⇄ mask face. Channel slots,
+        mask interpretation, metadata.</div>
+      <div class="cmeta">TexturePaintUI.html · 110 508 B</div>
+    </a>
+    <a class="card" href="TexturePaint2.html">
+      <div class="ct">Layered PBR Painter<span class="tag t-ok">renders</span></div>
+      <div class="cd">Standalone layered PBR painting surface — self-contained, no external imports.</div>
+      <div class="cmeta">TexturePaint2.html · 899 lines</div>
+    </a>
+    <a class="card" href="TexturePaintInspector.html">
+      <div class="ct">Texture Paint Inspector<span class="tag t-ok">renders</span></div>
+      <div class="cd">Deep property inspector for the paint surface.</div>
+      <div class="cmeta">TexturePaintInspector.html · 2 695 lines</div>
+    </a>
+    <a class="card" href="Workspace.html">
+      <div class="ct">Workspace · Floating Windows<span class="tag t-warn">CDN + broken iframe</span></div>
+      <div class="cd">Window chrome, snap, tray, notch, dock. Needs unpkg lucide + fontshare, and its
+        dock iframe points at a file that is not in the repo.</div>
+      <div class="cmeta">Workspace.html · 143 397 B</div>
+    </a>
+  </div>
+
+  <h2>Layer / channel property panels</h2>
+  <div class="grid">
+    <a class="card" href="LayerPropertyPanel.html">
+      <div class="ct">Layer Properties<span class="tag t-ok">renders</span></div>
+      <div class="cd">Layer-level property card.</div>
+      <div class="cmeta">LayerPropertyPanel.html</div>
+    </a>
+    <a class="card" href="ChannelPropertyPanel.html">
+      <div class="ct">Channel Property Panel<span class="tag t-ok">renders</span></div>
+      <div class="cd">Channel slot editor and port-target selection.</div>
+      <div class="cmeta">ChannelPropertyPanel.html</div>
+    </a>
+    <a class="card" href="MaskPropertyPanel.html">
+      <div class="ct">Mask Property Panel<span class="tag t-ok">renders</span></div>
+      <div class="cd">Mask tone / strength / interpretation controls.</div>
+      <div class="cmeta">MaskPropertyPanel.html</div>
+    </a>
+    <a class="card" href="LayerStackPanel.html">
+      <div class="ct">Layer Stack Panel<span class="tag t-ok">renders</span></div>
+      <div class="cd">Shared stack rail variant.</div>
+      <div class="cmeta">LayerStackPanel.html</div>
+    </a>
+  </div>
+
+  <h2>Whole-surface prototype</h2>
+  <div class="grid">
+    <a class="card" href="PaintingSurface/PaintingSurface.html">
+      <div class="ct">Painting Surface<span class="tag t-ok">renders</span></div>
+      <div class="cd">The full multi-file painting surface the port targets were cut from —
+        layer rail, paint field, summoned instrument card, property column.</div>
+      <div class="cmeta">PaintingSurface/PaintingSurface.html</div>
+    </a>
+  </div>
+
+  <h2>Known gaps found while reading (no edits made)</h2>
+  <ul class="notes">
+    <li><b>Lost branch.</b> <code>arena/73e163a3-frontier</code> carried
+      <code>Experimental/TextureStudio/</code> — 1 519 files / 428 836 lines, the React+Vite
+      "Alloy" studio (Material · Pattern · Texture · Stamp · Baking) plus
+      <code>Exhibits/Renderer/</code> with the real Vulkan readback evidence.
+      <b>None of that exists on this branch.</b> That is the material workspace work that went missing.</li>
+    <li><b>Vulkan proof renderer is absent here.</b> <code>Exhibits/</code> currently holds only
+      <code>Diagnostics/</code>. There is no <code>Exhibits/Renderer/index.html</code>, no
+      <code>Images/</code>, no <code>Results/</code> JSON on this branch.</li>
+    <li><b><code>Workspace.html</code> dock is dead.</b> Its iframe
+      <code>src="AssetBrowser.html"</code> resolves to a file that is not in
+      <code>Documentation/Prototypes/</code> — it 404s in the browser.</li>
+    <li><b>Offline runtime imports.</b> <code>Workspace.html</code> pulls
+      <code>unpkg.com/lucide@latest</code> and <code>api.fontshare.com</code>; icons and the chosen
+      font will not appear in this sandbox.</li>
+    <li><b>WebGPU in this browser.</b> <code>MaterialShelfDrawer.html</code> hard-requires
+      <code>navigator.gpu</code> and shows a fatal panel when it is absent. If the panel reports
+      "WebGPU unavailable", that is the renderer, not the prototype's fault.</li>
+  </ul>
+
+</div>
+</body>
+</html>

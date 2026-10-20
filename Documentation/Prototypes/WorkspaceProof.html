@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frontier · Material &amp; Pattern Workspace — proof</title>
+<style>
+  :root{
+    --bg:#000; --panel:#0d0d0d; --panel-2:#111113; --raised:#151517;
+    --border:#1c1c1c; --border-2:#2a2a30; --hair:#161616;
+    --ink:#ededed; --muted:#8a8a8a; --faint:#5f5f5f;
+    --marker:#4a90e2; --ok:#4fd18b; --warn:#e0a34a; --bad:#e05a5a;
+    --ease:cubic-bezier(.4,0,.2,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  html,body{height:100%;background:var(--bg);color:var(--ink)}
+  body{
+    font:13px/1.55 "Segoe UI",system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1220px;margin:0 auto;padding:30px 22px 90px}
+
+  /* ── header ─────────────────────────────────────────── */
+  header{border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:8px}
+  h1{font-size:21px;font-weight:600;letter-spacing:.1px}
+  .lede{color:var(--muted);font-size:13px;margin-top:7px;max-width:78ch}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+  .chip{
+    font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:4px 10px;border-radius:999px;
+    border:1px solid var(--border-2);color:var(--muted);background:var(--panel);
+  }
+  .chip.ok{color:var(--ok);border-color:#1d3a2c}
+  .chip.warn{color:var(--warn);border-color:#3a2f1d}
+
+  /* ── nav ────────────────────────────────────────────── */
+  nav{
+    position:sticky;top:0;z-index:40;background:rgba(0,0,0,.92);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--border);
+    margin:0 -22px 26px;padding:11px 22px;display:flex;gap:7px;flex-wrap:wrap;
+  }
+  nav a{
+    font-size:12px;color:var(--muted);text-decoration:none;
+    padding:6px 12px;border-radius:8px;border:1px solid transparent;transition:.14s var(--ease);
+  }
+  nav a:hover{color:var(--ink);background:var(--panel);border-color:var(--border)}
+
+  /* ── sections ───────────────────────────────────────── */
+  section{margin-bottom:40px;scroll-margin-top:70px}
+  h2{
+    font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--faint);padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:16px;
+  }
+  h3{font-size:14px;font-weight:600;margin:0 0 4px}
+  .note{color:var(--muted);font-size:12.5px;margin-bottom:14px;max-width:82ch}
+
+  /* ── figure cards ───────────────────────────────────── */
+  .shot{
+    border:1px solid var(--border);border-radius:12px;overflow:hidden;
+    background:var(--panel);margin-bottom:16px;
+  }
+  .shot > figcaption{
+    display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+    padding:11px 14px;border-bottom:1px solid var(--border);background:var(--raised);
+  }
+  .shot .nm{font-weight:600;font-size:13px}
+  .shot .meta{color:var(--faint);font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+  .shot img{display:block;width:100%;height:auto;background:#000}
+  .shot .cap{color:var(--muted);font-size:12px;padding:0 14px;margin:-6px 0 12px}
+
+  /* ── click-to-enlarge ───────────────────────────────── */
+  .shot .zoom{cursor:zoom-in;position:relative;display:block}
+  .shot .zoom::after{
+    content:"click to enlarge";position:absolute;right:10px;bottom:10px;
+    font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    background:rgba(0,0,0,.72);border:1px solid var(--border-2);color:var(--muted);
+    padding:4px 9px;border-radius:999px;opacity:0;transition:.16s var(--ease);pointer-events:none;
+  }
+  .shot .zoom:hover::after{opacity:1}
+
+  /* ── gif grid ───────────────────────────────────────── */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+  .g{
+    border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--panel);
+  }
+  .g img{display:block;width:100%;height:auto;background:#000;cursor:zoom-in}
+  .g .l{padding:9px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}
+  .g .l b{color:var(--ink);font-weight:600;display:block;font-size:12.5px;margin-bottom:2px}
+
+  /* ── studio frame ───────────────────────────────────── */
+  .framewrap{
+    border:1px solid var(--border-2);border-radius:12px;overflow:hidden;background:#000;
+  }
+  .framebar{
+    display:flex;align-items:center;gap:10px;padding:9px 13px;
+    background:var(--raised);border-bottom:1px solid var(--border);flex-wrap:wrap;
+  }
+  .framebar .dot{width:9px;height:9px;border-radius:50%;background:#2a2a30;flex:0 0 auto}
+  .framebar .path{
+    font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 220px;min-width:0;
+  }
+  .framebar a,.framebar button{
+    font-size:11.5px;color:var(--muted);text-decoration:none;background:var(--panel);
+    border:1px solid var(--border-2);border-radius:7px;padding:5px 11px;cursor:pointer;
+  }
+  .framebar a:hover,.framebar button:hover{color:var(--ink);border-color:#3a3a42}
+  iframe{display:block;width:100%;height:76vh;min-height:620px;border:0;background:#000}
+
+  /* ── tables / lists ─────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--faint);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+  td code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#c8c8c8}
+  code{
+    font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+    background:var(--raised);border:1px solid var(--border);border-radius:4px;padding:1px 5px;
+  }
+  .st-ok{color:var(--ok)}.st-warn{color:var(--warn)}.st-bad{color:var(--bad)}
+  ul.notes{margin:8px 0 0 18px;color:var(--muted);font-size:12.5px}
+  ul.notes li{margin:5px 0}
+
+  /* ── lightbox ───────────────────────────────────────── */
+  #lb{
+    position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:100;
+    display:none;align-items:center;justify-content:center;padding:26px;cursor:zoom-out;
+  }
+  #lb.on{display:flex}
+  #lb img{max-width:100%;max-height:100%;object-fit:contain;border:1px solid var(--border-2);border-radius:8px}
+  #lb .x{position:fixed;top:16px;right:20px;color:var(--muted);font-size:26px;line-height:1;user-select:none}
+  footer{color:var(--faint);font-size:11.5px;border-top:1px solid var(--border);padding-top:16px;margin-top:44px}
+</style>
+</head>
+<body>
+
+<div id="lb"><span class="x">×</span><img alt=""></div>
+
+<div class="wrap">
+
+  <header>
+    <h1>Material &amp; Pattern Workspace — proof</h1>
+    <div class="lede">
+      Every image below is a real file recovered from <code>arena/73e163a3-frontier</code> (fast-forward merged
+      into <code>arena/9565ca9a-frontier</code>). Nothing here is a mock-up or a redrawn illustration — these are
+      the committed evidence captures, and the animated GIFs are real interaction recordings.
+      The Alloy studio at the bottom is the <b>live, self-contained 4&nbsp;MB HTML build</b> running in a frame —
+      not a screenshot of it.
+    </div>
+    <div class="chips">
+      <span class="chip ok">merge complete</span>
+      <span class="chip ok">22 Vulkan proof PNGs decoded</span>
+      <span class="chip ok">93 studio captures</span>
+      <span class="chip ok">11 motion GIFs</span>
+      <span class="chip warn">images are prior renders — re-render pending</span>
+    </div>
+  </header>
+
+  <nav>
+    <a href="#material">Material workspace</a>
+    <a href="#material-more">Material — more</a>
+    <a href="#pattern">Pattern workspace</a>
+    <a href="#motion">Pattern — motion</a>
+    <a href="#vulkan">Vulkan proofs</a>
+    <a href="#studio">Live Alloy studio</a>
+    <a href="#state">Repo state</a>
+  </nav>
+
+  <!-- ══════════════ MATERIAL ══════════════ -->
+  <section id="material">
+    <h2>1 · Material workspace</h2>
+    <div class="note">
+      Three-column authoring surface: material library on the left (127 presets, filtered by family),
+      a live shaded PBR viewport in the centre, and a material inspector on the right whose controls are
+      specific to the material's <i>type</i> — this one is layered automotive paint, so it exposes paint colour,
+      roughness, depth, clearcoat gloss and a separate metallic-flake section.
+    </div>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Material workspace — Racing Green, layered automotive paint</span>
+        <span class="meta">MaterialWorkspace.png · 1440×1000 · 565 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/MaterialWorkspace.png"
+           alt="Material workspace showing a 127-item material library, a live shaded sphere preview labelled Racing Green, and a material inspector with automotive paint controls.">
+      <div class="cap">Library → viewport → inspector. The sphere is an actual shaded render of the selected preset, not an icon.</div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Material inspector — material-aware controls</span>
+        <span class="meta">MaterialInspectionControls.png · 1440×1000 · 574 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/MaterialInspectionControls.png"
+           alt="Material inspector expanded showing the full stack of material-aware controls.">
+      <div class="cap">Control sets are driven by material category, not a fixed panel.</div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Material library — 127 presets</span>
+        <span class="meta">MaterialLibrary.png · 1280×900 · 155 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/MaterialLibrary.png"
+           alt="Material library grid showing many rendered material preset thumbnails.">
+      <div class="cap">Each card is a rendered thumbnail of the real material, so the library is visual rather than textual.</div>
+    </figure>
+  </section>
+
+  <!-- ══════════════ MATERIAL — MORE ══════════════ -->
+  <section id="material-more">
+    <h2>2 · Material workspace — further captures</h2>
+
+    <div class="grid">
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/ReferenceMaterialWorkspace.png"
+             alt="Reference material workspace capture at 1440 by 1000.">
+        <div class="l"><b>Reference material workspace</b>ReferenceMaterialWorkspace.png · 1440×1000</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/MaterialAtlas.png"
+             alt="Material atlas thumbnail grid.">
+        <div class="l"><b>Material atlas</b>MaterialAtlas.png · 260×260</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialBrowser.png"
+             alt="Material browser capture from the Vulkan renderer.">
+        <div class="l"><b>Material browser (Vulkan)</b>Exhibits/Renderer/Images/MaterialBrowser.png · 1440×1643</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialTexturedAlloySphere.png"
+             alt="Textured alloy material rendered on a sphere by the Vulkan renderer.">
+        <div class="l"><b>Textured alloy — sphere</b>MaterialTexturedAlloySphere.png · 720×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialCoatedCeramicSphere.png"
+             alt="Coated ceramic material rendered on a sphere by the Vulkan renderer.">
+        <div class="l"><b>Coated ceramic — sphere</b>MaterialCoatedCeramicSphere.png · 720×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialBrushedCopperSphere.png"
+             alt="Brushed copper material rendered on a sphere by the Vulkan renderer.">
+        <div class="l"><b>Brushed copper — sphere</b>MaterialBrushedCopperSphere.png · 720×720</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ PATTERN ══════════════ -->
+  <section id="pattern">
+    <h2>3 · Pattern workspace</h2>
+    <div class="note">
+      The 2D vector authoring canvas: motif layer list on the left, a ruled vector canvas with a tool bar and
+      eight-handle selection in the centre, a seamless repeat preview beneath it, and the inspector on the right
+      (align, surface channels, mask, transform). The workspace switcher across the top is
+      <b>Material · Pattern · Texture · Stamp · Baking</b>.
+    </div>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Pattern workspace — vector canvas with selection</span>
+        <span class="meta">NativePatternWorkspace.png · 1440×900 · 233 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternWorkspace.png"
+           alt="Pattern workspace showing the vector canvas with a selected rectangle motif, layer list, seamless repeat preview and inspector.">
+      <div class="cap">Selected motif shows eight resize handles plus a rotation handle; the inspector mirrors it in numeric fields.</div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Pattern — artwork arrays and repeat</span>
+        <span class="meta">PatternArtworkArrays.png · 1440×900 · 191 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/PatternArtworkArrays.png"
+           alt="Pattern workspace showing reflected, radial and repeat array artwork operations.">
+      <div class="cap">Reflected / radial copies and centred repeat arrays, all editable.</div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Pattern — selection inspector</span>
+        <span class="meta">PatternSelectionInspector.png · 1440×900 · 200 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/PatternSelectionInspector.png"
+           alt="Pattern workspace inspector expanded for a multi-vector selection.">
+      <div class="cap">Multi-selection resolves into one inspector covering every selected vector.</div>
+    </figure>
+
+    <figure class="shot">
+      <figcaption><span class="nm">Pattern applied to a 3D material</span>
+        <span class="meta">HtmlPatternMaterial.png · 1440×1000 · 341 KB</span></figcaption>
+      <img class="zoom" src="../Exhibits/TextureStudio/Images/HtmlPatternMaterial.png"
+           alt="HTML pattern shown applied to a 3D material preview.">
+      <div class="cap">The bridge the studio is built around: same document, seen on a real surface.</div>
+    </figure>
+  </section>
+
+  <!-- ══════════════ MOTION ══════════════ -->
+  <section id="motion">
+    <h2>4 · Pattern workspace — motion (real recordings)</h2>
+    <div class="note">
+      These are animated GIFs, not stills. They are the only proof here that shows the tools actually
+      <i>doing</i> something — pen placement, segment editing, joining, endpoint join, clipboard, refinement
+      and the workspace port itself.
+    </div>
+    <div class="grid">
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternPenPlacement.gif"
+             alt="Animation of Bézier pen placement in the pattern workspace.">
+        <div class="l"><b>Pen placement</b>NativePatternPenPlacement.gif · 283 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternSegmentEditing.gif"
+             alt="Animation of segment editing in the pattern workspace.">
+        <div class="l"><b>Segment editing</b>NativePatternSegmentEditing.gif · 284 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternJoining.gif"
+             alt="Animation of joining paths in the pattern workspace.">
+        <div class="l"><b>Path joining</b>NativePatternJoining.gif · 443 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternEndpointJoin.gif"
+             alt="Animation of endpoint join in the pattern workspace.">
+        <div class="l"><b>Endpoint join</b>NativePatternEndpointJoin.gif · 253 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternRefinement.gif"
+             alt="Animation of curve refinement in the pattern workspace.">
+        <div class="l"><b>Curve refinement</b>NativePatternRefinement.gif · 810 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternPenContinuation.gif"
+             alt="Animation of pen path continuation in the pattern workspace.">
+        <div class="l"><b>Pen continuation</b>NativePatternPenContinuation.gif · 640 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternMultipoint.gif"
+             alt="Animation of multi-point editing in the pattern workspace.">
+        <div class="l"><b>Multi-point edit</b>NativePatternMultipoint.gif · 443 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternClipboard.gif"
+             alt="Animation of the in-editor clipboard in the pattern workspace.">
+        <div class="l"><b>Editor clipboard</b>NativePatternClipboard.gif · 393 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternWorkspacePort.gif"
+             alt="Animation of the pattern workspace being ported to the native host.">
+        <div class="l"><b>Workspace port</b>NativePatternWorkspacePort.gif · 360 KB</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/TextureStudio/Images/NativePatternSurfaceChannels.gif"
+             alt="Animation of pattern surface channel assignment.">
+        <div class="l"><b>Surface channels</b>NativePatternSurfaceChannels.gif · 47 KB</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ VULKAN ══════════════ -->
+  <section id="vulkan">
+    <h2>5 · Native Vulkan proof renderer</h2>
+    <div class="note">
+      From <code>Exhibits/Renderer/</code> — unmodified GPU readback pixels from SwiftShader software Vulkan,
+      using the production <code>Engine/Render</code> sources and Slang. These are the material proofs the
+      material workspace is being ported onto.
+    </div>
+
+    <div class="grid">
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/PreviewPbrBrowser.png"
+             alt="Preview PBR browser rendered by the Vulkan proof renderer.">
+        <div class="l"><b>Preview PBR browser</b>PreviewPbrBrowser.png · 1440×1000</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialTexturedAlloyBracket.png"
+             alt="Textured alloy material on the two-block bracket fixture.">
+        <div class="l"><b>Textured alloy — bracket</b>MaterialTexturedAlloyBracket.png · 960×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialLuminousPatternSphere.png"
+             alt="Luminous pattern material rendered on a sphere.">
+        <div class="l"><b>Luminous pattern — sphere</b>MaterialLuminousPatternSphere.png · 720×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialCoatedCeramicBracket.png"
+             alt="Coated ceramic material on the bracket fixture.">
+        <div class="l"><b>Coated ceramic — bracket</b>MaterialCoatedCeramicBracket.png · 960×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MaterialBrushedCopperBracket.png"
+             alt="Brushed copper material on the bracket fixture.">
+        <div class="l"><b>Brushed copper — bracket</b>MaterialBrushedCopperBracket.png · 960×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/PreviewPbrCalibration.png"
+             alt="Preview PBR calibration sphere.">
+        <div class="l"><b>PBR calibration</b>PreviewPbrCalibration.png · 720×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/CadOrthographic.png"
+             alt="Orthographic native Vulkan CAD capture of the bracket fixture.">
+        <div class="l"><b>CAD orthographic</b>CadOrthographic.png · 960×720</div>
+      </div>
+      <div class="g">
+        <img class="zoom" src="../Exhibits/Renderer/Images/MatCapCalibration.png"
+             alt="MatCap calibration sphere rendered by Vulkan.">
+        <div class="l"><b>MatCap calibration</b>MatCapCalibration.png · 720×720</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ LIVE STUDIO ══════════════ -->
+  <section id="studio">
+    <h2>6 · Live Alloy studio — the whole thing in one HTML</h2>
+    <div class="note">
+      <code>Experimental/TextureStudio/site/index.html</code> — <b>4 020 340 bytes, fully self-contained</b>
+      (zero external references; JS, CSS, fonts and shaders all inlined). It is running below, not pictured.
+      Use the workspace switcher in its top-right to move between <b>Material · Pattern · Texture · Stamp · Baking</b>.
+      Direct links: <code>?studio=material</code>, <code>?studio=pattern</code>, <code>?studio=texture</code>,
+      <code>?studio=stamp</code>, <code>?studio=baking</code>.
+    </div>
+    <div class="framewrap">
+      <div class="framebar">
+        <span class="dot"></span>
+        <span class="path">Experimental/TextureStudio/site/index.html</span>
+        <button id="reload">Reload studio</button>
+        <a href="../Experimental/TextureStudio/site/index.html" target="_blank" rel="noopener">Open in new tab ↗</a>
+      </div>
+      <iframe id="studioFrame" src="../Experimental/TextureStudio/site/index.html?studio=material"
+              title="Alloy studio — material workspace" allow="clipboard-read; clipboard-write"></iframe>
+    </div>
+    <ul class="notes">
+      <li>If the frame is blank, hit <b>Reload studio</b> — a stale tab can retain an older module graph.
+        Do not clear saved projects.</li>
+      <li>The studio needs WebGL/WebGPU for its shaded previews; the 2D pattern canvas does not.</li>
+      <li>This is the <code>build:githack</code> output, so it needs no dev server and no CDN.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ STATE ══════════════ -->
+  <section id="state">
+    <h2>7 · What the merge restored</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Files</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td><code>Experimental/TextureStudio/</code> — Alloy studio source, tests, docs</td><td>1 519</td><td class="st-ok">restored</td></tr>
+        <tr><td><code>Experimental/TextureStudio/site/index.html</code> — self-contained build</td><td>1</td><td class="st-ok">restored · 4.0 MB</td></tr>
+        <tr><td><code>EngineContent/MaterialArchives/TextureStudio/</code> — material presets</td><td>128</td><td class="st-ok">restored</td></tr>
+        <tr><td><code>Exhibits/Renderer/</code> — Vulkan proof renderer</td><td>~50</td><td class="st-ok">restored</td></tr>
+        <tr><td><code>Exhibits/TextureStudio/</code> — captures, motion, results JSON</td><td>234</td><td class="st-ok">restored</td></tr>
+        <tr><td><code>UI/TextureStudio/</code> — native panels</td><td>4</td><td class="st-ok">restored</td></tr>
+        <tr><td><code>Engine/Render/Shader/MaterialSurface.slang</code> + material rendering</td><td>~12</td><td class="st-ok">restored</td></tr>
+        <tr><td>Re-render of the proof images on current hardware</td><td>—</td><td class="st-warn">not done — needs the Windows Vulkan host</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin-top:30px">Honest limits</h2>
+    <ul class="notes">
+      <li>Every image on this page is a <b>prior committed render</b>, not one produced today. Re-rendering needs
+        the native Vulkan host and a Windows build, which was not run.</li>
+      <li>The merge was a <b>fast-forward</b> — no conflicts, no rewriting. Branch history is intact.</li>
+      <li>Per <code>CLAUDE.md</code> no build, no test run and no capture was performed. The server is a plain
+        static file server.</li>
+      <li>The Alloy studio in section 6 is the real application; everything above it is committed evidence imagery.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Branch <code>arena/9565ca9a-frontier</code> · fast-forwarded to <code>e96c9b2</code> ·
+    2 602 files recovered · proofs sourced from <code>Exhibits/TextureStudio/Images</code> and
+    <code>Exhibits/Renderer/Images</code>.
+  </footer>
+
+</div>
+
+<script>
+  // click-to-enlarge
+  var lb = document.getElementById('lb'), lbImg = lb.querySelector('img');
+  document.querySelectorAll('img.zoom').forEach(function (im) {
+    im.addEventListener('click', function () {
+      lbImg.src = im.src; lbImg.alt = im.alt; lb.classList.add('on');
+    });
+  });
+  lb.addEventListener('click', function () { lb.classList.remove('on'); lbImg.src = ''; });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { lb.classList.remove('on'); lbImg.src = ''; }
+  });
+
+  // studio reload
+  document.getElementById('reload').addEventListener('click', function () {
+    var f = document.getElementById('studioFrame');
+    f.src = f.src.split('#')[0];
+  });
+</script>
+
+</body>
+</html>
