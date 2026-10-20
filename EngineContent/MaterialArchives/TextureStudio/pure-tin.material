@@ -1,0 +1,11 @@
+Format = 1
+Name = "Pure Tin"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.665387298282272, 0.6724431569576875, 0.6307571363461468]
+Roughness = 0.32
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Midnight Satin"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.0295568344378088, 0.0382043715953465, 0.07618538148130785]
+Roughness = 0.29
+Metallic = 0
+Ior = 1.55
+Coverage = 1.0
+Anisotropy = 0.8

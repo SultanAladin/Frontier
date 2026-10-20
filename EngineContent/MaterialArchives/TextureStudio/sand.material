@@ -1,0 +1,11 @@
+Format = 1
+Name = "Sand"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5840784178911641, 0.40197777983219574, 0.1912016827407914]
+Roughness = 0.88
+Metallic = 0
+Ior = 1.544
+Coverage = 1.0
+Anisotropy = 0

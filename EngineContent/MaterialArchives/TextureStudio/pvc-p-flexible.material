@@ -1,0 +1,11 @@
+Format = 1
+Name = "PVC-P Flexible"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.0382043715953465, 0.0466650863368801, 0.05126945837404324]
+Roughness = 0.55
+Metallic = 0
+Ior = 1.54
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,1906 @@
+/*============================================================================================================================================
+                                                         PATTERNWORKSPACEPANEL.CPP
+============================================================================================================================================*/
+// 🧩 Port the approved Pattern layout to native controls; retain actual GPU canvas images and atomic source edits across dock presentations.
+
+#include "Engine/Interface/DropdownControls.h"
+#include "PatternWorkspacePanel.h"
+#include "VectorMaskControls.h"
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <cstdio>
+#include <numbers>
+#include <cctype>
+
+namespace Frontier
+{
+namespace
+{
+constexpr const char *ShapeCaptions[]{"Rectangle", "Ellipse", "Diamond", "Triangle", "Polygon", "Star"};
+constexpr const char *ShapeNames[]{"rect", "ellipse", "diamond", "triangle", "polygon", "star"};
+constexpr const char *ShapePaths[]{"M4 4H20V20H4Z", "M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3Z", "M12 3L21 12L12 21L3 12Z", "M12 3L22 21H2Z", "M7 3H17L22 12L17 21H7L2 12Z", "M12 2L15 8L22 9L17 14L18 22L12 18L6 22L7 14L2 9L9 8Z"};
+constexpr const char *SelectPath = "M4 3L11 21L14 14L21 11Z";
+constexpr const char *PlusPath = "M12 5V19M5 12H19";
+constexpr const char *VisiblePath = "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z";
+constexpr const char *LockPath = "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10";
+constexpr const char *TrashPath = "M3 6H21M8 6V3H16V6M6 6L7 21H17L18 6M10 10V17M14 10V17";
+constexpr const char *CopyPath = "M8 8H21V21H8ZM16 8V3H3V16H8";
+
+ImVec4 Spectrum(uint32_t Colour)
+{
+    return {float((Colour >> 16) & 255) / 255, float((Colour >> 8) & 255) / 255, float(Colour & 255) / 255, 1};
+}
+
+void Caption(
+    ImVec2      Position,
+    const char *Text,
+    float       Size,
+    uint32_t    Colour,
+    void       *Typeface = nullptr)
+{
+    ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
+}
+
+std::string FoldCaption(std::string CaptionText)
+{
+    for (auto &Letter : CaptionText) if (Letter >= 'A' && Letter <= 'Z') Letter = char(Letter + 32);
+    return CaptionText;
+}
+
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     DOCUMENT AND PRESENTATION LIFETIME
+//------------------------------------------------------------------------------------------------------------------------
+
+PatternWorkspacePanel::PatternWorkspacePanel()
+{
+    VectorAuthoringDocument Blank;
+    Blank.Name = "Untitled pattern";
+    ConfigureDocument(Blank);
+    Controls.RegisterExtent = [&](std::string_view CaptionText, PlaneExtent Extent) { ControlExtents[std::string(CaptionText)] = Extent; };
+    (void)Panels.ConfigureDockspaceKey("TextureWorkspace Pattern panels");
+    Panels.ConfigureWorkspaceInsets(43, 0);
+    Panels.ConfigureTabExtent(130, 26);
+    Panels.Register({"pattern-library", "Pattern library", [&]() { ConstructLibrary(); }});
+    Panels.Register({"pattern-layers", "Layers", [&]() { ConstructLayers(); }});
+    Panels.Register({"pattern-canvas", "2D viewport", [&]() { ConstructCanvas(); }});
+    Panels.Register({"pattern-inspector", "Inspector", [&]() { ConstructInspector(); }});
+    (void)Panels.ConfigureStackedPanels("pattern-library", "pattern-layers", 32.f);
+    Panels.ConfigureColumns({{"pattern-layers", 278.f / 1436}, {"pattern-canvas", 820.f / 1436},
+                             {"pattern-inspector", 338.f / 1436}});
+    ArraySpecification.Columns = 3;
+    ArraySpecification.StepX = 80;
+    ArraySpecification.Radius = 120;
+    ArraySpecification.Rings = 2;
+    ArraySpecification.RadiusStep = 60;
+    ArraySpecification.EndScale = 50;
+}
+
+void PatternWorkspacePanel::ConfigureInterfaceScale(float Replacement)
+{
+    Scale = std::isfinite(Replacement) ? std::clamp(Replacement, .75f, 1.5f) : 1;
+    Controls.Scale = Scale;
+}
+
+void PatternWorkspacePanel::ConfigureTypeface(void *Regular, void *Light)
+{
+    RegularTypeface = Regular;
+    LightTypeface = Light;
+}
+
+void PatternWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
+{
+    if (Document.Stamp) throw std::runtime_error("Open a native Pattern document, not a Stamp document.");
+    CancelPen();
+    History.Reset(std::move(Document));
+    SavedDocument = History.QueryDocument();
+    Selection.clear();
+    UndoSelections.clear(); RedoSelections.clear();
+    GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+    MaskSelection = 0; PointToken = 0; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); AutomaticPen = false;
+    Diagnostic.clear();
+}
+
+const VectorAuthoringDocument &PatternWorkspacePanel::QueryDocument() const
+{
+    if (PenPreview) return *PenPreview;
+    return GestureDraft ? *GestureDraft : History.QueryDocument();
+}
+
+PlaneExtent PatternWorkspacePanel::QueryControlExtent(const std::string &CaptionText) const
+{
+    const auto Position = ControlExtents.find(CaptionText);
+    return Position == ControlExtents.end() ? PlaneExtent{} : Position->second;
+}
+
+PlaneExtent PatternWorkspacePanel::QueryPanelExtent(const std::string &CaptionText) const
+{
+    const auto Position = PanelExtents.find(CaptionText);
+    return Position == PanelExtents.end() ? PlaneExtent{} : Position->second;
+}
+
+void PatternWorkspacePanel::CapturePanel(const char *CaptionText)
+{
+    const auto Position = ImGui::GetWindowPos(), Extent = ImGui::GetWindowSize();
+    PanelExtents[CaptionText] = {Position.x, Position.y, Position.x + Extent.x, Position.y + Extent.y};
+}
+
+void PatternWorkspacePanel::Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens)
+{
+    if (PenSource) throw std::runtime_error("Finish or cancel the pending pen path before another source edit.");
+    const auto PreviousSelection = GestureSource ? GestureSelection : Selection;
+    if (History.Finalize(std::move(Document)))
+    {
+        UndoSelections.push_back(PreviousSelection);
+        if (UndoSelections.size() > 80) UndoSelections.erase(UndoSelections.begin());
+        RedoSelections.clear();
+    }
+    Selection = std::move(Tokens);
+    std::erase_if(Selection, [&](uint32_t Token) { return std::none_of(History.QueryDocument().Layers.begin(), History.QueryDocument().Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; }); });
+    if (std::find(Selection.begin(), Selection.end(), MaskSelection) == Selection.end()) MaskSelection = 0;
+    Diagnostic.clear();
+}
+
+void PatternWorkspacePanel::EvaluateEdit(const std::function<void(VectorAuthoringDocument &)> &Edit)
+{
+    try
+    {
+        auto Document = History.QueryDocument();
+        Edit(Document);
+        Finalize(std::move(Document), Selection);
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::TransferSelection(bool Remove)
+{
+    try
+    {
+        if (PenSource || Gesture != 0 || MaskSelection) throw std::runtime_error("Finish the current gesture and select vector layers before copying.");
+        auto Fragment = ExtractVectorAuthoringSelection(History.QueryDocument(), Selection);
+        if (Remove)
+        {
+            auto Document = History.QueryDocument();
+            PartitionVectorAuthoringSelection(Document, Selection);
+            Finalize(std::move(Document), {});
+        }
+        SelectionClipboard = std::move(Fragment);
+        Diagnostic.clear();
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::InsertSelection(bool InPlace)
+{
+    try
+    {
+        if (PenSource || Gesture != 0 || MaskSelection || !SelectionClipboard) throw std::runtime_error("Copy vector layers before pasting; finish any active gesture first.");
+        auto Document = History.QueryDocument();
+        auto Tokens = IntegrateVectorAuthoringSelection(Document, *SelectionClipboard,
+            InPlace ? std::array<float, 2>{0, 0} : std::array<float, 2>{18, 18});
+        Finalize(std::move(Document), std::move(Tokens));
+        Tool = VectorAuthoringTool::Select;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::ReplicateSelection()
+{
+    try
+    {
+        if (PenSource || Gesture != 0 || MaskSelection) throw std::runtime_error("Finish the current gesture before duplicating vector layers.");
+        auto Document = History.QueryDocument();
+        TransformVectorAuthoringSelection(Document, Selection, {});
+        const auto Fragment = ExtractVectorAuthoringSelection(Document, Selection);
+        auto Tokens = IntegrateVectorAuthoringSelection(Document, Fragment);
+        Finalize(std::move(Document), std::move(Tokens));
+        Tool = VectorAuthoringTool::Select;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::SelectEditableVectors()
+{
+    Selection.clear(); MaskSelection = 0; PointToken = 0; SelectedAnchors.clear(); ActiveAnchor = SIZE_MAX;
+    for (const auto &Layer : History.QueryDocument().Layers)
+        if (QueryVectorAuthoringVisibility(History.QueryDocument(), Layer) && !QueryVectorAuthoringProtection(History.QueryDocument(), Layer))
+            Selection.push_back(Layer.Token);
+}
+
+void PatternWorkspacePanel::ApplySourcePatch(const VectorAuthoringSourcePatch &Patch)
+{
+    EvaluateEdit([&](auto &Document) { TransformVectorAuthoringSelection(Document, Selection, Patch); });
+}
+
+void PatternWorkspacePanel::RestoreHistory(bool Redo)
+{
+    if (PenSource) { CancelPen(); return; }
+    GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+    size_t AnchorCount = 0;
+    try { AnchorCount = DecodeCubicPath(History.QueryDocument(), PointToken).Anchors.size(); } catch (const std::exception &) {}
+    auto &Source = Redo ? RedoSelections : UndoSelections;
+    auto &Destination = Redo ? UndoSelections : RedoSelections;
+    if (History.RestoreHistory(Redo) && !Source.empty())
+    {
+        Destination.push_back(Selection);
+        Selection = std::move(Source.back());
+        Source.pop_back();
+        Diagnostic.clear();
+    }
+    std::erase_if(Selection, [&](uint32_t Token) { return std::none_of(QueryDocument().Layers.begin(), QueryDocument().Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; }); });
+    MaskSelection = 0;
+    try
+    {
+        if (DecodeCubicPath(History.QueryDocument(), PointToken).Anchors.size() != AnchorCount)
+        { SelectedAnchors.clear(); ActiveAnchor = SIZE_MAX; }
+    }
+    catch (const std::exception &) { SelectedAnchors.clear(); ActiveAnchor = SIZE_MAX; }
+}
+
+void PatternWorkspacePanel::Select(uint32_t Token, bool Extend)
+{
+    if (Selection != std::vector<uint32_t>{Token} || Extend) { PointToken = 0; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); }
+    if (!Extend) Selection.clear();
+    const auto Position = std::find(Selection.begin(), Selection.end(), Token);
+    if (Extend && Position != Selection.end()) Selection.erase(Position);
+    else Selection.push_back(Token);
+    MaskSelection = 0;
+}
+
+void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *CaptionText)
+{
+    try
+    {
+        auto Document = History.QueryDocument();
+        VectorCoverageInstruction Source;
+        Source.Topology[0] = Category;
+        Source.Bounds = {256, 256, 160, 160};
+        Source.Colour = {.8627f, .4627f, .3529f, 1};
+        Source.ColourEnd = {.35f, .55f, .45f, 1};
+        if (Document.Layers.empty()) Document.Name = "Custom pattern";
+        const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
+        Finalize(std::move(Document), {Token});
+        SearchText[0] = 0; Filter = 0;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+bool PatternWorkspacePanel::Save()
+{
+    if (!SaveSource) return false;
+    if (PenSource && !FinishPen(false)) return false;
+    try
+    {
+        if (!SaveSource(EncodeVectorAuthoring(QueryDocument()))) return false;
+        SavedDocument = QueryDocument();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+}
+
+bool PatternWorkspacePanel::RequestClose()
+{
+    CancelPen();
+    if (GestureSource) { Selection = GestureSelection; GestureSource.reset(); GestureDraft.reset(); Gesture = 0; }
+    if (!QueryModified()) return true;
+    CloseRequested = true;
+    return false;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     APPROVED HEADER AND LAYER PANEL
+//------------------------------------------------------------------------------------------------------------------------
+
+void PatternWorkspacePanel::ConstructHeader()
+{
+    const auto *Viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(Viewport->WorkPos);
+    ImGui::SetNextWindowSize(ImVec2(Viewport->WorkSize.x, 43 * Scale));
+    ImGui::Begin("Pattern header", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar);
+    const auto Origin = ImGui::GetWindowPos();
+    const float Width = ImGui::GetWindowWidth();
+    ImGui::GetWindowDrawList()->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 43 * Scale), ImGui::GetColorU32(Spectrum(0x0b0b0b)));
+    Caption(ImVec2(Origin.x + 16 * Scale, Origin.y + 16 * Scale), QueryDocument().Name.c_str(), 10 * Scale, 0xc5c5b8);
+    Caption(ImVec2(Origin.x + 22 * Scale + ImGui::CalcTextSize(QueryDocument().Name.c_str()).x, Origin.y + 19 * Scale), ".pattern", 7 * Scale, 0x67675b);
+    Controls.ControlHeight = 24;
+    const float NavigationX = Origin.x + std::max(230 * Scale, Width - 620 * Scale);
+    const char *Workspaces[]{"Material", "Pattern", "Texture", "Stamp", "Baking"};
+    const float Widths[]{64, 58, 54, 52, 64};
+    float PositionX = NavigationX;
+    for (size_t Index = 0; Index < 5; ++Index)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * Scale));
+        ImGui::BeginDisabled(Index > 1 || (Index == 0 && !ActivateMaterial));
+        if (Controls.Button(Workspaces[Index], Widths[Index] * Scale, Index == 1, {}, true) && Index == 0) ActivateMaterial();
+        Controls.Tooltip(Workspaces[Index], Index > 1 ? "This native workspace is not hosted yet. Pattern is being ported first." : "Switch workspace without losing your document.");
+        ImGui::EndDisabled();
+        PositionX += Widths[Index] * Scale;
+    }
+    const auto HeaderButton = [&](const char *Label, float X, const char *Path, bool Enabled)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width + X * Scale, Origin.y + 9 * Scale));
+        ImGui::BeginDisabled(!Enabled);
+        const bool Pressed = Controls.Button(Label, 28 * Scale, false, Path);
+        Controls.Tooltip(Label, Label);
+        ImGui::EndDisabled();
+        return Pressed;
+    };
+    if (HeaderButton("Undo", -308, "M3 10L7 6L11 10M7 6V15A5 5 0 0 0 17 15", History.QueryUndoAvailable())) RestoreHistory(false);
+    if (HeaderButton("Redo", -272, "M21 10L17 6L13 10M17 6V15A5 5 0 0 1 7 15", History.QueryRedoAvailable())) RestoreHistory(true);
+    if (HeaderButton("Save document", -236, "M12 3V16M7 11L12 16L17 11M4 17V21H20V17", bool(SaveSource))) Save();
+    if (HeaderButton("Document actions", -200, "M4 12H5M11 12H12M18 12H19", true)) ImGui::OpenPopup("Pattern document actions");
+    if (DropdownControlSurface::BeginMenu("Pattern document actions", Scale))
+    {
+        if (DropdownControlSurface::Option("New pattern", false, Scale))
+        {
+            if (QueryModified()) Diagnostic = "Save or close the current document before creating a new pattern.";
+            else { VectorAuthoringDocument Blank; Blank.Name = "Untitled pattern"; ConfigureDocument(Blank); }
+        }
+        if (DropdownControlSurface::Option("Open native pattern", false, Scale, bool(LoadSource)))
+        {
+            if (QueryModified()) Diagnostic = "Save or close the current document before opening another.";
+            else try { if (const auto Source = LoadSource()) ConfigureDocument(DecodeVectorAuthoring(*Source)); }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+        }
+        const auto EditOption = [&](const char *CaptionText, bool Enabled)
+        {
+            const bool Activated = DropdownControlSurface::Option(CaptionText, false, Scale, Enabled);
+            const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+            ControlExtents[std::string("Document ") + CaptionText] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+            return Activated;
+        };
+        const bool Idle = !PenSource && Gesture == 0 && !MaskSelection;
+        const bool Selected = Idle && !Selection.empty();
+        bool Editable = Selected;
+        for (const auto &Layer : History.QueryDocument().Layers)
+            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end()
+                && (QueryVectorAuthoringProtection(History.QueryDocument(), Layer) || !QueryVectorAuthoringVisibility(History.QueryDocument(), Layer))) Editable = false;
+        if (EditOption("Copy selection", Selected)) TransferSelection(false);
+        if (EditOption("Cut selection", Editable)) TransferSelection(true);
+        if (EditOption("Paste selection", Idle && bool(SelectionClipboard))) InsertSelection(false);
+        if (EditOption("Paste in place", Idle && bool(SelectionClipboard))) InsertSelection(true);
+        if (EditOption("Duplicate selection", Editable)) ReplicateSelection();
+        if (EditOption("Select all editable", Idle)) SelectEditableVectors();
+        const char *OrderCaptions[]{"Send to back", "Send backward", "Bring forward", "Bring to front"};
+        for (uint32_t Index = 0; Index < 4; ++Index)
+            if (EditOption(OrderCaptions[Index], Editable))
+                EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringSelection(Document, Selection, VectorSelectionOrder(Index)); });
+        ImGui::TextDisabled("Clipboard: %zu vectors (editor session)", SelectionClipboard ? SelectionClipboard->Layers.size() : size_t(0));
+        ImGui::TextDisabled("Native authoring uses TOML, not HTML JSON.");
+        DropdownControlSurface::EndMenu();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 168 * Scale, Origin.y + 9 * Scale));
+    ImGui::BeginDisabled();
+    Controls.Button("Apply to material", 116 * Scale);
+    Controls.Tooltip(
+        "Apply to material",
+        "Float32 maps now update the selected material preview after GPU readback. "
+        "Persistent or scene-level application remains gated until the integrated native host capture is validated.");
+    ImGui::EndDisabled();
+    if (HeaderButton("Close pattern studio", -44, "M6 6L18 18M6 18L18 6", bool(ActivateMaterial)))
+        if (RequestClose()) ActivateMaterial();
+    Controls.ControlHeight = 30;
+    ImGui::End();
+}
+
+void PatternWorkspacePanel::ConstructLibrary()
+{
+    CapturePanel("Library");
+    if (ImGui::GetContentRegionAvail().y < 35 * Scale) return;
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::TextDisabled("START WITH A STRUCTURE");
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::TextWrapped("Native source presets are being ported. Adding shapes never replaces existing vector.");
+    for (uint32_t Category = 0; Category < 6; ++Category)
+        if (Controls.Button(ShapeCaptions[Category], ImGui::GetContentRegionAvail().x - 16 * Scale)) ConstructPrimitive(Category, ShapeCaptions[Category]);
+}
+
+void PatternWorkspacePanel::ConstructLayers()
+{
+    CapturePanel("Layers");
+    const auto Origin = ImGui::GetCursorScreenPos();
+    const float Width = ImGui::GetContentRegionAvail().x;
+    Caption(ImVec2(Origin.x + 16 * Scale, Origin.y + 15 * Scale), "Motifs", 23 * Scale, 0xd9d9cc, LightTypeface);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 44 * Scale, Origin.y + 14 * Scale));
+    if (Controls.Button("Add pattern layer", 28 * Scale, false, PlusPath)) ImGui::OpenPopup("Add a pattern motif");
+    if (DropdownControlSurface::BeginMenu("Add a pattern motif", Scale))
+    {
+        ImGui::TextDisabled("Shapes");
+        for (uint32_t Category = 0; Category < 6; ++Category)
+        {
+            if (DropdownControlSurface::Option(ShapeCaptions[Category], false, Scale)) { ConstructPrimitive(Category, ShapeCaptions[Category]); ImGui::CloseCurrentPopup(); }
+            const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+            ControlExtents[ShapeCaptions[Category]] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+        }
+        DropdownControlSurface::EndMenu();
+    }
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * Scale, Origin.y + 64 * Scale));
+    ImGui::BeginChild("Pattern layers body", ImVec2(Width - 16 * Scale, 0), ImGuiChildFlags_None);
+    Controls.ControlHeight = 48;
+    if (Controls.Button("Groups & folders", ImGui::GetContentRegionAvail().x, GroupsOpen, {}, true)) GroupsOpen = !GroupsOpen;
+    Controls.ControlHeight = 30;
+    if (GroupsOpen)
+    {
+        ImGui::BeginDisabled(Selection.empty());
+        if (Controls.Button("Group selection")) EvaluateEdit([&](auto &Document)
+        {
+            if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
+            const auto Token = ++Document.TokenClock;
+            Document.Enclosures.push_back({Token, 0, "Group"});
+            for (auto &Layer : Document.Layers) if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() && !QueryVectorAuthoringProtection(Document, Layer)) Layer.EnclosureToken = Token;
+        });
+        ImGui::EndDisabled();
+        const auto Snapshot = QueryDocument();
+        for (const auto &Entry : Snapshot.Enclosures)
+        {
+            ImGui::PushID(int(Entry.Token));
+            ImGui::TextUnformatted(Entry.Name.c_str());
+            bool Enabled = Entry.GroupWideEditingEnabled;
+            ImGui::BeginDisabled(Entry.FolderEnabled || Entry.LockEnabled);
+            if (Controls.Toggle("Group-wide properties", Enabled)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Enclosures) if (Candidate.Token == Entry.Token) Candidate.GroupWideEditingEnabled = Enabled; });
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+    }
+    Controls.ControlHeight = 48;
+    ImGui::BeginDisabled();
+    Controls.Button("Stored groups · 0", ImGui::GetContentRegionAvail().x, false, {}, true);
+    Controls.Tooltip("Stored groups", "Native stored definitions and linked-instance editing are not ported yet.");
+    ImGui::EndDisabled();
+    Controls.ControlHeight = 30;
+    const auto Snapshot = QueryDocument();
+    size_t Visible = 0, Locked = 0;
+    for (const auto &Layer : Snapshot.Layers) { if (Layer.Visible) ++Visible; if (Layer.Locked) ++Locked; }
+    const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible, Locked};
+    const char *Captions[]{"Visible", "Hidden", "Locked"};
+    const float StatWidth = (ImGui::GetContentRegionAvail().x - 12 * Scale) / 3;
+    for (int Index = 0; Index < 3; ++Index)
+    {
+        if (Index) ImGui::SameLine(0, 6 * Scale);
+        char Label[32]; std::snprintf(Label, sizeof(Label), "%02zu\n%s", Counts[Index], Captions[Index]);
+        Controls.ControlHeight = 64;
+        if (Controls.Button(Label, StatWidth, Filter == Index + 1, {}, true)) Filter = Filter == Index + 1 ? 0 : Index + 1;
+    }
+    Controls.ControlHeight = 30;
+    ImGui::Spacing();
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##FindLayer", "Find a layer...", SearchText.data(), SearchText.size());
+    ImGui::Dummy(ImVec2(0, 8 * Scale));
+    ImGui::TextDisabled("Top layers render in front · drag to reorder");
+    for (auto Position = Snapshot.Layers.rbegin(); Position != Snapshot.Layers.rend(); ++Position)
+    {
+        const auto &Layer = *Position;
+        if (Filter == 1 && !Layer.Visible) continue;
+        if (Filter == 2 && Layer.Visible) continue;
+        if (Filter == 3 && !Layer.Locked) continue;
+        if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
+        const auto RowOrigin = ImGui::GetCursorScreenPos();
+        const auto RowWidth = ImGui::GetContentRegionAvail().x;
+        const bool Selected = !MaskSelection && std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end();
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->AddRectFilled(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(Selected ? 0x28271f : 0x222220)), 8 * Scale);
+        if (Selected) Ink->AddRect(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(0x5b523b)), 8 * Scale);
+        ImGui::PushID(int(Layer.Token));
+        Controls.ControlHeight = 48;
+        const std::string SelectCaption = "Select:" + std::to_string(Layer.Token);
+        if (ImGui::InvisibleButton(SelectCaption.c_str(), ImVec2(std::max(30.f, RowWidth - 66 * Scale), 56 * Scale))) Select(Layer.Token, ImGui::GetIO().KeyShift);
+        ControlExtents[SelectCaption] = {RowOrigin.x, RowOrigin.y, RowOrigin.x + RowWidth - 66 * Scale, RowOrigin.y + 56 * Scale};
+        const auto &Source = Snapshot.Instructions[Layer.Root];
+        Ink->PushClipRect(ImVec2(RowOrigin.x + 32 * Scale, RowOrigin.y), ImVec2(RowOrigin.x + RowWidth - 64 * Scale, RowOrigin.y + 56 * Scale), true);
+        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 12 * Scale), Layer.Name.c_str(), 11 * Scale, 0xd5d5c4);
+        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 32 * Scale), Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector", 7 * Scale, 0x93937c);
+        Ink->PopClipRect();
+        Ink->AddRect(ImVec2(RowOrigin.x + 12 * Scale, RowOrigin.y + 20 * Scale), ImVec2(RowOrigin.x + 26 * Scale, RowOrigin.y + 34 * Scale), ImGui::GetColorU32(Spectrum(0xc7d9b8)), 2 * Scale);
+        if (!Layer.Locked && ImGui::BeginDragDropSource())
+        {
+            ImGui::SetDragDropPayload("FrontierVectorAuthoringLayer", &Layer.Token, sizeof(Layer.Token));
+            ImGui::TextUnformatted(Layer.Name.c_str());
+            ImGui::EndDragDropSource();
+        }
+        if (!Layer.Locked && ImGui::BeginDragDropTarget())
+        {
+            if (const auto *Payload = ImGui::AcceptDragDropPayload("FrontierVectorAuthoringLayer"); Payload && Payload->IsDelivery())
+            {
+                const auto SourceToken = *static_cast<const uint32_t *>(Payload->Data);
+                EvaluateEdit([&](auto &Document)
+                {
+                    const auto SourcePosition = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == SourceToken; });
+                    if (SourcePosition == Document.Layers.end() || QueryVectorAuthoringProtection(Document, *SourcePosition)) return;
+                    const auto Copy = *SourcePosition;
+                    Document.Layers.erase(SourcePosition);
+                    const auto Destination = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == Layer.Token; });
+                    Document.Layers.insert(Destination, Copy);
+                });
+            }
+            ImGui::EndDragDropTarget();
+        }
+        Controls.ControlHeight = 26;
+        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 60 * Scale, RowOrigin.y + 15 * Scale));
+        if (Controls.Button(("Visibility:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Visible, VisiblePath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Visible = !Candidate.Visible; });
+        ImGui::SameLine(0, 2 * Scale);
+        if (Controls.Button(("Lock:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Locked, LockPath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Locked = !Candidate.Locked; });
+        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + 62 * Scale));
+        ImGui::Dummy(ImVec2(0, 0));
+        if (Layer.Mask)
+        {
+            Controls.ControlHeight = 28;
+            if (Controls.Button(("Mask · " + Layer.Name).c_str(), RowWidth - 18 * Scale, MaskSelection == Layer.Token)) { Selection = {Layer.Token}; MaskSelection = Layer.Token; }
+        }
+        ImGui::PopID();
+    }
+    Controls.ControlHeight = 30;
+    if (Snapshot.Layers.empty()) ImGui::TextWrapped("Draw your first shape to start a pattern.");
+    ImGui::EndChild();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     GPU CANVAS, VIEW NAVIGATION AND GESTURES
+//------------------------------------------------------------------------------------------------------------------------
+
+void PatternWorkspacePanel::CancelPen()
+{
+    PenSource.reset(); PenPreview.reset(); PendingPath = {}; PenSelection.clear();
+    PenToken = 0; PenAnchorFloor = 0; PenReversed = false; IndependentPenContinuation = false;
+    Diagnostic.clear();
+    if (Gesture == 8) Gesture = 0;
+}
+
+void PatternWorkspacePanel::ResumePen(uint32_t Token, bool FromStart)
+{
+    const auto &Source = History.QueryDocument();
+    const auto Position = std::find_if(Source.Layers.begin(), Source.Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; });
+    if (Position == Source.Layers.end() || MaskSelection || QueryVectorAuthoringProtection(Source, *Position)
+        || !QueryVectorAuthoringVisibility(Source, *Position)) throw std::runtime_error("Select one visible, editable open cubic source to continue.");
+    auto Path = DecodeCubicPath(Source, Token);
+    if (Path.Closed || Path.Anchors.size() >= 400) throw std::runtime_error("Continue an open path below its 400-anchor budget.");
+    if (FromStart) ReverseCubicPath(Path);
+    auto &Endpoint = Path.Anchors.back();
+    for (size_t Axis = 0; Axis < 2; ++Axis) Endpoint.Outgoing[Axis] = 2 * Endpoint.Position[Axis] - Endpoint.Incoming[Axis];
+    CancelPen();
+    PenSource = Source;
+    PenSelection = Selection;
+    PendingPath = std::move(Path);
+    PenToken = Token; PenAnchorFloor = PendingPath.Anchors.size(); PenReversed = FromStart;
+    Tool = VectorAuthoringTool::Pen;
+}
+
+void PatternWorkspacePanel::RefreshPenPreview()
+{
+    PenPreview.reset();
+    if (!PenSource || PendingPath.Anchors.size() < 2) return;
+    if (PenToken && PendingPath.Anchors.size() == PenAnchorFloor && !PendingPath.Closed) return;
+    auto Draft = *PenSource;
+    if (PenToken)
+    {
+        auto Path = PendingPath;
+        if (PenReversed) ReverseCubicPath(Path);
+        ReplaceCubicPath(Draft, PenToken, Path);
+        PenPreview = std::move(Draft);
+        return;
+    }
+    VectorCoverageInstruction Style;
+    Style.Transform[1] = 1.4f;
+    Style.Paint[3] = PendingPath.Closed ? 1.f : 0.f;
+    auto Path = PendingPath;
+    if (AutomaticPen)
+    {
+        std::vector<size_t> Indices;
+        for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Indices.push_back(Index);
+        ConfigureAutomaticCubicTangents(Path, Indices);
+    }
+    ConstructCubicPath(Draft, Path, Style, "Pen contour");
+    PenPreview = std::move(Draft);
+}
+
+bool PatternWorkspacePanel::FinishPen(bool Closed)
+{
+    if (!PenSource) return true;
+    try
+    {
+        if (PenToken && PendingPath.Anchors.size() == PenAnchorFloor && !Closed) { CancelPen(); return true; }
+        auto Path = PendingPath; Path.Closed = Closed;
+        if (AutomaticPen && !PenToken)
+        {
+            std::vector<size_t> Indices;
+            for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Indices.push_back(Index);
+            ConfigureAutomaticCubicTangents(Path, Indices);
+        }
+        if (PenReversed) ReverseCubicPath(Path);
+        auto Draft = *PenSource;
+        VectorCoverageInstruction Style;
+        Style.Transform[1] = 1.4f;
+        uint32_t Token = PenToken;
+        if (Token) ReplaceCubicPath(Draft, Token, Path);
+        else Token = ConstructCubicPath(Draft, Path, Style, "Pen contour");
+        Selection = PenSelection;
+        CancelPen();
+        Finalize(std::move(Draft), {Token});
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+}
+
+bool PatternWorkspacePanel::ConstructPenInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered)
+{
+    if (Tool != VectorAuthoringTool::Pen && !PenSource) return false;
+    const auto &Input = ImGui::GetIO();
+    if (PenSource && Tool != VectorAuthoringTool::Pen)
+    {
+        if (!FinishPen(false)) Tool = VectorAuthoringTool::Pen;
+        return true;
+    }
+    if (PenSource && (Input.AppFocusLost || ImGui::IsKeyPressed(ImGuiKey_Escape)))
+    {
+        CancelPen(); return true;
+    }
+    if (PenSource && !Input.WantTextInput)
+    {
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) { Save(); return true; }
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) { CancelPen(); return true; }
+        if (Gesture == 0 && !Input.KeyCtrl)
+        {
+            std::optional<VectorAuthoringTool> Requested;
+            if (ImGui::IsKeyPressed(ImGuiKey_V)) Requested = VectorAuthoringTool::Select;
+            if (ImGui::IsKeyPressed(ImGuiKey_A)) Requested = VectorAuthoringTool::Points;
+            if (ImGui::IsKeyPressed(ImGuiKey_R)) Requested = VectorAuthoringTool::Rectangle;
+            if (ImGui::IsKeyPressed(ImGuiKey_O)) Requested = VectorAuthoringTool::Ellipse;
+            if (Requested) { if (FinishPen(false)) Tool = *Requested; return true; }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter)) { FinishPen(false); return true; }
+        if (Gesture == 0 && ImGui::IsKeyPressed(ImGuiKey_Backspace))
+        {
+            if (PenToken && PendingPath.Anchors.size() <= PenAnchorFloor) { CancelPen(); return true; }
+            PendingPath.Anchors.pop_back();
+            if (PendingPath.Anchors.empty()) CancelPen();
+            else RefreshPenPreview();
+            return true;
+        }
+    }
+    if (MaskSelection) return false;
+    const auto DocumentPoint = [&]()
+    {
+        std::array<float, 2> Coordinate{(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+            (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+        if (SnappingEnabled) for (auto &Position : Coordinate) Position = std::round(Position / 16) * 16;
+        return Coordinate;
+    };
+    const auto Project = [&](std::array<float, 2> Coordinate)
+    {
+        return ImVec2(Board.MinimumX + Coordinate[0] / 512 * Board.Width(), Board.MinimumY + Coordinate[1] / 512 * Board.Height());
+    };
+    uint32_t ResumeToken = 0;
+    bool ResumeStart = false;
+    if (!PenSource && Selection.size() == 1)
+    {
+        const auto &Source = History.QueryDocument();
+        const auto Position = std::find_if(Source.Layers.begin(), Source.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+        if (Position != Source.Layers.end() && !QueryVectorAuthoringProtection(Source, *Position)
+            && QueryVectorAuthoringVisibility(Source, *Position) && Source.Instructions[Position->Root].Topology[0] == 6)
+        {
+            try
+            {
+                const auto Path = DecodeCubicPath(Source, Position->Token);
+                if (!Path.Closed && Path.Anchors.size() < 400)
+                {
+                    auto *Ink = ImGui::GetWindowDrawList();
+                    Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+                    for (bool FromStart : {true, false})
+                    {
+                        const auto Endpoint = Project(FromStart ? Path.Anchors.front().Position : Path.Anchors.back().Position);
+                        const float Radius = 7 * Scale;
+                        ControlExtents[FromStart ? "Resume start endpoint" : "Resume end endpoint"] = {Endpoint.x - Radius, Endpoint.y - Radius, Endpoint.x + Radius, Endpoint.y + Radius};
+                        Ink->AddCircle(Endpoint, 5 * Scale, IM_COL32(204, 230, 181, 255));
+                        if (std::hypot(Input.MousePos.x - Endpoint.x, Input.MousePos.y - Endpoint.y) <= Radius)
+                        {
+                            ResumeToken = Position->Token; ResumeStart = FromStart;
+                        }
+                    }
+                    Ink->PopClipRect();
+                }
+            }
+            catch (const std::exception &) {}
+        }
+    }
+    uint32_t JoinToken = 0;
+    bool JoinEnd = false;
+    if (PenSource && PenToken && Gesture == 0)
+    {
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+        float Nearest = 7 * Scale;
+        for (auto Layer = PenSource->Layers.rbegin(); Layer != PenSource->Layers.rend(); ++Layer)
+        {
+            if (Layer->Token == PenToken || !QueryVectorAuthoringVisibility(*PenSource, *Layer)
+                || PenSource->Instructions[Layer->Root].Topology[0] != 6) continue;
+            CubicPath Path;
+            try { Path = DecodeCubicPath(*PenSource, Layer->Token); }
+            catch (const std::exception &) { continue; } // Compound contours remain visible but are not endpoint targets.
+            if (Path.Closed) continue;
+            for (bool End : {false, true})
+            {
+                const auto Endpoint = Project(End ? Path.Anchors.back().Position : Path.Anchors.front().Position);
+                const float Radius = 7 * Scale;
+                ControlExtents[std::string(End ? "Join end endpoint:" : "Join start endpoint:") + std::to_string(Layer->Token)]
+                    = {Endpoint.x - Radius, Endpoint.y - Radius, Endpoint.x + Radius, Endpoint.y + Radius};
+                Ink->AddCircle(Endpoint, 5 * Scale, IM_COL32(204, 230, 181, 255));
+                const float Distance = std::hypot(Input.MousePos.x - Endpoint.x, Input.MousePos.y - Endpoint.y);
+                if (Distance < Nearest)
+                {
+                    Nearest = Distance; JoinToken = Layer->Token; JoinEnd = End;
+                }
+            }
+        }
+        Ink->PopClipRect();
+    }
+    bool Consumed = Gesture == 8;
+    try
+    {
+        if (Gesture == 0 && Hovered && ImGui::IsMouseClicked(0) && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            Consumed = true;
+            if (!PenSource && ResumeToken && !Input.KeyCtrl)
+            {
+                ResumePen(ResumeToken, ResumeStart);
+                IndependentPenContinuation = false;
+                PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                    (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+                Gesture = 8;
+                return true;
+            }
+            if (PenSource && !PendingPath.Anchors.empty())
+            {
+                const auto Last = Project(PendingPath.Anchors.back().Position);
+                if (Input.KeyAlt && std::hypot(Input.MousePos.x - Last.x, Input.MousePos.y - Last.y) <= 7 * Scale)
+                {
+                    if (AutomaticPen && !PenToken) throw std::runtime_error("Disable automatic Pen curves before breaking an outgoing tangent.");
+                    // 📝 Keep the incoming curve; only the following segment receives this corner or independent drag.
+                    PendingPath.Anchors.back().Outgoing = PendingPath.Anchors.back().Position;
+                    IndependentPenContinuation = true;
+                    PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                        (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+                    Gesture = 8;
+                    RefreshPenPreview();
+                    return true;
+                }
+                const auto First = Project(PendingPath.Anchors.front().Position);
+                if (std::hypot(Input.MousePos.x - First.x, Input.MousePos.y - First.y) <= 7 * Scale)
+                {
+                    if (PendingPath.Anchors.size() < 3) throw std::runtime_error("A closed path needs at least three anchors.");
+                    FinishPen(true); return true;
+                }
+            }
+            if (JoinToken && !Input.KeyCtrl)
+            {
+                // 📝 Build and validate the entire continuation/join before consuming either retained source.
+                auto Draft = *PenSource;
+                auto Path = PendingPath;
+                if (PenReversed) ReverseCubicPath(Path);
+                ReplaceCubicPath(Draft, PenToken, Path);
+                const auto Token = IntegrateCubicPaths(Draft, PenToken, JoinToken, PenReversed, JoinEnd);
+                Selection = PenSelection;
+                CancelPen();
+                Finalize(std::move(Draft), {Token});
+                return true;
+            }
+            if (PendingPath.Anchors.size() >= 400) throw std::runtime_error("Pen paths support at most 400 anchors.");
+            if (!PenSource)
+            {
+                PenSource = History.QueryDocument(); PenSelection = Selection;
+                PendingPath = {};
+            }
+            auto Position = DocumentPoint();
+            if (Input.KeyShift && !PendingPath.Anchors.empty()) Position = ConstrainCubicDirection(PendingPath.Anchors.back().Position, Position);
+            IndependentPenContinuation = false;
+            PendingPath.Anchors.push_back({Position, Position, Position});
+            PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+            Gesture = 8;
+            RefreshPenPreview();
+        }
+        if (Gesture == 8 && PenSource && ImGui::IsKeyDown(ImGuiKey_Space) && ImGui::IsMousePosValid())
+        {
+            // 📝 Move only the newly placed anchor, never the retained endpoint being resumed.
+            if (!PenToken || PendingPath.Anchors.size() > PenAnchorFloor)
+            {
+                auto &Anchor = PendingPath.Anchors.back();
+                const std::array<float, 2> Displacement{Input.MouseDelta.x / Board.Width() * 512,
+                    Input.MouseDelta.y / Board.Height() * 512};
+                for (auto *Point : {&Anchor.Position, &Anchor.Incoming, &Anchor.Outgoing})
+                    for (size_t Axis = 0; Axis < 2; ++Axis) (*Point)[Axis] += Displacement[Axis];
+                PointerOrigin.X += Displacement[0]; PointerOrigin.Y += Displacement[1];
+                RefreshPenPreview();
+            }
+        }
+        else
+        if (Gesture == 8 && PenSource && (ImGui::IsMouseDragging(0, 2) || ImGui::IsMouseReleased(0)) && ImGui::IsMousePosValid()
+            && std::hypot((Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+        {
+            auto &Anchor = PendingPath.Anchors.back();
+            auto Position = DocumentPoint();
+            if (Input.KeyShift) Position = ConstrainCubicDirection(Anchor.Position, Position);
+            Anchor.Outgoing = Position;
+            // 📝 The resumed endpoint's incoming control belongs to an existing segment; never mirror over it.
+            if (!IndependentPenContinuation && (!PenToken || PendingPath.Anchors.size() > PenAnchorFloor))
+                for (size_t Axis = 0; Axis < 2; ++Axis)
+                    Anchor.Incoming[Axis] = Input.KeyAlt ? Anchor.Position[Axis] : 2 * Anchor.Position[Axis] - Position[Axis];
+            RefreshPenPreview();
+        }
+        if (PenSource)
+        {
+            auto *Ink = ImGui::GetWindowDrawList();
+            Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+            auto Guides = PendingPath;
+            if (AutomaticPen && !PenToken && Guides.Anchors.size() >= 2)
+            {
+                std::vector<size_t> Indices;
+                for (size_t Index = 0; Index < Guides.Anchors.size(); ++Index) Indices.push_back(Index);
+                ConfigureAutomaticCubicTangents(Guides, Indices);
+            }
+            for (size_t Index = 0; Index < Guides.Anchors.size(); ++Index)
+            {
+                const auto &Anchor = Guides.Anchors[Index];
+                const auto Position = Project(Anchor.Position);
+                ControlExtents["Pen anchor " + std::to_string(Index)] = {Position.x - 6 * Scale, Position.y - 6 * Scale, Position.x + 6 * Scale, Position.y + 6 * Scale};
+                Ink->AddCircle(Position, 4 * Scale, IM_COL32(204, 230, 181, 255));
+                if (Index + 1 == PendingPath.Anchors.size())
+                {
+                    Ink->AddLine(Project(Anchor.Incoming), Project(Anchor.Outgoing), IM_COL32(170, 197, 150, 210));
+                    for (auto Coordinate : {Anchor.Incoming, Anchor.Outgoing}) Ink->AddCircleFilled(Project(Coordinate), 3 * Scale, IM_COL32(204, 230, 181, 255));
+                }
+            }
+            Ink->PopClipRect();
+        }
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+    return Consumed;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     RETAINED POINT GUIDES AND INPUT
+//------------------------------------------------------------------------------------------------------------------------
+
+bool PatternWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered)
+{
+    if ((Tool != VectorAuthoringTool::Points && Gesture != 9 && Gesture != 10) || MaskSelection || Selection.size() != 1) return false;
+    const auto Snapshot = QueryDocument();
+    const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+    if (Position == Snapshot.Layers.end() || Snapshot.Instructions[Position->Root].Topology[0] != 6
+        || QueryVectorAuthoringProtection(Snapshot, *Position) || !QueryVectorAuthoringVisibility(Snapshot, *Position)) return false;
+    if (PointToken != Position->Token) { PointToken = Position->Token; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); }
+    const auto &Input = ImGui::GetIO();
+    try
+    {
+        const auto Path = DecodeCubicPath(Snapshot, PointToken);
+        if (ActiveAnchor >= Path.Anchors.size()) ActiveAnchor = SIZE_MAX;
+        std::erase_if(SelectedAnchors, [&](size_t Index) { return Index >= Path.Anchors.size(); });
+        const auto Project = [&](std::array<float, 2> Coordinate)
+        {
+            return ImVec2(Board.MinimumX + Coordinate[0] / 512 * Board.Width(), Board.MinimumY + Coordinate[1] / 512 * Board.Height());
+        };
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+        size_t Hit = SIZE_MAX;
+        CubicControl HitControl = CubicControl::Anchor;
+        const auto Grip = [&](size_t Index, CubicControl Control, const char *Caption, std::array<float, 2> Coordinate)
+        {
+            const auto Point = Project(Coordinate);
+            const float Radius = 6 * Scale;
+            ControlExtents[std::string(Caption) + std::to_string(Index)] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
+            const bool Selected = std::find(SelectedAnchors.begin(), SelectedAnchors.end(), Index) != SelectedAnchors.end();
+            Ink->AddCircleFilled(Point, (Control == CubicControl::Anchor ? 4 : 3) * Scale,
+                Selected ? IM_COL32(230, 246, 211, 255) : IM_COL32(130, 153, 117, 255));
+            Ink->AddCircle(Point, (Control == CubicControl::Anchor ? 4 : 3) * Scale, IM_COL32(45, 65, 40, 255));
+            if (std::hypot(Input.MousePos.x - Point.x, Input.MousePos.y - Point.y) <= Radius)
+            {
+                Hit = Index; HitControl = Control;
+            }
+        };
+        if (ActiveAnchor != SIZE_MAX)
+        {
+            const auto &Anchor = Path.Anchors[ActiveAnchor];
+            for (auto Control : {CubicControl::Incoming, CubicControl::Outgoing})
+            {
+                if ((!Path.Closed && ActiveAnchor == 0 && Control == CubicControl::Incoming)
+                    || (!Path.Closed && ActiveAnchor + 1 == Path.Anchors.size() && Control == CubicControl::Outgoing)) continue;
+                const auto Coordinate = Control == CubicControl::Incoming ? Anchor.Incoming : Anchor.Outgoing;
+                Ink->AddLine(Project(Anchor.Position), Project(Coordinate), IM_COL32(170, 197, 150, 210));
+                Grip(ActiveAnchor, Control, Control == CubicControl::Incoming ? "Path incoming " : "Path outgoing ", Coordinate);
+            }
+        }
+        // 📝 Anchors take hit precedence over coincident corner tangents.
+        for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Grip(Index, CubicControl::Anchor, "Path anchor ", Path.Anchors[Index].Position);
+        Ink->PopClipRect();
+        const std::array<float, 2> Pointer{(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+            (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+        if (Gesture == 0 && Hovered && Hit == SIZE_MAX && ImGui::IsMousePosValid() && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            const auto Projection = ProjectCubicSegment(Path, Pointer);
+            if (Projection.Distance * Board.Width() / 512 <= 6 * Scale && Projection.Parameter >= .02f && Projection.Parameter <= .98f)
+            {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                if (ImGui::IsMouseClicked(0))
+                {
+                    SegmentProjection = Projection; SegmentBending = false; PointDragSource = Path;
+                    GestureSource = History.QueryDocument(); GestureSelection = Selection;
+                    PointerOrigin = {Pointer[0], Pointer[1]}; Gesture = 10;
+                }
+            }
+        }
+        if (Gesture == 10 && GestureSource)
+        {
+            if (std::hypot(Pointer[0] - PointerOrigin.X, Pointer[1] - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+                SegmentBending = true;
+            if (SegmentBending || ImGui::IsMouseReleased(0))
+            {
+                auto Edited = PointDragSource;
+                if (SegmentBending) BendCubicSegment(Edited, SegmentProjection.SegmentIndex, SegmentProjection.Parameter,
+                    {Pointer[0] - PointerOrigin.X, Pointer[1] - PointerOrigin.Y});
+                else
+                {
+                    SubdivideCubicSegment(Edited, SegmentProjection.SegmentIndex, SegmentProjection.Parameter);
+                    ActiveAnchor = SegmentProjection.SegmentIndex + 1; SelectedAnchors = {ActiveAnchor};
+                }
+                auto Draft = *GestureSource; ReplaceCubicPath(Draft, PointToken, Edited); GestureDraft = std::move(Draft);
+            }
+            return true;
+        }
+        if (Hovered && Hit != SIZE_MAX) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (Gesture == 0 && Hovered && Hit != SIZE_MAX && ImGui::IsMouseClicked(0) && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            if (HitControl == CubicControl::Anchor)
+            {
+                const auto Included = std::find(SelectedAnchors.begin(), SelectedAnchors.end(), Hit);
+                if (Input.KeyShift && Included != SelectedAnchors.end())
+                {
+                    SelectedAnchors.erase(Included);
+                    ActiveAnchor = SelectedAnchors.empty() ? SIZE_MAX : SelectedAnchors.back();
+                    return true;
+                }
+                if (Included == SelectedAnchors.end())
+                {
+                    if (!Input.KeyShift) SelectedAnchors.clear();
+                    SelectedAnchors.push_back(Hit);
+                }
+            }
+            ActiveAnchor = Hit; ActiveControl = HitControl;
+            PointDragSource = Path;
+            GestureSource = History.QueryDocument(); GestureSelection = Selection;
+            PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+            Gesture = 9;
+        }
+        if (Gesture == 9 && GestureSource && (ImGui::IsMouseDragging(0, 2) || ImGui::IsMouseReleased(0)) && ImGui::IsMousePosValid()
+            && std::hypot((Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+        {
+            const auto &Anchor = PointDragSource.Anchors.at(ActiveAnchor);
+            const auto Origin = ActiveControl == CubicControl::Anchor ? Anchor.Position
+                : ActiveControl == CubicControl::Incoming ? Anchor.Incoming : Anchor.Outgoing;
+            std::array<float, 2> Destination{Origin[0] + (Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                Origin[1] + (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y};
+            if (SnappingEnabled) for (auto &Coordinate : Destination) Coordinate = std::round(Coordinate / 16) * 16;
+            if (Input.KeyShift && ActiveControl != CubicControl::Anchor) Destination = ConstrainCubicDirection(Anchor.Position, Destination);
+            auto Edited = PointDragSource;
+            if (ActiveControl == CubicControl::Anchor)
+                TranslateCubicAnchors(Edited, SelectedAnchors, {Destination[0] - Origin[0], Destination[1] - Origin[1]});
+            else TranslateCubicControl(Edited, ActiveAnchor, ActiveControl, Destination, Input.KeyAlt);
+            auto Draft = *GestureSource;
+            ReplaceCubicPath(Draft, PointToken, Edited);
+            GestureDraft = std::move(Draft);
+        }
+        return Gesture == 9;
+    }
+    catch (const std::exception &Failure)
+    {
+        Diagnostic = Failure.what();
+        if (Gesture == 9 || Gesture == 10) { GestureDraft.reset(); GestureSource.reset(); Gesture = 0; }
+        return true;
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     NATIVE CANVAS
+//------------------------------------------------------------------------------------------------------------------------
+
+void PatternWorkspacePanel::ConstructCanvas()
+{
+    CapturePanel("Viewport");
+    const auto ContentOrigin = ImGui::GetCursorScreenPos();
+    const float Width = ImGui::GetContentRegionAvail().x;
+    const auto At = [&](float X, float Y) { return ImVec2(ContentOrigin.x + X * Scale, ContentOrigin.y + Y * Scale); };
+    const float InnerWidth = Width - 48 * Scale;
+    ImGui::SetCursorScreenPos(At(24, 17));
+    Controls.ControlHeight = 28;
+    Controls.Button("Design tile", 72 * Scale, true, {}, true);
+    ImGui::SameLine(0, 6 * Scale);
+    ImGui::BeginDisabled(); Controls.Button("3D material", 76 * Scale, false, {}, true); Controls.Tooltip("3D material", "Native channel targets and material application are not hosted yet."); ImGui::EndDisabled();
+    Caption(At(std::max(200.f, Width / Scale - 212), 26), "Compose in 2D. See it on a real surface.", 10 * Scale, 0x777766);
+    ImGui::GetWindowDrawList()->AddLine(At(24, 60), At(Width / Scale - 24, 60), ImGui::GetColorU32(Spectrum(0x1e1e1e)));
+    Caption(At(24, 89), MaskSelection ? "OWNED MASK / 512 UNITS" : "REPEAT TILE / 512 UNITS", 8 * Scale, 0x8d8d7b);
+    auto Name = QueryDocument().Name;
+    std::snprintf(NameText.data(), NameText.size(), "%s", Name.c_str());
+    ImGui::SetCursorScreenPos(At(24, 105));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushFont(static_cast<ImFont *>(LightTypeface ? LightTypeface : RegularTypeface), 20 * 1.302f * Scale);
+    ImGui::SetNextItemWidth(InnerWidth - 150 * Scale);
+    if (ImGui::InputText("##PatternName", NameText.data(), NameText.size())) EvaluateEdit([&](auto &Document) { Document.Name = NameText.data(); });
+    ImGui::PopFont(); ImGui::PopStyleColor();
+    Caption(At(Width / Scale - 132, 109), QueryModified() ? "Unsaved changes" : "Document saved", 9 * Scale, 0x969b81);
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddRectFilled(At(24, 161), At(Width / Scale - 24, 211), ImGui::GetColorU32(Spectrum(0x191919)), 8 * Scale);
+    ImGui::SetCursorScreenPos(At(32, 170));
+    Controls.ControlHeight = 32;
+    if (Controls.Button("Select tool (V)", 32 * Scale, Tool == VectorAuthoringTool::Select, SelectPath)) Tool = VectorAuthoringTool::Select;
+    Controls.Tooltip("Select", "Select visible GPU contours; Shift-click to extend. Drag once for one undoable source edit.");
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Point tool (A)", 32 * Scale, Tool == VectorAuthoringTool::Points, "M4 3L11 21L14 14L21 11Z")) Tool = VectorAuthoringTool::Points;
+    Controls.Tooltip("Point editing", "Select one cubic path. Click a segment to split; drag it to bend with fixed anchors. Drag anchors/tangents; Alt moves tangents independently. Escape cancels.");
+    for (uint32_t Category = 0; Category < 2; ++Category)
+    {
+        ImGui::SameLine(0, 4 * Scale);
+        if (Controls.Button(Category ? "Ellipse tool (O)" : "Rectangle tool (R)", 32 * Scale, Tool == (Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle), ShapePaths[Category])) Tool = Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle;
+        Controls.Tooltip(ShapeCaptions[Category], "Drag on the tile to author an editable source shape.");
+    }
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Pen tool (P)", 32 * Scale, Tool == VectorAuthoringTool::Pen, "M12 3L21 12L15 21L3 9ZM3 9L12 12L15 21M12 12V3")) Tool = VectorAuthoringTool::Pen;
+    Controls.Tooltip("Pen", "Click anchors; drag tangents. Hold Space during placement to reposition the new anchor and controls. Alt-click the last pending anchor to break its outgoing tangent; drag independently. Click an open endpoint to continue; while continuing, click another path endpoint to join. Ctrl bypasses endpoint joining or starts a separate path. Shift constrains direction; Alt moves independently. First anchor closes; Enter finishes; Escape cancels.");
+    ImGui::SameLine(0, 4 * Scale);
+    ImGui::BeginDisabled(); Controls.Button("Sample appearance", 32 * Scale, false, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"); Controls.Tooltip("Eyedropper", "GPU vector sampling remains to be integrated."); ImGui::EndDisabled();
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Pan tool", 32 * Scale, Tool == VectorAuthoringTool::Pan, "M7 12V6Q8 3 9 6V11V4Q11 1 12 4V11V5Q15 2 15 5V12V8Q18 5 18 8V16Q16 23 10 21L3 14Q2 10 5 12L7 14")) Tool = VectorAuthoringTool::Pan;
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("More tools", 78 * Scale)) ImGui::OpenPopup("Pattern more tools");
+    if (DropdownControlSurface::BeginMenu("Pattern more tools", Scale))
+    {
+        for (uint32_t Category = 2; Category < 6; ++Category)
+        {
+            if (DropdownControlSurface::Option(ShapeCaptions[Category], false, Scale)) { Tool = VectorAuthoringTool(uint32_t(VectorAuthoringTool::Diamond) + Category - 2); ImGui::CloseCurrentPopup(); }
+            const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+            ControlExtents[ShapeCaptions[Category]] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+        }
+        Controls.Toggle("Transparent canvas", TransparentCanvas);
+        Controls.Toggle("Show grid", GridEnabled);
+        Controls.Toggle("Snap to grid", SnappingEnabled);
+        ImGui::BeginDisabled(bool(PenSource));
+        if (Controls.Toggle("Automatic Pen curves", AutomaticPen)) ImGui::CloseCurrentPopup();
+        Controls.Tooltip("Automatic Pen curves", "New Pen paths derive tangents from neighbouring anchors. Manual tangent drags are replaced. Existing endpoint continuation stays manual.");
+        ImGui::EndDisabled();
+        DropdownControlSurface::EndMenu();
+    }
+    Controls.ControlHeight = 24;
+    Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(Spectrum(0x20241d)));
+    Caption(At(36, 226), "VECTOR CANVAS    512 × 512", 8 * Scale, 0xa5b394);
+    ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
+    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = std::max(.125f, Zoom / 1.25f);
+    ImGui::SameLine(0, 4 * Scale);
+    char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
+    Controls.Button(ZoomText, 62 * Scale, false, {}, true);
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(8.f, Zoom * 1.25f);
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
+    Controls.ControlHeight = 30;
+    const ImVec2 Minimum = At(25, 248), Maximum = At(Width / Scale - 25, 678);
+    Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(Spectrum(0x242c26)));
+    const float BoardSize = std::max(32.f, std::min(InnerWidth - 120 * Scale, 360 * Scale)) * Zoom;
+    const ImVec2 Centre((Minimum.x + Maximum.x) * .5f + Pan.X, (Minimum.y + Maximum.y) * .5f + Pan.Y);
+    const ImVec2 BoardMinimum(Centre.x - BoardSize * .5f, Centre.y - BoardSize * .5f), BoardMaximum(Centre.x + BoardSize * .5f, Centre.y + BoardSize * .5f);
+    BoardExtent = {BoardMinimum.x, BoardMinimum.y, BoardMaximum.x, BoardMaximum.y};
+    Ink->PushClipRect(Minimum, Maximum, true);
+    Ink->AddRectFilled(BoardMinimum, BoardMaximum, ImGui::GetColorU32(Spectrum(0xede7d7)));
+    if (TransparentCanvas)
+    {
+        for (float Y = BoardMinimum.y; Y < BoardMaximum.y; Y += 12 * Scale)
+            for (float X = BoardMinimum.x; X < BoardMaximum.x; X += 12 * Scale)
+                if ((int((X - BoardMinimum.x) / (12 * Scale)) + int((Y - BoardMinimum.y) / (12 * Scale))) % 2)
+                    Ink->AddRectFilled(ImVec2(X, Y), ImVec2(std::min(X + 12 * Scale, BoardMaximum.x), std::min(Y + 12 * Scale, BoardMaximum.y)), ImGui::GetColorU32(Spectrum(0xb5b8ae)));
+    }
+    Ink->AddRectFilled(Minimum, ImVec2(Maximum.x, Minimum.y + 21 * Scale), ImGui::GetColorU32(Spectrum(0x1c211a)));
+    Ink->AddRectFilled(Minimum, ImVec2(Minimum.x + 23 * Scale, Maximum.y), ImGui::GetColorU32(Spectrum(0x1c211a)));
+    for (int Coordinate = -256; Coordinate <= 768; Coordinate += 64)
+    {
+        const float Horizontal = BoardMinimum.x + float(Coordinate) / 512 * BoardSize;
+        const float Vertical = BoardMinimum.y + float(Coordinate) / 512 * BoardSize;
+        char Label[16]; std::snprintf(Label, sizeof(Label), "%d", Coordinate);
+        if (Horizontal > Minimum.x + 24 * Scale && Horizontal < Maximum.x)
+        {
+            Ink->AddLine(ImVec2(Horizontal, Minimum.y), ImVec2(Horizontal, Minimum.y + 20 * Scale), IM_COL32(80, 94, 66, 170));
+            Caption(ImVec2(Horizontal + 4 * Scale, Minimum.y + 4 * Scale), Label, 7 * Scale, 0x879576);
+        }
+        if (Vertical > Minimum.y + 22 * Scale && Vertical < Maximum.y)
+        {
+            Ink->AddLine(ImVec2(Minimum.x, Vertical), ImVec2(Minimum.x + 22 * Scale, Vertical), IM_COL32(80, 94, 66, 170));
+            Caption(ImVec2(Minimum.x + 3 * Scale, Vertical + 3 * Scale), Label, 7 * Scale, 0x879576);
+        }
+    }
+    const auto Snapshot = QueryDocument();
+    auto Program = ConstructVectorAuthoringCoverage(Snapshot);
+    if (MaskSelection)
+    {
+        const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == MaskSelection; });
+        if (Position != Snapshot.Layers.end() && Position->Mask) Program = {{*Position->Mask}, Snapshot.Segments, 0};
+    }
+    const auto Texture = QueryCoverage ? QueryCoverage(Program) : 0;
+    if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
+    else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
+    if (GridEnabled)
+    {
+        for (float Coordinate = 0; Coordinate <= 512; Coordinate += 64)
+        {
+            const float Pixel = Coordinate / 512 * BoardSize;
+            Ink->AddLine(ImVec2(BoardMinimum.x + Pixel, BoardMinimum.y), ImVec2(BoardMinimum.x + Pixel, BoardMaximum.y), IM_COL32(75, 90, 70, 65));
+            Ink->AddLine(ImVec2(BoardMinimum.x, BoardMinimum.y + Pixel), ImVec2(BoardMaximum.x, BoardMinimum.y + Pixel), IM_COL32(75, 90, 70, 65));
+        }
+    }
+    std::array<int, 2> HoveredResize{};
+    bool HoveredRotation = false;
+    if (!Selection.empty() && !MaskSelection)
+    {
+        try
+        {
+            const auto Extent = QueryVectorSelectionExtent(Snapshot, Selection);
+            const auto &Bounds = Extent.Bounds;
+            const auto ScreenPoint = [&](float X, float Y)
+            {
+                const float θ = Extent.Rotation;
+                return ImVec2(BoardMinimum.x + (Bounds[0] + X * std::cos(θ) - Y * std::sin(θ)) / 512 * BoardSize,
+                              BoardMinimum.y + (Bounds[1] + X * std::sin(θ) + Y * std::cos(θ)) / 512 * BoardSize);
+            };
+            const std::array<ImVec2, 4> Corners{ScreenPoint(-Bounds[2] * .5f, -Bounds[3] * .5f),
+                ScreenPoint(Bounds[2] * .5f, -Bounds[3] * .5f), ScreenPoint(Bounds[2] * .5f, Bounds[3] * .5f),
+                ScreenPoint(-Bounds[2] * .5f, Bounds[3] * .5f)};
+            Ink->AddPolyline(Corners.data(), 4, IM_COL32(191, 216, 169, 255), ImDrawFlags_Closed, 1.3f * Scale);
+            bool Editable = true;
+            for (const auto &Layer : Snapshot.Layers)
+                if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
+                    (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer))) Editable = false;
+            if (Editable && Tool == VectorAuthoringTool::Select)
+            {
+                const auto RegisterGrip = [&](const char *Name, ImVec2 Point)
+                {
+                    const float Radius = 6 * Scale;
+                    ControlExtents[Name] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
+                    const auto Mouse = ImGui::GetIO().MousePos;
+                    return std::abs(Mouse.x - Point.x) <= Radius && std::abs(Mouse.y - Point.y) <= Radius;
+                };
+                const ImVec2 Rotate = ScreenPoint(0, -Bounds[3] * .5f - 29 * Scale * 512 / BoardSize);
+                Ink->AddLine(ScreenPoint(0, -Bounds[3] * .5f), Rotate, IM_COL32(191, 216, 169, 255));
+                Ink->AddCircleFilled(Rotate, 4 * Scale, IM_COL32(212, 232, 192, 255));
+                Ink->AddCircle(Rotate, 4 * Scale, IM_COL32(40, 56, 43, 255));
+                HoveredRotation = RegisterGrip("Rotate selection", Rotate);
+                for (int Y = -1; Y <= 1; ++Y) for (int X = -1; X <= 1; ++X)
+                {
+                    if (!X && !Y) continue;
+                    const ImVec2 Point = ScreenPoint(float(X) * Bounds[2] * .5f, float(Y) * Bounds[3] * .5f);
+                    Ink->AddRectFilled(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(203, 225, 184, 255), Scale);
+                    Ink->AddRect(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(40, 60, 40, 255), Scale);
+                    const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
+                    if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
+                }
+            }
+        }
+        catch (const std::exception &) {}
+    }
+    if (Gesture == 4)
+    {
+        const ImVec2 Origin(BoardMinimum.x + PointerOrigin.X / 512 * BoardSize, BoardMinimum.y + PointerOrigin.Y / 512 * BoardSize);
+        const auto Mouse = ImGui::GetIO().MousePos;
+        const ImVec2 Lower(std::min(Origin.x, Mouse.x), std::min(Origin.y, Mouse.y));
+        const ImVec2 Upper(std::max(Origin.x, Mouse.x), std::max(Origin.y, Mouse.y));
+        Ink->AddRectFilled(Lower, Upper, IM_COL32(191, 216, 169, 24));
+        Ink->AddRect(Lower, Upper, IM_COL32(191, 216, 169, 220));
+    }
+    Ink->PopClipRect();
+    ImGui::SetCursorScreenPos(Minimum);
+    ImGui::InvisibleButton("Pattern canvas", ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
+    ControlExtents["Pattern canvas"] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+    const auto &Input = ImGui::GetIO();
+    const bool Hovered = ImGui::IsItemHovered();
+    const auto DocumentPoint = [&](ImVec2 Point, bool Snap = true)
+    {
+        PlanePoint Position{(Point.x - BoardMinimum.x) / BoardSize * 512, (Point.y - BoardMinimum.y) / BoardSize * 512};
+        if (SnappingEnabled && Snap) { Position.X = std::round(Position.X / 16) * 16; Position.Y = std::round(Position.Y / 16) * 16; }
+        return Position;
+    };
+    if (Hovered && Input.MouseWheel != 0 && Gesture == 0)
+    {
+        const float Previous = Zoom;
+        Zoom = std::clamp(Zoom * std::pow(1.1f, Input.MouseWheel), .125f, 8.f);
+        Pan.X += (Input.MousePos.x - Centre.x) * (1 - Zoom / Previous);
+        Pan.Y += (Input.MousePos.y - Centre.y) * (1 - Zoom / Previous);
+    }
+    if (Hovered && Tool == VectorAuthoringTool::Select)
+    {
+        if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        else if (HoveredResize[0] || HoveredResize[1]) ImGui::SetMouseCursor(!HoveredResize[0] ? ImGuiMouseCursor_ResizeNS : !HoveredResize[1] ? ImGuiMouseCursor_ResizeEW : HoveredResize[0] == HoveredResize[1] ? ImGuiMouseCursor_ResizeNWSE : ImGuiMouseCursor_ResizeNESW);
+    }
+    const bool PenInput = ConstructPenInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
+    const bool PointInput = ConstructPointInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
+    if (!PenInput && !PointInput && Hovered && Gesture == 0 && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))
+    {
+        GestureSelection = Selection;
+        PointerOrigin = DocumentPoint(Input.MousePos, false);
+        if (ImGui::IsMouseClicked(2) || Tool == VectorAuthoringTool::Pan || ImGui::IsKeyDown(ImGuiKey_Space)) { Gesture = 3; PanOrigin = Pan; }
+        else if (MaskSelection) { /* Mask descriptor interaction remains in the Inspector. */ }
+        else if (HoveredRotation || HoveredResize[0] || HoveredResize[1])
+        {
+            Gesture = HoveredRotation ? 6 : 5;
+            ResizeDirection = HoveredResize;
+            GestureSource = History.QueryDocument();
+        }
+        else if (Tool != VectorAuthoringTool::Select && Tool != VectorAuthoringTool::Points) { Gesture = 2; GestureSource = History.QueryDocument(); }
+        else
+        {
+            SelectionExtend = Input.KeyShift;
+            GestureSource = History.QueryDocument();
+            SelectionPointer = PointerOrigin; SelectionTravel = 0; SelectionReleased = false;
+            Gesture = 7;
+        }
+    }
+    if (Gesture == 7 && (ImGui::IsKeyPressed(ImGuiKey_Escape) || Input.AppFocusLost || !ImGui::IsMousePosValid()))
+    {
+        Selection = GestureSelection; GestureSource.reset(); Gesture = 0;
+    }
+    if (Gesture == 7)
+    {
+        if (!SelectionReleased)
+        {
+            SelectionPointer = DocumentPoint(Input.MousePos, false);
+            SelectionTravel = std::max(SelectionTravel, std::hypot(SelectionPointer.X - PointerOrigin.X, SelectionPointer.Y - PointerOrigin.Y) * BoardSize / 512);
+            SelectionReleased = !ImGui::IsMouseDown(0);
+        }
+        try
+        {
+            if (!GestureSource || History.QueryDocument() != *GestureSource)
+                throw std::runtime_error("Source changed while GPU selection was pending; click again.");
+            if (!QuerySelectionToken) throw std::runtime_error("GPU contour selection is unavailable; use the layer list.");
+            if (const auto Hit = QuerySelectionToken(*GestureSource, PointerOrigin))
+            {
+                if (*Hit)
+                {
+                    const auto Position = std::find_if(GestureSource->Layers.begin(), GestureSource->Layers.end(), [&](const auto &Layer) { return Layer.Token == *Hit; });
+                    if (Position == GestureSource->Layers.end() || QueryVectorAuthoringProtection(*GestureSource, *Position) || !QueryVectorAuthoringVisibility(*GestureSource, *Position))
+                        throw std::runtime_error("GPU selection token no longer authenticates to an editable source.");
+                    if (SelectionExtend || std::find(Selection.begin(), Selection.end(), *Hit) == Selection.end()) Select(*Hit, SelectionExtend);
+                    Gesture = Selection.empty() ? 0 : 1;
+                    if (Selection.empty()) GestureSource.reset();
+                }
+                else
+                {
+                    MarqueeAdditive = SelectionExtend;
+                    Gesture = 4;
+                    if (!MarqueeAdditive) Selection.clear();
+                }
+                Diagnostic.clear();
+            }
+        }
+        catch (const std::exception &Failure)
+        {
+            Diagnostic = Failure.what(); GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+        }
+    }
+    if (Gesture == 3 && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(2)))
+    {
+        const auto Δ = EvaluateNavigationDelta ? EvaluateNavigationDelta({Input.MouseDelta.x, Input.MouseDelta.y}) : PlanePoint{Input.MouseDelta.x, Input.MouseDelta.y};
+        Pan.X += Δ.X; Pan.Y += Δ.Y;
+    }
+    if ((Gesture == 1 || Gesture == 2 || Gesture == 5 || Gesture == 6) && (ImGui::IsMouseDragging(0, 2) || (Gesture == 1 && SelectionReleased && SelectionTravel >= 2 * Scale)) && GestureSource)
+    {
+        auto Position = DocumentPoint(Input.MousePos, Gesture != 6);
+        if (Gesture == 1 && SelectionReleased)
+        {
+            Position = SelectionPointer;
+            if (SnappingEnabled) { Position.X = std::round(Position.X / 16) * 16; Position.Y = std::round(Position.Y / 16) * 16; }
+        }
+        try
+        {
+            auto Draft = *GestureSource;
+            if (Gesture == 1)
+            {
+                VectorAuthoringSourcePatch Patch; Patch.TranslationX = Position.X - PointerOrigin.X; Patch.TranslationY = Position.Y - PointerOrigin.Y;
+                TransformVectorAuthoringSelection(Draft, Selection, Patch);
+            }
+            else if (Gesture == 5 || Gesture == 6)
+            {
+                const auto Patch = Gesture == 5
+                    ? EvaluateVectorSelectionResize(Draft, Selection, ResizeDirection, {Position.X, Position.Y}, Input.KeyShift, Input.KeyAlt)
+                    : EvaluateVectorSelectionRotation(Draft, Selection, {PointerOrigin.X, PointerOrigin.Y}, {Position.X, Position.Y}, Input.KeyShift || SnappingEnabled);
+                TransformVectorAuthoringSelection(Draft, Selection, Patch);
+            }
+            else
+            {
+                VectorCoverageInstruction Source;
+                Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
+                Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f, std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
+                Source.Colour = {.8627f, .4627f, .3529f, 1};
+                const auto Token = ConstructVectorAuthoringPrimitive(Draft, Source, ShapeNames[Source.Topology[0]]);
+                Selection = {Token};
+            }
+            GestureDraft = std::move(Draft);
+            Diagnostic.clear();
+        }
+        catch (const std::exception &Failure) { GestureDraft.reset(); Diagnostic = Failure.what(); }
+    }
+    // 📝 Cancel precedes release so Escape and button-up in the same tick cannot finalize a cancelled edit.
+    if ((ImGui::IsKeyPressed(ImGuiKey_Escape) || Input.AppFocusLost || !ImGui::IsMousePosValid()) && Gesture)
+    {
+        Selection = GestureSelection; GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+    }
+    else if (Gesture && Gesture != 7 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
+    {
+        if (Gesture == 4 && GestureSource)
+        {
+            const auto Position = SelectionReleased ? SelectionPointer : DocumentPoint(Input.MousePos, false);
+            if (std::hypot(Position.X - PointerOrigin.X, Position.Y - PointerOrigin.Y) * BoardSize / 512 >= 3 * Scale)
+                Selection = QueryVectorSelectionRegion(*GestureSource, {PointerOrigin.X, PointerOrigin.Y}, {Position.X, Position.Y}, MarqueeAdditive ? std::span<const uint32_t>(GestureSelection) : std::span<const uint32_t>{});
+        }
+        if (GestureDraft) { auto Document = std::move(*GestureDraft); GestureDraft.reset(); Finalize(std::move(Document), Selection); }
+        GestureSource.reset(); Gesture = 0;
+    }
+    Ink->AddRectFilled(At(24, 678), At(Width / Scale - 24, 711), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
+    Caption(At(35, 689), Tool == VectorAuthoringTool::Points ? "Shift-click anchors to multi-select · Drag curve to bend · Click curve to split · Space pan" : "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
+    Caption(At(Width / Scale - 114, 689), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
+    Caption(At(24, 733), "Seamless repeat preview", 10 * Scale, 0xc3cbb5);
+    const ImVec2 RepeatMinimum = At(24, 753), RepeatMaximum = At(Width / Scale - 24, 885);
+    Ink->AddRectFilled(RepeatMinimum, RepeatMaximum, ImGui::GetColorU32(Spectrum(0xede7d7)), 8 * Scale);
+    if (Texture && !MaskSelection)
+    {
+        const float Tile = 120 * Scale;
+        Ink->PushClipRect(RepeatMinimum, RepeatMaximum, true);
+        for (float X = RepeatMinimum.x; X < RepeatMaximum.x; X += Tile)
+            Ink->AddImage(ImTextureRef(Texture), ImVec2(X, RepeatMinimum.y), ImVec2(X + Tile, RepeatMinimum.y + Tile));
+        Ink->PopClipRect();
+    }
+    ImGui::SetCursorScreenPos(RepeatMaximum);
+    ImGui::Dummy(ImVec2(1, 1));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SELECTION-AWARE INSPECTOR
+//------------------------------------------------------------------------------------------------------------------------
+
+void PatternWorkspacePanel::ConstructInspector()
+{
+    CapturePanel("Inspector");
+    const auto Position = ImGui::GetCursorScreenPos();
+    ImGui::SetCursorScreenPos(ImVec2(Position.x + 18 * Scale, Position.y + 30 * Scale));
+    ImGui::BeginChild("Pattern inspector scroll", ImVec2(ImGui::GetContentRegionAvail().x - 18 * Scale, 0));
+    if (PenSource)
+    {
+        Controls.BeginCard("Pending pen path", true);
+        ImGui::TextWrapped("Click to place anchors; drag tangents. Ctrl-click a retained endpoint to start a separate path. While continuing a retained path, click another endpoint to join; Ctrl bypasses joining. Joins require adjacent matching opaque strokes, matching group/channels and no owned masks. Hold Space during placement to reposition the new anchor. Alt-click the last anchor to break its outgoing tangent (manual curves). Click the first anchor to close. Enter finishes open; Escape cancels; Backspace removes the last anchor.");
+        if (Controls.Button("Finish open path", 200 * Scale)) FinishPen(false);
+        if (Controls.Button("Cancel pen path", 200 * Scale)) CancelPen();
+        Controls.EndCard();
+        ImGui::EndChild();
+        return;
+    }
+    const auto Snapshot = QueryDocument();
+    const auto SelectedTokens = Selection;
+    const auto Selected = [&](const auto &Layer) { return std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end(); };
+    const auto First = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), Selected);
+    const bool Protected = std::any_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Selected(Layer) && QueryVectorAuthoringProtection(Snapshot, Layer); });
+    if (First == Snapshot.Layers.end())
+    {
+        Controls.BeginCard("Your next shape", true);
+        ImGui::TextWrapped("Pick a tool and draw on the canvas. Add a shape with the + beside Motifs.");
+        Controls.EndCard();
+        ImGui::EndChild();
+        return;
+    }
+    if (!MaskSelection && Selection.size() == 2)
+    {
+        std::vector<uint32_t> Paths;
+        for (const auto &Layer : Snapshot.Layers) if (Selected(Layer) && Snapshot.Instructions[Layer.Root].Topology[0] == 6) Paths.push_back(Layer.Token);
+        if (Paths.size() == 2)
+        {
+            Controls.BeginCard("Join open paths", true);
+            ImGui::TextWrapped("Retains the lower layer's identity and appearance. Adds a straight bridge, or merges coincident endpoints. Requires adjacent layers with matching opaque solid strokes, group/channel metadata and no owned masks.");
+            constexpr const char *Captions[]{"Join end to start", "Join end to end", "Join start to start", "Join start to end"};
+            for (int Pair = 0; Pair < 4; ++Pair)
+            {
+                const bool RetainedStart = Pair >= 2, ConsumedEnd = Pair % 2 != 0;
+                std::string Refusal;
+                try { auto Candidate = Snapshot; IntegrateCubicPaths(Candidate, Paths[0], Paths[1], RetainedStart, ConsumedEnd); }
+                catch (const std::exception &Failure) { Refusal = Failure.what(); }
+                ImGui::BeginDisabled(Protected || Gesture != 0 || !Refusal.empty());
+                if (Controls.Button(Captions[Pair], 210 * Scale))
+                    EvaluateEdit([&](auto &Document) { IntegrateCubicPaths(Document, Paths[0], Paths[1], RetainedStart, ConsumedEnd); });
+                Controls.Tooltip(Captions[Pair], Refusal.empty() ? "Join the chosen endpoints in one undoable source operation. The consumed layer is removed; independent aliases are retained." : Refusal.c_str());
+                ImGui::EndDisabled();
+            }
+            Controls.EndCard();
+            if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+        }
+    }
+    if (!MaskSelection && Selection.size() == 1 && Tool == VectorAuthoringTool::Points)
+    {
+        Controls.BeginCard("Path points", true);
+        const auto Category = Snapshot.Instructions[First->Root].Topology[0];
+        ImGui::BeginDisabled(Protected || Gesture != 0);
+        if (Category < 6)
+        {
+            ImGui::TextWrapped("Convert this primitive to an editable cubic path. Ellipses use a four-curve approximation.");
+            if (Controls.Button("Convert to cubic path", 200 * Scale))
+                EvaluateEdit([&](auto &Document) { ReplaceCubicPath(Document, First->Token, DerivePrimitiveCubicPath(Document, First->Token)); });
+        }
+        else if (Category == 6)
+        {
+            ImGui::TextWrapped("Shift-click anchors to select or deselect several. Drag or nudge selected anchors together. Automatic tangents use neighbours; Delete removes selected anchors. Escape cancels a drag.");
+            ImGui::Text("%zu anchors selected", SelectedAnchors.size());
+            if (Controls.Button("Select all anchors", 200 * Scale))
+            {
+                try
+                {
+                    const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                    PointToken = First->Token; SelectedAnchors.clear();
+                    for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) SelectedAnchors.push_back(Index);
+                    ActiveAnchor = SelectedAnchors.back();
+                }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+            }
+            ImGui::BeginDisabled(PointToken != First->Token || SelectedAnchors.empty());
+            if (Controls.Button("Automatic selected tangents", 220 * Scale))
+                EvaluateEdit([&](auto &Document)
+                {
+                    auto Path = DecodeCubicPath(Document, First->Token);
+                    ConfigureAutomaticCubicTangents(Path, SelectedAnchors);
+                    ReplaceCubicPath(Document, First->Token, Path);
+                });
+            Controls.Tooltip("Automatic selected tangents", "Derive aligned tangents from neighbouring anchor positions. Lengths use one third of each adjacent chord. Only selected anchors change; one undo restores the source.");
+            for (bool Smooth : {false, true})
+                if (Controls.Button(SelectedAnchors.size() > 1
+                    ? (Smooth ? "Smooth selected anchors" : "Corner selected anchors")
+                    : (Smooth ? "Smooth active anchor" : "Corner active anchor"), 200 * Scale))
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        auto Path = DecodeCubicPath(Document, First->Token);
+                        for (size_t Index : SelectedAnchors) ConfigureCubicTangent(Path, Index, Smooth);
+                        ReplaceCubicPath(Document, First->Token, Path);
+                    });
+            bool SegmentEligible = false;
+            try
+            {
+                const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                SegmentEligible = ActiveAnchor < Path.Anchors.size() && Path.Anchors.size() < 400
+                    && (Path.Closed || ActiveAnchor + 1 < Path.Anchors.size());
+            }
+            catch (const std::exception &) {}
+            ImGui::BeginDisabled(!SegmentEligible);
+            if (Controls.Button("Subdivide following segment", 220 * Scale))
+                EvaluateEdit([&](auto &Document)
+                {
+                    auto Path = DecodeCubicPath(Document, First->Token);
+                    SubdivideCubicSegment(Path, ActiveAnchor);
+                    ReplaceCubicPath(Document, First->Token, Path);
+                    ++ActiveAnchor; SelectedAnchors = {ActiveAnchor};
+                });
+            Controls.Tooltip("Subdivide segment", "Insert an anchor halfway along the following cubic using de Casteljau subdivision. The curve is preserved; one undo restores the source.");
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            bool ResumeEligible = false;
+            try
+            {
+                const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                ResumeEligible = !Path.Closed && Path.Anchors.size() < 400;
+            }
+            catch (const std::exception &) {}
+            ImGui::BeginDisabled(!ResumeEligible);
+            for (bool FromStart : {true, false})
+                if (Controls.Button(FromStart ? "Resume from start" : "Resume from end", 200 * Scale))
+                {
+                    try { ResumePen(First->Token, FromStart); }
+                    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+                }
+            ImGui::EndDisabled();
+        }
+        else ImGui::TextWrapped("Select an independent source path; aggregate expressions are not flattened for point editing.");
+        ImGui::EndDisabled();
+        Controls.EndCard();
+    }
+    if (!MaskSelection)
+    {
+        Controls.BeginCard(Selection.size() == 1 ? "Selected vector" : "Selected vectors");
+        ImGui::BeginDisabled(Protected);
+        ImGui::TextUnformatted(Selection.size() == 1 ? "Align to canvas" : "Align selection");
+        for (int Axis = 0; Axis < 2; ++Axis)
+        {
+            for (int Boundary = 0; Boundary < 3; ++Boundary)
+            {
+                if (Boundary) ImGui::SameLine(0, 6 * Scale);
+                const char *Captions[]{"Align left", "Centre horizontally", "Align right", "Align top", "Centre vertically", "Align bottom"};
+                if (Controls.Button(Captions[Axis * 3 + Boundary], 30 * Scale, false, Axis == 0 ? "M3 3V21M7 7H16V17H7Z" : "M3 3H21M7 7H17V16H7Z"))
+                {
+                    const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
+                    const float Centre = Axis ? Bounds[1] : Bounds[0], Extent = Axis ? Bounds[3] : Bounds[2];
+                    const float Destination = Boundary == 0 ? Extent * .5f : Boundary == 1 ? 256 : 512 - Extent * .5f;
+                    VectorAuthoringSourcePatch Patch; if (Axis) Patch.TranslationY = Destination - Centre; else Patch.TranslationX = Destination - Centre;
+                    ApplySourcePatch(Patch);
+                }
+            }
+        }
+        if (Selection.size() >= 2)
+        {
+            bool Eligible = !Protected && std::all_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return !Selected(Layer) || !Layer.Mask; });
+            if (const auto Operation = ConstructVectorBooleanControls(Eligible))
+            {
+                try { auto Document = Snapshot; const auto Token = IntegrateVectorAuthoringBoolean(Document, Selection, VectorCoverageCategory(*Operation)); Finalize(std::move(Document), {Token}); }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+            }
+        }
+        ImGui::Spacing();
+        if (Controls.Button("Duplicate selection", 30 * Scale, false, CopyPath)) ReplicateSelection();
+        Controls.Tooltip("Duplicate", "Retain editable source, mask and channel settings in an independent copy.");
+        ImGui::SameLine(0, 6 * Scale);
+        if (Controls.Button("Delete selection", 30 * Scale, false, TrashPath)) EvaluateEdit([&](auto &Document) { PartitionVectorAuthoringSelection(Document, Selection); });
+        ImGui::EndDisabled();
+        Controls.EndCard();
+        if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+        Controls.ControlHeight = 48;
+        if (Controls.Button(("Surface channels · " + std::to_string(Selection.size()) + " selected").c_str(), ImGui::GetContentRegionAvail().x, ChannelsOpen, {}, true)) ChannelsOpen = !ChannelsOpen;
+        Controls.ControlHeight = 30;
+        if (ChannelsOpen)
+        {
+            ImGui::TextWrapped("Surface contributions are authored per selected shape and sampled by the live material preview.");
+            if (Selection.size() > 1)
+                ImGui::TextDisabled("Toggling a channel applies the displayed setting to every selected shape.");
+            int Structure = int(First->SurfaceStructure);
+            ImGui::BeginDisabled(Protected);
+            if (ImGui::Combo("Surface construction", &Structure, "Freeform\0Stitch\0Weave\0"))
+                EvaluateEdit([&](auto &Document)
+                {
+                    for (auto &Layer : Document.Layers)
+                        if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                        {
+                            Layer.SurfaceStructure = VectorAuthoringSurfaceStructure(Structure);
+                            const bool StitchGeometry = Layer.TextileGeometry == VectorAuthoringTextileGeometry::NeedleEntry ||
+                                Layer.TextileGeometry == VectorAuthoringTextileGeometry::StitchThread ||
+                                Layer.TextileGeometry == VectorAuthoringTextileGeometry::UpperThreadPass;
+                            const bool WeaveGeometry = Layer.TextileGeometry == VectorAuthoringTextileGeometry::WeaveYarn;
+                            if ((Layer.SurfaceStructure == VectorAuthoringSurfaceStructure::Freeform && Layer.TextileGeometry != VectorAuthoringTextileGeometry::Unclassified) ||
+                                (Layer.SurfaceStructure == VectorAuthoringSurfaceStructure::Stitch && WeaveGeometry) ||
+                                (Layer.SurfaceStructure == VectorAuthoringSurfaceStructure::Weave && StitchGeometry))
+                                Layer.TextileGeometry = VectorAuthoringTextileGeometry::Unclassified;
+                            if (Layer.SurfaceStructure != VectorAuthoringSurfaceStructure::Freeform)
+                            {
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Enabled = true;
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Enabled = true;
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength = std::max(Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength, 0.01f);
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Strength = std::max(Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Strength, 0.01f);
+                            }
+                        }
+                });
+            ImGui::EndDisabled();
+            int TextileGeometry = int(First->TextileGeometry);
+            ImGui::BeginDisabled(Protected);
+            if (ImGui::Combo("Textile geometry", &TextileGeometry,
+                "Unclassified\0Needle entry (stitch holes)\0Stitch thread path\0Upper thread pass\0Weave yarn\0"))
+                EvaluateEdit([&](auto &Document)
+                {
+                    for (auto &Layer : Document.Layers)
+                        if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                        {
+                            Layer.TextileGeometry = VectorAuthoringTextileGeometry(TextileGeometry);
+                            if (Layer.TextileGeometry == VectorAuthoringTextileGeometry::NeedleEntry ||
+                                Layer.TextileGeometry == VectorAuthoringTextileGeometry::StitchThread ||
+                                Layer.TextileGeometry == VectorAuthoringTextileGeometry::UpperThreadPass)
+                                Layer.SurfaceStructure = VectorAuthoringSurfaceStructure::Stitch;
+                            else if (Layer.TextileGeometry == VectorAuthoringTextileGeometry::WeaveYarn)
+                                Layer.SurfaceStructure = VectorAuthoringSurfaceStructure::Weave;
+                            if (Layer.SurfaceStructure != VectorAuthoringSurfaceStructure::Freeform)
+                            {
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Enabled = true;
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Enabled = true;
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength = std::max(Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength, 0.01f);
+                                Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Strength = std::max(Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Strength, 0.01f);
+                            }
+                        }
+                });
+            ImGui::EndDisabled();
+            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion"};
+            ImGui::BeginDisabled(Protected);
+            for (size_t Index = 0; Index < 7; ++Index)
+            {
+                bool Enabled = First->SurfaceChannels[Index].Enabled;
+                const bool RequiredForTextile = First->SurfaceStructure != VectorAuthoringSurfaceStructure::Freeform && (Index == size_t(VectorAuthoringSurfaceChannel::Height) || Index == size_t(VectorAuthoringSurfaceChannel::Normal));
+                ImGui::BeginDisabled(RequiredForTextile);
+                const bool Changed = Controls.Toggle(Channels[Index], Enabled);
+                ImGui::EndDisabled();
+                if (Changed)
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        for (auto &Layer : Document.Layers)
+                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                                Layer.SurfaceChannels[Index].Enabled = Enabled;
+                    });
+                float Strength = First->SurfaceChannels[Index].Strength;
+                const std::string StrengthCaption = std::string(Channels[Index]) + " strength";
+                const float Minimum = RequiredForTextile ? 0.01f : 0.f;
+                const float Maximum = Index == size_t(VectorAuthoringSurfaceChannel::Normal) ? 4.f : 1.f;
+                if (Controls.Range(StrengthCaption.c_str(), Strength, Minimum, Maximum))
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        for (auto &Layer : Document.Layers)
+                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                                Layer.SurfaceChannels[Index].Strength = Strength;
+                    });
+            }
+            ImGui::EndDisabled();
+            float SurfaceRelief = First->SurfaceRelief;
+            ImGui::BeginDisabled(Protected);
+            if (Controls.Range("Surface relief", SurfaceRelief, -1.f, 1.f))
+                EvaluateEdit([&](auto &Document)
+                {
+                    for (auto &Layer : Document.Layers)
+                        if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                            Layer.SurfaceRelief = SurfaceRelief;
+                });
+            ImGui::EndDisabled();
+            Controls.Tooltip("Surface relief", "Signed height amplitude used by the Height map and its derived tangent normals.");
+        }
+        ImGui::Dummy(ImVec2(0, 0));
+        Controls.ControlHeight = 48;
+        if (Controls.Button("Array / pattern", ImGui::GetContentRegionAvail().x, ArraysOpen, {}, true)) ArraysOpen = !ArraysOpen;
+        Controls.ControlHeight = 30;
+        if (ArraysOpen && Controls.Array(ArraySpecification, Snapshot.Layers.size(), Selection.size(), 64, Protected))
+        {
+            try { auto Result = GenerateVectorAuthoringArray(Snapshot, Selection, ArraySpecification); Finalize(std::move(Result.Document), std::move(Result.Selection)); }
+            catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+        }
+        ImGui::Dummy(ImVec2(0, 0));
+    }
+    if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+    Controls.BeginCard(MaskSelection ? "Vector mask" : "Selected motif", true);
+    ImGui::BeginDisabled(Protected);
+    Controls.BeginCard("Mask", false, true);
+    auto EditedLayer = *First;
+    if (!EditedLayer.Mask)
+    {
+        if (Controls.Button("Add mask")) EvaluateEdit([&](auto &Document)
+        {
+            for (auto &Layer : Document.Layers) if (Layer.Token == First->Token)
+            {
+                auto Mask = Snapshot.Instructions[First->Root];
+                if (Mask.Topology[0] > 6) { Mask = VectorCoverageInstruction{}; Mask.Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection); }
+                Mask.Colour = Mask.ColourEnd = {1, 1, 1, 1}; Layer.Mask = Mask;
+            }
+        });
+    }
+    else
+    {
+        if (Controls.Button("Edit mask")) MaskSelection = First->Token;
+        bool Changed = Controls.Toggle("Enable vector mask", EditedLayer.MaskEnabled);
+        Changed |= Controls.Toggle("Invert vector mask", EditedLayer.MaskInverted);
+        Changed |= Controls.Toggle("Luminance mask", EditedLayer.MaskLuminance);
+        int Category = EditedLayer.Mask->Topology[0] == 1 ? 1 : 0;
+        const char *Categories[]{"Rectangle", "Ellipse"};
+        if (EditedLayer.Mask->Topology[0] <= 1 && Controls.Dropdown("Mask shape", Category, Categories)) { EditedLayer.Mask->Topology[0] = uint32_t(Category); Changed = true; }
+        Changed |= Controls.Number("Mask opacity", EditedLayer.Mask->Transform[2], 0, 1);
+        Changed |= Controls.Number("Mask X", EditedLayer.Mask->Bounds[0], -512, 1024);
+        Changed |= Controls.Number("Mask Y", EditedLayer.Mask->Bounds[1], -512, 1024);
+        Changed |= Controls.Number("Mask width", EditedLayer.Mask->Bounds[2], 1, 1024);
+        Changed |= Controls.Number("Mask height", EditedLayer.Mask->Bounds[3], 1, 1024);
+        if (Changed) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer = EditedLayer; });
+        if (Controls.Button("Remove mask")) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Mask.reset(); });
+        if (MaskSelection && Controls.Button("Done editing mask")) MaskSelection = 0;
+        ImGui::TextDisabled("Paint/image mask authoring is not ported yet.");
+    }
+    Controls.EndCard();
+    if (!MaskSelection)
+    {
+        Controls.BeginCard("Transform", false, true);
+        char LayerName[81]; std::snprintf(LayerName, sizeof(LayerName), "%s", First->Name.c_str());
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##Layer name", LayerName, sizeof(LayerName))) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Name = LayerName; });
+        const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
+        if (ImGui::BeginTable("Transform fields", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings))
+        {
+        ImGui::TableSetupColumn("Horizontal", ImGuiTableColumnFlags_WidthStretch, 1);
+        ImGui::TableSetupColumn("Vertical", ImGuiTableColumnFlags_WidthStretch, 1);
+        for (size_t Index = 0; Index < 4; ++Index)
+        {
+            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 80 * Scale);
+            ImGui::TableNextColumn();
+            float Quantity = Bounds[Index];
+            const char *Captions[]{"X", "Y", "Width", "Height"};
+            if (Controls.Number(Captions[Index], Quantity, Index < 2 ? -512.f : 1.f, 1024))
+            {
+                VectorAuthoringSourcePatch Patch;
+                if (Index == 0) Patch.TranslationX = Quantity - Bounds[0];
+                if (Index == 1) Patch.TranslationY = Quantity - Bounds[1];
+                if (Index == 2) Patch.ScaleX = Quantity / std::max(.01f, Bounds[2]);
+                if (Index == 3) Patch.ScaleY = Quantity / std::max(.01f, Bounds[3]);
+                ApplySourcePatch(Patch);
+            }
+        }
+        ImGui::EndTable();
+        }
+        const auto &Source = Snapshot.Instructions[First->Root];
+        float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
+        if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
+        Controls.EndCard();
+        Controls.BeginCard("Fill", false, true);
+        int Category = int(Source.Transform[3]);
+        const char *Sources[]{"Solid colour", "Linear gradient", "Radial gradient"};
+        if (Controls.Dropdown("Motif fill source", Category, Sources)) { VectorAuthoringSourcePatch Patch; Patch.PaintCategory = uint32_t(Category); ApplySourcePatch(Patch); }
+        auto Colour = Source.Colour;
+        if (Controls.Colour("Fill colour", Colour)) { VectorAuthoringSourcePatch Patch; Patch.Colour = Colour; ApplySourcePatch(Patch); }
+        if (Category)
+        {
+            auto EndColour = Source.ColourEnd;
+            if (Controls.Colour("Gradient end colour", EndColour)) { VectorAuthoringSourcePatch Patch; Patch.ColourEnd = EndColour; ApplySourcePatch(Patch); }
+        }
+        bool Filled = Source.Paint[3] != 0;
+        if (Controls.Toggle("Fill enabled", Filled)) { VectorAuthoringSourcePatch Patch; Patch.FillEnabled = Filled; ApplySourcePatch(Patch); }
+        Controls.EndCard();
+        Controls.BeginCard("Stroke", false, true);
+        float Stroke = Source.Transform[1];
+        if (Controls.Number("Stroke width", Stroke, 0, 25)) { VectorAuthoringSourcePatch Patch; Patch.StrokeWidth = Stroke; ApplySourcePatch(Patch); }
+        ImGui::TextWrapped("Independent stroke colour/image sources remain to be ported.");
+        Controls.EndCard();
+    }
+    ImGui::EndDisabled();
+    Controls.EndCard();
+    if (!Diagnostic.empty()) ImGui::TextWrapped("%s", Diagnostic.c_str());
+    ImGui::EndChild();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SHARED HOSTING AND KEYBOARD INPUT
+//------------------------------------------------------------------------------------------------------------------------
+
+void PatternWorkspacePanel::ConstructCloseDialogue()
+{
+    if (CloseRequested && !ImGui::IsPopupOpen("Unsaved pattern")) ImGui::OpenPopup("Unsaved pattern");
+    if (ImGui::BeginPopupModal("Unsaved pattern", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("Save changes to this pattern?");
+        if (Controls.Button("Save and close") && Save()) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
+        ImGui::SameLine();
+        if (Controls.Button("Discard changes")) { History.Reset(SavedDocument); CloseRequested = false; ImGui::CloseCurrentPopup(); if (ActivateMaterial) ActivateMaterial(); }
+        ImGui::SameLine();
+        if (Controls.Button("Cancel")) { CloseRequested = false; ImGui::CloseCurrentPopup(); if (CancelClose) CancelClose(); }
+        ImGui::EndPopup();
+    }
+}
+
+void PatternWorkspacePanel::SuspendContent() noexcept
+{
+    CancelPen();
+    if (GestureSource) Selection = std::move(GestureSelection);
+    GestureSource.reset(); GestureDraft.reset(); Gesture = 0;
+}
+
+void PatternWorkspacePanel::FinalizeContent() noexcept
+{
+    SuspendContent();
+    QueryCoverage = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; CancelClose = {}; EvaluateNavigationDelta = {};
+}
+
+void PatternWorkspacePanel::ConstructInterface()
+{
+    if (QueryPhase() != ActivationPhase::Active) return;
+    ControlExtents.clear(); PanelExtents.clear();
+    const auto SavedPalette = ControlKit::Palette();
+    auto Palette = SavedPalette;
+    Palette.Panel = {.0706f, .0706f, .0706f, 1};
+    Palette.Inset = {.098f, .098f, .098f, 1};
+    Palette.Raised = {.133f, .133f, .133f, 1};
+    Palette.Selected = {.20f, .208f, .173f, 1};
+    Palette.Text = {.808f, .808f, .753f, 1};
+    Palette.TextDim = {.56f, .58f, .50f, 1};
+    Palette.TextFaint = {.35f, .37f, .30f, 1};
+    Palette.Accent = {.39f, .45f, .31f, 1};
+    ControlKit::ConfigurePalette(Palette);
+    ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), 11 * 1.302f * Scale);
+    const auto Colour = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
+    ImGui::PushStyleColor(ImGuiCol_Text, Colour(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, Colour(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_Header, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Spectrum(0x272923));
+    ImGui::PushStyleColor(ImGuiCol_Button, Spectrum(0x222222));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Spectrum(0x2e2e28));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Spectrum(0x33352c));
+    for (auto Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg}) ImGui::PushStyleColor(Slot, Spectrum(0x090909));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .055f));
+    for (auto Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected}) ImGui::PushStyleColor(Slot, Spectrum(0x101010));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(32, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * Scale, 9 * Scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * Scale, 10 * Scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 4 * Scale);
+    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
+    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
+    const bool PendingBeforeInterface = PenSource.has_value();
+    ConstructHeader();
+    Panels.ConstructInterface(Scale);
+    ConstructCloseDialogue();
+    const auto &Input = ImGui::GetIO();
+    if (Gesture == 0 && !PenSource && !PendingBeforeInterface && !Input.WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+    {
+        const bool Command = Input.KeyCtrl || Input.KeySuper;
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_C)) TransferSelection(false);
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_X)) TransferSelection(true);
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_V)) InsertSelection(Input.KeyShift);
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_D)) ReplicateSelection();
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_A)) SelectEditableVectors();
+        if (!Command && (ImGui::IsKeyPressed(ImGuiKey_LeftBracket) || ImGui::IsKeyPressed(ImGuiKey_RightBracket)))
+        {
+            const bool Forward = ImGui::IsKeyPressed(ImGuiKey_RightBracket);
+            const auto Order = Input.KeyShift ? (Forward ? VectorSelectionOrder::Front : VectorSelectionOrder::Back)
+                : (Forward ? VectorSelectionOrder::Forward : VectorSelectionOrder::Backward);
+            if (!Selection.empty() && !MaskSelection) EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringSelection(Document, Selection, Order); });
+        }
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) RestoreHistory(Input.KeyShift);
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) RestoreHistory(true);
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) Save();
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_P)) Tool = VectorAuthoringTool::Pen;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_A)) Tool = VectorAuthoringTool::Points;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_V)) Tool = VectorAuthoringTool::Select;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_R)) Tool = VectorAuthoringTool::Rectangle;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_O)) Tool = VectorAuthoringTool::Ellipse;
+        if (ImGui::IsKeyPressed(ImGuiKey_0)) { Pan = {}; Zoom = 1; }
+        if (!Selection.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete))
+        {
+            if (MaskSelection)
+            {
+                EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == MaskSelection && !QueryVectorAuthoringProtection(Document, Layer)) Layer.Mask.reset(); });
+                MaskSelection = 0;
+            }
+            else if (Tool == VectorAuthoringTool::Points)
+            {
+                if (Selection.size() == 1 && PointToken == Selection[0] && ActiveAnchor != SIZE_MAX)
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        auto Path = DecodeCubicPath(Document, PointToken);
+                        PartitionCubicAnchors(Path, SelectedAnchors);
+                        ReplaceCubicPath(Document, PointToken, Path);
+                        ActiveAnchor = SIZE_MAX; SelectedAnchors.clear();
+                    });
+            }
+            else EvaluateEdit([&](auto &Document) { PartitionVectorAuthoringSelection(Document, Selection); });
+        }
+        if (!Selection.empty())
+        {
+            VectorAuthoringSourcePatch Patch;
+            const float Step = Input.KeyShift ? 10.f : 1.f;
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) Patch.TranslationX -= Step;
+            if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) Patch.TranslationX += Step;
+            if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) Patch.TranslationY -= Step;
+            if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) Patch.TranslationY += Step;
+            if (Patch.TranslationX || Patch.TranslationY)
+            {
+                if (Tool == VectorAuthoringTool::Points)
+                {
+                    if (Selection.size() == 1 && PointToken == Selection[0] && ActiveAnchor != SIZE_MAX)
+                        EvaluateEdit([&](auto &Document)
+                        {
+                            auto Path = DecodeCubicPath(Document, PointToken);
+                            TranslateCubicAnchors(Path, SelectedAnchors, {Patch.TranslationX, Patch.TranslationY});
+                            ReplaceCubicPath(Document, PointToken, Path);
+                        });
+                }
+                else ApplySourcePatch(Patch);
+            }
+        }
+    }
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
+    ImGui::PopStyleVar(8);
+    ImGui::PopStyleColor(22);
+    ImGui::PopFont();
+    ControlKit::ConfigurePalette(SavedPalette);
+}
+}

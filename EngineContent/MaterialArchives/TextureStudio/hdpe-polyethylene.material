@@ -1,0 +1,11 @@
+Format = 1
+Name = "HDPE Polyethylene"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7304607400903537, 0.7156935005064807, 0.6038273388553378]
+Roughness = 0.5
+Metallic = 0
+Ior = 1.53
+Coverage = 1.0
+Anisotropy = 0

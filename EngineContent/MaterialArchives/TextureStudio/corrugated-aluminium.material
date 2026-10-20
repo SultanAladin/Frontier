@@ -1,0 +1,11 @@
+Format = 1
+Name = "Corrugated Aluminium"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6375968739940326, 0.665387298282272, 0.665387298282272]
+Roughness = 0.28
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,19 @@
+Format = 1
+Name = "Black Solar Module"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.005181516702338386, 0.009721217320237847, 0.012286488356915872]
+Roughness = 0.2
+Metallic = 0.55
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.15
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.95

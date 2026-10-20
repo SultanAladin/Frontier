@@ -1,0 +1,19 @@
+Format = 1
+Name = "Grained ABS"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.03560131487502034, 0.03688945040110004, 0.03954623527673283]
+Roughness = 0.62
+Metallic = 0
+Ior = 1.55
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.4
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.08

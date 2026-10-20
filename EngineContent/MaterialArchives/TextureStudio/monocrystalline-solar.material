@@ -1,0 +1,19 @@
+Format = 1
+Name = "Monocrystalline Solar"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.008568125618069307, 0.0202885630566524, 0.05448027644244237]
+Roughness = 0.2
+Metallic = 0.55
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.15
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.95

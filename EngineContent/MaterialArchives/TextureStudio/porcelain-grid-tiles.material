@@ -1,0 +1,19 @@
+Format = 1
+Name = "Porcelain Grid Tiles"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6938717612919899, 0.6866853124353134, 0.6038273388553378]
+Roughness = 0.2
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.85

@@ -1,0 +1,19 @@
+Format = 1
+Name = "Carbon Ceramic"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.07618538148130785, 0.08021982031446831, 0.08021982031446831]
+Roughness = 0.73
+Metallic = 0.25
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.5
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.08

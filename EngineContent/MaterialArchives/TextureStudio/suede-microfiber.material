@@ -1,0 +1,11 @@
+Format = 1
+Name = "Suede Microfiber"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.184474994500441, 0.1651321945016676, 0.14702726649759498]
+Roughness = 0.94
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

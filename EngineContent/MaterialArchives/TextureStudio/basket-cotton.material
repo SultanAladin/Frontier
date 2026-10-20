@@ -1,0 +1,11 @@
+Format = 1
+Name = "Basket Cotton"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.47353149614800955, 0.44520119451622786, 0.3613067797835095]
+Roughness = 0.86
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.2

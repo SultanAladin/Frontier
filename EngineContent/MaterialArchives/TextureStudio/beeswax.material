@@ -1,0 +1,11 @@
+Format = 1
+Name = "Beeswax"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6938717612919899, 0.3662525955988395, 0.07818742180518633]
+Roughness = 0.38
+Metallic = 0
+Ior = 1.44
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Cast Steel"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.35153259950043936, 0.3712376804741491, 0.3613067797835095]
+Roughness = 0.56
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

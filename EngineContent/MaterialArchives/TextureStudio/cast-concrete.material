@@ -1,0 +1,11 @@
+Format = 1
+Name = "Cast Concrete"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.40197777983219574, 0.386429433787049, 0.33245153634617935]
+Roughness = 0.88
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

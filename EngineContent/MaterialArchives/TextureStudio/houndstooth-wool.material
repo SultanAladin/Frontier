@@ -1,0 +1,11 @@
+Format = 1
+Name = "Houndstooth Wool"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.41254261348390375, 0.39675523072562685, 0.3049873140698863]
+Roughness = 0.92
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.2

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Kaolin Clay"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6795424696330938, 0.6172065624196511, 0.5088813208549338]
+Roughness = 0.92
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

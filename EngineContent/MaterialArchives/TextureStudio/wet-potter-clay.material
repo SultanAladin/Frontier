@@ -1,0 +1,11 @@
+Format = 1
+Name = "Wet Potter Clay"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.13843161503245183, 0.09305896284668747, 0.06301001765316767]
+Roughness = 0.38
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

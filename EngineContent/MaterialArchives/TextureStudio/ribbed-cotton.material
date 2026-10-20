@@ -1,0 +1,11 @@
+Format = 1
+Name = "Ribbed Cotton"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.4341536361747489, 0.3005437944157765, 0.19806931955994886]
+Roughness = 0.89
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0.2

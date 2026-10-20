@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Deep"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.05448027644244237, 0.026241221894849898, 0.017641954488384078]
+Roughness = 0.5
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

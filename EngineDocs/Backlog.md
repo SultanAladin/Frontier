@@ -1,5 +1,8 @@
 # Backlog — deferred migration work
 
+Historical reference only. Current ownership is in `Documentation/FolderStructure.md`;
+current progress and findings belong in `Documentation/Tracker.md`. Do not maintain a competing map or tracker here.
+
 Running pick-up list. Append entries; prune when done. Newest on top.
 
 ---

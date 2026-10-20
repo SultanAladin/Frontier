@@ -1,0 +1,11 @@
+Format = 1
+Name = "Pure Nickel"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6583748172794486, 0.6239603916750761, 0.4969329950608704]
+Roughness = 0.25
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

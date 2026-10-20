@@ -1,0 +1,11 @@
+Format = 1
+Name = "Lime Stucco"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.665387298282272, 0.5972017883637634, 0.45641102318040466]
+Roughness = 0.94
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

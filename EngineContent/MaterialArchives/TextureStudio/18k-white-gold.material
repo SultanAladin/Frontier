@@ -1,0 +1,11 @@
+Format = 1
+Name = "18K White Gold"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7304607400903537, 0.7083757798916868, 0.6444796819705821]
+Roughness = 0.17
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
