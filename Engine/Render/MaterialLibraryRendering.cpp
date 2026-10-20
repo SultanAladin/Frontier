@@ -118,8 +118,8 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         if (!Selected) return;
         auto Scattering = PreviewScattering;
-        // 📝 Albedo texture enablement is independent of the selected lighting environment.
-        Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1,1,0,0};
+        Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1,
+            Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
         Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
         // 📝 Preview rigs are owned by the selected environment, never inherited from arbitrary authored source lighting.
         Scattering.Illumination.LightColourExposure = {1,1,1,Inspection.Exposure};
