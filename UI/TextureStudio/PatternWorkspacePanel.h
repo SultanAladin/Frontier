@@ -42,6 +42,10 @@ private:
     enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Points, Pen };
     VectorAuthoringHistory History;
     VectorAuthoringDocument SavedDocument;
+    VectorCoverageProgram CachedCoverageProgram;
+    VectorAuthoringDocument CachedCoverageDocument;
+    uint32_t CachedCoverageMask = UINT32_MAX;
+    bool CachedCoverageValid = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
     void InsertSelection(bool InPlace);

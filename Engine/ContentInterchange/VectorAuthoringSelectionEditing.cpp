@@ -76,6 +76,11 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
     }
     if (Patch.Colour) Source.Colour = *Patch.Colour;
     if (Patch.ColourEnd) Source.ColourEnd = *Patch.ColourEnd;
+    if (Patch.StrokeColour)
+    {
+        Source.StrokeColour = *Patch.StrokeColour;
+        Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
+    }
     if (Patch.Opacity) Source.Transform[2] = *Patch.Opacity;
     if (Patch.StrokeWidth) Source.Transform[1] = *Patch.StrokeWidth;
     if (Patch.PaintCategory) Source.Transform[3] = float(*Patch.PaintCategory);
@@ -318,11 +323,11 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
         if (!std::isfinite(Quantity)) throw std::runtime_error("Nonfinite vector transform.");
     if (Patch.ScaleX <= 0 || Patch.ScaleY <= 0) throw std::runtime_error("VectorAuthoring scale must be positive.");
     if (Patch.TranslationX == 0 && Patch.TranslationY == 0 && Patch.ScaleX == 1 && Patch.ScaleY == 1 && Patch.Rotation == 0 &&
-        !Patch.Colour && !Patch.ColourEnd && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled) return;
+        !Patch.Colour && !Patch.ColourEnd && !Patch.StrokeColour && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled) return;
     const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, Selection);
     auto Replacement = Document;
     VectorAuthoringSourcePatch Geometry = Patch;
-    Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.Opacity.reset();
+    Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
     Geometry.StrokeWidth.reset(); Geometry.PaintCategory.reset(); Geometry.FillEnabled.reset();
     std::unordered_map<uint64_t, uint32_t> Remapping;
     std::function<uint32_t(uint32_t, bool)> Clone = [&](uint32_t Root, bool MaskOnly)

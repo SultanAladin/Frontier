@@ -13,6 +13,7 @@
 
 namespace Frontier
 {
+inline constexpr uint32_t VectorCoverageStrokeColourExplicit = 0x80000000u;
 enum class VectorCoverageCategory : uint32_t
 {
     Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, CubicContour,
@@ -26,6 +27,7 @@ struct alignas(16) VectorCoverageInstruction
     std::array<float, 4> Transform{0, 0, 1, 0};
     std::array<float, 4> Colour{1, 1, 1, 1};
     std::array<float, 4> ColourEnd{1, 1, 1, 1};
+    std::array<float, 4> StrokeColour{1, 1, 1, 1};
     std::array<float, 4> Paint{0, .45f, 6, 1};
     bool operator==(const VectorCoverageInstruction &) const = default;
 };
@@ -35,7 +37,7 @@ struct alignas(16) VectorCubicSegment
     std::array<float, 4> ControlEnd{};
     bool operator==(const VectorCubicSegment &) const = default;
 };
-static_assert(sizeof(VectorCoverageInstruction) == 96 && sizeof(VectorCubicSegment) == 32);
+static_assert(sizeof(VectorCoverageInstruction) == 112 && sizeof(VectorCubicSegment) == 32);
 struct VectorCoverageProgram
 {
     std::vector<VectorCoverageInstruction> Instructions;
@@ -56,7 +58,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
     for (size_t Index = 0; Index < Program.Instructions.size(); ++Index)
     {
         const auto &Instruction = Program.Instructions[Index];
-        for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.Paint})
+        for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint})
             for (float Coordinate : Coordinates) if (!std::isfinite(Coordinate)) throw std::runtime_error("Non-finite vector coverage descriptor.");
         const auto Category = Instruction.Topology[0];
         if (Category <= 6)
@@ -98,6 +100,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
             throw std::runtime_error("Vector stroke, opacity or paint category is invalid.");
         for (float Channel : Instruction.Colour) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector colour must be normalized.");
         for (float Channel : Instruction.ColourEnd) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector gradient colour must be normalized.");
+        for (float Channel : Instruction.StrokeColour) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector stroke colour must be normalized.");
     }
     for (const auto &Segment : Program.Segments)
         for (const auto &Coordinates : {Segment.StartControl, Segment.ControlEnd})

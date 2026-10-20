@@ -258,6 +258,7 @@ void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Ca
         Source.Bounds = {256, 256, 160, 160};
         Source.Colour = {.8627f, .4627f, .3529f, 1};
         Source.ColourEnd = {.35f, .55f, .45f, 1};
+        Source.StrokeColour = Source.Colour;
         if (Document.Layers.empty()) Document.Name = "Custom pattern";
         const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
         Finalize(std::move(Document), {Token});
@@ -1115,14 +1116,21 @@ void PatternWorkspacePanel::ConstructCanvas()
             Caption(ImVec2(Minimum.x + 3 * Scale, Vertical + 3 * Scale), Label, 7 * Scale, 0x879576);
         }
     }
-    const auto Snapshot = QueryDocument();
-    auto Program = ConstructVectorAuthoringCoverage(Snapshot);
-    if (MaskSelection)
+    const auto &Snapshot = QueryDocument();
+    if (!CachedCoverageValid || CachedCoverageMask != MaskSelection || CachedCoverageDocument != Snapshot)
     {
-        const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == MaskSelection; });
-        if (Position != Snapshot.Layers.end() && Position->Mask) Program = {{*Position->Mask}, Snapshot.Segments, 0};
+        CachedCoverageProgram = ConstructVectorAuthoringCoverage(Snapshot);
+        if (MaskSelection)
+        {
+            const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == MaskSelection; });
+            if (Position != Snapshot.Layers.end() && Position->Mask)
+                CachedCoverageProgram = {{*Position->Mask}, Snapshot.Segments, 0};
+        }
+        CachedCoverageDocument = Snapshot;
+        CachedCoverageMask = MaskSelection;
+        CachedCoverageValid = true;
     }
-    const auto Texture = QueryCoverage ? QueryCoverage(Program) : 0;
+    const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram) : 0;
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     if (GridEnabled)
@@ -1315,6 +1323,7 @@ void PatternWorkspacePanel::ConstructCanvas()
                 Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
                 Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f, std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
+                Source.StrokeColour = Source.Colour;
                 const auto Token = ConstructVectorAuthoringPrimitive(Draft, Source, ShapeNames[Source.Topology[0]]);
                 Selection = {Token};
             }
@@ -1738,7 +1747,9 @@ void PatternWorkspacePanel::ConstructInspector()
         Controls.BeginCard("Stroke", false, true);
         float Stroke = Source.Transform[1];
         if (Controls.Number("Stroke width", Stroke, 0, 25)) { VectorAuthoringSourcePatch Patch; Patch.StrokeWidth = Stroke; ApplySourcePatch(Patch); }
-        ImGui::TextWrapped("Independent stroke colour/image sources remain to be ported.");
+        auto StrokeColour = Source.StrokeColour;
+        if (Controls.Colour("Stroke colour", StrokeColour)) { VectorAuthoringSourcePatch Patch; Patch.StrokeColour = StrokeColour; ApplySourcePatch(Patch); }
+        ImGui::TextWrapped("Fill and stroke colours are independent. Stroke image sources remain deferred.");
         Controls.EndCard();
     }
     ImGui::EndDisabled();

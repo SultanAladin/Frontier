@@ -55,6 +55,8 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool RequestClose() noexcept;
     bool ConsumeClose() noexcept;
     [[nodiscard]] PlaneExtent QueryApplyExtent() const noexcept { return ApplyExtent; }
+    [[nodiscard]] PlaneExtent QueryFullscreenPreviewExtent() const noexcept { return FullscreenPreviewExtent; }
+    [[nodiscard]] bool QueryFullscreenPreview() const noexcept { return FullscreenPreview; }
     [[nodiscard]] PlaneExtent QuerySaveExtent() const noexcept { return SaveExtent; }
     [[nodiscard]] PlaneExtent QueryRoughnessExtent() const noexcept { return RoughnessExtent; }
     [[nodiscard]] PlaneExtent QueryRevertExtent() const noexcept { return RevertExtent; }
@@ -67,6 +69,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     PanelDockspace Panels;
     bool SourceVisible = false;
     bool CollectionVisible = false, LayersVisible = false;
+    bool FullscreenPreview = false;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;
@@ -78,6 +81,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     PlaneExtent RoughnessExtent;
     void ConstructInspector();
     void ConstructViewport();
+    void ConstructFullscreenPreview();
     bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr);
     void ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb = 0xa3a393);
     void ConstructActions();
@@ -85,7 +89,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::array<char,257> SearchText{}, NameText{};
     std::array<char,32> ColourText{};
     std::vector<char> SourceText;
-    PlaneExtent ApplyExtent, SaveExtent, RevertExtent;
+    PlaneExtent ApplyExtent, SaveExtent, RevertExtent, FullscreenPreviewExtent;
     bool ClosingRequested = false, CloseAuthorized = false;
     bool Creating = false;
     bool Duplicating = false;

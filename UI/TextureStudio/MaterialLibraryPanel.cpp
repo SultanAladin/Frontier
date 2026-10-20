@@ -290,6 +290,16 @@ void MaterialLibraryPanel::ConstructViewport()
         ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), EncodeMaterialInk(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(4.f, Available.x - 92 * Scale), Origin.y + 7 * Scale));
+    if (ImGui::Button("Fullscreen##MaterialPreview", ImVec2(84 * Scale, 27 * Scale)))
+    {
+        FullscreenPreview = true;
+        ResetMaterialPreviewView(Inspection);
+        if (ConfigurePreview) ConfigurePreview(Inspection);
+    }
+    const auto FullscreenMinimum = ImGui::GetItemRectMin(), FullscreenMaximum = ImGui::GetItemRectMax();
+    FullscreenPreviewExtent = {FullscreenMinimum.x, FullscreenMinimum.y, FullscreenMaximum.x, FullscreenMaximum.y};
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open a fitted, full-work-area material preview (Escape to close).");
     const auto *Entry = QuerySelectedMaterial(Library);
     ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 68 * Scale, 8 * Scale, 0x92917c,
         Entry && !Entry->Category.empty() ? ("01  /  " + Entry->Category + " COLLECTION").c_str() : "MATERIAL COLLECTION");
@@ -402,7 +412,61 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::EndDisabled();
     if (Previous != Inspection && ConfigurePreview) ConfigurePreview(Inspection);
     ImGui::PopID();
+}
 
+void MaterialLibraryPanel::ConstructFullscreenPreview()
+{
+    if (!FullscreenPreview) return;
+    const auto *Viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(Viewport->WorkPos);
+    ImGui::SetNextWindowSize(Viewport->WorkSize);
+    ImGui::SetNextWindowViewport(Viewport->ID);
+    ImGui::SetNextWindowBgAlpha(1);
+    constexpr ImGuiWindowFlags Flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+    if (!ImGui::Begin("Fullscreen material preview###MaterialPreviewFullscreen", nullptr, Flags))
+    {
+        ImGui::End();
+        return;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) FullscreenPreview = false;
+    const ImVec2 Origin = ImGui::GetWindowPos();
+    const ImVec2 Size = ImGui::GetWindowSize();
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), EncodeMaterialInk(0x17191a));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 28, Origin.y + 20));
+    ImGui::TextUnformatted(QuerySelectedMaterial(Library) ? QuerySelectedMaterial(Library)->Name.c_str() : "Material preview");
+    ImGui::SameLine();
+    ImGui::TextDisabled("PBR · fullscreen fit · Escape to close");
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Size.x - 150, Origin.y + 14));
+    if (ImGui::Button("Close preview  ×", ImVec2(132, 32))) FullscreenPreview = false;
+    const float Edge = std::max(1.f, std::min(Size.x - 64.f, Size.y - 150.f));
+    const ImVec2 ImagePosition(Origin.x + (Size.x - Edge) * .5f, Origin.y + (Size.y - Edge) * .5f + 8.f);
+    const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
+    if (Image.Texture)
+    {
+        ImGui::SetCursorScreenPos(ImagePosition);
+        ImGui::Image(ImTextureRef(Image.Texture), ImVec2(Edge, Edge),
+            ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
+    }
+    else
+    {
+        ImGui::SetCursorScreenPos(ImagePosition);
+        ImGui::Dummy(ImVec2(Edge, Edge));
+    }
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
+    bool Changed = false;
+    if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) { Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f); Changed = true; }
+    ImGui::SameLine();
+    const std::string ZoomLabel = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##FullscreenZoomReset";
+    if (ImGui::Button(ZoomLabel.c_str(), ImVec2(80, 30))) { Inspection.Zoom = 1; Changed = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("+##FullscreenZoomIn", ImVec2(42, 30))) { Inspection.Zoom = std::min(2.f, Inspection.Zoom + .1f); Changed = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("Fit object", ImVec2(92, 30))) { ResetMaterialPreviewView(Inspection); Changed = true; }
+    if (Changed && ConfigurePreview) ConfigurePreview(Inspection);
+    ImGui::End();
 }
 
 void MaterialLibraryPanel::ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb)
@@ -823,6 +887,7 @@ void MaterialLibraryPanel::ConstructInterface()
     ControlKit::ConfigurePalette(Palette);
     const auto Colour = [](ColorQuad Spectrum) { return ImVec4(Spectrum.Red, Spectrum.Green, Spectrum.Blue, Spectrum.Alpha); };
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Colour(Palette.Panel));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(.11f, .11f, .10f, 1.f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, Colour(Palette.Panel));
     ImGui::PushStyleColor(ImGuiCol_Text, Colour(Palette.Text));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.133f, .133f, .133f, 1));
@@ -917,9 +982,10 @@ void MaterialLibraryPanel::ConstructInterface()
         (void)Panels.ConfigureColumns({{"MaterialLibrary", Left}, {"MaterialViewport", 1 - Left - Right}, {"MaterialInspector", Right}});
     }
     Panels.ConstructInterface(QueryInterfaceScale());
+    ConstructFullscreenPreview();
     ImGui::PopFont();
     ImGui::PopStyleVar(6);
-    ImGui::PopStyleColor(16);
+    ImGui::PopStyleColor(17);
     ControlKit::ConfigurePalette(SavedPalette);
     ImGui::GetStyle().ColorButtonPosition = SavedColourButtonPosition;
 }

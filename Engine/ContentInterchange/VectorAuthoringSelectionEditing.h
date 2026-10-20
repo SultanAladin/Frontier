@@ -18,6 +18,7 @@ struct VectorAuthoringSourcePatch
     float ScaleBasis   = 0; // [rad] - Axes in which independent scale factors apply.
     std::optional<std::array<float, 4>> Colour;
     std::optional<std::array<float, 4>> ColourEnd;
+    std::optional<std::array<float, 4>> StrokeColour;
     std::optional<float> Opacity;
     std::optional<float> StrokeWidth;
     std::optional<uint32_t> PaintCategory;

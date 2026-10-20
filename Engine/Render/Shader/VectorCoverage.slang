@@ -10,6 +10,7 @@ struct VectorCoverageInstruction
     float4 Transform;
     float4 Colour;
     float4 ColourEnd;
+    float4 StrokeColour;
     float4 Paint;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
@@ -99,7 +100,7 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
                 Distance = min(Distance, SegmentDistance(Local, Start, End)); Start = End;
             }
         }
-        bool Interior = Instruction.Topology.w == 1 ? (uint(abs(Winding)) % 2 != 0) : abs(Winding) > .5;
+        bool Interior = (Instruction.Topology.w & 1) != 0 ? (uint(abs(Winding)) % 2 != 0) : abs(Winding) > .5;
         return Interior ? -Distance : Distance;
     }
     uint Count = Category == 2 ? 4 : Category == 3 ? 3 : uint(Instruction.Paint.z);
@@ -136,8 +137,14 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[1
             float Fill = Instruction.Paint.w != 0 ? saturate(.5 - Distance / Antialias) : 0;
             float Stroke = Instruction.Transform.y > 0 ? saturate(.5 - (abs(Distance) - Instruction.Transform.y * .5) / Antialias) : 0;
             float Fraction = Instruction.Transform.w == 1 ? saturate(.5 + dot(Local / Instruction.Bounds.zw, float2(cos(Instruction.Paint.x), sin(Instruction.Paint.x)))) : Instruction.Transform.w == 2 ? saturate(length(Local / Instruction.Bounds.zw) * 2) : 0;
-            Result = lerp(Instruction.Colour, Instruction.ColourEnd, Fraction);
-            Result.a *= max(Fill, Stroke) * Instruction.Transform.z;
+            float4 FillColour = lerp(Instruction.Colour, Instruction.ColourEnd, Fraction);
+            float4 StrokeColour = (Instruction.Topology.w & 0x80000000) != 0 ? Instruction.StrokeColour : Instruction.Colour;
+            float FillAlpha = Fill * FillColour.a * Instruction.Transform.z;
+            float StrokeAlpha = Stroke * StrokeColour.a * Instruction.Transform.z;
+            Result.a = StrokeAlpha + FillAlpha * (1 - StrokeAlpha);
+            Result.rgb = Result.a > 0
+                ? (StrokeColour.rgb * StrokeAlpha + FillColour.rgb * FillAlpha * (1 - StrokeAlpha)) / Result.a
+                : 0;
         }
         else
         {

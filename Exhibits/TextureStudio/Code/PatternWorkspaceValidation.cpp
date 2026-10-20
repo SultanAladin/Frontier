@@ -33,6 +33,10 @@ int main(int Count, char **Arguments)
             VectorCoverageProgram Program;
             Program.Instructions.emplace_back();
             Program.Instructions[0].Bounds = {256, 256, 160, 160};
+            Program.Instructions[0].Colour = {1,0,0,1};
+            Program.Instructions[0].StrokeColour = {0,0,1,1};
+            Program.Instructions[0].Topology[3] |= VectorCoverageStrokeColourExplicit;
+            Program.Instructions[0].Transform[1] = 12;
             uint64_t BackendSerial = 0;
             const auto CaptureBackend = [&](int Slot, uint64_t Completed)
             {
@@ -44,6 +48,9 @@ int main(int Count, char **Arguments)
             int First = Rendering.SelectProgram(Program);
             auto Pixels = CaptureBackend(First, 0);
             ConfirmBackend(Pixels[(256 * 512 + 256) * 4 + 3] == 255, "Native residency did not dispatch first coverage image.");
+            const size_t FillPixel = (256 * 512 + 256) * 4, StrokePixel = (256 * 512 + 174) * 4;
+            ConfirmBackend(Pixels[FillPixel] > 240 && Pixels[FillPixel + 2] < 12 && Pixels[StrokePixel + 2] > 240 && Pixels[StrokePixel] < 12,
+                "Fill and stroke did not retain independently authored GPU colours.");
             ConfirmBackend(Rendering.SelectProgram(Program) == First, "Cached native image changed slots.");
             (void)CaptureBackend(First, 0);
             ConfirmBackend(Rendering.QueryDispatchCount() == 1, "Cached native image was recomputed.");
@@ -120,9 +127,15 @@ int main(int Count, char **Arguments)
             Document.Layers[0].TextileGeometry = VectorAuthoringTextileGeometry::Unclassified;
             const std::array<uint32_t, 1> FirstSelection{FirstToken};
             VectorAuthoringSourcePatch Patch; Patch.TranslationX = 24; Patch.Colour = std::array<float, 4>{.2f, .8f, .5f, 1};
+            Patch.StrokeColour = std::array<float, 4>{.1f, .2f, .9f, 1};
             TransformVectorAuthoringSelection(Document, FirstSelection, Patch);
             AssertRasterCondition(Document.Instructions[Document.Layers[1].Root] == Original.Instructions[0], "Shared source edit changed an unselected source."); ++SourceChecks;
             AssertRasterCondition(Document.Instructions[Document.Layers[0].Root].Bounds[0] == 280, "Source transform lost its translation."); ++SourceChecks;
+            AssertRasterCondition(Document.Instructions[Document.Layers[0].Root].StrokeColour == *Patch.StrokeColour &&
+                Document.Instructions[Document.Layers[1].Root].StrokeColour == Original.Instructions[0].StrokeColour,
+                "Independent stroke colour did not follow only the selected shared source."); ++SourceChecks;
+            AssertRasterCondition(DecodeVectorAuthoring(EncodeVectorAuthoring(Document)) == Document,
+                "Independent fill/stroke colours did not survive source serialization."); ++SourceChecks;
             Document.Layers[0].Locked = true;
             const auto Protected = Document;
             bool Refused = false;

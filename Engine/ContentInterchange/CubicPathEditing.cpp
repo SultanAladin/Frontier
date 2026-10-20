@@ -73,7 +73,8 @@ void EncodePath(VectorAuthoringDocument &Document, VectorCoverageInstruction &So
         const auto Incoming = ProjectCoordinate(Source, Second.Incoming, false), Finish = ProjectCoordinate(Source, Second.Position, false);
         Document.Segments.push_back({{Start[0], Start[1], Outgoing[0], Outgoing[1]}, {Incoming[0], Incoming[1], Finish[0], Finish[1]}});
     }
-    Source.Topology = {6, Offset, uint32_t(Count), Path.Winding};
+    const uint32_t StrokeColourFlag = Source.Topology[3] & VectorCoverageStrokeColourExplicit;
+    Source.Topology = {6, Offset, uint32_t(Count), Path.Winding | StrokeColourFlag};
     if (!Path.Closed) Source.Paint[3] = 0;
 }
 
@@ -170,7 +171,7 @@ CubicPath DecodeCubicPath(const VectorAuthoringDocument &Document, uint32_t Toke
     const auto &Source = Document.Instructions[Layer.Root];
     if (Source.Topology[0] != 6) throw std::runtime_error("Select or convert one editable cubic path.");
     CubicPath Path;
-    Path.Winding = Source.Topology[3];
+    Path.Winding = Source.Topology[3] & ~VectorCoverageStrokeColourExplicit;
     const auto Start = size_t(Source.Topology[1]), Count = size_t(Source.Topology[2]);
     const auto &First = Document.Segments[Start], &Last = Document.Segments[Start + Count - 1];
     Path.Closed = Coincident({First.StartControl[0], First.StartControl[1]}, {Last.ControlEnd[2], Last.ControlEnd[3]});
@@ -297,7 +298,7 @@ uint32_t IntegrateCubicPaths(
     if (FirstLayer.EnclosureToken != SecondLayer.EnclosureToken || FirstLayer.SurfaceChannels != SecondLayer.SurfaceChannels)
         throw std::runtime_error("Joined paths must have the same enclosing group and surface-channel contributions.");
     const auto &FirstSource = Document.Instructions[FirstLayer.Root], &SecondSource = Document.Instructions[SecondLayer.Root];
-    if (FirstSource.Colour != SecondSource.Colour || FirstSource.ColourEnd != SecondSource.ColourEnd
+    if (FirstSource.Colour != SecondSource.Colour || FirstSource.ColourEnd != SecondSource.ColourEnd || FirstSource.StrokeColour != SecondSource.StrokeColour
         || FirstSource.Paint != SecondSource.Paint || FirstSource.Transform[1] != SecondSource.Transform[1])
         throw std::runtime_error("Joined paths must use matching paint and stroke parameters.");
     if (FirstSource.Transform[3] != 0 || SecondSource.Transform[3] != 0 || FirstSource.Transform[2] != 1

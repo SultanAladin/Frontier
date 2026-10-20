@@ -60,7 +60,13 @@ toml::array EncodeCoordinates(const std::array<float, 4> &Coordinates)
 toml::table EncodeInstruction(const VectorCoverageInstruction &Instruction)
 {
     toml::array Topology; for (auto Token : Instruction.Topology) Topology.push_back(int64_t(Token));
-    return toml::table{{"topology", std::move(Topology)}, {"bounds", EncodeCoordinates(Instruction.Bounds)}, {"transform", EncodeCoordinates(Instruction.Transform)}, {"colour", EncodeCoordinates(Instruction.Colour)}, {"colour_end", EncodeCoordinates(Instruction.ColourEnd)}, {"paint", EncodeCoordinates(Instruction.Paint)}};
+    toml::table Result{{"topology", std::move(Topology)}, {"bounds", EncodeCoordinates(Instruction.Bounds)},
+        {"transform", EncodeCoordinates(Instruction.Transform)}, {"colour", EncodeCoordinates(Instruction.Colour)},
+        {"colour_end", EncodeCoordinates(Instruction.ColourEnd)}, {"paint", EncodeCoordinates(Instruction.Paint)}};
+    if (Instruction.Topology[0] <= 6 &&
+        ((Instruction.Topology[3] & VectorCoverageStrokeColourExplicit) != 0 || Instruction.StrokeColour != Instruction.Colour))
+        Result.insert("stroke_colour", EncodeCoordinates(Instruction.StrokeColour));
+    return Result;
 }
 std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &Field)
 {
@@ -76,7 +82,7 @@ std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &
 }
 VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
 {
-    ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "paint"});
+    ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint"});
     VectorCoverageInstruction Result;
     const auto *Topology = Source["topology"].as_array(); if (!Topology || Topology->size() != 4) throw std::runtime_error("Expected four vector topology tokens.");
     for (size_t Index = 0; Index < 4; ++Index)
@@ -87,7 +93,14 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
         Result.Topology[Index] = uint32_t(*Token);
     }
     Result.Bounds = DecodeCoordinates(Source["bounds"]); Result.Transform = DecodeCoordinates(Source["transform"]);
-    Result.Colour = DecodeCoordinates(Source["colour"]); Result.ColourEnd = DecodeCoordinates(Source["colour_end"]); Result.Paint = DecodeCoordinates(Source["paint"]); return Result;
+    Result.Colour = DecodeCoordinates(Source["colour"]); Result.ColourEnd = DecodeCoordinates(Source["colour_end"]);
+    if (Source.contains("stroke_colour"))
+    {
+        Result.StrokeColour = DecodeCoordinates(Source["stroke_colour"]);
+        if (Result.Topology[0] <= 6) Result.Topology[3] |= VectorCoverageStrokeColourExplicit;
+    }
+    else Result.StrokeColour = Result.Colour;
+    Result.Paint = DecodeCoordinates(Source["paint"]); return Result;
 }
 }
 std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)

@@ -52,7 +52,7 @@ Reusable implementation:
 - `Engine/ContentInterchange/VectorAuthoringSelectionEditing` — authenticated selectable roots and masks.
 - `PatternWorkspacePanel` — pending-input lifetime and source/selection edits; no CPU contour rasterization.
 
-Editable document format, 128-instruction source budget and 96/32-byte instruction/cubic ABI are unchanged.
+Editable document format and 128-instruction source budget remain unchanged. The instruction/cubic GPU ABI is 112/32 bytes; legacy documents without `stroke_colour` load with stroke colour matching fill colour. Native solid Fill and Stroke colours are independently authored and composited in the GPU coverage/surface shaders; stroke image sources remain deferred.
 Selection metadata occupies reserved GPU upload slots, not serialized source instructions.
 Native naming remains `VectorAuthoring`; the legacy `frontier.vector_artwork` format tag stays compatible.
 

@@ -230,7 +230,16 @@ int main(int Count, char **Arguments)
         IO.AddMouseButtonEvent(0,false);
         Integrate();
         Confirm(Panel.QueryPreviewConfiguration().Exposure != 1, "Shared exposure slider did not respond to pointer input.");
-        Confirm(Notifications >= 11, "Preview settings callbacks were not delivered.");
+        const auto Fullscreen = Panel.QueryFullscreenPreviewExtent();
+        Confirm(Fullscreen.Width() > 0 && Fullscreen.Height() > 0, "Fullscreen preview action has no pointer extent.");
+        IO.AddMousePosEvent((Fullscreen.MinimumX + Fullscreen.MaximumX) * .5f, (Fullscreen.MinimumY + Fullscreen.MaximumY) * .5f);
+        Integrate(); IO.AddMouseButtonEvent(0,true); Integrate(); IO.AddMouseButtonEvent(0,false); Integrate();
+        Confirm(Panel.QueryFullscreenPreview() && Panel.QueryPreviewConfiguration().Zoom == 1 &&
+            Panel.QueryPreviewConfiguration().PanX == 0 && Panel.QueryPreviewConfiguration().PanY == 0,
+            "Fullscreen preview did not open with the specimen fitted and centred.");
+        IO.AddKeyEvent(ImGuiKey_Escape,true); Integrate(); IO.AddKeyEvent(ImGuiKey_Escape,false); Integrate();
+        Confirm(!Panel.QueryFullscreenPreview(), "Escape did not close fullscreen preview.");
+        Confirm(Notifications >= 12, "Preview settings callbacks were not delivered.");
         Ownership.reset();
         ImGui::DestroyContext();
         std::ofstream Report(Arguments[1]);

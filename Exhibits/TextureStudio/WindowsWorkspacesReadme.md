@@ -17,17 +17,18 @@ Existing personal materials are preserved, not overwritten by an updated test ar
 
 - Launch both applications. Frontier must never enter the general editor/CAD workspace.
 - In Texture Workspace select Racing Green and another material; allow the first shader-ball render to complete.
-- Use minus / percentage reset / plus, or the wheel over the specimen canvas.
-- Left-drag to orbit; middle-drag or Shift-left-drag to pan; right-drag vertically to zoom.
+- Use minus / percentage reset / plus, or the wheel over the specimen canvas. Click **Fullscreen** for a fitted full-work-area specimen; **Fit object** and Escape are available there.
+- Left-drag to orbit; middle-drag or Shift-left-drag to pan; right-drag vertically to zoom. The selector menus use opaque panels.
 - Reset View, F, Home or double-click recentres/refits and resets orbit. Arrow keys pan while hovering the canvas.
 - Test that release stops dragging, sliders/popups do not move the camera, and shared sensitivity/invert-pitch
   preferences affect orbit. Geometry, lighting and exposure stay unchanged when only the view is reset.
 - Switch Shader Ball, Sphere, Plane and Cube. Switch Studio Softbox, Warm Courtyard, Cool Rim and Overcast.
 - Change Exposure. Only the large preview should change; catalogue thumbnails keep their fixed lighting/geometry.
 - Edit a supported coefficient, Apply, Revert and Save. Invalid source must preserve the last valid preview.
-- In the experimental Pattern workspace, author a simple shape, inspect its Colour/Normal/Height-derived preview,
-  then change the document and verify the Float32 maps update. This is preview-only: do not treat it as a saved
-  material or scene assignment. The independent material-application validation gate is still open.
+- In the experimental Pattern workspace, author a simple shape, set different Fill and Stroke colours, and inspect
+  the Colour/Normal/Height-derived maps. Switch back to Material after GPU readback and verify the selected-material
+  preview updates after changing the Pattern. This is preview-only: do not treat it as a saved material or scene
+  assignment. The independent material-application validation gate is still open.
 - Restart, resize, collapse panels and test a second monitor only if that preference is explicitly enabled.
 
 ## Diagnostic collection

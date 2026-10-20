@@ -158,10 +158,24 @@ int main(int Count, char **Arguments)
             "Preview changes replaced stable GPU image views.");
         Rendering.ConfigurePreview({});
         (void)CaptureInspection();
-        const auto CapturePatternPreview = [&](float Red, float Green)
+        auto LightingNeutral = Compiled;
+        auto LightingAuthored = Compiled;
+        LightingNeutral.Scattering.Illumination.LightDirectionIntensity = {-.4f,.7f,.6f,.35f};
+        LightingNeutral.Scattering.Illumination.LightColourExposure = {1,1,1,.75f};
+        LightingAuthored.Scattering.Illumination.LightDirectionIntensity = {.9f,-.1f,.4f,18.f};
+        LightingAuthored.Scattering.Illumination.LightColourExposure = {.2f,.4f,1.f,4.f};
+        Rendering.ConfigureSelection("PreviewRig/Neutral", LightingNeutral);
+        const auto NeutralPreview = CaptureInspection();
+        Rendering.ConfigureSelection("PreviewRig/Authored", LightingAuthored);
+        const auto AuthoredLightPreview = CaptureInspection();
+        AssertRasterCondition(NeutralPreview == AuthoredLightPreview,
+            "Studio softbox inherited arbitrary light direction, intensity or tint from authored material sources.");
+        Rendering.ConfigureSelection("BrushedCopper.material", Compiled);
+        (void)CaptureInspection();
+        const auto CapturePatternPreview = [&](float Red, float Green, float NormalX = .5f, float NormalZ = 1.f)
         {
             std::array<std::vector<float>,5> AuthoringSamples{{
-                {Red,Green,.05f,1}, {.5f,.5f,1,0}, {0,0,0,0}, {0,0,0,0}, {1,1,1,0}}};
+                {Red,Green,.05f,1}, {NormalX,.5f,NormalZ,1}, {0,0,0,0}, {0,0,0,0}, {1,1,1,0}}};
             std::array<std::span<const float>,5> AuthoringViews;
             for (size_t Index = 0; Index < AuthoringSamples.size(); ++Index) AuthoringViews[Index] = AuthoringSamples[Index];
             auto PatternMaterial = Compiled;
@@ -173,7 +187,11 @@ int main(int Count, char **Arguments)
         const auto PatternRed = CapturePatternPreview(.95f,.03f);
         const auto PatternGreen = CapturePatternPreview(.02f,.9f);
         AssertRasterCondition(PatternRed != PatternGreen,
-            "Changed Float32 Pattern maps on the same preview selection did not update PBR pixels.");
+            "Changed Float32 Pattern colour maps on the same preview selection did not update PBR pixels.");
+        const auto PatternFlatNormal = CapturePatternPreview(.45f,.32f,.5f,1.f);
+        const auto PatternTiltedNormal = CapturePatternPreview(.45f,.32f,.9f,.65f);
+        AssertRasterCondition(PatternFlatNormal != PatternTiltedNormal,
+            "Changed Float32 Pattern normal maps on the same preview selection did not update PBR pixels.");
         Rendering.ConfigureSelection("BrushedCopper.material", Compiled);
         Rendering.InvalidateThumbnails();
         (void)CaptureLibrary();

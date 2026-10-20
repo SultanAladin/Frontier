@@ -26,8 +26,9 @@ uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material)
         for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
     };
     Accumulate(&Material.Scattering, sizeof(Material.Scattering));
-    for (const auto &Texture : Material.Textures)
+    const auto AccumulatePyramid = [&](const MaterialTexturePyramid &Texture)
     {
+        Accumulate(&Texture.Category, sizeof(Texture.Category));
         Accumulate(&Texture.Layers, sizeof(Texture.Layers));
         for (const auto &Level : Texture.Levels)
         {
@@ -35,7 +36,11 @@ uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material)
             Accumulate(&Level.Height, sizeof(Level.Height));
         }
         Accumulate(Texture.Rgba.data(), Texture.Rgba.size());
-    }
+        Accumulate(Texture.FloatRgba.data(), Texture.FloatRgba.size() * sizeof(float));
+    };
+    for (const auto &Texture : Material.Textures) AccumulatePyramid(Texture);
+    // 📝 Native Pattern maps can change while the preview path and PBR coefficients remain identical.
+    for (const auto &Texture : Material.AuthoringMaps) AccumulatePyramid(Texture);
     return Digest;
 }
 std::vector<uint32_t> DecodePreviewShader(const std::filesystem::path &Path)
@@ -105,7 +110,7 @@ struct MaterialLibraryRendering::RenderingAllocation
         Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
         Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
         Scattering.Illumination.ViewFromSurface = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,-3,1};
-        Residence->Textures.Initialize(Programs, Material.Textures);
+        Residence->Textures.Initialize(Programs, Material.Textures, Material.AuthoringMaps);
         Residence->Parameters.Initialize(Programs, Scattering);
         return Residence;
     }
@@ -115,11 +120,13 @@ struct MaterialLibraryRendering::RenderingAllocation
         auto Scattering = PreviewScattering;
         Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1, Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
         Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
-        Scattering.Illumination.LightColourExposure[3] *= Inspection.Exposure;
+        // 📝 Preview rigs are owned by the selected environment, never inherited from arbitrary authored source lighting.
+        Scattering.Illumination.LightColourExposure = {1,1,1,Inspection.Exposure};
+        Scattering.Illumination.LightDirectionIntensity = {-.4f,.7f,.6f,.35f};
         switch (Inspection.Environment)
         {
         case MaterialPreviewEnvironment::StudioSoftbox:
-            Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
+            Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,.8f};
             Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
             break;
         case MaterialPreviewEnvironment::WarmCourtyard:

@@ -12,7 +12,7 @@ namespace Frontier
 inline SurfaceGeometry ConstructMaterialPreviewSphere()
 {
     SurfaceGeometry Geometry;
-    constexpr uint32_t Slices = 64, Rings = 32;
+    constexpr uint32_t Slices = 128, Rings = 64;
     for (uint32_t Ring = 0; Ring <= Rings; ++Ring)
         for (uint32_t Slice = 0; Slice <= Slices; ++Slice)
         {
