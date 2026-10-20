@@ -6,7 +6,7 @@
 - The existing Windows GLFW host starts in the browser when no project argument is supplied.
 - `--project` and `--create-project` remain supported and validate the project before editor startup.
 - The only creation preset is **Blank Project**, using `EngineContent/Defaults/BlankProject/Blank.projectspace`.
-- Real project files and folders are enumerated through the existing shared `ContentDirectory`.
+- Real project files and folders are enumerated through the existing shared `ContentDirectory` and presented as a responsive native card grid; no mock sample files or preview renders are injected.
 - Native Windows open/save dialogs select project containers; typed folder navigation accepts arbitrary folders.
 - Selection decodes the real container and shows its name. Editor hand-off revalidates the file before activation.
 - Creation snapshots the existing project defaults, issues a fresh identity and refuses overwrites.

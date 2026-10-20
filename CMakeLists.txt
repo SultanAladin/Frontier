@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
+find_package(Git QUIET)
+set(FRONTIER_BUILD_COMMIT "local")
+if(GIT_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=8 HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE FRONTIER_BUILD_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE FRONTIER_GIT_RESULT)
+    if(NOT FRONTIER_GIT_RESULT EQUAL 0)
+        set(FRONTIER_BUILD_COMMIT "source")
+    endif()
+endif()
+
 # UI-first port with a separately validated Vulkan CAD offscreen unit; native viewport integration remains explicit.
 option(FRONTIER_HOST_VERIFICATION "Build local verification tools on a non-Windows editing host" OFF)
 if(NOT WIN32 AND NOT FRONTIER_HOST_VERIFICATION)
@@ -91,7 +102,8 @@ if(WIN32)
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
     target_include_directories(Frontier PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
+        FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
     target_link_libraries(Frontier PRIVATE FrontierEditorUI glfw)
     add_executable(TextureStudio Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
@@ -99,7 +111,8 @@ if(WIN32)
     set_target_properties(TextureStudio PROPERTIES OUTPUT_NAME TextureWorkspace)
     target_include_directories(TextureStudio PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(TextureStudio PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_compile_definitions(TextureStudio PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
+        FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
     target_link_libraries(TextureStudio PRIVATE FrontierEditorUI FrontierTextureStudioUI glfw)
     add_custom_command(TARGET TextureStudio POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"

@@ -85,15 +85,28 @@ void ProjectBrowserPanel::ConstructCatalogue()
         if (ImGui::Button("Open in Frontier")) RequestOpenProject();
         return;
     }
+    const float Scale = ImGui::GetStyle().FontScaleDpi;
+    const auto &Entries = Directory.QueryEntries();
+    size_t ProjectCount = 0;
+    for (const auto &Entry : Entries)
+        if (Entry.Category != ContentCategory::Directory && Entry.Path.extension() == ".projectspace") ++ProjectCount;
     ImGui::TextUnformatted(PresetsOnly ? "Project presets" : "Your workspace");
-    if (ImGui::Button("Blank Project", ImVec2(190, 96))) Creating = true;
-    if (PresetsOnly) return;
-    ImGui::Spacing();
-    ImGui::InputTextWithHint("##Folder", "Folder path", DirectoryText.data(), DirectoryText.size());
     ImGui::SameLine();
-    if (ImGui::Button("Browse folder")) ConfigureDirectory(DecodeContentPath(DirectoryText.data()));
-    ImGui::InputTextWithHint("##Search", "Search projects", SearchText.data(), SearchText.size());
-    ImGui::Separator();
+    ImGui::TextDisabled("%zu project files", ProjectCount);
+    if (PresetsOnly)
+    {
+        ImGui::Spacing();
+        ImGui::TextDisabled("One native creation preset");
+    }
+    else
+    {
+        ImGui::Spacing();
+        ImGui::InputTextWithHint("##Folder", "Folder path", DirectoryText.data(), DirectoryText.size());
+        ImGui::SameLine();
+        if (ImGui::Button("Browse folder")) ConfigureDirectory(DecodeContentPath(DirectoryText.data()));
+        ImGui::InputTextWithHint("##Search", "Search projects", SearchText.data(), SearchText.size());
+        ImGui::Separator();
+    }
     const auto Fold = [](std::string Text)
     {
         for (auto &Character : Text)
@@ -102,25 +115,48 @@ void ProjectBrowserPanel::ConstructCatalogue()
     };
     const auto Search = Fold(SearchText.data());
     std::filesystem::path Navigation, Selection;
-    size_t ProjectCount = 0;
-    for (const auto &Entry : Directory.QueryEntries())
+    const float CardHeight = 164 * Scale;
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.075f,.075f,.078f,1));
+    if (ImGui::BeginTable("Project browser cards", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV))
     {
-        const bool Folder = Entry.Category == ContentCategory::Directory;
-        if (!Folder && Fold(EncodeContentPath(Entry.Path.extension())) != ".projectspace") continue;
-        if (!Search.empty() && Fold(Entry.Name).find(Search) == std::string::npos) continue;
-        if (!Folder) ++ProjectCount;
-        ImGui::PushID(EncodeContentPath(Entry.Path).c_str());
-        const auto Label = (Folder ? "[Folder] " : "[Project] ") + Entry.Name;
-        if (ImGui::Selectable(Label.c_str(), false, 0, ImVec2(0, 38)))
-        {
-            if (Folder) Navigation = Entry.Path;
-            else Selection = Entry.Path;
-        }
+        ImGui::TableNextColumn();
+        ImGui::PushID("BlankProjectCard");
+        ImGui::BeginChild("Card", ImVec2(0, CardHeight), ImGuiChildFlags_Borders);
+        ImGui::TextDisabled("CREATE");
+        ImGui::Spacing();
+        if (ImGui::Button("Blank Project", ImVec2(-1, 48 * Scale))) Creating = true;
+        ImGui::TextWrapped("Start from an empty project container. No sample scene content is inserted.");
+        ImGui::EndChild();
         ImGui::PopID();
+        for (const auto &Entry : Entries)
+        {
+            if (PresetsOnly) break;
+            const bool Folder = Entry.Category == ContentCategory::Directory;
+            if (!Folder && Fold(EncodeContentPath(Entry.Path.extension())) != ".projectspace") continue;
+            if (!Search.empty() && Fold(Entry.Name).find(Search) == std::string::npos) continue;
+            ImGui::TableNextColumn();
+            ImGui::PushID(EncodeContentPath(Entry.Path).c_str());
+            ImGui::BeginChild("Project card", ImVec2(0, CardHeight), ImGuiChildFlags_Borders);
+            ImGui::TextDisabled("%s", Folder ? "FOLDER" : "PROJECT CONTAINER");
+            ImGui::Spacing();
+            if (ImGui::Selectable(Entry.Name.c_str(), Selection == Entry.Path || SelectedPath == Entry.Path,
+                ImGuiSelectableFlags_None, ImVec2(0, 48 * Scale)))
+            {
+                if (Folder) Navigation = Entry.Path;
+                else Selection = Entry.Path;
+            }
+            ImGui::TextWrapped("%s", Folder ? "Browse this folder for project containers." : "Native project settings and identity.");
+            ImGui::EndChild();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
     }
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
     if (!Navigation.empty()) ConfigureDirectory(Navigation);
     if (!Selection.empty()) SelectProject(Selection);
-    if (ProjectCount == 0) ImGui::TextWrapped("No project containers here. Open a project from disk or create a Blank Project.");
+    if (ProjectCount == 0 && Entries.empty()) ImGui::TextWrapped("No project containers here. Open a project from disk or create a Blank Project.");
 }
 
 void ProjectBrowserPanel::ConstructDetails()

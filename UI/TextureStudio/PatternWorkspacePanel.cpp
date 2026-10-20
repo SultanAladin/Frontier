@@ -97,7 +97,7 @@ void PatternWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
     SavedDocument = History.QueryDocument();
     Selection.clear();
     UndoSelections.clear(); RedoSelections.clear();
-    GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+    GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
     MaskSelection = 0; PointToken = 0; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); AutomaticPen = false;
     Diagnostic.clear();
 }
@@ -136,6 +136,7 @@ void PatternWorkspacePanel::Finalize(VectorAuthoringDocument Document, std::vect
         if (UndoSelections.size() > 80) UndoSelections.erase(UndoSelections.begin());
         RedoSelections.clear();
     }
+    ++GestureRevision;
     Selection = std::move(Tokens);
     std::erase_if(Selection, [&](uint32_t Token) { return std::none_of(History.QueryDocument().Layers.begin(), History.QueryDocument().Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; }); });
     if (std::find(Selection.begin(), Selection.end(), MaskSelection) == Selection.end()) MaskSelection = 0;
@@ -216,13 +217,14 @@ void PatternWorkspacePanel::ApplySourcePatch(const VectorAuthoringSourcePatch &P
 void PatternWorkspacePanel::RestoreHistory(bool Redo)
 {
     if (PenSource) { CancelPen(); return; }
-    GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+    GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
     size_t AnchorCount = 0;
     try { AnchorCount = DecodeCubicPath(History.QueryDocument(), PointToken).Anchors.size(); } catch (const std::exception &) {}
     auto &Source = Redo ? RedoSelections : UndoSelections;
     auto &Destination = Redo ? UndoSelections : RedoSelections;
     if (History.RestoreHistory(Redo) && !Source.empty())
     {
+        ++GestureRevision;
         Destination.push_back(Selection);
         Selection = std::move(Source.back());
         Source.pop_back();
@@ -541,7 +543,7 @@ void PatternWorkspacePanel::ConstructLayers()
 
 void PatternWorkspacePanel::CancelPen()
 {
-    PenSource.reset(); PenPreview.reset(); PendingPath = {}; PenSelection.clear();
+    PenSource.reset(); PenPreview.reset(); PendingPath = {}; PenSelection.clear(); ++GestureRevision;
     PenToken = 0; PenAnchorFloor = 0; PenReversed = false; IndependentPenContinuation = false;
     Diagnostic.clear();
     if (Gesture == 8) Gesture = 0;
@@ -569,6 +571,7 @@ void PatternWorkspacePanel::ResumePen(uint32_t Token, bool FromStart)
 void PatternWorkspacePanel::RefreshPenPreview()
 {
     PenPreview.reset();
+    ++GestureRevision;
     if (!PenSource || PendingPath.Anchors.size() < 2) return;
     if (PenToken && PendingPath.Anchors.size() == PenAnchorFloor && !PendingPath.Closed) return;
     auto Draft = *PenSource;
@@ -943,7 +946,7 @@ bool PatternWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneE
                     SubdivideCubicSegment(Edited, SegmentProjection.SegmentIndex, SegmentProjection.Parameter);
                     ActiveAnchor = SegmentProjection.SegmentIndex + 1; SelectedAnchors = {ActiveAnchor};
                 }
-                auto Draft = *GestureSource; ReplaceCubicPath(Draft, PointToken, Edited); GestureDraft = std::move(Draft);
+                auto Draft = *GestureSource; ReplaceCubicPath(Draft, PointToken, Edited); GestureDraft = std::move(Draft); ++GestureRevision;
             }
             return true;
         }
@@ -990,13 +993,14 @@ bool PatternWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneE
             auto Draft = *GestureSource;
             ReplaceCubicPath(Draft, PointToken, Edited);
             GestureDraft = std::move(Draft);
+            ++GestureRevision;
         }
         return Gesture == 9;
     }
     catch (const std::exception &Failure)
     {
         Diagnostic = Failure.what();
-        if (Gesture == 9 || Gesture == 10) { GestureDraft.reset(); GestureSource.reset(); Gesture = 0; }
+        if (Gesture == 9 || Gesture == 10) { GestureDraft.reset(); GestureSource.reset(); Gesture = 0; ++GestureRevision; }
         return true;
     }
 }
@@ -1117,7 +1121,9 @@ void PatternWorkspacePanel::ConstructCanvas()
         }
     }
     const auto &Snapshot = QueryDocument();
-    if (!CachedCoverageValid || CachedCoverageMask != MaskSelection || CachedCoverageDocument != Snapshot)
+    const uint64_t HistoryRevision = History.QueryRevision();
+    if (!CachedCoverageValid || CachedCoverageMask != MaskSelection || CachedHistoryRevision != HistoryRevision ||
+        CachedGestureRevision != GestureRevision)
     {
         CachedCoverageProgram = ConstructVectorAuthoringCoverage(Snapshot);
         if (MaskSelection)
@@ -1126,8 +1132,9 @@ void PatternWorkspacePanel::ConstructCanvas()
             if (Position != Snapshot.Layers.end() && Position->Mask)
                 CachedCoverageProgram = {{*Position->Mask}, Snapshot.Segments, 0};
         }
-        CachedCoverageDocument = Snapshot;
         CachedCoverageMask = MaskSelection;
+        CachedHistoryRevision = HistoryRevision;
+        CachedGestureRevision = GestureRevision;
         CachedCoverageValid = true;
     }
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram) : 0;
@@ -1238,7 +1245,13 @@ void PatternWorkspacePanel::ConstructCanvas()
             ResizeDirection = HoveredResize;
             GestureSource = History.QueryDocument();
         }
-        else if (Tool != VectorAuthoringTool::Select && Tool != VectorAuthoringTool::Points) { Gesture = 2; GestureSource = History.QueryDocument(); }
+        else if (Tool != VectorAuthoringTool::Select && Tool != VectorAuthoringTool::Points)
+        {
+            Gesture = 2;
+            GestureSource = History.QueryDocument();
+            GestureDraft.reset();
+            GesturePrimitiveToken = 0;
+        }
         else
         {
             SelectionExtend = Input.KeyShift;
@@ -1286,7 +1299,7 @@ void PatternWorkspacePanel::ConstructCanvas()
         }
         catch (const std::exception &Failure)
         {
-            Diagnostic = Failure.what(); GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+            Diagnostic = Failure.what(); GestureDraft.reset(); GestureSource.reset(); Gesture = 0; ++GestureRevision;
         }
     }
     if (Gesture == 3 && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(2)))
@@ -1304,38 +1317,57 @@ void PatternWorkspacePanel::ConstructCanvas()
         }
         try
         {
-            auto Draft = *GestureSource;
-            if (Gesture == 1)
-            {
-                VectorAuthoringSourcePatch Patch; Patch.TranslationX = Position.X - PointerOrigin.X; Patch.TranslationY = Position.Y - PointerOrigin.Y;
-                TransformVectorAuthoringSelection(Draft, Selection, Patch);
-            }
-            else if (Gesture == 5 || Gesture == 6)
-            {
-                const auto Patch = Gesture == 5
-                    ? EvaluateVectorSelectionResize(Draft, Selection, ResizeDirection, {Position.X, Position.Y}, Input.KeyShift, Input.KeyAlt)
-                    : EvaluateVectorSelectionRotation(Draft, Selection, {PointerOrigin.X, PointerOrigin.Y}, {Position.X, Position.Y}, Input.KeyShift || SnappingEnabled);
-                TransformVectorAuthoringSelection(Draft, Selection, Patch);
-            }
-            else
+            if (Gesture == 2)
             {
                 VectorCoverageInstruction Source;
                 Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
-                Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f, std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
+                Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
+                    std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
                 Source.StrokeColour = Source.Colour;
-                const auto Token = ConstructVectorAuthoringPrimitive(Draft, Source, ShapeNames[Source.Topology[0]]);
-                Selection = {Token};
+                if (!GestureDraft)
+                {
+                    auto Draft = *GestureSource;
+                    GesturePrimitiveToken = ConstructVectorAuthoringPrimitive(Draft, Source, ShapeNames[Source.Topology[0]]);
+                    GestureDraft = std::move(Draft);
+                    Selection = {GesturePrimitiveToken};
+                }
+                else
+                {
+                    auto &Draft = *GestureDraft;
+                    const auto Layer = std::find_if(Draft.Layers.begin(), Draft.Layers.end(), [&](const auto &Candidate)
+                        { return Candidate.Token == GesturePrimitiveToken; });
+                    if (Layer == Draft.Layers.end()) throw std::runtime_error("The in-progress shape lost its authenticated layer token.");
+                    Draft.Instructions.at(Layer->Root).Bounds = Source.Bounds;
+                }
+                ++GestureRevision;
             }
-            GestureDraft = std::move(Draft);
+            else
+            {
+                auto Draft = *GestureSource;
+                if (Gesture == 1)
+                {
+                    VectorAuthoringSourcePatch Patch; Patch.TranslationX = Position.X - PointerOrigin.X; Patch.TranslationY = Position.Y - PointerOrigin.Y;
+                    TransformVectorAuthoringSelection(Draft, Selection, Patch);
+                }
+                else
+                {
+                    const auto Patch = Gesture == 5
+                        ? EvaluateVectorSelectionResize(Draft, Selection, ResizeDirection, {Position.X, Position.Y}, Input.KeyShift, Input.KeyAlt)
+                        : EvaluateVectorSelectionRotation(Draft, Selection, {PointerOrigin.X, PointerOrigin.Y}, {Position.X, Position.Y}, Input.KeyShift || SnappingEnabled);
+                    TransformVectorAuthoringSelection(Draft, Selection, Patch);
+                }
+                GestureDraft = std::move(Draft);
+                ++GestureRevision;
+            }
             Diagnostic.clear();
         }
-        catch (const std::exception &Failure) { GestureDraft.reset(); Diagnostic = Failure.what(); }
+        catch (const std::exception &Failure) { GestureDraft.reset(); GesturePrimitiveToken = 0; ++GestureRevision; Diagnostic = Failure.what(); }
     }
     // 📝 Cancel precedes release so Escape and button-up in the same tick cannot finalize a cancelled edit.
     if ((ImGui::IsKeyPressed(ImGuiKey_Escape) || Input.AppFocusLost || !ImGui::IsMousePosValid()) && Gesture)
     {
-        Selection = GestureSelection; GestureDraft.reset(); GestureSource.reset(); Gesture = 0;
+        Selection = GestureSelection; GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
     }
     else if (Gesture && Gesture != 7 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
     {
@@ -1781,7 +1813,7 @@ void PatternWorkspacePanel::SuspendContent() noexcept
 {
     CancelPen();
     if (GestureSource) Selection = std::move(GestureSelection);
-    GestureSource.reset(); GestureDraft.reset(); Gesture = 0;
+    GestureSource.reset(); GestureDraft.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
 }
 
 void PatternWorkspacePanel::FinalizeContent() noexcept

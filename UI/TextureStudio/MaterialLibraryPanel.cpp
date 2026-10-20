@@ -5,6 +5,7 @@
 
 #include "MaterialLibraryPanel.h"
 #include "Engine/Interface/ContentDirectory.h"
+#include "Engine/Interface/DropdownControls.h"
 #include <algorithm>
 #include <cstdio>
 #include <imgui.h>
@@ -80,6 +81,42 @@ const MaterialCatalogueEntry *QuerySelectedMaterial(const MaterialLibrary &Libra
     for (const auto &Entry : Library.QueryEntries())
         if (Entry.RelativePath == Library.QuerySelection()) return &Entry;
     return nullptr;
+}
+bool ConstructMaterialSelection(const char *Caption, const char *Preview, const char *const *Options,
+    uint32_t Count, int &Selection, float Scale)
+{
+    bool Changed = false;
+    ImGui::PushID(Caption);
+    if (DropdownControlSurface::BeginSelection("##MaterialSelection", Preview, Scale))
+    {
+        for (uint32_t Index = 0; Index < Count; ++Index)
+            if (DropdownControlSurface::Option(Options[Index], Selection == int(Index), Scale))
+            {
+                Selection = int(Index);
+                Changed = true;
+                ImGui::CloseCurrentPopup();
+            }
+        DropdownControlSurface::EndSelection();
+    }
+    ImGui::PopID();
+    return Changed;
+}
+bool ConstructMaterialToggle(const char *Caption, bool &Enabled, float Scale)
+{
+    const auto Origin = ImGui::GetCursorScreenPos();
+    const float Width = ImGui::GetContentRegionAvail().x;
+    const ImVec2 Extent(Width, 32 * Scale);
+    const bool Pressed = ImGui::InvisibleButton(Caption, Extent);
+    if (Pressed) Enabled = !Enabled;
+    const auto Minimum = ImVec2(Origin.x + Width - 46 * Scale, Origin.y + 3 * Scale);
+    const auto Maximum = ImVec2(Minimum.x + 46 * Scale, Minimum.y + 26 * Scale);
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImU32 Track = ImGui::GetColorU32(Enabled ? ImVec4(.31f,.67f,.48f,1) : ImVec4(.23f,.24f,.25f,1));
+    Ink->AddText(ImVec2(Origin.x, Origin.y + 7 * Scale), ImGui::GetColorU32(ImGuiCol_Text), Caption);
+    Ink->AddRectFilled(Minimum, Maximum, Track, 13 * Scale);
+    const float Centre = Enabled ? Maximum.x - 13 * Scale : Minimum.x + 13 * Scale;
+    Ink->AddCircleFilled(ImVec2(Centre, (Minimum.y + Maximum.y) * .5f), 9 * Scale, IM_COL32(245,245,240,255));
+    return Pressed;
 }
 } // namespace
 
@@ -364,14 +401,18 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 155 * Scale));
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
+    const char *ShapeOptions[]{"Shader ball", "Sphere", "Plane", "Cube"};
     int Shape = int(Inspection.Shape);
-    if (ImGui::Combo("##PreviewShape", &Shape, "Shader ball\0Sphere\0Plane\0Cube\0")) Inspection.Shape = MaterialPreviewShape(Shape);
+    ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
+    if (ConstructMaterialSelection("Preview shape", ShapeOptions[Shape], ShapeOptions, 4, Shape, Scale))
+        Inspection.Shape = MaterialPreviewShape(Shape);
     ConfigureExtent(3);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change preview object; catalogue thumbnails remain unchanged.");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(std::min(160 * Scale, Available.x * .44f));
+    const char *EnvironmentOptions[]{"Studio softbox", "Warm courtyard", "Cool rim", "Overcast"};
     int Environment = int(Inspection.Environment);
-    if (ImGui::Combo("##PreviewEnvironment", &Environment, "Studio softbox\0Warm courtyard\0Cool rim\0Overcast\0"))
+    ImGui::SetNextItemWidth(std::min(160 * Scale, Available.x * .44f));
+    if (ConstructMaterialSelection("Preview environment", EnvironmentOptions[Environment], EnvironmentOptions, 4, Environment, Scale))
         Inspection.Environment = MaterialPreviewEnvironment(Environment);
     ConfigureExtent(4);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Environment lighting preset");
@@ -444,19 +485,44 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     const float Edge = std::max(1.f, std::min(Size.x - 64.f, Size.y - 150.f));
     const ImVec2 ImagePosition(Origin.x + (Size.x - Edge) * .5f, Origin.y + (Size.y - Edge) * .5f + 8.f);
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
-    if (Image.Texture)
-    {
-        ImGui::SetCursorScreenPos(ImagePosition);
-        ImGui::Image(ImTextureRef(Image.Texture), ImVec2(Edge, Edge),
-            ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
-    }
-    else
-    {
-        ImGui::SetCursorScreenPos(ImagePosition);
-        ImGui::Dummy(ImVec2(Edge, Edge));
-    }
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
+    ImGui::SetCursorScreenPos(ImagePosition);
+    ImGui::InvisibleButton("Fullscreen inspection canvas", ImVec2(Edge, Edge),
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
     bool Changed = false;
+    const auto &Input = ImGui::GetIO();
+    const bool Hovered = ImGui::IsItemHovered();
+    const auto Δ = EvaluateNavigationDelta ? EvaluateNavigationDelta({Input.MouseDelta.x, Input.MouseDelta.y}) : PlanePoint{Input.MouseDelta.x, Input.MouseDelta.y};
+    const float Sensitivity = EvaluateNavigationDelta ? EvaluateNavigationDelta({1,0}).X : 1;
+    if (ImGui::IsItemActive())
+    {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
+        {
+            Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
+            Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
+            Changed = true;
+        }
+        else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+        {
+            Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 2.f);
+            Changed = true;
+        }
+        else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
+            Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .01f, -1.45f, 1.45f);
+            Changed = true;
+        }
+    }
+    if (Hovered && Input.MouseWheel != 0)
+    {
+        Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 2.f);
+        Changed = true;
+    }
+    if (Image.Texture)
+        Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
+            ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
+    else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), EncodeMaterialInk(0x202222));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
     if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) { Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f); Changed = true; }
     ImGui::SameLine();
     const std::string ZoomLabel = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##FullscreenZoomReset";
@@ -592,11 +658,25 @@ void MaterialLibraryPanel::ConstructInspector()
             {
                 ImGui::PushID(int(Index));
                 auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
-                ImGui::SeparatorText(Stratum.Classification[0] ? "Clearcoat" : "Surface");
+                const float CardHeight = 198 * Scale;
+                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
+                ImGui::BeginChild("Material layer card", ImVec2(0, CardHeight), ImGuiChildFlags_Borders,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                const char *LayerName = Stratum.Classification[0] ? "Clearcoat" : "Surface";
+                ImGui::Text("Layer %u", Index + 1);
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", LayerName);
+                ImGui::Separator();
                 if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
                     Changed = Library.ConfigureStratumCoefficient(Index, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
                 if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
                     Changed = Library.ConfigureStratumCoefficient(Index, "Metallic", Stratum.Optics[0]) || Changed;
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar(2);
+                ImGui::Dummy(ImVec2(1, 10 * Scale));
                 ImGui::PopID();
             }
         }
@@ -625,7 +705,8 @@ void MaterialLibraryPanel::ConstructInspector()
                 const bool Finish = Group == "finish", Flakes = Group == "flakes" && Definition.Scattering.Paint.Configuration[3];
                 const uint32_t PaletteColumns = uint32_t(std::max(1.f, std::floor((CardWidth / Scale - 28) / 29)));
                 const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
-                const float ControlsTop = Finish ? 140 : Flakes ? 155.f + 29 * (PaletteRows - 1) : 62;
+                const float ControlsTop = Finish ? 140 : Flakes ?
+                    (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
                 const float Rows = float(Controls.empty() && Finish ? 3 : Controls.size());
                 const bool Collapsed = FoldedInspectorCards.contains(Group);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
@@ -680,27 +761,58 @@ void MaterialLibraryPanel::ConstructInspector()
                     auto &Paint = Definition.Scattering.Paint;
                     ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 52 * Scale));
                     bool Enabled = Paint.Configuration[0] != 0;
-                    if (ImGui::Checkbox("Procedural paint", &Enabled))
+                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 50 * Scale));
+                    if (ConstructMaterialToggle("Procedural paint", Enabled, Scale))
                     {
                         Paint.Configuration[0] = Enabled ? 1 : 0;
                         Changed = Library.ConfigurePaint(Paint) || Changed;
                     }
                     ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 82 * Scale));
                     ImGui::SetNextItemWidth(CardWidth - 34 * Scale);
+                    const char *ModeOptions[]{"Palette", "Ramp", "Single"};
                     int Mode = int(Paint.Configuration[2]);
-                    if (ImGui::Combo("##Palette mode", &Mode, "Palette\0Ramp\0Single\0"))
+                    if (ConstructMaterialSelection("Paint colour mode", ModeOptions[Mode], ModeOptions, 3, Mode, Scale))
                     {
                         Paint.Configuration[2] = uint32_t(Mode);
                         if (Mode == 1) std::stable_sort(Paint.Palette.begin(), Paint.Palette.begin() + Paint.Configuration[3],
                             [](const auto &First, const auto &Second) { return First[3] < Second[3]; });
                         Changed = Library.ConfigurePaint(Paint) || Changed;
                     }
-                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 114 * Scale));
-                    for (uint32_t Index = 0; Index < Paint.Configuration[3]; ++Index)
+                    const uint32_t PaletteCount = Paint.Configuration[3];
+                    const uint32_t VisibleColours = Mode == 2 ? std::min(1u, PaletteCount) : PaletteCount;
+                    const float PaletteY = CardY + 116 * Scale;
+                    if (Mode == 1 && PaletteCount > 1)
+                    {
+                        const float StripWidth = CardWidth - 34 * Scale;
+                        const float StripHeight = 20 * Scale;
+                        const ImVec2 StripMinimum(Start.x + 17 * Scale, PaletteY);
+                        auto *Ink = ImGui::GetWindowDrawList();
+                        for (uint32_t Index = 1; Index < PaletteCount; ++Index)
+                        {
+                            const float FirstPosition = std::clamp(Paint.Palette[Index - 1][3], 0.f, 1.f);
+                            const float SecondPosition = std::clamp(Paint.Palette[Index][3], FirstPosition, 1.f);
+                            const auto ToInk = [&](uint32_t Stop)
+                            {
+                                const auto &Colour = Paint.Palette[Stop];
+                                return IM_COL32(int(std::pow(Colour[0], 1.f/2.2f) * 255), int(std::pow(Colour[1], 1.f/2.2f) * 255),
+                                    int(std::pow(Colour[2], 1.f/2.2f) * 255), 255);
+                            };
+                            Ink->AddRectFilledMultiColor(ImVec2(StripMinimum.x + FirstPosition * StripWidth, StripMinimum.y),
+                                ImVec2(StripMinimum.x + SecondPosition * StripWidth, StripMinimum.y + StripHeight),
+                                ToInk(Index - 1), ToInk(Index), ToInk(Index), ToInk(Index - 1));
+                        }
+                        ImGui::SetCursorScreenPos(StripMinimum);
+                        ImGui::InvisibleButton("Ramp gradient preview", ImVec2(StripWidth, StripHeight));
+                        ConstructMaterialCaption(StripMinimum.x, StripMinimum.y + 25 * Scale, 8 * Scale, 0xa3a393,
+                            "Gradient stops below · select a swatch to edit its colour");
+                    }
+                    for (uint32_t Index = 0; Index < VisibleColours; ++Index)
                     {
                         ImGui::PushID(int(Index));
-                        ImGui::SetCursorScreenPos(ImVec2(Start.x + (17 + (Index % PaletteColumns) * 29) * Scale,
-                            CardY + (114 + (Index / PaletteColumns) * 29) * Scale));
+                        const float SwatchWidth = 29 * Scale;
+                        const float SwatchX = Start.x + (17 + Index * 34) * Scale;
+                        const float SwatchY = PaletteY + (Mode == 1 && PaletteCount > 1 ? 40 * Scale : 0);
+                        ImGui::SetCursorScreenPos(ImVec2(SwatchX, SwatchY));
                         float Spectrum[3]{};
                         for (size_t Channel = 0; Channel < 3; ++Channel)
                         {
@@ -708,12 +820,25 @@ void MaterialLibraryPanel::ConstructInspector()
                             Spectrum[Channel] = Linear <= .0031308f ? 12.92f * Linear : 1.055f * std::pow(Linear, 1.f / 2.4f) - .055f;
                         }
                         if (ImGui::ColorEdit3("##Flake tint", Spectrum, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs |
-                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview))
+                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoBorder))
                         {
                             for (size_t Channel = 0; Channel < 3; ++Channel)
                                 Paint.Palette[Index][Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
                                     std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
                             Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                        if (Mode == 1 && PaletteCount > 1)
+                        {
+                            ImGui::SetCursorScreenPos(ImVec2(SwatchX, SwatchY + SwatchWidth + 2 * Scale));
+                            float Position = Paint.Palette[Index][3];
+                            ImGui::SetNextItemWidth(SwatchWidth);
+                            if (ImGui::DragFloat("##Ramp stop", &Position, .005f, 0, 1, "%.2f"))
+                            {
+                                Paint.Palette[Index][3] = Position;
+                                std::stable_sort(Paint.Palette.begin(), Paint.Palette.begin() + PaletteCount,
+                                    [](const auto &First, const auto &Second) { return First[3] < Second[3]; });
+                                Changed = Library.ConfigurePaint(Paint) || Changed;
+                            }
                         }
                         ImGui::PopID();
                     }

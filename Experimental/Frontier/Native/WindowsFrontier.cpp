@@ -5,6 +5,9 @@
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_WIN32
+#ifndef FRONTIER_BUILD_COMMIT
+#define FRONTIER_BUILD_COMMIT "local"
+#endif
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/WindowsApplication.h"
 #include "Engine/Interface/IconPresentation.h"
@@ -46,7 +49,7 @@ int main()
     GLFWwindow *Window = nullptr;
     std::string SelectedProject;
     Frontier::ApplicationWindowCallbacks Callbacks;
-    Callbacks.Title = "Frontier - Project Browser";
+    Callbacks.Title = "Frontier - Project Browser [" FRONTIER_BUILD_COMMIT "]";
     Callbacks.Initialize = [&](GLFWwindow *Current)
     {
         Window = Current;

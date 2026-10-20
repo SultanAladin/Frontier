@@ -43,8 +43,11 @@ private:
     VectorAuthoringHistory History;
     VectorAuthoringDocument SavedDocument;
     VectorCoverageProgram CachedCoverageProgram;
-    VectorAuthoringDocument CachedCoverageDocument;
     uint32_t CachedCoverageMask = UINT32_MAX;
+    uint64_t CachedHistoryRevision = UINT64_MAX;
+    uint64_t CachedGestureRevision = UINT64_MAX;
+    uint64_t GestureRevision = 0;
+    uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);

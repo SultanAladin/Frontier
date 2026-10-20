@@ -205,9 +205,9 @@ int main(int Count, char **Arguments)
             Confirm(!Context->OpenPopupStack.empty(), "Preview selector did not open a popup.");
             auto *Popup = Context->OpenPopupStack.back().Window;
             Confirm(Popup != nullptr, "Preview selector popup has no window.");
-            const float RowHeight = Popup->FontRefSize + ImGui::GetStyle().ItemSpacing.y;
+            const float RowHeight = ControlKitTokens::DropdownRowHeight + ControlKitTokens::DropdownRowGap;
             const auto Position = Popup->DC.CursorStartPos;
-            IO.AddMousePosEvent(Position.x + 20, Position.y + Index * RowHeight + Popup->FontRefSize * .5f);
+            IO.AddMousePosEvent(Position.x + 20, Position.y + Index * RowHeight + ControlKitTokens::DropdownRowHeight * .5f);
             Integrate();
             IO.AddMouseButtonEvent(0,true);
             Integrate();
@@ -237,6 +237,13 @@ int main(int Count, char **Arguments)
         Confirm(Panel.QueryFullscreenPreview() && Panel.QueryPreviewConfiguration().Zoom == 1 &&
             Panel.QueryPreviewConfiguration().PanX == 0 && Panel.QueryPreviewConfiguration().PanY == 0,
             "Fullscreen preview did not open with the specimen fitted and centred.");
+        const ImVec2 FullscreenCentre(IO.DisplaySize.x * .5f, IO.DisplaySize.y * .5f);
+        IO.AddMousePosEvent(FullscreenCentre.x, FullscreenCentre.y);
+        Integrate(); IO.AddMouseButtonEvent(0,true); Integrate();
+        IO.AddMousePosEvent(FullscreenCentre.x + 24, FullscreenCentre.y + 18); Integrate();
+        IO.AddMouseButtonEvent(0,false); Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Yaw != 0 && Panel.QueryPreviewConfiguration().Pitch != 0,
+            "Fullscreen canvas drag did not orbit the specimen.");
         IO.AddKeyEvent(ImGuiKey_Escape,true); Integrate(); IO.AddKeyEvent(ImGuiKey_Escape,false); Integrate();
         Confirm(!Panel.QueryFullscreenPreview(), "Escape did not close fullscreen preview.");
         Confirm(Notifications >= 12, "Preview settings callbacks were not delivered.");

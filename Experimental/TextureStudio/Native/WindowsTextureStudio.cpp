@@ -4,6 +4,9 @@
 // 🧩 Integrate native Pattern authoring and the selected-material preview into the shared Vulkan workspace loop.
 
 #define GLFW_INCLUDE_NONE
+#ifndef FRONTIER_BUILD_COMMIT
+#define FRONTIER_BUILD_COMMIT "local"
+#endif
 #include "Engine/Interface/WindowsApplication.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/VulkanPresentation.h"
@@ -99,7 +102,7 @@ int RunTextureWorkspace()
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
-    Callbacks.Title = "TextureWorkspace - Material Library";
+    Callbacks.Title = "TextureWorkspace - Material Library [" FRONTIER_BUILD_COMMIT "]";
     Callbacks.MaterialRendering = true;
     Callbacks.Initialize = [&](GLFWwindow *CurrentWindow)
     {
