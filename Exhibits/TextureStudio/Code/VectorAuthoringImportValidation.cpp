@@ -24,7 +24,7 @@ int main(int ArgumentCount, char **Arguments)
         std::ifstream Input(Arguments[1], std::ios::binary);
         if (!Input) throw std::runtime_error("Cannot open generated native Pattern TOML.");
         const std::string Source(std::istreambuf_iterator<char>(Input), {});
-        Require(!Source.empty() && Source.size() <= 600000, "Generated native Pattern TOML is empty or exceeds its source bound.");
+        Require(!Source.empty() && Source.size() <= 4000000, "Generated native Pattern TOML is empty or exceeds its source bound.");
         const auto Document = Frontier::DecodeVectorAuthoring(Source);
         Require(Document.Name == "Native importer acceptance fixture", "Pattern name did not round-trip.");
         Require(Document.Layers.size() == 5, "Pattern layer count did not round-trip.");

@@ -133,12 +133,12 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
         Enclosures.push_back(toml::table{{"token", int64_t(Entry.Token)}, {"enclosure_token", int64_t(Entry.EnclosureToken)}, {"name", Entry.Name}, {"folder_enabled", Entry.FolderEnabled}, {"visible", Entry.VisibilityEnabled}, {"locked", Entry.LockEnabled}, {"group_wide_editing", Entry.GroupWideEditingEnabled}});
     toml::table Encoded{{"format", "frontier.vector_artwork"}, {"version", 1}, {"name", Document.Name}, {"stamp", Document.Stamp}, {"token_clock", int64_t(Document.TokenClock)}, {"instructions", std::move(Instructions)}, {"segments", std::move(Segments)}, {"layers", std::move(Layers)}, {"enclosures", std::move(Enclosures)}};
     std::ostringstream Output; Output << Encoded;
-    if (Output.str().size() > 600000) throw std::runtime_error("Native vector authoring source exceeds 600 KB.");
+    if (Output.str().size() > 4000000) throw std::runtime_error("Native vector authoring source exceeds 4 MB.");
     return Output.str();
 }
 VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
 {
-    if (Source.size() > 600000) throw std::runtime_error("Native vector source exceeds 600 KB.");
+    if (Source.size() > 4000000) throw std::runtime_error("Native vector source exceeds 4 MB.");
     const auto Table = toml::parse(Source);
     if (!Table["format"].is_string() || !Table["version"].is_integer()) throw std::runtime_error("Expected typed native vector format and version.");
     if (Table["format"].value_or("") != std::string("frontier.vector_artwork") || Table["version"].value_or(0) != 1) throw std::runtime_error("Unsupported native vector format.");
@@ -148,7 +148,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     Document.Stamp = DecodeOptional<bool>(Table, "stamp", false);
     const auto Clock = Table["token_clock"].is_integer() ? Table["token_clock"].value<int64_t>() : std::nullopt; if (!Clock || *Clock < 0 || *Clock > UINT32_MAX) throw std::runtime_error("Invalid vector identity clock."); Document.TokenClock = uint32_t(*Clock);
     const auto *Instructions = Table["instructions"].as_array(), *Segments = Table["segments"].as_array(), *Layers = Table["layers"].as_array();
-    if (!Instructions || !Segments || !Layers || Instructions->size() > 128 || Segments->size() > 4000 || Layers->size() > 64) throw std::runtime_error("Invalid vector sequence bounds.");
+    if (!Instructions || !Segments || !Layers || Instructions->size() > 128 || Segments->size() > 32768 || Layers->size() > 64) throw std::runtime_error("Invalid vector sequence bounds.");
     for (const auto &Instruction : *Instructions) { if (!Instruction.as_table()) throw std::runtime_error("Invalid vector instruction."); Document.Instructions.push_back(DecodeInstruction(*Instruction.as_table())); }
     for (const auto &Segment : *Segments)
     {

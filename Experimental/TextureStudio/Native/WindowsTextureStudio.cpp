@@ -152,7 +152,7 @@ int RunTextureWorkspace()
         PatternSource = Directory / "pattern-workspace.vector.toml";
         Pattern->SaveSource = [&](std::string_view Source)
         {
-            if (Source.size() > 600000) return false;
+            if (Source.size() > 4000000) return false;
             std::string Diagnostic;
             return Frontier::TextFileReplacement::Finalize(PatternSource, Source, Diagnostic);
         };
@@ -160,7 +160,7 @@ int RunTextureWorkspace()
         {
             std::ifstream Input(PatternSource, std::ios::binary | std::ios::ate);
             const auto Bytes = Input.tellg();
-            if (!Input || Bytes < 0 || Bytes > 600000) return std::nullopt;
+            if (!Input || Bytes < 0 || Bytes > 4000000) return std::nullopt;
             std::string Source(size_t(Bytes), '\0');
             Input.seekg(0);
             if (!Input.read(Source.data(), Bytes)) return std::nullopt;
@@ -186,7 +186,7 @@ int RunTextureWorkspace()
         {
             std::ifstream Input(PatternSource, std::ios::binary | std::ios::ate);
             const auto Bytes = Input.tellg();
-            if (Input && Bytes >= 0 && Bytes <= 600000)
+            if (Input && Bytes >= 0 && Bytes <= 4000000)
             {
                 std::string Source(size_t(Bytes), '\0');
                 Input.seekg(0);

@@ -430,7 +430,7 @@ std::vector<uint32_t> IntegrateVectorAuthoringSelection(
     if (Replacement.Layers.size() + Fragment.Layers.size() > (Document.Stamp ? 24u : 64u)
         || Replacement.Enclosures.size() + Fragment.Enclosures.size() > 64
         || Replacement.Instructions.size() + Fragment.Instructions.size() > 128
-        || Replacement.Segments.size() + Fragment.Segments.size() > 4000)
+        || Replacement.Segments.size() + Fragment.Segments.size() > 32768)
         throw std::runtime_error("Paste exceeds vector layer, group, instruction or curve storage limits.");
     const auto IssueToken = [&]()
     {

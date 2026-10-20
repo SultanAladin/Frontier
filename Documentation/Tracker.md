@@ -200,3 +200,45 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   old-fail/new-pass assertions: up-axis never leans, pitched tips never roll, pitched yaw traces the
   standard screen ellipse; plus a pivot-exactness guard across all five shapes.
 - Linux host verification: full ctest 22/22 green; old matrix fails the new lean/roll/ellipse assertions.
+
+## Windows preview round 4, batch 3: Alloy preset parity (branch arena/db2f9953-frontier, unreleased)
+- User rejection: the six native-invented presets (and their gallery) did not match the Alloy Studio
+  HTML. "Alloy Studio" is the web TextureStudio itself (schema alloy.pattern.v1); source of truth is
+  Experimental/TextureStudio/src (PatternEditor.jsx gallery, patternDocument.js catalog of 103 families).
+- Converter upgrades (Automation/ConvertWebPattern.mjs): per-copy instructions stay lean when they fit
+  the 128-instruction budget, else tile-wrapped copies concatenate into one tile-space contour range
+  (identical union under the same fill rule); minimal adjacent same-paint merging rescues the 65-layer
+  Graduated lattice; half-drop/single-axis tiling accepted as documented straight-XY equivalents (baked
+  tile pixel-identical, neighbour arrangement differs); miter/bevel joins and butt/square caps substitute
+  round; anisotropic strokes use the larger axis; non-sized flowers import. All 178 family x palette
+  variants convert (was 143 OK / 35 fail); deviations attach to each conversion for the sidecar.
+- GPU/host budget raise: cubic segments 4,000 -> 32,768 (128 KB -> 1 MB storage buffer; shader needs no
+  change since segments are an indexed buffer), vector source 600 KB -> 4 MB (codec, gallery loader,
+  workspace save/load, import validation). Instruction cap stays 128 (shader stack array). Catalog peak
+  is 18,954 segments (weaves); 25,600 is the editing-API maximum, so the 32,768 boundary is pinned by a
+  struct-level coverage-validation test instead of the join fixture.
+- Batch export (Automation/ExportPatternLibrary.mjs): 103 families / 178 palette TOMLs (37 MB) +
+  Library.toml sidecar (families, 8 collection groups, 4 palettes, per-palette files, 24 deviation
+  notes) under EngineContent/PatternArchives/TextureStudio/starters/. Serialized floats round to 7
+  decimals (float32-parse within 1 ulp, invisible). The six invented TOMLs are deleted; the C++ fallback
+  builders remain only for a missing preset directory.
+- Gallery ported 1:1 from PatternEditor.jsx: kicker, two collection shortcuts, collection dropdown,
+  search (name/group/description/study), conditional print-palette dropdown, heritage note, result
+  count, two-column cards (76px cover-fit previews, wrapped names, description tooltips, selected
+  ring), 24/page paging, trailing notes. Decoding is lazy per page (96-entry FIFO cache). Two
+  documented deviations: DM Sans has no arrow glyphs, so paging/shortcut arrows render as ASCII
+  < >; "Generate a layout" generator section is deferred (self-contained follow-up, not presets).
+- Card tessellation: paint-order layer walk resolving Over/boolean composition; cubics flatten,
+  RDP-simplify (closed-loop farthest-point split) and ear-clip to triangles once per preset; strokes
+  replay as single polylines; fills submit batched with off-thumb culling. Fixed two real bugs found
+  by headless harnesses: RDP collapsed closed loops (degenerate chord), and 16-bit ImDrawIdx overflowed
+  past 64K verts per window draw list — 32-bit indices are now a PUBLIC compile definition on
+  FrontierImGui (tracked; the vendored imconfig.h is untouched because CI recovers imgui fresh).
+- Validation: PatternLibraryPresetValidation is Library.toml-driven (pins 103/178, decodes and
+  coverage-validates every file, 1954 checks); new PatternLibraryGalleryValidation pins collection
+  counts (30/16/10/10/10/10/10/7) and search counts, tessellates all 178 variants into finite geometry
+  (830K triangles); headless card-render harness draws all 103 cards with draw-list invariants intact.
+- Linux host verification: full ctest 23/23 green; converter node --test 7/7; ASan/UBSan clean on
+  decode, tessellation and card rendering.
+- Still open: rotation-axis follow-up already shipped in batch 2; asset-browser HTML 1:1 (HTML file
+  still not in repo); "Generate a layout" section; remaining surface-detail ports; zoom-FPS check.

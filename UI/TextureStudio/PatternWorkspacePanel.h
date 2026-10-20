@@ -22,6 +22,31 @@ public:
     void ConfigureTypeface(void *Regular, void *Light = nullptr);
     void ConfigureDocument(VectorAuthoringDocument Document);
     bool ConfigurePresetDirectory(const std::filesystem::path &Directory);
+    struct PatternLibraryFamilyEntry
+    {
+        std::string Name, Group, Description, Study;
+        std::map<std::string, std::string> Files;
+    };
+    struct PatternThumbnailShape
+    {
+        std::vector<std::array<float, 2>> Triangles;
+        std::vector<std::array<float, 2>> Outline;
+        uint32_t FillColour = 0, LineColour = 0;
+        bool Filled = false, Stroked = false, ClosedOutline = false;
+        float StrokeWidth = 0;
+    };
+    struct PatternPresetCacheEntry
+    {
+        VectorAuthoringDocument Document;
+        std::vector<PatternThumbnailShape> Shapes;
+        bool Failed = false;
+    };
+    void ConfigureLibraryFilter(const std::string &Group, const std::string &Palette, bool ClearSearch);
+    void ConfigureLibrarySearch(const std::string &Text);
+    [[nodiscard]] std::vector<size_t> QueryLibraryMatches() const;
+    [[nodiscard]] const PatternPresetCacheEntry &QueryPresetEntry(const PatternLibraryFamilyEntry &Family);
+    [[nodiscard]] const std::vector<PatternLibraryFamilyEntry> &QueryLibraryFamilies() const noexcept { return LibraryFamilies; }
+    [[nodiscard]] static std::vector<PatternThumbnailShape> TessellatePresetDocument(const VectorAuthoringDocument &Document);
     [[nodiscard]] const VectorAuthoringDocument &QueryDocument() const;
     [[nodiscard]] const std::vector<uint32_t> &QuerySelection() const noexcept { return Selection; }
     [[nodiscard]] const std::vector<size_t> &QueryAnchorSelection() const noexcept { return SelectedAnchors; }
@@ -65,7 +90,17 @@ private:
     PanelDockspace Panels;
     VectorAuthoringControlSurface Controls;
     std::map<std::string, PlaneExtent> ControlExtents, PanelExtents;
-    std::vector<std::pair<std::string, VectorAuthoringDocument>> PresetDocuments;
+    std::vector<PatternLibraryFamilyEntry> LibraryFamilies;
+    std::vector<std::string> LibraryGroups, LibraryPalettes;
+    std::string LibraryDefaultPalette = "Indigo";
+    std::filesystem::path LibraryDirectory;
+    std::string LibraryGroup = "All patterns";
+    std::string LibraryPalette;
+    std::array<char, 129> LibrarySearchText{};
+    size_t LibraryPage = 0;
+    std::string LibrarySelected;
+    std::map<std::string, PatternPresetCacheEntry> PresetCache;
+    std::vector<std::string> PresetCacheOrder;
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     std::optional<VectorAuthoringDocument> PenSource, PenPreview;
     CubicPath PendingPath;
@@ -111,7 +146,7 @@ private:
     void ConstructCanvas();
     void ConstructInspector();
     void ConstructCloseDialogue();
-    void ConstructPresetThumbnail(const char *Caption, const VectorAuthoringDocument &Document, float Width);
+    void ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected);
     void ConstructPrimitive(uint32_t Category, const char *Caption);
     void ApplyLibraryPreset(size_t Index);
     void ApplyPresetDocument(VectorAuthoringDocument Document);

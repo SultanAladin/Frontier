@@ -53,7 +53,7 @@ struct VectorSelectionProgram
 };
 inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 {
-    if (Program.Instructions.empty() || Program.Instructions.size() > 128 || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 4000)
+    if (Program.Instructions.empty() || Program.Instructions.size() > 128 || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)
         throw std::runtime_error("Vector coverage exceeds bounded GPU program limits.");
     for (size_t Index = 0; Index < Program.Instructions.size(); ++Index)
     {

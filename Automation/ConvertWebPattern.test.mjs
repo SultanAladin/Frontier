@@ -69,7 +69,27 @@ test("wraps edge-crossing geometry into the periodic 512-pixel tile and retains 
   assert.equal(converted.instructions[0].topology[0], 0);
   const Copies = converted.instructions.filter((instruction) => instruction.topology[0] === 6);
   assert.deepEqual(Copies.map((instruction) => instruction.bounds[0]), [4, 516]);
+  assert.equal(Copies[0].topology[1], Copies[1].topology[1]);
   assert.equal(converted.layers[1].root, 3);
+});
+
+test("concatenates full-bleed copies into one tile-space instruction once the lean layout exceeds the instruction budget", () => {
+  const converted = convertPatternJson(document([0, 1, 2].map((index) => ({
+    kind: "rect", name: `Full-bleed band ${index}`, x: 256, y: 256, width: 800, height: 800,
+    color: ["#224466", "#663322", "#446622"][index],
+  }))));
+  const contours = converted.instructions.filter((instruction) => instruction.topology[0] === 6);
+  assert.equal(contours.length, 3);
+  for (const contour of contours) {
+    assert.deepEqual(contour.bounds, [256, 256, 512, 512]);
+    assert.equal(contour.transform[0], 0);
+  }
+  assert.ok(converted.instructions.length + converted.layers.length - 1 <= 128);
+  const tileX = converted.segments.flatMap((segment) =>
+    [segment.start_control[0], segment.start_control[2], segment.control_end[0], segment.control_end[2]]
+      .map((coordinate) => coordinate * 512 + 256));
+  assert.ok(Math.min(...tileX) < 0);
+  assert.ok(Math.max(...tileX) > 512);
 });
 
 test("maps supported rectangle and ellipse masks through the layer transform", () => {

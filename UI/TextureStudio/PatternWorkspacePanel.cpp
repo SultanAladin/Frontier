@@ -7,12 +7,14 @@
 #include "Engine/Interface/DropdownControls.h"
 #include "PatternWorkspacePanel.h"
 #include "VectorMaskControls.h"
+#include <toml++/toml.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <numbers>
+#include <numeric>
 #include <cctype>
 
 namespace Frontier
@@ -107,10 +109,50 @@ void PatternWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
 
 bool PatternWorkspacePanel::ConfigurePresetDirectory(const std::filesystem::path &Directory)
 {
-    std::vector<std::pair<std::string, VectorAuthoringDocument>> Replacement;
+    // The shipped library carries a Library.toml sidecar (families, groups, palette
+    // variants); decoding stays lazy per gallery page. Plain folders of TOMLs keep
+    // working as single-palette families for local experiments.
+    std::vector<PatternLibraryFamilyEntry> Replacement;
+    std::vector<std::string> Groups, Palettes;
+    std::string DefaultPalette = "Indigo";
+    std::filesystem::path Resolved;
     try
     {
-        if (!Directory.empty() && std::filesystem::is_directory(Directory))
+        for (const auto &Candidate : {Directory / "Library.toml", Directory / "starters" / "Library.toml"})
+        {
+            if (Directory.empty() || !std::filesystem::is_regular_file(Candidate)) continue;
+            const auto Table = toml::parse_file(Candidate.string());
+            if (std::string(Table["format"].value_or("")) != "frontier.pattern_library" || Table["version"].value_or(0) != 1)
+                throw std::runtime_error("Unsupported pattern library sidecar.");
+            DefaultPalette = Table["default_palette"].value_or("Indigo");
+            if (const auto *Array = Table["palettes"].as_array())
+                for (const auto &Item : *Array)
+                    if (const auto Value = Item.value<std::string>()) Palettes.push_back(*Value);
+            if (const auto *Array = Table["groups"].as_array())
+                for (const auto &Item : *Array)
+                    if (const auto Value = Item.value<std::string>()) Groups.push_back(*Value);
+            const auto *Families = Table["families"].as_array();
+            if (!Families) throw std::runtime_error("Pattern library sidecar holds no families.");
+            for (const auto &Item : *Families)
+            {
+                const auto *Family = Item.as_table();
+                if (!Family) throw std::runtime_error("Pattern library family is malformed.");
+                PatternLibraryFamilyEntry Entry;
+                Entry.Name = (*Family)["name"].value_or("");
+                Entry.Group = (*Family)["group"].value_or("");
+                Entry.Description = (*Family)["description"].value_or("");
+                Entry.Study = (*Family)["study"].value_or("");
+                const auto *Files = (*Family)["files"].as_table();
+                if (Entry.Name.empty() || !Files || Files->empty()) throw std::runtime_error("Pattern library family is malformed.");
+                for (const auto &[Palette, File] : *Files)
+                    if (const auto Value = File.value<std::string>()) Entry.Files[std::string(Palette.str())] = *Value;
+                if (Entry.Files.empty()) throw std::runtime_error("Pattern library family holds no palette files.");
+                Replacement.push_back(std::move(Entry));
+            }
+            Resolved = Candidate.parent_path();
+            break;
+        }
+        if (Replacement.empty() && !Directory.empty() && std::filesystem::is_directory(Directory))
         {
             std::vector<std::filesystem::path> Files;
             for (const auto &Entry : std::filesystem::directory_iterator(Directory))
@@ -118,26 +160,346 @@ bool PatternWorkspacePanel::ConfigurePresetDirectory(const std::filesystem::path
             std::sort(Files.begin(), Files.end());
             for (const auto &File : Files)
             {
-                std::ifstream Input(File, std::ios::binary | std::ios::ate);
-                const auto Bytes = Input.tellg();
-                if (!Input || Bytes < 0 || Bytes > 600000) continue;
-                std::string Source(size_t(Bytes), '\0');
-                Input.seekg(0);
-                if (!Input.read(Source.data(), Bytes)) continue;
-                try
-                {
-                    auto Document = DecodeVectorAuthoring(Source);
-                    if (!Document.Stamp && !Document.Layers.empty())
-                        Replacement.emplace_back(Document.Name.empty() ? File.stem().string() : Document.Name, std::move(Document));
-                }
-                catch (const std::exception &) { continue; }
+                PatternLibraryFamilyEntry Entry;
+                Entry.Name = File.stem().string();
+                Entry.Files[DefaultPalette] = File.filename().string();
+                Replacement.push_back(std::move(Entry));
             }
+            Resolved = Directory;
         }
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
     if (Replacement.empty()) return false;
-    PresetDocuments = std::move(Replacement);
+    LibraryFamilies = std::move(Replacement);
+    LibraryGroups = std::move(Groups);
+    LibraryPalettes = std::move(Palettes);
+    LibraryDefaultPalette = std::move(DefaultPalette);
+    LibraryDirectory = Resolved;
+    LibraryGroup = "All patterns";
+    LibraryPalette.clear();
+    LibrarySearchText[0] = 0;
+    LibraryPage = 0;
+    LibrarySelected.clear();
+    PresetCache.clear();
+    PresetCacheOrder.clear();
     return true;
+}
+
+namespace
+{
+void FlattenThumbnailCubic(std::array<float, 2> A, std::array<float, 2> B, std::array<float, 2> C, std::array<float, 2> D,
+    std::vector<std::array<float, 2>> &Points, float Tolerance, int Depth = 0)
+{
+    const float Dx = D[0] - A[0], Dy = D[1] - A[1];
+    const float Length = std::hypot(Dx, Dy);
+    const float Deviation = Length > 1e-6f
+        ? std::max(std::abs((B[0] - A[0]) * Dy - (B[1] - A[1]) * Dx), std::abs((C[0] - A[0]) * Dy - (C[1] - A[1]) * Dx)) / Length
+        : 0;
+    if (Depth >= 6 || Deviation <= Tolerance) { Points.push_back(D); return; }
+    const auto Mid = [](const std::array<float, 2> &P, const std::array<float, 2> &Q) { return std::array<float, 2>{(P[0] + Q[0]) * .5f, (P[1] + Q[1]) * .5f}; };
+    const auto AB = Mid(A, B), BC = Mid(B, C), CD = Mid(C, D);
+    const auto ABC = Mid(AB, BC), BCD = Mid(BC, CD);
+    const auto ABCD = Mid(ABC, BCD);
+    FlattenThumbnailCubic(A, AB, ABC, ABCD, Points, Tolerance, Depth + 1);
+    FlattenThumbnailCubic(ABCD, BCD, CD, D, Points, Tolerance, Depth + 1);
+}
+void SimplifyThumbnailRange(const std::vector<std::array<float, 2>> &Points, size_t First, size_t Last, float Tolerance, std::vector<char> &Keep)
+{
+    float Farthest = 0;
+    size_t Split = First;
+    const float Dx = Points[Last][0] - Points[First][0], Dy = Points[Last][1] - Points[First][1];
+    const float Length = std::hypot(Dx, Dy);
+    for (size_t Index = First + 1; Index < Last; ++Index)
+    {
+        const float Distance = Length > 1e-6f
+            ? std::abs((Points[Index][0] - Points[First][0]) * Dy - (Points[Index][1] - Points[First][1]) * Dx) / Length
+            : 0;
+        if (Distance > Farthest) { Farthest = Distance; Split = Index; }
+    }
+    if (Farthest <= Tolerance || Split == First) return;
+    Keep[Split] = 1;
+    SimplifyThumbnailRange(Points, First, Split, Tolerance, Keep);
+    SimplifyThumbnailRange(Points, Split, Last, Tolerance, Keep);
+}
+void SimplifyThumbnailContour(std::vector<std::array<float, 2>> &Points, float Tolerance)
+{
+    if (Points.size() < 3) return;
+    std::vector<char> Keep(Points.size(), 0);
+    Keep.front() = Keep.back() = 1;
+    // Closed loops have coincident endpoints, which would degenerate the opening
+    // chord and collapse the contour; split at the vertex farthest from the seam.
+    if (std::hypot(Points.front()[0] - Points.back()[0], Points.front()[1] - Points.back()[1]) <= Tolerance)
+    {
+        float Farthest = 0;
+        size_t Split = 0;
+        for (size_t Index = 1; Index + 1 < Points.size(); ++Index)
+        {
+            const float Distance = std::hypot(Points[Index][0] - Points.front()[0], Points[Index][1] - Points.front()[1]);
+            if (Distance > Farthest) { Farthest = Distance; Split = Index; }
+        }
+        if (Split > 0)
+        {
+            Keep[Split] = 1;
+            SimplifyThumbnailRange(Points, 0, Split, Tolerance, Keep);
+            SimplifyThumbnailRange(Points, Split, Points.size() - 1, Tolerance, Keep);
+        }
+    }
+    else SimplifyThumbnailRange(Points, 0, Points.size() - 1, Tolerance, Keep);
+    std::vector<std::array<float, 2>> Reduced;
+    for (size_t Index = 0; Index < Points.size(); ++Index)
+        if (Keep[Index]) Reduced.push_back(Points[Index]);
+    Points = std::move(Reduced);
+}
+std::vector<std::array<float, 2>> TriangulateThumbnailLoop(std::vector<std::array<float, 2>> Loop)
+{
+    std::vector<std::array<float, 2>> Triangles;
+    std::vector<std::array<float, 2>> Clean;
+    for (const auto &Point : Loop)
+        if (Clean.empty() || std::hypot(Point[0] - Clean.back()[0], Point[1] - Clean.back()[1]) > 1e-4f) Clean.push_back(Point);
+    while (Clean.size() > 1 && std::hypot(Clean.front()[0] - Clean.back()[0], Clean.front()[1] - Clean.back()[1]) <= 1e-4f) Clean.pop_back();
+    Loop = std::move(Clean);
+    if (Loop.size() < 3) return Triangles;
+    float Area = 0;
+    for (size_t Index = 0; Index < Loop.size(); ++Index)
+    {
+        const auto &P = Loop[Index], &Q = Loop[(Index + 1) % Loop.size()];
+        Area += (Q[0] - P[0]) * (Q[1] + P[1]);
+    }
+    std::vector<size_t> Remaining(Loop.size());
+    std::iota(Remaining.begin(), Remaining.end(), 0);
+    if (Area > 0) std::reverse(Remaining.begin(), Remaining.end());
+    const auto Cross = [&](size_t A, size_t B, size_t C)
+    { return (Loop[B][0] - Loop[A][0]) * (Loop[C][1] - Loop[A][1]) - (Loop[B][1] - Loop[A][1]) * (Loop[C][0] - Loop[A][0]); };
+    const auto Inside = [&](size_t A, size_t B, size_t C, size_t P)
+    {
+        const float U = Cross(P, A, B), V = Cross(P, B, C), W = Cross(P, C, A);
+        return U >= -1e-6f && V >= -1e-6f && W >= -1e-6f;
+    };
+    for (size_t Guard = 0; Remaining.size() > 3 && Guard < Loop.size() * Loop.size(); ++Guard)
+    {
+        bool Clipped = false;
+        for (size_t Slot = 0; Slot < Remaining.size(); ++Slot)
+        {
+            const size_t A = Remaining[(Slot + Remaining.size() - 1) % Remaining.size()];
+            const size_t B = Remaining[Slot];
+            const size_t C = Remaining[(Slot + 1) % Remaining.size()];
+            if (Cross(A, B, C) <= 1e-6f) continue;
+            bool Occupied = false;
+            for (size_t Other : Remaining)
+                if (Other != A && Other != B && Other != C && Inside(A, B, C, Other)) { Occupied = true; break; }
+            if (Occupied) continue;
+            Triangles.push_back(Loop[A]); Triangles.push_back(Loop[B]); Triangles.push_back(Loop[C]);
+            Remaining.erase(Remaining.begin() + Slot);
+            Clipped = true;
+            break;
+        }
+        if (!Clipped) break;
+    }
+    if (Remaining.size() == 3)
+    {
+        Triangles.push_back(Loop[Remaining[0]]); Triangles.push_back(Loop[Remaining[1]]); Triangles.push_back(Loop[Remaining[2]]);
+    }
+    return Triangles;
+}
+}
+
+std::vector<size_t> PatternWorkspacePanel::QueryLibraryMatches() const
+{
+    std::string Query = LibrarySearchText.data();
+    const auto Trimmed = Query.find_last_not_of(" \t\n\r");
+    Query = Trimmed == std::string::npos ? "" : Query.substr(0, Trimmed + 1);
+    const auto Lower = [](std::string Text)
+    {
+        for (char &Byte : Text) Byte = char(std::tolower((unsigned char)Byte));
+        return Text;
+    };
+    Query = Lower(Query);
+    std::vector<size_t> Matches;
+    for (size_t Index = 0; Index < LibraryFamilies.size(); ++Index)
+    {
+        const auto &Family = LibraryFamilies[Index];
+        if (LibraryGroup != "All patterns" && Family.Group != LibraryGroup) continue;
+        if (!Query.empty() && Lower(Family.Name + " " + Family.Group + " " + Family.Description + " " + Family.Study).find(Query) == std::string::npos)
+            continue;
+        Matches.push_back(Index);
+    }
+    return Matches;
+}
+
+void PatternWorkspacePanel::ConfigureLibraryFilter(const std::string &Group, const std::string &Palette, bool ClearSearch)
+{
+    LibraryGroup = Group;
+    if (!Palette.empty()) LibraryPalette = Palette;
+    if (ClearSearch) LibrarySearchText[0] = 0;
+    LibraryPage = 0;
+}
+
+void PatternWorkspacePanel::ConfigureLibrarySearch(const std::string &Text)
+{
+    const size_t Count = std::min(Text.size(), LibrarySearchText.size() - 1);
+    std::copy_n(Text.data(), Count, LibrarySearchText.data());
+    LibrarySearchText[Count] = 0;
+    LibraryPage = 0;
+}
+
+const PatternWorkspacePanel::PatternPresetCacheEntry &PatternWorkspacePanel::QueryPresetEntry(const PatternLibraryFamilyEntry &Family)
+{
+    const std::string Palette = LibraryPalette.empty() ? LibraryDefaultPalette : LibraryPalette;
+    auto File = Family.Files.find(Palette);
+    if (File == Family.Files.end()) File = Family.Files.begin();
+    const std::string Key = File->first + "\n" + File->second;
+    const auto Cached = PresetCache.find(Key);
+    if (Cached != PresetCache.end()) return Cached->second;
+    PatternPresetCacheEntry Entry;
+    try
+    {
+        std::ifstream Input(LibraryDirectory / File->second, std::ios::binary | std::ios::ate);
+        const auto Bytes = Input.tellg();
+        if (!Input || Bytes < 0 || Bytes > 4000000) throw std::runtime_error("Preset file is unreadable.");
+        std::string Source(size_t(Bytes), '\0');
+        Input.seekg(0);
+        if (!Input.read(Source.data(), Bytes)) throw std::runtime_error("Preset file is truncated.");
+        Entry.Document = DecodeVectorAuthoring(Source);
+        if (Entry.Document.Stamp || Entry.Document.Layers.empty()) throw std::runtime_error("Preset holds no artwork.");
+        Entry.Shapes = TessellatePresetDocument(Entry.Document);
+    }
+    catch (const std::exception &Failure) { Entry.Failed = true; Entry.Document = VectorAuthoringDocument{}; Diagnostic = Failure.what(); }
+    while (PresetCacheOrder.size() >= 96)
+    {
+        PresetCache.erase(PresetCacheOrder.front());
+        PresetCacheOrder.erase(PresetCacheOrder.begin());
+    }
+    PresetCacheOrder.push_back(Key);
+    return PresetCache.emplace(Key, std::move(Entry)).first->second;
+}
+
+std::vector<PatternWorkspacePanel::PatternThumbnailShape> PatternWorkspacePanel::TessellatePresetDocument(const VectorAuthoringDocument &Document)
+{
+    // Paint-order tessellation for gallery cards: layers resolve their Over/boolean
+    // composition into contour and primitive shapes, cubic runs flatten, simplify and
+    // triangulate once here so frames only replay cached triangles and outlines.
+    std::vector<PatternThumbnailShape> Shapes;
+    size_t Triangles = 0;
+    const auto Pack = [](const std::array<float, 4> &Colour, float Opacity)
+    {
+        return IM_COL32(int(std::clamp(Colour[0], 0.f, 1.f) * 255), int(std::clamp(Colour[1], 0.f, 1.f) * 255),
+            int(std::clamp(Colour[2], 0.f, 1.f) * 255), int(std::clamp(Colour[3] * Opacity, 0.f, 1.f) * 255));
+    };
+    std::function<void(uint32_t)> Emit = [&](uint32_t Root)
+    {
+        if (Root >= Document.Instructions.size()) return;
+        const auto &Source = Document.Instructions[Root];
+        const uint32_t Category = Source.Topology[0];
+        if (Category > 6)
+        {
+            if (Source.Topology[1] < Document.Instructions.size() && Source.Topology[2] < Document.Instructions.size())
+            {
+                Emit(Source.Topology[1]);
+                Emit(Source.Topology[2]);
+            }
+            return;
+        }
+        const float Opacity = Source.Transform[2];
+        if (!(Opacity > 0) || !std::isfinite(Opacity)) return;
+        const float Rotation = Source.Transform[0];
+        const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
+        const auto Place = [&](float LocalX, float LocalY)
+        { return std::array<float, 2>{Source.Bounds[0] + Cosine * LocalX - Sine * LocalY, Source.Bounds[1] + Sine * LocalX + Cosine * LocalY}; };
+        PatternThumbnailShape Shape;
+        Shape.FillColour = Pack(Source.Colour, Opacity);
+        Shape.LineColour = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0 ? Pack(Source.StrokeColour, Opacity) : Shape.FillColour;
+        Shape.Filled = Source.Paint[3] != 0;
+        Shape.Stroked = Source.Transform[1] > 0;
+        Shape.StrokeWidth = Source.Transform[1];
+        if (Category == 0)
+        {
+            const float HX = Source.Bounds[2], HY = Source.Bounds[3];
+            const std::array<std::array<float, 2>, 4> Corners{Place(-HX, -HY), Place(HX, -HY), Place(HX, HY), Place(-HX, HY)};
+            if (Shape.Filled) { Shape.Triangles = {Corners[0], Corners[1], Corners[2], Corners[0], Corners[2], Corners[3]}; Triangles += 2; }
+            Shape.Outline = {Corners[0], Corners[1], Corners[2], Corners[3]};
+            Shape.ClosedOutline = true;
+            Shapes.push_back(std::move(Shape));
+            return;
+        }
+        if (Category == 1)
+        {
+            std::vector<std::array<float, 2>> Loop;
+            for (int Step = 0; Step < 28; ++Step)
+            {
+                const float Angle = 6.28318530718f * Step / 28;
+                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2], std::sin(Angle) * Source.Bounds[3]));
+            }
+            if (Shape.Filled)
+                for (size_t Corner = 1; Corner + 1 < Loop.size(); ++Corner)
+                {
+                    Shape.Triangles.push_back(Loop[0]); Shape.Triangles.push_back(Loop[Corner]); Shape.Triangles.push_back(Loop[Corner + 1]);
+                }
+            Triangles += 26;
+            Shape.Outline = std::move(Loop);
+            Shape.ClosedOutline = true;
+            Shapes.push_back(std::move(Shape));
+            return;
+        }
+        if (Category <= 5)
+        {
+            uint32_t Count = Category == 2 ? 4 : Category == 3 ? 3 : uint32_t(std::max(Source.Paint[2], 3.f));
+            if (Category == 5) Count *= 2;
+            std::vector<std::array<float, 2>> Loop;
+            for (uint32_t Corner = 0; Corner < Count; ++Corner)
+            {
+                const float Angle = -1.57079632679f + 6.28318530718f * Corner / Count;
+                const float Radius = Category == 5 && Corner % 2 == 1 ? Source.Paint[1] : 1;
+                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2] * Radius, std::sin(Angle) * Source.Bounds[3] * Radius));
+            }
+            if (Shape.Filled) { Shape.Triangles = TriangulateThumbnailLoop(Loop); Triangles += Shape.Triangles.size() / 3; }
+            Shape.Outline = std::move(Loop);
+            Shape.ClosedOutline = true;
+            Shapes.push_back(std::move(Shape));
+            return;
+        }
+        const uint32_t Start = Source.Topology[1], Count = Source.Topology[2];
+        if (Count == 0 || uint64_t(Start) + Count > Document.Segments.size()) return;
+        const auto CloseEnough = [](const std::array<float, 2> &A, const std::array<float, 2> &B)
+        { return std::hypot(A[0] - B[0], A[1] - B[1]) <= 1e-4f; };
+        std::vector<std::array<float, 2>> Contour;
+        const auto Flush = [&]()
+        {
+            if (Contour.size() < 2) { Contour.clear(); return; }
+            for (auto &Point : Contour) Point = Place(Point[0] * Source.Bounds[2], Point[1] * Source.Bounds[3]);
+            SimplifyThumbnailContour(Contour, 2.5f);
+            if (Contour.size() < 2) { Contour.clear(); return; }
+            PatternThumbnailShape Run = Shape;
+            Run.ClosedOutline = std::hypot(Contour.front()[0] - Contour.back()[0], Contour.front()[1] - Contour.back()[1]) <= 1.5f;
+            Run.Outline = Contour;
+            if (Shape.Filled && Triangles < 250000)
+            {
+                Run.Triangles = TriangulateThumbnailLoop(Contour);
+                Triangles += Run.Triangles.size() / 3;
+            }
+            Shapes.push_back(std::move(Run));
+            Contour.clear();
+        };
+        for (uint32_t Offset = 0; Offset < Count; ++Offset)
+        {
+            const auto &Segment = Document.Segments[Start + Offset];
+            const std::array<float, 2> A{Segment.StartControl[0], Segment.StartControl[1]};
+            const std::array<float, 2> B{Segment.StartControl[2], Segment.StartControl[3]};
+            const std::array<float, 2> C{Segment.ControlEnd[0], Segment.ControlEnd[1]};
+            const std::array<float, 2> D{Segment.ControlEnd[2], Segment.ControlEnd[3]};
+            if (!Contour.empty() && !CloseEnough(Contour.back(), A)) Flush();
+            if (Contour.empty()) Contour.push_back(A);
+            std::vector<std::array<float, 2>> Flat;
+            FlattenThumbnailCubic(A, B, C, D, Flat, 0.002f);
+            Contour.insert(Contour.end(), Flat.begin(), Flat.end());
+        }
+        Flush();
+    };
+    for (const auto &Layer : Document.Layers)
+    {
+        if (!Layer.Visible) continue;
+        Emit(Layer.Root);
+    }
+    return Shapes;
 }
 
 const VectorAuthoringDocument &PatternWorkspacePanel::QueryDocument() const
@@ -447,142 +809,287 @@ void PatternWorkspacePanel::ConstructHeader()
     ImGui::End();
 }
 
-void PatternWorkspacePanel::ConstructPresetThumbnail(const char *Caption, const VectorAuthoringDocument &Document, float Width)
+void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected)
 {
-    // CPU-drawn vector preview: replays the preset instructions with the same corner/rotation conventions as
-    // VectorCoverage.slang (first corner straight up, world = centre + R(+rotation) * local) so the card matches the tile.
-    ImGui::SetCursorPosX(16 * Scale);
-    const float Height = 76 * Scale;
+    // One card per family, matching the Alloy .pe-starters card: bordered button,
+    // 76px cover-fit tile preview, 10px wrapped name, description tooltip.
+    if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), 10 * 1.302f * Scale);
+    const float LineHeight = ImGui::GetTextLineHeight();
+    const float ThumbHeight = 76 * Scale;
+    const float NameHeight = LineHeight * 3 + 18 * Scale;
     const ImVec2 Origin = ImGui::GetCursorScreenPos();
-    const ImVec2 Size(Width, Height);
-    ImGui::InvisibleButton((std::string("##thumbnail-") + Caption).c_str(), Size);
-    const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
-    size_t Shapes = 0;
-    float MinimumX = 1e30f, MinimumY = 1e30f, MaximumX = -1e30f, MaximumY = -1e30f;
-    for (const auto &Instruction : Document.Instructions)
-    {
-        if (Instruction.Topology[0] > 5) continue;
-        ++Shapes;
-        MinimumX = std::min(MinimumX, Instruction.Bounds[0] - Instruction.Bounds[2]);
-        MinimumY = std::min(MinimumY, Instruction.Bounds[1] - Instruction.Bounds[3]);
-        MaximumX = std::max(MaximumX, Instruction.Bounds[0] + Instruction.Bounds[2]);
-        MaximumY = std::max(MaximumY, Instruction.Bounds[1] + Instruction.Bounds[3]);
-    }
-    ImDrawList *Draw = ImGui::GetWindowDrawList();
+    const ImVec2 Size(Width, ThumbHeight + NameHeight);
     const ImVec2 Far(Origin.x + Size.x, Origin.y + Size.y);
-    Draw->AddRectFilled(Origin, Far, IM_COL32(22, 24, 30, 255), 6 * Scale);
-    if (Shapes > 0)
+    ImGui::InvisibleButton(("##LibraryCard-" + Family.Name).c_str(), Size);
+    const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
+    ControlExtents[Family.Name] = {Origin.x, Origin.y, Far.x, Far.y};
+    ImDrawList *Draw = ImGui::GetWindowDrawList();
+    Draw->AddRectFilled(Origin, Far, Selected ? IM_COL32(53, 66, 55, 255) : Hovered ? IM_COL32(52, 61, 56, 255) : IM_COL32(35, 40, 41, 255), 7 * Scale);
+    const ImVec2 ThumbFar(Far.x, Origin.y + ThumbHeight);
+    ImGui::PushClipRect(Origin, ThumbFar, true);
+    Draw->AddRectFilled(Origin, ThumbFar, IM_COL32(20, 23, 24, 255));
+    if (!Entry.Failed && !Entry.Shapes.empty())
     {
-        const float Pad = 6 * Scale;
-        const float ExtentX = std::max(MaximumX - MinimumX, 1e-3f), ExtentY = std::max(MaximumY - MinimumY, 1e-3f);
-        const float Unit = std::min((Size.x - 2 * Pad) / ExtentX, (Size.y - 2 * Pad) / ExtentY);
-        const float OffsetX = Origin.x + Pad + ((Size.x - 2 * Pad) - ExtentX * Unit) * .5f - MinimumX * Unit;
-        const float OffsetY = Origin.y + Pad + ((Size.y - 2 * Pad) - ExtentY * Unit) * .5f - MinimumY * Unit;
-        const auto Project = [&](float X, float Y) { return ImVec2(OffsetX + X * Unit, OffsetY + Y * Unit); };
-        for (const auto &Instruction : Document.Instructions)
+        const float Unit = std::max(Size.x / 512, ThumbHeight / 512);
+        const auto Project = [&](float X, float Y)
+        { return ImVec2(Origin.x + Size.x * .5f + (X - 256) * Unit, Origin.y + ThumbHeight * .5f + (Y - 256) * Unit); };
+        std::vector<ImVec2> Polyline;
+        for (const auto &Shape : Entry.Shapes)
         {
-            const uint32_t Category = Instruction.Topology[0];
-            if (Category > 5) continue;
-            const float Opacity = Instruction.Transform[2];
-            if (Opacity <= 0) continue;
-            const float Rotation = Instruction.Transform[0];
-            const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
-            const auto Place = [&](float LocalX, float LocalY)
-            { return Project(Instruction.Bounds[0] + Cosine * LocalX - Sine * LocalY, Instruction.Bounds[1] + Sine * LocalX + Cosine * LocalY); };
-            const auto Pack = [&](const std::array<float, 4> &Colour)
+            // Batched triangle submission: dense weave cards replay tens of
+            // thousands of cached triangles per frame, so triangles reserve one
+            // index run and skip fully off-thumb copies instead of issuing one
+            // draw-list call per triangle.
+            if (Shape.Filled && Shape.Triangles.size() >= 3)
             {
-                return IM_COL32(int(std::clamp(Colour[0], 0.f, 1.f) * 255), int(std::clamp(Colour[1], 0.f, 1.f) * 255),
-                    int(std::clamp(Colour[2], 0.f, 1.f) * 255), int(std::clamp(Colour[3] * Opacity, 0.f, 1.f) * 255));
-            };
-            const bool Filled = Instruction.Paint[3] != 0;
-            const float StrokeWidth = std::max(Instruction.Transform[1] * Unit, 1.f);
-            const bool Stroked = Instruction.Transform[1] > 0;
-            const uint32_t FillColour = Pack(Instruction.Colour);
-            const uint32_t LineColour = (Instruction.Topology[3] & VectorCoverageStrokeColourExplicit) != 0 ? Pack(Instruction.StrokeColour) : FillColour;
-            if (Category == 0)
-            {
-                const float HX = Instruction.Bounds[2], HY = Instruction.Bounds[3];
-                const ImVec2 A = Place(-HX, -HY), B = Place(HX, -HY), C = Place(HX, HY), D = Place(-HX, HY);
-                if (Filled) Draw->AddQuadFilled(A, B, C, D, FillColour);
-                if (Stroked) Draw->AddQuad(A, B, C, D, LineColour, StrokeWidth);
-            }
-            else if (Category == 1)
-            {
-                Draw->PathClear();
-                for (int Step = 0; Step < 28; ++Step)
+                const size_t Count = Shape.Triangles.size() / 3;
+                Draw->PrimReserve(int(Count * 3), int(Count * 3));
+                ImDrawVert *Vertex = Draw->_VtxWritePtr;
+                ImDrawIdx *Index = Draw->_IdxWritePtr;
+                ImDrawIdx Base = Draw->_VtxCurrentIdx;
+                for (size_t Triangle = 0; Triangle < Count; ++Triangle)
                 {
-                    const float Angle = 6.28318530718f * Step / 28;
-                    Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2], std::sin(Angle) * Instruction.Bounds[3]));
+                    const ImVec2 A = Project(Shape.Triangles[Triangle * 3][0], Shape.Triangles[Triangle * 3][1]);
+                    const ImVec2 B = Project(Shape.Triangles[Triangle * 3 + 1][0], Shape.Triangles[Triangle * 3 + 1][1]);
+                    const ImVec2 C = Project(Shape.Triangles[Triangle * 3 + 2][0], Shape.Triangles[Triangle * 3 + 2][1]);
+                    if ((A.x < Origin.x && B.x < Origin.x && C.x < Origin.x) || (A.x > Far.x && B.x > Far.x && C.x > Far.x) ||
+                        (A.y < Origin.y && B.y < Origin.y && C.y < Origin.y) || (A.y > ThumbFar.y && B.y > ThumbFar.y && C.y > ThumbFar.y))
+                        continue;
+                    for (const ImVec2 *Point : {&A, &B, &C})
+                    {
+                        Vertex->pos = *Point;
+                        Vertex->uv = Draw->_Data->TexUvWhitePixel;
+                        Vertex->col = Shape.FillColour;
+                        ++Vertex;
+                        *Index++ = Base++;
+                    }
                 }
-                if (Filled) Draw->PathFillConvex(FillColour);
-                if (Stroked) { Draw->PathClear(); for (int Step = 0; Step <= 28; ++Step) { const float Angle = 6.28318530718f * (Step % 28) / 28; Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2], std::sin(Angle) * Instruction.Bounds[3])); } Draw->PathStroke(LineColour, true, StrokeWidth); }
+                // PrimReserve over-reserves for culled triangles; rewind the
+                // pointers and shrink the buffers back to the written vertices.
+                const int Unwritten = Draw->_VtxWritePtr + Count * 3 - Vertex;
+                Draw->_VtxWritePtr = Vertex;
+                Draw->_IdxWritePtr = Index;
+                Draw->_VtxCurrentIdx = Base;
+                Draw->VtxBuffer.resize(Draw->VtxBuffer.Size - Unwritten);
+                Draw->IdxBuffer.resize(Draw->IdxBuffer.Size - Unwritten);
             }
-            else
+            if (Shape.Stroked && Shape.Outline.size() > 1)
             {
-                uint32_t Count = Category == 2 ? 4 : Category == 3 ? 3 : uint32_t(std::max(Instruction.Paint[2], 3.f));
-                if (Category == 5) Count *= 2;
-                Draw->PathClear();
-                for (uint32_t Corner = 0; Corner < Count; ++Corner)
-                {
-                    const float Angle = -1.57079632679f + 6.28318530718f * Corner / Count;
-                    const float Radius = Category == 5 && Corner % 2 == 1 ? Instruction.Paint[1] : 1;
-                    Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2] * Radius, std::sin(Angle) * Instruction.Bounds[3] * Radius));
-                }
-                if (Filled) Draw->PathFillConvex(FillColour);
-                if (Stroked) { Draw->PathClear(); for (uint32_t Corner = 0; Corner <= Count; ++Corner) { const float Angle = -1.57079632679f + 6.28318530718f * (Corner % Count) / Count; const float Radius = Category == 5 && Corner % 2 == 1 ? Instruction.Paint[1] : 1; Draw->PathLineTo(Place(std::cos(Angle) * Instruction.Bounds[2] * Radius, std::sin(Angle) * Instruction.Bounds[3] * Radius)); } Draw->PathStroke(LineColour, true, StrokeWidth); }
+                Polyline.clear();
+                for (const auto &Point : Shape.Outline) Polyline.push_back(Project(Point[0], Point[1]));
+                Draw->AddPolyline(Polyline.data(), int(Polyline.size()), Shape.LineColour,
+                    Shape.ClosedOutline ? ImDrawFlags_Closed : 0, std::max(Shape.StrokeWidth * Unit, 1.f));
             }
         }
     }
     else
     {
-        const char *Empty = "Empty preset";
-        Draw->AddText(ImVec2(Origin.x + (Size.x - ImGui::CalcTextSize(Empty).x) * .5f, Origin.y + (Size.y - ImGui::GetTextLineHeight()) * .5f), IM_COL32(140, 145, 155, 255), Empty);
+        const char *Empty = Entry.Failed ? "Unreadable preset" : "Empty preset";
+        Draw->AddText(ImVec2(Origin.x + (Size.x - ImGui::CalcTextSize(Empty).x) * .5f, Origin.y + (ThumbHeight - LineHeight) * .5f),
+            IM_COL32(140, 145, 155, 255), Empty);
     }
-    Draw->AddRect(Origin, Far, Hovered ? IM_COL32(217, 217, 204, 255) : IM_COL32(58, 62, 72, 255), 6 * Scale, 0, Hovered ? 2.f : 1.f);
+    ImGui::PopClipRect();
+    ImGui::PushClipRect(ImVec2(Origin.x, ThumbFar.y), Far, true);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 9 * Scale, ThumbFar.y + 9 * Scale));
+    ImGui::PushTextWrapPos(Far.x - 9 * Scale);
+    ImGui::TextUnformatted(Family.Name.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopClipRect();
+    Draw->AddRect(Origin, Far, Selected ? IM_COL32(179, 200, 166, 255) : Hovered ? IM_COL32(109, 129, 112, 255) : IM_COL32(54, 61, 61, 255),
+        7 * Scale, 0, Selected || Hovered ? 2.f : 1.f);
+    if (RegularTypeface) ImGui::PopFont();
     if (Hovered)
     {
         ImGui::BeginTooltip();
-        ImGui::TextUnformatted(Caption);
-        ImGui::TextDisabled("%zu shapes · click to replace the tile (Undo restores)", Shapes);
+        ImGui::TextUnformatted((Family.Description.empty() ? Family.Name : Family.Description).c_str());
         ImGui::EndTooltip();
     }
-    if (Clicked)
+    if (Clicked && !Entry.Failed)
     {
-        try { ApplyPresetDocument(Document); }
+        try
+        {
+            ApplyPresetDocument(Entry.Document);
+            LibrarySelected = Family.Name;
+        }
         catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
     }
 }
 
 void PatternWorkspacePanel::ConstructLibrary()
 {
+    // Pattern library gallery, ported 1:1 from the Alloy Studio library panel:
+    // kicker, collection shortcuts, collection filter, search, print palette,
+    // result count, two-column starter cards (24 per page), paging, notes.
     CapturePanel("Library");
     if (ImGui::GetContentRegionAvail().y < 35 * Scale) return;
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::TextDisabled("SEAMLESS PRESETS");
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::TextWrapped("Gallery starting points. Loading a preset replaces the tile; Undo restores. Add single shapes from the Layers + menu.");
-    if (!PresetDocuments.empty())
+    if (LibraryFamilies.empty())
     {
-        for (const auto &Preset : PresetDocuments)
+        for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
         {
-            ConstructPresetThumbnail(Preset.first.c_str(), Preset.second, ImGui::GetContentRegionAvail().x - 16 * Scale);
-            if (Controls.Button(("Open " + Preset.first).c_str(), ImGui::GetContentRegionAvail().x - 16 * Scale))
-            {
-                try { ApplyPresetDocument(Preset.second); }
-                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-            }
+            const char *Caption = QueryPatternLibraryPresetName(Index);
+            if (Controls.Button(Caption, ImGui::GetContentRegionAvail().x - 16 * Scale)) ApplyLibraryPreset(Index);
             const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
-            ControlExtents[Preset.first] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+            ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
         }
         return;
     }
-    for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
+    const float ContentWidth = ImGui::GetContentRegionAvail().x - 16 * Scale;
+    const auto SmallFont = [&](float Pixels)
     {
-        const char *Caption = QueryPatternLibraryPresetName(Index);
-        if (Controls.Button(Caption, ImGui::GetContentRegionAvail().x - 16 * Scale)) ApplyLibraryPreset(Index);
-        const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
-        ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+        if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), Pixels * 1.302f * Scale);
+    };
+    const auto PopSmallFont = [&]() { if (RegularTypeface) ImGui::PopFont(); };
+    ImGui::SetCursorPosX(16 * Scale);
+    SmallFont(9);
+    ImGui::TextColored(ImVec4(155 / 255.f, 170 / 255.f, 158 / 255.f, 1), "START WITH A STRUCTURE");
+    PopSmallFont();
+    const auto GalleryButton = [&](const char *Caption, float Width)
+    {
+        SmallFont(11);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(35 / 255.f, 40 / 255.f, 41 / 255.f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(52 / 255.f, 61 / 255.f, 56 / 255.f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(52 / 255.f, 61 / 255.f, 56 / 255.f, 1));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(54 / 255.f, 61 / 255.f, 61 / 255.f, 1));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(215 / 255.f, 223 / 255.f, 216 / 255.f, 1));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7 * Scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 9 * Scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0, .5f));
+        ImGui::SetCursorPosX(16 * Scale);
+        const bool Pressed = ImGui::Button(Caption, ImVec2(Width, 0));
+        ImGui::PopStyleVar(4);
+        ImGui::PopStyleColor(5);
+        PopSmallFont();
+        return Pressed;
+    };
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8 * Scale);
+    // The packaged DM Sans face carries no U+2197 glyph, so the web shortcut
+    // arrows render as a plain ASCII marker with identical behaviour.
+    if (GalleryButton("Geometric constructions >", ContentWidth))
+        ConfigureLibraryFilter("Geometric constructions", LibraryDefaultPalette, true);
+    if (GalleryButton("Stitches \xc2\xb7 one thread color >", ContentWidth))
+        ConfigureLibraryFilter("Stitch patterns", "", true);
+    SmallFont(11);
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::SetNextItemWidth(ContentWidth);
+    if (DropdownControlSurface::BeginSelection("##PatternCollection", LibraryGroup.c_str(), Scale))
+    {
+        if (DropdownControlSurface::Option("All patterns", LibraryGroup == "All patterns", Scale))
+        {
+            ConfigureLibraryFilter("All patterns", "", false);
+            ImGui::CloseCurrentPopup();
+        }
+        for (const auto &Group : LibraryGroups)
+            if (DropdownControlSurface::Option(Group.c_str(), LibraryGroup == Group, Scale))
+            {
+                ConfigureLibraryFilter(Group, "", false);
+                ImGui::CloseCurrentPopup();
+            }
+        DropdownControlSurface::EndSelection();
     }
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::SetNextItemWidth(ContentWidth);
+    if (ImGui::InputTextWithHint("##LibrarySearch", "Search weaves, stitches, checks\xe2\x80\xa6", LibrarySearchText.data(), LibrarySearchText.size()))
+        LibraryPage = 0;
+    PopSmallFont();
+    const bool ConcealsPalette = LibraryGroup == "Fabric weaves" || LibraryGroup == "Stitch patterns" ||
+        LibraryGroup == "Islamic geometry" || LibraryGroup == "African traditional";
+    const std::string Palette = LibraryPalette.empty() ? LibraryDefaultPalette : LibraryPalette;
+    if (!ConcealsPalette)
+    {
+        SmallFont(10);
+        ImGui::SetCursorPosX(16 * Scale);
+        ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), "Print palette \xc2\xb7 not a separate pattern");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Color option for printed basic families only");
+        PopSmallFont();
+        SmallFont(11);
+        ImGui::SetCursorPosX(16 * Scale);
+        ImGui::SetNextItemWidth(ContentWidth);
+        const std::vector<std::string> Options = LibraryPalettes.empty() ? std::vector<std::string>{LibraryDefaultPalette} : LibraryPalettes;
+        if (DropdownControlSurface::BeginSelection("##LibraryPalette", Palette.c_str(), Scale))
+        {
+            for (const auto &Option : Options)
+                if (DropdownControlSurface::Option(Option.c_str(), Palette == Option, Scale))
+                {
+                    ConfigureLibraryFilter(LibraryGroup, Option, false);
+                    ImGui::CloseCurrentPopup();
+                }
+            DropdownControlSurface::EndSelection();
+        }
+        PopSmallFont();
+    }
+    if (LibraryGroup == "Islamic geometry" || LibraryGroup == "African traditional")
+    {
+        SmallFont(10);
+        ImGui::SetCursorPosX(16 * Scale);
+        ImGui::PushTextWrapPos(16 * Scale + ContentWidth);
+        ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
+            "Original vector studies inspired by named traditions, not historical reproductions. Edit colours in Design palette.");
+        ImGui::PopTextWrapPos();
+        PopSmallFont();
+    }
+    const auto Matches = QueryLibraryMatches();
+    SmallFont(10);
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::TextColored(ImVec4(178 / 255.f, 199 / 255.f, 167 / 255.f, 1), "%zu results \xc2\xb7 one card per family", Matches.size());
+    PopSmallFont();
+    const size_t Pages = std::max<size_t>(1, (Matches.size() + 23) / 24);
+    const size_t Page = std::min(LibraryPage, Pages - 1);
+    const float Gap = 9 * Scale;
+    const float CardWidth = (ContentWidth - Gap) * .5f;
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (15 - 4) * Scale);
+    for (size_t Slot = Page * 24; Slot < std::min(Page * 24 + 24, Matches.size()); ++Slot)
+    {
+        if ((Slot - Page * 24) % 2 == 0) ImGui::SetCursorPosX(16 * Scale);
+        else ImGui::SameLine(0, Gap);
+        const auto &Family = LibraryFamilies[Matches[Slot]];
+        const auto &Entry = QueryPresetEntry(Family);
+        ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name);
+        if ((Slot - Page * 24) % 2 == 1) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Gap - 4 * Scale);
+    }
+    if (Matches.empty())
+    {
+        SmallFont(10);
+        ImGui::SetCursorPosX(16 * Scale);
+        ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), "No matches. Try another collection or search.");
+        PopSmallFont();
+    }
+    SmallFont(10);
+    SmallFont(11);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
+    const float ArrowWidth = ImGui::CalcTextSize(">").x + 24 * Scale;
+    ImGui::PopStyleVar();
+    PopSmallFont();
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
+    ImGui::BeginDisabled(Page == 0);
+    SmallFont(11);
+    const bool Previous = ImGui::Button("<", ImVec2(ArrowWidth, 0));
+    PopSmallFont();
+    ImGui::EndDisabled();
+    ImGui::PopStyleVar();
+    if (Previous && Page > 0) LibraryPage = Page - 1;
+    ImGui::SameLine();
+    const std::string PageCaption = "Page " + std::to_string(Page + 1) + " / " + std::to_string(Pages);
+    const float PageWidth = ImGui::CalcTextSize(PageCaption.c_str()).x;
+    ImGui::SetCursorPosX(16 * Scale + (ContentWidth - PageWidth) * .5f);
+    ImGui::TextColored(ImVec4(170 / 255.f, 183 / 255.f, 176 / 255.f, 1), "%s", PageCaption.c_str());
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(16 * Scale + ContentWidth - ArrowWidth);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
+    ImGui::BeginDisabled(Page + 1 >= Pages);
+    SmallFont(11);
+    const bool Next = ImGui::Button(">", ImVec2(ArrowWidth, 0));
+    PopSmallFont();
+    ImGui::EndDisabled();
+    ImGui::PopStyleVar();
+    if (Next) LibraryPage = Page + 1;
+    ImGui::SetCursorPosX(16 * Scale);
+    ImGui::PushTextWrapPos(16 * Scale + ContentWidth);
+    ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
+        "Stitches and weaves use one thread/yarn color. Backgrounds, colors, direction and draft variants do not add library cards. The rejected rug collections have been removed.");
+    ImGui::PopTextWrapPos();
+    PopSmallFont();
 }
 
 void PatternWorkspacePanel::ConstructLayers()

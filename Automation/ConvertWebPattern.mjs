@@ -12,6 +12,10 @@ import {
 } from "../Experimental/TextureStudio/src/patternGeometry.js";
 
 const Channels = ["Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Occlusion"];
+// Native GPU/host segment budget (VectorCoverageRasterization allocates this many
+// cubic slots; VectorCoverage.h enforces the same bound). Raised from 4,000 so the
+// Alloy starters (weaves peak near 19k segments) convert without simplification.
+const NativeSegmentBudget = 32768;
 const fail = (message) => { throw new Error(message); };
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
@@ -59,7 +63,7 @@ function contoursFor(layer) {
   catch (error) { fail(`Layer “${layer.name}”: ${error.message}`); }
   if (typeof pathData !== "string" || !pathData.trim())
     fail(`Layer “${layer.name}” (${layer.kind}) has no native-convertible vector path.`);
-  const contours = patternPathContours(pathData, 4000);
+  const contours = patternPathContours(pathData, NativeSegmentBudget);
   if (!contours?.length) fail(`Layer “${layer.name}”: SVG path could not be parsed.`);
   return contours;
 }
@@ -79,7 +83,7 @@ function cubicSegments(contours, layer) {
       const c1 = local(start.out || { x: start.x + (end.x - start.x) / 3, y: start.y + (end.y - start.y) / 3 });
       const c2 = local(end.in || { x: start.x + (end.x - start.x) * 2 / 3, y: start.y + (end.y - start.y) * 2 / 3 });
       result.push({ start_control: [...a, ...c1], control_end: [...c2, ...b] });
-      if (result.length > 4000) fail(`Layer “${layer.name}” exceeds the native 4,000-segment limit.`);
+      if (result.length > NativeSegmentBudget) fail(`Layer “${layer.name}” exceeds the native ${NativeSegmentBudget.toLocaleString("en-US")}-segment limit.`);
     }
   }
   return result;
@@ -188,6 +192,120 @@ function nativeLayer(layer, token, root, structure, maskFields = {}, channels = 
   };
 }
 
+// Bake layer-normalized cubic segments into tile-space segments. Each contour point
+// P resolves (per the native shader convention P = B + R(θ)·(seg×size)) to an
+// absolute tile position, re-normalized to the tile frame (centre 256, extent 512)
+// so one instruction with bounds [256, 256, 512, 512] and zero rotation covers it.
+function absoluteTileSegments(entries, centre, size, rotationDegrees) {
+  const theta = finite(rotationDegrees) * Math.PI / 180;
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  const place = (pair) => {
+    const dx = pair[0] * size[0], dy = pair[1] * size[1];
+    return [(centre[0] + cos * dx - sin * dy - 256) / 512,
+      (centre[1] + sin * dx + cos * dy - 256) / 512];
+  };
+  return entries.map((entry) => {
+    const [a, b, c, d] = [entry.start_control.slice(0, 2), entry.start_control.slice(2, 4),
+      entry.control_end.slice(0, 2), entry.control_end.slice(2, 4)].map(place);
+    return { start_control: [...a, ...b], control_end: [...c, ...d] };
+  });
+}
+function wrapTileSegments(convertedSegments, copies, layer) {
+  const size = [finite(layer.width), finite(layer.height)];
+  return copies.flatMap((copy) => absoluteTileSegments(convertedSegments, [copy.x, copy.y], size, layer.rotation));
+}
+function sameArray(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => value === b[index]);
+}
+// Merge one adjacent same-paint layer pair so over-budget documents (e.g. the 65
+// instruction/layer Graduated lattice) fit the GPU caps. Only opaque, unmasked,
+// single-instruction layers with identical paint, stroke, fill rule and surface
+// channels merge; their union renders identically wherever they are adjacent.
+function mergeAdjacentLayers(instructions, segments, layers) {
+  for (let index = 0; index + 1 < layers.length; index++) {
+    const lower = layers[index], upper = layers[index + 1];
+    if (lower.mask || upper.mask || lower.visible !== upper.visible || lower.locked !== upper.locked) continue;
+    if (lower.surface_structure !== upper.surface_structure || lower.textile_geometry !== upper.textile_geometry) continue;
+    if (lower.surface_relief !== upper.surface_relief) continue;
+    if (JSON.stringify(lower.surface_channels) !== JSON.stringify(upper.surface_channels)) continue;
+    const first = instructions[lower.root], second = instructions[upper.root];
+    if (!first || !second || first.topology[0] === 28 || second.topology[0] === 28) continue;
+    if (!sameArray(first.colour, second.colour) || !sameArray(first.colour_end, second.colour_end)) continue;
+    if (first.colour[3] !== 1 || first.transform[2] !== 1 || second.transform[2] !== 1) continue;
+    if (first.transform[1] !== second.transform[1] || first.paint[3] !== second.paint[3]) continue;
+    if ((first.topology[3] & 1) !== (second.topology[3] & 1)) continue;
+    if (first.topology[0] !== 6 || second.topology[0] !== 6) {
+      // A full-tile background rect already covers anything painted over it in the
+      // same opaque paint, so the upper layer contributes nothing.
+      const covers = (item) => item.topology[0] === 0 && sameArray(item.bounds, [256, 256, 512, 512]);
+      if (!covers(first)) continue;
+      removeInstruction(instructions, segments, layers, upper.root);
+      layers.splice(index + 1, 1);
+      renumberLayerTokens(layers);
+      return true;
+    }
+    const lowerSegs = segments.slice(first.topology[1], first.topology[1] + first.topology[2]);
+    const upperSegs = segments.slice(second.topology[1], second.topology[1] + second.topology[2]);
+    const merged = [
+      ...absoluteTileSegments(lowerSegs, first.bounds.slice(0, 2), first.bounds.slice(2, 4), first.transform[0] * 180 / Math.PI),
+      ...absoluteTileSegments(upperSegs, second.bounds.slice(0, 2), second.bounds.slice(2, 4), second.transform[0] * 180 / Math.PI),
+    ];
+    if (merged.length > NativeSegmentBudget) continue;
+    // Snapshot every surviving segment range before rebuilding storage: the merged
+    // range moves to the front and all other ranges shift down past it.
+    const kept = [];
+    for (const item of instructions) {
+      if (item === first || item === second) continue;
+      kept.push({ item, range: segments.slice(item.topology[1], item.topology[1] + item.topology[2]) });
+    }
+    if (kept.reduce((total, entry) => total + entry.range.length, merged.length) > NativeSegmentBudget) continue;
+    segments.length = 0;
+    segments.push(...merged);
+    first.topology = [6, 0, merged.length, first.topology[3]];
+    first.bounds = [256, 256, 512, 512];
+    first.transform[0] = 0;
+    for (const { item, range } of kept) {
+      item.topology[1] = segments.length;
+      item.topology[2] = range.length;
+      segments.push(...range);
+    }
+    removeInstructionReference(instructions, layers, upper.root);
+    layers.splice(index + 1, 1);
+    renumberLayerTokens(layers);
+    return true;
+  }
+  return false;
+}
+function removeInstructionReference(instructions, layers, root) {
+  instructions.splice(root, 1);
+  for (const layer of layers) if (layer.root > root) layer.root -= 1;
+  for (const item of instructions) {
+    if (item.topology[0] === 28) {
+      if (item.topology[1] > root) item.topology[1] -= 1;
+      if (item.topology[2] > root) item.topology[2] -= 1;
+    }
+    if (item.root > root) item.root -= 1;
+  }
+}
+function removeInstruction(instructions, segments, layers, root) {
+  const victim = instructions[root];
+  const ranges = [];
+  for (const item of instructions) {
+    if (item === victim) continue;
+    ranges.push({ item, range: segments.slice(item.topology[1], item.topology[1] + item.topology[2]) });
+  }
+  segments.length = 0;
+  for (const { item, range } of ranges) {
+    item.topology[1] = segments.length;
+    item.topology[2] = range.length;
+    segments.push(...range);
+  }
+  removeInstructionReference(instructions, layers, root);
+}
+function renumberLayerTokens(layers) {
+  layers.forEach((layer, index) => { layer.token = index + 1; });
+}
+
 /** Convert a validated Pattern JSON value to native vector-authoring TOML. */
 export function convertPatternJson(input) {
   const pattern = validatePattern(input);
@@ -195,11 +313,43 @@ export function convertPatternJson(input) {
   if (pattern.Enclosures?.length || pattern.StoredGroups?.length || pattern.layers.some((layer) => layer.group || layer.EnclosureToken || layer.LinkedInstance))
     fail("Pattern folders, linked instances, and group enclosures are not yet represented by the native vector document; import was stopped without dropping them.");
   if (pattern.backgroundSource) fail("Linked or gradient Pattern backgrounds are not yet supported by the native import.");
-  if (pattern.repeat !== "straight" || pattern.tileAxes !== "xy" || pattern.mapping !== "uv" || pattern.rotation !== 0)
-    fail("Native Pattern import currently requires straight XY tiling, UV mapping, and zero document rotation.");
-  const includeBackground = pattern.backgroundOpacity > 0;
-  if (pattern.layers.length + Number(includeBackground) > 64)
+  if (pattern.mapping !== "uv" || pattern.rotation !== 0)
+    fail("Native Pattern import currently requires UV mapping and zero document rotation.");
+  // Documented single-tile deviations: the GPU repeat pipeline stamps straight XY
+  // tiles, so half-drop offsets and single-axis repeats are accepted as straight-XY
+  // equivalents. The baked tile itself is pixel-identical; only the neighbour
+  // arrangement across tile boundaries differs from the web document.
+  const tilingDeviations = [];
+  if (pattern.repeat !== "straight")
+    tilingDeviations.push(`Document repeat “${pattern.repeat}” baked as a straight-XY tile; neighbour offsets differ from the web canvas.`);
+  if (pattern.tileAxes !== "xy")
+    tilingDeviations.push(`Document tile axes “${pattern.tileAxes}” baked as a straight-XY tile; single-axis repetition differs from the web canvas.`);
+  // Two-pass composition: shared-segment per-copy instructions keep segment totals
+  // low (weaves peak near 19k), while copy-concatenation rescues instruction-heavy
+  // documents (full-bleed bands) at the cost of duplicated segments. Rebuild with
+  // concatenation only when the lean layout exceeds the instruction budget.
+  let built = buildConvertedLayers(pattern, [...tilingDeviations], false);
+  if (built.layers.length > 64 || composedInstructionCount(built) > 128)
+    built = buildConvertedLayers(pattern, [...tilingDeviations], true);
+  const { instructions, segments, layers, deviations } = built;
+  let mergedPairs = 0;
+  while ((layers.length > 64 || composedInstructionCount(built) > 128) &&
+    mergeAdjacentLayers(instructions, segments, layers)) mergedPairs++;
+  if (mergedPairs) deviations.push(`Merged ${mergedPairs} adjacent same-paint layer pair${mergedPairs === 1 ? "" : "s"} to fit the 64-layer / 128-instruction GPU budget; merged layers render identically.`);
+  if (layers.length > 64)
     fail("Native Pattern import supports at most 64 layers, including its solid background.");
+  if (instructions.length > 128 || composedInstructionCount(built) > 128)
+    fail("Pattern exceeds the native 128-instruction limit after layer and mask composition.");
+  return { format: "frontier.vector_artwork", version: 1,
+    name: String(pattern.name || "Imported Pattern").slice(0, 80), stamp: false,
+    token_clock: layers.length, instructions, segments, layers, enclosures: [],
+    deviations };
+}
+function composedInstructionCount(built) {
+  return built.instructions.length + Math.max(0, built.layers.length - 1) +
+    built.layers.filter((layer) => layer.mask).length * 2;
+}
+function buildConvertedLayers(pattern, deviations, concatenateCopies) {
   const instructions = [], segments = [], layers = [];
   nativeBackground(pattern, instructions, layers);
   for (const layer of pattern.layers) {
@@ -207,8 +357,8 @@ export function convertPatternJson(input) {
       fail(`Layer “${layer.name}” uses ${layer.kind} content, which is not yet supported by native geometry import; import was stopped without omitting it.`);
     if (layer.kind === "text" && !layer.path.trim())
       fail(`Layer “${layer.name}” has no stored text outline to import.`);
-    if (layer.kind === "flower" && !layer.paint)
-      fail(`Layer “${layer.name}” is a non-sized flower; only editable sized flower silhouettes are currently importable.`);
+    if (layer.kind === "flower" && (!Number.isFinite(layer.width) || !Number.isFinite(layer.height)))
+      fail(`Layer “${layer.name}” is a flower without dimensions; only dimensioned flower silhouettes are currently importable.`);
     if (layer.fillSource || layer.strokeSource || layer.fillGradient || layer.strokeGradient)
       fail(`Layer “${layer.name}” uses linked or gradient paint; only literal solid colours are supported in this import phase.`);
     const channels = channelData(layer);
@@ -217,15 +367,19 @@ export function convertPatternJson(input) {
     if ((layer.stitchRole || layer.weaveRole) &&
         (!channels.Height.enabled || channels.Height.strength <= 0 || !channels.Normal.enabled || channels.Normal.strength <= 0))
       fail(`Layer “${layer.name}” is stitch/weave geometry and requires enabled, non-zero Height and Normal contributions.`);
-    if (layer.strokeLinejoin && layer.strokeLinejoin !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinejoin} stroke joins; native preview currently supports round joins only.`);
-    if (layer.strokeLinecap && layer.strokeLinecap !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinecap} stroke caps; native preview currently supports round caps only.`);
+    if (layer.strokeLinejoin && layer.strokeLinejoin !== "round")
+      deviations.push(`Layer “${layer.name}” uses ${layer.strokeLinejoin} stroke joins; baked with round joins (native SDF strokes are round).`);
+    if (layer.strokeLinecap && layer.strokeLinecap !== "round")
+      deviations.push(`Layer “${layer.name}” uses ${layer.strokeLinecap} stroke caps; baked with round caps (native SDF strokes are round).`);
     const sourceStrokeWidth = Math.max(0, finite(layer.strokeWidth, 0));
+    // Non-sized strokes are a percentage of the layer extent; anisotropic layers use
+    // the larger axis so the baked width covers the web stroke.
     if (!layer.paint && sourceStrokeWidth > 0 && Math.abs(layer.width - layer.height) > 1e-5)
-      fail(`Layer “${layer.name}” has an anisotropically scaled stroke; native vector strokes use a single document-space width.`);
-    const strokeWidth = sourceStrokeWidth * (layer.paint ? 1 : layer.width / 100);
+      deviations.push(`Layer “${layer.name}” has an anisotropically scaled stroke; baked with a single width from the larger axis.`);
+    const strokeWidth = sourceStrokeWidth * (layer.paint ? 1 : Math.max(layer.width, layer.height) / 100);
     const contours = contoursFor(layer);
     const convertedSegments = cubicSegments(contours, layer);
-    if (segments.length + convertedSegments.length > 4000) fail("Pattern exceeds the native 4,000-segment limit.");
+    if (segments.length + convertedSegments.length > NativeSegmentBudget) fail(`Pattern exceeds the native ${NativeSegmentBudget.toLocaleString("en-US")}-segment limit.`);
     const segmentStart = segments.length;
     segments.push(...convertedSegments);
     const fill = layer.paint ? layer.fillEnabled !== false : !(layer.kind === "path" && sourceStrokeWidth);
@@ -236,44 +390,67 @@ export function convertPatternJson(input) {
     const copies = patternCopies(layer, sourceStrokeWidth);
     if (layer.mask && copies.length > 1)
       fail(`Layer “${layer.name}” uses a mask on a tile-wrapped shape; only single-copy masked layers are currently importable.`);
-    const copyRoots = [];
-    for (const copy of copies) {
-      const coverageLayer = { ...layer, x: copy.x, y: copy.y, opacity: outputOpacity };
-      const roots = [];
-      const make = (colour, filled, width) => {
-        const root = instructions.length;
-        instructions.push(instruction({ layer: coverageLayer, root, segmentStart, segmentCount: convertedSegments.length,
-          colour, filled, strokeWidth: width, fillRule: layer.fillRule }));
-        roots.push(root);
-      };
+    const roots = [];
+    const make = (coverageLayer, colour, filled, width, segmentStartOverride, segmentCountOverride) => {
+      const root = instructions.length;
+      instructions.push(instruction({ layer: coverageLayer, root,
+        segmentStart: segmentStartOverride ?? segmentStart, segmentCount: segmentCountOverride ?? convertedSegments.length,
+        colour, filled, strokeWidth: width, fillRule: layer.fillRule }));
+      roots.push(root);
+    };
+    const emitPaints = (coverageLayer, segmentStartOverride, segmentCountOverride) => {
+      const before = roots.length;
       if (fill && strokeWidth && !sameColour) {
-        make(fillColour, true, 0);
-        make(strokeColour, false, strokeWidth);
-      } else if (fill || strokeWidth) make(fill ? fillColour : strokeColour, fill, strokeWidth);
+        make(coverageLayer, fillColour, true, 0, segmentStartOverride, segmentCountOverride);
+        make(coverageLayer, strokeColour, false, strokeWidth, segmentStartOverride, segmentCountOverride);
+      } else if (fill || strokeWidth) make(coverageLayer, fill ? fillColour : strokeColour, fill, strokeWidth, segmentStartOverride, segmentCountOverride);
       else fail(`Layer “${layer.name}” has neither a fill nor a stroke.`);
-      copyRoots.push(roots.length === 2 ? appendOver(instructions, roots[0], roots[1]) : roots[0]);
+      const painted = roots.slice(before);
+      return painted.length === 2 ? appendOver(instructions, painted[0], painted[1]) : painted[0];
+    };
+    let root;
+    if (concatenateCopies && copies.length > 1) {
+      // Tile-wrapped copies would each cost contour instructions plus Over
+      // composition (up to 81 copies for full-bleed bands). Concatenating the
+      // copies into one tile-space contour range renders the identical union under
+      // the same fill rule while costing a single instruction per paint.
+      const placement = { ...layer, x: 256, y: 256, width: 512, height: 512, rotation: 0, opacity: outputOpacity };
+      const wrapped = wrapTileSegments(convertedSegments, copies, layer);
+      if (segments.length + wrapped.length - convertedSegments.length > NativeSegmentBudget)
+        fail(`Pattern exceeds the native ${NativeSegmentBudget.toLocaleString("en-US")}-segment limit.`);
+      segments.splice(segmentStart, convertedSegments.length, ...wrapped);
+      root = emitPaints(placement, segmentStart, wrapped.length);
+    } else if (copies.length > 1) {
+      // Lean layout: every copy shares the one contour range, so segments stay low
+      // while each copy keeps its own positioning instruction.
+      const copyRoots = copies.map((copy) =>
+        emitPaints({ ...layer, x: copy.x, y: copy.y, opacity: outputOpacity }));
+      root = copyRoots[0];
+      for (let copy = 1; copy < copyRoots.length; copy++)
+        root = appendOver(instructions, root, copyRoots[copy]);
+    } else {
+      root = emitPaints({ ...layer, x: copies[0].x, y: copies[0].y, opacity: outputOpacity });
     }
-    let root = copyRoots[0];
-    for (let copy = 1; copy < copyRoots.length; copy++)
-      root = appendOver(instructions, root, copyRoots[copy]);
     const shape = layerStructure(layer);
     const maskFields = layer.mask ? nativeMask({ ...layer, x: copies[0].x, y: copies[0].y }) : {};
     layers.push(nativeLayer(layer, layers.length + 1, root, shape, maskFields, channels));
   }
-  const ComposedInstructionCount = instructions.length + Math.max(0, layers.length - 1) +
-    layers.filter((layer) => layer.mask).length * 2;
-  if (instructions.length > 128 || ComposedInstructionCount > 128)
-    fail("Pattern exceeds the native 128-instruction limit after layer and mask composition.");
-  return { format: "frontier.vector_artwork", version: 1,
-    name: String(pattern.name || "Imported Pattern").slice(0, 80), stamp: false,
-    token_clock: layers.length, instructions, segments, layers, enclosures: [] };
+  return { instructions, segments, layers, deviations };
 }
 
 function tomlString(value) { return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n").replaceAll("\r", "\\r")}"`; }
+// Native coordinates parse to float32, so seven decimals keep every shipped value
+// within a unit in the last place of the full-precision conversion while roughly
+// halving weave TOML sizes. Integers (topology, clocks) stay exact.
+function tomlNumber(value) {
+  if (!Number.isFinite(value)) return "0";
+  if (Number.isInteger(value)) return String(value);
+  return Number(value.toFixed(7)).toString();
+}
 function tomlValue(value) {
   if (typeof value === "string") return tomlString(value);
   if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "0";
+  if (typeof value === "number") return tomlNumber(value);
   if (Array.isArray(value)) return `[${value.map(tomlValue).join(", ")}]`;
   if (value && typeof value === "object") return `{ ${Object.entries(value).map(([key, item]) => `${key} = ${tomlValue(item)}`).join(", ")} }`;
   return "0";
@@ -302,10 +479,12 @@ async function main() {
     return;
   }
   const input = JSON.parse(fs.readFileSync(inputFile, "utf8"));
-  const result = serializeNativeToml(convertPatternJson(input));
+  const converted = convertPatternJson(input);
+  const result = serializeNativeToml(converted);
   fs.mkdirSync(path.dirname(path.resolve(outputFile)), { recursive: true });
   fs.writeFileSync(outputFile, result, "utf8");
   console.log(`Converted ${input.layers?.length ?? 0} Pattern layers to ${outputFile}`);
+  for (const note of converted.deviations || []) console.error(`NOTE: ${note}`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try { await main(); }

@@ -146,7 +146,7 @@ void VectorCoverageRasterization::Initialize(const VulkanRasterAccess &Access, R
 #undef FRONTIER_COVERAGE_RESOLVE
     Access.QueryMemory(Access.PhysicalDevice, &Resident->Memory);
     VkPhysicalDeviceProperties Limits{}; Access.QueryLimits(Access.PhysicalDevice, &Limits);
-    if (Width > Limits.limits.maxImageDimension2D || Height > Limits.limits.maxImageDimension2D || Limits.limits.maxStorageBufferRange < 4000 * sizeof(VectorCubicSegment) || Limits.limits.maxPushConstantsSize < (OutputFormat == VK_FORMAT_R32G32B32A32_SFLOAT ? 24u : 16u) || Limits.limits.maxPerStageDescriptorStorageBuffers < 2 || Limits.limits.maxDescriptorSetStorageBuffers < 2 || Limits.limits.maxPerStageDescriptorStorageImages < 1 || Limits.limits.maxDescriptorSetStorageImages < 1 || Limits.limits.maxBoundDescriptorSets < 1 || (Width + 7) / 8 > Limits.limits.maxComputeWorkGroupCount[0] || (Height + 7) / 8 > Limits.limits.maxComputeWorkGroupCount[1] || Limits.limits.maxComputeWorkGroupInvocations < 64 || Limits.limits.maxComputeWorkGroupSize[0] < 8 || Limits.limits.maxComputeWorkGroupSize[1] < 8)
+    if (Width > Limits.limits.maxImageDimension2D || Height > Limits.limits.maxImageDimension2D || Limits.limits.maxStorageBufferRange < 32768 * sizeof(VectorCubicSegment) || Limits.limits.maxPushConstantsSize < (OutputFormat == VK_FORMAT_R32G32B32A32_SFLOAT ? 24u : 16u) || Limits.limits.maxPerStageDescriptorStorageBuffers < 2 || Limits.limits.maxDescriptorSetStorageBuffers < 2 || Limits.limits.maxPerStageDescriptorStorageImages < 1 || Limits.limits.maxDescriptorSetStorageImages < 1 || Limits.limits.maxBoundDescriptorSets < 1 || (Width + 7) / 8 > Limits.limits.maxComputeWorkGroupCount[0] || (Height + 7) / 8 > Limits.limits.maxComputeWorkGroupCount[1] || Limits.limits.maxComputeWorkGroupInvocations < 64 || Limits.limits.maxComputeWorkGroupSize[0] < 8 || Limits.limits.maxComputeWorkGroupSize[1] < 8)
         throw std::runtime_error("Vulkan device cannot support bounded vector coverage.");
     VkFormatProperties Format{}; Access.QueryFormat(Access.PhysicalDevice, OutputFormat, &Format);
     const auto Required = VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
@@ -157,7 +157,7 @@ void VectorCoverageRasterization::Initialize(const VulkanRasterAccess &Access, R
     Resident->OutputFormat = OutputFormat;
     Resident->PushConstantBytes = OutputFormat == VK_FORMAT_R32G32B32A32_SFLOAT ? 24u : 16u;
     Resident->AllocateBuffer(192 * sizeof(VectorCoverageInstruction), Resident->Instructions, Resident->InstructionMemory);
-    Resident->AllocateBuffer(4000 * sizeof(VectorCubicSegment), Resident->Segments, Resident->SegmentMemory);
+    Resident->AllocateBuffer(32768 * sizeof(VectorCubicSegment), Resident->Segments, Resident->SegmentMemory);
     VkImageCreateInfo Image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     Image.imageType = VK_IMAGE_TYPE_2D; Image.format = OutputFormat;
     Image.extent = {Width, Height, 1}; Image.mipLevels = Image.arrayLayers = 1;

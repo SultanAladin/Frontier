@@ -39,6 +39,11 @@ add_library(FrontierImGui STATIC
     "${IMGUI_ROOT}/imgui.cpp" "${IMGUI_ROOT}/imgui_draw.cpp"
     "${IMGUI_ROOT}/imgui_tables.cpp" "${IMGUI_ROOT}/imgui_widgets.cpp")
 target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
+# The pattern gallery replays tens of thousands of cached thumbnail triangles per
+# card into one window draw list, exceeding the 16-bit 64K vertex ceiling. Both
+# shipped backends (stock Vulkan/DX11) support 32-bit indices. Defined here rather
+# than in the vendored imconfig.h so CI-recovered dependencies match local builds.
+target_compile_definitions(FrontierImGui PUBLIC "ImDrawIdx=unsigned int")
 add_library(FrontierTextFiles STATIC Engine/Interface/TextFileReplacement.cpp)
 target_include_directories(FrontierTextFiles PUBLIC "${CMAKE_SOURCE_DIR}")
 add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLibrary.cpp)
@@ -210,6 +215,10 @@ if(BUILD_TESTING)
     target_link_libraries(PatternLibraryPresetValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME PatternLibraryPresetValidation COMMAND PatternLibraryPresetValidation)
     set_tests_properties(PatternLibraryPresetValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(PatternLibraryGalleryValidation Exhibits/TextureStudio/Code/PatternLibraryGalleryValidation.cpp)
+    target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)
+    set_tests_properties(PatternLibraryGalleryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
     target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation

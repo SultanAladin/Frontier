@@ -325,15 +325,31 @@ int main()
             VectorAuthoringDocument Capacity;
             CubicPath Path;
             VectorCoverageInstruction Style; Style.Transform[1] = 4;
-            for (int Index = 0; Index < 200; ++Index)
+            for (int Index = 0; Index < 400; ++Index)
             {
                 const std::array<float, 2> Point{50 + float(Index), 100}; Path.Anchors.push_back({Point, Point, Point});
             }
-            for (int Index = 0; Index < 20; ++Index) ConstructCubicPath(Capacity, Path, Style, "Retained segment budget");
-            Path.Anchors.resize(2);
-            for (int Index = 0; Index < 20; ++Index) ConstructCubicPath(Capacity, Path, Style, "Single segment budget");
-            Confirm(Capacity.Segments.size() == 4000, "Join budget fixture is not at the GPU segment limit.");
+            for (int Index = 0; Index < 64; ++Index) ConstructCubicPath(Capacity, Path, Style, "API-maximum segment load");
+            Confirm(Capacity.Segments.size() == 25536, "Join fixture missed the API-maximum segment load.");
             ConfirmAtomic(Capacity, [&] { IntegrateCubicPaths(Capacity, 1, 2); });
+        }
+        {
+            // The GPU segment budget itself (32,768) exceeds what the 64-layer /
+            // 400-anchor editing API can address, so its boundary is pinned here at
+            // the coverage-validation level instead.
+            VectorCoverageProgram Program;
+            VectorCoverageInstruction Contour;
+            Contour.Topology = {6, 0, 32768, 0};
+            Contour.Bounds = {256, 256, 512, 512};
+            Program.Instructions = {Contour};
+            Program.Segments.resize(32768);
+            Program.Root = 0;
+            ValidateVectorCoverage(Program);
+            Program.Segments.emplace_back();
+            Program.Instructions[0].Topology[2] = 32769;
+            bool Rejected = false;
+            try { ValidateVectorCoverage(Program); } catch (const std::exception &) { Rejected = true; }
+            Confirm(Rejected, "Vector coverage accepted segments beyond the GPU budget.");
         }
         for (bool Closed : {false, true})
         {
