@@ -260,7 +260,7 @@ void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Ca
         Source.Bounds = {256, 256, 160, 160};
         Source.Colour = {.8627f, .4627f, .3529f, 1};
         Source.ColourEnd = {.35f, .55f, .45f, 1};
-        Source.StrokeColour = Source.Colour;
+        Source.StrokeColour = {.23f, .24f, .28f, 1};
         if (Document.Layers.empty()) Document.Name = "Custom pattern";
         const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
         Finalize(std::move(Document), {Token});
@@ -1324,7 +1324,7 @@ void PatternWorkspacePanel::ConstructCanvas()
                 Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
                     std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
-                Source.StrokeColour = Source.Colour;
+                Source.StrokeColour = {.23f, .24f, .28f, 1};
                 if (!GestureDraft)
                 {
                     auto Draft = *GestureSource;

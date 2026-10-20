@@ -326,8 +326,13 @@ void MaterialLibraryPanel::ConstructViewport()
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
     const float Edge = std::max(1.f, std::min(Available.x * .61f, Available.y * .65f));
     const ImVec2 Minimum(Origin.x + (Available.x - Edge) * .5f, Origin.y + Available.y * .48f - Edge * .50f);
-    if (Image.Texture) Ink->AddImage(ImTextureRef(Image.Texture), Minimum, ImVec2(Minimum.x + Edge, Minimum.y + Edge),
-        ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
+    if (Image.Texture)
+    {
+        Ink->PushClipRect(Origin, ImVec2(Origin.x + Available.x, Origin.y + Available.y), true);
+        Ink->AddImage(ImTextureRef(Image.Texture), Minimum, ImVec2(Minimum.x + Edge, Minimum.y + Edge),
+            ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
+        Ink->PopClipRect();
+    }
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), EncodeMaterialInk(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(4.f, Available.x - 92 * Scale), Origin.y + 7 * Scale));
@@ -521,10 +526,12 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
         Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 5.f);
         Changed = true;
     }
+    Ink->PushClipRect(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), true);
     if (Image.Texture)
         Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
     else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), EncodeMaterialInk(0x202222));
+    Ink->PopClipRect();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
     if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) { Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f); Changed = true; }
     ImGui::SameLine();

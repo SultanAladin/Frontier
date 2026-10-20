@@ -91,6 +91,7 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
     std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
+    std::optional<Frontier::VectorAuthoringDocument> ObservedPatternDocument;
     const std::filesystem::path PatternPreviewPath = "Pattern/live-preview";
     uint64_t PatternBridgeSubmission = 0;
     bool PatternBridgeRecorded = false;
@@ -267,23 +268,34 @@ int RunTextureWorkspace()
                 }
                 PatternBridgeSubmission = 0;
             }
-            if (PatternActive && !PatternBridgeSubmission && MaterialBridge->ConfigureDocument(Pattern->QueryDocument(), Completed))
+            if (PatternActive && !PatternBridgeSubmission)
             {
-                SubmittedPatternDocument = Pattern->QueryDocument();
-                AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
-                PatternAuthoringMaps.reset();
-                if (const auto *Applied = Library->QueryLibrary().QueryApplied())
+                // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the document settles.
+                const auto CurrentPattern = Pattern->QueryDocument();
+                if (CurrentPattern == SubmittedPatternDocument) ObservedPatternDocument.reset();
+                else if (ObservedPatternDocument && *ObservedPatternDocument == CurrentPattern)
                 {
-                    Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
-                    RenderingRevision = Library->QueryLibrary().QueryRevision();
-                    AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
+                    ObservedPatternDocument.reset();
+                    if (MaterialBridge->ConfigureDocument(CurrentPattern, Completed))
+                    {
+                        SubmittedPatternDocument = CurrentPattern;
+                        AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
+                        PatternAuthoringMaps.reset();
+                        if (const auto *Applied = Library->QueryLibrary().QueryApplied())
+                        {
+                            Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
+                            RenderingRevision = Library->QueryLibrary().QueryRevision();
+                            AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
+                        }
+                        if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
+                        {
+                            PatternBridgeSubmission = Serial;
+                            PatternBridgeRecorded = true;
+                            AppendPatternPreviewDebug("GPU Float32 map generation commands recorded; submission=" + std::to_string(Serial));
+                        }
+                    }
                 }
-                if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
-                {
-                    PatternBridgeSubmission = Serial;
-                    PatternBridgeRecorded = true;
-                    AppendPatternPreviewDebug("GPU Float32 map generation commands recorded; submission=" + std::to_string(Serial));
-                }
+                else ObservedPatternDocument = CurrentPattern;
             }
             Rendering->ConstructCommands(Commands, Completed, Serial);
         }, [&]()
