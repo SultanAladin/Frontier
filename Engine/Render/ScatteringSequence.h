@@ -36,24 +36,35 @@ struct alignas(16) PreviewScattering
     std::array<float,4> EnvironmentHorizon{.12f,.14f,.18f,1};
     std::array<float,4> EnvironmentZenith{.45f,.55f,.8f,0};
     std::array<float,4> EnvironmentUp{0,1,0,0};
-    std::array<uint32_t,4> Configuration{1,0,0,0};           // [-] - stratum count, sRGB planar albedo texture, perspective, reserved
+    // 📝 Fill and rim join the key so a studio rig wraps the subject instead of leaving one hard terminator. Intensity
+    //    in .w; a zero intensity means "this slot is unused" and the shader substitutes the key direction.
+    std::array<float,4> FillDirectionIntensity{.6f,.25f,.55f,1.1f};
+    std::array<float,4> FillColour{.92f,.95f,1.f,1};
+    std::array<float,4> RimDirectionIntensity{.15f,.35f,-.9f,1.4f};
+    std::array<float,4> RimColour{1.f,.98f,.94f,1};
+    std::array<uint32_t,4> Configuration{1,0,0,0};           // [-] - stratum count, sRGB planar albedo texture, perspective, key wrap
     std::array<ScatteringStratum,8> Strata{};
 };
 
 static_assert(sizeof(ScatteringStratum) == 64);
-static_assert(offsetof(PreviewScattering,Strata) == 160);
-static_assert(sizeof(PreviewScattering) == 672);
+static_assert(offsetof(PreviewScattering,Strata) == 224);
+static_assert(sizeof(PreviewScattering) == 736);
 
 inline bool ValidatePreviewScattering(const PreviewScattering &Scattering)
 {
     if (!Scattering.Configuration[0] || Scattering.Configuration[0] > 8 || Scattering.Configuration[1] > 1 ||
-        Scattering.Configuration[2] > 1 || Scattering.Configuration[3] != 0) return false;
+        Scattering.Configuration[2] > 1) return false;
+    // 📝 Configuration.w carries the key light's wrap width in thousandths. It must stay inside the range the shader's
+    //    wrapped-diffuse term is meaningful for: 0 (hard, legacy) to 1000 (fully wrapped).
+    if (Scattering.Configuration[3] > 1000) return false;
     for (const auto Coefficient : Scattering.ViewFromSurface)
         if (!std::isfinite(Coefficient)) return false;
     if (Scattering.ViewFromSurface[3] != 0 || Scattering.ViewFromSurface[7] != 0 ||
         Scattering.ViewFromSurface[11] != 0 || Scattering.ViewFromSurface[15] != 1) return false;
     for (const auto *Spectrum : {&Scattering.LightDirectionIntensity,&Scattering.LightColourExposure,
-                                 &Scattering.EnvironmentHorizon,&Scattering.EnvironmentZenith,&Scattering.EnvironmentUp})
+                                 &Scattering.EnvironmentHorizon,&Scattering.EnvironmentZenith,&Scattering.EnvironmentUp,
+                                 &Scattering.FillDirectionIntensity,&Scattering.FillColour,
+                                 &Scattering.RimDirectionIntensity,&Scattering.RimColour})
         for (const auto Channel : *Spectrum)
             if (!std::isfinite(Channel) || std::abs(Channel) > 64) return false;
     for (size_t Channel = 0; Channel < 3; ++Channel)

@@ -18,6 +18,12 @@ struct PreviewScattering
     float4 EnvironmentHorizon;
     float4 EnvironmentZenith;
     float4 EnvironmentUp;
+    // 📝 Two additional key/fill lights so a studio rig is not a single hard directional source. A lone light gives a
+    //    razor terminator and circular specular blobs; a soft box reads as a broad wrap plus a gentle gradient.
+    float4 FillDirectionIntensity;
+    float4 FillColour;
+    float4 RimDirectionIntensity;
+    float4 RimColour;
     uint4 Configuration;
     ScatteringStratum Strata[8];
 };
@@ -120,6 +126,15 @@ float3 EvaluateEnvironmentRadiance(PreviewScattering Scattering,float3 Direction
     float Height = saturate(.5+.5*dot(NormalizeDirection(Scattering.EnvironmentUp.xyz),Direction));
     return lerp(Scattering.EnvironmentHorizon.rgb*.35,Scattering.EnvironmentZenith.rgb,Height)*Scattering.EnvironmentHorizon.w;
 }
+// 📝 Wrapped diffuse for an area source. A point light uses saturate(dot), which puts a hard circular terminator on a
+//    sphere. Wrapping the term by (1+Wrap)/2 and letting it fall off across the whole hemisphere reproduces the broad,
+//    soft falloff of a real soft box and removes the clay-like banding.
+float3 EvaluateAreaWrap(float3 Normal,float3 Direction,float Wrap,float3 Albedo,float3 Colour,float Intensity)
+{
+    float Wrapped = saturate((dot(Normal,Direction)+Wrap)/(1+Wrap));
+    return Albedo*Colour*(Wrapped*Wrapped*(3-2*Wrapped))*Intensity;
+}
+
 float3 IntegrateEnvironment(PreviewScattering Scattering,float3 Normal,float3 View,float3 AlbedoMultiplier)
 {
     if (Scattering.EnvironmentHorizon.w == 0) return 0;

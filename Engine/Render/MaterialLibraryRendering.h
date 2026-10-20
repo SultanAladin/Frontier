@@ -29,6 +29,9 @@ class MaterialLibraryRendering
     void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory);
     void RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible);
     void ConfigurePreview(const MaterialPreviewConfiguration &Configuration);
+    // 📝 Resize the interactive preview target and re-derive the projection aspect from it, so the subject fills the
+    //    panel instead of being drawn into a fixed square and clipped. Programs and geometry are not reallocated.
+    void ConfigurePreviewExtent(uint32_t Width, uint32_t Height);
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const;
     void ConfigureSelection(const std::filesystem::path &RelativePath, const CompiledSurfaceMaterial &Material);
     void ConstructCommands(VkCommandBuffer Commands, uint64_t CompletedSerial, uint64_t SubmissionSerial);
@@ -37,6 +40,9 @@ class MaterialLibraryRendering
     [[nodiscard]] bool AuthenticateThumbnail(const std::filesystem::path &RelativePath, uint64_t Generation) const;
     [[nodiscard]] uint64_t QueryBakeCount() const noexcept;
     [[nodiscard]] VkImage QueryPreviewImage() const noexcept;
+    // 📐 The live preview target's size, which follows the panel rectangle. A caller reading the image back must use
+    //    this rather than assuming a square, or the pixels are reinterpreted at the wrong stride.
+    [[nodiscard]] VkExtent2D QueryPreviewExtent() const noexcept;
     [[nodiscard]] VkImage QueryAtlasImage() const noexcept;
     [[nodiscard]] uint32_t QueryAtlasExtent() const noexcept;
     [[nodiscard]] std::string QueryThumbnailDiagnostic(const std::filesystem::path &RelativePath) const;

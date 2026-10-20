@@ -256,6 +256,7 @@ bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
         Source = std::move(ReplacementSource);
         SavedSource = Source;
         AppliedSource = Source;
+        PendingExplicitApply = false;
         Applied = std::move(Replacement);
         ++Revision;
         Diagnostic.clear();
@@ -268,6 +269,23 @@ void MaterialLibrary::ReplaceSource(std::string Replacement)
 {
     Source = std::move(Replacement);
     Diagnostic.clear();
+}
+
+void MaterialLibrary::RepublishLiveEdit()
+{
+    // 📝 Republish after a structured edit so the interactive preview tracks the slider without an explicit Apply.
+    //    A decode failure must not destroy the previous working material, so the replacement is built first.
+    try
+    {
+        auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(Source), Directory));
+        Applied = std::move(Replacement);
+        AppliedSource = Source;
+        // 📝 The preview now shows this edit, but it is still unsaved and unapplied: flag it so Apply/Save remain honest.
+        PendingExplicitApply = true;
+        ++Revision;
+        DiagnosticJournal::Append("MaterialOperation", "LiveEdit " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); }
 }
 
 bool MaterialLibrary::ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient)
@@ -349,6 +367,7 @@ bool MaterialLibrary::ConfigureStratumLiteral(uint32_t Index, std::string_view N
         (void)DecodeSurfaceMaterial(Replacement);
         Source = std::move(Replacement);
         Diagnostic.clear();
+        RepublishLiveEdit();
         return true;
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
@@ -398,6 +417,7 @@ bool MaterialLibrary::ConfigurePaint(const AutomotivePaint &Paint)
         (void)DecodeSurfaceMaterial(Replacement);
         Source = std::move(Replacement);
         Diagnostic.clear();
+        RepublishLiveEdit();
         return true;
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
@@ -412,6 +432,8 @@ bool MaterialLibrary::ApplySource()
         auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(Source), Directory));
         Applied = std::move(Replacement);
         AppliedSource = Source;
+        // 📝 An explicit apply consumes the pending flag; Save and Apply are now in agreement with the preview.
+        PendingExplicitApply = false;
         ++Revision;
         Diagnostic.clear();
         return true;
@@ -438,7 +460,8 @@ bool MaterialLibrary::SaveMaterial()
         const auto Destination = ResolveMaterial(Selection);
         if (DecodeMaterialSource(Destination) != SavedSource)
             throw std::runtime_error("Material changed on disk; reopen it before saving to avoid overwriting external edits.");
-        if (QueryUnapplied() && !ApplySource()) return false;
+        // 📝 Saving implies applying: the file on disk must match what the preview is already showing.
+        if (PendingExplicitApply && !ApplySource()) return false;
         if (!TextFileReplacement::Finalize(Destination, Source, Diagnostic)) return false;
         SavedSource = Source;
         const auto Saved = Source;

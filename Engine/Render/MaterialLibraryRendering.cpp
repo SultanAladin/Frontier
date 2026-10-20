@@ -106,10 +106,21 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         auto Residence = std::make_shared<MaterialGpuResidence>();
         auto Scattering = Material.Scattering;
+        // 📝 Authored-material path (not the interactive preview): slot 3 stays zero because ValidateMaterialScattering
+        // reserves it, and the wrap rig belongs to the preview configuration below.
         Scattering.PreviewConfiguration = {1,1,0,0};
-        Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
-        Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
+        Scattering.Illumination.EnvironmentHorizon = {.11f,.115f,.12f,.55f};
+        Scattering.Illumination.EnvironmentZenith = {.26f,.27f,.29f,0};
         Scattering.Illumination.ViewFromSurface = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,-3,1};
+        // 📝 Same three-light soft box as the interactive preview, so a thumbnail and the live preview agree.
+        Scattering.Illumination.LightDirectionIntensity = {-.38f,.62f,.68f,3.1f};
+        Scattering.Illumination.FillDirectionIntensity = {.62f,.18f,.52f,.13f};
+        Scattering.Illumination.FillColour = {.88f,.92f,1.f,1};
+        Scattering.Illumination.RimDirectionIntensity = {.20f,.42f,-.86f,.16f};
+        Scattering.Illumination.RimColour = {1.f,.97f,.93f,1};
+        // 📝 Illumination.Configuration.w is independent of the material's own reserved PreviewConfiguration, so the
+        //    key wrap can be set here without violating ValidateMaterialScattering.
+        Scattering.Illumination.Configuration[3] = 280;
         Residence->Textures.Initialize(Programs, Material.Textures, Material.AuthoringMaps);
         Residence->Parameters.Initialize(Programs, Scattering);
         return Residence;
@@ -118,8 +129,14 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         if (!Selected) return;
         auto Scattering = PreviewScattering;
+        // 📝 Slot 3 of the MATERIAL-scattering PreviewConfiguration stays zero: ValidateMaterialScattering reserves it.
+        //    The key's wrap width belongs to the illumination's own configuration word, which is what the shader reads.
         Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1,
             Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
+        // 📝 450 thousandths of wrap on the key: enough to soften the terminator into a broad falloff without washing
+        //    out the form. The studio soft box wants the widest wrap of the four environments.
+        Scattering.Illumination.Configuration[3] =
+            Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 450u : 300u;
         Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
         // 📝 Preview rigs are owned by the selected environment, never inherited from arbitrary authored source lighting.
         Scattering.Illumination.LightColourExposure = {1,1,1,Inspection.Exposure};
@@ -127,25 +144,49 @@ struct MaterialLibraryRendering::RenderingAllocation
         switch (Inspection.Environment)
         {
         case MaterialPreviewEnvironment::StudioSoftbox:
-            Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,.8f};
-            Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
+            // 📝 A real studio soft box is a large key plus opposing fill and rim. One directional light alone put a
+            //    razor terminator and a single circular specular blob on the subject, which read as clay rather than a
+            //    photographic render. Broad low-contrast wrap keeps the falloff gradual across the whole form.
+            Scattering.Illumination.EnvironmentHorizon = {.11f,.115f,.12f,.55f};
+            Scattering.Illumination.EnvironmentZenith = {.26f,.27f,.29f,0};
+            Scattering.Illumination.LightDirectionIntensity = {-.38f,.62f,.68f,3.1f};
+            // 📝 Fill and rim stay deliberately low. They exist to lift the shadow side and add a separating edge, not to
+            //    illuminate the subject: at .95/.85 the wrap flattened the paint to a near-white clay and buried its colour.
+            Scattering.Illumination.FillDirectionIntensity = {.62f,.18f,.52f,.13f};
+            Scattering.Illumination.FillColour = {.88f,.92f,1.f,1};
+            Scattering.Illumination.RimDirectionIntensity = {.20f,.42f,-.86f,.16f};
+            Scattering.Illumination.RimColour = {1.f,.97f,.93f,1};
             break;
         case MaterialPreviewEnvironment::WarmCourtyard:
             Scattering.Illumination.EnvironmentHorizon = {.22f,.12f,.055f,1.2f};
             Scattering.Illumination.EnvironmentZenith = {.65f,.43f,.22f,0};
             Scattering.Illumination.LightColourExposure = {1,.78f,.52f,Inspection.Exposure};
             Scattering.Illumination.LightDirectionIntensity = {-.65f,.55f,.5f,4};
+            // 📝 Warm bounce from the opposite side keeps the courtyard readable without a hard single-light terminator.
+            Scattering.Illumination.FillDirectionIntensity = {.68f,.30f,.42f,1.6f};
+            Scattering.Illumination.FillColour = {1.f,.82f,.62f,1};
+            Scattering.Illumination.RimDirectionIntensity = {-.15f,.45f,-.85f,1.1f};
+            Scattering.Illumination.RimColour = {1.f,.88f,.68f,1};
             break;
         case MaterialPreviewEnvironment::CoolRim:
             Scattering.Illumination.EnvironmentHorizon = {.035f,.075f,.15f,1.5f};
             Scattering.Illumination.EnvironmentZenith = {.18f,.35f,.65f,0};
             Scattering.Illumination.LightColourExposure = {.55f,.75f,1,Inspection.Exposure};
             Scattering.Illumination.LightDirectionIntensity = {.8f,.25f,.35f,5};
+            Scattering.Illumination.FillDirectionIntensity = {-.72f,.30f,.45f,1.2f};
+            Scattering.Illumination.FillColour = {.62f,.78f,1.f,1};
+            Scattering.Illumination.RimDirectionIntensity = {-.85f,.20f,.30f,2.4f};
+            Scattering.Illumination.RimColour = {.80f,.90f,1.f,1};
             break;
         case MaterialPreviewEnvironment::Overcast:
             Scattering.Illumination.EnvironmentHorizon = {.35f,.35f,.35f,1.5f};
             Scattering.Illumination.EnvironmentZenith = {.8f,.8f,.8f,0};
             Scattering.Illumination.LightDirectionIntensity = {-.2f,.9f,.4f,.7f};
+            // 📝 Overcast is dome-dominant, so its fill sits nearly overhead and wide-wrapped to flatten the form.
+            Scattering.Illumination.FillDirectionIntensity = {.15f,.85f,.45f,.55f};
+            Scattering.Illumination.FillColour = {1.f,1.f,1.f,1};
+            Scattering.Illumination.RimDirectionIntensity = {-.1f,.55f,-.82f,.35f};
+            Scattering.Illumination.RimColour = {1.f,1.f,1.f,1};
             break;
         }
         auto Replacement = std::make_shared<SurfaceScatteringResidence>();
@@ -190,6 +231,8 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
         {Words[4],"main"},{Words[5],"main"},{Words[6],"main"},{Words[7],"main"},{Words[8],"main"},{Words[9],"main"}});
     Resident->Geometry.Initialize(Access, ConstructMaterialInspectionGeometry());
     Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 128, 128);
+    // 📐 A provisional preview extent; ConfigurePreviewExtent replaces it with the panel's real rectangle on the first
+    //    frame. It must still be a valid render target so the initial frame is never an uninitialized readback.
     Resident->Preview.Initialize(Resident->Programs, Resident->Geometry, 512, 512);
     Resident->Tile.ConfigureTransparentBackground(true);
     Resident->Preview.ConfigureTransparentBackground(true);
@@ -268,6 +311,25 @@ void MaterialLibraryRendering::ConfigurePreview(const MaterialPreviewConfigurati
         " pan=" + std::to_string(Configuration.PanX) + "," + std::to_string(Configuration.PanY) +
         " orbit=" + std::to_string(Configuration.Yaw) + "," + std::to_string(Configuration.Pitch));
 }
+void MaterialLibraryRendering::ConfigurePreviewExtent(uint32_t Width, uint32_t Height)
+{
+    if (!Allocation || Width == 0 || Height == 0) return;
+    auto &Rendering = *Allocation;
+    // 📍 Bounded so a hostile or degenerate panel extent cannot request an oversized allocation. 2048 keeps the
+    //    preview at or above any normal docked panel size while staying inside the software renderer's practical range.
+    const uint32_t ClampedWidth = std::clamp(Width, 1u, 2048u), ClampedHeight = std::clamp(Height, 1u, 2048u);
+    Rendering.Preview.ConfigureExtent(ClampedWidth, ClampedHeight);
+    const auto Extent = Rendering.Preview.QueryExtent();
+    if (Extent.width == 0 || Extent.height == 0) return;
+    // 📝 The ratio the projection actually rasterized, not the requested one, so a clamped extent still matches pixels.
+    const float Ratio = float(Extent.width) / float(Extent.height);
+    if (Rendering.Inspection.AspectRatio == Ratio) return;
+    Rendering.Inspection.AspectRatio = Ratio;
+    Rendering.ReconfigurePreview();
+    DiagnosticJournal::Append("PreviewExtent", std::to_string(Extent.width) + "x" + std::to_string(Extent.height) +
+        " aspect=" + std::to_string(Ratio));
+}
+
 MaterialPreviewConfiguration MaterialLibraryRendering::QueryPreviewConfiguration() const
 {
     return Allocation ? Allocation->Inspection : MaterialPreviewConfiguration{};
@@ -373,6 +435,7 @@ bool MaterialLibraryRendering::AuthenticateThumbnail(const std::filesystem::path
 }
 uint64_t MaterialLibraryRendering::QueryBakeCount() const noexcept { return Allocation ? Allocation->BakeCount : 0; }
 VkImage MaterialLibraryRendering::QueryPreviewImage() const noexcept { return Allocation ? Allocation->Preview.QueryImage() : VK_NULL_HANDLE; }
+VkExtent2D MaterialLibraryRendering::QueryPreviewExtent() const noexcept { return Allocation ? Allocation->Preview.QueryExtent() : VkExtent2D{}; }
 VkImage MaterialLibraryRendering::QueryAtlasImage() const noexcept { return Allocation ? Allocation->Atlas.QueryImage() : VK_NULL_HANDLE; }
 uint32_t MaterialLibraryRendering::QueryAtlasExtent() const noexcept { return Allocation ? Allocation->Atlas.QueryExtent() : 0; }
 std::string MaterialLibraryRendering::QueryThumbnailDiagnostic(const std::filesystem::path &Path) const

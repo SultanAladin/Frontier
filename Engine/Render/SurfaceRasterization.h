@@ -78,6 +78,10 @@ public:
         uint32_t                        Width,
         uint32_t                        Height);
     void ConstructCommands(VkCommandBuffer Commands, const SurfaceProjection &Projection);
+    // 📝 Resize only the colour/depth target pair. Programs, geometry and every sampler stay resident, so a window
+    //    resize costs two image recreations rather than a full reinitialization. The caller owns the queue and must
+    //    retire the previous images before this call; Finalize already releases whatever the old extent held.
+    void ConfigureExtent(uint32_t Width, uint32_t Height);
     void ConstructCommands(
         VkCommandBuffer         Commands,
         const MatCapProjection &Projection,

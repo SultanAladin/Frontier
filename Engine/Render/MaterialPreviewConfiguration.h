@@ -34,6 +34,9 @@ struct MaterialPreviewConfiguration
     float                      PanY        = 0;
     float                      Yaw         = 0;
     float                      Pitch       = 0;
+    // 📝 The viewport's own width/height ratio. The projection is a matched pair, so without it a non-square panel
+    //    stretches the subject. Zero means "square/unset" and reproduces the previous matched-scale behaviour exactly.
+    float                      AspectRatio = 0;
     bool operator==(const MaterialPreviewConfiguration &) const = default;
 };
 inline bool ValidateMaterialPreviewConfiguration(const MaterialPreviewConfiguration &Configuration)
@@ -43,8 +46,11 @@ inline bool ValidateMaterialPreviewConfiguration(const MaterialPreviewConfigurat
         std::isfinite(Configuration.Exposure) && Configuration.Exposure >= .25f && Configuration.Exposure <= 4 &&
         std::isfinite(Configuration.PanX) && std::abs(Configuration.PanX) <= 2 &&
         std::isfinite(Configuration.PanY) && std::abs(Configuration.PanY) <= 2 &&
-        std::isfinite(Configuration.Yaw) && std::abs(Configuration.Yaw) <= 3.141593f &&
-        std::isfinite(Configuration.Pitch) && std::abs(Configuration.Pitch) <= 1.45f;
+        // 📝 Yaw is a full turn, not a half turn. The interactive canvas wraps it with remainder(.., 2pi), so bounding it
+        //    at pi made the validator reject the very values the panel produces and froze rotation mid-drag.
+        std::isfinite(Configuration.Yaw) && std::abs(Configuration.Yaw) <= 6.2831854f &&
+        std::isfinite(Configuration.Pitch) && std::abs(Configuration.Pitch) <= 1.45f &&
+        std::isfinite(Configuration.AspectRatio) && Configuration.AspectRatio >= 0 && Configuration.AspectRatio <= 64;
 }
 
 struct MaterialPreviewProjection
@@ -57,6 +63,7 @@ inline void ResetMaterialPreviewView(MaterialPreviewConfiguration &Configuration
 {
     Configuration.Zoom = 1;
     Configuration.PanX = Configuration.PanY = Configuration.Yaw = Configuration.Pitch = 0;
+    // 📝 Aspect describes the panel, not the subject, so a view reset must leave it untouched.
 }
 
 inline MaterialPreviewProjection ConstructMaterialPreviewProjection(const MaterialPreviewConfiguration &Configuration)
@@ -69,13 +76,17 @@ inline MaterialPreviewProjection ConstructMaterialPreviewProjection(const Materi
         0, Cosφ, Sinφ, 0, Sinθ, -Sinφ * Cosθ, Cosφ * Cosθ, 0,
         -Cosθ * Translation, -Sinφ * Sinθ * Translation, Cosφ * Sinθ * Translation, 1};
     Projection.ClipFromSurface = Projection.ViewFromSurface;
+    // 📝 Square panels keep the historical matched X/Y scale. A wider panel narrows the horizontal span by exactly its
+    //    aspect, so the subject keeps its true proportions and fills the viewport instead of being clipped or stretched.
+    //    Vertical scale is deliberately untouched: the vertical field of view is the stable one.
+    const float HorizontalAspect = Configuration.AspectRatio > 0 ? Configuration.AspectRatio : 1.f;
     for (size_t Column = 0; Column < 4; ++Column)
     {
-        Projection.ClipFromSurface[Column * 4] *= Configuration.Zoom;
+        Projection.ClipFromSurface[Column * 4] *= Configuration.Zoom / HorizontalAspect;
         Projection.ClipFromSurface[Column * 4 + 1] *= -Configuration.Zoom;
         Projection.ClipFromSurface[Column * 4 + 2] *= -.4f;
     }
-    Projection.ClipFromSurface[12] += Configuration.PanX;
+    Projection.ClipFromSurface[12] += Configuration.PanX / HorizontalAspect;
     Projection.ClipFromSurface[13] += Configuration.PanY;
     Projection.ClipFromSurface[14] += .5f;
     Projection.ViewFromSurface[12] += Configuration.PanX / Configuration.Zoom;

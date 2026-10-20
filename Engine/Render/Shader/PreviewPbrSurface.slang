@@ -70,6 +70,15 @@ float4 PreviewPbrSurfaceFragment(PreviewPixel Pixel) : SV_Target
         AlbedoMultiplier *= DecodeAlbedo(AlbedoTexture.SampleLevel(SurfaceSampler,Pixel.Coordinates,0).rgb);
     float3 Radiance = EvaluateScatteringSequence(Scattering,Normal,View,Light,AlbedoMultiplier)*saturate(dot(Normal,Light))*
                       Scattering.LightDirectionIntensity.w*Scattering.LightColourExposure.rgb;
+    // 📝 Broad wrapped key/fill/rim. The key stays specular (it is the soft box reflection); fill and rim are wrapped
+    //    diffuse so the subject never falls into a hard-edged terminator or a single circular specular blob.
+    float3 Base = Scattering.Strata[0].AlbedoRoughness.rgb*AlbedoMultiplier;
+    float3 Fill = Scattering.FillDirectionIntensity.w > 0 ? NormalizeDirection(Scattering.FillDirectionIntensity.xyz) : Light;
+    float3 Rim  = Scattering.RimDirectionIntensity.w  > 0 ? NormalizeDirection(Scattering.RimDirectionIntensity.xyz)  : -Light;
+    Radiance += EvaluateAreaWrap(Normal,Light,Scattering.Configuration.w*.001f,Base,
+                                 Scattering.LightColourExposure.rgb,Scattering.LightDirectionIntensity.w*.05f);
+    Radiance += EvaluateAreaWrap(Normal,Fill,.75f,Base,Scattering.FillColour.rgb,Scattering.FillDirectionIntensity.w*.30f);
+    Radiance += EvaluateAreaWrap(Normal,Rim,.55f,Base,Scattering.RimColour.rgb,Scattering.RimDirectionIntensity.w*.28f);
     Radiance += IntegrateEnvironment(Scattering,Normal,View,AlbedoMultiplier);
     return float4(EncodeDisplay(Radiance,Scattering.LightColourExposure.w),1);
 }

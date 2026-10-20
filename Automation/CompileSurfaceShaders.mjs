@@ -88,9 +88,9 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
                 const Uniform=Reflection.parameters.find(Parameter=>Parameter.name==='Scattering');
                 Assert.equal(Uniform.binding.index,0);
                 Assert.equal(Uniform.binding.space,1);
-                Assert.equal(Uniform.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,672);
+                Assert.equal(Uniform.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,736);
                 const Strata=Uniform.type.elementType.fields.find(Field=>Field.name==='Strata');
-                Assert.equal(Strata.binding.offset,160);
+                Assert.equal(Strata.binding.offset,224);
                 Assert.equal(Strata.type.elementCount,8);
                 Assert.equal(Strata.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,64);
             }
@@ -99,10 +99,10 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
                 const Uniform=Reflection.parameters.find(Parameter=>Parameter.name==='Material');
                 Assert.equal(Uniform.binding.index,0);
                 Assert.equal(Uniform.binding.space,1);
-                Assert.equal(Uniform.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,1504);
+                Assert.equal(Uniform.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,1568);
                 Assert.deepEqual(Uniform.type.elementType.fields.map(Field=>[Field.name,Field.binding.offset]),
-                    [['Illumination',0],['UvScaleOffset',672],['RadianceNormal',688],['TextureUse',704],
-                     ['StratumUv',832],['StratumNormal',960],['DirectionalOptics',1088],['Paint',1216],['PreviewConfiguration',1488]]);
+                    [['Illumination',0],['UvScaleOffset',736],['RadianceNormal',752],['TextureUse',768],
+                     ['StratumUv',896],['StratumNormal',1024],['DirectionalOptics',1152],['Paint',1280],['PreviewConfiguration',1552]]);
                 const Paint=Uniform.type.elementType.fields.find(Field=>Field.name==='Paint');
                 Assert.equal(Paint.type.sizes.find(Size=>Size.kind==='uniform').value,272);
                 Assert.deepEqual(Paint.type.fields.map(Field=>[Field.name,Field.binding.offset]),

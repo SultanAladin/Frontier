@@ -65,8 +65,10 @@ class MaterialLibrary
     [[nodiscard]] const std::string &QuerySource() const noexcept { return Source; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     [[nodiscard]] const CompiledSurfaceMaterial *QueryApplied() const noexcept { return Applied.get(); }
-    [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource; }
-    [[nodiscard]] bool QueryUnapplied() const noexcept { return Source != AppliedSource; }
+[[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource; }
+    // 📝 Live edits publish to Applied immediately, so AppliedSource no longer distinguishes pending work. A separate
+    //    explicit-apply flag carries that meaning: a slider edit republishes the preview but still needs Apply or Save.
+[[nodiscard]] bool QueryUnapplied() const noexcept { return PendingExplicitApply; }
     [[nodiscard]] bool QueryTruncated() const noexcept { return Truncated; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return Revision; }
 
@@ -75,6 +77,7 @@ class MaterialLibrary
     std::vector<MaterialCatalogueEntry> Entries;
     std::vector<size_t> Visible;
     std::string Source, SavedSource, AppliedSource, Search, Diagnostic;
+    bool PendingExplicitApply = false;
     std::unique_ptr<CompiledSurfaceMaterial> Applied;
     uint64_t Revision = 0;
     bool Truncated = false;
@@ -82,5 +85,9 @@ class MaterialLibrary
     std::filesystem::path ResolveMaterial(const std::filesystem::path &RelativePath) const;
     void FilterEntries();
     bool ConfigureStratumLiteral(uint32_t Index, std::string_view Name, const std::string &Numeric);
+    // 📝 A structured edit changes the live preview immediately: re-decode into Applied and advance Revision so the
+    //    host's revision gate re-uploads the material. AppliedSource tracks the preview, NOT the saved file, so an
+    //    unsaved edit is never mistaken for a saved one and QueryUnapplied still reports the pending change.
+    void RepublishLiveEdit();
 };
 } // namespace Frontier

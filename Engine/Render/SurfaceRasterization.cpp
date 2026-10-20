@@ -365,6 +365,25 @@ struct SurfaceRasterization::RasterAllocation
         RequireRasterSuccess(CreateFramebuffer(Access.Device, &TargetDeclaration, nullptr, &Target));
     }
 
+    // 📝 Resize only the colour/depth pair. Programs, pipelines, geometry and every sampler stay resident, so a panel
+    //    resize costs two image recreations rather than a full reinitialization or a geometry re-upload.
+    void ConfigureTargetExtent(uint32_t Width, uint32_t Height)
+    {
+        if (!Access.Device || Width == 0 || Height == 0) return;
+        if (Extent.width == Width && Extent.height == Height) return;
+        if (Target) DestroyFramebuffer(Access.Device, Target, nullptr);
+        Target = VK_NULL_HANDLE;
+        for (auto *Footprint : {&Colour, &Depth})
+        {
+            if (Footprint->View) DestroyImageView(Access.Device, Footprint->View, nullptr);
+            if (Footprint->Image) DestroyImage(Access.Device, Footprint->Image, nullptr);
+            if (Footprint->Memory) FreeMemory(Access.Device, Footprint->Memory, nullptr);
+            *Footprint = {};
+        }
+        Extent = VkExtent2D{Width, Height};
+        ConstructTarget();
+    }
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     MATCAP PROGRAM AND TEXTURE RESIDENCY
 //------------------------------------------------------------------------------------------------------------------------
@@ -834,6 +853,11 @@ struct SurfaceRasterization::RasterAllocation
 SurfaceRasterization::SurfaceRasterization() : Allocation(std::make_unique<RasterAllocation>())
 {
 }
+void SurfaceRasterization::ConfigureExtent(uint32_t Width, uint32_t Height)
+{
+    if (Allocation) Allocation->ConfigureTargetExtent(Width, Height);
+}
+
 SurfaceRasterization::~SurfaceRasterization()
 {
     Finalize();

@@ -312,6 +312,9 @@ int RunTextureWorkspace()
         Library->InvalidateThumbnails = [&]() { Rendering->InvalidateThumbnails(); };
         Library->QueryThumbnailDiagnostic = [&](const std::filesystem::path &Path) { return Rendering->QueryThumbnailDiagnostic(Path); };
         Library->ConfigurePreview = [&](const Frontier::MaterialPreviewConfiguration &Configuration) { Rendering->ConfigurePreview(Configuration); };
+        // 📐 The panel publishes its true viewport rectangle so the preview target and its projection aspect match the
+        //    docked panel exactly. Without this the renderer keeps a 512x512 square and the subject is clipped.
+        Library->ConfigurePreviewExtent = [&](uint32_t Width, uint32_t Height) { Rendering->ConfigurePreviewExtent(Width, Height); };
         Library->QueryPreview = [&]()
         {
             return Frontier::MaterialPreviewImage{Rendering->QueryPreviewReady() ? (uint64_t)PreviewDescriptor : 0};

@@ -52,18 +52,25 @@ int main(int Count, char **Arguments)
             return MaterialPreviewImage{Slot.Ready ? 2ull : 0ull, Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         Panel->ConfigurePreview = [&](const auto &Configuration) { Rendering.ConfigurePreview(Configuration); };
+        Panel->ConfigurePreviewExtent = [&](uint32_t Width, uint32_t Height) { Rendering.ConfigurePreviewExtent(Width, Height); };
         Panel->QueryPreview = [&]() { return MaterialPreviewImage{Rendering.QueryPreviewReady() ? 3ull : 0ull}; };
         Rendering.RequestLibrary(Panel->QueryLibrary().QueryDirectory(), {});
         Rendering.ConfigureSelection(Panel->QueryLibrary().QuerySelection(), *Panel->QueryLibrary().QueryApplied());
         std::vector<unsigned char> AtlasPixels, PreviewPixels;
+        VkExtent2D PreviewExtent{};
         for (uint64_t Serial = 1; Serial <= 18; ++Serial)
         {
             ImGui::NewFrame();
             Panel->ConstructInterface();
             ImGui::Render();
             const bool Preview = !Rendering.QueryPreviewReady();
-            const uint32_t Extent = Preview ? 512 : Rendering.QueryAtlasExtent();
-            auto Pixels = Device.Capture(Preview ? Rendering.QueryPreviewImage() : Rendering.QueryAtlasImage(), {Extent, Extent},
+            // 📐 Queried after layout, not before the loop: the panel publishes its real rectangle during the first
+            //    ConstructInterface, so an extent captured earlier would still be the provisional square and reading
+            //    the resized target back at that stride produced a zoomed crop.
+            PreviewExtent = Rendering.QueryPreviewExtent();
+            const uint32_t AtlasExtent = Rendering.QueryAtlasExtent();
+            const VkExtent2D Target = Preview ? PreviewExtent : VkExtent2D{AtlasExtent, AtlasExtent};
+            auto Pixels = Device.Capture(Preview ? Rendering.QueryPreviewImage() : Rendering.QueryAtlasImage(), Target,
                 [&](VkCommandBuffer Commands) { Rendering.ConstructCommands(Commands, Serial - 1, Serial); },
                 [&]() { Rendering.ConfirmSubmission(); });
             if (Preview) PreviewPixels = std::move(Pixels);
@@ -73,7 +80,7 @@ int main(int Count, char **Arguments)
         const int Edge = int(Rendering.QueryAtlasExtent());
         auto Textures = Icons.QueryTextures();
         Textures.push_back({2, AtlasPixels.data(), Edge, Edge});
-        Textures.push_back({3, PreviewPixels.data(), 512, 512});
+        Textures.push_back({3, PreviewPixels.data(), int(PreviewExtent.width), int(PreviewExtent.height)});
         const std::filesystem::path Destination(Arguments[4]);
         std::filesystem::create_directories(Destination);
         IO.Fonts->GetTexDataAsRGBA32(&Font, &FontWidth, &FontHeight);

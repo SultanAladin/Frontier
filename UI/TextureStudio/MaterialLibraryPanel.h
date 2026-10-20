@@ -42,6 +42,9 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<MaterialPreviewImage()> QueryPreview;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
     std::function<void(const MaterialPreviewConfiguration &)> ConfigurePreview;
+    // 📝 The panel publishes its true viewport rectangle so the renderer can size the preview target to it. Without
+    //    this the renderer keeps a fixed square and the subject is clipped on any non-square panel.
+    std::function<void(uint32_t, uint32_t)> ConfigurePreviewExtent;
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const noexcept { return Inspection; }
     [[nodiscard]] PlaneExtent QueryPreviewControlExtent(size_t Index) const noexcept
     {

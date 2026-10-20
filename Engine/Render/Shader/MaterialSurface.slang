@@ -320,6 +320,17 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
     float3 Light = NormalizeDirection(Scattering.LightDirectionIntensity.xyz);
     float3 Radiance = EvaluateMaterialSequence(Scattering,Angular,View,Light,false)*
                       Scattering.LightDirectionIntensity.w*Scattering.LightColourExposure.rgb;
+    // 📝 Same wrapped key/fill/rim rig as the preview surface, so an authored material and its preview agree instead of
+    //    the preview looking photographic while the material surface looks like flat clay.
+    float3 FillLight = Scattering.FillDirectionIntensity.w > 0 ? NormalizeDirection(Scattering.FillDirectionIntensity.xyz) : Light;
+    float3 RimLight = Scattering.RimDirectionIntensity.w > 0 ? NormalizeDirection(Scattering.RimDirectionIntensity.xyz) : -Light;
+    float3 WrapAlbedo = Scattering.Strata[0].AlbedoRoughness.rgb*Angular[0].Occlusion;
+    Radiance += EvaluateAreaWrap(GeometricNormal,Light,Scattering.Configuration.w*.001f,WrapAlbedo,
+                                 Scattering.LightColourExposure.rgb,Scattering.LightDirectionIntensity.w*.05f);
+    Radiance += EvaluateAreaWrap(GeometricNormal,FillLight,.75f,WrapAlbedo,
+                                 Scattering.FillColour.rgb,Scattering.FillDirectionIntensity.w*.30f);
+    Radiance += EvaluateAreaWrap(GeometricNormal,RimLight,.55f,WrapAlbedo,
+                                 Scattering.RimColour.rgb,Scattering.RimDirectionIntensity.w*.28f);
     Radiance += IntegrateMaterialEnvironment(Scattering,Angular,GeometricNormal,View);
     float3 Luminous = MaterialTextures[3].Sample(MaterialSampler,float3(Pixel.Coordinates,0)).rgb;
     if (Pixel.SubjectRole == 0) Radiance += Material.RadianceNormal.rgb*((Selection & 8) != 0 ? Luminous : float3(1));

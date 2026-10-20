@@ -324,9 +324,18 @@ void MaterialLibraryPanel::ConstructViewport()
     Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Available.x, Origin.y + Available.y),
         EncodeMaterialInk(0x202222), EncodeMaterialInk(0x202222), EncodeMaterialInk(0x303235), EncodeMaterialInk(0x303235));
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
-    const float Edge = std::max(1.f, std::min(Available.x * .61f, Available.y * .65f));
-    const ImVec2 Minimum(Origin.x + (Available.x - Edge) * .5f, Origin.y + Available.y * .48f - Edge * .50f);
-    if (Image.Texture) Ink->AddImage(ImTextureRef(Image.Texture), Minimum, ImVec2(Minimum.x + Edge, Minimum.y + Edge),
+    // 📐 The subject occupies the whole viewport panel between the 42px header and the 45px footer. It is fitted to that
+    //    rectangle rather than centred in a fixed square, so no part of the sphere is ever clipped by the panel edge.
+    const float ViewportTop = Origin.y + 42 * Scale;
+    const float ViewportBottom = Origin.y + Available.y - 45 * Scale;
+    const float ViewportHeight = std::max(1.f, ViewportBottom - ViewportTop);
+    const float ViewportWidth = std::max(1.f, Available.x);
+    const ImVec2 Minimum(Origin.x, ViewportTop);
+    const ImVec2 Maximum(Origin.x + ViewportWidth, ViewportBottom);
+    // 📐 Keep the subject's true proportions: fit the sphere inside the viewport rectangle instead of stretching it.
+    if (ConfigurePreviewExtent)
+        ConfigurePreviewExtent(uint32_t(std::lround(ViewportWidth)), uint32_t(std::lround(ViewportHeight)));
+    if (Image.Texture) Ink->AddImage(ImTextureRef(Image.Texture), Minimum, Maximum,
         ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), EncodeMaterialInk(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
@@ -376,8 +385,8 @@ void MaterialLibraryPanel::ConstructViewport()
         {
             if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
             {
-                Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
-                Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
+                Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / ViewportWidth, -2.f, 2.f);
+                Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / ViewportHeight, -2.f, 2.f);
             }
             else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
                 Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 2.f);
@@ -485,11 +494,17 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     ImGui::TextDisabled("PBR · fullscreen fit · Escape to close");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + Size.x - 150, Origin.y + 14));
     if (ImGui::Button("Close preview  ×", ImVec2(132, 32))) FullscreenPreview = false;
-    const float Edge = std::max(1.f, std::min(Size.x - 64.f, Size.y - 150.f));
-    const ImVec2 ImagePosition(Origin.x + (Size.x - Edge) * .5f, Origin.y + (Size.y - Edge) * .5f + 8.f);
+    // 📐 Fullscreen fills the work area between the caption row and the zoom row, so the subject is never clipped there either.
+    const float FullscreenTop = Origin.y + 60.f;
+    const float FullscreenBottom = Origin.y + Size.y - 92.f;
+    const float FullscreenWidth = std::max(1.f, Size.x - 48.f);
+    const float FullscreenHeight = std::max(1.f, FullscreenBottom - FullscreenTop);
+    const ImVec2 ImagePosition(Origin.x + 24.f, FullscreenTop);
+    if (ConfigurePreviewExtent)
+        ConfigurePreviewExtent(uint32_t(std::lround(FullscreenWidth)), uint32_t(std::lround(FullscreenHeight)));
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
     ImGui::SetCursorScreenPos(ImagePosition);
-    ImGui::InvisibleButton("Fullscreen inspection canvas", ImVec2(Edge, Edge),
+    ImGui::InvisibleButton("Fullscreen inspection canvas", ImVec2(FullscreenWidth, FullscreenHeight),
         ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
     bool Changed = false;
     const auto &Input = ImGui::GetIO();
@@ -500,8 +515,8 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
         {
-            Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
-            Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
+            Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / FullscreenWidth, -2.f, 2.f);
+            Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / FullscreenHeight, -2.f, 2.f);
             Changed = true;
         }
         else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
@@ -522,9 +537,9 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
         Changed = true;
     }
     if (Image.Texture)
-        Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
+        Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + FullscreenWidth, ImagePosition.y + FullscreenHeight),
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
-    else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), EncodeMaterialInk(0x202222));
+    else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + FullscreenWidth, ImagePosition.y + FullscreenHeight), EncodeMaterialInk(0x202222));
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
     if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) { Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f); Changed = true; }
     ImGui::SameLine();
