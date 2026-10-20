@@ -159,3 +159,11 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - 6b13015: parked material drafts across selection, full-bleed cover-fit preview + title scrim, exposure card, auto-size layer cards.
 - 2fd6ea4: draped cloth preview shape, six-seamless-preset Pattern gallery, redesigned close dialogs.
 - Linux host verification: full ctest 22/22 green (incl. 638 pattern-preset checks, cloth fold assertions).
+
+## Windows preview round 3 (branch arena/db2f9953-frontier, commit e8755ee)
+- Gesture-gated Pattern bridge (no regen while a gesture/pen stroke is in flight).
+- Single-axis orbit rewrite (yaw about world-up, sway-tested old-fail/new-pass).
+- Styled tooltip cards everywhere in Material; Open Library dialog restyled.
+- TOML-backed preset gallery (six shipped .vector.toml files, built-in fallback).
+- Apply-to-material gating with persistent snapshot per material.
+- Linux host verification: full ctest 22/22 green (669 preset checks).
