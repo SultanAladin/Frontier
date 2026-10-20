@@ -10,7 +10,7 @@ test("converts normalized primitives and cubic paths into native vector instruct
   const converted = convertPatternJson(document([
     { kind: "star", name: "Gold thread", x: 128, y: 256, width: 80, height: 120,
       starPoints: 7, innerRadius: 0.38, rotation: 25, color: "#c18a2e", strokeWidth: 2,
-      roughness: 0.34, metalness: 0.82, stitchRole: "thread", relief: 0.7,
+      roughness: 0.34, metalness: 0.82, stitchRole: "thread", relief: 0.7, paint: true,
       SurfaceChannels: { Color: { Enabled: false, Strength: 0.35 }, Height: { Enabled: true, Strength: 0.8 },
         Normal: { Enabled: true, Strength: 1.2 }, Roughness: { Enabled: true, Strength: 0.45 },
         Metalness: { Enabled: true, Strength: 0.75 }, Occlusion: { Enabled: true, Strength: 0.4 } } },
@@ -22,17 +22,17 @@ test("converts normalized primitives and cubic paths into native vector instruct
       width: 120, height: 80, color: "#ffffff", paint: true },
   ]));
   assert.equal(converted.format, "frontier.vector_artwork");
-  assert.equal(converted.layers.length, 3);
+  assert.equal(converted.layers.length, 4);
   assert.ok(converted.segments.length > 8);
-  assert.equal(converted.layers[0].surface_structure, "stitch");
-  assert.equal(converted.layers[0].textile_geometry, "stitch_thread");
-  assert.equal(converted.layers[0].surface_channels.normal.strength, 1.2);
-  assert.equal(converted.layers[0].surface_channels.colour.enabled, false);
-  assert.equal(converted.layers[0].surface_channels.colour.strength, 0.35);
-  assert.equal(converted.layers[0].surface_channels.roughness.strength, 0.34);
-  assert.equal(converted.layers[0].surface_channels.metalness.strength, 0.82);
-  assert.equal(converted.layers[0].surface_channels.occlusion.strength, 0.6);
-  assert.ok(Math.abs(converted.instructions[0].colour[0] - 193 / 255) < 1e-8);
+  assert.equal(converted.layers[1].surface_structure, "stitch");
+  assert.equal(converted.layers[1].textile_geometry, "stitch_thread");
+  assert.equal(converted.layers[1].surface_channels.normal.strength, 1.2);
+  assert.equal(converted.layers[1].surface_channels.colour.enabled, false);
+  assert.equal(converted.layers[1].surface_channels.colour.strength, 0.35);
+  assert.equal(converted.layers[1].surface_channels.roughness.strength, 0.34);
+  assert.equal(converted.layers[1].surface_channels.metalness.strength, 0.82);
+  assert.equal(converted.layers[1].surface_channels.occlusion.strength, 0.6);
+  assert.ok(converted.instructions.some((item) => Math.abs(item.colour[0] - 193 / 255) < 1e-8));
   assert.ok(Math.abs(converted.instructions.find((item) => item.transform[1] === 4).transform[2] - 0.4) < 1e-8);
   assert.ok(converted.segments.length > 4);
   assert.ok(converted.instructions.length >= 2);
@@ -45,9 +45,9 @@ test("preserves boolean fill rules and independent fill/stroke colours", () => {
     x: 256, y: 256, width: 100, height: 100, fillRule: "evenodd",
     color: "#ffffff", stroke: "#000000", strokeWidth: 3, paint: true, fillEnabled: true,
   }]));
-  assert.equal(converted.instructions.length, 3);
-  assert.equal(converted.instructions[0].topology[3], 1);
-  assert.equal(converted.layers[0].root, 2);
+  assert.equal(converted.instructions.length, 4);
+  assert.equal(converted.instructions[1].topology[3], 1);
+  assert.equal(converted.layers[1].root, 3);
 });
 
 test("converts the remaining built-in vector silhouettes and arc closures", () => {
@@ -56,8 +56,20 @@ test("converts the remaining built-in vector silhouettes and arc closures", () =
     kind, name: kind, x: 256, y: 256, width: 80, height: 90, color: "#4488cc",
     paint: true, fillEnabled: true, arcClosure: kind === "arc" ? "pie" : undefined,
   }))));
-  assert.equal(converted.layers.length, kinds.length);
+  assert.equal(converted.layers.length, kinds.length + 1);
   assert.ok(converted.segments.length >= 30);
+});
+
+test("wraps edge-crossing geometry into the periodic 512-pixel tile and retains the solid background", () => {
+  const converted = convertPatternJson(document([{
+    kind: "rect", name: "Seam-crossing tile", x: 4, y: 256, width: 40, height: 40,
+    color: "#224466",
+  }]));
+  assert.equal(converted.layers[0].name, "Pattern background");
+  assert.equal(converted.instructions[0].topology[0], 0);
+  const Copies = converted.instructions.filter((instruction) => instruction.topology[0] === 6);
+  assert.deepEqual(Copies.map((instruction) => instruction.bounds[0]), [4, 516]);
+  assert.equal(converted.layers[1].root, 3);
 });
 
 test("maps supported rectangle and ellipse masks through the layer transform", () => {
@@ -66,7 +78,7 @@ test("maps supported rectangle and ellipse masks through the layer transform", (
     rotation: 90, color: "#ffffff", mask: { category: "ellipse", x: 75, y: 50,
       width: 50, height: 50, opacity: 0.7, invert: true, mode: "luminance" },
   }]));
-  const layer = converted.layers[0];
+  const layer = converted.layers[1];
   assert.equal(layer.mask_enabled, true);
   assert.equal(layer.mask_inverted, true);
   assert.equal(layer.mask_luminance, true);
@@ -89,7 +101,7 @@ test("fails closed rather than silently dropping unsupported Pattern features", 
     SurfaceChannels: { Height: { Enabled: false } } }])), /requires enabled, non-zero Height and Normal/);
   assert.throws(() => convertPatternJson(document([{ kind: "rect",
     SurfaceChannels: { Normal: { Source: "data:image/png;base64,AA==" } } }])), /image normal map/);
-  assert.throws(() => convertPatternJson(document(Array.from({ length: 64 }, () => ({
+  assert.throws(() => convertPatternJson(document(Array.from({ length: 63 }, () => ({
     kind: "rect", mask: { category: "ellipse" },
   })))), /128-instruction limit after layer and mask composition/);
 });

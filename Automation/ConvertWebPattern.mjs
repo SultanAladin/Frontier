@@ -84,6 +84,22 @@ function cubicSegments(contours, layer) {
   }
   return result;
 }
+function patternCopies(layer, strokeWidth) {
+  const padding = layer.paint
+    ? strokeWidth * 0.5
+    : (strokeWidth * Math.max(layer.width, layer.height)) / 200;
+  const radius = (layer.width + layer.height) / 2 + padding;
+  const copies = [];
+  for (let column = -4; column <= 4; column++) {
+    for (let row = -4; row <= 4; row++) {
+      const x = layer.x + column * 512;
+      const y = layer.y + row * 512;
+      if (x + radius < 0 || x - radius > 512 || y + radius < 0 || y - radius > 512) continue;
+      copies.push({ x, y });
+    }
+  }
+  return copies.length ? copies : [{ x: layer.x, y: layer.y }];
+}
 function channelData(layer) {
   const source = layer.SurfaceChannels || {};
   const result = {};
@@ -144,6 +160,23 @@ function instruction({ layer, root, segmentStart, segmentCount, colour, filled, 
     root,
   };
 }
+function appendOver(instructions, lower, upper) {
+  const root = instructions.length;
+  instructions.push({ topology: [28, lower, upper, 0], bounds: [0, 0, 0, 0],
+    transform: [0, 1, 1, 0], colour: [1, 1, 1, 1], colour_end: [1, 1, 1, 1], paint: [0, 0, 0, 0], root });
+  return root;
+}
+function nativeBackground(pattern, instructions, layers) {
+  if (pattern.backgroundOpacity <= 0) return;
+  const colour = parseColour(pattern.background, "Pattern background");
+  const root = instructions.length;
+  instructions.push({ topology: [0, 0, 0, 0], bounds: [256, 256, 512, 512],
+    transform: [0, 0, pattern.backgroundOpacity, 0], colour, colour_end: colour, paint: [0, 0, 0, 1], root });
+  const surface_channels = Object.fromEntries(Channels.map((name) => [name.toLowerCase(),
+    { enabled: name === "Colour", strength: name === "Colour" ? 1 : 0 }]));
+  layers.push({ token: 1, name: "Pattern background", visible: true, locked: false, root,
+    surface_channels, surface_structure: "freeform", textile_geometry: "unclassified", surface_relief: 0 });
+}
 function nativeLayer(layer, token, root, structure, maskFields = {}, channels = channelData(layer)) {
   const surface_channels = Object.fromEntries(Channels.map((name) => [name.toLowerCase(), channels[name]]));
   return {
@@ -159,23 +192,23 @@ function nativeLayer(layer, token, root, structure, maskFields = {}, channels = 
 export function convertPatternJson(input) {
   const pattern = validatePattern(input);
   if (!pattern || !Array.isArray(pattern.layers)) fail("Pattern JSON did not normalize to a layer document.");
-  if (pattern.layers.length > 64) fail("Native Pattern import supports at most 64 web layers per document.");
   if (pattern.Enclosures?.length || pattern.StoredGroups?.length || pattern.layers.some((layer) => layer.group || layer.EnclosureToken || layer.LinkedInstance))
     fail("Pattern folders, linked instances, and group enclosures are not yet represented by the native vector document; import was stopped without dropping them.");
   if (pattern.backgroundSource) fail("Linked or gradient Pattern backgrounds are not yet supported by the native import.");
   if (pattern.repeat !== "straight" || pattern.tileAxes !== "xy" || pattern.mapping !== "uv" || pattern.rotation !== 0)
     fail("Native Pattern import currently requires straight XY tiling, UV mapping, and zero document rotation.");
+  const includeBackground = pattern.backgroundOpacity > 0;
+  if (pattern.layers.length + Number(includeBackground) > 64)
+    fail("Native Pattern import supports at most 64 layers, including its solid background.");
   const instructions = [], segments = [], layers = [];
-  for (const [index, layer] of pattern.layers.entries()) {
-    const rotation = finite(layer.rotation) * Math.PI / 180;
-    const halfX = Math.abs(Math.cos(rotation)) * layer.width / 2 + Math.abs(Math.sin(rotation)) * layer.height / 2;
-    const halfY = Math.abs(Math.sin(rotation)) * layer.width / 2 + Math.abs(Math.cos(rotation)) * layer.height / 2;
-    if (layer.visible && (layer.x - halfX < 0 || layer.x + halfX > 512 || layer.y - halfY < 0 || layer.y + halfY > 512))
-      fail(`Layer “${layer.name}” crosses a Pattern tile edge; native periodic wrapping is not implemented yet.`);
+  nativeBackground(pattern, instructions, layers);
+  for (const layer of pattern.layers) {
     if (["image", "svg"].includes(layer.kind))
       fail(`Layer “${layer.name}” uses ${layer.kind} content, which is not yet supported by native geometry import; import was stopped without omitting it.`);
     if (layer.kind === "text" && !layer.path.trim())
       fail(`Layer “${layer.name}” has no stored text outline to import.`);
+    if (layer.kind === "flower" && !layer.paint)
+      fail(`Layer “${layer.name}” is a non-sized flower; only editable sized flower silhouettes are currently importable.`);
     if (layer.fillSource || layer.strokeSource || layer.fillGradient || layer.strokeGradient)
       fail(`Layer “${layer.name}” uses linked or gradient paint; only literal solid colours are supported in this import phase.`);
     const channels = channelData(layer);
@@ -186,38 +219,46 @@ export function convertPatternJson(input) {
       fail(`Layer “${layer.name}” is stitch/weave geometry and requires enabled, non-zero Height and Normal contributions.`);
     if (layer.strokeLinejoin && layer.strokeLinejoin !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinejoin} stroke joins; native preview currently supports round joins only.`);
     if (layer.strokeLinecap && layer.strokeLinecap !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinecap} stroke caps; native preview currently supports round caps only.`);
+    const sourceStrokeWidth = Math.max(0, finite(layer.strokeWidth, 0));
+    if (!layer.paint && sourceStrokeWidth > 0 && Math.abs(layer.width - layer.height) > 1e-5)
+      fail(`Layer “${layer.name}” has an anisotropically scaled stroke; native vector strokes use a single document-space width.`);
+    const strokeWidth = sourceStrokeWidth * (layer.paint ? 1 : layer.width / 100);
     const contours = contoursFor(layer);
     const convertedSegments = cubicSegments(contours, layer);
     if (segments.length + convertedSegments.length > 4000) fail("Pattern exceeds the native 4,000-segment limit.");
     const segmentStart = segments.length;
     segments.push(...convertedSegments);
-    const fill = layer.paint ? layer.fillEnabled !== false : !(layer.kind === "path" && layer.strokeWidth);
-    const strokeWidth = Math.max(0, finite(layer.strokeWidth, 0));
+    const fill = layer.paint ? layer.fillEnabled !== false : !(layer.kind === "path" && sourceStrokeWidth);
     const fillColour = parseColour(layer.color || "#ffffff", `Layer “${layer.name}” fill`);
     const strokeColour = parseColour(layer.stroke || layer.color || "#ffffff", `Layer “${layer.name}” stroke`);
     const outputOpacity = channels.Opacity.enabled ? layer.opacity * finite(layer.SurfaceChannels?.Opacity?.Strength, 1) : 1;
-    const coverageLayer = { ...layer, opacity: outputOpacity };
     const sameColour = fillColour.every((value, channel) => Math.abs(value - strokeColour[channel]) < 1e-7);
-    const roots = [];
-    const make = (colour, filled, width) => {
-      const root = instructions.length;
-      instructions.push(instruction({ layer: coverageLayer, root, segmentStart, segmentCount: convertedSegments.length,
-        colour, filled, strokeWidth: width, fillRule: layer.fillRule }));
-      roots.push(root);
-    };
-    if (fill && strokeWidth && !sameColour) {
-      make(fillColour, true, 0);
-      make(strokeColour, false, strokeWidth);
-    } else if (fill || strokeWidth) make(fill ? fillColour : strokeColour, fill, strokeWidth);
-    else fail(`Layer “${layer.name}” has neither a fill nor a stroke.`);
-    let root = roots.at(-1);
-    if (roots.length === 2) {
-      root = instructions.length;
-      instructions.push({ topology: [28, roots[0], roots[1], 0], bounds: [0, 0, 0, 0],
-        transform: [0, 1, 1, 0], colour: [1, 1, 1, 1], colour_end: [1, 1, 1, 1], paint: [0, 0, 0, 0], root });
+    const copies = patternCopies(layer, sourceStrokeWidth);
+    if (layer.mask && copies.length > 1)
+      fail(`Layer “${layer.name}” uses a mask on a tile-wrapped shape; only single-copy masked layers are currently importable.`);
+    const copyRoots = [];
+    for (const copy of copies) {
+      const coverageLayer = { ...layer, x: copy.x, y: copy.y, opacity: outputOpacity };
+      const roots = [];
+      const make = (colour, filled, width) => {
+        const root = instructions.length;
+        instructions.push(instruction({ layer: coverageLayer, root, segmentStart, segmentCount: convertedSegments.length,
+          colour, filled, strokeWidth: width, fillRule: layer.fillRule }));
+        roots.push(root);
+      };
+      if (fill && strokeWidth && !sameColour) {
+        make(fillColour, true, 0);
+        make(strokeColour, false, strokeWidth);
+      } else if (fill || strokeWidth) make(fill ? fillColour : strokeColour, fill, strokeWidth);
+      else fail(`Layer “${layer.name}” has neither a fill nor a stroke.`);
+      copyRoots.push(roots.length === 2 ? appendOver(instructions, roots[0], roots[1]) : roots[0]);
     }
+    let root = copyRoots[0];
+    for (let copy = 1; copy < copyRoots.length; copy++)
+      root = appendOver(instructions, root, copyRoots[copy]);
     const shape = layerStructure(layer);
-    layers.push(nativeLayer(layer, index + 1, root, shape, nativeMask(layer), channels));
+    const maskFields = layer.mask ? nativeMask({ ...layer, x: copies[0].x, y: copies[0].y }) : {};
+    layers.push(nativeLayer(layer, layers.length + 1, root, shape, maskFields, channels));
   }
   const ComposedInstructionCount = instructions.length + Math.max(0, layers.length - 1) +
     layers.filter((layer) => layer.mask).length * 2;

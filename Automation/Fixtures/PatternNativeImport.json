@@ -59,6 +59,17 @@
       "color": "#eeeeee",
       "paint": true,
       "fillEnabled": true
+    },
+    {
+      "kind": "rect",
+      "name": "Seam-crossing accent",
+      "x": 4,
+      "y": 256,
+      "width": 40,
+      "height": 40,
+      "color": "#224466",
+      "roughness": 0.45,
+      "metalness": 0.1
     }
   ]
 }
