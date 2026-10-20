@@ -18,7 +18,7 @@ on:
         required: false
         default: false
   push:
-    branches: [arena/73e163a3-frontier]
+    branches: [arena/73e163a3-frontier, arena/db2f9953-frontier]
 permissions:
   contents: read
 concurrency:
