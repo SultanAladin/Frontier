@@ -5,6 +5,7 @@
 
 #pragma once
 #include "Engine/Render/SurfaceMaterial.h"
+#include <map>
 #include <memory>
 
 namespace Frontier
@@ -67,6 +68,9 @@ class MaterialLibrary
     [[nodiscard]] const CompiledSurfaceMaterial *QueryApplied() const noexcept { return Applied.get(); }
     [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource; }
     [[nodiscard]] bool QueryUnapplied() const noexcept { return Source != AppliedSource; }
+    [[nodiscard]] bool QueryParked(const std::filesystem::path &RelativePath) const;
+    [[nodiscard]] size_t QueryParkedCount() const noexcept { return ParkedSources.size(); }
+    [[nodiscard]] bool QueryParkedEdits() const noexcept { return !ParkedSources.empty(); }
     [[nodiscard]] bool QueryTruncated() const noexcept { return Truncated; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return Revision; }
 
@@ -75,6 +79,7 @@ class MaterialLibrary
     std::vector<MaterialCatalogueEntry> Entries;
     std::vector<size_t> Visible;
     std::string Source, SavedSource, AppliedSource, Search, Diagnostic;
+    std::map<std::filesystem::path, std::string> ParkedSources;
     std::unique_ptr<CompiledSurfaceMaterial> Applied;
     uint64_t Revision = 0;
     bool Truncated = false;

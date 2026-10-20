@@ -179,7 +179,12 @@ int main(int ArgumentCount, char **Arguments)
         };
         Panel->ReplaceSource(Minimal+"Roughness=0.65\n");
         IntegrateInterface(1280, 1);
-        Confirm(!Panel->SelectMaterial("CoatedCeramic.material"), "Native selection discarded unsaved edits.");
+        const auto ParkedDraft = Panel->QueryLibrary().QuerySource();
+        Confirm(Panel->SelectMaterial("CoatedCeramic.material"), "Native selection refused to park unsaved edits.");
+        Confirm(Panel->QueryLibrary().QueryParkedCount() == 1, "Parked draft was not retained across selection.");
+        Confirm(Panel->SelectMaterial(Unicode), "Native selection did not return to the parked draft.");
+        Confirm(Panel->QueryLibrary().QuerySource() == ParkedDraft && Panel->QueryLibrary().QueryModified(),
+            "Parked draft was not restored with unsaved status.");
         Click(Panel->QueryApplyExtent());
         Confirm(!Panel->QueryLibrary().QueryUnapplied() && Panel->QueryLibrary().QueryModified(), "Native Apply failed or silently saved.");
         Click(Panel->QuerySaveExtent());

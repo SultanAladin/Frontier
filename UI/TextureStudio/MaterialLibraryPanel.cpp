@@ -152,7 +152,7 @@ float MaterialLibraryPanel::QueryInterfaceScale() const noexcept
 
 bool MaterialLibraryPanel::ConfigureDirectory(const std::filesystem::path &Directory)
 {
-    if (Library.QueryModified() || !Library.ConfigureDirectory(Directory)) return false;
+    if (Library.QueryModified() || Library.QueryParkedEdits() || !Library.ConfigureDirectory(Directory)) return false;
     std::snprintf(DirectoryText.data(), DirectoryText.size(), "%s", EncodeContentPath(Library.QueryDirectory()).c_str());
     SynchronizeSource();
     return true;
@@ -160,7 +160,10 @@ bool MaterialLibraryPanel::ConfigureDirectory(const std::filesystem::path &Direc
 
 bool MaterialLibraryPanel::SelectMaterial(const std::filesystem::path &RelativePath)
 {
-    if (Library.QueryModified() || !Library.OpenMaterial(RelativePath)) return false;
+    if (!Library.OpenMaterial(RelativePath)) return false;
+    // 📝 Restored parked drafts compile into the live preview; disk still needs Save or Revert.
+    if (Library.QueryUnapplied()) (void)Library.ApplySource();
+    PendingLivePreviewApply = false;
     SynchronizeSource();
     return true;
 }
@@ -173,7 +176,7 @@ void MaterialLibraryPanel::ReplaceSource(std::string Source)
 
 bool MaterialLibraryPanel::RequestClose() noexcept
 {
-    if (!Library.QueryModified()) return true;
+    if (!Library.QueryModified() && !Library.QueryParkedEdits()) return true;
     ClosingRequested = true;
     return false;
 }
@@ -276,9 +279,7 @@ void MaterialLibraryPanel::ConstructCatalogue()
         if (Position.y + CardHeight < ClipTop || Position.y > ClipBottom) continue;
         ImGui::SetCursorScreenPos(Position);
         ImGui::PushID(int(Visible[Ordinal]));
-        ImGui::BeginDisabled(Library.QueryModified());
         if (ImGui::InvisibleButton("Material card", ImVec2(CardWidth, CardHeight))) SelectMaterial(Entry.RelativePath);
-        ImGui::EndDisabled();
         const bool Hovered = ImGui::IsItemHovered();
         PixelSpace Surface;
         (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, Scale);
@@ -300,6 +301,8 @@ void MaterialLibraryPanel::ConstructCatalogue()
             CardInk->AddLine(ImVec2(Position.x + 11 * Scale, Position.y + 14 * Scale), ImVec2(Position.x + 13 * Scale, Position.y + 16 * Scale), EncodeMaterialInk(0x2a3927));
             CardInk->AddLine(ImVec2(Position.x + 13 * Scale, Position.y + 16 * Scale), ImVec2(Position.x + 18 * Scale, Position.y + 11 * Scale), EncodeMaterialInk(0x2a3927));
         }
+        if (Library.QueryParked(Entry.RelativePath) || (Library.QuerySelection() == Entry.RelativePath && Library.QueryModified()))
+            CardInk->AddCircleFilled(ImVec2(Position.x + CardWidth - 14 * Scale, Position.y + 14 * Scale), 5 * Scale, EncodeMaterialInk(0xd8b25c));
         CardInk->PopClipRect();
         if (Hovered) ImGui::SetTooltip("%s\n%s", Entry.Name.c_str(), Entry.Description.c_str());
         ImGui::PopID();
@@ -324,15 +327,20 @@ void MaterialLibraryPanel::ConstructViewport()
     Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Available.x, Origin.y + Available.y),
         EncodeMaterialInk(0x202222), EncodeMaterialInk(0x202222), EncodeMaterialInk(0x303235), EncodeMaterialInk(0x303235));
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
-    const float Edge = std::max(1.f, std::min(Available.x * .61f, Available.y * .65f));
-    const ImVec2 Minimum(Origin.x + (Available.x - Edge) * .5f, Origin.y + Available.y * .48f - Edge * .50f);
+    // 📝 Full-bleed cover fit between the header and footer bars; transparent margins crop invisibly.
+    const float ViewTop = Origin.y + 42 * Scale, ViewBottom = Origin.y + Available.y - 45 * Scale;
+    const float ViewWidth = Available.x, ViewHeight = std::max(1.f, ViewBottom - ViewTop);
+    const float Edge = std::max(1.f, std::max(ViewWidth, ViewHeight));
+    const ImVec2 CoverMinimum(Origin.x + (ViewWidth - Edge) * .5f, ViewTop + (ViewHeight - Edge) * .5f);
     if (Image.Texture)
     {
-        Ink->PushClipRect(Origin, ImVec2(Origin.x + Available.x, Origin.y + Available.y), true);
-        Ink->AddImage(ImTextureRef(Image.Texture), Minimum, ImVec2(Minimum.x + Edge, Minimum.y + Edge),
+        Ink->PushClipRect(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewBottom), true);
+        Ink->AddImage(ImTextureRef(Image.Texture), CoverMinimum, ImVec2(CoverMinimum.x + Edge, CoverMinimum.y + Edge),
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
         Ink->PopClipRect();
     }
+    Ink->AddRectFilledMultiColor(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewTop + 130 * Scale),
+        EncodeMaterialInk(0x151515), EncodeMaterialInk(0x151515), EncodeMaterialInk(0x151515, 0), EncodeMaterialInk(0x151515, 0));
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), EncodeMaterialInk(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(4.f, Available.x - 92 * Scale), Origin.y + 7 * Scale));
@@ -427,6 +435,10 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 117 * Scale));
     const float ExposureWidth = std::min(320 * Scale, std::max(30.f, Available.x - 36 * Scale));
     const auto ExposureOrigin = ImGui::GetCursorScreenPos();
+    Ink->AddRectFilled(ImVec2(ExposureOrigin.x - 14 * Scale, ExposureOrigin.y - 10 * Scale),
+        ImVec2(ExposureOrigin.x + ExposureWidth + 14 * Scale, ExposureOrigin.y + 70 * Scale), EncodeMaterialInk(0x181818), 14 * Scale);
+    Ink->AddRect(ImVec2(ExposureOrigin.x - 14 * Scale, ExposureOrigin.y - 10 * Scale),
+        ImVec2(ExposureOrigin.x + ExposureWidth + 14 * Scale, ExposureOrigin.y + 70 * Scale), EncodeMaterialInk(0xffffff, 20), 14 * Scale);
     ImGui::BeginChild("InspectionExposure", ImVec2(ExposureWidth, 64 * Scale), false,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     (void)ConstructProperty("Exposure", .25f, 4.f, Inspection.Exposure, "×", true, .01f);
@@ -626,7 +638,8 @@ void MaterialLibraryPanel::ConstructActions()
     if (ImGui::Button("Save")) (void)Library.SaveMaterial();
     SaveExtent = Extent();
     if (ImGui::Button("Duplicate")) Duplicating = true;
-    if (Library.QueryModified()) ImGui::TextWrapped("Unsaved edits. Save or Revert before switching materials.");
+    if (Library.QueryModified()) ImGui::TextWrapped("Unsaved edits. Save or Revert; drafts survive switching materials.");
+    else if (Library.QueryParkedEdits()) ImGui::TextWrapped("%u other material(s) hold parked edits.", (unsigned)Library.QueryParkedCount());
     if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
 }
 
@@ -674,11 +687,10 @@ void MaterialLibraryPanel::ConstructInspector()
             {
                 ImGui::PushID(int(Index));
                 auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
-                const float CardHeight = 264 * Scale;
                 ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
-                ImGui::BeginChild("Material layer card", ImVec2(0, CardHeight), ImGuiChildFlags_Borders,
+                ImGui::BeginChild("Material layer card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
                 const char *LayerName = Stratum.Classification[0] ? "Clearcoat" : "Surface";
                 ImGui::Text("Layer %u", Index + 1);
@@ -1122,7 +1134,7 @@ void MaterialLibraryPanel::ConstructInterface()
     {
         if (ImGui::MenuItem("Source")) SourceVisible = true;
         if (ImGui::MenuItem("Properties")) SourceVisible = false;
-        if (ImGui::MenuItem("New material", nullptr, false, !Library.QueryModified())) Creating = true;
+        if (ImGui::MenuItem("New material")) Creating = true;
         ImGui::EndPopup();
     }
     ImGui::PopFont();
@@ -1130,7 +1142,7 @@ void MaterialLibraryPanel::ConstructInterface()
     if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::InputTextWithHint("##Directory", "Material library folder", DirectoryText.data(), DirectoryText.size());
-        ImGui::BeginDisabled(Library.QueryModified());
+        ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
         if (ImGui::Button("Open") && ConfigureDirectory(DecodeContentPath(DirectoryText.data()))) ImGui::CloseCurrentPopup();
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -1143,6 +1155,8 @@ void MaterialLibraryPanel::ConstructInterface()
     if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted("Save your material before closing TextureWorkspace?");
+        if (Library.QueryParkedEdits()) ImGui::TextWrapped("%u other material(s) hold parked edits; only the current material is saved here.",
+            (unsigned)Library.QueryParkedCount());
         if (ImGui::Button("Save and close") && Library.SaveMaterial()) CloseAuthorized = true;
         ImGui::SameLine();
         if (ImGui::Button("Discard and close")) CloseAuthorized = true;

@@ -147,3 +147,9 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   verification. Carried UI defects (Project Browser 1:1, zoom FPS, layer cards, toggles, dropdown reuse,
   slider/ramp/gradient editors, rotation math, drag latency) remain queued after this rebuild.
 
+
+## Windows preview 39483329514 (2026-10-20, branch arena/db2f9953-frontier)
+- Commits: ba9b105 (settle-gated Pattern Float32 bridge, preview clip rects, dark-slate default stroke) + 42c9e54 (CI trigger for this branch).
+- CI run 39483329514: Windows + Publish jobs success; Release unsigned preview at frontier-windows-39483329514.
+- Linux host verification on ba9b105: full ctest 21/21 green; VectorSelectionValidation rotation/resize 1431/1431 pass (CPU).
+- Confirmed open shader gap: PreviewPbrSurface samples albedo only; height/normal have no bindings (next round).

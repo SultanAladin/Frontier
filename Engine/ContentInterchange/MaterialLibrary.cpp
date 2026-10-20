@@ -123,6 +123,7 @@ bool MaterialLibrary::ConfigureDirectory(const std::filesystem::path &Requested)
         Visible = std::move(Candidate.Visible);
         Truncated = Candidate.Truncated;
         Selection.clear();
+        ParkedSources.clear();
         Source.clear();
         SavedSource.clear();
         AppliedSource.clear();
@@ -213,6 +214,13 @@ bool MaterialLibrary::Refresh()
             return Left.RelativePath.generic_u8string() < Right.RelativePath.generic_u8string();
         });
         Entries = std::move(Replacement);
+        for (auto Position = ParkedSources.begin(); Position != ParkedSources.end();)
+        {
+            const auto Present = std::find_if(Entries.begin(), Entries.end(),
+                [&](const auto &Entry) { return Entry.RelativePath == Position->first; });
+            if (Present == Entries.end()) Position = ParkedSources.erase(Position);
+            else ++Position;
+        }
         Truncated = Limited;
         FilterEntries();
         Diagnostic.clear();
@@ -250,13 +258,30 @@ bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
     DiagnosticJournal::Append("MaterialOpen", DiagnosticJournal::EncodePath(RelativePath));
     try
     {
+        const auto Target = NormalizeMaterialPath(RelativePath);
         auto ReplacementSource = DecodeMaterialSource(ResolveMaterial(RelativePath));
         auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(ReplacementSource), Directory));
-        Selection = NormalizeMaterialPath(RelativePath);
+        // 📝 Unsaved drafts ride along across selections; reopening the same material is an explicit refresh from disk.
+        const auto Previous = Selection;
+        if (Target != Previous)
+        {
+            if (!Previous.empty() && Source != SavedSource) ParkedSources[Previous] = Source;
+        }
+        else ParkedSources.erase(Target);
+        Selection = Target;
         Source = std::move(ReplacementSource);
         SavedSource = Source;
         AppliedSource = Source;
         Applied = std::move(Replacement);
+        if (Target != Previous)
+        {
+            const auto Parked = ParkedSources.find(Target);
+            if (Parked != ParkedSources.end())
+            {
+                Source = Parked->second;
+                ParkedSources.erase(Parked);
+            }
+        }
         ++Revision;
         Diagnostic.clear();
         return true;
@@ -424,9 +449,18 @@ bool MaterialLibrary::RevertSource()
     DiagnosticJournal::Append("MaterialOperation", "RevertSource " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
     const auto Previous = Source;
     Source = SavedSource;
-    if (ApplySource()) return true;
+    if (ApplySource())
+    {
+        ParkedSources.erase(Selection);
+        return true;
+    }
     Source = Previous;
     return false;
+}
+
+bool MaterialLibrary::QueryParked(const std::filesystem::path &RelativePath) const
+{
+    return ParkedSources.find(NormalizeMaterialPath(RelativePath)) != ParkedSources.end();
 }
 
 bool MaterialLibrary::SaveMaterial()
@@ -441,6 +475,7 @@ bool MaterialLibrary::SaveMaterial()
         if (QueryUnapplied() && !ApplySource()) return false;
         if (!TextFileReplacement::Finalize(Destination, Source, Diagnostic)) return false;
         SavedSource = Source;
+        ParkedSources.erase(Selection);
         const auto Saved = Source;
         if (!Refresh()) return false;
         Source = Saved;
