@@ -16,6 +16,7 @@ Rulings that permit something the master naming rules would otherwise forbid. Ea
 | # | Term / rule waived | Scope (where it is allowed) | Authority | Notes |
 |---|---|---|---|---|
 | E1 | `Provider` (banned §1.6 job-title) | **only** the folder `Internal/Platform/InputProvider/` | User, 2026-07-26 | Not a precedent. `Provider` stays banned for every other identifier, type, field, and folder. The component inside is `InputEncoder`; the exemption covers the folder name alone. |
+| E2 | `Object` (banned generic-filler list, SKILL-Naming §1) in the system name `SceneObject` | **only** the system name `SceneObject` and identifiers that begin with it: folder `Engine/SceneObject/`, `UI/Editor/SceneObjectInspector.*`, `Exhibits/SceneObjectValidation/`, and the types inside them. | User, 2026-10-20 ("name it SceneObject") | Not a precedent. `Object` stays banned for every other identifier, type, field, and folder. Each `SceneObject` part is named by its own class (`PlinthPart`, `ShaftPart`, …), not `…Object`. Recorded for review in `Documentation/Tracker.md` 018. |
 
 ## 2 · Suggestions (proposed, awaiting ruling)
 

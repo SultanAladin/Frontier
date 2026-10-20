@@ -462,13 +462,14 @@ ControlHit ControlKit::Dropdown(PixelSpace& Surface, const PlaneExtent& Extent, 
     const float H = Extent.Height(), R = H * 0.5f;
     const float CaretW = 44.0f;
     const PlaneExtent Caret = Spanning(Extent.MaximumX - CaretW, Extent.MinimumY, CaretW, H);
-    Surface.FillRectangle(Extent, Faded(Palette().Field, Opacity), R);
+    // Dropdown spec: charcoal value segment (Selected), darker chevron segment (Inset, Raised on hover), white chevron.
+    Surface.FillRectangle(Extent, Faded(Palette().Selected, Opacity), R);
     Surface.FillRectangle(Spanning(Caret.MinimumX - R, Extent.MinimumY, CaretW + R, H), Faded(Hit.Hovered ? Palette().Raised : Palette().Inset, Opacity), R);
-    Surface.FillRectangle(Spanning(Caret.MinimumX - R, Extent.MinimumY, R, H), Faded(Palette().Field, Opacity));   // square the seam
+    Surface.FillRectangle(Spanning(Caret.MinimumX - R, Extent.MinimumY, R, H), Faded(Palette().Selected, Opacity));   // square the seam
     Surface.FillRectangle(Spanning(Caret.MinimumX, Extent.MinimumY, 1.0f, H), Faded(Palette().Stroke, Opacity));
     OutlineRounded(Surface, Extent, Faded(Palette().Stroke, Opacity), R);
     TextLeading(Surface, Extent, 16.0f, Faded(Palette().Text, Opacity), Current, 13.5f);
-    GlyphCentred(Surface, Caret, 16.0f, Faded(Palette().TextDim, Opacity), Open ? ControlCentreIconCategory::ChevronUp : ControlCentreIconCategory::ChevronDown);
+    GlyphCentred(Surface, Caret, 16.0f, Faded(Palette().Primary, Opacity), Open ? ControlCentreIconCategory::ChevronUp : ControlCentreIconCategory::ChevronDown);
     return Hit;
 }
 

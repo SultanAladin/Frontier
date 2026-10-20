@@ -1,0 +1,38 @@
+PASS  template part count                          expected 6                        observed 6
+PASS  template entry 0 is PlinthPart               expected PlinthPart               observed PlinthPart
+PASS  template emitter links host 3, data 4        expected host 3, data 4           observed host 3, data 4
+PASS  template validates                           expected true                     observed true
+PASS  pole length = lamp height - base height      expected 7.5 m                    observed 7.5 m
+PASS  pole length follows lamp height edit         expected 11.5 m                   observed 11.5 m
+PASS  lamp height clamps to maximum                expected 20                       observed 20
+PASS  lamp height clamps to minimum                expected 3                        observed 3
+PASS  intensity edit reads back                    expected 4200                     observed 4200
+PASS  light radius edit reads back                 expected 0.2                      observed 0.2
+PASS  colour blue clamps to 1                      expected 1                        observed 1
+PASS  IES choice clamps to last option             expected 3                        observed 3
+PASS  misspelt property refused                    expected UnknownProperty          observed UnknownProperty
+PASS  colour edited as a number refused            expected WrongPropertyKind        observed WrongPropertyKind
+PASS  bad index refused                            expected IndexOutOfRange          observed IndexOutOfRange
+PASS  refused edits leave value alone              expected 8                        observed 8
+PASS  arm on a plinth refused                      expected HostClassMismatch        observed HostClassMismatch
+PASS  shaft without host refused                   expected MissingHost              observed MissingHost
+PASS  shaft on a missing index refused             expected MissingHost              observed MissingHost
+PASS  light on a plinth refused                    expected HostClassMismatch        observed HostClassMismatch
+PASS  light without a profile refused              expected MissingData              observed MissingData
+PASS  plinth on the ground refused a host          expected UnexpectedHost           observed UnexpectedHost
+PASS  refused adds leave the store alone           expected 1                        observed 1
+PASS  removing a host in use refused               expected InUse                    observed InUse
+PASS  removing a profile in use refused            expected InUse                    observed InUse
+PASS  removing the unused light accepted           expected Accepted                 observed Accepted
+PASS  store has five parts after removal           expected 5                        observed 5
+PASS  unused part before a host removed            expected Accepted                 observed Accepted
+PASS  host link shifts down after removal          expected host 0                   observed 0
+PASS  shifted store still validates                expected true                     observed true
+PASS  valid list is adopted                        expected true, 6 parts            observed true, 6 parts
+PASS  forward host refused                         expected false                    observed false
+PASS  refused list leaves store unchanged          expected 6 parts, host 0          observed 6 parts, host 0
+PASS  refusal explains the fault                   expected at least one line        observed 1 line(s)
+PASS  out-of-range value refused                   expected false                    observed false
+PASS  missing value refused                        expected false                    observed false
+
+SceneObjectValidation: 36 passed, 0 failed

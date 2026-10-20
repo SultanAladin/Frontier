@@ -22,6 +22,8 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | SceneObject Streetlight (plan)        | Partial     | C++ model tested (36); inspector not rendered; save and Construct left. |
+| 018 | Naming ruling: `Object` banned (SKILL-Naming §1) vs user-named `SceneObject` | Review | Scoped as E2 in SYSTEM_NOMENCLATURE.md §1; confirm or revise the ban. |
 
 ## Verification
 

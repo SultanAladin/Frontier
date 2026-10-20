@@ -130,7 +130,7 @@ bool  TangentEndpointCondition;           // → SolveSpace tangent needs a shar
 
 ---
 
-## 4. Construction catalogue — 11 bands
+## 4. Construction catalogue — 11 CAD bands + 1 composed band
 
 Consolidated from the survey. Ordered as the rail presents them: the bands reached for constantly at
 the top, data-sourced and annotation last.
@@ -148,6 +148,7 @@ the top, data-sourced and annotation last.
 | 9 | Data-Sourced | 8 | `Heightfield` needs an image · `Cluster` needs an import |
 | 10 | Illumination & Framing | 7 | ungated |
 | 11 | Annotation | 8 | dimension ops need ≥1 measurable component |
+| 12 | Installations | 1 | ungated · composed units (Streetlight), not CAD ops — **outside the 128 total** |
 
 **128 operations across 11 bands.** Two structural decisions, both taken from the research:
 
