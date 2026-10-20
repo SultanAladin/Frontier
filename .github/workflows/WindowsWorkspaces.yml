@@ -66,11 +66,11 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Compile Frontier, Texture Workspace, shader entries and acceptance tests
         run: |
-          cmake --build Build/Windows --config Release --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
+          cmake --build Build/Windows --config Release --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders VectorAuthoringImportValidation MaterialPreviewConfigurationValidation MaterialLibraryValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Execute Windows CPU and native UI acceptance tests
         run: |
-          ctest --test-dir Build/Windows -C Release --output-on-failure -R '^(MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
+          ctest --test-dir Build/Windows -C Release --output-on-failure -R '^(WebPatternNativeImportFixture|WebPatternNativeImportValidation|MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify fail-closed distribution checks
         run: |

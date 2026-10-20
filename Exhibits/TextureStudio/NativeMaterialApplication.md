@@ -21,8 +21,9 @@ still open.
 
 ## Current phase: web Pattern geometry import
 
-- Added `Automation/ConvertWebPattern.mjs`, a fail-closed converter from normalized web Pattern JSON into native vector-authoring TOML. It covers supported primitive/path geometry, transforms, literal solid paint, path fill rules, stitch/weave roles, and channel contributions; four Node tests currently exercise conversion and rejection cases.
-- This is only the first importer increment. Masks, embedded assets/SVG/text, linked/gradient paints, folders/instances, repeat-edge wrapping, Pattern finish roughness/metalness, and complete document semantics are still unsupported. Stamp remains deferred. See `PatternJsonNativeImport.md` for the exact scope.
+- `Automation/ConvertWebPattern.mjs` now exports supported web Pattern vector geometry to native authoring TOML. It preserves sRGB paints, fill rules, transforms, outlined text, supported rectangle/ellipse masks, stitch/weave identity, scalar roughness/metalness/occlusion targets and per-channel settings. Five Node tests pass.
+- Added an end-to-end CTest path that generates a JSON fixture, decodes it through the strict native C++ TOML codec, and compiles all seven Float32 surface-channel programs. Derived normals now require Height + Normal and use Normal strength without scaling the Height map; shader compilation remains in Windows Actions.
+- Embedded assets/SVG, most masks, linked/gradient paints, folders/instances, repeat-edge wrapping, editable text metadata and background/document compositing remain unsupported. Stamp remains deferred. See `PatternJsonNativeImport.md` for the exact scope.
 
 ## Remaining gates
 

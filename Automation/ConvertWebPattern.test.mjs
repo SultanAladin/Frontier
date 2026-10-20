@@ -10,20 +10,30 @@ test("converts normalized primitives and cubic paths into native vector instruct
   const converted = convertPatternJson(document([
     { kind: "star", name: "Gold thread", x: 128, y: 256, width: 80, height: 120,
       starPoints: 7, innerRadius: 0.38, rotation: 25, color: "#c18a2e", strokeWidth: 2,
-      stitchRole: "thread", relief: 0.7,
+      roughness: 0.34, metalness: 0.82, stitchRole: "thread", relief: 0.7,
       SurfaceChannels: { Color: { Enabled: false, Strength: 0.35 }, Height: { Enabled: true, Strength: 0.8 },
-        Normal: { Enabled: true, Strength: 1.2 }, Metalness: { Enabled: true, Strength: 0.75 } } },
+        Normal: { Enabled: true, Strength: 1.2 }, Roughness: { Enabled: true, Strength: 0.45 },
+        Metalness: { Enabled: true, Strength: 0.75 }, Occlusion: { Enabled: true, Strength: 0.4 } } },
     { kind: "path", name: "Curve", x: 300, y: 250, width: 100, height: 100,
       nodes: [{ x: 10, y: 50, out: { x: 30, y: 5 } }, { x: 90, y: 50, in: { x: 70, y: 95 } }],
-      color: "#e0e0e0", strokeWidth: 4 },
+      color: "#e0e0e0", strokeWidth: 4, opacity: 0.8,
+      SurfaceChannels: { Opacity: { Enabled: true, Strength: 0.5 } } },
+    { kind: "text", name: "Outlined text", path: "M10 10 L90 10 L50 90 Z", x: 250, y: 100,
+      width: 120, height: 80, color: "#ffffff", paint: true },
   ]));
   assert.equal(converted.format, "frontier.vector_artwork");
-  assert.equal(converted.layers.length, 2);
+  assert.equal(converted.layers.length, 3);
+  assert.ok(converted.segments.length > 8);
   assert.equal(converted.layers[0].surface_structure, "stitch");
   assert.equal(converted.layers[0].textile_geometry, "stitch_thread");
   assert.equal(converted.layers[0].surface_channels.normal.strength, 1.2);
   assert.equal(converted.layers[0].surface_channels.colour.enabled, false);
   assert.equal(converted.layers[0].surface_channels.colour.strength, 0.35);
+  assert.equal(converted.layers[0].surface_channels.roughness.strength, 0.34);
+  assert.equal(converted.layers[0].surface_channels.metalness.strength, 0.82);
+  assert.equal(converted.layers[0].surface_channels.occlusion.strength, 0.6);
+  assert.ok(Math.abs(converted.instructions[0].colour[0] - 193 / 255) < 1e-8);
+  assert.ok(Math.abs(converted.instructions.find((item) => item.transform[1] === 4).transform[2] - 0.4) < 1e-8);
   assert.ok(converted.segments.length > 4);
   assert.ok(converted.instructions.length >= 2);
   assert.match(serializeNativeToml(converted), /format = "frontier\.vector_artwork"/);
@@ -50,9 +60,36 @@ test("converts the remaining built-in vector silhouettes and arc closures", () =
   assert.ok(converted.segments.length >= 30);
 });
 
+test("maps supported rectangle and ellipse masks through the layer transform", () => {
+  const converted = convertPatternJson(document([{
+    kind: "rect", name: "Masked rectangle", x: 256, y: 256, width: 100, height: 50,
+    rotation: 90, color: "#ffffff", mask: { category: "ellipse", x: 75, y: 50,
+      width: 50, height: 50, opacity: 0.7, invert: true, mode: "luminance" },
+  }]));
+  const layer = converted.layers[0];
+  assert.equal(layer.mask_enabled, true);
+  assert.equal(layer.mask_inverted, true);
+  assert.equal(layer.mask_luminance, true);
+  assert.deepEqual(layer.mask.topology, [1, 0, 0, 0]);
+  assert.ok(Math.abs(layer.mask.bounds[0] - 256) < 1e-5);
+  assert.ok(Math.abs(layer.mask.bounds[1] - 281) < 1e-5);
+  assert.equal(layer.mask.bounds[2], 50);
+  assert.equal(layer.mask.bounds[3], 25);
+  assert.equal(layer.mask.transform[2], 0.7);
+  assert.match(serializeNativeToml(converted), /mask_enabled = true/);
+});
+
 test("fails closed rather than silently dropping unsupported Pattern features", () => {
   assert.throws(() => convertPatternJson(document([{ kind: "image", src: "data:image/png;base64,AA==" }])), /not yet supported/);
-  assert.throws(() => convertPatternJson(document([{ kind: "rect", mask: { category: "ellipse" } }])), /artwork mask/);
+  assert.throws(() => convertPatternJson(document([{ kind: "star", mask: { category: "ellipse" } }])), /supported only on unstroked rectangle and ellipse/);
+  assert.throws(() => convertPatternJson(document([{ kind: "rect", mask: { category: "image", image: "data:image/png;base64,AA==" } }])), /image or painted artwork mask/);
   assert.throws(() => convertPatternJson(document([{ kind: "rect", fillSource: { category: "linear", stops: [{ color: "#ffffff", offset: 0 }, { color: "#000000", offset: 1 }] } }])), /linked or gradient/);
   assert.throws(() => convertPatternJson(document([{ kind: "rect", group: "group-1" }])), /folders, linked instances/);
+  assert.throws(() => convertPatternJson(document([{ kind: "rect", stitchRole: "thread",
+    SurfaceChannels: { Height: { Enabled: false } } }])), /requires enabled, non-zero Height and Normal/);
+  assert.throws(() => convertPatternJson(document([{ kind: "rect",
+    SurfaceChannels: { Normal: { Source: "data:image/png;base64,AA==" } } }])), /image normal map/);
+  assert.throws(() => convertPatternJson(document(Array.from({ length: 64 }, () => ({
+    kind: "rect", mask: { category: "ellipse" },
+  })))), /128-instruction limit after layer and mask composition/);
 });

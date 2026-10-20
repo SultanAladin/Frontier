@@ -154,6 +154,21 @@ include(CTest)
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
 if(BUILD_TESTING)
+    find_program(FRONTIER_PATTERN_IMPORT_NODE NAMES node)
+    if(FRONTIER_PATTERN_IMPORT_NODE)
+        set(FRONTIER_PATTERN_IMPORT_TOML "${CMAKE_BINARY_DIR}/WebPatternImport/Pattern.vector.toml")
+        add_executable(VectorAuthoringImportValidation Exhibits/TextureStudio/Code/VectorAuthoringImportValidation.cpp)
+        target_link_libraries(VectorAuthoringImportValidation PRIVATE FrontierVectorAuthoring)
+        add_test(NAME WebPatternNativeImportFixture COMMAND "${FRONTIER_PATTERN_IMPORT_NODE}"
+            "${CMAKE_SOURCE_DIR}/Automation/ConvertWebPattern.mjs"
+            "${CMAKE_SOURCE_DIR}/Automation/Fixtures/PatternNativeImport.json"
+            "${FRONTIER_PATTERN_IMPORT_TOML}")
+        add_test(NAME WebPatternNativeImportValidation COMMAND VectorAuthoringImportValidation
+            "${FRONTIER_PATTERN_IMPORT_TOML}")
+        set_tests_properties(WebPatternNativeImportValidation PROPERTIES DEPENDS WebPatternNativeImportFixture)
+        set_tests_properties(WebPatternNativeImportFixture WebPatternNativeImportValidation PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    endif()
     add_executable(MaterialPreviewConfigurationValidation Exhibits/TextureStudio/Code/MaterialPreviewConfigurationValidation.cpp)
     target_link_libraries(MaterialPreviewConfigurationValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialPreviewConfigurationValidation COMMAND MaterialPreviewConfigurationValidation

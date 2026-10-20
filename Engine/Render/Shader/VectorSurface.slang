@@ -172,8 +172,10 @@ float EvaluateSurfaceHeight(float2 Point, float Antialias)
         VectorCoverageInstruction Contribution = Instructions[128 + Index];
         float Alpha = Evaluations[Contribution.Topology.x].a;
         uint Enabled = Contribution.Topology.z;
-        if ((Enabled & (1u << 1)) != 0)
-            Height = lerp(Height, Contribution.Transform.w * Contribution.Bounds.y, saturate(Alpha));
+        // Derived normals consume a layer only when both authored channels are
+        // present; Normal strength scales its height contribution, not the height map.
+        if ((Enabled & (1u << 1)) != 0 && (Enabled & (1u << 2)) != 0)
+            Height = lerp(Height, Contribution.Transform.w * Contribution.Bounds.y * Contribution.Bounds.z, saturate(Alpha));
     }
     return Height;
 }

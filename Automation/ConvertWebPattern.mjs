@@ -3,7 +3,7 @@
 // into the strict native Vector Authoring TOML interchange format.
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { validatePattern } from "../Experimental/TextureStudio/src/patternDocument.js";
 import {
   patternPathContours,
@@ -12,21 +12,15 @@ import {
 } from "../Experimental/TextureStudio/src/patternGeometry.js";
 
 const Channels = ["Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Occlusion"];
-const NativeChannel = Object.fromEntries(Channels.map((name, index) => [name, index]));
 const fail = (message) => { throw new Error(message); };
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-function srgbToLinear(byte) {
-  const value = byte / 255;
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-}
 function parseColour(value, label) {
-  if (typeof value !== "string" || !/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(value))
-    fail(`${label} must be a literal #RRGGBB or #RRGGBBAA colour; linked palettes and gradients are not yet importable.`);
+  if (typeof value !== "string" || !/^#[\da-f]{6}$/i.test(value))
+    fail(`${label} must be a literal #RRGGBB colour; linked palettes, alpha colours and gradients are not yet importable.`);
   const hex = value.slice(1);
-  return [0, 2, 4, 6].map((offset, index) => index === 3
-    ? (hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1)
-    : srgbToLinear(parseInt(hex.slice(offset, offset + 2), 16)));
+  return [parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255,
+    parseInt(hex.slice(4, 6), 16) / 255, 1];
 }
 function flowerNodes(layer) {
   const circle = patternPrimitiveNodes({ kind: "ellipse" }).nodes;
@@ -65,7 +59,7 @@ function contoursFor(layer) {
   catch (error) { fail(`Layer “${layer.name}”: ${error.message}`); }
   if (typeof pathData !== "string" || !pathData.trim())
     fail(`Layer “${layer.name}” (${layer.kind}) has no native-convertible vector path.`);
-  const contours = patternPathContours(pathData, 400);
+  const contours = patternPathContours(pathData, 4000);
   if (!contours?.length) fail(`Layer “${layer.name}”: SVG path could not be parsed.`);
   return contours;
 }
@@ -98,8 +92,12 @@ function channelData(layer) {
     result[name] = { enabled: name === "Occlusion" ? item.Enabled === true : item.Enabled !== false,
       strength: Math.max(0, Math.min(name === "Normal" ? 4 : 1, finite(item.Strength, 1))) };
   }
+  // Native scalar contributions carry their target map value. Web Pattern stores
+  // the corresponding targets as per-layer material fields rather than channel strengths.
+  result.Roughness.strength = Math.max(0, Math.min(1, finite(layer.roughness, 0.7)));
+  result.Metalness.strength = Math.max(0, Math.min(1, finite(layer.metalness, 0)));
   result.Occlusion = { enabled: source.Occlusion?.Enabled === true,
-    strength: Math.max(0, Math.min(1, finite(source.Occlusion?.Strength, 1))) };
+    strength: 1 - Math.max(0, Math.min(1, finite(source.Occlusion?.Strength, 1))) };
   return result;
 }
 function layerStructure(layer) {
@@ -109,6 +107,32 @@ function layerStructure(layer) {
   }
   if (layer.weaveRole === "yarn") return { structure: "weave", geometry: "weave_yarn" };
   return { structure: "freeform", geometry: "unclassified" };
+}
+function nativeMask(layer) {
+  const mask = layer.mask;
+  if (!mask) return {};
+  if (!["rect", "ellipse"].includes(layer.kind) || layer.strokeWidth > 0)
+    fail(`Layer “${layer.name}” masks are currently supported only on unstroked rectangle and ellipse geometry.`);
+  if (!["rect", "ellipse"].includes(mask.category) || mask.paint?.length)
+    fail(`Layer “${layer.name}” uses an image or painted artwork mask that the native vector format cannot yet represent.`);
+  const rotation = finite(layer.rotation) * Math.PI / 180;
+  let localX = ((mask.x - 50) * layer.width) / 100;
+  let localY = ((mask.y - 50) * layer.height) / 100;
+  if (layer.flipX) localX = -localX;
+  if (layer.flipY) localY = -localY;
+  const centreX = layer.x + Math.cos(rotation) * localX - Math.sin(rotation) * localY;
+  const centreY = layer.y + Math.sin(rotation) * localX + Math.cos(rotation) * localY;
+  return {
+    mask_enabled: mask.enabled,
+    mask_inverted: mask.invert,
+    mask_luminance: mask.mode === "luminance",
+    mask: {
+      topology: [mask.category === "ellipse" ? 1 : 0, 0, 0, 0],
+      bounds: [centreX, centreY, layer.width * mask.width / 100, layer.height * mask.height / 100],
+      transform: [rotation, 0, mask.opacity, 0],
+      colour: [1, 1, 1, 1], colour_end: [1, 1, 1, 1], paint: [0, 0, 0, 1],
+    },
+  };
 }
 function instruction({ layer, root, segmentStart, segmentCount, colour, filled, strokeWidth, fillRule }) {
   return {
@@ -120,15 +144,14 @@ function instruction({ layer, root, segmentStart, segmentCount, colour, filled, 
     root,
   };
 }
-function nativeLayer(layer, token, root, contribution, structure) {
-  const channels = channelData(layer);
+function nativeLayer(layer, token, root, structure, maskFields = {}, channels = channelData(layer)) {
   const surface_channels = Object.fromEntries(Channels.map((name) => [name.toLowerCase(), channels[name]]));
   return {
     token, name: String(layer.name || `Pattern Layer ${token}`).slice(0, 80),
     visible: layer.visible !== false, locked: layer.locked === true,
     root, surface_channels, surface_structure: structure.structure,
     textile_geometry: structure.geometry, surface_relief: Math.max(-1, Math.min(1, finite(layer.relief, 0))),
-    ...(contribution ? { channel_override: contribution } : {}),
+    ...maskFields,
   };
 }
 
@@ -149,11 +172,18 @@ export function convertPatternJson(input) {
     const halfY = Math.abs(Math.sin(rotation)) * layer.width / 2 + Math.abs(Math.cos(rotation)) * layer.height / 2;
     if (layer.visible && (layer.x - halfX < 0 || layer.x + halfX > 512 || layer.y - halfY < 0 || layer.y + halfY > 512))
       fail(`Layer “${layer.name}” crosses a Pattern tile edge; native periodic wrapping is not implemented yet.`);
-    if (["image", "svg", "text"].includes(layer.kind))
+    if (["image", "svg"].includes(layer.kind))
       fail(`Layer “${layer.name}” uses ${layer.kind} content, which is not yet supported by native geometry import; import was stopped without omitting it.`);
-    if (layer.mask?.enabled) fail(`Layer “${layer.name}” has an artwork mask that the native vector format cannot yet represent; import was stopped without dropping it.`);
+    if (layer.kind === "text" && !layer.path.trim())
+      fail(`Layer “${layer.name}” has no stored text outline to import.`);
     if (layer.fillSource || layer.strokeSource || layer.fillGradient || layer.strokeGradient)
       fail(`Layer “${layer.name}” uses linked or gradient paint; only literal solid colours are supported in this import phase.`);
+    const channels = channelData(layer);
+    if (layer.SurfaceChannels?.Normal?.Source)
+      fail(`Layer “${layer.name}” supplies an image normal map; native Pattern import currently supports height-derived normals only.`);
+    if ((layer.stitchRole || layer.weaveRole) &&
+        (!channels.Height.enabled || channels.Height.strength <= 0 || !channels.Normal.enabled || channels.Normal.strength <= 0))
+      fail(`Layer “${layer.name}” is stitch/weave geometry and requires enabled, non-zero Height and Normal contributions.`);
     if (layer.strokeLinejoin && layer.strokeLinejoin !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinejoin} stroke joins; native preview currently supports round joins only.`);
     if (layer.strokeLinecap && layer.strokeLinecap !== "round") fail(`Layer “${layer.name}” uses ${layer.strokeLinecap} stroke caps; native preview currently supports round caps only.`);
     const contours = contoursFor(layer);
@@ -165,11 +195,13 @@ export function convertPatternJson(input) {
     const strokeWidth = Math.max(0, finite(layer.strokeWidth, 0));
     const fillColour = parseColour(layer.color || "#ffffff", `Layer “${layer.name}” fill`);
     const strokeColour = parseColour(layer.stroke || layer.color || "#ffffff", `Layer “${layer.name}” stroke`);
+    const outputOpacity = channels.Opacity.enabled ? layer.opacity * finite(layer.SurfaceChannels?.Opacity?.Strength, 1) : 1;
+    const coverageLayer = { ...layer, opacity: outputOpacity };
     const sameColour = fillColour.every((value, channel) => Math.abs(value - strokeColour[channel]) < 1e-7);
     const roots = [];
     const make = (colour, filled, width) => {
       const root = instructions.length;
-      instructions.push(instruction({ layer, root, segmentStart, segmentCount: convertedSegments.length,
+      instructions.push(instruction({ layer: coverageLayer, root, segmentStart, segmentCount: convertedSegments.length,
         colour, filled, strokeWidth: width, fillRule: layer.fillRule }));
       roots.push(root);
     };
@@ -185,9 +217,12 @@ export function convertPatternJson(input) {
         transform: [0, 1, 1, 0], colour: [1, 1, 1, 1], colour_end: [1, 1, 1, 1], paint: [0, 0, 0, 0], root });
     }
     const shape = layerStructure(layer);
-    layers.push(nativeLayer(layer, index + 1, root, null, shape));
+    layers.push(nativeLayer(layer, index + 1, root, shape, nativeMask(layer), channels));
   }
-  if (instructions.length > 128) fail("Pattern exceeds the native 128-instruction limit.");
+  const ComposedInstructionCount = instructions.length + Math.max(0, layers.length - 1) +
+    layers.filter((layer) => layer.mask).length * 2;
+  if (instructions.length > 128 || ComposedInstructionCount > 128)
+    fail("Pattern exceeds the native 128-instruction limit after layer and mask composition.");
   return { format: "frontier.vector_artwork", version: 1,
     name: String(pattern.name || "Imported Pattern").slice(0, 80), stamp: false,
     token_clock: layers.length, instructions, segments, layers, enclosures: [] };
