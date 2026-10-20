@@ -66,11 +66,13 @@ inline MaterialPreviewProjection ConstructMaterialPreviewProjection(const Materi
     const float Cosθ = std::cos(θ), Sinθ = std::sin(θ), Cosφ = std::cos(φ), Sinφ = std::sin(φ);
     const float Translation = 16.f * uint32_t(Configuration.Shape);
     MaterialPreviewProjection Projection;
-    // 📝 Yaw spins about world-up first, pitch nods about the yawed local axis; yaw never induces vertical sway.
-    Projection.ViewFromSurface = {Cosθ, 0, -Sinθ, 0,
-        Sinθ * Sinφ, Cosφ, Cosθ * Sinφ, 0,
-        Sinθ * Cosφ, -Sinφ, Cosθ * Cosφ, 0,
-        -Cosθ * Translation, 0, Sinθ * Translation, 1};
+    // 📝 LookAt-style orbit (Blender/three.js convention): yaw spins about screen-vertical world-up through
+    // the pivot, pitch tips about the fixed screen-right axis. The object up-axis never leans sideways and
+    // vertical drags never roll; off-axis points trace screen ellipses during pitched yaw, as in standard tools.
+    Projection.ViewFromSurface = {Cosθ, Sinφ * Sinθ, -Cosφ * Sinθ, 0,
+        0, Cosφ, Sinφ, 0,
+        Sinθ, -Sinφ * Cosθ, Cosφ * Cosθ, 0,
+        -Cosθ * Translation, -Sinφ * Sinθ * Translation, Cosφ * Sinθ * Translation, 1};
     Projection.ClipFromSurface = Projection.ViewFromSurface;
     for (size_t Column = 0; Column < 4; ++Column)
     {

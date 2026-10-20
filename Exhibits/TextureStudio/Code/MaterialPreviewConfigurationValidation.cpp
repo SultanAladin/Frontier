@@ -68,7 +68,22 @@ int main(int Count, char **Arguments)
         Confirm(std::abs(Camera.ClipFromSurface[0] * 48 + Camera.ClipFromSurface[12] - Inspection.PanX) < .0001f &&
             std::abs(Camera.ClipFromSurface[1] * 48 + Camera.ClipFromSurface[13] - Inspection.PanY) < .0001f,
             "Rotating an offset inspection shape lost its camera centre.");
-        float YawedLow = std::numeric_limits<float>::max(), YawedHigh = std::numeric_limits<float>::lowest();
+        // 📝 Zero-ellipse turntable yaw is incompatible with a screen-vertical object up-axis: demanding a
+        // fixed front-point height forces the up-axis to lean sideways (and pitch to roll at 90° yaw). Standard
+        // orbit tools trace screen ellipses instead, so yaw asserts the up-axis, pitch asserts the tip axis.
+        for (float Theta : {0.f, .7f, -1.2f, 2.4f})
+            for (float Pitch : {-1.2f, -.4f, 0.f, .5f, 1.2f})
+            {
+                MaterialPreviewConfiguration Yawed;
+                Yawed.Shape = MaterialPreviewShape::Cube;
+                Yawed.Yaw = Theta;
+                Yawed.Pitch = Pitch;
+                const auto Pose = ConstructMaterialPreviewProjection(Yawed);
+                const auto &View = Pose.ViewFromSurface;
+                const float Lean = View[0] * 48 + View[4] + View[12];
+                Confirm(std::abs(Lean) < .0001f, "Yaw orbit leaned the object up-axis sideways.");
+            }
+        float EllipseLow = std::numeric_limits<float>::max(), EllipseHigh = std::numeric_limits<float>::lowest();
         for (float Theta : {0.f, .7f, -1.2f, 2.4f})
         {
             MaterialPreviewConfiguration Yawed;
@@ -76,11 +91,41 @@ int main(int Count, char **Arguments)
             Yawed.Yaw = Theta;
             Yawed.Pitch = -.4f;
             const auto Pose = ConstructMaterialPreviewProjection(Yawed);
-            const float Height = Pose.ClipFromSurface[1] * 48 + Pose.ClipFromSurface[9] + Pose.ClipFromSurface[13];
-            YawedLow = std::min(YawedLow, Height);
-            YawedHigh = std::max(YawedHigh, Height);
+            const auto &View = Pose.ViewFromSurface;
+            const float Height = View[1] * 48 + View[9] + View[13];
+            EllipseLow = std::min(EllipseLow, Height);
+            EllipseHigh = std::max(EllipseHigh, Height);
         }
-        Confirm(YawedHigh - YawedLow < .00001f, "Yaw orbit induced vertical sway.");
+        Confirm(EllipseHigh - EllipseLow > .1f, "Pitched yaw lost its standard screen ellipse.");
+        for (float Pitch : {-.9f, -.4f, 0.f, .5f, 1.2f})
+        {
+            MaterialPreviewConfiguration Pitched;
+            Pitched.Shape = MaterialPreviewShape::Sphere;
+            Pitched.Yaw = 1.5707963f;
+            Pitched.Pitch = Pitch;
+            const auto Pose = ConstructMaterialPreviewProjection(Pitched);
+            const auto &View = Pose.ViewFromSurface;
+            const float TippedX = View[0] * 16 + View[4] + View[12];
+            Confirm(std::abs(TippedX) < .0001f, "Pitched a yawed shape about the view axis (roll).");
+        }
+        for (const auto Shape : {MaterialPreviewShape::ShaderBall, MaterialPreviewShape::Sphere, MaterialPreviewShape::Plane,
+                                 MaterialPreviewShape::Cube, MaterialPreviewShape::Cloth})
+        {
+            MaterialPreviewConfiguration Centred;
+            Centred.Shape = Shape;
+            Centred.Zoom = 2;
+            Centred.PanX = .3f;
+            Centred.PanY = -.2f;
+            Centred.Yaw = .8f;
+            Centred.Pitch = -.4f;
+            const auto Pose = ConstructMaterialPreviewProjection(Centred);
+            const auto &View = Pose.ViewFromSurface;
+            const float Translation = 16.f * uint32_t(Shape);
+            Confirm(std::abs(View[0] * Translation + View[12] - Centred.PanX / Centred.Zoom) < .0001f &&
+                    std::abs(View[1] * Translation + View[13] + Centred.PanY / Centred.Zoom) < .0001f &&
+                    std::abs(View[2] * Translation + View[14] + 3) < .0001f,
+                    "Combined orbit drifted a shape centre off its pan point.");
+        }
         Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
         Inspection.Exposure = 2;
         ResetMaterialPreviewView(Inspection);

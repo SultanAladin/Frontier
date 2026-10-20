@@ -187,3 +187,16 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   MaterialLibraryValidation now compiles all five texture-wired presets incl. PNG decode).
 - Still open: rotation-axis mapping vs user expectation, asset-browser HTML 1:1 (HTML file not in repo),
   remaining surface-detail ports (orange-peel, scratches, weaves need shader/UBO targets), zoom-FPS check.
+
+## Windows preview round 4, batch 2: orbit fix (branch arena/db2f9953-frontier, unreleased)
+- User report: yaw spins fine, but vertical drags roll "as if on Z" and the pivot feels off-centre.
+- Root cause: orbit composed yaw-after-pitch (Ry*Rx), so pitch increments rotated about the yawed local
+  X axis (a view-axis roll at 90 yaw) and yaw leaned the object up-axis sideways by sin(yaw)*sin(pitch).
+- Fix: LookAt-style orbit (Blender/three.js convention) — yaw about screen-vertical world-up through the
+  pivot, pitch about the fixed screen-right axis. Pure-yaw and pure-pitch poses are bit-identical to
+  before, so the approved feels are untouched; only combined yaw+pitch changes.
+- Correction to the round-3 sway test: zero-ellipse turntable yaw is incompatible with a screen-vertical
+  object up-axis (proven: fixed front height + vertical up forces no yaw). Replaced with three
+  old-fail/new-pass assertions: up-axis never leans, pitched tips never roll, pitched yaw traces the
+  standard screen ellipse; plus a pivot-exactness guard across all five shapes.
+- Linux host verification: full ctest 22/22 green; old matrix fails the new lean/roll/ellipse assertions.
