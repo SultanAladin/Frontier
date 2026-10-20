@@ -6,7 +6,7 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
 import Crypto from 'node:crypto';
-import {pathToFileURL} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import Assert from 'node:assert/strict';
 
 const [CompilerPath, Destination] = process.argv.slice(2);
@@ -15,7 +15,7 @@ const Compiler = await (await import(pathToFileURL(Path.resolve(CompilerPath)).h
 const Global = Compiler.createGlobalSession();
 const Target = Compiler.getCompileTargets().find(Choice => Choice.name === 'SPIRV');
 Assert(Global && Target, 'Expected portable SPIR-V compiler');
-const Root = Path.resolve(Path.dirname(new URL(import.meta.url).pathname), '..');
+const Root = Path.resolve(Path.dirname(fileURLToPath(import.meta.url)), '..');
 const SourcePath = Path.join(Root, 'Engine/Render/Shader/VectorSurface.slang');
 const Source = Fs.readFileSync(SourcePath, 'utf8');
 const Mount = '/frontier-vector-surface';
