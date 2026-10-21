@@ -1,3 +1,4 @@
+import { DesignerControlQuantity, ProjectDesignerControl, ReadMaterialParameter, WriteMaterialParameter } from "./MaterialSpecification.js";
 import React, { useState } from "react";
 import {
   ChevronDown,
@@ -50,8 +51,8 @@ export default function RecipeInspector({ params: p, update, setParams }) {
     <div className="recipe-control" key={c.id}>
       <Slider
         label={c.label}
-        value={recipeControlValue(p, c)}
-        onChange={(v) => setParams((q) => applyRecipeControl(q, c, v))}
+        value={p.Authoring ? DesignerControlQuantity(p, c) : recipeControlValue(p, c)}
+        onChange={(v) => setParams((q) => q.Authoring ? ProjectDesignerControl(q, c, v) : applyRecipeControl(q, c, v))}
         min={c.direct ? c.min : 0}
         max={c.direct ? c.max : 1}
         step={c.direct ? c.step : 0.01}
@@ -72,7 +73,7 @@ export default function RecipeInspector({ params: p, update, setParams }) {
       <div className="recipe-intro">
         <div>
           <span className="recipe-eyebrow">
-            <ShieldCheck size={11} /> MATERIAL-AWARE CONTROLS
+            <ShieldCheck size={11} /> DESIGNER CONTROLS
           </span>
           <span className="recipe-chip">TUNED</span>
         </div>
@@ -87,8 +88,8 @@ export default function RecipeInspector({ params: p, update, setParams }) {
             <ColorField
               key={c.key}
               label={c.label}
-              value={p[c.key]}
-              onChange={(v) => setParams((q) => applyRecipeColor(q, c.key, v))}
+              value={p.Authoring ? ReadMaterialParameter(p, c.key) : p[c.key]}
+              onChange={(v) => setParams((q) => q.Authoring ? WriteMaterialParameter(q, c.key, v) : applyRecipeColor(q, c.key, v))}
             />
           ))}
           {group("finish")}
@@ -256,8 +257,7 @@ export default function RecipeInspector({ params: p, update, setParams }) {
         <div>
           <strong>Fewer knobs. Better materials.</strong>
           <p>
-            Only controls that affect this material are shown. No exposed
-            metalness, generic roughness or unrelated coating settings.
+            Designer labels and ranges project into the same PBR channels and generator inputs. No separate material values are stored here.
           </p>
         </div>
       </div>

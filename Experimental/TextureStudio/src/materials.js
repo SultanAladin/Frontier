@@ -1,3 +1,5 @@
+import { AttachPbrFields } from "./FieldProjection.js";
+import { DeclareMaterialAuthoring, DeclareCodedField, ResolveAuthoringParameters } from "./MaterialSpecification.js";
 import {
   attachSurfaceSources,
   patternGLSL,
@@ -751,11 +753,30 @@ export const materials = [
     filmVariation: 55,
     description: "A pearl finish with a delicate interference glow.",
   },
+  {
+    id: "woodland-camouflage-fabric", name: "Woodland Camouflage Fabric", category: "Fabric", label: "PROCEDURAL CAMOUFLAGE · WOVEN CLOTH",
+    type: 4, fabricMode: 0, weavePattern: "twill", color: "#566044", warpColor: "#787965", weftColor: "#62684e", colors: ["#b5a477", "#566044", "#514334", "#232921"],
+    roughness: .86, metalness: 0, depth: .35, coat: 0, detailScale: 68, grain: .7, sheen: .2, sheenRoughness: .8, camouflage: true,
+    description: "Editable woodland-style camouflage over woven cloth. Procedural colour, textile relief and soft fibre sheen.",
+  },
+  {
+    id: "camouflage-ballistic-polymer", name: "Camouflage Ballistic Polymer", category: "Plastic", label: "MATTE COMPOSITE LOOK · VISUAL MATERIAL ONLY",
+    type: 9, color: "#566044", colors: ["#b5a477", "#566044", "#514334", "#232921"], roughness: .68, metalness: 0, depth: .2,
+    coat: .04, coatRoughness: .55, detailScale: 110, grain: .45, ior: 1.53, camouflage: true,
+    description: "Camouflage on a matte, lightly textured ballistic-polymer-style surface. Appearance only: no ballistic rating or performance claim.",
+  },
   ...expandedCatalog(),
   ...architectureCatalog(),
   ...botanicalCatalog(),
   ...granularCatalog(),
-].map(normalizeMaterial);
+].map(normalizeMaterial).flatMap(Parameters => Parameters.camouflage ? [Parameters, { ...Parameters, id: `${Parameters.id}-smooth`, name: `${Parameters.name} · Smooth`, camouflageStyle: "camouflage-smooth" }] : [Parameters]).map(Parameters =>
+{
+  if (!Parameters.camouflage) return Parameters;
+  const Declared = { ...Parameters, Authoring: DeclareMaterialAuthoring(Parameters) };
+  const Result = DeclareCodedField(Declared, Parameters.camouflageStyle || "camouflage", Parameters.camouflageStyle ? "Smooth woodland camouflage" : "Woodland camouflage", "Camouflage");
+  Result.Authoring.Sources.color = { Mode: "field", Direct: true, Generator: Result.Authoring.Generators.at(-1).Identity };
+  return Result;
+});
 
 export function normalizeMaterial(input) {
   const p = input || {};
@@ -763,7 +784,7 @@ export function normalizeMaterial(input) {
   const colors = (
     Array.isArray(p.colors) && p.colors.length ? p.colors : ["#e0dccf"]
   ).slice(0, 12);
-  return boundMaterial({
+  const Normalized = boundMaterial({
     color: "#b5b0a2",
     type: 0,
     roughness: 0.3,
@@ -911,10 +932,11 @@ export function normalizeMaterial(input) {
     hideVariation: p.hideVariation ?? 0.65,
     materialVersion: 6,
   });
+  return p.Authoring ? ResolveAuthoringParameters(Normalized, p, false) : Normalized;
 }
 
 export function createMaterial(input) {
-  const p = normalizeMaterial(input);
+  const p = ResolveAuthoringParameters(normalizeMaterial(input), input);
   const m = new THREE.MeshPhysicalMaterial({
     color:
       p.type === 5 || (p.type === 4 && ![1, 2].includes(p.fabricMode))
@@ -938,7 +960,7 @@ export function createMaterial(input) {
     sheenRoughness: p.sheenRoughness,
     anisotropy: p.anisotropy,
     anisotropyRotation: (p.weaveAngle * Math.PI) / 180,
-    transmission: p.type === 5 ? 0.97 : p.translucency,
+    transmission: p.Authoring ? p.translucency : p.type === 5 ? 0.97 : p.translucency,
     emissive: p.type === 20 ? p.emissionColor : "#000000",
     emissiveIntensity: p.emissionStrength,
     toneMapped: !p.bakeMode,
@@ -1104,6 +1126,7 @@ export function createMaterial(input) {
       uFlakeMetalMin: p.flakeMetalnessMin,
       uFlakeMetalMax: p.flakeMetalnessMax,
       uFlakeTilt: p.flakeTilt,
+      uFlakeWeight: p.FlakeWeight ?? 1,
       uFlakeLayers: p.flakeLayers,
       uFlakeLayerDepth: p.flakeLayerDepth,
       uCloth: p.clothMapping ? 1 : 0,
@@ -1162,7 +1185,7 @@ export function createMaterial(input) {
       #define uPotterySurface ${p.potterySurface ? 1 : 0}
       #define uMetalScratches ${p.metalScratches ? 1 : 0}
       uniform int uColorCount, uColorMode, uFabricMode, uFlakeLayers, uCloth, uWeave;
-      uniform float uFlakeLayerDepth,uWearSoftness,uWornRoughness;
+      uniform float uFlakeWeight,uFlakeLayerDepth,uWearSoftness,uWornRoughness;
       uniform float uFlakes,uFlakeFrequency,uFlakeRoughMin,uFlakeRoughMax,uFlakeMetalMin,uFlakeMetalMax,uFlakeTilt;
       uniform float uScale,uDepth,uCoatIor,uPeel,uPeelScale,uWeaveAngle,uRelief,uFiberDetail,uGrain,uWear,uScratchScale,uFuzz;
       uniform vec3 uColors[12];
@@ -1285,8 +1308,8 @@ ${botanicalGLSL()}
         }
         float meanMask=1.-pow(1.-uFlakes*.31,float(uFlakeLayers));
         vec3 farTint=mix(uAverageFlakeColor,base,uFlakeLayerDepth*.26);
-        diffuseColor.rgb=mix(mix(base,farTint,meanMask),blended,detail);
-        flakeMask=mix(meanMask,maskTotal,detail);
+        diffuseColor.rgb=${p.FlakeOutputs?.colour === false ? "base" : "mix(base,mix(mix(base,farTint,meanMask),blended,detail),uFlakeWeight)"};
+        flakeMask=mix(meanMask,maskTotal,detail)*uFlakeWeight;
         flakeRandom=mix(.5,randomTotal,detail);flakeResolved=detail;
       }else if(uType==1){diffuseColor.rgb*=.92+.1*noise3(pp*vec3(uScale,5.,uScale));surfaceHeight=noise3(pp*uScale)*uGrain*.003;}
       else if(uType==2){diffuseColor.rgb*=.6+.65*grain;surfaceHeight=grain*.003*uDepth;}
@@ -1365,7 +1388,7 @@ ${patternColorGLSL()}
       "#include <roughnessmap_fragment>",
       `
       #include <roughnessmap_fragment>
-      if(uType==0)roughnessFactor=mix(roughnessFactor,mix(uFlakeRoughMin,uFlakeRoughMax,flakeRandom),flakeMask);
+      ${p.FlakeOutputs?.roughness === false ? "" : "if(uType==0)roughnessFactor=mix(roughnessFactor,mix(uFlakeRoughMin,uFlakeRoughMax,flakeRandom),flakeMask);"}
       if(uType>=8 && uType<=11)roughnessFactor=mix(clamp(roughnessFactor+uGrain*(grain-.5)*.16,.025,1.),uWornRoughness,wearMask);
       if(uType==12)roughnessFactor=mix(roughnessFactor,.24,uMoisture*.7);
       if(uType==16)roughnessFactor=mix(roughnessFactor,.94,oxideMask);
@@ -1389,7 +1412,7 @@ ${patternColorGLSL()}
       "#include <metalnessmap_fragment>",
       `
       #include <metalnessmap_fragment>
-      if(uType==0)metalnessFactor=mix(metalnessFactor,mix(uFlakeMetalMin,uFlakeMetalMax,flakeRandom),flakeMask);
+      ${p.FlakeOutputs?.metallic === false ? "" : "if(uType==0)metalnessFactor=mix(metalnessFactor,mix(uFlakeMetalMin,uFlakeMetalMax,flakeRandom),flakeMask);"}
       if(uType==16)metalnessFactor*=1.-oxideMask;
       if(uType==21 && uSheetFinish>0)metalnessFactor*=1.-sheetOxide;
       if(uType==17)metalnessFactor=mix(.25,.96,contactMask);
@@ -1429,7 +1452,7 @@ ${patternColorGLSL()}
         vec3 tangent=normalize(cross(normal,abs(normal.y)<.95?vec3(0,1,0):vec3(1,0,0)));
         vec3 bitangent=cross(normal,tangent);
         float angle=flakeRandom*6.283;
-        normal=normalize(normal+(tangent*cos(angle)+bitangent*sin(angle))*uFlakeTilt*flakeMask*flakeResolved);
+        ${p.FlakeOutputs?.normal === false ? "" : "normal=normalize(normal+(tangent*cos(angle)+bitangent*sin(angle))*uFlakeTilt*flakeMask*flakeResolved);"}
       }
     `,
     );
@@ -1528,7 +1551,8 @@ ${patternColorGLSL()}
     m.userData.shader = shader;
   };
   m.customProgramCacheKey = () =>
-    `alloy-procedural-v7-${p.type}-${p.metalScratches}-${p.bakeMode > 0}-${!!p.pattern}-${!!p.potterySurface}`;
+    `alloy-procedural-v7-${p.type}-${p.metalScratches}-${p.bakeMode > 0}-${!!p.pattern}-${!!p.potterySurface}-${JSON.stringify(p.FlakeOutputs || {})}`;
+  AttachPbrFields(m, p);
   return m;
 }
 

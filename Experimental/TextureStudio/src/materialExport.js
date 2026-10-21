@@ -1,3 +1,8 @@
+import authoringModuleSource from "./MaterialSpecification.js?raw";
+import textureSourceCode from "./textureSource.js?raw";
+import fieldSpecificationSource from "./FieldSpecification.js?raw";
+import fieldProjectionSource from "./FieldProjection.js?raw";
+import { ExportPbrAtlas } from "./FieldProjection.js";
 import patternGeometrySource from "./patternGeometry.js?raw";
 import geometricModuleSource from "./geometricConstructions.js?raw";
 import heritageModuleSource from "./heritagePatterns.js?raw";
@@ -65,6 +70,9 @@ const shaderSource =
   "\n" +
   sandModuleSource +
   "\n" +
+  "const { ResolveAuthoringParameters, PbrChannels, ChannelAddress, ReadMaterialParameter, ResolveAddress } = (() => {\n" +
+  [textureSourceCode, fieldSpecificationSource, authoringModuleSource].map(Source => Source.replace(/^import[\s\S]*?;\s*/gm, "").replace(/\bexport /g, "")).join("\n") +
+  "\nreturn { ResolveAuthoringParameters, PbrChannels, ChannelAddress, ReadMaterialParameter, ResolveAddress }; })();\n" +
   materialModuleSource.slice(
     materialModuleSource.indexOf("export function normalizeMaterial("),
     materialModuleSource.indexOf("export function createBallGeometry("),
@@ -78,5 +86,9 @@ export function exportMaterialJSON(params) {
   );
 }
 export function exportMaterialShader(params) {
-  return `import * as THREE from 'three';\n\nexport const preset = ${JSON.stringify(params, null, 2)};\n\n${shaderSource}\n\nexport default createMaterial(preset);\n`;
+  const Atlas = ExportPbrAtlas(params);
+  const Enumeration = fieldProjectionSource.slice(fieldProjectionSource.indexOf("export function EnumerateMaterialFields"), fieldProjectionSource.indexOf("function FieldStamp")).replace(/\bexport /g, "");
+  const Projection = fieldProjectionSource.slice(fieldProjectionSource.indexOf("export function AttachPbrFields"), fieldProjectionSource.indexOf("export function ExportPbrAtlas")).replace(/\bexport /g, "").replace(/    const Stamp = FieldStamp[\s\S]*?    const Existing =/, "    Atlas.image.data = new Float32Array(PackedAtlas.Pixels); Atlas.needsUpdate = true;\n    const Existing =");
+  const FieldRuntime = `const AttachPbrFields = (() => { const PackedAtlas = ${JSON.stringify(Atlas)};\n${Enumeration}\n${Projection}\nreturn AttachPbrFields; })();`;
+  return `import * as THREE from 'three';\n\nexport const preset = ${JSON.stringify(params, null, 2)};\n\n${shaderSource}\n\n${FieldRuntime}\n\nexport default createMaterial(preset);\n`;
 }

@@ -108,6 +108,7 @@ test("GPU: accepted scratch shape unchanged, greater density, additive metal bak
     }
   });
   await page.goto("/?material=pure-aluminium");
+  await page.locator(".inspector-tabs").getByRole("button", { name: "Properties", exact: true }).click();
   const ready = async () => {
     await expect(page.locator("canvas")).toHaveAttribute(
       "data-material-ready",
@@ -142,11 +143,11 @@ test("GPU: accepted scratch shape unchanged, greater density, additive metal bak
     before,
   );
   const result = await page.evaluate(async (legacyField) => {
-    const THREE = await import("/node_modules/.vite/deps/three.js");
+    const THREE = await import("/node_modules/three/build/three.module.js");
     const { materials, createMaterial } = await import("/src/materials.js");
     const { architecturalGLSL } = await import("/src/architecturalKernels.js");
     const { bakeMaterial } = await import("/src/bakeMaterial.js");
-    const { unzipSync } = await import("/node_modules/.vite/deps/fflate.js");
+    const { unzipSync } = await import("/node_modules/fflate/esm/browser.js");
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       preserveDrawingBuffer: true,
