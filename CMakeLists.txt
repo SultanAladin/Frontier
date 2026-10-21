@@ -92,4 +92,10 @@ if(BUILD_TESTING)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation
         "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
+    # Virtualized-geometry kernel (Engine/Geometry): stdlib-only, builds on every host.
+    add_library(FrontierGeometry STATIC Engine/Geometry/FacetTierBuild.cpp)
+    target_include_directories(FrontierGeometry PUBLIC "${CMAKE_SOURCE_DIR}")
+    add_executable(FacetTierValidation Exhibits/VirtualizedGeometry/Code/FacetTierValidation.cpp)
+    target_link_libraries(FacetTierValidation PRIVATE FrontierGeometry)
+    add_test(NAME FacetTierValidation COMMAND FacetTierValidation)
 endif()

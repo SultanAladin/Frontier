@@ -20,6 +20,7 @@ Frontier/
 ├── Engine/                    # Shared production code
 │   ├── Interface/             # Selectively ported UI foundations
 │   ├── Lifecycle/             # Shared activation sequence
+│   ├── Geometry/              # Virtualized-geometry build/runtime kernel (C++ port, ongoing)
 │   └── Render/                # Blank; Git retention marker only
 ├── UI/
 │   └── Editor/                # Lifecycle-owned production editor UI
