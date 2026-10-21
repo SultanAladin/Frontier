@@ -1,6 +1,7 @@
 import {ParticleWorkspace} from "./ParticleWorkspace.js";
 import {SessionTelemetry} from "./SessionTelemetry.js";
 import {ClusterDebugOverlay} from "./ClusterDebugOverlay.js";
+import {HierarchyDebugOverlay} from "./HierarchyDebugOverlay.js";
 import {TransformGizmo} from './TransformGizmo.js';
 import {BuildTransformInspector,ConstructSpatialEntries} from './EditorTransforms.js';
 import { SaveEnvironment } from "./EnvironmentPersistence.js";
@@ -63,6 +64,7 @@ export class EditorShell
         this.Select(this.Selected);
         this.Gizmo=new TransformGizmo(this);
         this.ClusterOverlay=new ClusterDebugOverlay(Host);
+        this.HierarchyOverlay=new HierarchyDebugOverlay(Host);   // inert unless ?hierarchy=1
         if(document.documentElement && typeof window!=='undefined'){
             const Resize=Construct('div','ne-resize');Resize.title='Drag to resize inspector';document.getElementById('inspector').appendChild(Resize);
             Resize.addEventListener('pointerdown',E=>{Resize.setPointerCapture(E.pointerId);Resize.Resizing=true;});
@@ -401,6 +403,7 @@ export class EditorShell
     PresentImpl(Now, HudLines)
     {
         this.Gizmo?.Draw();
+        this.HierarchyOverlay?.Draw();   // per-frame like the gizmo: it tracks the camera (inert without ?hierarchy=1)
         if (Now - this.LastLive < LiveInterval)
             return;
         this.LastLive = Now;

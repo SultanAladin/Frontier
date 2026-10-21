@@ -1,0 +1,153 @@
+{
+  "sphere": {
+    "Levels": [
+      {
+        "Level": 0,
+        "Clusters": 48,
+        "Triangles": 5120,
+        "Vertices": 2562,
+        "MaxError": 0
+      },
+      {
+        "Level": 1,
+        "Clusters": 41,
+        "Triangles": 2558,
+        "Vertices": 1281,
+        "MaxError": 0.07240397000287813
+      },
+      {
+        "Level": 2,
+        "Clusters": 24,
+        "Triangles": 1278,
+        "Vertices": 641,
+        "MaxError": 0.17905209267705718
+      },
+      {
+        "Level": 3,
+        "Clusters": 6,
+        "Triangles": 638,
+        "Vertices": 321,
+        "MaxError": 0.3040000175615466
+      },
+      {
+        "Level": 4,
+        "Clusters": 3,
+        "Triangles": 318,
+        "Vertices": 161,
+        "MaxError": 0.4689674197868161
+      },
+      {
+        "Level": 5,
+        "Clusters": 2,
+        "Triangles": 158,
+        "Vertices": 81,
+        "MaxError": 0.684405176047056
+      },
+      {
+        "Level": 6,
+        "Clusters": 1,
+        "Triangles": 78,
+        "Vertices": 41,
+        "MaxError": 0.9981778141683131
+      }
+    ],
+    "SourceTriangles": 5120,
+    "WeldedVertices": 2562
+  },
+  "glass-sphere": {
+    "Levels": [
+      {
+        "Level": 0,
+        "Clusters": 56,
+        "Triangles": 5120,
+        "Vertices": 2562,
+        "MaxError": 0
+      },
+      {
+        "Level": 1,
+        "Clusters": 39,
+        "Triangles": 2558,
+        "Vertices": 1281,
+        "MaxError": 0.07240397000287813
+      },
+      {
+        "Level": 2,
+        "Clusters": 21,
+        "Triangles": 1278,
+        "Vertices": 641,
+        "MaxError": 0.22683401477711557
+      },
+      {
+        "Level": 3,
+        "Clusters": 7,
+        "Triangles": 638,
+        "Vertices": 321,
+        "MaxError": 0.379829369050283
+      },
+      {
+        "Level": 4,
+        "Clusters": 13,
+        "Triangles": 362,
+        "Vertices": 183,
+        "MaxError": 1.2592721267558342
+      }
+    ],
+    "SourceTriangles": 5120,
+    "WeldedVertices": 2562
+  },
+  "heightfield-cliff": {
+    "Levels": [
+      {
+        "Level": 0,
+        "Clusters": 80,
+        "Triangles": 8192,
+        "Vertices": 4225,
+        "MaxError": 0
+      },
+      {
+        "Level": 1,
+        "Clusters": 69,
+        "Triangles": 4096,
+        "Vertices": 2177,
+        "MaxError": 1.5143231624460685
+      },
+      {
+        "Level": 2,
+        "Clusters": 34,
+        "Triangles": 2048,
+        "Vertices": 1153,
+        "MaxError": 3.6968009763496443
+      },
+      {
+        "Level": 3,
+        "Clusters": 36,
+        "Triangles": 1024,
+        "Vertices": 641,
+        "MaxError": 6.378178336594472
+      },
+      {
+        "Level": 4,
+        "Clusters": 24,
+        "Triangles": 512,
+        "Vertices": 385,
+        "MaxError": 9.816925320076821
+      },
+      {
+        "Level": 5,
+        "Clusters": 10,
+        "Triangles": 256,
+        "Vertices": 257,
+        "MaxError": 22.273135529829258
+      },
+      {
+        "Level": 6,
+        "Clusters": 6,
+        "Triangles": 254,
+        "Vertices": 256,
+        "MaxError": 49.00522213271711
+      }
+    ],
+    "SourceTriangles": 8192,
+    "WeldedVertices": 4225
+  }
+}
