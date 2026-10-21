@@ -36,6 +36,6 @@ test("every WGSL file referenced from Source is in the host shader manifest", ()
 
 test("the virtualized-geometry shaders are all retrievable", () =>
 {
-    for (const Name of ["VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"])
+    for (const Name of ["VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "HiZDownsample.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"])
         assert.ok(Retrievable.has(Name), `${Name} must be fetched at startup`);
 });

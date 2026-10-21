@@ -62,7 +62,7 @@ export class VirtualizedGeometry
         this.CullProgram = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "SelectAndCullPhase1", [this.CullLayout]);
         this.Phase2Program = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "CullPhase2Disoccluded", [this.CullLayout]);
         this.SeedProgram = await this.Shaders.ConstructComputeProgram("HiZPyramid.wgsl", "SeedHiZFromDepth", [this.SeedLayout]);
-        this.DownsampleProgram = await this.Shaders.ConstructComputeProgram("HiZPyramid.wgsl", "DownsampleHiZMip", [this.DownsampleLayout]);
+        this.DownsampleProgram = await this.Shaders.ConstructComputeProgram("HiZDownsample.wgsl", "DownsampleHiZMip", [this.DownsampleLayout]);
         this.DummyHiZ = E.ConstructTexture({ label: "Hi-Z dummy", size: [1, 1], format: "r32float",
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING });
         this.PreviousHiZView = this.DummyHiZ.createView();
@@ -112,28 +112,71 @@ export class VirtualizedGeometry
     //    10-13 turns the runtime on (programs + targets) without the ?hierarchy=1 launch flag, so the
     //    views can never sit black just because the page was opened the ordinary way. Until activation
     //    completes — or when no facet set is eligible — RecordDebugView paints the magenta fallback.
+    // 📝 Debug-view state for the fallback views + status badge: which stage activation is in, and the
+    //    exact error when a stage fails, so a screenshot alone identifies the blocker.
+    //    States: "activating" (magenta) -> "ready" | "failed" (red) | "no-geometry" (orange).
+    DebugState()
+    {
+        if (this.ActivationError) return "failed";
+        if (this.ProgramsBuilt && this.OpaqueVisTexture && !this.Records) return "no-geometry";
+        if (this.ProgramsBuilt && this.OpaqueVisTexture && this.Records) return "ready";
+        return "activating";
+    }
+
+    ReportDebugStatus()
+    {
+        const State = this.DebugState();
+        const Text = State === "failed" ? `Cluster debug: activation failed — ${this.ActivationError}`
+            : State === "no-geometry" ? "Cluster debug: no eligible facet set in scene (needs >= 256 facets, static, non-breakable occupants)"
+            : State === "ready" ? ""
+            : `Cluster debug: activating (${this.ActivationStep ?? "starting"})…`;
+        if (Text === this.BadgeText) return;
+        this.BadgeText = Text;
+        if (State === "failed") console.error("[VirtualizedGeometry]", Text);
+        else if (Text) console.info("[VirtualizedGeometry]", Text);
+        if (!Text) { this.Badge?.remove(); this.Badge = null; return; }
+        this.Badge ??= (() => { const Badge = document.createElement("div"); Badge.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;max-width:60em;padding:8px 14px;background:rgba(12,10,18,.92);color:#ffd7f2;font:12px/1.5 ui-monospace,monospace;border:1px solid #a33;border-radius:6px;pointer-events:none;white-space:pre-wrap;text-align:center"; document.body.appendChild(Badge); return Badge; })();
+        this.Badge.textContent = Text;
+    }
+
+    DismissDebugStatus() { if (this.Badge) { this.Badge.remove(); this.Badge = null; this.BadgeText = ""; } }
+
     ActivateForDebug()
     {
-        if (this.Activation || this.ProgramsBuilt && this.OpaqueVisTexture) return;
+        if (this.Activation || (this.ProgramsBuilt && this.OpaqueVisTexture)) return;
         this.Enabled = true;
+        this.ActivationError = null;
         this.Activation = (async () =>
         {
-            if (!this.FallbackProgram)
+            const Step = async (Name, Build) => { this.ActivationStep = Name; this.ReportDebugStatus();
+                try { return await Promise.race([Build(), new Promise((_, Reject) => setTimeout(() => Reject(new Error("timed out after 20 s")), 20000))]); }
+                catch (Error) { throw new Error(`${Name}: ${Error?.message ?? Error}`); } };
+            if (!this.FallbackPrograms)
             {
                 this.FallbackLayout = this.Exchange.ConstructDescriptorLayout(["StorageTexture2D:rgba16float"], GPUShaderStage.COMPUTE, "Cluster debug fallback");
-                this.FallbackProgram = await this.Shaders.ConstructComputeProgram("ClusterDebugFallback.wgsl", "DebugUnavailable", [this.FallbackLayout]);
+                this.FallbackPrograms =
+                {
+                    activating: await Step("fallback shader", () => this.Shaders.ConstructComputeProgram("ClusterDebugFallback.wgsl", "DebugUnavailable", [this.FallbackLayout])),
+                    failed:     await Step("fallback shader", () => this.Shaders.ConstructComputeProgram("ClusterDebugFallback.wgsl", "DebugFailed", [this.FallbackLayout])),
+                    noGeometry: await Step("fallback shader", () => this.Shaders.ConstructComputeProgram("ClusterDebugFallback.wgsl", "DebugNoGeometry", [this.FallbackLayout]))
+                };
+                this.FallbackProgram = this.FallbackPrograms.activating;   // back-compat for the guard below
             }
-            if (!this.ProgramsBuilt) await this.ConstructPrograms(this.FrameRecords, this.OccupantRecords);
-            if (this.TargetExtent && !this.OpaqueVisTexture) this.ConstructTargets(this.TargetExtent[0], this.TargetExtent[1]);
-        })().catch((Error) => { console.error("[VirtualizedGeometry] debug activation failed:", Error); this.Activation = null; });
+            if (!this.ProgramsBuilt) await Step("virtualized-geometry programs", () => this.ConstructPrograms(this.FrameRecords, this.OccupantRecords));
+            if (this.TargetExtent && !this.OpaqueVisTexture) await Step("visibility targets", () => this.ConstructTargets(this.TargetExtent[0], this.TargetExtent[1]));
+            this.ActivationStep = "done";
+        })().catch((Error) => { this.ActivationError = Error?.message ?? String(Error); this.Activation = null; this.ReportDebugStatus(); });
     }
 
     RecordUnavailableView(Encoder, TargetView)
     {
-        if (!this.FallbackProgram || !TargetView) return;
+        this.ReportDebugStatus();
+        const State = this.DebugState();
+        const Program = this.FallbackPrograms?.[State === "failed" ? "failed" : State === "no-geometry" ? "noGeometry" : "activating"];
+        if (!Program || !TargetView) return;
         const Group = this.Exchange.ConstructDescriptorGroup(this.FallbackLayout, [TargetView]);
-        const Pass = Encoder.beginComputePass({ label: "Cluster debug view (unavailable)" });
-        Pass.setPipeline(this.FallbackProgram);
+        const Pass = Encoder.beginComputePass({ label: `Cluster debug view (${State})` });
+        Pass.setPipeline(Program);
         Pass.setBindGroup(0, Group);
         const Extent = this.TargetExtent ?? [1920, 1080];
         Pass.dispatchWorkgroups(Math.ceil(Extent[0] / 8), Math.ceil(Extent[1] / 8));
@@ -510,12 +553,8 @@ export class VirtualizedGeometry
         // 📝 The views activate the runtime themselves: without this, opening the editor the ordinary
         //    way (no ?hierarchy=1) left the inspection target untouched and all four modes read black.
         if (!this.ProgramsBuilt || !this.OpaqueVisTexture) { this.ActivateForDebug(); this.RecordUnavailableView(Encoder, TargetView); return; }
-        if (!this.Records)
-        {
-            if (!this.DebugWarned) { this.DebugWarned = true; console.warn("[VirtualizedGeometry] cluster debug view: no eligible facet set in the scene (needs >= 256 facets, no dynamic occupants), showing fallback."); }
-            this.RecordUnavailableView(Encoder, TargetView);
-            return;
-        }
+        if (!this.Records) { this.RecordUnavailableView(Encoder, TargetView); return; }
+        this.ReportDebugStatus();   // ready: clears the status badge
         const E = this.Exchange;
         const Program = Mode === 10 ? this.DebugIdsProgram : Mode === 13 ? this.DebugGlassProgram
                       : Mode === 12 ? this.DebugHiZProgram : this.DebugCopyProgram;

@@ -74,7 +74,18 @@ export class ShaderInterchange
             return this.Modules.get(Key);
         const Assembly = this.AssembleSource(FileName, Constants);
         const Module = this.Exchange.Device.createShaderModule({ label: Label, code: Assembly.Text });
-        const Information = await Module.getCompilationInfo();
+        // 📝 getCompilationInfo can hang indefinitely (never resolve) on modules that fail to compile in
+        //    some browser builds, which would wedge any lazy program construction built on top of it.
+        //    The info is diagnostics-only, so time-box it: on timeout, carry on and let pipeline
+        //    creation's validation error scope report the real problem.
+        const Information = await Promise.race([Module.getCompilationInfo(),
+            new Promise((Resolve) => setTimeout(() => Resolve(null), 5000))]);
+        if (Information === null)
+        {
+            console.warn(`[WGSL] ${FileName}: compilation info timed out; continuing to pipeline creation for validation.`);
+            this.Modules.set(Key, Module);
+            return Module;
+        }
         const Errors = Information.messages.filter((Message) => Message.type === "error");
         for (const Message of Information.messages)
         {

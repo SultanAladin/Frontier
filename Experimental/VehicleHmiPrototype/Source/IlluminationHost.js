@@ -72,7 +72,7 @@ const ShaderSources = [
     "PlumeAdvection.wgsl", "PlumePressure.wgsl", "PlumeVorticity.wgsl", "PlumeMarch.wgsl", "FragmentDistance.wgsl",
     "EffectRecords.wgsl", "EffectRaster.wgsl", "VehicleVisual.wgsl", "SparkRaster.wgsl", "ForwardRaster.wgsl",
     "CabinOverlay.wgsl", "CabinVolume.wgsl", "ClusteredLights.wgsl",
-    "VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"
+    "VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "HiZDownsample.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"
 ];
 
 // 📝 Quality grades trade cascade resolution, card density and traversal length; selected with ?quality=low|medium|high.
@@ -1249,6 +1249,8 @@ class IlluminationHost
         //    instead of leaving the inspection target black.
         if (this.Settings.Inspection >= 10 && Included("Inspection"))
             this.Surface.Virtualized?.RecordDebugView(Encoder, this.Display.Views.Inspection, this.Settings.Inspection);
+        else if (this.Settings.Inspection < 10)
+            this.Surface.Virtualized?.DismissDebugStatus?.();
         if (Included("Smoke") && this.Smoke.Resident)
             this.Smoke.RecordMarch(Encoder, this.Metrics.QueryWrites("Smoke render"));
         if (Included("Resolve"))
