@@ -166,6 +166,58 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(!Library.CreateMaterial("Linked/New.material", "Escape"), "Create escaped via symlink.");
         Confirm(!std::filesystem::exists(Output/"Outside/New.material"), "Rejected create wrote outside root.");
 #endif
+        EncodeText(Content/"ProceduralPilot.material", Minimal);
+        MaterialLibrary Pilot;
+        Confirm(Pilot.ConfigureDirectory(Content), "Procedural scratch library did not open.");
+        Confirm(Pilot.OpenMaterial("ProceduralPilot.material"), "Procedural pilot did not open.");
+        Confirm(!Pilot.InsertStratum(9) && !Pilot.RemoveStratum(0), "Stratum bounds accepted an invalid edit.");
+        Confirm(Pilot.InsertStratum(1), "Stratum append failed.");
+        Confirm(DecodeSurfaceMaterial(Pilot.QuerySource()).Scattering.Illumination.Configuration[0] == 2, "Appended stratum did not decode.");
+        Confirm(Pilot.ConfigureStratumChannel(0, "Normal", "scratches"), "Procedural channel switch failed.");
+        {
+            const auto PilotDefinition = DecodeSurfaceMaterial(Pilot.QuerySource());
+            Confirm(PilotDefinition.StratumChannels[0].size() == 1 && PilotDefinition.StratumChannels[0][0].Op == "scratches",
+                "Procedural channel did not decode with its op.");
+            Confirm(PilotDefinition.StratumTextureSources[0][2] == "procedural/0/normal", "Derived procedural source differs.");
+        }
+        Confirm(Pilot.ConfigureStratumChannel(1, "Normal", "scratches"), "Second procedural channel failed.");
+        Confirm(Pilot.ConfigureProceduralParam(0, "Normal", "density", 9), "Shared pool param edit failed.");
+        {
+            const auto PilotDefinition = DecodeSurfaceMaterial(Pilot.QuerySource());
+            const auto Pool = QueryProceduralPool(PilotDefinition, "density");
+            Confirm(Pool && Pool->Value == 9 && Pool->Stratum == 0 && Pool->Channel == "Normal", "Shared pool lookup differs.");
+            const auto Fanout = QueryProceduralPool(PilotDefinition, "density");
+            Confirm(Fanout && PilotDefinition.StratumChannels[1][0].Params.at("density") == 9, "Pool edit did not fan out to the linked channel.");
+        }
+        Confirm(Pilot.ConfigureProceduralParam(0, "Normal", "scratchAngle", 30), "Direction alias edit failed.");
+        {
+            const auto PilotDefinition = DecodeSurfaceMaterial(Pilot.QuerySource());
+            const auto Pool = QueryProceduralPool(PilotDefinition, "angle");
+            Confirm(Pool && Pool->Value == 30, "Direction alias did not collapse onto the stored angle.");
+        }
+        Confirm(Pilot.ForkProceduralChannel(1, "Normal"), "Pool fork failed.");
+        {
+            const auto PilotDefinition = DecodeSurfaceMaterial(Pilot.QuerySource());
+            Confirm(PilotDefinition.StratumChannels[0][0].Link != PilotDefinition.StratumChannels[1][0].Link, "Fork kept the shared pool link.");
+        }
+        Confirm(Pilot.MergeProceduralChannel(1, "Normal", 0, "Normal"), "Pool merge failed.");
+        {
+            const auto PilotDefinition = DecodeSurfaceMaterial(Pilot.QuerySource());
+            Confirm(PilotDefinition.StratumChannels[0][0].Link == PilotDefinition.StratumChannels[1][0].Link, "Merge did not reunite the pool link.");
+        }
+        Confirm(Pilot.RebakeProcedurals(64), "Proxy procedural rebake failed.");
+        Confirm(Pilot.QueryApplied()->Textures[2].Levels[0].Width == 64, "Rebaked normal did not compile at proxy resolution.");
+        Confirm((Pilot.QueryApplied()->Scattering.TextureUse[0][0] & 4) != 0, "Rebaked normal mask bit missing.");
+        Confirm(Pilot.RevertSource(), "Procedural revert failed.");
+        Confirm(DecodeSurfaceMaterial(Pilot.QuerySource()).StratumChannels[0].empty(), "Revert kept procedural channels.");
+        Confirm(Pilot.ConfigureStratumChannel(0, "Normal", "scratches"), "Channel switch after revert failed.");
+        Confirm(Pilot.SaveMaterial(), "Procedural save failed.");
+        Confirm(std::filesystem::is_regular_file(Content/"Textures"/"ProceduralPilot-normal.png"), "Baked procedural PNG missing after save.");
+        Confirm(Pilot.QuerySource().find("ProceduralPilot-normal.png") != std::string::npos, "Saved source does not reference the baked PNG.");
+        Confirm(Pilot.QuerySource().find("procedural/") == std::string::npos, "Derived source leaked into the saved material.");
+        Confirm(Pilot.QueryApplied()->Textures[2].Levels[0].Width == 512, "Saved material did not compile full-resolution baked maps.");
+        Confirm(Pilot.InsertStratum(1) && Pilot.RemoveStratum(1), "Stratum removal failed.");
+        Confirm(DecodeSurfaceMaterial(Pilot.QuerySource()).Scattering.Illumination.Configuration[0] == 1, "Removed stratum still decodes.");
         MaterialLibrary ReferenceLibrary;
         Confirm(ReferenceLibrary.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio"), "HTML library did not open.");
         Confirm(ReferenceLibrary.QueryEntries().size() == 127, "HTML library count differs.");
@@ -268,6 +320,35 @@ int main(int ArgumentCount, char **Arguments)
         IntegrateInterface(1280, 1);
         IO.Fonts->GetTexDataAsRGBA32(&Pixels, &AtlasWidth, &AtlasHeight);
         EncodeLibraryDrawCapture(Output/"MaterialLibrary.ppm", *ImGui::GetDrawData(), Pixels, AtlasWidth, AtlasHeight);
+        Confirm(Panel->SelectMaterial("ProceduralPilot.material"), "Native selection did not open the procedural pilot.");
+        IntegrateInterface(1280, 1);
+        IntegrateInterface(1280, 1);
+        Confirm(Panel->QueryLayerExtent("layer-1").Width() > 0, "Layer card has no interactive extent.");
+        Confirm(Panel->QueryLayerExtent("add-layer").Width() > 0, "Layer add control has no interactive extent.");
+        ImGuiWindow *Properties = nullptr;
+        for (auto *Candidate : ImGui::GetCurrentContext()->Windows)
+        {
+            // 📝 Nested layer cards qualify under the same parent name; the scroll region itself carries no
+            // further child qualifier past its own identifier.
+            const std::string Name(Candidate->Name);
+            const size_t Child = Name.rfind("/Material properties_");
+            if (Child != std::string::npos && Name.find('/', Child + 1) == std::string::npos) Properties = Candidate;
+        }
+        Confirm(Properties != nullptr, "Material properties scroll region is missing.");
+        {
+            // 📝 The layer stack rides below the recipe cards, so the headless gesture scrolls the add control
+            // into the visible region before clicking it.
+            const auto Add = Panel->QueryLayerExtent("add-layer");
+            const float Target = Properties->Scroll.y +
+                ((Add.MinimumY + Add.MaximumY) / 2 - (Properties->Pos.y + Properties->Size.y / 2));
+            ImGui::SetScrollY(Properties, Target);
+        }
+        IntegrateInterface(1280, 1);
+        Click(Panel->QueryLayerExtent("add-layer"));
+        Confirm(DecodeSurfaceMaterial(Panel->QueryLibrary().QuerySource()).Scattering.Illumination.Configuration[0] == 2,
+            "Add-layer click did not append a stratum.");
+        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Configuration[0] == 2, "Add-layer click did not live-apply.");
+        Confirm(Panel->QueryLibrary().RevertSource(), "Pilot layer edit did not revert.");
         Confirm(Panel->ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") && Panel->SelectMaterial("racing-green.material"),
                 "Native automotive inspector did not open the actual preset.");
         IntegrateInterface(1280, 1);

@@ -6,7 +6,10 @@
 #pragma once
 #include "ScatteringSequence.h"
 #include "AutomotivePaint.h"
+#include "SurfaceNormalProjection.h"
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -61,12 +64,25 @@ enum class MaterialTextureCategory : uint32_t
     Radiance = 3
 };
 
+struct MaterialProceduralChannel
+{
+    std::string Name; // Albedo | Orm | Normal
+    std::string Op;   // scratches | "" (file or off)
+    std::string Link; // pool identity; empty decodes as "shared"
+    std::map<std::string,double> Params;
+    std::map<std::string,std::string> Texts;
+};
+
 struct MaterialDefinition
 {
     std::string Name = "Untitled material";
     MaterialScattering Scattering;
     std::array<std::string,4> TextureSources;
     std::array<std::array<std::string,3>,8> StratumTextureSources;
+    std::array<std::vector<MaterialProceduralChannel>,8> StratumChannels;
+    // 📝 Runtime-only rebake overrides keyed by (slot, source); populated by a procedural rebake, attached at
+    // compile time, persisted to PNG files on save. Never serialized into the material source.
+    std::map<std::pair<size_t,std::string>, SurfaceTextureImage> ProceduralMaps;
 };
 
 struct MaterialMipRegion
@@ -135,6 +151,18 @@ inline bool ValidateMaterialScattering(const MaterialScattering &Material)
 
 MaterialDefinition DecodeSurfaceMaterial(std::string_view Text);
 std::string EncodeSurfaceMaterial(const MaterialDefinition &Material);
+// 📝 Shared-pool resolution: locate TargetKey inside stratum channel params in stratum/channel order, so recipe
+// controls and the baker answer to the same procedural definition.
+struct MaterialPoolLocation
+{
+    uint32_t Stratum = 0;
+    std::string Channel;
+    double Value = 0;
+};
+[[nodiscard]] std::optional<MaterialPoolLocation> QueryProceduralPool(const MaterialDefinition &Material, std::string_view Key);
+// 📝 Derived texture-source key for a procedural channel without an explicit file; the baker and the save path
+// agree on this spelling, and the encoder never persists it.
+[[nodiscard]] std::string EncodeProceduralSource(size_t Stratum, std::string_view Channel);
 MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image,MaterialTextureCategory Category);
 inline bool ValidateMaterialPyramid(const MaterialTexturePyramid &Texture)
 {

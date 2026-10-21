@@ -7,8 +7,6 @@
 
 #include "Engine/ContentInterchange/MaterialLibrary.h"
 #include "Engine/Render/MaterialProceduralBaking.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -26,12 +24,9 @@ double Scalar(const MaterialRecipeParameters &Recipe, const char *Key, double Fa
 
 void WritePng(const std::filesystem::path &Path, const std::vector<uint8_t> &Rgba, uint32_t Extent)
 {
-    int Bytes = 0;
-    unsigned char *Encoded = stbi_write_png_to_mem(Rgba.data(), 0, int(Extent), int(Extent), 4, &Bytes);
-    if (!Encoded || Bytes <= 0) throw std::runtime_error("Procedural PNG encode failed.");
+    const auto Encoded = EncodeProceduralPng(Rgba, Extent);
     std::ofstream Output(Path, std::ios::binary | std::ios::trunc);
-    Output.write(reinterpret_cast<const char *>(Encoded), Bytes);
-    STBIW_FREE(Encoded);
+    Output.write(reinterpret_cast<const char *>(Encoded.data()), Encoded.size());
     if (!Output) throw std::runtime_error("Procedural PNG write failed.");
 }
 

@@ -5,6 +5,7 @@
 
 #include "SurfaceMaterial.h"
 #include <toml++/toml.hpp>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <memory>
@@ -141,7 +142,7 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
     {
         auto *Stratum = Strata->get(Index)->as_table();
         if (!Stratum) throw std::runtime_error("Stratum must be a table.");
-        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel","Specular","HeightStrength"});
+        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","Channels","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel","Specular","HeightStrength"});
         const auto Category = (*Stratum)["Category"].value<std::string>();
         if (!Category || (*Category != "Opaque" && *Category != "Coating"))
             throw std::runtime_error("Unsupported scattering Category; supported: Opaque, Coating. Transmission/SSS are not implemented.");
@@ -187,9 +188,79 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
                     Material.StratumTextureSources[Index][Slot] = *Source;
                 }
         }
+        if ((*Stratum).contains("Channels"))
+        {
+            const auto *Channels = (*Stratum)["Channels"].as_array();
+            if (!Channels || Channels->empty() || Channels->size() > 3) throw std::runtime_error("Stratum Channels must hold 1..3 entries.");
+            for (const auto &ChannelTerm : *Channels)
+            {
+                const auto *Channel = ChannelTerm.as_table();
+                if (!Channel) throw std::runtime_error("Stratum channel must be a table.");
+                ValidateKeys(*Channel,{"Name","Op","Link","Params"});
+                MaterialProceduralChannel Entry;
+                const auto Name = (*Channel)["Name"].value<std::string>();
+                if (!Name || (*Name != "Albedo" && *Name != "Orm" && *Name != "Normal"))
+                    throw std::runtime_error("Stratum channel Name must be Albedo, Orm or Normal.");
+                Entry.Name = *Name;
+                for (const auto &Prior : Material.StratumChannels[Index])
+                    if (Prior.Name == Entry.Name) throw std::runtime_error("Stratum channel Name is duplicated.");
+                Entry.Op = (*Channel)["Op"].value_or(std::string{});
+                if (Entry.Op.size() > 32) throw std::runtime_error("Stratum channel Op is unbounded.");
+                Entry.Link = (*Channel)["Link"].value_or(std::string{});
+                if (Entry.Link.empty()) Entry.Link = "shared";
+                if (Entry.Link.size() > 32) throw std::runtime_error("Stratum channel Link is unbounded.");
+                if (const auto *Params = (*Channel)["Params"].as_table())
+                {
+                    if (Params->size() > 64) throw std::runtime_error("Stratum channel Params are unbounded.");
+                    for (const auto &[Key, Value] : *Params)
+                    {
+                        const std::string Param(Key.str());
+                        if (Param.empty() || Param.size() > 64) throw std::runtime_error("Stratum channel param name is unbounded.");
+                        if (Value.is_number() || Value.is_boolean())
+                        {
+                            const auto Scalar = Value.value<double>();
+                            if (Scalar) Entry.Params[Param] = *Scalar;
+                            else if (const auto Flag = Value.value<bool>()) Entry.Params[Param] = *Flag ? 1 : 0;
+                            else throw std::runtime_error("Stratum channel param is not a scalar.");
+                        }
+                        else if (const auto Text = Value.value<std::string>()) Entry.Texts[Param] = *Text;
+                        else throw std::runtime_error("Stratum channel param must be a scalar or text.");
+                    }
+                }
+                else if ((*Channel).contains("Params")) throw std::runtime_error("Stratum channel Params must be a table.");
+                Material.StratumChannels[Index].push_back(std::move(Entry));
+            }
+            for (const auto &Entry : Material.StratumChannels[Index])
+            {
+                if (Entry.Op.empty()) continue;
+                const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+                if (Material.StratumTextureSources[Index][Slot].empty())
+                    Material.StratumTextureSources[Index][Slot] = EncodeProceduralSource(Index, Entry.Name);
+            }
+        }
     }
     if (!ValidateMaterialScattering(Material.Scattering)) throw std::runtime_error("Material coefficients violate scattering limits.");
     return Material;
+}
+
+std::string EncodeProceduralSource(size_t Stratum, std::string_view Channel)
+{
+    std::string Key = "procedural/" + std::to_string(Stratum) + "/";
+    for (char Byte : Channel) Key += char(std::tolower((unsigned char)Byte));
+    return Key;
+}
+
+std::optional<MaterialPoolLocation> QueryProceduralPool(const MaterialDefinition &Material, std::string_view Key)
+{
+    const std::string Name(Key);
+    for (size_t Index = 0; Index < Material.StratumChannels.size(); ++Index)
+        for (const auto &Entry : Material.StratumChannels[Index])
+        {
+            if (Entry.Op.empty()) continue;
+            const auto Value = Entry.Params.find(Name);
+            if (Value != Entry.Params.end()) return MaterialPoolLocation{uint32_t(Index), Entry.Name, Value->second};
+        }
+    return std::nullopt;
 }
 
 std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
@@ -238,9 +309,19 @@ std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
         toml::table Textures;
         const std::array<const char *,3> Names{"Albedo","Orm","Normal"};
         for (size_t Slot = 0; Slot < 3; ++Slot)
-            if (!Material.StratumTextureSources[Index][Slot].empty())
+            if (!Material.StratumTextureSources[Index][Slot].empty() &&
+                !Material.StratumTextureSources[Index][Slot].starts_with("procedural/"))
                 Textures.insert(Names[Slot],Material.StratumTextureSources[Index][Slot]);
         if (!Textures.empty()) Stratum.insert("Textures",std::move(Textures));
+        toml::array Channels;
+        for (const auto &Entry : Material.StratumChannels[Index])
+        {
+            toml::table Params;
+            for (const auto &[Key, Value] : Entry.Params) Params.insert(Key,Value);
+            for (const auto &[Key, Value] : Entry.Texts) Params.insert(Key,Value);
+            Channels.push_back(toml::table{{"Name",Entry.Name},{"Op",Entry.Op},{"Link",Entry.Link},{"Params",std::move(Params)}});
+        }
+        if (!Channels.empty()) Stratum.insert("Channels",std::move(Channels));
     }
     Table.insert("Strata",std::move(Strata));
     std::ostringstream Output;
@@ -412,7 +493,16 @@ CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Materia
     const auto DecodeTexture = [&](const std::string &Source,size_t Slot)
     {
         SurfaceTextureImage Image{1,1,{Defaults[Slot].begin(),Defaults[Slot].end()}};
-        if (!Source.empty())
+        const auto Override = Material.ProceduralMaps.find({Slot,Source});
+        if (Override != Material.ProceduralMaps.end())
+        {
+            const auto &Memory = Override->second;
+            if (!Memory.Width || !Memory.Height || Memory.Width > 4096 || Memory.Height > 4096 ||
+                Memory.Rgba.size() != size_t(Memory.Width) * Memory.Height * 4)
+                throw std::runtime_error("Procedural rebake produced an invalid map: "+Source);
+            Image = Memory;
+        }
+        else if (!Source.empty())
         {
             const std::filesystem::path Relative(Source);
             if (Relative.is_absolute() || Source.find(':') != std::string::npos || Source.find('\\') != std::string::npos)

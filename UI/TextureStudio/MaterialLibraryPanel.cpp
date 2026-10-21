@@ -6,6 +6,7 @@
 #include "MaterialLibraryPanel.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/DropdownControls.h"
+#include "Engine/Render/MaterialProceduralBaking.h"
 #include <algorithm>
 #include <cstdio>
 #include <imgui.h>
@@ -87,8 +88,20 @@ float *QueryPaintCoefficient(AutomotivePaint &Paint, std::string_view Key)
     if (Key == "orangePeelScale") return &Paint.Relief[3];
     return nullptr;
 }
+std::optional<MaterialPoolLocation> QueryRecipePoolLocation(MaterialDefinition &Definition, std::string_view Key)
+{
+    // 📝 Shared-pool-first: procedural params shadow stratum scalars, so one gesture drives both the recipe
+    // sliders and the rebaked channels. Direction aliases collapse onto the stored angle.
+    if (auto Pool = QueryProceduralPool(Definition, Key)) return Pool;
+    for (const auto &Op : QueryProceduralOps())
+        if (const auto Canonical = ResolveProceduralParamKey(Op, Key); Canonical != Key)
+            if (auto Pool = QueryProceduralPool(Definition, Canonical)) return Pool;
+    return {};
+}
+
 std::optional<float> QueryRecipeCoefficient(MaterialDefinition &Definition, std::string_view Key)
 {
+    if (const auto Pool = QueryRecipePoolLocation(Definition, Key)) return float(Pool->Value);
     const uint32_t Index = Key.starts_with("coat") ? 1 : 0;
     if (Index >= Definition.Scattering.Illumination.Configuration[0]) return {};
     auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
@@ -192,6 +205,15 @@ bool MaterialLibraryPanel::SelectMaterial(const std::filesystem::path &RelativeP
     // 📝 Restored parked drafts compile into the live preview; disk still needs Save or Revert.
     if (Library.QueryUnapplied()) (void)Library.ApplySource();
     PendingLivePreviewApply = false;
+    ProceduralDirty = false;
+    // 📝 A new selection restarts the inspector at the top; layer-stack scroll offsets never leak across materials.
+    if (const auto *Context = ImGui::GetCurrentContext())
+        for (auto *Candidate : Context->Windows)
+        {
+            const std::string Name(Candidate->Name);
+            const size_t Child = Name.rfind("/Material properties_");
+            if (Child != std::string::npos && Name.find('/', Child + 1) == std::string::npos) ImGui::SetScrollY(Candidate, 0);
+        }
     SynchronizeSource();
     return true;
 }
@@ -629,8 +651,13 @@ bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum,
     float Replacement = Fraction;
     (void)ControlKit::Slider(Surface, Extent, LogarithmicRange ? 0.f : Minimum, LogarithmicRange ? 1.f : Maximum,
         Fraction, Active, Pointer, Replacement, ImGui::GetStyle().Alpha, 24, 22);
-    if (std::string_view(Caption) == "Roughness" || std::string_view(Caption) == "Paint roughness")
+    // 📝 First roughness slider wins: the merged panel renders recipe sliders before the layer cards, and
+    // headless gestures target the recipe control that stays above the fold.
+    if (!RoughnessRecorded && (std::string_view(Caption) == "Roughness" || std::string_view(Caption) == "Paint roughness"))
+    {
         RoughnessExtent = {Origin.x, Origin.y + 34 * Scale, Origin.x + Width, Origin.y + 58 * Scale};
+        RoughnessRecorded = true;
+    }
     if (Active && Replacement != Fraction)
     {
         Position = LogarithmicRange ? Minimum * std::pow(Maximum / Minimum, Replacement) : Replacement;
@@ -659,6 +686,7 @@ void MaterialLibraryPanel::ConstructActions()
     if (ImGui::Button("Revert") && Library.RevertSource())
     {
         PendingLivePreviewApply = false;
+        ProceduralDirty = false;
         SynchronizeSource();
     }
     RevertExtent = Extent();
@@ -675,6 +703,7 @@ void MaterialLibraryPanel::ConstructInspector()
 {
     if (Library.QuerySelection().empty()) { ImGui::TextUnformatted("Select a material"); return; }
     if (SourceVisible) { ConstructSourceEditor(); return; }
+    RoughnessRecorded = false;
     const float Scale = QueryInterfaceScale();
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
@@ -697,60 +726,17 @@ void MaterialLibraryPanel::ConstructInspector()
     }
     ConstructIcon(IconSymbol::EditorFavourite, Origin.x + Width - 34 * Scale, At(0, 82).y, 15 * Scale, Favourites.contains(Selection) ? 0xc5d2aa : 0x858577);
     ImGui::PopFont();
+    // 📝 Properties and layers share one scroll: recipe cards first, then the layer stack with per-layer
+    // cards, channel routing, and procedural controls. No mode toggle — the whole material stays visible.
     ImGui::PushFont(nullptr, 9 * 1.302f * Scale);
-    if (ConstructMaterialPill("    Properties", At(21, 137), ImVec2(90 * Scale, 34 * Scale), !LayersVisible)) LayersVisible = false;
-    if (ConstructMaterialPill("    Layers", At(117, 137), ImVec2(85 * Scale, 34 * Scale), LayersVisible)) LayersVisible = true;
-    ConstructIcon(IconSymbol::EditorSliders, At(31, 147).x, At(31, 147).y, 13 * Scale);
-    ConstructIcon(IconSymbol::EditorLayers, At(130, 147).x, At(130, 147).y, 13 * Scale);
+    ConstructMaterialCaption(At(21, 147).x, At(21, 147).y, 9 * Scale, 0x8b8d79, "PROPERTIES & LAYERS");
     ImGui::PopFont();
     ImGui::SetCursorScreenPos(At(17, 191));
     ImGui::BeginChild("Material properties", ImVec2(Width - 34 * Scale, std::max(40.f, Bottom - At(0, 191).y - 94 * Scale)));
     try
     {
         auto Definition = DecodeSurfaceMaterial(Library.QuerySource());
-        bool Changed = false;
-        if (LayersVisible)
-        {
-            for (uint32_t Index = 0; Index < Definition.Scattering.Illumination.Configuration[0]; ++Index)
-            {
-                ImGui::PushID(int(Index));
-                auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
-                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
-                ImGui::BeginChild("Material layer card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                const char *LayerName = Stratum.Classification[0] ? "Clearcoat" : "Surface";
-                ImGui::Text("Layer %u", Index + 1);
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", LayerName);
-                ImGui::Separator();
-                if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
-                    Changed = Library.ConfigureStratumCoefficient(Index, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                if (Stratum.Classification[0] != 0)
-                {
-                    if (ConstructProperty("Coverage", 0.f, 1.f, Stratum.Optics[2]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "Coverage", Stratum.Optics[2]) || Changed;
-                }
-                else if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
-                    Changed = Library.ConfigureStratumCoefficient(Index, "Metallic", Stratum.Optics[0]) || Changed;
-                if (Stratum.Classification[0] == 0)
-                {
-                    if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Index][3]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "Specular", Definition.Scattering.DirectionalOptics[Index][3]) || Changed;
-                    if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][0]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "NormalStrength", Definition.Scattering.StratumNormal[Index][0]) || Changed;
-                    if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][1]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "HeightStrength", Definition.Scattering.StratumNormal[Index][1]) || Changed;
-                }
-                ImGui::EndChild();
-                ImGui::PopStyleColor();
-                ImGui::PopStyleVar(2);
-                ImGui::Dummy(ImVec2(1, 10 * Scale));
-                ImGui::PopID();
-            }
-        }
-        else
+        bool Changed = false, Rebaked = false;
         {
             const auto Start = ImGui::GetCursorScreenPos();
             const float CardWidth = std::max(110.f, ImGui::GetContentRegionAvail().x);
@@ -978,6 +964,20 @@ void MaterialLibraryPanel::ConstructInspector()
                                 *QueryPaintCoefficient(Definition.Scattering.Paint, Target.Key) = Coefficient;
                                 PaintChanged = true;
                             }
+                            else if (const auto Pool = QueryRecipePoolLocation(Definition, Target.Key))
+                            {
+                                // 📝 Recipe sliders drive the shared pool, so every linked channel rebakes from one
+                                // gesture. The roughness ceiling scalar follows the pool to preserve the ORM scale.
+                                Changed = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, Target.Key, Coefficient) || Changed;
+                                if (Target.Key == "roughness")
+                                {
+                                    float Lift = .3f;
+                                    for (const auto &Entry : Definition.StratumChannels[Pool->Stratum])
+                                        if (Entry.Name == Pool->Channel) Lift = QueryProceduralOpCeilingLift(Entry.Op);
+                                    Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "Roughness", std::min(1.f, Coefficient + Lift)) || Changed;
+                                }
+                                ProceduralDirty = true;
+                            }
                             else
                             {
                                 const uint32_t Index = Target.Key.starts_with("coat") ? 1 : 0;
@@ -1020,14 +1020,185 @@ void MaterialLibraryPanel::ConstructInspector()
                 ImGui::SetCursorScreenPos(ImVec2(Start.x, CardY));
                 ImGui::Dummy(ImVec2(CardWidth, 1));
             }
+            // 📝 Layer stack shares the scroll: per-layer cards with add/remove, channel routing dropdowns,
+            // and procedural op controls with link/fork/merge pool management.
+            const uint32_t Strata = Definition.Scattering.Illumination.Configuration[0];
+            ImGui::SetCursorScreenPos(ImVec2(Start.x + 3 * Scale, CardY + 8 * Scale));
+            ImGui::TextDisabled("LAYER STACK");
+            {
+                const float AddWidth = 110 * Scale;
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - AddWidth);
+                ImGui::BeginDisabled(Strata >= 8);
+                if (ImGui::Button("Add layer", ImVec2(AddWidth, 0)) && Library.InsertStratum(Strata)) Changed = true;
+                ImGui::EndDisabled();
+                LayerExtents["add-layer"] = {ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
+                    ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y};
+            }
+            bool StrataMutated = false;
+            for (uint32_t Index = 0; Index < Strata && !StrataMutated; ++Index)
+            {
+                ImGui::PushID(int(Index));
+                auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
+                const bool Coat = Stratum.Classification[0] != 0;
+                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
+                ImGui::BeginChild("Material layer card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+                ImGui::ColorButton("##Swatch", ImVec4(Stratum.AlbedoRoughness[0], Stratum.AlbedoRoughness[1],
+                    Stratum.AlbedoRoughness[2], 1), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, ImVec2(14 * Scale, 14 * Scale));
+                ImGui::SameLine();
+                ImGui::Text("%02u %s", Index + 1, Coat ? "Clearcoat" : "Surface");
+                ImGui::SameLine();
+                ImGui::TextDisabled("%.0f%%", Coat ? Stratum.Optics[2] * 100 : 100);
+                if (Strata > 1)
+                {
+                    const float RemoveWidth = 76 * Scale;
+                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - RemoveWidth);
+                    if (ImGui::Button("Remove", ImVec2(RemoveWidth, 0)) && Library.RemoveStratum(Index))
+                    {
+                        Changed = true;
+                        StrataMutated = true;
+                    }
+                }
+                ImGui::Separator();
+                if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
+                    Changed = Library.ConfigureStratumCoefficient(Index, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
+                if (Coat)
+                {
+                    if (ConstructProperty("Coverage", 0.f, 1.f, Stratum.Optics[2]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "Coverage", Stratum.Optics[2]) || Changed;
+                }
+                else if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
+                    Changed = Library.ConfigureStratumCoefficient(Index, "Metallic", Stratum.Optics[0]) || Changed;
+                if (!Coat)
+                {
+                    if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Index][3]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "Specular", Definition.Scattering.DirectionalOptics[Index][3]) || Changed;
+                    if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][0]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "NormalStrength", Definition.Scattering.StratumNormal[Index][0]) || Changed;
+                    if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][1]))
+                        Changed = Library.ConfigureStratumCoefficient(Index, "HeightStrength", Definition.Scattering.StratumNormal[Index][1]) || Changed;
+                }
+                static constexpr const char *ChannelNames[3] = {"Albedo", "Orm", "Normal"};
+                for (uint32_t Slot = 0; Slot < 3; ++Slot)
+                {
+                    ImGui::PushID(ChannelNames[Slot]);
+                    const auto &Channels = Definition.StratumChannels[Index];
+                    const auto Channel = std::find_if(Channels.begin(), Channels.end(),
+                        [&](const auto &Entry) { return Entry.Name == ChannelNames[Slot]; });
+                    const bool Procedural = Channel != Channels.end() && !Channel->Op.empty();
+                    const std::string &Source = Definition.StratumTextureSources[Index][Slot];
+                    const bool File = !Procedural && !Source.empty() && !Source.starts_with("procedural/");
+                    std::vector<std::string> Options = {"Off"};
+                    if (File) Options.emplace_back("Texture file");
+                    for (const auto &Op : QueryProceduralOps())
+                        if (const auto Supported = QueryProceduralOpChannels(Op);
+                            std::find(Supported.begin(), Supported.end(), ChannelNames[Slot]) != Supported.end())
+                            Options.emplace_back("Procedural: " + Op);
+                    std::vector<const char *> Labels;
+                    for (const auto &Option : Options) Labels.push_back(Option.c_str());
+                    int Selection = 0;
+                    if (Procedural)
+                        Selection = int(std::find(Options.begin(), Options.end(), "Procedural: " + Channel->Op) - Options.begin());
+                    else if (File) Selection = 1;
+                    if (ConstructMaterialSelection(ChannelNames[Slot], Labels[size_t(Selection)], Labels.data(), int(Labels.size()), Selection, Scale))
+                    {
+                        const std::string &Choice = Options[size_t(Selection)];
+                        const std::string Op = Choice.starts_with("Procedural: ") ? Choice.substr(12) : "";
+                        if (Library.ConfigureStratumChannel(Index, ChannelNames[Slot], Op))
+                        {
+                            Changed = true;
+                            if (!Op.empty() && Library.RebakeProcedurals(256))
+                            {
+                                PendingLivePreviewApply = false;
+                                Rebaked = true;
+                            }
+                        }
+                    }
+                    if (Procedural)
+                    {
+                        uint32_t Linked = 0;
+                        for (uint32_t Other = 0; Other < Strata; ++Other)
+                            for (const auto &Entry : Definition.StratumChannels[Other])
+                                if (Entry.Op == Channel->Op && Entry.Link == Channel->Link) ++Linked;
+                        char Header[96];
+                        std::snprintf(Header, sizeof Header, "Procedural - %s (shared x%u)", Channel->Op.c_str(), Linked);
+                        if (ImGui::TreeNode(Header))
+                        {
+                            ImGui::TextDisabled("Pool %s.%s", Channel->Op.c_str(),
+                                Channel->Link.empty() ? "shared" : Channel->Link.c_str());
+                            ImGui::SameLine();
+                            if (ImGui::Button("Fork") && Library.ForkProceduralChannel(Index, ChannelNames[Slot])) Changed = true;
+                            std::vector<std::pair<uint32_t,std::string>> Peers;
+                            std::vector<std::string> PeerLabels = {"Merge into..."};
+                            for (uint32_t Other = 0; Other < Strata; ++Other)
+                                for (uint32_t Entry = 0; Entry < Definition.StratumChannels[Other].size(); ++Entry)
+                                {
+                                    const auto &Candidate = Definition.StratumChannels[Other][Entry];
+                                    if (Candidate.Op != Channel->Op || Candidate.Link == Channel->Link) continue;
+                                    if (Other == Index && Candidate.Name == ChannelNames[Slot]) continue;
+                                    Peers.emplace_back(Other, Candidate.Name);
+                                    char Caption[64];
+                                    std::snprintf(Caption, sizeof Caption, "Layer %u - %s", Other + 1, Candidate.Name.c_str());
+                                    PeerLabels.emplace_back(Caption);
+                                }
+                            if (Peers.size() > 0)
+                            {
+                                std::vector<const char *> PeerOptions;
+                                for (const auto &Peer : PeerLabels) PeerOptions.push_back(Peer.c_str());
+                                int Peer = 0;
+                                if (ConstructMaterialSelection("Merge", PeerOptions[0], PeerOptions.data(), int(PeerOptions.size()), Peer, Scale) && Peer > 0)
+                                {
+                                    const auto &Donor = Peers[size_t(Peer) - 1];
+                                    if (Library.MergeProceduralChannel(Index, ChannelNames[Slot], Donor.first, Donor.second))
+                                        Changed = true;
+                                }
+                            }
+                            for (const auto &Param : QueryProceduralOpParams(Channel->Op))
+                            {
+                                float Value = Param.Default;
+                                if (const auto Found = Channel->Params.find(Param.Key); Found != Channel->Params.end())
+                                    Value = float(Found->second);
+                                if (ConstructProperty(Param.Label, Param.Minimum, Param.Maximum, Value, Param.Unit, Param.Logarithmic, Param.Step)
+                                    && Library.ConfigureProceduralParam(Index, ChannelNames[Slot], Param.Key, Value))
+                                {
+                                    Changed = true;
+                                    ProceduralDirty = true;
+                                }
+                            }
+                            ImGui::TreePop();
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndChild();
+                LayerExtents["layer-" + std::to_string(Index + 1)] = {ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
+                    ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y};
+                ImGui::PopStyleColor();
+                ImGui::PopStyleVar(2);
+                ImGui::Dummy(ImVec2(1, 10 * Scale));
+                ImGui::PopID();
+            }
         }
         if (Changed)
         {
             SynchronizeSource();
             PendingLivePreviewApply = true;
         }
+        // 📝 Procedural gestures rebake once at proxy resolution when the gesture ends; the rebake applies
+        // itself, so the pending structured apply is consumed with it. Disk persistence stays an explicit Save.
+        if (ProceduralDirty && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            ProceduralDirty = false;
+            if (Library.RebakeProcedurals(256))
+            {
+                PendingLivePreviewApply = false;
+                Rebaked = true;
+            }
+        }
         // 📝 Structured controls apply to the live preview when the gesture ends; disk persistence remains an explicit Save.
-        if (PendingLivePreviewApply && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        if (PendingLivePreviewApply && !Rebaked && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
         {
             if (Library.ApplySource()) PendingLivePreviewApply = false;
         }

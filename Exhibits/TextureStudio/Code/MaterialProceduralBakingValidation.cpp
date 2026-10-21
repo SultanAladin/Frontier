@@ -7,11 +7,10 @@
 
 #include "Engine/ContentInterchange/MaterialLibrary.h"
 #include "Engine/Render/MaterialProceduralBaking.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb_image_write.h>
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <set>
 
 using namespace Frontier;
@@ -168,6 +167,54 @@ int main()
         Confirm(CutOrm[0] == uint8_t(std::lround(.89f * 255)) && CutOrm[1] == 255 && CutOrm[2] == 255,
             "ORM cut pixel misses the shader ceiling.");
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
+        // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
+        // passthrough that keeps unworn polymer out of the worn-roughness branch.
+        Confirm(QueryProceduralOps().size() == 3, "Procedural op registry changed.");
+        Confirm(QueryProceduralOpChannels("metalGrain") == std::vector<std::string>{"Albedo", "Normal"},
+            "Bare-metal op channel set changed.");
+        Confirm(QueryProceduralOpChannels("polymerGrain").size() == 3, "Polymer op channel set changed.");
+        Confirm(QueryProceduralOpCeilingLift("scratches") == .3f && QueryProceduralOpCeilingLift("polymerGrain") == .096f &&
+                QueryProceduralOpCeilingLift("metalGrain") == 0 && QueryProceduralOpCeilingLift("unknown") == 0,
+            "ORM ceiling lift changed.");
+        bool RejectedGrain = false;
+        try { (void)BakeProceduralChannelRgba("metalGrain", "Orm", {}, 32); }
+        catch (const std::exception &) { RejectedGrain = true; }
+        Confirm(RejectedGrain, "Bare-metal op baked a channel its shader never varies.");
+        const std::map<std::string, double> Metal{{"grain", .5}, {"detailScale", 8}, {"surfaceSeed", 17}};
+        const auto MetalAlbedo = BakeProceduralChannelRgba("metalGrain", "Albedo", Metal, 32);
+        const double MetalSpot = .92 + .1 * ReferenceNoise3(.5 / 32 * 8, 17, .5 / 32 * 8);
+        Confirm(std::abs(MetalAlbedo[0] / 255. - MetalSpot) < 2. / 255, "Bare-metal albedo drifted from the Alloy type-1 term.");
+        Confirm(MetalAlbedo == BakeProceduralChannelRgba("metalGrain", "Albedo", Metal, 32), "Grain bake is not deterministic.");
+        const std::map<std::string, double> ReseededMetal{{"grain", .5}, {"detailScale", 8}, {"surfaceSeed", 18}};
+        Confirm(MetalAlbedo != BakeProceduralChannelRgba("metalGrain", "Albedo", ReseededMetal, 32), "Grain bake ignores its seed.");
+        const std::map<std::string, double> Polymer{{"grain", .6}, {"detailScale", 8}, {"wear", 0}, {"wearSoftness", .65},
+            {"wornRoughness", .24}, {"scratchScale", 32}, {"surfaceSeed", 17}, {"roughness", .5}};
+        const auto PolymerOrm = BakeProceduralChannelRgba("polymerGrain", "Orm", Polymer, 32);
+        uint8_t MinimumGreen = 255, MaximumGreen = 0;
+        double GreenSum = 0;
+        for (size_t Pixel = 0; Pixel < PolymerOrm.size(); Pixel += 4)
+        {
+            Confirm(PolymerOrm[Pixel] == 255 && PolymerOrm[Pixel + 2] == 255 && PolymerOrm[Pixel + 3] == 255,
+                "Polymer ORM carries occlusion or metal it never bakes.");
+            MinimumGreen = std::min(MinimumGreen, PolymerOrm[Pixel + 1]);
+            MaximumGreen = std::max(MaximumGreen, PolymerOrm[Pixel + 1]);
+            GreenSum += PolymerOrm[Pixel + 1];
+        }
+        const double GreenMean = GreenSum / (PolymerOrm.size() / 4);
+        Confirm(MinimumGreen >= 190 && MaximumGreen - MinimumGreen > 4 && GreenMean > 225 && GreenMean < 241,
+            "Polymer ORM grain escapes its ceiling or drifts from the base ratio.");
+        const auto PolymerAlbedo = BakeProceduralChannelRgba("polymerGrain", "Albedo", Polymer, 32);
+        uint8_t MinimumGray = 255, MaximumGray = 0;
+        for (size_t Pixel = 0; Pixel < PolymerAlbedo.size(); Pixel += 4)
+            MinimumGray = std::min(MinimumGray, PolymerAlbedo[Pixel]), MaximumGray = std::max(MaximumGray, PolymerAlbedo[Pixel]);
+        Confirm(MinimumGray >= 225 && MaximumGray == 255 && MinimumGray < MaximumGray, "Polymer albedo modulator range changed.");
+        const std::map<std::string, double> BarePolymer{{"grain", 0}, {"detailScale", 8}, {"wear", 0}, {"surfaceSeed", 17}};
+        const auto BarePolymerNormal = BakeProceduralChannelRgba("polymerGrain", "Normal", BarePolymer, 32);
+        bool BareUp = true;
+        for (size_t Pixel = 0; Pixel < BarePolymerNormal.size(); Pixel += 4)
+            BareUp = BareUp && BarePolymerNormal[Pixel] == 128 && BarePolymerNormal[Pixel + 1] == 128 &&
+                BarePolymerNormal[Pixel + 2] == 255;
+        Confirm(BareUp, "Grain-free polymer relief tilts.");
         // Recipe coverage: every shipped material parses its SourceRecipe; the pilot resolves exactly.
         MaterialLibrary Library;
         Confirm(Library.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") && Library.Refresh(),
@@ -204,13 +251,9 @@ int main()
         for (const auto &[Pixels, Stem] :
             {std::pair<const std::vector<uint8_t> &, const char *>{LibraryNormal, "scratches-normal.png"}, {LibraryOrm, "scratches-orm.png"}})
         {
-            int Bytes = 0;
-            unsigned char *Encoded = stbi_write_png_to_mem(Pixels.data(), 0, 512, 512, 4, &Bytes);
-            Confirm(Encoded && Bytes > 0, "Procedural PNG encode failed.");
+            const auto Encoded = EncodeProceduralPng(Pixels, 512);
             const auto Committed = ReadBytes(std::filesystem::path("EngineContent/MaterialArchives/TextureStudio/Textures") / Stem);
-            Confirm(Committed.size() == size_t(Bytes) && std::equal(Committed.begin(), Committed.end(), Encoded),
-                "Committed pilot texture drifted from its recipe bake.");
-            STBIW_FREE(Encoded);
+            Confirm(Committed == Encoded, "Committed pilot texture drifted from its recipe bake.");
         }
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;

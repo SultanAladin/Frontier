@@ -11,6 +11,7 @@
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include <array>
+#include <map>
 #include <set>
 
 namespace Frontier
@@ -60,6 +61,11 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] PlaneExtent QuerySaveExtent() const noexcept { return SaveExtent; }
     [[nodiscard]] PlaneExtent QueryRoughnessExtent() const noexcept { return RoughnessExtent; }
     [[nodiscard]] PlaneExtent QueryRevertExtent() const noexcept { return RevertExtent; }
+    [[nodiscard]] PlaneExtent QueryLayerExtent(const std::string &Name) const noexcept
+    {
+        if (const auto Found = LayerExtents.find(Name); Found != LayerExtents.end()) return Found->second;
+        return {};
+    }
     [[nodiscard]] MaterialLibrary &QueryLibrary() noexcept { return Library; }
 
   private:
@@ -68,9 +74,10 @@ class MaterialLibraryPanel final : public ActivationSequence
     MaterialLibrary Library;
     PanelDockspace Panels;
     bool SourceVisible = false;
-    bool CollectionVisible = false, LayersVisible = false;
+    bool CollectionVisible = false;
     bool FullscreenPreview = false;
-    bool PendingLivePreviewApply = false;
+    bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
+    std::map<std::string, PlaneExtent> LayerExtents;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;

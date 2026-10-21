@@ -6,6 +6,9 @@
 
 #pragma once
 #include <cstdint>
+#include <map>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace Frontier
@@ -47,4 +50,30 @@ struct ScratchBakeMaps
 // 📝 ORM multipliers over the authored scalars: occlusion darkens the cuts, green divides by the shader's +0.3
 // ceiling so the authored scalar must equal min(1, BaseRoughness + .3), blue preserves full metalness.
 [[nodiscard]] std::vector<uint8_t> ConvertScratchOrmRgba(const std::vector<float> &Coverage, uint32_t Extent, float BaseRoughness);
+
+// 📝 Op registry: each procedural op declares the channels it can bake and the slider ranges its Alloy-keyed
+// params expose. Params keep their Alloy uniform spellings so recipe controls resolve without translation.
+struct ProceduralOpParam
+{
+    const char *Key = "";
+    const char *Label = "";
+    float Minimum = 0, Maximum = 1, Default = 0;
+    bool Logarithmic = false;
+    const char *Unit = "";
+    float Step = .01f;
+};
+[[nodiscard]] std::vector<std::string> QueryProceduralOps();
+[[nodiscard]] std::vector<std::string> QueryProceduralOpChannels(std::string_view Op);
+[[nodiscard]] std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op);
+// 📝 Canonical pool spelling for a recipe target key; direction aliases collapse onto one stored angle.
+[[nodiscard]] std::string ResolveProceduralParamKey(std::string_view Op, std::string_view Key);
+// 📝 Maximum roughness lift an op can bake above its base; the material's roughness scalar carries
+// base+lift as the ORM ceiling so green never clips. Ops without an ORM channel report zero.
+[[nodiscard]] float QueryProceduralOpCeilingLift(std::string_view Op);
+// 📝 Channel dispatcher: bake one channel's RGBA from a channel's op + params; the ORM base comes from the
+// pool's roughness, and relief normalization plus strength match the offline pilot bake.
+[[nodiscard]] std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
+    const std::map<std::string, double> &Params, uint32_t Extent);
+// 📝 Deterministic PNG encoding shared by the offline baker, the save path and the regeneration tests.
+[[nodiscard]] std::vector<uint8_t> EncodeProceduralPng(const std::vector<uint8_t> &Rgba, uint32_t Extent);
 }

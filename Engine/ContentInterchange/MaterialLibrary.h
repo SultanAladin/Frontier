@@ -64,6 +64,14 @@ class MaterialLibrary
     bool ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient);
     bool ConfigurePaint(const AutomotivePaint &Paint);
     bool ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum);
+    bool InsertStratum(uint32_t Index);
+    bool RemoveStratum(uint32_t Index);
+    bool ConfigureStratumChannel(uint32_t Index, std::string_view Channel, std::string_view Op);
+    bool ForkProceduralChannel(uint32_t Index, std::string_view Channel);
+    bool MergeProceduralChannel(uint32_t Index, std::string_view Channel, uint32_t SourceStratum, std::string_view SourceChannel);
+    bool ConfigureProceduralParam(uint32_t Index, std::string_view Channel, std::string_view Key, double Value);
+    bool RebakeProcedurals(uint32_t Extent = 256);
+    [[nodiscard]] size_t QueryProceduralOverrideCount() const noexcept { return ProceduralOverrides.size(); }
     bool RevertSource();
     bool SaveMaterial();
     bool CreateMaterial(const std::filesystem::path &RelativePath, const std::string &Name);
@@ -90,6 +98,7 @@ class MaterialLibrary
     std::vector<size_t> Visible;
     std::string Source, SavedSource, AppliedSource, Search, Diagnostic;
     std::map<std::filesystem::path, std::string> ParkedSources;
+    std::map<std::pair<size_t, std::string>, SurfaceTextureImage> ProceduralOverrides;
     std::unique_ptr<CompiledSurfaceMaterial> Applied;
     uint64_t Revision = 0;
     bool Truncated = false;
@@ -97,5 +106,6 @@ class MaterialLibrary
     std::filesystem::path ResolveMaterial(const std::filesystem::path &RelativePath) const;
     void FilterEntries();
     bool ConfigureStratumLiteral(uint32_t Index, std::string_view Name, const std::string &Numeric);
+    bool PersistProceduralOverrides();
 };
 } // namespace Frontier

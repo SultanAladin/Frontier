@@ -5,6 +5,7 @@
 
 #include "MaterialLibrary.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
+#include "Engine/Render/MaterialProceduralBaking.h"
 #include <charconv>
 #include <toml++/toml.hpp>
 #include "Engine/Interface/ContentDirectory.h"
@@ -43,6 +44,156 @@ std::filesystem::path NormalizeMaterialPath(const std::filesystem::path &Path)
 {
     // 📝 lexical normalization uses native separators on Windows; retain portable UTF-8 separators in library selections.
     return std::filesystem::path(Path.lexically_normal().generic_u8string());
+}
+
+// 📝 Line surgery for stratum/channel blocks: structured edits splice source text so comments and formatting
+// survive, and every splice re-decodes before commit, keeping hand edits and panel edits interchangeable.
+struct SourceSpan
+{
+    size_t Begin = 0, End = 0;
+};
+
+std::string_view TrimSourceLine(std::string_view Line)
+{
+    while (!Line.empty() && (Line.front() == ' ' || Line.front() == '\t' || Line.front() == '\r')) Line.remove_prefix(1);
+    while (!Line.empty() && (Line.back() == ' ' || Line.back() == '\t' || Line.back() == '\r')) Line.remove_suffix(1);
+    return Line;
+}
+
+bool IsStrataHeader(std::string_view Trimmed) { return Trimmed.starts_with("[[Strata]]"); }
+
+bool IsTopLevelHeader(std::string_view Trimmed)
+{
+    if (!Trimmed.starts_with("[") || Trimmed.starts_with("[[")) return false;
+    const auto Close = Trimmed.find(']');
+    return Close != std::string_view::npos && Trimmed.substr(0, Close).find('.') == std::string_view::npos;
+}
+
+std::vector<SourceSpan> SplitStrataBlocks(const std::string &Source)
+{
+    std::vector<SourceSpan> Blocks;
+    size_t Cursor = 0;
+    int Open = -1;
+    while (Cursor <= Source.size())
+    {
+        const size_t Stop = Source.find('\n', Cursor);
+        const size_t End = Stop == std::string::npos ? Source.size() : Stop;
+        const auto Trimmed = TrimSourceLine(std::string_view(Source.data() + Cursor, End - Cursor));
+        if (IsStrataHeader(Trimmed))
+        {
+            if (Open >= 0) Blocks[size_t(Open)].End = Cursor;
+            Open = int(Blocks.size());
+            Blocks.push_back({Cursor, Source.size()});
+        }
+        else if (IsTopLevelHeader(Trimmed) && Open >= 0)
+        {
+            Blocks[size_t(Open)].End = Cursor;
+            Open = -1;
+        }
+        if (Stop == std::string::npos) break;
+        Cursor = Stop + 1;
+    }
+    return Blocks;
+}
+
+struct ChannelSpan
+{
+    SourceSpan Span;
+    std::string Name;
+};
+
+bool IsChannelParamsHeader(std::string_view Trimmed) { return Trimmed.starts_with("[Strata.Channels.Params]"); }
+
+std::vector<ChannelSpan> SplitChannelBlocks(const std::string &Source, SourceSpan Block)
+{
+    std::vector<ChannelSpan> Channels;
+    size_t Cursor = Block.Begin;
+    int Open = -1;
+    while (Cursor < Block.End)
+    {
+        const size_t Stop = Source.find('\n', Cursor);
+        const size_t End = Stop == std::string::npos || Stop > Block.End ? Block.End : Stop;
+        const auto Trimmed = TrimSourceLine(std::string_view(Source.data() + Cursor, End - Cursor));
+        const bool Header = Trimmed.starts_with("[");
+        if (Trimmed.starts_with("[[Strata.Channels]]"))
+        {
+            if (Open >= 0) Channels[size_t(Open)].Span.End = Cursor;
+            Open = int(Channels.size());
+            Channels.push_back({{Cursor, Block.End}, {}});
+        }
+        else if (Header && !IsChannelParamsHeader(Trimmed) && Open >= 0)
+        {
+            Channels[size_t(Open)].Span.End = Cursor;
+            Open = -1;
+        }
+        else if (Open >= 0 && Channels[size_t(Open)].Name.empty() && Trimmed.starts_with("Name"))
+        {
+            const auto Equals = Trimmed.find('=');
+            const auto First = Equals == std::string_view::npos ? std::string_view::npos : Trimmed.find('"', Equals);
+            const auto Last = First == std::string_view::npos ? std::string_view::npos : Trimmed.find('"', First + 1);
+            if (First != std::string_view::npos && Last != std::string_view::npos)
+                Channels[size_t(Open)].Name = std::string(Trimmed.substr(First + 1, Last - First - 1));
+        }
+        if (Stop == std::string::npos || Stop >= Block.End) break;
+        Cursor = Stop + 1;
+    }
+    return Channels;
+}
+
+SourceSpan FindTexturesSection(const std::string &Source, SourceSpan Block)
+{
+    size_t Cursor = Block.Begin;
+    bool Open = false;
+    SourceSpan Section{0, 0};
+    while (Cursor < Block.End)
+    {
+        const size_t Stop = Source.find('\n', Cursor);
+        const size_t End = Stop == std::string::npos || Stop > Block.End ? Block.End : Stop;
+        const auto Trimmed = TrimSourceLine(std::string_view(Source.data() + Cursor, End - Cursor));
+        if (Trimmed.starts_with("[Strata.Textures]"))
+        {
+            Open = true;
+            Section.Begin = Cursor;
+            Section.End = Block.End;
+        }
+        else if (Open && Trimmed.starts_with("["))
+        {
+            Section.End = Cursor;
+            break;
+        }
+        if (Stop == std::string::npos || Stop >= Block.End) break;
+        Cursor = Stop + 1;
+    }
+    return Open ? Section : SourceSpan{0, 0};
+}
+
+SourceSpan FindKeyLine(const std::string &Source, SourceSpan Span, std::string_view Key)
+{
+    size_t Cursor = Span.Begin;
+    while (Cursor < Span.End)
+    {
+        const size_t Stop = Source.find('\n', Cursor);
+        const size_t End = Stop == std::string::npos || Stop > Span.End ? Span.End : Stop;
+        const auto Trimmed = TrimSourceLine(std::string_view(Source.data() + Cursor, End - Cursor));
+        if (Trimmed.starts_with(Key))
+        {
+            const auto Rest = TrimSourceLine(Trimmed.substr(Key.size()));
+            if (Rest.starts_with("=")) return {Cursor, Stop == std::string::npos ? Span.End : Stop + 1};
+        }
+        if (Stop == std::string::npos || Stop >= Span.End) break;
+        Cursor = Stop + 1;
+    }
+    return {0, 0};
+}
+
+std::string EncodeSourceDouble(double Value)
+{
+    char Number[64]{};
+    const auto Encoded = std::to_chars(Number, Number + sizeof(Number), Value);
+    if (Encoded.ec != std::errc{}) throw std::runtime_error("Material coefficient encoding failed.");
+    std::string Numeric(Number, Encoded.ptr);
+    if (Numeric.find_first_of(".eE") == std::string::npos) Numeric += ".0";
+    return Numeric;
 }
 
 std::string DecodeMaterialSource(const std::filesystem::path &Path)
@@ -290,6 +441,7 @@ bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
         Source = std::move(ReplacementSource);
         SavedSource = Source;
         AppliedSource = Source;
+        ProceduralOverrides.clear();
         Applied = std::move(Replacement);
         if (Target != Previous)
         {
@@ -397,6 +549,405 @@ bool MaterialLibrary::ConfigureStratumLiteral(uint32_t Index, std::string_view N
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
 }
 
+bool MaterialLibrary::InsertStratum(uint32_t Index)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        const auto Blocks = SplitStrataBlocks(Source);
+        if (Index > Blocks.size()) throw std::runtime_error("Material stratum does not exist.");
+        if (Blocks.size() >= 8) throw std::runtime_error("Material holds the maximum 8 strata.");
+        if (Blocks.empty()) throw std::runtime_error("Add a [[Strata]] table in Source view first.");
+        static constexpr const char *Template =
+            "[[Strata]]\nCategory = \"Coating\"\nAlbedo = [1.0, 1.0, 1.0]\nRoughness = 0.15\nMetallic = 0.0\nIor = 1.5\nCoverage = 0.65\n";
+        const size_t At = Index < Blocks.size() ? Blocks[Index].Begin : Blocks.back().End;
+        std::string Head = Source.substr(0, At), Tail = Source.substr(At);
+        if (!Head.empty() && Head.back() != '\n') Head += '\n';
+        const std::string Replacement = Head + Template + Tail;
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = Replacement;
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::RemoveStratum(uint32_t Index)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        const auto Blocks = SplitStrataBlocks(Source);
+        if (Index >= Blocks.size()) throw std::runtime_error("Material stratum does not exist.");
+        if (Blocks.size() < 2) throw std::runtime_error("Material requires at least one stratum.");
+        auto Replacement = Source;
+        Replacement.erase(Blocks[Index].Begin, Blocks[Index].End - Blocks[Index].Begin);
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::ConfigureStratumChannel(uint32_t Index, std::string_view Channel, std::string_view Op)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        const std::string Name(Channel), Operation(Op);
+        if (Name != "Albedo" && Name != "Orm" && Name != "Normal") throw std::runtime_error("Unknown stratum channel.");
+        if (!Operation.empty())
+        {
+            const auto Ops = QueryProceduralOps();
+            if (std::find(Ops.begin(), Ops.end(), Operation) == Ops.end()) throw std::runtime_error("Unknown procedural op.");
+            const auto Supported = QueryProceduralOpChannels(Operation);
+            if (std::find(Supported.begin(), Supported.end(), Name) == Supported.end())
+                throw std::runtime_error("Procedural op does not bake the requested channel.");
+        }
+        auto Blocks = SplitStrataBlocks(Source);
+        if (Index >= Blocks.size()) throw std::runtime_error("Material stratum does not exist.");
+        auto Definition = DecodeSurfaceMaterial(Source);
+        const MaterialProceduralChannel *Existing = nullptr;
+        for (const auto &Entry : Definition.StratumChannels[Index])
+            if (Entry.Name == Name) Existing = &Entry;
+        auto Replacement = Source;
+        const auto Refresh = [&]() { Blocks = SplitStrataBlocks(Replacement); };
+        // Same-op switches keep params and links; anything else rebuilds the sub-block from op defaults.
+        const bool Keep = Existing && Existing->Op == Operation;
+        if (!Keep)
+        {
+            Refresh();
+            for (const auto &Span : SplitChannelBlocks(Replacement, Blocks[Index]))
+                if (Span.Name == Name) Replacement.erase(Span.Span.Begin, Span.Span.End - Span.Span.Begin);
+            if (!Operation.empty())
+            {
+                std::map<std::string, double> Seeds;
+                for (const auto &Entry : Entries)
+                    if (Entry.RelativePath == Selection) Seeds = Entry.Recipe.Scalars;
+                std::string Block = "[[Strata.Channels]]\nName = \"" + Name + "\"\nOp = \"" + Operation + "\"\nLink = \"shared\"\n[Strata.Channels.Params]\n";
+                for (const auto &Param : QueryProceduralOpParams(Operation))
+                {
+                    double Value = Param.Default;
+                    const auto Seeded = Seeds.find(Param.Key);
+                    if (Seeded != Seeds.end()) Value = Seeded->second;
+                    else if (std::string_view(Param.Key) == "angle")
+                    {
+                        const auto Weave = Seeds.find("weaveAngle"), Scratch = Seeds.find("scratchAngle");
+                        if (Weave != Seeds.end()) Value = Weave->second;
+                        else if (Scratch != Seeds.end()) Value = Scratch->second;
+                    }
+                    Block += std::string(Param.Key) + " = " + EncodeSourceDouble(Value) + "\n";
+                }
+                Refresh();
+                const size_t At = Blocks[Index].End;
+                std::string Head = Replacement.substr(0, At), Tail = Replacement.substr(At);
+                if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                Replacement = Head + Block + Tail;
+            }
+        }
+        // TextureMask follows the channel switch; procedural takes over any file source for the slot.
+        Refresh();
+        const uint32_t Bit = Name == "Albedo" ? 1 : Name == "Orm" ? 2 : 4;
+        uint32_t Mask = DecodeSurfaceMaterial(Replacement).Scattering.TextureUse[Index][0];
+        if (Operation.empty()) Mask &= ~Bit;
+        else Mask |= Bit;
+        SourceSpan Head{Blocks[Index].Begin, Blocks[Index].End};
+        size_t Cursor = Blocks[Index].Begin;
+        while (Cursor < Blocks[Index].End)
+        {
+            const size_t Stop = Replacement.find('\n', Cursor);
+            const size_t End = Stop == std::string::npos || Stop > Blocks[Index].End ? Blocks[Index].End : Stop;
+            const auto Trimmed = TrimSourceLine(std::string_view(Replacement.data() + Cursor, End - Cursor));
+            if (Cursor > Blocks[Index].Begin && Trimmed.starts_with("[")) { Head.End = Cursor; break; }
+            if (Stop == std::string::npos || Stop >= Blocks[Index].End) break;
+            Cursor = Stop + 1;
+        }
+        const auto MaskLine = FindKeyLine(Replacement, Head, "TextureMask");
+        const std::string MaskText = "TextureMask = " + std::to_string(Mask) + "\n";
+        if (MaskLine.End > MaskLine.Begin) Replacement.replace(MaskLine.Begin, MaskLine.End - MaskLine.Begin, MaskText);
+        else
+        {
+            const size_t Header = Replacement.find('\n', Blocks[Index].Begin);
+            if (Header == std::string::npos || Header >= Blocks[Index].End) throw std::runtime_error("Stratum header is malformed.");
+            Replacement.insert(Header + 1, MaskText);
+        }
+        Refresh();
+        const auto Textures = FindTexturesSection(Replacement, Blocks[Index]);
+        if (Textures.End > Textures.Begin)
+        {
+            const auto SourceLine = FindKeyLine(Replacement, Textures, Name);
+            if (SourceLine.End > SourceLine.Begin) Replacement.erase(SourceLine.Begin, SourceLine.End - SourceLine.Begin);
+        }
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::ForkProceduralChannel(uint32_t Index, std::string_view Channel)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        const auto Definition = DecodeSurfaceMaterial(Source);
+        const MaterialProceduralChannel *Target = nullptr;
+        for (const auto &Entry : Definition.StratumChannels[Index])
+            if (Entry.Name == Channel) Target = &Entry;
+        if (!Target || Target->Op.empty()) throw std::runtime_error("Channel has no procedural pool to fork.");
+        uint32_t Fork = 1;
+        for (const auto &Stratum : Definition.StratumChannels)
+            for (const auto &Entry : Stratum)
+                if (Entry.Link.starts_with("fork"))
+                {
+                    uint32_t Suffix = 0;
+                    const auto [Last, Error] = std::from_chars(Entry.Link.data() + 4, Entry.Link.data() + Entry.Link.size(), Suffix);
+                    if (Error == std::errc{} && Last == Entry.Link.data() + Entry.Link.size()) Fork = std::max(Fork, Suffix + 1);
+                }
+        const auto Blocks = SplitStrataBlocks(Source);
+        if (Index >= Blocks.size()) throw std::runtime_error("Material stratum does not exist.");
+        auto Replacement = Source;
+        bool Forked = false;
+        for (const auto &Span : SplitChannelBlocks(Replacement, Blocks[Index]))
+        {
+            if (Span.Name != Channel) continue;
+            const auto LinkLine = FindKeyLine(Replacement, Span.Span, "Link");
+            const std::string LinkText = "Link = \"fork" + std::to_string(Fork) + "\"\n";
+            if (LinkLine.End > LinkLine.Begin) Replacement.replace(LinkLine.Begin, LinkLine.End - LinkLine.Begin, LinkText);
+            else
+            {
+                const size_t Header = Replacement.find('\n', Span.Span.Begin);
+                if (Header == std::string::npos || Header >= Span.Span.End) throw std::runtime_error("Channel header is malformed.");
+                Replacement.insert(Header + 1, LinkText);
+            }
+            Forked = true;
+        }
+        if (!Forked) throw std::runtime_error("Channel source block is missing.");
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::MergeProceduralChannel(uint32_t Index, std::string_view Channel, uint32_t SourceStratum, std::string_view SourceChannel)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        const std::string Name(Channel);
+        if (Name != "Albedo" && Name != "Orm" && Name != "Normal") throw std::runtime_error("Unknown stratum channel.");
+        const auto Definition = DecodeSurfaceMaterial(Source);
+        if (SourceStratum >= Definition.StratumChannels.size()) throw std::runtime_error("Merge source stratum does not exist.");
+        const MaterialProceduralChannel *Donor = nullptr;
+        for (const auto &Entry : Definition.StratumChannels[SourceStratum])
+            if (Entry.Name == SourceChannel) Donor = &Entry;
+        if (!Donor || Donor->Op.empty()) throw std::runtime_error("Merge source is not procedural.");
+        const auto Supported = QueryProceduralOpChannels(Donor->Op);
+        if (std::find(Supported.begin(), Supported.end(), Name) == Supported.end())
+            throw std::runtime_error("Procedural op does not bake the requested channel.");
+        auto Blocks = SplitStrataBlocks(Source);
+        if (Index >= Blocks.size()) throw std::runtime_error("Material stratum does not exist.");
+        auto Replacement = Source;
+        for (const auto &Span : SplitChannelBlocks(Replacement, Blocks[Index]))
+            if (Span.Name == Name) Replacement.erase(Span.Span.Begin, Span.Span.End - Span.Span.Begin);
+        const auto Escape = [](const std::string &Text)
+        {
+            std::string Escaped;
+            for (char Byte : Text)
+            {
+                if (Byte == '"' || Byte == '\\') Escaped += '\\';
+                Escaped += Byte;
+            }
+            return Escaped;
+        };
+        std::string Block = "[[Strata.Channels]]\nName = \"" + Name + "\"\nOp = \"" + Escape(Donor->Op) + "\"\nLink = \"" +
+            Escape(Donor->Link) + "\"\n[Strata.Channels.Params]\n";
+        for (const auto &[Key, Value] : Donor->Params) Block += Key + " = " + EncodeSourceDouble(Value) + "\n";
+        for (const auto &[Key, Value] : Donor->Texts) Block += Key + " = \"" + Escape(Value) + "\"\n";
+        Blocks = SplitStrataBlocks(Replacement);
+        const size_t At = Blocks[Index].End;
+        std::string Head = Replacement.substr(0, At), Tail = Replacement.substr(At);
+        if (!Head.empty() && Head.back() != '\n') Head += '\n';
+        Replacement = Head + Block + Tail;
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::ConfigureProceduralParam(uint32_t Index, std::string_view Channel, std::string_view Key, double Value)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        if (!std::isfinite(Value)) throw std::runtime_error("Procedural param is not finite.");
+        const auto Definition = DecodeSurfaceMaterial(Source);
+        if (Index >= Definition.StratumChannels.size()) throw std::runtime_error("Material stratum does not exist.");
+        const MaterialProceduralChannel *Target = nullptr;
+        for (const auto &Entry : Definition.StratumChannels[Index])
+            if (Entry.Name == Channel) Target = &Entry;
+        if (!Target || Target->Op.empty()) throw std::runtime_error("Channel is not procedural.");
+        const std::string Canonical = ResolveProceduralParamKey(Target->Op, Key);
+        struct Linked
+        {
+            uint32_t Stratum = 0;
+            std::string Name;
+        };
+        std::vector<Linked> Pool;
+        for (size_t Stratum = 0; Stratum < Definition.StratumChannels.size(); ++Stratum)
+            for (const auto &Entry : Definition.StratumChannels[Stratum])
+                if (!Entry.Op.empty() && Entry.Op == Target->Op && Entry.Link == Target->Link)
+                    Pool.push_back({uint32_t(Stratum), Entry.Name});
+        if (Pool.empty()) throw std::runtime_error("Procedural pool entry is missing.");
+        auto Replacement = Source;
+        for (const auto &Member : Pool)
+        {
+            const auto Blocks = SplitStrataBlocks(Replacement);
+            if (Member.Stratum >= Blocks.size()) throw std::runtime_error("Procedural pool stratum is missing.");
+            bool Edited = false;
+            for (const auto &Span : SplitChannelBlocks(Replacement, Blocks[Member.Stratum]))
+            {
+                if (Span.Name != Member.Name) continue;
+                const auto Inline = FindKeyLine(Replacement, Span.Span, "Params");
+                if (Inline.End > Inline.Begin) throw std::runtime_error("Expand inline Params in Source view first.");
+                SourceSpan Params{0, 0};
+                size_t Cursor = Span.Span.Begin;
+                while (Cursor < Span.Span.End)
+                {
+                    const size_t Stop = Replacement.find('\n', Cursor);
+                    const size_t End = Stop == std::string::npos || Stop > Span.Span.End ? Span.Span.End : Stop;
+                    if (IsChannelParamsHeader(TrimSourceLine(std::string_view(Replacement.data() + Cursor, End - Cursor))))
+                    {
+                        Params = {Cursor, Span.Span.End};
+                        break;
+                    }
+                    if (Stop == std::string::npos || Stop >= Span.Span.End) break;
+                    Cursor = Stop + 1;
+                }
+                const std::string Line = Canonical + " = " + EncodeSourceDouble(Value) + "\n";
+                if (Params.End > Params.Begin)
+                {
+                    const auto Existing = FindKeyLine(Replacement, Params, Canonical);
+                    if (Existing.End > Existing.Begin) Replacement.replace(Existing.Begin, Existing.End - Existing.Begin, Line);
+                    else
+                    {
+                        std::string Head = Replacement.substr(0, Span.Span.End), Tail = Replacement.substr(Span.Span.End);
+                        if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                        Replacement = Head + Line + Tail;
+                    }
+                }
+                else
+                {
+                    std::string Head = Replacement.substr(0, Span.Span.End), Tail = Replacement.substr(Span.Span.End);
+                    if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                    Replacement = Head + "[Strata.Channels.Params]\n" + Line + Tail;
+                }
+                Edited = true;
+            }
+            if (!Edited) throw std::runtime_error("Procedural pool block is missing.");
+        }
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::RebakeProcedurals(uint32_t Extent)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        if (!Extent || Extent > 1024) throw std::runtime_error("Rebake extent is unbounded.");
+        const auto Definition = DecodeSurfaceMaterial(Source);
+        std::map<std::pair<size_t, std::string>, SurfaceTextureImage> Baked;
+        const size_t Count = Definition.Scattering.Illumination.Configuration[0];
+        for (size_t Index = 0; Index < Count; ++Index)
+            for (const auto &Entry : Definition.StratumChannels[Index])
+            {
+                if (Entry.Op.empty()) continue;
+                const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+                const std::string &Key = Definition.StratumTextureSources[Index][Slot];
+                auto Rgba = BakeProceduralChannelRgba(Entry.Op, Entry.Name, Entry.Params, Extent);
+                SurfaceTextureImage BakedImage{Extent, Extent, std::move(Rgba)};
+                // 📝 Key by the live source for compile lookup and by the derived key for the save path, so a
+                // re-save after param tweaks refreshes the persisted PNGs instead of skipping them as files.
+                Baked[{Slot, EncodeProceduralSource(Index, Entry.Name)}] = BakedImage;
+                Baked[{Slot, Key}] = std::move(BakedImage);
+            }
+        if (Baked.empty()) throw std::runtime_error("No procedural channels to rebake.");
+        ProceduralOverrides = std::move(Baked);
+        return ApplySource();
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::PersistProceduralOverrides()
+{
+    try
+    {
+        if (Selection.empty() || ProceduralOverrides.empty()) return true;
+        const std::string Stem = EncodeContentPath(Selection.stem());
+        auto Replacement = Source;
+        for (const auto &[SlotKey, Image] : ProceduralOverrides)
+        {
+            const auto &[Slot, Key] = SlotKey;
+            if (!Key.starts_with("procedural/")) continue;
+            const auto Middle = Key.find('/', 11), NameBegin = Middle == std::string::npos ? std::string::npos : Middle + 1;
+            if (NameBegin == std::string::npos) continue;
+            size_t Index = 0;
+            const auto [Last, Error] =
+                std::from_chars(Key.data() + 11, Key.data() + Middle, Index);
+            if (Error != std::errc{} || Last != Key.data() + Middle) continue;
+            const std::string Lower(Key.substr(NameBegin));
+            const std::string Name = Lower == "albedo" ? "Albedo" : Lower == "orm" ? "Orm" : Lower == "normal" ? "Normal" : "";
+            if (Name.empty() || (Slot != 0 && Slot != 1 && Slot != 2)) continue;
+            const std::string File = "Textures/" + Stem + "-" + Lower + ".png";
+            const auto Png = EncodeProceduralPng(Image.Rgba, Image.Width);
+            const auto Destination = Directory / File;
+            std::filesystem::create_directories(Destination.parent_path());
+            std::ofstream Output(Destination, std::ios::binary | std::ios::trunc);
+            Output.write(reinterpret_cast<const char *>(Png.data()), Png.size());
+            if (!Output) throw std::runtime_error("Procedural texture write failed.");
+            auto Blocks = SplitStrataBlocks(Replacement);
+            if (Index >= Blocks.size()) throw std::runtime_error("Procedural stratum is missing.");
+            auto Textures = FindTexturesSection(Replacement, Blocks[Index]);
+            const std::string Line = Name + " = \"" + File + "\"\n";
+            if (Textures.End > Textures.Begin)
+            {
+                const auto Existing = FindKeyLine(Replacement, Textures, Name);
+                if (Existing.End > Existing.Begin) Replacement.replace(Existing.Begin, Existing.End - Existing.Begin, Line);
+                else
+                {
+                    std::string Head = Replacement.substr(0, Textures.End), Tail = Replacement.substr(Textures.End);
+                    if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                    Replacement = Head + Line + Tail;
+                }
+            }
+            else
+            {
+                Blocks = SplitStrataBlocks(Replacement);
+                std::string Head = Replacement.substr(0, Blocks[Index].End), Tail = Replacement.substr(Blocks[Index].End);
+                if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                Replacement = Head + "[Strata.Textures]\n" + Line + Tail;
+            }
+        }
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        ProceduralOverrides.clear();
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
 bool MaterialLibrary::ConfigurePaint(const AutomotivePaint &Paint)
 {
     try
@@ -452,7 +1003,9 @@ bool MaterialLibrary::ApplySource()
     try
     {
         if (Selection.empty()) throw std::runtime_error("Select a material first.");
-        auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(Source), Directory));
+        auto Definition = DecodeSurfaceMaterial(Source);
+        Definition.ProceduralMaps = ProceduralOverrides;
+        auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(Definition, Directory));
         Applied = std::move(Replacement);
         AppliedSource = Source;
         ++Revision;
@@ -467,6 +1020,7 @@ bool MaterialLibrary::RevertSource()
     DiagnosticJournal::Append("MaterialOperation", "RevertSource " + DiagnosticJournal::EncodePath(Selection) + " revision=" + std::to_string(Revision));
     const auto Previous = Source;
     Source = SavedSource;
+    ProceduralOverrides.clear();
     if (ApplySource())
     {
         ParkedSources.erase(Selection);
@@ -490,6 +1044,15 @@ bool MaterialLibrary::SaveMaterial()
         const auto Destination = ResolveMaterial(Selection);
         if (DecodeMaterialSource(Destination) != SavedSource)
             throw std::runtime_error("Material changed on disk; reopen it before saving to avoid overwriting external edits.");
+        // 📝 Live rebakes preview at proxy resolution; saving re-bakes full quality, persists the PNGs and
+        // rewrites the stratum sources to the files, so the saved material stands alone. Any retained op
+        // triggers the rebake — even one that has never been baked — so a channel switch alone still saves.
+        const auto PreSave = DecodeSurfaceMaterial(Source);
+        bool Procedural = false;
+        for (const auto &Stratum : PreSave.StratumChannels)
+            for (const auto &Entry : Stratum) Procedural = Procedural || !Entry.Op.empty();
+        if (Procedural && !RebakeProcedurals(512)) return false;
+        if (!ProceduralOverrides.empty() && !PersistProceduralOverrides()) return false;
         if (QueryUnapplied() && !ApplySource()) return false;
         if (!TextFileReplacement::Finalize(Destination, Source, Diagnostic)) return false;
         SavedSource = Source;
