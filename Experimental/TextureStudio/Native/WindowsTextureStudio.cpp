@@ -256,7 +256,7 @@ int RunTextureWorkspace()
         Pattern->QueryPatternAtlas = [&]()
         {
             const auto Uv = PatternAtlas ? PatternAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
-            return Frontier::PatternAtlasImage{PatternAtlasDescriptor ? uint64_t(PatternAtlasDescriptor) : uint64_t(0),
+            return Frontier::PatternWorkspacePanel::PatternAtlasImage{PatternAtlasDescriptor ? uint64_t(PatternAtlasDescriptor) : uint64_t(0),
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         const auto AssignPatternMapsToPreview = [&]()
