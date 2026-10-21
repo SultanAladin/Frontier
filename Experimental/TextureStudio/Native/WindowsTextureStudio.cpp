@@ -165,7 +165,7 @@ int RunTextureWorkspace()
                         if (Done) ++Copied;
                     }
                 }
-                DiagnosticJournal::Append("MaterialBackfill", "scanned=" + std::to_string(Scanned) + " copied=" + std::to_string(Copied));
+                Frontier::DiagnosticJournal::Append("MaterialBackfill", "scanned=" + std::to_string(Scanned) + " copied=" + std::to_string(Copied));
             }
         }
         if (!Library->ConfigureDirectory(Directory)) throw std::runtime_error(Library->QueryLibrary().QueryDiagnostic());
