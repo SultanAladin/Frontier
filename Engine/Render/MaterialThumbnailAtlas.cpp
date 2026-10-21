@@ -5,6 +5,7 @@
 
 #include "MaterialThumbnailAtlas.h"
 #include <array>
+#include <cstring>
 #include <stdexcept>
 
 namespace Frontier
@@ -27,11 +28,14 @@ struct MaterialThumbnailAtlas::AtlasAllocation
     VkImage Image = VK_NULL_HANDLE;
     VkImageView View = VK_NULL_HANDLE;
     VkDeviceMemory Memory = VK_NULL_HANDLE;
+    VkBuffer Staging = VK_NULL_HANDLE;
+    VkDeviceMemory StagingMemory = VK_NULL_HANDLE;
     uint32_t Tile = 0, Columns = 0, Extent = 0;
     bool Submitted = false, Recorded = false;
 #define ATLAS_FUNCTIONS(F) F(CreateImage) F(DestroyImage) F(GetImageMemoryRequirements) F(AllocateMemory) \
     F(FreeMemory) F(BindImageMemory) F(CreateImageView) F(DestroyImageView) F(CmdPipelineBarrier) \
-    F(CmdCopyImage) F(CmdClearColorImage)
+    F(CmdCopyImage) F(CmdClearColorImage) F(CreateBuffer) F(DestroyBuffer) F(GetBufferMemoryRequirements) \
+    F(BindBufferMemory) F(MapMemory) F(UnmapMemory) F(CmdCopyBufferToImage)
 #define ATLAS_DECLARE(Name) PFN_vk##Name Name = nullptr;
     ATLAS_FUNCTIONS(ATLAS_DECLARE)
 #undef ATLAS_DECLARE
@@ -40,6 +44,8 @@ struct MaterialThumbnailAtlas::AtlasAllocation
         if (View) DestroyImageView(Access.Device, View, nullptr);
         if (Image) DestroyImage(Access.Device, Image, nullptr);
         if (Memory) FreeMemory(Access.Device, Memory, nullptr);
+        if (Staging) DestroyBuffer(Access.Device, Staging, nullptr);
+        if (StagingMemory) FreeMemory(Access.Device, StagingMemory, nullptr);
     }
     void ConstructTransition(VkCommandBuffer Commands, VkImage Target, VkImageLayout Before, VkImageLayout After,
                  VkAccessFlags SourceAccess, VkAccessFlags DestinationAccess,
@@ -112,6 +118,24 @@ void MaterialThumbnailAtlas::Initialize(const VulkanRasterAccess &Access, uint32
     View.format = Image.format;
     View.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     RequireAtlasSuccess(Resident->CreateImageView(Access.Device, &View, nullptr, &Resident->View));
+    VkBufferCreateInfo Staging{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    Staging.size = VkDeviceSize(Resident->Extent) * Resident->Extent * 4;
+    Staging.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    Staging.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    RequireAtlasSuccess(Resident->CreateBuffer(Access.Device, &Staging, nullptr, &Resident->Staging));
+    VkMemoryRequirements StagingRequirements{};
+    Resident->GetBufferMemoryRequirements(Access.Device, Resident->Staging, &StagingRequirements);
+    uint32_t StagingIndex = 0;
+    for (; StagingIndex < Memory.memoryTypeCount; ++StagingIndex)
+        if ((StagingRequirements.memoryTypeBits & (1u << StagingIndex)) &&
+            (Memory.memoryTypes[StagingIndex].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+                (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) break;
+    if (StagingIndex == Memory.memoryTypeCount) throw std::runtime_error("No host-visible atlas staging memory.");
+    VkMemoryAllocateInfo StagingStorage{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    StagingStorage.allocationSize = StagingRequirements.size;
+    StagingStorage.memoryTypeIndex = StagingIndex;
+    RequireAtlasSuccess(Resident->AllocateMemory(Access.Device, &StagingStorage, nullptr, &Resident->StagingMemory));
+    RequireAtlasSuccess(Resident->BindBufferMemory(Access.Device, Resident->Staging, Resident->StagingMemory, 0));
     Allocation = std::move(Resident);
 }
 
@@ -169,6 +193,36 @@ void MaterialThumbnailAtlas::ConstructCopy(VkCommandBuffer Commands, SurfaceRast
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, uint32_t(Count), Copies.data());
     Atlas.ConstructTransition(Commands, Source.QueryImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    Atlas.ConstructTransition(Commands, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+void MaterialThumbnailAtlas::StagePixels(std::span<const uint8_t> Rgba)
+{
+    if (!Allocation || Rgba.size() != size_t(Allocation->Extent) * Allocation->Extent * 4)
+        throw std::runtime_error("Atlas stage payload must hold one RGBA8 texel per atlas pixel.");
+    auto &Atlas = *Allocation;
+    void *Mapped = nullptr;
+    RequireAtlasSuccess(Atlas.MapMemory(Atlas.Access.Device, Atlas.StagingMemory, 0, VK_WHOLE_SIZE, 0, &Mapped));
+    // 📝 Coherent host memory carries the payload without an explicit flush.
+    std::memcpy(Mapped, Rgba.data(), Rgba.size());
+    Atlas.UnmapMemory(Atlas.Access.Device, Atlas.StagingMemory);
+}
+
+void MaterialThumbnailAtlas::ConstructUpload(VkCommandBuffer Commands)
+{
+    if (!Allocation || Allocation->Recorded || !Commands) throw std::runtime_error("Atlas upload is unavailable in the current state.");
+    auto &Atlas = *Allocation;
+    Atlas.Recorded = true;
+    Atlas.ConstructTransition(Commands, Atlas.Image,
+        Atlas.Submitted ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, Atlas.Submitted ? VK_ACCESS_SHADER_READ_BIT : 0,
+        VK_ACCESS_TRANSFER_WRITE_BIT, Atlas.Submitted ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkBufferImageCopy Region{};
+    Region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    Region.imageExtent = {Atlas.Extent, Atlas.Extent, 1};
+    Atlas.CmdCopyBufferToImage(Commands, Atlas.Staging, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &Region);
     Atlas.ConstructTransition(Commands, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 }

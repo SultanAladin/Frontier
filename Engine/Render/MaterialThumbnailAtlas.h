@@ -5,6 +5,8 @@
 
 #pragma once
 #include "SurfaceRasterization.h"
+#include <cstdint>
+#include <span>
 
 namespace Frontier
 {
@@ -28,6 +30,9 @@ class MaterialThumbnailAtlas
     MaterialThumbnailAtlas &operator=(const MaterialThumbnailAtlas &) = delete;
     void Initialize(const VulkanRasterAccess &Access, uint32_t TileExtent = 128, uint32_t Columns = 8);
     void ConstructCopy(VkCommandBuffer Commands, SurfaceRasterization &Source, uint32_t Slot);
+    // 📝 CPU-rasterized pages (pattern gallery) stage full-atlas RGBA8, then record one buffer upload per page flip.
+    void StagePixels(std::span<const uint8_t> Rgba);
+    void ConstructUpload(VkCommandBuffer Commands);
     void ConfirmSubmission() noexcept;
     void Finalize() noexcept;
     [[nodiscard]] VkImage QueryImage() const noexcept;

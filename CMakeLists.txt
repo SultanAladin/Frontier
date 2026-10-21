@@ -62,7 +62,7 @@ add_library(FrontierVectorAuthoring STATIC
 target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
-    UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
+    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
 add_library(FrontierInterface STATIC
@@ -219,6 +219,10 @@ if(BUILD_TESTING)
     target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)
     set_tests_properties(PatternLibraryGalleryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(PatternThumbnailAtlasValidation Exhibits/TextureStudio/Code/PatternThumbnailAtlasValidation.cpp)
+    target_link_libraries(PatternThumbnailAtlasValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME PatternThumbnailAtlasValidation COMMAND PatternThumbnailAtlasValidation)
+    set_tests_properties(PatternThumbnailAtlasValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
     target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation

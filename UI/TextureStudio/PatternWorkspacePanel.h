@@ -7,6 +7,7 @@
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/ContentInterchange/CubicPathEditing.h"
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include "Engine/Lifecycle/ActivationSequence.h"
@@ -41,12 +42,28 @@ public:
         std::vector<PatternThumbnailShape> Shapes;
         bool Failed = false;
     };
+    // One GPU texture carries the whole 24-card gallery page; cards sample
+    // their slot sub-rectangle so dense weaves stop replaying cached vector
+    // triangles every frame. Texture 0 keeps the vector-replay fallback.
+    struct PatternAtlasImage
+    {
+        uint64_t Texture = 0;
+        float MinimumU = 0, MinimumV = 0, MaximumU = 1, MaximumV = 1;
+    };
+    static constexpr uint32_t PatternAtlasTile = 256;
+    static constexpr uint32_t PatternAtlasColumns = 6;
+    static constexpr uint32_t PatternAtlasExtent = (PatternAtlasTile + 2) * PatternAtlasColumns;
+    static constexpr size_t PatternAtlasPage = 24;
     void ConfigureLibraryFilter(const std::string &Group, const std::string &Palette, bool ClearSearch);
     void ConfigureLibrarySearch(const std::string &Text);
     [[nodiscard]] std::vector<size_t> QueryLibraryMatches() const;
     [[nodiscard]] const PatternPresetCacheEntry &QueryPresetEntry(const PatternLibraryFamilyEntry &Family);
     [[nodiscard]] const std::vector<PatternLibraryFamilyEntry> &QueryLibraryFamilies() const noexcept { return LibraryFamilies; }
     [[nodiscard]] static std::vector<PatternThumbnailShape> TessellatePresetDocument(const VectorAuthoringDocument &Document);
+    std::function<PatternAtlasImage()> QueryPatternAtlas;
+    [[nodiscard]] uint64_t QueryPatternAtlasRevision();
+    [[nodiscard]] const std::vector<uint8_t> &QueryPatternAtlasPixels();
+    [[nodiscard]] static uint32_t QueryPatternAtlasExtent() noexcept { return PatternAtlasExtent; }
     [[nodiscard]] const VectorAuthoringDocument &QueryDocument() const;
     [[nodiscard]] const std::vector<uint32_t> &QuerySelection() const noexcept { return Selection; }
     [[nodiscard]] const std::vector<size_t> &QueryAnchorSelection() const noexcept { return SelectedAnchors; }
@@ -101,6 +118,13 @@ private:
     std::string LibrarySelected;
     std::map<std::string, PatternPresetCacheEntry> PresetCache;
     std::vector<std::string> PresetCacheOrder;
+    std::map<std::string, std::vector<uint8_t>> PatternRasterCache;
+    std::vector<std::string> PatternRasterOrder;
+    uint64_t PatternAtlasRevision = 0;
+    std::string PatternAtlasKey;
+    std::vector<uint8_t> PatternAtlasPixels;
+    [[nodiscard]] const std::vector<uint8_t> &QueryPatternRaster(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry);
+    void RefreshPatternAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     std::optional<VectorAuthoringDocument> PenSource, PenPreview;
     CubicPath PendingPath;
@@ -146,7 +170,7 @@ private:
     void ConstructCanvas();
     void ConstructInspector();
     void ConstructCloseDialogue();
-    void ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected);
+    void ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected, size_t Slot);
     void ConstructPrimitive(uint32_t Category, const char *Caption);
     void ApplyLibraryPreset(size_t Index);
     void ApplyPresetDocument(VectorAuthoringDocument Document);

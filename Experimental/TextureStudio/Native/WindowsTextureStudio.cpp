@@ -12,6 +12,7 @@
 #include "Engine/Interface/VulkanPresentation.h"
 #include "Engine/ContentInterchange/ProjectSpaceCodec.h"
 #include "Engine/Render/MaterialLibraryRendering.h"
+#include "Engine/Render/MaterialThumbnailAtlas.h"
 #include "Engine/Render/VectorSurfaceMaterialBridge.h"
 #include "Engine/Render/VectorAuthoringCoverageRendering.h"
 #include "Engine/Render/VectorSelectionEvaluation.h"
@@ -99,7 +100,10 @@ int RunTextureWorkspace()
     uint64_t PatternBridgeSubmission = 0;
     bool PatternBridgeRecorded = false;
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
+    VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t PatternAtlasPublished = 0;
     std::array<VkDescriptorSet, 3> CoverageDescriptors{};
     std::filesystem::path PatternSource;
     bool PatternActive = false;
@@ -229,6 +233,10 @@ int RunTextureWorkspace()
         AppendPatternPreviewDebug("Vulkan material bridge initialized; authoring_extent=512x512; channels=Colour,Normal,Roughness,Metalness,Occlusion; shader=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory / "VectorSurfaceCompute.spv"));
         AtlasDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryAtlasView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         PreviewDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryPreviewView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        PatternAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        PatternAtlas->Initialize(Display.QueryRasterAccess(), Frontier::PatternWorkspacePanel::PatternAtlasTile,
+            Frontier::PatternWorkspacePanel::PatternAtlasColumns);
+        PatternAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PatternAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
@@ -244,6 +252,12 @@ int RunTextureWorkspace()
         Pattern->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
             return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+        };
+        Pattern->QueryPatternAtlas = [&]()
+        {
+            const auto Uv = PatternAtlas ? PatternAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::PatternAtlasImage{PatternAtlasDescriptor ? uint64_t(PatternAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         const auto AssignPatternMapsToPreview = [&]()
         {
@@ -318,10 +332,19 @@ int RunTextureWorkspace()
                 }
                 else ObservedPatternDocument = CurrentPattern;
             }
+            // 📝 The gallery bakes its 24-card page on the CPU; upload once per page flip, gated by the panel revision.
+            const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
+            if (PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
+            {
+                PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
+                PatternAtlas->ConstructUpload(Commands);
+                PatternAtlasPublished = PatternAtlasRevision;
+            }
             Rendering->ConstructCommands(Commands, Completed, Serial);
         }, [&]()
         {
             SelectionEvaluation->ConfirmSubmission();
+            if (PatternAtlas) PatternAtlas->ConfirmSubmission();
             if (PatternBridgeRecorded)
             {
                 MaterialBridge->ConfirmSubmission();
@@ -418,14 +441,17 @@ int RunTextureWorkspace()
         // 📝 The shared application loop has retired all GPU work before this callback.
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
+        if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         for (const auto Descriptor : CoverageDescriptors)
             if (Descriptor) ImGui_ImplVulkan_RemoveTexture(Descriptor);
         if (SelectionEvaluation) SelectionEvaluation->Finalize();
         if (MaterialBridge) MaterialBridge->Finalize();
         if (CoverageRendering) CoverageRendering->Finalize();
+        if (PatternAtlas) PatternAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
         CoverageRendering.reset();
+        PatternAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)
         {
