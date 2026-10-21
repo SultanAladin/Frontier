@@ -2087,7 +2087,7 @@
 .studio-material .inspector-tabs button.active:after {
   display: none;
 }
-.studio-material .inspector-scroll .range-input {
+.studio-material :is(.inspector-scroll, .mw-panel) .range-input {
   height: 24px;
   margin: 5px 0;
   background: linear-gradient(
@@ -2097,7 +2097,7 @@
   );
   border-radius: 999px;
 }
-.studio-material .inspector-scroll .range-input::-webkit-slider-thumb {
+.studio-material :is(.inspector-scroll, .mw-panel) .range-input::-webkit-slider-thumb {
   width: 22px;
   height: 22px;
   border: 0;
@@ -2105,7 +2105,7 @@
   border-radius: 50%;
   box-shadow: 0 1px 2px #0008;
 }
-.studio-material .inspector-scroll .range-input::-moz-range-thumb {
+.studio-material :is(.inspector-scroll, .mw-panel) .range-input::-moz-range-thumb {
   width: 22px;
   height: 22px;
   border: 0;

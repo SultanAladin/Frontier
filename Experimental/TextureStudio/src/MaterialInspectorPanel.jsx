@@ -9,7 +9,7 @@ import {
   Plus,
 } from "lucide-react";
 import { StudioDockTab } from "./StudioUI.jsx";
-import MaterialControls from "./RecipeInspector.jsx";
+import MaterialPanel from "./MaterialPanel.jsx";
 export default function MaterialInspectorPanel({
   params,
   selected,
@@ -103,82 +103,7 @@ export default function MaterialInspectorPanel({
           </button>
         ))}
       </div>
-      <div className="inspector-scroll">
-        {tab === "Properties" ? (
-          <MaterialControls
-            key={selected.id}
-            params={params}
-            update={update}
-            setParams={setParams}
-          />
-        ) : (
-          <div className="layers-content">
-            <p className="layer-intro">
-              A physically based finish, built from the surface up.
-            </p>
-            {[
-              ...(params.coat > 0
-                ? [
-                    {
-                      name: "Clearcoat",
-                      detail: "Dielectric protective finish",
-                      value: params.coat,
-                      color: "#c2debb",
-                    },
-                  ]
-                : []),
-              ...(params.type === 0 && params.flakes > 0
-                ? [
-                    {
-                      name: "Metallic flakes",
-                      detail: "Multicolor reflective particles",
-                      value: params.flakes,
-                      color: "#bca4d2",
-                    },
-                  ]
-                : []),
-              {
-                name: "Base substrate",
-                detail: params.category + " · " + params.color.toUpperCase(),
-                value: 1,
-                color: params.color,
-              },
-            ].map((l, i) => (
-              <div className="layer-card" key={l.name}>
-                <div
-                  className="layer-visual"
-                  style={{ "--layer-color": l.color }}
-                >
-                  <i />
-                  <i />
-                  <i />
-                </div>
-                <div>
-                  <span className="layer-num">0{i + 1}</span>
-                  <h4>{l.name}</h4>
-                  <p>{l.detail}</p>
-                  <span className="layer-value">
-                    {Math.round(l.value * 100)}% strength
-                  </span>
-                </div>
-              </div>
-            ))}
-            <div className="layer-note">
-              <Layers3 size={17} />
-              <p>
-                Layers are evaluated together in a single energy-conserving PBR
-                shader.
-              </p>
-            </div>
-            <button
-              className="secondary-button"
-              onClick={() => setTab("Properties")}
-            >
-              Edit layer properties <ArrowRight size={14} />
-            </button>
-          </div>
-        )}
-      </div>
+      <MaterialPanel Parameters={params} ConfigureParameters={setParams} Mode={tab} Notify={notify} OpenWorkspace={openWorkspace}/>
       <div className="inspector-footer">
         <button
           className="save-preset-button"

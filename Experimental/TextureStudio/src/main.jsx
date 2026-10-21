@@ -1,3 +1,4 @@
+import { NormalizeMaterialAuthoring } from "./MaterialSpecification.js";
 import StudioTooltips from "./StudioTooltips.jsx";
 import {
   MATERIAL_PREVIEW_SHAPES,
@@ -130,7 +131,11 @@ function initialPreview(p) {
 
 function App() {
   const [selected, setSelected] = useState(initialMaterial);
-  const [params, setParams] = useState({ ...initialMaterial });
+  const [params, setParams] = useState(() => {
+    try { const Saved = JSON.parse(localStorage.getItem(`alloy-authoring-v2:${initialMaterial.id}`) || "null"); return Saved?.id === initialMaterial.id && Saved?.Authoring?.Version === 2 ? { ...Saved, Authoring: NormalizeMaterialAuthoring(Saved.Authoring) } : { ...initialMaterial }; }
+    catch { return { ...initialMaterial }; }
+  });
+  useEffect(() => { if (params.Authoring) { try { localStorage.setItem(`alloy-authoring-v2:${params.id}`, JSON.stringify(params)); } catch {} } }, [params]);
   const [category, setCategory] = useState("All materials");
   const [search, setSearch] = useState("");
   const [thumbs, setThumbs] = useState({});
@@ -141,7 +146,7 @@ function App() {
   const [resetToken, setResetToken] = useState(0);
   const [zoom, setZoom] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(100);
-  const [tab, setTab] = useState("Properties");
+  const [tab, setTab] = useState("Layers");
   const [workspace, setWorkspace] = useState(() =>
     normalizeStudioWorkspace(
       new URLSearchParams(window.location.search).get("studio"),
@@ -303,7 +308,10 @@ function App() {
   const update = (key, value) => setParams((p) => ({ ...p, [key]: value }));
   function selectMaterial(mat) {
     setSelected(mat);
-    setParams({ ...mat, colors: [...mat.colors] });
+    try {
+      const Saved = JSON.parse(localStorage.getItem(`alloy-authoring-v2:${mat.id}`) || "null");
+      setParams(Saved?.id === mat.id && Saved.Authoring?.Version === 2 ? { ...Saved, Authoring: NormalizeMaterialAuthoring(Saved.Authoring) } : { ...mat, colors: [...mat.colors] });
+    } catch { setParams({ ...mat, colors: [...mat.colors] }); }
     setMobileLibrary(false);
     if (mat.category === "Fabric" && mat.type !== 7 && shape !== "Draped cloth")
       setShape("Draped cloth");
@@ -330,10 +338,7 @@ function App() {
         .includes(search.toLowerCase()),
   );
   const changed = JSON.stringify(params) !== JSON.stringify(selected);
-  const layerCount =
-    1 +
-    (params.coat > 0 ? 1 : 0) +
-    (params.type === 0 && params.flakes > 0 ? 1 : 0);
+  const layerCount = params.Authoring?.Layers.length || (params.type === 0 ? 3 : params.coat > 0 ? 2 : 1);
   const toggleFavorite = (id) =>
     setFavorites((f) =>
       f.includes(id) ? f.filter((v) => v !== id) : [...f, id],

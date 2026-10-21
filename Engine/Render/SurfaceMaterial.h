@@ -4,6 +4,7 @@
 // 🧩 Bounded authored material definitions, typed texture pyramids and immutable shader parameter compilation.
 
 #pragma once
+#include "Engine/ContentInterchange/MaterialAuthoring.h"
 #include "ScatteringSequence.h"
 #include "AutomotivePaint.h"
 #include "SurfaceNormalProjection.h"
@@ -83,6 +84,9 @@ struct MaterialDefinition
     // 📝 Runtime-only rebake overrides keyed by (slot, source); populated by a procedural rebake, attached at
     // compile time, persisted to PNG files on save. Never serialized into the material source.
     std::map<std::pair<size_t,std::string>, SurfaceTextureImage> ProceduralMaps;
+    // 📝 Optional [Authoring] layer-stack document; decoded/encoded verbatim through the strict normalize
+    // gate so HTML-authored stacks survive native round trips without silent field loss.
+    std::optional<MaterialAuthoringDocument> Authoring;
 };
 
 struct MaterialMipRegion

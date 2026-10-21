@@ -242,3 +242,21 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   decode, tessellation and card rendering.
 - Still open: rotation-axis follow-up already shipped in batch 2; asset-browser HTML 1:1 (HTML file
   still not in repo); "Generate a layout" section; remaining surface-detail ports; zoom-FPS check.
+
+## Slate layer-stack port (2026-10-21, Slate arena/4006465a-slate cb8dcf0 onto db2f9953@34537e1)
+
+- HTML first: `Experimental/TextureStudio` gains the Alloy material workspace (MaterialPanel PBR layer
+  stack with per-channel sources, MaterialSpecification authoring document, FieldSpecification coded
+  generators, FieldProjection Float32 atlas, editable camouflage palettes); catalogue 127 -> 131.
+  Verified by production build and 7/7 Node model checks; Playwright specs ported but not run
+  (browser download blocked in the sandbox).
+- C++ port: coded fields in MaterialProceduralBaking (double-precision JS parity, 8 new ops on
+  Albedo/Normal, palette text params), `Engine/ContentInterchange/MaterialAuthoring` document model with
+  strict normalize, `[Authoring]` TOML round trip in SurfaceMaterial, pool text edits
+  (ConfigureProceduralText), panel palette colour editors, deterministic catalogue export of the four
+  camouflage presets with coded Albedo channels. Evidence: `Exhibits/TextureStudio/Results/LayerStackPort/`.
+- Linux host verification: full ctest 26/26 green (new MaterialAuthoringValidation pins JS goldens,
+  normalize rejection, link/designer projection, TOML stability, catalogue camouflage bakes).
+- Boundaries still open: coded fields bake no ORM channel; woodland fabric weave relief is not yet
+  composited under the camouflage field; Float32 field atlas stays HTML-only (native path is the CPU
+  baker); panel renders strata rather than the full HTML authoring sheet; Windows runtime unverified.

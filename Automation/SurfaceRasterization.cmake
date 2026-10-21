@@ -3,7 +3,10 @@
 #============================================================================================================================================
 # 🧩 Build the reusable Vulkan CAD unit and explicitly provisioned shader/readback validation, without automatic downloads.
 
+# 📝 MaterialAuthoring rides this unit because SurfaceMaterial decodes the [Authoring] table; keeping the
+# codec beside its only archive-level caller avoids a static-library cycle with FrontierMaterialLibrary.
 add_library(FrontierSurfaceRasterization STATIC Engine/Render/SurfaceRasterization.cpp Engine/Render/SurfaceMaterial.cpp
+    Engine/ContentInterchange/MaterialAuthoring.cpp
     Engine/Render/MaterialThumbnailAtlas.cpp Engine/Render/MaterialLibraryRendering.cpp Engine/Render/MaterialProceduralBaking.cpp
     Engine/Render/BrowserPreviewRendering.cpp Engine/Render/StbImageImplementation.cpp)
 target_include_directories(FrontierSurfaceRasterization PUBLIC "${CMAKE_SOURCE_DIR}"

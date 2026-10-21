@@ -7,6 +7,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <stdexcept>
 
@@ -657,7 +658,140 @@ std::vector<uint8_t> ConvertFacetNormalRgba(const std::vector<float> &Relief, co
     return Rgba;
 }
 
-std::vector<std::string> QueryProceduralOps() { return {"scratches", "metalGrain", "polymerGrain"}; }
+namespace
+{
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     CODED FIELDS
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Line-for-line FieldSpecification.js port in double precision; see header note on the sin hash.
+double CodedClamp(double Quantity) { return std::max(0., std::min(1., Quantity)); }
+
+double CodedHashCell(double Column, double Row, double Seed)
+{
+    const double Product = std::sin(Column * 127.1 + Row * 311.7 + Seed * 17.13) * 43758.5453;
+    return Product - std::floor(Product);
+}
+
+double CodedSmoothNoise(double Horizontal, double Vertical, double Seed)
+{
+    const double Column = std::floor(Horizontal), Row = std::floor(Vertical);
+    const double FractionX = Horizontal - Column, FractionY = Vertical - Row;
+    const double BlendX = FractionX * FractionX * (3 - 2 * FractionX);
+    const double BlendY = FractionY * FractionY * (3 - 2 * FractionY);
+    const double Top = CodedHashCell(Column, Row, Seed) * (1 - BlendX) + CodedHashCell(Column + 1, Row, Seed) * BlendX;
+    const double Bottom = CodedHashCell(Column, Row + 1, Seed) * (1 - BlendX) + CodedHashCell(Column + 1, Row + 1, Seed) * BlendX;
+    return Top * (1 - BlendY) + Bottom * BlendY;
+}
+
+double CodedCamouflage(const CodedFieldParameters &Parameters, double Horizontal, double Vertical, bool Smooth)
+{
+    // 📝 Periodic coordinate warping keeps opposite tile edges identical without image assets.
+    const double Frequency = std::max(1., std::round(Parameters.Scale)), Seed = Parameters.Seed;
+    const auto Periodic = [](double X, double Y, double Period, double Salt)
+    {
+        const double Column = std::floor(X), Row = std::floor(Y), FractionX = X - Column, FractionY = Y - Row;
+        const double BlendX = FractionX * FractionX * (3 - 2 * FractionX), BlendY = FractionY * FractionY * (3 - 2 * FractionY);
+        const auto Cell = [Period, Salt](double CellColumn, double CellRow)
+        {
+            const auto Wrap = [Period](double Coordinate)
+            {
+                const double Remainder = std::fmod(Coordinate, Period);
+                return std::fmod(Remainder + Period, Period);
+            };
+            return CodedHashCell(Wrap(CellColumn), Wrap(CellRow), Salt);
+        };
+        return (Cell(Column, Row) * (1 - BlendX) + Cell(Column + 1, Row) * BlendX) * (1 - BlendY) +
+               (Cell(Column, Row + 1) * (1 - BlendX) + Cell(Column + 1, Row + 1) * BlendX) * BlendY;
+    };
+    const double Grid = 256 / std::max(1., Parameters.PixelSize);
+    const double PositionX = (Smooth ? Horizontal + .5 : std::floor((Horizontal + .5) * Grid) / Grid) * Frequency;
+    const double PositionY = (Smooth ? Vertical + .5 : std::floor((Vertical + .5) * Grid) / Grid) * Frequency;
+    const double WarpedX = PositionX + (Periodic(PositionX, PositionY, Frequency, Seed + 17) - .5) * 2.4;
+    const double WarpedY = PositionY + (Periodic(PositionX, PositionY, Frequency, Seed + 71) - .5) * 2.4;
+    const double Field = Periodic(WarpedX, WarpedY, Frequency, Seed) * .78 +
+                         Periodic(WarpedX * 3, WarpedY * 3, Frequency * 3, Seed + 43) * .22;
+    const uint32_t Count = std::max(2u, std::min(8u, Parameters.ColourCount));
+    double Band = 0;
+    for (uint32_t Index = 0; Index + 1 < Count; ++Index)
+    {
+        const double Threshold = Count == 2 ? .5 : .36 + double(Index) * .28 / double(Count - 2);
+        const double Blend = CodedClamp((Field - Threshold) / std::max(.001, Parameters.Softness) + .5);
+        Band += Smooth ? Blend * Blend * (3 - 2 * Blend) : (Field >= Threshold ? 1. : 0.);
+    }
+    return Band / double(Count - 1);
+}
+
+} // namespace
+
+double EvaluateCodedField(std::string_view Identity, const CodedFieldParameters &Parameters,
+    double Horizontal, double Vertical)
+{
+    double Sample = 0;
+    if (Identity == "camouflage" || Identity == "camouflage-smooth")
+        Sample = CodedCamouflage(Parameters, Horizontal, Vertical, Identity == "camouflage-smooth");
+    else if (QueryCodedField(Identity))
+    {
+        const double Frequency = Parameters.Scale;
+        const double PositionX = (Horizontal + .5) * Frequency, PositionY = (Vertical + .5) * Frequency;
+        if (Identity == "stripes")
+            Sample = .5 + .5 * std::sin(PositionY * 3.141592653589793 * 2 + Parameters.Seed);
+        else if (Identity == "checker")
+        {
+            const double Parity = std::fmod(std::floor(PositionX) + std::floor(PositionY) + Parameters.Seed, 2.);
+            Sample = std::abs(Parity);
+        }
+        else if (Identity == "cells")
+        {
+            const double Column = std::floor(PositionX), Row = std::floor(PositionY);
+            double Distance = 2;
+            for (int OffsetY = -1; OffsetY <= 1; ++OffsetY)
+                for (int OffsetX = -1; OffsetX <= 1; ++OffsetX)
+                {
+                    const double CellX = Column + OffsetX, CellY = Row + OffsetY;
+                    const double CenterX = CellX + CodedHashCell(CellX, CellY, Parameters.Seed);
+                    const double CenterY = CellY + CodedHashCell(CellX, CellY, Parameters.Seed + 31);
+                    Distance = std::min(Distance, std::hypot(PositionX - CenterX, PositionY - CenterY));
+                }
+            Sample = CodedClamp(Distance);
+        }
+        else
+        {
+            double Accumulated = 0, Amplitude = .5, Sum = 0;
+            for (int Octave = 0; Octave < 4; ++Octave)
+            {
+                const double Rate = std::ldexp(1., Octave);
+                Accumulated += CodedSmoothNoise(PositionX * Rate, PositionY * Rate, Parameters.Seed + Octave) * Amplitude;
+                Sum += Amplitude;
+                Amplitude *= .5;
+            }
+            const double Fractal = Accumulated / Sum;
+            if (Identity == "ridged") Sample = 1 - std::abs(Fractal * 2 - 1);
+            else if (Identity == "rings")
+                Sample = .5 + .5 * std::sin(std::hypot(Horizontal, Vertical) * Frequency * 3.141592653589793 * 2 +
+                             Fractal * 2 + Parameters.Seed);
+            else Sample = Fractal;
+        }
+    }
+    return std::isfinite(Sample) ? CodedClamp(Sample) : 0;
+}
+
+double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldParameters &Parameters,
+    double U, double V, double AngleDegrees, double Amount)
+{
+    const double Radians = AngleDegrees * 3.141592653589793 / 180;
+    const double RotatedX = (U - .5) * std::cos(Radians) - (V - .5) * std::sin(Radians);
+    const double RotatedY = (U - .5) * std::sin(Radians) + (V - .5) * std::cos(Radians);
+    const double Sample = EvaluateCodedField(Identity, Parameters, RotatedX, RotatedY);
+    return .5 + (Sample - .5) * Amount;
+}
+
+std::vector<std::string> QueryProceduralOps()
+{
+    std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain"};
+    for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
+    return Ops;
+}
 
 std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
 {
@@ -666,6 +800,9 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     // modulates roughness and earns all three.
     if (Op == "metalGrain") return {"Albedo", "Normal"};
     if (Op == "polymerGrain") return {"Albedo", "Orm", "Normal"};
+    // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
+    // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
+    if (QueryCodedField(Op)) return {"Albedo", "Normal"};
     return {};
 }
 
@@ -707,6 +844,27 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
             {"scratchScale", "Scuff scale", 1, 128, 32, false, "x", 1},
             {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1},
             {"roughness", "Surface roughness", .045f, 1, .5f, false, "", .01f}};
+    // 📝 Coded-field ranges mirror the HTML generator sheet (MaterialPanel GeneratorInputs limits).
+    if (QueryCodedField(Op))
+    {
+        std::vector<ProceduralOpParam> Params;
+        Params.reserve(5);
+        Params.emplace_back(ProceduralOpParam{"scale", "Scale", 1, 200, 8, false, "", 1});
+        Params.emplace_back(ProceduralOpParam{"seed", "Seed", 0, 9999, 12, false, "", 1});
+        Params.emplace_back(ProceduralOpParam{"angle", "Angle", -180, 180, 0, false, "deg", 1});
+        Params.emplace_back(ProceduralOpParam{"amount", Op.starts_with("camouflage") ? "Patch contrast" : "Amount", 0, 1, 1, false, "", .01f});
+        if (Op == "camouflage-smooth") Params.emplace_back(ProceduralOpParam{"softness", "Softness", .001f, .1f, .012f, false, "", .001f});
+        if (Op == "camouflage") Params.emplace_back(ProceduralOpParam{"pixelSize", "Pixel size", 1, 16, 4, false, "", 1});
+        return Params;
+    }
+    return {};
+}
+
+std::vector<ProceduralOpTextParam> QueryProceduralOpTextParams(std::string_view Op)
+{
+    if (Op == "camouflage" || Op == "camouflage-smooth")
+        return {{"colour0", "Sand colour", "#b5a477"}, {"colour1", "Olive colour", "#566044"},
+            {"colour2", "Earth colour", "#514334"}, {"colour3", "Shadow colour", "#232921"}};
     return {};
 }
 
@@ -808,6 +966,12 @@ std::vector<uint8_t> ConvertPolymerOrmRgba(const std::vector<float> &Roughness, 
 std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
     const std::map<std::string, double> &Params, uint32_t Extent)
 {
+    return BakeProceduralChannelRgba(Op, Channel, Params, {}, Extent);
+}
+
+std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
+    const std::map<std::string, double> &Params, const std::map<std::string, std::string> &Texts, uint32_t Extent)
+{
     const auto Supported = QueryProceduralOpChannels(Op);
     if (std::find(Supported.begin(), Supported.end(), Channel) == Supported.end())
         throw std::runtime_error("Procedural op does not bake the requested channel.");
@@ -842,6 +1006,57 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
         if (Channel == "Orm") return ConvertPolymerOrmRgba(Field, Extent, P.Base, P.Grain);
         return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (QueryCodedField(Op))
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Coded field bake extent is unbounded.");
+        CodedFieldParameters Field;
+        Field.Scale = Value("scale", 8);
+        Field.Seed = Value("seed", 12);
+        Field.Softness = Value("softness", .012);
+        Field.PixelSize = Value("pixelSize", 4);
+        const double Angle = Value("angle", 0), Amount = Value("amount", 1);
+        // 📝 Palette colours decode like THREE.Color(hex): sRGB text into linear working triples, then the
+        // shared albedo converter sRGB-encodes for upload, so the authored hex survives the round trip.
+        std::vector<std::array<float, 3>> Palette;
+        for (const auto &TextParam : QueryProceduralOpTextParams(Op))
+        {
+            const auto Found = Texts.find(TextParam.Key);
+            float Rgb[3]{1, 1, 1};
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : TextParam.Default, Rgb))
+                throw std::runtime_error("Coded field palette colour is not #rrggbb.");
+            Palette.push_back({Rgb[0], Rgb[1], Rgb[2]});
+        }
+        Field.ColourCount = Palette.empty() ? 4 : uint32_t(Palette.size());
+        std::vector<float> Positions(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+                Positions[size_t(Y) * Extent + X] = float(EvaluateCodedFieldPosition(Op, Field,
+                    double(X) / Extent, double(Y) / Extent, Angle, Amount));
+        if (Channel == "Normal") return ConvertHeightToNormalRgba(Positions, Extent, 2.f);
+        std::vector<float> Linear(size_t(Extent) * Extent * 3);
+        for (size_t Index = 0; Index < Positions.size(); ++Index)
+        {
+            const double Position = std::clamp(double(Positions[Index]), 0., 1.);
+            std::array<float, 3> Colour{float(Position), float(Position), float(Position)};
+            if (!Palette.empty())
+            {
+                const double Slot = Position * double(Palette.size() - 1);
+                if (Op == "camouflage-smooth")
+                {
+                    const size_t First = std::min(Palette.size() - 2, size_t(std::floor(Slot)));
+                    const float Blend = float(Slot - double(First));
+                    for (size_t Component = 0; Component < 3; ++Component)
+                        Colour[Component] = Palette[First][Component] +
+                            (Palette[First + 1][Component] - Palette[First][Component]) * Blend;
+                }
+                else Colour = Palette[size_t(std::lround(Slot))];
+            }
+            Linear[Index * 3] = Colour[0];
+            Linear[Index * 3 + 1] = Colour[1];
+            Linear[Index * 3 + 2] = Colour[2];
+        }
+        return ConvertLinearAlbedoRgba(Linear, Extent);
     }
     ScratchFieldParameters Field;
     Field.Density = float(Value("scratchDensity", 0));

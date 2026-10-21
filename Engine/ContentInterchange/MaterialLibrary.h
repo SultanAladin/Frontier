@@ -81,6 +81,7 @@ class MaterialLibrary
     bool ForkProceduralChannel(uint32_t Index, std::string_view Channel);
     bool MergeProceduralChannel(uint32_t Index, std::string_view Channel, uint32_t SourceStratum, std::string_view SourceChannel);
     bool ConfigureProceduralParam(uint32_t Index, std::string_view Channel, std::string_view Key, double Value);
+    bool ConfigureProceduralText(uint32_t Index, std::string_view Channel, std::string_view Key, std::string_view Text);
     bool RebakeProcedurals(uint32_t Extent = 256);
     [[nodiscard]] size_t QueryProceduralOverrideCount() const noexcept { return ProceduralOverrides.size(); }
     bool RevertSource();

@@ -1167,6 +1167,36 @@ void MaterialLibraryPanel::ConstructInspector()
                                     ProceduralDirty = true;
                                 }
                             }
+                            // 📝 Coded-field palettes: sRGB hex texts edited in place; the pool edit recolours
+                            // every linked channel, and the settle-gated rebake below repaints the preview.
+                            for (const auto &TextParam : QueryProceduralOpTextParams(Channel->Op))
+                            {
+                                ImGui::PushID(TextParam.Key);
+                                std::string_view Hex = TextParam.Default;
+                                if (const auto Found = Channel->Texts.find(TextParam.Key); Found != Channel->Texts.end())
+                                    Hex = Found->second;
+                                float Spectrum[3]{1, 1, 1};
+                                if (Hex.size() == 7 && Hex[0] == '#')
+                                    for (size_t Component = 0; Component < 3; ++Component)
+                                        Spectrum[Component] = float(std::strtoul(std::string(Hex.substr(1 + Component * 2, 2)).c_str(), nullptr, 16)) / 255.f;
+                                ImGui::TextDisabled("%s", TextParam.Label);
+                                ImGui::SameLine();
+                                if (ImGui::ColorEdit3("##PaletteColour", Spectrum, ImGuiColorEditFlags_DisplayHex |
+                                        ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                                {
+                                    char Encoded[8];
+                                    std::snprintf(Encoded, sizeof Encoded, "#%02x%02x%02x",
+                                        unsigned(std::lround(std::clamp(Spectrum[0], 0.f, 1.f) * 255.f)),
+                                        unsigned(std::lround(std::clamp(Spectrum[1], 0.f, 1.f) * 255.f)),
+                                        unsigned(std::lround(std::clamp(Spectrum[2], 0.f, 1.f) * 255.f)));
+                                    if (Library.ConfigureProceduralText(Index, ChannelNames[Slot], TextParam.Key, Encoded))
+                                    {
+                                        Changed = true;
+                                        ProceduralDirty = true;
+                                    }
+                                }
+                                ImGui::PopID();
+                            }
                             ImGui::TreePop();
                         }
                     }
