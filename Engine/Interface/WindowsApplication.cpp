@@ -259,6 +259,12 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
         if (MainVisible)
         {
 #if FRONTIER_UI_VULKAN
+            static int TracedInterface = 0;
+            if (TracedInterface < 8)
+            {
+                DiagnosticJournal::Append("FrameUI", "frame=" + std::to_string(TracedInterface));
+                ++TracedInterface;
+            }
             Display.RenderMain(ImGui::GetDrawData());
 #else
             constexpr float Background[] = {.065f,.065f,.07f,1};

@@ -297,6 +297,7 @@ void VulkanPresentation::RenderMain(ImDrawData *Commands)
         Display.Rebuild = true;
     else
         RequireSuccess(Result);
+    if (TraceFrame) DiagnosticJournal::Append("FrameAcquire", "image=" + std::to_string(Main.FrameIndex));
     auto &Submission = Main.Frames[Main.FrameIndex];
     static int TracedFrames = 0;
     const bool TraceFrame = TracedFrames < 4;
@@ -371,6 +372,12 @@ void VulkanPresentation::PresentMain()
     else
         RequireSuccess(Result);
     Main.SemaphoreIndex = (Main.SemaphoreIndex + 1) % Main.SemaphoreCount;
+    static int TracedPresents = 0;
+    if (TracedPresents < 4)
+    {
+        DiagnosticJournal::Append("FramePresented", "serial=" + std::to_string(Display.SubmissionSerial));
+        ++TracedPresents;
+    }
     Display.Submitted   = false;
 }
 } // namespace Frontier

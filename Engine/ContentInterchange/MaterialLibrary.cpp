@@ -592,7 +592,9 @@ bool MaterialLibrary::OpenMaterial(const std::filesystem::path &RelativePath)
     {
         const auto Target = NormalizeMaterialPath(RelativePath);
         auto ReplacementSource = DecodeMaterialSource(ResolveMaterial(RelativePath));
-        auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(DecodeSurfaceMaterial(ReplacementSource), Directory));
+        auto Definition = DecodeSurfaceMaterial(ReplacementSource);
+        EnsureProceduralChannelBakes(Definition, 256);
+        auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(Definition, Directory));
         // 📝 Unsaved drafts ride along across selections; reopening the same material is an explicit refresh from disk.
         const auto Previous = Selection;
         if (Target != Previous)

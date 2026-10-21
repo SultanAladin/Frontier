@@ -243,6 +243,15 @@ int main(int ArgumentCount, char **Arguments)
                     "Solar preset albedo/ORM/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Solar preset texture mask differs.");
         }
+        for (const auto *Path : {"camouflage-ballistic-polymer.material", "camouflage-ballistic-polymer-smooth.material",
+                                 "woodland-camouflage-fabric.material", "woodland-camouflage-fabric-smooth.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Camo preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Scattering.TextureUse[0][0] != 0, "Camo preset selection did not bake procedural channels.");
+            Confirm(Compiled->Textures[0].Levels[0].Width == 256, "Camo preset selection baked maps at the wrong resolution.");
+        }
+        Confirm(ReferenceLibrary.OpenMaterial("black-solar-module.material"), "Solar preset did not recompile after camo parity.");
         Confirm(ReferenceLibrary.ConfigureStratumColour(0, {.1f, .2f, .3f}), "Structured albedo failed.");
         Confirm(ReferenceLibrary.ConfigureStratumCoefficient(1, "Coverage", .8f), "Structured coat coverage failed.");
         Confirm(!ReferenceLibrary.ConfigureStratumColour(0, {-1, 0, 0}), "Invalid albedo accepted.");
