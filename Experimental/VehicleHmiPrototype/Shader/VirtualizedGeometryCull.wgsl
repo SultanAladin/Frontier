@@ -163,6 +163,15 @@ fn SelectAndCullPhase1(@builtin(global_invocation_id) ID : vec3u)
     let I = ID.x;
     if (I >= arrayLength(&Clusters)) { return; }
     let C = Clusters[I];
+    // 📝 Page streaming: a cluster whose page is not resident in its arena slot draws nothing; the cut falls
+    //    back to its resident ancestors because their records still evaluate normally.
+    if ((C.Flags & 8u) == 0u)
+    {
+        ClusterStates[I] = 0u;
+        Phase1Draws[I] = IndirectDrawCommand(C.IndexCount, 0u, C.FirstIndex, 0u, 0u);
+        Phase2Draws[I] = IndirectDrawCommand(C.IndexCount, 0u, C.FirstIndex, 0u, 0u);
+        return;
+    }
     let Occupant = ClusterOccupants[C.Occupant];
 
     let SelfErrorPx   = EvaluateSphereErrorPx(C.LodSphere, C.Error, Occupant.LocalToWorld, C.Flags, C.Cone);

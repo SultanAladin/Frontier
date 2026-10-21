@@ -126,6 +126,9 @@ export class SurfaceProjection
         DrawRuns(Phase2, 2);
         if (this.Effects) this.Effects.Record(Phase2);
         Phase2.end();
+        // 📝 Phase 3: visibility buffer + deferred material resolve + two-layer refraction gather, from the
+        //    same indirect commands (results in Virtualized.ResolveView for the display chain).
+        this.Virtualized.RecordVisibilityResolve(Encoder, this.RasterGroup, this.Clusters.Instances);
     }
 
     RecordDirect(Encoder, DistanceGroup, SamplingGroup, RayTracingGroup, TimestampWrites)

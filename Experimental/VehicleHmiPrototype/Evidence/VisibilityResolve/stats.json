@@ -1,0 +1,14 @@
+{
+  "glass-sphere": {
+    "VisibleClusters": 39,
+    "VisibleTriangles": 3623,
+    "GlassPixels": 1870,
+    "TwoLayerPixels": 719
+  },
+  "uv-creased-vessel": {
+    "VisibleClusters": 24,
+    "VisibleTriangles": 2333,
+    "GlassPixels": 0,
+    "TwoLayerPixels": 0
+  }
+}

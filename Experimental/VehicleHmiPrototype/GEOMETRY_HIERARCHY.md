@@ -1,8 +1,8 @@
 # Virtualized geometry — UV/sharp-aware hierarchy build (Phase 1) + runtime cut/culling (Phase 2)
 
-Status: **Phase 1 (build) and Phase 2 (runtime selection/culling) complete in the HTML prototype**, with
-unit tests, GPU shaders, an editor debug view and rendered evidence. Raster/materials (visibility buffer,
-deferred resolve, two-layer refraction) is Phase 3; the C++ port follows once the HTML behaviour is proven.
+Status: **Phases 1–3 complete in the HTML prototype** (build, runtime selection/culling, visibility
+raster + deferred resolve + two-layer refraction, GPU page streaming), with unit tests, GPU shaders, an
+editor debug view and rendered evidence. The C++ port follows now that the HTML behaviour is proven.
 `GEOMETRY_CLUSTERING.md` describes the earlier *lossless leaf clustering* (spatial median splits + frustum
 cull only) — no LOD, no error metric, no DAG; it is not virtualized geometry and nothing here reuses it.
 
@@ -101,15 +101,33 @@ DAG max error, build time). With `?hierarchy=1` the viewport itself renders thro
 
 Run: `npm test`, `node Tools/GeometryHierarchyProof.mjs`, serve with `npm run serve` and open `?hierarchy=1`.
 
+## Phase 3 — raster, resolve, streaming (`Source/VisibilityResolve.js`, `Source/VirtualizedGeometry.js`, shaders)
+
+- **Visibility buffer**: a material-free raster writes (cluster-triangle identity, occupant) + barycentrics
+  per pixel. Opaque draws write depth; transmissive draws depth-test against opaque depth without writing
+  it, and a second peel pass captures the **back glass layer** per pixel.
+- **Deferred material resolve** (compute): identity + barycentrics → world position / interpolated UV /
+  face normal → family material with UV checker modulation and direct lighting. UVs therefore drive
+  materials at every DAG level exactly as authored (see the vessel resolve in `Evidence/VisibilityResolve/`).
+- **Two-layer refraction**: glass pixels refract through entry (front layer) and exit (back layer)
+  surfaces, gather the resolved opaque image at the exit projection, and mix Beer absorption over the
+  travelled thickness with a Schlick Fresnel sky reflection. Curved glass already refines earlier via the
+  Phase-2 refraction-deviation error term.
+- **GPU page streaming**: hierarchy pages stream through fixed arena slots (pinned root pages first, LRU
+  eviction via `PageSlotAllocator`); loading a page uploads its geometry into a slot and patches its
+  cluster records (FirstIndex + resident bit), eviction clears the bit so the cut falls back to resident
+  ancestors. `?streampages=N` bounds the slot count. The visibility/resolve results land in
+  `VirtualizedGeometry.ResolveView` (rgba16float) for the display chain; the CPU reference path in
+  `Source/VisibilityResolve.js` carries the automated proof (`Tools/VisibilityResolve.test.mjs`,
+  `Tools/VisibilityResolveProof.mjs`), mirroring the WGSL entry-for-entry.
+
 ## Scope: what is *not* here yet
 
-- **Phase 3 — raster & materials:** visibility buffer (cluster+triangle id), hardware raster for large
-  triangles + compute raster for micro-triangles, deferred material resolve; transmission gets its own
-  visibility class, two-layer refraction gather over the resolved opaque scene, no Hi-Z writes (already
-  honoured), and refraction-deviation LOD error (already in the cut).
-- **GPU page streaming:** pages/residency are proven on CPU; the WebGPU path currently keeps built pages
-  resident (upload-on-demand is Phase 3 plumbing).
-- **C++ port** into `Engine/` once Phases 2–3 are proven in HTML.
+- **Display-chain swap**: the final resolved texture is produced every frame when `?hierarchy=1` but the
+  present path still shows the forward surface pass; wiring `ResolveView` into the TAA/present chain and
+  deleting the forward material work is engine-integration work for the C++ port.
+- **C++ port** into `Engine/` (the substrate there already carries `SurfaceCorner` with uv/tangent and
+  `SurfaceMaterial` strata for the resolve).
 
 Known limitations, recorded deliberately: whole-group child attribution makes parent bounds conservative;
 the additive error bound is loose near extreme features (sound — such clusters refine earlier); hierarchy

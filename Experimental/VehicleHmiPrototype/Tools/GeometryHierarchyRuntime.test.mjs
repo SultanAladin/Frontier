@@ -10,7 +10,7 @@ import { BuildGeometryHierarchy } from "../Source/GeometryHierarchy.js";
 import {
     PackHierarchyPages, HierarchyResidencyManager, SelectHierarchyCut,
     EvaluateProjectedSphereError, TestClusterNormalCone,
-    ConstructHiZPyramid, TestClusterHiZ, ExecuteHierarchyRuntimeFrame,
+    ConstructHiZPyramid, TestClusterHiZ, ExecuteHierarchyRuntimeFrame, PageSlotAllocator,
     IdentityMatrix
 } from "../Source/GeometryHierarchyRuntime.js";
 import { ConstructSphereFacets, ConstructHeightfieldFacets } from "./GeometryHierarchyCorpus.mjs";
@@ -189,4 +189,23 @@ test("heightfield cut draws real triangles and respects the threshold direction"
     AssertCutIsCompleteFrontier(Hierarchy, Fine.CutClusterIds);
     assert.ok(Coarse.CutTriangles < Fine.CutTriangles, "coarser threshold must draw fewer triangles");
     assert.ok(Fine.CutTriangles <= Hierarchy.SourceTriangles);
+});
+
+test("page slot allocator streams LRU with pinned pages protected", () =>
+{
+    const Allocator = new PageSlotAllocator(3);
+    Allocator.Pin(0);
+    assert.equal(Allocator.Ensure(0, 0).Slot, 0);
+    assert.equal(Allocator.Ensure(1, 0).EvictedPage, null);
+    assert.equal(Allocator.Ensure(2, 0).EvictedPage, null);
+    Allocator.Touch(1, 5);   // page 1 recently used; page 2 is now the LRU victim
+    const Loaded = Allocator.Ensure(3, 6);
+    assert.equal(Loaded.EvictedPage, 2);
+    assert.equal(Allocator.SlotOf(3), Loaded.Slot);
+    assert.ok(Allocator.IsResident(0), "pinned page survives eviction pressure");
+    assert.ok(!Allocator.IsResident(2));
+    const Blocked = new PageSlotAllocator(1);
+    Blocked.Pin(0);
+    Blocked.Ensure(0, 0);
+    assert.equal(Blocked.Ensure(1, 1).Slot, -1, "all-pinned slots refuse new pages instead of evicting");
 });

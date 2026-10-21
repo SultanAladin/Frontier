@@ -761,3 +761,75 @@ export function ExecuteHierarchyRuntimeFrame(Instances, Camera, Options = {})
         }
     };
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                              GPU PAGE SLOT ALLOCATION
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Fixed set of GPU arena slots that hierarchy pages stream through. Root/pinned pages are loaded first and
+//    never evicted; other pages evict the least-recently-used resident page when a slot is needed. The GPU
+//    side (VirtualizedGeometry) rewrites the evicted page's cluster records (resident bit cleared) and uploads
+//    the new page's geometry into the freed slot.
+export class PageSlotAllocator
+{
+    constructor(SlotCount)
+    {
+        if (!(SlotCount >= 1)) throw new Error("PageSlotAllocator needs at least one slot");
+        this.SlotCount = SlotCount;
+        this.PageToSlot = new Map();
+        this.SlotToPage = new Map();
+        this.LastUsedFrame = new Map();
+        this.PinnedPages = new Set();
+    }
+
+    Pin(PageIndex) { this.PinnedPages.add(PageIndex); }
+    IsResident(PageIndex) { return this.PageToSlot.has(PageIndex); }
+    SlotOf(PageIndex) { return this.PageToSlot.get(PageIndex); }
+
+    Touch(PageIndex, FrameIndex)
+    {
+        if (this.PageToSlot.has(PageIndex)) this.LastUsedFrame.set(PageIndex, FrameIndex);
+    }
+
+    // Ensures PageIndex has a slot. Returns { Slot, EvictedPage } — EvictedPage is null when a free slot was
+    // used or the page was already resident; -1 when every slot holds a pinned page (load must wait).
+    Ensure(PageIndex, FrameIndex)
+    {
+        const Existing = this.PageToSlot.get(PageIndex);
+        if (Existing !== undefined)
+        {
+            this.LastUsedFrame.set(PageIndex, FrameIndex);
+            return { Slot: Existing, EvictedPage: null };
+        }
+        if (this.SlotToPage.size < this.SlotCount)
+        {
+            let Slot = 0;
+            while (this.SlotToPage.has(Slot)) ++Slot;
+            this.PageToSlot.set(PageIndex, Slot);
+            this.SlotToPage.set(Slot, PageIndex);
+            this.LastUsedFrame.set(PageIndex, FrameIndex);
+            return { Slot, EvictedPage: null };
+        }
+        let Victim = -1, VictimSlot = -1, Oldest = Infinity;
+        for (const [Page, Slot] of this.PageToSlot)
+        {
+            if (this.PinnedPages.has(Page)) continue;
+            const Used = this.LastUsedFrame.get(Page) ?? -1;
+            if (Used < Oldest) { Oldest = Used; Victim = Page; VictimSlot = Slot; }
+        }
+        if (Victim < 0) return { Slot: -1, EvictedPage: -1 };
+        this.PageToSlot.delete(Victim);
+        this.PageToSlot.set(PageIndex, VictimSlot);
+        this.SlotToPage.set(VictimSlot, PageIndex);
+        this.LastUsedFrame.set(PageIndex, FrameIndex);
+        return { Slot: VictimSlot, EvictedPage: Victim };
+    }
+
+    Evict(PageIndex)
+    {
+        const Slot = this.PageToSlot.get(PageIndex);
+        if (Slot === undefined) return;
+        this.PageToSlot.delete(PageIndex);
+        this.SlotToPage.delete(Slot);
+    }
+}
