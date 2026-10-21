@@ -90,10 +90,14 @@ sharp-and-seam** colour modes, level buttons, and live counts (clusters, triangl
 DAG max error, build time). With `?hierarchy=1` the viewport itself renders through the Phase-2 runtime.
 
 **Display debug views**: the editor's Display list (next to *Final image*, *Direct sun only*,
-*Indirect diffuse (GI)*, …) gains four cluster views — **Clusters: visibility buffer IDs** (stable hash
+*Indirect diffuse (GI)*, …) gains five cluster views — **Clusters: visibility buffer IDs** (stable hash
 colour per cluster-triangle, glass front cyan / back magenta), **Clusters: deferred resolve** (the Phase-3
-resolved image itself), **Clusters: Hi-Z pyramid** (reversed-Z occluders, near = bright) and **Clusters:
-glass layers (front/back)** (front green, back red, two-layer pixels yellow). They are written by the
+resolved image itself), **Clusters: Hi-Z pyramid** (reversed-Z occluders, near = bright), **Clusters:
+glass layers (front/back)** (front green, back red, two-layer pixels yellow) and **Clusters: LOD levels
+(near→far)** (DAG level per pixel from the level stored in corner-data z: finest leaves warm red,
+coarsening towards blue — the fine→coarse band moving as the camera dollies is the live error-driven
+cut; perfectly flat geometry correctly stays one colour at all distances, since its simplification
+error is zero and the coarsest level is already pixel-exact). They are written by the
 resolve programs into the display inspection target and presented un-tonemapped like the other inspection
 modes. Selecting one **activates the virtualized runtime on demand** (`ActivateForDebug`: programs +
 targets are built on first use), so the views work from an ordinary editor launch — no `?hierarchy=1`

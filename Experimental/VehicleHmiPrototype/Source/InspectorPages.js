@@ -28,7 +28,7 @@ export const InspectionModes = [
     ["ReSTIR irradiance (raw, no denoise)", 4], ["Glossy reflections", 5], ["BVH / Distance-field inspection", 6],
     ["Surface cards (texel space)", 7], ["Normals", 8], ["Albedo", 9],
     ["Clusters: visibility buffer IDs", 10], ["Clusters: deferred resolve", 11], ["Clusters: Hi-Z pyramid", 12],
-    ["Clusters: glass layers (front/back)", 13]
+    ["Clusters: glass layers (front/back)", 13], ["Clusters: LOD levels (near→far)", 14]
 ];
 
 export const DistanceInspections = [

@@ -119,6 +119,7 @@ export class VirtualizedGeometry
         this.DebugGlassProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugGlassLayers", [this.ResolveLayout]);
         this.DebugCopyProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugCopyResolved", [this.ResolveLayout]);
         this.DebugHiZProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugHiZView", [this.ResolveLayout]);
+        this.DebugLodProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugLodLevels", [this.ResolveLayout]);
         this.ProgramsBuilt = true;
     }
 
@@ -261,7 +262,7 @@ export class VirtualizedGeometry
                         Vertices.push(P[0], P[1], P[2], FamFloat, Normal[0], Normal[1], Normal[2], 0);
                         CornerPos.push(P[0], P[1], P[2], FamFloat);
                         CornerUv.push(Level.CornerUVs ? Level.CornerUVs[Triangle * 6 + C * 2] : 0,
-                                      Level.CornerUVs ? Level.CornerUVs[Triangle * 6 + C * 2 + 1] : 0, 0, 0);
+                                      Level.CornerUVs ? Level.CornerUVs[Triangle * 6 + C * 2 + 1] : 0, Node.Level, 0);
                     });
                 }
                 Records.push({ Node, ClusterId, FirstIndex, BaseVertex, IndexCount: Node.TriangleCount * 3,
@@ -582,7 +583,7 @@ export class VirtualizedGeometry
         this.ReportDebugStatus();   // ready: clears the status badge
         const E = this.Exchange;
         const Program = Mode === 10 ? this.DebugIdsProgram : Mode === 13 ? this.DebugGlassProgram
-                      : Mode === 12 ? this.DebugHiZProgram : this.DebugCopyProgram;
+                      : Mode === 12 ? this.DebugHiZProgram : Mode === 14 ? this.DebugLodProgram : this.DebugCopyProgram;
         if (!Program) { this.RecordUnavailableView(Encoder, TargetView); return; }
         // 📝 Slot 6 carries the storage dummy: debug entries write slot 11 (the inspection target) and read
         //    slot 12, so the real OpaqueResolved texture must not ALSO sit writable in slot 6 of this group

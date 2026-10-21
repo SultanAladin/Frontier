@@ -228,3 +228,30 @@ fn DebugHiZView(@builtin(global_invocation_id) ID : vec3u)
     let Depth = textureLoad(HiZTexture, Coord, 0).x;
     textureStore(FinalResolved, Coord, vec4f(vec3f(pow(Depth, 0.25)), 1.0));
 }
+
+// 📝 LOD levels: which DAG level the cut picked per pixel, read from the level stored in corner-data z
+//    (build-time, streamed with the page payload, so it always matches the triangle actually drawn).
+//    Ordered palette: level 0 (finest leaves) is warm red, each coarser level shifts towards blue.
+//    On screen the fine→coarse transition band must move as the camera dollies: near geometry stays
+//    red/orange, distant geometry cools to blue — that moving band IS the continuous LOD cut working.
+//    Flat geometry may stay one colour at every distance: its simplification error is zero, so the
+//    coarsest level is already pixel-exact and the cut correctly never refines it.
+@compute @workgroup_size(8, 8)
+fn DebugLodLevels(@builtin(global_invocation_id) ID : vec3u)
+{
+    let Extent = textureDimensions(FinalResolved);
+    if (ID.x >= Extent.x || ID.y >= Extent.y) { return; }
+    let Coord = vec2i(ID.xy);
+    let Opaque = textureLoad(OpaqueVisTex, Coord, 0);
+    let Front = textureLoad(GlassVisTex, Coord, 0);
+    var Colour = vec3f(0.10, 0.12, 0.20);
+    var Vis = Opaque;
+    if (Vis.x == 0u) { Vis = Front; }
+    if (Vis.x != 0u)
+    {
+        let Level = CornerData[Vis.x - 1u].z;
+        Colour = 0.55 + 0.45 * cos(6.2831853 * (Level * 0.14) + vec3f(0.0, 0.33, 0.67));
+        if (Front.x != 0u && Opaque.x == 0u) { Colour = Colour * vec3f(0.35, 1.0, 1.0); }   // glass keeps the cyan tell
+    }
+    textureStore(FinalResolved, Coord, vec4f(Colour, 1.0));
+}
