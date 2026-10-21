@@ -11,6 +11,7 @@
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 
 namespace Frontier
@@ -42,6 +43,55 @@ uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material)
     // 📝 Native Pattern maps can change while the preview path and PBR coefficients remain identical.
     for (const auto &Texture : Material.AuthoringMaps) AccumulatePyramid(Texture);
     return Digest;
+}
+std::string DescribeMaterialMaps(const CompiledSurfaceMaterial &Material)
+{
+    std::ostringstream Line;
+    const size_t Strata = Material.Scattering.Illumination.Configuration[0];
+    Line << "strata=" << Strata << " masks=[";
+    for (size_t Index = 0; Index < Strata && Index < 8; ++Index)
+    {
+        if (Index) Line << ',';
+        Line << Material.Scattering.TextureUse[Index][0];
+    }
+    Line << "] slices=[";
+    for (size_t Index = 0; Index < Strata && Index < 8; ++Index)
+    {
+        if (Index) Line << ';';
+        Line << Material.Scattering.TextureUse[Index][1] << '/' << Material.Scattering.TextureUse[Index][2]
+             << '/' << Material.Scattering.TextureUse[Index][3];
+    }
+    Line << "] maps=[";
+    for (size_t Slot = 0; Slot < 3; ++Slot)
+    {
+        const auto &Pyramid = Material.Textures[Slot];
+        if (Slot) Line << ',';
+        if (Pyramid.Levels.empty()) { Line << "none"; continue; }
+        const auto &Level = Pyramid.Levels[0];
+        Line << Level.Width << 'x' << Level.Height;
+        bool Varied = false;
+        if (Level.Width > 1 || Level.Height > 1)
+        {
+            const size_t Count = size_t(Level.Width) * Level.Height;
+            const size_t Step = Count / 2048 + 1;
+            uint8_t Min[3] = {255, 255, 255}, Max[3] = {0, 0, 0};
+            for (size_t Pixel = 0; Pixel < Count; Pixel += Step)
+            {
+                const size_t At = Level.Offset + Pixel * 4;
+                if (At + 4 > Pyramid.Rgba.size()) break;
+                for (size_t Channel = 0; Channel < 3; ++Channel)
+                {
+                    Min[Channel] = std::min(Min[Channel], Pyramid.Rgba[At + Channel]);
+                    Max[Channel] = std::max(Max[Channel], Pyramid.Rgba[At + Channel]);
+                }
+            }
+            for (size_t Channel = 0; Channel < 3; ++Channel)
+                if (int(Max[Channel]) - int(Min[Channel]) > 8) Varied = true;
+        }
+        Line << (Varied ? '*' : '-');
+    }
+    Line << ']';
+    return Line.str();
 }
 std::vector<uint32_t> DecodePreviewShader(const std::filesystem::path &Path)
 {
@@ -251,6 +301,7 @@ void MaterialLibraryRendering::ConfigureSelection(const std::filesystem::path &P
     Rendering.PreviewScattering = Material.Scattering;
     Rendering.ReconfigurePreview();
     DiagnosticJournal::Append("MaterialSelection", DiagnosticJournal::EncodePath(Path) + " fingerprint=" + std::to_string(Digest));
+    DiagnosticJournal::Append("MaterialMaps", DiagnosticJournal::EncodePath(Path) + " " + DescribeMaterialMaps(Material));
     Rendering.SelectedFingerprint = Digest;
     Rendering.Selection = Path;
     Rendering.PreviewDirty = true;
@@ -316,6 +367,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         {
             Dirty->Dirty = false;
             Dirty->Diagnostic = Rendering.Diagnostic = Failure.what();
+            DiagnosticJournal::Append("MaterialTileRefused", DiagnosticJournal::EncodePath(Dirty->Path) + ": " + Rendering.Diagnostic);
             return;
         }
     }

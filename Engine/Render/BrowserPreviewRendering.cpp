@@ -1018,7 +1018,15 @@ void BrowserPreviewRendering::ConstructCommands(
         });
     if (Dirty != Rendering.Tiles.end() && Dirty->Dirty && Dirty->Target)
     {
+        static int TracedSubmissions = 0;
+        const bool Trace = TracedSubmissions < 3;
+        if (Trace) DiagnosticJournal::Append("BrowserRecord", "serial=" + std::to_string(SubmissionSerial) + " key=" + Dirty->Key);
         Rendering.RecordTarget(Commands, *Dirty->Target, Dirty->Configuration, Dirty->Camera, Dirty->Channel);
+        if (Trace)
+        {
+            DiagnosticJournal::Append("BrowserRecorded", "serial=" + std::to_string(SubmissionSerial) + " key=" + Dirty->Key);
+            ++TracedSubmissions;
+        }
         Rendering.RecordedKey = Dirty->Key;
         return;
     }
@@ -1055,6 +1063,12 @@ void BrowserPreviewRendering::ConfirmSubmission() noexcept
     }
     if (!Rendering.RecordedKey.empty())
     {
+        static int TracedConfirmations = 0;
+        if (TracedConfirmations < 3)
+        {
+            DiagnosticJournal::Append("BrowserConfirm", "key=" + Rendering.RecordedKey);
+            ++TracedConfirmations;
+        }
         const auto Slot = std::find_if(Rendering.Tiles.begin(), Rendering.Tiles.end(),
             [&](const auto &Entry) { return Entry.Key == Rendering.RecordedKey; });
         if (Slot != Rendering.Tiles.end())

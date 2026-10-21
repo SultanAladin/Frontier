@@ -298,7 +298,12 @@ void VulkanPresentation::RenderMain(ImDrawData *Commands)
     else
         RequireSuccess(Result);
     auto &Submission = Main.Frames[Main.FrameIndex];
+    static int TracedFrames = 0;
+    const bool TraceFrame = TracedFrames < 4;
+    if (TraceFrame) DiagnosticJournal::Append("FrameWait", "image=" + std::to_string(Main.FrameIndex) +
+        " serial=" + std::to_string(Display.ImageSerials.size() == Main.ImageCount ? Display.ImageSerials[Main.FrameIndex] : 0));
     RequireSuccess(Display.WaitForFences(Display.Device, 1, &Submission.Fence, VK_TRUE, UINT64_MAX));
+    if (TraceFrame) DiagnosticJournal::Append("FrameFenced", "image=" + std::to_string(Main.FrameIndex));
     if (Display.ImageSerials.size() != Main.ImageCount)
     {
         // 📝 Reconfigure waits for device completion before replacing swapchain allocations.
@@ -333,6 +338,11 @@ void VulkanPresentation::RenderMain(ImDrawData *Commands)
     RequireSuccess(Display.ResetFences(Display.Device, 1, &Submission.Fence));
     RequireSuccess(Display.QueueSubmit(Display.Queue, 1, &Submit, Submission.Fence));
     Display.ImageSerials[Main.FrameIndex] = ++Display.SubmissionSerial;
+    if (TraceFrame)
+    {
+        DiagnosticJournal::Append("FrameSubmit", "serial=" + std::to_string(Display.SubmissionSerial));
+        ++TracedFrames;
+    }
     if (Display.ConfirmGpu) Display.ConfirmGpu();
     Display.Submitted = true;
 }

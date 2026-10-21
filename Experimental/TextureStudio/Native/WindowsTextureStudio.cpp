@@ -147,7 +147,7 @@ int RunTextureWorkspace()
                 // fresh installs resolve texture files and existing installs backfill missing additions
                 // without touching user-edited materials.
                 std::filesystem::create_directories(Directory);
-                size_t Copied = 0;
+                size_t Copied = 0, Scanned = 0;
                 for (const auto &Entry : std::filesystem::recursive_directory_iterator(Presets,
                     std::filesystem::directory_options::skip_permission_denied))
                 {
@@ -158,9 +158,14 @@ int RunTextureWorkspace()
                     std::error_code CopyError;
                     std::filesystem::create_directories(Target.parent_path(), CopyError);
                     if (CopyError) continue;
-                    std::filesystem::copy_file(Entry.path(), Target, std::filesystem::copy_options::skip_existing, CopyError);
-                    if (!CopyError) ++Copied;
+                    const bool Done = std::filesystem::copy_file(Entry.path(), Target, std::filesystem::copy_options::skip_existing, CopyError);
+                    if (!CopyError)
+                    {
+                        ++Scanned;
+                        if (Done) ++Copied;
+                    }
                 }
+                DiagnosticJournal::Append("MaterialBackfill", "scanned=" + std::to_string(Scanned) + " copied=" + std::to_string(Copied));
             }
         }
         if (!Library->ConfigureDirectory(Directory)) throw std::runtime_error(Library->QueryLibrary().QueryDiagnostic());
