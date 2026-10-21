@@ -336,7 +336,7 @@ inline std::vector<float> GenerateBrowserDraftingContours(const std::vector<floa
         const double Cosine = NormalA[0] * NormalB[0] + NormalA[1] * NormalB[1] + NormalA[2] * NormalB[2];
         if (Edge.Normals.size() == 2 && Cosine > .9999) continue;
         const float Crease =
-            (Edge.Normals.size() != 2 || Cosine < std::cos(25 * std::numbers::pi / 180)) ? 1 : 0;
+            (Edge.Normals.size() != 2 || Cosine < std::cos(25 * std::numbers::pi / 180)) ? 1.f : 0.f;
         for (const auto &Position : {Edge.Start, Edge.End})
         {
             Contours.push_back(Position[0]);

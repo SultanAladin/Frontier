@@ -10,6 +10,7 @@
 #endif
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/WindowsApplication.h"
+#include "Engine/Interface/VulkanPresentation.h"
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Render/BrowserPreviewRendering.h"
 #include "UI/Editor/ControlCentrePanel.h"
