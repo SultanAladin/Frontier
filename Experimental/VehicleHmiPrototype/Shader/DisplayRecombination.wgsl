@@ -59,7 +59,7 @@ fn ResolveRecombination(@builtin(global_invocation_id) Invocation: vec3u)
         return;
     }
     let Direct = textureLoad(DirectRadiance, Pixel, 0);
-    if (Frame.InspectionMode == InspectionDistance)
+    if (Frame.InspectionMode == InspectionDistance || Frame.InspectionMode >= 10u)
     {
         textureStore(RecombinedTarget, Pixel, vec4f(textureLoad(InspectionRadiance, Pixel, 0).rgb, 1.0));
         return;

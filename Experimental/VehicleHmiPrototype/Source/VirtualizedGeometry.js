@@ -93,10 +93,14 @@ export class VirtualizedGeometry
         }, [this.VisibilityLayout, this.GlassBackLayout]);
         this.ResolveLayout = E.ConstructDescriptorLayout(
             ["Uniform", "StorageRead", "StorageRead", "StorageRead", "TextureUint2D", "Texture2D", "StorageTexture2D:rgba16float",
-             "TextureUint2D", "Texture2D", "TextureUint2D", "Texture2D", "StorageTexture2D:rgba16float", "Texture2D"],
+             "TextureUint2D", "Texture2D", "TextureUint2D", "Texture2D", "StorageTexture2D:rgba16float", "Texture2D", "Texture2DUnfiltered"],
             Compute, "Material resolve");
         this.ResolveOpaqueProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "ResolveOpaqueVisibility", [this.ResolveLayout]);
         this.ResolveRefractionProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "ResolveRefractionGather", [this.ResolveLayout]);
+        this.DebugIdsProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugVisibilityIds", [this.ResolveLayout]);
+        this.DebugGlassProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugGlassLayers", [this.ResolveLayout]);
+        this.DebugCopyProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugCopyResolved", [this.ResolveLayout]);
+        this.DebugHiZProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugHiZView", [this.ResolveLayout]);
     }
 
     ConstructTargets(Width, Height)
@@ -447,7 +451,8 @@ export class VirtualizedGeometry
              this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.OpaqueResolvedTexture.createView(),
              this.GlassVisTexture.createView(), this.GlassBaryTexture.createView(),
              this.GlassBackVisTexture.createView(), this.GlassBackBaryTexture.createView(),
-             this.FinalResolvedTexture.createView(), this.OpaqueResolvedTexture.createView()]);
+             this.FinalResolvedTexture.createView(), this.OpaqueResolvedTexture.createView(),
+             this.CurrentHiZView ?? this.PreviousHiZView]);
         for (const Program of [this.ResolveOpaqueProgram, this.ResolveRefractionProgram])
         {
             const Pass = Encoder.beginComputePass({ label: Program === this.ResolveOpaqueProgram ? "Resolve opaque visibility" : "Resolve refraction gather" });
@@ -456,6 +461,30 @@ export class VirtualizedGeometry
             Pass.dispatchWorkgroups(Math.ceil(this.Extent[0] / 8), Math.ceil(this.Extent[1] / 8));
             Pass.end();
         }
+    }
+
+    // 📝 Display-inspection debug views (Display list modes 10-13): writes the chosen cluster debug image
+    //    into the display inspection target, which DisplayRecombination presents un-tonemapped like the
+    //    other inspection modes. Mode 11 copies the deferred resolve output itself.
+    RecordDebugView(Encoder, TargetView, Mode)
+    {
+        if (!this.Records || !this.OpaqueVisTexture || !TargetView) return;
+        const E = this.Exchange;
+        const Program = Mode === 10 ? this.DebugIdsProgram : Mode === 13 ? this.DebugGlassProgram
+                      : Mode === 12 ? this.DebugHiZProgram : this.DebugCopyProgram;
+        if (!Program) return;
+        const Group = E.ConstructDescriptorGroup(this.ResolveLayout,
+            [this.FrameRecords, this.OccupantRecords, this.CornerPosBuffer, this.CornerUvBuffer,
+             this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.OpaqueResolvedTexture.createView(),
+             this.GlassVisTexture.createView(), this.GlassBaryTexture.createView(),
+             this.GlassBackVisTexture.createView(), this.GlassBackBaryTexture.createView(),
+             TargetView, Mode === 11 ? this.FinalResolvedTexture.createView() : this.OpaqueResolvedTexture.createView(),
+             this.CurrentHiZView ?? this.PreviousHiZView]);
+        const Pass = Encoder.beginComputePass({ label: "Cluster debug view " + Mode });
+        Pass.setPipeline(Program);
+        Pass.setBindGroup(0, Group);
+        Pass.dispatchWorkgroups(Math.ceil(this.Extent[0] / 8), Math.ceil(this.Extent[1] / 8));
+        Pass.end();
     }
 
     OwnsOccupant(Occupant) { return this.OwnedOccupants?.has(Occupant) ?? false; }

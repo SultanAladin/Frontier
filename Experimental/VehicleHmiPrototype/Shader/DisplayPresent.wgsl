@@ -105,7 +105,7 @@ fn PresentFragment(Varying: PresentVarying) -> @location(0) vec4f
         Exposure = 1.0;
     }
     var Colour = ProjectFilmic(Radiance * Exposure);
-    if (Frame.InspectionMode == 6u || Frame.InspectionMode == 8u || Frame.InspectionMode == 9u)
+    if (Frame.InspectionMode == 6u || Frame.InspectionMode == 8u || Frame.InspectionMode == 9u || Frame.InspectionMode >= 10u)
     {
         Colour = clamp(Radiance, vec3f(0.0), vec3f(1.0));
     }

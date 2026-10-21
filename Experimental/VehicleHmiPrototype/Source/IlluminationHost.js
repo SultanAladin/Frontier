@@ -1242,6 +1242,10 @@ class IlluminationHost
         }
         if (this.Settings.Inspection === 6 && Included("Inspection"))
             this.Display.RecordInspection(Encoder, this.Distance.TraversalGroup, this.SamplingGroup, this.RayTracing.TraversalGroup);
+        // 📝 Cluster debug views (Display modes 10-13) come from the virtualized runtime's own targets;
+        //    they need ?hierarchy=1 so the visibility/resolve products exist this frame.
+        if (this.Settings.Inspection >= 10 && Included("Inspection"))
+            this.Surface.Virtualized?.RecordDebugView(Encoder, this.Display.Views.Inspection, this.Settings.Inspection);
         if (Included("Smoke") && this.Smoke.Resident)
             this.Smoke.RecordMarch(Encoder, this.Metrics.QueryWrites("Smoke render"));
         if (Included("Resolve"))

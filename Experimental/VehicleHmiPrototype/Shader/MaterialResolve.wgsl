@@ -19,6 +19,7 @@
 @group(0) @binding(10) var GlassBackBaryTex         : texture_2d<f32>;
 @group(0) @binding(11) var FinalResolved            : texture_storage_2d<rgba16float, write>;
 @group(0) @binding(12) var OpaqueResolvedRead       : texture_2d<f32>;
+@group(0) @binding(13) var HiZTexture               : texture_2d<f32>;
 
 const SkyColour = vec3f(0.36, 0.48, 0.66);
 const LightDirection = vec3f(0.375, 0.625, 0.5);
@@ -159,4 +160,71 @@ fn ResolveRefractionGather(@builtin(global_invocation_id) ID : vec3u)
         Colour = Gathered * Absorb * (1.0 - Fresnel) + SkyColour * Fresnel;
     }
     textureStore(FinalResolved, Coord, vec4f(Colour, 1.0));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+// Debug views for the display inspection list (written into the inspection target, presented un-tonemapped).
+//------------------------------------------------------------------------------------------------------------------------
+
+fn DebugHashColour(N : u32) -> vec3f
+{
+    var X = N * 2654435761u;
+    X = (X ^ (X >> 13u)) * 1274126177u;
+    X = X ^ (X >> 16u);
+    return vec3f(f32((X >> 16u) & 255u), f32((X >> 8u) & 255u), f32(X & 255u)) / 255.0 * 0.85 + vec3f(0.12);
+}
+
+// 📝 Visibility buffer IDs: every cluster-triangle gets a stable hash colour; glass front tints cyan,
+//    glass back tints magenta so the two refraction layers can be told apart at a glance.
+@compute @workgroup_size(8, 8)
+fn DebugVisibilityIds(@builtin(global_invocation_id) ID : vec3u)
+{
+    let Extent = textureDimensions(FinalResolved);
+    if (ID.x >= Extent.x || ID.y >= Extent.y) { return; }
+    let Coord = vec2i(ID.xy);
+    let Opaque = textureLoad(OpaqueVisTex, Coord, 0);
+    let Front = textureLoad(GlassVisTex, Coord, 0);
+    let Back = textureLoad(GlassBackVisTex, Coord, 0);
+    var Colour = vec3f(0.03, 0.04, 0.07);
+    if (Opaque.x != 0u) { Colour = DebugHashColour(Opaque.x); }
+    if (Front.x != 0u) { Colour = DebugHashColour(Front.x) * vec3f(0.35, 1.0, 1.0); }
+    if (Back.x != 0u && Front.x == 0u) { Colour = DebugHashColour(Back.x) * vec3f(1.0, 0.35, 1.0); }
+    textureStore(FinalResolved, Coord, vec4f(Colour, 1.0));
+}
+
+// 📝 Glass layers: front layer green, back layer red, overlap (two-layer refraction pixels) yellow.
+@compute @workgroup_size(8, 8)
+fn DebugGlassLayers(@builtin(global_invocation_id) ID : vec3u)
+{
+    let Extent = textureDimensions(FinalResolved);
+    if (ID.x >= Extent.x || ID.y >= Extent.y) { return; }
+    let Coord = vec2i(ID.xy);
+    let Front = textureLoad(GlassVisTex, Coord, 0);
+    let Back = textureLoad(GlassBackVisTex, Coord, 0);
+    var Colour = textureLoad(OpaqueResolvedRead, Coord, 0).xyz * 0.35;
+    if (Front.x != 0u && Back.x != 0u) { Colour = vec3f(0.95, 0.85, 0.25); }
+    else if (Front.x != 0u) { Colour = vec3f(0.25, 0.9, 0.45); }
+    else if (Back.x != 0u) { Colour = vec3f(0.95, 0.3, 0.3); }
+    textureStore(FinalResolved, Coord, vec4f(Colour, 1.0));
+}
+
+// 📝 Deferred resolve output, copied verbatim (binding 12 carries the final resolved texture in this group).
+@compute @workgroup_size(8, 8)
+fn DebugCopyResolved(@builtin(global_invocation_id) ID : vec3u)
+{
+    let Extent = textureDimensions(FinalResolved);
+    if (ID.x >= Extent.x || ID.y >= Extent.y) { return; }
+    let Coord = vec2i(ID.xy);
+    textureStore(FinalResolved, Coord, vec4f(textureLoad(OpaqueResolvedRead, Coord, 0).xyz, 1.0));
+}
+
+// 📝 Hi-Z pyramid (reversed-Z): near occluders bright, far/clear dark.
+@compute @workgroup_size(8, 8)
+fn DebugHiZView(@builtin(global_invocation_id) ID : vec3u)
+{
+    let Extent = textureDimensions(FinalResolved);
+    if (ID.x >= Extent.x || ID.y >= Extent.y) { return; }
+    let Coord = vec2i(ID.xy);
+    let Depth = textureLoad(HiZTexture, Coord, 0).x;
+    textureStore(FinalResolved, Coord, vec4f(vec3f(pow(Depth, 0.25)), 1.0));
 }

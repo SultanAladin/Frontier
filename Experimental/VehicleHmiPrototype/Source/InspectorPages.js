@@ -26,7 +26,9 @@ import { AutomotiveMode, RoofFixtureType } from "./LightingSystem.js";
 export const InspectionModes = [
     ["Final image", 0], ["Direct sun only", 1], ["Indirect diffuse (GI)", 2], ["Indirect irradiance (denoised)", 3],
     ["ReSTIR irradiance (raw, no denoise)", 4], ["Glossy reflections", 5], ["BVH / Distance-field inspection", 6],
-    ["Surface cards (texel space)", 7], ["Normals", 8], ["Albedo", 9]
+    ["Surface cards (texel space)", 7], ["Normals", 8], ["Albedo", 9],
+    ["Clusters: visibility buffer IDs", 10], ["Clusters: deferred resolve", 11], ["Clusters: Hi-Z pyramid", 12],
+    ["Clusters: glass layers (front/back)", 13]
 ];
 
 export const DistanceInspections = [

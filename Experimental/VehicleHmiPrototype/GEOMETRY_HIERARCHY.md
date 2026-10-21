@@ -89,6 +89,14 @@ per-level error-expanded bounds + simplified wireframe with cluster / error-heat
 sharp-and-seam** colour modes, level buttons, and live counts (clusters, triangles, sharp edges, UV seams,
 DAG max error, build time). With `?hierarchy=1` the viewport itself renders through the Phase-2 runtime.
 
+**Display debug views**: the editor's Display list (next to *Final image*, *Direct sun only*,
+*Indirect diffuse (GI)*, …) gains four cluster views — **Clusters: visibility buffer IDs** (stable hash
+colour per cluster-triangle, glass front cyan / back magenta), **Clusters: deferred resolve** (the Phase-3
+resolved image itself), **Clusters: Hi-Z pyramid** (reversed-Z occluders, near = bright) and **Clusters:
+glass layers (front/back)** (front green, back red, two-layer pixels yellow). They are written by the
+resolve programs into the display inspection target and presented un-tonemapped like the other inspection
+modes; they need `?hierarchy=1` since they read the virtualized runtime's targets.
+
 **Cluster debug** (same panel): the *View* selector switches between the DAG level view and a **Runtime
 cut** view that runs the actual Phase-2 pipeline (cut → frustum/cone → two-phase Hi-Z, CPU mirror at
 320×240, throttled) for the live camera — phase-1 visible clusters draw green, phase-2 disoccluded cyan,
