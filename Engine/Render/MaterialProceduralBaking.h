@@ -5,6 +5,7 @@
 // field bake into shared height/coverage maps, so every channel samples one consistent procedural definition.
 
 #pragma once
+#include <array>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -158,6 +159,32 @@ struct SandBakeMaps
 [[nodiscard]] std::vector<uint8_t> ConvertFacetNormalRgba(const std::vector<float> &Relief, const std::vector<float> &Facet,
     uint32_t Extent, float Strength);
 
+// 📝 Coded fields (HTML FieldSpecification parity): deterministic pure samples over centred, rotated
+// coordinates, normalized to [0, 1]. Evaluation stays in double precision because the reference hashes
+// with Math.sin; float would drift the cell hash and move camouflage band edges.
+struct CodedFieldParameters
+{
+    double Scale = 8, Seed = 12, Softness = .012, PixelSize = 4;
+    uint32_t ColourCount = 4;
+};
+
+[[nodiscard]] double EvaluateCodedField(std::string_view Identity, const CodedFieldParameters &Parameters,
+    double Horizontal, double Vertical);
+// 📝 Header-inline registry: the authoring gate and the op registry share one identity list without
+// dragging the baking translation unit (and its STB write implementation) into every consumer.
+inline constexpr std::array<const char *, 8> CodedFieldIdentities{"camouflage-smooth", "camouflage", "noise",
+    "stripes", "checker", "cells", "ridged", "rings"};
+[[nodiscard]] inline bool QueryCodedField(std::string_view Identity) noexcept
+{
+    for (const char *Candidate : CodedFieldIdentities)
+        if (Identity == Candidate) return true;
+    return false;
+}
+// 📝 Field-projection position mapping: rotate centred UV by AngleDegrees, sample, then re-centre the
+// [0, 1] result around .5 scaled by Amount (HTML SamplePbrField field branch, verbatim).
+[[nodiscard]] double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldParameters &Parameters,
+    double U, double V, double AngleDegrees, double Amount);
+
 // 📝 Op registry: each procedural op declares the channels it can bake and the slider ranges its Alloy-keyed
 // params expose. Params keep their Alloy uniform spellings so recipe controls resolve without translation.
 struct ProceduralOpParam
@@ -172,6 +199,14 @@ struct ProceduralOpParam
 [[nodiscard]] std::vector<std::string> QueryProceduralOps();
 [[nodiscard]] std::vector<std::string> QueryProceduralOpChannels(std::string_view Op);
 [[nodiscard]] std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op);
+// 📝 Text params ride the channel Texts table (palette colours); scalars alone cannot carry #rrggbb.
+struct ProceduralOpTextParam
+{
+    const char *Key = "";
+    const char *Label = "";
+    const char *Default = "";
+};
+[[nodiscard]] std::vector<ProceduralOpTextParam> QueryProceduralOpTextParams(std::string_view Op);
 // 📝 Canonical pool spelling for a recipe target key; direction aliases collapse onto one stored angle.
 [[nodiscard]] std::string ResolveProceduralParamKey(std::string_view Op, std::string_view Key);
 // 📝 Maximum roughness lift an op can bake above its base; the material's roughness scalar carries
@@ -181,6 +216,9 @@ struct ProceduralOpParam
 // pool's roughness, and relief normalization plus strength match the offline pilot bake.
 [[nodiscard]] std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
     const std::map<std::string, double> &Params, uint32_t Extent);
+// 📝 Text-carrying dispatcher: coded-field ops read their palette from Texts; scalar-only ops ignore it.
+[[nodiscard]] std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
+    const std::map<std::string, double> &Params, const std::map<std::string, std::string> &Texts, uint32_t Extent);
 // 📝 Deterministic PNG encoding shared by the offline baker, the save path and the regeneration tests.
 [[nodiscard]] std::vector<uint8_t> EncodeProceduralPng(const std::vector<uint8_t> &Rgba, uint32_t Extent);
 }

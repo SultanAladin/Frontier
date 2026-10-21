@@ -1023,6 +1023,88 @@ bool MaterialLibrary::ConfigureProceduralParam(uint32_t Index, std::string_view 
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
 }
 
+// 📝 Text twin of ConfigureProceduralParam: palette colours ride the same pool/source-line machinery so a
+// shared coded field recolours every linked channel with one edit and authored comments survive.
+bool MaterialLibrary::ConfigureProceduralText(uint32_t Index, std::string_view Channel, std::string_view Key, std::string_view Text)
+{
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        if (Text.empty() || Text.size() > 1024 || Text.find_first_of("\n\r\"\\") != std::string_view::npos)
+            throw std::runtime_error("Procedural text is empty, unbounded or unquotable.");
+        const auto Definition = DecodeSurfaceMaterial(Source);
+        if (Index >= Definition.StratumChannels.size()) throw std::runtime_error("Material stratum does not exist.");
+        const MaterialProceduralChannel *Target = nullptr;
+        for (const auto &Entry : Definition.StratumChannels[Index])
+            if (Entry.Name == Channel) Target = &Entry;
+        if (!Target || Target->Op.empty()) throw std::runtime_error("Channel is not procedural.");
+        const std::string Canonical(Key);
+        struct Linked
+        {
+            uint32_t Stratum = 0;
+            std::string Name;
+        };
+        std::vector<Linked> Pool;
+        for (size_t Stratum = 0; Stratum < Definition.StratumChannels.size(); ++Stratum)
+            for (const auto &Entry : Definition.StratumChannels[Stratum])
+                if (!Entry.Op.empty() && Entry.Op == Target->Op && Entry.Link == Target->Link)
+                    Pool.push_back({uint32_t(Stratum), Entry.Name});
+        if (Pool.empty()) throw std::runtime_error("Procedural pool entry is missing.");
+        auto Replacement = Source;
+        for (const auto &Member : Pool)
+        {
+            const auto Blocks = SplitStrataBlocks(Replacement);
+            if (Member.Stratum >= Blocks.size()) throw std::runtime_error("Procedural pool stratum is missing.");
+            bool Edited = false;
+            for (const auto &Span : SplitChannelBlocks(Replacement, Blocks[Member.Stratum]))
+            {
+                if (Span.Name != Member.Name) continue;
+                const auto Inline = FindKeyLine(Replacement, Span.Span, "Params");
+                if (Inline.End > Inline.Begin) throw std::runtime_error("Expand inline Params in Source view first.");
+                SourceSpan Params{0, 0};
+                size_t Cursor = Span.Span.Begin;
+                while (Cursor < Span.Span.End)
+                {
+                    const size_t Stop = Replacement.find('\n', Cursor);
+                    const size_t End = Stop == std::string::npos || Stop > Span.Span.End ? Span.Span.End : Stop;
+                    if (IsChannelParamsHeader(TrimSourceLine(std::string_view(Replacement.data() + Cursor, End - Cursor))))
+                    {
+                        Params = {Cursor, Span.Span.End};
+                        break;
+                    }
+                    if (Stop == std::string::npos || Stop >= Span.Span.End) break;
+                    Cursor = Stop + 1;
+                }
+                const std::string Line = Canonical + " = \"" + std::string(Text) + "\"\n";
+                if (Params.End > Params.Begin)
+                {
+                    const auto Existing = FindKeyLine(Replacement, Params, Canonical);
+                    if (Existing.End > Existing.Begin) Replacement.replace(Existing.Begin, Existing.End - Existing.Begin, Line);
+                    else
+                    {
+                        std::string Head = Replacement.substr(0, Span.Span.End), Tail = Replacement.substr(Span.Span.End);
+                        if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                        Replacement = Head + Line + Tail;
+                    }
+                }
+                else
+                {
+                    std::string Head = Replacement.substr(0, Span.Span.End), Tail = Replacement.substr(Span.Span.End);
+                    if (!Head.empty() && Head.back() != '\n') Head += '\n';
+                    Replacement = Head + "[Strata.Channels.Params]\n" + Line + Tail;
+                }
+                Edited = true;
+            }
+            if (!Edited) throw std::runtime_error("Procedural pool block is missing.");
+        }
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
 bool MaterialLibrary::RebakeProcedurals(uint32_t Extent)
 {
     try
@@ -1038,7 +1120,7 @@ bool MaterialLibrary::RebakeProcedurals(uint32_t Extent)
                 if (Entry.Op.empty()) continue;
                 const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
                 const std::string &Key = Definition.StratumTextureSources[Index][Slot];
-                auto Rgba = BakeProceduralChannelRgba(Entry.Op, Entry.Name, Entry.Params, Extent);
+                auto Rgba = BakeProceduralChannelRgba(Entry.Op, Entry.Name, Entry.Params, Entry.Texts, Extent);
                 SurfaceTextureImage BakedImage{Extent, Extent, std::move(Rgba)};
                 // 📝 Key by the live source for compile lookup and by the derived key for the save path, so a
                 // re-save after param tweaks refreshes the persisted PNGs instead of skipping them as files.

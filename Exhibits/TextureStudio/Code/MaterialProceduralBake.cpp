@@ -207,6 +207,9 @@ int main(int ArgumentCount, char **Arguments)
         size_t Baked = 0;
         for (const auto &Entry : Library.QueryEntries())
         {
+            // 📝 Woodland camouflage albedo is the coded field channel, rebaked live by the workspace;
+            // baking the weave pair here would ship textures its .material never references.
+            if (Entry.RelativePath.stem().string().starts_with("woodland-camouflage-fabric")) continue;
             if (Entry.Recipe.RecipeId == "scratches" && BakeScratches(Entry, Textures)) ++Baked;
             else if (WeaveIds.contains(Entry.Recipe.RecipeId) && BakeWeave(Entry, Textures)) ++Baked;
             else if (Entry.Recipe.RecipeId == "jersey" && BakeKnit(Entry, Textures)) ++Baked;

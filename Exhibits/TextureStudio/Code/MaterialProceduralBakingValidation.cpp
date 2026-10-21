@@ -213,7 +213,12 @@ int main()
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
         // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
         // passthrough that keeps unworn polymer out of the worn-roughness branch.
-        Confirm(QueryProceduralOps().size() == 3, "Procedural op registry changed.");
+        // 📝 3 Alloy grain ops + 8 coded fields (HTML FieldSpecification registry).
+        Confirm(QueryProceduralOps().size() == 11, "Procedural op registry changed.");
+        Confirm(QueryProceduralOpChannels("camouflage") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpTextParams("camouflage-smooth").size() == 4 &&
+                QueryProceduralOpTextParams("noise").empty(),
+            "Coded-field op registration changed.");
         Confirm(QueryProceduralOpChannels("metalGrain") == std::vector<std::string>{"Albedo", "Normal"},
             "Bare-metal op channel set changed.");
         Confirm(QueryProceduralOpChannels("polymerGrain").size() == 3, "Polymer op channel set changed.");
@@ -432,7 +437,8 @@ int main()
         MaterialLibrary Library;
         Confirm(Library.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") && Library.Refresh(),
             "Material library refresh failed.");
-        Confirm(Library.QueryEntries().size() == 127, "Shipped material count changed.");
+        // 📝 127 HTML presets + 4 camouflage entries from the Slate layer-stack port.
+        Confirm(Library.QueryEntries().size() == 131, "Shipped material count changed.");
         std::set<std::string> RecipeIds;
         const MaterialCatalogueEntry *PilotEntry = nullptr, *SandEntry = nullptr, *LayeredEntry = nullptr,
                                      *DenimEntry = nullptr;
@@ -586,6 +592,10 @@ int main()
         {
             const auto &Id = Entry.Recipe.RecipeId;
             const std::string Stem = Entry.RelativePath.stem().string();
+            // 📝 Woodland camouflage presets carry the woven recipe but their authored albedo is the coded
+            // camouflage field (MaterialAuthoringValidation pins that bake); weave relief is not yet
+            // composited under the field, so no committed weave pair exists for these stems.
+            if (Stem.starts_with("woodland-camouflage-fabric")) continue;
             std::vector<std::pair<std::vector<uint8_t>, std::string>> Fresh;
             if (LibraryWeaveIds.contains(Id)) Fresh = BakeLibraryWeave(Entry.Recipe, Stem);
             else if (Id == "jersey") Fresh = BakeLibraryKnit(Entry.Recipe, Stem);

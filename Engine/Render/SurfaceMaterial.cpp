@@ -84,7 +84,7 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
 {
     if (Text.size() > 1048576) throw std::runtime_error("Material TOML exceeds 1 MiB.");
     auto Table = toml::parse(Text);
-    ValidateKeys(Table,{"Format","Name","UvScaleOffset","Radiance","NormalStrength","Textures","Strata","AutomotivePaint"});
+    ValidateKeys(Table,{"Format","Name","UvScaleOffset","Radiance","NormalStrength","Textures","Strata","AutomotivePaint","Authoring"});
     if (Table["Format"].value<int64_t>() != 1) throw std::runtime_error("Unsupported material format; expected Format = 1.");
     MaterialDefinition Material;
     const auto Name = Table["Name"].value<std::string>();
@@ -236,6 +236,12 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
             }
         }
     }
+    if (Table.contains("Authoring"))
+    {
+        const auto *Authoring = Table["Authoring"].as_table();
+        if (!Authoring) throw std::runtime_error("Authoring must be a table.");
+        Material.Authoring = DecodeMaterialAuthoring(*Authoring);
+    }
     if (!ValidateMaterialScattering(Material.Scattering)) throw std::runtime_error("Material coefficients violate scattering limits.");
     return Material;
 }
@@ -321,6 +327,7 @@ std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
         if (!Channels.empty()) Stratum.insert("Channels",std::move(Channels));
     }
     Table.insert("Strata",std::move(Strata));
+    if (Material.Authoring) Table.insert("Authoring",EncodeMaterialAuthoring(*Material.Authoring));
     std::ostringstream Output;
     Output << toml::toml_formatter{Table};
     return Output.str();

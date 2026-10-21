@@ -220,7 +220,8 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(DecodeSurfaceMaterial(Pilot.QuerySource()).Scattering.Illumination.Configuration[0] == 1, "Removed stratum still decodes.");
         MaterialLibrary ReferenceLibrary;
         Confirm(ReferenceLibrary.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio"), "HTML library did not open.");
-        Confirm(ReferenceLibrary.QueryEntries().size() == 127, "HTML library count differs.");
+        // 📝 127 HTML presets + 4 camouflage entries from the Slate layer-stack port.
+        Confirm(ReferenceLibrary.QueryEntries().size() == 131, "HTML library count differs.");
         Confirm(ReferenceLibrary.QueryEntries().front().Name == "Racing Green" && ReferenceLibrary.QueryEntries()[1].Name == "Midnight Amethyst", "HTML catalogue order differs.");
         for (const auto &Entry : ReferenceLibrary.QueryEntries())
             Confirm(Entry.Diagnostic.empty() && !Entry.Category.empty() && !Entry.RecipeControls.empty(), "HTML preset metadata/physical definition is invalid.");
