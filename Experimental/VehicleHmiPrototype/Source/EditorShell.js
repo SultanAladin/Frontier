@@ -1,3 +1,5 @@
+import {VehicleInspectorAliases,VehicleInspectorState} from './VehicleComponents.js';
+import {VehicleCollisionOverlay} from './VehicleCollisionOverlay.js';
 import {ParticleWorkspace} from "./ParticleWorkspace.js";
 import {SessionTelemetry} from "./SessionTelemetry.js";
 import {ClusterDebugOverlay} from "./ClusterDebugOverlay.js";
@@ -65,6 +67,7 @@ export class EditorShell
         this.Gizmo=new TransformGizmo(this);
         this.ClusterOverlay=new ClusterDebugOverlay(Host);
         this.HierarchyOverlay=new HierarchyDebugOverlay(Host);   // inert unless ?hierarchy=1
+        this.VehicleOverlay=new VehicleCollisionOverlay(Host);
         if(document.documentElement && typeof window!=='undefined'){
             const Resize=Construct('div','ne-resize');Resize.title='Drag to resize inspector';document.getElementById('inspector').appendChild(Resize);
             Resize.addEventListener('pointerdown',E=>{Resize.setPointerCapture(E.pointerId);Resize.Resizing=true;});
@@ -119,7 +122,7 @@ export class EditorShell
 
         const Heading = Construct("div", "outliner-heading");
         const H2 = Construct("h2", "", "Outliner");
-        this.EntityCount = Construct("span", "", String(this.Entities.length).padStart(2, "0"));
+        this.EntityCount = Construct("span", "", String(this.Entities.filter(E=>!E.Hidden).length).padStart(2, "0"));
         H2.appendChild(this.EntityCount);
         Heading.appendChild(H2);
         Body.appendChild(Heading);
@@ -152,7 +155,7 @@ export class EditorShell
         const Matches = (Entity) => !this.Query || Entity.Name.toLowerCase().includes(this.Query) || Entity.Type.toLowerCase().includes(this.Query);
         for (const Group of GroupOrder)
         {
-            const Members = this.Entities.filter((Entity) => Entity.Group === Group);
+            const Members = this.Entities.filter((Entity) => Entity.Group === Group && !Entity.Hidden);
             const Visible = Members.filter((Entity) => Matches(Entity) || Members.some((Child) => Child.Parent === Entity.Id && Matches(Child)));
             if (Visible.length === 0)
                 continue;
@@ -180,7 +183,7 @@ export class EditorShell
         Button.appendChild(ConstructGlyph(Entity.Glyph, 16, 1.6));
         const Meta = Construct("span", "row-meta");
         Button.append(Construct("span", "row-name", Entity.Name), Meta);
-        Button.addEventListener("click", () => this.Select(Entity.Id));
+        Button.addEventListener("click", () => this.Select(Entity.Id,{FromOutliner:true}));
         const State = Construct("span", "row-state");
         Row.append(Button, State);
         let Eye = null;
@@ -204,7 +207,7 @@ export class EditorShell
     RefreshRows()
     {
         let Enabled = 0, Disabled = 0;
-        for (const Entity of this.Entities)
+        for (const Entity of this.Entities.filter(E=>!E.Hidden))
         {
             const On = Entity.Toggle ? !!Entity.Toggle.Read() : true;
             if (On) Enabled++; else Disabled++;
@@ -231,8 +234,12 @@ export class EditorShell
     //                                                 INSPECTOR
     //--------------------------------------------------------------------------------------------------------------------
 
-    Select(Id)
+    Select(Id,{FromOutliner=false}={})
     {
+        if(FromOutliner)this.GizmoSelection=Id;
+        else if(Id!==this.Selected)this.GizmoSelection=null;
+        this.Gizmo?.Cancel();
+        if(VehicleInspectorAliases[Id]){const State=VehicleInspectorState(this.Host);[State.System,State.TyreComponent]=VehicleInspectorAliases[Id];Id="vehicle";}
         const Entity = this.Entities.find((Candidate) => Candidate.Id === Id) || this.Entities[0];
         this.Selected = Entity.Id;
         try
@@ -246,6 +253,7 @@ export class EditorShell
         this.ConstructInspector(Entity);
         if(BuildStart)this.Host.Telemetry?.Event('ui_inspector_build',{inspector:Entity.Id,duration_ms:performance.now()-BuildStart});
         this.RefreshRows();
+        this.Gizmo?.Draw();
     }
 
     ConstructInspector(Entity)
@@ -305,7 +313,7 @@ export class EditorShell
             this.Controls.PropertySwitches(Content, Entity.Switches());
         const Cards = Construct("div", "cards");
         Content.appendChild(Cards);
-        BuildTransformInspector(this.Host,Entity.Id,this.Controls,Cards);
+        if(Entity.Id!=="vehicle")BuildTransformInspector(this.Host,Entity.Id,this.Controls,Cards);
         Entity.Build(this.Controls, Cards);
         const Footer = Construct("footer", "inspector-footer");
         const Left = Construct("span");
@@ -395,15 +403,19 @@ export class EditorShell
 
     // 📝 Called every frame by the host; the readouts, the outliner and the status bar refresh at LiveInterval.
     Present(Now,HudLines){
+        if(this.Host.Settings.EditorLiveRefresh===false){this.LastUiMs=0;this.UiRefreshed=false;this.LastUiPhases={};return;}
         if(!this.Host.Telemetry){this.PresentImpl(Now,HudLines);return;}
-        const Start=performance.now();this.UiRefreshed=Now-this.LastLive>=LiveInterval;
-        try{this.PresentImpl(Now,HudLines);}finally{this.LastUiMs=performance.now()-Start;}
+        const Start=performance.now();this.UiRefreshed=Now-this.LastLive>=LiveInterval;this.LastUiPhases={};let Prior=Start;
+        this.UiMeasureMark=this.Host.Telemetry.Recording?(Name)=>{const End=performance.now();this.LastUiPhases[Name]=End-Prior;Prior=End;}:null;
+        try{this.PresentImpl(Now,HudLines);}finally{this.LastUiMs=performance.now()-Start;this.UiMeasureMark=null;}
     }
 
     PresentImpl(Now, HudLines)
     {
         this.Gizmo?.Draw();
         this.HierarchyOverlay?.Draw();   // per-frame like the gizmo: it tracks the camera (inert without ?hierarchy=1)
+        this.VehicleOverlay?.Draw();
+        this.UiMeasureMark?.("gizmo");
         if (Now - this.LastLive < LiveInterval)
             return;
         this.LastLive = Now;
@@ -427,8 +439,11 @@ export class EditorShell
         this.DisplaySelect.value = String(Host.Settings.Inspection);
         this.HudButton.classList.toggle("active", Host.Dock.QueryVisible("Hud"));
         this.InsetButton.classList.toggle("active", Host.Dock.QueryVisible("Inset"));
+        this.UiMeasureMark?.("status_overlay");
         this.Controls.RefreshLive();
+        this.UiMeasureMark?.("inspector_live");
         this.RefreshRows();
+        this.UiMeasureMark?.("outliner");
     }
 
     // 📝 A short notice at the top of the viewport (a prop shattered, a teleport…).

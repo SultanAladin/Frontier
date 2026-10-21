@@ -25,7 +25,7 @@ export class DisplayProjection
             ["Uniform", "Texture2D", "Texture2D", "Texture2D", "Sampler", "StorageTexture2D:rgba16float"], Compute, "Display antialias");
         this.ExposureLayout = this.Exchange.ConstructDescriptorLayout(["Uniform", "Texture2D", "Storage"], Compute, "Display exposure");
         this.InspectionLayout = this.Exchange.ConstructDescriptorLayout(["Uniform", "StorageTexture2D:rgba16float"], Compute, "Inspection march");
-        this.PresentLayout = this.Exchange.ConstructDescriptorLayout(["Uniform", "Texture2D", "StorageRead", "Texture2D", "Texture2D", "Sampler", "Texture2D", "Texture2D", "TextureDepth2D", "Texture2D", "Uniform"],
+        this.PresentLayout = this.Exchange.ConstructDescriptorLayout(["Uniform", "Texture2D", "StorageRead", "Texture2D", "Texture2D", "Sampler", "Texture2D", "Texture2D", "TextureDepth2D", "Texture2D", "Uniform", "Texture2D"],
                                                                      GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, "Display present");
         this.FlareVisibilityLayout=this.Exchange.ConstructDescriptorLayout(['Uniform','TextureDepth2D','Texture2D','StorageTexture2D:rgba16float'],Compute,'Flare visibility');
         this.FlareImageLayout=this.Exchange.ConstructDescriptorLayout(['Uniform','StorageTexture2D:rgba16float'],Compute,'Cached flare image');
@@ -95,7 +95,7 @@ export class DisplayProjection
         this.ComposedTexture = null;
     }
 
-    CloudBindings(){return [this.Clouds.ColourView,this.Clouds.GuideView,this.PresentDepth,this.FlareTransmissionView,this.Clouds.Params];}
+    CloudBindings(){return [this.Clouds.ColourView,this.Clouds.GuideView,this.PresentDepth,this.FlareTransmissionView,this.Clouds.Params,this.Lightning?.View??this.Clouds.ColourView];}
     RefreshCloudBindings(){
         if(!this.Views)return;
         const Make=View=>this.Exchange.ConstructDescriptorGroup(this.PresentLayout,[this.FrameRecords,View,this.AdaptationRecords,this.FlareVisibilityView,this.FlareImageView,this.LinearClamp,...this.CloudBindings()]);

@@ -1,3 +1,5 @@
+import {PrecipitationSequence} from './PrecipitationSequence.js';
+import {LightningSequence} from './LightningSequence.js';
 import {CloudSequence} from './CloudSequence.js';
 import { LoadEnvironment, SaveEnvironment } from "./EnvironmentPersistence.js";
 import { ConstructStarCatalogue } from "./StarCatalogue.js";
@@ -70,7 +72,7 @@ const ShaderSources = [
     "VarianceTemporal.wgsl", "VarianceWavelet.wgsl", "VarianceUpsample.wgsl", "InspectionMarch.wgsl", "DisplayRecombination.wgsl",
     "DisplayAntialias.wgsl", "DisplayExposure.wgsl", "DisplayPresent.wgsl", "FireIllumination.wgsl", "PlumeRecords.wgsl",
     "PlumeAdvection.wgsl", "PlumePressure.wgsl", "PlumeVorticity.wgsl", "PlumeMarch.wgsl", "FragmentDistance.wgsl",
-    "EffectRecords.wgsl", "EffectRaster.wgsl", "VehicleVisual.wgsl", "SparkRaster.wgsl", "ForwardRaster.wgsl",
+    "EffectRecords.wgsl", "EffectRaster.wgsl", "VehicleVisual.wgsl", "SparkRaster.wgsl", "LightningRaster.wgsl", "PrecipitationRecords.wgsl", "PrecipitationCompute.wgsl", "PrecipitationSurface.wgsl", "PrecipitationRaster.wgsl", "ForwardRaster.wgsl",
     "CabinOverlay.wgsl", "CabinVolume.wgsl", "ClusteredLights.wgsl",
     "VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "HiZDownsample.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"
 ];
@@ -95,7 +97,7 @@ const FeatureBits = {
 const TemporalRestartBit = 2048;   // [-] FeatureTemporalRestart in SceneRecords.wgsl
 
 const PassNames = ["Distance union", "Card lighting", "Shadow", "Surface", "Direct", "ReSTIR GI", "Diffuse reconstruction",
-                   "Reflection", "Glossy reconstruction", "Resolve", "Smoke transport", "Smoke render", "Cabin transmission", "Flare visibility", "Flare optics", "Clouds", "Cloud shadows", "Cluster culling", "Present"];
+                   "Reflection", "Glossy reconstruction", "Resolve", "Smoke transport", "Smoke render", "Cabin transmission", "Flare visibility", "Flare optics", "Clouds", "Cloud shadows", "Cluster culling", "Lightning", "Precipitation simulation", "Snow mounds", "Cloud precipitation", "Present"];
 
 const FrameRecordExtent = 1072;   // [B] FrameRecord in SceneRecords.wgsl (268 floats)
 const FireLightReach    = 14.0;  // [m] influence radius of a tyre fire's light
@@ -151,6 +153,7 @@ class IlluminationHost
             CameraMode: Query.get("camera") || "Chase"
         };
         LoadEnvironment(this.Settings);
+        this.Settings.EditorLiveRefresh=Query.get("editorrefresh")!=="0";
         if (Query.has("preset"))
             this.PendingPreset = Query.get("preset");
         // 📝 Stress test: ?stresspool=K reserves K objects at bring-up (default 1536, clamped to the identity ceiling),
@@ -351,6 +354,11 @@ class IlluminationHost
         this.ReportProgress("Compiling the cabin, mirrors and sparks", 0.89);
         this.Sparks = new SparkSequence(this.Exchange, this.Shaders);
         await this.Sparks.ConstructPrograms(this.FrameRecords);
+        this.Lightning = new LightningSequence(this.Exchange,this.Shaders,this);
+        document.addEventListener?.("visibilitychange",()=>{if(document.hidden)this.Lightning.Audio.Stop();});
+        await this.Lightning.ConstructPrograms(this.FrameRecords);
+        this.Precipitation=new PrecipitationSequence(this);await this.Precipitation.ConstructPrograms(this.FrameRecords);
+        this.Display.Lightning=this.Lightning;
         this.Cabin = new CabinSequence(this.Exchange, this.Shaders);
         this.Cabin.Appearance = new VehicleAppearance(this.Materials, (Offset, Data) =>
             this.Exchange.Device.queue.writeBuffer(this.MaterialRecords, Offset, Data));
@@ -1088,10 +1096,13 @@ class IlluminationHost
         //    controls lag by seconds. A swapchain throttles on its own; a capture target does not.
         if ((this.FramesInFlight || 0) >= 2)
         {
+            this.SkippedGpuFrames=(this.SkippedGpuFrames||0)+1;
             requestAnimationFrame((Next) => this.AdvanceFrame(Next));
             return;
         }
         const CpuFrameStart=performance.now();
+        const CpuPhases=this.Telemetry?.Recording?{}:null;let CpuMarkTime=CpuFrameStart;
+        const MarkCpu=CpuPhases?(Name)=>{const End=performance.now();CpuPhases[Name]=End-CpuMarkTime;CpuMarkTime=End;}:null;
         const RawFrameMs=this.PriorFrameTime?Now-this.PriorFrameTime:0;
         const Δτ = Math.min(0.1, Math.max(0.0, (Now - this.LastTime) * 0.001));
         this.LastTime = Now;
@@ -1159,8 +1170,11 @@ class IlluminationHost
             Emissions.push(this.ResolveTestPlume(this.Settings.TestPlume === 2));
         this.Marks.Advance(Readings, { Enabled: this.Settings.TyreMarks, Strength: this.Settings.TyreMarkStrength });
 
+        MarkCpu?.("physics_effects");
         // ② camera, light, cascade focus
         const Camera = this.ResolveCamera(Δτ);
+        this.Lightning.Advance(Δτ,Camera);
+        if(this.Lightning.Live||this.Precipitation.Live)this.Lightning.Resize(this.Display.ScreenExtent);
         this.Focus = MultiplyAddVector(Camera.Position, Camera.Forward, 0.45 * this.Grade.ClipResolution * this.Grade.FinestVoxel);
         const CelestialNow = performance.now();
         const Celestial = AdvanceCelestial(this.Settings,Math.min(0.1,Math.max(0,(CelestialNow-(this.CelestialPrior??CelestialNow))/1000)));
@@ -1185,18 +1199,22 @@ class IlluminationHost
         Light.Planets=Celestial.Planets;
         Light.Sidereal=((280.46061837+360.98564736629*(Celestial.JD-2451545)+this.Settings.Longitude)%360)*Math.PI/180;
         this.EncodeFrameRecord(Camera, Light);
+        MarkCpu?.("camera_environment");
         Device.queue.writeBuffer(this.OccupantRecords, 0, this.Scene.EncodeOccupantRecords(this.Volumes, this.Scene.DynamicCount));
 
         let WeatherLights=null;
         if (this.Lighting && this.LightRecords)
         {
-            const LightData = this.Lighting.Update(this.Vehicle.QueryBodyTransform(), this.StreetLampPoles, this.PointLampPosts);
+            const LightData = this.Lighting.Update(this.Vehicle.QueryBodyTransform(), this.StreetLampPoles, this.PointLampPosts, this.Lightning.Storm.SceneLight);
             Device.queue.writeBuffer(this.LightRecords, 0, LightData);
             WeatherLights=LightData;
         }
-        this.Clouds.Prepare(this.Display,this.Surface,this.Settings,Camera,Light,Δτ,WeatherLights);
+        this.Clouds.Prepare(this.Display,this.Surface,this.Settings,Camera,Light,Δτ,WeatherLights,this.Lightning.Storm.Light,this.Lightning.Live>0||this.Precipitation.Live>0);
+        this.Precipitation.Prepare(Δτ);
+        MarkCpu?.("scene_uploads_weather");
         if (this.RayTracing)
             this.RayTracing.UpdateTlas(this.Scene, this.Vehicle);
+        MarkCpu?.("tlas_update");
 
         // ③ invalidation and relighting schedules; the union's active list follows activity
         if (this.Scene.ConstructDistanceList())
@@ -1205,8 +1223,10 @@ class IlluminationHost
         this.Cards.ScheduleTiles(this.Settings.CardTileBudget);
         this.Shadow.ResolveCascades(Camera, Light.Direction);
 
+        MarkCpu?.("lighting_schedule");
         // ④ record
         const Encoder = Device.createCommandEncoder({ label: `Frame ${this.FrameIndex}` });
+        this.Precipitation.RecordSimulation(Encoder);
         const Included = (Name) => !this.Omitted.has(Name);
         this.Clouds.Shadows.Record(Encoder,this.Metrics);
         this.Atmosphere.RecordSkyView(Encoder, this.Settings.SolarIlluminance);
@@ -1257,14 +1277,16 @@ class IlluminationHost
         {
             // Slate plume is marched and recombined before TAA, as in the requested reference.
             // 📝 The cabin (glass, screens, mirrors) draws before the antialiasing; sparks after it.
-            const Overlay = this.Settings.Inspection === 0 && Included("Cabin")
-                          ? (Target, View) => this.Cabin.RecordOverlay(Target, View, this.Surface.Views.Depth) : null;
+            const Overlay = this.Settings.Inspection === 0 && (Included("Cabin") || this.Precipitation.Resident)
+                          ? (Target, View) => {this.Precipitation.RecordSurface(Target,View,this.Surface.Views.Depth);if(Included("Cabin"))this.Cabin.RecordOverlay(Target,View,this.Surface.Views.Depth);} : null;
             const PostOverlay = this.Sparks.Live > 0 && this.Settings.Inspection === 0 && Included("Sparks")
-                              ? (Target, View) => this.Sparks.Record(Target, View, this.Surface.Views.Depth) : null;
+                              ? (Target, View) => this.Sparks.Record(Target,View,this.Surface.Views.Depth) : null;
             this.Display.RecordResolve(Encoder, Parity, this.Metrics.QueryWrites("Resolve"), Overlay, PostOverlay);
         }
         this.Cabin.RecordFlareTransmission(Encoder,this.Display.FlareTransmissionView,this.Surface.Views.Depth,this.Settings.Inspection===0 && Included('Cabin') && (this.Settings.FlareEnabled||this.Clouds.Active),this.Metrics.QueryWrites('Cabin transmission'));
         this.Clouds.Record(Encoder,this.Metrics);
+        this.Lightning.Record(Encoder,this.Surface.Views.Depth,this.Metrics,this.Precipitation.Live>0);
+        this.Precipitation.Record(Encoder,this.Lightning.View,this.Surface.Views.Depth);
         this.Display.RecordFlareVisibility(Encoder,this.Metrics.QueryWrites('Flare visibility'));
         // Occlusion stays live; optical shape changes only with camera, sun or optics.
         this.Display.RecordFlareImage(Encoder,JSON.stringify([this.PreviousUnjittered,this.Atmosphere.Light.SunDirection,this.Atmosphere.Light.SolarIlluminance,this.Settings.Inspection,Object.entries(this.Settings).filter(([K])=>K.startsWith('Flare'))]),()=>this.Metrics.QueryWrites('Flare optics'));
@@ -1282,7 +1304,9 @@ class IlluminationHost
         }
         this.Telemetry?.Snapshot(true);
         const Timed = this.Metrics.RecordResolve(Encoder,{frame:this.FrameIndex,session:this.Telemetry?.SessionId,epoch:this.Telemetry?.Epoch,revision:this.Telemetry?.Revision,time:this.Telemetry?performance.now()-this.Telemetry.Start:undefined});
-        Device.queue.submit([Encoder.finish()]);
+        const Commands=Encoder.finish();
+        MarkCpu?.("gpu_encode");
+        Device.queue.submit([Commands]);
         this.FramesInFlight = (this.FramesInFlight || 0) + 1;
         Device.queue.onSubmittedWorkDone().then(() => { this.FramesInFlight--; });
         this.Surface.Clusters.CollectDebug();
@@ -1292,8 +1316,12 @@ class IlluminationHost
             this.ProjectCapture(this.FrameIndex);
         this.PriorValid = true;
 
+        MarkCpu?.("submit_readback");
         this.PresentMeasurements(Now, Light);
+        MarkCpu?.("hud_editor");
+        this.LastCpuPhases=CpuPhases;
         this.Telemetry?.Frame(RawFrameMs,performance.now()-CpuFrameStart);
+        this.SkippedGpuFrames=0;
         this.FrameIndex++;
         requestAnimationFrame((Next) => this.AdvanceFrame(Next));
     }

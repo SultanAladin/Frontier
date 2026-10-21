@@ -1,3 +1,4 @@
+import {RecentreGridWindow} from './SpatialGrid.js';
 // Ported from unassignedinbox/Slate@3c987f33c71c2477bd73ca29c69d5bd0ee484d1a
 //============================================================================================================================================
 //                                                              PLUMESPACE.JS
@@ -317,11 +318,7 @@ export class PlumeSpace
 
     RecentreWindow(Focus, Force)
     {
-        const Cell = [Math.floor(Focus[0] / this.CoarseEdge), Math.floor(Focus[1] / this.CoarseEdge)];
-        const Half = [this.VelocityExtent[0] >> 1, this.VelocityExtent[1] >> 1];
-        const Centre = [this.Origin[0] + Half[0], this.Origin[1] + Half[1]];
-        if (Force || Math.abs(Cell[0] - Centre[0]) > Half[0] / 2 || Math.abs(Cell[1] - Centre[1]) > Half[1] / 2)
-            this.Origin = [Cell[0] - Half[0], Cell[1] - Half[1]];
+        this.Origin = RecentreGridWindow(Focus, this.CoarseEdge, this.VelocityExtent, this.Origin, Force);
     }
 
     EncodeRecord(Δτ, FrameSeconds, Sources, Settings)

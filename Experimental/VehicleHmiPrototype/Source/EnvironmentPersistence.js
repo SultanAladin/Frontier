@@ -1,3 +1,4 @@
+import {LightningRanges} from './LightningSettings.js';
 import {CloudDefaults,CloudRanges} from './CloudSettings.js';
 import {EnvironmentDefaults} from './EnvironmentSettings.js';
 const StorageKey='Frontier.Environment.v1';
@@ -13,7 +14,8 @@ export function SanitiseEnvironment(Input){const Out={};if(!Input||typeof Input!
   else if(Array.isArray(Default)&&Array.isArray(V)&&V.length===3&&V.every(C=>typeof C==='number'&&Number.isFinite(C)))Out[K]=V.map(C=>Math.max(0,Math.min(1,C)));
  }
  for(const [K,Lo,Hi]of [['SunGlow',0,3],['StarHalo',0,2],['MoonLightIntensity',0,5],['StarBrightness',0,5],['MoonBody',0,5],['MoonPhase',0,29.53],['MoonSize',.1,180],['MoonBrightness',0,5],['MoonElevation',-90,90],['MoonPitch',-180,180],['SunElevation',-90,90],['SunRadius',.05,2],['SunTemperature',2000,10000],['RayleighHeight',1000,16000],['MieHeight',500,8000],['MieG',-.95,.95],['FogHeight',1,500],['FogDensity',0,.05],['AerialDensity',0,.001],['Latitude',-90,90],['Longitude',-180,180],['StarLimit',0,8],['StarSize',.2,3],['FlareGhosts',0,24],['FlareGhostShape',0,8],['FlareSpread',.25,2],['FlareIntensity',0,5],['DayDuration',.01,24],['TierSamples',8,64]])if(K in Out)Out[K]=Math.max(Lo,Math.min(Hi,Out[K]));
- for(const [K,[Lo,Hi]]of Object.entries(CloudRanges))if(K in Out)Out[K]=Math.max(Lo,Math.min(Hi,Out[K]));
+ for(const [K,[Lo,Hi]]of Object.entries({...CloudRanges,...LightningRanges}))if(K in Out)Out[K]=Math.max(Lo,Math.min(Hi,Out[K]));
+ for(const K of ['LightningDetail','LightningMode','LightningCloudTarget'])if(K in Out)Out[K]=Math.round(Out[K]);
  if('MoonBody'in Out)Out.MoonBody=Math.round(Out.MoonBody);
  if(Out.SkyDate&&!/^\d{4}-\d{2}-\d{2}$/.test(Out.SkyDate))delete Out.SkyDate;
  return Out;

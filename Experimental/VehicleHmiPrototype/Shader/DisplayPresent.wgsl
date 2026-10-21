@@ -95,6 +95,7 @@ fn PresentFragment(Varying: PresentVarying) -> @location(0) vec4f
 {
     let Pixel = vec2i(Varying.Position.xy);
     var Radiance = AddClouds(Varying.Position.xy,textureLoad(ResolvedRadiance, Pixel, 0).rgb);
+    Radiance=AddLightning(Varying.Position.xy,Radiance);
     if(Frame.Flare.x>0.0 && Frame.InspectionMode==0u){
         let Visibility=textureLoad(FlareVisibility,vec2i(0),0).r;
         if(Visibility>0.0){Radiance+=textureSampleLevel(FlareImage,FlareSampler,Varying.Position.xy*Frame.InverseScreenExtent,0.0).rgb*Visibility;}

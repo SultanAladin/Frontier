@@ -17,7 +17,7 @@ export class CloudShadow {
   if(!Active){this.LastKey=null;this.LastUpdate=-Infinity;this.Exchange.Device.queue.writeBuffer(this.Params,0,new Float32Array(12));return;}
   const Span=S.CloudShadowDistance,Texel=Span/128;
   const Centre=Eye.slice(0,2).map((V,I)=>Math.round((V-Eye[2]*Sun[I]/Sun[2])/Texel)*Texel);
-  const Key=JSON.stringify([Centre,Span,Sun,S.LocalCloudX,S.LocalCloudY,S.LocalCloudZ,S.CloudShadowStrength,S.CloudShadowSoftness,S.CloudShadowSamples,...Array.from(Cloud.UniformData).filter((_,I)=>!(I>=8&&I<11)&&I!==22&&!(I>=24&&I<28)&&!(I>=40))]);
+  const Key=JSON.stringify([Centre,Span,Sun,S.LocalCloudX,S.LocalCloudY,S.LocalCloudZ,S.CloudShadowStrength,S.CloudShadowSoftness,S.CloudShadowSamples,...Array.from(Cloud.UniformData).filter((_,I)=>!(I>=8&&I<11)&&I!==22&&I!==31&&!(I>=24&&I<28)&&!(I>=40))]);
   const Moving=S.WindEnabled!==false&&S.CloudWindSpeed>0&&((Cloud.UniformData[20]>.5&&S.CloudFollowWind)||(Cloud.UniformData[11]>.5&&S.LocalCloudFollowWind));
   this.Dirty=Key!==this.LastKey||(Moving&&Cloud.Time-this.LastUpdate>=.125);
   if(!this.Dirty)return;

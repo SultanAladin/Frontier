@@ -1,6 +1,7 @@
 // Execute the SAME fog function used by DisplayRecombination, isolated from scene/UI.
 // BACKEND=vulkan node Tools/FogGpuProof.mjs
 import assert from 'node:assert/strict';
+import {FogPathTransmission} from '../Source/FogInspectorDashboard.js';
 import fs from 'node:fs';
 import {create,globals} from 'webgpu';
 Object.assign(globalThis,globals);
@@ -37,6 +38,8 @@ const Group=D.createBindGroup({layout:Pipeline.getBindGroupLayout(0),entries:[{b
 const E=D.createCommandEncoder(),Pass=E.beginComputePass();Pass.setPipeline(Pipeline);Pass.setBindGroup(0,Group);Pass.dispatchWorkgroups(Cases.length);Pass.end();E.copyBufferToBuffer(Out,0,Read,0,Cases.length*16);D.queue.submit([E.finish()]);await Read.mapAsync(GPUMapMode.READ);
 const Values=new Float32Array(Read.getMappedRange()),Results={};Cases.forEach(([Name,Distance,Z,Density,Height,Aerial,Start,Mie],I)=>{
  const RGB=Array.from(Values.subarray(I*4,I*4+3));Results[Name]=RGB;
+ const Inspector=FogPathTransmission({FogDensity:Density,FogHeight:Height,AerialDensity:Aerial,AerialStart:Start,AerialMie:Mie},[0,0,Z],[Distance,0,Z],'combined');
+ RGB.forEach((V,C)=>assert.ok(Math.abs(V-Inspector[C])<2e-5,Name+' GPU/inspector mismatch'));
  const OD=Density*Distance*Math.exp(-Z/Height),AD=Aerial*Math.max(0,Distance-Start);
  RGB.forEach((V,C)=>{const Expected=Math.exp(-Math.min(80,OD*OD+([.45,.7,1][C]*(1-Mie)+Mie)*AD));assert.ok(Number.isFinite(V)&&Math.abs(V-Expected)<2e-5,`${Name}: GPU=${V} expected=${Expected}`);});
 });

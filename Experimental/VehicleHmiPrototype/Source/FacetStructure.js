@@ -1,3 +1,4 @@
+import {ConstructVehicleComponents} from './VehicleComponents.js';
 import { CourseMaterial } from "./MaterialSpecification.js";
 //============================================================================================================================================
 //                                                            FACETSTRUCTURE.JS
@@ -101,6 +102,7 @@ export class SceneStructure
             const Set = (Wheel & 1) ? WheelRightSet : WheelLeftSet;
             this.VehicleOccupants.Wheels[Wheel] = this.ConstructOccupant(WheelNames[Wheel], Set, ConstructIdentityTransform(), VehicleRoles);
         }
+        this.VehicleComponents = ConstructVehicleComponents(this, Tyre.FacetCount, Rim.FacetCount);
         this.DynamicCount = this.Occupants.length;
 
         // ③ the level's distance occupants; rastered-only shapes wait until after the ground ----------------------------

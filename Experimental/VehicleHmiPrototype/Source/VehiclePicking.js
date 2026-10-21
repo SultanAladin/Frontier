@@ -1,3 +1,4 @@
+import {ResolveVehicleComponentHit} from './VehicleComponents.js';
 // CPU picking against the same vehicle facets and occupant poses as the Garage renderer.
 import { InvertTransform, TransformPoint, TransformDirection, SubtractVector, CrossVector, DotVector, NormalizeVector } from './TransformProjection.js';
 export function IntersectVehicleFacet(Origin, Direction, Corners) {
@@ -20,9 +21,9 @@ export function PickVehicle(Scene, InverseView, U, V) {
     for (let Index = 0; Index < 5; ++Index) {
         const Occupant = Scene.Occupants[Index], Inverse = InvertTransform(Occupant.Transform);
         const Origin = TransformPoint(Inverse, From), Direction = TransformDirection(Inverse, Ray);
-        for (const Facet of Scene.FacetSets[Occupant.FacetSet].Facets) {
+        for (const [FacetIndex,Facet] of Scene.FacetSets[Occupant.FacetSet].Facets.entries()) {
             const Distance = IntersectVehicleFacet(Origin, Direction, Facet.Corners);
-            if (Number.isFinite(Distance) && (!Best || Distance < Best.Distance)) Best = { Occupant: Index, Family: Facet.Family, Distance };
+            if (Number.isFinite(Distance) && (!Best || Distance < Best.Distance)) Best = { Occupant: Index, Family: Facet.Family, Distance, FacetIndex, Component:ResolveVehicleComponentHit(Scene,Index,FacetIndex,Facet.Family) };
         }
     }
     return Best;

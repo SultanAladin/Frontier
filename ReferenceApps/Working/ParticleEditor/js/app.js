@@ -1,4 +1,4 @@
-import {InstallWorkspace,AdmitParticleParameters} from "./workspace.js";
+import {InstallWorkspace,AdmitLightningParameters,AdmitParticleParameters} from "./workspace.js";
 // Particle Editor application: scene state, frame loop, camera, outliner and inspector.
 // 📝 Converted from an IIFE to an ES module; the body keeps its two-space indent so that `git blame`
 //    still points at whoever wrote each line rather than at the conversion.
@@ -1212,7 +1212,11 @@ import "./handoff.js";
     root.append(card("Bolt shape", "FRACTAL",
       rangeRow("Roughness", () => L.amp, (v) => (L.amp = v), { min: 0.2, max: 5, step: 0.05, digits: 2, unit: "m" }),
       rangeRow("Detail levels", () => L.levels, (v) => (L.levels = Math.round(v)), { min: 3, max: 7, step: 1, digits: 0 }),
-      rangeRow("Branch chance", () => L.branchChance, (v) => (L.branchChance = v), { min: 0, max: 1, step: 0.01, digits: 2 })));
+      rangeRow("Branch chance", () => L.branchChance, (v) => (L.branchChance = v), { min: 0, max: 1, step: 0.01, digits: 2 }),
+      rangeRow("Channel width", () => L.width, (v) => (L.width = v), { min: 0.02, max: 0.35, step: 0.01, digits: 2, unit: "m" }),
+      rangeRow("Brightness", () => L.brightness, (v) => (L.brightness = v), { min: 0, max: 3, step: 0.05, digits: 2 }),
+      rangeRow("Cloud glow (scene)", () => L.cloudGlow, (v) => (L.cloudGlow = v), { min: 0, max: 3, step: 0.05, digits: 2 }),
+      note("In Frontier, Apply lightning to scene transfers this shape and timing. The 15 m preview is scaled to the actual cloud height; cloud glow is evaluated by the scene's volumetric renderer.")));
     root.append(card("Lightning web", "ARCS",
       checkRow("Arcs between systems", () => state.web.enabled, (v) => { state.web.enabled = v; state.web.nextAt = 0; }),
       rangeRow("Re-strike every", () => state.web.interval, (v) => (state.web.interval = v), { min: 0.1, max: 3, step: 0.05, digits: 2, unit: "s" }),
@@ -1357,10 +1361,12 @@ import "./handoff.js";
         if(Doc.Systems.some(S=>!PE.presetById(S.Preset)))throw new Error('Unknown particle preset.');
         for(const S of state.systems)state.engine.destroySystem(S.gpu);state.systems=[];
         for(const S of Doc.Systems){const Fresh=makeSystem(S.Preset,String(S.Name??S.Preset).slice(0,80));AdmitParticleParameters(Fresh.p,S.Settings);Fresh.p.capacity=Math.max(64,Math.min(32768,Math.round(Fresh.p.capacity)));rebuildGpu(Fresh);state.systems.push(Fresh);}
+        AdmitLightningParameters(state.lightning,Doc.Lightning);
+        state.lightning.bolts=[];state.lightning.flash=0;state.lightning.nextAt=state.time+Math.max(.2,state.lightning.intervalMin);
         AdmitParticleParameters(state.wind,Doc.Wind);AdmitParticleParameters(state.cam,Doc.Camera);AdmitParticleParameters(state.web,Doc.Web);state.web.nextAt=0;
         if(Array.isArray(Doc.Forces))state.forces=Doc.Forces.slice(0,32).filter(F=>PE.Forces.KindById(F.Kind)).map(F=>{const B=PE.Forces.BaseField(F.Kind);AdmitParticleParameters(B,F);return B;});
         state.playing=Doc.Playing!==false;state.timeScale=Number.isFinite(Doc.TimeScale)?clamp(Doc.TimeScale,0,2):1;
-        const Selected=state.systems[Doc.Selection];select(Selected?{type:'system',id:Selected.id}:{type:'wind'});
+        const Selected=state.systems[Doc.Selection];select(Doc.SelectionKind==='lightning'?{type:'lightning'}:Selected?{type:'system',id:Selected.id}:{type:'wind'});
         $('#time-scale').value=state.timeScale;$('#time-scale-v').textContent=state.timeScale.toFixed(2)+'×';$('#btn-play').textContent=state.playing?'Pause':'Play';
       }});
 

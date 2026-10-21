@@ -234,12 +234,12 @@ export class SparkSequence
     }
 
     // 📝 Additively over the post radiance, depth-tested against the opaque surface (read only).
-    Record(Encoder, TargetView, DepthView)
+    Record(Encoder, TargetView, DepthView, TimestampWrites)
     {
         if (!this.Program || this.Live === 0)
             return;
         const Pass = Encoder.beginRenderPass({
-            label: "Sparks",
+            label: "Sparks", timestampWrites: TimestampWrites,
             colorAttachments: [{ view: TargetView, loadOp: "load", storeOp: "store" }],
             depthStencilAttachment: { view: DepthView, depthReadOnly: true }
         });

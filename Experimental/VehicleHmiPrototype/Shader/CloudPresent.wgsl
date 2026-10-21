@@ -46,3 +46,30 @@ fn AddClouds(Pixel:vec2f,Original:vec3f)->vec3f{
  }}
  if(Sum<=1e-12){return Original;}S/=Sum;return mix(Original,Original*S.a+S.rgb,Glass);
 }
+
+// Bolt emission is NOT behind the entire cloud column. Composite separately after clouds,
+// estimating only the portion of measured optical depth in front of the channel.
+@group(0) @binding(11) var LightningImage:texture_2d<f32>;
+fn BoltMediumInterval(O:vec3f,D:vec3f,Centre:vec3f,Half:vec3f)->vec2f{
+ let Safe=select(vec3f(1e-7),D,abs(D)>vec3f(1e-7));let A=(Centre-Half-O)/Safe;let B=(Centre+Half-O)/Safe;
+ let Lo=min(A,B);let Hi=max(A,B);return vec2f(max(0.0,max(Lo.x,max(Lo.y,Lo.z))),min(Hi.x,min(Hi.y,Hi.z)));
+}
+fn BoltOpticalPortion(Hit:vec2f,Distance:f32,Limit:f32,Weight:f32)->vec2f{
+ let Far=min(Limit,Hit.y);return vec2f(max(0.0,min(Distance,Far)-Hit.x),max(0.0,Far-Hit.x))*Weight;
+}
+fn AddLightning(Pixel:vec2f,Original:vec3f)->vec3f{
+ if(CloudControl.Render.w<.5||Frame.InspectionMode!=0u){return Original;}
+ let Bolt=textureLoad(LightningImage,vec2i(Pixel),0);if(Bolt.a<=0.0){return Original;}
+ let Glass=textureLoad(CloudCabin,vec2i(Pixel),0).r;if(Glass<=0.0){return Original;}
+ var Transmission=1.0;
+ if(CloudControl.Render.y>.5){
+  let O=Frame.CameraPosition;let W=ReconstructWorldPosition(Pixel,Bolt.a);let Distance=length(W-O);let D=normalize(W-O);
+  let SurfaceDepth=textureLoad(CloudSceneDepth,vec2i(Pixel),0);let Surface=ReconstructWorldPosition(Pixel,max(1e-6,SurfaceDepth));let Limit=select(CloudControl.Render.z,length(Surface-O),SurfaceDepth>0);
+  var Optical=vec2f(0);let C=CloudControl;
+  if(C.Control.x>.5&&abs(D.z)>1e-7){let A=(C.Layer.x-O.z)/D.z;let B=(min(C.Control.w,C.Layer.x+C.Layer.y)-O.z)/D.z;Optical+=BoltOpticalPortion(vec2f(max(0.0,min(A,B)),max(A,B)),Distance,Limit,C.Layer.w*.012);}
+  if(C.Centre.w>.5){Optical+=BoltOpticalPortion(BoltMediumInterval(O,D,C.Centre.xyz,C.Size.xyz),Distance,Limit,C.Local.x*.06);}
+  if(C.FogCentre.w>.5){Optical+=BoltOpticalPortion(BoltMediumInterval(O,D,C.FogCentre.xyz,C.FogSize.xyz),Distance,Limit,C.FogMedium.x);}
+  if(Optical.y>1e-5){let T=textureSampleLevel(CloudColour,FlareSampler,Pixel*Frame.InverseScreenExtent,0).a;Transmission=pow(max(.00005,T),clamp(Optical.x/Optical.y,0.0,1.0));}
+ }
+ return Original+Bolt.rgb*Transmission*Glass;
+}

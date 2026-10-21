@@ -77,6 +77,7 @@ class FakeElement
     append(...Children) { Children.forEach((Child) => this.appendChild(typeof Child === "string" ? new FakeElement("span") : Child)); }
     prepend(Child) { this.children.unshift(Child); Child.parentNode = this; }
     insertBefore(Child) { return this.appendChild(Child); }
+    replaceChildren(...Children) { this.children=[];this.append(...Children); }
     removeChild(Child) { this.children = this.children.filter((Item) => Item !== Child); }
     remove() { if (this.parentNode) this.parentNode.removeChild(this); }
     querySelector() { return new FakeElement(); }

@@ -1,3 +1,5 @@
+import {BuildCloudInspectorDashboard} from './CloudInspectorDashboard.js';
+import {BuildLightningControls} from './NativeLightningPanel.js';
 import {El,Header,Card,Tiles,Metric,Note,Slider,Select,Grid,Diagram,Button} from './NativeEnvironmentControls.js';
 import {CloudDefaults,CloudExtent,CloudRanges} from './CloudSettings.js';
 import {BuildCloudLayerCard} from './CloudLayerCard.js';
@@ -15,7 +17,7 @@ class Preview{
 }
 function Axes(C,P,S,Prefix,Label,Half=false){const Row=El('label','ne-cloud-axes');Row.appendChild(El('span','',Label));const Inputs=El('div');Row.appendChild(Inputs);P.appendChild(Row);
  for(const A of ['X','Y','Z']){const Key=Prefix+A,I=El('input','ne-cloud-axis');I.type='number';I.step=1;I.min=CloudRanges[Key][0];I.max=CloudRanges[Key][1];I.setAttribute('aria-label',Label+' '+A);I.addEventListener('input',()=>{if(I.value==='')return;const V=+I.value;if(!Number.isFinite(V))return;S[Key]=Math.max(+I.min,Math.min(+I.max,V));C.Notify(Key,S);C.Synchronise();});I.addEventListener('blur',()=>I.value=S[Key]);const Sync=()=>{if(document.activeElement!==I)I.value=S[Key];};C.Bindings.push(Sync);Sync();Inputs.appendChild(I);}}
-export function BuildNativeClouds(Host,C,P,Local=false){const S=Host.Settings,Prefix=Local?'LocalCloud':'Cloud',Preview0=new Preview(C,Local);Header(C,P,'Clouds',Local?'LOCAL VOLUMETRIC CLOUD · bounded volume':'GLOBAL VOLUMETRIC CLOUDS · atmospheric layer');
+export function BuildNativeClouds(Host,C,P,Local=false){const S=Host.Settings,Prefix=Local?'LocalCloud':'Cloud',Preview0=new Preview(C,Local);if(!Local)return BuildCloudInspectorDashboard(Host,C,P,Preview0);Header(C,P,'Clouds',Local?'LOCAL VOLUMETRIC CLOUD · bounded volume':'GLOBAL VOLUMETRIC CLOUDS · atmospheric layer');
  const Settings=Card(P,'Cloud settings','NativeClouds');Tiles(C,Settings,S,[[Prefix+'Enabled','Enabled','Power'],[Prefix+'FollowWind','Follow wind','Power']]);
  const Place=()=>{PlaceLocalCloud(S,Host.CameraEye,Host.CameraState?.Forward??Host.Clouds?.LastForward);C.Notify('LocalCloudEnabled',S);C.Synchronise();};
  if(Local){
@@ -52,6 +54,7 @@ export function BuildNativeClouds(Host,C,P,Local=false){const S=Host.Settings,Pr
  Slider(C,Shadows,S,'CloudShadowDistance','Shadow field span',1000,16000,100,'m');
  Slider(C,Shadows,S,'CloudShadowSamples','Shadow samples',4,12,1,'/ medium');
  const ShadowStatus=Note(Shadows,'');C.Live.push(()=>{ShadowStatus.textContent=`128 × 128 world-space field · wind updates at most 8 Hz · ${Host.Clouds?.Shadows?.Active?'active':'inactive'}${Host.Metrics?.Enabled?' · GPU '+(Host.Metrics.Durations?.['Cloud shadows']??0).toFixed(2)+' ms (update pass)':''}`;});
+ BuildLightningControls(Host,C,P);
  BuildSharedWind(C,P,S,Host);Note(P,'Bounded sun self-shadow taps and detail erosion share the low-resolution pass. Ground shadows retain the 8 Hz projected field. Cloud-to-flare attenuation and volumetric geometry shadows are not yet supported.');
  C.Synchronise();
 }

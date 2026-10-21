@@ -1,3 +1,5 @@
+import {BuildVehicleSystemsInspector} from './VehicleSystemsInspector.js';
+import {VehicleInspectorState} from './VehicleComponents.js';
 import {BuildParticleInspector} from "./ParticleWorkspace.js";
 import {BuildDiagnostics,BuildClusterInspector} from "./DiagnosticsInspector.js";
 import { BuildNativeSun } from "./NativeEnvironmentPanels.js";
@@ -75,7 +77,7 @@ export function ConstructEntities(Host)
 {
     const S = Host.Settings;
     const Entities = [
-        {Id:"particles",Group:"Effects",Name:"Particles",Type:"Particle authoring workspace",Glyph:"Sparkles",Colour:"#b494f4",Description:"Particle Editor + Flux Particle Studio",Meta:()=>Host.ParticleWorkspace?.Active?"editing":"2 tools",State:()=>"live",Build:(C,B)=>BuildParticleInspector(Host,C,B)},
+        {Id:"particles",Group:"Effects",Name:"Particles",Type:"Particle authoring workspace",Glyph:"Sparkles",Colour:"#b494f4",Description:"Particle Editor, Flux, Fracture and GPU precipitation",Meta:()=>Host.ParticleWorkspace?.Active?"editing":"3 tools + weather",State:()=>"live",Build:(C,B)=>BuildParticleInspector(Host,C,B)},
         {Id:"diagnostics",Group:"Render",Name:"Diagnostics",Type:"Session telemetry",Glyph:"Activity",Colour:"#69dfa5",Description:"Session recording, frame charts, GPU passes and CSV export",Meta:()=>Host.Telemetry?.Status??"removed",State:()=>Host.Telemetry?.Recording?"live":"",Build:(C,B)=>BuildDiagnostics(Host,C,B)},
         {Id:"clusters",Group:"Render",Name:"Geometry clusters",Type:"Cluster diagnostics",Glyph:"Layers",Colour:"#78aaff",Description:"Actual GPU visibility, bounds overlay and rebuild",Meta:()=>`${Host.Surface.Clusters.CandidateCount} clusters`,State:()=>S.ClusteredGeometryEnabled?"live":"",Build:(C,B)=>BuildClusterInspector(Host,C,B)},
         { Id: "render", Group: "Render", Name: "Render settings", Type: "Renderer", Glyph: "Monitor", Colour: Accent.Render,
@@ -97,22 +99,19 @@ export function ConstructEntities(Host)
           Switches: () => [Feature("Shadows", "Sun", S, "DirectShadow"), Feature("Auto exposure", "Aperture", S, "AutoExposure")] },
         ...EnvironmentEntries(Host),
         { Id: "vehicle", Group: "Vehicle", Name: "ControlVehicle", Type: "Vehicle", Glyph: "Car", Colour: Accent.Vehicle,
-          Description: "Telemetry, burnout, tyres & camera", Meta: () => `${Math.abs(Host.Vehicle.QueryTelemetry().Speed * 3.6).toFixed(0)} km/h`,
-          State: () => (Host.Vehicle.Burnout ? "warm" : "live"), Build: (C, B) => BuildVehicle(Host, C, B),
-          Switches: () => [Feature("Line lock", "Flame", S, "LineLock"), Feature("Thermal grip", "Thermometer", S, "ThermalGrip"),
-                           Feature("Tyre marks", "CircleDot", S, "TyreMarks"),
-                           Feature("Sparks", "Zap", S, "Sparks")] },
-        { Id: "cabin", Group: "Vehicle", Name: "Cabin · HMI", Type: "Interior", Glyph: "Monitor", Colour: Accent.Vehicle, Parent: "vehicle",
+          Description: "Chassis, collision and owned vehicle components", Meta: () => `${Math.abs(Host.Vehicle.QueryTelemetry().Speed * 3.6).toFixed(0)} km/h`,
+          State: () => (Host.Vehicle.Burnout ? "warm" : "live"), Build: (C, B) => BuildVehicle(Host, C, B) },
+        { Hidden:true, Id: "cabin", Group: "Vehicle", Name: "Cabin · HMI", Type: "Interior", Glyph: "Monitor", Colour: Accent.Vehicle, Parent: "vehicle",
           Description: "Tablet & cluster, mirrors, glass, interior cameras", Meta: () => S.CameraMode,
           State: () => (Host.Cabin && Host.Cabin.Screen ? "live" : "warm"), Build: (C, B) => BuildCabin(Host, C, B),
           Switches: () => [{ Name: "See-through glass", Glyph: "Eye", Read: () => Host.Cabin.Settings.SeeThroughGlass,
                              Write: (On) => { Host.Cabin.Settings.SeeThroughGlass = On; } },
                            { Name: "Screens", Glyph: "Monitor", Read: () => Host.Cabin.Settings.Screens, Write: (On) => { Host.Cabin.Settings.Screens = On; } }] },
-        { Id: "marks", Group: "Vehicle", Name: "Tyre marks", Type: "Rubber deposit", Glyph: "CircleDot", Colour: Accent.Vehicle, Parent: "vehicle",
+        { Hidden:true, Id: "marks", Group: "Vehicle", Name: "Tyre marks", Type: "Rubber deposit", Glyph: "CircleDot", Colour: Accent.Vehicle, Parent: "vehicle",
           Description: "Rubber laid by sliding work", Meta: () => `${Host.Marks.Metrics.LaidMetres.toFixed(0)} m`, State: () => (S.TyreMarks ? "live" : ""),
           Build: (C, B) => BuildMarks(Host, C, B),
           Toggle: { Read: () => S.TyreMarks, Write: (On) => { S.TyreMarks = On; } } },
-        { Id: "gas", Group: "Effects", Name: "Smoke & fire", Type: "Gas domain", Glyph: "Flame", Colour: Accent.Effects,
+        { Hidden:true, Id: "gas", Group: "Effects", Name: "Smoke & fire", Type: "Gas domain", Glyph: "Flame", Colour: Accent.Effects,
           Description: "Eulerian smoke · combustion · tyre sources", Meta: () => (Host.Smoke.Resident ? "resident" : "idle"),
           State: () => (Host.Smoke.Resident ? "live" : ""), Build: (C, B) => BuildGas(Host, C, B),
           Toggle: { Read: () => S.SmokeEnabled, Write: (On) => { S.SmokeEnabled = On; } },
@@ -375,10 +374,13 @@ function DrawSunArc(Context, Width, Height, Elevation, Azimuth)
 //                                                     VEHICLE
 //------------------------------------------------------------------------------------------------------------------------
 
-function BuildVehicle(Host, C, Body)
+function BuildVehicle(Host,C,Body){return BuildVehicleSystemsInspector(Host,C,Body,{Controls:BuildVehicleControls,Cabin:BuildCabin,Marks:BuildMarks,Gas:BuildGas});}
+
+function BuildVehicleControls(Host, C, Body, Part)
 {
     const S = Host.Settings;
     const Telemetry = () => Host.Vehicle.QueryTelemetry();
+    if(Part==='overview'){
     const Drive = C.Card(Body, "Telemetry", "Gauge", { Accent: Accent.Vehicle, Index: 1 });
     C.Metric(Drive, () => Math.abs(Telemetry().Speed * 3.6), "km/h", 0, () => [`gear ${Telemetry().Gear}`, ""]);
     C.Stats(Drive, [["Engine", () => Telemetry().EngineRPM, "rpm"], ["Boost", () => Telemetry().Boost, "bar", 2],
@@ -387,6 +389,8 @@ function BuildVehicle(Host, C, Body)
     C.Switch(Drive, S, "SteeringAssist", { Label: "Countersteer assist", Detail: "Speed-aware slip correction; player steering takes priority" });
     Slider(C, Drive, S, "SteeringAssistStrength", "Assist strength", 0, 1, 0.05, "", 2, ["Off", "Strong"]);
 
+    }
+    if(Part==='burnout'){
     const Burnout = C.Card(Body, "Burnout · line lock", "Flame", { Accent: Accent.Effects, Index: 2 });
     C.Metric(Burnout, () => Math.abs(Telemetry().RearSpin * 3.6), "km/h wheelspin", 0,
              () => (Host.Vehicle.Burnout ? ["LINE LOCK ON", "warm"] : [S.LineLock ? "ready" : "off", S.LineLock ? "live" : ""]));
@@ -395,6 +399,8 @@ function BuildVehicle(Host, C, Body)
     C.Stats(Burnout, [["Rear left", () => Host.Thermal.Wheels[2].Surface - 273.15, "°C"], ["Rear right", () => Host.Thermal.Wheels[3].Surface - 273.15, "°C"],
                       ["Ignited", () => Host.Thermal.Wheels.filter((Wheel) => Wheel.Ignited).length]]);
 
+    }
+    if(Part==='tyre'){
     const Names = ["FL", "FR", "RL", "RR"];
     const Tyres = C.Card(Body, "Tyres · 3D FEM Continuum", "CircleDot", { Accent: Accent.Vehicle, Index: 3, Subtitle: "3D Hex8 Neo-Hookean FEM · 2D Shell · XPBD · Spring" });
     C.Segmented(Tyres, S, "TyreModel", [
@@ -419,24 +425,28 @@ function BuildVehicle(Host, C, Body)
     C.Switch(Tyres, S, "TyreFailure", { Label: "Failure", Detail: "Worn through, cooked or over-pressured tyres burst" });
     C.Select(Tyres, S, "IgnitionMode", IgnitionOptions, { Label: "Tyre ignition" });
     C.Switch(Tyres, S, "ThermalGrip", { Label: "Thermal grip", Detail: "Hot or under-inflated tyres lose grip" });
-    const Damage = { Wheel: 0 };
-    C.Segmented(Tyres, Damage, "Wheel", Names.map((Name, Index) => [Name, Index]), { Label: "Damage a tyre" });
+    const Damage = VehicleInspectorState(Host);
+    C.Muted(Tyres, "Damage actions affect the selected wheel above. Cold pressure is shared by each axle; model, wear and failure controls apply to all tyres.");
     const DamageRow = C.ActionRow(Tyres);
-    C.Button(DamageRow, "Puncture", "Droplets", () => Host.PunctureTyre(Damage.Wheel, false));
-    C.Button(DamageRow, "Blowout", "Bomb", () => Host.PunctureTyre(Damage.Wheel, true), "danger");
-    C.Button(DamageRow, "Shred", "Zap", () => { Host.PunctureTyre(Damage.Wheel, true); Host.Vehicle.ShredTyre(Damage.Wheel); }, "danger");
+    C.Button(DamageRow, "Puncture", "Droplets", () => {Host.PunctureTyre(Damage.Wheel, false);C.Synchronise();});
+    C.Button(DamageRow, "Blowout", "Bomb", () => {Host.PunctureTyre(Damage.Wheel, true);C.Synchronise();}, "danger");
+    C.Button(DamageRow, "Shred", "Zap", () => { Host.PunctureTyre(Damage.Wheel, true); Host.Vehicle.ShredTyre(Damage.Wheel);C.Synchronise(); }, "danger");
     const Row = C.ActionRow(Tyres);
-    C.Button(Row, "Fresh tyres", "Droplets", () => Host.ApplySetting("CoolTyres"));
-    C.Button(Row, "Inspect FL", "Camera", () => Host.AssignCameraMode("Tyre FL"));
+    C.Button(Row, "Fresh tyres (all)", "Droplets", () => Host.ApplySetting("CoolTyres"));
+    C.Button(Row, "Inspect selected wheel", "Camera", () => Host.AssignCameraMode("Tyre "+Names[Damage.Wheel]));
     C.Button(Row, "Respawn", "RotateCcw", () => Host.RespawnVehicle());
 
+    }
+    if(Part==='sparks'){
     const SparkStyle = C.Card(Body, "Spark variation", "Zap", { Accent: Accent.Vehicle, Index: 5 });
     Slider(C, SparkStyle, Host.Sparks.Settings, "Variation", "Fragment / burst variation", 0, 1, 0.05, "×", 2);
     C.Muted(SparkStyle, "Mostly fine filings, occasional heavier chips, irregular contact bursts and varied streaks. Applies to newly emitted sparks; collision and cooling remain active.");
 
+    }
+    if(Part==='lights'){
     const LightingCard = C.Card(Body, "Automotive lighting", "Sun", { Accent: Accent.Vehicle, Index: 6 });
     const ModeNames = [["Off", AutomotiveMode.Off], ["Low beam", AutomotiveMode.LowBeam], ["High beam", AutomotiveMode.HighBeam], ["Fog", AutomotiveMode.Fog]];
-    C.Segmented(LightingCard, { Mode: Host.Lighting ? Host.Lighting.VehicleLightMode : AutomotiveMode.LowBeam }, "Mode", ModeNames, {
+    const RefreshMode=C.Segmented(LightingCard, { get Mode(){return Host.Lighting?.VehicleLightMode??AutomotiveMode.LowBeam;},set Mode(M){Host.Lighting?.SetVehicleMode(M);} }, "Mode", ModeNames, {
         Label: "Headlights (hotkey I)",
         OnChange: (M) => {
             if (Host.Lighting) {
@@ -446,7 +456,7 @@ function BuildVehicle(Host, C, Body)
             }
         }
     });
-    C.Switch(LightingCard, { Enabled: Host.Lighting ? Host.Lighting.RoofLightEnabled : false }, "Enabled", {
+    const RefreshRoof=C.Switch(LightingCard, { get Enabled(){return Host.Lighting?.RoofLightEnabled??false;},set Enabled(V){if(Host.Lighting)Host.Lighting.RoofLightEnabled=V;} }, "Enabled", {
         Label: "Auxiliary roof light (hotkey L)",
         Detail: "Multi-lens forward flood",
         OnChange: (On) => {
@@ -458,7 +468,7 @@ function BuildVehicle(Host, C, Body)
         }
     });
     const FixtureOptions = [["Slim LED lightbar", RoofFixtureType.SlimLED], ["Dual rally pods", RoofFixtureType.RallyPod]];
-    C.Segmented(LightingCard, { Fixture: Host.Lighting ? Host.Lighting.RoofFixture : RoofFixtureType.SlimLED }, "Fixture", FixtureOptions, {
+    const RefreshFixture=C.Segmented(LightingCard, { get Fixture(){return Host.Lighting?.RoofFixture??RoofFixtureType.SlimLED;},set Fixture(V){Host.Lighting?.SetRoofFixture(V);} }, "Fixture", FixtureOptions, {
         Label: "Rooftop auxiliary fixture",
         OnChange: (F) => {
             if (Host.Lighting) {
@@ -468,8 +478,11 @@ function BuildVehicle(Host, C, Body)
             }
         }
     });
+    C.Live.push(RefreshMode,RefreshRoof,RefreshFixture);
     C.Muted(LightingCard, "Clustered photometric light sources: analytical IES profiles with zero stepped rings, coupled in real time to surface cards for ReSTIR GI multi-bounce radiosity.");
 
+    }
+    if(Part==='overview'){
     const Camera = C.Card(Body, "Camera", "Camera", { Accent: Accent.Vehicle, Index: 4 });
     C.Segmented(Camera, { Free: Host.FreeCamera }, "Free", [["Car rigs", false], ["Free (F8)", true]], { OnChange: (Free) => Host.AssignCamera(Free) });
     C.Select(Camera, S, "CameraMode", Object.keys(CameraRigs).map((Name) => [Name, Name]), { Label: "Rig (C cycles)", OnChange: (Mode) => Host.AssignCameraMode(Mode) });
@@ -483,11 +496,13 @@ function BuildVehicle(Host, C, Body)
     Slider(C, Camera, S, "SpeedFovBoost", "FOV boost at speed", 0, 24, 1, "°", 0);
     C.Muted(Camera, "Shake and speed FOV apply to driving cameras only; the HMI touch view and tyre inspection stay steady.");
     C.Muted(Camera, "Drag to orbit the chase camera, wheel to zoom; inside the car drag to look around and click the tablet to use it. Free camera: WASD, Q/E, Shift.");
+    }
 }
 
-function BuildCabin(Host, C, Body)
+function BuildCabin(Host, C, Body, Part="all")
 {
     const S = Host.Settings, Cabin = Host.Cabin, Settings = Cabin.Settings;
+    if(Part==='all'||Part==='hmi'){
     const Screens = C.Card(Body, "HMI", "Monitor", { Accent: Accent.Vehicle, Index: 1, Subtitle: "Experimental/TabletPanel, live in the cabin" });
     C.Muted(Screens, "The accepted TabletPanel prototype — launcher, twelve applications, five launcher designs — and its hexagon cluster draw into their own canvases; "
                    + "here they are textures on the centre-stack tablet and the wheel-mounted hexagonal display. The cluster and the Telemetry and Tyres applications read the solver; "
@@ -505,6 +520,8 @@ function BuildCabin(Host, C, Body)
         C.Button(Apps, Caption, null, () => { if (!Cabin.Screen) return; if (Application) Cabin.Screen.PresentApplication(Application); else Cabin.Screen.PresentHome(); });
     C.Readout(Screens, () => Cabin.QueryReadout());
 
+    }
+    if(Part==='all'||Part==='hmi'){
     const Size = C.Card(Body, "HUD size", "MoveSpace", { Accent: Accent.Vehicle, Index: 2, Subtitle: "On-screen readout only · cabin stays fixed" });
     C.Muted(Size, "Resize and place the on-screen HUD/readout, not the dashboard, steering wheel, seats or camera. H toggles the HUD.");
     C.Switch(Size, S, "HudVisible", { Label: "Show HUD", OnChange: () => Host.ApplySetting("HudVisible") });
@@ -515,6 +532,8 @@ function BuildCabin(Host, C, Body)
     C.Button(SizeRow, "Reset HUD", "RotateCcw", () => { Object.assign(S, { HudScale: 1, HudAcross: 0, HudDown: 0 }); C.Synchronise(); });
     C.Button(SizeRow, "Driver's view", "Camera", () => Host.AssignCameraMode("Cockpit"));
 
+    }
+    if(Part==='all'||Part==='mirrors'){
     const Glass = C.Card(Body, "Glass & mirrors", "Eye", { Accent: Accent.Vehicle, Index: 3 });
     C.Muted(Glass, "See-through glazing leaves the opaque raster and is drawn over what is behind it — the sky's Fresnel reflection and a sun glint, 72 % transmission; "
                  + "it casts no shadow, so the sun reaches the cabin. Each mirror renders the driver's eye reflected in its plane through an off-axis frustum fitted to "
@@ -523,6 +542,8 @@ function BuildCabin(Host, C, Body)
     Slider(C, Glass, Settings, "GlassTransmission", "Transmission", 0.2, 0.95, 0.01, "", 2, ["Limo tint", "Clear"]);
     C.Segmented(Glass, Settings, "Mirrors", [["Off", 0], ["When visible", 1], ["Always", 2]], { Label: "Mirror views" });
 
+    }
+    if(Part==='all'||Part==='hmi'){
     const Views = C.Card(Body, "Interior cameras", "Camera", { Accent: Accent.Vehicle, Index: 4 });
     C.Select(Views, S, "CameraMode", Object.keys(CameraRigs).map((Name) => [Name, Name]), { Label: "Rig (C cycles)", OnChange: (Mode) => Host.AssignCameraMode(Mode) });
     const Row = C.ActionRow(Views);
@@ -530,6 +551,7 @@ function BuildCabin(Host, C, Body)
     C.Button(Row, "Passenger", "Camera", () => Host.AssignCameraMode("Passenger"));
     C.Button(Row, "Chase", "Car", () => Host.AssignCameraMode("Chase"));
     C.Button(Row, "Orbit", "Camera", () => Host.AssignCameraMode("Orbit"));
+    }
 }
 
 function BuildMarks(Host, C, Body)

@@ -260,6 +260,7 @@ export class VehicleSolver
 
     Advance(Command, Seconds)
     {
+        this.LastIntegrationSteps=0;
         if (this.Frozen)
         {
             this.Accumulator = 0.0;
@@ -271,6 +272,7 @@ export class VehicleSolver
         this.Accumulator = Math.min(this.Accumulator + Math.max(0.0, Seconds), SubstepSeconds * MaximumSubsteps);
         while (this.Accumulator >= SubstepSeconds)
         {
+            this.LastIntegrationSteps++;
             this.Step(Command, SubstepSeconds);
             this.Accumulator -= SubstepSeconds;
         }

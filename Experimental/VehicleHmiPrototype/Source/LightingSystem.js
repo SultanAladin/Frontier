@@ -155,7 +155,7 @@ export class LightingSystem {
         this.RoofFixture = Type;
     }
 
-    Update(VehicleTransform, Poles = [], PointLamps = DefaultPointLamps) {
+    Update(VehicleTransform, Poles = [], PointLamps = DefaultPointLamps, TransientLight = null) {
         this.Lights = [];
 
         // 1. Roadway Street Lamp Poles (Type II/III batwing IES distribution)
@@ -276,6 +276,9 @@ export class LightingSystem {
                 }
             }
         }
+
+        // A bounded transient weather source shares real scene lighting; never changes exposure.
+        if (TransientLight && this.Lights.length < MaxSceneLights) this.Lights.push(TransientLight);
 
         // Pack light records + 3D cluster grid header + 16x16x4 64-bit cell bitmasks
         this.BufferData.fill(0);

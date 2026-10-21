@@ -153,6 +153,8 @@ export const CameraRigs = Object.freeze({
     Passenger: { Eye: CabinLayout.PassengerEye.Position, Hip: SeatHipPoints.Passenger, Pitch: CabinLayout.PassengerEye.PitchDown, Fov: 70.0, Interior: true },
     Hood:      { Eye: [1.62, 0.0, 0.70], Pitch: 0.05, Fov: 62.0 },
     "Tyre FL": { Eye: [2.95, 2.05, -0.12], Target: [1.7274, 1.0475, -0.38], Fov: 38.0 },
+    "Tyre FR": { Eye: [2.95, -2.05, -0.12], Target: [1.7274, -1.0475, -0.38], Fov: 38.0 },
+    "Tyre RR": { Eye: [-0.55, -2.15, -0.15], Target: [-1.6686, -1.0475, -0.38], Fov: 38.0 },
     "Tyre RL": { Eye: [-0.55, 2.15, -0.15], Target: [-1.6686, 1.0475, -0.38], Fov: 38.0 }
 });
 

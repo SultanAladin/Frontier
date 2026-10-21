@@ -8,13 +8,31 @@
 @group(0) @binding(5) var CloudTarget:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(6) var DepthTarget:texture_storage_2d<rgba16float,write>;
 //! include "CloudField.wgsl"
+struct WeatherFlash {PositionPower:vec4f,ColourRadius:vec4f,ChannelEnd:vec4f}
+@group(0) @binding(7) var<uniform> Flash:WeatherFlash;
+fn LightningScatter(P:vec3f)->vec3f{
+ if(Flash.PositionPower.w<=0.0001){return vec3f(0);}
+ let A=Flash.PositionPower.xyz;let Axis=Flash.ChannelEnd.xyz-A;
+ let Along=select(0.0,clamp(dot(P-A,Axis)/max(1.0,dot(Axis,Axis)),0.0,1.0),Flash.ChannelEnd.w>.5);
+ let Source=A+Axis*Along;let Distance=length(P-Source);let Radius=max(1.0,Flash.ColourRadius.w);
+ if(Distance>=Radius){return vec3f(0);}
+ // Localized source, attenuated by intervening cloud density (bounded 3-tap approximation).
+ var OD=0.0;for(var I=0u;I<3u;I++){let Q=mix(P,Source,(f32(I)+.5)/3.0);OD+=(select(0.0,LayerDensity(Q)*.001,C.Control.x>.5)+select(0.0,PuffLightingDensity(Q)*.005,C.Centre.w>.5))*Distance/3.0;}
+ let Edge=clamp(1.0-Distance/Radius,0.0,1.0);
+ let Direct=Edge*Edge/(1.0+pow(Distance/(Radius*.2),2.0))*exp(-min(12.0,OD));
+ // A bounded diffusion lobe approximates light scattered through an optically thick cloud.
+ // Direct-only exponential attenuation made an embedded discharge disappear at the visible cloud face.
+ // Extended along the discharge, still multiplied by actual participating density in the march; never a sky/exposure lift.
+ let Diffuse=.45*Edge*Edge/(1.0+pow(Distance/(Radius*.65),2.0))/(1.0+OD*.2);
+ return Flash.ColourRadius.rgb*Flash.PositionPower.w*(Direct+Diffuse);
+}
 fn PhaseHG(Cos:f32,G:f32)->f32{return (1.0-G*G)/max(.04,pow(1.0+G*G-2.0*G*Cos,1.5));}
 fn MediumLight(P:vec3f,D:vec3f,G:f32,Local:bool)->vec3f{
  let Day=smoothstep(-.12,.12,Frame.SolarDisc.z);let Ambient=vec3f(.18,.23,.32)*Day*Frame.SkyScale+Frame.NightSkyRadiance;
  var OD=0.0;let Count=u32(C.Formation.y);let Step=select(max(20.0,C.Layer.y*.24),max(2.0,C.Size.z*.65),Local);
  for(var I=0u;I<Count;I++){let Q=P+Frame.SolarDisc.xyz*Step*(f32(I)+.5);if(Local){OD+=PuffLightingDensity(Q)*Step*.06;}else{OD+=LayerDensity(Q)*Step*.012;}}
  let Shadow=exp(-OD*(.35+C.Formation.z*1.8));let Powder=1.0+C.Formation.w*(1.0-exp(-OD*2.0));
- return Ambient+Frame.SolarRadiance.rgb*.12*Day*(.35+.2*PhaseHG(dot(D,Frame.SolarDisc.xyz),G))*Shadow*Powder;
+ return LightningScatter(P)+Ambient+Frame.SolarRadiance.rgb*.12*Day*(.35+.2*PhaseHG(dot(D,Frame.SolarDisc.xyz),G))*Shadow*Powder;
 }
 fn FogLight(P:vec3f,D:vec3f)->vec3f{
  let Day=smoothstep(-.12,.12,Frame.SolarDisc.z);
@@ -25,7 +43,7 @@ fn FogLight(P:vec3f,D:vec3f)->vec3f{
   var Cone=1.0;if(L.PositionType.w>.5){Cone=smoothstep(L.Params.y,max(L.Params.y+.001,L.Params.x),Cos);}
   let Falloff=pow(clamp(1.0-Distance/max(1.0,L.DirectionReach.w),0.0,1.0),2.0)/max(1.0,Distance*Distance);
   Light+=L.ColourIntensity.rgb*L.ColourIntensity.w*Cone*Falloff*PhaseHG(dot(D,V),C.FogLighting.x)*.08*C.FogLighting.z;
- }return Light*C.FogMaterial.rgb*(1.0-C.FogMaterial.w);
+ }return (Light+LightningScatter(P))*C.FogMaterial.rgb*(1.0-C.FogMaterial.w);
 }
 // Avalanche hash: no tiled 8-position diagonal phase. Stable in screen space; no frame shimmer.
 fn CloudSampleOffset(P:vec2u,I:u32)->f32{

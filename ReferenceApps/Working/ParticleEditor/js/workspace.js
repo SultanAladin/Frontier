@@ -1,3 +1,10 @@
+export const LightningParameterRanges={intervalMin:[.2,30],intervalMax:[.2,60],distance:[50,6000],amp:[.2,5],levels:[3,7],branchChance:[0,1],width:[.02,.35],brightness:[0,3],cloudGlow:[0,3]};
+export function AdmitLightningParameters(Target,Source){
+ if(!Source||typeof Source!=='object'||Array.isArray(Source))return;
+ if(typeof Source.auto==='boolean')Target.auto=Source.auto;
+ for(const [K,[Lo,Hi]]of Object.entries(LightningParameterRanges))if(typeof Source[K]==='number'&&Number.isFinite(Source[K]))Target[K]=Math.max(Lo,Math.min(Hi,Source[K]));
+ Target.levels=Math.round(Target.levels);Target.intervalMax=Math.max(Target.intervalMin,Target.intervalMax);
+}
 export function AdmitParticleParameters(Target,Source,Depth=0){
  if(!Source||typeof Source!=='object'||Depth>8)return;
  for(const [Key,Was]of Object.entries(Target)){
@@ -13,7 +20,7 @@ export function AdmitParticleParameters(Target,Source,Depth=0){
 }
 // Host integration only. The original reference is kept byte-for-byte under Upstream/.
 export function CaptureParticleDocument(S){
- return {Format:'frontier-particle-scene',Version:1,Systems:S.systems.map(X=>({Preset:X.presetId,Name:X.name,Settings:structuredClone(X.p)})),Forces:structuredClone(S.forces),Wind:structuredClone(S.wind),Camera:structuredClone(S.cam),Web:{enabled:S.web.enabled,interval:S.web.interval,k:S.web.k},Playing:S.playing,TimeScale:S.timeScale,Selection:S.selection.type==='system'?S.systems.findIndex(X=>X.id===S.selection.id):null};
+ return {Format:'frontier-particle-scene',Version:1,Systems:S.systems.map(X=>({Preset:X.presetId,Name:X.name,Settings:structuredClone(X.p)})),Forces:structuredClone(S.forces),Wind:structuredClone(S.wind),Camera:structuredClone(S.cam),Web:{enabled:S.web.enabled,interval:S.web.interval,k:S.web.k},Playing:S.playing,TimeScale:S.timeScale,Selection:S.selection.type==='system'?S.systems.findIndex(X=>X.id===S.selection.id):null,SelectionKind:S.selection.type,Lightning:S.lightning?Object.fromEntries(['auto','intervalMin','intervalMax','distance','amp','levels','branchChance','width','brightness','cloudGlow'].map(K=>[K,S.lightning[K]])):undefined};
 }
 export function InstallWorkspace(PE,State,Api){
  const Query=new URLSearchParams(location.search),Token=Query.get('workspace-token');

@@ -19,9 +19,10 @@ import { PE } from "./pe.js";
   // Builds one bolt as a list of {a, b, w} segments. Branches are thinner and shorter.
   function makeBolt(rng, start, end, opt) {
     const segs = [];
-    const MAX = PE.MAX_SEGS - 64;
+    const MAX = Math.max(1, Math.min(8192, opt.maxSegments ?? PE.MAX_SEGS ?? 8192));
     const rec = (a, b, amp, level, w, branchOk) => {
-      if (level <= 0 || segs.length > MAX) {
+      if (segs.length >= MAX) return;
+      if (level <= 0) {
         segs.push({ a, b, w });
         return;
       }
@@ -55,6 +56,9 @@ import { PE } from "./pe.js";
       this.nextAt = 1.5;
       this.distance = 1200;     // metres from the viewer, sets thunder delay
       this.amp = 2.0;
+      this.width = 0.11;
+      this.brightness = 1;
+      this.cloudGlow = 1;
       this.levels = 6;
       this.branchChance = 0.35;
       this.strikes = 0;
@@ -73,7 +77,7 @@ import { PE } from "./pe.js";
       const start = [x + (r() - 0.5) * 2, 15, z + (r() - 0.5) * 2];
       const end = [x, 0, z];
       const segs = makeBolt(r, start, end, {
-        amp: this.amp, levels: this.levels, width: 0.11, branchChance: this.branchChance,
+        amp: this.amp, levels: this.levels, width: this.width, branchChance: this.branchChance,
       });
       this.bolts.push({ segs, t0: now, life: 0.36, seed: r() * 1000 });
       this.flash = Math.min(1.4, this.flash + 1.0);
@@ -136,7 +140,7 @@ import { PE } from "./pe.js";
         // Flicker: a new brightness value every 40 ms.
         const cell = Math.floor(age / 0.04);
         const flick = 0.55 + 0.45 * ((Math.sin((cell + bolt.seed) * 91.7) * 43758.5453) % 1 + 1) % 1;
-        const inten = 2.6 * fade * Math.abs(flick);
+        const inten = 2.6 * fade * Math.abs(flick) * this.brightness;
         for (const s of bolt.segs) {
           if (n >= PE.MAX_SEGS) break;
           const o = n * 8;
@@ -227,3 +231,6 @@ import { PE } from "./pe.js";
     for (let i = 0; i < len; i++) d[i] = (d[i] / peak) * 0.9;
     return buf;
   }
+
+// Shared with the vehicle scene; the editor and runtime use the same bolt topology.
+export { makeBolt, mulberry32 };
