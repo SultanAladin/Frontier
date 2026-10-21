@@ -1,0 +1,11 @@
+// Card structure and semantics adapted from the pinned celestial demo; renderer stays Z-up.
+import {Header,Card,Tiles,Slider,Note,Diagram} from './NativeEnvironmentControls.js';
+export function BuildWindField(Host,C,P){const S=Host.Settings;Header(C,P,'Wind','FORCEFIELD · shared weather force','');
+ Tiles(C,P,S,[['WindEnabled','Enabled','Wind']]);
+ const Force=Card(P,'Force','Wind');const Bearing={get Value(){return (S.CloudWindBearing+180)%360;},set Value(V){S.CloudWindBearing=(V+180)%360;}};
+ Diagram(C,Force,320,230,X=>{const A=Bearing.Value*Math.PI/180,R=75;X.circle(160,110,R,null,'#829a9144');X.circle(160,110,R*.5,null,'#829a9122');X.line([160,25],[160,195],'#829a9133');X.line([75,110],[245,110],'#829a9133');const L=R*Math.min(1,S.CloudWindSpeed/32),Tip=[160+Math.sin(A)*L,110-Math.cos(A)*L];X.line([160,110],Tip,'#a7f3d0',2);X.circle(...Tip,5,'#a7f3d0');X.text(160,18,'N','#a7b5ad',10);X.text(160,225,`${S.CloudWindSpeed.toFixed(1)} m/s · from ${Bearing.Value.toFixed(0)}°`,'#c8ddd1',12);},E=>{if(E.Key){Bearing.Value=(Bearing.Value+(E.Key==='ArrowRight'?1:-1)*E.Step+360)%360;}else{const DX=E.Point[0]-160,DY=110-E.Point[1];Bearing.Value=(Math.atan2(DX,DY)*180/Math.PI+360)%360;S.CloudWindSpeed=Math.min(32,Math.hypot(DX,DY)/75*32);}C.Notify('CloudWindBearing',S);C.Synchronise();},'Wind vector · drag for bearing and speed');
+ Slider(C,Force,S,'CloudWindSpeed','Speed',0,32,.1,'m/s');Slider(C,Force,Bearing,'Value','Bearing (from)',0,360,1,'°');Note(Force,'Meteorological bearing: where wind comes from. The renderer converts this to its Z-up travel vector.');
+ const Steady=Card(P,'Steadiness','Wind');Slider(C,Steady,S,'WindGust','Gust',0,1,.01);Slider(C,Steady,S,'WindTurbulence','Turbulence',0,1,.01);Note(Steady,'Slow speed modulation and shared flow perturbations.');
+ const Shear=Card(P,'Shear','NativeOrbit');Slider(C,Shear,S,'WindShear','Speed per km',0,2,.01,'×');Slider(C,Shear,S,'WindVeer','Veer per km',-60,60,1,'°');
+ const Driving=Card(P,'Driving','Wind');Note(Driving,'What follows this ForceField');Tiles(C,Driving,S,[['CloudFollowWind','Clouds','NativeClouds'],['LocalCloudFollowWind','Local Cloud','NativeLocalCloud'],['LocalFogFollowWind','Local Fog','NativeLocalFog']]);Note(Driving,'Precipitation is deferred. Static height fog has no advected density; no non-functional bindings are shown.');
+}
