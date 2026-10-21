@@ -11,8 +11,12 @@
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/TextFileReplacement.h"
 #include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <functional>
+#include <optional>
 #include <sstream>
+#include <string_view>
 #include <stdexcept>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -239,6 +243,150 @@ void CreateMaterialSource(const std::filesystem::path &Path, const std::string &
         throw std::runtime_error("New material could not be written completely.");
     }
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SAND BED NORMALIZATION
+//------------------------------------------------------------------------------------------------------------------------
+// 📝 normalizeSandLayers parity: up to four beds, Alloy defaults for missing fields, finite clamps per key.
+
+double SandFinite(double Value, bool Present, double Fallback, double Lo, double Hi)
+{
+    if (!Present || !std::isfinite(Value)) return Fallback;
+    return std::clamp(Value, Lo, Hi);
+}
+
+std::string CleanSandHex(std::string_view Value, bool Present, const std::string &Fallback)
+{
+    if (!Present || Value.size() != 7 || Value[0] != '#') return Fallback;
+    for (const char Digit : Value.substr(1))
+        if (!((Digit >= '0' && Digit <= '9') || (Digit >= 'a' && Digit <= 'f') || (Digit >= 'A' && Digit <= 'F')))
+            return Fallback;
+    std::string Lower(Value);
+    for (auto &Character : Lower)
+        if (Character >= 'A' && Character <= 'F') Character += 'a' - 'A';
+    return Lower;
+}
+
+bool ValidSandBedId(std::string_view Id)
+{
+    if (Id.empty() || Id.size() > 60) return false;
+    for (const char Character : Id)
+        if (!((Character >= 'a' && Character <= 'z') || (Character >= 'A' && Character <= 'Z') ||
+                (Character >= '0' && Character <= '9') || Character == '_' || Character == '-'))
+            return false;
+    return true;
+}
+
+MaterialSandBed DefaultSandBed(size_t Index)
+{
+    MaterialSandBed Bed;
+    Bed.Id = "sand-bed-" + std::to_string(Index + 1);
+    return Bed;
+}
+
+void ClampSandBedNumerics(MaterialSandBed &Bed,
+    const std::function<std::optional<double>(const char *)> &Number, const MaterialSandBed &Defaults)
+{
+    const auto Finite = [&](const char *Key, double Fallback, double Lo, double Hi)
+    {
+        const auto Value = Number(Key);
+        return SandFinite(Value.value_or(Fallback), Value.has_value(), Fallback, Lo, Hi);
+    };
+    Bed.Size = Finite("size", Defaults.Size, .0625, 2);
+    Bed.SizeVariation = Finite("sizeVariation", Defaults.SizeVariation, 0, 1);
+    Bed.Roughness = Finite("roughness", Defaults.Roughness, .04, 1);
+    Bed.RoughnessVariation = Finite("roughnessVariation", Defaults.RoughnessVariation, 0, 1);
+    Bed.Specular = Finite("specular", Defaults.Specular, 0, 1);
+    Bed.SpecularVariation = Finite("specularVariation", Defaults.SpecularVariation, 0, 1);
+    Bed.Ior = Finite("ior", Defaults.Ior, 1.3, 2.2);
+    Bed.Roundness = Finite("roundness", Defaults.Roundness, 0, 1);
+    Bed.Tilt = Finite("tilt", Defaults.Tilt, 0, 1);
+    Bed.Relief = Finite("relief", Defaults.Relief, 0, 1);
+    Bed.Coverage = Finite("coverage", Defaults.Coverage, 0, 1);
+    Bed.Thickness = Finite("thickness", Defaults.Thickness, .1, 4);
+}
+
+void ParseSandBeds(const toml::node *Layers, std::vector<MaterialSandBed> &Beds)
+{
+    Beds.clear();
+    const toml::array *Items = Layers ? Layers->as_array() : nullptr;
+    if (!Items || Items->empty())
+    {
+        Beds.push_back(DefaultSandBed(0));
+        return;
+    }
+    std::vector<std::string> Used;
+    size_t Index = 0;
+    for (const auto &Item : *Items)
+    {
+        if (Index >= 4) break;
+        const MaterialSandBed Defaults = DefaultSandBed(Index);
+        MaterialSandBed Bed = Defaults;
+        std::string Candidate = Defaults.Id;
+        if (const toml::table *Fields = Item.as_table())
+        {
+            const auto Id = (*Fields)["id"].value<std::string>();
+            Candidate = (Id && ValidSandBedId(*Id) &&
+                    std::find(Used.begin(), Used.end(), *Id) == Used.end())
+                ? *Id
+                : Defaults.Id;
+            Bed.Enabled = (*Fields)["enabled"].value_or(true);
+            const auto Color = (*Fields)["color"].value<std::string>();
+            Bed.Color = CleanSandHex(Color.value_or(""), Color.has_value(), Defaults.Color);
+            const auto Secondary = (*Fields)["secondaryColor"].value<std::string>();
+            Bed.SecondaryColor = CleanSandHex(Secondary.value_or(""), Secondary.has_value(), Defaults.SecondaryColor);
+            ClampSandBedNumerics(Bed, [&](const char *Key) { return (*Fields)[Key].value<double>(); }, Defaults);
+        }
+        while (std::find(Used.begin(), Used.end(), Candidate) != Used.end()) Candidate += "-copy";
+        Bed.Id = Candidate;
+        Used.push_back(Bed.Id);
+        // 📝 Disabled beds ride with zero coverage/thickness so the kernel skips them like the shader.
+        if (!Bed.Enabled)
+        {
+            Bed.Coverage = 0;
+            Bed.Thickness = 0;
+        }
+        Beds.push_back(Bed);
+        ++Index;
+    }
+}
+
+void SynthesizeSandBed(const MaterialRecipeParameters &Recipe, std::vector<MaterialSandBed> &Beds)
+{
+    // 📝 Single-grain sand builds its lone bed from the grain scalars, like the Alloy viewport.
+    Beds.clear();
+    const MaterialSandBed Defaults;
+    MaterialSandBed Bed = Defaults;
+    const auto Text = [&](const char *Key)
+    {
+        const auto Found = Recipe.Texts.find(Key);
+        return Found != Recipe.Texts.end() ? std::optional<std::string>(Found->second) : std::nullopt;
+    };
+    const auto Color = Text("color"), Secondary = Text("secondaryColor");
+    Bed.Color = CleanSandHex(Color.value_or(""), Color.has_value(), Defaults.Color);
+    Bed.SecondaryColor = CleanSandHex(Secondary.value_or(""), Secondary.has_value(), Defaults.SecondaryColor);
+    ClampSandBedNumerics(Bed,
+        [&](const char *Key) -> std::optional<double>
+        {
+            // 📝 The lone type-37 bed has no thickness scalar; it always takes the unit default.
+            const std::string_view BedKey(Key);
+            if (BedKey == "thickness") return std::nullopt;
+            const char *Scalar = BedKey == "size" ? "grainSize" : BedKey == "sizeVariation" ? "grainSizeVariation"
+                : BedKey == "roughness"                                                     ? "grainRoughness"
+                : BedKey == "roughnessVariation"                                            ? "grainRoughnessVariation"
+                : BedKey == "specular"                                                      ? "grainSpecular"
+                : BedKey == "specularVariation"                                             ? "grainSpecularVariation"
+                : BedKey == "ior"                                                           ? "grainIOR"
+                : BedKey == "roundness"                                                     ? "grainRoundness"
+                : BedKey == "tilt"                                                          ? "grainTilt"
+                : BedKey == "relief"                                                        ? "grainRelief"
+                                                                                            : "sandCoverage";
+            const auto Found = Recipe.Scalars.find(Scalar);
+            return Found != Recipe.Scalars.end() ? std::optional<double>(Found->second) : std::nullopt;
+        },
+        Defaults);
+    Beds.push_back(Bed);
+}
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -335,12 +483,19 @@ bool MaterialLibrary::Refresh()
                     Match->RecipeCaption = Material["RecipeCaption"].value_or(std::string{});
                     Match->ColourHex = Material["Color"].value_or(std::string{});
                     if (const auto *Recipe = Material["SourceRecipe"].as_table())
+                    {
+                        const toml::node *SandLayersNode = nullptr;
                         for (const auto &[Key, Value] : *Recipe)
                         {
                             const std::string Name(Key.str());
                             if (Name == "recipeId")
                             {
                                 if (const auto Id = Value.value<std::string>()) Match->Recipe.RecipeId = *Id;
+                                continue;
+                            }
+                            if (Name == "sandLayers")
+                            {
+                                SandLayersNode = &Value;
                                 continue;
                             }
                             if (Match->Recipe.Scalars.size() + Match->Recipe.Texts.size() >= 256) break;
@@ -352,6 +507,14 @@ bool MaterialLibrary::Refresh()
                             }
                             else if (const auto Text = Value.value<std::string>()) Match->Recipe.Texts[Name] = *Text;
                         }
+                        // 📝 Sand beds normalize after the scalar pass: layered sand parses its bed tables,
+                        // single-grain sand synthesizes its lone bed from the grain scalars.
+                        const auto RecipeType = Match->Recipe.Scalars.find("type");
+                        if (RecipeType != Match->Recipe.Scalars.end() && RecipeType->second == 37)
+                            SynthesizeSandBed(Match->Recipe, Match->Recipe.SandBeds);
+                        else if (RecipeType != Match->Recipe.Scalars.end() && RecipeType->second == 38)
+                            ParseSandBeds(SandLayersNode, Match->Recipe.SandBeds);
+                    }
                     if (const auto *Controls = Material["Controls"].as_array())
                         for (const auto &ControlTerm : *Controls)
                         {

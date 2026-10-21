@@ -1,11 +1,17 @@
 Format = 1
 Name = "Herringbone Wool"
 
+[Textures]
+Albedo = "Textures/herringbone-wool-albedo.png"
+Normal = "Textures/herringbone-wool-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.20863687014525575, 0.21952619972926923, 0.19461783044157582]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.91
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.2
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

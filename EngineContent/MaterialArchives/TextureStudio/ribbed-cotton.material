@@ -1,11 +1,17 @@
 Format = 1
 Name = "Ribbed Cotton"
 
+[Textures]
+Albedo = "Textures/ribbed-cotton-albedo.png"
+Normal = "Textures/ribbed-cotton-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.4341536361747489, 0.3005437944157765, 0.19806931955994886]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.89
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.2
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

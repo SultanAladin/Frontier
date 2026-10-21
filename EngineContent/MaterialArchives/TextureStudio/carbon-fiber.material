@@ -1,6 +1,10 @@
 Format = 1
 Name = "Carbon Fiber"
 
+[Textures]
+Albedo = "Textures/carbon-fiber-albedo.png"
+Normal = "Textures/carbon-fiber-normal.png"
+
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.1651321945016676, 0.1714411007328226, 0.1912016827407914]
@@ -9,6 +13,8 @@ Metallic = 0.8
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.85
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]
 
 [[Strata]]
 Category = "Coating"

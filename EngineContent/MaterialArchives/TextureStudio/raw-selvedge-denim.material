@@ -1,11 +1,17 @@
 Format = 1
 Name = "Raw Selvedge Denim"
 
+[Textures]
+Albedo = "Textures/raw-selvedge-denim-albedo.png"
+Normal = "Textures/raw-selvedge-denim-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.008023192985384994, 0.033104766570885055, 0.08650046203654976]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.84
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

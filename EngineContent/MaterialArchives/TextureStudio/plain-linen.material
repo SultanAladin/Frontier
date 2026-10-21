@@ -1,11 +1,17 @@
 Format = 1
 Name = "Plain Linen"
 
+[Textures]
+Albedo = "Textures/plain-linen-albedo.png"
+Normal = "Textures/plain-linen-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.5028864580325687, 0.4341536361747489, 0.32314320911295075]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.94
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.2
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

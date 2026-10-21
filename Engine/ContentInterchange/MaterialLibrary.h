@@ -30,13 +30,24 @@ struct MaterialRecipeControl
     std::string Unit;
 };
 
-// 📝 Parsed Alloy SourceRecipe: the uniform values the baker and the procedural controls share. Arrays and
-// nested layer tables stay unparsed until the layer panel lands; scalars and texts cover every shipped control.
+// 📝 Parsed Alloy SourceRecipe: the uniform values the baker and the procedural controls share. Scalars and
+// texts cover every shipped control; sandLayers additionally normalizes into bed tables for the sand baker.
+struct MaterialSandBed
+{
+    std::string Id = "sand-bed-1";
+    bool Enabled = true;
+    std::string Color = "#c9aa79", SecondaryColor = "#eee2c7";
+    double Size = .65, SizeVariation = .5;
+    double Roughness = .6, RoughnessVariation = .3, Specular = .8, SpecularVariation = .35;
+    double Ior = 1.544, Roundness = .45, Tilt = .32, Relief = .85, Coverage = 1, Thickness = 1;
+};
+
 struct MaterialRecipeParameters
 {
     std::string RecipeId;
     std::map<std::string, double> Scalars;
     std::map<std::string, std::string> Texts;
+    std::vector<MaterialSandBed> SandBeds;
 };
 
 struct MaterialCatalogueEntry

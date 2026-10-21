@@ -1,11 +1,17 @@
 Format = 1
 Name = "Champagne Silk"
 
+[Textures]
+Albedo = "Textures/champagne-silk-albedo.png"
+Normal = "Textures/champagne-silk-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.4851499400560704, 0.33245153634617935, 0.18782077230067787]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.17
 Metallic = 0
 Ior = 1.55
 Coverage = 1.0
 Anisotropy = 0.65
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

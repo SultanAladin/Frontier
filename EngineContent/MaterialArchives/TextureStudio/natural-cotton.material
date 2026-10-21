@@ -1,11 +1,17 @@
 Format = 1
 Name = "Natural Cotton"
 
+[Textures]
+Albedo = "Textures/natural-cotton-albedo.png"
+Normal = "Textures/natural-cotton-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.5711248294648731, 0.5209955732043543, 0.4232676699860717]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.9
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.15
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

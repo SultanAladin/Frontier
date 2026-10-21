@@ -51,6 +51,113 @@ struct ScratchBakeMaps
 // ceiling so the authored scalar must equal min(1, BaseRoughness + .3), blue preserves full metalness.
 [[nodiscard]] std::vector<uint8_t> ConvertScratchOrmRgba(const std::vector<float> &Coverage, uint32_t Extent, float BaseRoughness);
 
+// 📝 Woven/knit/sand ports (Alloy types 4/7/19/37/38): the flat-patch baker evaluates one triplanar face, so
+// the viewport's pp/weights selection collapses to plain 2D UV while every kernel formula stays verbatim.
+// Colors ride as linear RGB triples (THREE.Color parity); the albedo converter sRGB-encodes them for upload.
+struct WeaveFieldParameters
+{
+    // 📝 Type 4 fabric / 7 carbon; Weave selects plain 0, twill 1, satin 2, basket 3, rib 4,
+    // herringbone 5, oxford 6, houndstooth 7, denim 8. FabricMode 1/2 bake nap modulation.
+    int Type = 4, Weave = 1, FabricMode = 0;
+    float Scale = 0, AngleRadians = 0, Relief = 0, FiberDetail = 0;
+    float Fuzz = 0, Slub = 0, DenimFade = 0, Grain = 0, Seed = 0;
+    float Warp[3] = {1, 1, 1}, Weft[3] = {1, 1, 1}, Secondary[3] = {0, 0, 0};
+};
+
+struct WeaveFieldSample
+{
+    float Albedo[3] = {1, 1, 1};
+    float Relief = 0;
+};
+
+// 📝 PixelStep carries the scaled-UV texel rate (Scale / Extent) the shader's fwidth calls converge to.
+[[nodiscard]] WeaveFieldSample EvaluateWeaveField(float U, float V, const WeaveFieldParameters &Parameters, float PixelStep);
+
+struct WeaveBakeMaps
+{
+    std::vector<float> Albedo, Relief;
+    uint32_t Extent = 0;
+};
+
+// 📝 Row-major maps; Albedo holds three linear floats per texel, Relief signed scene-unit height.
+[[nodiscard]] WeaveBakeMaps BakeWeaveMaps(const WeaveFieldParameters &Parameters, uint32_t Extent);
+// 📝 Analytic relief ceiling (arch + nap + slub terms) the offline bake divides by before normal encoding,
+// mirroring the scratch Depth normalization so every weave answers to Strength 2 the same way.
+[[nodiscard]] float WeaveReliefAmplitude(const WeaveFieldParameters &Parameters);
+
+struct KnitFieldParameters
+{
+    float Scale = 0, Grain = 0, Fuzz = 0, Seed = 0, AngleRadians = 0;
+    float Color[3] = {1, 1, 1}, Secondary[3] = {0, 0, 0};
+};
+
+struct KnitFieldSample
+{
+    float Albedo[3] = {1, 1, 1};
+    float Relief = 0;
+};
+
+[[nodiscard]] KnitFieldSample EvaluateKnitField(float U, float V, const KnitFieldParameters &Parameters, float PixelStep);
+
+struct KnitBakeMaps
+{
+    std::vector<float> Albedo, Relief;
+    uint32_t Extent = 0;
+};
+
+[[nodiscard]] KnitBakeMaps BakeKnitMaps(const KnitFieldParameters &Parameters, uint32_t Extent);
+[[nodiscard]] float KnitReliefAmplitude(const KnitFieldParameters &Parameters);
+
+struct SandBedParameters
+{
+    float Color[3] = {1, 1, 1}, Pale[3] = {1, 1, 1};
+    float Size = 0, SizeVariation = 0, Coverage = 0, Thickness = 0;
+    float Roughness = 0, RoughnessVariation = 0, Specular = 0, SpecularVariation = 0;
+    float Ior = 0, Roundness = 0, Tilt = 0, Relief = 0;
+    double BedSeed = 0;
+};
+
+struct SandFieldParameters
+{
+    SandBedParameters Beds[4];
+    int Count = 0, BandsMode = 0;
+    float Scale = 1, Seed = 0, BandFrequency = 0, BandWarp = 0, BandAngleRadians = 0;
+    float BaseColor[3] = {1, 1, 1};
+};
+
+struct SandFieldSample
+{
+    float Tint[3] = {1, 1, 1};
+    float Roughness = 1, Relief = 0;
+    float Facet[2] = {0, 0};
+};
+
+[[nodiscard]] SandFieldSample EvaluateSandField(float U, float V, const SandFieldParameters &Parameters, uint32_t Extent);
+
+struct SandBakeMaps
+{
+    std::vector<float> Tint, Roughness, Relief, Facet;
+    uint32_t Extent = 0;
+};
+
+// 📝 Facet holds two per-texel tilt components the normal converter adds to the relief gradient,
+// reproducing the shader's post-relief facet perturbation that reads as grain sparkle.
+[[nodiscard]] SandBakeMaps BakeSandMaps(const SandFieldParameters &Parameters, uint32_t Extent);
+[[nodiscard]] float SandReliefAmplitude(const SandFieldParameters &Parameters);
+// 📝 FNV-1a bed-id hash (sandLayerSeed parity) times .013; drives per-bed domain offsets.
+[[nodiscard]] double SandBedSeed(std::string_view BedId);
+
+// 📝 Linear-RGB albedo triples sRGB-encoded for the albedo upload slot, matching committed PNG convention.
+[[nodiscard]] std::vector<uint8_t> ConvertLinearAlbedoRgba(const std::vector<float> &Linear, uint32_t Extent);
+// 📝 #rrggbb recipe color to linear RGB; false when malformed so callers can fall back.
+[[nodiscard]] bool DecodeHexLinearRgb(std::string_view Hex, float Rgb[3]);
+// 📝 Absolute sand roughness: Alloy overwrites the roughness factor, so green carries it verbatim and the
+// authored scalar must be 1. Red/blue stay neutral (no occlusion term, null metalness).
+[[nodiscard]] std::vector<uint8_t> ConvertSandOrmRgba(const std::vector<float> &Roughness, uint32_t Extent);
+// 📝 Tangent-space normal from relief plus a per-texel facet tilt added to the gradient terms.
+[[nodiscard]] std::vector<uint8_t> ConvertFacetNormalRgba(const std::vector<float> &Relief, const std::vector<float> &Facet,
+    uint32_t Extent, float Strength);
+
 // 📝 Op registry: each procedural op declares the channels it can bake and the slider ranges its Alloy-keyed
 // params expose. Params keep their Alloy uniform spellings so recipe controls resolve without translation.
 struct ProceduralOpParam

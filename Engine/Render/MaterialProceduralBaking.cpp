@@ -172,6 +172,491 @@ std::vector<uint8_t> ConvertScratchOrmRgba(const std::vector<float> &Coverage, u
     return Rgba;
 }
 
+namespace
+{
+float ProceduralFract(float X) { return X - std::floor(X); }
+
+// 📝 GLSL mod floors toward negative infinity, unlike fmod; twill/houndstooth addressing needs the match.
+float ProceduralMod(float X, float Y) { return X - Y * std::floor(X / Y); }
+
+float ProceduralStep(float Edge, float X) { return X >= Edge ? 1.f : 0.f; }
+
+// 📝 Alloy bakeSRGB: linear working values encode to sRGB bytes for the albedo upload slot.
+float ProceduralLinearToSrgb(float Linear)
+{
+    const float Clamped = std::max(Linear, 0.f);
+    return Clamped <= .0031308f ? Clamped * 12.92f : 1.055f * std::pow(Clamped, 1 / 2.4f) - .055f;
+}
+
+struct TwillSample
+{
+    float Light = 0, Height = 0, Direction = 0, Fiber = 0;
+};
+
+// 📝 Verbatim twill(): rotated cell addressing, per-pattern over/under masks, rounded-bundle arch with
+// inter-yarn gaps, sub-fiber filtering and the resolved fade. Step is fwidth(uv) in scaled UV per texel.
+TwillSample EvaluateTwill(float U, float V, const WeaveFieldParameters &P, float Step)
+{
+    const float C = std::cos(P.AngleRadians), S = std::sin(P.AngleRadians);
+    const float Su = (C * U + S * V) * P.Scale, Sv = (-S * U + C * V) * P.Scale;
+    const float CellX = std::floor(Su), CellY = std::floor(Sv);
+    const float Fx = Su - CellX, Fy = Sv - CellY;
+    float Over = ProceduralStep(2, ProceduralMod(CellX - CellY, 4));
+    if (P.Type == 4)
+    {
+        if (P.Weave == 0) Over = ProceduralMod(CellX + CellY, 2);
+        if (P.Weave == 2) Over = ProceduralStep(4, ProceduralMod(CellX + 2 * CellY, 5));
+        if (P.Weave == 3) Over = ProceduralMod(std::floor(CellX * .5f) + std::floor(CellY * .5f), 2);
+        if (P.Weave == 4) Over = ProceduralMod(CellX + std::floor(CellY * .5f), 2);
+        if (P.Weave == 5)
+        {
+            const float Reverse = ProceduralMod(CellX, 16);
+            Over = ProceduralStep(2, ProceduralMod((Reverse < 8 ? Reverse : 15 - Reverse) - CellY, 4));
+        }
+        if (P.Weave == 6) Over = ProceduralMod(std::floor(CellX * .5f) + CellY, 2);
+        if (P.Weave == 8) Over = ProceduralStep(3, ProceduralMod(CellX - CellY, 4));
+    }
+    const float Across = ProceduralMix(Fx, Fy, Over), Coord = ProceduralMix(Su, Sv, Over);
+    const float Edge = std::min(Across, 1 - Across);
+    const float Chord = Across * 2 - 1;
+    const float Bundle = std::sqrt(std::max(0.f, 1 - Chord * Chord));
+    const float Gap = ProceduralSmoothstep(.008f, .045f, Edge);
+    const float Along = ProceduralMix(Sv, Su, Over);
+    const float FloatLength =
+        (P.Type == 4 && P.Weave == 2) ? 5 : (P.Type == 4 && P.Weave == 8) ? 3 : (P.Type == 4 && P.Weave == 0) ? 1 : 2;
+    const float Arch = .86f + .14f * std::cos((ProceduralFract(Along / FloatLength) * 2 - 1) * 3.14159f);
+    const float Fiber = (std::sin(Coord * 6.283f * P.FiberDetail) * .5f + .5f) *
+        (1 - ProceduralSmoothstep(.5f, 3.1f, Step * 6.283f * P.FiberDetail));
+    const float Height = Bundle * Gap * Arch;
+    float Light = (.32f + .68f * Bundle) * Gap * (.86f + .14f * Fiber);
+    if (P.Type == 4 && P.FabricMode == 3) Light *= .88f + .16f * ProceduralNoise3(Su * .6f, Sv * .6f, 3);
+    if (P.Type == 4 && P.Weave == 2) Light = (.72f + .28f * Bundle) * (.91f + .09f * Fiber) * ProceduralMix(.9f, 1.f, Gap);
+    const float YarnResolved = 1 - ProceduralSmoothstep(.22f, .95f, Step);
+    const float MeanDirection = (P.Type == 4 && P.Weave == 2) ? .2f : (P.Type == 4 && P.Weave == 8) ? .25f : .5f;
+    return {ProceduralMix((P.Type == 4 && P.Weave == 2) ? .86f : .69f, Light, YarnResolved),
+        ProceduralMix(.63f, Height, YarnResolved), ProceduralMix(MeanDirection, Over, YarnResolved), Fiber * YarnResolved};
+}
+
+float SegmentDistance(float Px, float Py, float Ax, float Ay, float Bx, float By)
+{
+    const float Dx = Bx - Ax, Dy = By - Ay;
+    const float T = std::clamp(((Px - Ax) * Dx + (Py - Ay) * Dy) / (Dx * Dx + Dy * Dy), 0.f, 1.f);
+    const float Ex = Px - Ax - Dx * T, Ey = Py - Ay - Dy * T;
+    return std::sqrt(Ex * Ex + Ey * Ey);
+}
+
+// 📝 Verbatim knit(): V-loop pair per cell with sub-loop ribbing and the resolved fade to flat jersey.
+float EvaluateKnitLoops(float U, float V, const KnitFieldParameters &P, float Step)
+{
+    const float C = std::cos(P.AngleRadians), S = std::sin(P.AngleRadians);
+    const float Su = (C * U + S * V) * P.Scale, Sv = (-S * U + C * V) * P.Scale;
+    const float Qx = ProceduralFract(Su) - .5f, Qy = ProceduralFract(Sv) - .5f;
+    const float LoopD =
+        std::min(SegmentDistance(Qx, Qy, -.34f, .48f, .02f, -.44f), SegmentDistance(Qx, Qy, .34f, .48f, -.02f, -.44f));
+    const float Aa = std::max(Step * .35f, .005f);
+    const float Yarn = 1 - ProceduralSmoothstep(.065f - Aa, .15f + Aa, LoopD);
+    const float Sub = std::sin((Qx + Qy * .35f) * 100) * .5f + .5f;
+    const float Ribbed = ProceduralMix(.5f, Sub, 1 - ProceduralSmoothstep(.02f, .1f, Step));
+    return ProceduralMix(.47f, Yarn * (.82f + .18f * Ribbed), 1 - ProceduralSmoothstep(.3f, 1.4f, Step));
+}
+
+struct SandCell
+{
+    float Metric = 0, Second = 0, Random = 0, Rough = 0, Spec = 0, Radius = 0;
+    float DeltaX = 0, DeltaY = 0, IdX = 0, IdY = 0;
+};
+
+// 📝 Verbatim sandCellAt(): jittered-site Voronoi over a 5x5 neighbourhood with per-cell size/metric/radiance
+// hashes; the winning cell's id drives grain tint, roughness, specular and facet angle.
+SandCell EvaluateSandCell(float Qx, float Qy, float Seed, float Variation, float Nominal)
+{
+    const float CellX = std::floor(Qx), CellY = std::floor(Qy), Fx = Qx - CellX, Fy = Qy - CellY;
+    SandCell Best;
+    Best.Metric = Best.Second = 1e8f;
+    Best.Random = Best.Rough = Best.Spec = Best.Radius = .5f;
+    const float Lo = std::max(.0625f, Nominal * (1 - Variation * .75f)) / Nominal;
+    const float Hi = std::min(2.f, Nominal * (1 + Variation * .75f)) / Nominal;
+    for (int Y = -2; Y <= 2; ++Y)
+        for (int X = -2; X <= 2; ++X)
+        {
+            const float IdX = CellX + X, IdY = CellY + Y;
+            const float Radius = .55f * ProceduralMix(Lo, Hi, ProceduralHash31(IdX, IdY, Seed + 9.3f));
+            const float SiteX = .08f + .84f * ProceduralHash31(IdX, IdY, Seed);
+            const float SiteY = .08f + .84f * ProceduralHash31(IdX + 31.7f, IdY + 31.7f, Seed + 17.1f);
+            const float Dx = float(X) + SiteX - Fx, Dy = float(Y) + SiteY - Fy;
+            const float Metric = (Dx * Dx + Dy * Dy) / std::max(Radius * Radius, .0001f);
+            if (Metric < Best.Metric)
+            {
+                Best.Second = Best.Metric;
+                Best.Metric = Metric;
+                Best.DeltaX = Dx;
+                Best.DeltaY = Dy;
+                Best.IdX = IdX;
+                Best.IdY = IdY;
+                Best.Radius = Radius;
+                Best.Random = ProceduralHash31(IdX, IdY, Seed + 53.9f);
+                Best.Rough = ProceduralHash31(IdX + 7.1f, IdY + 7.1f, Seed + 113);
+                Best.Spec = ProceduralHash31(IdX + 21.7f, IdY + 21.7f, Seed + 181);
+            }
+            else if (Metric < Best.Second) Best.Second = Metric;
+        }
+    return Best;
+}
+}
+
+bool DecodeHexLinearRgb(std::string_view Hex, float Rgb[3])
+{
+    // 📝 THREE.Color parity: #rrggbb reads as sRGB and lands in linear working space.
+    if (Hex.size() != 7 || Hex[0] != '#') return false;
+    for (int Channel = 0; Channel < 3; ++Channel)
+    {
+        unsigned int Byte = 0;
+        for (int Nibble = 0; Nibble < 2; ++Nibble)
+        {
+            const char Digit = Hex[size_t(1 + Channel * 2 + Nibble)];
+            Byte <<= 4;
+            if (Digit >= '0' && Digit <= '9') Byte |= unsigned(Digit - '0');
+            else if (Digit >= 'a' && Digit <= 'f') Byte |= unsigned(Digit - 'a' + 10);
+            else if (Digit >= 'A' && Digit <= 'F') Byte |= unsigned(Digit - 'A' + 10);
+            else return false;
+        }
+        const float Srgb = float(Byte) / 255;
+        Rgb[Channel] = Srgb <= .04045f ? Srgb / 12.92f : std::pow((Srgb + .055f) / 1.055f, 2.4f);
+    }
+    return true;
+}
+
+WeaveFieldSample EvaluateWeaveField(float U, float V, const WeaveFieldParameters &Parameters, float PixelStep)
+{
+    if (!(Parameters.Scale > 0)) throw std::runtime_error("Weave field needs a positive scale.");
+    const float C = std::cos(Parameters.AngleRadians), S = std::sin(Parameters.AngleRadians);
+    // 📝 fwidth sums |d/dx|+|d/dy|; the rotated coordinate inherits the texel rate times the rotation row.
+    const float Step = PixelStep * (std::abs(C) + std::abs(S));
+    const TwillSample Weave = EvaluateTwill(U, V, Parameters, Step);
+    const float YarnU = (C * U + S * V) * Parameters.Scale, YarnV = (-S * U + C * V) * Parameters.Scale;
+    WeaveFieldSample Sample;
+    // 📝 Constant-rate axes collapse onto the seed slice (grain-bake convention); pp maps to (u, seed, v).
+    const float Grain = ProceduralNoise3(U * Parameters.Scale, Parameters.Seed, V * Parameters.Scale);
+    if (Parameters.Type == 7)
+    {
+        const float Modulator = .18f + Weave.Light * .82f;
+        Sample.Albedo[0] = Sample.Albedo[1] = Sample.Albedo[2] = Modulator;
+    }
+    else if (Parameters.FabricMode == 0 || Parameters.FabricMode == 3 || Parameters.FabricMode == 4)
+    {
+        float Yarn[3];
+        for (int Channel = 0; Channel < 3; ++Channel)
+            Yarn[Channel] = ProceduralMix(Parameters.Warp[Channel], Parameters.Weft[Channel], Weave.Direction);
+        if (Parameters.Weave == 7)
+        {
+            const float WarpBand = ProceduralStep(2, ProceduralMod(std::floor(YarnU), 4));
+            const float WeftBand = ProceduralStep(2, ProceduralMod(std::floor(YarnV), 4));
+            const float ColorDetail = 1 - ProceduralSmoothstep(.35f, 1.5f, Step);
+            const float BandMix = ProceduralMix(WarpBand, WeftBand, Weave.Direction);
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Yarn[Channel] = ProceduralMix((Parameters.Warp[Channel] + Parameters.Weft[Channel]) * .5f,
+                    ProceduralMix(Parameters.Warp[Channel], Parameters.Weft[Channel], BandMix), ColorDetail);
+        }
+        const float Shade = .48f + Weave.Light * .58f;
+        for (int Channel = 0; Channel < 3; ++Channel) Sample.Albedo[Channel] = Yarn[Channel] * Shade;
+    }
+    else
+    {
+        const float Nap =
+            ProceduralNoise3(U * Parameters.Scale * 18, Parameters.Seed, V * Parameters.Scale * 18);
+        const float Modulator = .68f + .36f * Nap;
+        Sample.Albedo[0] = Sample.Albedo[1] = Sample.Albedo[2] = Modulator;
+    }
+    const float Arch = (Parameters.Type == 4 && (Parameters.FabricMode == 1 || Parameters.FabricMode == 2))
+        ? Grain * .15f
+        : Weave.Height;
+    Sample.Relief = Arch * Parameters.Relief * .022f / std::max(Parameters.Scale, .01f);
+    if (Parameters.Type == 4)
+    {
+        const float FiberNap =
+            ProceduralNoise3(U * Parameters.Scale * 18, Parameters.Seed, V * Parameters.Scale * 18);
+        Sample.Relief += FiberNap * Parameters.Fuzz * .0004f;
+        const float FuzzShade = 1 - Parameters.Fuzz * .12f + Parameters.Fuzz * FiberNap * .24f;
+        for (int Channel = 0; Channel < 3; ++Channel) Sample.Albedo[Channel] *= FuzzShade;
+        if (Parameters.Weave == 8)
+        {
+            const float SlubNoise = ProceduralNoise3(YarnU * 1.4f, YarnV * .09f, 21);
+            const float Fade = (.15f + .85f * ProceduralSmoothstep(.3f, .8f, SlubNoise)) * Parameters.DenimFade *
+                (1 - Weave.Direction);
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Sample.Albedo[Channel] = ProceduralMix(Sample.Albedo[Channel], Parameters.Weft[Channel] * .85f, Fade);
+            const float SlubShade = 1 + (SlubNoise - .5f) * Parameters.Slub * .4f;
+            for (int Channel = 0; Channel < 3; ++Channel) Sample.Albedo[Channel] *= SlubShade;
+            Sample.Relief += (SlubNoise - .5f) * Parameters.Slub * .001f * (1 - Weave.Direction);
+        }
+    }
+    return Sample;
+}
+
+WeaveBakeMaps BakeWeaveMaps(const WeaveFieldParameters &Parameters, uint32_t Extent)
+{
+    if (!Extent || Extent > 2048) throw std::runtime_error("Weave bake extent is unbounded.");
+    if (!(Parameters.Scale > 0)) throw std::runtime_error("Weave bake needs a positive scale.");
+    WeaveBakeMaps Maps;
+    Maps.Extent = Extent;
+    Maps.Albedo.assign(size_t(Extent) * Extent * 3, 0);
+    Maps.Relief.assign(size_t(Extent) * Extent, 0);
+    const float PixelStep = Parameters.Scale / float(Extent);
+    for (uint32_t Y = 0; Y < Extent; ++Y)
+        for (uint32_t X = 0; X < Extent; ++X)
+        {
+            const auto Sample = EvaluateWeaveField((float(X) + .5f) / float(Extent), (float(Y) + .5f) / float(Extent),
+                Parameters, PixelStep);
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Maps.Albedo[(size_t(Y) * Extent + X) * 3 + Channel] = Sample.Albedo[Channel];
+            Maps.Relief[size_t(Y) * Extent + X] = Sample.Relief;
+        }
+    return Maps;
+}
+
+float WeaveReliefAmplitude(const WeaveFieldParameters &Parameters)
+{
+    const float Arch = (Parameters.Type == 4 && (Parameters.FabricMode == 1 || Parameters.FabricMode == 2))
+        ? Parameters.Grain * .15f
+        : 1.f;
+    float Amplitude = Arch * Parameters.Relief * .022f / std::max(Parameters.Scale, .01f);
+    if (Parameters.Type == 4)
+    {
+        Amplitude += Parameters.Fuzz * .0004f;
+        if (Parameters.Weave == 8) Amplitude += Parameters.Slub * .0005f;
+    }
+    return Amplitude;
+}
+
+KnitFieldSample EvaluateKnitField(float U, float V, const KnitFieldParameters &Parameters, float PixelStep)
+{
+    if (!(Parameters.Scale > 0)) throw std::runtime_error("Knit field needs a positive scale.");
+    const float C = std::cos(Parameters.AngleRadians), S = std::sin(Parameters.AngleRadians);
+    const float Step = PixelStep * (std::abs(C) + std::abs(S));
+    const float Loops = EvaluateKnitLoops(U, V, Parameters, Step);
+    // 📝 Melange mottling keeps its two in-plane rates; the out-of-plane axis takes the seed slice.
+    const float Melange = ProceduralNoise3(U * Parameters.Scale * .25f, Parameters.Seed, V * Parameters.Scale * 2);
+    const float Mask = ProceduralSmoothstep(.55f, .9f, Melange) * .32f;
+    const float Shade = .48f + Loops * .57f;
+    KnitFieldSample Sample;
+    for (int Channel = 0; Channel < 3; ++Channel)
+        Sample.Albedo[Channel] = ProceduralMix(Parameters.Color[Channel], Parameters.Secondary[Channel], Mask) * Shade;
+    Sample.Relief = Loops * Parameters.Grain * .008f / std::max(std::sqrt(Parameters.Scale), .1f) +
+        ProceduralNoise3(U * Parameters.Scale * 13, Parameters.Seed, V * Parameters.Scale * 13) * Parameters.Fuzz * .0004f;
+    return Sample;
+}
+
+KnitBakeMaps BakeKnitMaps(const KnitFieldParameters &Parameters, uint32_t Extent)
+{
+    if (!Extent || Extent > 2048) throw std::runtime_error("Knit bake extent is unbounded.");
+    if (!(Parameters.Scale > 0)) throw std::runtime_error("Knit bake needs a positive scale.");
+    KnitBakeMaps Maps;
+    Maps.Extent = Extent;
+    Maps.Albedo.assign(size_t(Extent) * Extent * 3, 0);
+    Maps.Relief.assign(size_t(Extent) * Extent, 0);
+    const float PixelStep = Parameters.Scale / float(Extent);
+    for (uint32_t Y = 0; Y < Extent; ++Y)
+        for (uint32_t X = 0; X < Extent; ++X)
+        {
+            const auto Sample = EvaluateKnitField((float(X) + .5f) / float(Extent), (float(Y) + .5f) / float(Extent),
+                Parameters, PixelStep);
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Maps.Albedo[(size_t(Y) * Extent + X) * 3 + Channel] = Sample.Albedo[Channel];
+            Maps.Relief[size_t(Y) * Extent + X] = Sample.Relief;
+        }
+    return Maps;
+}
+
+float KnitReliefAmplitude(const KnitFieldParameters &Parameters)
+{
+    return Parameters.Grain * .008f / std::max(std::sqrt(std::max(Parameters.Scale, 0.f)), .1f) +
+        Parameters.Fuzz * .0004f;
+}
+
+double SandBedSeed(std::string_view BedId)
+{
+    // 📝 sandLayerSeed parity: FNV-1a over the id bytes, reduced mod 8191, times .013.
+    uint32_t Hash = 2166136261u;
+    for (const unsigned char Byte : BedId) Hash = (Hash ^ Byte) * 16777619u;
+    return double(Hash % 8191) * .013;
+}
+
+SandFieldSample EvaluateSandField(float U, float V, const SandFieldParameters &Parameters, uint32_t Extent)
+{
+    if (Parameters.Count <= 0 || Parameters.Count > 4) throw std::runtime_error("Sand field needs one to four beds.");
+    if (!Extent) throw std::runtime_error("Sand field needs a nonzero extent.");
+    SandFieldSample Sample;
+    for (int Channel = 0; Channel < 3; ++Channel) Sample.Tint[Channel] = Parameters.BaseColor[Channel];
+    const SandBedParameters &Deepest = Parameters.Beds[Parameters.Count - 1];
+    Sample.Roughness = std::min(1.f, Deepest.Roughness + .16f);
+    float TotalBand = 0;
+    for (int Bed = 0; Bed < Parameters.Count; ++Bed) TotalBand += Parameters.Beds[Bed].Thickness;
+    const float C = std::cos(Parameters.BandAngleRadians), S = std::sin(Parameters.BandAngleRadians);
+    const float BandX = C * U + S * V, BandY = -S * U + C * V;
+    const float BandNoise = ProceduralNoise3(BandX * .7f, BandY * .7f, Parameters.Seed * .013f);
+    const float Band = ProceduralFract(BandY * Parameters.BandFrequency + (BandNoise - .5f) * Parameters.BandWarp);
+    float BandEdge = 0;
+    int Selected = 0;
+    for (int Bed = 0; Bed < 4; ++Bed)
+        if (Bed < Parameters.Count)
+        {
+            const float End = BandEdge + Parameters.Beds[Bed].Thickness / std::max(TotalBand, .001f);
+            if (Band >= BandEdge && Band < End) Selected = Bed;
+            BandEdge = End;
+        }
+    // 📝 Bed 0 is uppermost: lower beds evaluate first and the selected top grain occludes them.
+    for (int Reverse = 0; Reverse < 4; ++Reverse)
+    {
+        const int Layer = 3 - Reverse;
+        if (Layer >= Parameters.Count || (Parameters.BandsMode == 1 && Layer != Selected)) continue;
+        const SandBedParameters &Bed = Parameters.Beds[Layer];
+        if (!(Bed.Coverage > 0)) continue;
+        const float Frequency = 110 * Parameters.Scale / std::max(Bed.Size, .0625f);
+        float DomainX = U * Frequency + float(Bed.BedSeed * 71.3);
+        float DomainY = V * Frequency + float(Bed.BedSeed * 29.7);
+        // 📝 Both warp taps read the pre-warp domain; GLSL evaluates the pair simultaneously.
+        const float WarpX = ProceduralNoise3(DomainX * .19f, DomainY * .19f, Parameters.Seed);
+        const float WarpY = ProceduralNoise3(DomainX * .19f + 19.1f, DomainY * .19f + 19.1f, Parameters.Seed);
+        DomainX += (WarpX - .5f) * .45f;
+        DomainY += (WarpY - .5f) * .45f;
+        // 📝 The domain warp is low-rate, so the footprint converges to the nominal grain texel rate.
+        const float Footprint = Frequency / float(Extent);
+        const float Resolved = 1 - ProceduralSmoothstep(.55f, 1.8f, Footprint);
+        float Mean[3], Tint[3];
+        for (int Channel = 0; Channel < 3; ++Channel)
+        {
+            Mean[Channel] = Bed.Color[Channel] * .81f + Bed.Pale[Channel] * .17f + Bed.Color[Channel] * .38f * .02f;
+            Tint[Channel] = Mean[Channel];
+        }
+        float Opacity = Bed.Coverage * .78f, Cap = 0, RoughGrain = Bed.Roughness, TiltX = 0, TiltY = 0;
+        if (Resolved > .001f)
+        {
+            const float CellSeed = Parameters.Seed + float(Bed.BedSeed * 97.1);
+            const SandCell Cell = EvaluateSandCell(DomainX, DomainY, CellSeed, Bed.SizeVariation, Bed.Size);
+            const float Distance = std::sqrt(Cell.Metric), Aa = std::max(Footprint * .65f, .01f);
+            const float Contact = ProceduralSmoothstep(0.f, std::max(.04f, Aa), std::sqrt(Cell.Second) - Distance);
+            const float Outline = 1 - ProceduralSmoothstep(1 - Aa, 1 + Aa, Distance);
+            const float Occupied =
+                ProceduralStep(1 - Bed.Coverage, ProceduralHash31(Cell.IdX, Cell.IdY, CellSeed + 271));
+            const float GrainMask = Outline * Contact * Occupied;
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Tint[Channel] =
+                    ProceduralMix(Bed.Color[Channel], Bed.Pale[Channel], ProceduralSmoothstep(.7f, .92f, Cell.Random));
+            const float Dark = ProceduralStep(.97f, Cell.Random);
+            const float Bright = .86f + .28f * Cell.Rough;
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Tint[Channel] = ProceduralMix(Tint[Channel], Tint[Channel] * .38f, Dark) * Bright;
+            const float Rounded =
+                std::pow(std::max(0.f, 1 - Cell.Metric), ProceduralMix(.2f, .85f, Bed.Roundness));
+            Cap = Rounded * GrainMask * Bed.Size * .01f * Bed.Relief * .62f / std::max(Parameters.Scale, .1f);
+            RoughGrain = std::clamp(Bed.Roughness + (Cell.Rough - .5f) * Bed.RoughnessVariation, .04f, 1.f);
+            const float Angle = Cell.Random * 6.2831853f;
+            TiltX = std::cos(Angle) * Bed.Tilt * (.35f + .65f * Cell.Spec);
+            TiltY = std::sin(Angle) * Bed.Tilt * (.35f + .65f * Cell.Spec);
+            Opacity = ProceduralMix(Opacity, GrainMask, Resolved);
+            for (int Channel = 0; Channel < 3; ++Channel) Tint[Channel] = ProceduralMix(Mean[Channel], Tint[Channel], Resolved);
+            RoughGrain = ProceduralMix(Bed.Roughness, RoughGrain, Resolved);
+        }
+        for (int Channel = 0; Channel < 3; ++Channel)
+            Sample.Tint[Channel] = ProceduralMix(Sample.Tint[Channel], Tint[Channel], Opacity);
+        Sample.Relief = ProceduralMix(Sample.Relief, Cap, Opacity);
+        Sample.Roughness = ProceduralMix(Sample.Roughness, RoughGrain, Opacity);
+        Sample.Facet[0] = ProceduralMix(Sample.Facet[0], TiltX * Resolved, Opacity);
+        Sample.Facet[1] = ProceduralMix(Sample.Facet[1], TiltY * Resolved, Opacity);
+    }
+    return Sample;
+}
+
+SandBakeMaps BakeSandMaps(const SandFieldParameters &Parameters, uint32_t Extent)
+{
+    if (!Extent || Extent > 2048) throw std::runtime_error("Sand bake extent is unbounded.");
+    if (Parameters.Count <= 0 || Parameters.Count > 4) throw std::runtime_error("Sand bake needs one to four beds.");
+    SandBakeMaps Maps;
+    Maps.Extent = Extent;
+    Maps.Tint.assign(size_t(Extent) * Extent * 3, 0);
+    Maps.Roughness.assign(size_t(Extent) * Extent, 0);
+    Maps.Relief.assign(size_t(Extent) * Extent, 0);
+    Maps.Facet.assign(size_t(Extent) * Extent * 2, 0);
+    for (uint32_t Y = 0; Y < Extent; ++Y)
+        for (uint32_t X = 0; X < Extent; ++X)
+        {
+            const auto Sample = EvaluateSandField((float(X) + .5f) / float(Extent), (float(Y) + .5f) / float(Extent),
+                Parameters, Extent);
+            for (int Channel = 0; Channel < 3; ++Channel)
+                Maps.Tint[(size_t(Y) * Extent + X) * 3 + Channel] = Sample.Tint[Channel];
+            Maps.Roughness[size_t(Y) * Extent + X] = Sample.Roughness;
+            Maps.Relief[size_t(Y) * Extent + X] = Sample.Relief;
+            Maps.Facet[(size_t(Y) * Extent + X) * 2] = Sample.Facet[0];
+            Maps.Facet[(size_t(Y) * Extent + X) * 2 + 1] = Sample.Facet[1];
+        }
+    return Maps;
+}
+
+float SandReliefAmplitude(const SandFieldParameters &Parameters)
+{
+    float Amplitude = 0;
+    for (int Bed = 0; Bed < Parameters.Count; ++Bed)
+        Amplitude = std::max(Amplitude, Parameters.Beds[Bed].Size * .01f * Parameters.Beds[Bed].Relief * .62f /
+                std::max(Parameters.Scale, .1f));
+    return Amplitude;
+}
+
+std::vector<uint8_t> ConvertLinearAlbedoRgba(const std::vector<float> &Linear, uint32_t Extent)
+{
+    if (!Extent || Linear.size() != size_t(Extent) * Extent * 3)
+        throw std::runtime_error("Albedo source is not a square linear-RGB field.");
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Pixel = 0; Pixel < size_t(Extent) * Extent; ++Pixel)
+    {
+        uint8_t *Out = &Rgba[Pixel * 4];
+        for (int Channel = 0; Channel < 3; ++Channel)
+            Out[Channel] = uint8_t(std::lround(std::clamp(ProceduralLinearToSrgb(Linear[Pixel * 3 + Channel]), 0.f, 1.f) * 255));
+        Out[3] = 255;
+    }
+    return Rgba;
+}
+
+std::vector<uint8_t> ConvertSandOrmRgba(const std::vector<float> &Roughness, uint32_t Extent)
+{
+    if (!Extent || Roughness.size() != size_t(Extent) * Extent)
+        throw std::runtime_error("ORM source is not a square roughness field.");
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Pixel = 0; Pixel < Roughness.size(); ++Pixel)
+    {
+        uint8_t *Out = &Rgba[Pixel * 4];
+        Out[0] = 255;
+        Out[1] = uint8_t(std::lround(std::clamp(Roughness[Pixel], 0.f, 1.f) * 255));
+        Out[2] = 255;
+        Out[3] = 255;
+    }
+    return Rgba;
+}
+
+std::vector<uint8_t> ConvertFacetNormalRgba(const std::vector<float> &Relief, const std::vector<float> &Facet,
+    uint32_t Extent, float Strength)
+{
+    if (!Extent || Relief.size() != size_t(Extent) * Extent || Facet.size() != size_t(Extent) * Extent * 2)
+        throw std::runtime_error("Normal source is not a square relief/facet field pair.");
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (uint32_t Y = 0; Y < Extent; ++Y)
+        for (uint32_t X = 0; X < Extent; ++X)
+        {
+            const uint32_t Left = X > 0 ? X - 1 : 0, Right = X + 1 < Extent ? X + 1 : Extent - 1;
+            const uint32_t Up = Y > 0 ? Y - 1 : 0, Down = Y + 1 < Extent ? Y + 1 : Extent - 1;
+            const float Gx = (Relief[size_t(Y) * Extent + Right] - Relief[size_t(Y) * Extent + Left]) * .5f;
+            const float Gy = (Relief[size_t(Down) * Extent + X] - Relief[size_t(Up) * Extent + X]) * .5f;
+            const float Nx = -Gx * Strength + Facet[(size_t(Y) * Extent + X) * 2];
+            const float Ny = -Gy * Strength + Facet[(size_t(Y) * Extent + X) * 2 + 1];
+            const float Inverse = 1 / std::sqrt(Nx * Nx + Ny * Ny + 1);
+            uint8_t *Pixel = &Rgba[(size_t(Y) * Extent + X) * 4];
+            Pixel[0] = uint8_t(std::lround((Nx * Inverse * .5f + .5f) * 255));
+            Pixel[1] = uint8_t(std::lround((Ny * Inverse * .5f + .5f) * 255));
+            Pixel[2] = uint8_t(std::lround((Inverse * .5f + .5f) * 255));
+            Pixel[3] = 255;
+        }
+    return Rgba;
+}
+
 std::vector<std::string> QueryProceduralOps() { return {"scratches", "metalGrain", "polymerGrain"}; }
 
 std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)

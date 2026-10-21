@@ -1,11 +1,17 @@
 Format = 1
 Name = "Basket Cotton"
 
+[Textures]
+Albedo = "Textures/basket-cotton-albedo.png"
+Normal = "Textures/basket-cotton-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.47353149614800955, 0.44520119451622786, 0.3613067797835095]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.86
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.2
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

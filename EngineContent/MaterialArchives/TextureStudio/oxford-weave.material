@@ -1,11 +1,17 @@
 Format = 1
 Name = "Oxford Weave"
 
+[Textures]
+Albedo = "Textures/oxford-weave-albedo.png"
+Normal = "Textures/oxford-weave-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.20507873639031693, 0.31398871337571754, 0.4232676699860717]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.85
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0.2
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

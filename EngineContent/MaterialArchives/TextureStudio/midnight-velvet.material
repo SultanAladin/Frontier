@@ -1,6 +1,10 @@
 Format = 1
 Name = "Midnight Velvet"
 
+[Textures]
+Albedo = "Textures/midnight-velvet-albedo.png"
+Normal = "Textures/midnight-velvet-normal.png"
+
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.01520851442291271, 0.03954623527673283, 0.05448027644244237]
@@ -9,3 +13,5 @@ Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

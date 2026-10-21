@@ -1,11 +1,17 @@
 Format = 1
 Name = "Melange Jersey Knit"
 
+[Textures]
+Albedo = "Textures/melange-jersey-knit-albedo.png"
+Normal = "Textures/melange-jersey-knit-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.08437621154414882, 0.10946171077829933, 0.14126329114027164]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.91
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]

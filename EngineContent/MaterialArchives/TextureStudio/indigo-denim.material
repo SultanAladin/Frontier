@@ -1,11 +1,17 @@
 Format = 1
 Name = "Indigo Denim"
 
+[Textures]
+Albedo = "Textures/indigo-denim-albedo.png"
+Normal = "Textures/indigo-denim-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.021219010376003558, 0.0466650863368801, 0.0953074666309647]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.85
 Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [1, 1, 0, 0]
