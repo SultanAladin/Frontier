@@ -16,6 +16,13 @@ bool EquivalentProgram(const VectorCoverageProgram &First, const VectorCoverageP
 {
     return First.Root == Second.Root && First.Instructions == Second.Instructions && First.Segments == Second.Segments;
 }
+constexpr std::array<uint32_t, 3> PooledExtents{128, 256, 512};
+size_t IndexForExtent(uint32_t Extent)
+{
+    for (size_t Index = 0; Index < PooledExtents.size(); ++Index)
+        if (PooledExtents[Index] == Extent) return Index;
+    return Extent <= 128 ? 0 : Extent <= 256 ? 1 : 2;
+}
 }
 
 void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Access, RasterShader Shader)
@@ -23,7 +30,6 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     RetainedAccess = Access;
     RetainedShaderWords.assign(Shader.Words.begin(), Shader.Words.end());
     RetainedShaderEntry = Shader.Entry ? Shader.Entry : "";
-    for (auto &Slot : Slots) Slot.Rasterization.Initialize(Access, Shader, 512, 512);
 }
 
 void VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments)
@@ -32,12 +38,30 @@ void VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments)
     // channel; retired slots re-bracket before dense documents dispatch.
     const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Segments, 1);
     auto &Slot = Slots[Index];
-    const auto Current = Slot.Rasterization.QueryExtent();
-    if (Current.width == Needed && Current.height == Needed) return;
-    Slot.Rasterization.Finalize();
-    Slot.Rasterization.Initialize(RetainedAccess, RasterShader{RetainedShaderWords, RetainedShaderEntry.c_str()}, Needed, Needed);
-    DiagnosticJournal::Append("PatternBake", "canvas slot " + std::to_string(Index) + " extent " +
-        std::to_string(Current.width) + "->" + std::to_string(Needed) + " for " + std::to_string(Segments) + " segments");
+    const size_t Which = IndexForExtent(Needed);
+    if (Which == Slot.Active) return;
+    if (!Slot.Extents[Which])
+    {
+        auto Fresh = std::make_unique<VectorCoverageRasterization>();
+        Fresh->Initialize(RetainedAccess, RasterShader{RetainedShaderWords, RetainedShaderEntry.c_str()}, Needed, Needed);
+        Slot.Extents[Which] = std::move(Fresh);
+        DiagnosticJournal::Append("PatternBake", "canvas slot " + std::to_string(Index) + " pooled extent " +
+            std::to_string(Needed) + " for " + std::to_string(Segments) + " segments");
+    }
+    Slot.Active = Which;
+}
+
+VectorCoverageRasterization &VectorAuthoringCoverageRendering::ActiveRasterization(size_t Index)
+{
+    auto *Active = Slots.at(Index).Extents.at(Slots.at(Index).Active).get();
+    if (!Active) throw std::runtime_error("Authoring coverage slot has no fitted rasterization.");
+    return *Active;
+}
+
+const VectorCoverageRasterization *VectorAuthoringCoverageRendering::QueryActiveRasterization(size_t Slot) const
+{
+    const auto &Entry = Slots.at(Slot);
+    return Entry.Active < Entry.Extents.size() ? Entry.Extents[Entry.Active].get() : nullptr;
 }
 
 void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderArchive)
@@ -109,11 +133,11 @@ void VectorAuthoringCoverageRendering::ConstructCommands(VkCommandBuffer Command
     if (Slot.Pending)
     {
         if (Slot.SampledSerial > Completed) throw std::runtime_error("Authoring coverage output is still sampled by an earlier submission.");
-        if (Slot.SurfaceProgram) Slot.Rasterization.ConfigureRetiredSurface(*Slot.SurfaceProgram, Completed);
-        else Slot.Rasterization.ConfigureRetiredProgram(*Slot.Program, Completed);
+        if (Slot.SurfaceProgram) ActiveRasterization(size_t(Selected)).ConfigureRetiredSurface(*Slot.SurfaceProgram, Completed);
+        else ActiveRasterization(size_t(Selected)).ConfigureRetiredProgram(*Slot.Program, Completed);
         Slot.Pending = false;
     }
-    (void)Slot.Rasterization.ConstructCommands(Commands, Completed, SubmissionSerial);
+    (void)ActiveRasterization(size_t(Selected)).ConstructCommands(Commands, Completed, SubmissionSerial);
     PendingSerial = SubmissionSerial;
 }
 
@@ -122,7 +146,7 @@ void VectorAuthoringCoverageRendering::ConfirmSubmission()
     if (PendingSerial && Selected >= 0)
     {
         auto &Slot = Slots[size_t(Selected)];
-        Slot.Rasterization.ConfirmSubmission(PendingSerial);
+        ActiveRasterization(size_t(Selected)).ConfirmSubmission(PendingSerial);
         Slot.SampledSerial = PendingSerial;
     }
     PendingSerial = 0;
@@ -131,18 +155,35 @@ void VectorAuthoringCoverageRendering::ConfirmSubmission()
 
 VkImage VectorAuthoringCoverageRendering::QueryImage(size_t Slot) const
 {
-    return Slots.at(Slot).Rasterization.QueryImage();
+    const auto *Active = QueryActiveRasterization(Slot);
+    return Active ? Active->QueryImage() : VK_NULL_HANDLE;
 }
 
 VkImageView VectorAuthoringCoverageRendering::QueryImageView(size_t Slot) const
 {
-    return Slots.at(Slot).Rasterization.QueryImageView();
+    const auto *Active = QueryActiveRasterization(Slot);
+    return Active ? Active->QueryImageView() : VK_NULL_HANDLE;
+}
+
+uint32_t VectorAuthoringCoverageRendering::QuerySlotExtent(size_t Slot) const
+{
+    const auto &Entry = Slots.at(Slot);
+    return Entry.Active < PooledExtents.size() ? PooledExtents[Entry.Active] : 0;
+}
+
+bool VectorAuthoringCoverageRendering::QuerySelectedReady() const noexcept
+{
+    if (Selected < 0) return false;
+    const auto &Slot = Slots[size_t(Selected)];
+    return !Slot.Pending && Slot.SampledSerial != 0 && Slot.SampledSerial <= Completed;
 }
 
 uint64_t VectorAuthoringCoverageRendering::QueryDispatchCount() const noexcept
 {
     uint64_t Count = 0;
-    for (const auto &Slot : Slots) Count += Slot.Rasterization.QueryDispatchCount();
+    for (const auto &Slot : Slots)
+        for (const auto &Extent : Slot.Extents)
+            if (Extent) Count += Extent->QueryDispatchCount();
     return Count;
 }
 
@@ -150,7 +191,10 @@ void VectorAuthoringCoverageRendering::Finalize() noexcept
 {
     for (auto &Slot : Slots)
     {
-        Slot.Rasterization.Finalize();
+        for (auto &Extent : Slot.Extents)
+            if (Extent) Extent->Finalize();
+        Slot.Extents = {};
+        Slot.Active = 3;
         Slot.Program.reset();
         Slot.SurfaceProgram.reset();
         Slot.SampledSerial = 0;

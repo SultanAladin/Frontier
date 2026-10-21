@@ -78,6 +78,7 @@ public:
     bool RequestClose();
     bool ConsumeMaterialApplyRequest() noexcept;
     std::function<uint64_t(const VectorCoverageProgram &)> QueryCoverage;
+    std::function<bool()> QueryCoverageReady;
     std::function<std::optional<uint32_t>(const VectorAuthoringDocument &, PlanePoint)> QuerySelectionToken;
     std::function<bool(std::string_view)> SaveSource;
     std::function<std::optional<std::string>()> LoadSource;

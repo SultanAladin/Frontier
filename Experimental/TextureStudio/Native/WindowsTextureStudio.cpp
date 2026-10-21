@@ -26,6 +26,7 @@
 #include "UI/Editor/ControlCentrePanel.h"
 #include "UI/TextureStudio/MaterialLibraryPanel.h"
 #include <array>
+#include <map>
 #include <windows.h>
 #include <shellapi.h>
 #include <GLFW/glfw3.h>
@@ -104,7 +105,7 @@ int RunTextureWorkspace()
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
-    std::array<VkDescriptorSet, 3> CoverageDescriptors{};
+    std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
     std::filesystem::path PatternSource;
     bool PatternActive = false;
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
@@ -241,14 +242,22 @@ int RunTextureWorkspace()
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
         SelectionEvaluation->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSelectionCompute.spv");
-        for (size_t Index = 0; Index < CoverageDescriptors.size(); ++Index)
-            CoverageDescriptors[Index] = ImGui_ImplVulkan_AddTexture(CoverageRendering->QueryImageView(Index),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program)
         {
+            // 📝 Pooled slot extents keep their images alive until Finalize, so lazily retained
+            // descriptors stay valid without ever freeing a set a previous frame still samples.
             const int Slot = CoverageRendering->SelectProgram(Program);
-            return Slot >= 0 ? uint64_t(CoverageDescriptors[size_t(Slot)]) : uint64_t(0);
+            if (Slot < 0) return uint64_t(0);
+            const auto Key = std::make_pair(size_t(Slot), CoverageRendering->QuerySlotExtent(size_t(Slot)));
+            const auto Position = CoverageDescriptors.find(Key);
+            if (Position != CoverageDescriptors.end()) return uint64_t(Position->second);
+            const auto View = CoverageRendering->QueryImageView(size_t(Slot));
+            if (!View) return uint64_t(0);
+            const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            CoverageDescriptors.emplace(Key, Descriptor);
+            return uint64_t(Descriptor);
         };
+        Pattern->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Pattern->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
             return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
@@ -442,8 +451,9 @@ int RunTextureWorkspace()
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
-        for (const auto Descriptor : CoverageDescriptors)
-            if (Descriptor) ImGui_ImplVulkan_RemoveTexture(Descriptor);
+        for (const auto &Entry : CoverageDescriptors)
+            if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
+        CoverageDescriptors.clear();
         if (SelectionEvaluation) SelectionEvaluation->Finalize();
         if (MaterialBridge) MaterialBridge->Finalize();
         if (CoverageRendering) CoverageRendering->Finalize();

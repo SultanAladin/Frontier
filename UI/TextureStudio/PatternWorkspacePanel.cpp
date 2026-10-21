@@ -1914,6 +1914,16 @@ void PatternWorkspacePanel::ConstructCanvas()
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram) : 0;
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
+    if (Texture && QueryCoverageReady && !QueryCoverageReady())
+    {
+        const char *Badge = "Baking pattern...";
+        const ImVec2 BadgeExtent = ImGui::CalcTextSize(Badge);
+        const ImVec2 BadgeMaximum(BoardMaximum.x - 10 * Scale, BoardMinimum.y + 10 * Scale + BadgeExtent.y + 10 * Scale);
+        const ImVec2 BadgeMinimum(BadgeMaximum.x - BadgeExtent.x - 20 * Scale, BoardMinimum.y + 10 * Scale);
+        Ink->AddRectFilled(BadgeMinimum, BadgeMaximum, IM_COL32(26, 30, 24, 225), 6 * Scale);
+        Ink->AddRect(BadgeMinimum, BadgeMaximum, IM_COL32(191, 216, 169, 255), 6 * Scale);
+        Ink->AddText(ImVec2(BadgeMinimum.x + 10 * Scale, BadgeMinimum.y + 5 * Scale), IM_COL32(212, 232, 192, 255), Badge);
+    }
     if (GridEnabled)
     {
         for (float Coordinate = 0; Coordinate <= 512; Coordinate += 64)
@@ -2606,7 +2616,7 @@ void PatternWorkspacePanel::SuspendContent() noexcept
 void PatternWorkspacePanel::FinalizeContent() noexcept
 {
     SuspendContent();
-    QueryCoverage = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; CancelClose = {}; EvaluateNavigationDelta = {};
+    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; CancelClose = {}; EvaluateNavigationDelta = {};
 }
 
 void PatternWorkspacePanel::ConstructInterface()

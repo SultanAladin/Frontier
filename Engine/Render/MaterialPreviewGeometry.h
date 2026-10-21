@@ -5,6 +5,8 @@
 
 #pragma once
 #include "SurfaceGeometry.h"
+#include "DrapedClothPositions.h"
+#include <algorithm>
 #include <numbers>
 
 namespace Frontier
@@ -152,45 +154,162 @@ inline SurfaceGeometry ConstructMaterialPreviewSpecimen()
     }
     return Geometry;
 }
-// 📝 Draped fabric swatch: raised centre falling to the edges with modulated fold ridges and orthogonalized tangents.
+// 📝 Draped cloth ported 1:1 from the HTML frozen PBD simulation: same baked grid, UVs, indices and
+// edge strip as createDrapedClothGeometry, uniformly scaled/translated to the ±.85 inspection stage.
+// The native preview frame matches three.js (+X right, +Y up, +Z toward the viewer), so no mirroring.
 inline SurfaceGeometry ConstructMaterialPreviewCloth()
 {
     SurfaceGeometry Geometry;
-    constexpr uint32_t Grid = 96;
-    const auto Height = [](double X, double Y)
-    {
-        const double Radius2 = X * X + Y * Y;
-        const double Envelope = .35 + .65 * std::exp(-Radius2 * 1.6);
-        return .30 * std::exp(-Radius2 * 2.0) +
-            .06 * std::sin(9 * X + 2.2 * std::sin(5 * Y + .7)) * Envelope +
-            .045 * std::sin(11 * Y + 1.8 * std::sin(4 * X + 1.3)) * Envelope;
-    };
-    constexpr double Step = 1.6 / Grid, Epsilon = .002;
-    for (uint32_t iy = 0; iy <= Grid; ++iy)
-        for (uint32_t ix = 0; ix <= Grid; ++ix)
+    constexpr uint32_t Grid = DrapedClothGrid;
+    std::array<float, 3> Minimum{1e30f, 1e30f, 1e30f}, Maximum{-1e30f, -1e30f, -1e30f};
+    for (size_t Vertex = 0; Vertex < Grid * Grid; ++Vertex)
+        for (size_t Axis = 0; Axis < 3; ++Axis)
         {
-            const double X = -.8 + ix * Step, Y = -.8 + iy * Step;
-            const double SlopeX = (Height(X + Epsilon, Y) - Height(X - Epsilon, Y)) / (2 * Epsilon);
-            const double SlopeY = (Height(X, Y + Epsilon) - Height(X, Y - Epsilon)) / (2 * Epsilon);
-            const double NormalLength = std::hypot(SlopeX, SlopeY, 1);
-            const std::array<double, 3> Normal{-SlopeX / NormalLength, -SlopeY / NormalLength, 1 / NormalLength};
-            std::array<double, 3> Tangent{1, 0, SlopeX};
-            const double Along = Tangent[0] * Normal[0] + Tangent[1] * Normal[1] + Tangent[2] * Normal[2];
-            for (size_t Axis = 0; Axis < 3; ++Axis) Tangent[Axis] -= Along * Normal[Axis];
-            const double TangentLength = std::max(1e-12, std::hypot(Tangent[0], Tangent[1], Tangent[2]));
-            SurfaceCorner Corner;
-            Corner.Position = {float(X), float(Y), float(Height(X, Y))};
-            Corner.Normal = {float(Normal[0]), float(Normal[1]), float(Normal[2])};
-            Corner.Tangent = {float(Tangent[0] / TangentLength), float(Tangent[1] / TangentLength), float(Tangent[2] / TangentLength), 1};
-            Corner.Coordinates = {float(ix) / Grid, float(iy) / Grid};
-            Geometry.Corners.push_back(Corner);
+            Minimum[Axis] = std::min(Minimum[Axis], DrapedClothPositions[Vertex * 3 + Axis]);
+            Maximum[Axis] = std::max(Maximum[Axis], DrapedClothPositions[Vertex * 3 + Axis]);
         }
-    for (uint32_t iy = 0; iy < Grid; ++iy)
-        for (uint32_t ix = 0; ix < Grid; ++ix)
+    const std::array<float, 3> Centre{(Minimum[0] + Maximum[0]) / 2, (Minimum[1] + Maximum[1]) / 2, (Minimum[2] + Maximum[2]) / 2};
+    const float Scale = .85f / std::max({(Maximum[0] - Minimum[0]) / 2, (Maximum[1] - Minimum[1]) / 2, (Maximum[2] - Minimum[2]) / 2});
+    for (uint32_t Row = 0; Row < Grid; ++Row)
+        for (uint32_t Column = 0; Column < Grid; ++Column)
         {
-            const uint32_t First = iy * (Grid + 1) + ix;
-            for (const auto Index : {First, First + 1, First + Grid + 1, First + 1, First + Grid + 2, First + Grid + 1})
-                Geometry.TriangleCorners.push_back(Index);
+            const size_t Vertex = size_t(Row) * Grid + Column;
+            SurfaceCorner Corner;
+            Corner.Position = {(DrapedClothPositions[Vertex * 3] - Centre[0]) * Scale,
+                (DrapedClothPositions[Vertex * 3 + 1] - Centre[1]) * Scale,
+                (DrapedClothPositions[Vertex * 3 + 2] - Centre[2]) * Scale};
+            Corner.Coordinates = {float(Column) / (Grid - 1), 1 - float(Row) / (Grid - 1)};
+            Geometry.Corners.push_back(Corner);
+            if (Row < Grid - 1 && Column < Grid - 1)
+                for (const auto Index : {uint32_t(Vertex), uint32_t(Vertex + Grid), uint32_t(Vertex + 1),
+                    uint32_t(Vertex + 1), uint32_t(Vertex + Grid), uint32_t(Vertex + Grid + 1)})
+                    Geometry.TriangleCorners.push_back(Index);
+        }
+    // 📝 three.js computeVertexNormals: unnormalised (c-b)x(a-b) accumulation, then one normalisation.
+    std::vector<std::array<double, 3>> Normals(Geometry.Corners.size(), {0, 0, 0});
+    for (size_t Triangle = 0; Triangle < Geometry.TriangleCorners.size(); Triangle += 3)
+    {
+        const auto Corner = [&](uint32_t Index) { return Geometry.Corners[Index].Position; };
+        const auto A = Corner(Geometry.TriangleCorners[Triangle]), B = Corner(Geometry.TriangleCorners[Triangle + 1]),
+            C = Corner(Geometry.TriangleCorners[Triangle + 2]);
+        const std::array<double, 3> Edge1{double(C[0] - B[0]), double(C[1] - B[1]), double(C[2] - B[2])};
+        const std::array<double, 3> Edge2{double(A[0] - B[0]), double(A[1] - B[1]), double(A[2] - B[2])};
+        const std::array<double, 3> Face{Edge1[1] * Edge2[2] - Edge1[2] * Edge2[1],
+            Edge1[2] * Edge2[0] - Edge1[0] * Edge2[2], Edge1[0] * Edge2[1] - Edge1[1] * Edge2[0]};
+        for (size_t CornerIndex = 0; CornerIndex < 3; ++CornerIndex)
+            for (size_t Axis = 0; Axis < 3; ++Axis)
+                Normals[Geometry.TriangleCorners[Triangle + CornerIndex]][Axis] += Face[Axis];
+    }
+    for (size_t Vertex = 0; Vertex < Geometry.Corners.size(); ++Vertex)
+    {
+        const double Length = std::max(1e-30, std::hypot(Normals[Vertex][0], Normals[Vertex][1], Normals[Vertex][2]));
+        Geometry.Corners[Vertex].Normal = {float(Normals[Vertex][0] / Length), float(Normals[Vertex][1] / Length),
+            float(Normals[Vertex][2] / Length)};
+    }
+    // 📝 Narrow physical edge hanging below the sheet, as in the HTML boundary walk (closed loop).
+    std::vector<uint32_t> Boundary;
+    for (uint32_t Column = 0; Column < Grid; ++Column) Boundary.push_back(Column);
+    for (uint32_t Row = 1; Row < Grid; ++Row) Boundary.push_back(Row * Grid + Grid - 1);
+    for (uint32_t Column = Grid - 2; Column + 1 > 0; --Column) Boundary.push_back((Grid - 1) * Grid + Column);
+    for (uint32_t Row = Grid - 2; Row > 0; --Row) Boundary.push_back(Row * Grid);
+    const uint32_t Strip = uint32_t(Geometry.Corners.size());
+    for (const auto Source : Boundary)
+    {
+        const auto Origin = Geometry.Corners[Source];
+        SurfaceCorner Inner = Origin, Outer = Origin;
+        Outer.Position = {Origin.Position[0] - Origin.Normal[0] * .003f * Scale,
+            Origin.Position[1] - Origin.Normal[1] * .003f * Scale, Origin.Position[2] - Origin.Normal[2] * .003f * Scale};
+        Geometry.Corners.push_back(Inner);
+        Geometry.Corners.push_back(Outer);
+    }
+    for (size_t Edge = 0; Edge < Boundary.size(); ++Edge)
+    {
+        const uint32_t First = Strip + uint32_t(Edge) * 2, Second = Strip + uint32_t((Edge + 1) % Boundary.size()) * 2;
+        for (const auto Index : {First, First + 1, Second, Second, First + 1, Second + 1})
+            Geometry.TriangleCorners.push_back(Index);
+    }
+    // 📝 The HTML recomputes normals after appending the strip; ribbon corners keep ribbon normals.
+    Normals.resize(Geometry.Corners.size(), {0, 0, 0});
+    for (size_t Triangle = (Grid - 1) * (Grid - 1) * 6; Triangle < Geometry.TriangleCorners.size(); Triangle += 3)
+    {
+        const auto Corner = [&](uint32_t Index) { return Geometry.Corners[Index].Position; };
+        const auto A = Corner(Geometry.TriangleCorners[Triangle]), B = Corner(Geometry.TriangleCorners[Triangle + 1]),
+            C = Corner(Geometry.TriangleCorners[Triangle + 2]);
+        const std::array<double, 3> Edge1{double(C[0] - B[0]), double(C[1] - B[1]), double(C[2] - B[2])};
+        const std::array<double, 3> Edge2{double(A[0] - B[0]), double(A[1] - B[1]), double(A[2] - B[2])};
+        const std::array<double, 3> Face{Edge1[1] * Edge2[2] - Edge1[2] * Edge2[1],
+            Edge1[2] * Edge2[0] - Edge1[0] * Edge2[2], Edge1[0] * Edge2[1] - Edge1[1] * Edge2[0]};
+        for (size_t CornerIndex = 0; CornerIndex < 3; ++CornerIndex)
+            for (size_t Axis = 0; Axis < 3; ++Axis)
+                Normals[Geometry.TriangleCorners[Triangle + CornerIndex]][Axis] += Face[Axis];
+    }
+    for (size_t Vertex = Strip; Vertex < Geometry.Corners.size(); ++Vertex)
+    {
+        const double Length = std::max(1e-30, std::hypot(Normals[Vertex][0], Normals[Vertex][1], Normals[Vertex][2]));
+        Geometry.Corners[Vertex].Normal = {float(Normals[Vertex][0] / Length), float(Normals[Vertex][1] / Length),
+            float(Normals[Vertex][2] / Length)};
+    }
+    // 📝 Lengyel UV-gradient tangents over the cloth grid; the degenerate-UV strip copies its source tangent.
+    std::vector<std::array<double, 3>> Tangents(Grid * Grid, {0, 0, 0}), Bitangents(Grid * Grid, {0, 0, 0});
+    for (uint32_t Row = 0; Row < Grid - 1; ++Row)
+        for (uint32_t Column = 0; Column < Grid - 1; ++Column)
+        {
+            const std::array<uint32_t, 6> Quad{Row * Grid + Column, (Row + 1) * Grid + Column, Row * Grid + Column + 1,
+                Row * Grid + Column + 1, (Row + 1) * Grid + Column, (Row + 1) * Grid + Column + 1};
+            for (size_t Triangle = 0; Triangle < 2; ++Triangle)
+            {
+                const auto P = [&](uint32_t Index) { return Geometry.Corners[Index].Position; };
+                const auto U = [&](uint32_t Index) { return Geometry.Corners[Index].Coordinates; };
+                const auto I0 = Quad[Triangle * 3], I1 = Quad[Triangle * 3 + 1], I2 = Quad[Triangle * 3 + 2];
+                const std::array<double, 3> E1{double(P(I1)[0] - P(I0)[0]), double(P(I1)[1] - P(I0)[1]), double(P(I1)[2] - P(I0)[2])};
+                const std::array<double, 3> E2{double(P(I2)[0] - P(I0)[0]), double(P(I2)[1] - P(I0)[1]), double(P(I2)[2] - P(I0)[2])};
+                const double S1 = double(U(I1)[0] - U(I0)[0]), T1 = double(U(I1)[1] - U(I0)[1]);
+                const double S2 = double(U(I2)[0] - U(I0)[0]), T2 = double(U(I2)[1] - U(I0)[1]);
+                const double Determinant = S1 * T2 - S2 * T1;
+                if (std::abs(Determinant) < 1e-30) continue;
+                const double Reciprocal = 1 / Determinant;
+                for (const auto Index : {I0, I1, I2})
+                    for (size_t Axis = 0; Axis < 3; ++Axis)
+                    {
+                        Tangents[Index][Axis] += (E1[Axis] * T2 - E2[Axis] * T1) * Reciprocal;
+                        Bitangents[Index][Axis] += (E2[Axis] * S1 - E1[Axis] * S2) * Reciprocal;
+                    }
+            }
+        }
+    for (uint32_t Vertex = 0; Vertex < Grid * Grid; ++Vertex)
+    {
+        const auto &Normal = Geometry.Corners[Vertex].Normal;
+        std::array<double, 3> Tangent{Tangents[Vertex][0], Tangents[Vertex][1], Tangents[Vertex][2]};
+        const double Along = Tangent[0] * Normal[0] + Tangent[1] * Normal[1] + Tangent[2] * Normal[2];
+        for (size_t Axis = 0; Axis < 3; ++Axis) Tangent[Axis] -= Along * Normal[Axis];
+        const double Length = std::hypot(Tangent[0], Tangent[1], Tangent[2]);
+        if (Length < 1e-12) Tangent = {1, 0, 0};
+        else for (double &Coefficient : Tangent) Coefficient /= Length;
+        const double Handed = (Normal[1] * Tangent[2] - Normal[2] * Tangent[1]) * Bitangents[Vertex][0] +
+            (Normal[2] * Tangent[0] - Normal[0] * Tangent[2]) * Bitangents[Vertex][1] +
+            (Normal[0] * Tangent[1] - Normal[1] * Tangent[0]) * Bitangents[Vertex][2];
+        Geometry.Corners[Vertex].Tangent = {float(Tangent[0]), float(Tangent[1]), float(Tangent[2]), Handed < 0 ? -1.f : 1.f};
+    }
+    for (size_t Edge = 0; Edge < Boundary.size(); ++Edge)
+        for (const auto Vertex : {Strip + Edge * 2, Strip + Edge * 2 + 1})
+        {
+            // 📝 Ribbon corners keep ribbon normals, so re-orthogonalise the inherited tangent.
+            auto &Corner = Geometry.Corners[Vertex];
+            const auto &Source = Geometry.Corners[Boundary[Edge]];
+            std::array<double, 3> Tangent{Source.Tangent[0], Source.Tangent[1], Source.Tangent[2]};
+            const double Along = Tangent[0] * Corner.Normal[0] + Tangent[1] * Corner.Normal[1] + Tangent[2] * Corner.Normal[2];
+            for (size_t Axis = 0; Axis < 3; ++Axis) Tangent[Axis] -= Along * Corner.Normal[Axis];
+            double Length = std::hypot(Tangent[0], Tangent[1], Tangent[2]);
+            // 📝 A near-vanishing projection means the inherited tangent opposing the ribbon normal is
+            // rounding noise; fall back to a constructed perpendicular instead of amplifying it.
+            if (Length < 1e-3)
+            {
+                Tangent = {double(-Corner.Normal[1]), double(Corner.Normal[0]), 0};
+                Length = std::hypot(Tangent[0], Tangent[1], Tangent[2]);
+                if (Length < 1e-6) Tangent = {0, double(-Corner.Normal[2]), double(Corner.Normal[1])};
+                Length = std::hypot(Tangent[0], Tangent[1], Tangent[2]);
+            }
+            Corner.Tangent = {float(Tangent[0] / Length), float(Tangent[1] / Length), float(Tangent[2] / Length), Source.Tangent[3]};
         }
     Geometry.MaterialCoordinatesEnabled = true;
     return Geometry;
