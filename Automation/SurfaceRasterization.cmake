@@ -4,7 +4,7 @@
 # 🧩 Build the reusable Vulkan CAD unit and explicitly provisioned shader/readback validation, without automatic downloads.
 
 add_library(FrontierSurfaceRasterization STATIC Engine/Render/SurfaceRasterization.cpp Engine/Render/SurfaceMaterial.cpp
-    Engine/Render/MaterialThumbnailAtlas.cpp Engine/Render/MaterialLibraryRendering.cpp)
+    Engine/Render/MaterialThumbnailAtlas.cpp Engine/Render/MaterialLibraryRendering.cpp Engine/Render/MaterialProceduralBaking.cpp)
 target_include_directories(FrontierSurfaceRasterization PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
 target_include_directories(FrontierSurfaceRasterization PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include" "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")

@@ -30,6 +30,15 @@ struct MaterialRecipeControl
     std::string Unit;
 };
 
+// 📝 Parsed Alloy SourceRecipe: the uniform values the baker and the procedural controls share. Arrays and
+// nested layer tables stay unparsed until the layer panel lands; scalars and texts cover every shipped control.
+struct MaterialRecipeParameters
+{
+    std::string RecipeId;
+    std::map<std::string, double> Scalars;
+    std::map<std::string, std::string> Texts;
+};
+
 struct MaterialCatalogueEntry
 {
     std::filesystem::path RelativePath;
@@ -39,6 +48,7 @@ struct MaterialCatalogueEntry
     uint32_t              CatalogueOrdinal = UINT32_MAX;
     std::string           Category, Label, Description, RecipeTitle, RecipeCaption, ColourHex;
     std::vector<MaterialRecipeControl> RecipeControls;
+    MaterialRecipeParameters Recipe;
 };
 
 // ⚠️ Single-thread ownership; containment/conflict checks do not lock a concurrently hostile filesystem.

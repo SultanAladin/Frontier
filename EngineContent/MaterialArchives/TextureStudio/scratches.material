@@ -1,11 +1,19 @@
 Format = 1
 Name = "Scratches"
 
+# Procedural pilot: ORM/normal baked from the parsed SourceRecipe by
+# MaterialProceduralBake. Roughness carries the shader's +0.3 ceiling so the
+# ORM green ratio reproduces the 0.23 base in the field and 0.53 in the cuts.
+[Textures]
+Orm = "Textures/scratches-orm.png"
+Normal = "Textures/scratches-normal.png"
+
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.4851499400560704, 0.5149176653765214, 0.5271151257058131]
-Roughness = 0.23
+Roughness = 0.53
 Metallic = 1
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 6

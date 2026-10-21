@@ -183,6 +183,24 @@ bool MaterialLibrary::Refresh()
                     Match->RecipeTitle = Material["RecipeTitle"].value_or(std::string{});
                     Match->RecipeCaption = Material["RecipeCaption"].value_or(std::string{});
                     Match->ColourHex = Material["Color"].value_or(std::string{});
+                    if (const auto *Recipe = Material["SourceRecipe"].as_table())
+                        for (const auto &[Key, Value] : *Recipe)
+                        {
+                            const std::string Name(Key.str());
+                            if (Name == "recipeId")
+                            {
+                                if (const auto Id = Value.value<std::string>()) Match->Recipe.RecipeId = *Id;
+                                continue;
+                            }
+                            if (Match->Recipe.Scalars.size() + Match->Recipe.Texts.size() >= 256) break;
+                            if (Value.is_number() || Value.is_boolean())
+                            {
+                                const auto Scalar = Value.value<double>();
+                                if (Scalar) Match->Recipe.Scalars[Name] = *Scalar;
+                                else if (const auto Flag = Value.value<bool>()) Match->Recipe.Scalars[Name] = *Flag ? 1 : 0;
+                            }
+                            else if (const auto Text = Value.value<std::string>()) Match->Recipe.Texts[Name] = *Text;
+                        }
                     if (const auto *Controls = Material["Controls"].as_array())
                         for (const auto &ControlTerm : *Controls)
                         {
