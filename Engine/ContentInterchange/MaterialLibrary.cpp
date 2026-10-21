@@ -1250,6 +1250,7 @@ bool MaterialLibrary::ApplySource()
         if (Selection.empty()) throw std::runtime_error("Select a material first.");
         auto Definition = DecodeSurfaceMaterial(Source);
         Definition.ProceduralMaps = ProceduralOverrides;
+        if (ProceduralOverrides.empty()) EnsureProceduralChannelBakes(Definition, 256);
         auto Replacement = std::make_unique<CompiledSurfaceMaterial>(CompileSurfaceMaterial(Definition, Directory));
         Applied = std::move(Replacement);
         AppliedSource = Source;

@@ -167,6 +167,10 @@ struct MaterialPoolLocation
 // 📝 Derived texture-source key for a procedural channel without an explicit file; the baker and the save path
 // agree on this spelling, and the encoder never persists it.
 [[nodiscard]] std::string EncodeProceduralSource(size_t Stratum, std::string_view Channel);
+// 📝 Bake-on-open: channels naming an op but carrying no rebake overrides compile at proxy extent, so shipped
+// procedurals (and repaired procedural/* file sources) render without a manual rebake gesture; per-channel
+// failures journal and fall back to neutral maps instead of refusing the material.
+void EnsureProceduralChannelBakes(MaterialDefinition &Material, uint32_t Extent);
 MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image,MaterialTextureCategory Category);
 inline bool ValidateMaterialPyramid(const MaterialTexturePyramid &Texture)
 {

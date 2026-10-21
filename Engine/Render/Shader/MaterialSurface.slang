@@ -62,7 +62,7 @@ MaterialPixel MaterialSurfaceVertex(MaterialInput Corner)
     float3x3 Linear = (float3x3)Material.Illumination.ViewFromSurface;
     Pixel.ViewTangent = float4(mul(Linear,Corner.Tangent.xyz),Corner.Tangent.w*(determinant(Linear)<0 ? -1 : 1));
     Pixel.Coordinates = Corner.Coordinates*Material.UvScaleOffset.xy+Material.UvScaleOffset.zw;
-    Pixel.SubjectRole = Material.PreviewConfiguration.x == 1 && Corner.Coordinates.x < 0 ? uint(-Corner.Coordinates.x) : 0;
+    Pixel.SubjectRole = (Material.PreviewConfiguration.x == 1 || Material.PreviewConfiguration.x == 5) && Corner.Coordinates.x < 0 ? uint(-Corner.Coordinates.x) : 0;
     Pixel.MaterialPosition = Corner.Position;
     if (Material.PreviewConfiguration.x > 1) Pixel.MaterialPosition.x -= 16 * float(Material.PreviewConfiguration.x - 1);
     if (Material.PreviewConfiguration.x == 1 && Pixel.SubjectRole == 0)
@@ -213,10 +213,12 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
     if (Pixel.SubjectRole != 0)
     {
         Scattering.Configuration.x = Pixel.SubjectRole == 1 ? 2 : 1;
+        // 📝 Role 4: cloth support ball (#16191f physical, web Viewport parity).
         float3 Tint = Pixel.SubjectRole == 1 ? float3(.015209,.015996,.019382) :
-                      Pixel.SubjectRole == 2 ? float3(.006512,.006995,.008568) : float3(.135633,.144128,.165132);
-        Scattering.Strata[0].AlbedoRoughness = float4(Tint, Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .35 : .32);
-        Scattering.Strata[0].Optics = float4(Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .6 : .85,1.5,1,0);
+                      Pixel.SubjectRole == 2 ? float3(.006512,.006995,.008568) :
+                      Pixel.SubjectRole == 4 ? float3(0.008023,0.009721,0.013702) : float3(.135633,.144128,.165132);
+        Scattering.Strata[0].AlbedoRoughness = float4(Tint, Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .35 : Pixel.SubjectRole == 4 ? .4 : .32);
+        Scattering.Strata[0].Optics = float4(Pixel.SubjectRole == 1 ? .5 : Pixel.SubjectRole == 2 ? .6 : Pixel.SubjectRole == 4 ? .4 : .85,1.5,1,0);
         Scattering.Strata[0].Classification = 0;
         Scattering.Strata[0].AbsorptionThickness = 0;
         if (Pixel.SubjectRole == 1)

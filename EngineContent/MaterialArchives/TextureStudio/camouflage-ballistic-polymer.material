@@ -9,6 +9,7 @@ Metallic = 0
 Ior = 1.55
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 1
 
 [[Strata.Channels]]
 Name = "Albedo"

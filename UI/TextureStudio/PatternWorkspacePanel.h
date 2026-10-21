@@ -42,18 +42,20 @@ public:
         std::vector<PatternThumbnailShape> Shapes;
         bool Failed = false;
     };
-    // One GPU texture carries the whole 24-card gallery page; cards sample
-    // their slot sub-rectangle so dense weaves stop replaying cached vector
+    // One GPU texture carries the whole pattern library; cards sample their stable
+    // family-slot sub-rectangle so dense weaves stop replaying cached vector
     // triangles every frame. Texture 0 keeps the vector-replay fallback.
     struct PatternAtlasImage
     {
         uint64_t Texture = 0;
         float MinimumU = 0, MinimumV = 0, MaximumU = 1, MaximumV = 1;
     };
-    static constexpr uint32_t PatternAtlasTile = 256;
-    static constexpr uint32_t PatternAtlasColumns = 6;
+    static constexpr uint32_t PatternAtlasTile = 128;
+    static constexpr uint32_t PatternAtlasColumns = 12;
     static constexpr uint32_t PatternAtlasExtent = (PatternAtlasTile + 2) * PatternAtlasColumns;
     static constexpr size_t PatternAtlasPage = 24;
+    static constexpr size_t PatternAtlasCapacity = size_t(PatternAtlasColumns) * PatternAtlasColumns;
+    void ConfigureLibraryPage(size_t Page) { LibraryPage = Page; }
     void ConfigureLibraryFilter(const std::string &Group, const std::string &Palette, bool ClearSearch);
     void ConfigureLibrarySearch(const std::string &Text);
     [[nodiscard]] std::vector<size_t> QueryLibraryMatches() const;
@@ -124,6 +126,7 @@ private:
     uint64_t PatternAtlasRevision = 0;
     std::string PatternAtlasKey;
     std::vector<uint8_t> PatternAtlasPixels;
+    std::vector<uint8_t> PatternAtlasBaked;
     [[nodiscard]] const std::vector<uint8_t> &QueryPatternRaster(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry);
     void RefreshPatternAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;

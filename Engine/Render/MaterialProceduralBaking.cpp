@@ -4,7 +4,6 @@
 // 🧩 Exact CPU evaluation of the Alloy noise and scratch kernels; shared maps keep every baked channel consistent.
 
 #include "Engine/Render/MaterialProceduralBaking.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #include <algorithm>
 #include <array>
@@ -1080,14 +1079,18 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
     return ConvertScratchOrmRgba(Maps.Coverage, Extent, Base);
 }
 
+static void AppendProceduralPngBytes(void *Context, void *Data, int Size)
+{
+    auto *Png = static_cast<std::vector<uint8_t> *>(Context);
+    const auto *Bytes = static_cast<const uint8_t *>(Data);
+    Png->insert(Png->end(), Bytes, Bytes + Size);
+}
+
 std::vector<uint8_t> EncodeProceduralPng(const std::vector<uint8_t> &Rgba, uint32_t Extent)
 {
     if (!Extent || Rgba.size() != size_t(Extent) * Extent * 4) throw std::runtime_error("Procedural PNG source is not square RGBA.");
-    int Bytes = 0;
-    unsigned char *Encoded = stbi_write_png_to_mem(Rgba.data(), 0, int(Extent), int(Extent), 4, &Bytes);
-    if (!Encoded || Bytes <= 0) throw std::runtime_error("Procedural PNG encode failed.");
-    std::vector<uint8_t> Png(Encoded, Encoded + Bytes);
-    STBIW_FREE(Encoded);
+    std::vector<uint8_t> Png;
+    if (!stbi_write_png_to_func(AppendProceduralPngBytes, &Png, int(Extent), int(Extent), 4, Rgba.data(), 0)) throw std::runtime_error("Procedural PNG encode failed.");
     return Png;
 }
 }

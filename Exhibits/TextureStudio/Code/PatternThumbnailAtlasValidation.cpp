@@ -125,28 +125,42 @@ int main()
         try { (void)BlitPatternThumbnailAtlas(std::vector<std::vector<uint8_t>>(37, Blank), 256, 6, CardWell); }
         catch (const std::exception &) { Rejected = true; }
         Confirm(Rejected, "Atlas blit exceeded its grid capacity.");
-        // Headless panel: page pixels gate on a revision that only moves with the visible page.
+        // Headless panel: one library-wide atlas baked once; filters and page flips only re-point
+        // card UVs, so the revision (and GPU upload) never moves after the first bake.
         PatternWorkspacePanel Workspace;
         Confirm(Workspace.ConfigurePresetDirectory("EngineContent/PatternArchives/TextureStudio"), "Atlas panel rejected the pattern library.");
-        Confirm(PatternWorkspacePanel::QueryPatternAtlasExtent() == 1548, "Atlas extent is not the settled 1548.");
+        Confirm(PatternWorkspacePanel::QueryPatternAtlasExtent() == 1560, "Atlas extent is not the settled 1560.");
         const uint64_t First = Workspace.QueryPatternAtlasRevision();
         Confirm(First > 0, "Atlas revision never advanced past zero.");
         const auto &Pixels = Workspace.QueryPatternAtlasPixels();
-        Confirm(Pixels.size() == size_t(1548) * 1548 * 4, "Atlas page payload size changed.");
-        Confirm(Workspace.QueryPatternAtlasRevision() == First, "Atlas revision moved without a page change.");
+        Confirm(Pixels.size() == size_t(1560) * 1560 * 4, "Atlas page payload size changed.");
+        Confirm(Workspace.QueryPatternAtlasRevision() == First, "Atlas revision moved without new bakes.");
         bool Artwork = false;
-        for (uint32_t Y = 1; Y <= 256 && !Artwork; ++Y)
-            for (uint32_t X = 1; X <= 256; ++X)
+        for (uint32_t Y = 1; Y <= 128 && !Artwork; ++Y)
+            for (uint32_t X = 1; X <= 128; ++X)
             {
-                const auto Card = Texel(Pixels, 1548, X, Y);
+                const auto Card = Texel(Pixels, 1560, X, Y);
                 if (Card[0] != 20 || Card[1] != 23 || Card[2] != 24 || Card[3] != 255) { Artwork = true; break; }
             }
         Confirm(Artwork, "Atlas lead tile holds no baked artwork.");
-        Confirm(Texel(Pixels, 1548, 0, 1) == Texel(Pixels, 1548, 1, 1), "Atlas page gutter is not replicated.");
+        Confirm(Texel(Pixels, 1560, 0, 1) == Texel(Pixels, 1560, 1, 1), "Atlas page gutter is not replicated.");
+        size_t ArtworkTiles = 0;
+        for (size_t Slot = 0; Slot < 144; ++Slot)
+        {
+            const auto Card = Texel(Pixels, 1560, uint32_t((Slot % 12) * 130 + 65), uint32_t((Slot / 12) * 130 + 65));
+            if (Card[0] != 20 || Card[1] != 23 || Card[2] != 24 || Card[3] != 255) ++ArtworkTiles;
+        }
+        Confirm(ArtworkTiles > 24, "Atlas holds no more than one page of baked artwork.");
         Workspace.ConfigureLibraryFilter("Geometric constructions", "", true);
-        Confirm(Workspace.QueryPatternAtlasRevision() == First + 1, "Atlas revision missed the filter change.");
+        Confirm(Workspace.QueryPatternAtlasRevision() == First, "Filter change rebaked the settled atlas.");
+        for (size_t Page = 0; Page < 5; ++Page)
+        {
+            Workspace.ConfigureLibraryPage(Page);
+            Confirm(Workspace.QueryPatternAtlasRevision() == First, "Page flip rebaked the settled atlas.");
+        }
+        Workspace.ConfigureLibraryPage(0);
         Workspace.ConfigureLibraryFilter("All patterns", "", true);
-        Confirm(Workspace.QueryPatternAtlasRevision() == First + 2, "Atlas revision missed the filter reset.");
+        Confirm(Workspace.QueryPatternAtlasRevision() == First, "Filter reset rebaked the settled atlas.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

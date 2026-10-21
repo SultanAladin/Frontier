@@ -4,6 +4,8 @@
 // 🧩 Strict TOML material authoring, contained PNG/JPEG ingestion and colour-correct/normal-aware mip compilation.
 
 #include "SurfaceMaterial.h"
+#include "MaterialProceduralBaking.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <toml++/toml.hpp>
 #include <cctype>
 #include <fstream>
@@ -233,6 +235,9 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
                 const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
                 if (Material.StratumTextureSources[Index][Slot].empty())
                     Material.StratumTextureSources[Index][Slot] = EncodeProceduralSource(Index, Entry.Name);
+                // 📝 Channel ops sample their baked maps: derive the mask bit so shipped procedurals
+                // without an authored TextureMask still reach the shader (idempotent under round trip).
+                Material.Scattering.TextureUse[Index][0] |= uint32_t(1u << Slot);
             }
         }
     }
@@ -355,6 +360,44 @@ MaterialTexturePyramid ConstructFloatMaterialPyramid(uint32_t Width, uint32_t He
         const size_t Start = Pyramid.FloatRgba.size();
         Pyramid.Levels.push_back({Columns, Rows, Start * sizeof(float)});
         Pyramid.FloatRgba.resize(Start + size_t(Columns) * Rows * 4);
+        if (Width == Columns * 2 && Height == Rows * 2)
+        {
+            // 📝 Exact-halving float box: unit area weights make this mathematically identical to the
+            // generic integral, so Float32 authoring mip chains build an order of magnitude faster with
+            // only float-rounding divergence (far inside golden tolerances).
+            const float *Source = Pyramid.FloatRgba.data() + Previous.Offset / sizeof(float);
+            float *Target = Pyramid.FloatRgba.data() + Start;
+            const bool Renormalize = Category == MaterialTextureCategory::TangentNormal;
+            for (uint32_t Row = 0; Row < Rows; ++Row)
+                for (uint32_t Column = 0; Column < Columns; ++Column)
+                {
+                    const size_t Base = (size_t(Row) * 2 * Width + size_t(Column) * 2) * 4;
+                    float Spectrum[4]{};
+                    for (size_t Tap = 0; Tap < 4; ++Tap)
+                    {
+                        const size_t Pixel = Base + (Tap / 2) * size_t(Width) * 4 + (Tap % 2) * 4;
+                        for (size_t Channel = 0; Channel < 4; ++Channel)
+                        {
+                            float Coefficient = Source[Pixel + Channel];
+                            if (Renormalize && Channel < 3) Coefficient = Coefficient * 2 - 1;
+                            Spectrum[Channel] += Coefficient;
+                        }
+                    }
+                    for (size_t Channel = 0; Channel < 4; ++Channel) Spectrum[Channel] *= .25f;
+                    if (Renormalize)
+                    {
+                        const float Length = std::sqrt(Spectrum[0] * Spectrum[0] + Spectrum[1] * Spectrum[1] +
+                            Spectrum[2] * Spectrum[2]);
+                        for (size_t Channel = 0; Channel < 3; ++Channel)
+                            Spectrum[Channel] = (Length > 1e-8f ? Spectrum[Channel] / Length : float(Channel == 2)) * .5f + .5f;
+                    }
+                    float *Pixel = Target + (size_t(Row) * Columns + Column) * 4;
+                    for (size_t Channel = 0; Channel < 4; ++Channel) Pixel[Channel] = Spectrum[Channel];
+                }
+            Width = Columns;
+            Height = Rows;
+            continue;
+        }
         for (uint32_t Row = 0; Row < Rows; ++Row)
             for (uint32_t Column = 0; Column < Columns; ++Column)
             {
@@ -462,6 +505,39 @@ MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image
     return Pyramid;
 }
 
+void EnsureProceduralChannelBakes(MaterialDefinition &Material, uint32_t Extent)
+{
+    if (!Extent || Extent > 1024) return;
+    const size_t Count = Material.Scattering.Illumination.Configuration[0];
+    for (size_t Index = 0; Index < Count && Index < 8; ++Index)
+        for (const auto &Entry : Material.StratumChannels[Index])
+        {
+            if (Entry.Op.empty()) continue;
+            const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+            const std::string Derived = EncodeProceduralSource(Index, Entry.Name);
+            const std::string &Live = Material.StratumTextureSources[Index][Slot].empty() ?
+                Material.TextureSources[Slot] : Material.StratumTextureSources[Index][Slot];
+            const bool LiveIsProcedural = Live.empty() || Live == Derived || Live.rfind("procedural/", 0) == 0;
+            if (!LiveIsProcedural) continue; // File-backed: compile loads full resolution from disk; a proxy must not shadow it.
+            const bool DerivedReady = Material.ProceduralMaps.find({Slot, Derived}) != Material.ProceduralMaps.end();
+            const bool LiveReady = Live == Derived ||
+                Material.ProceduralMaps.find({Slot, Live}) != Material.ProceduralMaps.end();
+            if (DerivedReady && LiveReady) continue;
+            try
+            {
+                auto Rgba = BakeProceduralChannelRgba(Entry.Op, Entry.Name, Entry.Params, Entry.Texts, Extent);
+                SurfaceTextureImage BakedImage{Extent, Extent, std::move(Rgba)};
+                Material.ProceduralMaps[{Slot, Derived}] = BakedImage;
+                if (!Live.empty() && Live != Derived) Material.ProceduralMaps[{Slot, Live}] = std::move(BakedImage);
+            }
+            catch (const std::exception &Failure)
+            {
+                DiagnosticJournal::Append("ProceduralBake", "Channel bake skipped (" + Entry.Op + "/" +
+                    Entry.Name + "): " + Failure.what());
+            }
+        }
+}
+
 CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Material,const std::filesystem::path &ContentDirectory)
 {
     if (!ValidateMaterialScattering(Material.Scattering)) throw std::runtime_error("Material scattering cannot be compiled.");
@@ -505,6 +581,12 @@ CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Materia
                 Memory.Rgba.size() != size_t(Memory.Width) * Memory.Height * 4)
                 throw std::runtime_error("Procedural rebake produced an invalid map: "+Source);
             Image = Memory;
+        }
+        else if (!Source.empty() && Source.starts_with("procedural/"))
+        {
+            // 📝 A procedural file source without a rebake override means the bake never ran (or failed);
+            // keep the neutral map instead of refusing the whole material.
+            DiagnosticJournal::Append("ProceduralBake", "Unbaked procedural source falls back to neutral: " + Source);
         }
         else if (!Source.empty())
         {

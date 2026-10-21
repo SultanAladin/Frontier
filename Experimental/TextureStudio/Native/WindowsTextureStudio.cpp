@@ -143,9 +143,24 @@ int RunTextureWorkspace()
             Directory = LocalDirectory ? std::filesystem::path(LocalDirectory) / "Frontier/TextureStudio/Materials" : Presets;
             if (Directory != Presets)
             {
+                // 📝 Mirror the shipped preset tree (materials, Textures/ maps, presets) with skip_existing, so
+                // fresh installs resolve texture files and existing installs backfill missing additions
+                // without touching user-edited materials.
                 std::filesystem::create_directories(Directory);
-                for (const auto &Entry : std::filesystem::directory_iterator(Presets))
-                    if (Entry.is_regular_file()) std::filesystem::copy_file(Entry.path(), Directory / Entry.path().filename(), std::filesystem::copy_options::skip_existing);
+                size_t Copied = 0;
+                for (const auto &Entry : std::filesystem::recursive_directory_iterator(Presets,
+                    std::filesystem::directory_options::skip_permission_denied))
+                {
+                    if (!Entry.is_regular_file() || Copied >= 2048) continue;
+                    const auto Relative = Entry.path().lexically_relative(Presets);
+                    if (Relative.empty() || *Relative.begin() == "..") continue;
+                    const auto Target = Directory / Relative;
+                    std::error_code CopyError;
+                    std::filesystem::create_directories(Target.parent_path(), CopyError);
+                    if (CopyError) continue;
+                    std::filesystem::copy_file(Entry.path(), Target, std::filesystem::copy_options::skip_existing, CopyError);
+                    if (!CopyError) ++Copied;
+                }
             }
         }
         if (!Library->ConfigureDirectory(Directory)) throw std::runtime_error(Library->QueryLibrary().QueryDiagnostic());

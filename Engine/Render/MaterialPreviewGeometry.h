@@ -314,6 +314,85 @@ inline SurfaceGeometry ConstructMaterialPreviewCloth()
     Geometry.MaterialCoordinatesEnabled = true;
     return Geometry;
 }
+// 📝 Cloth inspection scene 1:1 with the HTML viewport: frozen drape over its support ball on the
+// studio stand. Ball and stand reuse the baked drape frame (same centre/scale as the drape), so the
+// drape-over-ball contact and the ring rest match the web scene; support surfaces carry negative-U roles.
+inline SurfaceGeometry ConstructMaterialPreviewClothScene()
+{
+    auto Geometry = ConstructMaterialPreviewCloth();
+    // Normalization replica: must match ConstructMaterialPreviewCloth exactly.
+    constexpr uint32_t Grid = DrapedClothGrid;
+    std::array<float, 3> Minimum{1e30f, 1e30f, 1e30f}, Maximum{-1e30f, -1e30f, -1e30f};
+    for (size_t Vertex = 0; Vertex < Grid * Grid; ++Vertex)
+        for (size_t Axis = 0; Axis < 3; ++Axis)
+        {
+            Minimum[Axis] = std::min(Minimum[Axis], DrapedClothPositions[Vertex * 3 + Axis]);
+            Maximum[Axis] = std::max(Maximum[Axis], DrapedClothPositions[Vertex * 3 + Axis]);
+        }
+    const std::array<float, 3> Centre{(Minimum[0] + Maximum[0]) / 2, (Minimum[1] + Maximum[1]) / 2, (Minimum[2] + Maximum[2]) / 2};
+    const float Scale = .85f / std::max({(Maximum[0] - Minimum[0]) / 2, (Maximum[1] - Minimum[1]) / 2, (Maximum[2] - Minimum[2]) / 2});
+    const auto MapHeight = [&](float Height) { return (Height - Centre[1]) * Scale; };
+    const uint32_t BallOffset = uint32_t(Geometry.Corners.size());
+    auto Ball = ConstructMaterialPreviewSphere();
+    const float BallScale = DrapedClothSupportRadius * Scale / .85f;
+    const std::array<float, 3> BallCentre{(DrapedClothSupportCentre[0] - Centre[0]) * Scale,
+        (DrapedClothSupportCentre[1] - Centre[1]) * Scale, (DrapedClothSupportCentre[2] - Centre[2]) * Scale};
+    for (auto &Corner : Ball.Corners)
+    {
+        for (size_t Axis = 0; Axis < 3; ++Axis) Corner.Position[Axis] = Corner.Position[Axis] * BallScale + BallCentre[Axis];
+        Corner.Coordinates = {-4.f, Corner.Coordinates[1]};
+        Geometry.Corners.push_back(Corner);
+    }
+    for (auto Index : Ball.TriangleCorners) Geometry.TriangleCorners.push_back(BallOffset + Index);
+    // Stand and ring reuse the web cylinder parameters mapped into the drape frame without the specimen
+    // stage pitch: the HTML cloth scene is axis-aligned.
+    constexpr uint32_t Slices = 128;
+    const auto AppendSegment = [&](float FirstRadius, float FirstHeight, float SecondRadius, float SecondHeight, uint32_t Role,
+                                   std::array<float, 2> FirstNormal, std::array<float, 2> SecondNormal)
+    {
+        const uint32_t Offset = uint32_t(Geometry.Corners.size());
+        for (uint32_t Ring = 0; Ring < 2; ++Ring)
+            for (uint32_t Slice = 0; Slice <= Slices; ++Slice)
+            {
+                const float Angle = 2.f * std::numbers::pi_v<float> * float(Slice) / Slices;
+                const float Radius = Ring ? SecondRadius : FirstRadius, Height = Ring ? SecondHeight : FirstHeight;
+                const auto Normal = Ring ? SecondNormal : FirstNormal;
+                SurfaceCorner Corner;
+                Corner.Position = {Radius * std::sin(Angle) * Scale, MapHeight(Height), Radius * std::cos(Angle) * Scale};
+                Corner.Normal = {Normal[0] * std::sin(Angle), Normal[1], Normal[0] * std::cos(Angle)};
+                Corner.Tangent = {std::cos(Angle), 0, -std::sin(Angle), -1};
+                Corner.Coordinates = {-float(Role), float(Ring)};
+                Geometry.Corners.push_back(Corner);
+            }
+        for (uint32_t Slice = 0; Slice < Slices; ++Slice)
+        {
+            const uint32_t First = Offset + Slice;
+            if (FirstRadius > 0)
+                for (uint32_t Index : {First, First + 1, First + Slices + 1}) Geometry.TriangleCorners.push_back(Index);
+            if (SecondRadius > 0)
+                for (uint32_t Index : {First + 1, First + Slices + 2, First + Slices + 1}) Geometry.TriangleCorners.push_back(Index);
+        }
+    };
+    const auto AppendCylinder = [&](float Top, float Bottom, float Height, float Elevation, uint32_t Role)
+    {
+        const float Slope = Bottom - Top, Length = std::hypot(Height, Slope);
+        const std::array<float, 2> Side{Height / Length, Slope / Length};
+        AppendSegment(0, Elevation - Height * .5f, Bottom, Elevation - Height * .5f, Role, {0,-1}, {0,-1});
+        AppendSegment(Bottom, Elevation - Height * .5f, Top, Elevation + Height * .5f, Role, Side, Side);
+        AppendSegment(Top, Elevation + Height * .5f, 0, Elevation + Height * .5f, Role, {0,1}, {0,1});
+    };
+    AppendCylinder(1.2f, 1.26f, .18f, .115f, 1);
+    AppendCylinder(1.26f, 1.22f, .055f, .032f, 2);
+    for (uint32_t Segment = 0; Segment < 12; ++Segment)
+    {
+        const float First = 2.f * std::numbers::pi_v<float> * float(Segment) / 12;
+        const float Second = 2.f * std::numbers::pi_v<float> * float(Segment + 1) / 12;
+        AppendSegment(1.215f + .012f * std::cos(First), .2f + .012f * std::sin(First),
+            1.215f + .012f * std::cos(Second), .2f + .012f * std::sin(Second), 3,
+            {std::cos(First), std::sin(First)}, {std::cos(Second), std::sin(Second)});
+    }
+    return Geometry;
+}
 // 📝 Separated inspection surfaces share one immutable upload; projection selects one without replacing descriptors.
 inline SurfaceGeometry ConstructMaterialInspectionGeometry()
 {
@@ -375,7 +454,7 @@ inline SurfaceGeometry ConstructMaterialInspectionGeometry()
                 Cube.TriangleCorners.push_back(Offset + Index);
         }
     Append(Cube, 48);
-    Append(ConstructMaterialPreviewCloth(), 64);
+    Append(ConstructMaterialPreviewClothScene(), 64);
     return Geometry;
 }
 } // namespace Frontier

@@ -6,7 +6,6 @@
 #include "Engine/Render/VectorCoverageRasterization.h"
 #include "Engine/ContentInterchange/VectorAuthoringEditing.h"
 #include "AtlasReadback.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 #include <iostream>
 

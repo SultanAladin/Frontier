@@ -86,13 +86,27 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
     if (Category == 1) return (length(Local / HalfExtent) - 1) * min(HalfExtent.x, HalfExtent.y);
     if (Category == 6)
     {
+        // 📝 Unpainted construction contours evaluate no fill/stroke response.
+        if (Instruction.Paint.w == 0 && Instruction.Transform.y <= 0) return 1e10;
+        float Antialias = 512.0 / min(Projection.Width, Projection.Height);
+        float Knee = max(Instruction.Transform.y, 0) * .5 + Antialias * .5;
         float Winding = 0, Distance = 1e10;
         for (uint Curve = 0; Curve < Instruction.Topology.z; ++Curve)
         {
             VectorCubicSegment Segment = Segments[Instruction.Topology.y + Curve];
             Segment.StartControl *= float4(Instruction.Bounds.zw, Instruction.Bounds.zw);
             Segment.ControlEnd *= float4(Instruction.Bounds.zw, Instruction.Bounds.zw);
-            Winding += CubicWinding(Segment, Local);
+            // 📝 Control-cage rejects: rows outside the convex-hull cage cross nothing (exact zero
+            // winding), and cages beyond the capped best minimum cannot move the saturated fill/stroke
+            // response. Both skips are output-identical; they only elide provably dead curve work.
+            float2 CageMinimum = min(min(Segment.StartControl.xy, Segment.StartControl.zw),
+                                     min(Segment.ControlEnd.xy, Segment.ControlEnd.zw));
+            float2 CageMaximum = max(max(Segment.StartControl.xy, Segment.StartControl.zw),
+                                     max(Segment.ControlEnd.xy, Segment.ControlEnd.zw));
+            if (Local.y >= CageMinimum.y && Local.y < CageMaximum.y)
+                Winding += CubicWinding(Segment, Local);
+            float2 Outside = max(max(CageMinimum - Local, Local - CageMaximum), 0);
+            if (length(Outside) > min(Distance, Knee) + 1e-3) continue;
             float2 Start = Segment.StartControl.xy;
             for (uint Interval = 1; Interval <= 32; ++Interval)
             {

@@ -167,7 +167,9 @@ struct MaterialLibraryRendering::RenderingAllocation
         std::string Source(size_t(Bytes), '\0');
         Input.seekg(0);
         if (!Input.read(Source.data(), Bytes)) throw std::runtime_error("Thumbnail source read failed.");
-        return CompileSurfaceMaterial(DecodeSurfaceMaterial(Source), Directory);
+        auto Definition = DecodeSurfaceMaterial(Source);
+        EnsureProceduralChannelBakes(Definition, 256);
+        return CompileSurfaceMaterial(Definition, Directory);
     }
 };
 

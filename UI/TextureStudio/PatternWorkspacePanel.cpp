@@ -183,6 +183,11 @@ bool PatternWorkspacePanel::ConfigurePresetDirectory(const std::filesystem::path
     LibrarySelected.clear();
     PresetCache.clear();
     PresetCacheOrder.clear();
+    PatternRasterCache.clear();
+    PatternRasterOrder.clear();
+    PatternAtlasKey.clear();
+    PatternAtlasPixels.clear();
+    PatternAtlasBaked.clear();
     return true;
 }
 
@@ -365,7 +370,7 @@ const PatternWorkspacePanel::PatternPresetCacheEntry &PatternWorkspacePanel::Que
         Entry.Shapes = TessellatePresetDocument(Entry.Document);
     }
     catch (const std::exception &Failure) { Entry.Failed = true; Entry.Document = VectorAuthoringDocument{}; Diagnostic = Failure.what(); }
-    while (PresetCacheOrder.size() >= 96)
+    while (PresetCacheOrder.size() >= 256)
     {
         PresetCache.erase(PresetCacheOrder.front());
         PresetCacheOrder.erase(PresetCacheOrder.begin());
@@ -385,7 +390,7 @@ const std::vector<uint8_t> &PatternWorkspacePanel::QueryPatternRaster(const Patt
     // Baked background matches the card thumbnail well so empty tiles blend in.
     constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
     std::vector<uint8_t> Pixels = RasterizePatternThumbnail(Entry.Shapes, PatternAtlasTile, CardWell);
-    while (PatternRasterOrder.size() >= 48)
+    while (PatternRasterOrder.size() >= 256)
     {
         PatternRasterCache.erase(PatternRasterOrder.front());
         PatternRasterOrder.erase(PatternRasterOrder.begin());
@@ -396,23 +401,40 @@ const std::vector<uint8_t> &PatternWorkspacePanel::QueryPatternRaster(const Patt
 
 void PatternWorkspacePanel::RefreshPatternAtlas()
 {
-    const auto Matches = QueryLibraryMatches();
-    const size_t Pages = std::max<size_t>(1, (Matches.size() + PatternAtlasPage - 1) / PatternAtlasPage);
-    const size_t Page = std::min(LibraryPage, Pages - 1);
+    // 📝 One library-wide atlas with stable family slots: page flips, searches and filters only
+    // re-point card UVs. Each family bakes once per palette key; the revision (and GPU upload)
+    // advances only when newly baked tiles join the atlas.
     const std::string Palette = LibraryPalette.empty() ? LibraryDefaultPalette : LibraryPalette;
-    const std::string Key = LibraryGroup + "\n" + Palette + "\n" + LibrarySearchText.data() + "\n" + std::to_string(Page);
-    if (Key == PatternAtlasKey && !PatternAtlasPixels.empty()) return;
-    PatternAtlasKey = Key;
+    const std::string Key = Palette;
+    if (Key != PatternAtlasKey)
+    {
+        PatternAtlasKey = Key;
+        PatternAtlasBaked.assign(LibraryFamilies.size(), 0);
+        PatternAtlasPixels.clear();
+    }
+    if (LibraryFamilies.empty()) return;
+    if (PatternAtlasBaked.size() != LibraryFamilies.size())
+        PatternAtlasBaked.assign(LibraryFamilies.size(), 0);
+    bool BakedNew = PatternAtlasPixels.empty();
+    for (size_t Family = 0; Family < LibraryFamilies.size() && Family < PatternAtlasCapacity; ++Family)
+    {
+        if (PatternAtlasBaked[Family]) continue;
+        const auto &Entry = QueryPresetEntry(LibraryFamilies[Family]);
+        if (!Entry.Failed && !Entry.Shapes.empty()) (void)QueryPatternRaster(LibraryFamilies[Family], Entry);
+        PatternAtlasBaked[Family] = 1;
+        BakedNew = true;
+    }
+    if (!BakedNew) return;
     constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
     const std::vector<uint8_t> Blank = RasterizePatternThumbnail({}, PatternAtlasTile, CardWell);
     std::vector<std::vector<uint8_t>> Tiles;
-    Tiles.reserve(PatternAtlasPage);
-    for (size_t Slot = 0; Slot < PatternAtlasPage; ++Slot)
+    const size_t Slotted = std::min(LibraryFamilies.size(), PatternAtlasCapacity);
+    Tiles.reserve(Slotted);
+    for (size_t Family = 0; Family < Slotted; ++Family)
     {
-        if (Page * PatternAtlasPage + Slot >= Matches.size()) { Tiles.push_back(Blank); continue; }
-        const auto &Family = LibraryFamilies[Matches[Page * PatternAtlasPage + Slot]];
-        const auto &Entry = QueryPresetEntry(Family);
-        Tiles.push_back(!Entry.Failed && !Entry.Shapes.empty() ? QueryPatternRaster(Family, Entry) : Blank);
+        if (!PatternAtlasBaked[Family]) { Tiles.push_back(Blank); continue; }
+        const auto &Entry = QueryPresetEntry(LibraryFamilies[Family]);
+        Tiles.push_back(!Entry.Failed && !Entry.Shapes.empty() ? QueryPatternRaster(LibraryFamilies[Family], Entry) : Blank);
     }
     PatternAtlasPixels = BlitPatternThumbnailAtlas(Tiles, PatternAtlasTile, PatternAtlasColumns, CardWell);
     ++PatternAtlasRevision;
@@ -889,12 +911,12 @@ void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry
     Draw->AddRectFilled(Origin, ThumbFar, IM_COL32(20, 23, 24, 255));
     PatternAtlasImage Atlas{};
     if (QueryPatternAtlas) Atlas = QueryPatternAtlas();
-    if (Atlas.Texture != 0 && !Entry.Failed && !Entry.Shapes.empty() && Slot < PatternAtlasPage)
+    if (Atlas.Texture != 0 && !Entry.Failed && !Entry.Shapes.empty() && Slot < PatternAtlasCapacity)
     {
         // Atlas fast path: one textured quad replaces tens of thousands of
         // replayed triangles. The host returns the slot-0 rectangle; each
-        // card offsets it by its page slot, then center-crops the square
-        // tile to the card rectangle like the vector projection below.
+        // card offsets it by its stable family slot, then center-crops the
+        // square tile to the card rectangle like the vector projection below.
         const float Step = float(PatternAtlasTile + 2) / PatternAtlasExtent;
         const float Span = float(PatternAtlasTile) / PatternAtlasExtent;
         float U0 = Atlas.MinimumU + (Slot % PatternAtlasColumns) * Step;
@@ -1103,6 +1125,7 @@ void PatternWorkspacePanel::ConstructLibrary()
         ImGui::PopTextWrapPos();
         PopSmallFont();
     }
+    RefreshPatternAtlas();
     const auto Matches = QueryLibraryMatches();
     SmallFont(10);
     ImGui::SetCursorPosX(16 * Scale);
@@ -1124,7 +1147,7 @@ void PatternWorkspacePanel::ConstructLibrary()
         else ImGui::SetCursorPos(ImVec2(16 * Scale + CardWidth + Gap, RowTop));
         const auto &Family = LibraryFamilies[Matches[Slot]];
         const auto &Entry = QueryPresetEntry(Family);
-        ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name, Slot - Page * 24);
+        ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name, Matches[Slot]);
         if (!FirstColumn) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Gap - 4 * Scale);
     }
     if (Matches.empty())
@@ -1170,7 +1193,6 @@ void PatternWorkspacePanel::ConstructLibrary()
         "Stitches and weaves use one thread/yarn color. Backgrounds, colors, direction and draft variants do not add library cards. The rejected rug collections have been removed.");
     ImGui::PopTextWrapPos();
     PopSmallFont();
-    RefreshPatternAtlas();
 }
 
 void PatternWorkspacePanel::ConstructLayers()
