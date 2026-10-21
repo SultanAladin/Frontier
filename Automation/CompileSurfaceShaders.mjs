@@ -37,7 +37,9 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
                              ['CadEdge.slang',['CadEdgeVertex','CadEdgeFragment']],
                              ['MatCapSurface.slang',['MatCapSurfaceVertex','MatCapSurfaceFragment']],
                              ['PreviewPbrSurface.slang',['PreviewPbrSurfaceVertex','PreviewPbrSurfaceFragment']],
-                             ['MaterialSurface.slang',['MaterialSurfaceVertex','MaterialSurfaceFragment']]])
+                             ['MaterialSurface.slang',['MaterialSurfaceVertex','MaterialSurfaceFragment']],
+                             ['BrowserPreview.slang',['BrowserPreviewVertex','BrowserPreviewFragment']],
+                             ['BrowserDrafting.slang',['BrowserDraftingVertex','BrowserDraftingFragment']]])
 {
     const SourcePath=Path.join(Root,'Engine/Render/Shader',File);
     const Source=Fs.readFileSync(SourcePath,'utf8');
@@ -65,12 +67,26 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
             const MaterialEnabled=Name.startsWith('MaterialSurface');
             const PbrEnabled=Name.startsWith('PreviewPbr');
             const MatCapEnabled=Name.startsWith('MatCap') || PbrEnabled || MaterialEnabled;
+            const BrowserEnabled=Name.startsWith('Browser');
             const PushBytes=MatCapEnabled ? 128 : 112;
             Assert.deepEqual(Push.type.elementType.fields.map(Field=>[Field.name,Field.binding.offset,Field.binding.size]),
                 MatCapEnabled ? [['ClipFromSurface',0,64],['ViewNormalRow0',64,16],['ViewNormalRow1',80,16],
                                  ['ViewNormalRow2',96,16],['SurfaceTint',112,16]] :
+                BrowserEnabled ? [['ClipFromSurface',0,64],['EyeChannel',64,16],['RasterOptions',80,16],['ViewDirection',96,16]] :
                                 [['ClipFromSurface',0,64],['SurfaceColour',64,16],['EdgeColour',80,16],['DisplayStroke',96,16]]);
             Assert.equal(Push.type.elementType.sizes.find(Size=>Size.kind==='uniform').value,PushBytes);
+            if(BrowserEnabled && Name==='BrowserPreviewFragment')
+            {
+                for(const [Resource,Index] of [['EonTexture',0],['EonSampler',1]])
+                {
+                    const Parameter=Reflection.parameters.find(Parameter=>Parameter.name===Resource);
+                    Assert.equal(Parameter?.binding.kind,'descriptorTableSlot');
+                    Assert.equal(Parameter?.binding.index,Index);
+                    Assert.equal(Parameter?.type.kind,Index===0 ? 'resource' : 'samplerState');
+                    if(Index===0) Assert.equal(Parameter.type.baseShape,'texture2D');
+                    Assert.equal(Parameter?.binding.space ?? 0,0);
+                }
+            }
             if(MatCapEnabled && !MaterialEnabled)
             {
                 for(const [Resource,Index] of [[PbrEnabled ? 'AlbedoTexture' : 'MatCapTexture',0],[PbrEnabled ? 'SurfaceSampler' : 'MatCapSampler',1]])
@@ -124,7 +140,8 @@ for (const [File,Entries] of [['CadSurface.slang',['CadSurfaceVertex','CadSurfac
             if(Name.endsWith('Vertex'))
             {
                 const Attributes=Reflection.entryPoints[0].parameters[0].type.fields;
-                Assert.deepEqual(Attributes.map(Attribute=>Attribute.binding.index),MaterialEnabled ? [0,1,2,3] : [0,1]);
+                Assert.deepEqual(Attributes.map(Attribute=>Attribute.binding.index),
+                    MaterialEnabled ? [0,1,2,3] : BrowserEnabled ? (Name.startsWith('BrowserDrafting') ? [0,1,2,3,4] : [0,1,2,3]) : [0,1]);
             }
             const Capabilities=[];
             const SpirvEntries=[];

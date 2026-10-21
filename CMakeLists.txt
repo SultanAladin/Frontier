@@ -109,7 +109,7 @@ if(WIN32)
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
     target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
         FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
-    target_link_libraries(Frontier PRIVATE FrontierEditorUI glfw)
+    target_link_libraries(Frontier PRIVATE FrontierEditorUI FrontierSurfaceRasterization glfw ole32)
     add_executable(TextureStudio Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")

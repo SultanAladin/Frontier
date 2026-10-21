@@ -9,10 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_ONLY_JPEG
-#define STBI_NO_STDIO
+// 📝 The PNG/JPEG implementation lives in StbImageImplementation.cpp so every static-library member shares one.
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"

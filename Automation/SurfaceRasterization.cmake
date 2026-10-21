@@ -4,7 +4,8 @@
 # 🧩 Build the reusable Vulkan CAD unit and explicitly provisioned shader/readback validation, without automatic downloads.
 
 add_library(FrontierSurfaceRasterization STATIC Engine/Render/SurfaceRasterization.cpp Engine/Render/SurfaceMaterial.cpp
-    Engine/Render/MaterialThumbnailAtlas.cpp Engine/Render/MaterialLibraryRendering.cpp Engine/Render/MaterialProceduralBaking.cpp)
+    Engine/Render/MaterialThumbnailAtlas.cpp Engine/Render/MaterialLibraryRendering.cpp Engine/Render/MaterialProceduralBaking.cpp
+    Engine/Render/BrowserPreviewRendering.cpp Engine/Render/StbImageImplementation.cpp)
 target_include_directories(FrontierSurfaceRasterization PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
 target_include_directories(FrontierSurfaceRasterization PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include" "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
@@ -17,7 +18,7 @@ set(FRONTIER_SLANG_WASM "" CACHE FILEPATH "Explicit portable Slang WASM JavaScri
 set(FRONTIER_VULKAN_DRIVER "" CACHE FILEPATH "Explicit Vulkan loader/driver for offscreen CTest; empty leaves runtime test unregistered")
 set(FRONTIER_SURFACE_SHADER_DIRECTORY "${CMAKE_BINARY_DIR}/ShaderArchives/Surface")
 set(SURFACE_SHADER_OUTPUTS)
-foreach(SURFACE_SOURCE CadSurface CadEdge MatCapSurface PreviewPbrSurface MaterialSurface)
+foreach(SURFACE_SOURCE CadSurface CadEdge MatCapSurface PreviewPbrSurface MaterialSurface BrowserPreview BrowserDrafting)
     foreach(SURFACE_CATEGORY Vertex Fragment)
         set(SURFACE_ENTRY "${SURFACE_SOURCE}${SURFACE_CATEGORY}")
         list(APPEND SURFACE_SHADER_OUTPUTS "${FRONTIER_SURFACE_SHADER_DIRECTORY}/${SURFACE_ENTRY}.spv")
@@ -33,6 +34,7 @@ foreach(SURFACE_SOURCE CadSurface CadEdge MatCapSurface PreviewPbrSurface Materi
                     "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/SurfaceProjection.slang"
                     "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/ScatteringEvaluation.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/AutomotivePaint.slang"
+                    "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/BrowserProjection.slang"
                 BYPRODUCTS "${FRONTIER_SURFACE_SHADER_DIRECTORY}/${SURFACE_ENTRY}.json"
                 VERBATIM)
         endif()
@@ -54,6 +56,9 @@ elseif(FRONTIER_SLANG_WASM)
             "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/MatCapSurface.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/PreviewPbrSurface.slang"
             "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/MaterialSurface.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/BrowserProjection.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/BrowserPreview.slang"
+            "${CMAKE_SOURCE_DIR}/Engine/Render/Shader/BrowserDrafting.slang"
         BYPRODUCTS "${FRONTIER_SURFACE_SHADER_DIRECTORY}/ShaderCompilation.json"
             "${FRONTIER_SURFACE_SHADER_DIRECTORY}/CadSurfaceVertex.json"
             "${FRONTIER_SURFACE_SHADER_DIRECTORY}/CadSurfaceFragment.json"
@@ -65,6 +70,10 @@ elseif(FRONTIER_SLANG_WASM)
             "${FRONTIER_SURFACE_SHADER_DIRECTORY}/PreviewPbrSurfaceFragment.json"
             "${FRONTIER_SURFACE_SHADER_DIRECTORY}/MaterialSurfaceVertex.json"
             "${FRONTIER_SURFACE_SHADER_DIRECTORY}/MaterialSurfaceFragment.json"
+            "${FRONTIER_SURFACE_SHADER_DIRECTORY}/BrowserPreviewVertex.json"
+            "${FRONTIER_SURFACE_SHADER_DIRECTORY}/BrowserPreviewFragment.json"
+            "${FRONTIER_SURFACE_SHADER_DIRECTORY}/BrowserDraftingVertex.json"
+            "${FRONTIER_SURFACE_SHADER_DIRECTORY}/BrowserDraftingFragment.json"
         VERBATIM)
     add_custom_target(FrontierSurfaceShaders ALL DEPENDS ${SURFACE_SHADER_OUTPUTS})
 else()
@@ -115,4 +124,10 @@ if(TARGET TextureStudio AND TARGET FrontierSurfaceShaders)
     add_custom_command(TARGET TextureStudio POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${FRONTIER_SURFACE_SHADER_DIRECTORY}"
             "$<TARGET_FILE_DIR:TextureStudio>/EngineContent/ShaderArchives/Surface")
+endif()
+if(TARGET Frontier AND TARGET FrontierSurfaceShaders)
+    add_dependencies(Frontier FrontierSurfaceShaders)
+    add_custom_command(TARGET Frontier POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${FRONTIER_SURFACE_SHADER_DIRECTORY}"
+            "$<TARGET_FILE_DIR:Frontier>/EngineContent/ShaderArchives/Surface")
 endif()
