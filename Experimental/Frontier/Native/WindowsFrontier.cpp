@@ -108,6 +108,25 @@ int main()
     std::vector<Frontier::BrowserCatalogueEntry> PreviewCatalogue;
     std::map<VkImageView, VkDescriptorSet> PreviewDescriptors;
     bool PreviewFailed = false;
+    // 📝 Stored browser lambdas capture these by reference across frames; InitializeVulkan-scope
+    // closures dangle after setup returns and AV on first touch (frame-2 tile resolve).
+    const auto Describe = [&](VkImageView View) -> VkDescriptorSet
+    {
+        if (!View) return VK_NULL_HANDLE;
+        const auto Cached = PreviewDescriptors.find(View);
+        if (Cached != PreviewDescriptors.end()) return Cached->second;
+        // 📝 Pooled target extents keep their images alive until Finalize, so lazily retained
+        // descriptors stay valid without ever freeing a set a previous frame still samples.
+        const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        PreviewDescriptors.emplace(View, Descriptor);
+        return Descriptor;
+    };
+    const auto NoteFailure = [&](const char *Stage, const std::exception &Failure)
+    {
+        if (PreviewFailed) return;
+        PreviewFailed = true; // 📝 Device loss fails every frame; journal the first refusal only.
+        Frontier::DiagnosticJournal::Append("BrowserPreviewRefused", std::string(Stage) + ": " + Failure.what());
+    };
     GLFWwindow *Window = nullptr;
     std::filesystem::path Preferences;
     bool ReturnRequested = false;
@@ -140,23 +159,6 @@ int main()
         }
         PreviewRendering = std::make_unique<Frontier::BrowserPreviewRendering>();
         PreviewRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
-        const auto Describe = [&](VkImageView View) -> VkDescriptorSet
-        {
-            if (!View) return VK_NULL_HANDLE;
-            const auto Cached = PreviewDescriptors.find(View);
-            if (Cached != PreviewDescriptors.end()) return Cached->second;
-            // 📝 Pooled target extents keep their images alive until Finalize, so lazily retained
-            // descriptors stay valid without ever freeing a set a previous frame still samples.
-            const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            PreviewDescriptors.emplace(View, Descriptor);
-            return Descriptor;
-        };
-        const auto NoteFailure = [&](const char *Stage, const std::exception &Failure)
-        {
-            if (PreviewFailed) return;
-            PreviewFailed = true; // 📝 Device loss fails every frame; journal the first refusal only.
-            Frontier::DiagnosticJournal::Append("BrowserPreviewRefused", std::string(Stage) + ": " + Failure.what());
-        };
         Browser->QueryThumbnailImage = [&](const std::string &Key)
         {
             Frontier::BrowserPreviewImage Image;
