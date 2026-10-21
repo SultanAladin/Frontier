@@ -185,7 +185,7 @@ fn DebugVisibilityIds(@builtin(global_invocation_id) ID : vec3u)
     let Opaque = textureLoad(OpaqueVisTex, Coord, 0);
     let Front = textureLoad(GlassVisTex, Coord, 0);
     let Back = textureLoad(GlassBackVisTex, Coord, 0);
-    var Colour = vec3f(0.03, 0.04, 0.07);
+    var Colour = vec3f(0.10, 0.12, 0.20);   // visibly non-black: an empty buffer reads as "no coverage", never as a dead view
     if (Opaque.x != 0u) { Colour = DebugHashColour(Opaque.x); }
     if (Front.x != 0u) { Colour = DebugHashColour(Front.x) * vec3f(0.35, 1.0, 1.0); }
     if (Back.x != 0u && Front.x == 0u) { Colour = DebugHashColour(Back.x) * vec3f(1.0, 0.35, 1.0); }

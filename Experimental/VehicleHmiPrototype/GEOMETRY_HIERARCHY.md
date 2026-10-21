@@ -95,7 +95,13 @@ colour per cluster-triangle, glass front cyan / back magenta), **Clusters: defer
 resolved image itself), **Clusters: Hi-Z pyramid** (reversed-Z occluders, near = bright) and **Clusters:
 glass layers (front/back)** (front green, back red, two-layer pixels yellow). They are written by the
 resolve programs into the display inspection target and presented un-tonemapped like the other inspection
-modes; they need `?hierarchy=1` since they read the virtualized runtime's targets.
+modes. Selecting one **activates the virtualized runtime on demand** (`ActivateForDebug`: programs +
+targets are built on first use), so the views work from an ordinary editor launch — no `?hierarchy=1`
+needed. While activation is in flight, or when no facet set in the scene is eligible, the view paints a
+magenta checker fallback (`Shader/ClusterDebugFallback.wgsl`) instead of black, so "no data" can never
+be mistaken for a dead view; a genuinely empty visibility buffer reads as a dark-blue field, and the
+console names the cause. (Found the hard way: the first cut silently no-opped without the launch flag
+and all four modes presented the untouched — black — inspection target.)
 
 **Cluster debug** (same panel): the *View* selector switches between the DAG level view and a **Runtime
 cut** view that runs the actual Phase-2 pipeline (cut → frustum/cone → two-phase Hi-Z, CPU mirror at

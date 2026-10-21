@@ -40,17 +40,28 @@ struct VisibilityTargets
     @location(3) GlassBary  : vec2f,
 }
 
-// 📝 One entry, two pipelines: the opaque pipeline enables depth write, the glass pipeline disables it, and
-//    the host draws opaque commands first so glass depth-tests against opaque geometry. Class routing uses
-//    the per-draw flag the host encodes in a uniform-free way: glass triangles carry the transmissive bit in
-//    their family stream, resolved by the resolve program; here the host's glass pipeline renders only
-//    transmissive records (draw lists are class-split on the CPU side).
+// 📝 Two entries, two pipelines, one shared pass: each entry writes ONLY its own layer's targets and
+//    zeroes the other layer's, so an opaque fragment can never masquerade as a glass-front fragment in
+//    the resolve (or vice versa). The opaque pipeline enables depth write, the glass pipeline disables
+//    it, and the host draws opaque commands first so glass depth-tests against opaque geometry. The
+//    host's draw lists are class-split on the CPU side, which is what routes records to each pipeline.
 @fragment
 fn VisibilityFragment(Varying : VisibilityVarying) -> VisibilityTargets
 {
     var Targets : VisibilityTargets;
     Targets.OpaqueVis = vec2u(Varying.TriangleFirst + 1u, Varying.Occupant);
     Targets.OpaqueBary = Varying.Barycentric.yz;
+    Targets.GlassVis = vec2u(0u);
+    Targets.GlassBary = vec2f(0.0);
+    return Targets;
+}
+
+@fragment
+fn VisibilityGlassFragment(Varying : VisibilityVarying) -> VisibilityTargets
+{
+    var Targets : VisibilityTargets;
+    Targets.OpaqueVis = vec2u(0u);
+    Targets.OpaqueBary = vec2f(0.0);
     Targets.GlassVis = vec2u(Varying.TriangleFirst + 1u, Varying.Occupant);
     Targets.GlassBary = Varying.Barycentric.yz;
     return Targets;

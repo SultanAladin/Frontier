@@ -10,7 +10,9 @@ import { PackHierarchyPages, PageSlotAllocator } from "./GeometryHierarchyRuntim
 //    LRU eviction; non-resident clusters draw nothing and the cut falls back to resident ancestors), and a
 //    visibility raster + deferred material resolve (Shader/VisibilityRaster.wgsl, Shader/MaterialResolve.wgsl)
 //    produces OpaqueResolved/FinalResolved textures, with glass depth-peeled into two layers for the
-//    two-layer refraction gather. Inert unless the page is opened with ?hierarchy=1.
+//    two-layer refraction gather. Inert unless the page is opened with ?hierarchy=1 — except that the
+//    display-inspection cluster debug views (Display modes 10-13) activate it on demand, so they work
+//    from an ordinary editor launch too (see ActivateForDebug).
 
 const RecordFloats = 24;   // 96 B HierarchyClusterRecord (see VirtualizedGeometryCull.wgsl)
 const CommandBytes = 20;   // IndirectDrawCommand
@@ -46,10 +48,12 @@ export class VirtualizedGeometry
 
     async ConstructPrograms(FrameRecords, OccupantRecords)
     {
-        if (!this.Enabled) return;
-        const E = this.Exchange, Compute = GPUShaderStage.COMPUTE;
+        // 📝 Frame/occupant records are stored even while inert so a cluster debug view (Display modes
+        //    10-13) can activate the runtime on demand via ActivateForDebug — no ?hierarchy=1 needed.
         this.FrameRecords = FrameRecords;
         this.OccupantRecords = OccupantRecords;
+        if (!this.Enabled) return;
+        const E = this.Exchange, Compute = GPUShaderStage.COMPUTE;
         this.CullLayout = E.ConstructDescriptorLayout(
             ["Uniform", "StorageRead", "StorageRead", "Storage", "Storage", "Storage", "Texture2DUnfiltered"],
             Compute, "Virtualized geometry culling");
@@ -81,7 +85,7 @@ export class VirtualizedGeometry
             DepthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }, Targets: VisTargets
         }, [this.VisibilityLayout]);
         this.VisibilityGlassProgram = await this.Shaders.ConstructRasterProgram("VisibilityRaster.wgsl", {
-            VertexEntry: "VisibilityVertex", FragmentEntry: "VisibilityFragment", VertexLayouts,
+            VertexEntry: "VisibilityVertex", FragmentEntry: "VisibilityGlassFragment", VertexLayouts,
             Primitive: { topology: "triangle-list", cullMode: "none" },
             DepthStencil: { format: "depth32float", depthWriteEnabled: false, depthCompare: "greater" }, Targets: VisTargets
         }, [this.VisibilityLayout]);
@@ -101,10 +105,44 @@ export class VirtualizedGeometry
         this.DebugGlassProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugGlassLayers", [this.ResolveLayout]);
         this.DebugCopyProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugCopyResolved", [this.ResolveLayout]);
         this.DebugHiZProgram = await this.Shaders.ConstructComputeProgram("MaterialResolve.wgsl", "DebugHiZView", [this.ResolveLayout]);
+        this.ProgramsBuilt = true;
+    }
+
+    // 📝 On-demand activation for the display-inspection cluster debug views: selecting Display mode
+    //    10-13 turns the runtime on (programs + targets) without the ?hierarchy=1 launch flag, so the
+    //    views can never sit black just because the page was opened the ordinary way. Until activation
+    //    completes — or when no facet set is eligible — RecordDebugView paints the magenta fallback.
+    ActivateForDebug()
+    {
+        if (this.Activation || this.ProgramsBuilt && this.OpaqueVisTexture) return;
+        this.Enabled = true;
+        this.Activation = (async () =>
+        {
+            if (!this.FallbackProgram)
+            {
+                this.FallbackLayout = this.Exchange.ConstructDescriptorLayout(["StorageTexture2D:rgba16float"], GPUShaderStage.COMPUTE, "Cluster debug fallback");
+                this.FallbackProgram = await this.Shaders.ConstructComputeProgram("ClusterDebugFallback.wgsl", "DebugUnavailable", [this.FallbackLayout]);
+            }
+            if (!this.ProgramsBuilt) await this.ConstructPrograms(this.FrameRecords, this.OccupantRecords);
+            if (this.TargetExtent && !this.OpaqueVisTexture) this.ConstructTargets(this.TargetExtent[0], this.TargetExtent[1]);
+        })().catch((Error) => { console.error("[VirtualizedGeometry] debug activation failed:", Error); this.Activation = null; });
+    }
+
+    RecordUnavailableView(Encoder, TargetView)
+    {
+        if (!this.FallbackProgram || !TargetView) return;
+        const Group = this.Exchange.ConstructDescriptorGroup(this.FallbackLayout, [TargetView]);
+        const Pass = Encoder.beginComputePass({ label: "Cluster debug view (unavailable)" });
+        Pass.setPipeline(this.FallbackProgram);
+        Pass.setBindGroup(0, Group);
+        const Extent = this.TargetExtent ?? [1920, 1080];
+        Pass.dispatchWorkgroups(Math.ceil(Extent[0] / 8), Math.ceil(Extent[1] / 8));
+        Pass.end();
     }
 
     ConstructTargets(Width, Height)
     {
+        this.TargetExtent = [Width, Height];   // remembered while inert so ActivateForDebug can build sized targets later
         if (!this.Enabled) return;
         for (const Texture of this.HiZTextures ?? []) Texture.destroy();
         for (const Texture of this.VisTextures ?? []) Texture.destroy();
@@ -468,11 +506,20 @@ export class VirtualizedGeometry
     //    other inspection modes. Mode 11 copies the deferred resolve output itself.
     RecordDebugView(Encoder, TargetView, Mode)
     {
-        if (!this.Records || !this.OpaqueVisTexture || !TargetView) return;
+        if (!TargetView) return;
+        // 📝 The views activate the runtime themselves: without this, opening the editor the ordinary
+        //    way (no ?hierarchy=1) left the inspection target untouched and all four modes read black.
+        if (!this.ProgramsBuilt || !this.OpaqueVisTexture) { this.ActivateForDebug(); this.RecordUnavailableView(Encoder, TargetView); return; }
+        if (!this.Records)
+        {
+            if (!this.DebugWarned) { this.DebugWarned = true; console.warn("[VirtualizedGeometry] cluster debug view: no eligible facet set in the scene (needs >= 256 facets, no dynamic occupants), showing fallback."); }
+            this.RecordUnavailableView(Encoder, TargetView);
+            return;
+        }
         const E = this.Exchange;
         const Program = Mode === 10 ? this.DebugIdsProgram : Mode === 13 ? this.DebugGlassProgram
                       : Mode === 12 ? this.DebugHiZProgram : this.DebugCopyProgram;
-        if (!Program) return;
+        if (!Program) { this.RecordUnavailableView(Encoder, TargetView); return; }
         const Group = E.ConstructDescriptorGroup(this.ResolveLayout,
             [this.FrameRecords, this.OccupantRecords, this.CornerPosBuffer, this.CornerUvBuffer,
              this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.OpaqueResolvedTexture.createView(),

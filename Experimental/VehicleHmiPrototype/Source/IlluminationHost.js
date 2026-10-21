@@ -71,7 +71,8 @@ const ShaderSources = [
     "DisplayAntialias.wgsl", "DisplayExposure.wgsl", "DisplayPresent.wgsl", "FireIllumination.wgsl", "PlumeRecords.wgsl",
     "PlumeAdvection.wgsl", "PlumePressure.wgsl", "PlumeVorticity.wgsl", "PlumeMarch.wgsl", "FragmentDistance.wgsl",
     "EffectRecords.wgsl", "EffectRaster.wgsl", "VehicleVisual.wgsl", "SparkRaster.wgsl", "ForwardRaster.wgsl",
-    "CabinOverlay.wgsl", "CabinVolume.wgsl", "ClusteredLights.wgsl"
+    "CabinOverlay.wgsl", "CabinVolume.wgsl", "ClusteredLights.wgsl",
+    "VirtualizedGeometryCull.wgsl", "HiZPyramid.wgsl", "VisibilityRaster.wgsl", "MaterialResolve.wgsl", "ClusterDebugFallback.wgsl"
 ];
 
 // 📝 Quality grades trade cascade resolution, card density and traversal length; selected with ?quality=low|medium|high.
@@ -1242,8 +1243,10 @@ class IlluminationHost
         }
         if (this.Settings.Inspection === 6 && Included("Inspection"))
             this.Display.RecordInspection(Encoder, this.Distance.TraversalGroup, this.SamplingGroup, this.RayTracing.TraversalGroup);
-        // 📝 Cluster debug views (Display modes 10-13) come from the virtualized runtime's own targets;
-        //    they need ?hierarchy=1 so the visibility/resolve products exist this frame.
+        // 📝 Cluster debug views (Display modes 10-13) come from the virtualized runtime's own targets.
+        //    RecordDebugView activates that runtime on demand, so no ?hierarchy=1 launch flag is needed;
+        //    while activation is in flight (or no geometry is eligible) it paints a magenta fallback
+        //    instead of leaving the inspection target black.
         if (this.Settings.Inspection >= 10 && Included("Inspection"))
             this.Surface.Virtualized?.RecordDebugView(Encoder, this.Display.Views.Inspection, this.Settings.Inspection);
         if (Included("Smoke") && this.Smoke.Resident)
