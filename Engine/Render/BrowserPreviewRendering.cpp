@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <stb_image.h>
 #include <stdexcept>
 #include <utility>

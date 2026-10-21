@@ -22,7 +22,10 @@
 #include <GLFW/glfw3native.h>
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
+#include <objbase.h>
 #include <algorithm>
+#include <cstdint>
+#include <cwchar>
 #include <map>
 #include <string>
 #include <vector>
@@ -102,7 +105,7 @@ int main()
     std::unique_ptr<Frontier::EditorWorkspace> Workspace;
     std::unique_ptr<Frontier::BrowserPreviewRendering> PreviewRendering;
     std::vector<Frontier::BrowserCatalogueEntry> PreviewCatalogue;
-    std::map<VkImageView, ImTextureID> PreviewDescriptors;
+    std::map<VkImageView, VkDescriptorSet> PreviewDescriptors;
     bool PreviewFailed = false;
     GLFWwindow *Window = nullptr;
     std::filesystem::path Preferences;
@@ -138,7 +141,7 @@ int main()
         PreviewRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
         const auto Describe = [&](VkImageView View)
         {
-            if (!View) return (ImTextureID)0;
+            if (!View) return VK_NULL_HANDLE;
             const auto Cached = PreviewDescriptors.find(View);
             if (Cached != PreviewDescriptors.end()) return Cached->second;
             // 📝 Pooled target extents keep their images alive until Finalize, so lazily retained
@@ -170,7 +173,7 @@ int main()
                 const auto Configuration = Frontier::ConfigureBrowserPreview(*Entry, View, Revision);
                 PreviewRendering->RequestThumbnail(Key, Configuration);
                 if (!PreviewRendering->QueryThumbnail(Key).Ready) return Image;
-                Image.Texture = uint64_t(Describe(PreviewRendering->QueryThumbnailView(Key)));
+                Image.Texture = (uint64_t)Describe(PreviewRendering->QueryThumbnailView(Key));
             }
             catch (const std::exception &Failure) { NoteFailure("QueryThumbnailImage", Failure); }
             return Image;
@@ -181,7 +184,7 @@ int main()
             try
             {
                 if (!PreviewRendering->QueryLiveReady()) return Image;
-                Image.Texture = uint64_t(Describe(PreviewRendering->QueryLiveView()));
+                Image.Texture = (uint64_t)Describe(PreviewRendering->QueryLiveView());
             }
             catch (const std::exception &Failure) { NoteFailure("QueryLiveImage", Failure); }
             return Image;
@@ -214,7 +217,7 @@ int main()
                 const auto Import = PreviewRendering->QueryImportImage(Token);
                 if (!Import.Ready && !Import.Diagnostic.empty()) Image.Failed = true;
                 if (!Import.Ready) return Image;
-                Image.Texture = uint64_t(Describe(PreviewRendering->QueryImportView(Token)));
+                Image.Texture = (uint64_t)Describe(PreviewRendering->QueryImportView(Token));
                 Image.Width = float(Import.Width);
                 Image.Height = float(Import.Height);
             }
