@@ -81,11 +81,13 @@ export class HierarchyDebugOverlay
         };
         MakeSelect("Show", [["both", "Bounds + wireframe"], ["bounds", "Bounds"], ["wireframe", "Wireframe"]],
             this.Mode, (Value) => { this.Mode = Value; });
-        MakeSelect("Colour", [["cluster", "Cluster identity"], ["error", "Error heat"], ["class", "Opaque / transmissive"]],
+        MakeSelect("Colour", [["cluster", "Cluster identity"], ["error", "Error heat"], ["class", "Opaque / transmissive"],
+            ["uv", "UV checker (per-triangle)"], ["features", "Sharp edges / UV seams"]],
             this.ColourMode, (Value) => { this.ColourMode = Value; });
         const Note = document.createElement("div");
         Note.textContent = "Bounds are error-expanded. Wireframe is the simplified level geometry. " +
-            "Class: grey opaque · cyan transmissive · magenta = mixed (must never appear).";
+            "Class: grey opaque · cyan transmissive · magenta = mixed (must never appear). " +
+            "Features: red = triangle touches a marked sharp edge · cyan = touches only a UV seam.";
         Note.style.opacity = "0.75";
         Panel.appendChild(Note);
         Stage.appendChild(Panel);
@@ -174,7 +176,7 @@ export class HierarchyDebugOverlay
 
         S.replaceChildren();
         let ClusterTotal = 0, TriangleTotal = 0, RootMaxError = 0, BuildMsTotal = 0, Failures = 0, Skipped = 0;
-        let BoundsDrawn = 0, TrianglesDrawn = 0;
+        let BoundsDrawn = 0, TrianglesDrawn = 0, SharpTotal = 0, SeamTotal = 0;
         const WireframePaths = new Map();
         for (const { Record, Occupants } of PerSet.values())
         {
@@ -185,6 +187,8 @@ export class HierarchyDebugOverlay
             const Entry = Hierarchy.Levels[Level];
             ClusterTotal += Entry.Clusters.length;
             TriangleTotal += Entry.TriangleCount;
+            SharpTotal += Entry.SharpEdgeCount ?? 0;
+            SeamTotal += Entry.UvSeamEdgeCount ?? 0;
             const SoupTriangles = this.Mode !== "bounds" ? CollectHierarchyLevel(Hierarchy, Level) : null;
             for (const Occupant of Occupants)
             {
@@ -223,7 +227,20 @@ export class HierarchyDebugOverlay
                     {
                         if (TrianglesDrawn >= WireframeTriangleCap) { ++Skipped; continue; }
                         const Node = Hierarchy.Clusters[SoupTriangles.Owners[Triangle]];
-                        const Colour = this.ColourFor(Node, Record.MaxError);
+                        let Colour = this.ColourFor(Node, Record.MaxError);
+                        if (this.ColourMode === "uv" && SoupTriangles.CornerUVs)
+                        {
+                            const U = (SoupTriangles.CornerUVs[Triangle * 6] + SoupTriangles.CornerUVs[Triangle * 6 + 2] +
+                                       SoupTriangles.CornerUVs[Triangle * 6 + 4]) / 3;
+                            const V = (SoupTriangles.CornerUVs[Triangle * 6 + 1] + SoupTriangles.CornerUVs[Triangle * 6 + 3] +
+                                       SoupTriangles.CornerUVs[Triangle * 6 + 5]) / 3;
+                            Colour = (Math.floor(U * 24) + Math.floor(V * 24)) % 2 === 0 ? "#e8ecf2" : "#3460a8";
+                        }
+                        else if (this.ColourMode === "features")
+                        {
+                            if (SoupTriangles.SharpMask?.[Triangle]) Colour = "#ff4632";
+                            else if (SoupTriangles.UvSeamMask?.[Triangle]) Colour = "#37d7eb";
+                        }
                         let Segment = "";
                         const Screen = [];
                         for (let Corner = 0; Corner < 3; ++Corner)
@@ -259,6 +276,7 @@ export class HierarchyDebugOverlay
                 PerSet.size + " facet set(s) · showing L" + this.SelectedLevel + " of " + MaxLevel +
                 " · " + ClusterTotal + " clusters · " + TriangleTotal + " triangles at this level" +
                 " · DAG max error " + RootMaxError.toFixed(4) +
+                " · sharp edges " + SharpTotal + " · UV seams " + SeamTotal +
                 " · build " + BuildMsTotal.toFixed(0) + " ms" +
                 (Skipped ? " · " + Skipped + " items over draw cap" : "") +
                 (Failures ? " · " + Failures + " build failure(s): " +

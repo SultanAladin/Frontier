@@ -11,7 +11,8 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import * as HierarchyModule from "../Source/GeometryHierarchy.js";
-import { ConstructSphereFacets, ConstructHeightfieldFacets } from "./GeometryHierarchyCorpus.mjs";
+import { ConstructSphereFacets, ConstructHeightfieldFacets, ConstructUvSeamCreasedMeshFacets } from "./GeometryHierarchyCorpus.mjs";
+import { SelectHierarchyCut } from "../Source/GeometryHierarchyRuntime.js";
 
 const { BuildGeometryHierarchy, ValidateGeometryHierarchy, CollectHierarchyLevel } = HierarchyModule;
 
@@ -61,7 +62,7 @@ function Dot(A, B) { return A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; }
 function Norm(A) { const L = Math.hypot(A[0], A[1], A[2]) || 1; return [A[0] / L, A[1] / L, A[2] / L]; }
 
 // Renders a flat position soup (3 vertices per triangle). ColourFor(Triangle, Normal, Shade) returns [r,g,b] 0..255.
-function RenderSoup(Positions, ColourFor, View)
+function RenderSoup(Positions, ColourFor, View, CornerUVs = null)
 {
     const { Width, Height, Eye, Target, Up, FieldOfView } = View;
     const Forward = Norm(Sub(Target, Eye));
@@ -95,7 +96,7 @@ function RenderSoup(Positions, ColourFor, View)
         const Screen = Corners.map(Project);
         if (Screen.some((P) => P === null)) continue;
         const Shade = 0.35 + 0.65 * Math.abs(Dot(Normal, Light));
-        const Colour = ColourFor(Triangle, Normal, Shade);
+        const Colour = ColourFor(Triangle, Normal, Shade, null);
         const [A, B, C] = Screen;
         const Area = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
         if (Area === 0) continue;
@@ -114,7 +115,15 @@ function RenderSoup(Positions, ColourFor, View)
                 const Pixel = Y * Width + X;
                 if (Z >= Depth[Pixel]) continue;
                 Depth[Pixel] = Z;
-                Image[Pixel * 3] = Colour[0]; Image[Pixel * 3 + 1] = Colour[1]; Image[Pixel * 3 + 2] = Colour[2];
+                let PixelColour = Colour;
+                if (CornerUVs)
+                {
+                    const Uv = [0, 1].map((Axis) =>
+                        W0 * CornerUVs[Triangle * 6 + Axis] + W1 * CornerUVs[Triangle * 6 + 2 + Axis] +
+                        W2 * CornerUVs[Triangle * 6 + 4 + Axis]);
+                    PixelColour = ColourFor(Triangle, Normal, Shade, Uv);
+                }
+                Image[Pixel * 3] = PixelColour[0]; Image[Pixel * 3 + 1] = PixelColour[1]; Image[Pixel * 3 + 2] = PixelColour[2];
             }
     }
     return { Width, Height, Pixels: Image };
@@ -231,6 +240,23 @@ const ClassColour = (Class, Shade) => Class === 1
     ? [Math.round(70 * Shade + 40), Math.round(220 * Shade), Math.round(240 * Shade)]        // transmissive cyan
     : [Math.round(150 * Shade), Math.round(155 * Shade), Math.round(170 * Shade)];          // opaque slate
 
+// 📝 24x24 UV checkerboard shaded by the raster light: stretching shows as elongated checks, the meridian seam
+//    and cap islands show as checker discontinuities that must survive every LOD level without smearing.
+const UvCheckerColour = (Uv, Shade) =>
+{
+    if (!Uv) return [120, 120, 120];
+    const Parity = (Math.floor(Uv[0] * 24) + Math.floor(Uv[1] * 24)) % 2 === 0;
+    const Base = Parity ? [226, 232, 240] : [52, 96, 168];
+    return Base.map((V) => Math.min(255, Math.round(V * (0.35 + 0.65 * Shade))));
+};
+// 📝 Triangles touching a marked sharp edge glow red, triangles touching only a UV seam glow cyan, else slate.
+const FeatureColour = (SharpBits, SeamBits, Shade) =>
+{
+    if (SharpBits) return [Math.round(255 * Shade), Math.round(70 * Shade), Math.round(50 * Shade)];
+    if (SeamBits) return [Math.round(60 * Shade), Math.round(215 * Shade), Math.round(235 * Shade)];
+    return [Math.round(140 * Shade), Math.round(148 * Shade), Math.round(162 * Shade)];
+};
+
 //------------------------------------------------------------------------------------------------------------------------
 // SCENES
 //------------------------------------------------------------------------------------------------------------------------
@@ -261,7 +287,7 @@ for (const Entry of readdirSync(OutDirectory))
     if (/\.(png|gif)$/.test(Entry) || Entry === "stats.json") unlinkSync(OutDirectory + Entry);
 const Stats = {};
 
-function ProveScene(Name, Source, Options, Azimuth, Elevation, ClassOf)
+function ProveScene(Name, Source, Options, Azimuth, Elevation, ClassOf, UvAware = false)
 {
     const Hierarchy = BuildGeometryHierarchy(Source, Options);
     const Validation = ValidateGeometryHierarchy(Source, Hierarchy, Options);
@@ -284,7 +310,22 @@ function ProveScene(Name, Source, Options, Azimuth, Elevation, ClassOf)
         if (ClassOf)
             writeFileSync(OutDirectory + Name + "-level" + Level + "-classes.png",
                 EncodePng(RenderSoup(Soup.Positions, (Triangle, _, Shade) => ClassColour(ClassOf(Soup.Families[Triangle]), Shade), View)));
+        if (UvAware)
+        {
+            writeFileSync(OutDirectory + Name + "-level" + Level + "-uv.png",
+                EncodePng(RenderSoup(Soup.Positions, (_, __, Shade, Uv) => UvCheckerColour(Uv, Shade), View, Soup.CornerUVs)));
+            writeFileSync(OutDirectory + Name + "-level" + Level + "-features.png",
+                EncodePng(RenderSoup(Soup.Positions,
+                    (Triangle, _, Shade) => FeatureColour(Soup.SharpMask[Triangle], Soup.UvSeamMask[Triangle], Shade), View)));
+        }
     }
+    const RuntimeCamera = { Eye: View.Eye, Target: View.Target, Up: View.Up, FovY: View.FieldOfView,
+        ScreenWidth: View.Width, ScreenHeight: View.Height, Near: 0.1, Far: 1000 };
+    Stats[Name].RuntimeCuts = [64, 8, 1].map((Threshold) =>
+    {
+        const Cut = SelectHierarchyCut(Hierarchy, RuntimeCamera, null, { PixelErrorThreshold: Threshold });
+        return { ThresholdPx: Threshold, Clusters: Cut.CutClusters.length, Triangles: Cut.CutTriangles };
+    });
     const GifFrames = Hierarchy.Levels.map((_, Level) =>
     {
         const Soup = CollectHierarchyLevel(Hierarchy, Level);
@@ -299,5 +340,6 @@ ProveScene("sphere", ConstructSphereFacets(4, -1), {}, 0.7, 0.45, null);
 ProveScene("glass-sphere", ConstructSphereFacets(4, 9), { TransmissiveFamilies: [9] }, 0.7, 0.45,
     (Family) => (Family === 9 ? 1 : 0));
 ProveScene("heightfield-cliff", ConstructHeightfieldFacets(64, 40), {}, -0.8, 0.85, null);
+ProveScene("uv-creased-vessel", ConstructUvSeamCreasedMeshFacets(48, 20, 6), {}, 0.9, 0.5, null, true);
 writeFileSync(OutDirectory + "stats.json", JSON.stringify(Stats, null, 2) + "\n");
 console.log("Evidence written to " + OutDirectory);

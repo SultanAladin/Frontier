@@ -6,53 +6,84 @@
         "Clusters": 48,
         "Triangles": 5120,
         "Vertices": 2562,
+        "SharpEdges": 0,
+        "UvSeams": 0,
         "MaxError": 0
       },
       {
         "Level": 1,
-        "Clusters": 41,
+        "Clusters": 39,
         "Triangles": 2558,
         "Vertices": 1281,
-        "MaxError": 0.07240397000287813
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.07240397000287828
       },
       {
         "Level": 2,
-        "Clusters": 24,
-        "Triangles": 1278,
-        "Vertices": 641,
-        "MaxError": 0.17905209267705718
+        "Clusters": 20,
+        "Triangles": 1280,
+        "Vertices": 642,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.19796494190960678
       },
       {
         "Level": 3,
-        "Clusters": 6,
-        "Triangles": 638,
-        "Vertices": 321,
-        "MaxError": 0.3040000175615466
+        "Clusters": 5,
+        "Triangles": 640,
+        "Vertices": 322,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.29119947172655475
       },
       {
         "Level": 4,
         "Clusters": 3,
-        "Triangles": 318,
-        "Vertices": 161,
-        "MaxError": 0.4689674197868161
+        "Triangles": 320,
+        "Vertices": 162,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.42265627945913764
       },
       {
         "Level": 5,
         "Clusters": 2,
-        "Triangles": 158,
-        "Vertices": 81,
-        "MaxError": 0.684405176047056
+        "Triangles": 160,
+        "Vertices": 82,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.6148654497415396
       },
       {
         "Level": 6,
         "Clusters": 1,
-        "Triangles": 78,
-        "Vertices": 41,
-        "MaxError": 0.9981778141683131
+        "Triangles": 80,
+        "Vertices": 42,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.9161787552330721
       }
     ],
     "SourceTriangles": 5120,
-    "WeldedVertices": 2562
+    "WeldedVertices": 2562,
+    "RuntimeCuts": [
+      {
+        "ThresholdPx": 64,
+        "Clusters": 20,
+        "Triangles": 1280
+      },
+      {
+        "ThresholdPx": 8,
+        "Clusters": 46,
+        "Triangles": 4112
+      },
+      {
+        "ThresholdPx": 1,
+        "Clusters": 48,
+        "Triangles": 5120
+      }
+    ]
   },
   "glass-sphere": {
     "Levels": [
@@ -61,39 +92,66 @@
         "Clusters": 56,
         "Triangles": 5120,
         "Vertices": 2562,
+        "SharpEdges": 0,
+        "UvSeams": 0,
         "MaxError": 0
       },
       {
         "Level": 1,
-        "Clusters": 39,
+        "Clusters": 35,
         "Triangles": 2558,
         "Vertices": 1281,
-        "MaxError": 0.07240397000287813
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.0722405481539353
       },
       {
         "Level": 2,
-        "Clusters": 21,
-        "Triangles": 1278,
-        "Vertices": 641,
-        "MaxError": 0.22683401477711557
+        "Clusters": 23,
+        "Triangles": 1280,
+        "Vertices": 642,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.18080561578422324
       },
       {
         "Level": 3,
-        "Clusters": 7,
-        "Triangles": 638,
-        "Vertices": 321,
-        "MaxError": 0.379829369050283
+        "Clusters": 23,
+        "Triangles": 640,
+        "Vertices": 322,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.3317857681480847
       },
       {
         "Level": 4,
-        "Clusters": 13,
-        "Triangles": 362,
-        "Vertices": 183,
-        "MaxError": 1.2592721267558342
+        "Clusters": 25,
+        "Triangles": 352,
+        "Vertices": 178,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 1.7163362361875985
       }
     ],
     "SourceTriangles": 5120,
-    "WeldedVertices": 2562
+    "WeldedVertices": 2562,
+    "RuntimeCuts": [
+      {
+        "ThresholdPx": 64,
+        "Clusters": 23,
+        "Triangles": 1280
+      },
+      {
+        "ThresholdPx": 8,
+        "Clusters": 56,
+        "Triangles": 5120
+      },
+      {
+        "ThresholdPx": 1,
+        "Clusters": 56,
+        "Triangles": 5120
+      }
+    ]
   },
   "heightfield-cliff": {
     "Levels": [
@@ -102,52 +160,160 @@
         "Clusters": 80,
         "Triangles": 8192,
         "Vertices": 4225,
+        "SharpEdges": 0,
+        "UvSeams": 0,
         "MaxError": 0
       },
       {
         "Level": 1,
-        "Clusters": 69,
+        "Clusters": 55,
         "Triangles": 4096,
         "Vertices": 2177,
-        "MaxError": 1.5143231624460685
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 0.6847114099641776
       },
       {
         "Level": 2,
-        "Clusters": 34,
-        "Triangles": 2048,
-        "Vertices": 1153,
-        "MaxError": 3.6968009763496443
+        "Clusters": 64,
+        "Triangles": 2046,
+        "Vertices": 1152,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 2.334153533948566
       },
       {
         "Level": 3,
-        "Clusters": 36,
-        "Triangles": 1024,
-        "Vertices": 641,
-        "MaxError": 6.378178336594472
+        "Clusters": 53,
+        "Triangles": 1022,
+        "Vertices": 640,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 4.028661639520838
       },
       {
         "Level": 4,
-        "Clusters": 24,
-        "Triangles": 512,
-        "Vertices": 385,
-        "MaxError": 9.816925320076821
+        "Clusters": 23,
+        "Triangles": 526,
+        "Vertices": 392,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 14.90141506150716
       },
       {
         "Level": 5,
-        "Clusters": 10,
-        "Triangles": 256,
-        "Vertices": 257,
-        "MaxError": 22.273135529829258
+        "Clusters": 12,
+        "Triangles": 262,
+        "Vertices": 260,
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 27.57550188655238
       },
       {
         "Level": 6,
-        "Clusters": 6,
+        "Clusters": 11,
         "Triangles": 254,
         "Vertices": 256,
-        "MaxError": 49.00522213271711
+        "SharpEdges": 0,
+        "UvSeams": 0,
+        "MaxError": 47.821452061632975
       }
     ],
     "SourceTriangles": 8192,
-    "WeldedVertices": 4225
+    "WeldedVertices": 4225,
+    "RuntimeCuts": [
+      {
+        "ThresholdPx": 64,
+        "Clusters": 53,
+        "Triangles": 1022
+      },
+      {
+        "ThresholdPx": 8,
+        "Clusters": 63,
+        "Triangles": 4548
+      },
+      {
+        "ThresholdPx": 1,
+        "Clusters": 80,
+        "Triangles": 8192
+      }
+    ]
+  },
+  "uv-creased-vessel": {
+    "Levels": [
+      {
+        "Level": 0,
+        "Clusters": 48,
+        "Triangles": 2976,
+        "Vertices": 1490,
+        "SharpEdges": 144,
+        "UvSeams": 116,
+        "MaxError": 0
+      },
+      {
+        "Level": 1,
+        "Clusters": 24,
+        "Triangles": 1496,
+        "Vertices": 750,
+        "SharpEdges": 144,
+        "UvSeams": 115,
+        "MaxError": 0.1238659404792278
+      },
+      {
+        "Level": 2,
+        "Clusters": 9,
+        "Triangles": 748,
+        "Vertices": 376,
+        "SharpEdges": 110,
+        "UvSeams": 74,
+        "MaxError": 0.27280554258002376
+      },
+      {
+        "Level": 3,
+        "Clusters": 5,
+        "Triangles": 374,
+        "Vertices": 189,
+        "SharpEdges": 74,
+        "UvSeams": 54,
+        "MaxError": 0.5336363573172935
+      },
+      {
+        "Level": 4,
+        "Clusters": 3,
+        "Triangles": 186,
+        "Vertices": 95,
+        "SharpEdges": 52,
+        "UvSeams": 36,
+        "MaxError": 0.9377444186365058
+      },
+      {
+        "Level": 5,
+        "Clusters": 1,
+        "Triangles": 92,
+        "Vertices": 48,
+        "SharpEdges": 32,
+        "UvSeams": 23,
+        "MaxError": 1.6277967153634885
+      }
+    ],
+    "SourceTriangles": 2976,
+    "WeldedVertices": 1490,
+    "RuntimeCuts": [
+      {
+        "ThresholdPx": 64,
+        "Clusters": 9,
+        "Triangles": 748
+      },
+      {
+        "ThresholdPx": 8,
+        "Clusters": 48,
+        "Triangles": 2976
+      },
+      {
+        "ThresholdPx": 1,
+        "Clusters": 48,
+        "Triangles": 2976
+      }
+    ]
   }
 }
