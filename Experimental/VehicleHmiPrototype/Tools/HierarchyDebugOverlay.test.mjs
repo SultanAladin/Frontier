@@ -75,6 +75,29 @@ test("overlay builds the hierarchy, draws bounds + wireframe and reports stats",
     assert.equal(Overlay.Builds.get(0).Hierarchy, First, "cached build reused");
 });
 
+test("cluster debug: runtime-cut view and page colour mode draw and report", () =>
+{
+    InstallDom("?hierarchy=1&glass=9");
+    const Overlay = new HierarchyDebugOverlay(FakeHost());
+    Overlay.Draw();
+    const Build = Overlay.Builds.get(0);
+    assert.ok(Build.Pages?.length > 1, "streaming pages packed for cluster debug");
+    assert.ok(Build.Residency, "residency manager created");
+    // Page colour mode: resident (pinned) pages colour, unstreamed pages grey out.
+    Overlay.ColourMode = "page";
+    Overlay.Draw();
+    assert.ok(Overlay.SVG.children.length > 0, "page mode draws");
+    assert.match(Overlay.Stats.textContent, /pages \d+\/\d+ resident/);
+    // Runtime-cut view: the real Phase-2 pipeline decides what is visible from this camera.
+    Overlay.ViewMode = "cut";
+    Overlay.Draw();
+    assert.match(Overlay.Stats.textContent, /runtime cut/);
+    assert.match(Overlay.Stats.textContent, /visible/);
+    assert.ok(Overlay.RuntimeResult, "runtime frame executed");
+    assert.ok(Overlay.RuntimeResult.VisibleClusters.length > 0, "cut selects clusters in front of the camera");
+    assert.ok(Overlay.SVG.children.length > 0, "cut bounds/wireframe drawn");
+});
+
 test("overlay tolerates a host with no scene yet", () =>
 {
     InstallDom("?hierarchy=1");

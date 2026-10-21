@@ -14,6 +14,7 @@
 
 import { ProjectGizmo } from "./TransformGizmo.js";
 import { BuildGeometryHierarchy, CollectHierarchyLevel } from "./GeometryHierarchy.js";
+import { PackHierarchyPages, HierarchyResidencyManager, ExecuteHierarchyRuntimeFrame } from "./GeometryHierarchyRuntime.js";
 
 const SvgNamespace = "http://www.w3.org/2000/svg";
 const WireframeTriangleCap = 24000;
@@ -33,9 +34,15 @@ export class HierarchyDebugOverlay
         this.Builds = new Map();
         this.SelectedLevel = 0;
         this.Mode = "both";          // both | bounds | wireframe
-        this.ColourMode = "cluster"; // cluster | error | class
+        this.ColourMode = "cluster"; // cluster | error | class | uv | features | page
+        this.ViewMode = "level";     // level | cut (live runtime DAG cut for the current camera)
+        this.RuntimeResult = null;
+        this.RuntimeKey = "";
+        this.RuntimeTime = 0;
+        this.FrameCounter = 0;
         const Query = new URLSearchParams(location.search);
         if (Query.get("hierarchy") !== "1") return;
+        this.CutThreshold = Number.parseFloat(Query.get("px") ?? "") || 1.0;
         this.TransmissiveFamilies = (Query.get("glass") ?? "")
             .split(",").map((Value) => Number.parseInt(Value, 10)).filter(Number.isInteger);
         const Stage = document.getElementById("stage");
@@ -81,21 +88,31 @@ export class HierarchyDebugOverlay
         };
         MakeSelect("Show", [["both", "Bounds + wireframe"], ["bounds", "Bounds"], ["wireframe", "Wireframe"]],
             this.Mode, (Value) => { this.Mode = Value; });
+        MakeSelect("View", [["level", "DAG level (L buttons)"], ["cut", "Runtime cut (live camera)"]],
+            this.ViewMode, (Value) => { this.ViewMode = Value; this.RuntimeKey = ""; });
         MakeSelect("Colour", [["cluster", "Cluster identity"], ["error", "Error heat"], ["class", "Opaque / transmissive"],
-            ["uv", "UV checker (per-triangle)"], ["features", "Sharp edges / UV seams"]],
+            ["uv", "UV checker (per-triangle)"], ["features", "Sharp edges / UV seams"], ["page", "Streaming page / residency"]],
             this.ColourMode, (Value) => { this.ColourMode = Value; });
         const Note = document.createElement("div");
         Note.textContent = "Bounds are error-expanded. Wireframe is the simplified level geometry. " +
             "Class: grey opaque · cyan transmissive · magenta = mixed (must never appear). " +
-            "Features: red = triangle touches a marked sharp edge · cyan = touches only a UV seam.";
+            "Features: red = triangle touches a marked sharp edge · cyan = touches only a UV seam. " +
+            "Page: hue = streaming page, grey = page not resident yet (pages stream in root-first). " +
+            "Runtime cut: green = phase-1 visible · cyan = phase-2 disoccluded · red = Hi-Z occluded.";
         Note.style.opacity = "0.75";
         Panel.appendChild(Note);
         Stage.appendChild(Panel);
         this.Panel = Panel;
     }
 
-    ColourFor(Node, MaxError)
+    ColourFor(Node, MaxError, Record = null)
     {
+        if (this.ColourMode === "page")
+        {
+            if (Node.PageIndex === undefined) return "#9aa7b8";
+            if (Record?.Residency && !Record.Residency.IsPageResident(Node.PageIndex)) return "#414c5c";
+            return "hsl(" + ((Node.PageIndex * 97.3) % 360).toFixed(1) + " 65% 58%)";
+        }
         if (this.ColourMode === "error")
         {
             const T = MaxError > 0 ? Math.min(1, Node.Error / MaxError) : 0;
@@ -117,6 +134,16 @@ export class HierarchyDebugOverlay
             Record.Hierarchy = BuildGeometryHierarchy(Set, { TransmissiveFamilies: this.TransmissiveFamilies });
             Record.BuildMs = performance.now() - Begin;
             for (const Node of Record.Hierarchy.Clusters) Record.MaxError = Math.max(Record.MaxError, Node.Error);
+            // 📝 Cluster debug extras: pack streaming pages and start a cold residency so the Page colour
+            //    mode and the runtime-cut view can show pages streaming in (root pages pinned + resident).
+            try
+            {
+                Record.Pages = PackHierarchyPages(Record.Hierarchy, {});
+                Record.Residency = new HierarchyResidencyManager(Record.Pages, {});
+                for (const Page of Record.Pages)
+                    if (!Page.Pinned) Record.Residency.RequestPage(Page.PageIndex, 1);
+            }
+            catch { Record.Pages = null; Record.Residency = null; }
         }
         catch (Failure)
         {
@@ -142,6 +169,134 @@ export class HierarchyDebugOverlay
             Button.addEventListener("click", () => { this.SelectedLevel = Level; this.LevelSignature = ""; });
             this.LevelRow.appendChild(Button);
         }
+    }
+
+    AppendBounds(Node, Matrix, Camera, Width, Height, Colour, Opacity = "0.85", StrokeWidth = "1.2")
+    {
+        const S = this.SVG;
+        const Points = Array.from({ length: 8 }, (_, K) =>
+        {
+            const P = Node.Minimum.map((V, A) => (K & (1 << A) ? Node.Maximum[A] : V));
+            return ProjectGizmo(TransformPoint(Matrix, P), Camera, Width, Height);
+        });
+        let Path = "";
+        for (let K = 0; K < 8; ++K) for (let A = 0; A < 3; ++A)
+        {
+            const J = K ^ (1 << A);
+            if (J < K || !Points[K] || !Points[J]) continue;
+            Path += "M" + Points[K][0].toFixed(1) + "," + Points[K][1].toFixed(1) +
+                    "L" + Points[J][0].toFixed(1) + "," + Points[J][1].toFixed(1);
+        }
+        if (!Path) return false;
+        const Element = document.createElementNS(SvgNamespace, "path");
+        Element.setAttribute("d", Path);
+        Element.setAttribute("fill", "none");
+        Element.setAttribute("stroke", Colour);
+        Element.setAttribute("stroke-width", StrokeWidth);
+        Element.setAttribute("opacity", Opacity);
+        S.appendChild(Element);
+        return true;
+    }
+
+    // 📝 Live cluster debug: run the actual Phase-2 runtime (DAG cut -> frustum/cone -> two-phase Hi-Z) on
+    //    the CPU at reduced resolution, throttled, and draw what it decided: phase-1 visible clusters green,
+    //    phase-2 disoccluded cyan, Hi-Z occluded red. Culled-by-frustum/cone clusters are counted, not drawn.
+    DrawCut(PerSet, Scene, CameraState, Width, Height)
+    {
+        const Now = performance.now();
+        const Key = [CameraState.Position, CameraState.Forward].flat().map((V) => V.toFixed(2)).join(",") +
+            "|" + this.CutThreshold;
+        if ((!this.RuntimeResult || Key !== this.RuntimeKey) && Now - this.RuntimeTime > 350)
+        {
+            this.RuntimeTime = Now;
+            this.RuntimeKey = Key;
+            const Instances = [];
+            for (const { Record, Occupants } of PerSet.values())
+                for (const Occupant of Occupants)
+                {
+                    const Matrix = Scene.Occupants[Occupant]?.Transform;
+                    if (!Matrix || Matrix.length < 16) continue;
+                    Instances.push({ Hierarchy: Record.Hierarchy, LocalToWorld: Float64Array.from(Matrix),
+                                     PreviousLocalToWorld: Float64Array.from(Matrix), Occupant, Residency: Record.Residency });
+                }
+            if (Instances.length)
+            {
+                const Eye = CameraState.Position;
+                const RuntimeCamera = { Eye, Target: Eye.map((V, A) => V + CameraState.Forward[A]), Up: CameraState.Up,
+                    FovY: 2 * Math.atan(CameraState.TanY ?? 0.5), ScreenWidth: 320, ScreenHeight: 240,
+                    Near: 0.1, Far: 2000, PreviousViewProjection: this.RuntimeResult?.ViewProjection };
+                try
+                {
+                    this.RuntimeResult = ExecuteHierarchyRuntimeFrame(Instances, RuntimeCamera,
+                        { PixelErrorThreshold: this.CutThreshold, PreviousHiZPyramid: this.RuntimeResult?.CurrentHiZPyramid ?? null });
+                }
+                catch { this.RuntimeResult = null; }
+            }
+        }
+        const Result = this.RuntimeResult;
+        if (!Result) { this.CutStats = "runtime cut unavailable"; return; }
+        const MatrixOf = (Item) => Scene.Occupants[Item.Occupant]?.Transform;
+        let TrianglesDrawn = 0;
+        const WireframePaths = new Map();
+        for (const Item of Result.VisibleClusters)
+        {
+            const Matrix = MatrixOf(Item);
+            if (!Matrix) continue;
+            const Colour = Item.Phase === 2 ? "#3fd2ff" : "#61eaa0";
+            this.AppendBounds(Item.Node, Matrix, CameraState, Width, Height, Colour);
+            if (this.Mode === "bounds") continue;
+            const Level = Item.Hierarchy.Levels[Item.Node.Level];
+            for (const Triangle of Item.Node.Triangles)
+            {
+                if (TrianglesDrawn >= WireframeTriangleCap) break;
+                const Screen = [];
+                for (let Corner = 0; Corner < 3; ++Corner)
+                {
+                    const Vertex = Level.Triangles[Triangle * 3 + Corner];
+                    const P = [Level.Positions[Vertex * 3], Level.Positions[Vertex * 3 + 1], Level.Positions[Vertex * 3 + 2]];
+                    Screen.push(ProjectGizmo(TransformPoint(Matrix, P), CameraState, Width, Height));
+                }
+                if (Screen.some((P) => !P)) continue;
+                let Segment = "";
+                for (let Edge = 0; Edge < 3; ++Edge)
+                {
+                    const P = Screen[Edge], Q = Screen[(Edge + 1) % 3];
+                    Segment += "M" + P[0].toFixed(1) + "," + P[1].toFixed(1) + "L" + Q[0].toFixed(1) + "," + Q[1].toFixed(1);
+                }
+                WireframePaths.set(Colour, (WireframePaths.get(Colour) ?? "") + Segment);
+                ++TrianglesDrawn;
+            }
+        }
+        for (const Item of Result.OccludedCulled)
+        {
+            const Matrix = MatrixOf(Item);
+            if (Matrix) this.AppendBounds(Item.Node, Matrix, CameraState, Width, Height, "#ff5340", "0.5", "1");
+        }
+        for (const [Colour, Path] of WireframePaths)
+        {
+            const Element = document.createElementNS(SvgNamespace, "path");
+            Element.setAttribute("d", Path);
+            Element.setAttribute("fill", "none");
+            Element.setAttribute("stroke", Colour);
+            Element.setAttribute("stroke-width", "0.7");
+            Element.setAttribute("opacity", "0.9");
+            this.SVG.appendChild(Element);
+        }
+        const St = Result.Stats;
+        let Resident = 0, PageTotal = 0, Queued = 0;
+        for (const { Record } of PerSet.values())
+            if (Record.Pages)
+            {
+                PageTotal += Record.Pages.length;
+                Resident += Record.Pages.filter((Page) => Record.Residency.IsPageResident(Page.PageIndex)).length;
+                Queued += Record.Residency.StreamingQueue.length;
+            }
+        this.CutStats = "runtime cut · " + St.CutClusterCount + " cut → " + Result.VisibleClusters.length +
+            " visible (" + St.Phase2DisoccludedCount + " disoccluded) · " + St.VisibleTriangles + " of " +
+            St.SourceTriangles + " tris · frustum " + St.FrustumCulledCount + " · cone " + St.ConeCulledCount +
+            " · occluded " + St.OccludedCulledCount + " · glass draws " + St.TransmissiveDrawCount +
+            " · pages " + Resident + "/" + PageTotal + " resident, " + Queued + " queued" +
+            " · threshold " + this.CutThreshold + " px (?px= to change)";
     }
 
     Draw()
@@ -174,7 +329,20 @@ export class HierarchyDebugOverlay
         this.SelectedLevel = Math.min(this.SelectedLevel, MaxLevel);
         this.RefreshLevelButtons(MaxLevel);
 
+        // 📝 Pages stream in a couple per draw so Page colour / runtime-cut residency visibly fills in.
+        ++this.FrameCounter;
+        for (const { Record } of PerSet.values())
+        {
+            Record.Residency?.ServiceStreamingQueue(this.FrameCounter, 2);
+        }
+
         S.replaceChildren();
+        if (this.ViewMode === "cut")
+        {
+            this.DrawCut(PerSet, Scene, Camera, Width, Height);
+            if (this.Stats) this.Stats.textContent = this.CutStats ?? "runtime cut…";
+            return;
+        }
         let ClusterTotal = 0, TriangleTotal = 0, RootMaxError = 0, BuildMsTotal = 0, Failures = 0, Skipped = 0;
         let BoundsDrawn = 0, TrianglesDrawn = 0, SharpTotal = 0, SeamTotal = 0;
         const WireframePaths = new Map();
@@ -217,7 +385,7 @@ export class HierarchyDebugOverlay
                         const Element = document.createElementNS(SvgNamespace, "path");
                         Element.setAttribute("d", Path);
                         Element.setAttribute("fill", "none");
-                        Element.setAttribute("stroke", this.ColourFor(Node, Record.MaxError));
+                        Element.setAttribute("stroke", this.ColourFor(Node, Record.MaxError, Record));
                         Element.setAttribute("stroke-width", "1.2");
                         Element.setAttribute("opacity", "0.85");
                         S.appendChild(Element);
@@ -227,7 +395,7 @@ export class HierarchyDebugOverlay
                     {
                         if (TrianglesDrawn >= WireframeTriangleCap) { ++Skipped; continue; }
                         const Node = Hierarchy.Clusters[SoupTriangles.Owners[Triangle]];
-                        let Colour = this.ColourFor(Node, Record.MaxError);
+                        let Colour = this.ColourFor(Node, Record.MaxError, Record);
                         if (this.ColourMode === "uv" && SoupTriangles.CornerUVs)
                         {
                             const U = (SoupTriangles.CornerUVs[Triangle * 6] + SoupTriangles.CornerUVs[Triangle * 6 + 2] +
@@ -277,6 +445,9 @@ export class HierarchyDebugOverlay
                 " · " + ClusterTotal + " clusters · " + TriangleTotal + " triangles at this level" +
                 " · DAG max error " + RootMaxError.toFixed(4) +
                 " · sharp edges " + SharpTotal + " · UV seams " + SeamTotal +
+                (this.ColourMode === "page" ? " · pages " +
+                    [...PerSet.values()].reduce((N, { Record }) => N + (Record.Pages?.filter((P) => Record.Residency.IsPageResident(P.PageIndex)).length ?? 0), 0) +
+                    "/" + [...PerSet.values()].reduce((N, { Record }) => N + (Record.Pages?.length ?? 0), 0) + " resident" : "") +
                 " · build " + BuildMsTotal.toFixed(0) + " ms" +
                 (Skipped ? " · " + Skipped + " items over draw cap" : "") +
                 (Failures ? " · " + Failures + " build failure(s): " +

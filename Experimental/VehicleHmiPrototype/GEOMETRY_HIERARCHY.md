@@ -89,6 +89,13 @@ per-level error-expanded bounds + simplified wireframe with cluster / error-heat
 sharp-and-seam** colour modes, level buttons, and live counts (clusters, triangles, sharp edges, UV seams,
 DAG max error, build time). With `?hierarchy=1` the viewport itself renders through the Phase-2 runtime.
 
+**Cluster debug** (same panel): the *View* selector switches between the DAG level view and a **Runtime
+cut** view that runs the actual Phase-2 pipeline (cut → frustum/cone → two-phase Hi-Z, CPU mirror at
+320×240, throttled) for the live camera — phase-1 visible clusters draw green, phase-2 disoccluded cyan,
+Hi-Z occluded red, with frustum/cone/occluded/glass counts and page residency in the stats line
+(`?px=` sets the projected-error threshold). The **Streaming page** colour mode hues clusters by page and
+greys out pages that have not streamed in yet, so residency fills in root-first in real time.
+
 ## Tests & evidence
 
 - `Tools/GeometryHierarchy.test.mjs` — build gates incl. UV seam/sharp survival and the group-coherent
