@@ -66,6 +66,16 @@ export class VirtualizedGeometry
         this.DummyHiZ = E.ConstructTexture({ label: "Hi-Z dummy", size: [1, 1], format: "r32float",
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING });
         this.PreviousHiZView = this.DummyHiZ.createView();
+        // 📝 Resolve-group slot fillers. Dawn validates resource usage per BIND GROUP bound to a pass, not
+        //    per shader entry point: binding one texture as writable storage (slot 6) and sampled (slot 12)
+        //    in the same group — even though each entry point statically uses only one of them — makes every
+        //    pass using that group invalid ("writable usage and another usage in the same synchronization
+        //    scope") and poisons the whole frame encoder. So a texture may occupy only ONE slot per group;
+        //    the slot an entry point does not use gets a distinct 1x1 dummy of matching kind instead.
+        this.DummyStorageView = E.ConstructTexture({ label: "Resolve dummy (storage slot)", size: [1, 1], format: "rgba16float",
+            usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }).createView();
+        this.DummySampledView = E.ConstructTexture({ label: "Resolve dummy (sampled slot)", size: [1, 1], format: "rgba16float",
+            usage: GPUTextureUsage.TEXTURE_BINDING }).createView();
         this.CullProgram = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "SelectAndCullPhase1", [this.CullLayout]);
         this.Phase2Program = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "CullPhase2Disoccluded", [this.CullLayout]);
         this.SeedProgram = await this.Shaders.ConstructComputeProgram("HiZPyramid.wgsl", "SeedHiZFromDepth", [this.SeedLayout]);
@@ -537,18 +547,22 @@ export class VirtualizedGeometry
         DrawClass(Peel, this.Phase1Commands, true);
         DrawClass(Peel, this.Phase2Commands, true);
         Peel.end();
-        const ResolveGroup = E.ConstructDescriptorGroup(this.ResolveLayout,
+        // 📝 Two groups, identical except slots 6/12 (see DummyStorageView note): the opaque resolve WRITES
+        //    slot 6 and must not also see the texture sampled; the refraction gather READS slot 12 and must
+        //    not also see it writable. Slot 11 (FinalResolved) is only ever written, so it stays real in both.
+        const MakeResolveGroup = (Slot6View, Slot12View) => E.ConstructDescriptorGroup(this.ResolveLayout,
             [this.FrameRecords, this.OccupantRecords, this.CornerPosBuffer, this.CornerUvBuffer,
-             this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.OpaqueResolvedTexture.createView(),
+             this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), Slot6View,
              this.GlassVisTexture.createView(), this.GlassBaryTexture.createView(),
              this.GlassBackVisTexture.createView(), this.GlassBackBaryTexture.createView(),
-             this.FinalResolvedTexture.createView(), this.OpaqueResolvedTexture.createView(),
+             this.FinalResolvedTexture.createView(), Slot12View,
              this.CurrentHiZView ?? this.PreviousHiZView]);
-        for (const Program of [this.ResolveOpaqueProgram, this.ResolveRefractionProgram])
+        for (const [Program, Group] of [[this.ResolveOpaqueProgram, MakeResolveGroup(this.OpaqueResolvedTexture.createView(), this.DummySampledView)],
+                                        [this.ResolveRefractionProgram, MakeResolveGroup(this.DummyStorageView, this.OpaqueResolvedTexture.createView())]])
         {
             const Pass = Encoder.beginComputePass({ label: Program === this.ResolveOpaqueProgram ? "Resolve opaque visibility" : "Resolve refraction gather" });
             Pass.setPipeline(Program);
-            Pass.setBindGroup(0, ResolveGroup);
+            Pass.setBindGroup(0, Group);
             Pass.dispatchWorkgroups(Math.ceil(this.Extent[0] / 8), Math.ceil(this.Extent[1] / 8));
             Pass.end();
         }
@@ -570,9 +584,12 @@ export class VirtualizedGeometry
         const Program = Mode === 10 ? this.DebugIdsProgram : Mode === 13 ? this.DebugGlassProgram
                       : Mode === 12 ? this.DebugHiZProgram : this.DebugCopyProgram;
         if (!Program) { this.RecordUnavailableView(Encoder, TargetView); return; }
+        // 📝 Slot 6 carries the storage dummy: debug entries write slot 11 (the inspection target) and read
+        //    slot 12, so the real OpaqueResolved texture must not ALSO sit writable in slot 6 of this group
+        //    (same bind-group aliasing rule as the resolve groups — see DummyStorageView note).
         const Group = E.ConstructDescriptorGroup(this.ResolveLayout,
             [this.FrameRecords, this.OccupantRecords, this.CornerPosBuffer, this.CornerUvBuffer,
-             this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.OpaqueResolvedTexture.createView(),
+             this.OpaqueVisTexture.createView(), this.OpaqueBaryTexture.createView(), this.DummyStorageView,
              this.GlassVisTexture.createView(), this.GlassBaryTexture.createView(),
              this.GlassBackVisTexture.createView(), this.GlassBackBaryTexture.createView(),
              TargetView, Mode === 11 ? this.FinalResolvedTexture.createView() : this.OpaqueResolvedTexture.createView(),
