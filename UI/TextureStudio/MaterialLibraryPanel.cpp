@@ -1183,6 +1183,7 @@ void MaterialLibraryPanel::ConstructInterface()
     ImGui::PopFont();
     if (DirectoryRequested) { ImGui::OpenPopup("Open material library"); DirectoryRequested = false; }
     ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20 * Scale, 16 * Scale));
     if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_NoResize))
     {
         const auto Dialogue = ImGui::GetCursorScreenPos();
@@ -1201,7 +1202,7 @@ void MaterialLibraryPanel::ConstructInterface()
         ImGui::Separator();
         ImGui::Spacing();
         const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
-        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 2 * ButtonWidth - ButtonGap - 16 * Scale);
+        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 2 * ButtonWidth - ButtonGap - 20 * Scale);
         if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) ImGui::CloseCurrentPopup();
         ImGui::SameLine(0, ButtonGap);
         ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
@@ -1213,6 +1214,7 @@ void MaterialLibraryPanel::ConstructInterface()
         ImGui::EndDisabled();
         ImGui::EndPopup();
     }
+    ImGui::PopStyleVar();
     ConstructCreation();
     if (ClosingRequested && !ImGui::IsPopupOpen("Unsaved material")) ImGui::OpenPopup("Unsaved material");
     ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));

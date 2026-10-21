@@ -5,6 +5,7 @@
 
 #include "UI/TextureStudio/MaterialLibraryPanel.h"
 #include "Engine/Render/MaterialPreviewGeometry.h"
+#include "Engine/Render/SurfaceMaterial.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -49,6 +50,17 @@ int main(int Count, char **Arguments)
         Inspection = {};
         Inspection.Shape = MaterialPreviewShape(5);
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown shape accepted.");
+        // 🧩 The renderer maps each shape to preview slot shape+1; slot 5 is
+        // the draped cloth, and the scattering contract must accept every
+        // slot the UI can select or selection dies as a severe failure.
+        MaterialScattering Slots;
+        for (uint32_t Shape = 0; Shape <= 4; ++Shape)
+        {
+            Slots.PreviewConfiguration = {Shape + 1, 1, 0, 0};
+            Confirm(ValidateMaterialScattering(Slots), "Scattering contract rejected a selectable preview shape.");
+        }
+        Slots.PreviewConfiguration = {6, 1, 0, 0};
+        Confirm(!ValidateMaterialScattering(Slots), "Scattering contract accepted an unknown preview slot.");
         Inspection = {};
         Inspection.Exposure = 4.01f;
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Out-of-range exposure accepted.");

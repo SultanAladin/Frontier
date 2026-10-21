@@ -5,8 +5,10 @@
 // variants, and crash-free tessellation of every shipped family into finite card geometry.
 
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
+#include <imgui_internal.h>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 using namespace Frontier;
@@ -74,6 +76,52 @@ int main()
             }
         }
         Confirm(Tessellated == 178, "Gallery palette variant count changed.");
+        // 🧩 Headless grid regression: construct full interface frames and
+        // prove the 24 page-zero cards land in pairwise-disjoint boxes. The
+        // wrapped card name used to leave the cursor mid-card, shearing the
+        // rows into a diagonal cascade that data-level checks could not see.
+        ImGui::CreateContext();
+        auto &IO = ImGui::GetIO();
+        IO.IniFilename = nullptr;
+        IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        if (std::filesystem::is_regular_file("EngineContent/FontArchives/Inter/Inter-Regular.otf"))
+            IO.Fonts->AddFontFromFileTTF("EngineContent/FontArchives/Inter/Inter-Regular.otf", 14);
+        else IO.Fonts->AddFontDefault();
+        unsigned char *Pixels = nullptr;
+        int AtlasWidth = 0, AtlasHeight = 0;
+        IO.Fonts->GetTexDataAsRGBA32(&Pixels, &AtlasWidth, &AtlasHeight);
+        PatternWorkspacePanel Grid;
+        Confirm(Grid.ConfigurePresetDirectory("EngineContent/PatternArchives/TextureStudio"), "Grid panel rejected the pattern library.");
+        Grid.ConfigureTypeface(IO.Fonts->Fonts[0]);
+        Confirm(Grid.Initialize() && Grid.Activate(), "Grid panel lifecycle failed.");
+        Confirm(Grid.QueryPanels().ConfigureStackedPanels("pattern-library", "pattern-layers", 800.f),
+            "Grid panel refused the expanded gallery split.");
+        IO.DisplaySize = ImVec2(1280, 900);
+        IO.DeltaTime = 1.f / 60;
+        for (int Frame = 0; Frame < 6; ++Frame)
+        {
+            ImGui::NewFrame();
+            Grid.ConstructInterface();
+            ImGui::Render();
+        }
+        Confirm(ImGui::FindWindowByName("Pattern library###FrontierPanel-pattern-library") != nullptr,
+            "Pattern library dock panel is absent.");
+        const auto GridFamilies = Grid.QueryLibraryFamilies();
+        const auto GridMatches = Grid.QueryLibraryMatches();
+        Confirm(GridMatches.size() == 103, "Grid panel match count changed.");
+        for (size_t First = 0; First < 24; ++First)
+        {
+            const auto A = Grid.QueryControlExtent(GridFamilies[GridMatches[First]].Name);
+            Confirm(A.Width() > 0 && A.Height() > 0, "Gallery card recorded no extent.");
+            for (size_t Second = First + 1; Second < 24; ++Second)
+            {
+                const auto B = Grid.QueryControlExtent(GridFamilies[GridMatches[Second]].Name);
+                const bool Overlaps = A.MinimumX < B.MaximumX - 1 && B.MinimumX < A.MaximumX - 1 &&
+                    A.MinimumY < B.MaximumY - 1 && B.MinimumY < A.MaximumY - 1;
+                Confirm(!Overlaps, "Gallery cards overlap.");
+            }
+        }
+        ImGui::DestroyContext();
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << ",\"variants\":" << Tessellated
                   << ",\"triangles\":" << Triangles << ",\"seconds\":"
                   << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - Budget).count() << "}\n";

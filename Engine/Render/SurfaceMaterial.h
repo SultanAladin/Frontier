@@ -105,7 +105,9 @@ struct CompiledSurfaceMaterial
 
 inline bool ValidateMaterialScattering(const MaterialScattering &Material)
 {
-    if (Material.PreviewConfiguration[0] > 4 || Material.PreviewConfiguration[1] > 1 || Material.PreviewConfiguration[2] || Material.PreviewConfiguration[3]) return false;
+    // 📝 Preview slot 5 is the draped-cloth inspection surface; rejecting it
+    // crashed cloth selection with a dormant-contract severe failure.
+    if (Material.PreviewConfiguration[0] > 5 || Material.PreviewConfiguration[1] > 1 || Material.PreviewConfiguration[2] || Material.PreviewConfiguration[3]) return false;
     if (!ValidateAutomotivePaint(Material.Paint)) return false;
     if (!ValidatePreviewScattering(Material.Illumination) || Material.Illumination.Configuration[1] != 0) return false;
     for (float Coefficient : Material.UvScaleOffset)

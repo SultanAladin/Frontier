@@ -823,6 +823,8 @@ void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry
     ImGui::InvisibleButton(("##LibraryCard-" + Family.Name).c_str(), Size);
     const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
     ControlExtents[Family.Name] = {Origin.x, Origin.y, Far.x, Far.y};
+    const char *Description = Family.Description.empty() ? Family.Name.c_str() : Family.Description.c_str();
+    Controls.Tooltip(Family.Name.c_str(), Description);
     ImDrawList *Draw = ImGui::GetWindowDrawList();
     Draw->AddRectFilled(Origin, Far, Selected ? IM_COL32(53, 66, 55, 255) : Hovered ? IM_COL32(52, 61, 56, 255) : IM_COL32(35, 40, 41, 255), 7 * Scale);
     const ImVec2 ThumbFar(Far.x, Origin.y + ThumbHeight);
@@ -898,12 +900,10 @@ void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry
     Draw->AddRect(Origin, Far, Selected ? IM_COL32(179, 200, 166, 255) : Hovered ? IM_COL32(109, 129, 112, 255) : IM_COL32(54, 61, 61, 255),
         7 * Scale, 0, Selected || Hovered ? 2.f : 1.f);
     if (RegularTypeface) ImGui::PopFont();
-    if (Hovered)
-    {
-        ImGui::BeginTooltip();
-        ImGui::TextUnformatted((Family.Description.empty() ? Family.Name : Family.Description).c_str());
-        ImGui::EndTooltip();
-    }
+    // 📝 The wrapped name leaves the cursor mid-card, which collapsed the
+    // gallery rows into a diagonal cascade; restore the documented card box
+    // so the grid caller can place the next column and row absolutely.
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Far.y));
     if (Clicked && !Entry.Failed)
     {
         try
@@ -1038,14 +1038,19 @@ void PatternWorkspacePanel::ConstructLibrary()
     const float Gap = 9 * Scale;
     const float CardWidth = (ContentWidth - Gap) * .5f;
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (15 - 4) * Scale);
+    float RowTop = ImGui::GetCursorPosY();
     for (size_t Slot = Page * 24; Slot < std::min(Page * 24 + 24, Matches.size()); ++Slot)
     {
-        if ((Slot - Page * 24) % 2 == 0) ImGui::SetCursorPosX(16 * Scale);
-        else ImGui::SameLine(0, Gap);
+        // 📝 Cards restore the cursor to their own box bottom, so the second
+        // column pins to the captured row top instead of SameLine, which
+        // would inherit the sibling's bottom edge and shear the grid.
+        const bool FirstColumn = (Slot - Page * 24) % 2 == 0;
+        if (FirstColumn) { RowTop = ImGui::GetCursorPosY(); ImGui::SetCursorPosX(16 * Scale); }
+        else ImGui::SetCursorPos(ImVec2(16 * Scale + CardWidth + Gap, RowTop));
         const auto &Family = LibraryFamilies[Matches[Slot]];
         const auto &Entry = QueryPresetEntry(Family);
         ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name);
-        if ((Slot - Page * 24) % 2 == 1) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Gap - 4 * Scale);
+        if (!FirstColumn) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Gap - 4 * Scale);
     }
     if (Matches.empty())
     {
