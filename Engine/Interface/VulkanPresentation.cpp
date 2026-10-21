@@ -297,10 +297,10 @@ void VulkanPresentation::RenderMain(ImDrawData *Commands)
         Display.Rebuild = true;
     else
         RequireSuccess(Result);
-    if (TraceFrame) DiagnosticJournal::Append("FrameAcquire", "image=" + std::to_string(Main.FrameIndex));
-    auto &Submission = Main.Frames[Main.FrameIndex];
     static int TracedFrames = 0;
     const bool TraceFrame = TracedFrames < 4;
+    if (TraceFrame) DiagnosticJournal::Append("FrameAcquire", "image=" + std::to_string(Main.FrameIndex));
+    auto &Submission = Main.Frames[Main.FrameIndex];
     if (TraceFrame) DiagnosticJournal::Append("FrameWait", "image=" + std::to_string(Main.FrameIndex) +
         " serial=" + std::to_string(Display.ImageSerials.size() == Main.ImageCount ? Display.ImageSerials[Main.FrameIndex] : 0));
     RequireSuccess(Display.WaitForFences(Display.Device, 1, &Submission.Fence, VK_TRUE, UINT64_MAX));
