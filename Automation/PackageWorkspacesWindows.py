@@ -49,8 +49,8 @@ def Main():
     Build = Arguments.build.resolve()
     ShaderDirectory = Build / 'ShaderArchives/Surface'
     Compilation = json.loads((ShaderDirectory / 'ShaderCompilation.json').read_text())
-    if len(Compilation['entries']) != 10:
-        raise RuntimeError('Expected ten compiled shader entries')
+    if len(Compilation['entries']) != 14:
+        raise RuntimeError('Expected fourteen compiled shader entries')
     for Source in Compilation['sources']:
         if Digest(RepositoryRoot / Source['file']) != Source['sha256']:
             raise RuntimeError('Shader source fingerprint differs: ' + Source['file'])
@@ -86,8 +86,8 @@ def Main():
         for Typeface in Catalogue['faces']:
             if Digest(Installation / 'EngineContent/FontArchives' / Typeface['file']) != Typeface['sha256']:
                 raise RuntimeError('Packaged font differs: ' + Typeface['file'])
-        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 127:
-            raise RuntimeError('Expected complete 127-material catalogue')
+        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 131:
+            raise RuntimeError('Expected complete 131-material catalogue')
         Notices = Installation / 'Notices'
         Notices.mkdir()
         for Package, Filename in [('imgui', 'LICENSE.txt'), ('glfw', 'LICENSE.md'), ('tomlpp', 'LICENSE'),
