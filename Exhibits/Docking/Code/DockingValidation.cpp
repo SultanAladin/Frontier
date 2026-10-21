@@ -230,8 +230,7 @@ int main(int ArgumentCount, char **Arguments)
             Frame();
             Require(Browser.QueryDirectory().Navigate(Content / "Icons"), "Could not navigate actual hosted content");
             Frame();
-            const auto View = Browser.QueryViewExtent();
-            Click(Spanning(View.MaximumX - 40, View.MinimumY + 8, 2, 2));
+            Click(Browser.QueryViewExtent());
             Require(!Browser.QueryGrid(), "Hosted browser did not receive real pointer input");
             IO.AddKeyEvent(ImGuiKey_DownArrow, true);
             Frame();

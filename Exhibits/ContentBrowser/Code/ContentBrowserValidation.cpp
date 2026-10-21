@@ -88,6 +88,15 @@ int main(int ArgumentCount, char **Arguments)
             IO.AddKeyEvent(Code, false);
             Frame();
         };
+        const auto Chord = [&](ImGuiKey Modifier, ImGuiKey Code)
+        {
+            IO.AddKeyEvent(Modifier, true);
+            IO.AddKeyEvent(Code, true);
+            Frame();
+            IO.AddKeyEvent(Code, false);
+            IO.AddKeyEvent(Modifier, false);
+            Frame();
+        };
         const auto Find = [&](const std::string &Name)
         {
             const auto &Visible = Directory.QueryVisible();
@@ -117,12 +126,19 @@ int main(int ArgumentCount, char **Arguments)
         Click(Browser.QueryEntryExtent(FontsOrdinal));
         Frame();
         Require(Directory.QueryDirectory().filename() == "FontArchives", "Double click did not navigate to folder");
+        Key(ImGuiKey_Backspace);
+        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Backspace did not travel up");
+        // A no-op root-crumb click breaks the rapid click-count chain so the next double-click reads as one.
         Click(Browser.QueryNavigationExtent(0));
-        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Native Back failed");
+        Click(Browser.QueryEntryExtent(Find("FontArchives")));
+        Click(Browser.QueryEntryExtent(Find("FontArchives")));
+        Frame();
+        Chord(ImGuiKey_ReservedForModAlt, ImGuiKey_LeftArrow);
+        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Alt+Left did not travel back");
+        Chord(ImGuiKey_ReservedForModAlt, ImGuiKey_RightArrow);
+        Require(Directory.QueryDirectory().filename() == "FontArchives", "Alt+Right did not travel forward");
         Click(Browser.QueryNavigationExtent(1));
-        Require(Directory.QueryDirectory().filename() == "FontArchives", "Native Forward failed");
-        Click(Browser.QueryNavigationExtent(2));
-        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Native Up failed");
+        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Parent crumb failed");
         Click(Browser.QueryEntryExtent(Find("Icons")));
         Click(Browser.QueryEntryExtent(Find("Icons")));
         Frame();
@@ -136,9 +152,15 @@ int main(int ArgumentCount, char **Arguments)
         Frame();
         Require(Browser.QueryEntryExtent(0).Width() == 0,
                 "Wheel scrolling did not move the first grid row out of view");
-        Click(Browser.QueryNavigationExtent(4));
+        Key(ImGuiKey_F5);
         Frame();
         Require(Browser.QueryEntryExtent(0).Width() > 0, "Reload did not reset scroll");
+        Click(Browser.QueryNavigationExtent(0));
+        Require(Directory.QueryDirectory() == Directory.QueryRoot(), "Root crumb failed");
+        Click(Browser.QueryEntryExtent(Find("Icons")));
+        Click(Browser.QueryEntryExtent(Find("Icons")));
+        Frame();
+        Require(Directory.QueryDirectory().filename() == "Icons", "Icons folder navigation failed");
         Directory.ResetSelection();
         const auto First  = Browser.QueryEntryExtent(0);
         const auto Second = Browser.QueryEntryExtent(1);
@@ -157,9 +179,12 @@ int main(int ArgumentCount, char **Arguments)
         Capture(Evidence / "BrowserSearch.ppm");
         Key(ImGuiKey_Enter);
         Require(!Browser.QuerySearchActive(), "Enter did not finish search editing");
-        auto ListButton = Browser.QueryViewExtent();
-        ListButton.MinimumX += ListButton.Width() * 0.65f;
-        Click(ListButton);
+        Chord(ImGuiKey_ReservedForModCtrl, ImGuiKey_F);
+        Require(Browser.QuerySearchActive(), "Ctrl+F did not focus search");
+        Key(ImGuiKey_Escape);
+        Require(!Browser.QuerySearchActive() && !Directory.QueryVisible().empty(),
+                "Escape did not leave committed search");
+        Click(Browser.QueryViewExtent());
         Require(!Browser.QueryGrid(), "Grid/list switch failed");
         Click(Browser.QueryCategoryExtent(static_cast<size_t>(ContentCategory::VectorImage)));
         Require(!Directory.QueryVisible().empty(), "SVG category hid real icon files");
@@ -193,6 +218,42 @@ int main(int ArgumentCount, char **Arguments)
         Panel->PrepareInterface();
         Frame();
         Capture(Evidence / "BrowserLight.ppm");
+        Click(Browser.QueryImportExtent());
+        Frame();
+        Require(Browser.QueryImportOpen(), "Import button did not open import page");
+        Capture(Evidence / "BrowserImport.ppm");
+        Click(Browser.QueryImportBackExtent());
+        Frame();
+        Require(!Browser.QueryImportOpen(), "Import back tab did not return to library");
+        Click(Browser.QueryImportExtent());
+        Frame();
+        const auto &ImportVisible = Browser.QueryImportDirectory().QueryVisible();
+        size_t      Imported      = ImportVisible.size();
+        for (size_t Ordinal = 0; Ordinal < ImportVisible.size(); ++Ordinal)
+            if (Browser.QueryImportDirectory().QueryEntries()[ImportVisible[Ordinal]].Category !=
+                ContentCategory::Directory)
+            {
+                Imported = Ordinal;
+                break;
+            }
+        Require(Imported < ImportVisible.size(), "Import source list held no file");
+        const std::string ImportedName =
+            Browser.QueryImportDirectory().QueryEntries()[ImportVisible[Imported]].Name;
+        Click(Browser.QueryImportEntryExtent(Imported));
+        Frame();
+        Require(!Browser.QueryImportOpen() && Directory.QuerySelection() &&
+                    Directory.QuerySelection()->Name == ImportedName && !Browser.QuerySearchActive(),
+                "Import did not take the file into the library");
+        Click(Browser.QueryEntryExtent(Find("Icons")));
+        Click(Browser.QueryEntryExtent(Find("Icons")));
+        Frame();
+        Require(Directory.QueryDirectory().filename() == "Icons", "Icons folder navigation failed");
+        // The import round-trip cleared the committed search; restore it for the narrow popup below.
+        Click(Browser.QuerySearchExtent());
+        IO.AddInputCharactersUTF8("asset-file");
+        Frame();
+        Key(ImGuiKey_Enter);
+        Require(!Browser.QuerySearchActive() && !Directory.QueryVisible().empty(), "Search restore failed");
         // Loss of focus cancels drag and releases text input, rather than leaving pointer ownership stuck.
         Click(Browser.QuerySearchExtent());
         IO.AddFocusEvent(false);
@@ -240,10 +301,10 @@ int main(int ArgumentCount, char **Arguments)
         Require(!Browser.QueryExpansionTab().QueryOpen(), "Downward drawer swipe failed to dismiss");
         Ownership.reset();
         ImGui::DestroyContext();
-        std::cout
-            << "PASS: native bottom tab; single/double click; Back/Forward/Up; search/restore; category; grid/list; "
-               "real SVG selection; empty results; shared light theme; pointer/focus ownership; 375x700 at 125%; "
-               "downward dismissal; seven native captures\n";
+        std::cout << "PASS: native bottom tab; single/double click; root/parent crumbs; Alt+Left/Right history; "
+                           "Backspace/F5 chords; Ctrl+F; search/restore; category; grid/list; real SVG selection; "
+                           "empty results; import round-trip; shared light theme; pointer/focus ownership; 375x700 "
+                           "at 125%; downward dismissal; eight native captures\n";
         return 0;
     }
     catch (const std::exception &Failure)

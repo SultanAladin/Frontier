@@ -345,7 +345,12 @@ void ContentDirectory::FilterEntries()
         // Directories remain navigable under type filters, but still respect the filename query.
         if (Filter != ContentCategory::All && Entry.Category != Filter && Entry.Category != ContentCategory::Directory)
             continue;
-        if (!Search.empty() && FoldContentText(Entry.Name).find(Search) == std::string::npos)
+        // 📝 The seek run spans the naming, the extension and the category spelling, so a run reaching
+        // across any of them retains the entry, exactly as the reference lattice filters it.
+        if (!Search.empty() &&
+            (FoldContentText(Entry.Name) + " " + FoldContentText(EncodeContentPath(Entry.Path.extension())) + " " +
+             FoldContentText(QueryContentCategoryLabel(Entry.Category)))
+                    .find(Search) == std::string::npos)
             continue;
         Visible.push_back(Ordinal);
         SelectionVisible = SelectionVisible || Entry.Path == Selection;
