@@ -30,6 +30,11 @@ public:
     void ConfirmSubmission(uint64_t SampledSerial = 0) noexcept;
     // ⚠️ Borrowed-device ownership: retire every GPU reference before Finalize or destruction; neither inserts queue waits.
     void Finalize() noexcept;
+    // 📝 Adaptive bake resolution: dense weaves cost ~500 FLOP per curve per
+    // pixel with no bounds rejection, so a single 512px six-channel submit
+    // exceeds the Windows watchdog. Picks the largest square extent whose
+    // curve-pixel-channel product fits a ~2e9 budget (~1 TFLOP per submit).
+    [[nodiscard]] static uint32_t SelectBakeExtent(size_t Segments, uint32_t Channels);
     [[nodiscard]] VkImage QueryImage() const noexcept;
     [[nodiscard]] VkImageView QueryImageView() const noexcept;
     [[nodiscard]] VkExtent2D QueryExtent() const noexcept;

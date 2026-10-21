@@ -5,8 +5,11 @@
 
 #include "VectorCoverageRasterization.h"
 #include "VectorSurfaceMaterialBridge.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
+#include <chrono>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 #include <string_view>
 #include <fstream>
@@ -383,6 +386,20 @@ constexpr std::array<VectorAuthoringSurfaceChannel,6> AuthoringMaterialChannels{
     VectorAuthoringSurfaceChannel::Metalness,VectorAuthoringSurfaceChannel::Occlusion};
 }
 
+uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t Channels)
+{
+    if (!Channels) throw std::runtime_error("Bake budget requires at least one channel.");
+    // 📝 ~500 FLOP per curve per pixel with no bounds rejection; 2e9 curve·
+    // pixel·channels ≈ 1 TFLOP per submit, under the Windows watchdog even on
+    // integrated GPUs. Empty/rect-only documents keep full resolution.
+    if (!Segments) return 512;
+    constexpr uint64_t Budget = 2000000000ull;
+    const uint64_t Load = uint64_t(Segments) * Channels;
+    for (uint32_t Extent : {512u, 256u, 128u})
+        if (uint64_t(Extent) * Extent * Load <= Budget) return Extent;
+    return 128;
+}
+
 VectorSurfaceMaterialBridge::VectorSurfaceMaterialBridge() = default;
 VectorSurfaceMaterialBridge::~VectorSurfaceMaterialBridge() = default;
 void VectorSurfaceMaterialBridge::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderArchive, uint32_t Width, uint32_t Height)
@@ -401,6 +418,10 @@ void VectorSurfaceMaterialBridge::Initialize(const VulkanRasterAccess &Access, c
 void VectorSurfaceMaterialBridge::Initialize(const VulkanRasterAccess &Access,RasterShader Shader,uint32_t Width,uint32_t Height)
 {
     if (Initialized) throw std::runtime_error("Float32 material bridge already initialized.");
+    if (Width != Height) throw std::runtime_error("Float32 material bridge requires a square bake extent.");
+    RetainedAccess = Access;
+    RetainedShaderWords.assign(Shader.Words.begin(), Shader.Words.end());
+    RetainedShaderEntry = Shader.Entry ? Shader.Entry : "";
     size_t InitializedCount = 0;
     try
     {
@@ -415,6 +436,7 @@ void VectorSurfaceMaterialBridge::Initialize(const VulkanRasterAccess &Access,Ra
         for (size_t Index = 0; Index < InitializedCount; ++Index) Rasterizations[Index].Finalize();
         throw;
     }
+    BakeExtent = Width;
     Initialized = true;
 }
 
@@ -422,9 +444,27 @@ bool VectorSurfaceMaterialBridge::ConfigureDocument(const VectorAuthoringDocumen
 {
     if (!Initialized || Recorded || ReadbacksPending || LastSubmission > CompletedSerial)
         throw std::runtime_error("Float32 material bridge still owns an unretired authoring submission.");
+    // 📝 Dense weaves would exceed the OS GPU watchdog at full resolution;
+    // re-bracket retired rasterizations before compiling the new document.
+    const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Document.Segments.size(), 6);
+    if (Needed != BakeExtent)
+    {
+        for (auto &Rasterization : Rasterizations)
+        {
+            Rasterization.Finalize();
+            Rasterization.Initialize(RetainedAccess, RasterShader{RetainedShaderWords, RetainedShaderEntry.c_str()}, Needed, Needed);
+        }
+        DiagnosticJournal::Append("PatternBake", "bake extent " + std::to_string(BakeExtent) + "->" + std::to_string(Needed) +
+            " for " + std::to_string(Document.Segments.size()) + " segments");
+        BakeExtent = Needed;
+    }
+    const auto CompileStarted = std::chrono::steady_clock::now();
     std::array<VectorSurfaceProgram,6> Replacement;
     for (size_t Index = 0; Index < Replacement.size(); ++Index)
         Replacement[Index] = CompileVectorSurface(Document,AuthoringMaterialChannels[Index]);
+    DiagnosticJournal::Append("PatternBake", "compiled segments=" + std::to_string(Document.Segments.size()) +
+        " extent=" + std::to_string(BakeExtent) + " compile_ms=" +
+        std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - CompileStarted).count()));
     if (ProgramsConfigured && Replacement == Programs) return false;
     for (size_t Index = 0; Index < Replacement.size(); ++Index)
         Rasterizations[Index].ConfigureRetiredSurface(Replacement[Index],CompletedSerial);
@@ -462,11 +502,53 @@ void VectorSurfaceMaterialBridge::ConfirmSubmission() noexcept
     ReadbacksPending = true;
 }
 
+std::vector<float> VectorSurfaceMaterialBridge::UpsampleFloatRgba(std::span<const float> Source, uint32_t Width,
+    uint32_t Height, uint32_t TargetExtent, bool RenormalizeNormals)
+{
+    if (!Width || !Height || !TargetExtent || Width > 512 || Height > 512 || TargetExtent > 512 ||
+        TargetExtent < Width || TargetExtent < Height || Source.size() != size_t(Width) * Height * 4)
+        throw std::runtime_error("Float32 map upsample requires bounded source pixels and a covering square target.");
+    for (float Sample : Source)
+        if (!std::isfinite(Sample)) throw std::runtime_error("Float32 map upsample rejected non-finite source pixels.");
+    std::vector<float> Target(size_t(TargetExtent) * TargetExtent * 4);
+    for (uint32_t Row = 0; Row < TargetExtent; ++Row)
+        for (uint32_t Column = 0; Column < TargetExtent; ++Column)
+        {
+            const double X = TargetExtent > 1 ? double(Column) * (Width - 1) / (TargetExtent - 1) : 0;
+            const double Y = TargetExtent > 1 ? double(Row) * (Height - 1) / (TargetExtent - 1) : 0;
+            const uint32_t Left = uint32_t(X), Top = uint32_t(Y);
+            const uint32_t Right = std::min(Left + 1, Width - 1), Bottom = std::min(Top + 1, Height - 1);
+            const double Horizontal = X - Left, Vertical = Y - Top;
+            std::array<double, 4> Spectrum{};
+            for (size_t Channel = 0; Channel < 4; ++Channel)
+            {
+                const auto Fetch = [&](uint32_t FetchColumn, uint32_t FetchRow)
+                {
+                    double Coefficient = Source[(size_t(FetchRow) * Width + FetchColumn) * 4 + Channel];
+                    if (RenormalizeNormals && Channel < 3) Coefficient = Coefficient * 2 - 1;
+                    return Coefficient;
+                };
+                Spectrum[Channel] = Fetch(Left, Top) * (1 - Horizontal) * (1 - Vertical) + Fetch(Right, Top) * Horizontal * (1 - Vertical) +
+                    Fetch(Left, Bottom) * (1 - Horizontal) * Vertical + Fetch(Right, Bottom) * Horizontal * Vertical;
+            }
+            if (RenormalizeNormals)
+            {
+                const double Length = std::sqrt(Spectrum[0] * Spectrum[0] + Spectrum[1] * Spectrum[1] + Spectrum[2] * Spectrum[2]);
+                for (size_t Channel = 0; Channel < 3; ++Channel)
+                    Spectrum[Channel] = (Length > 1e-8 ? Spectrum[Channel] / Length : double(Channel == 2)) * .5 + .5;
+            }
+            for (size_t Channel = 0; Channel < 4; ++Channel)
+                Target[(size_t(Row) * TargetExtent + Column) * 4 + Channel] = float(Spectrum[Channel]);
+        }
+    return Target;
+}
+
 std::array<MaterialTexturePyramid,6> VectorSurfaceMaterialBridge::RetrieveAuthoringMaps(uint64_t CompletedSerial)
 {
     if (CompiledMaps) return *CompiledMaps;
     if (!ReadbacksPending || LastSubmission > CompletedSerial)
         throw std::runtime_error("Float32 authoring maps have not retired from their GPU submission.");
+    const auto PyramidStarted = std::chrono::steady_clock::now();
     std::array<std::vector<float>,6> Samples;
     std::array<std::span<const float>,6> SampleSpans;
     for (size_t Index = 0; Index < Samples.size(); ++Index)
@@ -478,7 +560,24 @@ std::array<MaterialTexturePyramid,6> VectorSurfaceMaterialBridge::RetrieveAuthor
     for (const auto &Rasterization : Rasterizations)
         if (Rasterization.QueryExtent().width != Extent.width || Rasterization.QueryExtent().height != Extent.height)
             throw std::runtime_error("Float32 material channel extents diverged.");
-    CompiledMaps = ConstructAuthoringMaterialMaps(Extent.width,Extent.height,SampleSpans);
+    // 📝 Reduced buckets are restored to full material resolution so pyramid
+    // shapes never change beneath the preview and thumbnail samplers.
+    std::array<std::vector<float>,6> Restored;
+    std::array<std::span<const float>,6> PyramidSpans;
+    for (size_t Index = 0; Index < Restored.size(); ++Index)
+    {
+        if (Extent.width == 512 && Extent.height == 512) PyramidSpans[Index] = SampleSpans[Index];
+        else
+        {
+            Restored[Index] = UpsampleFloatRgba(SampleSpans[Index], Extent.width, Extent.height, 512,
+                AuthoringMaterialChannels[Index] == VectorAuthoringSurfaceChannel::Normal);
+            PyramidSpans[Index] = Restored[Index];
+        }
+    }
+    CompiledMaps = ConstructAuthoringMaterialMaps(512,512,PyramidSpans);
+    DiagnosticJournal::Append("PatternBake", "maps ready baked=" + std::to_string(Extent.width) + "x" + std::to_string(Extent.height) +
+        " pyramid_ms=" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - PyramidStarted).count()));
     ReadbacksPending = false;
     return *CompiledMaps;
 }
@@ -488,6 +587,7 @@ void VectorSurfaceMaterialBridge::Finalize() noexcept
     for (auto &Rasterization : Rasterizations) Rasterization.Finalize();
     Programs = {};
     CompiledMaps.reset();
+    BakeExtent = 0;
     LastSubmission = PendingSubmission = 0;
     Initialized = ProgramsConfigured = Dirty = Recorded = ReadbacksPending = false;
 }

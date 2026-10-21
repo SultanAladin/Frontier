@@ -4,6 +4,7 @@
 // 🧩 Track cached sampling serials and bounded retired output slots; authoring descriptors remain independent of GPU resource lifetime.
 
 #include "VectorAuthoringCoverageRendering.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
 #include <fstream>
 
@@ -19,7 +20,24 @@ bool EquivalentProgram(const VectorCoverageProgram &First, const VectorCoverageP
 
 void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Access, RasterShader Shader)
 {
+    RetainedAccess = Access;
+    RetainedShaderWords.assign(Shader.Words.begin(), Shader.Words.end());
+    RetainedShaderEntry = Shader.Entry ? Shader.Entry : "";
     for (auto &Slot : Slots) Slot.Rasterization.Initialize(Access, Shader, 512, 512);
+}
+
+void VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments)
+{
+    // 📝 The canvas runs the same unguarded curve loop as the bridge, single
+    // channel; retired slots re-bracket before dense documents dispatch.
+    const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Segments, 1);
+    auto &Slot = Slots[Index];
+    const auto Current = Slot.Rasterization.QueryExtent();
+    if (Current.width == Needed && Current.height == Needed) return;
+    Slot.Rasterization.Finalize();
+    Slot.Rasterization.Initialize(RetainedAccess, RasterShader{RetainedShaderWords, RetainedShaderEntry.c_str()}, Needed, Needed);
+    DiagnosticJournal::Append("PatternBake", "canvas slot " + std::to_string(Index) + " extent " +
+        std::to_string(Current.width) + "->" + std::to_string(Needed) + " for " + std::to_string(Segments) + " segments");
 }
 
 void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderArchive)
@@ -45,6 +63,7 @@ int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram 
     {
         auto &Slot = Slots[Index];
         if (Slot.SampledSerial > Completed) continue;
+        RefitSlot(Index, Program.Segments.size());
         Slot.Program = Program;
         Slot.SurfaceProgram.reset();
         Slot.Pending = true;
@@ -69,6 +88,7 @@ int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfacePr
     {
         auto &Slot = Slots[Index];
         if (Slot.SampledSerial > Completed) continue;
+        RefitSlot(Index, Program.Coverage.Segments.size());
         Slot.SurfaceProgram = Program;
         Slot.Program.reset();
         Slot.Pending = true;

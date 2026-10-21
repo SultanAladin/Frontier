@@ -7,9 +7,14 @@
 #include "RasterizeLibraryEvidence.h"
 #include <imgui_internal.h>
 #include "Engine/Interface/ContentDirectory.h"
+#include "Engine/Render/VectorCoverageRasterization.h"
+#include "Engine/Render/VectorSurfaceMaterialBridge.h"
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iostream>
+#include <tuple>
+#include <vector>
 #include <imgui.h>
 
 namespace
@@ -40,6 +45,34 @@ int main(int ArgumentCount, char **Arguments)
             ++Checks;
         };
         Confirm(ArgumentCount == 3, "Expected material specimens and scratch output directory.");
+        // 🧩 Adaptive bake buckets keep dense weaves under the OS GPU
+        // watchdog: the largest square extent fitting ~2e9 curve·pixel·
+        // channels, six channels for the bridge, one for the canvas.
+        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 512},
+                 {1271, 6, 512}, {1272, 6, 256}, {5086, 6, 256}, {5087, 6, 128}, {18954, 6, 128}, {32768, 6, 128},
+                 {7629, 1, 512}, {7630, 1, 256}, {30517, 1, 256}, {30518, 1, 128}, {32768, 1, 128}})
+            Confirm(VectorCoverageRasterization::SelectBakeExtent(Segments, Channels) == Extent, "Bake bucket boundary moved.");
+        bool RejectedChannels = false;
+        try { (void)VectorCoverageRasterization::SelectBakeExtent(100, 0); }
+        catch (const std::exception &) { RejectedChannels = true; }
+        Confirm(RejectedChannels, "Channel-free bake budget accepted.");
+        const std::vector<float> Constant(4, .25f);
+        const auto Spread = VectorSurfaceMaterialBridge::UpsampleFloatRgba(Constant, 1, 1, 4, false);
+        Confirm(Spread.size() == 64, "Upsampled map has the wrong pixel population.");
+        Confirm(std::all_of(Spread.begin(), Spread.end(), [](float Sample) { return Sample == .25f; }),
+            "Constant map did not survive upsampling.");
+        const std::vector<float> Corners{0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1};
+        const auto Restored = VectorSurfaceMaterialBridge::UpsampleFloatRgba(Corners, 2, 2, 4, false);
+        Confirm(std::abs(Restored[(1 * 4 + 1) * 4] - 1 / 3.f) < 1e-5f && std::abs(Restored[(1 * 4 + 1) * 4 + 1] - 1 / 3.f) < 1e-5f,
+            "Bilinear upsample missed its interior blend.");
+        const auto Levelled = VectorSurfaceMaterialBridge::UpsampleFloatRgba(
+            std::vector<float>{.5f, .5f, 1, 1, .5f, .5f, 1, 1, .5f, .5f, 1, 1, .5f, .5f, 1, 1}, 2, 2, 4, true);
+        Confirm(std::abs(Levelled[2] - 1) < 1e-5f && std::abs(Levelled[0] - .5f) < 1e-5f, "Flat normal tilted during upsampling.");
+        bool RejectedUpsample = false;
+        const std::vector<float> Ragged{1, 2, 3};
+        try { (void)VectorSurfaceMaterialBridge::UpsampleFloatRgba(Ragged, 1, 1, 4, false); }
+        catch (const std::exception &) { RejectedUpsample = true; }
+        Confirm(RejectedUpsample, "Ragged upsample source accepted.");
         const auto Output = std::filesystem::path(Arguments[2]) / std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         const auto Content = Output/"Library";
         std::filesystem::create_directories(Content/"Nested");

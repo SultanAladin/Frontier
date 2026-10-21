@@ -5,7 +5,10 @@
 
 #pragma once
 #include "VectorCoverageRasterization.h"
+#include <cstdint>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace Frontier
 {
@@ -33,8 +36,12 @@ private:
         bool Pending = false;
     };
     std::array<CoverageSlot, 3> Slots;
+    VulkanRasterAccess RetainedAccess{};
+    std::vector<uint32_t> RetainedShaderWords;
+    std::string RetainedShaderEntry;
     uint64_t Completed = 0, PendingSerial = 0;
     int Selected = -1;
     bool SampleRequested = false;
+    void RefitSlot(size_t Index, size_t Segments);
 };
 }
