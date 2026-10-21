@@ -139,7 +139,7 @@ int main()
         }
         PreviewRendering = std::make_unique<Frontier::BrowserPreviewRendering>();
         PreviewRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
-        const auto Describe = [&](VkImageView View)
+        const auto Describe = [&](VkImageView View) -> VkDescriptorSet
         {
             if (!View) return VK_NULL_HANDLE;
             const auto Cached = PreviewDescriptors.find(View);
