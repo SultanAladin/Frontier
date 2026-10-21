@@ -50,6 +50,30 @@ void AppendPatternPreviewDebug(std::string_view Description)
 #else
 void AppendPatternPreviewDebug(std::string_view) noexcept {}
 #endif
+bool SameFileContent(const std::filesystem::path &First, const std::filesystem::path &Second) noexcept
+{
+    try
+    {
+        std::error_code FirstError, SecondError;
+        const auto FirstBytes = std::filesystem::file_size(First, FirstError);
+        const auto SecondBytes = std::filesystem::file_size(Second, SecondError);
+        if (FirstError || SecondError || FirstBytes != SecondBytes) return false;
+        std::ifstream A(First, std::ios::binary), B(Second, std::ios::binary);
+        if (!A || !B) return false;
+        std::array<char, 8192> BlockA{}, BlockB{};
+        for (;;)
+        {
+            A.read(BlockA.data(), std::streamsize(BlockA.size()));
+            B.read(BlockB.data(), std::streamsize(BlockB.size()));
+            const auto CountA = A.gcount(), CountB = B.gcount();
+            if (CountA != CountB) return false;
+            if (!CountA) return true;
+            for (std::streamsize At = 0; At < CountA; ++At)
+                if (BlockA[size_t(At)] != BlockB[size_t(At)]) return false;
+        }
+    }
+    catch (...) { return false; }
+}
 }
 
 int RunTextureWorkspace()
@@ -147,25 +171,40 @@ int RunTextureWorkspace()
                 // fresh installs resolve texture files and existing installs backfill missing additions
                 // without touching user-edited materials.
                 std::filesystem::create_directories(Directory);
-                size_t Copied = 0, Scanned = 0;
+                size_t Copied = 0, Scanned = 0, Refreshed = 0;
                 for (const auto &Entry : std::filesystem::recursive_directory_iterator(Presets,
                     std::filesystem::directory_options::skip_permission_denied))
                 {
-                    if (!Entry.is_regular_file() || Copied >= 2048) continue;
+                    if (!Entry.is_regular_file() || Copied + Refreshed >= 2048) continue;
                     const auto Relative = Entry.path().lexically_relative(Presets);
                     if (Relative.empty() || *Relative.begin() == "..") continue;
                     const auto Target = Directory / Relative;
                     std::error_code CopyError;
                     std::filesystem::create_directories(Target.parent_path(), CopyError);
                     if (CopyError) continue;
-                    const bool Done = std::filesystem::copy_file(Entry.path(), Target, std::filesystem::copy_options::skip_existing, CopyError);
-                    if (!CopyError)
+                    ++Scanned;
+                    if (std::filesystem::exists(Target, CopyError) && !CopyError)
                     {
-                        ++Scanned;
-                        if (Done) ++Copied;
+                        // 📝 skip_existing froze user libraries at their first seed, so shipped fixes (phase-1b
+                        // texture authoring) never arrived. Refresh changed files, keeping a versioned backup of
+                        // the displaced user copy so no edit is silently lost.
+                        if (SameFileContent(Entry.path(), Target)) continue;
+                        const std::string Stem = Target.filename().string() + ".user-backup";
+                        std::filesystem::path Backup = Target.parent_path() / Stem;
+                        for (int Version = 2; Version <= 8 && std::filesystem::exists(Backup, CopyError); ++Version)
+                            Backup = Target.parent_path() / (Stem + "-" + std::to_string(Version));
+                        std::filesystem::rename(Target, Backup, CopyError);
+                        if (CopyError) continue;
+                        if (!std::filesystem::copy_file(Entry.path(), Target, CopyError) || CopyError) continue;
+                        ++Refreshed;
+                        Frontier::DiagnosticJournal::Append("MaterialRefresh", Frontier::DiagnosticJournal::EncodePath(Relative));
+                        continue;
                     }
+                    if (CopyError) continue;
+                    if (std::filesystem::copy_file(Entry.path(), Target, CopyError) && !CopyError) ++Copied;
                 }
-                Frontier::DiagnosticJournal::Append("MaterialBackfill", "scanned=" + std::to_string(Scanned) + " copied=" + std::to_string(Copied));
+                Frontier::DiagnosticJournal::Append("MaterialBackfill", "scanned=" + std::to_string(Scanned) + " copied=" +
+                    std::to_string(Copied) + " refreshed=" + std::to_string(Refreshed));
             }
         }
         if (!Library->ConfigureDirectory(Directory)) throw std::runtime_error(Library->QueryLibrary().QueryDiagnostic());

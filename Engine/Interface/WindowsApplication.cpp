@@ -218,6 +218,12 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
     while (!glfwWindowShouldClose(Window))
     {
         glfwPollEvents();
+        static int TracedLoop = 0;
+        if (TracedLoop < 8)
+        {
+            DiagnosticJournal::Append("FrameLoop", "frame=" + std::to_string(TracedLoop));
+            ++TracedLoop;
+        }
         if (Callbacks.ConfigurePlatform) Callbacks.ConfigurePlatform();
         int Width = 0, Height = 0;
         glfwGetFramebufferSize(Window, &Width, &Height);
@@ -255,6 +261,12 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
         ImGui::NewFrame();
         if (Callbacks.ConstructInterface) Callbacks.ConstructInterface(MainVisible);
         ImGui::Render();
+        static int TracedBuilt = 0;
+        if (TracedBuilt < 8)
+        {
+            DiagnosticJournal::Append("FrameBuilt", "frame=" + std::to_string(TracedBuilt));
+            ++TracedBuilt;
+        }
         if (Callbacks.AfterRender) Callbacks.AfterRender();
         if (MainVisible)
         {

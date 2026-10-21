@@ -174,7 +174,15 @@ int main()
                 const auto Configuration = Frontier::ConfigureBrowserPreview(*Entry, View, Revision);
                 PreviewRendering->RequestThumbnail(Key, Configuration);
                 if (!PreviewRendering->QueryThumbnail(Key).Ready) return Image;
+                static int TracedReady = 0;
+                if (TracedReady < 4)
+                    Frontier::DiagnosticJournal::Append("BrowserTileReady", "key=" + Key);
                 Image.Texture = (uint64_t)Describe(PreviewRendering->QueryThumbnailView(Key));
+                if (TracedReady < 4)
+                {
+                    Frontier::DiagnosticJournal::Append("BrowserTileDescribed", "key=" + Key);
+                    ++TracedReady;
+                }
             }
             catch (const std::exception &Failure) { NoteFailure("QueryThumbnailImage", Failure); }
             return Image;

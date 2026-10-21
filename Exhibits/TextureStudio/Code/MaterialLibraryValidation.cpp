@@ -243,6 +243,8 @@ int main(int ArgumentCount, char **Arguments)
                     "Solar preset albedo/ORM/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Solar preset texture mask differs.");
         }
+        Confirm(ReferenceLibrary.OpenMaterial("sand.material"), "Sand preset did not compile.");
+        Confirm(ReferenceLibrary.QueryApplied()->Scattering.TextureUse[0][0] == 7, "Sand preset texture mask differs.");
         for (const auto *Path : {"camouflage-ballistic-polymer.material", "camouflage-ballistic-polymer-smooth.material",
                                  "woodland-camouflage-fabric.material", "woodland-camouflage-fabric-smooth.material"})
         {
