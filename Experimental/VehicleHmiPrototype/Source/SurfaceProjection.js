@@ -76,7 +76,13 @@ export class SurfaceProjection
     RecordSurface(Encoder, Scene, VertexRecords, TimestampWrites,ClusterQuery)
     {
         this.Clusters.Prepare(Scene);
-        const Takeover = this.Virtualized?.Prepare(Scene) ?? null;
+        // 📝 The virtualized takeover must never take the frame loop down with it: any failure inside
+        //    Prepare (bind-group construction, hierarchy build, …) disables it and the lossless-cluster
+        //    path renders the frame instead. (An uncaught throw here previously aborted AdvanceFrame
+        //    before submit, freezing the last presented image on screen.)
+        let Takeover = null;
+        try { Takeover = this.Virtualized?.Prepare(Scene) ?? null; }
+        catch (Error) { console.error("[VirtualizedGeometry] Prepare failed; virtualized path disabled:", Error); if (this.Virtualized) this.Virtualized.Enabled = false; }
         const VirtualActive = Boolean(Takeover?.Records);
         if(this.ClusteredEnabled!==false)this.Clusters.RecordCull(Encoder,ClusterQuery);
         if (VirtualActive) this.Virtualized.RecordCullPhase1(Encoder);

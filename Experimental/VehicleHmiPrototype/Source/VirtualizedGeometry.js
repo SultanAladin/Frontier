@@ -59,13 +59,17 @@ export class VirtualizedGeometry
             Compute, "Virtualized geometry culling");
         this.SeedLayout = E.ConstructDescriptorLayout(["TextureDepth2D", "StorageTexture2D:r32float"], Compute, "Hi-Z seed");
         this.DownsampleLayout = E.ConstructDescriptorLayout(["Texture2DUnfiltered", "StorageTexture2D:r32float"], Compute, "Hi-Z downsample");
+        // 📝 The Hi-Z dummy exists BEFORE the first await: Prepare/RefreshGroups can interleave with this
+        //    async construction (frames keep recording during on-demand activation), and a not-yet-created
+        //    dummy would hand createBindGroup an undefined resource — a synchronous TypeError thrown inside
+        //    frame recording, which aborts the frame before submit and freezes the last presented image.
+        this.DummyHiZ = E.ConstructTexture({ label: "Hi-Z dummy", size: [1, 1], format: "r32float",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING });
+        this.PreviousHiZView = this.DummyHiZ.createView();
         this.CullProgram = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "SelectAndCullPhase1", [this.CullLayout]);
         this.Phase2Program = await this.Shaders.ConstructComputeProgram("VirtualizedGeometryCull.wgsl", "CullPhase2Disoccluded", [this.CullLayout]);
         this.SeedProgram = await this.Shaders.ConstructComputeProgram("HiZPyramid.wgsl", "SeedHiZFromDepth", [this.SeedLayout]);
         this.DownsampleProgram = await this.Shaders.ConstructComputeProgram("HiZDownsample.wgsl", "DownsampleHiZMip", [this.DownsampleLayout]);
-        this.DummyHiZ = E.ConstructTexture({ label: "Hi-Z dummy", size: [1, 1], format: "r32float",
-            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING });
-        this.PreviousHiZView = this.DummyHiZ.createView();
 
         // Phase-3 programs: visibility raster (opaque/glass pipelines share one entry; the glass-back peel
         // entry samples the front glass depth) and the two deferred resolve entries.
@@ -165,6 +169,7 @@ export class VirtualizedGeometry
             if (!this.ProgramsBuilt) await Step("virtualized-geometry programs", () => this.ConstructPrograms(this.FrameRecords, this.OccupantRecords));
             if (this.TargetExtent && !this.OpaqueVisTexture) await Step("visibility targets", () => this.ConstructTargets(this.TargetExtent[0], this.TargetExtent[1]));
             this.ActivationStep = "done";
+            this.Activation = null;   // clear the latch so a later state change can re-enter if ever needed
         })().catch((Error) => { this.ActivationError = Error?.message ?? String(Error); this.Activation = null; this.ReportDebugStatus(); });
     }
 
@@ -261,7 +266,9 @@ export class VirtualizedGeometry
 
     Prepare(Scene)
     {
-        if (!this.Enabled || !this.CullProgram) return null;
+        // 📝 Full program construction must be finished: gating on CullProgram alone let Prepare race
+        //    on-demand activation (CullProgram exists after the first await, everything else pending).
+        if (!this.Enabled || !this.ProgramsBuilt) return null;
         const Key = Scene.DrawRuns.map((R) => `${R.FacetSet}:${R.First}:${R.Count}`).join("|");
         if (Key === this.Key && this.Records) return this;
         this.Key = Key;
@@ -416,7 +423,9 @@ export class VirtualizedGeometry
 
     RefreshGroups()
     {
-        if (!this.Records) return;
+        // 📝 Never hand createBindGroup an undefined resource (it throws synchronously, inside frame
+        //    recording); an incomplete group simply means the cull keeps last frame's group for now.
+        if (!this.Records || !this.ClusterRecords || !this.PreviousHiZView) return;
         this.CullGroup = this.Exchange.ConstructDescriptorGroup(this.CullLayout,
             [this.FrameRecords, this.OccupantRecords, this.ClusterRecords, this.Phase1Commands, this.Phase2Commands, this.States,
              this.PreviousHiZView]);
@@ -427,6 +436,7 @@ export class VirtualizedGeometry
         if (!this.Records) return;
         this.ServiceStreaming(2);
         this.RefreshGroups();
+        if (!this.CullGroup) return;
         const Pass = Encoder.beginComputePass({ label: "Virtualized geometry cut + phase-1 cull" });
         Pass.setPipeline(this.CullProgram);
         Pass.setBindGroup(0, this.CullGroup);
@@ -552,6 +562,7 @@ export class VirtualizedGeometry
         if (!TargetView) return;
         // 📝 The views activate the runtime themselves: without this, opening the editor the ordinary
         //    way (no ?hierarchy=1) left the inspection target untouched and all four modes read black.
+        if (this.ProgramsBuilt && !this.OpaqueVisTexture && this.TargetExtent) this.ConstructTargets(this.TargetExtent[0], this.TargetExtent[1]);
         if (!this.ProgramsBuilt || !this.OpaqueVisTexture) { this.ActivateForDebug(); this.RecordUnavailableView(Encoder, TargetView); return; }
         if (!this.Records) { this.RecordUnavailableView(Encoder, TargetView); return; }
         this.ReportDebugStatus();   // ready: clears the status badge
