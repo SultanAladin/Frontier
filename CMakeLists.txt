@@ -175,4 +175,6 @@ if(BUILD_TESTING)
     target_compile_definitions(LogStreamPanelValidation PRIVATE FRONTIER_EDITOR=1)
     add_test(NAME LogStreamPanelValidation COMMAND LogStreamPanelValidation
         "${CMAKE_BINARY_DIR}/log-stream-panel.ppm")
+    add_executable(LogStreamPanelRender Exhibits/LogStreamPanel/Code/LogStreamPanelRender.cpp)
+    target_link_libraries(LogStreamPanelRender PRIVATE FrontierEditorUI)
 endif()
