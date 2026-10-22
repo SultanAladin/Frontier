@@ -36,12 +36,15 @@ add_library(FrontierInterface STATIC
     Engine/Interface/ContentDirectory.cpp Engine/Interface/FontCodec.cpp
     Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
     Engine/Interface/AppearanceCodec.cpp Engine/Interface/MotionIntegrator.cpp
-    Engine/Interface/NotchMotion.cpp)
+    Engine/Interface/NotchMotion.cpp Engine/Interface/LogStreamChannel.cpp)
+add_library(FrontierLifecycle STATIC Engine/Lifecycle/StartupSequenceTrace.cpp)
+target_include_directories(FrontierLifecycle PUBLIC "${CMAKE_SOURCE_DIR}")
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
-add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp)
-target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
+add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp
+    UI/Editor/LogStreamPanel.cpp)
+target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface FrontierLifecycle)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
 if(WIN32)
@@ -98,4 +101,10 @@ if(BUILD_TESTING)
     add_executable(FacetTierValidation Exhibits/VirtualizedGeometry/Code/FacetTierValidation.cpp)
     target_link_libraries(FacetTierValidation PRIVATE FrontierGeometry)
     add_test(NAME FacetTierValidation COMMAND FacetTierValidation)
+    # Log stream panel stack: recorded startup + structured channel filtering (host-buildable).
+    add_executable(LogStreamPanelValidation Exhibits/LogStreamPanel/Code/LogStreamPanelValidation.cpp)
+    target_link_libraries(LogStreamPanelValidation PRIVATE FrontierInterface FrontierLifecycle)
+    target_compile_definitions(LogStreamPanelValidation PRIVATE FRONTIER_EDITOR=1)
+    add_test(NAME LogStreamPanelValidation COMMAND LogStreamPanelValidation
+        "${CMAKE_BINARY_DIR}/log-stream-panel.ppm")
 endif()
