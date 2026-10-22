@@ -331,3 +331,16 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   Host suite 26/26.
 - Deferred, unchanged: sand op binding, thin-film, glass transmission depth, camouflage/ballistic
   coded-field underlays.
+
+## Save-dialog modal chrome (2026-10-22, branch arena/8c806870-frontier)
+
+- The "Unsaved material", "Open material library" and "Material destination" (create/duplicate)
+  dialogs in TextureWorkspace, plus Pattern's "Unsaved pattern" close prompt, inherited the docked
+  workspace's zeroed `WindowRounding`/`WindowPadding` and rendered as flush, square-cornered boxes
+  with text crowding the edges.
+- Added a local `MaterialModalScope`/`PatternModalScope` RAII helper per panel (mirrors the existing
+  `MaterialTooltipScope` and the Editor's `ConfirmationDialogue` convention already used elsewhere)
+  that scopes 20x18 padding, 10px rounding and a faint 1px border to just these popups, restored
+  before the surrounding workspace's zeroed style resumes. No layout/behaviour change otherwise.
+  Host suite 26/26.
+
