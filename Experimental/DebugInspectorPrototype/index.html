@@ -159,6 +159,51 @@ canvas.chart{width:100%; height:110px; display:block}
 .stackRow{display:flex; height:22px; border-radius:6px; overflow:hidden; margin:5px 0}
 .cols{display:grid; grid-template-columns:1fr 1fr; gap:16px}
 @media (max-width:700px){ .cols{grid-template-columns:1fr} }
+
+/* ===== telemetry v2 — SourceImages language: black canvas, 22px cards, tick titles,
+   giant thin numerals, coloured deltas, gradient area chart, segmented bars ===== */
+.tcard{background:#101013; border:1px solid #1d1d21; border-radius:22px; padding:22px 24px; min-width:0}
+.tcard .tt{font-size:1.02rem; font-weight:600; color:var(--text); display:flex; align-items:center; gap:9px}
+.tcard .tt::before{content:""; width:4px; height:16px; border-radius:2px; background:var(--tick,var(--accent))}
+.tcard .tsub{color:var(--faint); font-size:.8rem; margin-top:4px}
+.tcard .thead{display:flex; justify-content:space-between; align-items:flex-start; gap:12px}
+.tkpis{display:grid; grid-template-columns:repeat(2,1fr); gap:14px}
+@media(max-width:560px){.tkpis{grid-template-columns:1fr}}
+.tkpi{background:#101013; border:1px solid #1d1d21; border-radius:22px; padding:20px 22px; position:relative; overflow:hidden}
+.tkpi .lab{font-size:.92rem; color:var(--dim); display:flex; align-items:center; gap:9px}
+.tkpi .lab::before{content:""; width:4px; height:16px; border-radius:2px; background:var(--tick,var(--accent))}
+.tkpi .delta{font-size:.95rem; font-weight:600; margin-top:16px; font-family:var(--font)}
+.tkpi .big{font-size:3.1rem; font-weight:300; letter-spacing:-.02em; line-height:1.02; color:var(--text)}
+.tkpi .big small{font-size:1rem; color:var(--faint); font-weight:400}
+.tkpi .corner{position:absolute; right:20px; bottom:16px; color:var(--faint); font-size:.82rem; font-family:var(--mono); text-align:right}
+.tkpi .dots{position:relative; height:44px; margin-top:14px; background:color-mix(in srgb, var(--tick,var(--accent)) 7%, transparent); border-radius:10px}
+.tkpi .dots i{position:absolute; width:7px; height:7px; border-radius:50%; background:#e8e8ec}
+.tkpi .dots i.hot{background:var(--red); box-shadow:0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent)}
+.tkpi.alert{background:color-mix(in srgb, var(--red) 13%, #101013); border-color:var(--red)}
+.tabs{display:flex; gap:20px; font-size:.86rem}
+.tabs span{color:var(--faint); cursor:pointer}
+.tabs span.on{color:var(--text); font-weight:600}
+.metricFoot{display:flex; justify-content:space-between; align-items:flex-end; margin-top:8px}
+.metricFoot .lab{color:var(--faint); font-size:.78rem}
+.metricFoot .val{font-size:1.45rem; font-weight:500}
+.pillDelta{display:inline-flex; align-items:center; gap:8px; background:#1c1c20; border-radius:999px; padding:6px 13px; font-size:.84rem; font-weight:600}
+.pillDelta .circ{width:20px;height:20px;border-radius:50%;background:#26262c;display:grid;place-items:center;font-size:.7rem}
+.segRow{display:grid; grid-template-columns:138px 1fr 52px; gap:12px; align-items:center; padding:6px 0}
+.segRow .nm{font-size:.84rem; color:var(--dim)}
+.segRow .pct{font-size:1.05rem; font-weight:500; text-align:right}
+.segs{display:flex; gap:3px}
+.segs i{flex:1; height:12px; border-radius:4px; background:#222228}
+.segs i.on{background:var(--segc,var(--cyan))}
+.compBar{display:flex; gap:3px; margin:16px 0 12px}
+.compBar div{height:34px}
+.compBar div:first-child{border-radius:9px 4px 4px 9px}.compBar div:last-child{border-radius:4px 9px 9px 4px}
+.compLegend{display:grid; grid-template-columns:1fr 1fr; gap:7px 18px; font-size:.8rem}
+.compLegend .r{display:flex; align-items:center; gap:8px; color:var(--dim)}
+.compLegend .r b{margin-left:auto; color:var(--text); font-family:var(--mono); font-weight:600}
+.compLegend i{width:10px; height:10px; border-radius:3px; flex:none}
+.tcard .dotgrid{grid-template-columns:repeat(30,1fr)}
+.tcard .heat i{aspect-ratio:1.35}
+
 footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);font-size:.75rem}
 </style>
 </head>
@@ -250,38 +295,45 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
     </section>
 
     <div style="display:flex; flex-direction:column; gap:16px; min-width:0">
-      <div class="kpis">
-        <div class="kpi" style="--tick:#ffd21f"><div class="lab">Frame</div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="delta" id="kFrameD">60 fps</div></div>
-        <div class="kpi" style="--tick:var(--cyan)"><div class="lab">GPU</div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="delta" id="kGpuD">budget 16.6 ms</div></div>
-        <div class="kpi" style="--tick:var(--pink)"><div class="lab">Rays / frame</div><div class="big" id="kRays">8.4<small> M</small></div><div class="delta">RTX query · 2 bounce</div></div>
-        <div class="kpi" style="--tick:var(--purple)"><div class="lab">Clusters drawn</div><div class="big" id="kClu">312</div><div class="delta" id="kCluD">of 1,204 resident</div></div>
+      <div class="tkpis">
+        <div class="tkpi" style="--tick:#84cc16"><div class="lab">Frame</div><div class="delta up" id="kFrameD">▲ 60 fps</div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="dots" id="dotF"></div><div class="corner" id="kFrameC">frame 0</div></div>
+        <div class="tkpi" id="gpuCard" style="--tick:#3b82f6"><div class="lab">GPU</div><div class="delta up" id="kGpuD">▼ under budget</div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="dots" id="dotG"></div><div class="corner">budget 16.6 ms</div></div>
+        <div class="tkpi" style="--tick:#d946ef"><div class="lab">Rays / frame</div><div class="delta" style="color:var(--cyan)">◆ RTX ray query</div><div class="big" id="kRays">8.4<small> M</small></div><div class="dots" id="dotR"></div><div class="corner">2 bounce · ReSTIR</div></div>
+        <div class="tkpi" style="--tick:#f59e0b"><div class="lab">Clusters drawn</div><div class="delta" style="color:var(--orange)" id="kCluD">of 1,204 resident</div><div class="big" id="kClu">312</div><div class="dots" id="dotC"></div><div class="corner">cut ≤ 1.0 px</div></div>
       </div>
-      <section class="card" style="--tick:#ffd21f">
-        <div class="head"><h3>Frame Time — last 120 frames</h3><div class="legend"><span><i style="background:#ffd21f"></i>total</span><span><i style="background:var(--cyan)"></i>gpu</span><span><i style="background:var(--pink)"></i>record</span></div></div>
-        <canvas class="chart" id="frameChart"></canvas>
+
+      <section class="tcard" style="--tick:#84cc16">
+        <div class="thead"><div><div class="tt">Frame Time</div><div class="tsub">Total frame cost, last 120 frames · 16.6 ms budget</div></div>
+        <div class="tabs"><span>Live</span><span>1 min</span><span class="on">5 min ▾</span></div></div>
+        <canvas class="chart" id="frameChart" style="height:170px; margin-top:14px"></canvas>
+        <div class="metricFoot"><div><div class="lab">Current frame</div><div class="val" id="mfVal">16.6 ms</div></div>
+        <div class="pillDelta"><span id="mfDelta" class="up">+0.0%</span><span class="circ">↗</span></div></div>
       </section>
-      <section class="card" style="--tick:var(--cyan)">
-        <div class="head"><h3>Frame Graph — executed units (GPU ms)</h3><span class="legend">topological order · dead units culled</span></div>
-        <div id="units"></div>
+
+      <section class="tcard" style="--tick:#3b82f6">
+        <div class="tt">Frame Graph</div><div class="tsub">Executed units in topological order · dead units culled · share of GPU frame</div>
+        <div class="compBar" id="budgetStack"></div>
+        <div class="compLegend" id="budgetLegend"></div>
+        <div class="metricFoot"><div><div class="lab">GPU frame total</div><div class="val" id="budgetMs">0.0 ms</div></div>
+        <div class="pillDelta"><span>14 units</span><span class="circ">⧉</span></div></div>
       </section>
-      <section class="card" style="--tick:var(--green)">
-        <div class="head"><h3>Threads — utilisation</h3><span class="legend">3 frames in flight</span></div>
-        <div id="threads"></div>
+
+      <section class="tcard" style="--tick:#10b981">
+        <div class="tt">Threads</div><div class="tsub">Utilisation · simulation → record pool → submission · 3 frames in flight</div>
+        <div id="threads" style="margin-top:12px"></div>
       </section>
+
       <div class="cols">
-        <section class="card" style="--tick:var(--pink)">
-          <div class="head"><h3>Division Activity</h3><span class="legend">events / s</span></div>
-          <div class="dotgrid" id="dotgrid"></div>
-          <div class="legend" style="margin-top:10px" id="dotLegend"></div>
+        <section class="tcard" style="--tick:#d946ef">
+          <div class="tt">Division Activity</div><div class="tsub">Events per second, by division</div>
+          <div class="dotgrid" id="dotgrid" style="margin-top:16px"></div>
+          <div class="legend" style="margin-top:12px" id="dotLegend"></div>
         </section>
-        <section class="card" style="--tick:var(--orange)">
-          <div class="head"><h3>Unit Cost Heat</h3><span class="legend">10 × 6 frames</span></div>
-          <div class="heat" id="heat"></div>
-          <div style="margin-top:14px">
-            <div class="legend" style="justify-content:space-between"><span>Frame budget composition</span><span id="budgetMs">16.6 ms</span></div>
-            <div class="stackRow" id="budgetStack"></div>
-            <div class="legend" id="budgetLegend"></div>
-          </div>
+        <section class="tcard" style="--tick:#f97316">
+          <div class="tt">Unit Cost Heat</div><div class="tsub">Per-unit cost across the last 60 frames</div>
+          <div class="heat" id="heat" style="margin-top:16px"></div>
+          <div class="metricFoot"><div><div class="lab">Hottest unit</div><div class="val" id="hotUnit">RayTraversal.RTX</div></div>
+          <div class="pillDelta"><span id="hotMs">3.1 ms</span><span class="circ">↗</span></div></div>
         </section>
       </div>
     </div>
@@ -431,8 +483,8 @@ function emitLog(){
   if(!paused) $("#logMeta").textContent=`frame ${frame.toLocaleString()} · streaming`;
 }
 /* widgets */
-$("#units").innerHTML=UNITS.map(([n,c])=>`<div class="unit"><span class="nm">${n}</span><div class="track"><div class="bar" style="background:${c};width:40%"></div></div><span class="ms">0.0</span></div>`).join("");
-$("#threads").innerHTML=THREADS.map(([n])=>`<div class="thread"><span class="nm" style="font-family:var(--mono)">${n}</span><div class="track"><div class="bar" style="background:var(--cyan)"></div></div><span class="ms" style="font-family:var(--mono);color:var(--dim);text-align:right">0%</span></div>`).join("");
+$("#threads").innerHTML=THREADS.map(([n],i)=>`<div class="segRow"><span class="nm">${n}</span><div class="segs" style="--segc:${["#84cc16","#38bdf8","#38bdf8","#38bdf8","#38bdf8","#a78bfa","#fb923c"][i]}">${"<i></i>".repeat(22)}</div><span class="pct">0%</span></div>`).join("");
+$("#dotgrid") && ["dotF","dotG","dotR","dotC"].forEach(id=>{const el=document.getElementById(id); if(el) for(let i=0;i<6;i++){const d=document.createElement("i"); d.style.left=(8+i*16)+"%"; d.style.top=(8+Math.random()*24)+"px"; el.appendChild(d);} });
 const dg=$("#dotgrid"); for(let i=0;i<28*5;i++) dg.appendChild(document.createElement("i"));
 $("#dotLegend").innerHTML=DIVISIONS.slice(0,6).map(([d,c])=>`<span><i style="background:${c}"></i>${d}</span>`).join("");
 const heatEl=$("#heat"); for(let i=0;i<60;i++) heatEl.appendChild(document.createElement("i"));
@@ -441,28 +493,46 @@ function jitter(b,a){return b+(Math.random()-.5)*a}
 function tick(){
   frame++;
   const gpu=UNITS.reduce((s,u)=>s+u[2],0)*jitter(1,.12), total=gpu+4.6*jitter(1,.15);
-  $("#kFrame").innerHTML=`${total.toFixed(1)}<small> ms</small>`; $("#kFrameD").textContent=`▲ ${(1000/total).toFixed(0)} fps · frame ${frame.toLocaleString()}`;
-  $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`; $("#kGpuD").textContent=gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ over budget`; $("#kGpuD").className="delta "+(gpu<16.6?"up":"down");
+  $("#kFrame").innerHTML=`${total.toFixed(1)}<small> ms</small>`; $("#kFrameD").innerHTML=`<span class="${total<16.6?"up":"down"}">${total<16.6?"▼":"▲"} ${(1000/total).toFixed(0)} fps</span>`; $("#kFrameC").textContent="frame "+frame.toLocaleString();
+  $("#mfVal").textContent=total.toFixed(1)+" ms"; const md=$("#mfDelta"); const pcv=jitter(0,6); md.textContent=(pcv>=0?"+":"")+pcv.toFixed(1)+"% vs avg"; md.className=pcv>=0?"down":"up";
+  $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`; $("#kGpuD").innerHTML=gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ ${(gpu-16.6).toFixed(1)} ms over budget`; $("#kGpuD").className="delta "+(gpu<16.6?"up":"down"); $("#gpuCard").classList.toggle("alert",gpu>=16.6);
   $("#kRays").innerHTML=`${jitter(8.4,1.2).toFixed(1)}<small> M</small>`;
   const clu=Math.round(jitter(312,26)); $("#kClu").textContent=clu; $("#kCluD").textContent=`of 1,204 resident · ${1204-clu} culled`;
-  $$("#units .unit").forEach((el,i)=>{const ms=UNITS[i][2]*jitter(1,.35); el.querySelector(".bar").style.width=Math.min(100,ms/3.4*100)+"%"; el.querySelector(".ms").textContent=ms.toFixed(2);});
-  $$("#threads .thread").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); el.querySelector(".bar").style.width=v+"%"; el.querySelector(".ms").textContent=Math.round(v)+"%";});
+  $$("#threads .segRow").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); const on=Math.round(v/100*22); [...el.querySelectorAll(".segs i")].forEach((sg,j)=>sg.classList.toggle("on",j<on)); el.querySelector(".pct").textContent=Math.round(v)+"%";});
+  const comp=UNITS.map(u=>[u[0],u[1],u[2]*jitter(1,.3)]).sort((a,b)=>b[2]-a[2]); const csum=comp.reduce((x,u)=>x+u[2],0);
+  $("#budgetStack").innerHTML=comp.slice(0,8).map(u=>`<div style="background:${u[1]};width:${(u[2]/csum*100).toFixed(1)}%"></div>`).join("");
+  $("#budgetLegend").innerHTML=comp.slice(0,8).map(u=>`<span class="r"><i style="background:${u[1]}"></i>${u[0]}<b>${u[2].toFixed(2)} ms</b></span>`).join("");
+  $("#hotUnit").textContent=comp[0][0]; $("#hotMs").textContent=comp[0][2].toFixed(1)+" ms";
+  ["dotF","dotG","dotR","dotC"].forEach(id=>{const el=document.getElementById(id); if(!el)return; [...el.children].forEach(d=>{d.style.top=(6+Math.random()*26)+"px"; d.classList.toggle("hot",Math.random()<.14);});});
   const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); dots[i].style.background=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
   const cells=heatEl.children; for(let i=0;i<cells.length;i++){const v=Math.random(); cells[i].style.background=v<.5?"rgba(61,220,132,.25)":v<.75?"rgba(255,210,31,.55)":v<.9?"rgba(251,146,60,.75)":"rgba(248,113,113,.9)";}
-  const parts=UNITS.slice(0,7), sum=parts.reduce((s,u)=>s+u[2],0);
-  $("#budgetStack").innerHTML=parts.map(u=>`<div style="background:${u[1]};width:${(u[2]/sum*100).toFixed(1)}%"></div>`).join("");
-  $("#budgetLegend").innerHTML=parts.slice(0,4).map(u=>`<span><i style="background:${u[1]}"></i>${u[0]}</span>`).join("");
-  $("#budgetMs").textContent=total.toFixed(1)+" ms";
+$("#budgetMs").textContent=gpu.toFixed(1)+" ms";
   hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart();
   if(!paused){ const n=1+Math.floor(Math.random()*3); for(let i=0;i<n;i++) emitLog(); }
 }
 function drawChart(){
-  const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=220;
+  const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=340;
   if(cv.width!==W){cv.width=W; cv.height=H;}
-  ctx.clearRect(0,0,W,H); ctx.lineWidth=2;
-  const line=(key,color)=>{ctx.strokeStyle=color; ctx.beginPath(); hist.forEach((h,i)=>{const x=i/119*W, y=H-8-(h[key]/24)*(H-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke();};
-  ctx.strokeStyle="rgba(248,113,113,.6)"; ctx.setLineDash([6,6]); ctx.beginPath(); const y=H-8-(16.6/24)*(H-20); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]);
-  line("t","#ffd21f"); line("g","#38bdf8"); line("r","#f472b6");
+  ctx.clearRect(0,0,W,H);
+  const Y=v=>H-14-(v/24)*(H-30), X=i=>i/119*W;
+  // 16.6 budget: faint dotted rule
+  ctx.strokeStyle="rgba(248,113,113,.45)"; ctx.setLineDash([3,7]); ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,Y(16.6)); ctx.lineTo(W,Y(16.6)); ctx.stroke(); ctx.setLineDash([]);
+  // gradient area under total
+  if(hist.length>2){
+    const grad=ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0,"rgba(132,204,22,.45)"); grad.addColorStop(1,"rgba(132,204,22,0)");
+    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
+    ctx.lineTo(X(hist.length-1),H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
+    ctx.strokeStyle="#a3e635"; ctx.lineWidth=2.6; ctx.stroke();
+    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.g)):ctx.moveTo(X(i),Y(h.g)); });
+    ctx.strokeStyle="rgba(56,189,248,.65)"; ctx.lineWidth=1.6; ctx.stroke();
+    const lx=X(hist.length-1), ly=Y(hist[hist.length-1].t);
+    ctx.beginPath(); ctx.arc(lx-3,ly,13,0,7); ctx.fillStyle="rgba(163,230,53,.25)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(lx-3,ly,6,0,7); ctx.fillStyle="#ecfccb"; ctx.fill();
+    // dotted x ticks
+    ctx.fillStyle="rgba(230,230,238,.35)"; for(let i=0;i<10;i++){ ctx.beginPath(); ctx.arc(i/9*W,H-5,2.4,0,7); ctx.fill(); }
+  }
 }
 setInterval(tick,100); setInterval(()=>{ if(!paused) emitLog(); },380);
 tick();
