@@ -363,10 +363,10 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
 
       <section class="effCard">
         <div class="tt">Frame Time<span class="go">↗</span></div>
-        <div class="big2"><span id="mfVal">16.6</span><small> ms</small></div>
-        <div class="target">Target: 16.6 ms (60 fps) · last 120 frames · <span id="mfDelta" class="up">+0.0% vs avg</span></div>
-        <canvas class="chart" id="frameChart" style="height:190px"></canvas>
+        <canvas class="chart" id="frameChart" style="height:190px; margin-top:14px"></canvas>
         <div style="display:flex;justify-content:space-between;color:var(--faint);font-size:.72rem;margin-top:2px"><span>−120 f</span><span>−90</span><span>−60</span><span>−30</span><span>now</span></div>
+        <div class="big2" style="margin-top:16px"><span id="mfVal">16.6</span><small> ms</small></div>
+        <div class="target">Target: 16.6 ms (60 fps) · last 120 frames · <span id="mfDelta" class="up">+0.0% vs avg</span></div>
       </section>
 
       <section class="tcard" style="--tick:#3b82f6">
@@ -559,7 +559,7 @@ function tick(){
   frame++;
   const gpu=UNITS.reduce((s,u)=>s+u[2],0)*jitter(1,.12), total=gpu+4.6*jitter(1,.15);
   $("#kFrame").innerHTML=`${total.toFixed(1)}<small> ms</small>`; $("#kFrameD").innerHTML=`<span class="${total<16.6?"up":"down"}">${total<16.6?"▼":"▲"} ${(1000/total).toFixed(0)} fps</span>`; $("#kFrameC").textContent="frame "+frame.toLocaleString();
-  $("#mfVal").textContent=total.toFixed(1)+" ms"; const md=$("#mfDelta"); const pcv=jitter(0,6); md.textContent=(pcv>=0?"+":"")+pcv.toFixed(1)+"% vs avg"; md.className=pcv>=0?"down":"up";
+  $("#mfVal").textContent=total.toFixed(1); const md=$("#mfDelta"); const pcv=jitter(0,6); md.textContent=(pcv>=0?"+":"")+pcv.toFixed(1)+"% vs avg"; md.className=pcv>=0?"down":"up";
   $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`; $("#kGpuD").innerHTML=gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ ${(gpu-16.6).toFixed(1)} ms over budget`; $("#kGpuD").className="delta "+(gpu<16.6?"up":"down"); $("#gpuCard").classList.toggle("alert",gpu>=16.6);
   $("#kRays").innerHTML=`${jitter(8.4,1.2).toFixed(1)}<small> M</small>`;
   const clu=Math.round(jitter(312,26)); $("#kClu").textContent=clu; $("#kCluD").textContent=`of 1,204 resident · ${1204-clu} culled`;
@@ -613,9 +613,6 @@ function drawChart(){
   tracePath(); ctx.strokeStyle="rgba(245,245,248,.95)"; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
   ctx.save(); ctx.beginPath(); ctx.rect(0,Yt,W,H-Yt); ctx.clip();
   tracePath(); ctx.strokeStyle="#f87171"; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
-  // dots on the points, coloured by which side of the rule they sit
-  data.forEach((h,i)=>{ if(i%6!==0) return; ctx.beginPath(); ctx.arc(X(i),Y(h.t),4.4,0,7);
-    ctx.fillStyle = Y(h.t)<Yt ? "#ffffff" : "#f87171"; ctx.fill(); });
 }
 function drawThreads(){
   const cv=$("#threadChart"); if(!cv||threadHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=240;
