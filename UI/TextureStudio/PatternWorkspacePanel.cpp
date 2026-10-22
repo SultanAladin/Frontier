@@ -47,6 +47,25 @@ void Caption(
     ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
 }
 
+// 📝 Rounded, padded modal chrome for the close/unsaved-changes prompt. ConstructInterface zeroes
+// WindowRounding/WindowPadding for the whole docked workspace, so this overlay needs its own scope
+// or it inherits flush, square edges instead of looking like a deliberate dialog.
+struct PatternModalScope
+{
+    explicit PatternModalScope(float Scale)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20 * Scale, 18 * Scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10 * Scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .10f));
+    }
+    ~PatternModalScope()
+    {
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+    }
+};
+
 std::string FoldCaption(std::string CaptionText)
 {
     for (auto &Letter : CaptionText) if (Letter >= 'A' && Letter <= 'Z') Letter = char(Letter + 32);
@@ -2606,6 +2625,7 @@ void PatternWorkspacePanel::ConstructCloseDialogue()
 {
     if (CloseRequested && !ImGui::IsPopupOpen("Unsaved pattern")) ImGui::OpenPopup("Unsaved pattern");
     ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
+    const PatternModalScope ModalScope(Scale);
     if (ImGui::BeginPopupModal("Unsaved pattern", nullptr, ImGuiWindowFlags_NoResize))
     {
         const auto Dialogue = ImGui::GetCursorScreenPos();

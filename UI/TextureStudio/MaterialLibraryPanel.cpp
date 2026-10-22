@@ -49,6 +49,25 @@ struct MaterialTooltipScope
         ImGui::PopStyleVar(4);
     }
 };
+// 📝 Rounded, padded modal chrome shared by every blocking dialog (library switch, unsaved-edit
+// prompt, create/duplicate destination). ConstructInterface zeroes WindowRounding/WindowPadding for
+// the whole docked workspace, so these overlays need their own scope or they inherit flush, square
+// edges instead of looking like deliberate dialogs.
+struct MaterialModalScope
+{
+    explicit MaterialModalScope(float Scale)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20 * Scale, 18 * Scale));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10 * Scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.f);
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .10f));
+    }
+    ~MaterialModalScope()
+    {
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+    }
+};
 void PresentMaterialTooltip(float Scale, const char *Title, const char *Body)
 {
     MaterialTooltipScope Scope(Scale);
@@ -1448,6 +1467,7 @@ void MaterialLibraryPanel::ConstructSourceEditor()
 void MaterialLibraryPanel::ConstructCreation()
 {
     if ((Creating || Duplicating) && !ImGui::IsPopupOpen("Material destination")) ImGui::OpenPopup("Material destination");
+    const MaterialModalScope ModalScope(QueryInterfaceScale());
     if (ImGui::BeginPopupModal("Material destination", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextUnformatted(Duplicating ? "Duplicate current authored material" : "Create material");
@@ -1556,74 +1576,78 @@ void MaterialLibraryPanel::ConstructInterface()
     ImGui::PopFont();
     if (DirectoryRequested) { ImGui::OpenPopup("Open material library"); DirectoryRequested = false; }
     ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20 * Scale, 16 * Scale));
-    if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_NoResize))
     {
-        const auto Dialogue = ImGui::GetCursorScreenPos();
-        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL LIBRARY");
-        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Open material library",
-            static_cast<ImFont *>(HeadingTypeface));
-        ImGui::Dummy(ImVec2(1, 58 * Scale));
-        ImGui::TextWrapped("Switch to a different .material catalogue folder.");
-        ImGui::Spacing();
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextWithHint("##Directory", "Material library folder", DirectoryText.data(), DirectoryText.size());
-        if (Library.QueryModified() || Library.QueryParkedEdits())
-            ImGui::TextWrapped("Save or revert current edits before switching libraries.");
-        if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
-        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 2 * ButtonWidth - ButtonGap - 20 * Scale);
-        if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) ImGui::CloseCurrentPopup();
-        ImGui::SameLine(0, ButtonGap);
-        ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
-        if (ImGui::Button("Open", ImVec2(ButtonWidth, 32 * Scale)) && ConfigureDirectory(DecodeContentPath(DirectoryText.data()))) ImGui::CloseCurrentPopup();
-        ImGui::PopStyleColor(3);
-        ImGui::EndDisabled();
-        ImGui::EndPopup();
+        const MaterialModalScope DirectoryModalScope(Scale);
+        if (ImGui::BeginPopupModal("Open material library", nullptr, ImGuiWindowFlags_NoResize))
+        {
+            const auto Dialogue = ImGui::GetCursorScreenPos();
+            ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL LIBRARY");
+            ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Open material library",
+                static_cast<ImFont *>(HeadingTypeface));
+            ImGui::Dummy(ImVec2(1, 58 * Scale));
+            ImGui::TextWrapped("Switch to a different .material catalogue folder.");
+            ImGui::Spacing();
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputTextWithHint("##Directory", "Material library folder", DirectoryText.data(), DirectoryText.size());
+            if (Library.QueryModified() || Library.QueryParkedEdits())
+                ImGui::TextWrapped("Save or revert current edits before switching libraries.");
+            if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
+            ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 2 * ButtonWidth - ButtonGap - 20 * Scale);
+            if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) ImGui::CloseCurrentPopup();
+            ImGui::SameLine(0, ButtonGap);
+            ImGui::BeginDisabled(Library.QueryModified() || Library.QueryParkedEdits());
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
+            if (ImGui::Button("Open", ImVec2(ButtonWidth, 32 * Scale)) && ConfigureDirectory(DecodeContentPath(DirectoryText.data()))) ImGui::CloseCurrentPopup();
+            ImGui::PopStyleColor(3);
+            ImGui::EndDisabled();
+            ImGui::EndPopup();
+        }
     }
-    ImGui::PopStyleVar();
     ConstructCreation();
     if (ClosingRequested && !ImGui::IsPopupOpen("Unsaved material")) ImGui::OpenPopup("Unsaved material");
     ImGui::SetNextWindowSize(ImVec2(460 * Scale, 0));
-    if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_NoResize))
     {
-        const auto Dialogue = ImGui::GetCursorScreenPos();
-        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "UNSAVED MATERIAL");
-        ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Save your changes?",
-            static_cast<ImFont *>(HeadingTypeface));
-        ImGui::Dummy(ImVec2(1, 58 * Scale));
-        const auto *Unsaved = QuerySelectedMaterial(Library);
-        ImGui::TextWrapped("\u201c%s\u201d has unsaved edits. Save keeps them; Discard loses them.",
-            Unsaved ? Unsaved->Name.c_str() : "This material");
-        if (Library.QueryParkedEdits()) ImGui::TextWrapped("%u other material(s) hold parked edits; only the current material is saved here.",
-            (unsigned)Library.QueryParkedCount());
-        if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
-        ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 3 * ButtonWidth - 2 * ButtonGap - 16 * Scale);
-        if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
-        ImGui::SameLine(0, ButtonGap);
-        if (ImGui::Button("Discard", ImVec2(ButtonWidth, 32 * Scale))) CloseAuthorized = true;
-        ImGui::SameLine(0, ButtonGap);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
-        if (ImGui::Button("Save and close", ImVec2(ButtonWidth, 32 * Scale)) && Library.SaveMaterial())
+        const MaterialModalScope UnsavedModalScope(Scale);
+        if (ImGui::BeginPopupModal("Unsaved material", nullptr, ImGuiWindowFlags_NoResize))
         {
-            if (InvalidateThumbnail) InvalidateThumbnail(Library.QuerySelection());
-            CloseAuthorized = true;
+            const auto Dialogue = ImGui::GetCursorScreenPos();
+            ConstructMaterialCaption(Dialogue.x, Dialogue.y + 4 * Scale, 7 * Scale, 0x8b8d79, "UNSAVED MATERIAL");
+            ConstructMaterialCaption(Dialogue.x, Dialogue.y + 26 * Scale, 17 * Scale, 0xdcdccd, "Save your changes?",
+                static_cast<ImFont *>(HeadingTypeface));
+            ImGui::Dummy(ImVec2(1, 58 * Scale));
+            const auto *Unsaved = QuerySelectedMaterial(Library);
+            ImGui::TextWrapped("\u201c%s\u201d has unsaved edits. Save keeps them; Discard loses them.",
+                Unsaved ? Unsaved->Name.c_str() : "This material");
+            if (Library.QueryParkedEdits()) ImGui::TextWrapped("%u other material(s) hold parked edits; only the current material is saved here.",
+                (unsigned)Library.QueryParkedCount());
+            if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            const float ButtonWidth = 128 * Scale, ButtonGap = 8 * Scale;
+            ImGui::SetCursorPosX(ImGui::GetWindowSize().x - 3 * ButtonWidth - 2 * ButtonGap - 16 * Scale);
+            if (ImGui::Button("Cancel", ImVec2(ButtonWidth, 32 * Scale))) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine(0, ButtonGap);
+            if (ImGui::Button("Discard", ImVec2(ButtonWidth, 32 * Scale))) CloseAuthorized = true;
+            ImGui::SameLine(0, ButtonGap);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
+            if (ImGui::Button("Save and close", ImVec2(ButtonWidth, 32 * Scale)) && Library.SaveMaterial())
+            {
+                if (InvalidateThumbnail) InvalidateThumbnail(Library.QuerySelection());
+                CloseAuthorized = true;
+            }
+            ImGui::PopStyleColor(3);
+            if (CloseAuthorized) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
+            ImGui::EndPopup();
         }
-        ImGui::PopStyleColor(3);
-        if (CloseAuthorized) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
-        ImGui::EndPopup();
     }
     if (!Library.QueryDiagnostic().empty()) ImGui::TextWrapped("%s", Library.QueryDiagnostic().c_str());
     ImGui::End();
