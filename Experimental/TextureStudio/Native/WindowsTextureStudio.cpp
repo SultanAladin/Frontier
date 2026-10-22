@@ -127,8 +127,9 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
-    // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames and are
-    // removed at shutdown alongside the live one.
+    // 📝 Display-size preview: superseded preview descriptors are retired and freed on the next
+    // frame to avoid exhausting the ImGui descriptor pool (512 entries). The swapchain fences
+    // guarantee the previous frame's work is complete before the next UI submission.
     std::vector<VkDescriptorSet> RetiredPreviewDescriptors;
     VkImageView LastPreviewView = VK_NULL_HANDLE;
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
@@ -348,6 +349,9 @@ int RunTextureWorkspace()
         };
         Display.ConfigureRendering([&](VkCommandBuffer Commands, uint64_t Completed, uint64_t Serial)
         {
+            // Free descriptors retired on the previous UI frame; fences ensure GPU work is done.
+            for (VkDescriptorSet Retired : RetiredPreviewDescriptors) ImGui_ImplVulkan_RemoveTexture(Retired);
+            RetiredPreviewDescriptors.clear();
             SelectionEvaluation->ConstructCommands(Commands, Completed, Serial);
             CoverageRendering->ConstructCommands(Commands, Completed, Serial);
             if (Pattern->ConsumeMaterialApplyRequest()) PatternApplyRequested = true;

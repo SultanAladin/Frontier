@@ -185,7 +185,7 @@ struct VulkanPresentation::PresentationAllocation
         Initialization.Device                       = Device;
         Initialization.QueueFamily                  = QueueFamily;
         Initialization.Queue                        = Queue;
-        Initialization.DescriptorPoolSize           = 128;
+        Initialization.DescriptorPoolSize           = 512;
         Initialization.MinImageCount                = 2;
         Initialization.ImageCount                   = Main.ImageCount;
         Initialization.PipelineInfoMain.RenderPass  = Main.RenderPass;

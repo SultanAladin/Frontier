@@ -418,10 +418,11 @@ void MaterialLibraryPanel::ConstructViewport()
     const float ViewTop = Origin.y + 42 * Scale, ViewBottom = Origin.y + Available.y - 45 * Scale;
     const float ViewWidth = Available.x, ViewHeight = std::max(1.f, ViewBottom - ViewTop);
     const float Edge = std::max(1.f, std::max(ViewWidth, ViewHeight));
-    // 📝 Display-size preview: follow the cover-fit edge in framebuffer pixels (snapped, so a live window
-    // resize settles instead of reallocating every frame) rather than upscaling the 512 default.
+    // 📝 Display-size preview: follow the cover-fit edge in framebuffer pixels, snapped to 256px
+    // increments so a live window resize settles instead of reallocating every frame. The 512
+    // default is only upscaled when the viewport actually grows.
     const float Pixels = Edge * ImGui::GetIO().DisplayFramebufferScale.x;
-    const uint32_t Snapped = std::clamp((uint32_t(Pixels) + 63) / 64 * 64, 512u, 2048u);
+    const uint32_t Snapped = std::clamp((uint32_t(Pixels) + 127) / 256 * 256, 512u, 2048u);
     if (ConfigurePreviewExtent && Snapped != SentPreviewExtent)
     {
         SentPreviewExtent = Snapped;
@@ -483,17 +484,28 @@ void MaterialLibraryPanel::ConstructViewport()
         const float Sensitivity = EvaluateNavigationDelta ? EvaluateNavigationDelta({1,0}).X : 1;
         if (ImGui::IsItemActive())
         {
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
+            // Blender-style: MMB orbits around pivot, Shift+MMB pans, Ctrl+MMB or RMB dollies.
+            const bool Panning = ImGui::IsMouseDown(ImGuiMouseButton_Middle) && Input.KeyShift;
+            const bool Dollying = ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+                (ImGui::IsMouseDown(ImGuiMouseButton_Middle) && Input.KeyCtrl);
+            const bool Orbiting = ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !Input.KeyShift && !Input.KeyCtrl;
+            if (Panning)
             {
                 Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
                 Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
             }
-            else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            else if (Dollying)
                 Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 5.f);
-            else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            else if (Orbiting)
             {
-                Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
-                Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .01f, -1.45f, 1.45f);
+                Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .008f, 6.2831853f);
+                Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .008f, -1.45f, 1.45f);
+            }
+            // Legacy: bare Left-drag still orbits for trackpad users without MMB.
+            else if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !Input.KeyShift && !Input.KeyCtrl)
+            {
+                Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .008f, 6.2831853f);
+                Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .008f, -1.45f, 1.45f);
             }
         }
         if (Hovered && !Input.WantTextInput)
@@ -508,6 +520,12 @@ void MaterialLibraryPanel::ConstructViewport()
             if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) Inspection.PanY = std::max(-2.f, Inspection.PanY - .05f);
             if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) Inspection.PanY = std::min(2.f, Inspection.PanY + .05f);
         }
+        // Discrete zoom presets replace continuous +/- 0.1 for reproducible framing.
+        const float ZoomPresets[4]{.56f, .89f, 1.01f, 1.6f};
+        if (Hovered && (ImGui::IsKeyPressed(ImGuiKey_1) || ImGui::IsKeyPressed(ImGuiKey_Keypad1))) Inspection.Zoom = ZoomPresets[0];
+        if (Hovered && (ImGui::IsKeyPressed(ImGuiKey_2) || ImGui::IsKeyPressed(ImGuiKey_Keypad2))) Inspection.Zoom = ZoomPresets[1];
+        if (Hovered && (ImGui::IsKeyPressed(ImGuiKey_3) || ImGui::IsKeyPressed(ImGuiKey_Keypad3))) Inspection.Zoom = ZoomPresets[2];
+        if (Hovered && (ImGui::IsKeyPressed(ImGuiKey_4) || ImGui::IsKeyPressed(ImGuiKey_Keypad4))) Inspection.Zoom = ZoomPresets[3];
     }
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
@@ -600,7 +618,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     if (ImGui::Button("Close preview  ×", ImVec2(132, 32))) FullscreenPreview = false;
     const float Edge = std::max(1.f, std::min(Size.x - 64.f, Size.y - 150.f));
     const uint32_t FullscreenSnapped =
-        std::clamp((uint32_t(Edge * ImGui::GetIO().DisplayFramebufferScale.x) + 63) / 64 * 64, 512u, 2048u);
+        std::clamp((uint32_t(Edge * ImGui::GetIO().DisplayFramebufferScale.x) + 127) / 256 * 256, 512u, 2048u);
     if (ConfigurePreviewExtent && FullscreenSnapped != SentPreviewExtent)
     {
         SentPreviewExtent = FullscreenSnapped;
@@ -617,19 +635,21 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     const float Sensitivity = EvaluateNavigationDelta ? EvaluateNavigationDelta({1,0}).X : 1;
     if (ImGui::IsItemActive())
     {
-        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
+        const bool Panning = ImGui::IsMouseDown(ImGuiMouseButton_Middle) && Input.KeyShift;
+        const bool Dollying = ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+            (ImGui::IsMouseDown(ImGuiMouseButton_Middle) && Input.KeyCtrl);
+        const bool Orbiting = ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !Input.KeyShift && !Input.KeyCtrl;
+        if (Panning)
         {
             Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
             Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
         }
-        else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
-        {
+        else if (Dollying)
             Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 5.f);
-        }
-        else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        else if (Orbiting || ImGui::IsMouseDown(ImGuiMouseButton_Left))
         {
-            Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
-            Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .01f, -1.45f, 1.45f);
+            Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .008f, 6.2831853f);
+            Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .008f, -1.45f, 1.45f);
         }
     }
     if (Hovered && Input.MouseWheel != 0)

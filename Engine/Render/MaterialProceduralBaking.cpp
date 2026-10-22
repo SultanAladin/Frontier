@@ -66,18 +66,29 @@ ScratchFieldSample EvaluateScratchField(float U, float V, const ScratchFieldPara
     ScratchFieldSample Sample;
     if (!(Parameters.Density > 0)) return Sample;
     constexpr float Pi = 3.14159265f;
+    // LOD: at coarse mip levels the scratch field aliases; fade to average coverage.
+    if (PixelUv > .08f)
+    {
+        Sample.Coverage = Parameters.Density * Parameters.Width * Parameters.Length * .75f;
+        return Sample;
+    }
     U *= Parameters.Scale; V *= Parameters.Scale;
     const float CellX = std::floor(U), CellY = std::floor(V);
     const float AntiAlias = std::max(PixelUv * .4f, .00015f);
     float Coverage = 0, Height = 0, RimTotal = 0;
-    for (int Layer = 0; Layer < 12; ++Layer)
+    // Adaptive layers: density 0..12 maps to 1..12 layers, not always 12.
+    const int ActiveLayers = int(std::ceil(std::clamp(Parameters.Density, 0.f, 12.f) / 4.f)) * 4;
+    for (int Layer = 0; Layer < ActiveLayers; ++Layer)
     {
         const float Batch = float(Layer / 4) * 4;
         if (Batch >= Parameters.Density) break;
         const float LayerSeed = float(Layer) * 113.7f + float(Parameters.Seed);
         const float Occupancy = std::clamp((Parameters.Density - Batch) * .25f, 0.f, 1.f);
-        for (int Y = -2; Y <= 2; ++Y)
-            for (int X = -2; X <= 2; ++X)
+        if (Occupancy < .01f) continue;
+        // Adaptive radius: sparse layers need smaller search.
+        const int Radius = Occupancy < .3f ? 1 : 2;
+        for (int Y = -Radius; Y <= Radius; ++Y)
+            for (int X = -Radius; X <= Radius; ++X)
             {
                 const float IdX = CellX + float(X), IdY = CellY + float(Y);
                 if (!(ProceduralHash31(IdX, IdY, LayerSeed) < Occupancy)) continue;

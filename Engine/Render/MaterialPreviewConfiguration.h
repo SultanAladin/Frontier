@@ -95,12 +95,12 @@ inline MaterialPreviewProjection ConstructMaterialPreviewProjection(
     const float RightLength = std::hypot(Right[0], Right[2]);
     Right[0] /= RightLength; Right[2] /= RightLength;
     const float Up[3]{EyeDir[1] * Right[2], EyeDir[2] * Right[0] - EyeDir[0] * Right[2], -EyeDir[1] * Right[0]};
-    // 📝 Pan walks the pivot against camera-right but with camera-up: clip Y is flipped, so both
-    // apples-to-apples NDC offsets land exactly on (PanX, PanY) like the orthographic rig.
+    // 📝 Pan walks the pivot against camera-right and camera-up. The Y flip in Vulkan clip is handled
+    // by the projection matrix, so pan uses consistent addition for both axes (Blender convention).
     const float Px = 16.f * float(Shape) + Pivot[Shape][0] -
-        (Right[0] * Configuration.PanX - Up[0] * Configuration.PanY) * PanScale;
-    const float Py = Pivot[Shape][1] - (Right[1] * Configuration.PanX - Up[1] * Configuration.PanY) * PanScale;
-    const float Pz = Pivot[Shape][2] - (Right[2] * Configuration.PanX - Up[2] * Configuration.PanY) * PanScale;
+        (Right[0] * Configuration.PanX + Up[0] * Configuration.PanY) * PanScale;
+    const float Py = Pivot[Shape][1] - (Right[1] * Configuration.PanX + Up[1] * Configuration.PanY) * PanScale;
+    const float Pz = Pivot[Shape][2] - (Right[2] * Configuration.PanX + Up[2] * Configuration.PanY) * PanScale;
     const float Ex = Px + EyeDir[0] * Distance, Ey = Py + EyeDir[1] * Distance, Ez = Pz + EyeDir[2] * Distance;
     const float Fwd[3]{-EyeDir[0], -EyeDir[1], -EyeDir[2]};
     R[0] = Right[0]; R[1] = Up[0]; R[2] = -Fwd[0];
