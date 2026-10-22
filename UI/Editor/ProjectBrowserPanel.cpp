@@ -4,6 +4,7 @@
 // 🧩 1:1 native port of the Project browser HTML prototype (Experimental/Project browser/).
 
 #include "ProjectBrowserPanel.h"
+#include "Engine/Interface/DropdownControls.h"
 #include <algorithm>
 #include <cmath>
 #include <imgui.h>
@@ -836,38 +837,31 @@ int DrawBrowserSelect(const char *Id, ImVec2 Min, float Width, const std::vector
     const BrowserFrame &Frame, float FontSize, float PadLeft, float PadRight, float Radius, ImU32 Fill,
     float PadY, bool Disabled = false)
 {
-    const float Height = FontSize + 2 * PadY;
-    const bool Clicked = Disabled ? false : PlaceBrowserHit(Min, ImVec2(Width, Height), Id);
-    const bool Hovered = !Disabled && ImGui::IsItemHovered();
-    Frame.Draw->AddRectFilled(Min, ImVec2(Min.x + Width, Min.y + Height), Fill, Radius);
-    Frame.Draw->AddRect(Min, ImVec2(Min.x + Width, Min.y + Height), Hovered ? Frame.S.Faint : Frame.S.Line, Radius, 0,
-        std::max(1.f, Frame.Scale));
+    // 📝 Native reusable combo: the bespoke hit-test + manual popup never opened reliably.
+    // Closed-frame metrics now come from the shared ControlKit theme; keep the signature stable.
+    (void)Radius;
+    (void)Fill;
+    (void)PadY;
+    ImGui::SetCursorPos(ImVec2(Min.x - ImGui::GetWindowPos().x + ImGui::GetScrollX(),
+        Min.y - ImGui::GetWindowPos().y + ImGui::GetScrollY()));
+    ImGui::PushID(Id);
+    ImGui::SetNextItemWidth(Width);
     const std::string Label = Current >= 0 && size_t(Current) < Options.size() ? Options[size_t(Current)] : "";
-    DrawBrowserText(Frame.Draw, Frame.Font, FontSize,
-        ImVec2(Min.x + PadLeft, Min.y + (Height - FontSize) / 2), Disabled ? Frame.S.Faint : Frame.S.Text,
-        EllipsizeBrowserText(Frame.Font, FontSize, Label, Width - PadLeft - PadRight));
-    // ⌄ Down chevron matching the pill background sprite.
-    const ImVec2 Tip(Min.x + Width - PadRight / 2 - 1 * Frame.Scale, Min.y + Height / 2 + 1 * Frame.Scale);
-    Frame.Draw->AddLine(ImVec2(Tip.x - 3 * Frame.Scale, Tip.y - 2 * Frame.Scale), Tip, Frame.S.Muted, Frame.Scale);
-    Frame.Draw->AddLine(Tip, ImVec2(Tip.x + 3 * Frame.Scale, Tip.y - 2 * Frame.Scale), Frame.S.Muted, Frame.Scale);
-    if (Clicked) ImGui::OpenPopup(Id);
+    const std::string Preview = EllipsizeBrowserText(Frame.Font, FontSize, Label, Width - PadLeft - PadRight);
     int Next = Current;
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, Frame.S.Panel);
-    ImGui::PushStyleColor(ImGuiCol_Border, Frame.S.Line);
-    ImGui::PushStyleColor(ImGuiCol_Text, Frame.S.Text);
-    ImGui::PushStyleColor(ImGuiCol_Header, Frame.S.Selected);
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Frame.S.Selected);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 7 * Frame.Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, std::max(1.f, Frame.Scale));
-    ImGui::SetNextWindowPos(ImVec2(Min.x, Min.y + Height + 4 * Frame.Scale));
-    if (ImGui::BeginPopup(Id))
+    ImGui::BeginDisabled(Disabled);
+    if (DropdownControlSurface::BeginSelection("##select", Preview.c_str(), Frame.Scale))
     {
         for (size_t Index = 0; Index < Options.size(); ++Index)
-            if (ImGui::Selectable(Options[Index].c_str(), int(Index) == Current)) Next = int(Index);
-        ImGui::EndPopup();
+            if (DropdownControlSurface::Option(Options[Index].c_str(), int(Index) == Current, Frame.Scale))
+            {
+                Next = int(Index);
+                ImGui::CloseCurrentPopup();
+            }
+        DropdownControlSurface::EndSelection();
     }
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(5);
+    ImGui::EndDisabled();
+    ImGui::PopID();
     return Next;
 }
 
@@ -1491,6 +1485,10 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
             ImVec2(Scroll.x + Side + (InnerW - MeasureBrowserText(Font, 9 * Scale, Note).x) / 2,
                 FolderMin.y + 38 * Scale + 24 * Scale),
             S.Faint, Note);
+        // 📜 Custom drawing never advances the cursor: pin an invisible item at the content bottom
+        // so the scrollbar range tracks the cards instead of sticking at zero.
+        ImGui::SetCursorPos(ImVec2(1, FolderMin.y + (38 + 24 + 14) * Scale - Scroll.y + ImGui::GetScrollY()));
+        ImGui::Dummy(ImVec2(1, 1));
     }
     ImGui::EndChild();
     ImGui::PopStyleColor(4);
