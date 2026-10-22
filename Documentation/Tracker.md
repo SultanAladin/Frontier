@@ -22,6 +22,10 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | Browser crash blocks prototype         | Open        | Triage per GeometryKernelPort.md Phase 0; capture ProbeReport. |
+| 018 | Geometry Kernel port                   | Planned     | Phase 1 G1–G8 — reuse Internal/Authoring/Geometry; verify via Exhibits/GeometryKernel/ |
+| 019 | Render Engine port                     | Planned     | Phase 2 R1–R6 — reuse Internal/Graphics scaffold; Vulkan/Slang present |
+| 020 | First on-screen render (Suzanne)       | Planned     | Phase 3 gate — GLFW window proves Phases 1–2 wired |
 
 ## Verification
 
