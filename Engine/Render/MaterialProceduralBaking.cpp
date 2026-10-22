@@ -851,7 +851,7 @@ double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldPar
 std::vector<std::string> QueryProceduralOps()
 {
     std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet", "solar", "dimples",
-        "stucco", "weave", "knit", "scratchedMetal", "latheMetal"};
+        "stucco", "weave", "knit", "scratchedMetal", "latheMetal", "clay"};
     for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
     return Ops;
 }
@@ -864,10 +864,10 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     if (Op == "metalGrain") return {"Albedo", "Normal"};
     if (Op == "polymerGrain") return {"Albedo", "Orm", "Normal"};
     if (Op == "ribbedSheet") return {"Albedo", "Orm", "Normal"};
-    // 📝 Alloy varies no ORM term for dimpled covers, stucco or yarn construction, so those ops offer
-    // albedo plus normals; solar contacts and scratch overlays earn the full triple.
+    // 📝 Alloy varies no ORM term for dimpled covers, stucco, clay aggregate or yarn construction, so those
+    // ops offer albedo plus normals; solar contacts and scratch overlays earn the full triple.
     if (Op == "solar" || Op == "scratchedMetal" || Op == "latheMetal") return {"Albedo", "Orm", "Normal"};
-    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit") return {"Albedo", "Normal"};
+    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit" || Op == "clay") return {"Albedo", "Normal"};
     // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
     // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
     if (QueryCodedField(Op)) return {"Albedo", "Normal"};
@@ -1348,6 +1348,32 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
                 const float Cloud = ProceduralStoneFbm(U * 2.8f, Seed, V * 2.8f);
                 Field[size_t(Y) * Extent + X] = Channel == "Albedo" ? .8f + Cloud * .28f + Sand * .09f
                     : (Sand - .5f) * Grain * .022f / .011f;
+            }
+        if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "clay")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Clay bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float Moisture = float(Value("moisture", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural clay params cannot bake.");
+        // 📝 Single-face bake of the uType==12 block: fine aggregate over finger-scale hand variation, with
+        // moisture darkening the tone and damping the relief. Relief keeps the shader's grain/moisture
+        // relationship at the baker's unit nominal (the .006 scene factor belongs to the GL bump).
+        std::vector<float> Field(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float Aggregate = ProceduralNoise3(U * Tiles, Seed, V * Tiles) +
+                    .35f * ProceduralNoise3(U * Tiles * 3.7f, Seed, V * Tiles * 3.7f);
+                const float Hand = ProceduralNoise3(U * 2.7f, Seed, V * 2.7f);
+                Field[size_t(Y) * Extent + X] = Channel == "Albedo"
+                    ? (.8f + .23f * Aggregate + .08f * Hand) * (1 - Moisture * .18f)
+                    : (Aggregate - .5f) * Grain * 2 * (1 - Moisture * .5f);
             }
         if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
         return ConvertHeightToNormalRgba(Field, Extent, 2.f);

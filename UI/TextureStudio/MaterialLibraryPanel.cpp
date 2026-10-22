@@ -368,6 +368,42 @@ void MaterialLibraryPanel::ConstructCatalogue()
     ImGui::PopFont();
 }
 
+void MaterialLibraryPanel::SynchronizePreviewCamera()
+{
+    if (!SmoothedInspectionReady)
+    {
+        SmoothedInspection = Inspection;
+        SmoothedInspectionReady = true;
+    }
+    else
+    {
+        SmoothedInspection.Shape = Inspection.Shape;
+        SmoothedInspection.Environment = Inspection.Environment;
+        SmoothedInspection.Exposure = Inspection.Exposure;
+        const float Blend = 1 - std::exp(-std::min(ImGui::GetIO().DeltaTime, .1f) * 8);
+        SmoothedInspection.Yaw = std::remainder(SmoothedInspection.Yaw +
+                std::remainder(Inspection.Yaw - SmoothedInspection.Yaw, 6.2831853f) * Blend,
+            6.2831853f);
+        SmoothedInspection.Pitch += (Inspection.Pitch - SmoothedInspection.Pitch) * Blend;
+        SmoothedInspection.Zoom += (Inspection.Zoom - SmoothedInspection.Zoom) * Blend;
+        SmoothedInspection.PanX += (Inspection.PanX - SmoothedInspection.PanX) * Blend;
+        SmoothedInspection.PanY += (Inspection.PanY - SmoothedInspection.PanY) * Blend;
+        // 📝 Snap once the lag closes so the preview stops dirtying and settles exactly on the target.
+        if (std::abs(std::remainder(Inspection.Yaw - SmoothedInspection.Yaw, 6.2831853f)) < .0002f &&
+            std::abs(Inspection.Pitch - SmoothedInspection.Pitch) < .0002f &&
+            std::abs(Inspection.Zoom - SmoothedInspection.Zoom) < .0002f &&
+            std::abs(Inspection.PanX - SmoothedInspection.PanX) < .0002f &&
+            std::abs(Inspection.PanY - SmoothedInspection.PanY) < .0002f)
+            SmoothedInspection = Inspection;
+    }
+    if (!SentInspectionReady || SmoothedInspection != SentInspection)
+    {
+        SentInspection = SmoothedInspection;
+        SentInspectionReady = true;
+        if (ConfigurePreview) ConfigurePreview(SmoothedInspection);
+    }
+}
+
 void MaterialLibraryPanel::ConstructViewport()
 {
     const float Scale = QueryInterfaceScale();
@@ -407,7 +443,7 @@ void MaterialLibraryPanel::ConstructViewport()
     {
         FullscreenPreview = true;
         ResetMaterialPreviewView(Inspection);
-        if (ConfigurePreview) ConfigurePreview(Inspection);
+        SynchronizePreviewCamera();
     }
     const auto FullscreenMinimum = ImGui::GetItemRectMin(), FullscreenMaximum = ImGui::GetItemRectMax();
     FullscreenPreviewExtent = {FullscreenMinimum.x, FullscreenMinimum.y, FullscreenMaximum.x, FullscreenMaximum.y};
@@ -421,7 +457,7 @@ void MaterialLibraryPanel::ConstructViewport()
     Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), EncodeMaterialInk(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "Drag orbit  /  Shift-MMB pan  /  Wheel zoom");
     if (Available.x > 500 * Scale) ConstructMaterialCaption(Origin.x + Available.x - 75 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
-    const auto Previous = Inspection;
+
     const auto ConfigureExtent = [&](size_t Index)
     {
         const auto Minimum = ImGui::GetItemRectMin();
@@ -530,7 +566,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
     ImGui::EndDisabled();
-    if (Previous != Inspection && ConfigurePreview) ConfigurePreview(Inspection);
+    SynchronizePreviewCamera();
     ImGui::PopID();
 }
 
@@ -574,7 +610,6 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     ImGui::SetCursorScreenPos(ImagePosition);
     ImGui::InvisibleButton("Fullscreen inspection canvas", ImVec2(Edge, Edge),
         ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
-    bool Changed = false;
     const auto &Input = ImGui::GetIO();
     const bool Hovered = ImGui::IsItemHovered();
     const auto Δ = EvaluateNavigationDelta ? EvaluateNavigationDelta({Input.MouseDelta.x, Input.MouseDelta.y}) : PlanePoint{Input.MouseDelta.x, Input.MouseDelta.y};
@@ -585,24 +620,20 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
         {
             Inspection.PanX = std::clamp(Inspection.PanX + Input.MouseDelta.x * Sensitivity * 2 / Edge, -2.f, 2.f);
             Inspection.PanY = std::clamp(Inspection.PanY + Input.MouseDelta.y * Sensitivity * 2 / Edge, -2.f, 2.f);
-            Changed = true;
         }
         else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
         {
             Inspection.Zoom = std::clamp(Inspection.Zoom * std::exp(-Input.MouseDelta.y * Sensitivity * .01f), .5f, 5.f);
-            Changed = true;
         }
         else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
         {
             Inspection.Yaw = std::remainder(Inspection.Yaw + Δ.X * .01f, 6.2831853f);
             Inspection.Pitch = std::clamp(Inspection.Pitch + Δ.Y * .01f, -1.45f, 1.45f);
-            Changed = true;
         }
     }
     if (Hovered && Input.MouseWheel != 0)
     {
         Inspection.Zoom = std::clamp(Inspection.Zoom * std::pow(1.1f, Input.MouseWheel), .5f, 5.f);
-        Changed = true;
     }
     Ink->PushClipRect(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), true);
     if (Image.Texture)
@@ -611,15 +642,15 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), EncodeMaterialInk(0x202222));
     Ink->PopClipRect();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
-    if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) { Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f); Changed = true; }
+    if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
     ImGui::SameLine();
     const std::string ZoomLabel = std::to_string(int(std::round(Inspection.Zoom * 100))) + "%##FullscreenZoomReset";
-    if (ImGui::Button(ZoomLabel.c_str(), ImVec2(80, 30))) { Inspection.Zoom = 1; Changed = true; }
+    if (ImGui::Button(ZoomLabel.c_str(), ImVec2(80, 30))) Inspection.Zoom = 1;
     ImGui::SameLine();
-    if (ImGui::Button("+##FullscreenZoomIn", ImVec2(42, 30))) { Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f); Changed = true; }
+    if (ImGui::Button("+##FullscreenZoomIn", ImVec2(42, 30))) Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f);
     ImGui::SameLine();
-    if (ImGui::Button("Fit object", ImVec2(92, 30))) { ResetMaterialPreviewView(Inspection); Changed = true; }
-    if (Changed && ConfigurePreview) ConfigurePreview(Inspection);
+    if (ImGui::Button("Fit object", ImVec2(92, 30))) ResetMaterialPreviewView(Inspection);
+    SynchronizePreviewCamera();
     ImGui::End();
 }
 

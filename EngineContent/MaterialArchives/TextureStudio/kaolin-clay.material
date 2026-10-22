@@ -9,3 +9,31 @@ Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/kaolin-clay-albedo.png"
+Normal = "Textures/kaolin-clay-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "clay"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 24
+grain = 0.35
+moisture = 0.02
+surfaceSeed = 17
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "clay"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 24
+grain = 0.35
+moisture = 0.02
+surfaceSeed = 17

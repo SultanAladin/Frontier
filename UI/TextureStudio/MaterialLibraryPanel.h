@@ -72,6 +72,11 @@ class MaterialLibraryPanel final : public ActivationSequence
   private:
     std::array<PlaneExtent, 8> InspectionExtents{};
     MaterialPreviewConfiguration Inspection;
+    // 📝 Orbit lag: Inspection is the input target; SmoothedInspection eases toward it every frame so the
+    // camera glides instead of snapping. Discrete state (shape, environment, exposure) always applies instantly.
+    MaterialPreviewConfiguration SmoothedInspection, SentInspection;
+    bool SmoothedInspectionReady = false, SentInspectionReady = false;
+    void SynchronizePreviewCamera();
     MaterialLibrary Library;
     PanelDockspace Panels;
     bool SourceVisible = false;

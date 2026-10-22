@@ -112,6 +112,38 @@ std::array<float, 4> QueryVectorAuthoringSelectionBounds(const VectorAuthoringDo
         }
         Found = true;
         const float θ = Source.Transform[0];
+        if (Source.Topology[0] == 6)
+        {
+            // 📝 Converted library paths normalize their segments to the tile frame, so the stored bounds are
+            // tile-sized even for small motifs. Trace the true contour through the live mapping instead, so the
+            // selection box hugs the shape rather than the canvas.
+            const size_t Start = Source.Topology[1], Count = Source.Topology[2];
+            if (Count && Count <= Document.Segments.size() && Start <= Document.Segments.size() - Count &&
+                Source.Bounds[2] > 0 && Source.Bounds[3] > 0)
+            {
+                const float Cosine = std::cos(θ), Sine = std::sin(θ);
+                bool Traced = false;
+                for (size_t Index = 0; Index < Count; ++Index)
+                {
+                    const auto &Segment = Document.Segments[Start + Index];
+                    for (const auto *Quad : {&Segment.StartControl, &Segment.ControlEnd})
+                        for (int Point = 0; Point < 2; ++Point)
+                        {
+                            const float X = Source.Bounds[0] + (*Quad)[Point * 2] * Source.Bounds[2] * Cosine -
+                                (*Quad)[Point * 2 + 1] * Source.Bounds[3] * Sine;
+                            const float Y = Source.Bounds[1] + (*Quad)[Point * 2] * Source.Bounds[2] * Sine +
+                                (*Quad)[Point * 2 + 1] * Source.Bounds[3] * Cosine;
+                            if (!std::isfinite(X) || !std::isfinite(Y)) continue;
+                            MinimumX = std::min(MinimumX, X);
+                            MaximumX = std::max(MaximumX, X);
+                            MinimumY = std::min(MinimumY, Y);
+                            MaximumY = std::max(MaximumY, Y);
+                            Traced = true;
+                        }
+                }
+                if (Traced) return;
+            }
+        }
         const float Horizontal = (std::abs(std::cos(θ)) * Source.Bounds[2] + std::abs(std::sin(θ)) * Source.Bounds[3]) * .5f;
         const float Vertical = (std::abs(std::sin(θ)) * Source.Bounds[2] + std::abs(std::cos(θ)) * Source.Bounds[3]) * .5f;
         MinimumX = std::min(MinimumX, Source.Bounds[0] - Horizontal);
@@ -121,6 +153,13 @@ std::array<float, 4> QueryVectorAuthoringSelectionBounds(const VectorAuthoringDo
     };
     for (const auto &Layer : Document.Layers) if (Tokens.contains(Layer.Token)) Accumulate(Layer.Root);
     if (!Found) throw std::runtime_error("VectorAuthoring bounds need an authenticated selection.");
+    // 📝 Tile-wrapped library layers repeat their motifs off-canvas; the gesture frame hugs the visible artwork
+    // so handles stay on the board. Fully off-canvas selections keep their true union so they stay editable.
+    const float VisibleMinimumX = std::max(MinimumX, 0.f), VisibleMaximumX = std::min(MaximumX, 512.f);
+    const float VisibleMinimumY = std::max(MinimumY, 0.f), VisibleMaximumY = std::min(MaximumY, 512.f);
+    if (VisibleMinimumX <= VisibleMaximumX && VisibleMinimumY <= VisibleMaximumY)
+        return {(VisibleMinimumX + VisibleMaximumX) * .5f, (VisibleMinimumY + VisibleMaximumY) * .5f,
+            VisibleMaximumX - VisibleMinimumX, VisibleMaximumY - VisibleMinimumY};
     return {(MinimumX + MaximumX) * .5f, (MinimumY + MaximumY) * .5f, MaximumX - MinimumX, MaximumY - MinimumY};
 }
 

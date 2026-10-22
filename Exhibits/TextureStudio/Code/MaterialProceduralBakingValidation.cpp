@@ -213,8 +213,8 @@ int main()
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
         // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
         // passthrough that keeps unworn polymer out of the worn-roughness branch.
-        // 📝 11 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
-        Confirm(QueryProceduralOps().size() == 19, "Procedural op registry changed.");
+        // 📝 12 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
+        Confirm(QueryProceduralOps().size() == 20, "Procedural op registry changed.");
         Confirm(QueryProceduralOpChannels("camouflage") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpTextParams("camouflage-smooth").size() == 4 &&
                 QueryProceduralOpTextParams("noise").empty(),
@@ -228,7 +228,8 @@ int main()
                 QueryProceduralOpChannels("dimples") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("stucco") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("weave") == std::vector<std::string>{"Albedo", "Normal"} &&
-                QueryProceduralOpChannels("knit") == std::vector<std::string>{"Albedo", "Normal"},
+                QueryProceduralOpChannels("knit") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("clay") == std::vector<std::string>{"Albedo", "Normal"},
             "Disputed-family op channel set changed.");
         Confirm(QueryProceduralOpCeilingLift("scratches") == .3f && QueryProceduralOpCeilingLift("polymerGrain") == .096f &&
                 QueryProceduralOpCeilingLift("metalGrain") == 0 && QueryProceduralOpCeilingLift("unknown") == 0,
@@ -236,7 +237,7 @@ int main()
         Confirm(QueryProceduralOpCeilingLift("solar") == .02f && QueryProceduralOpCeilingLift("scratchedMetal") == .3f &&
                 QueryProceduralOpCeilingLift("latheMetal") == .3f && QueryProceduralOpCeilingLift("dimples") == 0 &&
                 QueryProceduralOpCeilingLift("stucco") == 0 && QueryProceduralOpCeilingLift("weave") == 0 &&
-                QueryProceduralOpCeilingLift("knit") == 0,
+                QueryProceduralOpCeilingLift("knit") == 0 && QueryProceduralOpCeilingLift("clay") == 0,
             "Disputed-family ORM ceiling lift changed.");
         Confirm(ResolveProceduralParamKey("scratchedMetal", "scratchAngle") == "angle" &&
                 ResolveProceduralParamKey("latheMetal", "scratchAngle") == "angle" &&
@@ -379,6 +380,45 @@ int main()
         const std::map<std::string, double> ReseededLime{{"detailScale", 48}, {"grain", .85}, {"surfaceSeed", 18}};
         Confirm(StuccoAlbedo != BakeProceduralChannelRgba("stucco", "Albedo", ReseededLime, {}, 64),
             "Stucco bake ignores its seed.");
+        // Clay: aggregate over hand variation stays bright, relief dents, moisture damps relief and tone.
+        const std::map<std::string, double> Terracotta{
+            {"detailScale", 24}, {"grain", .8}, {"moisture", .04}, {"surfaceSeed", 17}};
+        const auto ClayAlbedo = BakeProceduralChannelRgba("clay", "Albedo", Terracotta, {}, 64);
+        double ClaySum = 0;
+        uint8_t ClayMin = 255, ClayMax = 0;
+        for (size_t Pixel = 0; Pixel < ClayAlbedo.size(); Pixel += 4)
+        {
+            ClayMin = std::min(ClayMin, ClayAlbedo[Pixel]);
+            ClayMax = std::max(ClayMax, ClayAlbedo[Pixel]);
+            ClaySum += ClayAlbedo[Pixel];
+        }
+        const double ClayMean = ClaySum / (ClayAlbedo.size() / 4);
+        Confirm(ClayMin > 190 && ClayMax > 250 && ClayMean > 235 && ClayMean < 258,
+            "Clay modulator escapes its aggregate range.");
+        const auto ClayNormal = BakeProceduralChannelRgba("clay", "Normal", Terracotta, {}, 128);
+        size_t ClayDented = 0;
+        for (size_t Pixel = 2; Pixel < ClayNormal.size(); Pixel += 4) ClayDented += ClayNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(ClayDented > 100, "Clay aggregate leaves no normal dent.");
+        const std::map<std::string, double> ReseededClay{
+            {"detailScale", 24}, {"grain", .8}, {"moisture", .04}, {"surfaceSeed", 18}};
+        Confirm(ClayAlbedo != BakeProceduralChannelRgba("clay", "Albedo", ReseededClay, {}, 64),
+            "Clay bake ignores its seed.");
+        const std::map<std::string, double> DryClay{
+            {"detailScale", 24}, {"grain", .8}, {"moisture", 0}, {"surfaceSeed", 17}};
+        const std::map<std::string, double> WetClay{
+            {"detailScale", 24}, {"grain", .8}, {"moisture", 1}, {"surfaceSeed", 17}};
+        const auto DryNormal = BakeProceduralChannelRgba("clay", "Normal", DryClay, {}, 128);
+        const auto WetNormal = BakeProceduralChannelRgba("clay", "Normal", WetClay, {}, 128);
+        size_t DryDented = 0, WetDented = 0;
+        for (size_t Pixel = 2; Pixel < DryNormal.size(); Pixel += 4) DryDented += DryNormal[Pixel] < 250 ? 1 : 0;
+        for (size_t Pixel = 2; Pixel < WetNormal.size(); Pixel += 4) WetDented += WetNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(DryDented > WetDented, "Clay moisture fails to damp relief.");
+        const auto DryAlbedo = BakeProceduralChannelRgba("clay", "Albedo", DryClay, {}, 64);
+        const auto WetAlbedo = BakeProceduralChannelRgba("clay", "Albedo", WetClay, {}, 64);
+        double DrySum = 0, WetSum = 0;
+        for (size_t Pixel = 0; Pixel < DryAlbedo.size(); Pixel += 4) DrySum += DryAlbedo[Pixel];
+        for (size_t Pixel = 0; Pixel < WetAlbedo.size(); Pixel += 4) WetSum += WetAlbedo[Pixel];
+        Confirm(DrySum > WetSum, "Clay moisture fails to darken tone.");
         // Scratched metal: uncut metal reproduces the bare-metal bytes exactly; cuts match the study ORM
         // while the albedo keeps the tooth (the study's occlusion convention carries the darkening).
         const std::map<std::string, double> CastIron{{"grain", .8}, {"detailScale", 65}, {"surfaceSeed", 17},
@@ -828,6 +868,8 @@ int main()
                 for (const char *Key : {"detailScale", "dimpleDepth", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
             else if (Op == "stucco")
                 for (const char *Key : {"detailScale", "grain", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "clay")
+                for (const char *Key : {"detailScale", "grain", "moisture", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
             else if (Op == "scratchedMetal" || Op == "latheMetal")
             {
                 for (const char *Key : {Op == "scratchedMetal" ? "grain" : "depth", "detailScale", "roughness",
@@ -850,7 +892,7 @@ int main()
         };
         static const std::set<std::string> LibraryMetalIds{"bareMetal", "polishedMetal", "brushedMetal"};
         size_t PinnedTextures = 0, SolarEntries = 0, GolfEntries = 0, StuccoEntries = 0, MetalEntries = 0,
-               BrakeEntries = 0;
+               BrakeEntries = 0, ClayEntries = 0;
         for (const auto &Entry : Library.QueryEntries())
         {
             const auto &Id = Entry.Recipe.RecipeId;
@@ -878,6 +920,11 @@ int main()
                 Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "stucco", {"Albedo", "Normal"});
                 ++StuccoEntries;
             }
+            else if (Id == "clay")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "clay", {"Albedo", "Normal"});
+                ++ClayEntries;
+            }
             else if (LibraryMetalIds.contains(Id))
             {
                 Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "scratchedMetal", {"Albedo", "Orm", "Normal"});
@@ -898,9 +945,10 @@ int main()
                 ++PinnedTextures;
             }
         }
-        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 21 && BrakeEntries == 1,
+        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 21 && BrakeEntries == 1 &&
+                ClayEntries == 4,
             "Disputed-family entry count changed.");
-        Confirm(PinnedTextures == 125, "Baked texture family count changed.");
+        Confirm(PinnedTextures == 133, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

@@ -67,6 +67,8 @@ TARGETS = {
     "houndstooth-wool": "weave", "raw-selvedge-denim": "weave",
     "washed-indigo-denim": "weave", "black-selvedge-denim": "weave",
     "cotton-jersey-knit": "knit", "melange-jersey-knit": "knit",
+    "terracotta-clay": "clay", "wet-potter-clay": "clay",
+    "kaolin-clay": "clay", "sculpting-clay": "clay",
 }
 
 OP_CHANNELS = {
@@ -78,6 +80,7 @@ OP_CHANNELS = {
     "stucco": ("Albedo", "Normal"),
     "weave": ("Albedo", "Normal"),
     "knit": ("Albedo", "Normal"),
+    "clay": ("Albedo", "Normal"),
 }
 
 # Bake-driving scalars passed through verbatim from the SourceRecipe.
@@ -85,6 +88,7 @@ OP_SCALARS = {
     "solar": ("detailScale", "roughness", "busbarWidth", "surfaceSeed", "panelMode"),
     "dimples": ("detailScale", "dimpleDepth", "surfaceSeed"),
     "stucco": ("detailScale", "grain", "surfaceSeed"),
+    "clay": ("detailScale", "grain", "moisture", "surfaceSeed"),
     "weave": ("detailScale", "weaveAngle", "weaveRelief", "fiberDetail", "fuzz",
               "slub", "denimFade", "grain", "fabricMode", "surfaceSeed"),
     "knit": ("detailScale", "grain", "fuzz", "weaveAngle", "surfaceSeed"),
