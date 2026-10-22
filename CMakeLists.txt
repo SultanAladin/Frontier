@@ -82,7 +82,7 @@ target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
 add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp
     UI/Editor/ContentBrowserPanel.cpp UI/Editor/ProjectBrowserPanel.cpp
-    UI/Editor/LogStreamPanel.cpp UI/Editor/LogStreamWorkspace.cpp)
+    UI/Editor/LogStreamPanel.cpp UI/Editor/EditorWorkspace.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface FrontierLifecycle)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 

@@ -19,7 +19,7 @@
 #include "Engine/Interface/WindowsApplication.h"
 #include "Engine/Lifecycle/StartupSequenceTrace.h"
 #include "UI/Editor/ControlCentrePanel.h"
-#include "UI/Editor/LogStreamWorkspace.h"
+#include "UI/Editor/EditorWorkspace.h"
 #include "UI/Editor/ProjectBrowserPanel.h"
 #include <windows.h>
 #include <commdlg.h>
@@ -32,6 +32,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -136,7 +137,7 @@ int main(int ArgumentCount, char **Arguments)
     Frontier::ActivationOwnership                AppearanceOwnership;
     Frontier::ControlCentrePanel                *Appearance = nullptr;
     std::unique_ptr<Frontier::ProjectBrowserPanel> Browser;
-    std::unique_ptr<Frontier::LogStreamWorkspace>  Workspace;
+    std::unique_ptr<Frontier::EditorWorkspace>    Workspace;
     GLFWwindow                                  *Window = nullptr;
     std::filesystem::path                        Preferences;
 
@@ -171,8 +172,16 @@ int main(int ArgumentCount, char **Arguments)
             std::string              Diagnostic;
             if (Frontier::ProjectSpaceCodec::Decode(ProjectArgument, Document, Diagnostic))
                 ProjectName = Document.Sections["project"]["name"].value_or(ProjectName);
-            Workspace = std::make_unique<Frontier::LogStreamWorkspace>();
-            Workspace->ConfigureProject(ProjectName);
+            Workspace = std::make_unique<Frontier::EditorWorkspace>(*Appearance);
+            Frontier::EditorProjectSummary Summary;
+            Summary.Name     = ProjectName;
+            Summary.Location = Frontier::DiagnosticJournal::EncodePath(ProjectArgument);
+            Summary.Identity = Document.Sections["project"]["identity"].value_or(std::string{});
+            if (const auto *Levels = Document.Sections["levels"].as_array()) Summary.Levels = Levels->size();
+            if (const auto *Roots = Document.Sections["content_roots"].as_array()) Summary.Roots = Roots->size();
+            if (const auto *Catalogue = Document.Sections["catalogue"].as_array()) Summary.Catalogue = Catalogue->size();
+            Summary.StartupLevel = Document.Sections["engine"]["startup_level"].value_or(std::string{});
+            Workspace->ConfigureProject(std::move(Summary));
             for (const Frontier::StartupStepEntry &Entry : Startup.QueryEntries())
                 Workspace->QueryStream().Emit(Entry.Succeeded ? Frontier::LogLevel::Info : Frontier::LogLevel::Error,
                                               "Startup", 0,
@@ -203,7 +212,7 @@ int main(int ArgumentCount, char **Arguments)
     Callbacks.ConstructInterface = [&](bool MainVisible)
     {
         (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
-        if (Workspace) Workspace->ConstructInterface(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.0f);
+        if (Workspace) Workspace->ConstructInterface();
         else if (Browser)
         {
             Browser->ConfigurePalette(Frontier::ControlKit::Palette());
@@ -211,6 +220,7 @@ int main(int ArgumentCount, char **Arguments)
         }
         if (MainVisible) Appearance->ConstructInterface(); // the notch, in both windows
     };
+    Callbacks.AfterRender = [&]() { if (Workspace) Workspace->IntegrateLayoutPersistence(ImGui::GetIO().DeltaTime); };
     Callbacks.Finalize = [&]()
     {
         Workspace.reset();
