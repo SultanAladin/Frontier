@@ -130,6 +130,9 @@ public:
     SurfaceRasterPrograms(const SurfaceRasterPrograms &) = delete;
     SurfaceRasterPrograms &operator=(const SurfaceRasterPrograms &) = delete;
     void Initialize(const VulkanRasterAccess &Access, const SurfaceRasterShaders &Shaders);
+    // 📝 CPU-side equirect studio archive (one array layer per environment); material residences
+    // built afterwards upload their own copy at set 0 binding 3 through the normal transfer path.
+    void ConfigureEnvironment(const MaterialTexturePyramid &Environment);
     void Finalize() noexcept;
 
 private:

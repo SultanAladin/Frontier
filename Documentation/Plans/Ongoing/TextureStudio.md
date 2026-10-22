@@ -426,3 +426,52 @@ User testing of the published build (5ef3c89) confirmed the catalogue but flagge
   (9×4.5 on the LED strata), stretching the emitter mask across the specimen. The mask bake and
   authored strength were already correct (single gain via RadianceNormal); the sample now uses
   the first stratum's UV transform, matching the packing contract of one radiance slice.
+
+## Environment archives and per-layer inspector — 2026-10-22 (Windows test round)
+
+User verdict on build `39817580609`: orbit and LED fixed; the analytic environment presets read
+as tinted and cheap, and the inspector mixed every stratum's properties into shared cards.
+
+- **Baked studio environments replace the analytic rig.** `Exhibits/TextureStudio/Code/EnvironmentBake.cpp`
+  evaluates five colour-neutral area-light rigs (gnomonic softbox panels over vertical gradients,
+  2x2 supersampled) into 1024x512 equirect PNGs under `EngineContent/EnvironmentArchives/`
+  (StudioSoftbox, StudioStrip, WindowLight, Overcast, DarkStudio). `MaterialLibraryRendering::
+  ConfigureEnvironments` scans that folder (studio first, then filename order, cap 24), decodes
+  each archive to a shared 512x256 scene-linear field, derives strength (hemispheric-mean
+  normalization to the tuned reference level) and a key light (brightest-region centroid, so
+  imported maps light from their own panels), and uploads one `Texture2DArray` layer per entry.
+  The shader samples it at set 0 binding 3 in the fixed world frame (`SampleEnvironmentMapRadiance`
+  behind `FRONTIER_ENVIRONMENT_MAP`; the lightweight preview program keeps the analytic gradient),
+  replacing `IntegrateStudioSoftboxes` and the Horizon/Zenith gradient in the authored-material
+  path. Thumbnails use layer 0. Preview layer indices clamp to both the catalogue and the layers
+  a residence actually uploaded, so a rescan can never address a missing layer; rescans clear
+  tile source digests so resident tiles rebake under the new rig.
+- **Viewport environment card.** The tinted preset dropdown and the standalone exposure card are
+  retired. One card (dropdown surface) shows a sphere preview per archive — CPU-integrated from
+  the same linear pixels the shader samples, Blender-style — with Exposure and a new Light
+  intensity (scales map strength and key light together) at the bottom, plus an
+  "Import environment..." rescan: drop any equirect PNG into `EnvironmentArchives/` and it joins
+  the catalogue with a derived preview/key light. `MaterialPreviewConfiguration::Environment` is
+  now a catalogue index (0..63 validated, host-clamped).
+- **Inspector categorized per layer.** Every recipe control is projected onto the stratum its
+  coefficient edits (shared procedural pool first, then the automotive-paint block, then stratum
+  scalars via the `coat*` rule). Cards render under LAYER 1..N headers (Base / Interlayer /
+  Coat), preserving each material's recipe groups as the cards within a layer — metallic paint
+  now shows flakes and base finish on layer 1, coat gloss/roughness/IOR on layer 2. Colour
+  swatches follow the stratum owning their key. Stratum scalars no recipe control covers render
+  on a per-layer "Layer properties" card (Roughness, Metallic, IOR, Coverage, dielectric
+  Thickness — newly a structured coefficient), and profile-less materials get the generic scalar
+  set on every layer instead of only stratum 0.
+
+Verification: shaders compile through the pinned Slang WASM toolchain; baker radiometry printed
+per rig (effective ambient/peak after runtime normalization); `MaterialPreviewConfigurationValidation`
+(645,546 checks) drives the new card by pointer (open, exposure drag, tile pick, dismiss);
+`MaterialLibraryValidation` scrolls to the coat-layer gloss slider and asserts live apply; full
+host suite 26/26. Windows GPU confirmation (map sampling on device, sphere-preview staging)
+remains with the user's hardware test of the published build.
+
+Still honestly deferred (unchanged from the audit's 40/653 locked controls): sand/layered-sand
+recipe binding (needs a `sand` procedural op over the existing `BakeSandMaps` field so the bed
+sliders gain a pool to edit), thin-film iridescence, glass transmission depth, and the
+camouflage/ballistic coded-field underlays — each is a renderer/op feature, not an inspector
+arrangement, and stays visibly locked with its tooltip rather than fake-enabled.

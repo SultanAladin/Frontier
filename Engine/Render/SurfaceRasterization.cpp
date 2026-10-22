@@ -50,6 +50,8 @@ struct SurfaceRasterization::RasterAllocation
     std::array<std::array<uint32_t,4>,8> MaterialParameterSelections{};
     std::array<std::shared_ptr<RasterAllocation>,4> MaterialImages;
     std::array<std::shared_ptr<RasterAllocation>,6> AuthoringMapImages;
+    std::shared_ptr<RasterAllocation> EnvironmentImage;
+    MaterialTexturePyramid EnvironmentPyramid;
     std::vector<VkBufferImageCopy> MaterialMipCopies;
     VkDescriptorSetLayout MaterialSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout MaterialLayout = VK_NULL_HANDLE;
@@ -461,9 +463,10 @@ struct SurfaceRasterization::RasterAllocation
             throw std::runtime_error("Material parameter capacity unavailable.");
         VkDescriptorSetLayoutBinding Inputs[]{{0,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,4,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
                                              {1,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
-                                             {2,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,6,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}};
+                                             {2,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,6,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
+                                             {3,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}};
         VkDescriptorSetLayoutCreateInfo Declaration{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        Declaration.bindingCount = 3;
+        Declaration.bindingCount = 4;
         Declaration.pBindings = Inputs;
         RequireRasterSuccess(CreateDescriptorSetLayout(Access.Device,&Declaration,nullptr,&MaterialSetLayout));
         if (!ScatteringSetLayout)
@@ -554,7 +557,26 @@ struct SurfaceRasterization::RasterAllocation
             AuthoringImages[Index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             AuthoringMapImages[Index] = std::move(Image);
         }
-        const VkDescriptorPoolSize Sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,10},{VK_DESCRIPTOR_TYPE_SAMPLER,1}};
+        {
+            auto Image = std::make_shared<RasterAllocation>();
+            Image->InitializeDispatch(Access);
+            Image->SharedPrograms = SharedPrograms;
+            // 📝 Neutral 2x2 fallback until the host configures the studio archive, so binding 3
+            // is always a valid sampled array image.
+            static const MaterialTexturePyramid FallbackEnvironment = [] {
+                MaterialTexturePyramid Pyramid;
+                Pyramid.Layers = 1;
+                Pyramid.Category = MaterialTextureCategory::Radiance;
+                Pyramid.Rgba = {96,96,96,255, 96,96,96,255, 64,64,64,255, 64,64,64,255};
+                Pyramid.Levels.push_back({2,2,0});
+                return Pyramid;
+            }();
+            const auto &Environment = SharedPrograms && !SharedPrograms->EnvironmentPyramid.Levels.empty() ?
+                SharedPrograms->EnvironmentPyramid : FallbackEnvironment;
+            Image->ConstructMaterialImage(Environment);
+            EnvironmentImage = std::move(Image);
+        }
+        const VkDescriptorPoolSize Sizes[]{{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,11},{VK_DESCRIPTOR_TYPE_SAMPLER,1}};
         VkDescriptorPoolCreateInfo Pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         Pool.maxSets = 1;
         Pool.poolSizeCount = 2;
@@ -566,7 +588,10 @@ struct SurfaceRasterization::RasterAllocation
         Allocation.pSetLayouts = &SharedPrograms->MaterialSetLayout;
         RequireRasterSuccess(AllocateDescriptorSets(Access.Device,&Allocation,&MatCapDescriptor));
         VkDescriptorImageInfo Sampler{SharedPrograms->MaterialSampler,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_UNDEFINED};
-        VkWriteDescriptorSet Writes[3]{};
+        VkDescriptorImageInfo EnvironmentInfo{};
+        EnvironmentInfo.imageView = EnvironmentImage->MatCapImageStorage.View;
+        EnvironmentInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet Writes[4]{};
         for (auto &Write : Writes)
         {
             Write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -583,7 +608,11 @@ struct SurfaceRasterization::RasterAllocation
         Writes[2].dstBinding = 2;
         Writes[2].descriptorCount = 6;
         Writes[2].pImageInfo = AuthoringImages;
-        UpdateDescriptorSets(Access.Device,3,Writes,0,nullptr);
+        Writes[3].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        Writes[3].dstBinding = 3;
+        Writes[3].descriptorCount = 1;
+        Writes[3].pImageInfo = &EnvironmentInfo;
+        UpdateDescriptorSets(Access.Device,4,Writes,0,nullptr);
         MaterialTexturesEnabled = true;
     }
 
@@ -697,6 +726,8 @@ struct SurfaceRasterization::RasterAllocation
                     if (Image->TransferPending) Image->ConstructMatCapTransfer(Commands);
                 for (const auto &Image : SampledMatCap->AuthoringMapImages)
                     if (Image->TransferPending) Image->ConstructMatCapTransfer(Commands);
+                if (SampledMatCap->EnvironmentImage && SampledMatCap->EnvironmentImage->TransferPending)
+                    SampledMatCap->EnvironmentImage->ConstructMatCapTransfer(Commands);
             }
             else if (SampledMatCap->TransferPending) SampledMatCap->ConstructMatCapTransfer(Commands);
         }
@@ -798,6 +829,7 @@ struct SurfaceRasterization::RasterAllocation
         MaterialSampler = VK_NULL_HANDLE;
         MaterialImages = {};
         AuthoringMapImages = {};
+        EnvironmentImage.reset();
         MaterialMipCopies.clear();
         PreviewPbrSurface = VK_NULL_HANDLE;
         PreviewPbrLayout = VK_NULL_HANDLE;
@@ -883,6 +915,8 @@ void SurfaceRasterization::ConfirmSubmission() noexcept
         for (const auto &Image : Allocation->SampledMatCap->MaterialImages) Confirm(Image);
     if (Allocation->SampledMatCap && Allocation->SampledMatCap->MaterialTexturesEnabled)
         for (const auto &Image : Allocation->SampledMatCap->AuthoringMapImages) Confirm(Image);
+    if (Allocation->SampledMatCap && Allocation->SampledMatCap->MaterialTexturesEnabled)
+        Confirm(Allocation->SampledMatCap->EnvironmentImage);
 }
 VkImage SurfaceRasterization::QueryImage() const noexcept
 {
@@ -996,6 +1030,14 @@ SurfaceRasterPrograms::~SurfaceRasterPrograms() = default;
 void SurfaceRasterPrograms::Finalize() noexcept
 {
     Allocation.reset();
+}
+
+void SurfaceRasterPrograms::ConfigureEnvironment(const MaterialTexturePyramid &Environment)
+{
+    if (!Allocation) throw std::runtime_error("Surface programs require initialization before environment configuration.");
+    if (Environment.Levels.empty() || Environment.Layers == 0)
+        throw std::runtime_error("Environment archive requires at least one layer and mip level.");
+    Allocation->EnvironmentPyramid = Environment;
 }
 void SurfaceRasterPrograms::Initialize(const VulkanRasterAccess &Access, const SurfaceRasterShaders &Shaders)
 {
@@ -1166,6 +1208,7 @@ uint64_t SurfaceMaterialResidence::QueryUploadCount() const noexcept
     {
         for (const auto &Image : Allocation->MaterialImages) Uploads += Image->TransferRecordings;
         for (const auto &Image : Allocation->AuthoringMapImages) Uploads += Image->TransferRecordings;
+        if (Allocation->EnvironmentImage) Uploads += Allocation->EnvironmentImage->TransferRecordings;
     }
     return Uploads;
 }
