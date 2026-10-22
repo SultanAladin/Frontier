@@ -1,0 +1,52 @@
+
+sphere(4) — 5120 facets, no UVs, closed, genus 0 — expect ~7 tiers to one root cluster
+  source facets=5120 welded vertices=2562 sharp=0 uv-seams=0 boundary=0 tiers=7
+  tier   facets     clusters   max-deviation max-error 
+  0      5120       63         0.000000     0.000000  
+  1      2926       41         0.107138     0.002814  
+  2      1510       15         0.153898     0.006000  
+  3      754        10         0.153898     0.007122  
+  4      376        3          0.181034     0.012001  
+  5      188        2          0.250239     0.024977  
+  6      94         1          0.395599     0.045942  
+  [PASS] sequence invariants (coverage/cap/connectivity/purity/bounds/enclosure/deviation)
+  [PASS] root tier settles into a handful of clusters
+  [PASS] sequence actually coarsens through several tiers
+
+heightfield(64) — 8192 facets, open border + hard cliff step
+  welded vertices=4225 sharp=214 boundary=256 tiers=13
+  tier 0  facets=8192   clusters=87    max-deviation=0.000000
+  tier 1  facets=4482   clusters=50    max-deviation=7.717634
+  tier 2  facets=2282   clusters=24    max-deviation=7.813054
+  tier 3  facets=1140   clusters=13    max-deviation=7.813054
+  tier 4  facets=640    clusters=11    max-deviation=10.678781
+  tier 5  facets=412    clusters=8     max-deviation=19.230247
+  tier 6  facets=328    clusters=8     max-deviation=21.635488
+  tier 7  facets=290    clusters=5     max-deviation=25.663538
+  tier 8  facets=272    clusters=5     max-deviation=39.538622
+  tier 9  facets=254    clusters=3     max-deviation=47.481764
+  tier 10 facets=248    clusters=3     max-deviation=47.481764
+  tier 11 facets=246    clusters=3     max-deviation=47.481764
+  tier 12 facets=244    clusters=2     max-deviation=47.481764
+  [PASS] heightfield sequence invariants
+  [PASS] heightfield open border survives every collapse
+  [PASS] heightfield root tier settles into a handful of clusters
+
+vessel(96x32) — 6144 facets, UV meridian seam, open rims at z=±1
+  welded vertices=3168 sharp=0 uv-seams=32 boundary=192 tiers=11
+  tier 0  facets=6144   clusters=77    max-deviation=0.000000 crosses-seam=no
+  tier 1  facets=3171   clusters=41    max-deviation=0.251953 crosses-seam=no
+  tier 2  facets=1657   clusters=22    max-deviation=0.437500 crosses-seam=no
+  tier 3  facets=827    clusters=8     max-deviation=0.534103 crosses-seam=no
+  tier 4  facets=431    clusters=4     max-deviation=0.534103 crosses-seam=no
+  tier 5  facets=293    clusters=7     max-deviation=0.638180 crosses-seam=no
+  tier 6  facets=235    clusters=8     max-deviation=1.154814 crosses-seam=no
+  tier 7  facets=213    clusters=6     max-deviation=1.154814 crosses-seam=no
+  tier 8  facets=201    clusters=7     max-deviation=1.154814 crosses-seam=no
+  tier 9  facets=199    clusters=7     max-deviation=1.154814 crosses-seam=no
+  tier 10 facets=197    clusters=7     max-deviation=1.154814 crosses-seam=no
+  [PASS] vessel sequence invariants
+  [PASS] no facet ever crosses the UV meridian seam
+  [PASS] rim ring stays planar and no vertex rises above the authored rim
+
+RESULT: PASS (0 failing checks)

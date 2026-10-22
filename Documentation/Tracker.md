@@ -23,6 +23,13 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
 
+## Geometry division
+
+`Documentation/Plans/Ongoing/GeometryDivision.md` holds the two-division plan and step table.
+`Exhibits/Geometry/README.md` holds commands, results, retained transcripts, and limitations.
+Current: A0-A2 implemented and passing (icosphere 5120->94, heightfield 8192->244, vessel 6144->197);
+A3-A5 and the whole render division remain open.
+
 ## Verification
 
 `Exhibits/ControlCentre/README.md` contains current commands, results, evidence, and limitations.

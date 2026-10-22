@@ -18,6 +18,7 @@ Frontier/
 │       ├── Ongoing/
 │       └── Completed/
 ├── Engine/                    # Shared production code
+│   ├── Geometry/              # Virtualized-geometry build: weld, clustering, quadric tiers
 │   ├── Interface/             # Selectively ported UI foundations
 │   ├── Lifecycle/             # Shared activation sequence
 │   └── Render/                # Blank; Git retention marker only
@@ -25,6 +26,7 @@ Frontier/
 │   └── Editor/                # Lifecycle-owned production editor UI
 ├── EngineContent/             # Shared Icons/ and downloaded FontArchives/
 ├── Exhibits/
+│   ├── Geometry/              # Geometry-division validation and retained numbers
 │   ├── <ValidationName>/
 │   │   ├── README.md
 │   │   ├── Code/

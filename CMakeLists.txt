@@ -40,6 +40,11 @@ add_library(FrontierInterface STATIC
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
+# Geometry division: welded facet complexes, quadric tier build. C++20, stdlib only, no GPU.
+add_library(FrontierGeometry STATIC
+    Engine/Geometry/FacetTierBuild.cpp
+    Engine/Geometry/QuadricTierBuild.cpp)
+target_include_directories(FrontierGeometry PUBLIC "${CMAKE_SOURCE_DIR}")
 add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
@@ -81,6 +86,12 @@ if(BUILD_TESTING)
     endforeach()
     add_test(NAME FontCatalogueValidation COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/Exhibits/ControlCentre/Code/FontCatalogueValidation.py")
+    add_executable(FacetTierValidation Exhibits/Geometry/Code/FacetTierValidation.cpp)
+    target_link_libraries(FacetTierValidation PRIVATE FrontierGeometry)
+    add_test(NAME FacetTierValidation COMMAND FacetTierValidation)
+    add_executable(TierSequenceValidation Exhibits/Geometry/Code/TierSequenceValidation.cpp)
+    target_link_libraries(TierSequenceValidation PRIVATE FrontierGeometry)
+    add_test(NAME TierSequenceValidation COMMAND TierSequenceValidation)
     add_executable(NotchValidation Exhibits/ControlCentre/Code/NotchValidation.cpp)
     target_link_libraries(NotchValidation PRIVATE FrontierInterface)
     add_test(NAME NotchValidation COMMAND NotchValidation)

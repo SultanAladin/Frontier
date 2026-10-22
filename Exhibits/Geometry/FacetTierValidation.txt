@@ -1,0 +1,9 @@
+sphere(4): facets=5120 (expected 5120)
+  [PASS] facet count matches HTML corpus
+  [PASS] partition invariants (coverage/cap/connectivity/purity/bounds)
+  welded vertices=2562 clusters=63 sharp=0 uv-seams=0 boundary=0
+heightfield(64): facets=8192 (expected 8192)
+  [PASS] facet count matches HTML corpus
+  [PASS] partition invariants (coverage/cap/connectivity/purity/bounds)
+  welded vertices=4225 clusters=87 sharp=214 uv-seams=0 boundary=256
+RESULT: PASS
