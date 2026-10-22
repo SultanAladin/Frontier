@@ -64,6 +64,37 @@ sandbox-missing `jolt-physics` npm package, environmental only).
 - No merge until the user says so; work stays on `arena/e9bd7db5-frontier`, additive new folders
   (`Engine/Geometry/`, `Engine/Render/`) to minimise collision with the other agent's branch.
 
+## Frame architecture (added 2026-10-22, user direction — was missing)
+
+A renderer of this class is not a linear sequence of passes; three structures own the frame:
+
+| Structure | What it is here | Why |
+|---|---|---|
+| **Frame graph (render graph)** | Every GPU unit (cluster cull, Hi-Z, BVH traversal, ReSTIR reservoirs, cards, clouds, resolve, present…) declares its reads/writes on named resources; the graph topologically orders units, derives barriers/transient lifetimes, and culls units nothing consumes. Debug views (Display modes 0–14) are just alternate terminal units of the same graph. | Pass order, sync and dead-work elimination stop being hand-maintained in `SurfaceProjection`-style orchestration; the HTML host's manual ordering becomes graph declarations |
+| **Multithreaded frame pipeline** | Three frame slots in flight: **simulation thread** (vehicle/world/kernel streaming decisions) → **record threads** (a worker pool recording graph units into secondary command buffers in parallel) → **render/submission thread** (graph execution, present). Per-frame data flows through ring buffers with explicit fences; no thread touches another slot's data. | CPU recording of a graph this wide cannot sit on one thread at 60 Hz; the HTML single-threaded frame is the prototype simplification, not the model |
+| **Log + telemetry stream** | One lock-free event channel: every division emits structured records (level, division, frame, µs timings, counters) consumed by (a) the in-editor Debug/Telemetry inspector, (b) file journal. This is the panel being prototyped **first** (see below), because every later phase debugs through it. | The Project Browser crash hunt showed the cost of debugging blind: traces first, features second |
+
+Division boundaries in the table above are the graph's unit groups and the telemetry channel names,
+so the inspector's log filters and frame-graph view light up division by division as phases land.
+
+## Debug/Telemetry inspector (first panel, HTML prototype before C++)
+
+One panel, three instruments, styled after the SourceImages/Telemetry references (dark cards,
+accent ticks, big thin numerals, dot-matrix charts, heat grids) under the top-notch Control Centre
+(font + theme plumbing) inherited from the texturing workspace UI:
+
+- **Log stream** — live structured records: level filters, division filters, text search, pause,
+  frame tagging; the stream every division writes to from day one.
+- **Telemetry** — frame time history, per-unit GPU timings drawn as the frame graph executed
+  (node bars in execution order), CPU thread utilisation (simulation / record pool / submission),
+  counters (draws, clusters culled/resident, rays, reservoir reuse).
+- **Infographics** — dot-matrix activity grids per division, heat grid of unit timings, stacked
+  frame-budget bars: readable at a glance across the room, per the reference images.
+
+Prototype: `Experimental/DebugInspectorPrototype/` (HTML, simulated live data). The C++ version
+follows onto the FrontierInterface/ImGui foundation once the design is approved; the panel is the
+debugging surface for the whole port, so it lands before the renderer phases it will debug.
+
 ## Already delivered against this plan
 
 - Phase 2 kernel step K1a: `Engine/Geometry/FacetTierBuild.{h,cpp}` + `FacetTierValidation`
