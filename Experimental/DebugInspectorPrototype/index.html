@@ -208,7 +208,7 @@ canvas.chart{width:100%; height:110px; display:block}
 /* ===== telemetry v3 alternatives (Frame Graph card intentionally unchanged) =====
    A: Balance/Tokens portrait cards · B: glass range-bar volume card · C: bracketed overview */
 .tkpis{grid-template-columns:repeat(2,1fr)}
-.tkpi{border-radius:20px; padding:22px 24px 0; min-height:252px; display:flex; flex-direction:column; background:#0d0d0f; border:1px solid #1e1e22}
+.tkpi{border-radius:20px; padding:22px 24px 0; min-height:252px; display:flex; flex-direction:column; background:linear-gradient(168deg,#1b1b1f 0%,#101012 58%,#0b0b0d 100%); border:1px solid #26262c; box-shadow:inset 0 1px 0 rgba(255,255,255,.045), 0 14px 34px rgba(0,0,0,.35)}
 .tkpi .lab{font-size:1rem; color:var(--text); font-weight:500; display:flex; align-items:center; gap:0}
 .tkpi .lab::before{display:none}
 .tkpi .lab .grip{margin-left:auto; color:var(--faint); letter-spacing:2px; font-size:.62rem; line-height:.5}
@@ -216,8 +216,8 @@ canvas.chart{width:100%; height:110px; display:block}
 .tkpi .delta{margin-top:5px; font-size:.9rem; font-weight:500}
 .tkpi canvas.kspark{width:100%; height:76px; margin-top:auto; display:block}
 .tkpi .dates{display:flex; justify-content:space-between; color:var(--faint); font-size:.72rem; padding:7px 0 14px}
-.tkpi.solid{background:linear-gradient(160deg,#f5a83d,#e07f2e); border:none; color:#fff}
-.tkpi.solid .lab,.tkpi.solid .big{color:#fff}.tkpi.solid .dates{color:rgba(255,255,255,.75)}.tkpi.solid .delta{color:#fff}
+.tkpi.solid{background:linear-gradient(168deg,#1b1b1f 0%,#101012 58%,#0b0b0d 100%); border:1px solid #26262c; color:var(--text)}
+.tkpi.solid .lab,.tkpi.solid .big{color:var(--text)}.tkpi.solid .dates{color:var(--faint)}.tkpi.solid .delta{color:var(--cyan)}
 .tkpi.alert{background:color-mix(in srgb, var(--red) 14%, #0d0d0f); border-color:var(--red)}
 .glassCard{background:linear-gradient(165deg, rgba(38,42,54,.92), rgba(13,14,18,.96)); border:1px solid #2c303c; border-radius:24px; padding:24px 26px; backdrop-filter:blur(8px)}
 .glassCard .tt{font-size:1.02rem; font-weight:500}
@@ -577,7 +577,7 @@ function tick(){
     ctx.beginPath(); data.forEach((v,i)=>i?ctx.lineTo(X(i),Y(v)):ctx.moveTo(X(i),Y(v))); ctx.strokeStyle=color; ctx.lineWidth=2.4; ctx.stroke();
     ctx.lineTo(X(data.length-1),H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); };
   spark("sparkF",sparkHist.F,"#e8e8ec","rgba(232,232,236,.08)"); spark("sparkG",sparkHist.G,"#7db4ff","rgba(59,130,246,.13)");
-  spark("sparkR",sparkHist.R,"#ffffff","rgba(255,255,255,.16)"); spark("sparkC",sparkHist.C,"#ffb35c","rgba(245,158,11,.12)"); drawThreads();
+  spark("sparkR",sparkHist.R,"#38bdf8","rgba(56,189,248,.14)"); spark("sparkC",sparkHist.C,"#ffb35c","rgba(245,158,11,.12)"); drawThreads();
   // Division Activity: stacked samples + rows; Unit Cost Heat tiles
   const rates=DIVISIONS.map((_,i)=>Math.max(2,(9-i)*7*jitter(1,.7))), rmax=Math.max(...rates);
   $$("#divRows .dmRow").forEach((row,i)=>{ row.querySelector(".vl").innerHTML=`${Math.round(rates[i])} <small>ev/s</small>`;
