@@ -139,6 +139,13 @@ struct MaterialLibraryRendering::RenderingAllocation
         std::shared_ptr<SurfaceScatteringResidence> Parameters;
     };
     std::vector<PreviewRetirement> PreviewRetirements;
+    struct RetiredPreviewTarget
+    {
+        uint64_t Serial;
+        std::unique_ptr<SurfaceRasterization> Target;
+    };
+    std::vector<RetiredPreviewTarget> RetiredPreviews;
+    uint32_t PendingPreviewExtent = 0;
     MaterialScattering PreviewScattering;
     MaterialPreviewConfiguration Inspection;
     std::shared_ptr<SurfaceScatteringResidence> PreviewParameters;
@@ -159,7 +166,11 @@ struct MaterialLibraryRendering::RenderingAllocation
         Scattering.PreviewConfiguration = {1,1,0,0};
         Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
         Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
-        Scattering.Illumination.ViewFromSurface = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,-3,1};
+        // 📝 Thumbnails share the Alloy capture rig (34° perspective, per-pixel view); the fixed tile
+        // projection below is the same default camera, so cards match the capture reference.
+        Scattering.Illumination.Configuration[2] = 1;
+        Scattering.Illumination.ViewFromSurface =
+            ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ViewFromSurface;
         Residence->Textures.Initialize(Programs, Material.Textures, Material.AuthoringMaps);
         Residence->Parameters.Initialize(Programs, Scattering);
         return Residence;
@@ -171,6 +182,7 @@ struct MaterialLibraryRendering::RenderingAllocation
         Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1,
             Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
         Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
+        Scattering.Illumination.Configuration[2] = 1;
         // 📝 Preview rigs are owned by the selected environment, never inherited from arbitrary authored source lighting.
         Scattering.Illumination.LightColourExposure = {1,1,1,Inspection.Exposure};
         Scattering.Illumination.LightDirectionIntensity = {-.4f,.7f,.6f,.35f};
@@ -241,13 +253,14 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
     Resident->Programs.Initialize(Access, {{Words[0],"main"},{Words[1],"main"},{Words[2],"main"},{Words[3],"main"},
         {Words[4],"main"},{Words[5],"main"},{Words[6],"main"},{Words[7],"main"},{Words[8],"main"},{Words[9],"main"}});
     Resident->Geometry.Initialize(Access, ConstructMaterialInspectionGeometry());
-    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 128, 128);
+    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 256, 256);
     Resident->Preview.Initialize(Resident->Programs, Resident->Geometry, 512, 512);
     Resident->Tile.ConfigureTransparentBackground(true);
     Resident->Preview.ConfigureTransparentBackground(true);
-    Resident->Atlas.Initialize(Access);
+    Resident->Atlas.Initialize(Access, 256, 8);
     Resident->Slots.resize(Resident->Atlas.QueryCapacity());
-    Resident->Projection.ClipFromSurface = {1,0,0,0,0,-1,0,0,0,0,-.4f,0,0,0,.5f,1};
+    Resident->Projection.ClipFromSurface =
+        ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ClipFromSurface;
     Allocation = std::move(Resident);
 }
 void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible)
@@ -325,12 +338,36 @@ MaterialPreviewConfiguration MaterialLibraryRendering::QueryPreviewConfiguration
 {
     return Allocation ? Allocation->Inspection : MaterialPreviewConfiguration{};
 }
+void MaterialLibraryRendering::ConfigurePreviewExtent(uint32_t Extent)
+{
+    if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
+    auto &Rendering = *Allocation;
+    const uint32_t Clamped = std::clamp(Extent, 256u, 2048u);
+    if (Clamped != Rendering.Preview.QueryExtent().width) Rendering.PendingPreviewExtent = Clamped;
+}
+uint32_t MaterialLibraryRendering::QueryPreviewExtent() const noexcept
+{
+    return Allocation ? Allocation->Preview.QueryExtent().width : 0;
+}
 void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint64_t CompletedSerial, uint64_t SubmissionSerial)
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
     std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
+    std::erase_if(Rendering.RetiredPreviews, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
+    if (Rendering.PendingPreviewExtent && Rendering.PendingPreviewExtent != Rendering.Preview.QueryExtent().width)
+    {
+        auto Retired = std::make_unique<SurfaceRasterization>(std::move(Rendering.Preview));
+        Rendering.RetiredPreviews.push_back({SubmissionSerial, std::move(Retired)});
+        Rendering.Preview.Initialize(Rendering.Programs, Rendering.Geometry, Rendering.PendingPreviewExtent,
+            Rendering.PendingPreviewExtent);
+        Rendering.Preview.ConfigureTransparentBackground(true);
+        DiagnosticJournal::Append("PreviewExtent", "preview target=" + std::to_string(Rendering.PendingPreviewExtent));
+        Rendering.PendingPreviewExtent = 0;
+        Rendering.PreviewDirty = true;
+        Rendering.PreviewReady = false;
+    }
     Rendering.SubmittedSerial = SubmissionSerial;
     Rendering.RecordedSlot = -1;
     Rendering.RecordedPreview = false;

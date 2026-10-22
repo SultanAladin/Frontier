@@ -43,6 +43,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<MaterialPreviewImage()> QueryPreview;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
     std::function<void(const MaterialPreviewConfiguration &)> ConfigurePreview;
+    std::function<void(uint32_t)> ConfigurePreviewExtent;
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const noexcept { return Inspection; }
     [[nodiscard]] PlaneExtent QueryPreviewControlExtent(size_t Index) const noexcept
     {
@@ -77,6 +78,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool CollectionVisible = false;
     bool FullscreenPreview = false;
     bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
+    uint32_t SentPreviewExtent = 0;
     std::map<std::string, PlaneExtent> LayerExtents;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;

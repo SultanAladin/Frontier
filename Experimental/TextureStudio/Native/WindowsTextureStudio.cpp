@@ -127,6 +127,10 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
+    // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames and are
+    // removed at shutdown alongside the live one.
+    std::vector<VkDescriptorSet> RetiredPreviewDescriptors;
+    VkImageView LastPreviewView = VK_NULL_HANDLE;
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
     std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
@@ -293,6 +297,7 @@ int RunTextureWorkspace()
         AppendPatternPreviewDebug("Vulkan material bridge initialized; authoring_extent=512x512; channels=Colour,Normal,Roughness,Metalness,Occlusion; shader=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory / "VectorSurfaceCompute.spv"));
         AtlasDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryAtlasView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         PreviewDescriptor = ImGui_ImplVulkan_AddTexture(Rendering->QueryPreviewView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        LastPreviewView = Rendering->QueryPreviewView();
         PatternAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
         PatternAtlas->Initialize(Display.QueryRasterAccess(), Frontier::PatternWorkspacePanel::PatternAtlasTile,
             Frontier::PatternWorkspacePanel::PatternAtlasColumns);
@@ -436,8 +441,16 @@ int RunTextureWorkspace()
         Library->InvalidateThumbnails = [&]() { Rendering->InvalidateThumbnails(); };
         Library->QueryThumbnailDiagnostic = [&](const std::filesystem::path &Path) { return Rendering->QueryThumbnailDiagnostic(Path); };
         Library->ConfigurePreview = [&](const Frontier::MaterialPreviewConfiguration &Configuration) { Rendering->ConfigurePreview(Configuration); };
+        Library->ConfigurePreviewExtent = [&](uint32_t Extent) { Rendering->ConfigurePreviewExtent(Extent); };
         Library->QueryPreview = [&]()
         {
+            const VkImageView CurrentView = Rendering->QueryPreviewView();
+            if (CurrentView && CurrentView != LastPreviewView)
+            {
+                LastPreviewView = CurrentView;
+                if (PreviewDescriptor) RetiredPreviewDescriptors.push_back(PreviewDescriptor);
+                PreviewDescriptor = ImGui_ImplVulkan_AddTexture(CurrentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
             return Frontier::MaterialPreviewImage{Rendering->QueryPreviewReady() ? (uint64_t)PreviewDescriptor : 0};
         };
     };
@@ -509,6 +522,9 @@ int RunTextureWorkspace()
         // 📝 The shared application loop has retired all GPU work before this callback.
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
+        for (const VkDescriptorSet Retired : RetiredPreviewDescriptors)
+            if (Retired) ImGui_ImplVulkan_RemoveTexture(Retired);
+        RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);

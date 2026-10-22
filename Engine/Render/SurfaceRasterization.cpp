@@ -834,6 +834,10 @@ struct SurfaceRasterization::RasterAllocation
 SurfaceRasterization::SurfaceRasterization() : Allocation(std::make_unique<RasterAllocation>())
 {
 }
+SurfaceRasterization::SurfaceRasterization(SurfaceRasterization &&Source) noexcept : Allocation(std::move(Source.Allocation))
+{
+    Source.Allocation = std::make_unique<RasterAllocation>();
+}
 SurfaceRasterization::~SurfaceRasterization()
 {
     Finalize();

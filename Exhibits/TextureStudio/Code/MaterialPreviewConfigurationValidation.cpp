@@ -77,8 +77,16 @@ int main(int Count, char **Arguments)
         Inspection.Yaw = .8f;
         Inspection.Pitch = -.4f;
         const auto Camera = ConstructMaterialPreviewProjection(Inspection);
-        Confirm(std::abs(Camera.ClipFromSurface[0] * 48 + Camera.ClipFromSurface[12] - Inspection.PanX) < .0001f &&
-            std::abs(Camera.ClipFromSurface[1] * 48 + Camera.ClipFromSurface[13] - Inspection.PanY) < .0001f,
+        // 📝 Perspective rig: the shape pivot must land on the pan point in NDC for every orbit/zoom.
+        const auto ProjectNdc = [](const MaterialPreviewProjection &Pose, float X, float Y, float Z)
+        {
+            const auto &M = Pose.ClipFromSurface;
+            const float W = M[3] * X + M[7] * Y + M[11] * Z + M[15];
+            return std::array<float, 2>{
+                (M[0] * X + M[4] * Y + M[8] * Z + M[12]) / W, (M[1] * X + M[5] * Y + M[9] * Z + M[13]) / W};
+        };
+        const auto Centred = ProjectNdc(Camera, 48, 0, 0);
+        Confirm(std::abs(Centred[0] - Inspection.PanX) < .0001f && std::abs(Centred[1] - Inspection.PanY) < .0001f,
             "Rotating an offset inspection shape lost its camera centre.");
         // 📝 Zero-ellipse turntable yaw is incompatible with a screen-vertical object up-axis: demanding a
         // fixed front-point height forces the up-axis to lean sideways (and pitch to roll at 90° yaw). Standard
@@ -92,8 +100,9 @@ int main(int Count, char **Arguments)
                 Yawed.Pitch = Pitch;
                 const auto Pose = ConstructMaterialPreviewProjection(Yawed);
                 const auto &View = Pose.ViewFromSurface;
-                const float Lean = View[0] * 48 + View[4] + View[12];
-                Confirm(std::abs(Lean) < .0001f, "Yaw orbit leaned the object up-axis sideways.");
+                const auto Pivot = ProjectNdc(Pose, 48, 0, 0);
+                Confirm(std::abs(Pivot[0]) < .0001f && std::abs(Pivot[1]) < .0001f, "Yaw orbit lost the pivot centre.");
+                Confirm(std::abs(View[4]) < .0001f, "Yaw orbit leaned the object up-axis sideways.");
             }
         float EllipseLow = std::numeric_limits<float>::max(), EllipseHigh = std::numeric_limits<float>::lowest();
         for (float Theta : {0.f, .7f, -1.2f, 2.4f})
@@ -103,10 +112,9 @@ int main(int Count, char **Arguments)
             Yawed.Yaw = Theta;
             Yawed.Pitch = -.4f;
             const auto Pose = ConstructMaterialPreviewProjection(Yawed);
-            const auto &View = Pose.ViewFromSurface;
-            const float Height = View[1] * 48 + View[9] + View[13];
-            EllipseLow = std::min(EllipseLow, Height);
-            EllipseHigh = std::max(EllipseHigh, Height);
+            const auto OffPivot = ProjectNdc(Pose, 48, 0, 1);
+            EllipseLow = std::min(EllipseLow, OffPivot[1]);
+            EllipseHigh = std::max(EllipseHigh, OffPivot[1]);
         }
         Confirm(EllipseHigh - EllipseLow > .1f, "Pitched yaw lost its standard screen ellipse.");
         for (float Pitch : {-.9f, -.4f, 0.f, .5f, 1.2f})
@@ -117,8 +125,9 @@ int main(int Count, char **Arguments)
             Pitched.Pitch = Pitch;
             const auto Pose = ConstructMaterialPreviewProjection(Pitched);
             const auto &View = Pose.ViewFromSurface;
-            const float TippedX = View[0] * 16 + View[4] + View[12];
-            Confirm(std::abs(TippedX) < .0001f, "Pitched a yawed shape about the view axis (roll).");
+            const auto Pivot = ProjectNdc(Pose, 16, 0, 0);
+            Confirm(std::abs(Pivot[0]) < .0001f && std::abs(Pivot[1]) < .0001f, "Pitched yaw lost the pivot centre.");
+            Confirm(std::abs(View[4]) < .0001f, "Pitched a yawed shape about the view axis (roll).");
         }
         for (const auto Shape : {MaterialPreviewShape::ShaderBall, MaterialPreviewShape::Sphere, MaterialPreviewShape::Plane,
                                  MaterialPreviewShape::Cube, MaterialPreviewShape::Cloth})
@@ -131,12 +140,31 @@ int main(int Count, char **Arguments)
             Centred.Yaw = .8f;
             Centred.Pitch = -.4f;
             const auto Pose = ConstructMaterialPreviewProjection(Centred);
-            const auto &View = Pose.ViewFromSurface;
             const float Translation = 16.f * uint32_t(Shape);
-            Confirm(std::abs(View[0] * Translation + View[12] - Centred.PanX / Centred.Zoom) < .0001f &&
-                    std::abs(View[1] * Translation + View[13] + Centred.PanY / Centred.Zoom) < .0001f &&
-                    std::abs(View[2] * Translation + View[14] + 3) < .0001f,
-                    "Combined orbit drifted a shape centre off its pan point.");
+            const float Pivots[5][3]{{0, -.055f, -.017f}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
+            const auto Index = size_t(uint32_t(Shape));
+            const auto Pivot = ProjectNdc(Pose, Translation + Pivots[Index][0], Pivots[Index][1], Pivots[Index][2]);
+            Confirm(std::abs(Pivot[0] - Centred.PanX) < .0001f && std::abs(Pivot[1] - Centred.PanY) < .0001f,
+                "Combined orbit drifted a shape centre off its pan point.");
+        }
+        // 📝 Alloy capture framing: every specimen rim fills 1/(4.296·tan17°) ≈ .7614 of the half-frame
+        // at default zoom, matching the HTML r=1.35 ball at distance 5.8; zoom 2 doubles the magnification.
+        const float Radii[5]{1.047f, .85f, 1.131f, 1.074f, .959f};
+        for (const auto Shape : {MaterialPreviewShape::ShaderBall, MaterialPreviewShape::Sphere, MaterialPreviewShape::Plane,
+                                 MaterialPreviewShape::Cube, MaterialPreviewShape::Cloth})
+        {
+            const auto Index = size_t(uint32_t(Shape));
+            const float Pivots[5][3]{{0, -.055f, -.017f}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
+            MaterialPreviewConfiguration Framed;
+            Framed.Shape = Shape;
+            const float Translation = 16.f * uint32_t(Shape);
+            const auto Wide = ProjectNdc(ConstructMaterialPreviewProjection(Framed),
+                Translation + Pivots[Index][0] + Radii[Index], Pivots[Index][1], Pivots[Index][2]);
+            Confirm(std::abs(Wide[0] - .7614f) < .002f && std::abs(Wide[1]) < .002f, "Alloy capture framing drifted.");
+            Framed.Zoom = 2;
+            const auto Tight = ProjectNdc(ConstructMaterialPreviewProjection(Framed),
+                Translation + Pivots[Index][0] + Radii[Index], Pivots[Index][1], Pivots[Index][2]);
+            Confirm(std::abs(Tight[0] - 2 * Wide[0]) < .002f, "Perspective zoom is not a dolly.");
         }
         Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
         Inspection.Exposure = 2;

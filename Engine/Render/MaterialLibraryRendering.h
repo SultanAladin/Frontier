@@ -30,6 +30,11 @@ class MaterialLibraryRendering
     void RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible);
     void ConfigurePreview(const MaterialPreviewConfiguration &Configuration);
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const;
+    // 📝 Display-size preview: the square target follows the viewport pixel edge (256..2048) so the cover
+    // fit stops upscaling. Replacement retires at the submission boundary; hosts must rebind the preview
+    // view when QueryPreviewView changes.
+    void ConfigurePreviewExtent(uint32_t Extent);
+    [[nodiscard]] uint32_t QueryPreviewExtent() const noexcept;
     void ConfigureSelection(const std::filesystem::path &RelativePath, const CompiledSurfaceMaterial &Material);
     void ConstructCommands(VkCommandBuffer Commands, uint64_t CompletedSerial, uint64_t SubmissionSerial);
     void ConfirmSubmission() noexcept;

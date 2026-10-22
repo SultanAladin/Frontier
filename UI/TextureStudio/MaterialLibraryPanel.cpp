@@ -381,6 +381,15 @@ void MaterialLibraryPanel::ConstructViewport()
     const float ViewTop = Origin.y + 42 * Scale, ViewBottom = Origin.y + Available.y - 45 * Scale;
     const float ViewWidth = Available.x, ViewHeight = std::max(1.f, ViewBottom - ViewTop);
     const float Edge = std::max(1.f, std::max(ViewWidth, ViewHeight));
+    // 📝 Display-size preview: follow the cover-fit edge in framebuffer pixels (snapped, so a live window
+    // resize settles instead of reallocating every frame) rather than upscaling the 512 default.
+    const float Pixels = Edge * ImGui::GetIO().DisplayFramebufferScale.x;
+    const uint32_t Snapped = std::clamp((uint32_t(Pixels) + 63) / 64 * 64, 512u, 2048u);
+    if (ConfigurePreviewExtent && Snapped != SentPreviewExtent)
+    {
+        SentPreviewExtent = Snapped;
+        ConfigurePreviewExtent(Snapped);
+    }
     const ImVec2 CoverMinimum(Origin.x + (ViewWidth - Edge) * .5f, ViewTop + (ViewHeight - Edge) * .5f);
     if (Image.Texture)
     {
@@ -553,6 +562,13 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + Size.x - 150, Origin.y + 14));
     if (ImGui::Button("Close preview  ×", ImVec2(132, 32))) FullscreenPreview = false;
     const float Edge = std::max(1.f, std::min(Size.x - 64.f, Size.y - 150.f));
+    const uint32_t FullscreenSnapped =
+        std::clamp((uint32_t(Edge * ImGui::GetIO().DisplayFramebufferScale.x) + 63) / 64 * 64, 512u, 2048u);
+    if (ConfigurePreviewExtent && FullscreenSnapped != SentPreviewExtent)
+    {
+        SentPreviewExtent = FullscreenSnapped;
+        ConfigurePreviewExtent(FullscreenSnapped);
+    }
     const ImVec2 ImagePosition(Origin.x + (Size.x - Edge) * .5f, Origin.y + (Size.y - Edge) * .5f + 8.f);
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
     ImGui::SetCursorScreenPos(ImagePosition);

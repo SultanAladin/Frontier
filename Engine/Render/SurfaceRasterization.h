@@ -72,6 +72,9 @@ public:
     ~SurfaceRasterization();
     SurfaceRasterization(const SurfaceRasterization &) = delete;
     SurfaceRasterization &operator=(const SurfaceRasterization &) = delete;
+    // 📝 Move transfers GPU ownership for target replacement (preview resize); the source keeps a fresh
+    // uninitialized allocation so it can be re-initialized in place, and destruction stays safe.
+    SurfaceRasterization(SurfaceRasterization &&Source) noexcept;
     void Initialize(
         const SurfaceRasterPrograms    &Programs,
         const SurfaceGeometryResidence &Geometry,
