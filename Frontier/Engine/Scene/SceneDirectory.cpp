@@ -112,6 +112,25 @@ bool SceneDirectory::ConfigureParent(RecordToken Child, RecordToken Parent)
     return true;
 }
 
+bool SceneDirectory::ConfigureVisible(RecordToken Token, bool Visible)
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    const auto                  It = Entries.find(Token.Value);
+    if (It == Entries.end())
+    {
+        return false;
+    }
+    It->second.Visible = Visible;
+    return true;
+}
+
+bool SceneDirectory::QueryVisible(RecordToken Token) const
+{
+    std::lock_guard<std::mutex> Guard(Mutex);
+    const auto                  It = Entries.find(Token.Value);
+    return It != Entries.end() && It->second.Visible;
+}
+
 bool SceneDirectory::QueryRegistered(RecordToken Token) const
 {
     std::lock_guard<std::mutex> Guard(Mutex);

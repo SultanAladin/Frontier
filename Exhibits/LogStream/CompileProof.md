@@ -157,3 +157,24 @@ FoundationPanel, ContentBrowserPanel),
 `-pthread`. Run from a directory containing `EngineContent/FontArchives`.
 This environment was rebuilt from zero in minutes after a sandbox reset using
 exactly this recipe (2026-10-22).
+
+## Addendum (2026-10-22): StackRail kit + native Outliner
+
+- `Frontier/Engine/Interface/StackRailControls.cpp` and
+  `SceneDirectoryPanelPresentation.cpp` compile clean with the §Commands line
+  (`-std=c++20 -Werror`, upstream headers now in-repo at the repository root);
+  `nm` confirms `SceneDirectoryPanel::ConstructInterface` and
+  `MakeSceneDirectoryPanelSpecification` exports.
+- `FrontierMain.cpp` re-proved clean (SDK and headless) after wiring the
+  Outliner (`ConfigureStackedPanels("Outliner", "LogStream", 420)` in the
+  right column; columns remain 50/50; spawn requests serviced with real
+  `SceneRecord`s).
+- The workspace capture binary was rebuilt at 49 TUs (the recipe above plus
+  `Engine/Scene/{RecordStore,RecordEntry,SceneDirectory}.cpp` and
+  `Engine/Interface/{SceneDirectoryPanel,SceneDirectoryPanelPresentation,StackRailControls}.cpp`),
+  run from a rebuilt environment (imgui `3bae66c` + patches A–G from
+  `Automation/Patches/`, thorvg staged by `Automation/StageThorVG.py`).
+  New masters in `Capture/`: `workspace-outliner.png`,
+  `workspace-outliner-spawn.png`, `workspace-studio-outliner.png` (the earlier
+  `workspace-studio.png` master is preserved — the owner-approved composition
+  without the Outliner).

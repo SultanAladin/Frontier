@@ -84,3 +84,35 @@ procedure in `CompileProof.md`; PNG masters in `Capture/`, 13 frames):
 These are CPU-rasterised frames of the production translation units — not an
 OS window, GPU presentation or GLFW input. The native Windows opened-window
 proof remains the owner's gate for the SDK phase.
+
+## Outliner addendum (2026-10-22, Phase 2 native panel)
+
+The demo's copied shell (`Projects/Project-VehicleHmiDemo/Reference/index.html`)
+contains the Outliner's identity only: `<aside id="outliner" class="column
+editor-column">`, its `.column-tab` labelled `Outliner`, the hide affordance
+`×` titled `Hide the editor columns (P)`, and an **empty** `#outliner-body`
+the demo fills from JavaScript at runtime (the JS/CSS were never copied, by the
+owner's rule). So what is 1:1 here: the panel's existence in the editor
+columns, its caption, its host behaviour (dockable/closable column), and its
+role (the scene-object list). There are no demo pixels, row markup or CSS to
+copy inside the body — the rows are drawn in the settled Frontier visual
+language with the §10.2 vocabulary:
+
+| Native Outliner (SceneDirectoryPanel) | Source of truth |
+|---|---|
+| Panel caption `Outliner`, dockspace tab + close | demo `.column-tab`; upstream `PanelDockspace` owns frame/tab/hide |
+| Stack head: stack-glyph tile, `Outliner`, `N objects` pill, round `+` | kit `StackRailHead` (Log Stream head grammar) |
+| `+` → spawn menu (`SPAWN RECORD`, one row per classification) | upstream `DropdownControlSurface` (owner's reuse exception) |
+| Classification chips with live counts (`All N`, `Vehicle 1`, `Tyre 4`, …) | `CategoryChip` pattern from the Log Stream set |
+| Search pill `Filter objects…` with `<n> shown` + clear disc | Log Stream `SearchBehaviour` |
+| Tree rows: chevron (fold), classification dot, name, classification meta, eye (visibility) | kit `TreeRow` over the `SceneDirectory` hierarchy; rows mirror record parentage (roots when unparented) |
+| Selection → identity card (name, classification, children, parent, token) | kit `IdentityHeader` |
+| Foot: `N shown · M total`, `K hidden` / `Selected #t` | kit `StackFoot` |
+
+Host contract: records appear by construction (`RecordEntry` ctor/dtor,
+Editor/Development only); the panel never invents objects — spawn is a request
+the host services by creating a record. Captures: `Capture/workspace-outliner.png`,
+`Capture/workspace-outliner-spawn.png`, `Capture/workspace-studio-outliner.png`
+(CPU-rasterised from the production draw code; same honesty note as above).
+Known cosmetic delta: with many rows the child scrollbar slightly overlaps the
+eye column (upstream scrollbar metrics) — fix candidates noted for the design pass.

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace Frontier
@@ -32,6 +33,8 @@ struct SceneDirectoryRow
     RecordClassification Classification = RecordClassification::Unclassified;
     uint32_t             DepthTier      = 0;                               // [tiers] - Nesting depth; 0 is a root row
     uint32_t             ChildCount     = 0;                               // [records] - Direct children in the directory
+    bool                 Visible        = true;                            // [-] - Directory eye toggle (dimmed when off)
+    bool                 Collapsed      = false;                           // [-] - Panel-side: subtree folded away
 };
 
 struct SceneClassificationTab
@@ -74,6 +77,21 @@ class SceneDirectoryPanel
     void ConfigureClassificationFilter(std::optional<RecordClassification> Filter);   // nullopt = All
     [[nodiscard]] std::optional<RecordClassification> QueryClassificationFilter() const { return ClassificationFilter; }
 
+    void ConfigureTextFilter(std::string Text);   // Case-insensitive substring over row names; empty clears.
+    [[nodiscard]] const std::string& QueryTextFilter() const { return TextFilter; }
+
+    void ConfigureCollapsed(RecordToken Token, bool Collapsed);
+    [[nodiscard]] bool QueryCollapsed(RecordToken Token) const;
+
+    // Spawn flow: the presentation's add menu records a request; the host services it (records are engine
+    // objects — the panel never invents them) and the new record appears by construction.
+    void RequestSpawn(RecordClassification Classification);
+    [[nodiscard]] std::optional<RecordClassification> TakeSpawnRequest();
+
+    // Native drawing (interface-SDK builds; an empty stub without the SDK, so portable builds keep linking).
+    // The host calls Synchronize() each frame first, then services TakeSpawnRequest().
+    void ConstructInterface();
+
     void Select(RecordToken Token);   // Unknown/stale tokens clear the selection on the next Synchronize
     void ClearSelection();
     [[nodiscard]] RecordToken QuerySelected() const { return Selected; }
@@ -86,6 +104,9 @@ class SceneDirectoryPanel
     std::vector<SceneClassificationTab> Tabs;
     uint32_t                            Total = 0;   // [records]
     std::optional<RecordClassification> ClassificationFilter;
+    std::string                         TextFilter;            // [text] - Lower-cased on configure
+    std::unordered_set<uint64_t>        CollapsedTokens;       // [-] - Panel-side fold state
+    std::optional<RecordClassification> PendingSpawn;
     RecordToken                         Selected;
     SceneInspectorSummary               Inspector;
 };

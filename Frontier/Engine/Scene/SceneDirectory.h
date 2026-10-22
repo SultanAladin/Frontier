@@ -53,6 +53,10 @@ class SceneDirectory
     bool ConfigureName(RecordToken Token, std::string Name);
     bool ConfigureParent(RecordToken Child, RecordToken Parent);
 
+    // Outliner visibility (the demo rows' eye toggle): records start visible; hidden records stay registered.
+    bool ConfigureVisible(RecordToken Token, bool Visible);
+    [[nodiscard]] bool QueryVisible(RecordToken Token) const;   // [-] - False for unknown tokens
+
     [[nodiscard]] bool                 QueryRegistered(RecordToken Token) const;
     [[nodiscard]] std::string          QueryName(RecordToken Token) const;        // [text] - Configured name, else "<Classification> <token>"
     [[nodiscard]] RecordToken          QueryParent(RecordToken Token) const;      // [-] - Invalid token for roots/unknown
@@ -69,6 +73,7 @@ class SceneDirectory
         std::string          Name;                          // [text] - Empty means "use the default name"
         RecordToken          Parent;                        // [-] - Invalid token = root
         RecordClassification Classification = RecordClassification::Unclassified;
+        bool                 Visible        = true;         // [-] - Outliner eye toggle
     };
 
     mutable std::mutex                              Mutex;

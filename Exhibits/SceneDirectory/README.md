@@ -37,5 +37,5 @@ Profile matrix (CMake options): default Development;
 panel leave the link set; the suite proves the store still resolves tokens).
 Or directly: `g++ -std=c++17 -Wall -Wextra -Werror -I ../../Frontier` over the
 engine `.cpp` files listed in `CMakeLists.txt` plus the validation main,
-`-pthread`. At delivery: 37 checks in Development and Editor, 17 in
+`-pthread`. At delivery: 45 checks in Development and Editor, 17 in
 Shipping; the Shipping binary carries zero `SceneDirectory` symbols (`nm`).

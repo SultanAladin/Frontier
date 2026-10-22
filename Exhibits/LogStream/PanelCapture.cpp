@@ -303,6 +303,10 @@ void SeedStream(const std::function<void(double)>& PumpSecond)
 
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/LogStreamPanelRegistration.h"
+#include "Engine/Interface/SceneDirectoryPanel.h"
+#include "Engine/Interface/SceneDirectoryPanelRegistration.h"
+#include "Engine/Scene/SceneDirectory.h"
+#include "Engine/Scene/SceneRecord.h"
 #include "UI/Editor/ControlCentrePanel.h"
 #include "Engine/Interface/PanelDockspace.h"
 
@@ -371,8 +375,10 @@ int RunWorkspaceCapture(const std::string& OutputDirectory)
         ImGui::PopStyleVar();
     };
     ViewportPanel.Open = true;
+    Frontier::SceneDirectoryPanel OutlinerPanel;
     if (!Panels.Register(ViewportPanel) ||
-        !Panels.Register(Frontier::MakeLogStreamPanelSpecification(Panel)))
+        !Panels.Register(Frontier::MakeLogStreamPanelSpecification(Panel)) ||
+        !Panels.Register(Frontier::MakeSceneDirectoryPanelSpecification(OutlinerPanel)))
     {
         std::printf("workspace capture refused: a panel registration was rejected by the dockspace\n");
         ImGui::DestroyContext();
@@ -380,11 +386,48 @@ int RunWorkspaceCapture(const std::string& OutputDirectory)
     }
     Panels.ConfigureWorkspaceInsets(79.0f, 0.0f);   // [px] - Top band for the notch tab (TextureStudio)
     Panels.ConfigureTabExtent(140.0f, 26.0f);       // [px]
+    (void)Panels.ConfigureStackedPanels("Outliner", "LogStream", 420.0f);        // [px] upper height
     (void)Panels.ConfigureColumns({{"Viewport", 0.5f}, {"LogStream", 0.5f}});   // 50/50 split
     (void)Panels.ConfigurePlatform();
 
+    // Seed the scene directory: a vehicle with four tyres, the proving-dock environment with its two
+    // geometry records, a light and a camera — one tyre hidden so the eye-off state renders.
+    std::vector<std::unique_ptr<Frontier::SceneRecord>> SceneRecords;
+    Frontier::SceneDirectory&                          Directory = Frontier::SceneDirectory::Instance();
+    const auto Spawn = [&](Frontier::RecordClassification Classification, const char* Name,
+                           Frontier::RecordToken Parent = {}, bool Visible = true) {
+        auto Record = std::make_unique<Frontier::SceneRecord>(Classification);
+        (void)Directory.ConfigureName(Record->Token(), Name);
+        if (Parent.IsValid())
+        {
+            (void)Directory.ConfigureParent(Record->Token(), Parent);
+        }
+        (void)Directory.ConfigureVisible(Record->Token(), Visible);
+        const Frontier::RecordToken Token = Record->Token();
+        SceneRecords.push_back(std::move(Record));
+        return Token;
+    };
+    const Frontier::RecordToken Vehicle =
+        Spawn(Frontier::RecordClassification::Vehicle, "VehicleHMI Test Vehicle");
+    Spawn(Frontier::RecordClassification::Tyre, "Front Left", Vehicle);
+    Spawn(Frontier::RecordClassification::Tyre, "Front Right", Vehicle);
+    Spawn(Frontier::RecordClassification::Tyre, "Rear Left", Vehicle);
+    Spawn(Frontier::RecordClassification::Tyre, "Rear Right", Vehicle, false);
+    const Frontier::RecordToken Grounds =
+        Spawn(Frontier::RecordClassification::Environment, "Proving Grounds");
+    Spawn(Frontier::RecordClassification::Geometry, "Test Cube", Grounds);
+    Spawn(Frontier::RecordClassification::Geometry, "Ground Plane", Grounds);
+    Spawn(Frontier::RecordClassification::Illumination, "Key Light");
+    Spawn(Frontier::RecordClassification::Camera, "Chase Camera");
+    std::printf("seeded %zu scene records\n", SceneRecords.size());
+
     const auto Frame = [&](double Seconds, bool Rasterize) {
         Panel.Synchronize(Frontier::LogStore(), Frontier::LogCategories(), Seconds);
+        while (const std::optional<Frontier::RecordClassification> Request = OutlinerPanel.TakeSpawnRequest())
+        {
+            Spawn(*Request, "Spawned Record");
+        }
+        OutlinerPanel.Synchronize(Directory);
         Centre.PrepareInterface();
         if (!Io.Fonts->IsBuilt())
         {
@@ -447,6 +490,70 @@ int RunWorkspaceCapture(const std::string& OutputDirectory)
     (void)WritePpm((OutputDirectory + "/workspace-active.ppm").c_str());
     std::printf("workspace capture (studio, settled) -> workspace-active.ppm\n");
 
+    // Outliner close-up: select the Front Left tyre through the view-model, then give the panel the
+    // whole dockspace; then open the spawn menu with a synthesized click on the add button.
+    for (const Frontier::SceneDirectoryRow& Row : OutlinerPanel.QueryRows())
+    {
+        if (Row.Name == "Front Left")
+        {
+            OutlinerPanel.Select(Row.Token);
+            std::printf("selected scene record '%s' (#%llu)\n", Row.Name.c_str(),
+                        static_cast<unsigned long long>(Row.Token.Value));
+        }
+    }
+    (void)Panels.ConfigureOpen("Viewport", false);
+    (void)Panels.ConfigureOpen("LogStream", false);
+    for (int Settle = 0; Settle < 10; ++Settle)
+    {
+        Frame(1.0 / 60.0, false);
+    }
+    Frame(1.0 / 60.0, true);
+    (void)WritePpm((OutputDirectory + "/workspace-outliner.ppm").c_str());
+    std::printf("workspace capture (outliner) -> workspace-outliner.ppm\n");
+    {
+        const auto PopupOpen = []() {
+            ImGuiContext* Context = ImGui::GetCurrentContext();
+            return Context != nullptr && Context->OpenPopupStack.Size > 0;
+        };
+        bool SpawnOpened = false;
+        for (float Y = 92.0f; Y <= 128.0f && !SpawnOpened; Y += 4.0f)
+        {
+            for (float X = 1872.0f; X <= 1904.0f && !SpawnOpened; X += 6.0f)
+            {
+                WorkspaceClick(X, Y);
+                if (PopupOpen())
+                {
+                    SpawnOpened = true;
+                    std::printf("spawn menu opened by click at (%.0f, %.0f)\n", static_cast<double>(X),
+                                static_cast<double>(Y));
+                }
+            }
+        }
+        if (SpawnOpened)
+        {
+            Io.AddMousePosEvent(1500.0f, 700.0f);
+            Frame(1.0 / 60.0, false);
+            Frame(1.0 / 60.0, true);
+            (void)WritePpm((OutputDirectory + "/workspace-outliner-spawn.ppm").c_str());
+            std::printf("workspace capture (outliner spawn menu) -> workspace-outliner-spawn.ppm\n");
+            Io.AddKeyEvent(ImGuiKey_Escape, true);
+            Frame(1.0 / 60.0, false);
+            Io.AddKeyEvent(ImGuiKey_Escape, false);
+            Frame(1.0 / 60.0, false);
+        }
+        else
+        {
+            std::printf("spawn menu sweep missed the add button\n");
+        }
+    }
+    (void)Panels.ConfigureOpen("Viewport", true);
+    (void)Panels.ConfigureOpen("LogStream", true);
+    (void)Panels.ConfigureOpen("Outliner", false);
+    for (int Settle = 0; Settle < 10; ++Settle)
+    {
+        Frame(1.0 / 60.0, false);
+    }
+
     // Expand the error row through the panel's own selection API.
     size_t WorkspaceErrorIndex = Panel.QueryVisible().size();
     for (size_t Index = 0; Index < Panel.QueryVisible().size(); ++Index)
@@ -466,8 +573,9 @@ int RunWorkspaceCapture(const std::string& OutputDirectory)
         Panel.SelectVisible(WorkspaceErrorIndex); // Toggle back off
     }
 
-    // Log Stream alone in the dockspace (Viewport closed through the panels API).
+    // Log Stream alone in the dockspace (Viewport and Outliner closed through the panels API).
     (void)Panels.ConfigureOpen("Viewport", false);
+    (void)Panels.ConfigureOpen("Outliner", false);
     for (int Settle = 0; Settle < 10; ++Settle)
     {
         Frame(1.0 / 60.0, false);

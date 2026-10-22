@@ -11,6 +11,7 @@
 #include "Engine/Interface/SceneDirectoryPanel.h"
 #include "Engine/Scene/RecordEntry.h"
 #include "Engine/Scene/RecordStore.h"
+#include "Engine/Scene/SceneRecord.h"
 #include "Engine/Scene/SceneDirectory.h"
 
 #include <cstdio>
@@ -147,6 +148,34 @@ int main()
               Inspector.Classification == RecordClassification::Tyre && Inspector.DepthTier == 1 &&
               Inspector.ParentName == Directory.QueryName(Vehicle->Token()) && Inspector.ChildCount == 0,
           "inspector summarises the selected tyre");
+
+    // Visibility, folding, text filter, spawn flow (Phase 2 kit behaviours).
+    Check(Directory.QueryVisible(Tyre->Token()), "records start visible");
+    Check(Directory.ConfigureVisible(Tyre->Token(), false) && !Directory.QueryVisible(Tyre->Token()),
+          "eye toggle hides a record without unregistering it");
+    Panel.Synchronize(Directory);
+    Check(!Panel.QueryRows()[1].Visible && Panel.QueryTotal() == 3, "row carries the hidden state; total unchanged");
+    (void)Directory.ConfigureVisible(Tyre->Token(), true);
+    Panel.ConfigureCollapsed(Vehicle->Token(), true);
+    Check(Panel.QueryVisible().size() == 2 && Panel.QueryRows().size() == 3,
+          "collapsing the vehicle folds its tyre out of the visible rows");
+    Panel.ConfigureTextFilter("front");
+    Check(Panel.QueryVisible().size() == 1 && Panel.QueryVisible()[0].Token == Tyre->Token(),
+          "text search reveals the folded tyre by name (case-insensitive)");
+    Panel.ConfigureTextFilter("");
+    Panel.ConfigureCollapsed(Vehicle->Token(), false);
+    Panel.Synchronize(Directory);
+    Check(Panel.QueryVisible().size() == 3, "clearing search and fold restores the full tree");
+    Panel.RequestSpawn(RecordClassification::Camera);
+    const std::optional<RecordClassification> Spawn = Panel.TakeSpawnRequest();
+    Check(Spawn.has_value() && *Spawn == RecordClassification::Camera && !Panel.TakeSpawnRequest().has_value(),
+          "spawn request round-trips to the host exactly once");
+    {
+        SceneRecord Spawned(RecordClassification::Camera);
+        Check(Directory.ConfigureName(Spawned.Token(), "Chase Camera") &&
+                  Directory.QueryName(Spawned.Token()) == "Chase Camera",
+              "host-serviced spawn appears by construction as a SceneRecord");
+    }
 
     // Destruction unregisters everywhere; children re-root; stale selection clears.
     Vehicle.reset();
