@@ -85,6 +85,7 @@ int main(int Count, char **Arguments)
         EncodeRasterCapture(Destination / "MaterialAtlas.ppm", Second, 260, 260);
         MaterialLibraryRendering Rendering;
         Rendering.Initialize(Device.QueryAccess(), Shaders);
+        Rendering.ConfigureEnvironments("EngineContent/EnvironmentArchives");
         Rendering.RequestLibrary(std::filesystem::canonical("Exhibits/Renderer/Materials"), {"BrushedCopper.material", "CoatedCeramic.material"});
         Rendering.ConfigureSelection("BrushedCopper.material", Compiled);
         uint64_t Serial = 0;
@@ -129,7 +130,7 @@ int main(int Count, char **Arguments)
         }
         for (uint32_t Environment = 1; Environment <= 3; ++Environment)
         {
-            Inspection.Environment = MaterialPreviewEnvironment(Environment);
+            Inspection.Environment = Environment;
             Rendering.ConfigurePreview(Inspection);
             const auto Pixels = CaptureInspection();
             AssertRasterCondition(Pixels != PreviousInspection, "Environment did not change GPU pixels.");

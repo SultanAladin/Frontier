@@ -6,7 +6,9 @@
 #pragma once
 #include "MaterialThumbnailAtlas.h"
 #include "MaterialPreviewConfiguration.h"
+#include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -19,6 +21,15 @@ struct MaterialThumbnailSelection
     bool Ready = false;
 };
 
+// 📝 CPU-rendered sphere previews of every scanned environment archive, packed into one square
+// RGBA8 atlas with the thumbnail atlas gutter convention; hosts stage it verbatim.
+struct EnvironmentPreviewAtlas
+{
+    std::span<const uint8_t> Pixels;
+    uint64_t Generation = 0;
+    uint32_t Count = 0;
+};
+
 class MaterialLibraryRendering
 {
   public:
@@ -26,7 +37,15 @@ class MaterialLibraryRendering
     ~MaterialLibraryRendering();
     MaterialLibraryRendering(const MaterialLibraryRendering &) = delete;
     MaterialLibraryRendering &operator=(const MaterialLibraryRendering &) = delete;
+    static constexpr uint32_t EnvironmentPreviewTile = 96;
+    static constexpr uint32_t EnvironmentPreviewColumns = 8;
     void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory);
+    // 📝 (Re)scan a directory of equirect PNG environment archives: decodes, derives each key
+    // light analytically, uploads the array texture and re-renders the sphere preview atlas.
+    // Safe to call again after the user drops new files into the folder (the import path).
+    void ConfigureEnvironments(const std::filesystem::path &Directory);
+    [[nodiscard]] std::vector<std::string> QueryEnvironmentNames() const;
+    [[nodiscard]] EnvironmentPreviewAtlas QueryEnvironmentPreviews() const noexcept;
     void RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible);
     void ConfigurePreview(const MaterialPreviewConfiguration &Configuration);
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const;

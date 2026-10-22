@@ -31,7 +31,7 @@ int main(int Count, char **Arguments)
             for (uint32_t Environment = 0; Environment <= 3; ++Environment)
             {
                 Inspection.Shape = MaterialPreviewShape(Shape);
-                Inspection.Environment = MaterialPreviewEnvironment(Environment);
+                Inspection.Environment = Environment;
                 Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Supported inspection preset rejected.");
             }
         Inspection.Zoom = std::numeric_limits<float>::quiet_NaN();
@@ -45,8 +45,16 @@ int main(int Count, char **Arguments)
         Inspection.Zoom = 5.01f;
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Zoom above the 500% limit accepted.");
         Inspection = {};
-        Inspection.Environment = MaterialPreviewEnvironment(4);
-        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown environment accepted.");
+        Inspection.Environment = 64;
+        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Out-of-capacity environment accepted.");
+        Inspection = {};
+        Inspection.Environment = 12;
+        Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Imported environment index rejected.");
+        Inspection = {};
+        Inspection.LightIntensity = 4;
+        Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Maximum light intensity rejected.");
+        Inspection.LightIntensity = 4.01f;
+        Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Excessive light intensity accepted.");
         Inspection = {};
         Inspection.Shape = MaterialPreviewShape(5);
         Confirm(!ValidateMaterialPreviewConfiguration(Inspection), "Unknown shape accepted.");
@@ -214,10 +222,10 @@ int main(int Count, char **Arguments)
                         std::abs(CarriedUp[2] - .63715f) < .0001f,
                 "Environment up is not yaw-invariant world up.");
         }
-        Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
+        Inspection.Environment = 2;
         Inspection.Exposure = 2;
         ResetMaterialPreviewView(Inspection);
-        Confirm(Inspection.Shape == MaterialPreviewShape::Cube && Inspection.Environment == MaterialPreviewEnvironment::CoolRim &&
+        Confirm(Inspection.Shape == MaterialPreviewShape::Cube && Inspection.Environment == 2 &&
             Inspection.Exposure == 2 && Inspection.PanX == 0 && Inspection.Yaw == 0 && Inspection.Zoom == 1,
             "View reset changed authored inspection lighting/shape.");
         std::string Diagnostic;
@@ -285,6 +293,12 @@ int main(int Count, char **Arguments)
         Confirm(Panel.Initialize() && Panel.Activate(), "Preview panel activation failed.");
         Confirm(Panel.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio"), "Material fixtures unavailable.");
         uint32_t Notifications = 0;
+        Panel.QueryEnvironmentNames = []()
+        {
+            return std::vector<std::string>{"Studio softbox", "Studio strip", "Window light", "Overcast"};
+        };
+        Panel.QueryEnvironmentPreview = [](size_t) { return MaterialPreviewImage{}; };
+        Panel.RescanEnvironments = []() {};
         Panel.ConfigurePreview = [&](const MaterialPreviewConfiguration &Configuration)
         {
             Confirm(ValidateMaterialPreviewConfiguration(Configuration), "UI emitted invalid inspection settings.");
@@ -410,11 +424,15 @@ int main(int Count, char **Arguments)
         {
             SelectPreset(3, Index);
             Confirm(int(Panel.QueryPreviewConfiguration().Shape) == Index, "Preview shape selector did not respond to pointer selection.");
-            if (Index > 3) continue;
-            SelectPreset(4, Index);
-            Confirm(int(Panel.QueryPreviewConfiguration().Environment) == Index, "Environment selector did not respond to pointer selection.");
         }
+        // 📝 Environment card: open the popover, drag the exposure slider inside it, then pick a
+        // sphere-preview tile (which must also dismiss the card).
+        Click(4);
+        Integrate();
+        Integrate();
+        Confirm(!ImGui::GetCurrentContext()->OpenPopupStack.empty(), "Environment card did not open.");
         const auto ExposureExtent = Panel.QueryPreviewControlExtent(5);
+        Confirm(ExposureExtent.Width() > 0, "Exposure slider extent not recorded inside the environment card.");
         IO.AddMousePosEvent(ExposureExtent.MinimumX + (ExposureExtent.MaximumX - ExposureExtent.MinimumX) * .85f,
             (ExposureExtent.MinimumY + ExposureExtent.MaximumY) * .5f);
         Integrate();
@@ -423,6 +441,16 @@ int main(int Count, char **Arguments)
         IO.AddMouseButtonEvent(0,false);
         Integrate();
         Confirm(Panel.QueryPreviewConfiguration().Exposure != 1, "Shared exposure slider did not respond to pointer input.");
+        const auto TileExtent = Panel.QueryEnvironmentPreviewExtent(2);
+        Confirm(TileExtent.Width() > 0 && TileExtent.Height() > 0, "Environment preview tile extent not recorded.");
+        IO.AddMousePosEvent((TileExtent.MinimumX + TileExtent.MaximumX) * .5f, (TileExtent.MinimumY + TileExtent.MaximumY) * .5f);
+        Integrate();
+        IO.AddMouseButtonEvent(0,true);
+        Integrate();
+        IO.AddMouseButtonEvent(0,false);
+        Integrate();
+        Confirm(Panel.QueryPreviewConfiguration().Environment == 2, "Environment preview tile did not select its archive.");
+        Confirm(ImGui::GetCurrentContext()->OpenPopupStack.empty(), "Environment card did not close after tile selection.");
         const auto Fullscreen = Panel.QueryFullscreenPreviewExtent();
         Confirm(Fullscreen.Width() > 0 && Fullscreen.Height() > 0, "Fullscreen preview action has no pointer extent.");
         IO.AddMousePosEvent((Fullscreen.MinimumX + Fullscreen.MaximumX) * .5f, (Fullscreen.MinimumY + Fullscreen.MaximumY) * .5f);

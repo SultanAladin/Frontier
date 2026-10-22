@@ -148,6 +148,11 @@ int RunTextureWorkspace()
     VkImageView LastPreviewView = VK_NULL_HANDLE;
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
+    // 📝 Environment sphere-preview atlas: CPU pixels staged once per catalogue generation.
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> EnvironmentAtlas;
+    VkDescriptorSet EnvironmentAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t EnvironmentAtlasPublished = 0;
+    bool EnvironmentAtlasFaulted = false;
     std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
     std::filesystem::path PatternSource;
     bool PatternActive = false;
@@ -307,6 +312,12 @@ int RunTextureWorkspace()
     {
         Rendering = std::make_unique<Frontier::MaterialLibraryRendering>();
         Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
+        Rendering->ConfigureEnvironments(ContentRoot / "EngineContent/EnvironmentArchives");
+        EnvironmentAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        EnvironmentAtlas->Initialize(Display.QueryRasterAccess(),
+            Frontier::MaterialLibraryRendering::EnvironmentPreviewTile,
+            Frontier::MaterialLibraryRendering::EnvironmentPreviewColumns);
+        EnvironmentAtlasDescriptor = ImGui_ImplVulkan_AddTexture(EnvironmentAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         MaterialBridge = std::make_unique<Frontier::VectorSurfaceMaterialBridge>();
         MaterialBridge->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSurfaceCompute.spv", 512, 512);
         AppendPatternPreviewDebug("Vulkan material bridge initialized; authoring_extent=512x512; channels=Colour,Normal,Roughness,Metalness,Occlusion; shader=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory / "VectorSurfaceCompute.spv"));
@@ -449,6 +460,16 @@ int RunTextureWorkspace()
                 JournalGpuFaultOnce("PatternBridge", Failure);
             }
             // 📝 The gallery bakes its 24-card page on the CPU; upload once per page flip, gated by the panel revision.
+            const auto EnvironmentPreviews = Rendering->QueryEnvironmentPreviews();
+            if (!EnvironmentAtlasFaulted && EnvironmentAtlas && EnvironmentPreviews.Generation &&
+                EnvironmentPreviews.Generation != EnvironmentAtlasPublished)
+                try
+                {
+                    EnvironmentAtlas->StagePixels(EnvironmentPreviews.Pixels);
+                    EnvironmentAtlas->ConstructUpload(Commands);
+                    EnvironmentAtlasPublished = EnvironmentPreviews.Generation;
+                }
+                catch (const std::exception &Failure) { EnvironmentAtlasFaulted = true; JournalGpuFaultOnce("EnvironmentAtlasUpload", Failure); }
             const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
             if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
                 try
@@ -482,6 +503,7 @@ int RunTextureWorkspace()
             {
                 SelectionEvaluation->ConfirmSubmission();
                 if (PatternAtlas) PatternAtlas->ConfirmSubmission();
+                if (EnvironmentAtlas) EnvironmentAtlas->ConfirmSubmission();
                 if (PatternBridgeRecorded)
                 {
                     MaterialBridge->ConfirmSubmission();
@@ -515,6 +537,28 @@ int RunTextureWorkspace()
             catch (const std::exception &Failure) { JournalGpuFaultOnce("PreviewConfigure", Failure); }
         };
         Library->ConfigurePreviewExtent = [&](uint32_t Extent) { Rendering->ConfigurePreviewExtent(Extent); };
+        Library->QueryEnvironmentNames = [&]() { return Rendering->QueryEnvironmentNames(); };
+        Library->QueryEnvironmentPreview = [&](size_t Index)
+        {
+            if (!EnvironmentAtlas || !EnvironmentAtlasDescriptor ||
+                Index >= Rendering->QueryEnvironmentPreviews().Count) return Frontier::MaterialPreviewImage{};
+            const auto Uv = EnvironmentAtlas->QueryUv(uint32_t(Index));
+            return Frontier::MaterialPreviewImage{uint64_t(EnvironmentAtlasDescriptor),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
+        Library->RescanEnvironments = [&]()
+        {
+            try
+            {
+                Rendering->ConfigureEnvironments(ContentRoot / "EngineContent/EnvironmentArchives");
+                // 📝 Re-upload the selected residence so its own environment image matches the
+                // rescanned catalogue (layer clamp covers the frames in between).
+                const auto &Catalogue = Library->QueryLibrary();
+                if (Catalogue.QueryApplied())
+                    Rendering->ConfigureSelection(Catalogue.QuerySelection(), *Catalogue.QueryApplied());
+            }
+            catch (const std::exception &Failure) { JournalGpuFaultOnce("EnvironmentRescan", Failure); }
+        };
         Library->QueryPreview = [&]()
         {
             // 📝 A retired descriptor was last sampled at most its retirement frame; the submission
@@ -618,6 +662,7 @@ int RunTextureWorkspace()
             if (Retired.first) ImGui_ImplVulkan_RemoveTexture(Retired.first);
         RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
+        if (EnvironmentAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(EnvironmentAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
         CoverageDescriptors.clear();
@@ -625,10 +670,12 @@ int RunTextureWorkspace()
         if (MaterialBridge) MaterialBridge->Finalize();
         if (CoverageRendering) CoverageRendering->Finalize();
         if (PatternAtlas) PatternAtlas->Finalize();
+        if (EnvironmentAtlas) EnvironmentAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
         CoverageRendering.reset();
         PatternAtlas.reset();
+        EnvironmentAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)
         {

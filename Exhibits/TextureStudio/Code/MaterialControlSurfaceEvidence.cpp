@@ -19,6 +19,7 @@ int main(int Count, char **Arguments)
         AtlasValidationDevice Device(Arguments[1], VK_API_VERSION_1_2);
         MaterialLibraryRendering Rendering;
         Rendering.Initialize(Device.QueryAccess(), Arguments[2]);
+        Rendering.ConfigureEnvironments("EngineContent/EnvironmentArchives");
         struct RenderingRetirement
         {
             RasterValidationDevice &Device;
@@ -54,6 +55,7 @@ int main(int Count, char **Arguments)
             return MaterialPreviewImage{Slot.Ready ? 2ull : 0ull, Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         Panel->ConfigurePreview = [&](const auto &Configuration) { Rendering.ConfigurePreview(Configuration); };
+        Panel->QueryEnvironmentNames = [&]() { return Rendering.QueryEnvironmentNames(); };
         Panel->QueryPreview = [&]() { return MaterialPreviewImage{Rendering.QueryPreviewReady() ? 3ull : 0ull}; };
         Rendering.RequestLibrary(Panel->QueryLibrary().QueryDirectory(), {});
         Rendering.ConfigureSelection(Panel->QueryLibrary().QuerySelection(), *Panel->QueryLibrary().QueryApplied());

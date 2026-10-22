@@ -24,7 +24,7 @@ Frontier/
 │   └── Render/                # Blank; Git retention marker only
 ├── UI/
 │   └── Editor/                # Lifecycle-owned production editor UI
-├── EngineContent/             # Shared Icons/ and downloaded FontArchives/
+├── EngineContent/             # Shared content archives (icons, fonts, materials, environments)
 ├── Exhibits/
 │   ├── <ValidationName>/
 │   │   ├── README.md
@@ -71,6 +71,10 @@ No inherited `Internal/` code is linked into this target.
 ```text
 EngineContent/
 ├── Icons/                     # Tracked original/compatibility SVGs
+├── MaterialArchives/          # Tracked Texture Studio material library (.material + baked maps)
+├── PatternArchives/           # Tracked Texture Studio pattern presets
+├── EnvironmentArchives/       # Tracked baked equirect studio environments (+ user imports)
+├── Defaults/                  # Tracked blank project space
 └── FontArchives/<font name>/  # Ignored font downloads, OFL notices, TOML descriptors
 ExternalPackages/
 ├── glfw/                      # GLFW 3.4 platform windows/input

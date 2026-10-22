@@ -3,6 +3,7 @@
 ==========================================================================================================================================*/
 // 🧩 Authored UV/tangent material evaluation with typed trilinear textures and the shared ordered-scattering equations.
 
+#define FRONTIER_ENVIRONMENT_MAP 1
 #include "ScatteringEvaluation.slang"
 #include "AutomotivePaint.slang"
 
@@ -30,7 +31,19 @@ struct MaterialScattering
 [[vk::binding(0,0)]] Texture2DArray<float4> MaterialTextures[4];
 [[vk::binding(1,0)]] SamplerState MaterialSampler;
 [[vk::binding(2,0)]] Texture2DArray<float4> AuthoringMaps[6];
+[[vk::binding(3,0)]] Texture2DArray<float4> EnvironmentMap;
 [[vk::binding(0,1)]] ConstantBuffer<MaterialScattering> Material;
+
+// 📝 Baked equirect studio archives (EngineContent/EnvironmentArchives), one layer per entry in
+// scan order. Directions arrive in view space; the map lives in the fixed world (surface) frame,
+// so highlights sweep across the specimen while the camera orbits, exactly like the key light.
+float3 SampleEnvironmentMapRadiance(PreviewScattering Scattering,float3 Direction)
+{
+    float3 World = NormalizeDirection(Direction.x*Projection.ViewNormalRow0.xyz+
+        Direction.y*Projection.ViewNormalRow1.xyz+Direction.z*Projection.ViewNormalRow2.xyz);
+    float2 Coordinates = float2(atan2(World.x,World.z)/(2*π)+.5,acos(clamp(World.y,-1,1))/π);
+    return EnvironmentMap.SampleLevel(MaterialSampler,float3(Coordinates,Material.PreviewConfiguration.z),0).rgb;
+}
 
 struct MaterialInput
 {
@@ -127,42 +140,6 @@ float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStra
     }
     return Accumulated;
 }
-float3 IntegrateStudioSoftboxes(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 View)
-{
-    float3 Accumulated = 0;
-    const float Strength = Scattering.EnvironmentHorizon.w;
-    for (uint Panel = 0; Panel < 4; ++Panel)
-    {
-        float3 Centre;
-        float2 HalfExtent;
-        float3 Radiance;
-        // 📝 Panel centres are world-frame directions: the default pose's view directions carried
-        // into the world frame, so rotating them into the current view below reproduces the
-        // authored studio exactly at the default pose and keeps it world-fixed while orbiting.
-        if (Panel == 0)
-        {
-            Centre = float3(-.5,.6426,.6907); HalfExtent = float2(.48,.65); Radiance = float3(3.8,3.7,3.5);
-        }
-        else if (Panel == 1)
-        {
-            Centre = float3(.8,.3498,.4926); HalfExtent = float2(.15,.7); Radiance = float3(1.9,2,2.2);
-        }
-        else if (Panel == 2)
-        {
-            Centre = float3(.05,.8078,-.5634); HalfExtent = float2(1.1,.25); Radiance = float3(2.1,2.1,2);
-        }
-        else
-        {
-            Centre = float3(-.8,.1997,-.5478); HalfExtent = float2(.2,.7); Radiance = float3(1.6,1.7,1.8);
-        }
-        float SolidAngle = 4*atan(HalfExtent.x*HalfExtent.y/
-            sqrt(1+dot(HalfExtent,HalfExtent)));
-        float3 Light = NormalizeDirection(mul((float3x3)Scattering.ViewFromSurface,Centre));
-        // 📝 Integrate each rectangular emitter by its solid angle at the centre direction, avoiding sparse per-pixel panel samples.
-        Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*Radiance*Strength*SolidAngle;
-    }
-    return Accumulated;
-}
 float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 GeometricNormal,float3 View)
 {
     if (Scattering.EnvironmentHorizon.w == 0) return 0;
@@ -170,7 +147,7 @@ float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngular
     float3 Bitangent = cross(GeometricNormal,Tangent);
     float3 Accumulated = 0;
     uint Components = Scattering.Configuration.x+1;
-    // 📝 Smooth sky-radiance quadrature remains separate from the analytic rectangular softbox integral.
+    // 📝 Environment quadrature samples the baked studio archive bound at set 0 binding 3.
     const uint Samples = 8;
     for (uint Component = 0; Component < Components; ++Component)
         for (uint SampleIndex = 0; SampleIndex < Samples; ++SampleIndex)
@@ -204,8 +181,6 @@ float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngular
                            EvaluateEnvironmentRadiance(Scattering,Light)/Density;
         }
     Accumulated /= Components*Samples;
-    if (Material.PreviewConfiguration.y != 0)
-        Accumulated += IntegrateStudioSoftboxes(Scattering,Angular,View);
     return Accumulated;
 }
 
