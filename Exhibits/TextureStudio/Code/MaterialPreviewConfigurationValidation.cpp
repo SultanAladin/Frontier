@@ -141,7 +141,7 @@ int main(int Count, char **Arguments)
             Centred.Pitch = -.4f;
             const auto Pose = ConstructMaterialPreviewProjection(Centred);
             const float Translation = 16.f * uint32_t(Shape);
-            const float Pivots[5][3]{{0, -.055f, -.017f}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
+            const float Pivots[5][3]{{0, -.002f, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
             const auto Index = size_t(uint32_t(Shape));
             const auto Pivot = ProjectNdc(Pose, Translation + Pivots[Index][0], Pivots[Index][1], Pivots[Index][2]);
             Confirm(std::abs(Pivot[0] - Centred.PanX) < .0001f && std::abs(Pivot[1] - Centred.PanY) < .0001f,
@@ -149,12 +149,12 @@ int main(int Count, char **Arguments)
         }
         // 📝 Alloy capture framing: every specimen rim fills 1/(4.296·tan17°) ≈ .7614 of the half-frame
         // at default zoom, matching the HTML r=1.35 ball at distance 5.8; zoom 2 doubles the magnification.
-        const float Radii[5]{1.047f, .85f, 1.131f, 1.074f, .959f};
+        const float Radii[5]{1.085f, .85f, 1.131f, 1.074f, .959f};
         for (const auto Shape : {MaterialPreviewShape::ShaderBall, MaterialPreviewShape::Sphere, MaterialPreviewShape::Plane,
                                  MaterialPreviewShape::Cube, MaterialPreviewShape::Cloth})
         {
             const auto Index = size_t(uint32_t(Shape));
-            const float Pivots[5][3]{{0, -.055f, -.017f}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
+            const float Pivots[5][3]{{0, -.002f, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
             MaterialPreviewConfiguration Framed;
             Framed.Shape = Shape;
             const float Translation = 16.f * uint32_t(Shape);
@@ -165,6 +165,54 @@ int main(int Count, char **Arguments)
             const auto Tight = ProjectNdc(ConstructMaterialPreviewProjection(Framed),
                 Translation + Pivots[Index][0] + Radii[Index], Pivots[Index][1], Pivots[Index][2]);
             Confirm(std::abs(Tight[0] - 2 * Wide[0]) < .002f, "Perspective zoom is not a dolly.");
+        }
+        // 📝 Stage level: every stand lathe ring shares one height per radius, so the world-up
+        // stage can never roll while the camera orbits (the retired specimen-group pitch spread
+        // rim heights by ~.34 across the stand, which read as the specimen tumbling).
+        {
+            const auto Specimen = ConstructMaterialPreviewSpecimen();
+            std::array<float, 4096> Low{}, High{};
+            Low.fill(1e30f);
+            High.fill(-1e30f);
+            for (const auto &Corner : Specimen.Corners)
+            {
+                if (Corner.Coordinates[0] != -1.f) continue;
+                const float Radial = std::hypot(Corner.Position[0], Corner.Position[2]);
+                if (Radial < .05f) continue; // cap centres share the axis at both disc heights
+                const auto Bucket = size_t(std::lround(Radial * 2000));
+                if (Bucket >= Low.size()) continue;
+                Low[Bucket] = std::min(Low[Bucket], Corner.Position[1]);
+                High[Bucket] = std::max(High[Bucket], Corner.Position[1]);
+            }
+            float Spread = 0;
+            for (size_t Bucket = 0; Bucket < Low.size(); ++Bucket)
+                if (High[Bucket] > -1e29f) Spread = std::max(Spread, High[Bucket] - Low[Bucket]);
+            Confirm(Spread < .001f, "Pedestal lathe rings are not level; orbiting would roll the stage.");
+        }
+        // 📝 World-locked studio: exact identity at the default pose, rigid carry under orbit,
+        // and environment up equal to world up in view space at any yaw.
+        {
+            const std::array<float, 3> Reference{-.4f, .7f, .6f};
+            const auto Identity = ConstructMaterialPreviewLightDirection(MaterialPreviewConfiguration{}, Reference);
+            Confirm(std::abs(Identity[0] + .4f) < .0001f && std::abs(Identity[1] - .7f) < .0001f &&
+                        std::abs(Identity[2] - .6f) < .0001f,
+                "Default-pose light direction moved.");
+            MaterialPreviewConfiguration Orbited;
+            Orbited.Yaw = 3.1415927f;
+            const auto Carried = ConstructMaterialPreviewLightDirection(Orbited, Reference);
+            Confirm(std::abs(Carried[0] - .4f) < .001f && std::abs(Carried[1] - .87309f) < .001f &&
+                        std::abs(Carried[2] + .29616f) < .001f,
+                "Orbited light direction is not the rigid world carry.");
+            const auto Up = ConstructMaterialPreviewEnvironmentUp(MaterialPreviewConfiguration{});
+            Confirm(std::abs(Up[0]) < .0001f && std::abs(Up[1] - .98185f) < .0001f && std::abs(Up[2] - .18964f) < .0001f,
+                "Default environment up is not world up in view space.");
+            MaterialPreviewConfiguration PitchedUp;
+            PitchedUp.Yaw = 2.f;
+            PitchedUp.Pitch = .5f;
+            const auto CarriedUp = ConstructMaterialPreviewEnvironmentUp(PitchedUp);
+            Confirm(std::abs(CarriedUp[0]) < .0001f && std::abs(CarriedUp[1] - .77074f) < .0001f &&
+                        std::abs(CarriedUp[2] - .63715f) < .0001f,
+                "Environment up is not yaw-invariant world up.");
         }
         Inspection.Environment = MaterialPreviewEnvironment::CoolRim;
         Inspection.Exposure = 2;

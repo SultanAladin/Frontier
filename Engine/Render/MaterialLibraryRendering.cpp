@@ -254,6 +254,16 @@ struct MaterialLibraryRendering::RenderingAllocation
             Scattering.Illumination.LightDirectionIntensity = {-.2f,.9f,.4f,.7f};
             break;
         }
+        // 📝 Carry the studio rig from the default pose into the orbiting view: the key light and
+        // sky stay fixed in the world while the camera moves, matching OrbitControls staging.
+        const auto LightDirection = ConstructMaterialPreviewLightDirection(Inspection,
+            {Scattering.Illumination.LightDirectionIntensity[0],
+             Scattering.Illumination.LightDirectionIntensity[1],
+             Scattering.Illumination.LightDirectionIntensity[2]});
+        Scattering.Illumination.LightDirectionIntensity = {LightDirection[0], LightDirection[1],
+            LightDirection[2], Scattering.Illumination.LightDirectionIntensity[3]};
+        const auto EnvironmentUp = ConstructMaterialPreviewEnvironmentUp(Inspection);
+        Scattering.Illumination.EnvironmentUp = {EnvironmentUp[0], EnvironmentUp[1], EnvironmentUp[2], 0};
         std::shared_ptr<SurfaceScatteringResidence> Replacement;
         if (SparePreviewParameters && SparePreviewSerial <= CompletedSerial)
         {

@@ -406,3 +406,23 @@ iridescence terms on three paints, glass transmission depth, sand/layered-sand r
 woodland-camouflage weave underlay and ballistic-polymer grain under their coded-field albedos.
 Windows GPU execution of these fixes is still unverified in this environment (no Vulkan ICD);
 headless Release and Debug+ASan suites pass 26/26.
+
+## Orbit staging and LED radiance correction — 2026-10-22 (Windows test round)
+
+User testing of the published build (5ef3c89) confirmed the catalogue but flagged two defects:
+
+- **Orbit felt like the specimen tumbling.** The earlier note verified the camera only; the staging
+  was at fault. `ConstructMaterialPreviewSpecimen` baked a 0.18 rad group pitch into ball+pedestal,
+  so the pedestal plane was tilted in world space and rolled diagonally under yaw (rim heights
+  spread ~0.34). In the HTML scene the stand/foot/ring are unrotated siblings of the posed ball.
+  The group pitch is removed (ball keeps its intrinsic HTML pose), Pivot/Radius re-measured
+  ({0,-.002,0} / 1.085), and validation now pins pedestal ring level plus rigid light carry.
+  The preview rig was also view-locked (constant view-space key light, sky up = view up, softbox
+  directions in view space), gluing highlights to the screen during orbit. The key light and sky
+  up are now carried through the world frame per inspection update and the softbox panels are
+  world-frame directions rotated into view in the shader; default-pose framing is bit-identical.
+- **LED emission blown out at the wrong scale.** `MaterialSurface.slang` sampled the radiance
+  texture with raw coordinates while every other channel applies the stratum UV scale/offset
+  (9×4.5 on the LED strata), stretching the emitter mask across the specimen. The mask bake and
+  authored strength were already correct (single gain via RadianceNormal); the sample now uses
+  the first stratum's UV transform, matching the packing contract of one radiance slice.

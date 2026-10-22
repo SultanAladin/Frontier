@@ -270,3 +270,12 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Retained the inherited design documents under `Documentation/Plans/References/InheritedEngine/`
   (170 files: `Prototypes/`, `Research/`, root-level plan/reference notes, and the notes that lived
   inside the reclaimed trees). `Documentation/FolderStructure.md` records the review outcome.
+
+## Orbit staging and LED radiance correction (2026-10-22, branch arena/158c63c8-frontier)
+
+- Specimen-group pitch (0.18 rad, baked into ball+pedestal) removed: pedestal lathe is level
+  (rim height spread .34 -> ring-exact), Pivot/Radius re-measured. Preview key light, sky up and
+  studio softboxes are world-locked through the orbit (identity at the default pose).
+- LED radiance sampled through the first stratum's UV transform instead of raw coordinates.
+- MaterialPreviewConfigurationValidation pins ring level + rigid light/up carry; shaders compile
+  via the pinned Slang toolchain; host suite 26/26.
