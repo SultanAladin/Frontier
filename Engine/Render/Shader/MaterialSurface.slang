@@ -42,7 +42,10 @@ float3 SampleEnvironmentMapRadiance(PreviewScattering Scattering,float3 Directio
     float3 World = NormalizeDirection(Direction.x*Projection.ViewNormalRow0.xyz+
         Direction.y*Projection.ViewNormalRow1.xyz+Direction.z*Projection.ViewNormalRow2.xyz);
     float2 Coordinates = float2(atan2(World.x,World.z)/(2*π)+.5,acos(clamp(World.y,-1,1))/π);
-    return EnvironmentMap.SampleLevel(MaterialSampler,float3(Coordinates,Material.PreviewConfiguration.z),0).rgb;
+    // 📝 Mip 2, not base level: the 8-sample MIS quadrature turns bright small panels into
+    // per-pixel fireflies at full resolution (visible stipple on the Windows build). The
+    // prefiltered level keeps panel shapes while collapsing hit/miss contrast.
+    return EnvironmentMap.SampleLevel(MaterialSampler,float3(Coordinates,Material.PreviewConfiguration.z),2).rgb;
 }
 
 struct MaterialInput

@@ -293,3 +293,13 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   editors on all layers. Host suite 26/26 (645,546 preview-config checks incl. card gestures);
   Windows GPU confirmation pending the user's hardware test.
 - Still deferred: sand op binding, thin-film, glass depth, camouflage/ballistic underlays.
+
+## Environment-switch freeze correction (2026-10-22, branch arena/71dc0cca-frontier)
+
+- Windows test log: `PreviewConfiguration[2]` (now the environment layer) was still pinned to
+  zero by `ValidateMaterialScattering`, so every non-default environment threw inside
+  `ConfigurePreview`/`ConfigureSelection` and the viewport froze on its last good frame.
+  Contract now bounds the layer slot; pinned by CPU checks (645,550).
+- Light intensity missed the smoothed-camera discrete copy (applied only on settle snap); fixed.
+- Environment sampling at mip 2 (firefly stipple), strength target 0.3 -> 0.2, key weight
+  0.4 -> 0.32 (tonemap flooding), catalogue cap 24 -> 8 (pyramid layer contract). Suite 26/26.

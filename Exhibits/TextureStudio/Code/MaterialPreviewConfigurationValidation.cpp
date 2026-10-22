@@ -50,6 +50,26 @@ int main(int Count, char **Arguments)
         Inspection = {};
         Inspection.Environment = 12;
         Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Imported environment index rejected.");
+        {
+            // 📝 Pins the 2026-10-22 Windows freeze: PreviewConfiguration[2] carries the
+            // environment archive layer, so the dormant shader contract must accept non-zero
+            // layers up to catalogue capacity and reject beyond it.
+            MaterialScattering Contract{};
+            Contract.Illumination.Configuration = {1, 0, 1, 0};
+            Contract.Illumination.ViewFromSurface[15] = 1;
+            Contract.Illumination.LightDirectionIntensity = {0, 1, 0, 1};
+            Contract.Illumination.EnvironmentUp = {0, 1, 0, 0};
+            Contract.Illumination.Strata[0].AlbedoRoughness = {.5f, .5f, .5f, .5f};
+            Contract.Illumination.Strata[0].Optics = {0, 1.5f, 1, 0};
+            Contract.PreviewConfiguration = {1, 0, 0, 0};
+            Confirm(ValidateMaterialScattering(Contract), "Default-environment scattering contract rejected.");
+            Contract.PreviewConfiguration = {1, 0, 3, 0};
+            Confirm(ValidateMaterialScattering(Contract), "Environment layer 3 rejected by the dormant shader contract.");
+            Contract.PreviewConfiguration = {1, 0, 63, 0};
+            Confirm(ValidateMaterialScattering(Contract), "Environment layer at catalogue capacity rejected.");
+            Contract.PreviewConfiguration = {1, 0, 64, 0};
+            Confirm(!ValidateMaterialScattering(Contract), "Environment layer above catalogue capacity accepted.");
+        }
         Inspection = {};
         Inspection.LightIntensity = 4;
         Confirm(ValidateMaterialPreviewConfiguration(Inspection), "Maximum light intensity rejected.");
