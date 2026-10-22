@@ -108,23 +108,6 @@ main{max-width:1560px; margin:0 auto; padding:14px 22px 30px; display:flex; flex
 .card .head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap}
 .grid2{display:grid; grid-template-columns:minmax(430px,1.05fr) minmax(430px,1fr); gap:16px; align-items:start}
 @media (max-width:1000px){ .grid2{grid-template-columns:1fr} }
-/* viewport + debug overlays */
-#viewportCard{--tick:var(--cyan)}
-#stage{position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--line); aspect-ratio:16/8.2; background:#000}
-#sceneCv{position:absolute; inset:0; width:100%; height:100%}
-.ovl{position:absolute; background:color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter:blur(7px);
-  border:1px solid var(--line2); border-radius:12px; padding:11px 13px; font-size:.72rem; min-width:196px; box-shadow:0 10px 28px rgba(0,0,0,.35)}
-.ovl h5{font-size:.66rem; letter-spacing:.13em; text-transform:uppercase; color:var(--dim); display:flex; align-items:center; gap:7px; margin-bottom:8px; font-weight:600}
-.ovl h5::before{content:""; width:4px; height:11px; border-radius:2px; background:var(--tick,var(--accent))}
-.ovl .r{display:flex; justify-content:space-between; gap:16px; font-family:var(--mono); padding:1px 0}
-.ovl .r b{font-weight:600}
-.ovl canvas{width:100%; height:64px; display:block}
-.ovlBar{display:flex; gap:6px; align-items:center; margin:5px 0}
-.ovlBar .t{height:8px; background:var(--panel2); border-radius:4px; flex:1; overflow:hidden}
-.ovlBar .f{height:100%}
-#ovlButtons{display:flex; flex-wrap:wrap; gap:7px}
-.ovBtn{border:1px solid var(--line2); background:var(--panel2); color:var(--dim); border-radius:999px; padding:5px 12px; font-size:.74rem; font-weight:600}
-.ovBtn.on{color:#fff; background:var(--accent); border-color:transparent}
 /* log stream + dropdown filters */
 #logCard{--tick:var(--pink)}
 .logTools{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
@@ -250,50 +233,6 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
 </header>
 
 <main>
-  <!-- VIEWPORT + DEBUG OVERLAYS -->
-  <section class="card" id="viewportCard">
-    <div class="head"><h3>Viewport — BlankProject (simulated frame)</h3><span class="legend">debug overlays draw over the presented image</span></div>
-    <div id="ovlButtons" style="margin-bottom:11px"></div>
-    <div id="stage">
-      <canvas id="sceneCv"></canvas>
-      <div class="ovl" id="ovlFrame" style="--tick:#ffd21f; top:12px; left:12px">
-        <h5>Frame</h5>
-        <div class="r"><span>frame</span><b id="ovFrameN">0</b></div>
-        <div class="r"><span>total</span><b id="ovFrameMs">0.0 ms</b></div>
-        <div class="r"><span>gpu</span><b id="ovGpuMs">0.0 ms</b></div>
-        <canvas id="ovFrameCv"></canvas>
-      </div>
-      <div class="ovl" id="ovlGraph" style="--tick:var(--cyan); top:12px; right:12px; min-width:230px">
-        <h5>Frame Graph — top units</h5><div id="ovGraphRows"></div>
-      </div>
-      <div class="ovl" id="ovlThreads" style="--tick:var(--green); bottom:12px; left:12px; min-width:230px">
-        <h5>Threads</h5><div id="ovThreadRows"></div>
-      </div>
-      <div class="ovl" id="ovlGeom" style="--tick:var(--pink); bottom:12px; right:12px">
-        <h5>Virtualized Geometry</h5>
-        <div class="r"><span>clusters drawn</span><b id="ovClu">0</b></div>
-        <div class="r"><span>culled (frustum/cone)</span><b id="ovCull">0</b></div>
-        <div class="r"><span>occluded (Hi-Z)</span><b id="ovOcc">0</b></div>
-        <div class="r"><span>pages resident</span><b id="ovPages">0 / 96</b></div>
-        <div class="r"><span>cut threshold</span><b>1.0 px</b></div>
-      </div>
-      <div class="ovl" id="ovlRt" style="--tick:var(--purple); top:50%; left:12px; transform:translateY(-50%)">
-        <h5>Ray Tracing</h5>
-        <div class="r"><span>path</span><b>RTX · ray query</b></div>
-        <div class="r"><span>rays</span><b id="ovRays">0 M</b></div>
-        <div class="r"><span>reservoir reuse</span><b id="ovReuse">0%</b></div>
-        <div class="r"><span>BVH</span><b>TLAS refit 0 µs</b></div>
-      </div>
-      <div class="ovl" id="ovlMem" style="--tick:var(--orange); top:50%; right:12px; transform:translateY(-50%)">
-        <h5>Memory</h5>
-        <div class="r"><span>VRAM</span><b id="ovVram">0.0 GB</b></div>
-        <div class="ovlBar"><div class="t"><div class="f" id="ovVramBar" style="background:var(--orange);width:40%"></div></div></div>
-        <div class="r"><span>transient (graph)</span><b id="ovTrans">0 MB</b></div>
-        <div class="r"><span>geometry arena</span><b id="ovArena">0 MB</b></div>
-      </div>
-    </div>
-  </section>
-
   <div class="grid2">
     <!-- LOG STREAM -->
     <section class="card" id="logCard">
@@ -433,10 +372,6 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Escape") setCC(false);
 });
 refreshCC(); applyDraft();
-/* ================= debug overlays ================= */
-const OVERLAY_DEFS=[["ovlFrame","Frame"],["ovlGraph","Frame Graph"],["ovlThreads","Threads"],["ovlGeom","Geometry"],["ovlRt","Ray Tracing"],["ovlMem","Memory"]];
-$("#ovlButtons").innerHTML=OVERLAY_DEFS.map(([id,nm])=>`<button class="ovBtn on" data-ovl="${id}">${nm}</button>`).join("")+`<span class="legend" style="margin-left:8px">toggle overlays</span>`;
-$("#ovlButtons").addEventListener("click",e=>{const b=e.target.closest("[data-ovl]"); if(!b)return; b.classList.toggle("on"); document.getElementById(b.dataset.ovl).style.display=b.classList.contains("on")?"":"none";});
 /* ================= simulated engine ================= */
 const DIVISIONS=[["RenderGraph","#ffd21f"],["GeometryKernel","#f472b6"],["BVH","#38bdf8"],["ReSTIR","#a78bfa"],["CardsGI","#3ddc84"],["Clouds","#7dd3fc"],["Atmosphere","#fbbf24"],["VehicleSim","#fb923c"],["Streaming","#34d399"],["EditorUI","#e879f9"]];
 const UNITS=[["ClusterCull","#f472b6",.9],["HiZBuild","#f472b6",.5],["RayTraversal.RTX","#38bdf8",3.1],["DirectReservoir","#a78bfa",1.2],["ReservoirTemporal","#a78bfa",.8],["ReservoirSpatial","#a78bfa",.9],["ReflectionTraversal","#38bdf8",1.4],["CardRadiosity","#3ddc84",1.1],["CloudTrace","#7dd3fc",1.6],["AtmosphereScatter","#fbbf24",.4],["VisibilityResolve","#f472b6",.7],["VarianceWavelet","#a78bfa",.8],["DisplayRecombine","#e879f9",.3],["Present","#e879f9",.2]];
@@ -498,8 +433,6 @@ function emitLog(){
 /* widgets */
 $("#units").innerHTML=UNITS.map(([n,c])=>`<div class="unit"><span class="nm">${n}</span><div class="track"><div class="bar" style="background:${c};width:40%"></div></div><span class="ms">0.0</span></div>`).join("");
 $("#threads").innerHTML=THREADS.map(([n])=>`<div class="thread"><span class="nm" style="font-family:var(--mono)">${n}</span><div class="track"><div class="bar" style="background:var(--cyan)"></div></div><span class="ms" style="font-family:var(--mono);color:var(--dim);text-align:right">0%</span></div>`).join("");
-$("#ovGraphRows").innerHTML=UNITS.slice(0,5).map(([n,c])=>`<div class="ovlBar"><span style="width:118px;font-family:var(--mono)">${n}</span><div class="t"><div class="f" style="background:${c};width:40%"></div></div><b class="gv" style="font-family:var(--mono)">0.0</b></div>`).join("");
-$("#ovThreadRows").innerHTML=THREADS.slice(0,4).map(([n])=>`<div class="ovlBar"><span style="width:118px;font-family:var(--mono)">${n}</span><div class="t"><div class="f" style="background:var(--green);width:40%"></div></div><b class="tv" style="font-family:var(--mono)">0%</b></div>`).join("");
 const dg=$("#dotgrid"); for(let i=0;i<28*5;i++) dg.appendChild(document.createElement("i"));
 $("#dotLegend").innerHTML=DIVISIONS.slice(0,6).map(([d,c])=>`<span><i style="background:${c}"></i>${d}</span>`).join("");
 const heatEl=$("#heat"); for(let i=0;i<60;i++) heatEl.appendChild(document.createElement("i"));
@@ -514,22 +447,13 @@ function tick(){
   const clu=Math.round(jitter(312,26)); $("#kClu").textContent=clu; $("#kCluD").textContent=`of 1,204 resident · ${1204-clu} culled`;
   $$("#units .unit").forEach((el,i)=>{const ms=UNITS[i][2]*jitter(1,.35); el.querySelector(".bar").style.width=Math.min(100,ms/3.4*100)+"%"; el.querySelector(".ms").textContent=ms.toFixed(2);});
   $$("#threads .thread").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); el.querySelector(".bar").style.width=v+"%"; el.querySelector(".ms").textContent=Math.round(v)+"%";});
-  /* overlays */
-  $("#ovFrameN").textContent=frame.toLocaleString(); $("#ovFrameMs").textContent=total.toFixed(1)+" ms"; $("#ovGpuMs").textContent=gpu.toFixed(1)+" ms";
-  $$("#ovGraphRows .ovlBar").forEach((el,i)=>{const ms=UNITS[i][2]*jitter(1,.35); el.querySelector(".f").style.width=Math.min(100,ms/3.4*100)+"%"; el.querySelector(".gv").textContent=ms.toFixed(2);});
-  $$("#ovThreadRows .ovlBar").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); el.querySelector(".f").style.width=v+"%"; el.querySelector(".tv").textContent=Math.round(v)+"%";});
-  $("#ovClu").textContent=clu; $("#ovCull").textContent=Math.round(jitter(640,60)); $("#ovOcc").textContent=Math.round(jitter(252,40));
-  const res=Math.round(jitter(88,6)); $("#ovPages").textContent=`${res} / 96`;
-  $("#ovRays").textContent=jitter(8.4,1.2).toFixed(1)+" M"; $("#ovReuse").textContent=jitter(91,4).toFixed(0)+"%";
-  $("#ovVram").textContent=jitter(3.8,.3).toFixed(1)+" GB"; $("#ovVramBar").style.width=jitter(46,6)+"%";
-  $("#ovTrans").textContent=Math.round(jitter(412,40))+" MB"; $("#ovArena").textContent=Math.round(jitter(268,20))+" MB";
   const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); dots[i].style.background=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
   const cells=heatEl.children; for(let i=0;i<cells.length;i++){const v=Math.random(); cells[i].style.background=v<.5?"rgba(61,220,132,.25)":v<.75?"rgba(255,210,31,.55)":v<.9?"rgba(251,146,60,.75)":"rgba(248,113,113,.9)";}
   const parts=UNITS.slice(0,7), sum=parts.reduce((s,u)=>s+u[2],0);
   $("#budgetStack").innerHTML=parts.map(u=>`<div style="background:${u[1]};width:${(u[2]/sum*100).toFixed(1)}%"></div>`).join("");
   $("#budgetLegend").innerHTML=parts.slice(0,4).map(u=>`<span><i style="background:${u[1]}"></i>${u[0]}</span>`).join("");
   $("#budgetMs").textContent=total.toFixed(1)+" ms";
-  hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart(); drawScene(total);
+  hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart();
   if(!paused){ const n=1+Math.floor(Math.random()*3); for(let i=0;i<n;i++) emitLog(); }
 }
 function drawChart(){
@@ -539,28 +463,6 @@ function drawChart(){
   const line=(key,color)=>{ctx.strokeStyle=color; ctx.beginPath(); hist.forEach((h,i)=>{const x=i/119*W, y=H-8-(h[key]/24)*(H-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke();};
   ctx.strokeStyle="rgba(248,113,113,.6)"; ctx.setLineDash([6,6]); ctx.beginPath(); const y=H-8-(16.6/24)*(H-20); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]);
   line("t","#ffd21f"); line("g","#38bdf8"); line("r","#f472b6");
-  const oc=$("#ovFrameCv"), octx=oc.getContext("2d"); oc.width=340; oc.height=64; octx.clearRect(0,0,340,64);
-  octx.strokeStyle="#ffd21f"; octx.lineWidth=1.6; octx.beginPath(); hist.forEach((h,i)=>{const x=i/119*340, y=60-(h.t/24)*54; i?octx.lineTo(x,y):octx.moveTo(x,y);}); octx.stroke();
-}
-/* simulated presented frame: gradient sky, sun, ground grid, cluster patches */
-function drawScene(total){
-  const cv=$("#sceneCv"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=cv.clientHeight*2;
-  if(cv.width!==W){cv.width=W; cv.height=H;}
-  const t=performance.now()/1000;
-  const sky=ctx.createLinearGradient(0,0,0,H*.62); sky.addColorStop(0,"#7fb2e0"); sky.addColorStop(.7,"#cfdde8"); sky.addColorStop(1,"#e8e2d4");
-  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.62);
-  const sx=W*.72+Math.sin(t*.05)*30, sy=H*.2;
-  const sun=ctx.createRadialGradient(sx,sy,4,sx,sy,120); sun.addColorStop(0,"rgba(255,246,200,1)"); sun.addColorStop(.25,"rgba(255,238,170,.85)"); sun.addColorStop(1,"rgba(255,238,170,0)");
-  ctx.fillStyle=sun; ctx.fillRect(sx-130,sy-130,260,260);
-  ctx.fillStyle="#8b93a0"; for(let i=0;i<7;i++){const bx=W*(.08+i*.13), bh=H*(.1+((i*37)%20)/100); ctx.fillRect(bx,H*.62-bh,W*.05,bh);}
-  ctx.fillStyle="#b9bec4"; ctx.fillRect(0,H*.62,W,H*.38);
-  ctx.strokeStyle="rgba(70,80,95,.5)"; ctx.lineWidth=2;
-  for(let i=0;i<14;i++){ctx.beginPath(); ctx.moveTo(W/2+(i-7)*W*.02,H*.62); ctx.lineTo(W/2+(i-7)*W*.16,H); ctx.stroke();}
-  for(let i=0;i<7;i++){const y=H*.62+Math.pow(i/7,1.7)*H*.38; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();}
-  const cols=["#f472b6","#38bdf8","#3ddc84","#ffd21f","#a78bfa","#fb923c"];
-  for(let i=0;i<46;i++){const x=((i*173)%100)/100*W, y=H*.64+((i*97)%32)/100*H, s=14+((i*31)%36); ctx.fillStyle=cols[i%6]+"cc"; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+s,y+s*.36); ctx.lineTo(x+s*.4,y+s*.7); ctx.closePath(); ctx.fill();}
-  ctx.fillStyle="rgba(10,10,14,.55)"; ctx.fillRect(10,H-34,330,24);
-  ctx.fillStyle="#fff"; ctx.font="600 17px 'JetBrains Mono',monospace"; ctx.fillText(`f${frame} · ${total.toFixed(1)} ms · clusters ${Math.round(jitter(312,20))}`,20,H-17);
 }
 setInterval(tick,100); setInterval(()=>{ if(!paused) emitLog(); },380);
 tick();
