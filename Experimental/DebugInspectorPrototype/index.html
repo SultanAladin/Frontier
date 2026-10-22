@@ -235,6 +235,24 @@ canvas.chart{width:100%; height:110px; display:block}
 .bcard .tt{font-family:"JetBrains Mono",monospace; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem}
 .bcard .tt::before{display:none}
 
+
+/* ===== v4: Operational-Efficiency frame graph + stacked activity + labelled heat tiles ===== */
+.effCard{background:#0b0b0d; border:1px solid #1e1e22; border-radius:22px; padding:24px 26px}
+.effCard .tt{font-size:1.05rem; font-weight:500; display:flex; align-items:center}
+.effCard .tt .go{margin-left:auto; color:var(--dim); font-size:.95rem}
+.effCard .big2{font-size:3.2rem; font-weight:300; margin:16px 0 2px; letter-spacing:-.01em}
+.effCard .big2 small{font-size:1rem; color:var(--faint)}
+.effCard .target{color:var(--faint); font-size:.82rem; margin-bottom:6px}
+.actRow{display:grid; grid-template-columns:14px 1fr auto auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid #1b1b1f; font-size:.86rem}
+.actRow:last-child{border-bottom:none}
+.actRow i{width:10px;height:10px;border-radius:3px}
+.actRow .v{font-family:var(--mono); font-weight:600}
+.actRow .u{color:var(--faint); font-size:.74rem; font-family:var(--mono)}
+.heatTiles{display:grid; grid-template-columns:repeat(5,1fr); gap:5px}
+.heatTiles .ht{border-radius:9px; padding:9px 10px; min-height:62px; display:flex; flex-direction:column; justify-content:space-between}
+.heatTiles .ht .a{font-family:var(--mono); font-size:.62rem; font-weight:600; letter-spacing:.02em; white-space:nowrap; overflow:hidden}
+.heatTiles .ht .b{font-family:var(--mono); font-size:.78rem; font-weight:600}
+
 footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);font-size:.75rem}
 </style>
 </head>
@@ -333,12 +351,12 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
         <div class="tkpi"><div class="lab">Clusters drawn<span class="grip">⠿</span></div><div class="big" id="kClu">312</div><div class="delta" style="color:var(--orange)" id="kCluD">of 1,204 resident</div><canvas class="kspark" id="sparkC"></canvas><div class="dates"><span>cut</span><span>≤ 1.0 px</span></div></div>
       </div>
 
-      <section class="glassCard">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start"><div class="tt">Live Frame Volume</div><span style="color:var(--dim)">↗</span></div>
-        <div class="big2"><span id="mfVal">16.6</span><small> ms · current frame</small></div>
-        <div class="vtabs"><span class="on">Live</span><span>1 min</span><span>5 min</span><span>Session</span></div>
+      <section class="effCard">
+        <div class="tt">Frame Time<span class="go">↗</span></div>
+        <div class="big2"><span id="mfVal">16.6</span><small> ms</small></div>
+        <div class="target">Target: 16.6 ms (60 fps) · last 120 frames · <span id="mfDelta" class="up">+0.0% vs avg</span></div>
         <canvas class="chart" id="frameChart" style="height:190px"></canvas>
-        <div style="display:flex;justify-content:space-between;color:var(--faint);font-size:.74rem;margin-top:4px"><span>−60 frames</span><span id="mfDelta" class="up">+0.0% vs avg</span><span>now</span></div>
+        <div style="display:flex;justify-content:space-between;color:var(--faint);font-size:.72rem;margin-top:2px"><span>−120 f</span><span>−90</span><span>−60</span><span>−30</span><span>now</span></div>
       </section>
 
       <section class="tcard" style="--tick:#3b82f6">
@@ -357,16 +375,21 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
       </section>
 
       <div class="cols">
-        <section class="bcard">
-          <div class="tt">Division Activity</div><div class="tsub">Events per second, by division</div>
-          <div class="dotgrid" id="dotgrid" style="margin-top:16px"></div>
-          <div class="legend" style="margin-top:12px" id="dotLegend"></div>
+        <section class="effCard">
+          <div class="tt">Division Activity<span class="go">↗</span></div>
+          <div class="target">Events per second · stacked by division · last 16 samples</div>
+          <canvas class="chart" id="divChart" style="height:158px"></canvas>
+          <div id="divRows" style="margin-top:10px"></div>
         </section>
-        <section class="bcard">
-          <div class="tt">Unit Cost Heat</div><div class="tsub">Per-unit cost across the last 60 frames</div>
-          <div class="heat" id="heat" style="margin-top:16px"></div>
-          <div class="metricFoot"><div><div class="lab">Hottest unit</div><div class="val" id="hotUnit">RayTraversal.RTX</div></div>
-          <div class="pillDelta"><span id="hotMs">3.1 ms</span><span class="circ">↗</span></div></div>
+        <section class="effCard">
+          <div class="tt">Unit Cost Heat<span class="go">↗</span></div>
+          <div class="target">GPU ms per frame-graph unit · hotter = costlier</div>
+          <div class="heatTiles" id="heatTiles"></div>
+          <div style="display:flex; gap:26px; margin-top:18px; align-items:flex-end">
+            <div><div style="color:var(--faint);font-size:.74rem">Hottest unit</div><div style="font-size:1.28rem;font-weight:600" id="hotUnit">RayTraversal.RTX</div></div>
+            <div><div style="color:var(--faint);font-size:.74rem">Cost</div><div style="font-size:1.28rem;font-weight:600" id="hotMs">3.1 ms</div></div>
+            <div style="margin-left:auto;text-align:right"><div style="color:var(--faint);font-size:.74rem">GPU total</div><div style="font-size:1.28rem;font-weight:600" id="heatTotal">0.0 ms</div></div>
+          </div>
         </section>
       </div>
     </div>
@@ -517,10 +540,10 @@ function emitLog(){
 }
 /* widgets */
 $("#threads").innerHTML=THREADS.map(([n])=>`<div class="bstat"><span class="br">[</span><span class="nm">${n}</span><span class="vl">0%</span><span class="br">]</span></div>`).join("");
-const sparkHist={F:[],G:[],R:[],C:[]}; const threadHist=[];
-const dg=$("#dotgrid"); for(let i=0;i<28*5;i++) dg.appendChild(document.createElement("i"));
-$("#dotLegend").innerHTML=DIVISIONS.slice(0,6).map(([d,c])=>`<span><i style="background:${c}"></i>${d}</span>`).join("");
-const heatEl=$("#heat"); for(let i=0;i<60;i++) heatEl.appendChild(document.createElement("i"));
+const sparkHist={F:[],G:[],R:[],C:[]}; const threadHist=[]; const divHist=[];
+$("#divRows").innerHTML=DIVISIONS.map(([d,c])=>`<div class="actRow"><i style="background:${c}"></i><span>${d}</span><span class="v" data-div="${d}">0</span><span class="u">ev/s</span></div>`).join("");
+const SHORT=["Cull","HiZ","RayRTX","DRes","ResT","ResS","Refl","Cards","Cloud","Atmo","VisRes","Denoise","Recomb","Present"];
+$("#heatTiles").innerHTML=UNITS.map((u,i)=>`<div class="ht"><span class="a">${SHORT[i]}</span><span class="b">0.0</span></div>`).join("");
 const hist=[];
 function jitter(b,a){return b+(Math.random()-.5)*a}
 function tick(){
@@ -546,8 +569,13 @@ function tick(){
     ctx.lineTo(X(data.length-1),H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); };
   spark("sparkF",sparkHist.F,"#e8e8ec","rgba(232,232,236,.08)"); spark("sparkG",sparkHist.G,"#7db4ff","rgba(59,130,246,.13)");
   spark("sparkR",sparkHist.R,"#ffffff","rgba(255,255,255,.16)"); spark("sparkC",sparkHist.C,"#ffb35c","rgba(245,158,11,.12)"); drawThreads();
-  const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); dots[i].style.background=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
-  const cells=heatEl.children; for(let i=0;i<cells.length;i++){const v=Math.random(); cells[i].style.background=v<.5?"rgba(61,220,132,.25)":v<.75?"rgba(255,210,31,.55)":v<.9?"rgba(251,146,60,.75)":"rgba(248,113,113,.9)";}
+  // Division Activity: stacked samples + rows; Unit Cost Heat tiles
+  divHist.push(DIVISIONS.map((_,i)=>Math.max(2,(9-i)*7*jitter(1,.7)))); if(divHist.length>16)divHist.shift();
+  $$("#divRows .v").forEach((el,i)=>el.textContent=Math.round(divHist[divHist.length-1][i]));
+  drawDivisions();
+  const costs=UNITS.map(u=>u[2]*jitter(1,.4)), cmax=Math.max(...costs);
+  $$("#heatTiles .ht").forEach((el,i)=>{const v=costs[i]/cmax; el.style.background=`rgba(${Math.round(40+v*215)},${Math.round(190-v*120)},${Math.round(90-v*60)},${.16+v*.8})`; el.style.color=v>.62?"#fff":"var(--text)"; el.querySelector(".b").textContent=costs[i].toFixed(1);});
+  $("#heatTotal").textContent=costs.reduce((a,b)=>a+b,0).toFixed(1)+" ms";
 $("#budgetMs").textContent=gpu.toFixed(1)+" ms";
   hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart();
   if(!paused){ const n=1+Math.floor(Math.random()*3); for(let i=0;i<n;i++) emitLog(); }
@@ -556,20 +584,32 @@ function drawChart(){
   const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=380;
   if(cv.width!==W){cv.width=W; cv.height=H;}
   ctx.clearRect(0,0,W,H);
-  const Y=v=>H-16-(v/26)*(H-30);
-  ctx.strokeStyle="rgba(255,255,255,.08)"; ctx.lineWidth=1; ctx.setLineDash([4,6]);
-  [8,16.6,24].forEach(v=>{ctx.beginPath(); ctx.moveTo(0,Y(v)); ctx.lineTo(W-86,Y(v)); ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.4)"; ctx.font="22px 'JetBrains Mono',monospace"; ctx.fillText(v===16.6?"16.6":String(v), W-76, Y(v)+7);});
-  ctx.setLineDash([]);
-  const data=hist.slice(-60), bw=W-100, step=bw/60;
-  data.forEach((h,i)=>{
-    const x=10+i*step+step/2, lo=Math.min(h.g,h.t), hi=Math.max(h.g,h.t)+h.r*.5;
-    const last=i===data.length-1;
-    ctx.strokeStyle=last?"#fb923c":(i%2?"rgba(255,255,255,.55)":"rgba(251,146,60,.75)");
-    ctx.lineWidth=last?5:3.4; ctx.beginPath(); ctx.moveTo(x,Y(lo)); ctx.lineTo(x,Y(hi)); ctx.stroke();
-    if(last){ ctx.fillStyle="rgba(251,146,60,.18)"; const w=86; ctx.fillRect(x-w/2,Y(hi)-34,w,30);
-      ctx.fillStyle="#fdba74"; ctx.font="600 19px 'JetBrains Mono',monospace"; ctx.textAlign="center"; ctx.fillText(h.t.toFixed(1),x,Y(hi)-13); ctx.textAlign="left"; }
-  });
+  const data=hist.slice(-120), Y=v=>H-18-((v-4)/22)*(H-40), X=i=>i/119*(W-92);
+  // right axis labels
+  ctx.font="21px 'JetBrains Mono',monospace"; ctx.fillStyle="rgba(230,230,238,.42)";
+  [24,16.6,10].forEach(v=>ctx.fillText(v===16.6?"16.6":v+" ms", W-84, Y(v)+6));
+  // dashed target rule + label
+  ctx.strokeStyle="rgba(255,255,255,.34)"; ctx.lineWidth=1.6; ctx.setLineDash([9,8]);
+  ctx.beginPath(); ctx.moveTo(0,Y(16.6)); ctx.lineTo(W-92,Y(16.6)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle="rgba(255,255,255,.5)"; ctx.fillText(">60fps", W-88, Y(16.6)-10);
+  // shaded bands where the line rides high
+  data.forEach((h,i)=>{ if(h.t>15){ ctx.fillStyle="rgba(255,255,255,.055)"; ctx.fillRect(X(i)-3,Y(h.t),Math.max(4,(W-92)/119),H-18-Y(h.t)); }});
+  // thin jagged white line
+  ctx.beginPath(); data.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
+  ctx.strokeStyle="rgba(245,245,248,.92)"; ctx.lineWidth=1.8; ctx.stroke();
+  // orange excursion segment near the start (reference accent)
+  ctx.beginPath(); data.slice(6,14).forEach((h,j)=>{ const i=j+6; i===6?ctx.moveTo(X(i),Y(h.t)):ctx.lineTo(X(i),Y(h.t)); });
+  ctx.strokeStyle="#fb923c"; ctx.lineWidth=2.2; ctx.stroke();
+  data.slice(6,14).forEach((h,j)=>{ if(j%3===0){ ctx.beginPath(); ctx.arc(X(j+6),Y(h.t),4.6,0,7); ctx.fillStyle="#fb923c"; ctx.fill(); }});
+  // white peak dots where frames breach the target
+  data.forEach((h,i)=>{ if(h.t>16.6 && (i===0||data[i-1].t<=16.6)){ ctx.beginPath(); ctx.arc(X(i),Y(h.t),5,0,7); ctx.fillStyle="#fff"; ctx.fill(); }});
+}
+function drawDivisions(){
+  const cv=$("#divChart"); if(!cv||divHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=316;
+  if(cv.width!==W){cv.width=W; cv.height=H;}
+  ctx.clearRect(0,0,W,H);
+  const cols=DIVISIONS.map(d=>d[1]), bw=W/16, totals=divHist.map(r=>r.reduce((a,b)=>a+b,0)), mx=Math.max(...totals)*1.1;
+  divHist.forEach((row,i)=>{ let y=H-6; row.forEach((v,d)=>{ const h=(v/mx)*(H-16); y-=h; ctx.fillStyle=cols[d]; const x=i*bw+3; ctx.beginPath(); ctx.roundRect(x,y,bw-6,h,[3,3,0,0]); ctx.fill(); }); });
 }
 function drawThreads(){
   const cv=$("#threadChart"); if(!cv||threadHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=240;
