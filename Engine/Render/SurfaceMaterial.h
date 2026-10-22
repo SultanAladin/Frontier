@@ -126,8 +126,11 @@ struct CompiledSurfaceMaterial
 inline bool ValidateMaterialScattering(const MaterialScattering &Material)
 {
     // 📝 Preview slot 5 is the draped-cloth inspection surface; rejecting it
-    // crashed cloth selection with a dormant-contract severe failure.
-    if (Material.PreviewConfiguration[0] > 5 || Material.PreviewConfiguration[1] > 1 || Material.PreviewConfiguration[2] || Material.PreviewConfiguration[3]) return false;
+    // crashed cloth selection with a dormant-contract severe failure. Slot [2] carries the
+    // environment archive layer since the baked-environment change; leaving it pinned to zero
+    // froze the preview on every non-default environment (Windows test, 2026-10-22), so bound
+    // it to the catalogue capacity instead of forbidding it.
+    if (Material.PreviewConfiguration[0] > 5 || Material.PreviewConfiguration[1] > 1 || Material.PreviewConfiguration[2] > 63 || Material.PreviewConfiguration[3]) return false;
     if (!ValidateAutomotivePaint(Material.Paint)) return false;
     if (!ValidatePreviewScattering(Material.Illumination) || Material.Illumination.Configuration[1] != 0) return false;
     for (float Coefficient : Material.UvScaleOffset)

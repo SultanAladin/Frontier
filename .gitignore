@@ -12,6 +12,7 @@ EngineContent/*
 !EngineContent/Defaults/
 !EngineContent/MaterialArchives/
 !EngineContent/PatternArchives/
+!EngineContent/EnvironmentArchives/
 
 # Agent scratch space.
 _ClaudeScratch/

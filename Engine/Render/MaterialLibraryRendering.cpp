@@ -7,12 +7,17 @@
 #include "MaterialPreviewGeometry.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <stb_image.h>
 
 namespace Frontier
 {
@@ -142,6 +147,391 @@ std::vector<uint32_t> DecodePreviewShader(const std::filesystem::path &Path)
         throw std::runtime_error("Invalid material shader archive.");
     return Words;
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     ENVIRONMENT ARCHIVES
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 One scanned equirect studio archive: scene-linear pixels at the shared sampling extent plus
+// the lighting facts derived from them (mean radiance for strength normalization, brightest-region
+// centroid for the key light). Naming follows Documentation/Plans/Ongoing/TextureStudio.md.
+struct EnvironmentArchiveEntry
+{
+    std::string Name;
+    std::vector<float> Linear; // RGB triplets, EnvironmentWidth x EnvironmentHeight
+    std::array<float, 3> KeyDirection{-.42f, .72f, .55f}; // world frame
+    float Strength = 1, KeyIntensity = .5f;
+};
+constexpr uint32_t EnvironmentWidth = 512, EnvironmentHeight = 256;
+
+float DecodeSrgbChannel(uint8_t Value)
+{
+    const float Scaled = Value / 255.f;
+    return Scaled <= .04045f ? Scaled / 12.92f : std::pow((Scaled + .055f) / 1.055f, 2.4f);
+}
+uint8_t EncodeSrgbChannel(float Value)
+{
+    const float Clamped = std::clamp(Value, 0.f, 1.f);
+    const float Encoded = Clamped <= .0031308f ? Clamped * 12.92f : 1.055f * std::pow(Clamped, 1.f / 2.4f) - .055f;
+    return uint8_t(std::lround(Encoded * 255.f));
+}
+float EnvironmentLuminance(float Red, float Green, float Blue)
+{
+    return .2126f * Red + .7152f * Green + .0722f * Blue;
+}
+// 📝 Inverse of the shader's equirect mapping: u from atan2(x, z), v from acos(y), +Y up.
+std::array<float, 3> EnvironmentDirection(float U, float V)
+{
+    const float Polar = V * std::numbers::pi_v<float>;
+    const float Azimuth = (U - .5f) * 2 * std::numbers::pi_v<float>;
+    const float Sine = std::sin(Polar);
+    return {Sine * std::sin(Azimuth), std::cos(Polar), Sine * std::cos(Azimuth)};
+}
+std::array<float, 3> SampleEnvironmentLinear(const EnvironmentArchiveEntry &Entry, std::array<float, 3> Direction)
+{
+    const float Length = std::sqrt(Direction[0] * Direction[0] + Direction[1] * Direction[1] + Direction[2] * Direction[2]);
+    if (Length <= 1e-12f || Entry.Linear.empty()) return {0, 0, 0};
+    const float X = Direction[0] / Length, Y = Direction[1] / Length, Z = Direction[2] / Length;
+    float U = std::atan2(X, Z) / (2 * std::numbers::pi_v<float>) + .5f;
+    const float V = std::acos(std::clamp(Y, -1.f, 1.f)) / std::numbers::pi_v<float>;
+    U -= std::floor(U);
+    const float Fx = U * EnvironmentWidth - .5f, Fy = std::clamp(V, 0.f, 1.f) * EnvironmentHeight - .5f;
+    const int X0 = int(std::floor(Fx)), Y0 = int(std::floor(Fy));
+    const float Tx = Fx - X0, Ty = Fy - Y0;
+    std::array<float, 3> Result{0, 0, 0};
+    for (int Row = 0; Row < 2; ++Row)
+        for (int Column = 0; Column < 2; ++Column)
+        {
+            const int WrappedX = ((X0 + Column) % int(EnvironmentWidth) + int(EnvironmentWidth)) % int(EnvironmentWidth);
+            const int ClampedY = std::clamp(Y0 + Row, 0, int(EnvironmentHeight) - 1);
+            const float Weight = (Column ? Tx : 1 - Tx) * (Row ? Ty : 1 - Ty);
+            const size_t Base = (size_t(ClampedY) * EnvironmentWidth + WrappedX) * 3;
+            for (size_t Channel = 0; Channel < 3; ++Channel) Result[Channel] += Entry.Linear[Base + Channel] * Weight;
+        }
+    return Result;
+}
+std::string ConstructEnvironmentDisplayName(std::string Stem)
+{
+    size_t Start = 0;
+    while (Start < Stem.size() && (std::isdigit(static_cast<unsigned char>(Stem[Start])) || Stem[Start] == '-' || Stem[Start] == '_')) ++Start;
+    Stem.erase(0, Start);
+    std::string Name;
+    for (size_t Index = 0; Index < Stem.size(); ++Index)
+    {
+        const char Character = Stem[Index];
+        if (Character == '-' || Character == '_') { if (!Name.empty() && Name.back() != ' ') Name += ' '; continue; }
+        if (Index > 0 && std::isupper(static_cast<unsigned char>(Character)) && (std::islower(static_cast<unsigned char>(Stem[Index - 1])) ||
+            (Index + 1 < Stem.size() && std::islower(static_cast<unsigned char>(Stem[Index + 1])) && std::isupper(static_cast<unsigned char>(Stem[Index - 1])))))
+            Name += ' ';
+        Name += Character;
+    }
+    for (size_t Index = 1; Index < Name.size(); ++Index)
+        if (Name[Index - 1] != ' ') Name[Index] = static_cast<char>(std::tolower(static_cast<unsigned char>(Name[Index])));
+    return Name.empty() ? std::string("Environment") : Name;
+}
+void AnalyseEnvironmentEntry(EnvironmentArchiveEntry &Entry)
+{
+    double WeightSum = 0, LuminanceSum = 0;
+    std::vector<float> BlockPeak((EnvironmentWidth / 4) * (EnvironmentHeight / 4), 0);
+    for (uint32_t Y = 0; Y < EnvironmentHeight; ++Y)
+    {
+        const float Weight = std::sin((Y + .5f) / EnvironmentHeight * std::numbers::pi_v<float>);
+        for (uint32_t X = 0; X < EnvironmentWidth; ++X)
+        {
+            const size_t Base = (size_t(Y) * EnvironmentWidth + X) * 3;
+            const float Luminance = EnvironmentLuminance(Entry.Linear[Base], Entry.Linear[Base + 1], Entry.Linear[Base + 2]);
+            LuminanceSum += Luminance * Weight;
+            WeightSum += Weight;
+            float &Peak = BlockPeak[(Y / 4) * (EnvironmentWidth / 4) + X / 4];
+            Peak = std::max(Peak, Luminance);
+        }
+    }
+    const float Mean = float(LuminanceSum / std::max(WeightSum, 1e-9));
+    std::sort(BlockPeak.begin(), BlockPeak.end());
+    const float Peak = std::max(BlockPeak[size_t(BlockPeak.size() * .995)], 1e-4f);
+    // 📝 Brightest-region centroid becomes the key light direction, so every archive (baked or
+    // imported) lights its speculars from where its own panels actually are.
+    double Centroid[3]{0, 0, 0}, CentroidWeight = 0;
+    const float Threshold = Peak * .6f;
+    for (uint32_t Y = 0; Y < EnvironmentHeight; ++Y)
+    {
+        const float V = (Y + .5f) / EnvironmentHeight;
+        const float Weight = std::sin(V * std::numbers::pi_v<float>);
+        for (uint32_t X = 0; X < EnvironmentWidth; ++X)
+        {
+            const size_t Base = (size_t(Y) * EnvironmentWidth + X) * 3;
+            const float Excess = EnvironmentLuminance(Entry.Linear[Base], Entry.Linear[Base + 1], Entry.Linear[Base + 2]) - Threshold;
+            if (Excess <= 0) continue;
+            const double Contribution = double(Excess) * Excess * Weight;
+            const auto Direction = EnvironmentDirection((X + .5f) / EnvironmentWidth, V);
+            for (size_t Axis = 0; Axis < 3; ++Axis) Centroid[Axis] += Direction[Axis] * Contribution;
+            CentroidWeight += Contribution;
+        }
+    }
+    if (CentroidWeight > 1e-12)
+    {
+        std::array<float, 3> Direction{float(Centroid[0] / CentroidWeight), float(Centroid[1] / CentroidWeight),
+                                       float(Centroid[2] / CentroidWeight)};
+        Direction[1] = std::max(Direction[1], .12f); // key lights never sit below the floor line
+        const float Length = std::sqrt(Direction[0] * Direction[0] + Direction[1] * Direction[1] + Direction[2] * Direction[2]);
+        if (Length > 1e-6f) Entry.KeyDirection = {Direction[0] / Length, Direction[1] / Length, Direction[2] / Length};
+    }
+    // 📝 Normalize so the hemispheric mean lands at the studio reference level. The retired
+    // analytic rig's effective diffuse ambient was ~0.2 including its key term; the first
+    // map-lit build targeted 0.3 and big-panel archives flooded metallic paints toward white.
+    Entry.Strength = std::clamp(.2f / std::max(Mean, 1e-4f), .15f, 4.f);
+    Entry.KeyIntensity = std::clamp(.32f * Peak * Entry.Strength, .2f, 1.8f);
+}
+std::optional<EnvironmentArchiveEntry> DecodeEnvironmentArchive(const std::filesystem::path &Path)
+{
+    std::ifstream Input(Path, std::ios::binary | std::ios::ate);
+    const auto Bytes = Input.tellg();
+    if (!Input || Bytes <= 0 || Bytes > 67108864) return std::nullopt;
+    std::vector<uint8_t> Encoded;
+    Encoded.resize(size_t(Bytes));
+    Input.seekg(0);
+    if (!Input.read(reinterpret_cast<char *>(Encoded.data()), Bytes)) return std::nullopt;
+    int Width = 0, Height = 0, Channels = 0;
+    uint8_t *Pixels = stbi_load_from_memory(Encoded.data(), int(Encoded.size()), &Width, &Height, &Channels, 4);
+    if (!Pixels || Width < 2 || Height < 1) { if (Pixels) stbi_image_free(Pixels); return std::nullopt; }
+    EnvironmentArchiveEntry Entry;
+    Entry.Name = ConstructEnvironmentDisplayName(Path.stem().string());
+    Entry.Linear.assign(size_t(EnvironmentWidth) * EnvironmentHeight * 3, 0);
+    // 📝 Area-approximating resample (4x4 bilinear taps per texel, horizontal wrap) into the shared
+    // scene-linear sampling extent, whatever the archive's authored resolution was.
+    const auto Source = [&](float U, float V, size_t Channel) {
+        U -= std::floor(U);
+        const float Fx = U * Width - .5f, Fy = std::clamp(V, 0.f, 1.f) * Height - .5f;
+        const int X0 = int(std::floor(Fx)), Y0 = int(std::floor(Fy));
+        const float Tx = Fx - X0, Ty = Fy - Y0;
+        float Accumulation = 0;
+        for (int Row = 0; Row < 2; ++Row)
+            for (int Column = 0; Column < 2; ++Column)
+            {
+                const int WrappedX = ((X0 + Column) % Width + Width) % Width;
+                const int ClampedY = std::clamp(Y0 + Row, 0, Height - 1);
+                Accumulation += DecodeSrgbChannel(Pixels[(size_t(ClampedY) * Width + WrappedX) * 4 + Channel]) *
+                                (Column ? Tx : 1 - Tx) * (Row ? Ty : 1 - Ty);
+            }
+        return Accumulation;
+    };
+    for (uint32_t Y = 0; Y < EnvironmentHeight; ++Y)
+        for (uint32_t X = 0; X < EnvironmentWidth; ++X)
+        {
+            float Accumulation[3]{0, 0, 0};
+            for (int TapY = 0; TapY < 4; ++TapY)
+                for (int TapX = 0; TapX < 4; ++TapX)
+                {
+                    const float U = (X + (TapX + .5f) / 4) / EnvironmentWidth, V = (Y + (TapY + .5f) / 4) / EnvironmentHeight;
+                    for (size_t Channel = 0; Channel < 3; ++Channel) Accumulation[Channel] += Source(U, V, Channel) / 16;
+                }
+            const size_t Base = (size_t(Y) * EnvironmentWidth + X) * 3;
+            for (size_t Channel = 0; Channel < 3; ++Channel) Entry.Linear[Base + Channel] = Accumulation[Channel];
+        }
+    stbi_image_free(Pixels);
+    AnalyseEnvironmentEntry(Entry);
+    return Entry;
+}
+EnvironmentArchiveEntry SynthesizeFallbackEnvironment()
+{
+    // 📝 Neutral vertical gradient used only when no archive directory content is available, so
+    // map lighting never hard-fails on missing content.
+    EnvironmentArchiveEntry Entry;
+    Entry.Name = "Studio gradient";
+    Entry.Linear.assign(size_t(EnvironmentWidth) * EnvironmentHeight * 3, 0);
+    for (uint32_t Y = 0; Y < EnvironmentHeight; ++Y)
+    {
+        const float Height = 1 - (Y + .5f) / EnvironmentHeight;
+        const float Value = .04f + .5f * Height * Height;
+        for (uint32_t X = 0; X < EnvironmentWidth; ++X)
+        {
+            const size_t Base = (size_t(Y) * EnvironmentWidth + X) * 3;
+            Entry.Linear[Base] = Entry.Linear[Base + 1] = Entry.Linear[Base + 2] = Value;
+        }
+    }
+    AnalyseEnvironmentEntry(Entry);
+    return Entry;
+}
+MaterialTexturePyramid ConstructEnvironmentPyramid(const std::vector<EnvironmentArchiveEntry> &Entries)
+{
+    // 📝 Per-layer scene-linear mip chains re-encoded to sRGB bytes (the Radiance category selects
+    // the sRGB GPU format), combined level-major like compiled material texture arrays.
+    std::vector<std::vector<uint8_t>> Layers(Entries.size());
+    std::vector<std::array<uint32_t, 2>> Extents;
+    for (uint32_t Width = EnvironmentWidth, Height = EnvironmentHeight;;)
+    {
+        Extents.push_back({Width, Height});
+        if (Width == 1 && Height == 1) break;
+        Width = std::max(1u, Width / 2);
+        Height = std::max(1u, Height / 2);
+    }
+    for (size_t Layer = 0; Layer < Entries.size(); ++Layer)
+    {
+        std::vector<float> Current = Entries[Layer].Linear;
+        uint32_t Width = EnvironmentWidth, Height = EnvironmentHeight;
+        for (const auto &Extent : Extents)
+        {
+            for (size_t Texel = 0; Texel < size_t(Width) * Height; ++Texel)
+            {
+                for (size_t Channel = 0; Channel < 3; ++Channel)
+                    Layers[Layer].push_back(EncodeSrgbChannel(Current[Texel * 3 + Channel]));
+                Layers[Layer].push_back(255);
+            }
+            if (Width == 1 && Height == 1) break;
+            const uint32_t NextWidth = std::max(1u, Width / 2), NextHeight = std::max(1u, Height / 2);
+            std::vector<float> Next(size_t(NextWidth) * NextHeight * 3, 0);
+            for (uint32_t Y = 0; Y < NextHeight; ++Y)
+                for (uint32_t X = 0; X < NextWidth; ++X)
+                {
+                    float Accumulation[3]{0, 0, 0};
+                    int Taps = 0;
+                    for (uint32_t Row = 0; Row < 2; ++Row)
+                        for (uint32_t Column = 0; Column < 2; ++Column)
+                        {
+                            const uint32_t SourceX = std::min(X * 2 + Column, Width - 1), SourceY = std::min(Y * 2 + Row, Height - 1);
+                            const size_t Base = (size_t(SourceY) * Width + SourceX) * 3;
+                            for (size_t Channel = 0; Channel < 3; ++Channel) Accumulation[Channel] += Current[Base + Channel];
+                            ++Taps;
+                        }
+                    const size_t Base = (size_t(Y) * NextWidth + X) * 3;
+                    for (size_t Channel = 0; Channel < 3; ++Channel) Next[Base + Channel] = Accumulation[Channel] / Taps;
+                }
+            Current = std::move(Next);
+            Width = NextWidth;
+            Height = NextHeight;
+        }
+    }
+    MaterialTexturePyramid Pyramid;
+    Pyramid.Category = MaterialTextureCategory::Radiance;
+    Pyramid.Layers = uint32_t(Entries.size());
+    std::vector<size_t> LayerOffsets(Entries.size(), 0);
+    for (const auto &Extent : Extents)
+    {
+        Pyramid.Levels.push_back({Extent[0], Extent[1], Pyramid.Rgba.size()});
+        const size_t Bytes = size_t(Extent[0]) * Extent[1] * 4;
+        for (size_t Layer = 0; Layer < Entries.size(); ++Layer)
+        {
+            Pyramid.Rgba.insert(Pyramid.Rgba.end(), Layers[Layer].begin() + LayerOffsets[Layer],
+                                Layers[Layer].begin() + LayerOffsets[Layer] + Bytes);
+            LayerOffsets[Layer] += Bytes;
+        }
+    }
+    return Pyramid;
+}
+void RenderEnvironmentPreviewTile(const EnvironmentArchiveEntry &Entry, uint8_t *Target, uint32_t Stride)
+{
+    // 📝 Blender-style sphere swatch: polished grey ball (broad diffuse integral + tight reflection
+    // average) over the environment seen behind it, integrated from the same linear pixels the
+    // shader samples, so imported archives preview truthfully too.
+    constexpr uint32_t Tile = MaterialLibraryRendering::EnvironmentPreviewTile;
+    constexpr float DiscRadius = .9f;
+    const auto Normalize = [](std::array<float, 3> Value) {
+        const float Length = std::sqrt(Value[0] * Value[0] + Value[1] * Value[1] + Value[2] * Value[2]);
+        return Length > 1e-12f ? std::array<float, 3>{Value[0] / Length, Value[1] / Length, Value[2] / Length}
+                                : std::array<float, 3>{0, 0, 1};
+    };
+    for (uint32_t Y = 0; Y < Tile; ++Y)
+        for (uint32_t X = 0; X < Tile; ++X)
+        {
+            const float Nx = (X + .5f) / Tile * 2 - 1, Ny = 1 - (Y + .5f) / Tile * 2;
+            const auto Backdrop = SampleEnvironmentLinear(Entry, Normalize({Nx * .85f, Ny * .85f, -1}));
+            std::array<float, 3> Colour{Backdrop[0] * .8f, Backdrop[1] * .8f, Backdrop[2] * .8f};
+            const float RadiusSquared = Nx * Nx + Ny * Ny;
+            if (RadiusSquared < 1)
+            {
+                const float Sx = Nx / DiscRadius, Sy = Ny / DiscRadius;
+                const float SphereSquared = Sx * Sx + Sy * Sy;
+                if (SphereSquared < 1)
+                {
+                    const std::array<float, 3> Normal{Sx, Sy, std::sqrt(1 - SphereSquared)};
+                    const auto Tangent = Normalize({Normal[2], 0, -Normal[0]});
+                    const std::array<float, 3> Bitangent{Normal[1] * Tangent[2] - Normal[2] * Tangent[1],
+                                                         Normal[2] * Tangent[0] - Normal[0] * Tangent[2],
+                                                         Normal[0] * Tangent[1] - Normal[1] * Tangent[0]};
+                    std::array<float, 3> Diffuse{0, 0, 0};
+                    float CosineSum = 0;
+                    constexpr int DiffuseSamples = 40;
+                    for (int Sample = 0; Sample < DiffuseSamples; ++Sample)
+                    {
+                        const float First = (Sample + .5f) / DiffuseSamples;
+                        const float Second = std::fmod(Sample * .61803398875f + (X * 7 + Y * 13) * .0037f, 1.f);
+                        const float Radius = std::sqrt(First), Angle = Second * 2 * std::numbers::pi_v<float>;
+                        const std::array<float, 3> Local{Radius * std::cos(Angle), Radius * std::sin(Angle), std::sqrt(1 - First)};
+                        const std::array<float, 3> Direction{Tangent[0] * Local[0] + Bitangent[0] * Local[1] + Normal[0] * Local[2],
+                                                             Tangent[1] * Local[0] + Bitangent[1] * Local[1] + Normal[1] * Local[2],
+                                                             Tangent[2] * Local[0] + Bitangent[2] * Local[1] + Normal[2] * Local[2]};
+                        const auto Radiance = SampleEnvironmentLinear(Entry, Direction);
+                        for (size_t Channel = 0; Channel < 3; ++Channel) Diffuse[Channel] += Radiance[Channel] * Local[2];
+                        CosineSum += Local[2];
+                    }
+                    const std::array<float, 3> Reflection = Normalize(
+                        {2 * Normal[2] * Normal[0], 2 * Normal[2] * Normal[1], 2 * Normal[2] * Normal[2] - 1});
+                    std::array<float, 3> Specular{0, 0, 0};
+                    constexpr int SpecularSamples = 12;
+                    for (int Sample = 0; Sample < SpecularSamples; ++Sample)
+                    {
+                        const float Angle = Sample / float(SpecularSamples) * 2 * std::numbers::pi_v<float>;
+                        const auto Jittered = Normalize({Reflection[0] + Tangent[0] * std::cos(Angle) * .06f + Bitangent[0] * std::sin(Angle) * .06f,
+                                                         Reflection[1] + Tangent[1] * std::cos(Angle) * .06f + Bitangent[1] * std::sin(Angle) * .06f,
+                                                         Reflection[2] + Tangent[2] * std::cos(Angle) * .06f + Bitangent[2] * std::sin(Angle) * .06f});
+                        const auto Radiance = SampleEnvironmentLinear(Entry, Jittered);
+                        for (size_t Channel = 0; Channel < 3; ++Channel) Specular[Channel] += Radiance[Channel] / SpecularSamples;
+                    }
+                    std::array<float, 3> Sphere{0, 0, 0};
+                    for (size_t Channel = 0; Channel < 3; ++Channel)
+                        Sphere[Channel] = (Diffuse[Channel] / std::max(CosineSum, 1e-6f)) * .4f + Specular[Channel] * .95f;
+                    const float Edge = std::clamp((1 - std::sqrt(SphereSquared)) * Tile * DiscRadius * .5f, 0.f, 1.f);
+                    for (size_t Channel = 0; Channel < 3; ++Channel)
+                        Colour[Channel] = Colour[Channel] * (1 - Edge) + Sphere[Channel] * Edge;
+                }
+            }
+            uint8_t *Pixel = Target + (size_t(Y) * Stride + X) * 4;
+            for (size_t Channel = 0; Channel < 3; ++Channel)
+            {
+                const float Exposed = Colour[Channel] * Entry.Strength * 1.15f;
+                Pixel[Channel] = EncodeSrgbChannel(Exposed / (1 + Exposed));
+            }
+            Pixel[3] = 255;
+        }
+}
+std::vector<uint8_t> RenderEnvironmentPreviewAtlas(const std::vector<EnvironmentArchiveEntry> &Entries)
+{
+    constexpr uint32_t Tile = MaterialLibraryRendering::EnvironmentPreviewTile;
+    constexpr uint32_t Columns = MaterialLibraryRendering::EnvironmentPreviewColumns;
+    constexpr uint32_t Extent = (Tile + 2) * Columns;
+    std::vector<uint8_t> Pixels(size_t(Extent) * Extent * 4, 0);
+    const size_t Count = std::min<size_t>(Entries.size(), size_t(Columns) * Columns);
+    for (size_t Index = 0; Index < Count; ++Index)
+    {
+        const uint32_t OriginX = uint32_t(Index % Columns) * (Tile + 2) + 1, OriginY = uint32_t(Index / Columns) * (Tile + 2) + 1;
+        RenderEnvironmentPreviewTile(Entries[Index], Pixels.data() + (size_t(OriginY) * Extent + OriginX) * 4, Extent);
+        // 📝 Replicate tile edges into the one-texel gutter so filtered sampling cannot bleed.
+        for (uint32_t Step = 0; Step < Tile; ++Step)
+        {
+            const auto Copy = [&](uint32_t FromX, uint32_t FromY, uint32_t ToX, uint32_t ToY) {
+                std::memcpy(Pixels.data() + (size_t(ToY) * Extent + ToX) * 4, Pixels.data() + (size_t(FromY) * Extent + FromX) * 4, 4);
+            };
+            Copy(OriginX + Step, OriginY, OriginX + Step, OriginY - 1);
+            Copy(OriginX + Step, OriginY + Tile - 1, OriginX + Step, OriginY + Tile);
+            Copy(OriginX, OriginY + Step, OriginX - 1, OriginY + Step);
+            Copy(OriginX + Tile - 1, OriginY + Step, OriginX + Tile, OriginY + Step);
+        }
+    }
+    return Pixels;
+}
+std::array<float, 3> EnvironmentKeyInDefaultView(const EnvironmentArchiveEntry &Entry)
+{
+    // 📝 The world-lock carry helper consumes directions authored in the default pose's view
+    // frame; archive key directions are world-frame, so convert once here.
+    const auto &View = ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ViewFromSurface;
+    const auto &World = Entry.KeyDirection;
+    std::array<float, 3> Converted{View[0] * World[0] + View[4] * World[1] + View[8] * World[2],
+                                   View[1] * World[0] + View[5] * World[1] + View[9] * World[2],
+                                   View[2] * World[0] + View[6] * World[1] + View[10] * World[2]};
+    const float Length = std::sqrt(Converted[0] * Converted[0] + Converted[1] * Converted[1] + Converted[2] * Converted[2]);
+    if (Length > 1e-9f) for (float &Component : Converted) Component /= Length;
+    return Converted;
+}
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -158,6 +548,9 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         SurfaceMaterialResidence Textures;
         SurfaceScatteringResidence Parameters;
+        // 📝 Environment array layers baked into this residence's own binding-3 image; preview
+        // layer selection clamps to it so a rescan can never address a missing layer.
+        uint32_t EnvironmentLayers = 1;
     };
     struct ThumbnailSlot
     {
@@ -187,6 +580,9 @@ struct MaterialLibraryRendering::RenderingAllocation
     uint32_t PendingPreviewExtent = 0;
     MaterialScattering PreviewScattering;
     MaterialPreviewConfiguration Inspection;
+    std::vector<EnvironmentArchiveEntry> Environments;
+    std::vector<uint8_t> EnvironmentPreviewPixels;
+    uint64_t EnvironmentGeneration = 0, SelectedEnvironmentGeneration = 0;
     std::shared_ptr<SurfaceScatteringResidence> PreviewParameters;
     // 📝 One completed spare parameter residence is recycled ping-pong style so continuous slider
     // edits stop allocating a fresh descriptor pool/set/buffer per input tick.
@@ -203,13 +599,26 @@ struct MaterialLibraryRendering::RenderingAllocation
     std::string Diagnostic;
     SurfaceNormalProjection Projection;
 
+    const EnvironmentArchiveEntry &EnvironmentAt(uint32_t Index) const
+    {
+        static const EnvironmentArchiveEntry Fallback = SynthesizeFallbackEnvironment();
+        if (Environments.empty()) return Fallback;
+        return Environments[std::min<size_t>(Index, Environments.size() - 1)];
+    }
     std::shared_ptr<MaterialGpuResidence> CompileResidence(const CompiledSurfaceMaterial &Material)
     {
         auto Residence = std::make_shared<MaterialGpuResidence>();
+        Residence->EnvironmentLayers = uint32_t(std::max<size_t>(Environments.size(), 1));
         auto Scattering = Material.Scattering;
-        Scattering.PreviewConfiguration = {1,1,0,0};
-        Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,1};
-        Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
+        Scattering.PreviewConfiguration = {1,0,0,0};
+        // 📝 Tiles light from the first (studio) archive: radiance comes from the map, strength
+        // rides in Horizon.w and the derived key light matches the default-pose preview.
+        const auto &Environment = EnvironmentAt(0);
+        Scattering.Illumination.EnvironmentHorizon = {0,0,0,Environment.Strength};
+        Scattering.Illumination.EnvironmentZenith = {0,0,0,0};
+        const auto TileKey = EnvironmentKeyInDefaultView(Environment);
+        Scattering.Illumination.LightDirectionIntensity = {TileKey[0],TileKey[1],TileKey[2],Environment.KeyIntensity};
+        Scattering.Illumination.LightColourExposure = {1,1,1,1};
         // 📝 Thumbnails share the Alloy capture rig (34° perspective, per-pixel view); the fixed tile
         // projection below is the same default camera, so cards match the capture reference.
         Scattering.Illumination.Configuration[2] = 1;
@@ -223,37 +632,23 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         if (!Selected) return;
         auto Scattering = PreviewScattering;
-        Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1,
-            Inspection.Environment == MaterialPreviewEnvironment::StudioSoftbox ? 1u : 0u,0,0};
+        // 📝 Preview lighting is owned by the selected environment archive, never inherited from
+        // arbitrary authored source lighting. The map is sampled in the fixed world frame inside
+        // the shader; layer selection clamps to both the catalogue and the layers this residence
+        // actually uploaded, so a rescan can never address a missing layer.
+        const uint32_t CatalogueLayers = uint32_t(std::max<size_t>(Environments.size(), 1));
+        const uint32_t ResidentLayers = Selected ? std::max(Selected->EnvironmentLayers, 1u) : CatalogueLayers;
+        const uint32_t EnvironmentIndex = std::min({Inspection.Environment, CatalogueLayers - 1, ResidentLayers - 1});
+        const auto &Environment = EnvironmentAt(EnvironmentIndex);
+        Scattering.PreviewConfiguration = {uint32_t(Inspection.Shape) + 1, 0, EnvironmentIndex, 0};
         Scattering.Illumination.ViewFromSurface = ConstructMaterialPreviewProjection(Inspection).ViewFromSurface;
         Scattering.Illumination.Configuration[2] = 1;
-        // 📝 Preview rigs are owned by the selected environment, never inherited from arbitrary authored source lighting.
         Scattering.Illumination.LightColourExposure = {1,1,1,Inspection.Exposure};
-        Scattering.Illumination.LightDirectionIntensity = {-.4f,.7f,.6f,.35f};
-        switch (Inspection.Environment)
-        {
-        case MaterialPreviewEnvironment::StudioSoftbox:
-            Scattering.Illumination.EnvironmentHorizon = {.10f,.105f,.11f,.8f};
-            Scattering.Illumination.EnvironmentZenith = {.32f,.33f,.34f,0};
-            break;
-        case MaterialPreviewEnvironment::WarmCourtyard:
-            Scattering.Illumination.EnvironmentHorizon = {.22f,.12f,.055f,1.2f};
-            Scattering.Illumination.EnvironmentZenith = {.65f,.43f,.22f,0};
-            Scattering.Illumination.LightColourExposure = {1,.78f,.52f,Inspection.Exposure};
-            Scattering.Illumination.LightDirectionIntensity = {-.65f,.55f,.5f,4};
-            break;
-        case MaterialPreviewEnvironment::CoolRim:
-            Scattering.Illumination.EnvironmentHorizon = {.035f,.075f,.15f,1.5f};
-            Scattering.Illumination.EnvironmentZenith = {.18f,.35f,.65f,0};
-            Scattering.Illumination.LightColourExposure = {.55f,.75f,1,Inspection.Exposure};
-            Scattering.Illumination.LightDirectionIntensity = {.8f,.25f,.35f,5};
-            break;
-        case MaterialPreviewEnvironment::Overcast:
-            Scattering.Illumination.EnvironmentHorizon = {.35f,.35f,.35f,1.5f};
-            Scattering.Illumination.EnvironmentZenith = {.8f,.8f,.8f,0};
-            Scattering.Illumination.LightDirectionIntensity = {-.2f,.9f,.4f,.7f};
-            break;
-        }
+        Scattering.Illumination.EnvironmentHorizon = {0,0,0,Environment.Strength * Inspection.LightIntensity};
+        Scattering.Illumination.EnvironmentZenith = {0,0,0,0};
+        const auto KeyReference = EnvironmentKeyInDefaultView(Environment);
+        Scattering.Illumination.LightDirectionIntensity = {KeyReference[0],KeyReference[1],KeyReference[2],
+            Environment.KeyIntensity * Inspection.LightIntensity};
         // 📝 Carry the studio rig from the default pose into the orbiting view: the key light and
         // sky stay fixed in the world while the camera moves, matching OrbitControls staging.
         const auto LightDirection = ConstructMaterialPreviewLightDirection(Inspection,
@@ -338,6 +733,70 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
         ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ClipFromSurface;
     Allocation = std::move(Resident);
 }
+void MaterialLibraryRendering::ConfigureEnvironments(const std::filesystem::path &Directory)
+{
+    if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
+    auto &Rendering = *Allocation;
+    std::vector<std::filesystem::path> Archives;
+    std::error_code Error;
+    if (!Directory.empty() && std::filesystem::is_directory(Directory, Error))
+        for (const auto &Candidate : std::filesystem::directory_iterator(Directory, Error))
+        {
+            if (Error) break;
+            if (!Candidate.is_regular_file(Error)) continue;
+            std::string Extension = Candidate.path().extension().string();
+            for (char &Character : Extension) Character = static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
+            if (Extension == ".png") Archives.push_back(Candidate.path());
+        }
+    std::sort(Archives.begin(), Archives.end());
+    // 📝 The studio archive leads the catalogue (default preview + thumbnail lighting); the rest
+    // follow filename order, which is also the dropdown order.
+    std::stable_partition(Archives.begin(), Archives.end(), [](const std::filesystem::path &Path) {
+        std::string Stem = Path.stem().string();
+        for (char &Character : Stem) Character = static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
+        const size_t Start = Stem.find_first_not_of("0123456789-_ ");
+        return Stem.compare(Start == std::string::npos ? 0 : Start, 6, "studio") == 0;
+    });
+    std::vector<EnvironmentArchiveEntry> Entries;
+    for (const auto &Path : Archives)
+    {
+        // 📝 The shared pyramid contract bounds texture arrays at 8 layers; the catalogue
+        // caps there too (preview atlas and shader addressing agree).
+        if (Entries.size() >= 8) break;
+        if (auto Decoded = DecodeEnvironmentArchive(Path)) Entries.push_back(std::move(*Decoded));
+        else DiagnosticJournal::Append("EnvironmentArchive", "decode refused: " + DiagnosticJournal::EncodePath(Path));
+    }
+    if (Entries.empty()) Entries.push_back(SynthesizeFallbackEnvironment());
+    Rendering.Programs.ConfigureEnvironment(ConstructEnvironmentPyramid(Entries));
+    // 📝 Free the 512x256 float fields once both consumers (GPU pyramid, preview atlas) are
+    // built; only the derived lighting facts stay resident per entry.
+    Rendering.EnvironmentPreviewPixels = RenderEnvironmentPreviewAtlas(Entries);
+    for (auto &Entry : Entries) { Entry.Linear.clear(); Entry.Linear.shrink_to_fit(); }
+    Rendering.Environments = std::move(Entries);
+    ++Rendering.EnvironmentGeneration;
+    const uint32_t CatalogueLayers = uint32_t(std::max<size_t>(Rendering.Environments.size(), 1));
+    Rendering.Inspection.Environment = std::min(Rendering.Inspection.Environment, CatalogueLayers - 1);
+    // 📝 Lighting is baked into resident tiles and into each residence's own environment image:
+    // clear source digests so tiles rebake against the new rig instead of re-authenticating.
+    for (auto &Slot : Rendering.Slots) if (!Slot.Path.empty()) { Slot.Dirty = true; Slot.SourceDigest = 0; }
+    Rendering.ReconfigurePreview();
+    Rendering.PreviewDirty = true;
+    DiagnosticJournal::Append("EnvironmentArchive", "catalogue=" + std::to_string(Rendering.Environments.size()) +
+        " generation=" + std::to_string(Rendering.EnvironmentGeneration));
+}
+std::vector<std::string> MaterialLibraryRendering::QueryEnvironmentNames() const
+{
+    std::vector<std::string> Names;
+    if (!Allocation) return Names;
+    for (const auto &Entry : Allocation->Environments) Names.push_back(Entry.Name);
+    return Names;
+}
+EnvironmentPreviewAtlas MaterialLibraryRendering::QueryEnvironmentPreviews() const noexcept
+{
+    if (!Allocation) return {};
+    return {Allocation->EnvironmentPreviewPixels, Allocation->EnvironmentGeneration,
+            uint32_t(Allocation->Environments.size())};
+}
 void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible)
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
@@ -382,7 +841,9 @@ void MaterialLibraryRendering::ConfigureSelection(const std::filesystem::path &P
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
     const auto Digest = ComputeMaterialFingerprint(Material);
-    if (Rendering.Selection == Path && Rendering.SelectedFingerprint == Digest) return;
+    if (Rendering.Selection == Path && Rendering.SelectedFingerprint == Digest &&
+        Rendering.SelectedEnvironmentGeneration == Rendering.EnvironmentGeneration) return;
+    Rendering.SelectedEnvironmentGeneration = Rendering.EnvironmentGeneration;
     auto Replacement = Rendering.CompileResidence(Material);
     if (Rendering.Selected) Rendering.InFlight.push_back({Rendering.SubmittedSerial, std::move(Rendering.Selected)});
     Rendering.Selected = std::move(Replacement);
@@ -400,11 +861,14 @@ void MaterialLibraryRendering::ConfigurePreview(const MaterialPreviewConfigurati
 {
     if (!Allocation || !ValidateMaterialPreviewConfiguration(Configuration)) throw std::runtime_error("Invalid material inspection configuration.");
     auto &Rendering = *Allocation;
-    if (Rendering.Inspection == Configuration) return;
-    Rendering.Inspection = Configuration;
+    auto Clamped = Configuration;
+    const uint32_t CatalogueLayers = uint32_t(std::max<size_t>(Rendering.Environments.size(), 1));
+    Clamped.Environment = std::min(Clamped.Environment, CatalogueLayers - 1);
+    if (Rendering.Inspection == Clamped) return;
+    Rendering.Inspection = Clamped;
     Rendering.ReconfigurePreview();
     DiagnosticJournal::Append("PreviewConfiguration", "shape=" + std::to_string(uint32_t(Configuration.Shape)) +
-        " environment=" + std::to_string(uint32_t(Configuration.Environment)) + " zoom=" + std::to_string(Configuration.Zoom) +
+        " environment=" + std::to_string(Configuration.Environment) + " zoom=" + std::to_string(Configuration.Zoom) +
         " exposure=" + std::to_string(Configuration.Exposure) +
         " pan=" + std::to_string(Configuration.PanX) + "," + std::to_string(Configuration.PanY) +
         " orbit=" + std::to_string(Configuration.Yaw) + "," + std::to_string(Configuration.Pitch));

@@ -387,6 +387,7 @@ void MaterialLibraryPanel::SynchronizePreviewCamera()
         SmoothedInspection.Shape = Inspection.Shape;
         SmoothedInspection.Environment = Inspection.Environment;
         SmoothedInspection.Exposure = Inspection.Exposure;
+        SmoothedInspection.LightIntensity = Inspection.LightIntensity;
         const float Blend = 1 - std::exp(-std::min(ImGui::GetIO().DeltaTime, .1f) * 8);
         SmoothedInspection.Yaw = std::remainder(SmoothedInspection.Yaw +
                 std::remainder(Inspection.Yaw - SmoothedInspection.Yaw, 6.2831853f) * Blend,
@@ -517,7 +518,7 @@ void MaterialLibraryPanel::ConstructViewport()
     }
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 155 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 118 * Scale));
     ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
     const char *ShapeOptions[]{"Shader ball", "Sphere", "Plane", "Cube", "Draped cloth"};
     int Shape = int(Inspection.Shape);
@@ -527,26 +528,71 @@ void MaterialLibraryPanel::ConstructViewport()
     ConfigureExtent(3);
     if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Preview shape", "Change preview object; catalogue thumbnails remain unchanged.");
     ImGui::SameLine();
-    const char *EnvironmentOptions[]{"Studio softbox", "Warm courtyard", "Cool rim", "Overcast"};
-    int Environment = int(Inspection.Environment);
-    ImGui::SetNextItemWidth(std::min(160 * Scale, Available.x * .44f));
-    if (ConstructMaterialSelection("Preview environment", EnvironmentOptions[Environment], EnvironmentOptions, 4, Environment, Scale))
-        Inspection.Environment = MaterialPreviewEnvironment(Environment);
+    // 📝 Environment card (Blender-style): sphere previews of every scanned studio archive over
+    // exposure and light intensity, with a folder rescan for importing equirect PNGs. The old
+    // standalone exposure card and the tinted analytic presets are retired.
+    const auto EnvironmentNames = QueryEnvironmentNames ? QueryEnvironmentNames() : std::vector<std::string>{};
+    if (!EnvironmentNames.empty())
+        Inspection.Environment = std::min<uint32_t>(Inspection.Environment, uint32_t(EnvironmentNames.size() - 1));
+    const std::string EnvironmentCaption = EnvironmentNames.empty() ? std::string("Environment") :
+        EnvironmentNames[Inspection.Environment];
+    const float EnvironmentButtonWidth = std::min(172 * Scale, Available.x * .44f);
+    if (ImGui::Button((EnvironmentCaption + "##PreviewEnvironment").c_str(), ImVec2(EnvironmentButtonWidth, 0)))
+        ImGui::OpenPopup("##EnvironmentCard");
     ConfigureExtent(4);
-    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Environment", "Environment lighting preset.");
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 117 * Scale));
-    const float ExposureWidth = std::min(320 * Scale, std::max(30.f, Available.x - 36 * Scale));
-    const auto ExposureOrigin = ImGui::GetCursorScreenPos();
-    Ink->AddRectFilled(ImVec2(ExposureOrigin.x - 14 * Scale, ExposureOrigin.y - 10 * Scale),
-        ImVec2(ExposureOrigin.x + ExposureWidth + 14 * Scale, ExposureOrigin.y + 70 * Scale), EncodeMaterialInk(0x181818), 14 * Scale);
-    Ink->AddRect(ImVec2(ExposureOrigin.x - 14 * Scale, ExposureOrigin.y - 10 * Scale),
-        ImVec2(ExposureOrigin.x + ExposureWidth + 14 * Scale, ExposureOrigin.y + 70 * Scale), EncodeMaterialInk(0xffffff, 20), 14 * Scale);
-    ImGui::BeginChild("InspectionExposure", ImVec2(ExposureWidth, 64 * Scale), false,
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    (void)ConstructProperty("Exposure", .25f, 4.f, Inspection.Exposure, "×", true, .01f);
-    ImGui::EndChild();
-    InspectionExtents[5] = {ExposureOrigin.x, ExposureOrigin.y + 34 * Scale,
-        ExposureOrigin.x + ExposureWidth, ExposureOrigin.y + 58 * Scale};
+    if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Environment", "Studio lighting, exposure and light intensity.");
+    ImGui::SetNextWindowSize(ImVec2(342 * Scale, 0));
+    if (DropdownControlSurface::BeginMenu("##EnvironmentCard", Scale))
+    {
+        EnvironmentPreviewExtents.clear();
+        if (EnvironmentNames.empty()) ImGui::TextDisabled("No environment archives found.");
+        const float TileExtent = 148 * Scale;
+        const float CellHeight = TileExtent + 20 * Scale;
+        for (size_t Index = 0; Index < EnvironmentNames.size(); ++Index)
+        {
+            if (Index % 2) ImGui::SameLine();
+            const auto CellOrigin = ImGui::GetCursorScreenPos();
+            ImGui::PushID(int(Index));
+            const bool Pressed = ImGui::InvisibleButton("##EnvironmentPreview", ImVec2(TileExtent, CellHeight));
+            ImGui::PopID();
+            EnvironmentPreviewExtents.push_back({CellOrigin.x, CellOrigin.y,
+                CellOrigin.x + TileExtent, CellOrigin.y + TileExtent});
+            const auto Preview = QueryEnvironmentPreview ? QueryEnvironmentPreview(Index) : MaterialPreviewImage{};
+            auto *CardInk = ImGui::GetWindowDrawList();
+            const ImVec2 TileMinimum = CellOrigin, TileMaximum(CellOrigin.x + TileExtent, CellOrigin.y + TileExtent);
+            if (Preview.Texture)
+                CardInk->AddImageRounded(ImTextureRef(Preview.Texture), TileMinimum, TileMaximum,
+                    ImVec2(Preview.MinimumU, Preview.MinimumV), ImVec2(Preview.MaximumU, Preview.MaximumV),
+                    EncodeMaterialInk(0xffffff), 10 * Scale);
+            else
+                CardInk->AddRectFilled(TileMinimum, TileMaximum, EncodeMaterialInk(0x232629), 10 * Scale);
+            if (uint32_t(Index) == Inspection.Environment)
+                CardInk->AddRect(TileMinimum, TileMaximum, EncodeMaterialInk(0x8fd0a8, 255), 10 * Scale, 0, 2 * Scale);
+            else if (ImGui::IsItemHovered())
+                CardInk->AddRect(TileMinimum, TileMaximum, EncodeMaterialInk(0xffffff, 70), 10 * Scale, 0, 1 * Scale);
+            const auto &Name = EnvironmentNames[Index];
+            const float CaptionWidth = ImGui::CalcTextSize(Name.c_str()).x;
+            ConstructMaterialCaption(CellOrigin.x + (TileExtent - CaptionWidth) * .5f,
+                CellOrigin.y + TileExtent + 3 * Scale, 10 * Scale,
+                uint32_t(Index) == Inspection.Environment ? 0xe8e4d8 : 0xa3a393, Name.c_str());
+            if (Pressed)
+            {
+                Inspection.Environment = uint32_t(Index);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::Separator();
+        const auto ExposureOrigin = ImGui::GetCursorScreenPos();
+        const float ExposureWidth = std::max(28.f, ImGui::GetContentRegionAvail().x);
+        (void)ConstructProperty("Exposure", .25f, 4.f, Inspection.Exposure, "×", true, .01f);
+        InspectionExtents[5] = {ExposureOrigin.x, ExposureOrigin.y + 34 * Scale,
+            ExposureOrigin.x + ExposureWidth, ExposureOrigin.y + 58 * Scale};
+        (void)ConstructProperty("Light intensity", 0.f, 3.f, Inspection.LightIntensity, "×", false, .01f);
+        ImGui::Separator();
+        if (ImGui::Button("Import environment…", ImVec2(-1, 0)) && RescanEnvironments) RescanEnvironments();
+        ImGui::TextDisabled("Drop equirect PNGs into EngineContent/EnvironmentArchives, then import.");
+        DropdownControlSurface::EndMenu();
+    }
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 240 * Scale) * .5f), Bottom - 196 * Scale));
     const auto ZoomOrigin = ImGui::GetCursorScreenPos();
     Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
@@ -712,6 +758,11 @@ bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum,
         RoughnessExtent = {Origin.x, Origin.y + 34 * Scale, Origin.x + Width, Origin.y + 58 * Scale};
         RoughnessRecorded = true;
     }
+    if (!CoatRoughnessRecorded && InspectorLayerContext == 1)
+    {
+        CoatRoughnessExtent = {Origin.x, Origin.y + 34 * Scale, Origin.x + Width, Origin.y + 58 * Scale};
+        CoatRoughnessRecorded = true;
+    }
     if (Active && Replacement != Fraction)
     {
         Position = LogarithmicRange ? Minimum * std::pow(Maximum / Minimum, Replacement) : Replacement;
@@ -760,6 +811,8 @@ void MaterialLibraryPanel::ConstructInspector()
     if (Library.QuerySelection().empty()) { ImGui::TextUnformatted("Select a material"); return; }
     if (SourceVisible) { ConstructSourceEditor(); return; }
     RoughnessRecorded = false;
+    CoatRoughnessRecorded = false;
+    InspectorLayerContext = 0;
     const float Scale = QueryInterfaceScale();
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
@@ -1004,19 +1057,138 @@ void MaterialLibraryPanel::ConstructInspector()
                     ImGui::Dummy(ImVec2(1, 14 * Scale));
                 }
             };
-            for (const auto &Group : Groups)
+            // 📝 Layer categorization: every recipe control is projected onto the stratum its
+            // coefficient actually edits (shared pool first, then the paint block, then stratum
+            // scalars), so the inspector reads as the physical layer stack — base slab with its
+            // flakes/grains under the coat with its thickness/roughness/IOR — instead of mixing
+            // strata inside one finish card. Recipe groups survive as cards within each layer.
+            const uint32_t LayerCount = std::clamp<uint32_t>(Definition.Scattering.Illumination.Configuration[0], 1, 8);
+            const auto QueryKeyStratum = [&](const std::string &Key) -> uint32_t
             {
+                if (const auto Pool = QueryRecipePoolLocation(Definition, Key)) return Pool->Stratum;
+                if (Definition.Scattering.Paint.Configuration[3] &&
+                    (Key == "flakeLayers" || QueryPaintCoefficient(Definition.Scattering.Paint, Key))) return 0;
+                return Key.starts_with("coat") ? 1u : 0u;
+            };
+            std::vector<uint32_t> ControlStrata;
+            std::set<std::pair<uint32_t, std::string>> CoveredScalars;
+            const auto MarkCovered = [&](const std::string &Key)
+            {
+                if (Key == "roughness") CoveredScalars.emplace(QueryKeyStratum(Key), "Roughness");
+                else if (Key == "coatRoughness") CoveredScalars.emplace(1, "Roughness");
+                else if (Key == "metalness") CoveredScalars.emplace(0, "Metallic");
+                else if (Key == "ior") CoveredScalars.emplace(0, "Ior");
+                else if (Key == "coatIor") CoveredScalars.emplace(1, "Ior");
+                else if (Key == "coat") CoveredScalars.emplace(1, "Coverage");
+            };
+            for (const auto &Control : Controls)
+            {
+                uint32_t Stratum = LayerCount - 1;
+                bool Assigned = false;
+                const auto Consider = [&](const std::string &Key)
+                {
+                    Stratum = std::min(Stratum, std::min(QueryKeyStratum(Key), LayerCount - 1));
+                    Assigned = true;
+                    MarkCovered(Key);
+                };
+                if (Control.Direct) Consider(Control.Key);
+                for (const auto &Target : Control.Targets) Consider(Target.Key);
+                ControlStrata.push_back(Assigned ? Stratum : 0);
+            }
+            std::vector<uint32_t> ColourStrata;
+            for (const auto &[Key, Label] : Colours)
+            {
+                uint32_t Stratum = 0;
+                for (uint32_t Index = 0; Index < LayerCount; ++Index)
+                    for (const auto &Channel : Definition.StratumChannels[Index])
+                        if (!Channel.Op.empty() && Channel.Texts.contains(Key)) Stratum = Index;
+                ColourStrata.push_back(Stratum);
+            }
+            const auto ScratchPool = QueryRecipePoolLocation(Definition, "scratchDensity");
+            const uint32_t ScratchLayer = std::min(ScratchPool ? ScratchPool->Stratum : 0u, LayerCount - 1);
+            // 📝 Stratum scalars no recipe control covers stay editable on their own layer card,
+            // so every layer's roughness/metalness/IOR/coverage (and dielectric thickness) is
+            // reachable even when the HTML recipe never exposed it.
+            struct LayerScalar { const char *Caption; const char *Field; float Minimum, Maximum; float *Value; };
+            std::vector<std::vector<LayerScalar>> ScalarsByLayer(LayerCount);
+            if (Profile)
+                for (uint32_t Index = 0; Index < LayerCount; ++Index)
+                {
+                    auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
+                    auto &Scalars = ScalarsByLayer[Index];
+                    if (!CoveredScalars.contains({Index, "Roughness"}))
+                        Scalars.push_back({"Roughness", "Roughness", .045f, 1.f, &Stratum.AlbedoRoughness[3]});
+                    if (!CoveredScalars.contains({Index, "Metallic"}))
+                        Scalars.push_back({"Metallic", "Metallic", 0.f, 1.f, &Stratum.Optics[0]});
+                    if (!CoveredScalars.contains({Index, "Ior"}))
+                        Scalars.push_back({"IOR", "Ior", 1.f, 2.5f, &Stratum.Optics[1]});
+                    if (Index > 0 && !CoveredScalars.contains({Index, "Coverage"}))
+                        Scalars.push_back({"Coverage", "Coverage", 0.f, 1.f, &Stratum.Optics[2]});
+                    if (Stratum.Classification[0] == 1)
+                        Scalars.push_back({"Thickness", "Thickness", 0.f, 4.f, &Stratum.AbsorptionThickness[3]});
+                }
+            struct InspectorCardSlot { uint32_t Layer; std::string Group; bool FirstOfLayer; };
+            std::vector<InspectorCardSlot> CardSlots;
+            for (uint32_t Layer = 0; Layer < LayerCount; ++Layer)
+            {
+                bool FirstOfLayer = true;
+                const auto AppendSlot = [&](const std::string &GroupName)
+                {
+                    CardSlots.push_back({Layer, GroupName, FirstOfLayer});
+                    FirstOfLayer = false;
+                };
+                for (const auto &Group : Groups)
+                {
+                    bool HasControls = false;
+                    for (size_t Index = 0; Index < Controls.size(); ++Index)
+                        HasControls = HasControls || (Controls[Index].Group == Group && ControlStrata[Index] == Layer);
+                    bool HasColours = false;
+                    if (Group == "finish")
+                        for (const uint32_t Stratum : ColourStrata) HasColours = HasColours || Stratum == Layer;
+                    if (HasControls || HasColours || (Group == "finish" && !Profile) ||
+                        (Group == "scratches" && Layer == ScratchLayer))
+                        AppendSlot(Group);
+                }
+                if (!ScalarsByLayer[Layer].empty()) AppendSlot("scalars");
+            }
+            for (const auto &CardSlot : CardSlots)
+            {
+                const uint32_t Layer = CardSlot.Layer;
+                const std::string &Group = CardSlot.Group;
+                const std::string CardKey = "L" + std::to_string(Layer) + "|" + Group;
+                if (CardSlot.FirstOfLayer)
+                {
+                    const char *Subtitle = Layer == 0 ? "Base" : Layer == LayerCount - 1 ? "Coat" : "Interlayer";
+                    const std::string LayerCaption = "LAYER " + std::to_string(Layer + 1);
+                    ConstructMaterialCaption(Start.x + 3 * Scale, CardY + 2 * Scale, 10 * Scale, 0xd8d8c8,
+                        LayerCaption.c_str(), static_cast<ImFont *>(HeadingTypeface));
+                    ConstructMaterialCaption(Start.x + 3 * Scale + ImGui::CalcTextSize(LayerCaption.c_str()).x +
+                        16 * Scale, CardY + 3 * Scale, 8 * Scale, 0x8b8d79, Subtitle);
+                    ImGui::GetWindowDrawList()->AddLine(ImVec2(Start.x + 3 * Scale, CardY + 22 * Scale),
+                        ImVec2(Start.x + CardWidth - 3 * Scale, CardY + 22 * Scale), EncodeMaterialInk(0xffffff, 26));
+                    CardY += 30 * Scale;
+                    ImGui::SetCursorScreenPos(ImVec2(Start.x, CardY));
+                    ImGui::Dummy(ImVec2(CardWidth, 1));
+                }
                 std::vector<const MaterialRecipeControl *> GroupControls;
-                for (const auto &Control : Controls) if (Control.Group == Group) GroupControls.push_back(&Control);
+                for (size_t Index = 0; Index < Controls.size(); ++Index)
+                    if (Controls[Index].Group == Group && ControlStrata[Index] == Layer)
+                        GroupControls.push_back(&Controls[Index]);
+                std::vector<std::pair<std::string, std::string>> LayerColours;
+                for (size_t Index = 0; Index < Colours.size(); ++Index)
+                    if (ColourStrata[Index] == Layer) LayerColours.push_back(Colours[Index]);
+                const auto &LayerScalars = ScalarsByLayer[Layer];
+                const bool ScalarsCard = Group == "scalars";
                 const bool Finish = Group == "finish";
                 const bool Flakes = Group == "flakes" && Definition.Scattering.Paint.Configuration[3];
                 const bool Scratches = Group == "scratches";
                 const uint32_t PaletteColumns = uint32_t(std::max(1.f, std::floor((CardWidth / Scale - 28) / 29)));
                 const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
-                const float ControlsTop = Finish ? (Colours.empty() ? 62 : 62 + float(Colours.size()) * 46) :
+                const float ControlsTop = Finish ? (LayerColours.empty() ? 62 : 62 + float(LayerColours.size()) * 46) :
                     Flakes ? (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
-                const float Rows = float((GroupControls.empty() && Finish ? 3 : GroupControls.size()) + (Finish ? 3 : 0));
-                const bool Collapsed = FoldedInspectorCards.contains(Group);
+                const float Rows = ScalarsCard ? float(LayerScalars.size()) :
+                    float((GroupControls.empty() && Finish ? 3 : GroupControls.size()) + (Finish ? 3 : 0));
+                const bool Collapsed = FoldedInspectorCards.contains(CardKey);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
                 PixelSpace Surface;
                 (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, Scale);
@@ -1027,19 +1199,20 @@ void MaterialLibraryPanel::ConstructInspector()
                 (void)ControlKit::SectionCard(Surface, {Start.x / Scale, CardY / Scale, (Start.x + CardWidth) / Scale, (CardY + CardHeight) / Scale}, 23);
                 ControlKit::ConfigurePalette(SavedPalette);
                 ConstructIcon(Finish ? IconSymbol::EditorSliders : Flakes ? IconSymbol::TextureFlakes :
-                    Scratches ? IconSymbol::EditorTexture : IconSymbol::TextureClearcoat,
+                    Scratches ? IconSymbol::EditorTexture : ScalarsCard ? IconSymbol::EditorSliders : IconSymbol::TextureClearcoat,
                     Start.x + 17 * Scale, CardY + 18 * Scale, 16 * Scale);
                 ConstructMaterialCaption(Start.x + 42 * Scale, CardY + 20 * Scale, 11 * Scale, 0xcacabd,
                     Finish ? (Entry && Entry->Category == "Paint" ? "Paint color & finish" : "Color & finish") :
                     Flakes ? "Metallic flakes" : Scratches ? (Profile && Profile->SupportsMetalScratches ? "Metal scratches" : "Scratches") :
+                    ScalarsCard ? "Layer properties" :
                     Group == "detail" ? "Surface detail" : Group == "construction" ? "Construction" :
                     Group == "grains" ? "Sand grains" : Group == "strata" ? "Sediment bands" : Group.c_str(),
                     static_cast<ImFont *>(HeadingTypeface));
-                ImGui::PushID(Group.c_str());
+                ImGui::PushID(CardKey.c_str());
                 ImGui::SetCursorScreenPos(ImVec2(Start.x + 6 * Scale, CardY + 6 * Scale));
                 if (ImGui::InvisibleButton("Fold inspector card", ImVec2(CardWidth - 12 * Scale, 39 * Scale)))
                 {
-                    if (!FoldedInspectorCards.erase(Group)) FoldedInspectorCards.insert(Group);
+                    if (!FoldedInspectorCards.erase(CardKey)) FoldedInspectorCards.insert(CardKey);
                 }
                 ConstructIcon(Collapsed ? IconSymbol::EditorChevronRight : IconSymbol::EditorChevronDown,
                     Start.x + CardWidth - 31 * Scale, CardY + 20 * Scale, 12 * Scale, 0x858577);
@@ -1051,28 +1224,31 @@ void MaterialLibraryPanel::ConstructInspector()
                     ImGui::Dummy(ImVec2(CardWidth, 1));
                     continue;
                 }
+                InspectorLayerContext = Layer;
                 ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 52 * Scale));
                 if (Finish)
                 {
-                    for (const auto &[Key, Label] : Colours) RenderColourField(Key, Label);
+                    for (const auto &[Key, Label] : LayerColours) RenderColourField(Key, Label);
                     for (const auto *Control : GroupControls) RenderControl(*Control);
                     // 📝 Materials with no ported recipe profile (a fresh or unrecognised material) keep
                     // the generic structured scalars, so their physical coefficients stay editable.
                     if (!Profile)
                     {
-                        auto &Stratum = Definition.Scattering.Illumination.Strata[0];
+                        // 📝 No recipe profile: the generic structured scalars render per layer, so
+                        // upper strata stay editable instead of being stranded behind stratum 0.
+                        auto &Stratum = Definition.Scattering.Illumination.Strata[Layer];
                         if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
                         if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "Metallic", Stratum.Optics[0]) || Changed;
-                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[0][0]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "Anisotropy", Definition.Scattering.DirectionalOptics[0][0]) || Changed;
-                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[0][3]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "Specular", Definition.Scattering.DirectionalOptics[0][3]) || Changed;
-                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[0][0]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "NormalStrength", Definition.Scattering.StratumNormal[0][0]) || Changed;
-                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[0][1]))
-                            Changed = Library.ConfigureStratumCoefficient(0, "HeightStrength", Definition.Scattering.StratumNormal[0][1]) || Changed;
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "Metallic", Stratum.Optics[0]) || Changed;
+                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0]))
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "Anisotropy", Definition.Scattering.DirectionalOptics[Layer][0]) || Changed;
+                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3]))
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "Specular", Definition.Scattering.DirectionalOptics[Layer][3]) || Changed;
+                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0]))
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "NormalStrength", Definition.Scattering.StratumNormal[Layer][0]) || Changed;
+                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1]))
+                            Changed = Library.ConfigureStratumCoefficient(Layer, "HeightStrength", Definition.Scattering.StratumNormal[Layer][1]) || Changed;
                     }
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
                         0x7b7b6b, "Material-specific ranges. Physical values stay in balance.");
@@ -1124,6 +1300,14 @@ void MaterialLibraryPanel::ConstructInspector()
                     if (ScratchesEnabled)
                         for (const auto *Control : GroupControls) RenderControl(*Control);
                 }
+                else if (ScalarsCard)
+                {
+                    for (auto &Scalar : ScalarsByLayer[Layer])
+                        if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value))
+                            Changed = Library.ConfigureStratumCoefficient(Layer, Scalar.Field, *Scalar.Value) || Changed;
+                    ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
+                        0x7b7b6b, "Physical coefficients of this layer with no recipe control.");
+                }
                 else
                 {
                     for (const auto *Control : GroupControls) RenderControl(*Control);
@@ -1139,6 +1323,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 ImGui::Dummy(ImVec2(CardWidth, 1));
             }
         }
+        InspectorLayerContext = 0;
         if (Changed)
         {
             SynchronizeSource();

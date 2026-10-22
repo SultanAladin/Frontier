@@ -20,19 +20,16 @@ enum class MaterialPreviewShape : uint32_t
     Cube,
     Cloth
 };
-enum class MaterialPreviewEnvironment : uint32_t
-{
-    StudioSoftbox,
-    WarmCourtyard,
-    CoolRim,
-    Overcast
-};
 struct MaterialPreviewConfiguration
 {
-    MaterialPreviewShape       Shape       = MaterialPreviewShape::ShaderBall;
-    MaterialPreviewEnvironment Environment = MaterialPreviewEnvironment::StudioSoftbox;
-    float                      Zoom        = 1;
-    float                      Exposure    = 1;
+    MaterialPreviewShape Shape    = MaterialPreviewShape::ShaderBall;
+    // 📝 Index into the scanned EnvironmentArchives catalogue (baked equirect studio maps,
+    // plus any user-imported equirect PNGs); hosts clamp it to the live catalogue size.
+    uint32_t Environment          = 0;
+    float    Zoom                 = 1;
+    float    Exposure             = 1;
+    // 📝 Scales environment radiance and the key light together; exposure stays display-side.
+    float    LightIntensity       = 1;
     float                      PanX        = 0;
     float                      PanY        = 0;
     float                      Yaw         = 0;
@@ -41,9 +38,10 @@ struct MaterialPreviewConfiguration
 };
 inline bool ValidateMaterialPreviewConfiguration(const MaterialPreviewConfiguration &Configuration)
 {
-    return uint32_t(Configuration.Shape) <= 4 && uint32_t(Configuration.Environment) <= 3 &&
+    return uint32_t(Configuration.Shape) <= 4 && Configuration.Environment <= 63 &&
         std::isfinite(Configuration.Zoom) && Configuration.Zoom >= .5f && Configuration.Zoom <= 5 &&
         std::isfinite(Configuration.Exposure) && Configuration.Exposure >= .25f && Configuration.Exposure <= 4 &&
+        std::isfinite(Configuration.LightIntensity) && Configuration.LightIntensity >= 0 && Configuration.LightIntensity <= 4 &&
         std::isfinite(Configuration.PanX) && std::abs(Configuration.PanX) <= 2 &&
         std::isfinite(Configuration.PanY) && std::abs(Configuration.PanY) <= 2 &&
         std::isfinite(Configuration.Yaw) && std::abs(Configuration.Yaw) <= 3.141593f &&

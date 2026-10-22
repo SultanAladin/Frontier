@@ -115,11 +115,21 @@ float3 EvaluateScatteringSequence(PreviewScattering Scattering,float3 Normal,flo
     }
     return Accumulated;
 }
+#ifdef FRONTIER_ENVIRONMENT_MAP
+// 📝 Map-lit translation units (authored materials) define this sampler over the baked equirect
+// studio archives; the analytic gradient below remains for the lightweight preview program.
+float3 SampleEnvironmentMapRadiance(PreviewScattering Scattering,float3 Direction);
+float3 EvaluateEnvironmentRadiance(PreviewScattering Scattering,float3 Direction)
+{
+    return SampleEnvironmentMapRadiance(Scattering,Direction)*Scattering.EnvironmentHorizon.w;
+}
+#else
 float3 EvaluateEnvironmentRadiance(PreviewScattering Scattering,float3 Direction)
 {
     float Height = saturate(.5+.5*dot(NormalizeDirection(Scattering.EnvironmentUp.xyz),Direction));
     return lerp(Scattering.EnvironmentHorizon.rgb*.35,Scattering.EnvironmentZenith.rgb,Height)*Scattering.EnvironmentHorizon.w;
 }
+#endif
 float3 IntegrateEnvironment(PreviewScattering Scattering,float3 Normal,float3 View,float3 AlbedoMultiplier)
 {
     if (Scattering.EnvironmentHorizon.w == 0) return 0;

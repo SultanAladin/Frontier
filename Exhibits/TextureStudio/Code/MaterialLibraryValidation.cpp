@@ -408,10 +408,29 @@ int main(int ArgumentCount, char **Arguments)
                 "Native automotive inspector did not open the actual preset.");
         IntegrateInterface(1280, 1);
         IntegrateInterface(1280, 1);
-        auto Gloss = Panel->QueryRoughnessExtent();
+        // 📝 Layer categorization moved clearcoat gloss into the coat layer's finish card, below
+        // the fold: scroll the properties region until the recorded coat slider extent is
+        // visible, then click its endpoint as before.
+        auto Gloss = Panel->QueryCoatRoughnessExtent();
+        for (int Attempt = 0; Attempt < 40; ++Attempt)
+        {
+            ImGuiWindow *PropertiesScroll = nullptr;
+            for (auto *Candidate : ImGui::GetCurrentContext()->Windows)
+            {
+                const std::string Name(Candidate->Name);
+                const size_t Child = Name.rfind("/Material properties_");
+                if (Child != std::string::npos && Name.find('/', Child + 1) == std::string::npos) PropertiesScroll = Candidate;
+            }
+            Confirm(PropertiesScroll != nullptr, "Material properties scroll region vanished during gloss gesture.");
+            const float CentreY = (Gloss.MinimumY + Gloss.MaximumY) * .5f;
+            if (Gloss.Width() > 0 && CentreY > PropertiesScroll->Pos.y + 40 &&
+                CentreY < PropertiesScroll->Pos.y + PropertiesScroll->Size.y - 40) break;
+            PropertiesScroll->Scroll.y = std::min(PropertiesScroll->Scroll.y + 240.f, PropertiesScroll->ScrollMax.y);
+            IntegrateInterface(1280, 1);
+            Gloss = Panel->QueryCoatRoughnessExtent();
+        }
+        Confirm(Gloss.Width() > 0, "Coat layer recorded no designer slider extent.");
         Gloss.MinimumX = Gloss.MaximumX - 2;
-        Gloss.MinimumY += 168;
-        Gloss.MaximumY += 168;
         Click(Gloss);
         const auto GlossDefinition = DecodeSurfaceMaterial(Panel->QueryLibrary().QuerySource());
         Confirm(Panel->QueryLibrary().QueryDiagnostic().empty() && GlossDefinition.Scattering.Illumination.Strata[1].AlbedoRoughness[3] >= .045f,

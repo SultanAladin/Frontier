@@ -44,6 +44,16 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
     std::function<void(const MaterialPreviewConfiguration &)> ConfigurePreview;
     std::function<void(uint32_t)> ConfigurePreviewExtent;
+    // 📝 Environment archive catalogue for the viewport card: display names in catalogue order,
+    // one sphere-preview tile per entry, and a folder rescan (the import path).
+    std::function<std::vector<std::string>()> QueryEnvironmentNames;
+    std::function<MaterialPreviewImage(size_t)> QueryEnvironmentPreview;
+    std::function<void()> RescanEnvironments;
+    // 📝 Last rendered environment tile extents (popup open), for headless pointer gestures.
+    [[nodiscard]] PlaneExtent QueryEnvironmentPreviewExtent(size_t Index) const noexcept
+    {
+        return Index < EnvironmentPreviewExtents.size() ? EnvironmentPreviewExtents[Index] : PlaneExtent{};
+    }
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const noexcept { return Inspection; }
     [[nodiscard]] PlaneExtent QueryPreviewControlExtent(size_t Index) const noexcept
     {
@@ -63,6 +73,9 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] bool QueryFullscreenPreview() const noexcept { return FullscreenPreview; }
     [[nodiscard]] PlaneExtent QuerySaveExtent() const noexcept { return SaveExtent; }
     [[nodiscard]] PlaneExtent QueryRoughnessExtent() const noexcept { return RoughnessExtent; }
+    // 📝 First designer slider of the coat layer (layer 2), recorded beside the base-layer one so
+    // headless gestures can drive a coat control without assuming card geometry.
+    [[nodiscard]] PlaneExtent QueryCoatRoughnessExtent() const noexcept { return CoatRoughnessExtent; }
     // 📝 Optional scratch overlay toggle; recorded from the properties card so headless gestures can
     // drive the same opt-in the user clicks.
     [[nodiscard]] PlaneExtent QueryScratchExtent() const noexcept { return ScratchExtent; }
@@ -71,6 +84,7 @@ class MaterialLibraryPanel final : public ActivationSequence
 
   private:
     std::array<PlaneExtent, 8> InspectionExtents{};
+    std::vector<PlaneExtent> EnvironmentPreviewExtents;
     MaterialPreviewConfiguration Inspection;
     // 📝 Orbit lag: Inspection is the input target; SmoothedInspection eases toward it every frame so the
     // camera glides instead of snapping. Discrete state (shape, environment, exposure) always applies instantly.
@@ -83,6 +97,8 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool CollectionVisible = false;
     bool FullscreenPreview = false;
     bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
+    bool CoatRoughnessRecorded = false;
+    uint32_t InspectorLayerContext = 0;
     uint32_t SentPreviewExtent = 0;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
@@ -93,6 +109,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] float QueryInterfaceScale() const noexcept;
     bool DirectoryRequested = false;
     PlaneExtent RoughnessExtent, ScratchExtent;
+    PlaneExtent CoatRoughnessExtent;
     void ConstructInspector();
     void ConstructViewport();
     void ConstructFullscreenPreview();
