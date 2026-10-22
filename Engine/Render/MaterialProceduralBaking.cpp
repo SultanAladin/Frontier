@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace Frontier
 {
@@ -61,7 +62,42 @@ float ProceduralStoneFbm(float X, float Y, float Z)
         .0667f * ProceduralNoise3(X * 8.31f + 41.f, Y * 8.31f + 41.f, Z * 8.31f + 41.f);
 }
 
-ScratchFieldSample EvaluateScratchField(float U, float V, const ScratchFieldParameters &Parameters, float PixelUv)
+namespace
+{
+// 📝 One scratch per (layer, cell): every per-instance quantity (centre, direction, length, width
+// jitter, depth) is a pure function of the cell id, yet a full-image bake re-derives it for every
+// pixel in the 5x5 neighbourhood — hundreds of hash/trig evaluations per pixel. Resolving each
+// instance once per bake is float-exact (identical expressions, identical order) and removes that
+// factor; the reference entry point below resolves inline so both paths can be diffed bit-for-bit.
+struct ScratchInstance
+{
+    bool Occupied = false;
+    float A = 0, B = 0, CenterX = 0, CenterY = 0, DirectionX = 0, DirectionY = 0;
+    float Length = 0, WidthJitter = 0, Depth = 0;
+};
+ScratchInstance ResolveScratchInstance(float IdX, float IdY, float LayerSeed, float Occupancy,
+    const ScratchFieldParameters &Parameters)
+{
+    constexpr float Pi = 3.14159265f;
+    ScratchInstance Instance;
+    if (!(ProceduralHash31(IdX, IdY, LayerSeed) < Occupancy)) return Instance;
+    Instance.Occupied = true;
+    Instance.A = ProceduralHash31(IdX + 17.3f, IdY + 17.3f, LayerSeed + 3);
+    Instance.B = ProceduralHash31(IdX + 39.7f, IdY + 39.7f, LayerSeed + 11);
+    Instance.CenterX = IdX + .08f + .84f * Instance.A;
+    Instance.CenterY = IdY + .08f + .84f * Instance.B;
+    const float Angle = Parameters.AngleRadians +
+        (ProceduralHash31(IdX + 81.2f, IdY + 81.2f, LayerSeed) - .5f) * Pi * Parameters.Spread;
+    Instance.DirectionX = std::cos(Angle);
+    Instance.DirectionY = std::sin(Angle);
+    Instance.Length = Parameters.Length * ProceduralMix(.18f, 1, Instance.A * Instance.A);
+    Instance.WidthJitter = ProceduralMix(.35f, 1.4f, ProceduralHash31(IdX - 31.1f, IdY - 31.1f, LayerSeed));
+    Instance.Depth = Parameters.Depth * ProceduralMix(.35f, 1, Instance.B);
+    return Instance;
+}
+template <typename ResolveInstance>
+ScratchFieldSample EvaluateScratchFieldCore(float U, float V, const ScratchFieldParameters &Parameters,
+    float PixelUv, ResolveInstance &&Resolve)
 {
     ScratchFieldSample Sample;
     if (!(Parameters.Density > 0)) return Sample;
@@ -80,29 +116,34 @@ ScratchFieldSample EvaluateScratchField(float U, float V, const ScratchFieldPara
             for (int X = -2; X <= 2; ++X)
             {
                 const float IdX = CellX + float(X), IdY = CellY + float(Y);
-                if (!(ProceduralHash31(IdX, IdY, LayerSeed) < Occupancy)) continue;
-                const float A = ProceduralHash31(IdX + 17.3f, IdY + 17.3f, LayerSeed + 3);
-                const float B = ProceduralHash31(IdX + 39.7f, IdY + 39.7f, LayerSeed + 11);
-                const float CenterX = IdX + .08f + .84f * A, CenterY = IdY + .08f + .84f * B;
-                const float Angle = Parameters.AngleRadians +
-                    (ProceduralHash31(IdX + 81.2f, IdY + 81.2f, LayerSeed) - .5f) * Pi * Parameters.Spread;
-                const float DirectionX = std::cos(Angle), DirectionY = std::sin(Angle);
-                const float DeltaX = U - CenterX, DeltaY = V - CenterY;
-                const float Length = Parameters.Length * ProceduralMix(.18f, 1, A * A);
-                const float T = (DeltaX * DirectionX + DeltaY * DirectionY) / std::max(Length, .001f) + .5f;
+                const ScratchInstance Instance = Resolve(Layer, IdX, IdY, LayerSeed, Occupancy);
+                if (!Instance.Occupied) continue;
+                const float A = Instance.A, B = Instance.B;
+                const float DeltaX = U - Instance.CenterX, DeltaY = V - Instance.CenterY;
+                const float Length = Instance.Length;
+                const float T = (DeltaX * Instance.DirectionX + DeltaY * Instance.DirectionY) / std::max(Length, .001f) + .5f;
+                // 📝 Outside the segment the taper is exactly zero, so cut/bowl/lip all vanish;
+                // skipping the remaining transcendental work is bit-exact for finite inputs.
+                if (T <= 0 || T >= 1) continue;
                 const float Along = std::clamp(T, 0.f, 1.f);
                 const float Bend = Parameters.Bend * (B - .5f) * 2 * Length / std::max(Parameters.Length, .001f);
                 const float Bow = (std::sin(Along * Pi) + .2f * std::sin(Along * 2 * Pi + A * 2) * std::sin(Along * Pi)) * Bend;
-                const float Distance = std::abs(-DeltaX * DirectionY + DeltaY * DirectionX - Bow);
+                const float Distance = std::abs(-DeltaX * Instance.DirectionY + DeltaY * Instance.DirectionX - Bow);
                 const float Taper = ProceduralSmoothstep(0, .12f, T) * (1 - ProceduralSmoothstep(.84f, 1, T));
-                const float Width = Parameters.Width * ProceduralMix(.35f, 1.4f, ProceduralHash31(IdX - 31.1f, IdY - 31.1f, LayerSeed)) *
+                const float Width = Parameters.Width * Instance.WidthJitter *
                     (.2f + .8f * std::sqrt(std::max(Taper, 0.f)));
-                const float Depth = Parameters.Depth * ProceduralMix(.35f, 1, B);
+                const float Depth = Instance.Depth;
+                const float LipArgument = (Distance - Width * 1.65f) / std::max(Width * .45f, AntiAlias);
+                // 📝 Beyond the cut edge and the lip gaussian's float range every contribution is
+                // exactly zero (exp(-121) underflows float), so the pow/exp/smoothsteps are skipped.
+                if (Distance >= Width + AntiAlias && LipArgument >= 11.f) continue;
                 const float Cut = (1 - ProceduralSmoothstep(Width - AntiAlias, Width + AntiAlias, Distance)) * Taper *
                     std::min(1.f, Width / AntiAlias);
-                float Bowl = std::pow(std::max(0.f, 1 - Distance / std::max(Width, .0001f)), 1.3f) * Taper;
+                // 📝 The pow base clamps at max(Width,.0001), so beyond that radius the bowl is
+                // exactly zero and the pow can be skipped without changing a single bit.
+                float Bowl = (Distance >= std::max(Width, .0001f) ? 0.f :
+                    std::pow(std::max(0.f, 1 - Distance / std::max(Width, .0001f)), 1.3f)) * Taper;
                 Bowl = ProceduralMix(Bowl, Cut * .5f, ProceduralSmoothstep(Width * .4f, Width * 1.5f, AntiAlias));
-                const float LipArgument = (Distance - Width * 1.65f) / std::max(Width * .45f, AntiAlias);
                 const float Lip = std::exp(-LipArgument * LipArgument) * Taper * std::min(1.f, Width / AntiAlias);
                 Height = std::min(Height, -Depth * Bowl);
                 RimTotal = std::max(RimTotal, Lip * Depth * .16f);
@@ -115,6 +156,14 @@ ScratchFieldSample EvaluateScratchField(float U, float V, const ScratchFieldPara
     Sample.Rim = RimTotal;
     return Sample;
 }
+}
+
+ScratchFieldSample EvaluateScratchField(float U, float V, const ScratchFieldParameters &Parameters, float PixelUv)
+{
+    return EvaluateScratchFieldCore(U, V, Parameters, PixelUv,
+        [&](int, float IdX, float IdY, float LayerSeed, float Occupancy)
+        { return ResolveScratchInstance(IdX, IdY, LayerSeed, Occupancy, Parameters); });
+}
 
 ScratchBakeMaps BakeScratchMaps(const ScratchFieldParameters &Parameters, uint32_t Extent)
 {
@@ -124,11 +173,28 @@ ScratchBakeMaps BakeScratchMaps(const ScratchFieldParameters &Parameters, uint32
     Maps.Height.assign(size_t(Extent) * Extent, 0);
     Maps.Coverage.assign(size_t(Extent) * Extent, 0);
     const float PixelUv = Parameters.Scale / float(Extent);
+    // 📝 Bake-wide instance memo: at most 12 layers x (Scale+4)^2 cells ever resolve, versus
+    // Extent^2 x 25 neighbourhood visits. Cell ids are exact integers in float for any sane scale;
+    // anything outside the packed range falls back to direct resolution (still exact).
+    std::unordered_map<uint64_t, ScratchInstance> Instances;
+    const auto Resolve = [&](int Layer, float IdX, float IdY, float LayerSeed, float Occupancy)
+    {
+        if (!(std::abs(IdX) < 1000000.f) || !(std::abs(IdY) < 1000000.f))
+            return ResolveScratchInstance(IdX, IdY, LayerSeed, Occupancy, Parameters);
+        const uint64_t Key = (uint64_t(uint32_t(Layer)) << 42) |
+            (uint64_t(uint32_t(int32_t(IdX)) & 0x1FFFFFu) << 21) |
+            uint64_t(uint32_t(int32_t(IdY)) & 0x1FFFFFu);
+        const auto Existing = Instances.find(Key);
+        if (Existing != Instances.end()) return Existing->second;
+        const auto Instance = ResolveScratchInstance(IdX, IdY, LayerSeed, Occupancy, Parameters);
+        Instances.emplace(Key, Instance);
+        return Instance;
+    };
     for (uint32_t Y = 0; Y < Extent; ++Y)
         for (uint32_t X = 0; X < Extent; ++X)
         {
-            const auto Sample = EvaluateScratchField((float(X) + .5f) / float(Extent), (float(Y) + .5f) / float(Extent),
-                Parameters, PixelUv);
+            const auto Sample = EvaluateScratchFieldCore((float(X) + .5f) / float(Extent), (float(Y) + .5f) / float(Extent),
+                Parameters, PixelUv, Resolve);
             Maps.Height[size_t(Y) * Extent + X] = Sample.Height;
             Maps.Coverage[size_t(Y) * Extent + X] = Sample.Coverage;
         }
@@ -1695,29 +1761,32 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         const float Tooth = Op == "scratchedMetal" ? float(Value("grain", 0)) : 0;
         const float Depth = Op == "latheMetal" ? float(Value("depth", 0)) : 0;
         const float RingStep = Tiles * 3.3f / float(Extent);
+        // 📝 The cut field is baked once per channel through the memoized path instead of
+        // re-evaluating every scratch instance per pixel (identical float results).
+        const auto CutMaps = BakeScratchMaps(Cuts, Extent);
         std::vector<float> Field(size_t(Extent) * Extent);
         for (uint32_t Y = 0; Y < Extent; ++Y)
             for (uint32_t X = 0; X < Extent; ++X)
             {
                 const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
-                const auto Cut = EvaluateScratchField(U, V, Cuts, Cuts.Scale / float(Extent));
                 const size_t Index = size_t(Y) * Extent + X;
+                const float CutHeight = CutMaps.Height[Index], CutCoverage = CutMaps.Coverage[Index];
                 if (Channel == "Orm")
                 {
-                    Field[Index] = Cut.Coverage;
+                    Field[Index] = CutCoverage;
                     continue;
                 }
                 if (Op == "scratchedMetal")
                 {
                     const auto Bare = EvaluateMetalGrain(U, V, Tooth, Tiles, Seed);
-                    Field[Index] = Channel == "Albedo" ? Bare.Albedo : Bare.Relief + Cut.Height / .004f;
+                    Field[Index] = Channel == "Albedo" ? Bare.Albedo : Bare.Relief + CutHeight / .004f;
                     continue;
                 }
                 const float Rx = (U - .5f) * Tiles, Ry = (V - .5f) * Tiles;
                 const float Phase = std::sqrt(Rx * Rx + Ry * Ry) * 3.3f;
                 const float Lines =
                     std::sin(Phase) * .5f * (1 - ProceduralSmoothstep(.5f, 3.1f, RingStep)) + .5f;
-                Field[Index] = Channel == "Albedo" ? .84f + Lines * .14f : (Lines * .0001f * Depth + Cut.Height) / .004f;
+                Field[Index] = Channel == "Albedo" ? .84f + Lines * .14f : (Lines * .0001f * Depth + CutHeight) / .004f;
             }
         if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
         if (Channel == "Orm") return ConvertScratchOrmRgba(Field, Extent, Base);

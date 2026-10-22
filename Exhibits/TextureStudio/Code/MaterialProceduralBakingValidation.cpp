@@ -7,6 +7,7 @@
 
 #include "Engine/ContentInterchange/MaterialLibrary.h"
 #include "Engine/Render/MaterialProceduralBaking.h"
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -182,6 +183,36 @@ int main()
         Confirm(Groove && MinimumHeight < -Pilot.Depth * .5f, "Scratch bake holds no groove.");
         Confirm(MaximumCoverage > .5f, "Scratch bake holds no cut core.");
         Confirm(Shared, "Scratch groove escapes its shared mask.");
+        // 📝 The bake-wide instance memo must be bit-identical to resolving every instance per pixel:
+        // compare BakeScratchMaps against the public per-pixel entry point over varied fields,
+        // including degenerate zero-width and bend-heavy parameters.
+        for (const ScratchFieldParameters Field : {Pilot,
+            ScratchFieldParameters{11.7f, .4f, 0.f, .004f, 1.9f, 2.5f, 3, -.7f, 99},
+            ScratchFieldParameters{1.2f, 2.5f, .05f, .0005f, 0.f, 0.f, 8, 0.f, 0}})
+        {
+            constexpr uint32_t ParityExtent = 128;
+            const auto Memoized = BakeScratchMaps(Field, ParityExtent);
+            const float ParityPixelUv = Field.Scale / float(ParityExtent);
+            for (uint32_t Y = 0; Y < ParityExtent; ++Y)
+                for (uint32_t X = 0; X < ParityExtent; ++X)
+                {
+                    const auto Reference = EvaluateScratchField((float(X) + .5f) / float(ParityExtent),
+                        (float(Y) + .5f) / float(ParityExtent), Field, ParityPixelUv);
+                    const size_t Pixel = size_t(Y) * ParityExtent + X;
+                    Confirm(Memoized.Height[Pixel] == Reference.Height && Memoized.Coverage[Pixel] == Reference.Coverage,
+                        "Memoized scratch bake diverged from the per-pixel reference.");
+                }
+        }
+        // 📝 Performance evidence (reported, not asserted): a 512px density-6 field is the interactive
+        // rebake the user waits on; keep it visible so regressions are obvious in the test log.
+        {
+            const auto Started = std::chrono::steady_clock::now();
+            const auto Timed = BakeScratchMaps(Pilot, 512);
+            const auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - Started).count();
+            Confirm(Timed.Extent == 512, "Timed scratch bake extent changed.");
+            std::cout << "Scratch bake 512px density 6: " << Elapsed << " ms\n";
+        }
         bool Rejected = false;
         try { (void)BakeScratchMaps(Pilot, 0); }
         catch (const std::exception &) { Rejected = true; }
