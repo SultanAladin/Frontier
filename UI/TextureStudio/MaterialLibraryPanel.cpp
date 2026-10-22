@@ -1127,8 +1127,8 @@ void MaterialLibraryPanel::ConstructInspector()
                     if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][1]))
                         Changed = Library.ConfigureStratumCoefficient(Index, "HeightStrength", Definition.Scattering.StratumNormal[Index][1]) || Changed;
                 }
-                static constexpr const char *ChannelNames[3] = {"Albedo", "Orm", "Normal"};
-                for (uint32_t Slot = 0; Slot < 3; ++Slot)
+                static constexpr const char *ChannelNames[4] = {"Albedo", "Orm", "Normal", "Radiance"};
+                for (uint32_t Slot = 0; Slot < 4; ++Slot)
                 {
                     ImGui::PushID(ChannelNames[Slot]);
                     const auto &Channels = Definition.StratumChannels[Index];

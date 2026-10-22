@@ -67,7 +67,7 @@ enum class MaterialTextureCategory : uint32_t
 
 struct MaterialProceduralChannel
 {
-    std::string Name; // Albedo | Orm | Normal
+    std::string Name; // Albedo | Orm | Normal | Radiance
     std::string Op;   // scratches | "" (file or off)
     std::string Link; // pool identity; empty decodes as "shared"
     std::map<std::string,double> Params;
@@ -79,7 +79,7 @@ struct MaterialDefinition
     std::string Name = "Untitled material";
     MaterialScattering Scattering;
     std::array<std::string,4> TextureSources;
-    std::array<std::array<std::string,3>,8> StratumTextureSources;
+    std::array<std::array<std::string,4>,8> StratumTextureSources;
     std::array<std::vector<MaterialProceduralChannel>,8> StratumChannels;
     // 📝 Runtime-only rebake overrides keyed by (slot, source); populated by a procedural rebake, attached at
     // compile time, persisted to PNG files on save. Never serialized into the material source.

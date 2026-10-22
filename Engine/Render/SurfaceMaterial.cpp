@@ -177,9 +177,9 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
         {
             const auto *Textures = (*Stratum)["Textures"].as_table();
             if (!Textures) throw std::runtime_error("Stratum Textures must be a table.");
-            ValidateKeys(*Textures,{"Albedo","Orm","Normal"});
-            const std::array<const char *,3> Names{"Albedo","Orm","Normal"};
-            for (size_t Slot = 0; Slot < 3; ++Slot)
+            ValidateKeys(*Textures,{"Albedo","Orm","Normal","Radiance"});
+            const std::array<const char *,4> Names{"Albedo","Orm","Normal","Radiance"};
+            for (size_t Slot = 0; Slot < 4; ++Slot)
                 if (Textures->contains(Names[Slot]))
                 {
                     const auto Source = (*Textures)[Names[Slot]].value<std::string>();
@@ -190,7 +190,7 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
         if ((*Stratum).contains("Channels"))
         {
             const auto *Channels = (*Stratum)["Channels"].as_array();
-            if (!Channels || Channels->empty() || Channels->size() > 3) throw std::runtime_error("Stratum Channels must hold 1..3 entries.");
+            if (!Channels || Channels->empty() || Channels->size() > 4) throw std::runtime_error("Stratum Channels must hold 1..4 entries.");
             for (const auto &ChannelTerm : *Channels)
             {
                 const auto *Channel = ChannelTerm.as_table();
@@ -198,8 +198,8 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
                 ValidateKeys(*Channel,{"Name","Op","Link","Params"});
                 MaterialProceduralChannel Entry;
                 const auto Name = (*Channel)["Name"].value<std::string>();
-                if (!Name || (*Name != "Albedo" && *Name != "Orm" && *Name != "Normal"))
-                    throw std::runtime_error("Stratum channel Name must be Albedo, Orm or Normal.");
+                if (!Name || (*Name != "Albedo" && *Name != "Orm" && *Name != "Normal" && *Name != "Radiance"))
+                    throw std::runtime_error("Stratum channel Name must be Albedo, Orm, Normal or Radiance.");
                 Entry.Name = *Name;
                 for (const auto &Prior : Material.StratumChannels[Index])
                     if (Prior.Name == Entry.Name) throw std::runtime_error("Stratum channel Name is duplicated.");
@@ -232,7 +232,8 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
             for (const auto &Entry : Material.StratumChannels[Index])
             {
                 if (Entry.Op.empty()) continue;
-                const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+                const size_t Slot =
+                    Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : Entry.Name == "Normal" ? 2 : 3;
                 if (Material.StratumTextureSources[Index][Slot].empty())
                     Material.StratumTextureSources[Index][Slot] = EncodeProceduralSource(Index, Entry.Name);
                 // 📝 Channel ops sample their baked maps: derive the mask bit so shipped procedurals
@@ -315,8 +316,8 @@ std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
         Stratum.insert("HeightStrength",double(Material.Scattering.StratumNormal[Index][1]));
         Stratum.insert("Fresnel",Material.Scattering.DirectionalOptics[Index][2] == 1 ? "Dielectric" : "Schlick");
         toml::table Textures;
-        const std::array<const char *,3> Names{"Albedo","Orm","Normal"};
-        for (size_t Slot = 0; Slot < 3; ++Slot)
+        const std::array<const char *,4> Names{"Albedo","Orm","Normal","Radiance"};
+        for (size_t Slot = 0; Slot < 4; ++Slot)
             if (!Material.StratumTextureSources[Index][Slot].empty() &&
                 !Material.StratumTextureSources[Index][Slot].starts_with("procedural/"))
                 Textures.insert(Names[Slot],Material.StratumTextureSources[Index][Slot]);
@@ -513,7 +514,8 @@ void EnsureProceduralChannelBakes(MaterialDefinition &Material, uint32_t Extent)
         for (const auto &Entry : Material.StratumChannels[Index])
         {
             if (Entry.Op.empty()) continue;
-            const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+            const size_t Slot =
+                Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : Entry.Name == "Normal" ? 2 : 3;
             const std::string Derived = EncodeProceduralSource(Index, Entry.Name);
             const std::string &Live = Material.StratumTextureSources[Index][Slot].empty() ?
                 Material.TextureSources[Slot] : Material.StratumTextureSources[Index][Slot];
@@ -622,7 +624,7 @@ CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Materia
         const size_t Count = Slot == 3 ? 1 : Material.Scattering.Illumination.Configuration[0];
         for (size_t Index = 0; Index < Count; ++Index)
         {
-            const auto &Source = Slot < 3 && !Material.StratumTextureSources[Index][Slot].empty() ?
+            const auto &Source = Slot < 4 && !Material.StratumTextureSources[Index][Slot].empty() ?
                 Material.StratumTextureSources[Index][Slot] : Material.TextureSources[Slot];
             auto Position = std::find(Sources.begin(),Sources.end(),Source);
             size_t Slice = size_t(Position-Sources.begin());

@@ -69,6 +69,8 @@ TARGETS = {
     "cotton-jersey-knit": "knit", "melange-jersey-knit": "knit",
     "terracotta-clay": "clay", "wet-potter-clay": "clay",
     "kaolin-clay": "clay", "sculpting-clay": "clay",
+    "led-pixel-matrix": "led", "warm-cob-led": "led",
+    "apple-skin": "fruit",
 }
 
 OP_CHANNELS = {
@@ -81,6 +83,8 @@ OP_CHANNELS = {
     "weave": ("Albedo", "Normal"),
     "knit": ("Albedo", "Normal"),
     "clay": ("Albedo", "Normal"),
+    "led": ("Albedo", "Normal", "Radiance"),
+    "fruit": ("Albedo", "Normal"),
 }
 
 # Bake-driving scalars passed through verbatim from the SourceRecipe.
@@ -89,6 +93,8 @@ OP_SCALARS = {
     "dimples": ("detailScale", "dimpleDepth", "surfaceSeed"),
     "stucco": ("detailScale", "grain", "surfaceSeed"),
     "clay": ("detailScale", "grain", "moisture", "surfaceSeed"),
+    "led": ("detailScale", "pixelFill", "lensDome", "packageDepth", "surfaceSeed"),
+    "fruit": ("detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed"),
     "weave": ("detailScale", "weaveAngle", "weaveRelief", "fiberDetail", "fuzz",
               "slub", "denimFade", "grain", "fabricMode", "surfaceSeed"),
     "knit": ("detailScale", "grain", "fuzz", "weaveAngle", "surfaceSeed"),
@@ -113,6 +119,8 @@ OP_TEXTS = {
     "solar": ("color", "secondaryColor"),
     "weave": ("weavePattern", "warpColor", "weftColor"),
     "knit": ("color", "secondaryColor"),
+    "led": ("color",),
+    "fruit": ("color", "secondaryColor", "tertiaryColor"),
 }
 
 LIFT = {"solar": 0.02, "scratchedMetal": 0.3, "latheMetal": 0.3, "scratches": 0.3}
@@ -150,9 +158,13 @@ def build_material(stem, op, recipe):
     if op in LIFT:
         rough = min(1.0, rough + LIFT[op])
     metallic = 1.0 if op == "solar" else float(recipe["metalness"])
-    bakes_color = op in ("solar", "knit") or (op == "weave" and recipe["fabricMode"] in ("0", "3", "4"))
+    bakes_color = op in ("solar", "knit", "led", "fruit") or (op == "weave" and recipe["fabricMode"] in ("0", "3", "4"))
     albedo = [1.0, 1.0, 1.0] if bakes_color else decode_spectrum(recipe["color"])
-    mask = {"solar": 7, "scratchedMetal": 7, "latheMetal": 7, "scratches": 6}.get(op, 5)
+    mask = {"solar": 7, "scratchedMetal": 7, "latheMetal": 7, "scratches": 6, "led": 13}.get(op, 5)
+    radiance = None
+    if op == "led":
+        strength = float(recipe["emissionStrength"])
+        radiance = [clean_number(c * strength) for c in decode_spectrum(recipe["emissionColor"])]
 
     lines = ["Format = 1", f'Name = "{name}"', "", "[[Strata]]",
              'Category = "Opaque"',
@@ -166,6 +178,8 @@ def build_material(stem, op, recipe):
              "UvScaleOffset = [9, 4.5, 0, 0]",
              "",
              "[Strata.Textures]"]
+    if radiance is not None:
+        lines.insert(2, "Radiance = [%s]" % ", ".join(radiance))
     for channel in OP_CHANNELS[op]:
         lines.append(f'{channel} = "Textures/{stem}-{channel.lower()}.png"')
 

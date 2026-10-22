@@ -3,12 +3,51 @@ Name = "Apple Skin"
 
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.27467731206038465, 0.014443843596092545, 0.02217388479338738]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.28
 Metallic = 0
 Ior = 1.45
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/apple-skin-albedo.png"
+Normal = "Textures/apple-skin-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "fruit"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 72
+skinMode = 0
+spotDensity = 0.55
+colorGradient = 0.85
+grain = 0.4
+surfaceSeed = 17
+color = "#8f2029"
+secondaryColor = "#c5ac52"
+tertiaryColor = "#e3c697"
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "fruit"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 72
+skinMode = 0
+spotDensity = 0.55
+colorGradient = 0.85
+grain = 0.4
+surfaceSeed = 17
+color = "#8f2029"
+secondaryColor = "#c5ac52"
+tertiaryColor = "#e3c697"
+
 
 [[Strata]]
 Category = "Coating"

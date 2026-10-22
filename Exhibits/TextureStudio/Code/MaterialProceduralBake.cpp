@@ -205,6 +205,16 @@ bool BakeChannels(const MaterialCatalogueEntry &Entry, const std::filesystem::pa
     else if (Op == "dimples") Params = BakeScalars(Recipe, {"detailScale", "dimpleDepth", "surfaceSeed"});
     else if (Op == "stucco") Params = BakeScalars(Recipe, {"detailScale", "grain", "surfaceSeed"});
     else if (Op == "clay") Params = BakeScalars(Recipe, {"detailScale", "grain", "moisture", "surfaceSeed"});
+    else if (Op == "led")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "pixelFill", "lensDome", "packageDepth", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color"}, Stem);
+    }
+    else if (Op == "fruit")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
     else if (Op == "scratchedMetal" || Op == "latheMetal")
     {
         Params = BakeScalars(Recipe,
@@ -282,6 +292,8 @@ int main(int ArgumentCount, char **Arguments)
             else if (RecipeId == "golf" && BakeChannels(Entry, Textures, "dimples", {"Albedo", "Normal"})) ++Baked;
             else if (RecipeId == "stucco" && BakeChannels(Entry, Textures, "stucco", {"Albedo", "Normal"})) ++Baked;
             else if (RecipeId == "clay" && BakeChannels(Entry, Textures, "clay", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "led" && BakeChannels(Entry, Textures, "led", {"Albedo", "Normal", "Radiance"})) ++Baked;
+            else if (RecipeId == "fruitSurface" && BakeChannels(Entry, Textures, "fruit", {"Albedo", "Normal"})) ++Baked;
             else if ((RecipeId == "bareMetal" || RecipeId == "polishedMetal" || RecipeId == "brushedMetal") &&
                 BakeChannels(Entry, Textures, "scratchedMetal", {"Albedo", "Orm", "Normal"}))
                 ++Baked;

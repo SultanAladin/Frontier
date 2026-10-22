@@ -213,8 +213,8 @@ int main()
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
         // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
         // passthrough that keeps unworn polymer out of the worn-roughness branch.
-        // 📝 12 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
-        Confirm(QueryProceduralOps().size() == 20, "Procedural op registry changed.");
+        // 📝 14 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
+        Confirm(QueryProceduralOps().size() == 22, "Procedural op registry changed.");
         Confirm(QueryProceduralOpChannels("camouflage") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpTextParams("camouflage-smooth").size() == 4 &&
                 QueryProceduralOpTextParams("noise").empty(),
@@ -229,7 +229,9 @@ int main()
                 QueryProceduralOpChannels("stucco") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("weave") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("knit") == std::vector<std::string>{"Albedo", "Normal"} &&
-                QueryProceduralOpChannels("clay") == std::vector<std::string>{"Albedo", "Normal"},
+                QueryProceduralOpChannels("clay") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("led") == std::vector<std::string>{"Albedo", "Normal", "Radiance"} &&
+                QueryProceduralOpChannels("fruit") == std::vector<std::string>{"Albedo", "Normal"},
             "Disputed-family op channel set changed.");
         Confirm(QueryProceduralOpCeilingLift("scratches") == .3f && QueryProceduralOpCeilingLift("polymerGrain") == .096f &&
                 QueryProceduralOpCeilingLift("metalGrain") == 0 && QueryProceduralOpCeilingLift("unknown") == 0,
@@ -237,7 +239,8 @@ int main()
         Confirm(QueryProceduralOpCeilingLift("solar") == .02f && QueryProceduralOpCeilingLift("scratchedMetal") == .3f &&
                 QueryProceduralOpCeilingLift("latheMetal") == .3f && QueryProceduralOpCeilingLift("dimples") == 0 &&
                 QueryProceduralOpCeilingLift("stucco") == 0 && QueryProceduralOpCeilingLift("weave") == 0 &&
-                QueryProceduralOpCeilingLift("knit") == 0 && QueryProceduralOpCeilingLift("clay") == 0,
+                QueryProceduralOpCeilingLift("knit") == 0 && QueryProceduralOpCeilingLift("clay") == 0 &&
+                QueryProceduralOpCeilingLift("led") == 0 && QueryProceduralOpCeilingLift("fruit") == 0,
             "Disputed-family ORM ceiling lift changed.");
         Confirm(ResolveProceduralParamKey("scratchedMetal", "scratchAngle") == "angle" &&
                 ResolveProceduralParamKey("latheMetal", "scratchAngle") == "angle" &&
@@ -419,6 +422,81 @@ int main()
         for (size_t Pixel = 0; Pixel < DryAlbedo.size(); Pixel += 4) DrySum += DryAlbedo[Pixel];
         for (size_t Pixel = 0; Pixel < WetAlbedo.size(); Pixel += 4) WetSum += WetAlbedo[Pixel];
         Confirm(DrySum > WetSum, "Clay moisture fails to darken tone.");
+        // LED: dark housing against gold contacts, domed lens normals and a 0..1 emitter mask.
+        const std::map<std::string, double> PixelMatrix{{"detailScale", 7}, {"pixelFill", .62}, {"lensDome", .7},
+            {"packageDepth", .6}, {"surfaceSeed", 17}};
+        const std::map<std::string, std::string> PixelTexts{{"color", "#111518"}};
+        const auto LedAlbedo = BakeProceduralChannelRgba("led", "Albedo", PixelMatrix, PixelTexts, 64);
+        uint8_t LedMin = 255, LedMax = 0;
+        for (size_t Pixel = 0; Pixel < LedAlbedo.size(); Pixel += 4)
+        {
+            LedMin = std::min(LedMin, LedAlbedo[Pixel]);
+            LedMax = std::max(LedMax, LedAlbedo[Pixel]);
+        }
+        Confirm(LedMax > LedMin + 40, "LED package albedo has no housing/contact spread.");
+        const auto LedRadiance = BakeProceduralChannelRgba("led", "Radiance", PixelMatrix, PixelTexts, 64);
+        uint8_t MaskMin = 255, MaskMax = 0;
+        for (size_t Pixel = 0; Pixel < LedRadiance.size(); Pixel += 4)
+        {
+            MaskMin = std::min(MaskMin, LedRadiance[Pixel]);
+            MaskMax = std::max(MaskMax, LedRadiance[Pixel]);
+        }
+        Confirm(MaskMin < 8 && MaskMax > 230, "LED emitter mask escapes its dark-housing range.");
+        Confirm(LedRadiance == BakeProceduralChannelRgba("led", "Radiance", PixelMatrix, PixelTexts, 64),
+            "LED bake is not deterministic.");
+        const std::map<std::string, double> ReseededLed{{"detailScale", 7}, {"pixelFill", .62}, {"lensDome", .7},
+            {"packageDepth", .6}, {"surfaceSeed", 18}};
+        Confirm(LedAlbedo != BakeProceduralChannelRgba("led", "Albedo", ReseededLed, PixelTexts, 64),
+            "LED bake ignores its seed.");
+        const std::map<std::string, double> SparseLed{{"detailScale", 7}, {"pixelFill", .2}, {"lensDome", .7},
+            {"packageDepth", .6}, {"surfaceSeed", 17}};
+        const std::map<std::string, double> DenseLed{{"detailScale", 7}, {"pixelFill", .9}, {"lensDome", .7},
+            {"packageDepth", .6}, {"surfaceSeed", 17}};
+        Confirm(BakeProceduralChannelRgba("led", "Radiance", SparseLed, PixelTexts, 64) !=
+                BakeProceduralChannelRgba("led", "Radiance", DenseLed, PixelTexts, 64),
+            "LED pixel fill fails to resize the emitter.");
+        // 📝 The dome resolves to few-pixel tilts at 64; finer extents correctly flatten the same smooth
+        // dome exactly as the live shader does, so the dent check samples the resolving extent.
+        const auto LedNormal = BakeProceduralChannelRgba("led", "Normal", PixelMatrix, PixelTexts, 64);
+        size_t LedDented = 0;
+        for (size_t Pixel = 2; Pixel < LedNormal.size(); Pixel += 4) LedDented += LedNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(LedDented > 100, "LED lens leaves no normal dent.");
+        // Fruit: blush over stripes, seeded lenticels and skin-mode-specific relief.
+        const std::map<std::string, double> Apple{{"detailScale", 72}, {"skinMode", 0}, {"spotDensity", .55},
+            {"colorGradient", .85}, {"grain", .4}, {"surfaceSeed", 17}};
+        const std::map<std::string, std::string> AppleTexts{
+            {"color", "#8f2029"}, {"secondaryColor", "#c5ac52"}, {"tertiaryColor", "#e3c697"}};
+        const auto FruitAlbedo = BakeProceduralChannelRgba("fruit", "Albedo", Apple, AppleTexts, 64);
+        uint8_t FruitMin = 255, FruitMax = 0;
+        for (size_t Pixel = 0; Pixel < FruitAlbedo.size(); Pixel += 4)
+        {
+            FruitMin = std::min(FruitMin, FruitAlbedo[Pixel]);
+            FruitMax = std::max(FruitMax, FruitAlbedo[Pixel]);
+        }
+        Confirm(FruitMax > FruitMin + 30, "Apple blush has no pigment spread.");
+        Confirm(FruitAlbedo == BakeProceduralChannelRgba("fruit", "Albedo", Apple, AppleTexts, 64),
+            "Fruit bake is not deterministic.");
+        const std::map<std::string, double> ReseededApple{{"detailScale", 72}, {"skinMode", 0}, {"spotDensity", .55},
+            {"colorGradient", .85}, {"grain", .4}, {"surfaceSeed", 18}};
+        Confirm(FruitAlbedo != BakeProceduralChannelRgba("fruit", "Albedo", ReseededApple, AppleTexts, 64),
+            "Fruit bake ignores its seed.");
+        const std::map<std::string, double> Citrus{{"detailScale", 72}, {"skinMode", 1}, {"spotDensity", .55},
+            {"colorGradient", .85}, {"grain", .4}, {"surfaceSeed", 17}};
+        Confirm(FruitAlbedo != BakeProceduralChannelRgba("fruit", "Albedo", Citrus, AppleTexts, 64),
+            "Fruit bake ignores its skin mode.");
+        const std::map<std::string, double> Spotless{{"detailScale", 72}, {"skinMode", 0}, {"spotDensity", 0},
+            {"colorGradient", .85}, {"grain", .4}, {"surfaceSeed", 17}};
+        const std::map<std::string, double> Spotted{{"detailScale", 72}, {"skinMode", 0}, {"spotDensity", 1},
+            {"colorGradient", .85}, {"grain", .4}, {"surfaceSeed", 17}};
+        // 📝 Lenticels resolve at 256 and above; at 64 the pore field correctly fades exactly as the live
+        // shader does at distance, so the density comparison samples the resolving extent.
+        Confirm(BakeProceduralChannelRgba("fruit", "Albedo", Spotless, AppleTexts, 256) !=
+                BakeProceduralChannelRgba("fruit", "Albedo", Spotted, AppleTexts, 256),
+            "Fruit spot density paints no lenticels.");
+        const auto FruitNormal = BakeProceduralChannelRgba("fruit", "Normal", Apple, AppleTexts, 128);
+        size_t FruitDented = 0;
+        for (size_t Pixel = 2; Pixel < FruitNormal.size(); Pixel += 4) FruitDented += FruitNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(FruitDented > 100, "Apple skin leaves no normal dent.");
         // Scratched metal: uncut metal reproduces the bare-metal bytes exactly; cuts match the study ORM
         // while the albedo keeps the tooth (the study's occlusion convention carries the darkening).
         const std::map<std::string, double> CastIron{{"grain", .8}, {"detailScale", 65}, {"surfaceSeed", 17},
@@ -870,6 +948,20 @@ int main()
                 for (const char *Key : {"detailScale", "grain", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
             else if (Op == "clay")
                 for (const char *Key : {"detailScale", "grain", "moisture", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "led")
+            {
+                for (const char *Key : {"detailScale", "pixelFill", "lensDome", "packageDepth", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+            }
+            else if (Op == "fruit")
+            {
+                for (const char *Key : {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+                Texts["tertiaryColor"] = RecipeText(R, "tertiaryColor");
+            }
             else if (Op == "scratchedMetal" || Op == "latheMetal")
             {
                 for (const char *Key : {Op == "scratchedMetal" ? "grain" : "depth", "detailScale", "roughness",
@@ -892,7 +984,7 @@ int main()
         };
         static const std::set<std::string> LibraryMetalIds{"bareMetal", "polishedMetal", "brushedMetal"};
         size_t PinnedTextures = 0, SolarEntries = 0, GolfEntries = 0, StuccoEntries = 0, MetalEntries = 0,
-               BrakeEntries = 0, ClayEntries = 0;
+               BrakeEntries = 0, ClayEntries = 0, LedEntries = 0, FruitEntries = 0;
         for (const auto &Entry : Library.QueryEntries())
         {
             const auto &Id = Entry.Recipe.RecipeId;
@@ -925,6 +1017,16 @@ int main()
                 Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "clay", {"Albedo", "Normal"});
                 ++ClayEntries;
             }
+            else if (Id == "led")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "led", {"Albedo", "Normal", "Radiance"});
+                ++LedEntries;
+            }
+            else if (Id == "fruitSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "fruit", {"Albedo", "Normal"});
+                ++FruitEntries;
+            }
             else if (LibraryMetalIds.contains(Id))
             {
                 Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "scratchedMetal", {"Albedo", "Orm", "Normal"});
@@ -946,9 +1048,9 @@ int main()
             }
         }
         Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 21 && BrakeEntries == 1 &&
-                ClayEntries == 4,
+                ClayEntries == 4 && LedEntries == 2 && FruitEntries == 1,
             "Disputed-family entry count changed.");
-        Confirm(PinnedTextures == 133, "Baked texture family count changed.");
+        Confirm(PinnedTextures == 141, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

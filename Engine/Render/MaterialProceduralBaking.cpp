@@ -244,6 +244,48 @@ TwillSample EvaluateTwill(float U, float V, const WeaveFieldParameters &P, float
         ProceduralMix(.63f, Height, YarnResolved), ProceduralMix(MeanDirection, Over, YarnResolved), Fiber * YarnResolved};
 }
 
+void ProceduralBioCylinder(float U, float V, float FreqX, float FreqY, float Seed, float Out[3])
+{
+    // bioCylinder: wrap U around the fruit circumference so the tile edges meet seamlessly.
+    constexpr float Tau = 6.2831853f;
+    const float Angle = U * Tau;
+    Out[0] = std::cos(Angle) * FreqX / Tau;
+    Out[1] = std::sin(Angle) * FreqX / Tau;
+    Out[2] = V * FreqY + Seed;
+}
+
+void ProceduralBioCell(float Px, float Py, float Seed, float Period, float Out[4])
+{
+    // bioCellAt: periodic Worley F1/F2 plus winner-site hashes; the lattice id wraps in X so pores
+    // tile, while both boundary cells observe the same wrapped neighbours.
+    const float CellX = std::floor(Px), CellY = std::floor(Py);
+    const float Fx = Px - CellX, Fy = Py - CellY;
+    float D1 = 100, D2 = 100, WinnerX = 0, WinnerY = 0;
+    for (int Y = -1; Y <= 1; ++Y)
+        for (int X = -1; X <= 1; ++X)
+        {
+            float IdX = CellX + float(X);
+            if (Period > 0) IdX -= Period * std::floor(IdX / Period);
+            const float IdY = CellY + float(Y);
+            const float SiteX = .18f + .64f * ProceduralHash31(IdX, IdY, Seed);
+            const float SiteY = .18f + .64f * ProceduralHash31(IdX + 19.3f, IdY + 19.3f, Seed);
+            const float Dx = float(X) + SiteX - Fx, Dy = float(Y) + SiteY - Fy;
+            const float Distance = std::hypot(Dx, Dy);
+            if (Distance < D1)
+            {
+                D2 = D1;
+                D1 = Distance;
+                WinnerX = IdX;
+                WinnerY = IdY;
+            }
+            else D2 = std::min(D2, Distance);
+        }
+    Out[0] = D1;
+    Out[1] = std::max(0.f, D2 - D1);
+    Out[2] = ProceduralHash31(WinnerX, WinnerY, Seed + 37);
+    Out[3] = ProceduralHash31(WinnerX, WinnerY, Seed + 83);
+}
+
 float SegmentDistance(float Px, float Py, float Ax, float Ay, float Bx, float By)
 {
     const float Dx = Bx - Ax, Dy = By - Ay;
@@ -851,7 +893,7 @@ double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldPar
 std::vector<std::string> QueryProceduralOps()
 {
     std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet", "solar", "dimples",
-        "stucco", "weave", "knit", "scratchedMetal", "latheMetal", "clay"};
+        "stucco", "weave", "knit", "scratchedMetal", "latheMetal", "clay", "led", "fruit"};
     for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
     return Ops;
 }
@@ -867,7 +909,11 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     // 📝 Alloy varies no ORM term for dimpled covers, stucco, clay aggregate or yarn construction, so those
     // ops offer albedo plus normals; solar contacts and scratch overlays earn the full triple.
     if (Op == "solar" || Op == "scratchedMetal" || Op == "latheMetal") return {"Albedo", "Orm", "Normal"};
-    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit" || Op == "clay") return {"Albedo", "Normal"};
+    // 📝 Alloy varies no roughness term across the emitter array, so LED earns albedo, normals and the
+    // emitter mask; ORM stays scalar-authored while emission strength lives in RadianceNormal.
+    if (Op == "led") return {"Albedo", "Normal", "Radiance"};
+    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit" || Op == "clay" || Op == "fruit")
+        return {"Albedo", "Normal"};
     // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
     // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
     if (QueryCodedField(Op)) return {"Albedo", "Normal"};
@@ -1025,6 +1071,22 @@ std::vector<uint8_t> ConvertGrainAlbedoRgba(const std::vector<float> &Modulator,
     for (size_t Index = 0; Index < Modulator.size(); ++Index)
     {
         const uint8_t Gray = uint8_t(std::lround(std::clamp(Modulator[Index], 0.f, 1.f) * 255));
+        Rgba[Index * 4] = Rgba[Index * 4 + 1] = Rgba[Index * 4 + 2] = Gray;
+        Rgba[Index * 4 + 3] = 255;
+    }
+    return Rgba;
+}
+
+std::vector<uint8_t> ConvertRadianceMaskRgba(const std::vector<float> &Mask, uint32_t Extent)
+{
+    if (!Extent || Mask.size() != size_t(Extent) * Extent)
+        throw std::runtime_error("Radiance source is not a square emitter-mask field.");
+    // 📝 The emitter mask is a linear multiplier like albedo, so it sRGB-encodes exactly like the albedo
+    // bake; the float pyramid (or sRGB GPU format) restores linear before the shader scales by RadianceNormal.
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Index = 0; Index < Mask.size(); ++Index)
+    {
+        const uint8_t Gray = uint8_t(std::lround(std::clamp(ProceduralLinearToSrgb(Mask[Index]), 0.f, 1.f) * 255));
         Rgba[Index * 4] = Rgba[Index * 4 + 1] = Rgba[Index * 4 + 2] = Gray;
         Rgba[Index * 4 + 3] = 255;
     }
@@ -1306,6 +1368,163 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
         if (Channel == "Orm") return ConvertSolarOrmRgba(Roughness, Metal, Extent, std::min(1.f, Base + .02f));
         for (float &Relief : Height) Relief /= .0017f;
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
+    }
+    if (Op == "led")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("LED bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float PixelFill = float(Value("pixelFill", .65));
+        const float LensDome = float(Value("lensDome", .7));
+        const float PackageDepth = float(Value("packageDepth", .6));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural LED params cannot bake.");
+        float SubstrateRgb[3]{1, 1, 1};
+        const auto SubstrateText = Texts.find("color");
+        if (!DecodeHexLinearRgb(SubstrateText != Texts.end() ? SubstrateText->second : "#111518", SubstrateRgb))
+            throw std::runtime_error("LED substrate colour is not #rrggbb.");
+        // 📝 Single-face bake of the uType==20 block: recessed package, domed lens, emitter die with
+        // sub-dies, contacts, traces and bond wire. Pixel footprint stands in for fwidth exactly as the
+        // solar bake does; relief normalizes by the fixed .017 full-depth nominal so the lens/package
+        // sliders drive bump strength instead of normalizing it away.
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent),
+            Mask(size_t(Extent) * Extent);
+        const float Step = Tiles / float(Extent);
+        const float Aa = std::max(Step, .0015f);
+        const float Radius = PixelFill * .33f;
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float UvX = U * Tiles, UvY = V * Tiles;
+                const float Qx = ProceduralFract(UvX) - .5f, Qy = ProceduralFract(UvY) - .5f;
+                const float BevelX = std::max(std::abs(Qx) - .31f, 0.f), BevelY = std::max(std::abs(Qy) - .27f, 0.f);
+                const float Housing =
+                    1 - ProceduralSmoothstep(.035f - Aa, .035f + Aa, std::hypot(BevelX, BevelY));
+                const float Recess =
+                    1 - ProceduralSmoothstep(-Aa, Aa, std::max(std::abs(Qx) - .265f, std::abs(Qy) - .235f));
+                const float R = std::hypot(Qx, Qy) / std::max(Radius, .01f);
+                const float Lens = 1 - ProceduralSmoothstep(1 - Aa / Radius, 1 + Aa / Radius, R);
+                const float Dome = std::sqrt(std::max(0.f, 1 - R * R));
+                const float Pads = 1 -
+                    ProceduralSmoothstep(-Aa, Aa, std::max(std::abs(std::abs(Qx) - .423f) - .044f, std::abs(Qy) - .11f));
+                const float Traces = 1 -
+                    ProceduralSmoothstep(-Aa, Aa, std::max(std::abs(Qx) - .5f, std::abs(std::abs(Qy) - .447f) - .007f));
+                float Wire = 1 - ProceduralSmoothstep(.003f, .003f + Aa, SegmentDistance(Qx, Qy, -.22f, .13f, .04f, 0));
+                Wire *= Recess * (1 - Lens * .7f);
+                const float Die = 1 - ProceduralSmoothstep(-Aa, Aa,
+                    std::max(std::abs(Qx) - Radius * .45f, std::abs(Qy) - Radius * .38f));
+                const float SubDies = 1 -
+                    ProceduralSmoothstep(.03f, .1f, std::abs(ProceduralFract(Qx / std::max(Radius, .01f) * 4) - .5f));
+                const float Ring = (1 - ProceduralSmoothstep(.018f, .018f + Aa, std::abs(std::hypot(Qx, Qy) - Radius * 1.13f))) *
+                    (1 - Lens);
+                const float Contact = std::max(Pads, std::max(Traces * .65f, Wire));
+                const float BoardTone = .88f + .15f * ProceduralNoise3(U * 120, Seed, V * 120);
+                const size_t Index = size_t(Y) * Extent + X;
+                float Pixel[3]{SubstrateRgb[0] * BoardTone, SubstrateRgb[1] * BoardTone, SubstrateRgb[2] * BoardTone};
+                constexpr float HousingRgb[3]{.055f, .062f, .07f}, RecessRgb[3]{.008f, .012f, .017f},
+                    RingRgb[3]{.13f, .15f, .17f}, ContactRgb[3]{.66f, .47f, .17f}, DieRgb[3]{.34f, .3f, .18f};
+                for (int Component = 0; Component < 3; ++Component)
+                    Pixel[Component] = ProceduralMix(Pixel[Component], HousingRgb[Component], Housing);
+                for (int Component = 0; Component < 3; ++Component)
+                    Pixel[Component] = ProceduralMix(Pixel[Component], RecessRgb[Component], Recess);
+                for (int Component = 0; Component < 3; ++Component)
+                    Pixel[Component] = ProceduralMix(Pixel[Component], RingRgb[Component], Ring * .8f);
+                for (int Component = 0; Component < 3; ++Component)
+                    Pixel[Component] = ProceduralMix(Pixel[Component], ContactRgb[Component], Contact);
+                for (int Component = 0; Component < 3; ++Component)
+                    Pixel[Component] = ProceduralMix(Pixel[Component], DieRgb[Component], Die);
+                Linear[Index * 3] = Pixel[0];
+                Linear[Index * 3 + 1] = Pixel[1];
+                Linear[Index * 3 + 2] = Pixel[2];
+                Mask[Index] = Lens * (.2f + Die * (.65f + .15f * SubDies)) *
+                    (.88f + .12f * ProceduralHash31(std::floor(UvX), std::floor(UvY), 19));
+                Height[Index] = (Housing * .003f - Recess * .001f + Lens * Dome * LensDome * .012f + Pads * .002f) *
+                    PackageDepth;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        if (Channel == "Radiance") return ConvertRadianceMaskRgba(Mask, Extent);
+        for (float &Relief : Height) Relief /= .017f;
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
+    }
+    if (Op == "fruit")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Fruit bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float SkinMode = float(Value("skinMode", 0));
+        const float SpotDensity = float(Value("spotDensity", 0));
+        const float ColorGradient = float(Value("colorGradient", 0));
+        const float Grain = float(Value("grain", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural fruit params cannot bake.");
+        float BaseRgb[3]{1, 1, 1}, SecondaryRgb[3]{1, 1, 1}, TertiaryRgb[3]{1, 1, 1};
+        const auto BaseText = Texts.find("color");
+        const auto SecondaryText = Texts.find("secondaryColor");
+        const auto TertiaryText = Texts.find("tertiaryColor");
+        if (!DecodeHexLinearRgb(BaseText != Texts.end() ? BaseText->second : "#8f2029", BaseRgb) ||
+            !DecodeHexLinearRgb(SecondaryText != Texts.end() ? SecondaryText->second : "#c5ac52", SecondaryRgb) ||
+            !DecodeHexLinearRgb(TertiaryText != Texts.end() ? TertiaryText->second : "#e3c697", TertiaryRgb))
+            throw std::runtime_error("Fruit palette colour is not #rrggbb.");
+        // 📝 Single-face bake of the uType==34 block: blush over stripes, lenticel/pit/seed pores and waxed
+        // skin grain on the cylindrical fruit mapping. Two adaptations keep the tiling bake honest: pore rows
+        // round to an integer count (93.6 rows would cut a seam at every tile edge) and the mesh pole cap is
+        // dropped (it guards vProcUv poles, meaningless on a repeating tile). Pore roughness stays scalar;
+        // only albedo and relief vary across the skin.
+        const float Around = std::floor(Tiles * (SkinMode > 1.5f ? 2.6f : 2.f) + .5f);
+        const float PoreRows = std::round(Tiles * (SkinMode > 1.5f ? .9f : 1.3f));
+        const float Aa = std::max(std::hypot(Around, PoreRows) / float(Extent) * .5f, .001f);
+        const float Resolved = 1 - ProceduralSmoothstep(.35f, 1.3f, Aa);
+        const float Nominal = SkinMode < .5f ? .000475f : SkinMode < 1.5f ? .002225f : .005f;
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent);
+        float Cylinder[3];
+        float Pore[4];
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                ProceduralBioCylinder(U, V, 8, 3, Seed, Cylinder);
+                const float Pigment = ProceduralStoneFbm(Cylinder[0], Cylinder[1], Cylinder[2]);
+                ProceduralBioCell(U * Around, V * PoreRows, Seed, Around, Pore);
+                const size_t Index = size_t(Y) * Extent + X;
+                if (SkinMode < .5f)
+                {
+                    ProceduralBioCylinder(U, V, 55, 6, Seed, Cylinder);
+                    const float Stripes = ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]);
+                    const float Blush = ProceduralSmoothstep(.36f, .7f, Pigment + Stripes * .12f) * ColorGradient;
+                    const float Spots = (1 - ProceduralSmoothstep(.025f, .065f + Aa, Pore[0])) *
+                        (Pore[2] <= SpotDensity ? 1.f : 0.f) * Resolved;
+                    for (int Component = 0; Component < 3; ++Component)
+                        Linear[Index * 3 + Component] = ProceduralMix(ProceduralMix(BaseRgb[Component],
+                            SecondaryRgb[Component], Blush), TertiaryRgb[Component], Spots * .8f);
+                    ProceduralBioCylinder(U, V, 160, 160, Seed, Cylinder);
+                    Height[Index] = (ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]) - .5f) * Grain * .00045f -
+                        Spots * .00025f;
+                }
+                else if (SkinMode < 1.5f)
+                {
+                    const float GlandRadius = ProceduralMix(.2f, .34f, Pore[2]);
+                    const float Pits = (1 - ProceduralSmoothstep(.055f, GlandRadius + Aa, Pore[0])) * Resolved;
+                    const float Tone = .88f + Pigment * .24f - Pits * .065f;
+                    for (int Component = 0; Component < 3; ++Component)
+                        Linear[Index * 3 + Component] = BaseRgb[Component] * Tone;
+                    ProceduralBioCylinder(U, V, Around * 2, Tiles * 2, Seed, Cylinder);
+                    const float Rind = ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]);
+                    Height[Index] = ((.35f - Pits) * .003f + (Rind - .5f) * .00055f) * Grain;
+                }
+                else
+                {
+                    const float Pit = (1 - ProceduralSmoothstep(.11f, .36f + Aa, Pore[0])) * Resolved;
+                    const float SeedMask = (1 - ProceduralSmoothstep(.045f, .13f + Aa, Pore[0])) * Resolved;
+                    const float Tone = .83f + Pigment * .25f;
+                    for (int Component = 0; Component < 3; ++Component)
+                        Linear[Index * 3 + Component] =
+                            ProceduralMix(BaseRgb[Component] * Tone, SecondaryRgb[Component], SeedMask * .92f);
+                    const float Ratio = Pore[0] / .13f;
+                    Height[Index] = (-Pit * .005f + std::exp(-Ratio * Ratio) * Resolved * .004f) * Grain;
+                }
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        for (float &Relief : Height) Relief /= Nominal;
         return ConvertHeightToNormalRgba(Height, Extent, 2.f);
     }
     if (Op == "dimples")

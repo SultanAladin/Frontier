@@ -761,7 +761,8 @@ bool MaterialLibrary::ConfigureStratumChannel(uint32_t Index, std::string_view C
     {
         if (Selection.empty()) throw std::runtime_error("Select a material first.");
         const std::string Name(Channel), Operation(Op);
-        if (Name != "Albedo" && Name != "Orm" && Name != "Normal") throw std::runtime_error("Unknown stratum channel.");
+        if (Name != "Albedo" && Name != "Orm" && Name != "Normal" && Name != "Radiance")
+            throw std::runtime_error("Unknown stratum channel.");
         if (!Operation.empty())
         {
             const auto Ops = QueryProceduralOps();
@@ -813,7 +814,7 @@ bool MaterialLibrary::ConfigureStratumChannel(uint32_t Index, std::string_view C
         }
         // TextureMask follows the channel switch; procedural takes over any file source for the slot.
         Refresh();
-        const uint32_t Bit = Name == "Albedo" ? 1 : Name == "Orm" ? 2 : 4;
+        const uint32_t Bit = Name == "Albedo" ? 1 : Name == "Orm" ? 2 : Name == "Normal" ? 4 : 8;
         uint32_t Mask = DecodeSurfaceMaterial(Replacement).Scattering.TextureUse[Index][0];
         if (Operation.empty()) Mask &= ~Bit;
         else Mask |= Bit;
@@ -904,7 +905,8 @@ bool MaterialLibrary::MergeProceduralChannel(uint32_t Index, std::string_view Ch
     {
         if (Selection.empty()) throw std::runtime_error("Select a material first.");
         const std::string Name(Channel);
-        if (Name != "Albedo" && Name != "Orm" && Name != "Normal") throw std::runtime_error("Unknown stratum channel.");
+        if (Name != "Albedo" && Name != "Orm" && Name != "Normal" && Name != "Radiance")
+            throw std::runtime_error("Unknown stratum channel.");
         const auto Definition = DecodeSurfaceMaterial(Source);
         if (SourceStratum >= Definition.StratumChannels.size()) throw std::runtime_error("Merge source stratum does not exist.");
         const MaterialProceduralChannel *Donor = nullptr;
@@ -1120,7 +1122,8 @@ bool MaterialLibrary::RebakeProcedurals(uint32_t Extent)
             for (const auto &Entry : Definition.StratumChannels[Index])
             {
                 if (Entry.Op.empty()) continue;
-                const size_t Slot = Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : 2;
+                const size_t Slot =
+                    Entry.Name == "Albedo" ? 0 : Entry.Name == "Orm" ? 1 : Entry.Name == "Normal" ? 2 : 3;
                 const std::string &Key = Definition.StratumTextureSources[Index][Slot];
                 auto Rgba = BakeProceduralChannelRgba(Entry.Op, Entry.Name, Entry.Params, Entry.Texts, Extent);
                 SurfaceTextureImage BakedImage{Extent, Extent, std::move(Rgba)};
@@ -1154,8 +1157,9 @@ bool MaterialLibrary::PersistProceduralOverrides()
                 std::from_chars(Key.data() + 11, Key.data() + Middle, Index);
             if (Error != std::errc{} || Last != Key.data() + Middle) continue;
             const std::string Lower(Key.substr(NameBegin));
-            const std::string Name = Lower == "albedo" ? "Albedo" : Lower == "orm" ? "Orm" : Lower == "normal" ? "Normal" : "";
-            if (Name.empty() || (Slot != 0 && Slot != 1 && Slot != 2)) continue;
+            const std::string Name = Lower == "albedo" ? "Albedo" : Lower == "orm" ? "Orm" : Lower == "normal" ? "Normal" :
+                Lower == "radiance" ? "Radiance" : "";
+            if (Name.empty() || Slot > 3) continue;
             const std::string File = "Textures/" + Stem + "-" + Lower + ".png";
             const auto Png = EncodeProceduralPng(Image.Rgba, Image.Width);
             const auto Destination = Directory / File;
