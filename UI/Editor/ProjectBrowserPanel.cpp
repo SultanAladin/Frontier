@@ -2093,55 +2093,55 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                             ImVec2(Box.x + InnerW, Box.y + CanvasH), ImVec2(Live.U0, Live.V0),
                             ImVec2(Live.U1, Live.V1));
                         ImGui::PopClipRect();
-                        const CachedPreviewTriangles &Preview = PreviewTrianglesFor(*Entry, ActiveRevision);
-                        const float BarH = 32 * Scale;
-                        const ImVec2 Bar(Box.x + 12 * Scale, Box.y + CanvasH - 12 * Scale - BarH);
-                        const float BarW = InnerW - 24 * Scale;
-                        Frame.Draw->AddRectFilled(Bar, ImVec2(Bar.x + BarW, Bar.y + BarH),
-                            HexColour("#090909d9"), 7 * Scale);
-                        Frame.Draw->AddRect(Bar, ImVec2(Bar.x + BarW, Bar.y + BarH), HexColour("#ffffff20"),
-                            7 * Scale, 0, std::max(1.f, Scale));
-                        DrawBrowserText(Frame.Draw, Font, 8 * Scale,
-                            ImVec2(Bar.x + 10 * Scale, Bar.y + (BarH - 8 * Scale) / 2), HexColour("#bbbbbb"),
-                            "View");
-                        const std::vector<std::string> Channels = {"Lit · EON / GGX", "Albedo", "Specular",
-                            "Metallic", "Roughness", "CAD contours"};
-                        const int ChannelIndex = LiveChannel >= 0 && LiveChannel < 6 ? LiveChannel : 0;
-                        const float SelectW = std::min(130 * Scale, BrowserComboWidth(Frame, Channels));
-                        const int Picked = DrawBrowserSelect("channel",
-                            ImVec2(Bar.x + 10 * Scale + MeasureBrowserText(Font, 8 * Scale, "View").x + 6 * Scale,
-                                Bar.y + (BarH - BrowserComboHeight(Frame)) / 2),
-                            SelectW, Channels, ChannelIndex, Frame, 9 * Scale, 4 * Scale, 14 * Scale, 4 * Scale,
-                            HexColour("#111111"), 3 * Scale);
-                        if (Picked != ChannelIndex)
-                        {
-                            LiveChannel = Picked;
-                            CaptureDelay = 1;
-                        }
-                        const float CapW =
-                            MeasureBrowserText(Font, 8 * Scale, "Capture thumbnail").x + 16 * Scale;
-                        const ImVec2 Cap(Bar.x + 10 * Scale +
-                                             MeasureBrowserText(Font, 8 * Scale, "View").x + 6 * Scale + SelectW +
-                                             10 * Scale,
-                            Bar.y + (BarH - 18 * Scale) / 2);
-                        const bool CapClicked = PlaceBrowserHit(Cap, ImVec2(CapW, 18 * Scale), "capture");
-                        Frame.Draw->AddRect(Cap, ImVec2(Cap.x + CapW, Cap.y + 18 * Scale), HexColour("#ffffff20"),
-                            4 * Scale, 0, std::max(1.f, Scale));
-                        DrawBrowserText(Frame.Draw, Font, 8 * Scale,
-                            ImVec2(Cap.x + 8 * Scale, Cap.y + (18 * Scale - 8 * Scale) / 2),
-                            HexColour("#dddddd"), "Capture thumbnail");
-                        if (CapClicked)
-                        {
-                            CaptureNow();
-                            Notify("Thumbnail captured from the current rendered view.");
-                        }
-                        const std::string Tris =
-                            FormatBrowserCount(Preview.Statistics.Triangles) + " triangles";
-                        const ImVec2 TrisSize = MeasureBrowserText(Font, 8 * Scale, Tris);
-                        DrawBrowserText(Frame.Draw, Font, 8 * Scale,
-                            ImVec2(Bar.x + BarW - 10 * Scale - TrisSize.x, Bar.y + (BarH - 8 * Scale) / 2),
-                            HexColour("#bbbbbb"), Tris);
                     }
+                    const CachedPreviewTriangles &Preview = PreviewTrianglesFor(*Entry, ActiveRevision);
+                    const float BarH = 32 * Scale;
+                    const ImVec2 Bar(Box.x + 12 * Scale, Box.y + CanvasH - 12 * Scale - BarH);
+                    const float BarW = InnerW - 24 * Scale;
+                    Frame.Draw->AddRectFilled(Bar, ImVec2(Bar.x + BarW, Bar.y + BarH),
+                        HexColour("#090909d9"), 7 * Scale);
+                    Frame.Draw->AddRect(Bar, ImVec2(Bar.x + BarW, Bar.y + BarH), HexColour("#ffffff20"),
+                        7 * Scale, 0, std::max(1.f, Scale));
+                    DrawBrowserText(Frame.Draw, Font, 8 * Scale,
+                        ImVec2(Bar.x + 10 * Scale, Bar.y + (BarH - 8 * Scale) / 2), HexColour("#bbbbbb"),
+                        "View");
+                    const std::vector<std::string> Channels = {"Lit · EON / GGX", "Albedo", "Specular",
+                        "Metallic", "Roughness", "CAD contours"};
+                    const int ChannelIndex = LiveChannel >= 0 && LiveChannel < 6 ? LiveChannel : 0;
+                    const float SelectW = std::min(130 * Scale, BrowserComboWidth(Frame, Channels));
+                    const int Picked = DrawBrowserSelect("channel",
+                        ImVec2(Bar.x + 10 * Scale + MeasureBrowserText(Font, 8 * Scale, "View").x + 6 * Scale,
+                            Bar.y + (BarH - BrowserComboHeight(Frame)) / 2),
+                        SelectW, Channels, ChannelIndex, Frame, 9 * Scale, 4 * Scale, 14 * Scale, 4 * Scale,
+                        HexColour("#111111"), 3 * Scale);
+                    if (Picked != ChannelIndex)
+                    {
+                        LiveChannel = Picked;
+                        CaptureDelay = 1;
+                    }
+                    const float CapW =
+                        MeasureBrowserText(Font, 8 * Scale, "Capture thumbnail").x + 16 * Scale;
+                    const ImVec2 Cap(Bar.x + 10 * Scale +
+                                         MeasureBrowserText(Font, 8 * Scale, "View").x + 6 * Scale + SelectW +
+                                         10 * Scale,
+                        Bar.y + (BarH - 18 * Scale) / 2);
+                    const bool CapClicked = PlaceBrowserHit(Cap, ImVec2(CapW, 18 * Scale), "capture");
+                    Frame.Draw->AddRect(Cap, ImVec2(Cap.x + CapW, Cap.y + 18 * Scale), HexColour("#ffffff20"),
+                        4 * Scale, 0, std::max(1.f, Scale));
+                    DrawBrowserText(Frame.Draw, Font, 8 * Scale,
+                        ImVec2(Cap.x + 8 * Scale, Cap.y + (18 * Scale - 8 * Scale) / 2),
+                        HexColour("#dddddd"), "Capture thumbnail");
+                    if (CapClicked)
+                    {
+                        CaptureNow();
+                        Notify("Thumbnail captured from the current rendered view.");
+                    }
+                    const std::string Tris =
+                        FormatBrowserCount(Preview.Statistics.Triangles) + " triangles";
+                    const ImVec2 TrisSize = MeasureBrowserText(Font, 8 * Scale, Tris);
+                    DrawBrowserText(Frame.Draw, Font, 8 * Scale,
+                        ImVec2(Bar.x + BarW - 10 * Scale - TrisSize.x, Bar.y + (BarH - 8 * Scale) / 2),
+                        HexColour("#bbbbbb"), Tris);
                 }
             }
             Y += CanvasH;

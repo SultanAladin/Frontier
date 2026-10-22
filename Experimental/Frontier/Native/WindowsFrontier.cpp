@@ -107,6 +107,7 @@ int main()
     std::unique_ptr<Frontier::BrowserPreviewRendering> PreviewRendering;
     std::vector<Frontier::BrowserCatalogueEntry> PreviewCatalogue;
     std::map<VkImageView, VkDescriptorSet> PreviewDescriptors;
+    VkImageView LastLiveView = VK_NULL_HANDLE;
     bool PreviewFailed = false;
     // 📝 Stored browser lambdas capture these by reference across frames; InitializeVulkan-scope
     // closures dangle after setup returns and AV on first touch (frame-2 tile resolve).
@@ -194,8 +195,13 @@ int main()
             Frontier::BrowserPreviewImage Image;
             try
             {
-                if (!PreviewRendering->QueryLiveReady()) return Image;
-                Image.Texture = (uint64_t)Describe(PreviewRendering->QueryLiveView());
+                // Hold the last completed frame while the live target re-renders: the queue
+                // samples after the browser submit, so the current view always holds fresh pixels
+                // and only a recreated target (or the never-rendered first frames) reports null.
+                if (PreviewRendering->QueryLiveReady()) LastLiveView = PreviewRendering->QueryLiveView();
+                const auto Current = PreviewRendering->QueryLiveView();
+                if (Current && Current == LastLiveView)
+                    Image.Texture = (uint64_t)Describe(Current);
             }
             catch (const std::exception &Failure) { NoteFailure("QueryLiveImage", Failure); }
             return Image;

@@ -47,6 +47,13 @@ float ProceduralNoise3(float X, float Y, float Z)
     return ProceduralMix(ProceduralMix(X00, X10, Fy), ProceduralMix(X01, X11, Fy), Fz);
 }
 
+float ProceduralMirror(float T)
+{
+    // Triangle wave: seamless mirrored tiling for isotropic blotches (spangle, oxide).
+    T -= std::floor(T);
+    return T < .5f ? T * 2 : 2 - T * 2;
+}
+
 float ProceduralStoneFbm(float X, float Y, float Z)
 {
     return .5333f * ProceduralNoise3(X, Y, Z) + .2667f * ProceduralNoise3(X * 2.03f + 7.1f, Y * 2.03f + 7.1f, Z * 2.03f + 7.1f) +
@@ -787,7 +794,7 @@ double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldPar
 
 std::vector<std::string> QueryProceduralOps()
 {
-    std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain"};
+    std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet"};
     for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
     return Ops;
 }
@@ -799,6 +806,7 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     // modulates roughness and earns all three.
     if (Op == "metalGrain") return {"Albedo", "Normal"};
     if (Op == "polymerGrain") return {"Albedo", "Orm", "Normal"};
+    if (Op == "ribbedSheet") return {"Albedo", "Orm", "Normal"};
     // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
     // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
     if (QueryCodedField(Op)) return {"Albedo", "Normal"};
@@ -809,6 +817,7 @@ float QueryProceduralOpCeilingLift(std::string_view Op)
 {
     if (Op == "scratches") return .3f;
     if (Op == "polymerGrain") return .096f;
+    if (Op == "ribbedSheet") return .35f;
     return 0;
 }
 
@@ -843,6 +852,16 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
             {"scratchScale", "Scuff scale", 1, 128, 32, false, "x", 1},
             {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1},
             {"roughness", "Surface roughness", .045f, 1, .5f, false, "", .01f}};
+    // 📝 Rib ranges mirror the Alloy sheet controls (ribDepth/ribProfile/detailScale/weaveAngle/sheetSpangle/sheetOxidation).
+    if (Op == "ribbedSheet")
+        return {{"ribs", "Ribs per tile", 1, 12, 4, false, "", 1},
+            {"ribDepth", "Rib depth", 0, .4f, .2f, false, "scene units", .01f},
+            {"ribProfile", "Rib profile", 0, 1, 0, false, "0 round - 1 IBR", 1},
+            {"weaveAngle", "Rib direction", -180, 180, 0, false, "deg", 1},
+            {"sheetSpangle", "Spangle character", 0, 1, .3f, false, "", .01f},
+            {"sheetOxidation", "Weathering", 0, 1, .1f, false, "", .01f},
+            {"roughness", "Surface roughness", .045f, 1, .4f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
     // 📝 Coded-field ranges mirror the HTML generator sheet (MaterialPanel GeneratorInputs limits).
     if (QueryCodedField(Op))
     {
@@ -861,6 +880,7 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
 
 std::vector<ProceduralOpTextParam> QueryProceduralOpTextParams(std::string_view Op)
 {
+    if (Op == "ribbedSheet") return {{"color", "Sheet colour", "#b5c0c2"}};
     if (Op == "camouflage" || Op == "camouflage-smooth")
         return {{"colour0", "Sand colour", "#b5a477"}, {"colour1", "Olive colour", "#566044"},
             {"colour2", "Earth colour", "#514334"}, {"colour3", "Shadow colour", "#232921"}};
@@ -943,6 +963,24 @@ std::vector<uint8_t> ConvertGrainAlbedoRgba(const std::vector<float> &Modulator,
     return Rgba;
 }
 
+std::vector<uint8_t> ConvertRibbedOrmRgba(const std::vector<float> &Roughness, const std::vector<float> &Occlusion,
+    const std::vector<float> &Metallic, uint32_t Extent, float Ceiling)
+{
+    if (!Extent || Roughness.size() != size_t(Extent) * Extent || Occlusion.size() != Roughness.size() ||
+        Metallic.size() != Roughness.size() || !(Ceiling > 0) || !(Ceiling <= 1))
+        throw std::runtime_error("Ribbed ORM source is not square fields over a unit ceiling.");
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Index = 0; Index < Roughness.size(); ++Index)
+    {
+        uint8_t *Pixel = &Rgba[Index * 4];
+        Pixel[0] = uint8_t(std::lround(std::clamp(Occlusion[Index], 0.f, 1.f) * 255));
+        Pixel[1] = uint8_t(std::lround(std::clamp(Roughness[Index] / Ceiling, 0.f, 1.f) * 255));
+        Pixel[2] = uint8_t(std::lround(std::clamp(Metallic[Index], 0.f, 1.f) * 255));
+        Pixel[3] = 255;
+    }
+    return Rgba;
+}
+
 std::vector<uint8_t> ConvertPolymerOrmRgba(const std::vector<float> &Roughness, uint32_t Extent, float Base, float Grain)
 {
     if (!Extent || Roughness.size() != size_t(Extent) * Extent || !(Base > 0) || !(Base <= 1))
@@ -1005,6 +1043,65 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
         if (Channel == "Orm") return ConvertPolymerOrmRgba(Field, Extent, P.Base, P.Grain);
         return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "ribbedSheet")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Ribbed-sheet bake extent is unbounded.");
+        const double Ribs = std::clamp(Value("ribs", 4), 1., 12.);
+        const double Depth = std::clamp(Value("ribDepth", .2), 0., .4);
+        // 📝 Alloy ribDepth is scene units against a .2 reference: full relief at .2, flat at 0.
+        const float Amplitude = Depth <= 0 ? 0 : std::clamp(float(Depth * 5.), .3f, 1.f);
+        const bool Trapezoid = Value("ribProfile", 0) > .5;
+        const double Radians = Value("weaveAngle", 0) * 3.141592653589793 / 180;
+        const float CosA = float(std::cos(Radians)), SinA = float(std::sin(Radians));
+        const float Spangle = float(std::clamp(Value("sheetSpangle", .3), 0., 1.));
+        const float Oxidation = float(std::clamp(Value("sheetOxidation", .1), 0., 1.));
+        const float Base = float(std::clamp(Value("roughness", .4), .045, 1.));
+        const float Seed = float(Value("surfaceSeed", 17));
+        float SheetRgb[3]{1, 1, 1};
+        if (Channel == "Albedo")
+        {
+            const auto Found = Texts.find("color");
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : "#b5c0c2", SheetRgb))
+                throw std::runtime_error("Ribbed-sheet colour is not #rrggbb.");
+        }
+        std::vector<float> Height(size_t(Extent) * Extent), Roughness(size_t(Extent) * Extent),
+            Occlusion(size_t(Extent) * Extent), Metal(size_t(Extent) * Extent),
+            Linear(size_t(Extent) * Extent * 3);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float Along = U * CosA + V * SinA;
+                float Phase = float(Along * Ribs);
+                Phase -= std::floor(Phase);
+                const float Sine = std::sin(Phase * 2 * 3.141592653589793f);
+                const float Rib = Trapezoid ? std::copysign(std::pow(std::abs(Sine), .55f), Sine) : Sine;
+                const float Relief01 = Rib * .5f + .5f;
+                const float Mu = ProceduralMirror(U * 3 + Seed * .13f), Mv = ProceduralMirror(V * 3 + Seed * .29f);
+                const float SpangleField = ProceduralStoneFbm(Mu * 4 + Seed, Mv * 4, Seed * 1.7f);
+                const float Oxide = ProceduralSmoothstep(.68f, .95f,
+                    ProceduralStoneFbm(Mu * 5 + Seed + 13.7f, Mv * 5 + 7.3f, Seed + 5.1f));
+                const float Ao = .88f + .12f * Relief01;
+                const float Tone = std::max(0.f,
+                    Ao * (1 + (SpangleField - .5f) * .14f * Spangle) * (1 - Oxide * .5f * Oxidation));
+                const size_t Index = size_t(Y) * Extent + X;
+                Height[Index] = Rib * Amplitude;
+                Roughness[Index] =
+                    std::clamp(Base + (SpangleField - .5f) * .1f * Spangle + Oxide * .3f * Oxidation, .05f, 1.f);
+                Occlusion[Index] = Ao;
+                Metal[Index] = std::clamp(1 - Oxide * Oxidation, 0.f, 1.f);
+                Linear[Index * 3] = SheetRgb[0] * Tone;
+                Linear[Index * 3 + 1] = SheetRgb[1] * Tone;
+                Linear[Index * 3 + 2] = SheetRgb[2] * Tone;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        if (Channel == "Orm")
+        {
+            const float Ceiling = std::min(1.f, Base + .05f * Spangle + .3f * Oxidation);
+            return ConvertRibbedOrmRgba(Roughness, Occlusion, Metal, Extent, Ceiling);
+        }
+        return ConvertHeightToNormalRgba(Height, Extent, 6.f);
     }
     if (QueryCodedField(Op))
     {

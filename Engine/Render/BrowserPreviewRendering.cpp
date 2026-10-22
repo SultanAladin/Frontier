@@ -114,7 +114,7 @@ struct BrowserPreviewRendering::RenderingAllocation
         BrowserPreviewCamera Camera;
         int Channel = 0;
         uint64_t Generation = 0, Access = 0;
-        bool Ready = false, Dirty = false;
+        bool Ready = false, Dirty = false, Captured = false;
         std::shared_ptr<BrowserTarget> Target;
     };
     struct ImportSlot
@@ -902,6 +902,7 @@ void BrowserPreviewRendering::CaptureThumbnail(const std::string &Key, const Bro
     Slot->Channel = Channel;
     Slot->Dirty = true;
     Slot->Ready = false;
+    Slot->Captured = true;
 }
 
 void BrowserPreviewRendering::RequestImportImage(const std::string &Key, const std::vector<uint8_t> &ImageBytes)
@@ -1015,6 +1016,8 @@ void BrowserPreviewRendering::ConstructCommands(
     const auto Dirty = std::min_element(Rendering.Tiles.begin(), Rendering.Tiles.end(),
         [](const auto &Left, const auto &Right)
         {
+            // Explicit captures jump the queue; older dirty slots keep LRU order behind them.
+            if (Left.Captured != Right.Captured) return Left.Captured;
             if (Left.Dirty != Right.Dirty) return Left.Dirty;
             return Left.Access < Right.Access;
         });
@@ -1077,6 +1080,7 @@ void BrowserPreviewRendering::ConfirmSubmission() noexcept
         {
             Slot->Ready = true;
             Slot->Dirty = false;
+            Slot->Captured = false;
         }
     }
     for (auto &Import : Rendering.Imports)
