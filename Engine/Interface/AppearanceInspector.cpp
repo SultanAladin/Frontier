@@ -109,8 +109,7 @@ ColorQuad AppearanceInspector::QuerySemanticColour(uint32_t Row, uint32_t Swatch
 AppearanceDifference AppearanceInspector::QueryDifference() const noexcept
 {
     AppearanceDifference D{};
-    auto                 Note = [&](bool Changed, const char *Name)
-    {
+    auto                 Note = [&](bool Changed, const char *Name) {
         if (Changed)
         {
             if (D.Count < 8u)
@@ -223,11 +222,10 @@ void AppearanceInspector::RecordThemeTile(PixelSpace &Surface, const PlaneExtent
                           ControlKit::Faded(ColorQuad{0.0f, 0.0f, 0.0f, 0.05f}, Opacity));
 
     const float LineR = Radius * 0.25f;
-    auto        Line  = [&](float LX, float LY, float LW, float LH, float Alpha, float R)
-    {
+    auto        Line  = [&](float LX, float LY, float LW, float LH, float Alpha, float R) {
         Surface.FillRectangle(Spanning(LX, LY, LW, LH),
-                              ControlKit::Faded(ColorQuad{T.Lines.Red, T.Lines.Green, T.Lines.Blue, Alpha}, Opacity),
-                              R);
+                                      ControlKit::Faded(ColorQuad{T.Lines.Red, T.Lines.Green, T.Lines.Blue, Alpha}, Opacity),
+                                      R);
     };
     // Sidebar p-3: three 6 px dots, then 3 lines (full, 2/3, 1/2), then avatar row at the bottom.
     float SX = Side.MinimumX + 12.0f, SY = Side.MinimumY + 12.0f;
@@ -300,8 +298,45 @@ void AppearanceInspector::RecordSemanticRow(PixelSpace &Surface, float X, float 
                             ControlKit::Faded(ColorQuad{1.0f, 1.0f, 1.0f, 0.06f}, Opacity));
 }
 
-float AppearanceInspector::ConstructThemeTabLayout(PixelSpace &Surface, const PlaneExtent &Body, float ScrollY,
-                                                   const ControlPointer &Pointer, float Opacity) noexcept
+// The reference Display tab also contains renderer controls; retain only its interface-scale row.
+float AppearanceInspector::ConstructDisplayTabLayout(
+    PixelSpace           &Surface,
+    const PlaneExtent    &Body,
+    float                ScrollY,
+    const ControlPointer &Pointer,
+    float                Opacity) noexcept
+{
+    const float X       = Body.MinimumX + 16;
+    const float Y       = Body.MinimumY - ScrollY;
+    const float Width   = std::max(1.0f, Body.Width() - 32);
+    const auto  Content = ControlKit::SectionCard(Surface, Spanning(X, Y, Width, 180), Draft.CornerRadius, Opacity);
+    ControlKit::SectionHeading(Surface, Content.MinimumX, Content.MinimumY, Content.Width(), "Interface Scaling",
+                               "Editor interface only - no scene resolution controls", Ink90(), Ink50(), Opacity);
+    const float RowY    = Content.MinimumY + 80;
+    const auto  Control = ControlKit::ControlRow(Surface, Content.MinimumX, RowY, Content.Width(), "UI Scale",
+                                                 ControlKit::Palette().TextDim, Opacity);
+    char        Number[8];
+    std::snprintf(Number, sizeof(Number), "%d", static_cast<int>(std::lround(Draft.InterfaceScale)));
+    ControlKit::ValuePill(Surface, Control.MinimumX, RowY, Number, "%", Opacity);
+    const float Left  = Control.MinimumX + ControlKit::ValuePillWidth + ControlKitTokens::RowGap;
+    ScaleSliderExtent = Spanning(Left, RowY, std::max(1.0f, Control.MaximumX - Left), ControlKitTokens::ControlHeight);
+    float      InterfaceScale  = Draft.InterfaceScale;
+    const auto Hit = ControlKit::Slider(Surface, ScaleSliderExtent, 75, 150, InterfaceScale, DraggingSlider == 0, Pointer, InterfaceScale, Opacity);
+    if (Hit.Pressed)
+        DraggingSlider = 0;
+    if (DraggingSlider == 0)
+        Draft.InterfaceScale = std::round(InterfaceScale);
+    if (Pointer.Released || !Pointer.Down)
+        DraggingSlider = -1;
+    return 180;
+}
+
+float AppearanceInspector::ConstructThemeTabLayout(
+    PixelSpace           &Surface,
+    const PlaneExtent    &Body,
+    float                ScrollY,
+    const ControlPointer &Pointer,
+    float                Opacity) noexcept
 {
     DropdownCount      = 0u;
     const float Radius = std::clamp(Draft.CornerRadius, 0.0f, SectionRadiusMax);
@@ -341,26 +376,26 @@ float AppearanceInspector::ConstructThemeTabLayout(PixelSpace &Surface, const Pl
         Y += H + SectionGap;
     }
 
-    // ② Corner Radius — heading, then the value pill + slider row below (thin track).
+    // ② Corner Radius — heading, then the value pill + slider row below (shared sensitivity styling).
     {
         const float       HeadH   = 20.0f + 4.0f + 16.0f + 24.0f;
         const float       H       = ControlKit::SectionPadding * 2.0f + HeadH + ControlKitTokens::ControlHeight;
         const PlaneExtent Content = ControlKit::SectionCard(Surface, Spanning(X, Y, W, H), Radius, Opacity);
         ControlKit::SectionHeading(Surface, Content.MinimumX, Content.MinimumY, Content.Width(), "Corner Radius",
                                    "Adjust the roundness of UI elements", Ink90(), Ink50(), Opacity);
-        char Value[8];
-        std::snprintf(Value, sizeof(Value), "%d", static_cast<int>(std::lround(Draft.CornerRadius)));
-        ControlKit::ValuePill(Surface, Content.MinimumX, Content.MinimumY + HeadH, Value, "px", Opacity);
+        char RadiusText[8];
+        std::snprintf(RadiusText, sizeof(RadiusText), "%d", static_cast<int>(std::lround(Draft.CornerRadius)));
+        ControlKit::ValuePill(Surface, Content.MinimumX, Content.MinimumY + HeadH, RadiusText, "px", Opacity);
         RadiusSliderExtent = Spanning(
             Content.MinimumX + ControlKit::ValuePillWidth + ControlKitTokens::RowGap, Content.MinimumY + HeadH,
             Content.Width() - ControlKit::ValuePillWidth - ControlKitTokens::RowGap, ControlKitTokens::ControlHeight);
-        float            V   = Draft.CornerRadius;
-        const ControlHit Hit = ControlKit::Slider(Surface, RadiusSliderExtent, 0.0f, 32.0f, V, DraggingSlider == 2,
-                                                  Pointer, V, true, false, Opacity);
+        float            CornerRadius   = Draft.CornerRadius;
+        const ControlHit Hit = ControlKit::Slider(Surface, RadiusSliderExtent, 0.0f, 32.0f, CornerRadius, DraggingSlider == 2,
+                                                  Pointer, CornerRadius, Opacity);
         if (Hit.Pressed)
             DraggingSlider = 2;
         if (DraggingSlider == 2)
-            Draft.CornerRadius = std::round(V);
+            Draft.CornerRadius = std::round(CornerRadius);
         Y += H + SectionGap;
     }
 
@@ -477,8 +512,12 @@ void AppearanceInspector::IntegrateFontStrip(float DeltaSeconds) noexcept
         StripScroll = StripScrollTarget;
 }
 
-float AppearanceInspector::ConstructFontsTabLayout(PixelSpace &Surface, const PlaneExtent &Body, float ScrollY,
-                                                   const ControlPointer &Pointer, float Opacity) noexcept
+float AppearanceInspector::ConstructFontsTabLayout(
+    PixelSpace           &Surface,
+    const PlaneExtent    &Body,
+    float                ScrollY,
+    const ControlPointer &Pointer,
+    float                Opacity) noexcept
 {
     DropdownCount                  = 0u;
     const TypefaceRegistry *Reg    = TypefaceRegistry::QueryCurrent();
@@ -684,7 +723,7 @@ float AppearanceInspector::ConstructFontsTabLayout(PixelSpace &Surface, const Pl
                     Cx += ChipW[C] + 12.0f;
                 }
             }
-            const float LeftH = 20.0f + 24.0f + ControlKit::SliderThinHeight + 32.0f +
+            const float LeftH = 20.0f + 24.0f + ControlKit::SliderHeight + 32.0f +
                                 RowsNeeded * ControlKit::ChipHeight + (RowsNeeded - 1u) * 12.0f;
             const float       H       = ControlKit::SectionPadding * 2.0f + std::max(LeftH, 100.0f);
             const PlaneExtent Content = ControlKit::SectionCard(Surface, Spanning(X, Y, W, H), Radius, Opacity);
@@ -697,23 +736,23 @@ float AppearanceInspector::ConstructFontsTabLayout(PixelSpace &Surface, const Pl
             Surface.Text(Content.MinimumX, Top + 2.0f, ControlKit::Faded(Ink90(), Opacity), Roles[R].Label, 14.0f);
             Surface.PopTypeface();
             const float SliderY =
-                Top + 20.0f + 24.0f - (ControlKitTokens::ControlHeight - ControlKit::SliderThinHeight) * 0.5f;
+                Top + 20.0f + 24.0f - (ControlKitTokens::ControlHeight - ControlKit::SliderHeight) * 0.5f;
             ControlKit::ValuePill(Surface, Content.MinimumX, SliderY, Px, "px", Opacity);
             RoleSliderExtents[R] = Spanning(Content.MinimumX + ControlKit::ValuePillWidth + ControlKitTokens::RowGap,
                                             SliderY, LeftW - ControlKit::ValuePillWidth - ControlKitTokens::RowGap,
                                             ControlKitTokens::ControlHeight);
             {
-                float            V       = Draft.RoleSize[R];
+                float            TypeSize       = Draft.RoleSize[R];
                 const int        Ordinal = 10 + static_cast<int>(R);
-                const ControlHit Hit     = ControlKit::Slider(Surface, RoleSliderExtents[R], 8.0f, 72.0f, V,
-                                                              DraggingSlider == Ordinal, Pointer, V, true, false, Opacity);
+                const ControlHit Hit     = ControlKit::Slider(Surface, RoleSliderExtents[R], 8.0f, 72.0f, TypeSize,
+                                                              DraggingSlider == Ordinal, Pointer, TypeSize, Opacity);
                 if (Hit.Pressed)
                     DraggingSlider = Ordinal;
                 if (DraggingSlider == Ordinal)
-                    Draft.RoleSize[R] = std::round(V);
+                    Draft.RoleSize[R] = std::round(TypeSize);
             }
             {
-                float Cx = Content.MinimumX, Cy = Top + 20.0f + 24.0f + ControlKit::SliderThinHeight + 32.0f;
+                float Cx = Content.MinimumX, Cy = Top + 20.0f + 24.0f + ControlKit::SliderHeight + 32.0f;
                 for (uint32_t O = 0u; O < 9u; ++O)
                     ChipExtents[R][O] = PlaneExtent{};
                 for (uint32_t C = 0u; C < ChipCount; ++C)

@@ -39,6 +39,25 @@
       "sha256": "7e85e39ade1efdda00734d323a0230b5c938074e9fb2ddbe453bdbb281064d2c",
       "origin": "GLFW 3.4 release tag",
       "witness": "include/GLFW/glfw3.h"
+    },
+    {
+      "name": "vulkan-headers",
+      "repository": "KhronosGroup/Vulkan-Headers",
+      "revision": "v1.4.321",
+      "url": "https://codeload.github.com/KhronosGroup/Vulkan-Headers/tar.gz/refs/tags/v1.4.321",
+      "sha256": "7c1874f9186d9e7d5245e279cdccaa77a66ed8f52871b428630aeb771dc7623c",
+      "origin": "Vulkan-Headers v1.4.321; headers only; runtime loader remains system supplied",
+      "witness": "include/vulkan/vulkan.h"
+    },
+    {
+      "name": "stb",
+      "repository": "nothings/stb",
+      "revision": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+      "url": "https://codeload.github.com/nothings/stb/tar.gz/2c980bb59875b0d32144a71867fbdebb2f77cd20",
+      "sha256": "9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515",
+      "proof": true,
+      "origin": "PNG/JPEG material texture decoding; stb_image v2.30",
+      "witness": "stb_image.h"
     }
   ]
 }

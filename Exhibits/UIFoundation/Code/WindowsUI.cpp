@@ -1,204 +1,167 @@
 /*==========================================================================================================================================
                                                                WINDOWSUI.CPP
 ==========================================================================================================================================*/
-// 🧩 Host the native UI in a GLFW window with a DX11 ImGui adapter; primary engine rendering remains Vulkan/Slang.
+// 🧩 Select the Frontier startup workspace while Engine owns the shared native application loop.
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_WIN32
+#include "Engine/Interface/WindowsApplication.h"
+#include "Engine/Interface/ContentDirectory.h"
+#include "Engine/Interface/IconPresentation.h"
+#include "UI/Editor/ControlCentrePanel.h"
+#include "UI/Editor/EditorWorkspace.h"
+#include "UI/Editor/ProjectBrowserPanel.h"
+#include <windows.h>
+#include <commdlg.h>
+#include <shellapi.h>
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
-#include <d3d11.h>
 #include <imgui.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_dx11.h>
-#include "UI/Editor/ControlCentrePanel.h"
-#include "Engine/Interface/IconPresentation.h"
-#include <cstdlib>
-#include <filesystem>
 #include <iostream>
+#include <cstring>
 
-namespace
-{
 //------------------------------------------------------------------------------------------------------------------------
-//                                                    DISPLAY RESOURCES
+//                                                     FRONTIER APPLICATION
 //------------------------------------------------------------------------------------------------------------------------
 
-struct DisplayResources
+std::filesystem::path ChooseProjectPath(GLFWwindow *Window, bool Save)
 {
-    ID3D11Device           *Device    = nullptr;
-    ID3D11DeviceContext    *Context   = nullptr;
-    IDXGISwapChain         *SwapChain = nullptr;
-    ID3D11RenderTargetView *Target    = nullptr;
-
-    ~DisplayResources()
-    {
-        if (Target)
-            Target->Release();
-        if (SwapChain)
-            SwapChain->Release();
-        if (Context)
-            Context->Release();
-        if (Device)
-            Device->Release();
-    }
-
-    bool ConstructTarget()
-    {
-        ID3D11Texture2D *BackBuffer = nullptr;
-        if (FAILED(SwapChain->GetBuffer(0, IID_PPV_ARGS(&BackBuffer))))
-            return false;
-        const auto Result = Device->CreateRenderTargetView(BackBuffer, nullptr, &Target);
-        BackBuffer->Release();
-        return SUCCEEDED(Result);
-    }
-
-    bool Initialize(HWND Window)
-    {
-        DXGI_SWAP_CHAIN_DESC Description{};
-        Description.BufferCount       = 2;
-        Description.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        Description.BufferUsage       = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        Description.OutputWindow      = Window;
-        Description.SampleDesc.Count  = 1;
-        Description.Windowed          = TRUE;
-        Description.SwapEffect        = DXGI_SWAP_EFFECT_DISCARD;
-        D3D_FEATURE_LEVEL           Level;
-        constexpr D3D_FEATURE_LEVEL Levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-        auto                        Result =
-            D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, Levels, 2, D3D11_SDK_VERSION,
-                                          &Description, &SwapChain, &Device, &Level, &Context);
-        if (Result == DXGI_ERROR_UNSUPPORTED)
-            Result =
-                D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, Levels, 2, D3D11_SDK_VERSION,
-                                              &Description, &SwapChain, &Device, &Level, &Context);
-        if (FAILED(Result))
-            return false;
-        IDXGIFactory *Factory = nullptr;
-        if (SUCCEEDED(SwapChain->GetParent(IID_PPV_ARGS(&Factory))))
-        {
-            Factory->MakeWindowAssociation(Window, DXGI_MWA_NO_ALT_ENTER);
-            Factory->Release();
-        }
-        return ConstructTarget();
-    }
-
-    bool Reconfigure(int Width, int Height)
-    {
-        Context->OMSetRenderTargets(0, nullptr, nullptr);
-        if (Target)
-        {
-            Target->Release();
-            Target = nullptr;
-        }
-        return SUCCEEDED(SwapChain->ResizeBuffers(0, Width, Height, DXGI_FORMAT_UNKNOWN, 0)) && ConstructTarget();
-    }
-};
-
-void ReportGlfwError(int Code, const char *Description)
-{
-    std::cerr << "GLFW " << Code << ": " << Description << '\n';
+    wchar_t       Filename[32768] = {};
+    OPENFILENAMEW Selection{};
+    Selection.lStructSize  = sizeof(Selection);
+    Selection.hwndOwner    = glfwGetWin32Window(Window);
+    Selection.lpstrFilter  = L"Frontier projects (*.projectspace)\0*.projectspace\0\0";
+    Selection.lpstrFile    = Filename;
+    Selection.nMaxFile    = 32768;
+    Selection.lpstrDefExt = L"projectspace";
+    Selection.Flags       = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST |
+                            (Save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+    const bool Accepted = Save ? GetSaveFileNameW(&Selection) != FALSE : GetOpenFileNameW(&Selection) != FALSE;
+    return Accepted ? std::filesystem::path(Filename) : std::filesystem::path{};
 }
-} // namespace
 
-//------------------------------------------------------------------------------------------------------------------------
-//                                                      WINDOWS HOST
-//------------------------------------------------------------------------------------------------------------------------
+int RunWorkspace()
+{
+    std::filesystem::path ProjectPath;
+    int                   ArgumentCount = 0;
+    auto                **Arguments     = CommandLineToArgvW(GetCommandLineW(), &ArgumentCount);
+    bool                  CreateProject = false;
+    for (int Index = 1; Arguments && Index < ArgumentCount; ++Index)
+    {
+        const std::wstring Argument = Arguments[Index];
+        if ((Argument == L"--project" || Argument == L"--create-project") && Index + 1 < ArgumentCount)
+        {
+            CreateProject = Argument == L"--create-project";
+            ProjectPath   = Arguments[++Index];
+        }
+        else
+        {
+            std::cerr << "Usage: FrontierUI.exe [--project file.projectspace | --create-project file.projectspace]\n";
+            LocalFree(Arguments);
+            return 2;
+        }
+    }
+    if (Arguments)
+        LocalFree(Arguments);
+    if (CreateProject)
+    {
+        const auto Template =
+            Frontier::ResolveContentDirectory("EngineContent/Defaults") / "BlankProject/Blank.projectspace";
+        std::string Diagnostic;
+        if (!Frontier::ProjectSpaceCodec::CreateBlank(Template, ProjectPath,
+                                                      Frontier::EncodeContentPath(ProjectPath.stem()), Diagnostic))
+        {
+            std::cerr << "Project creation refused: " << Diagnostic << '\n';
+            return 1;
+        }
+    }
+    if (!ProjectPath.empty())
+    {
+        Frontier::ProjectSpaceDocument Candidate;
+        std::string Diagnostic;
+        if (!Frontier::ProjectSpaceCodec::Decode(ProjectPath, Candidate, Diagnostic))
+        {
+            std::cerr << "Project opening refused: " << Diagnostic << '\n';
+            return 1;
+        }
+    }
+    Frontier::ActivationOwnership Ownership;
+    Frontier::ControlCentrePanel *Panel = nullptr;
+    std::unique_ptr<Frontier::ProjectBrowserPanel> Browser;
+    std::unique_ptr<Frontier::EditorWorkspace> Workspace;
+    std::filesystem::path Preferences;
+    GLFWwindow *Window = nullptr;
+    Frontier::ApplicationWindowCallbacks Callbacks;
+    Callbacks.Title = ProjectPath.empty() ? "Frontier - Project Browser" : "Frontier - Editor Workspace";
+    Callbacks.Initialize = [&](GLFWwindow *CurrentWindow)
+    {
+        Window = CurrentWindow;
+        Frontier::IconPresentation::Attach("EngineContent/Icons");
+        const wchar_t *LocalDirectory = _wgetenv(L"LOCALAPPDATA");
+        Preferences = LocalDirectory ? std::filesystem::path(LocalDirectory)/L"Frontier/Personal.projectspace" : std::filesystem::path{};
+        Ownership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences, ProjectPath));
+        Panel = static_cast<Frontier::ControlCentrePanel *>(Ownership.get());
+        if (!Panel->Initialize() || !Panel->Activate()) throw std::runtime_error("UI initialization failed: "+Panel->QueryDiagnostic());
+        Browser = std::make_unique<Frontier::ProjectBrowserPanel>([&](bool Save) { return ChooseProjectPath(Window, Save); });
+        if (!ProjectPath.empty()) Workspace = std::make_unique<Frontier::EditorWorkspace>(*Panel);
+    };
+    Callbacks.ConfigurePlatform = [&]()
+    {
+        const auto RequestedProject = Browser->ConsumeLaunchPath();
+        if (!RequestedProject.empty())
+        {
+            Workspace.reset();
+            Ownership.reset();
+            Ownership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences, RequestedProject));
+            Panel = static_cast<Frontier::ControlCentrePanel *>(Ownership.get());
+            if (!Panel->Initialize() || !Panel->Activate()) throw std::runtime_error("Project activation failed: "+Panel->QueryDiagnostic());
+            Workspace = std::make_unique<Frontier::EditorWorkspace>(*Panel);
+            glfwSetWindowTitle(Window, "Frontier - Editor Workspace");
+        }
+        if (Workspace) (void)Workspace->ConfigurePlatform();
+    };
+    Callbacks.PrepareInterface = [&]() { Panel->PrepareInterface(); };
+    Callbacks.RecoverWindows = [&]() { if (Workspace) Workspace->QueryPanels().RecoverPlatformWindows(); };
+    Callbacks.ConstructInterface = [&](bool MainVisible)
+    {
+        if (Workspace)
+        {
+            (void)Panel->Integrate(ImGui::GetIO().DeltaTime);
+            Workspace->ConstructInterface();
+            if (MainVisible) Panel->ConstructInterface();
+        }
+        else if (MainVisible)
+        {
+            Browser->ConfigurePalette(Frontier::ControlKit::Palette());
+            Browser->ConstructInterface();
+        }
+    };
+    Callbacks.AfterRender = [&]() { if (Workspace) Workspace->IntegrateLayoutPersistence(ImGui::GetIO().DeltaTime); };
+    Callbacks.Finalize = [&]() { Workspace.reset(); Browser.reset(); Ownership.reset(); };
+    return Frontier::RunWindowsApplication(Callbacks);
+}
 
 int main()
 {
-    glfwSetErrorCallback(ReportGlfwError);
-    if (!glfwInit())
-        return 1;
-    // No OpenGL context: this window can host Vulkan; this exhibit alone attaches a DX11 display adapter.
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
-    GLFWwindow *Window = glfwCreateWindow(1280, 900, "Frontier - Control Centre", nullptr, nullptr);
-    if (!Window)
+    try
     {
-        glfwTerminate();
+        return RunWorkspace();
+    }
+    catch (const std::exception &Failure)
+    {
+        std::cerr << "Severe editor failure: " << Failure.what() << '\n';
+        // 📝 Native fallback requires no working renderer. The reference full-screen presentation is a later milestone.
+        wchar_t    Description[2048]{};
+        const auto Length  = static_cast<int>(std::min<size_t>(std::strlen(Failure.what()), 2047));
+        const auto Decoded = MultiByteToWideChar(CP_UTF8, 0, Failure.what(), Length, Description, 2047);
+        MessageBoxW(nullptr, Decoded > 0 ? Description : L"An editor failure prevented normal operation.",
+                    L"Frontier - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
         return 1;
     }
-    int ExitCode = 0;
+    catch (...)
     {
-        DisplayResources Display;
-        if (!Display.Initialize(glfwGetWin32Window(Window)))
-            ExitCode = 1;
-        else
-        {
-            IMGUI_CHECKVERSION();
-            ImGui::CreateContext();
-            auto &IO = ImGui::GetIO();
-            IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
-            IO.IniFilename           = nullptr;
-            const bool PlatformReady = ImGui_ImplGlfw_InitForOther(Window, true);
-            const bool DisplayReady  = ImGui_ImplDX11_Init(Display.Device, Display.Context);
-            Frontier::IconPresentation::Attach("EngineContent/Icons");
-            const wchar_t                *LocalDirectory = _wgetenv(L"LOCALAPPDATA");
-            const auto                    Preferences    = LocalDirectory
-                                                               ? std::filesystem::path(LocalDirectory) / L"Frontier/Appearance.toml"
-                                                               : std::filesystem::path{};
-            Frontier::ActivationOwnership Ownership(
-                new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences));
-            auto *Panel = static_cast<Frontier::ControlCentrePanel *>(Ownership.get());
-            if (!PlatformReady || !DisplayReady || !Panel->Initialize() || !Panel->Activate())
-            {
-                std::cerr << "UI initialization failed: " << Panel->QueryDiagnostic() << '\n';
-                ExitCode = 1;
-            }
-            else
-            {
-                int PreviousWidth  = 0;
-                int PreviousHeight = 0;
-                while (!glfwWindowShouldClose(Window))
-                {
-                    glfwPollEvents();
-                    int Width, Height;
-                    glfwGetFramebufferSize(Window, &Width, &Height);
-                    if (Width == 0 || Height == 0)
-                    {
-                        glfwWaitEventsTimeout(0.05);
-                        continue;
-                    }
-                    if (Width != PreviousWidth || Height != PreviousHeight)
-                    {
-                        if (!Display.Reconfigure(Width, Height))
-                        {
-                            ExitCode = 1;
-                            break;
-                        }
-                        PreviousWidth  = Width;
-                        PreviousHeight = Height;
-                    }
-                    float DensityX, DensityY;
-                    glfwGetWindowContentScale(Window, &DensityX, &DensityY);
-                    ImGui::GetStyle().FontScaleDpi = DensityY;
-                    Panel->PrepareInterface();
-                    ImGui_ImplDX11_NewFrame();
-                    ImGui_ImplGlfw_NewFrame();
-                    ImGui::NewFrame();
-                    (void)Panel->Integrate(IO.DeltaTime);
-                    Panel->RecordInterface();
-                    ImGui::Render();
-                    constexpr float Background[] = {0.065f, 0.065f, 0.07f, 1};
-                    Display.Context->OMSetRenderTargets(1, &Display.Target, nullptr);
-                    Display.Context->ClearRenderTargetView(Display.Target, Background);
-                    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-                    if (FAILED(Display.SwapChain->Present(1, 0)))
-                    {
-                        ExitCode = 1;
-                        break;
-                    }
-                }
-            }
-            Ownership.reset();
-            if (DisplayReady)
-                ImGui_ImplDX11_Shutdown();
-            if (PlatformReady)
-                ImGui_ImplGlfw_Shutdown();
-            ImGui::DestroyContext();
-        }
+        MessageBoxW(nullptr, L"An unknown editor failure prevented normal operation.", L"Frontier - Severe failure",
+                    MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        return 1;
     }
-    glfwDestroyWindow(Window);
-    glfwTerminate();
-    return ExitCode;
 }

@@ -240,6 +240,64 @@
       "git_blob": "5ceee0025da23d2cd5fd14b28569708a8db4db2b",
       "sha256": "a76abf002c49097d146e86740a3105a5d00450b1592e820a1109a8c5680cd697",
       "url": "https://api.github.com/repos/SultanAladin/Frontier-/git/blobs/5ceee0025da23d2cd5fd14b28569708a8db4db2b"
+    },
+    {
+      "family": "DMSans",
+      "file": "DMSans-Light.ttf",
+      "url": "https://registry.npmjs.org/@fontsource/dm-sans/-/dm-sans-5.3.0.tgz",
+      "archive_sha256": "48109b74c1a2758ce0274766b877132f023fde5325911f7172c43a5d4b5d8c7a",
+      "archive_member": "package/files/dm-sans-latin-300-normal.woff",
+      "decode": "woff",
+      "sha256": "7a4f52a9d9b356996d04c4081076e5806c6529968dbdeb5aab9b871756fd2a74",
+      "family_name": "DM Sans"
+    },
+    {
+      "family": "DMSans",
+      "file": "DMSans-Regular.ttf",
+      "url": "https://registry.npmjs.org/@fontsource/dm-sans/-/dm-sans-5.3.0.tgz",
+      "archive_sha256": "48109b74c1a2758ce0274766b877132f023fde5325911f7172c43a5d4b5d8c7a",
+      "archive_member": "package/files/dm-sans-latin-400-normal.woff",
+      "decode": "woff",
+      "sha256": "8d46324b491bdf99232f4299ef339e3e736814c2a51ac47e0de9192bc3f8c32d",
+      "family_name": "DM Sans"
+    },
+    {
+      "family": "DMSans",
+      "file": "DMSans-Medium.ttf",
+      "url": "https://registry.npmjs.org/@fontsource/dm-sans/-/dm-sans-5.3.0.tgz",
+      "archive_sha256": "48109b74c1a2758ce0274766b877132f023fde5325911f7172c43a5d4b5d8c7a",
+      "archive_member": "package/files/dm-sans-latin-500-normal.woff",
+      "decode": "woff",
+      "sha256": "dae1d5d53d6daed071079e53fa79be8f9284aa08522cac34ade3ccc4fd728ffc",
+      "family_name": "DM Sans"
+    },
+    {
+      "family": "DMSans",
+      "file": "DMSans-SemiBold.ttf",
+      "url": "https://registry.npmjs.org/@fontsource/dm-sans/-/dm-sans-5.3.0.tgz",
+      "archive_sha256": "48109b74c1a2758ce0274766b877132f023fde5325911f7172c43a5d4b5d8c7a",
+      "archive_member": "package/files/dm-sans-latin-600-normal.woff",
+      "decode": "woff",
+      "sha256": "7c1f78cde4f99bb966c724c88c8bb1dd3b73b558c6b17b40110751940a34e6a9",
+      "family_name": "DM Sans"
+    },
+    {
+      "family": "DMSans",
+      "file": "DMSans-Bold.ttf",
+      "url": "https://registry.npmjs.org/@fontsource/dm-sans/-/dm-sans-5.3.0.tgz",
+      "archive_sha256": "48109b74c1a2758ce0274766b877132f023fde5325911f7172c43a5d4b5d8c7a",
+      "archive_member": "package/files/dm-sans-latin-700-normal.woff",
+      "decode": "woff",
+      "sha256": "a78b797d5b71ec775b8a2146ffff4c93250183120da42442ef665a0ef18fb83e",
+      "family_name": "DM Sans"
+    },
+    {
+      "family": "DMSans",
+      "file": "OFL.txt",
+      "url": "https://api.github.com/repos/google/fonts/git/blobs/4430b85ac62998e2edb914360f9ebdfe43f4deaa",
+      "git_blob": "4430b85ac62998e2edb914360f9ebdfe43f4deaa",
+      "sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1",
+      "family_name": "DM Sans"
     }
   ]
 }

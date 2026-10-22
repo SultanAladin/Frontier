@@ -1,7 +1,7 @@
 #============================================================================================================================================
 #                                                        APPLYIMGUIPATCHES.PY
 #============================================================================================================================================
-# 🧩 Apply, verify, or revert the six inherited ImGui patches in dependency order.
+# 🧩 Apply, verify, or revert the inherited ImGui patches and the adjacent/centred add-button correction in dependency order.
 # Ported from Frontier- commit 338293863d7df4e585dec0c4acae45fe9c524ed5.
 # The patches originated against 83f6686; this port verifies them against lockfile pin 3bae66c.
 # Default style additions remain zero. Sentinel checks avoid incorrect reverse-checks on stacked patches.
@@ -27,6 +27,7 @@ Declared = [
     {'Name': 'PatchD-TabAddButton.patch',     'Sentinel': 'FRONTIER PATCH D', 'Witness': 'imgui.cpp'},
     {'Name': 'PatchE-NoTabScrollButtons.patch', 'Sentinel': 'FRONTIER PATCH E', 'Witness': 'imgui.cpp'},
     {'Name': 'PatchF-TabContentInsets.patch', 'Sentinel': 'FRONTIER PATCH F', 'Witness': 'imgui_widgets.cpp'},
+    {'Name': 'PatchG-AdjacentTabAddButton.patch', 'Sentinel': 'FRONTIER PATCH G', 'Witness': 'imgui_widgets.cpp'},
 ]
 
 # 🔴 The commit these patches were written against. `git apply` would fail loudly on a different tree, but it

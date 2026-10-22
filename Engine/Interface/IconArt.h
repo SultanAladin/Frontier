@@ -16,6 +16,8 @@ enum class IconSymbol : uint16_t {
     Count
 };
 
+enum class IconDomain : uint8_t { Editor, Texture, Fluid };
+
 enum class IconResult : uint8_t { Ready, Unsupported, Missing, DecodeFailure, InvalidRequest, RuntimeFailure };
 // Diagnostic rendering is opt-in. Unsupported SVG features must never masquerade as approved artwork.
 enum class IconPolicy : uint8_t { Strict, Diagnostic };
@@ -48,9 +50,12 @@ public:
     IconArt& operator=(IconArt&&) = delete;
 
     [[nodiscard]] std::shared_ptr<const IconRaster> Rasterize(IconSymbol Symbol, float LogicalWidth,
-        float LogicalHeight, float DisplayScale = 1.0f, IconPolicy Policy = IconPolicy::Strict);
+        float LogicalHeight, float DisplayScale = 1.0f, IconPolicy Policy = IconPolicy::Strict, IconDomain Domain = IconDomain::Editor);
     void Clear(); // Explicit reload / theme change; SVG bytes are not polled during drawing.
     [[nodiscard]] IconStatistics Statistics() const;
+    [[nodiscard]] static IconDomain Domain(IconSymbol Symbol) noexcept;
+    [[nodiscard]] static bool Available(IconSymbol Symbol, IconDomain Workspace) noexcept;
+    [[nodiscard]] static std::vector<IconSymbol> Catalogue(IconDomain Workspace);
     [[nodiscard]] static const char* Filename(IconSymbol Symbol) noexcept;
     [[nodiscard]] static const char* Name(IconSymbol Symbol) noexcept;
     [[nodiscard]] static const char* ResultName(IconResult Result) noexcept;

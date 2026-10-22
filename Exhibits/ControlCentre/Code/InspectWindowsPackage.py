@@ -42,6 +42,14 @@ def Main():
         for Name in Imports:
             if Name.lower() not in AllowedLibraries and not Name.lower().startswith('api-ms-win-crt-'):
                 raise RuntimeError('Unexpected runtime dependency: ' + Name)
+        if any(Name.lower().startswith(('d3d', 'dxgi')) for Name in Imports):
+            raise RuntimeError('Vulkan editor unexpectedly imports a Direct3D runtime')
+        if b'vulkan-1.dll' not in Archive.read('FrontierUI.exe'):
+            raise RuntimeError('GLFW Vulkan runtime loader missing from default editor')
+        DxImage = pefile.PE(data=Archive.read('FrontierUIDX11.exe'))
+        DxImports = [Entry.dll.decode('ascii') for Entry in DxImage.DIRECTORY_ENTRY_IMPORT]
+        if not any(Name.lower() == 'd3d11.dll' for Name in DxImports):
+            raise RuntimeError('DX11 comparison exhibit missing its display adapter')
         Catalogue = json.loads(Archive.read('EngineContent/FontArchives/FontCatalogue.json'))
         RuntimeCatalogue = tomllib.loads(Archive.read('EngineContent/FontArchives/FontCatalogue.toml').decode())
         if RuntimeCatalogue['faces'] != Catalogue['faces']:
@@ -55,6 +63,8 @@ def Main():
         Results.mkdir(parents=True, exist_ok=True)
         BinaryReport = {'machine': hex(Image.FILE_HEADER.Machine), 'format': 'PE32+ Windows x64',
                         'sha256': hashlib.sha256(Executable).hexdigest(), 'imports': Imports,
+                        'default_display': 'Vulkan via GLFW runtime loader; no Direct3D imports',
+                        'dx11_exhibit_imports': DxImports,
                         'runtime_execution': 'not run; no Windows runtime available'}
         (Results / 'WindowsBinary.json').write_text(json.dumps(BinaryReport, indent=2) + '\n')
         Report = {'archive_sha256': hashlib.sha256(Arguments.package.read_bytes()).hexdigest(),

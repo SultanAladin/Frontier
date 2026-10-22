@@ -9,6 +9,7 @@
 #include <cctype>
 #include <set>
 #include <tuple>
+#include <string_view>
 #include <sstream>
 #include <iomanip>
 #ifdef _WIN32
@@ -108,6 +109,25 @@ struct IconArt::Details {
 };
 IconArt::IconArt(std::filesystem::path Root,size_t ByteLimit):Details_(std::make_unique<Details>(std::move(Root),ByteLimit)){}
 IconArt::~IconArt()=default;
+IconDomain IconArt::Domain(IconSymbol Symbol) noexcept
+{
+    const std::string_view Path = Filename(Symbol);
+    if (Path.starts_with("Texture/")) return IconDomain::Texture;
+    if (Path.starts_with("Fluid/")) return IconDomain::Fluid;
+    return IconDomain::Editor;
+}
+bool IconArt::Available(IconSymbol Symbol, IconDomain Workspace) noexcept
+{
+    return Symbol < IconSymbol::Count && Workspace <= IconDomain::Fluid &&
+        (Domain(Symbol) == IconDomain::Editor || Domain(Symbol) == Workspace);
+}
+std::vector<IconSymbol> IconArt::Catalogue(IconDomain Workspace)
+{
+    std::vector<IconSymbol> Symbols;
+    for (uint32_t Index = 0; Index < uint32_t(IconSymbol::Count); ++Index)
+        if (Available(IconSymbol(Index), Workspace)) Symbols.push_back(IconSymbol(Index));
+    return Symbols;
+}
 const char* IconArt::Filename(IconSymbol Symbol) noexcept {return Symbol<IconSymbol::Count?Files[static_cast<size_t>(Symbol)]:"";}
 const char* IconArt::Name(IconSymbol Symbol) noexcept {return Symbol<IconSymbol::Count?Names[static_cast<size_t>(Symbol)]:"Invalid";}
 const char* IconArt::ResultName(IconResult Result) noexcept {
@@ -117,12 +137,12 @@ const char* IconArt::ResultName(IconResult Result) noexcept {
 }
 void IconArt::Clear(){auto& D=*Details_;D.Completed.clear();D.Documents.clear();D.Counts.ResidentBytes=0;D.Counts.ResidentCount=0;}
 IconStatistics IconArt::Statistics()const{return Details_->Counts;}
-std::shared_ptr<const IconRaster> IconArt::Rasterize(IconSymbol Symbol,float LogicalWidth,float LogicalHeight,float DisplayScale,IconPolicy Policy){
+std::shared_ptr<const IconRaster> IconArt::Rasterize(IconSymbol Symbol,float LogicalWidth,float LogicalHeight,float DisplayScale,IconPolicy Policy,IconDomain Workspace){
     auto& D=*Details_;
     const double W=std::ceil(double(LogicalWidth)*DisplayScale),H=std::ceil(double(LogicalHeight)*DisplayScale);
-    if(Symbol>=IconSymbol::Count||!std::isfinite(W)||!std::isfinite(H)||LogicalWidth<=0||LogicalHeight<=0||DisplayScale<=0||W<1||H<1||W>512||H>512){
+    if(!Available(Symbol,Workspace)||!std::isfinite(W)||!std::isfinite(H)||LogicalWidth<=0||LogicalHeight<=0||DisplayScale<=0||W<1||H<1||W>512||H>512){
         auto Bad=std::make_shared<IconRaster>();Bad->Width=Bad->Height=24;Bad->Result=IconResult::InvalidRequest;
-        Bad->Diagnostic="Expected a valid symbol and positive finite dimensions, at most 512 physical pixels per axis.";Substitute(*Bad);return Bad;
+        Bad->Diagnostic="Expected an icon available in this workspace and positive finite dimensions, at most 512 physical pixels per axis.";Substitute(*Bad);return Bad;
     }
     const auto Width=static_cast<uint32_t>(W),Height=static_cast<uint32_t>(H);
     const Details::Key Key{Symbol,Width,Height,Policy};

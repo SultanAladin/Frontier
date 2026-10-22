@@ -137,3 +137,18 @@ Follow the user's current commit and push instructions; do not infer permission 
 
 Follow the compact output skill: short outcome, verification table, visible evidence, exhibit paths,
 blockers, untested configurations, and remaining work. Do not substitute confidence or compilation for testing.
+
+### Recovered native Float32 surface maps (2026-10-19)
+
+`VectorSurfaceCompute` writes typed RGBA32F channel maps and separate per-channel contribution masks; coverage/selection
+stay RGBA8. `VectorCoverageRasterization` derives the actual storage format from SPIR-V and refuses unsupported Float32
+capabilities instead of silently quantizing. The shared PFM writer preserves float bits and emits little-endian,
+bottom-first scalar/RGB output. Seven GPU channel assertions pass strict and sanitizer builds; the archive contains
+14 actual 32x32 GPU fixture maps/masks with separately authored gold thread and fabric metalness. See
+`Exhibits/TextureStudio/NativeSurfaceEvidence.html` and `NativeMaterialApplication.md`.
+
+The retired-slot cache path dispatches and samples the 512×512 Float32 surface output. Texture Workspace now toggles
+to the native Pattern panel, persists vector TOML, and submits GPU coverage/selection. Its C++ runner passes 606 checks;
+the recorded evidence explicitly does not represent a Windows desktop session. Pattern Float32 outputs remain
+unconnected to the PBR material renderer; native 3D application, physical height calibration, user-document export and
+Pattern 1:1 parity remain open. GIF previews are 8-bit evidence, not precision checks. Scope remains approximately 68%.

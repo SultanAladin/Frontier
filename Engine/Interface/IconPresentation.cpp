@@ -1,4 +1,5 @@
 #include "IconPresentation.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <imgui_internal.h>
 #include <algorithm>
 #include <array>
@@ -48,7 +49,7 @@ struct Presentation {
         Next->Texture.Create(ImTextureFormat_RGBA32, Columns * Pitch, Rows * Pitch);
         Next->Texture.UseColors = true;
         for (int I = 0; I < Count; ++I) {
-            auto Raster = Art.Rasterize(static_cast<IconSymbol>(I), static_cast<float>(Size), static_cast<float>(Size));
+            auto Raster = Art.Rasterize(static_cast<IconSymbol>(I), static_cast<float>(Size), static_cast<float>(Size), 1, IconPolicy::Strict, IconArt::Domain(static_cast<IconSymbol>(I)));
             const int X = (I % Columns) * Pitch + Gutter, Y = (I / Columns) * Pitch + Gutter;
             for (int Row = 0; Row < Size; ++Row)
                 std::memcpy(Next->Texture.GetPixelsAt(X, Y + Row), Raster->Rgba.data() + Row * Size * 4, Size * 4);
@@ -57,6 +58,7 @@ struct Presentation {
             Tile.Max = ImVec2(float(X + Size) / Next->Texture.Width, float(Y + Size) / Next->Texture.Height);
             Tile.Result = Raster->Result;
             Tile.Diagnostic = Raster->Diagnostic;
+            if (Raster->Substitute) DiagnosticJournal::Append("IconSubstitute", std::string(IconArt::Filename(static_cast<IconSymbol>(I))) + ": " + Raster->Diagnostic);
             if (Raster->Substitute)
                 std::fprintf(stderr, "[Icons] %s: %s (%s)\n", IconArt::Filename(static_cast<IconSymbol>(I)),
                     IconArt::ResultName(Raster->Result), Raster->Diagnostic.c_str());
@@ -86,6 +88,7 @@ Presentation* Find() {
 bool Valid(IconSymbol S) { return static_cast<unsigned>(S) < Count; }
 }
 void IconPresentation::Attach(const std::filesystem::path& Root) {
+    DiagnosticJournal::Append("Icons", "Attach " + DiagnosticJournal::EncodePath(Root));
     if (!ImGui::GetCurrentContext() || Find()) return;
     auto P = std::make_unique<Presentation>(Root);
     ImGuiContextHook H;
@@ -95,14 +98,14 @@ void IconPresentation::Attach(const std::filesystem::path& Root) {
     ImGui::AddContextHook(ImGui::GetCurrentContext(), &H);
     P.release();
 }
-bool IconPresentation::Draw(ImDrawList* List, IconSymbol S, ImVec2 Min, float Size, float Opacity) {
+bool IconPresentation::Draw(ImDrawList* List, IconSymbol S, ImVec2 Min, float Size, float Opacity, IconDomain Domain, ImU32 Tint) {
     auto* P = Find();
-    if (!P || !P->Current || !Valid(S) || !List || !std::isfinite(Size) || Size <= 0) return false;
+    if (!P || !P->Current || !Valid(S) || !IconArt::Available(S, Domain) || !List || !std::isfinite(Size) || Size <= 0) return false;
     const auto& T = P->Current->Tiles[static_cast<int>(S)];
     if (!std::isfinite(Opacity)) Opacity = 1;
     const auto Alpha = static_cast<int>(255 * std::clamp(Opacity, 0.0f, 1.0f) + 0.5f);
     List->AddImage(P->Current->Texture.GetTexRef(), Min, ImVec2(Min.x + Size, Min.y + Size),
-                   T.Min, T.Max, IM_COL32(255, 255, 255, Alpha));
+                   T.Min, T.Max, (Tint & ~IM_COL32_A_MASK) | (ImU32(((Tint >> IM_COL32_A_SHIFT) & 255) * Alpha / 255) << IM_COL32_A_SHIFT));
     return true;
 }
 IconResult IconPresentation::Result(IconSymbol S) {

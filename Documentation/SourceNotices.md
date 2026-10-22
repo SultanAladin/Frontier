@@ -40,3 +40,33 @@ GLFW 3.4 is revision/SHA-pinned in `Automation/UIDependencies.json`; its zlib/li
 `ExternalPackages/glfw/LICENSE.md` and copied into the Windows bundle as `Notices/GLFW-LICENSE.md`.
 Original SVG filenames may retain historical `asset-` prefixes to preserve artwork provenance;
 production icon identifiers now use Content terminology.
+
+## Vulkan UI presentation
+
+Vulkan UI presentation adapts the pinned ImGui GLFW/Vulkan example's presentation sequence and reuses its adapter.
+ImGui's MIT notice is retained and installed. Vulkan-Headers v1.4.321 is archive/SHA-256 pinned in
+`Automation/UIDependencies.json`; its original `LICENSES/` directory is retained under ExternalPackages and installed
+under `Notices/Vulkan-Headers/`. No Vulkan loader or driver binary is bundled. The runtime uses GLFW's system loader.
+
+
+## Material PNG/JPEG ingestion
+
+`Engine/Render/SurfaceMaterial.cpp` uses `stb_image` from `nothings/stb`, pinned at
+`2c980bb59875b0d32144a71867fbdebb2f77cd20`. Archive SHA-256 and provisioning URL are recorded in
+`Automation/UIDependencies.json`. The upstream dual MIT/public-domain licence remains in
+`ExternalPackages/stb/LICENSE` and is installed as `Notices/Stb-LICENSE.txt`. Sources are provisioned,
+not copied into authored Engine code. PNG and JPEG only are enabled; texture files remain authored content.
+
+## Texture Studio DM Sans faces
+
+The Material workspace additionally uses the same DM Sans static faces as its HTML reference,
+`@fontsource/dm-sans` 5.3.0 (SIL OFL 1.1). `Automation/FontSources.json` pins the npm archive/member paths and
+recovered TTF checksums. `PrepareFonts.py` losslessly unwraps WOFF to TTF using pinned fontTools; the original OFL
+notice is retained beside the faces. This does not install OS fonts or redistribute a Linux application package.
+
+### Scoped native editor/workspace icons
+
+Shared editor line icons under `EngineContent/Icons/Editor` reuse Lucide-compatible primitives (MIT notice retained
+in `Engine/Interface/Lucide.NOTICE`). Texture UV/paint/decal/flake/clearcoat and Fluid water line artwork is authored
+for this integration. Scoped copies of the existing Fluid/smoke/water-folder SVGs and ThorVG compatibility variants
+retain the existing `EngineContent/Icons/Slate-NOTICE.md` provenance. Catalogue separation does not relicense art.

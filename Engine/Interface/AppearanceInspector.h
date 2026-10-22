@@ -84,11 +84,27 @@ class AppearanceInspector
     [[nodiscard]] bool QueryMenuOpen() const noexcept { return OpenDropdown >= 0; }
     [[nodiscard]] bool QueryDragging() const noexcept { return DraggingSlider >= 0; }
 
+    // Display keeps only the inherited interface-scale row; renderer controls remain excluded.
+    float ConstructDisplayTabLayout(
+        PixelSpace           &Surface,
+        const PlaneExtent    &Body,
+        float                ScrollY,
+        const ControlPointer &Pointer,
+        float                Opacity) noexcept;
+
     // Records one tab's content into Body (already clipped by the caller) offset by ScrollY; returns content height.
-    float ConstructThemeTabLayout(PixelSpace &Surface, const PlaneExtent &Body, float ScrollY,
-                                  const ControlPointer &Pointer, float Opacity) noexcept;
-    float ConstructFontsTabLayout(PixelSpace &Surface, const PlaneExtent &Body, float ScrollY,
-                                  const ControlPointer &Pointer, float Opacity) noexcept;
+    float ConstructThemeTabLayout(
+        PixelSpace           &Surface,
+        const PlaneExtent    &Body,
+        float                ScrollY,
+        const ControlPointer &Pointer,
+        float                Opacity) noexcept;
+    float ConstructFontsTabLayout(
+        PixelSpace           &Surface,
+        const PlaneExtent    &Body,
+        float                ScrollY,
+        const ControlPointer &Pointer,
+        float                Opacity) noexcept;
     void  IntegrateFontStrip(float DeltaSeconds) noexcept; // smooth strip scroll (scrollBy behavior:"smooth")
 
     // Face for a type role of the APPLIED settings (hosts render chrome with these). nullptr → backend default.

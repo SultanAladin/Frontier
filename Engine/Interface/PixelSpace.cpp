@@ -39,8 +39,8 @@ ImU32 Pack(ColorQuad Colour) noexcept
 PixelSpace::PixelSpace() noexcept
     : Commands(nullptr)
     , DisplayWidth(0.0f)
-    , Scale(1.0f)
     , DisplayHeight(0.0f)
+    , Scale(1.0f)
     , TypefaceStack{}
     , TypefaceDepth(0u)
 {

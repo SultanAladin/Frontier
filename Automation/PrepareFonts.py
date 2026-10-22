@@ -11,6 +11,8 @@ import json
 import os
 import tempfile
 import urllib.request
+import io
+import tarfile
 
 RepositoryRoot = Path(__file__).resolve().parents[1]
 
@@ -30,13 +32,16 @@ def GenerateCatalogue(FontRoot):
     from fontTools.ttLib import TTFont
     Entries = []
     Rejected = []
+    Manifest = json.loads((RepositoryRoot / "Automation/FontSources.json").read_text())
+    FamilyNames = {Entry["family"] + "/" + Entry["file"]: Entry["family_name"]
+                   for Entry in Manifest["files"] if "family_name" in Entry}
     for FontPath in sorted(FontRoot.rglob('*')):
         if not FontPath.is_file() or FontPath.suffix.lower() not in ('.ttf', '.otf'):
             continue
         try:
             with TTFont(FontPath) as Typeface:
                 Names = Typeface['name']
-                Family = Names.getDebugName(16) or Names.getDebugName(1) or FontPath.parent.name
+                Family = FamilyNames.get(FontPath.relative_to(FontRoot).as_posix()) or Names.getDebugName(16) or Names.getDebugName(1) or FontPath.parent.name
                 Entries.append({
                     'family': Family,
                     'file': FontPath.relative_to(FontRoot).as_posix(),
@@ -69,6 +74,7 @@ def Main():
     Parser.add_argument('--root', type=Path, default=RepositoryRoot / 'EngineContent/FontArchives')
     Arguments = Parser.parse_args()
     Manifest = json.loads((RepositoryRoot / 'Automation/FontSources.json').read_text())
+    Archives = {}
     if not Arguments.scan_only:
         for Entry in Manifest['files']:
             Destination = Arguments.root / Entry['family'] / Entry['file']
@@ -78,12 +84,33 @@ def Main():
                 raise RuntimeError('Modified pinned font; preserve local edits before recovery: ' + str(Destination))
             if Arguments.verify:
                 raise RuntimeError('Missing pinned file: ' + str(Destination))
-            Request = urllib.request.Request(Entry['url'], headers={
-                'Accept': 'application/vnd.github.raw+json', 'User-Agent': 'Frontier-font-setup'})
-            with urllib.request.urlopen(Request, timeout=60) as Response:
-                Payload = Response.read()
-                if 'json' in Response.headers.get('Content-Type', ''):
-                    Payload = base64.b64decode(json.loads(Payload)['content'])
+            if Entry['url'] in Archives:
+                Payload = Archives[Entry['url']]
+            else:
+                Headers = {'Accept': 'application/vnd.github.raw+json', 'User-Agent': 'Frontier-font-setup'}
+                if Entry['url'].startswith('https://api.github.com/') and os.environ.get('GH_TOKEN'):
+                    Headers['Authorization'] = 'Bearer ' + os.environ['GH_TOKEN']
+                Request = urllib.request.Request(Entry['url'], headers=Headers)
+                with urllib.request.urlopen(Request, timeout=60) as Response:
+                    Payload = Response.read()
+                    if 'json' in Response.headers.get('Content-Type', ''):
+                        Payload = base64.b64decode(json.loads(Payload)['content'])
+                Archives[Entry['url']] = Payload
+            if 'archive_member' in Entry:
+                if hashlib.sha256(Payload).hexdigest() != Entry['archive_sha256']:
+                    raise RuntimeError('Font source archive checksum mismatch')
+                with tarfile.open(fileobj=io.BytesIO(Payload), mode='r:gz') as Archive:
+                    Member = Archive.getmember(Entry['archive_member'])
+                    if not Member.isfile() or Member.size > 4194304:
+                        raise RuntimeError('Invalid bounded font archive member')
+                    Payload = Archive.extractfile(Member).read()
+                if Entry.get('decode') == 'woff':
+                    from fontTools.ttLib import TTFont
+                    with TTFont(io.BytesIO(Payload), recalcTimestamp=False) as Typeface:
+                        Typeface.flavor = None
+                        Output = io.BytesIO()
+                        Typeface.save(Output)
+                        Payload = Output.getvalue()
             if hashlib.sha256(Payload).hexdigest() != Entry['sha256']:
                 raise RuntimeError('Font checksum mismatch: ' + Entry['file'])
             WriteAtomic(Destination, Payload)
