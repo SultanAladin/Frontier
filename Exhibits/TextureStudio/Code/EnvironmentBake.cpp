@@ -156,9 +156,9 @@ void BakeRig(const StudioRig &Rig, const std::filesystem::path &Directory)
     if (!stbi_write_png(Path.string().c_str(), int(Width), int(Height), 3, Pixels.data(), int(Width) * 3))
         throw std::runtime_error("Environment PNG write failed: " + Path.string());
     const double Mean = LuminanceSum / WeightSum / Peak;
-    const double Strength = std::clamp(.3 / std::max(Mean, 1e-4), .15, 4.0);
+    const double Strength = std::clamp(.2 / std::max(Mean, 1e-4), .15, 4.0);
     std::cout << Rig.FileName << " mean=" << Mean << " runtimeStrength=" << Strength
-              << " effectivePeak=" << Strength << " effectiveAmbient=" << .3 << '\n';
+              << " effectivePeak=" << Strength << " effectiveAmbient=" << .2 << '\n';
 }
 
 const std::vector<StudioRig> Rigs{

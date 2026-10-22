@@ -436,7 +436,7 @@ as tinted and cheap, and the inspector mixed every stratum's properties into sha
   evaluates five colour-neutral area-light rigs (gnomonic softbox panels over vertical gradients,
   2x2 supersampled) into 1024x512 equirect PNGs under `EngineContent/EnvironmentArchives/`
   (StudioSoftbox, StudioStrip, WindowLight, Overcast, DarkStudio). `MaterialLibraryRendering::
-  ConfigureEnvironments` scans that folder (studio first, then filename order, cap 24), decodes
+  ConfigureEnvironments` scans that folder (studio first, then filename order, cap 8 layers), decodes
   each archive to a shared 512x256 scene-linear field, derives strength (hemispheric-mean
   normalization to the tuned reference level) and a key light (brightest-region centroid, so
   imported maps light from their own panels), and uploads one `Texture2DArray` layer per entry.
@@ -475,3 +475,22 @@ recipe binding (needs a `sand` procedural op over the existing `BakeSandMaps` fi
 sliders gain a pool to edit), thin-film iridescence, glass transmission depth, and the
 camouflage/ballistic coded-field underlays — each is a renderer/op feature, not an inspector
 arrangement, and stays visibly locked with its tooltip rather than fake-enabled.
+
+### Correction — environment switching froze the preview (Windows test of 39829213006)
+
+User log `TextureWorkspace-1792696201963752.log` pinned it: `[GpuFaultIsolated] PreviewConfigure:
+Invalid material parameters or dormant shader contract` on the first non-default environment,
+then the same on material switches — viewport frozen on the last good frame while the UI stayed
+at 120 FPS. Cause: `ValidateMaterialScattering` still required `PreviewConfiguration[2] == 0`
+(the old dormant slot) while the environment change made that slot carry the archive layer.
+The contract now bounds the layer to catalogue capacity (63); `MaterialPreviewConfigurationValidation`
+pins the acceptance window so CPU CI catches this class without a GPU. Also fixed in the same
+pass: `LightIntensity` missed the discrete copy in `SynchronizePreviewCamera` (only reached the
+renderer on the orbit-settle snap); environment sampling moves to mip 2 (the 8-sample quadrature
+turned bright panels into per-pixel fireflies at base level — the visible stipple); the strength
+normalization target drops 0.3 -> 0.2 and the key weight 0.4 -> 0.32 (big-panel archives were
+flooding metallic paints desaturated toward white); the catalogue caps at 8 entries to honour
+the shared texture-array pyramid contract. Environment switching itself never rebaked anything:
+the log shows 28 tile bakes across the whole 168 s session (per-session catalogue warm-up); an
+environment change remains one uniform update — preview textures rebake on material edits and
+tiles on save, exactly as before.

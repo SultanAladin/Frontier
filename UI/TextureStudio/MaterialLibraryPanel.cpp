@@ -387,6 +387,7 @@ void MaterialLibraryPanel::SynchronizePreviewCamera()
         SmoothedInspection.Shape = Inspection.Shape;
         SmoothedInspection.Environment = Inspection.Environment;
         SmoothedInspection.Exposure = Inspection.Exposure;
+        SmoothedInspection.LightIntensity = Inspection.LightIntensity;
         const float Blend = 1 - std::exp(-std::min(ImGui::GetIO().DeltaTime, .1f) * 8);
         SmoothedInspection.Yaw = std::remainder(SmoothedInspection.Yaw +
                 std::remainder(Inspection.Yaw - SmoothedInspection.Yaw, 6.2831853f) * Blend,

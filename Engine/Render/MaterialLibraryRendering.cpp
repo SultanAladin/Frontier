@@ -276,10 +276,11 @@ void AnalyseEnvironmentEntry(EnvironmentArchiveEntry &Entry)
         const float Length = std::sqrt(Direction[0] * Direction[0] + Direction[1] * Direction[1] + Direction[2] * Direction[2]);
         if (Length > 1e-6f) Entry.KeyDirection = {Direction[0] / Length, Direction[1] / Length, Direction[2] / Length};
     }
-    // 📝 Normalize so the hemispheric mean lands at the studio reference level; the shipped
-    // analytic rig averaged ~0.3 after its strength term, which the materials were tuned against.
-    Entry.Strength = std::clamp(.3f / std::max(Mean, 1e-4f), .15f, 4.f);
-    Entry.KeyIntensity = std::clamp(.4f * Peak * Entry.Strength, .2f, 1.8f);
+    // 📝 Normalize so the hemispheric mean lands at the studio reference level. The retired
+    // analytic rig's effective diffuse ambient was ~0.2 including its key term; the first
+    // map-lit build targeted 0.3 and big-panel archives flooded metallic paints toward white.
+    Entry.Strength = std::clamp(.2f / std::max(Mean, 1e-4f), .15f, 4.f);
+    Entry.KeyIntensity = std::clamp(.32f * Peak * Entry.Strength, .2f, 1.8f);
 }
 std::optional<EnvironmentArchiveEntry> DecodeEnvironmentArchive(const std::filesystem::path &Path)
 {
@@ -759,7 +760,9 @@ void MaterialLibraryRendering::ConfigureEnvironments(const std::filesystem::path
     std::vector<EnvironmentArchiveEntry> Entries;
     for (const auto &Path : Archives)
     {
-        if (Entries.size() >= 24) break;
+        // 📝 The shared pyramid contract bounds texture arrays at 8 layers; the catalogue
+        // caps there too (preview atlas and shader addressing agree).
+        if (Entries.size() >= 8) break;
         if (auto Decoded = DecodeEnvironmentArchive(Path)) Entries.push_back(std::move(*Decoded));
         else DiagnosticJournal::Append("EnvironmentArchive", "decode refused: " + DiagnosticJournal::EncodePath(Path));
     }
