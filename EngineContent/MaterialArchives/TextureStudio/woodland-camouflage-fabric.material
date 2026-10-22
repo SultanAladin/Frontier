@@ -9,6 +9,9 @@ Metallic = 0
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+SheenColor = [0.09305896284668745, 0.11697066775851084, 0.05780543019106723]
+SheenIntensity = 0.2
+SheenRoughness = 0.8
 TextureMask = 1
 
 [[Strata.Channels]]

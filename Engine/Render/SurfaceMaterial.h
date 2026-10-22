@@ -49,13 +49,13 @@ struct alignas(16) MaterialScattering
     AutomotivePaint Paint;
     std::array<uint32_t, 4> PreviewConfiguration{}; // Runtime-only specimen classification and studio lighting; reserved zero.
 };
-static_assert(sizeof(MaterialScattering) == 1504);
-static_assert(offsetof(MaterialScattering,Paint) == 1216);
-static_assert(offsetof(MaterialScattering,UvScaleOffset) == 672);
-static_assert(offsetof(MaterialScattering,TextureUse) == 704);
-static_assert(offsetof(MaterialScattering,StratumUv) == 832);
-static_assert(offsetof(MaterialScattering,StratumNormal) == 960);
-static_assert(offsetof(MaterialScattering,DirectionalOptics) == 1088);
+static_assert(sizeof(MaterialScattering) == 1760);
+static_assert(offsetof(MaterialScattering,Paint) == 1472);
+static_assert(offsetof(MaterialScattering,UvScaleOffset) == 928);
+static_assert(offsetof(MaterialScattering,TextureUse) == 960);
+static_assert(offsetof(MaterialScattering,StratumUv) == 1088);
+static_assert(offsetof(MaterialScattering,StratumNormal) == 1216);
+static_assert(offsetof(MaterialScattering,DirectionalOptics) == 1344);
 
 enum class MaterialTextureCategory : uint32_t
 {

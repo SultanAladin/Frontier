@@ -122,7 +122,8 @@ float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStra
         float Visibility = EvaluateAnisotropicVisibility(LocalView,LocalLight,Angular[Index].Spread);
         float SpecularLevel = Stratum.Classification.x == 1 ? .5 : Material.DirectionalOptics[Index].w;
         float3 Evaluation = EvaluateScatteringReflection(Stratum,Stratum.AlbedoRoughness.rgb,ViewHalf,
-                                                        Distribution,Visibility,ExactEnabled,SpecularLevel)*max(0,LocalLight.z);
+                                                        Distribution,Visibility,ExactEnabled,SpecularLevel,
+                                                        LocalView.z,LocalLight.z,LocalHalf.z)*max(0,LocalLight.z);
         if (LocalView.z <= 0 || LocalLight.z <= 0) Evaluation = 0;
         if (EnvironmentEnabled) Evaluation *= Angular[Index].Occlusion;
         if (Stratum.Classification.x == 1)

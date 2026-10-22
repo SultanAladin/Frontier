@@ -847,8 +847,14 @@ void MaterialLibraryPanel::ConstructInspector()
         auto Definition = DecodeSurfaceMaterial(Library.QuerySource());
         bool Changed = false, Rebaked = false;
         {
+            // 📝 The scroll child already insets 17*Scale from the panel frame, but the cards themselves
+            // used to span that child edge-to-edge, so they sat flush against both the panel border and
+            // the scrollbar with no visible gap. A small symmetric inset gives every card real breathing
+            // room from both edges.
+            const float CardInset = 8 * Scale;
+            ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x + CardInset, ImGui::GetCursorScreenPos().y));
             const auto Start = ImGui::GetCursorScreenPos();
-            const float CardWidth = std::max(110.f, ImGui::GetContentRegionAvail().x);
+            const float CardWidth = std::max(110.f, ImGui::GetContentRegionAvail().x - CardInset);
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 8 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL-AWARE CONTROLS");
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 37 * Scale, 17 * Scale, 0xbabbab,
                 Entry && !Entry->RecipeTitle.empty() ? Entry->RecipeTitle.c_str() : "Layered material", static_cast<ImFont *>(HeadingTypeface));
@@ -878,6 +884,15 @@ void MaterialLibraryPanel::ConstructInspector()
             // native panel names each swatch exactly like the HTML.
             std::vector<std::pair<std::string, std::string>> Colours;
             if (Profile) Colours = Profile->Colours;
+            // 📝 Data-driven, not per-profile: any recipe that bundles a "sheen" target (every fabric and
+            // leather sheen slider does) gets a live "Sheen colour" swatch, so the fuzz rim tint is always
+            // reachable without hand-listing every weave/leather profile here.
+            const bool SupportsSheen = std::any_of(Controls.begin(), Controls.end(), [](const MaterialRecipeControl &Control)
+            {
+                return Control.Key == "sheen" || std::any_of(Control.Targets.begin(), Control.Targets.end(),
+                    [](const MaterialRecipeTarget &Target) { return Target.Key == "sheen"; });
+            });
+            if (SupportsSheen) Colours.emplace_back("sheenColor", "Sheen colour");
             std::vector<std::string> Groups{"finish"};
             for (const auto &Control : Controls)
                 if (std::find(Groups.begin(), Groups.end(), Control.Group) == Groups.end()) Groups.push_back(Control.Group);
@@ -893,14 +908,24 @@ void MaterialLibraryPanel::ConstructInspector()
                     0xa3a393, Label.c_str());
                 ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 22 * Scale));
                 ImGui::SetNextItemWidth(CardWidth - 34 * Scale);
-                // 📝 Two colour homes: a procedural channel that owns the key as a text param (led/fruit
-                // tint, sheet colour) edits the live uniform, everything else edits the stratum albedo.
+                // 📝 Three colour homes: the live fabric sheen tint (fuzz rim, read/written straight to the
+                // stratum), a procedural channel that owns the key as a text param (led/fruit tint, sheet
+                // colour) that edits the live uniform, and everything else which edits the stratum albedo.
+                const bool SheenField = Key == "sheenColor";
                 const MaterialProceduralChannel *TextOwner = nullptr;
-                for (const auto &StratumChannels : Definition.StratumChannels)
-                    for (const auto &Channel : StratumChannels)
-                        if (!Channel.Op.empty() && Channel.Texts.contains(Key)) TextOwner = &Channel;
+                if (!SheenField)
+                    for (const auto &StratumChannels : Definition.StratumChannels)
+                        for (const auto &Channel : StratumChannels)
+                            if (!Channel.Op.empty() && Channel.Texts.contains(Key)) TextOwner = &Channel;
                 float Spectrum[3]{1, 1, 1};
-                if (TextOwner)
+                if (SheenField)
+                {
+                    auto &Sheen = Definition.Scattering.Illumination.Strata[InspectorLayerContext].Sheen;
+                    for (size_t Channel = 0; Channel < 3; ++Channel)
+                        Spectrum[Channel] = Sheen[Channel] <= .0031308f ? 12.92f * Sheen[Channel] :
+                            1.055f * std::pow(Sheen[Channel], 1.f / 2.4f) - .055f;
+                }
+                else if (TextOwner)
                 {
                     std::string_view Hex = TextOwner->Texts.at(Key);
                     if (Hex.size() == 7 && Hex[0] == '#')
@@ -919,7 +944,15 @@ void MaterialLibraryPanel::ConstructInspector()
                     ImGuiColorEditFlags_NoTooltip))
                 {
                     bool Written = false;
-                    if (TextOwner)
+                    if (SheenField)
+                    {
+                        std::array<float, 3> Linear{};
+                        for (size_t Channel = 0; Channel < 3; ++Channel)
+                            Linear[Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
+                                std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
+                        Written = Library.ConfigureStratumColour(InspectorLayerContext, Linear, "SheenColor");
+                    }
+                    else if (TextOwner)
                     {
                         char Encoded[8];
                         std::snprintf(Encoded, sizeof Encoded, "#%02x%02x%02x",
@@ -1027,6 +1060,13 @@ void MaterialLibraryPanel::ConstructInspector()
                                     if (Entry.Name == Pool->Channel) Lift = QueryProceduralOpCeilingLift(Entry.Op);
                                 Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "Roughness", std::min(1.f, Coefficient + Lift)) || Changed;
                             }
+                            // 📝 The weave bake only shades the static albedo nap; the fuzz rim visible under
+                            // the key light and the baked environment comes from the live sheen BRDF, so the
+                            // same "sheen"/"sheenRoughness" recipe sliders also drive the stratum directly.
+                            if (Key == "sheenRoughness")
+                                Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "SheenRoughness", Coefficient) || Changed;
+                            if (Key == "sheen")
+                                Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "SheenIntensity", Coefficient) || Changed;
                             ProceduralDirty = true;
                             return;
                         }
@@ -1186,8 +1226,14 @@ void MaterialLibraryPanel::ConstructInspector()
                 const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
                 const float ControlsTop = Finish ? (LayerColours.empty() ? 62 : 62 + float(LayerColours.size()) * 46) :
                     Flakes ? (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
+                // 📝 Card height must match what Finish actually renders: a profiled recipe only draws its
+                // own GroupControls (no fallback), while an unprofiled material falls back to the 6 generic
+                // sliders (Roughness/Metallic/Anisotropy/Specular/Normal/Height strength). The previous fixed
+                // "+3" padded profiled cards with dead space and undercounted the unprofiled fallback, which
+                // let the next card's background start before this card's controls actually ended.
                 const float Rows = ScalarsCard ? float(LayerScalars.size()) :
-                    float((GroupControls.empty() && Finish ? 3 : GroupControls.size()) + (Finish ? 3 : 0));
+                    Finish ? float(GroupControls.empty() ? (Profile ? 0 : 6) : GroupControls.size()) :
+                    float(GroupControls.size());
                 const bool Collapsed = FoldedInspectorCards.contains(CardKey);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
                 PixelSpace Surface;
@@ -1198,6 +1244,18 @@ void MaterialLibraryPanel::ConstructInspector()
                 ControlKit::ConfigurePalette(CardPalette);
                 (void)ControlKit::SectionCard(Surface, {Start.x / Scale, CardY / Scale, (Start.x + CardWidth) / Scale, (CardY + CardHeight) / Scale}, 23);
                 ControlKit::ConfigurePalette(SavedPalette);
+                // 📝 The "LAYER N" heading only draws once, above the first card of that layer, so once a
+                // material has several cards per layer (finish + detail + construction + scalars, …) the
+                // later cards in the run carry no visible layer identity. Repeat a small tag on every card's
+                // header, right-aligned before the fold chevron, so the layer a card belongs to is never
+                // ambiguous while scrolling.
+                {
+                    const std::string LayerTag = "LAYER " + std::to_string(Layer + 1);
+                    const float LayerTagSize = 8 * Scale;
+                    const float LayerTagWidth = ImGui::GetFont()->CalcTextSizeA(LayerTagSize * 1.302f, FLT_MAX, 0, LayerTag.c_str()).x;
+                    ConstructMaterialCaption(Start.x + CardWidth - 46 * Scale - LayerTagWidth, CardY + 21 * Scale,
+                        LayerTagSize, 0x6b6d5f, LayerTag.c_str());
+                }
                 ConstructIcon(Finish ? IconSymbol::EditorSliders : Flakes ? IconSymbol::TextureFlakes :
                     Scratches ? IconSymbol::EditorTexture : ScalarsCard ? IconSymbol::EditorSliders : IconSymbol::TextureClearcoat,
                     Start.x + 17 * Scale, CardY + 18 * Scale, 16 * Scale);

@@ -633,7 +633,7 @@ void MaterialLibrary::ReplaceSource(std::string Replacement)
 
 bool MaterialLibrary::ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient)
 {
-    if (Name != "Roughness" && Name != "Metallic" && Name != "Anisotropy" && Name != "Coverage" && Name != "Ior" && Name != "Specular" && Name != "HeightStrength" && Name != "NormalStrength" && Name != "Thickness")
+    if (Name != "Roughness" && Name != "Metallic" && Name != "Anisotropy" && Name != "Coverage" && Name != "Ior" && Name != "Specular" && Name != "HeightStrength" && Name != "NormalStrength" && Name != "Thickness" && Name != "SheenIntensity" && Name != "SheenRoughness")
     {
         Diagnostic = "Unsupported structured material coefficient.";
         return false;
@@ -646,8 +646,13 @@ bool MaterialLibrary::ConfigureStratumCoefficient(uint32_t Index, std::string_vi
     return ConfigureStratumLiteral(Index, Name, Numeric);
 }
 
-bool MaterialLibrary::ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum)
+bool MaterialLibrary::ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum, std::string_view Field)
 {
+    if (Field != "Albedo" && Field != "SheenColor")
+    {
+        Diagnostic = "Unsupported structured material colour.";
+        return false;
+    }
     std::string Numeric = "[";
     for (size_t Channel = 0; Channel < Spectrum.size(); ++Channel)
     {
@@ -657,7 +662,7 @@ bool MaterialLibrary::ConfigureStratumColour(uint32_t Index, const std::array<fl
         if (Channel) Numeric += ", ";
         Numeric.append(Number, Encoded.ptr);
     }
-    return ConfigureStratumLiteral(Index, "Albedo", Numeric + "]");
+    return ConfigureStratumLiteral(Index, Field, Numeric + "]");
 }
 
 bool MaterialLibrary::ConfigureStratumLiteral(uint32_t Index, std::string_view Name, const std::string &Numeric)

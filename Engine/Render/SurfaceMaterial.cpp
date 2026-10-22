@@ -141,7 +141,7 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
     {
         auto *Stratum = Strata->get(Index)->as_table();
         if (!Stratum) throw std::runtime_error("Stratum must be a table.");
-        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","Channels","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel","Specular","HeightStrength"});
+        ValidateKeys(*Stratum,{"Category","Albedo","Roughness","Metallic","Ior","Coverage","Absorption","Thickness","TextureMask","Textures","Channels","UvScaleOffset","NormalStrength","Anisotropy","Rotation","Fresnel","Specular","HeightStrength","SheenColor","SheenIntensity","SheenRoughness"});
         const auto Category = (*Stratum)["Category"].value<std::string>();
         if (!Category || (*Category != "Opaque" && *Category != "Coating"))
             throw std::runtime_error("Unsupported scattering Category; supported: Opaque, Coating. Transmission/SSS are not implemented.");
@@ -155,6 +155,11 @@ MaterialDefinition DecodeSurfaceMaterial(std::string_view Text)
         const auto Absorption = DecodeSpectrum<3>((*Stratum)["Absorption"],{0,0,0});
         std::copy(Absorption.begin(),Absorption.end(),Compiled.AbsorptionThickness.begin());
         Compiled.AbsorptionThickness[3] = DecodeCoefficient((*Stratum)["Thickness"],0);
+        // 📝 Fabric sheen (fuzz rim): zero by default, so every non-fabric material stays bit-identical.
+        const auto SheenColour = DecodeSpectrum<3>((*Stratum)["SheenColor"],{0,0,0});
+        std::copy(SheenColour.begin(),SheenColour.end(),Compiled.Sheen.begin());
+        Compiled.Sheen[3] = DecodeCoefficient((*Stratum)["SheenIntensity"],0);
+        Compiled.SheenFinish[0] = DecodeCoefficient((*Stratum)["SheenRoughness"],0);
         const auto Mask = (*Stratum)["TextureMask"].value<int64_t>();
         if ((*Stratum).contains("TextureMask") && (!Mask || *Mask < 0 || *Mask > 15))
             throw std::runtime_error("TextureMask must be an integer within 0..15.");
@@ -303,7 +308,9 @@ std::string EncodeSurfaceMaterial(const MaterialDefinition &Material)
             {"Roughness",double(Stratum.AlbedoRoughness[3])},{"Metallic",double(Stratum.Optics[0])},
             {"Ior",double(Stratum.Optics[1])},{"Coverage",double(Stratum.Optics[2])},
             {"Absorption",EncodeSpectrum<3>({Stratum.AbsorptionThickness[0],Stratum.AbsorptionThickness[1],Stratum.AbsorptionThickness[2]})},
-            {"Thickness",double(Stratum.AbsorptionThickness[3])},{"TextureMask",int64_t(Material.Scattering.TextureUse[Index][0])}});
+            {"Thickness",double(Stratum.AbsorptionThickness[3])},{"TextureMask",int64_t(Material.Scattering.TextureUse[Index][0])},
+            {"SheenColor",EncodeSpectrum<3>({Stratum.Sheen[0],Stratum.Sheen[1],Stratum.Sheen[2]})},
+            {"SheenIntensity",double(Stratum.Sheen[3])},{"SheenRoughness",double(Stratum.SheenFinish[0])}});
     }
     for (size_t Index = 0; Index < Material.Scattering.Illumination.Configuration[0]; ++Index)
     {
