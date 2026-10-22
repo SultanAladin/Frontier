@@ -370,3 +370,39 @@ Windows application build/runtime and GPU capture remain unverified.
 Remaining: connect Pattern-authored Float32 channels to the existing PBR material renderer and validate integrated GPU
 submission/sampling; keep 3D application disabled until then. Height/tangent calibration, 512x512 performance, and
 stitch/weave presets remain open. Full Pattern parity is open; Stamp is deferred.
+
+## Crash, catalogue and Pattern correction — 2026-10-22
+
+User-reported failures on the Windows build (severe-failure dialog while editing sliders, duplicated
+preview specimens, broken orbit feel, perpetually re-rendering library, locked procedural sliders,
+flat botanical/leather materials, slow scratches, blurry wrong-scale pattern thumbnails) were audited
+end-to-end against the HTML Alloy source and fixed:
+
+- **Crash (`VK_ERROR_OUT_OF_POOL_MEMORY`)**: unbounded descriptor churn from per-edit preview texture
+  re-creation. Preview residence is now ping-pong double-buffered, descriptor reclamation is lagged
+  behind retirement, the ImGui descriptor pool is sized for the workspace, and GPU faults are isolated
+  per panel instead of aborting the host. The material atlas re-renders only when a material is saved
+  (source-digest gated), never continuously.
+- **Viewport**: all five preview specimens were drawn at once; draws are now per-shape index ranges.
+  Orbit/pivot maths already matched OrbitControls and the measured specimen bounds — unchanged.
+- **Scratches**: the CPU bake re-evaluated every instance per pixel. Instances are memoized by packed
+  key with exact early-outs; output is bit-identical (validation-pinned) at ~7.5x speed.
+- **Catalogue audit** (`Exhibits/TextureStudio/Code/AuditMaterialCatalogue.py`, results in
+  `Results/MaterialCatalogueAudit.json`): before, 86/131 materials rendered flat and 355/653 recipe
+  controls resolved. Every remaining Alloy surface family is now a native procedural op (leaf, grass,
+  petal, stem, cactus, leather, crocodile, wax, skin, paper, rust, ceramic, rubber, tiles, granite,
+  marble, concrete, plus metal/polymer grain and the fruit pore-roughness term); 123/131 materials are
+  textured (the rest are GPU paint and glass, which have no HTML surface kernel) and 613/653 controls
+  resolve and write through. LED emission strength and corrugated rib frequency resolve. Committed
+  512px bakes are pinned byte-exact for all 265 maps.
+- **Pattern studio**: gallery thumbnails are SVG documents rasterized by ThorVG (the home-grown
+  scanline rasterizer is deleted). The SVG encoder uses the coverage shader's half-extent geometry —
+  the old tessellation drew every primitive at 2x. Presets are one motif expanded by the array
+  generator with per-copy ink, not hand-stamped duplicates. The canvas coverage ladder gains a 1024
+  step for light documents; the material bridge keeps 512.
+
+Honestly deferred (locked controls remain visibly locked, audit-counted at 40/653): thin-film
+iridescence terms on three paints, glass transmission depth, sand/layered-sand recipe binding,
+woodland-camouflage weave underlay and ballistic-polymer grain under their coded-field albedos.
+Windows GPU execution of these fixes is still unverified in this environment (no Vulkan ICD);
+headless Release and Debug+ASan suites pass 26/26.
