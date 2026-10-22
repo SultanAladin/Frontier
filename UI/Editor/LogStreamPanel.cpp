@@ -38,6 +38,7 @@ void LogStreamPanel::ConstructHostedInterface() noexcept
 
     // ① Filter dropdowns: picking an entry activates it and removes it from the dropdown.
     LogStreamFilter Filter;
+    ImGui::SetNextItemWidth(210.0f);
     if (ImGui::BeginCombo("##addLevel", "+ Add level filter..."))
     {
         for (uint32_t Level = 0; Level < 5; ++Level)
@@ -45,6 +46,7 @@ void LogStreamPanel::ConstructHostedInterface() noexcept
         ImGui::EndCombo();
     }
     ImGui::SameLine();
+    ImGui::SetNextItemWidth(230.0f);
     if (ImGui::BeginCombo("##addChannel", "+ Add division filter..."))
     {
         for (const std::string& Channel : KnownChannels)

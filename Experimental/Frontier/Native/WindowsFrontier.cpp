@@ -161,6 +161,8 @@ int main(int ArgumentCount, char **Arguments)
         AppearanceOwnership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences,
                                                                     ProjectMode ? ProjectArgument : std::filesystem::path{}));
         Appearance = static_cast<Frontier::ControlCentrePanel *>(AppearanceOwnership.get());
+        // 📝 Match TextureWorkspace's host: this project window has only its registered Log Stream panel + notch.
+        if (ProjectMode) Appearance->ConfigureContentBrowserVisibility(false);
         if (!Appearance->Initialize() || !Appearance->Activate())
             throw std::runtime_error("Frontier appearance initialization failed: " + Appearance->QueryDiagnostic());
         (void)Startup.Run();

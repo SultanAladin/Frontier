@@ -85,6 +85,11 @@ add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/Cont
     UI/Editor/LogStreamPanel.cpp UI/Editor/EditorWorkspace.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface FrontierLifecycle)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
+option(FRONTIER_BUILD_UI_EVIDENCE_RENDERER "Build the headless render of the actual EditorWorkspace + Control Centre + Log Stream stack" OFF)
+if(FRONTIER_BUILD_UI_EVIDENCE_RENDERER)
+    add_executable(FrontierWorkspaceRender Exhibits/LogStreamPanel/Code/FrontierWorkspaceRender.cpp)
+    target_link_libraries(FrontierWorkspaceRender PRIVATE FrontierEditorUI)
+endif()
 
 if(WIN32)
     # GLFW owns windows/input; DX11 is only this ImGui exhibit's display adapter, not the primary renderer.
@@ -175,6 +180,4 @@ if(BUILD_TESTING)
     target_compile_definitions(LogStreamPanelValidation PRIVATE FRONTIER_EDITOR=1)
     add_test(NAME LogStreamPanelValidation COMMAND LogStreamPanelValidation
         "${CMAKE_BINARY_DIR}/log-stream-panel.ppm")
-    add_executable(LogStreamPanelRender Exhibits/LogStreamPanel/Code/LogStreamPanelRender.cpp)
-    target_link_libraries(LogStreamPanelRender PRIVATE FrontierEditorUI)
 endif()
