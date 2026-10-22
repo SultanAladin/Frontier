@@ -344,3 +344,16 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   before the surrounding workspace's zeroed style resumes. No layout/behaviour change otherwise.
   Host suite 26/26.
 
+## Fork merge: c7egoist/Frontier arena/ec6ca01d-frontier (2026-10-23, branch arena/c8d99312-frontier)
+
+- Merged `c7egoist/Frontier@arena/ec6ca01d-frontier` as-is, same handling as the earlier
+  `c7egoist`/other-session fork merge (PR #8): its unique commits beyond the shared `5a8c1b8`
+  ancestor are a standalone-engine GGX material response port and an atmospheric-environment MIS
+  integration, plus the `Exhibits/CompleteRenderer`, `EnvironmentPipeline`, `IlluminationChain` and
+  `IndirectIllumination` reference exhibits and the `Frontier/Engine/Rendering/*` portable renderer
+  tree they build on. Each exhibit carries its own standalone `CMakeLists.txt` and is not wired into
+  the root build (same as the prior fork's `Frontier/`, `VisualProof/`, `Docs/` overlay) — merge was
+  clean with no conflicts, since this branch's commits since the shared ancestor don't touch the
+  files this session's sheen/inspector/dialog work changed.
+- Verified: full root build + `ctest` 26/26, confirming the merge is inert for the shipped build.
+
