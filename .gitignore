@@ -11,3 +11,10 @@ _AgentScratch/
 __pycache__/
 
 /google_drive/
+
+# Engine host outputs and shared content (upstream conventions)
+Binaries/
+ExternalPackages/
+EngineContent/FontArchives/
+**/Saved/
+FrontierLogStream.log
