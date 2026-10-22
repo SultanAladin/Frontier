@@ -389,7 +389,7 @@ const std::vector<uint8_t> &PatternWorkspacePanel::QueryPatternRaster(const Patt
     if (Cached != PatternRasterCache.end()) return Cached->second;
     // Baked background matches the card thumbnail well so empty tiles blend in.
     constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
-    std::vector<uint8_t> Pixels = RasterizePatternThumbnail(Entry.Shapes, PatternAtlasTile, CardWell);
+    std::vector<uint8_t> Pixels = RasterizePatternThumbnailSvg(Entry.Document, PatternAtlasTile, CardWell);
     while (PatternRasterOrder.size() >= 256)
     {
         PatternRasterCache.erase(PatternRasterOrder.front());
@@ -426,7 +426,7 @@ void PatternWorkspacePanel::RefreshPatternAtlas()
     }
     if (!BakedNew) return;
     constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
-    const std::vector<uint8_t> Blank = RasterizePatternThumbnail({}, PatternAtlasTile, CardWell);
+    const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, PatternAtlasTile, CardWell);
     std::vector<std::vector<uint8_t>> Tiles;
     const size_t Slotted = std::min(LibraryFamilies.size(), PatternAtlasCapacity);
     Tiles.reserve(Slotted);
@@ -492,7 +492,8 @@ std::vector<PatternWorkspacePanel::PatternThumbnailShape> PatternWorkspacePanel:
         Shape.StrokeWidth = Source.Transform[1];
         if (Category == 0)
         {
-            const float HX = Source.Bounds[2], HY = Source.Bounds[3];
+            // 📝 Bounds.zw are full extents; the coverage shader halves them.
+            const float HX = Source.Bounds[2] * .5f, HY = Source.Bounds[3] * .5f;
             const std::array<std::array<float, 2>, 4> Corners{Place(-HX, -HY), Place(HX, -HY), Place(HX, HY), Place(-HX, HY)};
             if (Shape.Filled) { Shape.Triangles = {Corners[0], Corners[1], Corners[2], Corners[0], Corners[2], Corners[3]}; Triangles += 2; }
             Shape.Outline = {Corners[0], Corners[1], Corners[2], Corners[3]};
@@ -506,7 +507,7 @@ std::vector<PatternWorkspacePanel::PatternThumbnailShape> PatternWorkspacePanel:
             for (int Step = 0; Step < 28; ++Step)
             {
                 const float Angle = 6.28318530718f * Step / 28;
-                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2], std::sin(Angle) * Source.Bounds[3]));
+                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2] * .5f, std::sin(Angle) * Source.Bounds[3] * .5f));
             }
             if (Shape.Filled)
                 for (size_t Corner = 1; Corner + 1 < Loop.size(); ++Corner)
@@ -528,7 +529,7 @@ std::vector<PatternWorkspacePanel::PatternThumbnailShape> PatternWorkspacePanel:
             {
                 const float Angle = -1.57079632679f + 6.28318530718f * Corner / Count;
                 const float Radius = Category == 5 && Corner % 2 == 1 ? Source.Paint[1] : 1;
-                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2] * Radius, std::sin(Angle) * Source.Bounds[3] * Radius));
+                Loop.push_back(Place(std::cos(Angle) * Source.Bounds[2] * .5f * Radius, std::sin(Angle) * Source.Bounds[3] * .5f * Radius));
             }
             if (Shape.Filled) { Shape.Triangles = TriangulateThumbnailLoop(Loop); Triangles += Shape.Triangles.size() / 3; }
             Shape.Outline = std::move(Loop);

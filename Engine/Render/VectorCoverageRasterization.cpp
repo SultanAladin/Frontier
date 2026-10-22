@@ -391,10 +391,14 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     if (!Channels) throw std::runtime_error("Bake budget requires at least one channel.");
     // 📝 ~500 FLOP per curve per pixel with no bounds rejection; 2e9 curve·
     // pixel·channels ≈ 1 TFLOP per submit, under the Windows watchdog even on
-    // integrated GPUs. Empty/rect-only documents keep full resolution.
-    if (!Segments) return 512;
+    // integrated GPUs. Empty/rect-only documents keep full resolution. The
+    // single-channel canvas display may run at 1024 so light documents stay
+    // crisp on screen; the six-channel bridge still tops out at 512 because
+    // its pyramid restores material maps at that extent.
+    if (!Segments) return Channels == 1 ? 1024 : 512;
     constexpr uint64_t Budget = 2000000000ull;
     const uint64_t Load = uint64_t(Segments) * Channels;
+    if (Channels == 1 && uint64_t(1024) * 1024 * Load <= Budget) return 1024;
     for (uint32_t Extent : {512u, 256u, 128u})
         if (uint64_t(Extent) * Extent * Load <= Budget) return Extent;
     return 128;

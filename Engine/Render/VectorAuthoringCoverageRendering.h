@@ -35,10 +35,10 @@ public:
 private:
     struct CoverageSlot
     {
-        // 📝 One retained rasterization per bake extent (128/256/512): reselecting a pattern reuses its
+        // 📝 One retained rasterization per bake extent (128/256/512/1024): reselecting a pattern reuses its
         // extent instead of destroying pipelines on the UI thread, and keeps the last valid image live.
-        std::array<std::unique_ptr<VectorCoverageRasterization>, 3> Extents;
-        size_t Active = 3;
+        std::array<std::unique_ptr<VectorCoverageRasterization>, 4> Extents;
+        size_t Active = 4;
         std::optional<VectorCoverageProgram> Program;
         std::optional<VectorSurfaceProgram> SurfaceProgram;
         uint64_t SampledSerial = 0;

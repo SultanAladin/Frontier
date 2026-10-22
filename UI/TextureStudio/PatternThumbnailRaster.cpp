@@ -1,111 +1,195 @@
 /*============================================================================================================================================
                                                          PATTERNTHUMBNAILRASTER.CPP
 ============================================================================================================================================*/
-// 🧩 Scanline triangle fills and distance-field polylines for gallery atlas thumbnails; matches vector card appearance.
+// 🧩 Gallery thumbnails are real SVG documents rasterized by ThorVG: one vector encoding of the
+// authoring document, anti-aliased at whatever extent the atlas asks for. No home-grown scanline
+// fill remains; primitive half-extents match the coverage shader (Bounds.zw * .5).
 
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <functional>
 #include <stdexcept>
+#include <thorvg.h>
 
 namespace Frontier
 {
 namespace
 {
-void BlendPixel(uint8_t *Pixel, uint32_t Abgr)
+struct ReleasePaint
 {
-    const uint32_t Alpha = Abgr >> 24;
-    if (!Alpha) return;
-    const uint32_t Source[3]{Abgr & 255, (Abgr >> 8) & 255, (Abgr >> 16) & 255};
-    if (Alpha == 255)
-    {
-        Pixel[0] = uint8_t(Source[0]);
-        Pixel[1] = uint8_t(Source[1]);
-        Pixel[2] = uint8_t(Source[2]);
-        Pixel[3] = 255;
-        return;
-    }
-    for (size_t Channel = 0; Channel < 3; ++Channel)
-        Pixel[Channel] = uint8_t((Source[Channel] * Alpha + Pixel[Channel] * (255 - Alpha) + 127) / 255);
+    void operator()(tvg::Picture *Picture) const { tvg::Paint::rel(Picture); }
+};
+
+void EnsureThorVg()
+{
+    static const bool Ready = tvg::Initializer::init(0) == tvg::Result::Success;
+    if (!Ready) throw std::runtime_error("ThorVG runtime initialization failed.");
 }
 
-void FillTriangle(std::vector<uint8_t> &Pixels, uint32_t Extent, float Ax, float Ay, float Bx, float By, float Cx, float Cy,
-    uint32_t Colour)
+std::string Number(float Value)
 {
-    const float Area = (Bx - Ax) * (Cy - Ay) - (By - Ay) * (Cx - Ax);
-    if (!std::isfinite(Area) || Area == 0) return;
-    const int MinimumX = std::max(0, int(std::floor(std::min({Ax, Bx, Cx}))));
-    const int MaximumX = std::min(int(Extent), int(std::ceil(std::max({Ax, Bx, Cx}))));
-    const int MinimumY = std::max(0, int(std::floor(std::min({Ay, By, Cy}))));
-    const int MaximumY = std::min(int(Extent), int(std::ceil(std::max({Ay, By, Cy}))));
-    for (int Y = MinimumY; Y < MaximumY; ++Y)
-        for (int X = MinimumX; X < MaximumX; ++X)
-        {
-            const float Px = float(X) + .5f, Py = float(Y) + .5f;
-            float First = (Bx - Ax) * (Py - Ay) - (By - Ay) * (Px - Ax);
-            float Second = (Cx - Bx) * (Py - By) - (Cy - By) * (Px - Bx);
-            float Third = (Ax - Cx) * (Py - Cy) - (Ay - Cy) * (Px - Cx);
-            // 📝 Normalized winding claims shared edges, so dense tessellations never show pinhole seams.
-            if (Area < 0) { First = -First; Second = -Second; Third = -Third; }
-            if (First >= 0 && Second >= 0 && Third >= 0)
-                BlendPixel(&Pixels[(size_t(Y) * Extent + X) * 4], Colour);
-        }
+    char Buffer[32]{};
+    std::snprintf(Buffer, sizeof(Buffer), "%.3f", double(Value));
+    return Buffer;
 }
 
-void StrokeSegment(std::vector<uint8_t> &Pixels, uint32_t Extent, float Ax, float Ay, float Bx, float By, float Radius,
-    uint32_t Colour)
+std::string ColourLiteral(const std::array<float, 4> &Colour)
 {
-    const int MinimumX = std::max(0, int(std::floor(std::min(Ax, Bx) - Radius - 1)));
-    const int MaximumX = std::min(int(Extent), int(std::ceil(std::max(Ax, Bx) + Radius + 1)));
-    const int MinimumY = std::max(0, int(std::floor(std::min(Ay, By) - Radius - 1)));
-    const int MaximumY = std::min(int(Extent), int(std::ceil(std::max(Ay, By) + Radius + 1)));
-    const float Dx = Bx - Ax, Dy = By - Ay;
-    const float Length2 = std::max(Dx * Dx + Dy * Dy, 1e-12f);
-    for (int Y = MinimumY; Y < MaximumY; ++Y)
-        for (int X = MinimumX; X < MaximumX; ++X)
-        {
-            const float Px = float(X) + .5f - Ax, Py = float(Y) + .5f - Ay;
-            const float Along = std::clamp((Px * Dx + Py * Dy) / Length2, 0.f, 1.f);
-            const float OffX = Px - Dx * Along, OffY = Py - Dy * Along;
-            if (OffX * OffX + OffY * OffY <= Radius * Radius)
-                BlendPixel(&Pixels[(size_t(Y) * Extent + X) * 4], Colour);
-        }
+    const auto Channel = [](float Value) { return int(std::lround(std::clamp(Value, 0.f, 1.f) * 255)); };
+    char Buffer[32]{};
+    std::snprintf(Buffer, sizeof(Buffer), "rgb(%d,%d,%d)", Channel(Colour[0]), Channel(Colour[1]), Channel(Colour[2]));
+    return Buffer;
 }
 } // namespace
 
-std::vector<uint8_t> RasterizePatternThumbnail(
-    const std::vector<PatternWorkspacePanel::PatternThumbnailShape> &Shapes, uint32_t Extent, uint32_t BackgroundAbgr)
+std::string EncodePatternThumbnailSvg(const VectorAuthoringDocument &Document, uint32_t BackgroundAbgr)
 {
-    if (!Extent || Extent > 512) throw std::runtime_error("Thumbnail raster extent is unbounded.");
-    std::vector<uint8_t> Pixels(size_t(Extent) * Extent * 4);
-    for (size_t Pixel = 0; Pixel < Pixels.size(); Pixel += 4)
+    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">";
     {
-        Pixels[Pixel] = uint8_t(BackgroundAbgr & 255);
-        Pixels[Pixel + 1] = uint8_t((BackgroundAbgr >> 8) & 255);
-        Pixels[Pixel + 2] = uint8_t((BackgroundAbgr >> 16) & 255);
-        Pixels[Pixel + 3] = 255;
+        char Buffer[96]{};
+        std::snprintf(Buffer, sizeof(Buffer), "<rect width=\"512\" height=\"512\" fill=\"rgb(%u,%u,%u)\"/>",
+            BackgroundAbgr & 255, (BackgroundAbgr >> 8) & 255, (BackgroundAbgr >> 16) & 255);
+        Svg += Buffer;
     }
-    const float Scale = float(Extent) / 512; // Tile space 0..512.
-    for (const auto &Shape : Shapes)
+    const auto Style = [](const VectorCoverageInstruction &Source, float Opacity)
     {
-        if (Shape.Filled && Shape.Triangles.size() >= 3)
-            for (size_t First = 0; First + 2 < Shape.Triangles.size(); First += 3)
-                FillTriangle(Pixels, Extent, Shape.Triangles[First][0] * Scale, Shape.Triangles[First][1] * Scale,
-                    Shape.Triangles[First + 1][0] * Scale, Shape.Triangles[First + 1][1] * Scale,
-                    Shape.Triangles[First + 2][0] * Scale, Shape.Triangles[First + 2][1] * Scale, Shape.FillColour);
-        if (Shape.Stroked && Shape.Outline.size() > 1)
+        std::string Text;
+        const std::string Fill = ColourLiteral(Source.Colour);
+        if (Source.Paint[3] != 0)
+            Text += " fill=\"" + Fill + "\" fill-opacity=\"" + Number(std::clamp(Source.Colour[3] * Opacity, 0.f, 1.f)) + "\"";
+        else
+            Text += " fill=\"none\"";
+        if (Source.Transform[1] > 0)
         {
-            const float Radius = std::max(Shape.StrokeWidth * Scale, 1.f) * .5f;
-            const size_t Spans = Shape.Outline.size() - 1 + (Shape.ClosedOutline ? 1 : 0);
-            for (size_t Span = 0; Span < Spans; ++Span)
-            {
-                const auto &Start = Shape.Outline[Span % Shape.Outline.size()];
-                const auto &End = Shape.Outline[(Span + 1) % Shape.Outline.size()];
-                StrokeSegment(Pixels, Extent, Start[0] * Scale, Start[1] * Scale, End[0] * Scale, End[1] * Scale,
-                    Radius, Shape.LineColour);
-            }
+            const bool Explicit = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0;
+            const auto &Line = Explicit ? Source.StrokeColour : Source.Colour;
+            Text += " stroke=\"" + ColourLiteral(Line) + "\" stroke-opacity=\"" +
+                    Number(std::clamp(Line[3] * Opacity, 0.f, 1.f)) + "\" stroke-width=\"" + Number(Source.Transform[1]) +
+                    "\" stroke-linejoin=\"round\" stroke-linecap=\"round\"";
         }
+        return Text;
+    };
+    std::function<void(uint32_t, uint32_t)> Emit = [&](uint32_t Root, uint32_t Depth)
+    {
+        if (Root >= Document.Instructions.size() || Depth > 16) return;
+        const auto &Source = Document.Instructions[Root];
+        const uint32_t Category = Source.Topology[0];
+        if (Category > 6)
+        {
+            // 📝 Boolean/composite roots emit both children in order, matching card paint order.
+            Emit(Source.Topology[1], Depth + 1);
+            Emit(Source.Topology[2], Depth + 1);
+            return;
+        }
+        const float Opacity = Source.Transform[2];
+        if (!(Opacity > 0) || !std::isfinite(Opacity)) return;
+        const float Rotation = Source.Transform[0];
+        const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
+        const auto Place = [&](float LocalX, float LocalY)
+        {
+            return std::array<float, 2>{Source.Bounds[0] + Cosine * LocalX - Sine * LocalY,
+                Source.Bounds[1] + Sine * LocalX + Cosine * LocalY};
+        };
+        const std::string Paint = Style(Source, Opacity);
+        // 📝 Bounds.zw are full extents; the coverage shader halves them, and so does this encoding.
+        const float HalfX = Source.Bounds[2] * .5f, HalfY = Source.Bounds[3] * .5f;
+        const auto Points = [&](const std::vector<std::array<float, 2>> &Loop)
+        {
+            std::string Text = "<polygon points=\"";
+            for (const auto &Point : Loop) Text += Number(Point[0]) + "," + Number(Point[1]) + " ";
+            Text += "\"" + Paint + "/>";
+            return Text;
+        };
+        if (Category == 0)
+        {
+            Svg += Points({Place(-HalfX, -HalfY), Place(HalfX, -HalfY), Place(HalfX, HalfY), Place(-HalfX, HalfY)});
+            return;
+        }
+        if (Category == 1)
+        {
+            Svg += "<ellipse cx=\"" + Number(Source.Bounds[0]) + "\" cy=\"" + Number(Source.Bounds[1]) + "\" rx=\"" +
+                   Number(HalfX) + "\" ry=\"" + Number(HalfY) + "\" transform=\"rotate(" +
+                   Number(Rotation * 57.2957795131f) + " " + Number(Source.Bounds[0]) + " " +
+                   Number(Source.Bounds[1]) + ")\"" + Paint + "/>";
+            return;
+        }
+        if (Category <= 5)
+        {
+            uint32_t Count = Category == 2 ? 4 : Category == 3 ? 3 : uint32_t(std::max(Source.Paint[2], 3.f));
+            if (Category == 5) Count *= 2;
+            std::vector<std::array<float, 2>> Loop;
+            for (uint32_t Corner = 0; Corner < Count; ++Corner)
+            {
+                const float Angle = -1.57079632679f + 6.28318530718f * float(Corner) / float(Count);
+                const float Radius = Category == 5 && Corner % 2 == 1 ? Source.Paint[1] : 1;
+                Loop.push_back(Place(std::cos(Angle) * HalfX * Radius, std::sin(Angle) * HalfY * Radius));
+            }
+            Svg += Points(Loop);
+            return;
+        }
+        const uint32_t Start = Source.Topology[1], Count = Source.Topology[2];
+        if (Count == 0 || uint64_t(Start) + Count > Document.Segments.size()) return;
+        // 📝 Segments live in unit-cage space scaled by the full Bounds, exactly as the shader scales them.
+        const auto Cage = [&](float X, float Y) { return Place(X * Source.Bounds[2], Y * Source.Bounds[3]); };
+        std::string Path = "<path d=\"";
+        bool Pen = false;
+        std::array<float, 2> Last{0, 0}, First{0, 0};
+        for (uint32_t Offset = 0; Offset < Count; ++Offset)
+        {
+            const auto &Segment = Document.Segments[Start + Offset];
+            const auto A = Cage(Segment.StartControl[0], Segment.StartControl[1]);
+            const auto B = Cage(Segment.StartControl[2], Segment.StartControl[3]);
+            const auto C = Cage(Segment.ControlEnd[0], Segment.ControlEnd[1]);
+            const auto D = Cage(Segment.ControlEnd[2], Segment.ControlEnd[3]);
+            if (!Pen || std::hypot(Last[0] - A[0], Last[1] - A[1]) > 1e-3f)
+            {
+                Path += "M" + Number(A[0]) + " " + Number(A[1]) + " ";
+                if (!Pen) First = A;
+                Pen = true;
+            }
+            Path += "C" + Number(B[0]) + " " + Number(B[1]) + " " + Number(C[0]) + " " + Number(C[1]) + " " +
+                    Number(D[0]) + " " + Number(D[1]) + " ";
+            Last = D;
+        }
+        if (Pen && std::hypot(Last[0] - First[0], Last[1] - First[1]) <= 1.5f) Path += "Z";
+        Path += "\"" + Paint + "/>";
+        Svg += Path;
+    };
+    for (const auto &Layer : Document.Layers)
+    {
+        if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
+        Emit(Layer.Root, 0);
     }
+    Svg += "</svg>";
+    return Svg;
+}
+
+std::vector<uint8_t> RasterizePatternThumbnailSvg(
+    const VectorAuthoringDocument &Document, uint32_t Extent, uint32_t BackgroundAbgr)
+{
+    if (!Extent || Extent > 1024) throw std::runtime_error("Thumbnail raster extent is unbounded.");
+    const std::string Svg = EncodePatternThumbnailSvg(Document, BackgroundAbgr);
+    EnsureThorVg();
+    std::vector<uint8_t> Pixels(size_t(Extent) * Extent * 4, 0);
+    std::unique_ptr<tvg::SwCanvas> Canvas(tvg::SwCanvas::gen());
+    std::unique_ptr<tvg::Picture, ReleasePaint> Picture(tvg::Picture::gen());
+    if (!Canvas || !Picture) throw std::runtime_error("ThorVG thumbnail canvas allocation failed.");
+    bool Ok = Picture->load(Svg.data(), uint32_t(Svg.size()), "svg", nullptr, true) == tvg::Result::Success;
+    if (Ok) Ok = Picture->size(float(Extent), float(Extent)) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->target(reinterpret_cast<uint32_t *>(Pixels.data()), Extent, Extent, Extent,
+                     tvg::ColorSpace::ABGR8888S) == tvg::Result::Success;
+    if (Ok)
+    {
+        Ok = Canvas->add(Picture.get()) == tvg::Result::Success;
+        if (Ok) Picture.release();
+    }
+    if (Ok) Ok = Canvas->draw(true) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->sync() == tvg::Result::Success;
+    if (!Ok) throw std::runtime_error("ThorVG could not rasterize the pattern thumbnail SVG.");
     return Pixels;
 }
 
