@@ -119,6 +119,12 @@ std::optional<float> QueryRecipeCoefficient(MaterialDefinition &Definition, std:
         if (Key == "flakeLayers") return float(Definition.Scattering.Paint.Configuration[1]);
         if (const auto *Coefficient = QueryPaintCoefficient(Definition.Scattering.Paint, Key)) return *Coefficient;
     }
+    // 📝 Emission strength is the peak of the authored Radiance spectrum (LED recipes).
+    if (Key == "emissionStrength")
+    {
+        const auto &Radiance = Definition.Scattering.RadianceNormal;
+        return std::max({Radiance[0], Radiance[1], Radiance[2]});
+    }
     return {};
 }
 const MaterialCatalogueEntry *QuerySelectedMaterial(const MaterialLibrary &Library)
@@ -938,6 +944,11 @@ void MaterialLibraryPanel::ConstructInspector()
                     bool PaintChanged = false;
                     const auto ApplyTarget = [&](const std::string &Key, float Coefficient)
                     {
+                        if (Key == "emissionStrength")
+                        {
+                            Changed = Library.ConfigureEmissionStrength(Coefficient) || Changed;
+                            return;
+                        }
                         if (Definition.Scattering.Paint.Configuration[3] && Key == "flakeLayers")
                         {
                             Definition.Scattering.Paint.Configuration[1] = uint32_t(std::clamp(std::round(Coefficient), 1.f, 4.f));

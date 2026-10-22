@@ -262,21 +262,21 @@ int main(int ArgumentCount, char **Arguments)
                     "Metal preset albedo/ORM/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Metal preset texture mask differs.");
         }
-        // 📝 Pure conductors are value-only: no baked channels at all, so every slot stays neutral and
-        // the Albedo scalar is the reflectance itself rather than a multiplier over a map.
+        // 📝 Pure conductors bake the Alloy type-1 tooth: an albedo modulator under the reflectance
+        // scalar plus grain relief, matching the HTML kernel instead of shipping flat values.
         for (const auto *Path : {"24k-gold.material", "pure-copper.material", "chromium.material"})
         {
             Confirm(ReferenceLibrary.OpenMaterial(Path), "Pure conductor preset did not compile.");
             const auto *Compiled = ReferenceLibrary.QueryApplied();
-            Confirm(Compiled->Scattering.TextureUse[0][0] == 0, "Pure conductor preset bound a texture slot.");
-            Confirm(Compiled->Textures[0].Levels[0].Width == 1 && Compiled->Textures[1].Levels[0].Width == 1 &&
-                        Compiled->Textures[2].Levels[0].Width == 1,
-                "Pure conductor preset baked a detail texture instead of shipping values.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 5, "Pure conductor preset tooth mask differs.");
+            Confirm(Compiled->Textures[0].Levels[0].Width == 512 && Compiled->Textures[1].Levels[0].Width == 1 &&
+                        Compiled->Textures[2].Levels[0].Width == 512,
+                "Pure conductor preset did not compile its baked tooth maps.");
             Confirm(Compiled->Scattering.Illumination.Strata[0].Optics[0] > .99f,
                 "Pure conductor preset is not metallic.");
         }
-        // 📝 The optional scratch overlay is the one texture a pure conductor may gain: it attaches to the
-        // relief and ORM slots while the Albedo stays neutral, and the staged field must still bake.
+        // 📝 The optional scratch overlay attaches over the conductor tooth: relief and ORM slots gain
+        // the staged cut field, and the field must still bake.
         {
             MaterialLibrary ScratchLibrary;
             Confirm(ScratchLibrary.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") &&
@@ -293,8 +293,9 @@ int main(int ArgumentCount, char **Arguments)
                         ScratchLibrary.RebakeProcedurals(512),
                 "Optional scratch overlay on a pure conductor did not bake.");
             const auto *ScratchCompiled = ScratchLibrary.QueryApplied();
-            Confirm(ScratchCompiled->Scattering.TextureUse[0][0] == 6, "Scratch overlay bound the wrong slots.");
-            Confirm(ScratchCompiled->Textures[0].Levels[0].Width == 1, "Scratch overlay replaced the conductor albedo.");
+            // 📝 The overlay replaces the tooth relief/ORM slots; the baked tooth albedo stays bound.
+            Confirm(ScratchCompiled->Scattering.TextureUse[0][0] == 7, "Scratch overlay bound the wrong slots.");
+            Confirm(ScratchCompiled->Textures[0].Levels[0].Width == 512, "Scratch overlay lost the conductor tooth albedo.");
             Confirm(ScratchCompiled->Textures[2].Levels[0].Width == 512, "Scratch overlay did not bake relief.");
         }
         Confirm(ReferenceLibrary.OpenMaterial("sand.material"), "Sand preset did not compile.");

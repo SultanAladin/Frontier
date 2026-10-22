@@ -82,6 +82,9 @@ class MaterialLibrary
     bool ApplySource();
     bool ConfigureStratumCoefficient(uint32_t Index, std::string_view Name, float Coefficient);
     bool ConfigurePaint(const AutomotivePaint &Paint);
+    // 📝 Scales the authored Radiance spectrum so its peak component equals Strength (the Alloy
+    // emissionStrength convention: emission colour is peak-normalized, strength is the peak).
+    bool ConfigureEmissionStrength(float Strength);
     bool ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum);
     bool InsertStratum(uint32_t Index);
     bool RemoveStratum(uint32_t Index);

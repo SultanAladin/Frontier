@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <functional>
 #include <optional>
 #include <sstream>
@@ -1240,6 +1241,58 @@ bool MaterialLibrary::ConfigurePaint(const AutomotivePaint &Paint)
         std::sort(Replacements.begin(), Replacements.end(), [](const auto &First, const auto &Second) { return First.Begin > Second.Begin; });
         auto Replacement = Source;
         for (const auto &Term : Replacements) Replacement.replace(Term.Begin, Term.End - Term.Begin, Term.Literal);
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::ConfigureEmissionStrength(float Strength)
+{
+    try
+    {
+        if (!(Strength >= 0) || Strength > 64) throw std::runtime_error("Emission strength is out of range.");
+        auto Definition = DecodeSurfaceMaterial(Source);
+        auto &Radiance = Definition.Scattering.RadianceNormal;
+        const float Peak = std::max({Radiance[0], Radiance[1], Radiance[2]});
+        if (!(Peak > 0))
+        {
+            if (Strength == 0) return true;
+            throw std::runtime_error("Author an emission colour in Source first.");
+        }
+        const float Scale = Strength / Peak;
+        Radiance[0] *= Scale;
+        Radiance[1] *= Scale;
+        Radiance[2] *= Scale;
+        const auto Encoded = toml::parse(EncodeSurfaceMaterial(Definition));
+        const auto Original = toml::parse(Source);
+        const auto *Existing = Original["Radiance"].as_array();
+        const auto *ReplacementValue = Encoded["Radiance"].as_array();
+        if (!Existing || !ReplacementValue) throw std::runtime_error("Add a Radiance spectrum in Source first.");
+        const auto Offset = [&](toml::source_position Position)
+        {
+            size_t Cursor = 0;
+            for (uint32_t Line = 1; Line < Position.line; ++Line)
+            {
+                Cursor = Source.find('\n', Cursor);
+                if (Cursor == std::string::npos) throw std::runtime_error("Invalid radiance source line.");
+                ++Cursor;
+            }
+            for (uint32_t Column = 1; Column < Position.column; ++Column)
+            {
+                if (Cursor >= Source.size()) throw std::runtime_error("Invalid radiance source column.");
+                ++Cursor;
+                while (Cursor < Source.size() && (static_cast<unsigned char>(Source[Cursor]) & 0xc0) == 0x80) ++Cursor;
+            }
+            return Cursor;
+        };
+        std::ostringstream Literal;
+        Literal << std::setprecision(10) << "[" << Radiance[0] << ", " << Radiance[1] << ", " << Radiance[2] << "]";
+        auto Replacement = Source;
+        Replacement.replace(Offset(Existing->source().begin),
+            Offset(Existing->source().end) - Offset(Existing->source().begin), Literal.str());
         (void)DecodeSurfaceMaterial(Replacement);
         Source = std::move(Replacement);
         Diagnostic.clear();

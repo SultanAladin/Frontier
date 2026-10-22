@@ -37,3 +37,12 @@ detailScale = 24
 grain = 0.35
 moisture = 0.02
 surfaceSeed = 17
+
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.15
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0

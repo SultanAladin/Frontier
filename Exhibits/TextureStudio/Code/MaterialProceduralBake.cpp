@@ -212,8 +212,87 @@ bool BakeChannels(const MaterialCatalogueEntry &Entry, const std::filesystem::pa
     }
     else if (Op == "fruit")
     {
-        Params = BakeScalars(Recipe, {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed"});
+        Params = BakeScalars(Recipe, {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed", "roughness"});
         Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "metalGrain") Params = BakeScalars(Recipe, {"grain", "detailScale", "surfaceSeed"});
+    else if (Op == "polymerGrain")
+        Params = BakeScalars(Recipe, {"grain", "detailScale", "wear", "wearSoftness", "wornRoughness",
+            "scratchScale", "surfaceSeed", "roughness"});
+    else if (Op == "leaf")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "cellScale", "cellRelief", "cellLobing", "stomataDensity",
+            "veinRelief", "colorGradient", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "grass")
+    {
+        Params = BakeScalars(Recipe, {"plantRibs", "cellScale", "cellRelief", "veinRelief", "colorGradient", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "petal")
+    {
+        Params = BakeScalars(Recipe, {"cellScale", "cellRelief", "veinRelief", "colorGradient", "spotDensity", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "stem")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "cellScale", "cellRelief", "veinRelief", "colorGradient",
+            "spotDensity", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "cactus")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "plantRibs", "cellScale", "cellRelief", "veinRelief",
+            "colorGradient", "roughness", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "leather")
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "hideVariant", "hideVariation", "wear",
+            "wearSoftness", "wornRoughness", "scratchScale", "surfaceSeed"});
+    else if (Op == "crocodile")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "groutWidth", "poreDensity", "hideVariation", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "wax") Params = BakeScalars(Recipe, {"detailScale", "grain", "surfaceSeed"});
+    else if (Op == "skin")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "freckles", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "paper")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "fiberContrast", "paperRibs", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "rust")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "oxidation", "roughness", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "ceramic" || Op == "rubber")
+        Params = BakeScalars(Recipe, {"detailScale", "depth", "surfaceSeed"});
+    else if (Op == "tiles")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "groutWidth", "tileVariation", "tileStagger",
+            "roughness", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "granite")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor", "tertiaryColor"}, Stem);
+    }
+    else if (Op == "marble")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "veinWidth", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "concrete")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "grain", "poreDensity", "wallMode", "surfaceSeed"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
     }
     else if (Op == "scratchedMetal" || Op == "latheMetal")
     {
@@ -286,6 +365,9 @@ int main(int ArgumentCount, char **Arguments)
             // 📝 Woodland camouflage albedo is the coded field channel, rebaked live by the workspace;
             // baking the weave pair here would ship textures its .material never references.
             if (Entry.RelativePath.stem().string().starts_with("woodland-camouflage-fabric")) continue;
+            // 📝 Camouflage ballistic polymer keeps its coded-field albedo; the polymer grain under it
+            // is not yet composited, so no polymer bake is shipped for those stems either.
+            if (Entry.RelativePath.stem().string().starts_with("camouflage-ballistic-polymer")) continue;
             const auto &RecipeId = Entry.Recipe.RecipeId;
             if (RecipeId == "scratches" && BakeScratches(Entry, Textures)) ++Baked;
             else if (RecipeId == "solar" && BakeChannels(Entry, Textures, "solar", {"Albedo", "Orm", "Normal"})) ++Baked;
@@ -293,10 +375,29 @@ int main(int ArgumentCount, char **Arguments)
             else if (RecipeId == "stucco" && BakeChannels(Entry, Textures, "stucco", {"Albedo", "Normal"})) ++Baked;
             else if (RecipeId == "clay" && BakeChannels(Entry, Textures, "clay", {"Albedo", "Normal"})) ++Baked;
             else if (RecipeId == "led" && BakeChannels(Entry, Textures, "led", {"Albedo", "Normal", "Radiance"})) ++Baked;
-            else if (RecipeId == "fruitSurface" && BakeChannels(Entry, Textures, "fruit", {"Albedo", "Normal"})) ++Baked;
-            // 📝 Pure conductors (bareMetal) ship values only: no baked channels, so the shared baker
-            // skips them entirely. Their optional scratch overlay attaches at authoring time.
-            else if (RecipeId == "bareMetal") continue;
+            else if ((RecipeId == "fruitSurface" || RecipeId == "citrusSurface" || RecipeId == "berrySurface") &&
+                BakeChannels(Entry, Textures, "fruit", {"Albedo", "Orm", "Normal"})) ++Baked;
+            else if (RecipeId == "leafSurface" && BakeChannels(Entry, Textures, "leaf", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "grassSurface" && BakeChannels(Entry, Textures, "grass", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "petalSurface" && BakeChannels(Entry, Textures, "petal", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "stemSurface" && BakeChannels(Entry, Textures, "stem", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "cactusSurface" && BakeChannels(Entry, Textures, "cactus", {"Albedo", "Orm", "Normal"})) ++Baked;
+            else if (RecipeId == "leather" && BakeChannels(Entry, Textures, "leather", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "crocodile" && BakeChannels(Entry, Textures, "crocodile", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "wax" && BakeChannels(Entry, Textures, "wax", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "skin" && BakeChannels(Entry, Textures, "skin", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "paper" && BakeChannels(Entry, Textures, "paper", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "rust" && BakeChannels(Entry, Textures, "rust", {"Albedo", "Orm", "Normal"})) ++Baked;
+            else if (RecipeId == "ceramic" && BakeChannels(Entry, Textures, "ceramic", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "rubber" && BakeChannels(Entry, Textures, "rubber", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "tiles" && BakeChannels(Entry, Textures, "tiles", {"Albedo", "Orm", "Normal"})) ++Baked;
+            else if (RecipeId == "granite" && BakeChannels(Entry, Textures, "granite", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "marble" && BakeChannels(Entry, Textures, "marble", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "concrete" && BakeChannels(Entry, Textures, "concrete", {"Albedo", "Normal"})) ++Baked;
+            else if ((RecipeId == "glossPlastic" || RecipeId == "grainPlastic" || RecipeId == "engineering" ||
+                RecipeId == "wornPlastic") && BakeChannels(Entry, Textures, "polymerGrain", {"Albedo", "Orm", "Normal"})) ++Baked;
+            // 📝 Bare metals bake the Alloy type-1 tooth; the optional scratch overlay attaches later.
+            else if (RecipeId == "bareMetal" && BakeChannels(Entry, Textures, "metalGrain", {"Albedo", "Normal"})) ++Baked;
             else if ((RecipeId == "polishedMetal" || RecipeId == "brushedMetal") &&
                 BakeChannels(Entry, Textures, "scratchedMetal", {"Albedo", "Orm", "Normal"}))
                 ++Baked;

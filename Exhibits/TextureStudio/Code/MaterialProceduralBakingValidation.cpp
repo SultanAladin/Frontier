@@ -244,8 +244,8 @@ int main()
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
         // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
         // passthrough that keeps unworn polymer out of the worn-roughness branch.
-        // 📝 14 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
-        Confirm(QueryProceduralOps().size() == 22, "Procedural op registry changed.");
+        // 📝 31 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
+        Confirm(QueryProceduralOps().size() == 39, "Procedural op registry changed.");
         Confirm(QueryProceduralOpChannels("camouflage") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpTextParams("camouflage-smooth").size() == 4 &&
                 QueryProceduralOpTextParams("noise").empty(),
@@ -262,8 +262,26 @@ int main()
                 QueryProceduralOpChannels("knit") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("clay") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpChannels("led") == std::vector<std::string>{"Albedo", "Normal", "Radiance"} &&
-                QueryProceduralOpChannels("fruit") == std::vector<std::string>{"Albedo", "Normal"},
+                QueryProceduralOpChannels("fruit") == std::vector<std::string>{"Albedo", "Orm", "Normal"},
             "Disputed-family op channel set changed.");
+        Confirm(QueryProceduralOpChannels("cactus") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("rust") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("tiles") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("leaf") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("grass") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("petal") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("stem") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("leather") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("crocodile") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("wax") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("skin") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("paper") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("ceramic") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("rubber") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("granite") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("marble") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("concrete") == std::vector<std::string>{"Albedo", "Normal"},
+            "Botanical/extended op channel set changed.");
         Confirm(QueryProceduralOpCeilingLift("scratches") == .3f && QueryProceduralOpCeilingLift("polymerGrain") == .096f &&
                 QueryProceduralOpCeilingLift("metalGrain") == 0 && QueryProceduralOpCeilingLift("unknown") == 0,
             "ORM ceiling lift changed.");
@@ -271,7 +289,9 @@ int main()
                 QueryProceduralOpCeilingLift("latheMetal") == .3f && QueryProceduralOpCeilingLift("dimples") == 0 &&
                 QueryProceduralOpCeilingLift("stucco") == 0 && QueryProceduralOpCeilingLift("weave") == 0 &&
                 QueryProceduralOpCeilingLift("knit") == 0 && QueryProceduralOpCeilingLift("clay") == 0 &&
-                QueryProceduralOpCeilingLift("led") == 0 && QueryProceduralOpCeilingLift("fruit") == 0,
+                QueryProceduralOpCeilingLift("led") == 0 && QueryProceduralOpCeilingLift("fruit") == .24f &&
+                QueryProceduralOpCeilingLift("cactus") == .24f && QueryProceduralOpCeilingLift("rust") == .58f &&
+                QueryProceduralOpCeilingLift("tiles") == .73f,
             "Disputed-family ORM ceiling lift changed.");
         Confirm(ResolveProceduralParamKey("scratchedMetal", "scratchAngle") == "angle" &&
                 ResolveProceduralParamKey("latheMetal", "scratchAngle") == "angle" &&
@@ -851,6 +871,67 @@ int main()
                 Beds[2].Id == "sand-bed-3" && std::abs(Beds[2].Size - .95) < 1e-9 &&
                 std::abs(Beds[2].Thickness - 1.3) < 1e-9,
             "Layered sand beds misparsed.");
+        // 📝 Botanical/extended ops: deterministic, seed-sensitive, and driven by their headline
+        // parameters (the sliders the catalogue audit proved were locked before the port).
+        {
+            const std::map<std::string, double> Leaf{{"detailScale", 10}, {"cellScale", 120}, {"cellRelief", .5},
+                {"cellLobing", .65}, {"stomataDensity", .22}, {"veinRelief", .65}, {"colorGradient", .18},
+                {"surfaceSeed", 17}};
+            const std::map<std::string, std::string> LeafTexts{{"color", "#355d28"}, {"secondaryColor", "#829548"},
+                {"tertiaryColor", "#8c8a38"}};
+            const auto LeafNormal = BakeProceduralChannelRgba("leaf", "Normal", Leaf, LeafTexts, 128);
+            Confirm(LeafNormal == BakeProceduralChannelRgba("leaf", "Normal", Leaf, LeafTexts, 128),
+                "Leaf bake is not deterministic.");
+            auto FlatLeaf = Leaf;
+            FlatLeaf["veinRelief"] = 0;
+            FlatLeaf["cellRelief"] = 0;
+            Confirm(LeafNormal != BakeProceduralChannelRgba("leaf", "Normal", FlatLeaf, LeafTexts, 128),
+                "Leaf vein/cell relief sliders do not drive the normal bake.");
+            const std::map<std::string, double> Cactus{{"detailScale", 15}, {"plantRibs", 10}, {"cellScale", 120},
+                {"cellRelief", .5}, {"veinRelief", .55}, {"colorGradient", .35}, {"roughness", .48}, {"surfaceSeed", 17}};
+            const std::map<std::string, std::string> CactusTexts{{"color", "#426d48"}, {"secondaryColor", "#8faaa0"},
+                {"tertiaryColor", "#bbb095"}};
+            auto RibbedCactus = Cactus;
+            RibbedCactus["plantRibs"] = 6;
+            Confirm(BakeProceduralChannelRgba("cactus", "Albedo", Cactus, CactusTexts, 128) !=
+                    BakeProceduralChannelRgba("cactus", "Albedo", RibbedCactus, CactusTexts, 128),
+                "Cactus rib count does not drive the bake.");
+            const auto CactusOrm = BakeProceduralChannelRgba("cactus", "Orm", Cactus, CactusTexts, 128);
+            bool PoreRoughness = false;
+            for (size_t Pixel = 1; Pixel < CactusOrm.size(); Pixel += 4)
+                PoreRoughness = PoreRoughness || CactusOrm[Pixel] > 200;
+            Confirm(PoreRoughness, "Cactus areoles do not lift ORM roughness toward the pore ceiling.");
+            const std::map<std::string, double> Hide{{"detailScale", 43}, {"grain", .75}, {"hideVariant", 1},
+                {"hideVariation", .65}, {"wear", .12}, {"wearSoftness", .65}, {"wornRoughness", .24},
+                {"scratchScale", 32}, {"surfaceSeed", 17}};
+            auto BullHide = Hide;
+            BullHide["hideVariant"] = 2;
+            const auto NappaNormal = BakeProceduralChannelRgba("leather", "Normal", Hide, {}, 128);
+            Confirm(NappaNormal != BakeProceduralChannelRgba("leather", "Normal", BullHide, {}, 128),
+                "Hide variant does not select a different furrow field.");
+            bool Furrows = false;
+            for (size_t Pixel = 0; Pixel + 2 < NappaNormal.size(); Pixel += 4)
+                Furrows = Furrows || NappaNormal[Pixel] != 128 || NappaNormal[Pixel + 1] != 128;
+            Confirm(Furrows, "Leather bake holds no furrow relief.");
+            const std::map<std::string, double> Rust{{"detailScale", 48}, {"grain", .8}, {"oxidation", .85},
+                {"roughness", .36}, {"surfaceSeed", 17}};
+            const std::map<std::string, std::string> RustTexts{{"color", "#6a6d70"}, {"secondaryColor", "#8a4a26"}};
+            auto CleanRust = Rust;
+            CleanRust["oxidation"] = 0;
+            const auto RustOrm = BakeProceduralChannelRgba("rust", "Orm", Rust, RustTexts, 128);
+            const auto CleanOrm = BakeProceduralChannelRgba("rust", "Orm", CleanRust, RustTexts, 128);
+            bool OxideKillsMetal = false, CleanKeepsMetal = true;
+            for (size_t Pixel = 2; Pixel < RustOrm.size(); Pixel += 4)
+            {
+                OxideKillsMetal = OxideKillsMetal || RustOrm[Pixel] < 64;
+                CleanKeepsMetal = CleanKeepsMetal && CleanOrm[Pixel] == 255;
+            }
+            Confirm(OxideKillsMetal && CleanKeepsMetal, "Rust oxidation does not drive the ORM metalness term.");
+            bool RejectedBotanical = false;
+            try { (void)BakeProceduralChannelRgba("leaf", "Orm", Leaf, LeafTexts, 32); }
+            catch (const std::exception &) { RejectedBotanical = true; }
+            Confirm(RejectedBotanical, "Leaf op baked an ORM channel its shader never varies.");
+        }
         // Fail-closed regeneration: committed pilot PNGs must equal a fresh bake from the parsed recipe.
         ScratchFieldParameters LibraryPilot{float(Scalar(Recipe, "scratchDensity")), float(Scalar(Recipe, "scratchLength")),
             float(Scalar(Recipe, "scratchWidth")), float(Scalar(Recipe, "scratchDepth")), float(Scalar(Recipe, "scratchSpread")),
@@ -987,11 +1068,90 @@ int main()
             }
             else if (Op == "fruit")
             {
-                for (const char *Key : {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed"})
+                for (const char *Key : {"detailScale", "skinMode", "spotDensity", "colorGradient", "grain", "surfaceSeed", "roughness"})
                     Params[Key] = Scalar(R, Key);
                 Texts["color"] = RecipeText(R, "color");
                 Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
                 Texts["tertiaryColor"] = RecipeText(R, "tertiaryColor");
+            }
+            else if (Op == "metalGrain")
+                for (const char *Key : {"grain", "detailScale", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "polymerGrain")
+                for (const char *Key : {"grain", "detailScale", "wear", "wearSoftness", "wornRoughness",
+                         "scratchScale", "surfaceSeed", "roughness"})
+                    Params[Key] = Scalar(R, Key);
+            else if (Op == "leaf" || Op == "grass" || Op == "petal" || Op == "stem" || Op == "cactus")
+            {
+                for (const char *Key : {"detailScale", "plantRibs", "cellScale", "cellRelief", "cellLobing",
+                         "stomataDensity", "veinRelief", "colorGradient", "spotDensity", "roughness", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+                Texts["tertiaryColor"] = RecipeText(R, "tertiaryColor");
+            }
+            else if (Op == "leather")
+                for (const char *Key : {"detailScale", "grain", "hideVariant", "hideVariation", "wear",
+                         "wearSoftness", "wornRoughness", "scratchScale", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+            else if (Op == "crocodile")
+            {
+                for (const char *Key : {"detailScale", "grain", "groutWidth", "poreDensity", "hideVariation", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+                Texts["tertiaryColor"] = RecipeText(R, "tertiaryColor");
+            }
+            else if (Op == "wax")
+                for (const char *Key : {"detailScale", "grain", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "skin")
+            {
+                for (const char *Key : {"detailScale", "grain", "freckles", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "paper")
+            {
+                for (const char *Key : {"detailScale", "grain", "fiberContrast", "paperRibs", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "rust")
+            {
+                for (const char *Key : {"detailScale", "grain", "oxidation", "roughness", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "ceramic" || Op == "rubber")
+                for (const char *Key : {"detailScale", "depth", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "tiles")
+            {
+                for (const char *Key : {"detailScale", "grain", "groutWidth", "tileVariation", "tileStagger",
+                         "roughness", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "granite")
+            {
+                for (const char *Key : {"detailScale", "grain", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+                Texts["tertiaryColor"] = RecipeText(R, "tertiaryColor");
+            }
+            else if (Op == "marble")
+            {
+                for (const char *Key : {"detailScale", "grain", "veinWidth", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "concrete")
+            {
+                for (const char *Key : {"detailScale", "grain", "poreDensity", "wallMode", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
             }
             else if (Op == "scratchedMetal" || Op == "latheMetal")
             {
@@ -1017,7 +1177,8 @@ int main()
         // carry a scratch-field bake. Their optional overlay attaches at authoring time.
         static const std::set<std::string> LibraryMetalIds{"polishedMetal", "brushedMetal"};
         size_t PinnedTextures = 0, SolarEntries = 0, GolfEntries = 0, StuccoEntries = 0, MetalEntries = 0,
-               BrakeEntries = 0, ClayEntries = 0, LedEntries = 0, FruitEntries = 0;
+               BrakeEntries = 0, ClayEntries = 0, LedEntries = 0, FruitEntries = 0, BotanicalEntries = 0,
+               LeatherEntries = 0, ExtendedEntries = 0, PolymerEntries = 0, BareMetalEntries = 0;
         for (const auto &Entry : Library.QueryEntries())
         {
             const auto &Id = Entry.Recipe.RecipeId;
@@ -1026,6 +1187,7 @@ int main()
             // camouflage field (MaterialAuthoringValidation pins that bake); weave relief is not yet
             // composited under the field, so no committed weave pair exists for these stems.
             if (Stem.starts_with("woodland-camouflage-fabric")) continue;
+            if (Stem.starts_with("camouflage-ballistic-polymer")) continue;
             std::vector<std::pair<std::vector<uint8_t>, std::string>> Fresh;
             if (LibraryWeaveIds.contains(Id)) Fresh = BakeLibraryWeave(Entry.Recipe, Stem);
             else if (Id == "jersey") Fresh = BakeLibraryKnit(Entry.Recipe, Stem);
@@ -1055,10 +1217,105 @@ int main()
                 Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "led", {"Albedo", "Normal", "Radiance"});
                 ++LedEntries;
             }
-            else if (Id == "fruitSurface")
+            else if (Id == "fruitSurface" || Id == "citrusSurface" || Id == "berrySurface")
             {
-                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "fruit", {"Albedo", "Normal"});
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "fruit", {"Albedo", "Orm", "Normal"});
                 ++FruitEntries;
+            }
+            else if (Id == "leafSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "leaf", {"Albedo", "Normal"});
+                ++BotanicalEntries;
+            }
+            else if (Id == "grassSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "grass", {"Albedo", "Normal"});
+                ++BotanicalEntries;
+            }
+            else if (Id == "petalSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "petal", {"Albedo", "Normal"});
+                ++BotanicalEntries;
+            }
+            else if (Id == "stemSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "stem", {"Albedo", "Normal"});
+                ++BotanicalEntries;
+            }
+            else if (Id == "cactusSurface")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "cactus", {"Albedo", "Orm", "Normal"});
+                ++BotanicalEntries;
+            }
+            else if (Id == "leather")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "leather", {"Albedo", "Normal"});
+                ++LeatherEntries;
+            }
+            else if (Id == "crocodile")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "crocodile", {"Albedo", "Normal"});
+                ++LeatherEntries;
+            }
+            else if (Id == "wax")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "wax", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "skin")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "skin", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "paper")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "paper", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "rust")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "rust", {"Albedo", "Orm", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "ceramic")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "ceramic", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "rubber")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "rubber", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "tiles")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "tiles", {"Albedo", "Orm", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "granite")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "granite", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "marble")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "marble", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "concrete")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "concrete", {"Albedo", "Normal"});
+                ++ExtendedEntries;
+            }
+            else if (Id == "glossPlastic" || Id == "grainPlastic" || Id == "engineering" || Id == "wornPlastic")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "polymerGrain", {"Albedo", "Orm", "Normal"});
+                ++PolymerEntries;
+            }
+            else if (Id == "bareMetal")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "metalGrain", {"Albedo", "Normal"});
+                ++BareMetalEntries;
             }
             else if (LibraryMetalIds.contains(Id))
             {
@@ -1081,10 +1338,11 @@ int main()
             }
         }
         Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 2 && BrakeEntries == 1 &&
-                ClayEntries == 4 && LedEntries == 2 && FruitEntries == 1,
+                ClayEntries == 4 && LedEntries == 2 && FruitEntries == 3 && BotanicalEntries == 8 &&
+                LeatherEntries == 5 && ExtendedEntries == 27 && PolymerEntries == 17 && BareMetalEntries == 19,
             "Disputed-family entry count changed.");
-        // 📝 19 pure conductors dropped their 57 baked textures: 141 - 57 = 84 committed maps.
-        Confirm(PinnedTextures == 84, "Baked texture family count changed.");
+        // 📝 Every converted family pins its committed maps: 265 recipe-baked textures in total.
+        Confirm(PinnedTextures == 265, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

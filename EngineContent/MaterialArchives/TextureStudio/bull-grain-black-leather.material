@@ -9,6 +9,47 @@ Metallic = 0
 Ior = 1.48
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 5
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/bull-grain-black-leather-albedo.png"
+Normal = "Textures/bull-grain-black-leather-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "leather"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 23
+grain = 0.85
+hideVariant = 2
+hideVariation = 0.65
+wear = 0
+wearSoftness = 0.65
+wornRoughness = 0.24
+scratchScale = 32
+surfaceSeed = 17
+sheen = 0.18
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "leather"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 23
+grain = 0.85
+hideVariant = 2
+hideVariation = 0.65
+wear = 0
+wearSoftness = 0.65
+wornRoughness = 0.24
+scratchScale = 32
+surfaceSeed = 17
+sheen = 0.18
+
 
 [[Strata]]
 Category = "Coating"

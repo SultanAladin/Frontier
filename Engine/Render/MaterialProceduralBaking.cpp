@@ -352,6 +352,562 @@ void ProceduralBioCell(float Px, float Py, float Seed, float Period, float Out[4
     Out[3] = ProceduralHash31(WinnerX, WinnerY, Seed + 83);
 }
 
+
+void ProceduralCellular3(float Px, float Py, float Pz, float Seed, float Out[4])
+{
+    // cellular3: 3D Worley over the 27 neighbouring cells; returns border distance plus winner hashes.
+    const float CellX = std::floor(Px), CellY = std::floor(Py), CellZ = std::floor(Pz);
+    const float Fx = Px - CellX, Fy = Py - CellY, Fz = Pz - CellZ;
+    float F1 = 1e8f, F2 = 1e8f, WinnerX = 0, WinnerY = 0, WinnerZ = 0;
+    for (int Z = -1; Z <= 1; ++Z)
+        for (int Y = -1; Y <= 1; ++Y)
+            for (int X = -1; X <= 1; ++X)
+            {
+                const float IdX = CellX + float(X), IdY = CellY + float(Y), IdZ = CellZ + float(Z);
+                const float SiteX = .08f + .84f * ProceduralHash31(IdX + Seed, IdY + Seed, IdZ + Seed);
+                const float SiteY = .08f + .84f * ProceduralHash31(IdX + Seed + 17.31f, IdY + Seed + 17.31f, IdZ + Seed + 17.31f);
+                const float SiteZ = .08f + .84f * ProceduralHash31(IdX + Seed + 43.97f, IdY + Seed + 43.97f, IdZ + Seed + 43.97f);
+                const float Dx = float(X) + SiteX - Fx, Dy = float(Y) + SiteY - Fy, Dz = float(Z) + SiteZ - Fz;
+                const float Distance = Dx * Dx + Dy * Dy + Dz * Dz;
+                if (Distance < F1) { F2 = F1; F1 = Distance; WinnerX = IdX; WinnerY = IdY; WinnerZ = IdZ; }
+                else if (Distance < F2) F2 = Distance;
+            }
+    Out[0] = std::max(0.f, std::sqrt(F2) - std::sqrt(F1));
+    Out[1] = ProceduralHash31(WinnerX + Seed + 61.7f, WinnerY + Seed + 61.7f, WinnerZ + Seed + 61.7f);
+    Out[2] = ProceduralHash31(WinnerX + Seed + 127.3f, WinnerY + Seed + 127.3f, WinnerZ + Seed + 127.3f);
+    Out[3] = ProceduralHash31(WinnerX + Seed + 223.1f, WinnerY + Seed + 223.1f, WinnerZ + Seed + 223.1f);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     VECTOR HIDE SOURCE
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Analytic regeneration of the Alloy leather height atlas (leatherSource.js): the browser rasterizes
+// a deterministic SVG (LCG seed 3917) of jittered-grid Voronoi furrow strokes, radial crowns and pores
+// over a #bebebe ground, gaussian-blurred per patch. This builder replays the identical LCG stream and
+// evaluates the same construction as a distance field — same sites, stroke widths and grays, with the
+// blur carried as the stroke falloff — so no SVG rasterizer is needed at bake time.
+struct HidePatchField
+{
+    int Patch = 0;
+    int GridCount = 0;                 // patches 0..2: sites per axis
+    float Step = 0;                    // patch pixels per grid cell (512 space)
+    std::vector<std::array<float, 2>> Sites;      // row-major, patch pixels
+    std::vector<std::array<float, 3>> Pores;      // x, y, radius (patch pixels)
+    std::array<std::vector<int>, 256> PoreBuckets; // 16x16 buckets of 32px
+    std::array<float, 9> BellyRows{};             // patch 3 row curve anchors
+    struct BellyCell { float X, Width, Whisker[4][6]; }; // t, q1x, q1y, q2x, q2y, width
+    std::array<std::array<BellyCell, 6>, 9> Belly{};
+};
+
+HidePatchField BuildHidePatch(int Patch)
+{
+    HidePatchField Field;
+    Field.Patch = Patch;
+    uint32_t State = 3917;
+    const auto Random = [&]()
+    {
+        State = State * 1664525u + 1013904223u;
+        return float(double(State) / 4294967296.0);
+    };
+    constexpr float S = 512;
+    for (int Current = 0; Current <= Patch; ++Current)
+    {
+        const bool Capture = Current == Patch;
+        if (Current == 3)
+        {
+            std::array<float, 9> Rows{};
+            for (int Row = 0; Row < 9; ++Row) Rows[Row] = float(Row) * S / 9 + (Random() - .5f) * 13;
+            if (Capture) Field.BellyRows = Rows;
+            for (int Row = 0; Row < 9; ++Row)
+            {
+                const float Y = Rows[Row], Next = Row == 8 ? Rows[0] + S : Rows[Row + 1];
+                for (int Column = 0; Column < 6; ++Column)
+                {
+                    HidePatchField::BellyCell Cell{};
+                    Cell.X = float(Column) * S / 6 + (Random() - .5f) * 23;
+                    Cell.Width = 2.6f + Random();
+                    for (int Whisker = 0; Whisker < 4; ++Whisker)
+                    {
+                        Cell.Whisker[Whisker][0] = Y + 5 + Random() * (Next - Y - 10);
+                        Cell.Whisker[Whisker][1] = -7 - Random() * 7;
+                        Cell.Whisker[Whisker][2] = Random() * 4 - 2;
+                        Cell.Whisker[Whisker][3] = -14 - Random() * 10;
+                        Cell.Whisker[Whisker][4] = Random() * 9 - 4;
+                        Cell.Whisker[Whisker][5] = .5f + Random() * .5f;
+                    }
+                    if (Capture) Field.Belly[Row][Column] = Cell;
+                }
+            }
+        }
+        else
+        {
+            const int Count = std::array<int, 3>{27, 18, 11}[Current];
+            const float Step = S / float(Count);
+            if (Capture) { Field.GridCount = Count; Field.Step = Step; Field.Sites.reserve(size_t(Count) * Count); }
+            for (int Y = 0; Y < Count; ++Y)
+                for (int X = 0; X < Count; ++X)
+                {
+                    const float OffsetX = (Random() - .5f) * Step * .92f;
+                    const float OffsetY = (Random() - .5f) * Step * .92f;
+                    if (Capture) Field.Sites.push_back({float(X) * Step + OffsetX, float(Y) * Step + OffsetY});
+                }
+            for (int Pore = 0; Pore < 950; ++Pore)
+            {
+                const float X = Random() * S, Y = Random() * S, Radius = .35f + Random() * .65f;
+                if (Capture) Field.Pores.push_back({X, Y, Radius});
+            }
+            if (Capture)
+                for (size_t Index = 0; Index < Field.Pores.size(); ++Index)
+                {
+                    const int BucketX = std::clamp(int(Field.Pores[Index][0] / 32), 0, 15);
+                    const int BucketY = std::clamp(int(Field.Pores[Index][1] / 32), 0, 15);
+                    Field.PoreBuckets[size_t(BucketY) * 16 + BucketX].push_back(int(Index));
+                }
+        }
+    }
+    return Field;
+}
+
+float HideStrokeCoverage(float Distance, float HalfWidth, float Softness)
+{
+    return 1 - ProceduralSmoothstep(HalfWidth - Softness, HalfWidth + Softness, Distance);
+}
+
+float SampleHidePatch(const HidePatchField &Field, float Fx, float Fy)
+{
+    // 📝 Patch space is [0,512) and wraps per patch, exactly like the 3x3 <use> tiling in the SVG.
+    Fx -= 512 * std::floor(Fx / 512);
+    Fy -= 512 * std::floor(Fy / 512);
+    float Height = 190.f / 255;
+    if (Field.Patch == 3)
+    {
+        // Belly plates: wavy horizontal furrows (cubic anchors -20/120/350/532), vertical connectors
+        // and short whisker strokes, blurred at 1.5px.
+        const auto RowCurveY = [](float AnchorY, float X)
+        {
+            float T = std::clamp(X / 512, 0.f, 1.f);
+            for (int Iteration = 0; Iteration < 4; ++Iteration)
+            {
+                const float S = 1 - T;
+                const float CurveX = S * S * S * -20 + 3 * S * S * T * 120 + 3 * S * T * T * 350 + T * T * T * 532;
+                const float Slope = 3 * S * S * 140 + 6 * S * T * 230 + 3 * T * T * 182;
+                T = std::clamp(T - (CurveX - X) / std::max(Slope, 1.f), 0.f, 1.f);
+            }
+            const float S = 1 - T;
+            return S * S * S * AnchorY + 3 * S * S * T * (AnchorY - 8) + 3 * S * T * T * (AnchorY + 9) + T * T * T * AnchorY;
+        };
+        float RowDistance = 1e9f;
+        int Band = 0;
+        float BandTop = 0, BandBottom = 512;
+        for (int Row = 0; Row < 9; ++Row)
+            for (float Wrap : {-512.f, 0.f, 512.f})
+            {
+                const float Distance = std::abs(Fy - (RowCurveY(Field.BellyRows[Row], Fx) + Wrap));
+                RowDistance = std::min(RowDistance, Distance);
+            }
+        Height = ProceduralMix(Height, 76.f / 255, HideStrokeCoverage(RowDistance, 1.8f, 2.2f));
+        for (int Row = 0; Row < 9; ++Row)
+        {
+            const float Top = Field.BellyRows[Row], Bottom = Row == 8 ? Field.BellyRows[0] + 512 : Field.BellyRows[Row + 1];
+            if (Fy >= Top - 4 && Fy <= Bottom + 4) { Band = Row; BandTop = Top; BandBottom = Bottom; break; }
+            if (Row == 8) { Band = 8; BandTop = Top; BandBottom = Bottom; }
+        }
+        const auto ConnectorX = [](float X, float Top, float Bottom, float Y)
+        {
+            float T = std::clamp((Y - Top) / std::max(Bottom - Top, 1.f), 0.f, 1.f);
+            for (int Iteration = 0; Iteration < 4; ++Iteration)
+            {
+                const float S = 1 - T;
+                const float CurveY = S * S * S * Top + 3 * S * S * T * (Top + 16) + 3 * S * T * T * (Bottom - 12) + T * T * T * Bottom;
+                const float Slope = 3 * S * S * 16 + 6 * S * T * (Bottom - Top - 28) + 3 * T * T * 12;
+                T = std::clamp(T - (CurveY - Y) / std::max(Slope, 1.f), 0.f, 1.f);
+            }
+            const float S = 1 - T;
+            return S * S * S * X + 3 * S * S * T * (X - 8) + 3 * S * T * T * (X + 7) + T * T * T * (X + 3);
+        };
+        const int Column = int(Fx / (512.f / 6));
+        for (int Offset = -1; Offset <= 1; ++Offset)
+        {
+            const int Index = ((Column + Offset) % 6 + 6) % 6;
+            const auto &Cell = Field.Belly[Band][Index];
+            for (float Wrap : {-512.f, 0.f, 512.f})
+            {
+                const float Distance = std::abs(Fx - (ConnectorX(Cell.X, BandTop, BandBottom, Fy) + Wrap));
+                Height = ProceduralMix(Height, 92.f / 255, HideStrokeCoverage(Distance, Cell.Width * .5f, 2.2f));
+                for (const auto &Whisker : Cell.Whisker)
+                {
+                    const float Ax = Cell.X - 2 + Wrap, Ay = Whisker[0];
+                    const float Cx = Ax + Whisker[1], Cy = Ay + Whisker[2];
+                    const float Bx = Ax + Whisker[3], By = Ay + Whisker[4];
+                    float DistanceToWhisker = 1e9f;
+                    float PreviousX = Ax, PreviousY = Ay;
+                    for (int StepIndex = 1; StepIndex <= 4; ++StepIndex)
+                    {
+                        const float T = float(StepIndex) / 4, S = 1 - T;
+                        const float X = S * S * Ax + 2 * S * T * Cx + T * T * Bx;
+                        const float Y = S * S * Ay + 2 * S * T * Cy + T * T * By;
+                        const float SegmentX = X - PreviousX, SegmentY = Y - PreviousY;
+                        const float Along = std::clamp(((Fx - PreviousX) * SegmentX + (Fy - PreviousY) * SegmentY) /
+                            std::max(SegmentX * SegmentX + SegmentY * SegmentY, 1e-6f), 0.f, 1.f);
+                        DistanceToWhisker = std::min(DistanceToWhisker,
+                            std::hypot(Fx - (PreviousX + SegmentX * Along), Fy - (PreviousY + SegmentY * Along)));
+                        PreviousX = X; PreviousY = Y;
+                    }
+                    Height = ProceduralMix(Height, 139.f / 255, HideStrokeCoverage(DistanceToWhisker, Whisker[5] * .5f, 2.2f));
+                }
+            }
+        }
+        return Height;
+    }
+    const int Count = Field.GridCount;
+    const float Step = Field.Step;
+    const int CellX = int(Fx / Step), CellY = int(Fy / Step);
+    float D1 = 1e9f, D2 = 1e9f;
+    for (int Y = -2; Y <= 2; ++Y)
+        for (int X = -2; X <= 2; ++X)
+        {
+            const int WrappedX = ((CellX + X) % Count + Count) % Count;
+            const int WrappedY = ((CellY + Y) % Count + Count) % Count;
+            auto Site = Field.Sites[size_t(WrappedY) * Count + WrappedX];
+            Site[0] += float(CellX + X - WrappedX) * Step;
+            Site[1] += float(CellY + Y - WrappedY) * Step;
+            const float Distance = std::hypot(Fx - Site[0], Fy - Site[1]);
+            if (Distance < D1) { D2 = D1; D1 = Distance; }
+            else D2 = std::min(D2, Distance);
+        }
+    const float CrownRadius = Step * .7f;
+    if (D1 < CrownRadius)
+    {
+        const float T = D1 / CrownRadius;
+        const float Alpha = .65f * (1 - T);
+        Height = Height * (1 - Alpha) + ProceduralMix(222.f, 190.f, T) / 255 * Alpha;
+    }
+    const float Edge = (D2 - D1) * .5f;
+    const float Width = std::array<float, 3>{.8f, 1.25f, 2.2f}[Field.Patch];
+    const float Softness = (Field.Patch == 2 ? .7f : .45f) * 1.6f;
+    Height = ProceduralMix(Height, 172.f / 255, HideStrokeCoverage(Edge, Width * 3.1f * .5f, Softness));
+    Height = ProceduralMix(Height, std::array<float, 3>{142.f, 126.f, 110.f}[Field.Patch] / 255,
+        HideStrokeCoverage(Edge, Width * .5f, Softness));
+    const int BucketX = std::clamp(int(Fx / 32), 0, 15), BucketY = std::clamp(int(Fy / 32), 0, 15);
+    for (int Y = -1; Y <= 1; ++Y)
+        for (int X = -1; X <= 1; ++X)
+        {
+            const int WrappedX = ((BucketX + X) % 16 + 16) % 16, WrappedY = ((BucketY + Y) % 16 + 16) % 16;
+            for (const int Index : Field.PoreBuckets[size_t(WrappedY) * 16 + WrappedX])
+            {
+                const auto &Pore = Field.Pores[size_t(Index)];
+                float Dx = Fx - (Pore[0] + float(BucketX + X - WrappedX) * 32);
+                float Dy = Fy - (Pore[1] + float(BucketY + Y - WrappedY) * 32);
+                const float Ellipse = std::sqrt((Dx * Dx) / (Pore[2] * Pore[2]) + (Dy * Dy) / (Pore[2] * .58f * Pore[2] * .58f));
+                Height = ProceduralMix(Height, 153.f / 255, 1 - ProceduralSmoothstep(.75f, 1.2f, Ellipse));
+            }
+        }
+    return Height;
+}
+
+float EvaluateVectorHide(const HidePatchField &Field, float Px, float Py, float Variation, float Seed)
+{
+    // vectorHide: one coherent field, continuously warped, sampled through the periodic patch.
+    Px += Seed * .173f;
+    Py += Seed * .317f;
+    float WarpX = ProceduralNoise3(Px * .43f, Py * .43f, 7) - .5f;
+    float WarpY = ProceduralNoise3(Px * .43f, Py * .43f, 29) - .5f;
+    WarpX += .13f * (ProceduralNoise3(Px * 1.7f, Py * 1.7f, 41) - .5f);
+    WarpY += .13f * (ProceduralNoise3(Px * 1.7f, Py * 1.7f, 67) - .5f);
+    return SampleHidePatch(Field, (Px + WarpX * Variation * 1.1f) * 512, (Py + WarpY * Variation * 1.1f) * 512);
+}
+
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     EPIDERMAL SURFACES
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Single-face bakes of the shared uType 31/32/33/36 block (leaf, grass blade, petal, stem): one
+// complete UV surface, jittered epidermal cells over pigment, then per-type vein/rib/stomata work.
+// fwidth terms become bake-resolution derivatives: analytic for the scaled cell domains, finite
+// differences for the branch/rib coordinates, exactly as the fruit port treats its pore domain.
+struct EpidermalParameters
+{
+    int Type = 31;
+    float Scale = 10, CellScale = 120, CellRelief = .5f, VeinRelief = .65f, CellLobing = .65f;
+    float StomataDensity = .22f, ColorGradient = .65f, SpotDensity = .4f, PlantRibs = 10, Seed = 17;
+    float Base[3]{1, 1, 1}, Secondary[3]{1, 1, 1}, Tertiary[3]{1, 1, 1};
+};
+struct EpidermalMaps
+{
+    std::vector<float> Linear, Height;
+};
+EpidermalMaps BakeEpidermalMaps(const EpidermalParameters &P, uint32_t Extent)
+{
+    EpidermalMaps Maps;
+    Maps.Linear.assign(size_t(Extent) * Extent * 3, 0);
+    Maps.Height.assign(size_t(Extent) * Extent, 0);
+    const float Aa = std::max(std::sqrt(2.f) / float(Extent), .0001f);
+    const float Period = P.Type == 36 ? std::floor(P.CellScale + .5f) : 0;
+    const float CellScaleX = P.Type == 36 ? Period : P.CellScale;
+    const float CellAa = std::max(std::hypot(CellScaleX, P.CellScale * 1.5f) / float(Extent), .001f);
+    const float CellsResolved = 1 - ProceduralSmoothstep(.3f, 1.25f, CellAa);
+    const float StomataAa = std::max(std::hypot(P.CellScale * .31f, P.CellScale * .42f) / float(Extent), .001f);
+    const auto CellDomain = [&](float U, float V, float &CellU, float &CellV)
+    {
+        CellU = U * CellScaleX;
+        CellV = V * P.CellScale * 1.5f;
+        if (P.Type == 36)
+        {
+            float Cylinder[3];
+            ProceduralBioCylinder(U, V, 11, 11, P.Seed, Cylinder);
+            CellU += ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]) * .5f;
+            ProceduralBioCylinder(U, V, 13, 13, 19, Cylinder);
+            CellV += ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]) * .5f;
+        }
+        else
+        {
+            CellU += ProceduralNoise3(U * 11, V * 11, P.Seed) * .5f;
+            CellV += ProceduralNoise3(U * 13, V * 13, 19) * .5f;
+        }
+        if (P.Type == 31)
+        {
+            const float DomainU = CellU, DomainV = CellV;
+            CellU += P.CellLobing * .24f * std::sin(DomainV * 5.5f + std::sin(DomainU * 3.7f));
+            CellV += P.CellLobing * .24f * std::sin(DomainU * 5.1f + std::sin(DomainV * 4.3f));
+        }
+    };
+    const auto BranchAt = [&](float U, float V)
+    {
+        const float Y = std::clamp(V, 0.f, 1.f), X = U - .5f;
+        return Y * P.Scale - (std::abs(X) + X * .07f) * P.Scale * .55f +
+            std::sin(std::abs(X) * 7 + Y * 2) * .14f +
+            .16f * ProceduralNoise3(Y * 5, std::abs(X) * 4, P.Seed) + (X >= 0 ? .23f : 0.f);
+    };
+    const auto RibAt = [&](float U, float V)
+    {
+        return U * P.PlantRibs + .08f * std::sin(std::clamp(V, 0.f, 1.f) * 8);
+    };
+    const auto VeinAt = [&](float U, float V)
+    {
+        const float Y = std::clamp(V, 0.f, 1.f), X = U - .5f;
+        return X * (12 + Y * 18) + .32f * ProceduralNoise3(U * 5, V * 5, P.Seed);
+    };
+    const float Pixel = 1.f / float(Extent);
+    for (uint32_t YIndex = 0; YIndex < Extent; ++YIndex)
+        for (uint32_t XIndex = 0; XIndex < Extent; ++XIndex)
+        {
+            const float U = (float(XIndex) + .5f) / float(Extent), V = (float(YIndex) + .5f) / float(Extent);
+            const float Y = std::clamp(V, 0.f, 1.f), X = U - .5f;
+            float CellU, CellV;
+            CellDomain(U, V, CellU, CellV);
+            float Cells[4];
+            ProceduralBioCell(CellU, CellV, P.Seed, Period, Cells);
+            const float CellWall = 1 - ProceduralSmoothstep(.025f, .07f + CellAa, Cells[1]);
+            const float Micro = (.65f - CellWall * .18f + Cells[2] * .08f) * CellsResolved;
+            float Pigment;
+            if (P.Type == 36)
+            {
+                float Cylinder[3];
+                ProceduralBioCylinder(U, V, 8, 8, P.Seed, Cylinder);
+                Pigment = ProceduralStoneFbm(Cylinder[0], Cylinder[1], Cylinder[2]);
+            }
+            else Pigment = ProceduralStoneFbm(U * 8, V * 8, P.Seed * .1f);
+            float Rgb[3]{P.Base[0], P.Base[1], P.Base[2]};
+            float Height = 0;
+            if (P.Type == 31)
+            {
+                const float MidWidth = ProceduralMix(.011f, .0025f, Y);
+                const float Midrib = 1 - ProceduralSmoothstep(MidWidth - Aa * .5f, MidWidth + Aa * .5f, std::abs(X));
+                const float Branch = BranchAt(U, V);
+                const float BranchAa = std::max((std::abs(BranchAt(U + Pixel, V) - Branch) +
+                    std::abs(BranchAt(U, V + Pixel) - Branch)) * .5f, .003f);
+                const float VeinWidth = ProceduralMix(.026f, .008f, ProceduralSmoothstep(0, .45f, std::abs(X)));
+                float Vein = 1 - ProceduralSmoothstep(std::max(0.f, VeinWidth - BranchAa), VeinWidth + BranchAa,
+                    std::abs(ProceduralFract(Branch) - .5f));
+                Vein *= ProceduralSmoothstep(.008f, .035f, std::abs(X)) * (1 - ProceduralSmoothstep(.39f, .5f, std::abs(X)));
+                const float Tertiary = 1 - ProceduralSmoothstep(.02f, .09f + BranchAa * 2,
+                    std::abs(ProceduralFract(Branch * 3 + std::abs(X) * 7) - .5f));
+                const float Veins = std::max(Midrib, Vein * .58f);
+                const float Aged = ProceduralSmoothstep(.4f, .85f, Pigment + Y * .25f) * P.ColorGradient;
+                for (int Component = 0; Component < 3; ++Component)
+                {
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Tertiary[Component], Aged * .7f) * (.86f + Pigment * .23f);
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Secondary[Component], Veins * .43f + Tertiary * .025f);
+                    Rgb[Component] *= 1 - CellWall * .045f * CellsResolved;
+                }
+                const float StU = U * P.CellScale * .31f, StV = V * P.CellScale * .42f;
+                const float StIdX = std::floor(StU), StIdY = std::floor(StV);
+                const float StLocalX = (StU - StIdX - .5f) * 1.5f, StLocalY = (StV - StIdY - .5f) * .7f;
+                const float StRandom = ProceduralHash31(StIdX, StIdY, P.Seed);
+                const float StDistance = std::hypot(StLocalX, StLocalY);
+                const float Stomata = (1 - ProceduralSmoothstep(.09f, .15f + StomataAa, StDistance)) *
+                    (StRandom <= P.StomataDensity ? 1.f : 0.f) * CellsResolved;
+                const float GuardRatio = (StDistance - .2f) / std::max(.07f, StomataAa);
+                const float Guard = std::exp(-GuardRatio * GuardRatio) *
+                    (StRandom <= P.StomataDensity ? 1.f : 0.f) * CellsResolved;
+                Height = (Veins * .002f + Tertiary * .00012f) * P.VeinRelief +
+                    (Micro * .00035f - Stomata * .00032f + Guard * .0001f) * P.CellRelief;
+                for (int Component = 0; Component < 3; ++Component) Rgb[Component] *= 1 - Stomata * .025f;
+            }
+            else if (P.Type == 32)
+            {
+                const float RibCoord = RibAt(U, V);
+                const float RibWidth = std::abs(RibAt(U + Pixel, V) - RibCoord) + std::abs(RibAt(U, V + Pixel) - RibCoord);
+                float Ribs = std::sin(RibCoord * 6.2831853f) * .5f + .5f;
+                Ribs = ProceduralMix(.5f, Ribs, 1 - ProceduralSmoothstep(.4f, 1, RibWidth));
+                const float Center = std::exp(-std::abs(X) * 55);
+                const float Gradient = std::pow(Y, 1.6f) * P.ColorGradient;
+                for (int Component = 0; Component < 3; ++Component)
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Secondary[Component], Gradient) *
+                        (.82f + Pigment * .22f + Ribs * .08f);
+                Height = (Ribs * .0009f + Center * .0012f) * P.VeinRelief + Micro * P.CellRelief * .0002f;
+            }
+            else if (P.Type == 33)
+            {
+                const float Gradient = ProceduralSmoothstep(.03f, std::max(.12f, P.ColorGradient), Y);
+                const float VeinCoord = VeinAt(U, V);
+                const float VeinAa = std::max(std::abs(VeinAt(U + Pixel, V) - VeinCoord) +
+                    std::abs(VeinAt(U, V + Pixel) - VeinCoord), .005f);
+                const float Veins = 1 - ProceduralSmoothstep(.016f, .09f + VeinAa,
+                    std::abs(ProceduralFract(VeinCoord) - .5f));
+                const float Flecks = ProceduralSmoothstep(.68f, .86f, ProceduralNoise3(U * 52, V * 95, P.Seed)) *
+                    P.SpotDensity * (1 - ProceduralSmoothstep(.2f, .7f, Y));
+                for (int Component = 0; Component < 3; ++Component)
+                {
+                    Rgb[Component] = ProceduralMix(P.Secondary[Component], Rgb[Component], Gradient) * (.93f + Pigment * .1f);
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Tertiary[Component], Flecks * .8f);
+                    Rgb[Component] *= 1 - Veins * .055f - CellWall * .025f * CellsResolved;
+                }
+                const float Cone = std::pow(std::max(0.f, 1 - Cells[0] / .58f), 1.3f) * CellsResolved;
+                const float RidgePhase = CellU * 27 + CellV * 9;
+                const float RidgeWidth = (27 * CellScaleX + 9 * P.CellScale * 1.5f) / float(Extent);
+                const float Ridge = std::sin(RidgePhase) * (1 - ProceduralSmoothstep(.7f, 2.8f, RidgeWidth));
+                Height = Veins * P.VeinRelief * .00055f + (Cone * .00045f + Ridge * Cone * .000045f) * P.CellRelief;
+            }
+            else
+            {
+                float Cylinder[3];
+                ProceduralBioCylinder(U, V, P.Scale * 4, P.Scale * .3f, P.Seed, Cylinder);
+                const float Fibers = ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]);
+                const float Cork = ProceduralSmoothstep(.48f, .8f, Pigment) * P.ColorGradient;
+                ProceduralBioCylinder(U, V, 95, 190, P.Seed, Cylinder);
+                const float Lenticels = ProceduralSmoothstep(.75f, .91f,
+                    ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2])) * P.SpotDensity;
+                for (int Component = 0; Component < 3; ++Component)
+                {
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Secondary[Component], Cork);
+                    Rgb[Component] = ProceduralMix(Rgb[Component], P.Tertiary[Component], Lenticels * .8f) *
+                        (.9f + Fibers * .15f);
+                }
+                Height = (Fibers - .5f) * P.VeinRelief * .002f + Micro * P.CellRelief * .0002f + Lenticels * .0006f;
+            }
+            const size_t Index = size_t(YIndex) * Extent + XIndex;
+            for (int Component = 0; Component < 3; ++Component) Maps.Linear[Index * 3 + Component] = Rgb[Component];
+            Maps.Height[Index] = Height;
+        }
+    return Maps;
+}
+
+// 📝 Single-face bake of the uType==35 cactus block: ribbed columns with felted areoles over a waxy
+// epidermis. bioPore (the areole mask) feeds the ORM pore-roughness term like the fruit pores.
+struct CactusParameters
+{
+    float Scale = 15, CellScale = 120, CellRelief = .5f, VeinRelief = .55f, ColorGradient = .35f;
+    float PlantRibs = 10, Seed = 17;
+    float Base[3]{1, 1, 1}, Secondary[3]{1, 1, 1}, Tertiary[3]{1, 1, 1};
+};
+struct CactusMaps
+{
+    std::vector<float> Linear, Height, Pore;
+};
+CactusMaps BakeCactusMaps(const CactusParameters &P, uint32_t Extent)
+{
+    CactusMaps Maps;
+    Maps.Linear.assign(size_t(Extent) * Extent * 3, 0);
+    Maps.Height.assign(size_t(Extent) * Extent, 0);
+    Maps.Pore.assign(size_t(Extent) * Extent, 0);
+    const float Aa = std::max(std::hypot(P.PlantRibs, P.Scale) / float(Extent), .001f);
+    const float Detail = 1 - ProceduralSmoothstep(.3f, 1.3f, P.CellScale * std::sqrt(2.f) / float(Extent));
+    const float Period = std::floor(P.CellScale + .5f);
+    const float Pixel = 1.f / float(Extent);
+    const auto LocalAt = [&](float U, float V, float &LocalX, float &LocalY, float &Random)
+    {
+        float Qx = U * P.PlantRibs, Qy = V * P.Scale;
+        Qy += std::floor(Qx) * .5f;
+        LocalX = Qx - std::floor(Qx) - .5f;
+        LocalY = Qy - std::floor(Qy) - .5f;
+        float IdX = std::floor(Qx);
+        IdX -= P.PlantRibs * std::floor(IdX / P.PlantRibs);
+        const float IdY = std::floor(Qy);
+        Random = ProceduralHash31(IdX, IdY, P.Seed);
+        LocalX -= (Random - .5f) * .055f;
+        LocalY -= (ProceduralHash31(IdX, IdY, 29) - .5f) * .12f;
+    };
+    const auto PhaseAt = [&](float U, float V)
+    {
+        float LocalX, LocalY, Random;
+        LocalAt(U, V, LocalX, LocalY, Random);
+        return std::atan2(LocalY + .000001f, LocalX + .000001f) * 19 + std::hypot(LocalX, LocalY) * 75;
+    };
+    for (uint32_t YIndex = 0; YIndex < Extent; ++YIndex)
+        for (uint32_t XIndex = 0; XIndex < Extent; ++XIndex)
+        {
+            const float U = (float(XIndex) + .5f) / float(Extent), V = (float(YIndex) + .5f) / float(Extent);
+            float LocalX, LocalY, Random;
+            LocalAt(U, V, LocalX, LocalY, Random);
+            const float AreoleRadius = ProceduralMix(.13f, .19f, Random);
+            const float Ellipse = std::hypot(LocalX, LocalY * .75f);
+            const float Areole = 1 - ProceduralSmoothstep(.04f, AreoleRadius + Aa, Ellipse);
+            const float Ribs = std::pow(.5f + .5f * std::cos((U * P.PlantRibs - .5f) * 6.2831853f), .7f);
+            float Cylinder[3];
+            ProceduralBioCylinder(U, V, 12, 12, P.Seed, Cylinder);
+            const float Wax = ProceduralStoneFbm(Cylinder[0], Cylinder[1], Cylinder[2]);
+            float Epidermis[4];
+            ProceduralBioCell(U * Period, V * P.CellScale, P.Seed, Period, Epidermis);
+            const float Wall = 1 - ProceduralSmoothstep(.02f, .08f, Epidermis[1]);
+            float Rgb[3]{P.Base[0], P.Base[1], P.Base[2]};
+            for (int Component = 0; Component < 3; ++Component)
+                Rgb[Component] = ProceduralMix(Rgb[Component], P.Secondary[Component], Wax * P.ColorGradient) *
+                    (.85f + Ribs * .15f);
+            ProceduralBioCylinder(U, V, 240, 370, P.Seed, Cylinder);
+            const float Fuzz = ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]);
+            const float Phase = PhaseAt(U, V);
+            const float PhaseWidth = std::abs(PhaseAt(U + Pixel, V) - Phase) + std::abs(PhaseAt(U, V + Pixel) - Phase);
+            const float Filaments = (.5f + .5f * std::sin(Phase)) * (1 - ProceduralSmoothstep(.7f, 3, PhaseWidth));
+            const float Felt = Areole * (.62f + .22f * Fuzz + .16f * Filaments);
+            const float Cork = 1 - ProceduralSmoothstep(.025f, .055f + Aa, Ellipse);
+            for (int Component = 0; Component < 3; ++Component)
+            {
+                Rgb[Component] = ProceduralMix(Rgb[Component], P.Tertiary[Component] * (.88f + Filaments * .18f), Felt * .9f);
+                Rgb[Component] *= 1 - Cork * .13f;
+            }
+            const size_t Index = size_t(YIndex) * Extent + XIndex;
+            for (int Component = 0; Component < 3; ++Component) Maps.Linear[Index * 3 + Component] = Rgb[Component];
+            Maps.Height[Index] = (Ribs * .004f + Felt * .0014f) * P.VeinRelief - Wall * P.CellRelief * .0002f * Detail;
+            Maps.Pore[Index] = Areole;
+        }
+    return Maps;
+}
+
+std::vector<uint8_t> ConvertMaskedOrmRgba(const std::vector<float> &Mask, uint32_t Extent, float BaseRoughness,
+    float CeilingRoughness, bool MetalFromMask)
+{
+    // 📝 ORM green multiplies the authored scalar, which carries the ceiling (converter lift or the
+    // absolute oxide/grout ceiling); dividing the spatially-mixed roughness by that ceiling
+    // reproduces the Alloy mix at both ends. Blue carries the metalness multiplier for oxides.
+    if (!Extent || Mask.size() != size_t(Extent) * Extent || !(CeilingRoughness > 0) || CeilingRoughness > 1)
+        throw std::runtime_error("ORM source is not a square mask field over a unit ceiling.");
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Pixel = 0; Pixel < Mask.size(); ++Pixel)
+    {
+        const float Weight = std::clamp(Mask[Pixel], 0.f, 1.f);
+        uint8_t *Target = &Rgba[Pixel * 4];
+        Target[0] = 255;
+        Target[1] = uint8_t(std::lround(std::clamp(ProceduralMix(BaseRoughness, CeilingRoughness, Weight) /
+            CeilingRoughness, 0.f, 1.f) * 255));
+        Target[2] = MetalFromMask ? uint8_t(std::lround((1 - Weight) * 255)) : uint8_t(255);
+        Target[3] = 255;
+    }
+    return Rgba;
+}
+
 float SegmentDistance(float Px, float Py, float Ax, float Ay, float Bx, float By)
 {
     const float Dx = Bx - Ax, Dy = By - Ay;
@@ -959,7 +1515,9 @@ double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldPar
 std::vector<std::string> QueryProceduralOps()
 {
     std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet", "solar", "dimples",
-        "stucco", "weave", "knit", "scratchedMetal", "latheMetal", "clay", "led", "fruit"};
+        "stucco", "weave", "knit", "scratchedMetal", "latheMetal", "clay", "led", "fruit",
+        "leaf", "grass", "petal", "stem", "cactus", "leather", "crocodile",
+        "wax", "skin", "paper", "rust", "ceramic", "rubber", "tiles", "granite", "marble", "concrete"};
     for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
     return Ops;
 }
@@ -978,7 +1536,14 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     // 📝 Alloy varies no roughness term across the emitter array, so LED earns albedo, normals and the
     // emitter mask; ORM stays scalar-authored while emission strength lives in RadianceNormal.
     if (Op == "led") return {"Albedo", "Normal", "Radiance"};
-    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit" || Op == "clay" || Op == "fruit")
+    // 📝 Fruit and cactus pores lift roughness by .24 in Alloy, rust mixes to the .94 oxide ceiling
+    // (killing metalness), and grout mixes to .93; those earn the ORM channel, the rest stay scalar.
+    if (Op == "fruit" || Op == "cactus" || Op == "rust" || Op == "tiles")
+        return {"Albedo", "Orm", "Normal"};
+    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit" || Op == "clay" ||
+        Op == "leaf" || Op == "grass" || Op == "petal" || Op == "stem" || Op == "leather" ||
+        Op == "crocodile" || Op == "wax" || Op == "skin" || Op == "paper" || Op == "ceramic" ||
+        Op == "rubber" || Op == "granite" || Op == "marble" || Op == "concrete")
         return {"Albedo", "Normal"};
     // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
     // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
@@ -995,6 +1560,12 @@ float QueryProceduralOpCeilingLift(std::string_view Op)
     // +0.3 ceiling so the shared roughness slider keeps one convention across the family.
     if (Op == "solar") return .02f;
     if (Op == "scratchedMetal" || Op == "latheMetal") return .3f;
+    // 📝 Fruit/cactus pores lift roughness by .24 (the Alloy bioPore term). Rust and tiles instead
+    // mix to absolute oxide/grout ceilings (.94/.93); their lifts are authored against the shipped
+    // base roughness (.36/.2) so the authored scalar lands on the ceiling.
+    if (Op == "fruit" || Op == "cactus") return .24f;
+    if (Op == "rust") return .58f;
+    if (Op == "tiles") return .73f;
     return 0;
 }
 
@@ -1067,6 +1638,117 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
             {"scratchScale", "Field scale", .01f, 1000, 6, true, "x", .01f},
             {"angle", "Preferred direction", -180, 180, 25, false, "deg", 1},
             {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    // 📝 Botanical ranges mirror the Alloy botanical recipe controls; the same keys name the uniforms.
+    if (Op == "leaf")
+        return {{"detailScale", "Texture scale", 1, 64, 10, false, "x", .1f},
+            {"cellScale", "Epidermal cell scale", 20, 400, 120, false, "", 1},
+            {"cellRelief", "Cell relief", 0, 1, .5f, false, "", .01f},
+            {"cellLobing", "Cell lobing", 0, 1, .65f, false, "", .01f},
+            {"stomataDensity", "Stomata density", 0, 1, .22f, false, "", .01f},
+            {"veinRelief", "Vein relief", 0, 1, .65f, false, "", .01f},
+            {"colorGradient", "Ageing gradient", 0, 1, .18f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "grass")
+        return {{"plantRibs", "Blade ribs", 1, 40, 10, false, "", 1},
+            {"cellScale", "Epidermal cell scale", 20, 400, 120, false, "", 1},
+            {"cellRelief", "Cell relief", 0, 1, .5f, false, "", .01f},
+            {"veinRelief", "Rib relief", 0, 1, .65f, false, "", .01f},
+            {"colorGradient", "Tip gradient", 0, 1, .65f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "petal")
+        return {{"cellScale", "Epidermal cell scale", 20, 400, 160, false, "", 1},
+            {"cellRelief", "Papilla relief", 0, 1, .45f, false, "", .01f},
+            {"veinRelief", "Vein relief", 0, 1, .5f, false, "", .01f},
+            {"colorGradient", "Throat gradient", 0, 1, .88f, false, "", .01f},
+            {"spotDensity", "Fleck density", 0, 1, .06f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "stem")
+        return {{"detailScale", "Texture scale", 1, 128, 28, false, "x", .1f},
+            {"cellScale", "Epidermal cell scale", 20, 400, 150, false, "", 1},
+            {"cellRelief", "Cell relief", 0, 1, .5f, false, "", .01f},
+            {"veinRelief", "Fibre relief", 0, 1, .6f, false, "", .01f},
+            {"colorGradient", "Cork gradient", 0, 1, .55f, false, "", .01f},
+            {"spotDensity", "Lenticel density", 0, 1, .65f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "cactus")
+        return {{"detailScale", "Texture scale", 1, 64, 15, false, "x", .1f},
+            {"plantRibs", "Ribs", 3, 24, 10, false, "", 1},
+            {"cellScale", "Epidermal cell scale", 20, 400, 120, false, "", 1},
+            {"cellRelief", "Cell relief", 0, 1, .5f, false, "", .01f},
+            {"veinRelief", "Rib relief", 0, 1, .55f, false, "", .01f},
+            {"colorGradient", "Wax gradient", 0, 1, .35f, false, "", .01f},
+            {"roughness", "Surface roughness", .045f, 1, .48f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "leather")
+        return {{"detailScale", "Grain scale", 4, 256, 43, false, "x", 1},
+            {"grain", "Grain depth", 0, 1, .75f, false, "", .01f},
+            {"hideVariant", "Hide variant", 0, 3, 1, false, "0 nappa - 3 belly", 1},
+            {"hideVariation", "Hide variation", 0, 1, .65f, false, "", .01f},
+            {"wear", "Polishing wear", 0, 1, .12f, false, "", .01f},
+            {"wearSoftness", "Wear softness", 0, 1, .65f, false, "", .01f},
+            {"wornRoughness", "Worn roughness", .045f, 1, .24f, false, "", .01f},
+            {"scratchScale", "Scuff scale", 1, 128, 32, false, "x", 1},
+            {"sheen", "Sheen", 0, 1, 0, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "crocodile")
+        return {{"detailScale", "Plate scale", 1, 32, 5.2f, false, "x", .1f},
+            {"grain", "Grain depth", 0, 1, .8f, false, "", .01f},
+            {"groutWidth", "Crease width", .004f, .12f, .024f, false, "", .001f},
+            {"poreDensity", "Pore density", 0, 1, .8f, false, "", .01f},
+            {"hideVariation", "Hide variation", 0, 1, .65f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "wax")
+        return {{"detailScale", "Texture scale", 1, 256, 40, false, "x", 1},
+            {"grain", "Marbling", 0, 1, .6f, false, "", .01f},
+            {"depth", "Depth", 0, 2, .5f, false, "", .01f},
+            {"scattering", "Scattering", 0, 1, 0, false, "", .01f},
+            {"translucency", "Translucency", 0, 1, 0, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "skin")
+        return {{"detailScale", "Texture scale", 1, 256, 90, false, "x", 1},
+            {"grain", "Pore depth", 0, 1, .6f, false, "", .01f},
+            {"freckles", "Freckles", 0, 1, 0, false, "", .01f},
+            {"scattering", "Scattering", 0, 1, 0, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "paper")
+        return {{"detailScale", "Texture scale", 1, 256, 60, false, "x", 1},
+            {"grain", "Fibre relief", 0, 1, .6f, false, "", .01f},
+            {"fiberContrast", "Fibre contrast", 0, 1, .3f, false, "", .01f},
+            {"paperRibs", "Laid ribs", 0, 1, 0, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "rust")
+        return {{"detailScale", "Texture scale", 1, 256, 48, false, "x", 1},
+            {"grain", "Crust relief", 0, 1, .8f, false, "", .01f},
+            {"oxidation", "Oxidation", 0, 1, .85f, false, "", .01f},
+            {"roughness", "Metal roughness", .045f, 1, .36f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "ceramic" || Op == "rubber")
+        return {{"detailScale", "Grain scale", 1, 256, 80, false, "x", 1},
+            {"depth", "Grain depth", 0, 2, .25f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "tiles")
+        return {{"detailScale", "Tiles per texture", 1, 64, 6, false, "", .1f},
+            {"grain", "Bevel relief", 0, 1, .45f, false, "", .01f},
+            {"groutWidth", "Grout width", .004f, .3f, .045f, false, "", .001f},
+            {"tileVariation", "Tile variation", 0, 1, .1f, false, "", .01f},
+            {"tileStagger", "Row stagger", 0, 1, 0, false, "", .01f},
+            {"roughness", "Glaze roughness", .045f, 1, .2f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "granite")
+        return {{"detailScale", "Crystal scale", 1, 256, 26, false, "x", 1},
+            {"grain", "Crystal relief", 0, 1, .5f, false, "", .01f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "marble")
+        return {{"detailScale", "Texture scale", 1, 128, 9, false, "x", .1f},
+            {"grain", "Relief", 0, 1, .4f, false, "", .01f},
+            {"veinWidth", "Vein width", .002f, .2f, .035f, false, "", .001f},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "concrete")
+        return {{"detailScale", "Texture scale", 1, 256, 60, false, "x", 1},
+            {"grain", "Aggregate relief", 0, 1, .7f, false, "", .01f},
+            {"poreDensity", "Pore density", 0, 1, .5f, false, "", .01f},
+            {"wallMode", "Board forming", 0, 1, 0, false, "0 cast - 1 board", 1},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
     // 📝 Coded-field ranges mirror the HTML generator sheet (MaterialPanel GeneratorInputs limits).
     if (QueryCodedField(Op))
     {
@@ -1086,6 +1768,25 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
 std::vector<ProceduralOpTextParam> QueryProceduralOpTextParams(std::string_view Op)
 {
     if (Op == "ribbedSheet") return {{"color", "Sheet colour", "#b5c0c2"}};
+    if (Op == "leaf") return {{"color", "Leaf colour", "#355d28"}, {"secondaryColor", "Vein colour", "#829548"},
+        {"tertiaryColor", "Aged colour", "#8c8a38"}};
+    if (Op == "grass") return {{"color", "Blade colour", "#335b27"}, {"secondaryColor", "Tip colour", "#849348"}};
+    if (Op == "petal") return {{"color", "Petal colour", "#b83d65"}, {"secondaryColor", "Throat colour", "#edb6bc"},
+        {"tertiaryColor", "Fleck colour", "#802342"}};
+    if (Op == "stem") return {{"color", "Stem colour", "#53673b"}, {"secondaryColor", "Cork colour", "#827051"},
+        {"tertiaryColor", "Lenticel colour", "#b9aa80"}};
+    if (Op == "cactus") return {{"color", "Skin colour", "#426d48"}, {"secondaryColor", "Wax colour", "#8faaa0"},
+        {"tertiaryColor", "Felt colour", "#bbb095"}};
+    if (Op == "crocodile") return {{"color", "Hide colour", "#70432b"}, {"secondaryColor", "Plate colour", "#865335"},
+        {"tertiaryColor", "Crease colour", "#59321f"}};
+    if (Op == "skin") return {{"color", "Skin colour", "#c9a189"}, {"secondaryColor", "Pigment colour", "#8a5a3c"}};
+    if (Op == "paper") return {{"color", "Paper colour", "#d8cdb4"}, {"secondaryColor", "Fibre colour", "#b8a888"}};
+    if (Op == "rust") return {{"color", "Metal colour", "#6a6d70"}, {"secondaryColor", "Oxide colour", "#8a4a26"}};
+    if (Op == "tiles") return {{"color", "Glaze colour", "#cfd4cd"}, {"secondaryColor", "Grout colour", "#8f8c80"}};
+    if (Op == "granite") return {{"color", "Quartz colour", "#b9b4a8"}, {"secondaryColor", "Feldspar colour", "#9c8f80"},
+        {"tertiaryColor", "Mica colour", "#3c3a38"}};
+    if (Op == "marble") return {{"color", "Stone colour", "#e8e6df"}, {"secondaryColor", "Vein colour", "#7d7a72"}};
+    if (Op == "concrete") return {{"color", "Concrete colour", "#a9a49a"}, {"secondaryColor", "Pore colour", "#6f6a60"}};
     if (Op == "camouflage" || Op == "camouflage-smooth")
         return {{"colour0", "Sand colour", "#b5a477"}, {"colour1", "Olive colour", "#566044"},
             {"colour2", "Earth colour", "#514334"}, {"colour3", "Shadow colour", "#232921"}};
@@ -1098,6 +1799,8 @@ std::string ResolveProceduralParamKey(std::string_view Op, std::string_view Key)
     // 📝 Metal scratch overlays store the same canonical angle; their inspector addresses it as the
     // independent scratch direction, never the construction thread direction.
     if ((Op == "scratchedMetal" || Op == "latheMetal") && Key == "scratchAngle") return "angle";
+    // 📝 The Alloy sheet recipe names its rib frequency detailScale; the bake stores ribs per tile.
+    if (Op == "ribbedSheet" && Key == "detailScale") return "ribs";
     return std::string(Key);
 }
 
@@ -1562,14 +2265,14 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         // 📝 Single-face bake of the uType==34 block: blush over stripes, lenticel/pit/seed pores and waxed
         // skin grain on the cylindrical fruit mapping. Two adaptations keep the tiling bake honest: pore rows
         // round to an integer count (93.6 rows would cut a seam at every tile edge) and the mesh pole cap is
-        // dropped (it guards vProcUv poles, meaningless on a repeating tile). Pore roughness stays scalar;
-        // only albedo and relief vary across the skin.
+        // dropped (it guards vProcUv poles, meaningless on a repeating tile).
         const float Around = std::floor(Tiles * (SkinMode > 1.5f ? 2.6f : 2.f) + .5f);
         const float PoreRows = std::round(Tiles * (SkinMode > 1.5f ? .9f : 1.3f));
         const float Aa = std::max(std::hypot(Around, PoreRows) / float(Extent) * .5f, .001f);
         const float Resolved = 1 - ProceduralSmoothstep(.35f, 1.3f, Aa);
         const float Nominal = SkinMode < .5f ? .000475f : SkinMode < 1.5f ? .002225f : .005f;
         std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent);
+        std::vector<float> PoreMask(size_t(Extent) * Extent, 0);
         float Cylinder[3];
         float Pore[4];
         for (uint32_t Y = 0; Y < Extent; ++Y)
@@ -1593,6 +2296,7 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
                     ProceduralBioCylinder(U, V, 160, 160, Seed, Cylinder);
                     Height[Index] = (ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]) - .5f) * Grain * .00045f -
                         Spots * .00025f;
+                    PoreMask[Index] = Spots;
                 }
                 else if (SkinMode < 1.5f)
                 {
@@ -1604,6 +2308,7 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
                     ProceduralBioCylinder(U, V, Around * 2, Tiles * 2, Seed, Cylinder);
                     const float Rind = ProceduralNoise3(Cylinder[0], Cylinder[1], Cylinder[2]);
                     Height[Index] = ((.35f - Pits) * .003f + (Rind - .5f) * .00055f) * Grain;
+                    PoreMask[Index] = Pits;
                 }
                 else
                 {
@@ -1615,9 +2320,17 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
                             ProceduralMix(BaseRgb[Component] * Tone, SecondaryRgb[Component], SeedMask * .92f);
                     const float Ratio = Pore[0] / .13f;
                     Height[Index] = (-Pit * .005f + std::exp(-Ratio * Ratio) * Resolved * .004f) * Grain;
+                    PoreMask[Index] = Pit;
                 }
             }
         if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        // 📝 Alloy mixes roughness toward min(1, base+.24) inside pores (bioPore); the authored
+        // scalar carries that ceiling through the .24 op lift.
+        if (Channel == "Orm")
+        {
+            const float Base = float(std::clamp(Value("roughness", .34), .045, 1.));
+            return ConvertMaskedOrmRgba(PoreMask, Extent, Base, std::min(1.f, Base + .24f), false);
+        }
         for (float &Relief : Height) Relief /= Nominal;
         return ConvertHeightToNormalRgba(Height, Extent, 2.f);
     }
@@ -1694,7 +2407,8 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
     if (Op == "weave")
     {
         WeaveFieldParameters P;
-        P.Type = 4;
+        // 📝 Carbon fibre is the type-7 weave shading variant; every woven fabric stays type 4.
+        P.Type = int(Value("surfaceType", 4));
         const auto Pattern = Texts.find("weavePattern");
         P.Weave = WeavePatternIndex(Pattern != Texts.end() ? Pattern->second : "twill");
         P.FabricMode = int(Value("fabricMode", 0));
@@ -1791,6 +2505,424 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
         if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
         if (Channel == "Orm") return ConvertScratchOrmRgba(Field, Extent, Base);
         return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "leaf" || Op == "grass" || Op == "petal" || Op == "stem")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Epidermal bake extent is unbounded.");
+        EpidermalParameters P;
+        P.Type = Op == "leaf" ? 31 : Op == "grass" ? 32 : Op == "petal" ? 33 : 36;
+        P.Scale = float(Value("detailScale", 0));
+        P.CellScale = float(Value("cellScale", 0));
+        P.CellRelief = float(Value("cellRelief", 0));
+        P.VeinRelief = float(Value("veinRelief", 0));
+        P.CellLobing = float(Value("cellLobing", 0));
+        P.StomataDensity = float(Value("stomataDensity", 0));
+        P.ColorGradient = float(Value("colorGradient", 0));
+        P.SpotDensity = float(Value("spotDensity", 0));
+        P.PlantRibs = float(Value("plantRibs", 0));
+        P.Seed = float(Value("surfaceSeed", 0));
+        if (!(P.CellScale > 0) || ((P.Type == 31 || P.Type == 36) && !(P.Scale > 0)) ||
+            (P.Type == 32 && !(P.PlantRibs > 0)))
+            throw std::runtime_error("Procedural epidermal params cannot bake.");
+        const auto Text = [&](const char *Key, const char *Fallback, float Rgb[3])
+        {
+            const auto Found = Texts.find(Key);
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : Fallback, Rgb))
+                throw std::runtime_error("Epidermal palette colour is not #rrggbb.");
+        };
+        Text("color", "#355d28", P.Base);
+        Text("secondaryColor", "#829548", P.Secondary);
+        Text("tertiaryColor", "#8c8a38", P.Tertiary);
+        auto Maps = BakeEpidermalMaps(P, Extent);
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Maps.Linear, Extent);
+        // 📝 Fixed per-type height nominals (the shader's own maxima at unit relief) keep the relief
+        // sliders driving bump strength instead of normalizing it away.
+        const float Nominal = P.Type == 31 ? .0025f : P.Type == 32 ? .0021f : P.Type == 33 ? .0011f : .0018f;
+        for (float &Relief : Maps.Height) Relief /= Nominal;
+        return ConvertHeightToNormalRgba(Maps.Height, Extent, 2.f);
+    }
+    if (Op == "cactus")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Cactus bake extent is unbounded.");
+        CactusParameters P;
+        P.Scale = float(Value("detailScale", 0));
+        P.CellScale = float(Value("cellScale", 0));
+        P.CellRelief = float(Value("cellRelief", 0));
+        P.VeinRelief = float(Value("veinRelief", 0));
+        P.ColorGradient = float(Value("colorGradient", 0));
+        P.PlantRibs = float(Value("plantRibs", 0));
+        P.Seed = float(Value("surfaceSeed", 0));
+        if (!(P.Scale > 0) || !(P.CellScale > 0) || !(P.PlantRibs > 0))
+            throw std::runtime_error("Procedural cactus params cannot bake.");
+        const auto Text = [&](const char *Key, const char *Fallback, float Rgb[3])
+        {
+            const auto Found = Texts.find(Key);
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : Fallback, Rgb))
+                throw std::runtime_error("Cactus palette colour is not #rrggbb.");
+        };
+        Text("color", "#426d48", P.Base);
+        Text("secondaryColor", "#8faaa0", P.Secondary);
+        Text("tertiaryColor", "#bbb095", P.Tertiary);
+        auto Maps = BakeCactusMaps(P, Extent);
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Maps.Linear, Extent);
+        if (Channel == "Orm")
+        {
+            const float Base = float(std::clamp(Value("roughness", .48), .045, 1.));
+            return ConvertMaskedOrmRgba(Maps.Pore, Extent, Base, std::min(1.f, Base + .24f), false);
+        }
+        for (float &Relief : Maps.Height) Relief /= .0054f;
+        return ConvertHeightToNormalRgba(Maps.Height, Extent, 2.f);
+    }
+    if (Op == "leather")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Leather bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const int Patch = std::clamp(int(Value("hideVariant", 1)), 0, 3);
+        const float Variation = float(Value("hideVariation", .65));
+        const float Wear = float(Value("wear", 0));
+        const float WearSoftness = float(Value("wearSoftness", .65));
+        const float ScuffScale = float(Value("scratchScale", 32));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural leather params cannot bake.");
+        // 📝 Single-face bake of the uType==11 block over hideGrain: the vector hide field is warped
+        // per vectorHide, micro tooth and pores ride it at bake resolution, and the wear polish
+        // (smooth-minimum ceiling) brightens high spots exactly as the shared 8..11 block does.
+        // The worn-roughness ORM term stays scalar-authored (documented in the catalogue audit).
+        const auto Hide = BuildHidePatch(Patch);
+        const float Fine = 1 - ProceduralSmoothstep(.5f, 1.5f, Tiles * 10 * std::sqrt(2.f) / float(Extent));
+        const float ScuffFine = 1 - ProceduralSmoothstep(.5f, 2, ScuffScale * 8 * std::sqrt(2.f) / float(Extent));
+        std::vector<float> Field(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float HideScale = Tiles / 18 * (Patch == 2 ? 2.f : 1.f);
+                const float Source = EvaluateVectorHide(Hide, U * HideScale, V * HideScale, Variation, Seed);
+                const float MicroNoise = ProceduralNoise3(U * Tiles * 7.3f, Seed, V * Tiles * 7.3f);
+                const float Pores = ProceduralSmoothstep(.72f, .88f, ProceduralNoise3(U * Tiles * 14, Seed, V * Tiles * 14));
+                float Micro = Source + (MicroNoise - .5f) * .025f * Fine - Pores * .025f * Fine;
+                const float Fold = std::clamp((.74f - Source) * 3, 0.f, 1.f);
+                const float PatchNoise = ProceduralNoise3(U * 5.3f, Seed, V * 5.3f) +
+                    .28f * ProceduralNoise3(U * 11.7f, Seed, V * 11.7f);
+                const float Transition = ProceduralMix(.035f, .32f, WearSoftness);
+                const float WearField = ProceduralSmoothstep(.5f - Transition, .72f + Transition, PatchNoise);
+                const float Ceiling = ProceduralMix(1.35f, .22f, std::pow(std::max(Wear * WearField, 0.f), .55f));
+                const float Polished = ProceduralMix(Micro,
+                    ProceduralSmoothMinimum(Micro, Ceiling, ProceduralMix(.035f, .24f, WearSoftness)),
+                    ProceduralSmoothstep(0, .08f, Wear));
+                const float WearMask = ProceduralSmoothstep(.005f, .24f, std::max(0.f, Micro - Polished));
+                const float Marks = ProceduralSmoothstep(.65f, .87f,
+                    ProceduralNoise3(U * ScuffScale * 8, Seed, V * ScuffScale * 8)) * ScuffFine;
+                const float ScratchWear = Marks * Wear * .2f * WearField;
+                const size_t Index = size_t(Y) * Extent + X;
+                if (Channel == "Albedo")
+                {
+                    float Tone = (1 - Fold * .035f - Pores * Fine * .02f) * (1 - Grain * .12f + Micro * Grain * .15f);
+                    Tone = ProceduralMix(Tone, Tone * 1.18f + .012f, std::clamp(WearMask * .6f + ScratchWear, 0.f, 1.f));
+                    Field[Index] = Tone;
+                }
+                else
+                    Field[Index] = (Polished * Grain * .003f - ScratchWear * .001f * (1 - WearMask * .85f)) / .003f;
+            }
+        if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "crocodile")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Crocodile bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float GroutWidth = float(Value("groutWidth", .024));
+        const float PoreDensity = float(Value("poreDensity", 0));
+        const float Variation = float(Value("hideVariation", .65));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0) || !(GroutWidth > 0)) throw std::runtime_error("Procedural crocodile params cannot bake.");
+        float BaseRgb[3]{1, 1, 1}, SecondaryRgb[3]{1, 1, 1}, TertiaryRgb[3]{1, 1, 1};
+        const auto Text = [&](const char *Key, const char *Fallback, float Rgb[3])
+        {
+            const auto Found = Texts.find(Key);
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : Fallback, Rgb))
+                throw std::runtime_error("Crocodile palette colour is not #rrggbb.");
+        };
+        Text("color", "#70432b", BaseRgb);
+        Text("secondaryColor", "#865335", SecondaryRgb);
+        Text("tertiaryColor", "#59321f", TertiaryRgb);
+        // 📝 Single-face bake of the uType==30 block: belly-patch plates with the grout-width crease
+        // remap; the bioJoint/leatherGrain roughness terms stay scalar-authored (catalogue audit).
+        const auto Hide = BuildHidePatch(3);
+        const float Resolved = 1 - ProceduralSmoothstep(.5f, 1.5f, Tiles * .14f * 160 * std::sqrt(2.f) / float(Extent));
+        const float CreaseExponent = std::sqrt(.024f / std::max(GroutWidth, .001f));
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float RawU = U * Tiles * .14f, RawV = V * Tiles * .14f;
+                float Source = EvaluateVectorHide(Hide, RawU, RawV, Variation, Seed);
+                Source = .7451f - .35f * std::pow(std::clamp((.7451f - Source) / .35f, 0.f, 1.f), CreaseExponent);
+                const float Crease = std::clamp((.74f - Source) * 3, 0.f, 1.f);
+                const float GrainNoise = ProceduralNoise3(RawU * 160, RawV * 160, 17);
+                const float Drift = ProceduralNoise3(RawU * .7f, RawV * .7f, 13);
+                const float Pores = ProceduralSmoothstep(.74f, .9f,
+                    ProceduralNoise3(RawU * 140, RawV * 180, Seed)) * PoreDensity;
+                const size_t Index = size_t(Y) * Extent + X;
+                for (int Component = 0; Component < 3; ++Component)
+                {
+                    float Tone = ProceduralMix(BaseRgb[Component], TertiaryRgb[Component], Crease * .07f);
+                    Tone = ProceduralMix(Tone, SecondaryRgb[Component], Drift * .08f);
+                    Linear[Index * 3 + Component] = Tone;
+                }
+                Height[Index] = ((Source - .74f) * .004f + (GrainNoise - .5f) * .00007f * Resolved -
+                    Pores * .00015f * Resolved) * Grain / .0014f;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
+    }
+    if (Op == "wax" || Op == "skin" || Op == "paper" || Op == "rust" || Op == "ceramic" || Op == "rubber")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Surface bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural surface params cannot bake.");
+        // 📝 Single-face bakes of the extended-surface blocks (uType 13 wax, 14 skin, 15 paper,
+        // 16 rust) and the type 2/3 grain one-liners, under the house tile-space mapping
+        // ppm=(u*tiles, seed, v*tiles); absolute-rate terms keep their authored rates like clay.
+        float BaseRgb[3]{1, 1, 1}, SecondaryRgb[3]{1, 1, 1};
+        const bool Coloured = Op == "skin" || Op == "paper" || Op == "rust";
+        if (Coloured)
+        {
+            const auto BaseText = Texts.find("color"), SecondaryText = Texts.find("secondaryColor");
+            if (!DecodeHexLinearRgb(BaseText != Texts.end() ? BaseText->second : "#c9a189", BaseRgb) ||
+                !DecodeHexLinearRgb(SecondaryText != Texts.end() ? SecondaryText->second : "#8a5a3c", SecondaryRgb))
+                throw std::runtime_error("Surface palette colour is not #rrggbb.");
+        }
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Field(size_t(Extent) * Extent);
+        std::vector<float> Mask(size_t(Extent) * Extent, 0);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const size_t Index = size_t(Y) * Extent + X;
+                const float GrainNoise = ProceduralNoise3(U * Tiles, Seed, V * Tiles);
+                if (Op == "ceramic" || Op == "rubber")
+                {
+                    const float Depth = float(Value("depth", 0));
+                    Field[Index] = Channel == "Albedo" ? (Op == "ceramic" ? .6f + .65f * GrainNoise : .84f + .22f * GrainNoise)
+                        : GrainNoise * Depth;
+                    continue;
+                }
+                if (Op == "wax")
+                {
+                    const float Warp = ProceduralNoise3(U * 5.7f, Seed, V * 5.7f) * 2;
+                    const float Marble = ProceduralNoise3(U * Tiles * .12f + Warp, Seed + Warp, V * Tiles * .12f + Warp);
+                    Field[Index] = Channel == "Albedo" ? .9f + Marble * Grain * .28f : (GrainNoise - .5f) * Grain;
+                    continue;
+                }
+                float Rgb[3]{BaseRgb[0], BaseRgb[1], BaseRgb[2]};
+                float Height = 0;
+                if (Op == "skin")
+                {
+                    const float Pit = std::pow(ProceduralSmoothstep(.48f, .88f, GrainNoise), 2.f);
+                    const float Pigment = ProceduralNoise3(U * 7.3f, Seed, V * 7.3f);
+                    const float Freckles = float(Value("freckles", 0));
+                    const float FreckleMask = ProceduralSmoothstep(1 - std::max(.0001f, Freckles * .45f), 1,
+                        ProceduralNoise3(U * Tiles * .27f, Seed, V * Tiles * .27f));
+                    const float Tone = .94f + .09f * ProceduralNoise3(U * 3.1f, Seed, V * 3.1f);
+                    for (int Component = 0; Component < 3; ++Component)
+                        Rgb[Component] = ProceduralMix(Rgb[Component], SecondaryRgb[Component],
+                            Pigment * .13f + FreckleMask * .5f) * Tone;
+                    Height = (-Pit * Grain * .0007f + ProceduralNoise3(U * Tiles * 2.1f, Seed, V * Tiles * 2.1f) * .00015f) / .00085f;
+                }
+                else if (Op == "paper")
+                {
+                    // 📝 pp*vec3(s*.12, s*3.7, s): the front face varies pp.xy, so fibres stretch
+                    // along U exactly as authored; the slice axis keeps the seed.
+                    const float Fibers = ProceduralNoise3(U * Tiles * .12f, V * Tiles * 3.7f, Seed);
+                    const float Crossing = ProceduralNoise3(U * Tiles * 2.1f, V * Tiles * .2f, Seed);
+                    const float Pulp = ProceduralSmoothstep(.58f, .87f, Fibers) * (.4f + .6f * Crossing);
+                    const float Contrast = float(Value("fiberContrast", .3));
+                    for (int Component = 0; Component < 3; ++Component)
+                        Rgb[Component] = ProceduralMix(Rgb[Component], SecondaryRgb[Component], Pulp * Contrast) *
+                            (.95f + GrainNoise * .08f);
+                    const float Wave = std::sin(U * 22) * .5f + .5f;
+                    Height = ((Fibers * .6f + Crossing * .4f) * Grain * .0015f +
+                        Wave * float(Value("paperRibs", 0)) * .005f) / .0015f;
+                }
+                else
+                {
+                    const float Patchiness = ProceduralNoise3(U * Tiles * .1f, Seed, V * Tiles * .1f) * .7f +
+                        ProceduralNoise3(U * Tiles * .31f, Seed, V * Tiles * .31f) * .3f;
+                    const float Oxidation = float(Value("oxidation", 0));
+                    const float Oxide = Oxidation <= 0 ? 0 : Oxidation >= 1 ? 1 :
+                        ProceduralSmoothstep(1 - Oxidation - .15f, 1 - Oxidation + .15f, Patchiness);
+                    const float Crust = GrainNoise + .3f * ProceduralNoise3(U * Tiles * 3, Seed, V * Tiles * 3);
+                    for (int Component = 0; Component < 3; ++Component)
+                        Rgb[Component] = ProceduralMix(Rgb[Component], SecondaryRgb[Component] * (.65f + Crust * .7f), Oxide);
+                    Height = Oxide * (.002f + Crust * Grain * .008f) / .0104f;
+                    Mask[Index] = Oxide;
+                }
+                for (int Component = 0; Component < 3; ++Component) Linear[Index * 3 + Component] = Rgb[Component];
+                Field[Index] = Height;
+            }
+        if (Channel == "Albedo")
+            return Coloured ? ConvertLinearAlbedoRgba(Linear, Extent) : ConvertGrainAlbedoRgba(Field, Extent);
+        if (Channel == "Orm")
+        {
+            // 📝 Oxide mixes roughness to .94 and kills metalness; the authored scalar carries .94.
+            const float Base = float(std::clamp(Value("roughness", .36), .045, 1.));
+            return ConvertMaskedOrmRgba(Mask, Extent, Base, std::max(Base, .94f), true);
+        }
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "tiles")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Tile bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float GroutWidth = float(Value("groutWidth", .045));
+        const float Variation = float(Value("tileVariation", 0));
+        const float Stagger = float(Value("tileStagger", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural tile params cannot bake.");
+        float BaseRgb[3]{1, 1, 1}, SecondaryRgb[3]{1, 1, 1};
+        const auto BaseText = Texts.find("color"), SecondaryText = Texts.find("secondaryColor");
+        if (!DecodeHexLinearRgb(BaseText != Texts.end() ? BaseText->second : "#cfd4cd", BaseRgb) ||
+            !DecodeHexLinearRgb(SecondaryText != Texts.end() ? SecondaryText->second : "#8f8c80", SecondaryRgb))
+            throw std::runtime_error("Tile palette colour is not #rrggbb.");
+        const float Aa = std::max(Tiles / float(Extent), .001f);
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent), Grout(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                float TileU = U * Tiles, TileV = V * Tiles;
+                TileU += std::floor(TileV) * Stagger;
+                const float TileX = std::floor(TileU), TileY = std::floor(TileV);
+                const float Qu = TileU - TileX, Qv = TileV - TileY;
+                const float Edge = std::min(std::min(Qu, 1 - Qu), std::min(Qv, 1 - Qv));
+                const float GroutMask = 1 - ProceduralSmoothstep(GroutWidth * .5f - Aa, GroutWidth * .5f + Aa, Edge);
+                const float Bevel = ProceduralSmoothstep(GroutWidth * .5f, GroutWidth * .5f + .065f, Edge);
+                const float TileRandom = ProceduralHash31(TileX, TileY, 31);
+                const float GrainNoise = ProceduralNoise3(U * Tiles, Seed, V * Tiles);
+                const size_t Index = size_t(Y) * Extent + X;
+                for (int Component = 0; Component < 3; ++Component)
+                {
+                    const float Glaze = BaseRgb[Component] * (1 + (TileRandom - .5f) * Variation);
+                    Linear[Index * 3 + Component] = ProceduralMix(Glaze,
+                        SecondaryRgb[Component] * (.9f + GrainNoise * .16f), GroutMask);
+                }
+                Height[Index] = (Bevel * Grain * .012f + (1 - GroutMask) *
+                    ProceduralNoise3(U * Tiles * 5, Seed, V * Tiles * 5) * Variation * .003f) / .015f;
+                Grout[Index] = GroutMask;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        if (Channel == "Orm")
+        {
+            const float Base = float(std::clamp(Value("roughness", .2), .045, 1.));
+            return ConvertMaskedOrmRgba(Grout, Extent, Base, std::max(Base, .93f), false);
+        }
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
+    }
+    if (Op == "granite" || Op == "marble" || Op == "concrete")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Stone bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural stone params cannot bake.");
+        float BaseRgb[3]{1, 1, 1}, SecondaryRgb[3]{1, 1, 1}, TertiaryRgb[3]{1, 1, 1};
+        const auto Text = [&](const char *Key, const char *Fallback, float Rgb[3])
+        {
+            const auto Found = Texts.find(Key);
+            if (!DecodeHexLinearRgb(Found != Texts.end() ? Found->second : Fallback, Rgb))
+                throw std::runtime_error("Stone palette colour is not #rrggbb.");
+        };
+        Text("color", "#b9b4a8", BaseRgb);
+        Text("secondaryColor", "#9c8f80", SecondaryRgb);
+        Text("tertiaryColor", "#3c3a38", TertiaryRgb);
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Height(size_t(Extent) * Extent);
+        const float Pixel = 1.f / float(Extent);
+        const auto MarbleField = [&](float U, float V)
+        {
+            const float Dx = U * Tiles, Dy = V * Tiles;
+            const float WarpX = ProceduralStoneFbm(Dx * .6f, Dy * .6f, Seed * .6f);
+            const float WarpY = ProceduralStoneFbm(Dx * .6f + 13, Dy * .6f + 13, Seed * .6f + 13);
+            const float WarpZ = ProceduralStoneFbm(Dx * .6f + 37, Dy * .6f + 37, Seed * .6f + 37);
+            return std::array<float, 4>{ProceduralStoneFbm(Dx + WarpX * 5.2f, Dy + WarpY * 5.2f, Seed + WarpZ * 5.2f),
+                WarpX, WarpY, WarpZ};
+        };
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const size_t Index = size_t(Y) * Extent + X;
+                float Rgb[3]{BaseRgb[0], BaseRgb[1], BaseRgb[2]};
+                float Relief = 0;
+                if (Op == "granite")
+                {
+                    const float Dx = U * Tiles, Dy = V * Tiles;
+                    const float WarpX = ProceduralNoise3(Dx * .3f, Dy * .3f, Seed * .3f) * .6f;
+                    const float WarpY = ProceduralNoise3(Dx * .3f + 7, Dy * .3f + 7, Seed * .3f + 7) * .6f;
+                    const float WarpZ = ProceduralNoise3(Dx * .3f + 21, Dy * .3f + 21, Seed * .3f + 21) * .6f;
+                    float Mineral[4];
+                    ProceduralCellular3(Dx + WarpX, Dy + WarpY, Seed + WarpZ, 19, Mineral);
+                    const float *Crystal = Mineral[1] < .23f ? TertiaryRgb : Mineral[1] < .58f ? SecondaryRgb : BaseRgb;
+                    const float Seam = 1 - ProceduralSmoothstep(.005f, .035f, Mineral[0]);
+                    const float Resolved = 1 - ProceduralSmoothstep(.4f, 1.5f, Tiles * std::sqrt(2.f) / float(Extent));
+                    for (int Component = 0; Component < 3; ++Component)
+                    {
+                        const float Mean = TertiaryRgb[Component] * .23f + SecondaryRgb[Component] * .35f + BaseRgb[Component] * .42f;
+                        Rgb[Component] = ProceduralMix(Mean,
+                            Crystal[Component] * (.8f + Mineral[2] * .35f) * (1 - Seam * .13f), Resolved);
+                    }
+                    Relief = (Mineral[3] - .5f) * Grain * (1 - Seam) * Resolved;
+                }
+                else if (Op == "marble")
+                {
+                    const auto Field = MarbleField(U, V);
+                    const float FieldAa = std::max(std::abs(MarbleField(U + Pixel, V)[0] - Field[0]) +
+                        std::abs(MarbleField(U, V + Pixel)[0] - Field[0]), .001f);
+                    const float VeinWidth = float(Value("veinWidth", .035));
+                    float Vein = 1 - ProceduralSmoothstep(VeinWidth - FieldAa, VeinWidth + FieldAa, std::abs(Field[0] - .5f));
+                    const float Fine = 1 - ProceduralSmoothstep(.007f, .018f,
+                        std::abs(ProceduralNoise3(U * Tiles * 3.7f + Field[1] * 7, V * Tiles * 3.7f + Field[2] * 7,
+                            Seed + Field[3] * 7) - .5f));
+                    Vein = std::max(Vein, Fine * .26f);
+                    for (int Component = 0; Component < 3; ++Component)
+                        Rgb[Component] = ProceduralMix(Rgb[Component] * (.93f + .12f * Field[0]),
+                            SecondaryRgb[Component], Vein * .86f);
+                    Relief = (Field[0] - .5f) * Grain;
+                }
+                else
+                {
+                    const float Sand = ProceduralStoneFbm(U * Tiles, V * Tiles, Seed);
+                    const float Cloud = ProceduralStoneFbm(U * 2.8f, V * 2.8f, Seed);
+                    const float PoreDensity = float(Value("poreDensity", 0));
+                    const float Pores = PoreDensity <= 0 ? 0 : ProceduralSmoothstep(1 - PoreDensity * .42f, 1,
+                        ProceduralNoise3(U * Tiles * .45f, Seed, V * Tiles * .45f));
+                    for (int Component = 0; Component < 3; ++Component)
+                        Rgb[Component] = ProceduralMix(Rgb[Component] * (.8f + Cloud * .28f + Sand * .09f),
+                            SecondaryRgb[Component], Pores * .65f);
+                    float StoneHeight = (Sand - .5f) * Grain * .006f - Pores * .006f;
+                    if (Value("wallMode", 0) > .5)
+                    {
+                        const float Seam = 1 - ProceduralSmoothstep(.009f, .025f,
+                            std::abs(ProceduralFract(V * 1.7f) - .5f));
+                        const float Timber = ProceduralNoise3(U * 5, V * 120, Seed);
+                        StoneHeight -= Seam * .003f;
+                        StoneHeight += Timber * .0007f;
+                        for (int Component = 0; Component < 3; ++Component)
+                            Rgb[Component] *= 1 - Seam * .13f + (Timber - .5f) * .06f;
+                    }
+                    Relief = StoneHeight / .006f;
+                }
+                for (int Component = 0; Component < 3; ++Component) Linear[Index * 3 + Component] = Rgb[Component];
+                Height[Index] = Relief;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
     }
     ScratchFieldParameters Field;
     Field.Density = float(Value("scratchDensity", 0));
