@@ -1,0 +1,11 @@
+Format = 1
+Name = "Paraffin Wax"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7605245046752924, 0.7230551289219693, 0.6038273388553378]
+Roughness = 0.23
+Metallic = 0
+Ior = 1.44
+Coverage = 1.0
+Anisotropy = 0

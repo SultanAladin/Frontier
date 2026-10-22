@@ -1,0 +1,11 @@
+Format = 1
+Name = "Board Form Concrete"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.2961382707983211, 0.3005437944157765, 0.25015828472995344]
+Roughness = 0.86
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

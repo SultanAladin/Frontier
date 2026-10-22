@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Golden"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.4851499400560704, 0.21952619972926923, 0.09305896284668747]
+Roughness = 0.52
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

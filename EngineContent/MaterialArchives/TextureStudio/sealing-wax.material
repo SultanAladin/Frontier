@@ -1,0 +1,11 @@
+Format = 1
+Name = "Sealing Wax"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.1714411007328226, 0.027320891639074897, 0.03433980680868217]
+Roughness = 0.3
+Metallic = 0
+Ior = 1.44
+Coverage = 1.0
+Anisotropy = 0

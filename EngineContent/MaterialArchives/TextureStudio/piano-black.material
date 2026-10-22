@@ -1,0 +1,19 @@
+Format = 1
+Name = "Piano Black"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.005181516702338386, 0.005605391624202723, 0.007499032043226175]
+Roughness = 0.17
+Metallic = 0
+Ior = 1.55
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.07
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.8

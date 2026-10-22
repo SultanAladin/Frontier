@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Olive"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.3662525955988395, 0.184474994500441, 0.08865558628577294]
+Roughness = 0.57
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

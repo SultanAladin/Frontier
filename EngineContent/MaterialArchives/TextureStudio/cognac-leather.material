@@ -1,0 +1,19 @@
+Format = 1
+Name = "Cognac Leather"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.1651321945016676, 0.043735029256973465, 0.016807375752887384]
+Roughness = 0.48
+Metallic = 0
+Ior = 1.48
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.32
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.2

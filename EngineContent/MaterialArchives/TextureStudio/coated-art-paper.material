@@ -1,0 +1,11 @@
+Format = 1
+Name = "Coated Art Paper"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.799102738014409, 0.7681511472475071, 0.6795424696330938]
+Roughness = 0.35
+Metallic = 0
+Ior = 1.47
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Umber"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.16202937563911096, 0.06480326669290577, 0.0295568344378088]
+Roughness = 0.55
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

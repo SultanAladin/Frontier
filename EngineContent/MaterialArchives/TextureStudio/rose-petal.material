@@ -1,0 +1,19 @@
+Format = 1
+Name = "Rose Petal"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.4793201831008268, 0.0466650863368801, 0.1301364766903643]
+Roughness = 0.48
+Metallic = 0
+Ior = 1.45
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.22
+Metallic = 0.0
+Ior = 1.45
+Coverage = 0.04

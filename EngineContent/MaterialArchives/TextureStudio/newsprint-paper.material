@@ -1,0 +1,11 @@
+Format = 1
+Name = "Newsprint Paper"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5088813208549338, 0.467783796112159, 0.33716361504833037]
+Roughness = 0.88
+Metallic = 0
+Ior = 1.47
+Coverage = 1.0
+Anisotropy = 0

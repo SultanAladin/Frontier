@@ -6,7 +6,12 @@ Build/
 Binaries/
 
 # Sample meshes / textures / assets — tracked separately.
-EngineContent/
+EngineContent/*
+!EngineContent/Icons/
+!EngineContent/README.md
+!EngineContent/Defaults/
+!EngineContent/MaterialArchives/
+!EngineContent/PatternArchives/
 
 # Agent scratch space.
 _ClaudeScratch/
@@ -22,3 +27,10 @@ _ClaudeScratch/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Python tooling intermediates.
+__pycache__/
+*.pyc
+
+# Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
+EngineContent/FontArchives/

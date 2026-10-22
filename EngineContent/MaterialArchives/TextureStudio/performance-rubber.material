@@ -1,0 +1,11 @@
+Format = 1
+Name = "Performance Rubber"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.019382360956935723, 0.02217388479338738, 0.0202885630566524]
+Roughness = 0.87
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0

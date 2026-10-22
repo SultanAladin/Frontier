@@ -1,0 +1,14 @@
+Format = 1
+Name = "Bronze Alloy"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5457244613701866, 0.32314320911295075, 0.11953842798834562]
+Roughness = 0.33
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+TextureMask = 0
+UvScaleOffset = [9, 4.5, 0, 0]
+

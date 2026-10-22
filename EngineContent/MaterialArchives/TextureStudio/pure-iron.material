@@ -1,0 +1,14 @@
+Format = 1
+Name = "Pure Iron"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.467783796112159, 0.4910208498478356, 0.4793201831008268]
+Roughness = 0.33
+Metallic = 1
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+TextureMask = 0
+UvScaleOffset = [9, 4.5, 0, 0]
+

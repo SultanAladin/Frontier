@@ -1,0 +1,11 @@
+Format = 1
+Name = "PA6 Nylon"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.6375968739940326, 0.5457244613701866, 0.386429433787049]
+Roughness = 0.48
+Metallic = 0
+Ior = 1.53
+Coverage = 1.0
+Anisotropy = 0
