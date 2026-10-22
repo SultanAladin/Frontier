@@ -99,6 +99,13 @@ int main()
     ReferenceRenderer B; B.SetScene(Scene);
     const ReferenceImage ImageA = A.Render(Camera, Settings);
     const ReferenceImage ImageB = B.Render(Camera, Settings);
+    ReferenceRenderSettings NoEnvironment = Settings;
+    NoEnvironment.EnvironmentSamples = 0;
+    ReferenceRenderer WithoutEnvironment; WithoutEnvironment.SetScene(Scene);
+    const ReferenceImage ImageWithoutEnvironment = WithoutEnvironment.Render(Camera, NoEnvironment);
+    Check(ImageA.Stats.MeanEnvironmentIbl > 1e-8 && ImageWithoutEnvironment.Stats.MeanEnvironmentIbl == 0.0 &&
+          ReferenceImageHash(ImageA) != ReferenceImageHash(ImageWithoutEnvironment),
+          "atmospheric environment MIS contributes to the final surface image");
     Check(ImageA.Stats.SurfacePixels > 500, "renderer rasterises visible scene surfaces");
     Check(ImageA.Stats.TrianglesVisible > 0 && ImageA.Stats.TrianglesVisible <= ImageA.Stats.TrianglesTotal,
           "cluster cut + frustum cull feed rasterizer");
@@ -108,9 +115,9 @@ int main()
     bool HasSignal = false;
     for (uint8_t C : Display) HasSignal |= C > 12;
     Check(Display.size() == ImageA.Pixels.size()*3 && HasSignal, "linear HDR frame encodes to visible display pixels");
-    std::printf("reference frame: %ux%u, triangles %u/%u, surface pixels %u, mean luminance %.4f\n",
+    std::printf("reference frame: %ux%u, triangles %u/%u, surface pixels %u, mean luminance %.4f, mean IBL %.6f\n",
                 ImageA.Width, ImageA.Height, ImageA.Stats.TrianglesVisible, ImageA.Stats.TrianglesTotal,
-                ImageA.Stats.SurfacePixels, ImageA.Stats.MeanLuminance);
-    std::printf("complete renderer validation: %d passed, %d failed\n", 17-Failures, Failures);
+                ImageA.Stats.SurfacePixels, ImageA.Stats.MeanLuminance, ImageA.Stats.MeanEnvironmentIbl);
+    std::printf("complete renderer validation: %d passed, %d failed\n", 18-Failures, Failures);
     return Failures == 0 ? 0 : 1;
 }

@@ -67,7 +67,7 @@ int main(int ArgumentCount, char** Arguments)
     Cam.Forward = F; Cam.Right = R; Cam.Up = U;
     Cam.FovYRadians = 0.9; Cam.Aspect = 16.0/10.0; Cam.NearPlane = 0.1; Cam.FarPlane = 500.0;
 
-    ReferenceRenderSettings S; S.Width = 320; S.Height = 200; S.AccumulationFrames = 24; S.RisCandidates = 8; S.IndirectSamples = EnableIndirect ? 8u : 0u;
+    ReferenceRenderSettings S; S.Width = 320; S.Height = 200; S.AccumulationFrames = 24; S.RisCandidates = 8; S.IndirectSamples = EnableIndirect ? 8u : 0u; S.EnvironmentSamples = 32;
     S.SunDirection = Scene.Lights[0].Vector; S.SunIrradiance = {20,19,17};
     const ReferenceImage Img = Renderer.Render(Cam, S);
     std::printf("tris total=%u cut=%u visible=%u surface px=%u meanL=%.4f\n",

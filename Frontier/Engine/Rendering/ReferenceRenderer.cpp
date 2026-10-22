@@ -159,6 +159,90 @@ SpectrumRgb EvaluateReferenceBrdf(const ReferenceMaterial& Material, SpatialVect
             Distribution * Visibility * Fresnel.B + (1.0 - Fresnel.B) * Material.Albedo.B * DiffuseWeight};
 }
 
+namespace
+{
+
+// MIS environment integral mirroring IntegrateMaterialEnvironment for a single isotropic stratum:
+// one cosine-hemisphere proposal + one GGX-half-vector proposal, eight samples each by default.
+SpectrumRgb IntegrateReferenceEnvironment(const ReferenceMaterial& Material, SpatialVector Normal,
+                                          SpatialVector View, const ReferenceRenderSettings& Settings,
+                                          const TransmittanceLut& Lut, SpatialVector PlanetObserver,
+                                          DeterministicRandom& Random)
+{
+    if (!Settings.AtmosphereEnabled || Settings.EnvironmentSamples == 0)
+    {
+        return {};
+    }
+    Normal = Normalised(Normal);
+    View = Normalised(View);
+    const SpatialVector Helper = std::abs(Normal.Z) < 0.999 ? SpatialVector{0,0,1} : SpatialVector{0,1,0};
+    const SpatialVector Tangent = Normalised(Cross(Helper, Normal));
+    const SpatialVector Bitangent = Cross(Normal, Tangent);
+    const double Components = 2.0;
+    const uint32_t Samples = Settings.EnvironmentSamples;
+    const double Roughness = std::clamp(Material.Roughness, 0.04, 1.0);
+    const double Alpha = Roughness * Roughness;
+    SpectrumRgb Accumulated{};
+
+    for (uint32_t Component = 0; Component < 2; ++Component)
+    {
+        for (uint32_t Sample = 0; Sample < Samples; ++Sample)
+        {
+            const double First = (static_cast<double>(Sample) + 0.5) / Samples;
+            double Second = std::fmod(Sample * 0.61803398875 + Component * 0.371 + Random.NextUnit(), 1.0);
+            if (Second < 0.0) Second += 1.0;
+            const double Phi = 2.0 * Pi * Second;
+            SpatialVector Light{};
+            SpatialVector Half{};
+
+            if (Component == 0)
+            {
+                const SpatialVector Local{std::sqrt(First) * std::cos(Phi),
+                                          std::sqrt(First) * std::sin(Phi),
+                                          std::sqrt(1.0 - First)};
+                Light = Normalised(Add(Add(Mul(Tangent, Local.X), Mul(Bitangent, Local.Y)), Mul(Normal, Local.Z)));
+            }
+            else
+            {
+                const double Radius = std::sqrt(First / std::max(1.0 - First, 1e-12));
+                const SpatialVector LocalHalf = Normalised({Alpha * std::cos(Phi) * Radius,
+                                                            Alpha * std::sin(Phi) * Radius, 1.0});
+                Half = Normalised(Add(Add(Mul(Tangent, LocalHalf.X), Mul(Bitangent, LocalHalf.Y)),
+                                      Mul(Normal, LocalHalf.Z)));
+                if (Dot(View, Half) <= 0.0)
+                {
+                    continue;
+                }
+                Light = Normalised(Sub(Mul(Half, 2.0 * Dot(View, Half)), View));
+            }
+
+            const double NdotL = std::max(Dot(Normal, Light), 0.0);
+            const SpatialVector H = Normalised(Add(View, Light));
+            const double NdotH = std::max(Dot(Normal, H), 0.0);
+            const double VdotH = std::max(Dot(View, H), 1e-6);
+            const double Dden = NdotH * NdotH * (Alpha * Alpha - 1.0) + 1.0;
+            const double D = (Alpha * Alpha) / (Pi * Dden * Dden);
+            double Density = NdotL / Pi + D * NdotH / (4.0 * VdotH);
+            Density /= Components;
+            if (Density <= 1e-12)
+            {
+                continue;
+            }
+
+            SpectrumRgb Environment = SingleScattering(Settings.Atmosphere, PlanetObserver, Light,
+                                                        Settings.SunDirection, Settings.SunIrradiance, &Lut, 12);
+            const SpectrumRgb Brdf = EvaluateReferenceBrdf(Material, Normal, View, Light);
+            const double Weight = NdotL / Density / (Components * Samples);
+            Accumulated = AddRgb(Accumulated, {Brdf.R * Environment.R * Weight,
+                                               Brdf.G * Environment.G * Weight,
+                                               Brdf.B * Environment.B * Weight});
+        }
+    }
+    return Accumulated;
+}
+
+} // namespace
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       SCENE PREP
 //------------------------------------------------------------------------------------------------------------------------
@@ -216,6 +300,14 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
     if (W == 0 || H == 0)
     {
         return Image;
+    }
+
+    const double AltitudeKm = std::max(Camera.Position.Z, 0.0) / 1000.0;
+    const SpatialVector PlanetObserver{0.0, 0.0, Settings.Atmosphere.GroundRadiusKm + AltitudeKm};
+    if (Settings.AtmosphereEnabled && !AtmosphereLutBaked_)
+    {
+        (void)AtmosphereLut_.Bake(Settings.Atmosphere, 128, 32, 48);
+        AtmosphereLutBaked_ = true;
     }
 
     const double TanY = std::tan(Camera.FovYRadians * 0.5);
@@ -396,6 +488,22 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
         }
     }
 
+    // Environment MIS is evaluated once per surface pixel and reused across direct-light frames.
+    std::vector<SpectrumRgb> EnvironmentBuffer(PixelCount, SpectrumRgb{});
+    if (Settings.AtmosphereEnabled && Settings.EnvironmentSamples > 0)
+    {
+        for (size_t P = 0; P < PixelCount; ++P)
+        {
+            if (!HitMask[P]) continue;
+            DeterministicRandom Random(Settings.Seed ^ (0xD1B54A32D192ED03ull * (P + 1)), 0xE17B1B3ull);
+            const SpatialVector View = Normalised(Sub(Camera.Position, WorldPos[P]));
+            EnvironmentBuffer[P] = IntegrateReferenceEnvironment(MaterialBuffer[P], WorldNormal[P], View,
+                Settings, AtmosphereLut_, PlanetObserver, Random);
+            Image.Stats.MeanEnvironmentIbl += Luminance(EnvironmentBuffer[P]);
+        }
+        Image.Stats.MeanEnvironmentIbl /= std::max<uint32_t>(Image.Stats.SurfacePixels, 1u);
+    }
+
     // Light proposal pdf (power proxy; correctness holds for any positive proposal).
     std::vector<double> LightPdf(Scene_.Lights.size(), 0.0);
     {
@@ -488,13 +596,13 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             }
 
             // Indirect: distance-field gather + optional card texel.
-            SpectrumRgb Indirect{};
+            SpectrumRgb Indirect = EnvironmentBuffer[P];
             if (Settings.IndirectSamples > 0 && !Scene_.Distance.Primitives().empty())
             {
                 const double E = Scene_.Distance.IndirectIrradiance(Point, Normal, Settings.IndirectSamples, Random);
-                Indirect = {Material.Albedo.R * (1.0 - Material.Metallic) * E / Pi,
-                            Material.Albedo.G * (1.0 - Material.Metallic) * E / Pi,
-                            Material.Albedo.B * (1.0 - Material.Metallic) * E / Pi};
+                Indirect = AddRgb(Indirect, {Material.Albedo.R * (1.0 - Material.Metallic) * E / Pi,
+                                              Material.Albedo.G * (1.0 - Material.Metallic) * E / Pi,
+                                              Material.Albedo.B * (1.0 - Material.Metallic) * E / Pi});
             }
             if (Scene_.Cards != nullptr && Scene_.Cards->TexelCount() > 0)
             {
@@ -582,13 +690,6 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
     std::vector<SpectrumRgb> Sky(PixelCount, SpectrumRgb{});
     if (Settings.AtmosphereEnabled)
     {
-        if (!AtmosphereLutBaked_)
-        {
-            (void)AtmosphereLut_.Bake(Settings.Atmosphere, 128, 32, 48);
-            AtmosphereLutBaked_ = true;
-        }
-        const double AltitudeKm = std::max(Camera.Position.Z, 0.0) / 1000.0;
-        const SpatialVector PlanetObserver{0.0, 0.0, Settings.Atmosphere.GroundRadiusKm + AltitudeKm};
         const double CosSunDisc = std::cos(0.00465);
         for (uint32_t Y = 0; Y < H; ++Y)
         {

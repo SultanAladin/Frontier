@@ -90,6 +90,7 @@ struct ReferenceRenderSettings
     uint32_t RisCandidates      = 4;
     bool     SpatialReuse       = true;
     uint32_t IndirectSamples    = 8;    // distance-field hemisphere samples per pixel (0 = off)
+    uint32_t EnvironmentSamples = 8;    // deterministic cosine/GGX MIS samples per proposal component
     uint32_t AccumulationFrames = 4;    // noisy frames fed to the SVGF temporal history
     bool     Denoise            = true;
     double   CutErrorPx         = 1.0;  // [px] cluster cut budget
@@ -115,6 +116,7 @@ struct ReferenceRenderStats
     uint32_t CutNodes             = 0;
     uint32_t SurfacePixels        = 0;
     double   MeanLuminance        = 0.0;
+    double   MeanEnvironmentIbl   = 0.0;   // surface pixels only; mean linear luminance before SVGF
 };
 
 struct ReferenceImage
