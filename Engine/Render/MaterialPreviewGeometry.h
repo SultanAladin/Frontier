@@ -91,20 +91,14 @@ inline SurfaceGeometry ConstructMaterialPreviewShaderBall()
 inline SurfaceGeometry ConstructMaterialPreviewSpecimen()
 {
     auto Geometry = ConstructMaterialPreviewShaderBall();
-    constexpr float Scale = .55f, Centre = 1.65f * Scale - .85f, Pitch = .18f;
-    const auto Rotate = [](std::array<float, 3> Direction)
-    {
-        return std::array<float, 3>{Direction[0], Direction[1] * std::cos(Pitch) - Direction[2] * std::sin(Pitch),
-            Direction[1] * std::sin(Pitch) + Direction[2] * std::cos(Pitch)};
-    };
+    constexpr float Scale = .55f, Centre = 1.65f * Scale - .85f;
+    // 📝 No specimen-group pitch: in the HTML scene the stand, foot and ring are unrotated group
+    // siblings of the posed ball, so the pedestal lathe axis stays world-up and orbiting the
+    // camera can never roll the stage. The ball keeps its intrinsic HTML pose from its builder.
     for (auto &Corner : Geometry.Corners)
     {
         for (float &Coefficient : Corner.Position) Coefficient *= 1.43f / .85f * Scale;
         Corner.Position[1] += Centre;
-        Corner.Position = Rotate(Corner.Position);
-        Corner.Normal = Rotate(Corner.Normal);
-        const auto Tangent = Rotate({Corner.Tangent[0], Corner.Tangent[1], Corner.Tangent[2]});
-        std::copy(Tangent.begin(), Tangent.end(), Corner.Tangent.begin());
     }
     constexpr uint32_t Slices = 128;
     const auto AppendSegment = [&](float FirstRadius, float FirstHeight, float SecondRadius, float SecondHeight, uint32_t Role,
@@ -118,10 +112,9 @@ inline SurfaceGeometry ConstructMaterialPreviewSpecimen()
                 const float Radius = Ring ? SecondRadius : FirstRadius, Height = Ring ? SecondHeight : FirstHeight;
                 const auto Normal = Ring ? SecondNormal : FirstNormal;
                 SurfaceCorner Corner;
-                Corner.Position = Rotate({Radius * std::sin(Angle) * Scale, Height * Scale - .85f, Radius * std::cos(Angle) * Scale});
-                Corner.Normal = Rotate({Normal[0] * std::sin(Angle), Normal[1], Normal[0] * std::cos(Angle)});
-                const auto Tangent = Rotate({std::cos(Angle), 0, -std::sin(Angle)});
-                Corner.Tangent = {Tangent[0], Tangent[1], Tangent[2], -1};
+                Corner.Position = {Radius * std::sin(Angle) * Scale, Height * Scale - .85f, Radius * std::cos(Angle) * Scale};
+                Corner.Normal = {Normal[0] * std::sin(Angle), Normal[1], Normal[0] * std::cos(Angle)};
+                Corner.Tangent = {std::cos(Angle), 0, -std::sin(Angle), -1};
                 Corner.Coordinates = {-float(Role), float(Ring)};
                 Geometry.Corners.push_back(Corner);
             }

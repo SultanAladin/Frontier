@@ -136,25 +136,28 @@ float3 IntegrateStudioSoftboxes(PreviewScattering Scattering,MaterialAngularStra
         float3 Centre;
         float2 HalfExtent;
         float3 Radiance;
+        // 📝 Panel centres are world-frame directions: the default pose's view directions carried
+        // into the world frame, so rotating them into the current view below reproduces the
+        // authored studio exactly at the default pose and keeps it world-fixed while orbiting.
         if (Panel == 0)
         {
-            Centre = float3(-.5,.5,.8); HalfExtent = float2(.48,.65); Radiance = float3(3.8,3.7,3.5);
+            Centre = float3(-.5,.6426,.6907); HalfExtent = float2(.48,.65); Radiance = float3(3.8,3.7,3.5);
         }
         else if (Panel == 1)
         {
-            Centre = float3(.8,.25,.55); HalfExtent = float2(.15,.7); Radiance = float3(1.9,2,2.2);
+            Centre = float3(.8,.3498,.4926); HalfExtent = float2(.15,.7); Radiance = float3(1.9,2,2.2);
         }
         else if (Panel == 2)
         {
-            Centre = float3(.05,.9,-.4); HalfExtent = float2(1.1,.25); Radiance = float3(2.1,2.1,2);
+            Centre = float3(.05,.8078,-.5634); HalfExtent = float2(1.1,.25); Radiance = float3(2.1,2.1,2);
         }
         else
         {
-            Centre = float3(-.8,.3,-.5); HalfExtent = float2(.2,.7); Radiance = float3(1.6,1.7,1.8);
+            Centre = float3(-.8,.1997,-.5478); HalfExtent = float2(.2,.7); Radiance = float3(1.6,1.7,1.8);
         }
         float SolidAngle = 4*atan(HalfExtent.x*HalfExtent.y/
             sqrt(1+dot(HalfExtent,HalfExtent)));
-        float3 Light = NormalizeDirection(Centre);
+        float3 Light = NormalizeDirection(mul((float3x3)Scattering.ViewFromSurface,Centre));
         // 📝 Integrate each rectangular emitter by its solid angle at the centre direction, avoiding sparse per-pixel panel samples.
         Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*Radiance*Strength*SolidAngle;
     }
@@ -323,7 +326,11 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
     float3 Radiance = EvaluateMaterialSequence(Scattering,Angular,View,Light,false)*
                       Scattering.LightDirectionIntensity.w*Scattering.LightColourExposure.rgb;
     Radiance += IntegrateMaterialEnvironment(Scattering,Angular,GeometricNormal,View);
-    float3 Luminous = MaterialTextures[3].Sample(MaterialSampler,float3(Pixel.Coordinates,0)).rgb;
+    // 📝 The radiance slice belongs to the first stratum (packing keeps exactly one), so it is
+    // sampled through that stratum's UV scale/offset like every other channel; raw coordinates
+    // would stretch the emitter mask across the whole specimen (the LED blow-out).
+    float3 Luminous = MaterialTextures[3].Sample(MaterialSampler,
+        float3(Pixel.Coordinates*Material.StratumUv[0].xy+Material.StratumUv[0].zw,0)).rgb;
     if (Pixel.SubjectRole == 0) Radiance += Material.RadianceNormal.rgb*((Selection & 8) != 0 ? Luminous : float3(1));
     return float4(EncodeDisplay(Radiance,Scattering.LightColourExposure.w),1);
 }

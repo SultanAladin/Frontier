@@ -83,8 +83,8 @@ inline MaterialPreviewProjection ConstructMaterialPreviewProjection(
     constexpr float FovY = 34 * std::numbers::pi_v<float> / 180;
     constexpr float BaseElevation = .1908f;
     constexpr float FrameRatio = 5.8f / 1.35f;
-    constexpr float Pivot[5][3]{{0, -.055f, -.017f}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
-    constexpr float Radius[5]{1.047f, .85f, 1.131f, 1.074f, .959f};
+    constexpr float Pivot[5][3]{{0, -.002f, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, -.041f, 0}};
+    constexpr float Radius[5]{1.085f, .85f, 1.131f, 1.074f, .959f};
     const float Focal = Radius[Shape] * FrameRatio;
     const float Distance = std::max(Focal / Configuration.Zoom, Radius[Shape] + .2f);
     const float Elevation = std::clamp(Configuration.Pitch + BaseElevation, -1.45f, 1.45f);
@@ -124,6 +124,35 @@ inline MaterialPreviewProjection ConstructMaterialPreviewProjection(
             Projection.ClipFromSurface[Column * 4 + Row] = Sum;
         }
     return Projection;
+}
+
+// 📝 World-locked preview lighting: a direction authored in the default pose's view frame is
+// carried through the world frame into the orbiting view frame, so the studio stays fixed while
+// the camera moves (HTML OrbitControls behaviour) and highlights sweep across the surface
+// instead of staying glued to the screen. Exact identity at the default configuration.
+inline std::array<float, 3> ConstructMaterialPreviewLightDirection(
+    const MaterialPreviewConfiguration &Configuration, std::array<float, 3> ReferenceDirection)
+{
+    const auto &Current = ConstructMaterialPreviewProjection(Configuration).ViewFromSurface;
+    const auto &Reference = ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ViewFromSurface;
+    const auto Apply = [](const std::array<float, 16> &Matrix, std::array<float, 3> Direction, bool Transposed)
+    {
+        std::array<float, 3> Result{};
+        for (size_t Row = 0; Row < 3; ++Row)
+            for (size_t Column = 0; Column < 3; ++Column)
+                Result[Row] += Matrix[Transposed ? Row * 4 + Column : Column * 4 + Row] * Direction[Column];
+        return Result;
+    };
+    return Apply(Current, Apply(Reference, ReferenceDirection, true), false);
+}
+
+// 📝 World up expressed in the current view frame (second basis column of the view rotation),
+// so the sky gradient stays fixed to the world while the camera pitches and yaws.
+inline std::array<float, 3> ConstructMaterialPreviewEnvironmentUp(
+    const MaterialPreviewConfiguration &Configuration)
+{
+    const auto &View = ConstructMaterialPreviewProjection(Configuration).ViewFromSurface;
+    return {View[4], View[5], View[6]};
 }
 
 }
