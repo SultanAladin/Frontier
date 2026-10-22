@@ -260,3 +260,13 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Boundaries still open: coded fields bake no ORM channel; woodland fabric weave relief is not yet
   composited under the camouflage field; Float32 field atlas stays HTML-only (native path is the CPU
   baker); panel renders strata rather than the full HTML authoring sheet; Windows runtime unverified.
+
+## Inherited tree reclamation (2026-10-22, branch arena/1b8b280c-frontier)
+
+- Reclaimed the inherited engine code trees from this branch (`Internal/`, `Executables/`,
+  `Applications/`, `memory/`, `PaintingSurface.bat`; 736 files). Complete trees remain on `master`
+  and in history; nothing in the current build referenced them (verified by configuration census
+  and a full host build + test run).
+- Retained the inherited design documents under `Documentation/Plans/References/InheritedEngine/`
+  (170 files: `Prototypes/`, `Research/`, root-level plan/reference notes, and the notes that lived
+  inside the reclaimed trees). `Documentation/FolderStructure.md` records the review outcome.

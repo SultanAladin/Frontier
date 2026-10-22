@@ -16,7 +16,8 @@ Frontier/
 │   ├── Rules/
 │   └── Plans/
 │       ├── Ongoing/
-│       └── Completed/
+│       ├── Completed/
+│       └── References/        # Retained reference documents (InheritedEngine/)
 ├── Engine/                    # Shared production code
 │   ├── Interface/             # Selectively ported UI foundations
 │   ├── Lifecycle/             # Shared activation sequence
@@ -41,12 +42,15 @@ Create meaningful folders as their contents are needed; do not add empty placeho
 Use technical validation names under Exhibits, not the banned naming placeholder from earlier discussion.
 No new top-level ownership categories without approval. Update this map after approved structural changes.
 
-## Existing layout awaiting migration review
+## Inherited layout — migration review outcome (2026-10-22)
 
-`Internal/`, `Executables/`, `Applications/`, `Automation/`, `memory/`,
-`Documentation/Prototypes/`, and `Documentation/Research/` remain inherited locations.
-Do not delete or move them blindly. Existing diagnostics remain in `Exhibits/Diagnostics/`.
-`EngineDocs/` retains existing governance references until separately reconciled.
+`Internal/`, `Executables/`, `Applications/`, and `memory/` were reclaimed from this branch; the
+complete trees remain on `master` and in this branch's history. Their documents, together with
+`Documentation/Prototypes/`, `Documentation/Research/`, and the inherited root-level plan and
+reference notes, are retained under `Documentation/Plans/References/InheritedEngine/`.
+`Automation/` is current tooling (see the target map). Existing diagnostics remain in
+`Exhibits/Diagnostics/`. `EngineDocs/` retains existing governance references until separately
+reconciled.
 The linked source also has `Docs/`, `Editor/`, `Projects/`, `Tools/`, and dependency/content folders;
 map their ownership and build dependencies before any import or relocation.
 
@@ -55,7 +59,7 @@ map their ownership and build dependencies before any import or relocation.
 `Exhibits/UIFoundation/` retains verification code, results, and actual SVG raster evidence.
 `Automation/Patches/` owns the six inherited ImGui patches. Dependency pins live in
 `Automation/UIDependencies.json`. No scene renderer is ported or built by the new CMake target.
-Inherited `Internal/Graphics/` remains untouched and is not linked into this target.
+No inherited `Internal/` code is linked into this target.
 
 `Exhibits/ControlCentre/` owns current appearance interaction tests, native CPU images, and build evidence.
 `Automation/FontSources.json`, `PrepareFonts.py`, and `FontRequirements.txt` define open-font recovery.
