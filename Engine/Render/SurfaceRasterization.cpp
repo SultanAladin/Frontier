@@ -37,6 +37,10 @@ struct SurfaceRasterization::RasterAllocation
         Finalize();
     }
     VkExtent2D Extent{};
+    // 📝 Optional sub-range of the shared index buffer; zero count draws the whole geometry. Targets over
+    // the multi-shape inspection upload set this so only the selected specimen is rasterized.
+    uint32_t DrawFirstIndex = 0;
+    uint32_t DrawIndexCount = 0;
     bool TransparentBackground = false;
     bool MaterialCoordinatesEnabled = false;
     bool MaterialParametersEnabled = false;
@@ -734,7 +738,10 @@ struct SurfaceRasterization::RasterAllocation
         CmdBindPipeline(Commands, VK_PIPELINE_BIND_POINT_GRAPHICS, MaterialEnabled ? SharedPrograms->MaterialSurface : (Scattering ? SharedPrograms->PreviewPbrSurface : (MatCap ? SharedPrograms->MatCapSurface : Surface)));
         CmdBindVertexBuffers(Commands, 0, 1, &Geometry.Corners.Buffer, &Offset);
         CmdBindIndexBuffer(Commands, Geometry.Indices.Buffer, 0, VK_INDEX_TYPE_UINT32);
-        CmdDrawIndexed(Commands, Geometry.IndexCount, 1, 0, 0, 0);
+        if (DrawIndexCount && uint64_t(DrawFirstIndex) + DrawIndexCount > Geometry.IndexCount)
+            throw std::runtime_error("Configured index range exceeds the shared geometry.");
+        CmdDrawIndexed(Commands, DrawIndexCount ? DrawIndexCount : Geometry.IndexCount, 1,
+                       DrawIndexCount ? DrawFirstIndex : 0, 0, 0);
         if (Geometry.EdgeCount && !MatCap)
         {
             CmdBindPipeline(Commands, VK_PIPELINE_BIND_POINT_GRAPHICS, Stroke);
@@ -845,6 +852,14 @@ SurfaceRasterization::~SurfaceRasterization()
 void SurfaceRasterization::ConfigureTransparentBackground(bool Enabled) noexcept
 {
     if (Allocation) Allocation->TransparentBackground = Enabled;
+}
+void SurfaceRasterization::ConfigureIndexRange(uint32_t FirstIndex, uint32_t IndexCount) noexcept
+{
+    if (Allocation)
+    {
+        Allocation->DrawFirstIndex = FirstIndex;
+        Allocation->DrawIndexCount = IndexCount;
+    }
 }
 
 void SurfaceRasterization::Finalize() noexcept

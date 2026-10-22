@@ -99,6 +99,8 @@ public:
     // Aborted recordings leave the shared geometry transfer pending for retry; submission is not a fence completion.
     void ConfirmSubmission() noexcept;
     void ConfigureTransparentBackground(bool Enabled) noexcept;
+    // 📝 Restricts subsequent recordings to one index sub-range of the shared geometry (count 0 = all).
+    void ConfigureIndexRange(uint32_t FirstIndex, uint32_t IndexCount) noexcept;
     void Finalize() noexcept;
     [[nodiscard]] VkImage QueryImage() const noexcept;
     [[nodiscard]] VkImageView QueryImageView() const noexcept;

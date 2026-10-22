@@ -25,13 +25,40 @@ namespace
 
 thread_local bool ReclamationEnabled = false;
 
+// 📝 Name every failure code in diagnostics: a bare integer like -1000069000
+// (VK_ERROR_OUT_OF_POOL_MEMORY) cost a full investigation to decode from a user screenshot.
+const char *DescribeResult(VkResult Result)
+{
+    switch (Result)
+    {
+    case VK_SUCCESS: return "VK_SUCCESS";
+    case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+    case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+    case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+    case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+    case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+    case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+    case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+    case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+    case VK_ERROR_LAYER_NOT_PRESENT: return "VK_ERROR_LAYER_NOT_PRESENT";
+    case VK_ERROR_EXTENSION_NOT_PRESENT: return "VK_ERROR_EXTENSION_NOT_PRESENT";
+    case VK_ERROR_FEATURE_NOT_PRESENT: return "VK_ERROR_FEATURE_NOT_PRESENT";
+    case VK_ERROR_INCOMPATIBLE_DRIVER: return "VK_ERROR_INCOMPATIBLE_DRIVER";
+    case VK_ERROR_TOO_MANY_OBJECTS: return "VK_ERROR_TOO_MANY_OBJECTS";
+    case VK_ERROR_FORMAT_NOT_SUPPORTED: return "VK_ERROR_FORMAT_NOT_SUPPORTED";
+    default: return "VK_RESULT_UNKNOWN";
+    }
+}
 void RequireSuccess(VkResult Result)
 {
     if (Result < 0)
     {
         DiagnosticJournal::Append("VulkanError", "VkResult=" + std::to_string(static_cast<int>(Result)) +
-            (ReclamationEnabled ? " during reclamation" : ""));
-        if (!ReclamationEnabled) throw std::runtime_error("Vulkan UI failure: " + std::to_string(static_cast<int>(Result)));
+            " (" + DescribeResult(Result) + ")" + (ReclamationEnabled ? " during reclamation" : ""));
+        if (!ReclamationEnabled)
+            throw std::runtime_error("Vulkan UI failure: " + std::to_string(static_cast<int>(Result)) +
+                " (" + DescribeResult(Result) + ")");
     }
 }
 
@@ -185,7 +212,10 @@ struct VulkanPresentation::PresentationAllocation
         Initialization.Device                       = Device;
         Initialization.QueueFamily                  = QueueFamily;
         Initialization.Queue                        = Queue;
-        Initialization.DescriptorPoolSize           = 128;
+        // 📝 Sized and accounted, not guessed: hosts bind a bounded set of user textures (material atlas,
+        // preview + frame-lagged retirements, pattern atlas, ≤9 coverage slots, icon atlas + 1 retired)
+        // and reclaim them; 512 leaves generous headroom while still failing loudly on a real leak.
+        Initialization.DescriptorPoolSize           = 512;
         Initialization.MinImageCount                = 2;
         Initialization.ImageCount                   = Main.ImageCount;
         Initialization.PipelineInfoMain.RenderPass  = Main.RenderPass;

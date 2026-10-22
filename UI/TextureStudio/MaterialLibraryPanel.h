@@ -52,6 +52,8 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<bool(IconSymbol, PlanePoint, float, ColorQuad)> PresentIcon;
     std::function<std::string(const std::filesystem::path &)> QueryThumbnailDiagnostic;
     std::function<void()> InvalidateThumbnails;
+    // 📝 Single-tile rebake request, issued only after the material is saved to disk.
+    std::function<void(const std::filesystem::path &)> InvalidateThumbnail;
     std::function<void()> ActivatePattern;
     std::function<void(const std::vector<std::filesystem::path> &)> RequestThumbnails;
     bool RequestClose() noexcept;

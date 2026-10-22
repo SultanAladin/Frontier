@@ -26,7 +26,9 @@
 #include "UI/Editor/ControlCentrePanel.h"
 #include "UI/TextureStudio/MaterialLibraryPanel.h"
 #include <array>
+#include <deque>
 #include <map>
+#include <set>
 #include <windows.h>
 #include <shellapi.h>
 #include <GLFW/glfw3.h>
@@ -127,9 +129,22 @@ int RunTextureWorkspace()
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
-    // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames and are
-    // removed at shutdown alongside the live one.
-    std::vector<VkDescriptorSet> RetiredPreviewDescriptors;
+    // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames, then are
+    // reclaimed a few frames later instead of accumulating in the shared ImGui descriptor pool until
+    // shutdown (that accumulation exhausted the pool: VK_ERROR_OUT_OF_POOL_MEMORY while editing).
+    std::deque<std::pair<VkDescriptorSet, uint64_t>> RetiredPreviewDescriptors;
+    uint64_t InterfaceFrame = 0;
+    // 📝 Fault isolation: a failing GPU subsystem is journalled once and latched off (keyed where a
+    // natural retry key exists) instead of aborting the whole application or retrying every frame.
+    std::set<std::string> ReportedGpuFaults;
+    const auto JournalGpuFaultOnce = [&](const char *Subsystem, const std::exception &Failure)
+    {
+        const std::string Key = std::string(Subsystem) + ": " + Failure.what();
+        if (ReportedGpuFaults.insert(Key).second) Frontier::DiagnosticJournal::Append("GpuFaultIsolated", Key);
+    };
+    bool SelectionEvaluationFaulted = false, CoverageRenderingFaulted = false, PatternAtlasFaulted = false;
+    std::optional<Frontier::VectorAuthoringDocument> PatternBridgeFaultedDocument;
+    std::string MaterialRenderingFaultKey;
     VkImageView LastPreviewView = VK_NULL_HANDLE;
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
@@ -306,20 +321,28 @@ int RunTextureWorkspace()
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
         SelectionEvaluation->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSelectionCompute.spv");
-        Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program)
+        Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program) -> uint64_t
         {
-            // 📝 Pooled slot extents keep their images alive until Finalize, so lazily retained
-            // descriptors stay valid without ever freeing a set a previous frame still samples.
-            const int Slot = CoverageRendering->SelectProgram(Program);
-            if (Slot < 0) return uint64_t(0);
-            const auto Key = std::make_pair(size_t(Slot), CoverageRendering->QuerySlotExtent(size_t(Slot)));
-            const auto Position = CoverageDescriptors.find(Key);
-            if (Position != CoverageDescriptors.end()) return uint64_t(Position->second);
-            const auto View = CoverageRendering->QueryImageView(size_t(Slot));
-            if (!View) return uint64_t(0);
-            const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            CoverageDescriptors.emplace(Key, Descriptor);
-            return uint64_t(Descriptor);
+            try
+            {
+                // 📝 Pooled slot extents keep their images alive until Finalize, so lazily retained
+                // descriptors stay valid without ever freeing a set a previous frame still samples.
+                const int Slot = CoverageRendering->SelectProgram(Program);
+                if (Slot < 0) return uint64_t(0);
+                const auto Key = std::make_pair(size_t(Slot), CoverageRendering->QuerySlotExtent(size_t(Slot)));
+                const auto Position = CoverageDescriptors.find(Key);
+                if (Position != CoverageDescriptors.end()) return uint64_t(Position->second);
+                const auto View = CoverageRendering->QueryImageView(size_t(Slot));
+                if (!View) return uint64_t(0);
+                const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                CoverageDescriptors.emplace(Key, Descriptor);
+                return uint64_t(Descriptor);
+            }
+            catch (const std::exception &Failure)
+            {
+                JournalGpuFaultOnce("PatternCoverage", Failure);
+                return uint64_t(0);
+            }
         };
         Pattern->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Pattern->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
@@ -348,12 +371,21 @@ int RunTextureWorkspace()
         };
         Display.ConfigureRendering([&](VkCommandBuffer Commands, uint64_t Completed, uint64_t Serial)
         {
-            SelectionEvaluation->ConstructCommands(Commands, Completed, Serial);
-            CoverageRendering->ConstructCommands(Commands, Completed, Serial);
+            if (!SelectionEvaluationFaulted)
+                try { SelectionEvaluation->ConstructCommands(Commands, Completed, Serial); }
+                catch (const std::exception &Failure) { SelectionEvaluationFaulted = true; JournalGpuFaultOnce("SelectionEvaluation", Failure); }
+            if (!CoverageRenderingFaulted)
+                try { CoverageRendering->ConstructCommands(Commands, Completed, Serial); }
+                catch (const std::exception &Failure) { CoverageRenderingFaulted = true; JournalGpuFaultOnce("CoverageRendering", Failure); }
+            try
+            {
             if (Pattern->ConsumeMaterialApplyRequest()) PatternApplyRequested = true;
             if (PatternApplyRequested && !PatternBridgeSubmission && PatternAuthoringMaps &&
                 Pattern->QueryDocument() == SubmittedPatternDocument && AssignPatternMapsToPreview())
                 PatternApplyRequested = false;
+            if (PatternBridgeSubmission && PatternBridgeFaultedDocument &&
+                *PatternBridgeFaultedDocument == SubmittedPatternDocument)
+                PatternBridgeSubmission = 0;
             if (PatternBridgeSubmission && PatternBridgeSubmission <= Completed)
             {
                 AppendPatternPreviewDebug("GPU readback retired; submission=" + std::to_string(PatternBridgeSubmission) + "; completed=" + std::to_string(Completed));
@@ -371,7 +403,8 @@ int RunTextureWorkspace()
                 }
                 PatternBridgeSubmission = 0;
             }
-            if (PatternActive && !PatternBridgeSubmission && Pattern->QueryAuthoringSettled())
+            if (PatternActive && !PatternBridgeSubmission && Pattern->QueryAuthoringSettled() &&
+                !(PatternBridgeFaultedDocument && *PatternBridgeFaultedDocument == Pattern->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
                 const auto CurrentPattern = Pattern->QueryDocument();
@@ -405,31 +438,66 @@ int RunTextureWorkspace()
                 }
                 else ObservedPatternDocument = CurrentPattern;
             }
+            }
+            catch (const std::exception &Failure)
+            {
+                // 📝 The Pattern bridge faults against the document it was compiling; editing the
+                // document re-arms it. Preview/atlas work below is unaffected.
+                PatternBridgeSubmission = 0;
+                PatternBridgeRecorded = false;
+                PatternBridgeFaultedDocument = Pattern->QueryDocument();
+                JournalGpuFaultOnce("PatternBridge", Failure);
+            }
             // 📝 The gallery bakes its 24-card page on the CPU; upload once per page flip, gated by the panel revision.
             const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
-            if (PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
+            if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
+                try
+                {
+                    PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
+                    PatternAtlas->ConstructUpload(Commands);
+                    PatternAtlasPublished = PatternAtlasRevision;
+                }
+                catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
             {
-                PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
-                PatternAtlas->ConstructUpload(Commands);
-                PatternAtlasPublished = PatternAtlasRevision;
+                // 📝 Material rendering faults latch against the current catalogue revision + preview
+                // configuration; any new edit re-arms evaluation. A partially recorded tile/preview
+                // renderpass belongs to this discarded key and is never resubmitted unchanged.
+                const auto PreviewState = Rendering->QueryPreviewConfiguration();
+                const std::string RenderingKey = std::to_string(Library->QueryLibrary().QueryRevision()) + "|" +
+                    std::to_string(uint32_t(PreviewState.Shape)) + "|" +
+                    std::to_string(uint32_t(PreviewState.Environment)) + "|" +
+                    std::to_string(PreviewState.Zoom) + "|" + std::to_string(PreviewState.Yaw) + "|" +
+                    std::to_string(PreviewState.Pitch) + "|" + std::to_string(Rendering->QueryPreviewExtent());
+                if (RenderingKey != MaterialRenderingFaultKey)
+                    try { Rendering->ConstructCommands(Commands, Completed, Serial); }
+                    catch (const std::exception &Failure)
+                    {
+                        MaterialRenderingFaultKey = RenderingKey;
+                        JournalGpuFaultOnce("MaterialRendering", Failure);
+                    }
             }
-            Rendering->ConstructCommands(Commands, Completed, Serial);
         }, [&]()
         {
-            SelectionEvaluation->ConfirmSubmission();
-            if (PatternAtlas) PatternAtlas->ConfirmSubmission();
-            if (PatternBridgeRecorded)
+            try
             {
-                MaterialBridge->ConfirmSubmission();
-                AppendPatternPreviewDebug("GPU Float32 map generation submission confirmed; submission=" + std::to_string(PatternBridgeSubmission));
-                PatternBridgeRecorded = false;
+                SelectionEvaluation->ConfirmSubmission();
+                if (PatternAtlas) PatternAtlas->ConfirmSubmission();
+                if (PatternBridgeRecorded)
+                {
+                    MaterialBridge->ConfirmSubmission();
+                    AppendPatternPreviewDebug("GPU Float32 map generation submission confirmed; submission=" + std::to_string(PatternBridgeSubmission));
+                    PatternBridgeRecorded = false;
+                }
+                CoverageRendering->ConfirmSubmission();
+                Rendering->ConfirmSubmission();
             }
-            CoverageRendering->ConfirmSubmission();
-            Rendering->ConfirmSubmission();
+            catch (const std::exception &Failure) { JournalGpuFaultOnce("GpuConfirm", Failure); }
+            catch (...) { Frontier::DiagnosticJournal::Append("GpuConfirm", "unknown submission-confirm fault isolated"); }
         });
         Library->RequestThumbnails = [&](const std::vector<std::filesystem::path> &Paths)
         {
-            Rendering->RequestLibrary(Library->QueryLibrary().QueryDirectory(), Paths);
+            try { Rendering->RequestLibrary(Library->QueryLibrary().QueryDirectory(), Paths); }
+            catch (const std::exception &Failure) { JournalGpuFaultOnce("ThumbnailRequest", Failure); }
         };
         Library->QueryThumbnail = [&](const std::filesystem::path &Path)
         {
@@ -439,18 +507,35 @@ int RunTextureWorkspace()
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         Library->InvalidateThumbnails = [&]() { Rendering->InvalidateThumbnails(); };
+        Library->InvalidateThumbnail = [&](const std::filesystem::path &Path) { Rendering->InvalidateThumbnail(Path); };
         Library->QueryThumbnailDiagnostic = [&](const std::filesystem::path &Path) { return Rendering->QueryThumbnailDiagnostic(Path); };
-        Library->ConfigurePreview = [&](const Frontier::MaterialPreviewConfiguration &Configuration) { Rendering->ConfigurePreview(Configuration); };
+        Library->ConfigurePreview = [&](const Frontier::MaterialPreviewConfiguration &Configuration)
+        {
+            try { Rendering->ConfigurePreview(Configuration); }
+            catch (const std::exception &Failure) { JournalGpuFaultOnce("PreviewConfigure", Failure); }
+        };
         Library->ConfigurePreviewExtent = [&](uint32_t Extent) { Rendering->ConfigurePreviewExtent(Extent); };
         Library->QueryPreview = [&]()
         {
-            const VkImageView CurrentView = Rendering->QueryPreviewView();
-            if (CurrentView && CurrentView != LastPreviewView)
+            // 📝 A retired descriptor was last sampled at most its retirement frame; the submission
+            // owner fences every frame before recording the next, so four frames later it is free.
+            while (!RetiredPreviewDescriptors.empty() && RetiredPreviewDescriptors.front().second + 4 <= InterfaceFrame)
             {
-                LastPreviewView = CurrentView;
-                if (PreviewDescriptor) RetiredPreviewDescriptors.push_back(PreviewDescriptor);
-                PreviewDescriptor = ImGui_ImplVulkan_AddTexture(CurrentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                if (RetiredPreviewDescriptors.front().first)
+                    ImGui_ImplVulkan_RemoveTexture(RetiredPreviewDescriptors.front().first);
+                RetiredPreviewDescriptors.pop_front();
             }
+            const VkImageView CurrentView = Rendering->QueryPreviewView();
+            try
+            {
+                if (CurrentView && CurrentView != LastPreviewView)
+                {
+                    LastPreviewView = CurrentView;
+                    if (PreviewDescriptor) RetiredPreviewDescriptors.emplace_back(PreviewDescriptor, InterfaceFrame);
+                    PreviewDescriptor = ImGui_ImplVulkan_AddTexture(CurrentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                }
+            }
+            catch (const std::exception &Failure) { JournalGpuFaultOnce("PreviewTexture", Failure); }
             return Frontier::MaterialPreviewImage{Rendering->QueryPreviewReady() ? (uint64_t)PreviewDescriptor : 0};
         };
     };
@@ -476,6 +561,7 @@ int RunTextureWorkspace()
     Callbacks.PrepareInterface = [&]() { Appearance->PrepareInterface(); };
     Callbacks.ConstructInterface = [&](bool MainVisible)
     {
+        ++InterfaceFrame;
         (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
         if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
         else (void)Library->Integrate(ImGui::GetIO().DeltaTime);
@@ -502,15 +588,21 @@ int RunTextureWorkspace()
                 const auto &Catalogue = Library->QueryLibrary();
                 if (Rendering && Catalogue.QueryApplied() && RenderingRevision != Catalogue.QueryRevision())
                 {
-                    if (Catalogue.QuerySelection() != AssignedPatternSelection) AssignedPatternMaps.reset();
-                    if (AssignedPatternMaps)
-                    {
-                        auto PreviewMaterial = *Catalogue.QueryApplied();
-                        PreviewMaterial.AuthoringMaps = *AssignedPatternMaps;
-                        Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
-                    }
-                    else Rendering->ConfigureSelection(Catalogue.QuerySelection(), *Catalogue.QueryApplied());
+                    // 📝 Consume the revision even on fault: retrying the identical material every frame
+                    // would turn one bad input into an allocation storm (and pool exhaustion).
                     RenderingRevision = Catalogue.QueryRevision();
+                    try
+                    {
+                        if (Catalogue.QuerySelection() != AssignedPatternSelection) AssignedPatternMaps.reset();
+                        if (AssignedPatternMaps)
+                        {
+                            auto PreviewMaterial = *Catalogue.QueryApplied();
+                            PreviewMaterial.AuthoringMaps = *AssignedPatternMaps;
+                            Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
+                        }
+                        else Rendering->ConfigureSelection(Catalogue.QuerySelection(), *Catalogue.QueryApplied());
+                    }
+                    catch (const std::exception &Failure) { JournalGpuFaultOnce("SelectionConfigure", Failure); }
                 }
                 if (Library->ConsumeClose()) glfwSetWindowShouldClose(Window, GLFW_TRUE);
             }
@@ -522,8 +614,8 @@ int RunTextureWorkspace()
         // 📝 The shared application loop has retired all GPU work before this callback.
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
-        for (const VkDescriptorSet Retired : RetiredPreviewDescriptors)
-            if (Retired) ImGui_ImplVulkan_RemoveTexture(Retired);
+        for (const auto &Retired : RetiredPreviewDescriptors)
+            if (Retired.first) ImGui_ImplVulkan_RemoveTexture(Retired.first);
         RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)

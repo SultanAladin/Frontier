@@ -175,6 +175,24 @@ int main(int Count, char **Arguments)
         std::string Diagnostic;
         const auto Geometry = ConstructMaterialInspectionGeometry();
         Confirm(ValidateSurfaceGeometry(Geometry, Diagnostic), Diagnostic.c_str());
+        // 📝 The draw ranges must partition the index list exactly and keep every index inside its own
+        // 16-unit region, or the preview rasterizes neighbouring specimens again (reported two-shape bug).
+        const auto InspectionGeometry = ConstructMaterialInspectionGeometryWithRanges();
+        uint32_t RangeTotal = 0;
+        for (size_t Shape = 0; Shape < InspectionGeometry.ShapeIndexRanges.size(); ++Shape)
+        {
+            const auto &Range = InspectionGeometry.ShapeIndexRanges[Shape];
+            Confirm(Range[0] == RangeTotal, "Shape index ranges are not contiguous.");
+            Confirm(Range[1] > 0, "Shape index range is empty.");
+            for (uint32_t At = Range[0]; At < Range[0] + Range[1]; ++At)
+            {
+                const auto Corner = InspectionGeometry.Geometry.TriangleCorners[At];
+                const int Region = int(std::round(InspectionGeometry.Geometry.Corners[Corner].Position[0] / 16.f));
+                Confirm(Region == int(Shape), "Shape index range references a neighbouring specimen.");
+            }
+            RangeTotal += Range[1];
+        }
+        Confirm(RangeTotal == InspectionGeometry.Geometry.TriangleCorners.size(), "Shape index ranges do not cover the geometry.");
         std::array<size_t,5> Populations{};
         size_t NegativeCubeTangents = 0;
         float ClothLowZ = 1, ClothHighZ = -1, ClothLowNormalZ = 1, ClothHighNormalZ = -1;

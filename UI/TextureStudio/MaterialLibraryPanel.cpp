@@ -739,7 +739,9 @@ void MaterialLibraryPanel::ConstructActions()
     }
     RevertExtent = Extent();
     ImGui::SameLine();
-    if (ImGui::Button("Save")) (void)Library.SaveMaterial();
+    // 📝 Saving is the only edit-path event that re-renders a catalogue tile (baked atlas contract).
+    if (ImGui::Button("Save") && Library.SaveMaterial() && InvalidateThumbnail)
+        InvalidateThumbnail(Library.QuerySelection());
     SaveExtent = Extent();
     if (ImGui::Button("Duplicate")) Duplicating = true;
     if (Library.QueryModified()) ImGui::TextWrapped("Unsaved edits. Save or Revert; drafts survive switching materials.");
@@ -887,13 +889,20 @@ void MaterialLibraryPanel::ConstructInspector()
             auto RenderControl = [&](const MaterialRecipeControl &Control)
             {
                 float Position = Control.Position;
-                bool Supported = !Control.Targets.empty();
+                // 📝 Direct controls carry no mapped targets — the control key IS the coefficient.
+                // Requiring targets here disabled every direct slider (detail scale, orange-peel
+                // scale, texture scale, …) behind a false "not ported yet" tooltip.
+                bool Supported = Control.Direct
+                    ? QueryRecipeCoefficient(Definition, Control.Key).has_value()
+                    : !Control.Targets.empty();
                 for (const auto &Target : Control.Targets) Supported = QueryRecipeCoefficient(Definition, Target.Key).has_value() && Supported;
-                if (Supported)
+                if (Supported && Control.Direct)
+                    Position = *QueryRecipeCoefficient(Definition, Control.Key);
+                else if (Supported)
                 {
                     const auto &Target = Control.Targets.front();
                     const float Coefficient = *QueryRecipeCoefficient(Definition, Target.Key);
-                    Position = Control.Direct ? Coefficient : std::abs(Target.Maximum - Target.Minimum) > .000001f ?
+                    Position = std::abs(Target.Maximum - Target.Minimum) > .000001f ?
                         std::clamp((Coefficient - Target.Minimum) / (Target.Maximum - Target.Minimum), 0.f, 1.f) : Control.Position;
                 }
                 else if (Control.Direct) Position = QueryRecipeCoefficient(Definition, Control.Key).value_or(Control.Position);
@@ -921,7 +930,7 @@ void MaterialLibraryPanel::ConstructInspector()
                     }
                 Supported = Supported && NativeMinimum <= NativeMaximum;
                 ImGui::BeginDisabled(!Supported);
-                const char *Unavailable = !Supported ? "This recipe parameter is retained, but its procedural shader family is not ported yet." :
+                const char *Unavailable = !Supported ? "This recipe parameter is retained, but no native parameter is bound to it yet." :
                     RoughnessLimited ? "The native preview supports roughness of 0.045 or higher; this control is bounded to valid physical values." : nullptr;
                 if (ConstructProperty(Control.Caption.c_str(), NativeMinimum, NativeMaximum, Position,
                     Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable))
@@ -1353,7 +1362,11 @@ void MaterialLibraryPanel::ConstructInterface()
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.29f,.42f,.25f,1));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.35f,.49f,.30f,1));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.24f,.35f,.20f,1));
-        if (ImGui::Button("Save and close", ImVec2(ButtonWidth, 32 * Scale)) && Library.SaveMaterial()) CloseAuthorized = true;
+        if (ImGui::Button("Save and close", ImVec2(ButtonWidth, 32 * Scale)) && Library.SaveMaterial())
+        {
+            if (InvalidateThumbnail) InvalidateThumbnail(Library.QuerySelection());
+            CloseAuthorized = true;
+        }
         ImGui::PopStyleColor(3);
         if (CloseAuthorized) { ClosingRequested = false; ImGui::CloseCurrentPopup(); }
         ImGui::EndPopup();

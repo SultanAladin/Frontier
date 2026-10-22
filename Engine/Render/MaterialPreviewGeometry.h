@@ -393,19 +393,35 @@ inline SurfaceGeometry ConstructMaterialPreviewClothScene()
     }
     return Geometry;
 }
-// 📝 Separated inspection surfaces share one immutable upload; projection selects one without replacing descriptors.
-inline SurfaceGeometry ConstructMaterialInspectionGeometry()
+// 📝 Separated inspection surfaces share one immutable upload; projection selects one without replacing
+// descriptors. Separation alone does NOT hide the other surfaces: orbiting far enough sweeps a
+// neighbouring specimen (16 units away) into the frustum, so callers must also restrict each draw to
+// the selected shape's index range below.
+struct MaterialInspectionGeometry
 {
-    auto Geometry = ConstructMaterialPreviewSpecimen();
+    SurfaceGeometry Geometry;
+    // 📝 [first index, index count] per MaterialPreviewShape ordinal; partitions the whole index list.
+    std::array<std::array<uint32_t, 2>, 5> ShapeIndexRanges{};
+};
+inline MaterialInspectionGeometry ConstructMaterialInspectionGeometryWithRanges()
+{
+    MaterialInspectionGeometry Inspection;
+    auto &Geometry = Inspection.Geometry;
+    Geometry = ConstructMaterialPreviewSpecimen();
+    Inspection.ShapeIndexRanges[0] = {0, uint32_t(Geometry.TriangleCorners.size())};
+    size_t ShapeOrdinal = 1;
     const auto Append = [&](SurfaceGeometry Surface, float Translation)
     {
         const auto Offset = uint32_t(Geometry.Corners.size());
+        const auto FirstIndex = uint32_t(Geometry.TriangleCorners.size());
         for (auto Corner : Surface.Corners)
         {
             Corner.Position[0] += Translation;
             Geometry.Corners.push_back(Corner);
         }
         for (auto Index : Surface.TriangleCorners) Geometry.TriangleCorners.push_back(Offset + Index);
+        Inspection.ShapeIndexRanges[ShapeOrdinal++] =
+            {FirstIndex, uint32_t(Surface.TriangleCorners.size())};
     };
     Append(ConstructMaterialPreviewSphere(), 16);
     SurfaceGeometry Plane;
@@ -455,6 +471,11 @@ inline SurfaceGeometry ConstructMaterialInspectionGeometry()
         }
     Append(Cube, 48);
     Append(ConstructMaterialPreviewClothScene(), 64);
-    return Geometry;
+    return Inspection;
+}
+// 📝 Geometry-only view retained for acceptance/projection tooling that does not draw.
+inline SurfaceGeometry ConstructMaterialInspectionGeometry()
+{
+    return ConstructMaterialInspectionGeometryWithRanges().Geometry;
 }
 } // namespace Frontier

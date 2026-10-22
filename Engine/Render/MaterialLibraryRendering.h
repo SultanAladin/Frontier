@@ -39,6 +39,7 @@ class MaterialLibraryRendering
     void ConstructCommands(VkCommandBuffer Commands, uint64_t CompletedSerial, uint64_t SubmissionSerial);
     void ConfirmSubmission() noexcept;
     void InvalidateThumbnails() noexcept;
+    void InvalidateThumbnail(const std::filesystem::path &RelativePath) noexcept;
     [[nodiscard]] bool AuthenticateThumbnail(const std::filesystem::path &RelativePath, uint64_t Generation) const;
     [[nodiscard]] uint64_t QueryBakeCount() const noexcept;
     [[nodiscard]] VkImage QueryPreviewImage() const noexcept;

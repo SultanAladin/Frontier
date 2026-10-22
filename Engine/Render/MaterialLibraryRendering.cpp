@@ -44,6 +44,44 @@ uint64_t ComputeMaterialFingerprint(const CompiledSurfaceMaterial &Material)
     for (const auto &Texture : Material.AuthoringMaps) AccumulatePyramid(Texture);
     return Digest;
 }
+// 📝 Cheap change test for baked tiles: digest the authored source bytes plus size/write-time of every
+// referenced Textures/ map. Library tiles are a baked atlas — re-evaluation must never decode or rebake
+// a material whose inputs are unchanged. Returns 0 when the inputs cannot be authenticated (rebake).
+uint64_t ComputeMaterialSourceDigest(const std::filesystem::path &Directory, const std::filesystem::path &RelativePath)
+{
+    std::error_code Error;
+    std::ifstream Input(Directory / RelativePath, std::ios::binary | std::ios::ate);
+    const auto Bytes = Input.tellg();
+    if (!Input || Bytes <= 0 || Bytes > 1048576) return 0;
+    std::string Source(size_t(Bytes), '\0');
+    Input.seekg(0);
+    if (!Input.read(Source.data(), Bytes)) return 0;
+    uint64_t Digest = 14695981039346656037ull;
+    const auto Accumulate = [&](const void *Data, size_t Count)
+    {
+        const auto *Octets = static_cast<const unsigned char *>(Data);
+        for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
+    };
+    Accumulate(Source.data(), Source.size());
+    size_t Search = 0;
+    uint32_t Referenced = 0;
+    while ((Search = Source.find("Textures/", Search)) != std::string::npos)
+    {
+        const auto End = Source.find('"', Search);
+        if (End == std::string::npos) return 0;
+        const auto TexturePath = (Directory / RelativePath.parent_path() /
+            Source.substr(Search, End - Search)).lexically_normal();
+        const auto Size = std::filesystem::file_size(TexturePath, Error);
+        if (Error) return 0;
+        const auto Written = std::filesystem::last_write_time(TexturePath, Error).time_since_epoch().count();
+        if (Error) return 0;
+        Accumulate(&Size, sizeof(Size));
+        Accumulate(&Written, sizeof(Written));
+        Search = End + 1;
+        if (++Referenced > 64) return 0;
+    }
+    return Digest ? Digest : 1;
+}
 std::string DescribeMaterialMaps(const CompiledSurfaceMaterial &Material)
 {
     std::ostringstream Line;
@@ -125,6 +163,7 @@ struct MaterialLibraryRendering::RenderingAllocation
     {
         std::filesystem::path Path;
         uint64_t Generation = 0, Fingerprint = 0, Access = 0;
+        uint64_t SourceDigest = 0;
         bool Ready = false, Pinned = false, Dirty = false;
         std::string Diagnostic;
     };
@@ -149,6 +188,11 @@ struct MaterialLibraryRendering::RenderingAllocation
     MaterialScattering PreviewScattering;
     MaterialPreviewConfiguration Inspection;
     std::shared_ptr<SurfaceScatteringResidence> PreviewParameters;
+    // 📝 One completed spare parameter residence is recycled ping-pong style so continuous slider
+    // edits stop allocating a fresh descriptor pool/set/buffer per input tick.
+    std::shared_ptr<SurfaceScatteringResidence> SparePreviewParameters;
+    uint64_t SparePreviewSerial = 0, CompletedSerial = 0;
+    std::array<std::array<uint32_t, 2>, 5> ShapeIndexRanges{};
     std::vector<ThumbnailSlot> Slots;
     std::vector<PendingResidence> InFlight;
     std::filesystem::path Directory, Selection;
@@ -210,9 +254,25 @@ struct MaterialLibraryRendering::RenderingAllocation
             Scattering.Illumination.LightDirectionIntensity = {-.2f,.9f,.4f,.7f};
             break;
         }
-        auto Replacement = std::make_shared<SurfaceScatteringResidence>();
+        std::shared_ptr<SurfaceScatteringResidence> Replacement;
+        if (SparePreviewParameters && SparePreviewSerial <= CompletedSerial)
+        {
+            // 📝 Every submission that sampled the spare has fenced; reuse its object instead of
+            // allocating another pool/set/buffer for this edit tick.
+            Replacement = std::move(SparePreviewParameters);
+            Replacement->Finalize();
+        }
+        else Replacement = std::make_shared<SurfaceScatteringResidence>();
         Replacement->Initialize(Programs, Scattering);
-        if (PreviewParameters) PreviewRetirements.push_back({SubmittedSerial, std::move(PreviewParameters)});
+        if (PreviewParameters)
+        {
+            if (!SparePreviewParameters)
+            {
+                SparePreviewParameters = std::move(PreviewParameters);
+                SparePreviewSerial = SubmittedSerial;
+            }
+            else PreviewRetirements.push_back({SubmittedSerial, std::move(PreviewParameters)});
+        }
         PreviewParameters = std::move(Replacement);
         PreviewDirty = true;
         PreviewReady = false;
@@ -252,9 +312,14 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
     }
     Resident->Programs.Initialize(Access, {{Words[0],"main"},{Words[1],"main"},{Words[2],"main"},{Words[3],"main"},
         {Words[4],"main"},{Words[5],"main"},{Words[6],"main"},{Words[7],"main"},{Words[8],"main"},{Words[9],"main"}});
-    Resident->Geometry.Initialize(Access, ConstructMaterialInspectionGeometry());
+    auto Inspection = ConstructMaterialInspectionGeometryWithRanges();
+    Resident->ShapeIndexRanges = Inspection.ShapeIndexRanges;
+    Resident->Geometry.Initialize(Access, Inspection.Geometry);
     Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 256, 256);
     Resident->Preview.Initialize(Resident->Programs, Resident->Geometry, 512, 512);
+    // 📝 Tiles always bake the shader ball; the preview re-selects its shape range per recording.
+    Resident->Tile.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
+    Resident->Preview.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
     Resident->Tile.ConfigureTransparentBackground(true);
     Resident->Preview.ConfigureTransparentBackground(true);
     Resident->Atlas.Initialize(Access, 256, 8);
@@ -318,8 +383,8 @@ void MaterialLibraryRendering::ConfigureSelection(const std::filesystem::path &P
     Rendering.SelectedFingerprint = Digest;
     Rendering.Selection = Path;
     Rendering.PreviewDirty = true;
-    for (auto &Slot : Rendering.Slots)
-        if (Slot.Path == Path && Slot.Fingerprint != Digest) Slot.Dirty = true;
+    // 📝 Selection edits deliberately do NOT dirty the catalogue tile: the atlas is baked content and
+    // only re-renders when the material is saved (InvalidateThumbnail) or the library is refreshed.
 }
 void MaterialLibraryRendering::ConfigurePreview(const MaterialPreviewConfiguration &Configuration)
 {
@@ -353,6 +418,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
+    Rendering.CompletedSerial = std::max(Rendering.CompletedSerial, CompletedSerial);
     std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.RetiredPreviews, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
@@ -363,6 +429,8 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Rendering.Preview.Initialize(Rendering.Programs, Rendering.Geometry, Rendering.PendingPreviewExtent,
             Rendering.PendingPreviewExtent);
         Rendering.Preview.ConfigureTransparentBackground(true);
+        const auto &ReplacementRange = Rendering.ShapeIndexRanges[size_t(Rendering.Inspection.Shape)];
+        Rendering.Preview.ConfigureIndexRange(ReplacementRange[0], ReplacementRange[1]);
         DiagnosticJournal::Append("PreviewExtent", "preview target=" + std::to_string(Rendering.PendingPreviewExtent));
         Rendering.PendingPreviewExtent = 0;
         Rendering.PreviewDirty = true;
@@ -380,6 +448,10 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Projection.ViewNormalRow0 = {View[0],View[4],View[8],0};
         Projection.ViewNormalRow1 = {View[1],View[5],View[9],0};
         Projection.ViewNormalRow2 = {View[2],View[6],View[10],0};
+        // 📝 Only the selected specimen is drawn; the other four share this upload 16 units apart and
+        // otherwise swing into frame while orbiting (the reported "two shapes" viewport defect).
+        const auto &Range = Rendering.ShapeIndexRanges[size_t(Rendering.Inspection.Shape)];
+        Rendering.Preview.ConfigureIndexRange(Range[0], Range[1]);
         Rendering.Preview.ConstructCommands(Commands, Projection, Rendering.Selected->Textures, *Rendering.PreviewParameters);
         DiagnosticJournal::Append("PreviewSubmit", "serial=" + std::to_string(SubmissionSerial));
         Rendering.RecordedPreview = true;
@@ -389,6 +461,15 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     }
     const auto Dirty = std::find_if(Rendering.Slots.begin(), Rendering.Slots.end(), [](const auto &Slot) { return Slot.Dirty && Slot.Pinned; });
     if (Dirty == Rendering.Slots.end()) return;
+    // 📝 Baked-atlas contract: an already-baked tile whose authored inputs are unchanged keeps its
+    // pixels. The digest costs one small file read instead of a full decode/procedural-bake/compile.
+    const auto SourceDigest = Dirty->Ready ? ComputeMaterialSourceDigest(Rendering.Directory, Dirty->Path) : 0;
+    if (Dirty->Ready && SourceDigest && SourceDigest == Dirty->SourceDigest)
+    {
+        Dirty->Dirty = false;
+        Dirty->Diagnostic.clear();
+        return;
+    }
     std::shared_ptr<RenderingAllocation::MaterialGpuResidence> Material;
     uint64_t Digest = Rendering.SelectedFingerprint;
     std::optional<CompiledSurfaceMaterial> Compiled;
@@ -412,6 +493,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     {
         Dirty->Dirty = false;
         Dirty->Diagnostic.clear();
+        if (SourceDigest) Dirty->SourceDigest = SourceDigest;
         return;
     }
     // ⚠️ GPU allocation/recording failures propagate to the application's severe-failure presentation.
@@ -420,6 +502,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     Rendering.Tile.ConstructCommands(Commands, Rendering.Projection, Material->Textures, Material->Parameters);
     Rendering.Atlas.ConstructCopy(Commands, Rendering.Tile, uint32_t(Dirty - Rendering.Slots.begin()));
     Dirty->Fingerprint = Digest;
+    Dirty->SourceDigest = SourceDigest ? SourceDigest : ComputeMaterialSourceDigest(Rendering.Directory, Dirty->Path);
     Rendering.RecordedSlot = int(Dirty - Rendering.Slots.begin());
     DiagnosticJournal::Append("AtlasBake", DiagnosticJournal::EncodePath(Dirty->Path) + " slot=" + std::to_string(Rendering.RecordedSlot));
     Dirty->Diagnostic.clear();
@@ -455,7 +538,20 @@ MaterialThumbnailSelection MaterialLibraryRendering::QueryThumbnail(const std::f
 }
 void MaterialLibraryRendering::InvalidateThumbnails() noexcept
 {
+    // 📝 Marks every resident tile for source re-authentication; unchanged inputs keep their baked
+    // pixels via the source digest, so a library refresh no longer rebakes the whole atlas.
     if (Allocation) for (auto &Slot : Allocation->Slots) if (!Slot.Path.empty()) Slot.Dirty = true;
+}
+void MaterialLibraryRendering::InvalidateThumbnail(const std::filesystem::path &RelativePath) noexcept
+{
+    // 📝 The only edit-path rebake: the material was saved to disk, so its tile (if resident) re-bakes.
+    if (!Allocation) return;
+    for (auto &Slot : Allocation->Slots)
+        if (Slot.Path == RelativePath)
+        {
+            Slot.Dirty = true;
+            Slot.SourceDigest = 0;
+        }
 }
 bool MaterialLibraryRendering::AuthenticateThumbnail(const std::filesystem::path &Path, uint64_t Generation) const
 {
