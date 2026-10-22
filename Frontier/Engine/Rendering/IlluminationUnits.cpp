@@ -20,6 +20,48 @@ IlluminationFrameDeclaration DeclareIlluminationFrame(uint32_t Width, uint32_t H
     const TargetTouch ReadSurface{"SurfaceAttributes", TargetUsage::Sampled};
 
     Frame.Units = {
+        // Indirect prelude (port order 2): distance-field trace + card radiosity merge into
+        // IndirectRadiance, which DirectRadiance's candidates then sample from.
+        SubmissionUnitDeclaration{
+            "DistanceRecordsSubmission",
+            {TargetTouch{"DistanceFieldRecords", TargetUsage::StorageWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "DistanceTraversalSubmission",
+            {TargetTouch{"DistanceFieldRecords", TargetUsage::StorageRead}, ReadSurface,
+             TargetTouch{"DistanceIndirect", TargetUsage::StorageWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "CardCaptureSubmission",
+            {TargetTouch{"CardAtlas", TargetUsage::StorageWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "CardDirectSubmission",
+            {TargetTouch{"CardAtlas", TargetUsage::StorageRead},
+             TargetTouch{"CardLighting", TargetUsage::StorageWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "CardRadiositySubmission",
+            {TargetTouch{"CardLighting", TargetUsage::StorageReadWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "CardFinalSubmission",
+            {TargetTouch{"CardLighting", TargetUsage::StorageRead}, ReadSurface,
+             TargetTouch{"CardIndirect", TargetUsage::StorageWrite}},
+            {},
+        },
+        SubmissionUnitDeclaration{
+            "DistanceTransferSubmission",
+            {TargetTouch{"DistanceIndirect", TargetUsage::Sampled},
+             TargetTouch{"CardIndirect", TargetUsage::Sampled},
+             TargetTouch{"IndirectRadiance", TargetUsage::StorageWrite}},
+            {},
+        },
         SubmissionUnitDeclaration{
             "DiscrepancySequenceSubmission",
             {TargetTouch{"CandidateSequence", TargetUsage::StorageWrite}},
@@ -33,6 +75,7 @@ IlluminationFrameDeclaration DeclareIlluminationFrame(uint32_t Width, uint32_t H
         SubmissionUnitDeclaration{
             "DirectRadianceSubmission",
             {ReadSeq, ReadClusters, ReadSurface,
+             TargetTouch{"IndirectRadiance", TargetUsage::Sampled},
              TargetTouch{"ReservoirsCurrent", TargetUsage::StorageWrite}},
             {},
         },
@@ -95,6 +138,12 @@ IlluminationFrameDeclaration DeclareIlluminationFrame(uint32_t Width, uint32_t H
     });
 
     Frame.Targets = {
+        RenderTargetDeclaration{"DistanceFieldRecords", TargetFormat::R32Float, 256, 256, false, TargetUsage::Undefined},
+        RenderTargetDeclaration{"DistanceIndirect", TargetFormat::Rgba16Float, Width, Height, false, TargetUsage::Undefined},
+        RenderTargetDeclaration{"CardAtlas", TargetFormat::Rgba16Float, 1024, 1024, true, TargetUsage::StorageRead},
+        RenderTargetDeclaration{"CardLighting", TargetFormat::Rgba16Float, 1024, 1024, true, TargetUsage::StorageReadWrite},
+        RenderTargetDeclaration{"CardIndirect", TargetFormat::Rgba16Float, Width, Height, false, TargetUsage::Undefined},
+        RenderTargetDeclaration{"IndirectRadiance", TargetFormat::Rgba16Float, Width, Height, false, TargetUsage::Undefined},
         RenderTargetDeclaration{"CandidateSequence", TargetFormat::Rg32Uint, Width, Height, false, TargetUsage::Undefined},
         RenderTargetDeclaration{"LightClusters", TargetFormat::Rg32Uint, ClusterWidth, ClusterHeight, false, TargetUsage::Undefined},
         RenderTargetDeclaration{"ReservoirsCurrent", TargetFormat::Rg32Uint, Width, Height, false, TargetUsage::Undefined},

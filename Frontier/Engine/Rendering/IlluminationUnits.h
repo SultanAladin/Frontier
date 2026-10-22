@@ -7,7 +7,9 @@
 
 // 🧩 Illumination frame declaration: the §8.2 chain as data — units + the targets they touch.
 //
-//   DiscrepancySequence → ClusteredLights → DirectRadiance (initial candidates)
+//   [indirect prelude] DistanceRecords → DistanceTraversal ┐
+//                        CardCapture → CardDirect → CardRadiosity → CardFinal ┴→ DistanceTransfer
+//     → DiscrepancySequence → ClusteredLights → DirectRadiance (initial candidates, +IndirectRadiance)
 //     → ReservoirTemporal (prev-frame import, M-clamped) → ReservoirSpatial (Jacobian-corrected)
 //     → MaterialResolve → SurfaceReflectance (shade the winning sample)
 //     → VarianceTemporal → VarianceWavelet ×5 → VarianceUpsample

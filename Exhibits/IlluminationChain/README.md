@@ -22,7 +22,9 @@ Oracles are analytic (the demo's GPU golden images join at the SDK phase — its
   end-to-end: RMSE 0.385 vs 3.86 for naive 1-spp (mean truth 1.86);
 - SVGF: RMSE 0.277 → 0.023 (12×) against known ground truth, guided step retained at 97%;
 - the declared chain resolves in §8.2 order, keeps ping-pong/history targets off the
-  transient atlas (47% memory saved on the rest), and derives 32 barriers.
+  transient atlas (52% memory saved on the rest), and derives 45 barriers over the
+  merged frame (the indirect prelude — Distance* + Card* — now feeds DirectRadiance;
+  see Exhibits/IndirectIllumination).
 
 Latest result: **55/55 checks passed** (GCC, `-std=c++17 -Wall -Wextra -Werror`).
 Optional argument: a path prefix that writes `<prefix>svgf-strip.ppm`
