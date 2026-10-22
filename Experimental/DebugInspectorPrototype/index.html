@@ -8,43 +8,92 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bg:#0a0a0c; --panel:#141416; --panel2:#1a1a1e; --line:#26262b; --line2:#33333a;
-  --text:#f2f2f4; --dim:#9a9aa3; --faint:#62626c;
-  --accent:#ffd21f; --green:#3ddc84; --cyan:#38bdf8; --pink:#f472b6; --purple:#a78bfa; --orange:#fb923c; --red:#f87171;
+  --bg:#000; --panel:#141414; --panel2:#1c1c1f; --line:#26262b; --line2:#3a3a41;
+  --text:#f2f2f4; --dim:#a3a3ab; --faint:#6b6b74;
+  --accent:#3b82f6; --green:#3ddc84; --cyan:#38bdf8; --pink:#f472b6; --purple:#a78bfa; --orange:#fb923c; --red:#f87171;
   --font:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
-  --radius:14px; --scale:1;
+  --radius:14px; --cr:14px; --scale:1;
 }
-[data-theme="graphite"]{ --bg:#101216; --panel:#191c22; --panel2:#20242c; --line:#2b3038; --line2:#3a414d; --accent:#38bdf8; }
-[data-theme="cobalt"]{ --bg:#070b16; --panel:#0d1424; --panel2:#111b31; --line:#1c2a47; --line2:#2a3d63; --accent:#818cf8; }
-[data-theme="paper"]{ --bg:#ececf0; --panel:#ffffff; --panel2:#f4f4f8; --line:#dcdce4; --line2:#c6c6d2; --text:#17171c; --dim:#5c5c66; --faint:#9a9aa4; }
+[data-theme="dark"]{ --bg:#18181a; --panel:#222224; --panel2:#2c2c2e; }
+[data-theme="light"]{ --bg:#e5e5e5; --panel:#f4f4f5; --panel2:#fff; --line:#d8d8de; --line2:#c4c4ce; --text:#17171c; --dim:#5c5c66; --faint:#95959f; }
+[data-theme="sepia"]{ --bg:#dca85b; --panel:#e6c697; --panel2:#f1dab0; --line:#c9a05e; --line2:#b3853f; --text:#3d2a08; --dim:#6e5320; --faint:#96762f; }
+[data-theme="dracula"]{ --bg:#282a36; --panel:#353747; --panel2:#44475a; --line:#4a4d63; --line2:#6272a4; --text:#f8f8f2; --dim:#c9cbd6; --faint:#9aa0b8; }
+[data-theme="nord"]{ --bg:#2e3440; --panel:#363d4d; --panel2:#3b4252; --line:#465064; --line2:#4c566a; --text:#eceff4; --dim:#c3cad7; --faint:#98a2b5; }
+[data-theme="github"]{ --bg:#0d1117; --panel:#161b22; --panel2:#21262d; --line:#262c36; --line2:#3d444f; --text:#c9d1d9; --dim:#9aa7b4; --faint:#6e7b8a; }
+[data-theme="dim"]{ --bg:#0f172a; --panel:#1a2438; --panel2:#1e293b; --line:#28344c; --line2:#334155; --text:#e2e8f0; --dim:#aebacd; --faint:#8494ad; }
 *{box-sizing:border-box; margin:0; padding:0}
 html{font-size:calc(15px * var(--scale))}
-body{background:var(--bg); color:var(--text); font-family:var(--font); overflow-x:hidden; transition:background .3s,color .3s}
+body{background:var(--bg); color:var(--text); font-family:var(--font); overflow-x:hidden}
 button{font-family:inherit; cursor:pointer}
-/* ---------- top notch : control centre ---------- */
-#notchWrap{position:fixed; top:0; left:50%; transform:translateX(-50%); z-index:60; width:min(680px,94vw)}
-#notchTab{margin:0 auto; width:230px; height:34px; background:var(--panel2); border:1px solid var(--line2); border-top:none;
-  border-radius:0 0 18px 18px; color:var(--dim); display:flex; align-items:center; justify-content:center; gap:8px;
-  font-size:.78rem; letter-spacing:.14em; text-transform:uppercase; transition:color .2s}
-#notchTab:hover{color:var(--text)}
-#notchTab .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-#notchPanel{overflow:hidden; max-height:0; transition:max-height .45s cubic-bezier(.6,0,.2,1);}
-#notchWrap.open #notchPanel{max-height:340px}
-#notchSheet{background:var(--panel); border:1px solid var(--line2); border-top:none; border-radius:0 0 22px 22px;
-  padding:18px 22px 16px; box-shadow:0 24px 60px rgba(0,0,0,.5)}
-#notchSheet h2{font-size:.8rem; letter-spacing:.16em; text-transform:uppercase; color:var(--dim); margin-bottom:12px}
-.ccGrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px}
-.ccField label{display:block; font-size:.72rem; color:var(--faint); text-transform:uppercase; letter-spacing:.1em; margin-bottom:6px}
-.ccField select,.ccField input[type=range]{width:100%}
-.ccField select{background:var(--panel2); color:var(--text); border:1px solid var(--line2); border-radius:9px; padding:7px 9px; font-size:.85rem}
-.swatches{display:flex; gap:7px}
-.swatch{width:24px;height:24px;border-radius:8px;border:2px solid transparent; cursor:pointer}
-.swatch.on{border-color:var(--text)}
-#notchGrip{width:56px;height:4px;border-radius:2px;background:var(--line2);margin:12px auto 2px}
-/* ---------- header ---------- */
-header{padding:52px 22px 6px; display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; justify-content:space-between; max-width:1560px; margin:0 auto}
+select,input[type=search]{font-family:inherit}
+/* ================= top notch — C++ Control Centre replica =================
+   Mirrors ControlCentrePanel.cpp: trapezoid notch captioned "Frontier", dim
+   shade, centred card; quick panel (Fonts/Theme tiles, tooltips, UI scale,
+   Apply/Discard) or the appearance page (Fonts | Theme, N unsaved changes). */
+#shade{position:fixed; inset:0; background:rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:opacity .3s; z-index:55}
+body.cc-open #shade{opacity:1; pointer-events:auto}
+#notch{position:fixed; top:0; left:0; right:0; z-index:60; display:flex; flex-direction:column; align-items:center}
+#notchShape{width:340px; height:44px; background:var(--panel2); color:var(--dim);
+  clip-path:polygon(0 0,100% 0,92% 100%,8% 100%); display:flex; align-items:center; justify-content:center;
+  font-family:"Space Grotesk",var(--font); font-size:.95rem; letter-spacing:.04em; cursor:pointer; user-select:none}
+#grip{width:58px; height:4px; border-radius:2px; background:var(--faint); margin:0 auto; cursor:grab}
+#ccWrap{overflow:hidden; max-height:0; width:100%; transition:max-height .5s cubic-bezier(.6,0,.2,1)}
+body.cc-open #ccWrap{max-height:calc(100vh - 44px)}
+#ccCard{background:var(--panel); border:1px solid var(--line); border-radius:24px; width:min(1180px,calc(100vw - 48px));
+  margin:14px auto; padding:20px 22px; box-shadow:0 26px 70px rgba(0,0,0,.45); max-height:calc(100vh - 120px); overflow-y:auto}
+#ccCard h2{font-size:1.05rem; font-weight:600; margin-bottom:6px}
+.ccQuickTiles{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:26px 0 8px}
+.ccQuickTiles button{height:100px; border-radius:var(--cr); border:1px solid var(--line2); background:var(--panel2); color:var(--text); font-size:1rem; font-weight:600}
+.ccQuickTiles button:hover{border-color:var(--accent)}
+.ccRow{display:flex; align-items:center; gap:12px; margin:14px 0; flex-wrap:wrap}
+.ccRow label{color:var(--dim); font-size:.88rem}
+input[type=range]{accent-color:var(--accent); flex:1; min-width:160px}
+.btn{border:1px solid var(--line2); background:var(--panel2); color:var(--text); border-radius:10px; padding:8px 16px; font-size:.85rem; font-weight:600}
+.btn.primary{background:var(--accent); border-color:transparent; color:#fff}
+.btn:disabled{opacity:.38; cursor:default}
+.btn.ghost.active{outline:2px solid var(--accent)}
+.ccHead{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px}
+.ccHead .sp{flex:1}
+.ccHead .meta{color:var(--faint); font-size:.82rem}
+.sections{display:flex; flex-direction:column; gap:22px}
+.section{background:var(--panel2); border:1px solid var(--line); border-radius:var(--cr); padding:20px}
+.section h4{font-size:.95rem; font-weight:600}
+.section p.desc{color:var(--dim); font-size:.8rem; margin:3px 0 16px}
+.tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:24px 22px}
+@media(max-width:820px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{text-align:center}
+.tile .mini{aspect-ratio:4/3; border-radius:20px; overflow:hidden; border:1px solid var(--line2); cursor:pointer; display:flex}
+.tile .mini.sel{outline:2px solid var(--accent); outline-offset:2px}
+.tile .mini .sb{width:30%; height:100%}
+.tile .mini .mn{flex:1; padding:8px}
+.tile .mini .ln{height:5px; border-radius:3px; opacity:.5; margin-bottom:5px}
+.tile .nm{font-size:.78rem; color:var(--dim); margin-top:9px}
+.tile.sel .nm{color:var(--text); font-weight:600}
+.valuePill{background:var(--panel); border:1px solid var(--line2); border-radius:10px; padding:8px 12px; font-family:var(--mono); font-size:.85rem; min-width:76px; text-align:center}
+.swatches{display:flex; gap:12px; flex-wrap:wrap}
+.sw{width:32px; height:32px; border-radius:50%; cursor:pointer; border:2px solid transparent}
+.sw.sel{border-color:var(--text); transform:scale(1.08)}
+.sw.dash{border:2px dashed var(--faint); background:transparent !important}
+.semRow{display:grid; grid-template-columns:150px 1fr auto; gap:14px; align-items:center; padding:14px 0; border-bottom:1px solid var(--line)}
+.semRow:last-child{border-bottom:none}
+.semRow .nm{font-weight:600; font-size:.9rem; display:flex; gap:8px; align-items:center}
+.semRow .hex{font-family:var(--mono); color:var(--faint); font-size:.78rem}
+.fontStrip{display:flex; gap:16px; overflow-x:auto; padding-bottom:8px}
+.fontCard{flex:none; width:192px; border:1px solid var(--line2); border-radius:var(--cr); padding:20px; cursor:pointer; background:var(--panel)}
+.fontCard.sel{outline:2px solid var(--accent)}
+.fontCard .aa{font-size:1.6rem; font-weight:600}
+.fontCard .fn{font-weight:600; margin:14px 0 3px; font-size:.92rem}
+.fontCard .fs{color:var(--dim); font-size:.76rem}
+.roleCards{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px}
+.roleCard{border:1px solid var(--line); background:var(--panel); border-radius:var(--cr); padding:16px}
+.roleCard .rl{font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--faint)}
+.weightChips{display:flex; flex-wrap:wrap; gap:6px; margin-top:11px}
+.wchip{border:1px solid var(--line2); background:var(--panel2); color:var(--dim); border-radius:999px; padding:3px 10px; font-size:.7rem; font-weight:600; cursor:pointer}
+.wchip.on{background:var(--accent); color:#fff; border-color:transparent}
+/* ================= page ================= */
+header{padding:64px 22px 6px; display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end; justify-content:space-between; max-width:1560px; margin:0 auto}
 .brand{display:flex; align-items:baseline; gap:14px}
-.brand .mark{font-family:"Space Grotesk",var(--font); font-weight:700; font-size:1.9rem; letter-spacing:-.02em}
+.brand .mark{font-family:"Space Grotesk",var(--font); font-weight:700; font-size:1.9rem}
 .brand .mark i{font-style:normal; color:var(--accent)}
 .brand .sub{color:var(--dim); font-size:.85rem}
 .pills{display:flex; gap:8px; flex-wrap:wrap}
@@ -52,186 +101,371 @@ header{padding:52px 22px 6px; display:flex; flex-wrap:wrap; gap:14px; align-item
 .pill b{color:var(--text); font-weight:600}
 .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .pill.warn .dot{background:var(--orange)}
-main{max-width:1560px; margin:0 auto; padding:14px 22px 30px; display:grid; grid-template-columns:minmax(430px,1.05fr) minmax(430px,1fr); gap:16px}
-@media (max-width:1000px){ main{grid-template-columns:1fr} }
+main{max-width:1560px; margin:0 auto; padding:14px 22px 30px; display:flex; flex-direction:column; gap:16px}
 .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; min-width:0}
 .card h3{font-size:.78rem; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); display:flex; align-items:center; gap:9px; font-weight:600}
 .card h3::before{content:""; width:4px; height:14px; border-radius:2px; background:var(--tick,var(--accent))}
-.card .head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px}
-/* log stream */
-#logCard{grid-row:span 2; display:flex; flex-direction:column; --tick:var(--pink)}
-.logTools{display:flex; flex-wrap:wrap; gap:7px; align-items:center}
-.chip{border:1px solid var(--line2); background:var(--panel2); color:var(--dim); border-radius:999px; padding:4px 11px; font-size:.72rem; font-weight:600}
-.chip.on{color:#0c0c0e; background:var(--chipc,var(--accent)); border-color:transparent}
-.chip[data-l="ERROR"]{--chipc:var(--red)} .chip[data-l="WARN"]{--chipc:var(--orange)} .chip[data-l="INFO"]{--chipc:var(--green)} .chip[data-l="TRACE"]{--chipc:var(--purple)}
-.logTools input[type=search]{background:var(--panel2); border:1px solid var(--line2); border-radius:9px; color:var(--text); padding:6px 10px; font-size:.8rem; width:150px}
-.logTools select{background:var(--panel2); border:1px solid var(--line2); border-radius:9px; color:var(--text); padding:6px 8px; font-size:.8rem}
+.card .head{display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap}
+.grid2{display:grid; grid-template-columns:minmax(430px,1.05fr) minmax(430px,1fr); gap:16px; align-items:start}
+@media (max-width:1000px){ .grid2{grid-template-columns:1fr} }
+/* viewport + debug overlays */
+#viewportCard{--tick:var(--cyan)}
+#stage{position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--line); aspect-ratio:16/8.2; background:#000}
+#sceneCv{position:absolute; inset:0; width:100%; height:100%}
+.ovl{position:absolute; background:color-mix(in srgb, var(--panel) 82%, transparent); backdrop-filter:blur(7px);
+  border:1px solid var(--line2); border-radius:12px; padding:11px 13px; font-size:.72rem; min-width:196px; box-shadow:0 10px 28px rgba(0,0,0,.35)}
+.ovl h5{font-size:.66rem; letter-spacing:.13em; text-transform:uppercase; color:var(--dim); display:flex; align-items:center; gap:7px; margin-bottom:8px; font-weight:600}
+.ovl h5::before{content:""; width:4px; height:11px; border-radius:2px; background:var(--tick,var(--accent))}
+.ovl .r{display:flex; justify-content:space-between; gap:16px; font-family:var(--mono); padding:1px 0}
+.ovl .r b{font-weight:600}
+.ovl canvas{width:100%; height:64px; display:block}
+.ovlBar{display:flex; gap:6px; align-items:center; margin:5px 0}
+.ovlBar .t{height:8px; background:var(--panel2); border-radius:4px; flex:1; overflow:hidden}
+.ovlBar .f{height:100%}
+#ovlButtons{display:flex; flex-wrap:wrap; gap:7px}
+.ovBtn{border:1px solid var(--line2); background:var(--panel2); color:var(--dim); border-radius:999px; padding:5px 12px; font-size:.74rem; font-weight:600}
+.ovBtn.on{color:#fff; background:var(--accent); border-color:transparent}
+/* log stream + dropdown filters */
+#logCard{--tick:var(--pink)}
+.logTools{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+.logTools select{background:var(--panel2); border:1px solid var(--line2); border-radius:9px; color:var(--text); padding:6px 9px; font-size:.8rem; max-width:230px}
+.logTools input[type=search]{background:var(--panel2); border:1px solid var(--line2); border-radius:9px; color:var(--text); padding:6px 10px; font-size:.8rem; width:160px}
 .iconBtn{border:1px solid var(--line2); background:var(--panel2); color:var(--dim); border-radius:9px; padding:6px 11px; font-size:.78rem; font-weight:600}
-.iconBtn.on{color:#0c0c0e; background:var(--accent); border-color:transparent}
-#logStream{flex:1; min-height:420px; max-height:66vh; overflow-y:auto; font-family:var(--mono); font-size:.74rem; line-height:1.5;
+.iconBtn.on{color:#fff; background:var(--accent); border-color:transparent}
+#activeFilters{display:flex; flex-wrap:wrap; gap:7px; margin:10px 0}
+#activeFilters.empty{display:none}
+.fchip{display:inline-flex; align-items:center; gap:8px; border-radius:999px; padding:4px 6px 4px 11px; font-size:.72rem; font-weight:600; color:#101014}
+.fchip button{border:none; width:18px; height:18px; border-radius:50%; background:rgba(0,0,0,.22); color:#fff; font-size:.72rem; line-height:1; display:grid; place-items:center}
+.fchip.lv-ERROR{background:var(--red)} .fchip.lv-WARN{background:var(--orange)} .fchip.lv-INFO{background:var(--green)} .fchip.lv-DEBUG{background:var(--cyan)} .fchip.lv-TRACE{background:var(--purple)}
+.fchip.dv{background:var(--panel2); color:var(--text); border:1px solid var(--line2)}
+.fchip.dv button{background:var(--line2); color:var(--text)}
+#logStream{min-height:380px; max-height:58vh; overflow-y:auto; font-family:var(--mono); font-size:.74rem; line-height:1.5;
   background:var(--panel2); border:1px solid var(--line); border-radius:11px; padding:10px 12px}
 .logLine{display:flex; gap:9px; padding:1px 4px; border-radius:5px; white-space:nowrap}
-.logLine:hover{background:rgba(127,127,140,.09)}
-.logLine .t{color:var(--faint)}
-.logLine .f{color:var(--faint)}
+.logLine:hover{background:rgba(127,127,140,.1)}
+.logLine .t,.logLine .f{color:var(--faint)}
 .lvl{font-weight:600; width:44px; flex:none}
 .lvl.ERROR{color:var(--red)} .lvl.WARN{color:var(--orange)} .lvl.INFO{color:var(--green)} .lvl.DEBUG{color:var(--cyan)} .lvl.TRACE{color:var(--purple)}
-.div{flex:none; width:118px; color:var(--dim)}
+.divN{flex:none; width:118px; color:var(--dim)}
 .logLine .m{color:var(--text); white-space:normal; word-break:break-word}
 .logLine.hidden{display:none}
 #logMeta{color:var(--faint); font-size:.72rem; font-family:var(--mono)}
-/* KPI */
+/* KPI + charts */
 .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:12px}
+@media(max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
 .kpi{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px}
 .kpi .lab{font-size:.7rem; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; display:flex; gap:7px; align-items:center}
 .kpi .lab::before{content:""; width:4px; height:12px; border-radius:2px; background:var(--tick,var(--accent))}
-.kpi .big{font-family:"Space Grotesk",var(--font); font-size:2.15rem; font-weight:700; line-height:1.05; margin:5px 0 2px}
+.kpi .big{font-family:"Space Grotesk",var(--font); font-size:2.1rem; font-weight:700; line-height:1.05; margin:5px 0 2px}
 .kpi .big small{font-size:.85rem; color:var(--dim); font-weight:500}
 .kpi .delta{font-size:.72rem; font-family:var(--mono)}
 .up{color:var(--green)} .down{color:var(--red)}
 canvas.chart{width:100%; height:110px; display:block}
-.legend{display:flex; gap:14px; font-size:.7rem; color:var(--dim); font-family:var(--mono); flex-wrap:wrap}
+.legend{display:flex; gap:13px; font-size:.7rem; color:var(--dim); font-family:var(--mono); flex-wrap:wrap}
 .legend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px}
-/* frame graph */
 .unit{display:grid; grid-template-columns:172px 1fr 74px; gap:10px; align-items:center; padding:3px 0; font-size:.78rem}
-.unit .nm{font-family:var(--mono); color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.unit .track{height:14px; background:var(--panel2); border-radius:5px; overflow:hidden}
-.unit .bar{height:100%; border-radius:5px; transition:width .18s}
+.unit .nm{font-family:var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.unit .track,.thread .track{height:13px; background:var(--panel2); border-radius:5px; overflow:hidden}
+.unit .bar,.thread .bar{height:100%; border-radius:5px; transition:width .18s}
 .unit .ms{font-family:var(--mono); color:var(--dim); text-align:right}
-/* threads */
 .thread{display:grid; grid-template-columns:150px 1fr 52px; gap:10px; align-items:center; padding:3px 0; font-size:.78rem}
-.thread .track{height:10px; background:var(--panel2); border-radius:5px; overflow:hidden}
-.thread .bar{height:100%; background:var(--cyan); border-radius:5px; transition:width .18s}
-/* infographics */
 .dotgrid{display:grid; grid-template-columns:repeat(28,1fr); gap:3px}
 .dotgrid i{aspect-ratio:1; border-radius:2px; background:var(--panel2)}
 .heat{display:grid; grid-template-columns:repeat(10,1fr); gap:3px}
 .heat i{aspect-ratio:1.5; border-radius:4px}
 .stackRow{display:flex; height:22px; border-radius:6px; overflow:hidden; margin:5px 0}
-.stackRow div{height:100%}
 .cols{display:grid; grid-template-columns:1fr 1fr; gap:16px}
-@media (max-width:700px){ .cols{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:700px){ .cols{grid-template-columns:1fr} }
 footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);font-size:.75rem}
 </style>
 </head>
-<body data-theme="midnight">
+<body data-theme="oled">
 
-<div id="notchWrap">
-  <div id="notchPanel"><div id="notchSheet">
-    <h2>Control Centre</h2>
-    <div class="ccGrid">
-      <div class="ccField"><label>UI Font</label>
-        <select id="ccFont"><option value="Inter">Inter</option><option value="Space Grotesk">Space Grotesk</option><option value="JetBrains Mono">JetBrains Mono</option><option value="system-ui">System</option></select></div>
-      <div class="ccField"><label>Theme</label>
-        <select id="ccTheme"><option value="midnight">Midnight</option><option value="graphite">Graphite</option><option value="cobalt">Cobalt</option><option value="paper">Paper</option></select></div>
-      <div class="ccField"><label>Accent</label>
-        <div class="swatches" id="ccAccent">
-          <div class="swatch on" data-a="#ffd21f" style="background:#ffd21f"></div><div class="swatch" data-a="#38bdf8" style="background:#38bdf8"></div>
-          <div class="swatch" data-a="#3ddc84" style="background:#3ddc84"></div><div class="swatch" data-a="#f472b6" style="background:#f472b6"></div>
-          <div class="swatch" data-a="#a78bfa" style="background:#a78bfa"></div><div class="swatch" data-a="#fb923c" style="background:#fb923c"></div>
-        </div></div>
-      <div class="ccField"><label>UI Scale</label><input type="range" id="ccScale" min="0.85" max="1.2" step="0.01" value="1"></div>
-      <div class="ccField"><label>Telemetry Rate</label>
-        <select id="ccRate"><option value="250">4 Hz</option><option value="100" selected>10 Hz</option><option value="33">30 Hz</option></select></div>
+<div id="shade"></div>
+<div id="notch">
+  <div id="ccWrap"><div id="ccCard">
+    <!-- QUICK PANEL (C++: Control Centre, Fonts/Theme tiles, tooltips, UI scale, Apply/Discard) -->
+    <div id="ccQuick">
+      <h2>Control Centre</h2>
+      <div class="ccQuickTiles">
+        <button id="tileFonts">Fonts</button><button id="tileTheme">Theme</button>
+      </div>
+      <div class="ccRow"><input type="checkbox" id="ccTooltips" checked><label for="ccTooltips">Show tooltips</label></div>
+      <div class="ccRow"><label>UI scale</label><input type="range" id="ccScale" min="75" max="150" value="100"><span class="valuePill" id="ccScaleVal">100%</span></div>
+      <div class="ccRow"><button class="btn primary" id="ccApplyQ">Apply preferences</button><button class="btn" id="ccDiscardQ">Discard</button><span class="meta" id="ccMsgQ" style="color:var(--faint);font-size:.8rem"></span></div>
     </div>
-    <div id="notchGrip"></div>
+    <!-- APPEARANCE PAGE (C++: < Quick panel · Fonts | Theme · N installed font archives) -->
+    <div id="ccPage" hidden>
+      <div class="ccHead">
+        <button class="btn" id="ccBack">&lt; Quick panel</button>
+        <button class="btn ghost" id="tabFonts">Fonts</button>
+        <button class="btn ghost" id="tabTheme">Theme</button>
+        <span class="sp"></span><span class="meta" id="ccFamilies">6 installed font archives</span>
+      </div>
+      <div id="pageFonts" class="sections">
+        <div>
+          <h4 style="font-size:.95rem">Typography</h4><p class="desc" style="color:var(--dim);font-size:.8rem;margin:3px 0 14px">Typeface, type scale, and font weights</p>
+          <div class="fontStrip" id="fontStrip"></div>
+        </div>
+        <div class="section"><h4>Typeface &amp; Colors</h4><p class="desc">Playground preview in the selected family</p>
+          <div style="display:grid;grid-template-columns:1fr auto;gap:26px;align-items:center">
+            <div style="background:rgba(127,127,140,.07);border:1px solid var(--line);border-radius:12px;padding:34px 40px">
+              <div id="pgName" style="font-size:3.4rem;font-weight:700;line-height:1.05">Inter</div>
+              <div style="color:var(--dim);margin-top:10px">(72px bold)</div>
+            </div>
+            <div style="font-family:var(--mono);font-size:.72rem;color:var(--dim);line-height:1.9">
+              ABCDEFGHIJKLMNOPQRSTUVWXYZ<br>abcdefghijklmnopqrstuvwxyz<br>0123456789 !@#$%^&amp;*()
+              <div style="margin-top:14px;font-family:var(--font)"><b style="color:var(--accent)">Accent</b> <span style="color:var(--accent)">— The quick brown fox jumps over…</span><br><span style="color:var(--faint)" id="pgHex">(rendered in #3B82F6)</span></div>
+            </div>
+          </div>
+        </div>
+        <div><h4 style="font-size:.95rem;margin-bottom:12px">Type Scale</h4><div class="roleCards" id="roleCards"></div></div>
+      </div>
+      <div id="pageTheme" class="sections" hidden>
+        <div class="section"><h4>Color Scheme</h4><p class="desc">Choose the overall look of the interface</p><div class="tiles" id="themeTiles"></div></div>
+        <div class="section"><h4>Corner Radius</h4><p class="desc">Adjust the roundness of UI elements</p>
+          <div class="ccRow"><span class="valuePill" id="crVal">14 px</span><input type="range" id="ccRadius" min="0" max="32" value="14"></div></div>
+        <div class="section"><h4>Accent Color</h4><p class="desc">Highlight colour for active controls</p><div class="swatches" id="accentSw"></div></div>
+        <div class="section"><h4>Semantic Colors</h4><p class="desc">Tones used by alerts, dialogues and toasts</p><div id="semRows"></div></div>
+      </div>
+      <div class="ccRow" style="margin-top:18px">
+        <button class="btn primary" id="ccApply" disabled>Apply</button>
+        <button class="btn" id="ccDiscard" disabled>Discard changes</button>
+        <span class="meta" id="ccDirty">0 unsaved changes</span><span class="meta" id="ccMsg"></span>
+      </div>
+    </div>
+    <div id="grip" title="Drag to dismiss"></div>
   </div></div>
-  <button id="notchTab"><span class="dot"></span>Control Centre<span>▾</span></button>
+  <div id="notchShape">Frontier</div>
 </div>
 
 <header>
-  <div class="brand"><div class="mark">frontier<i>.</i></div><div class="sub">Debug / Telemetry Stream Inspector — <b>BlankProject</b> · prototype (simulated stream)</div></div>
+  <div class="brand"><div class="mark">frontier<i>.</i></div><div class="sub">Debug / Telemetry Stream Inspector — <b>BlankProject</b> · prototype (simulated stream) · Ctrl+, opens the Control Centre</div></div>
   <div class="pills">
-    <div class="pill"><span class="dot"></span>Frame graph <b id="pillUnits">14 units</b></div>
+    <div class="pill"><span class="dot"></span>Frame graph <b>14 units</b></div>
     <div class="pill"><span class="dot"></span>Ray path <b>RTX · hardware AS</b></div>
     <div class="pill"><span class="dot"></span>Frames in flight <b>3</b></div>
-    <div class="pill warn"><span class="dot"></span>Streaming <b id="pillStream">2 pages queued</b></div>
+    <div class="pill warn"><span class="dot"></span>Streaming <b>2 pages queued</b></div>
   </div>
 </header>
 
 <main>
-  <!-- LOG STREAM -->
-  <section class="card" id="logCard">
-    <div class="head"><h3>Log Stream</h3><span id="logMeta">live</span></div>
-    <div class="logTools" style="margin-bottom:11px">
-      <button class="chip on" data-l="ERROR">ERROR</button><button class="chip on" data-l="WARN">WARN</button>
-      <button class="chip on" data-l="INFO">INFO</button><button class="chip on" data-l="DEBUG">DEBUG</button>
-      <button class="chip on" data-l="TRACE">TRACE</button>
-      <select id="divFilter"><option value="">All divisions</option></select>
-      <input type="search" id="logSearch" placeholder="search stream…">
-      <button class="iconBtn" id="pauseBtn">⏸ Pause</button>
-      <button class="iconBtn on" id="scrollBtn">⇓ Follow</button>
-      <button class="iconBtn" id="clearBtn">Clear</button>
+  <!-- VIEWPORT + DEBUG OVERLAYS -->
+  <section class="card" id="viewportCard">
+    <div class="head"><h3>Viewport — BlankProject (simulated frame)</h3><span class="legend">debug overlays draw over the presented image</span></div>
+    <div id="ovlButtons" style="margin-bottom:11px"></div>
+    <div id="stage">
+      <canvas id="sceneCv"></canvas>
+      <div class="ovl" id="ovlFrame" style="--tick:#ffd21f; top:12px; left:12px">
+        <h5>Frame</h5>
+        <div class="r"><span>frame</span><b id="ovFrameN">0</b></div>
+        <div class="r"><span>total</span><b id="ovFrameMs">0.0 ms</b></div>
+        <div class="r"><span>gpu</span><b id="ovGpuMs">0.0 ms</b></div>
+        <canvas id="ovFrameCv"></canvas>
+      </div>
+      <div class="ovl" id="ovlGraph" style="--tick:var(--cyan); top:12px; right:12px; min-width:230px">
+        <h5>Frame Graph — top units</h5><div id="ovGraphRows"></div>
+      </div>
+      <div class="ovl" id="ovlThreads" style="--tick:var(--green); bottom:12px; left:12px; min-width:230px">
+        <h5>Threads</h5><div id="ovThreadRows"></div>
+      </div>
+      <div class="ovl" id="ovlGeom" style="--tick:var(--pink); bottom:12px; right:12px">
+        <h5>Virtualized Geometry</h5>
+        <div class="r"><span>clusters drawn</span><b id="ovClu">0</b></div>
+        <div class="r"><span>culled (frustum/cone)</span><b id="ovCull">0</b></div>
+        <div class="r"><span>occluded (Hi-Z)</span><b id="ovOcc">0</b></div>
+        <div class="r"><span>pages resident</span><b id="ovPages">0 / 96</b></div>
+        <div class="r"><span>cut threshold</span><b>1.0 px</b></div>
+      </div>
+      <div class="ovl" id="ovlRt" style="--tick:var(--purple); top:50%; left:12px; transform:translateY(-50%)">
+        <h5>Ray Tracing</h5>
+        <div class="r"><span>path</span><b>RTX · ray query</b></div>
+        <div class="r"><span>rays</span><b id="ovRays">0 M</b></div>
+        <div class="r"><span>reservoir reuse</span><b id="ovReuse">0%</b></div>
+        <div class="r"><span>BVH</span><b>TLAS refit 0 µs</b></div>
+      </div>
+      <div class="ovl" id="ovlMem" style="--tick:var(--orange); top:50%; right:12px; transform:translateY(-50%)">
+        <h5>Memory</h5>
+        <div class="r"><span>VRAM</span><b id="ovVram">0.0 GB</b></div>
+        <div class="ovlBar"><div class="t"><div class="f" id="ovVramBar" style="background:var(--orange);width:40%"></div></div></div>
+        <div class="r"><span>transient (graph)</span><b id="ovTrans">0 MB</b></div>
+        <div class="r"><span>geometry arena</span><b id="ovArena">0 MB</b></div>
+      </div>
     </div>
-    <div id="logStream"></div>
   </section>
 
-  <div style="display:flex; flex-direction:column; gap:16px; min-width:0">
-    <!-- KPIs -->
-    <div class="kpis">
-      <div class="kpi" style="--tick:var(--accent)"><div class="lab">Frame</div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="delta" id="kFrameD">▲ 60 fps locked</div></div>
-      <div class="kpi" style="--tick:var(--cyan)"><div class="lab">GPU</div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="delta" id="kGpuD">budget 16.6 ms</div></div>
-      <div class="kpi" style="--tick:var(--pink)"><div class="lab">Rays / frame</div><div class="big" id="kRays">8.4<small> M</small></div><div class="delta">RTX query · 2 bounce</div></div>
-      <div class="kpi" style="--tick:var(--purple)"><div class="lab">Clusters drawn</div><div class="big" id="kClu">312</div><div class="delta" id="kCluD">of 1,204 resident</div></div>
-    </div>
-
-    <!-- FRAME TIME -->
-    <section class="card" style="--tick:var(--accent)">
-      <div class="head"><h3>Frame Time — last 120 frames</h3><div class="legend"><span><i style="background:var(--accent)"></i>total</span><span><i style="background:var(--cyan)"></i>gpu</span><span><i style="background:var(--pink)"></i>record</span></div></div>
-      <canvas class="chart" id="frameChart"></canvas>
+  <div class="grid2">
+    <!-- LOG STREAM -->
+    <section class="card" id="logCard">
+      <div class="head"><h3>Log Stream</h3><span id="logMeta">live</span></div>
+      <div class="logTools">
+        <select id="addLevel"><option value="">＋ Add level filter…</option></select>
+        <select id="addDivision"><option value="">＋ Add division filter…</option></select>
+        <input type="search" id="logSearch" placeholder="search stream…">
+        <button class="iconBtn" id="pauseBtn">⏸ Pause</button>
+        <button class="iconBtn on" id="scrollBtn">⇓ Follow</button>
+        <button class="iconBtn" id="clearBtn">Clear</button>
+      </div>
+      <div id="activeFilters" class="empty"></div>
+      <div id="logStream"></div>
     </section>
 
-    <!-- FRAME GRAPH -->
-    <section class="card" style="--tick:var(--cyan)">
-      <div class="head"><h3>Frame Graph — executed units (GPU ms)</h3><span class="legend">topological order · dead units culled</span></div>
-      <div id="units"></div>
-    </section>
-
-    <!-- THREADS -->
-    <section class="card" style="--tick:var(--green)">
-      <div class="head"><h3>Threads — utilisation</h3><span class="legend">3 frames in flight</span></div>
-      <div id="threads"></div>
-    </section>
-
-    <div class="cols">
-      <!-- INFOGRAPHIC: division activity -->
-      <section class="card" style="--tick:var(--pink)">
-        <div class="head"><h3>Division Activity</h3><span class="legend">events / s</span></div>
-        <div class="dotgrid" id="dotgrid"></div>
-        <div class="legend" style="margin-top:10px" id="dotLegend"></div>
+    <div style="display:flex; flex-direction:column; gap:16px; min-width:0">
+      <div class="kpis">
+        <div class="kpi" style="--tick:#ffd21f"><div class="lab">Frame</div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="delta" id="kFrameD">60 fps</div></div>
+        <div class="kpi" style="--tick:var(--cyan)"><div class="lab">GPU</div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="delta" id="kGpuD">budget 16.6 ms</div></div>
+        <div class="kpi" style="--tick:var(--pink)"><div class="lab">Rays / frame</div><div class="big" id="kRays">8.4<small> M</small></div><div class="delta">RTX query · 2 bounce</div></div>
+        <div class="kpi" style="--tick:var(--purple)"><div class="lab">Clusters drawn</div><div class="big" id="kClu">312</div><div class="delta" id="kCluD">of 1,204 resident</div></div>
+      </div>
+      <section class="card" style="--tick:#ffd21f">
+        <div class="head"><h3>Frame Time — last 120 frames</h3><div class="legend"><span><i style="background:#ffd21f"></i>total</span><span><i style="background:var(--cyan)"></i>gpu</span><span><i style="background:var(--pink)"></i>record</span></div></div>
+        <canvas class="chart" id="frameChart"></canvas>
       </section>
-      <!-- INFOGRAPHIC: unit heat + budget -->
-      <section class="card" style="--tick:var(--orange)">
-        <div class="head"><h3>Unit Cost Heat</h3><span class="legend">10 × 6 frames</span></div>
-        <div class="heat" id="heat"></div>
-        <div style="margin-top:14px">
-          <div class="legend" style="justify-content:space-between"><span>Frame budget composition</span><span id="budgetMs">16.6 ms</span></div>
-          <div class="stackRow" id="budgetStack"></div>
-          <div class="legend" id="budgetLegend"></div>
-        </div>
+      <section class="card" style="--tick:var(--cyan)">
+        <div class="head"><h3>Frame Graph — executed units (GPU ms)</h3><span class="legend">topological order · dead units culled</span></div>
+        <div id="units"></div>
       </section>
+      <section class="card" style="--tick:var(--green)">
+        <div class="head"><h3>Threads — utilisation</h3><span class="legend">3 frames in flight</span></div>
+        <div id="threads"></div>
+      </section>
+      <div class="cols">
+        <section class="card" style="--tick:var(--pink)">
+          <div class="head"><h3>Division Activity</h3><span class="legend">events / s</span></div>
+          <div class="dotgrid" id="dotgrid"></div>
+          <div class="legend" style="margin-top:10px" id="dotLegend"></div>
+        </section>
+        <section class="card" style="--tick:var(--orange)">
+          <div class="head"><h3>Unit Cost Heat</h3><span class="legend">10 × 6 frames</span></div>
+          <div class="heat" id="heat"></div>
+          <div style="margin-top:14px">
+            <div class="legend" style="justify-content:space-between"><span>Frame budget composition</span><span id="budgetMs">16.6 ms</span></div>
+            <div class="stackRow" id="budgetStack"></div>
+            <div class="legend" id="budgetLegend"></div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </main>
 
-<footer>Prototype only — data is a simulated stand-in for the engine's structured log/telemetry channel (one lock-free event stream consumed by this inspector and the file journal). No engine code yet: design approval first, then this panel is the debugging surface for every port phase. Style references: SourceImages/Telemetry + General UI (dark cards, accent ticks, dot-matrix, heat grids) under the top-notch Control Centre.</footer>
+<footer>Prototype only — simulated data standing in for the engine's structured log/telemetry channel. Control Centre replicates the C++ panel (ControlCentrePanel + AppearanceInspector): quick panel → Fonts (typography strip, typeface playground, type scale) / Theme (8 color-scheme tiles, corner radius, 10 accents, semantic rows), Apply/Discard with unsaved-change count. Log filters: add from the dropdowns → they appear as removable chips → removing returns them to the dropdown.</footer>
 
 <script>
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-/* ---------- control centre (top notch) ---------- */
-const wrap=$("#notchWrap");
-$("#notchTab").addEventListener("click",()=>wrap.classList.toggle("open"));
-$("#ccFont").addEventListener("change",e=>document.documentElement.style.setProperty("--font",`"${e.target.value}",system-ui,sans-serif`));
-$("#ccTheme").addEventListener("change",e=>document.body.dataset.theme=e.target.value);
-$("#ccScale").addEventListener("input",e=>document.documentElement.style.setProperty("--scale",e.target.value));
-$("#ccAccent").addEventListener("click",e=>{const s=e.target.closest(".swatch"); if(!s)return; $$(".swatch").forEach(x=>x.classList.remove("on")); s.classList.add("on"); document.documentElement.style.setProperty("--accent",s.dataset.a);});
-/* ---------- simulated engine ---------- */
+/* ================= Control Centre (mirrors the C++ panel) ================= */
+const THEMES=[["oled","OLED","#000000","#0a0a0a","#141414","#ffffff"],["dark","Dark","#18181a","#222224","#2c2c2e","#ffffff"],["light","Light","#e5e5e5","#f4f4f5","#ffffff","#000000"],["sepia","Sepia","#dca85b","#e6c697","#f1dab0","#825619"],["dracula","Dracula","#282a36","#44475a","#6272a4","#f8f8f2"],["nord","Nord","#2e3440","#3b4252","#4c566a","#eceff4"],["github","GitHub","#0d1117","#161b22","#21262d","#c9d1d9"],["dim","Dim","#0f172a","#1e293b","#334155","#e2e8f0"]];
+const ACCENTS=["#ffffff","#f97316","#f59e0b","#84cc16","#10b981","#06b6d4","#3b82f6","#8b5cf6","#d946ef","#f43f5e"];
+const SEMANTIC=[["⚠ Warning",["#f59e0b","#eab308","#fbbf24","#f97316"]],["✓ Success",["#10b981","#22c55e","#34d399","#059669"]],["ⓘ Info",["#3b82f6","#0ea5e9","#60a5fa","#2563eb"]],["⬢ Caution",["#eab308","#facc15","#fde047","#ca8a04"]]];
+const FAMILIES=[["Inter","400;500;600;800"],["Space Grotesk","400;500;700"],["JetBrains Mono","400;600"],["IBM Plex Sans","400;600"],["Source Serif 4","400;700"],["IBM Plex Mono","400;600"]];
+const ROLES=[["Title","Display Title",26],["Header","Section Header",20],["Subheader","Card Subheader",16],["Body","The quick brown fox jumps over the lazy dog.",13],["Label","Form Label",12],["Caption","Small caption text",11]];
+const WEIGHTS=["Bold","ExtraBold","ExtraLight","Light","Medium","Regular","SemiBold","Thin","Black"];
+let draft={theme:"oled",accent:6,radius:14,family:0,scale:100,tooltips:true,sem:SEMANTIC.map(()=>0),weights:ROLES.map(()=>5)};
+let applied=JSON.parse(JSON.stringify(draft));
+function dirtyCount(){let n=0; const a=applied,d=draft;
+  if(a.theme!==d.theme)n++; if(a.accent!==d.accent)n++; if(a.radius!==d.radius)n++; if(a.family!==d.family)n++; if(a.scale!==d.scale)n++; if(a.tooltips!==d.tooltips)n++;
+  d.sem.forEach((v,i)=>{if(v!==a.sem[i])n++}); d.weights.forEach((v,i)=>{if(v!==a.weights[i])n++}); return n;}
+function hexToCss(h){return h}
+function applyDraft(live){
+  const t=THEMES.find(x=>x[0]===draft.theme);
+  if(live||true){ document.body.dataset.theme=draft.theme;
+    document.documentElement.style.setProperty("--accent",ACCENTS[draft.accent]);
+    document.documentElement.style.setProperty("--cr",draft.radius+"px");
+    document.documentElement.style.setProperty("--radius",(draft.radius+2)+"px");
+    document.documentElement.style.setProperty("--scale",draft.scale/100);
+    document.documentElement.style.setProperty("--font",`"${FAMILIES[draft.family][0]}",system-ui,sans-serif`);
+    $("#pgName").textContent=FAMILIES[draft.family][0];
+    $("#pgName").style.fontFamily=`"${FAMILIES[draft.family][0]}",sans-serif`;
+    $("#pgHex").textContent=`(rendered in ${ACCENTS[draft.accent].toUpperCase()})`;
+  }
+  const n=dirtyCount();
+  $("#ccDirty").textContent=`${n} unsaved change${n===1?"":"s"}`;
+  $("#ccApply").disabled=$("#ccDiscard").disabled=!n;
+}
+$("#themeTiles").innerHTML=THEMES.map(([id,nm,bg,sb,pn,ln],i)=>`<div class="tile ${id===draft.theme?"sel":""}" data-th="${id}"><div class="mini ${id===draft.theme?"sel":""}" style="background:${bg}"><div class="sb" style="background:${sb}"></div><div class="mn"><div class="ln" style="background:${ln};width:70%"></div><div class="ln" style="background:${ln};width:45%"></div><div style="background:${pn};border-radius:5px;height:22px;margin-top:3px"></div></div></div><div class="nm">${nm}</div></div>`).join("");
+$("#accentSw").innerHTML=ACCENTS.map((h,i)=>`<div class="sw ${i===draft.accent?"sel":""}" data-ac="${i}" style="background:${h}"></div>`).join("")+`<div class="sw dash" title="Custom"></div>`;
+$("#semRows").innerHTML=SEMANTIC.map(([nm,cols],r)=>`<div class="semRow"><span class="nm">${nm}</span><div class="swatches">${cols.map((h,i)=>`<div class="sw ${draft.sem[r]===i?"sel":""}" data-sem="${r}:${i}" style="background:${h}"></div>`).join("")}</div><span class="hex">${cols[draft.sem[r]].toUpperCase()}</span></div>`).join("");
+$("#fontStrip").innerHTML=FAMILIES.map(([nm],i)=>`<div class="fontCard ${i===draft.family?"sel":""}" data-fam="${i}"><div class="aa" style="font-family:'${nm}'">Aa</div><div class="fn">${nm}</div><div class="fs">The quick brown fox jumps</div></div>`).join("");
+$("#roleCards").innerHTML=ROLES.map(([rl,sample,sz],r)=>`<div class="roleCard"><div class="rl">${rl}</div><div style="font-size:${sz}px;margin-top:7px;font-weight:${[700,700,600,400,600,400][r]}">${sample}</div><div class="weightChips">${WEIGHTS.map((w,i)=>`<button class="wchip ${draft.weights[r]===i?"on":""}" data-w="${r}:${i}">${w}</button>`).join("")}</div></div>`).join("");
+function refreshCC(){
+  $$("#themeTiles .tile").forEach(el=>{const on=el.dataset.th===draft.theme; el.classList.toggle("sel",on); el.querySelector(".mini").classList.toggle("sel",on);});
+  $$("#accentSw .sw[data-ac]").forEach(el=>el.classList.toggle("sel",+el.dataset.ac===draft.accent));
+  $$("#fontStrip .fontCard").forEach(el=>el.classList.toggle("sel",+el.dataset.fam===draft.family));
+  $$("#semRows .sw[data-sem]").forEach(el=>{const [r,i]=el.dataset.sem.split(":").map(Number); el.classList.toggle("sel",draft.sem[r]===i);});
+  $$("#roleCards .wchip").forEach(el=>{const [r,i]=el.dataset.w.split(":").map(Number); el.classList.toggle("on",draft.weights[r]===i);});
+  $$("#semRows .semRow").forEach((row,r)=>row.querySelector(".hex").textContent=SEMANTIC[r][1][draft.sem[r]].toUpperCase());
+  $("#crVal").textContent=draft.radius+" px"; $("#ccRadius").value=draft.radius;
+  $("#ccScale").value=draft.scale; $("#ccScaleVal").textContent=draft.scale+"%";
+  $("#ccTooltips").checked=draft.tooltips;
+}
+document.addEventListener("click",e=>{
+  const th=e.target.closest("[data-th]"); if(th){draft.theme=th.dataset.th; refreshCC(); applyDraft(); return;}
+  const ac=e.target.closest("[data-ac]"); if(ac){draft.accent=+ac.dataset.ac; refreshCC(); applyDraft(); return;}
+  const sm=e.target.closest("[data-sem]"); if(sm){const [r,i]=sm.dataset.sem.split(":").map(Number); draft.sem[r]=i; refreshCC(); applyDraft(); return;}
+  const fm=e.target.closest("[data-fam]"); if(fm){draft.family=+fm.dataset.fam; refreshCC(); applyDraft(); return;}
+  const wc=e.target.closest("[data-w]"); if(wc){const [r,i]=wc.dataset.w.split(":").map(Number); draft.weights[r]=i; refreshCC(); return;}
+});
+$("#ccRadius").addEventListener("input",e=>{draft.radius=+e.target.value; refreshCC(); applyDraft();});
+$("#ccScale").addEventListener("input",e=>{draft.scale=+e.target.value; refreshCC(); applyDraft();});
+$("#ccTooltips").addEventListener("change",e=>{draft.tooltips=e.target.checked; applyDraft();});
+function doApply(msgEl){ applied=JSON.parse(JSON.stringify(draft)); applyDraft(); msgEl.textContent="Preferences saved."; setTimeout(()=>msgEl.textContent="",2600); refreshCC(); }
+function doDiscard(msgEl){ draft=JSON.parse(JSON.stringify(applied)); refreshCC(); applyDraft(); msgEl.textContent="Discarded — applied preferences restored."; setTimeout(()=>msgEl.textContent="",2600); }
+$("#ccApply").addEventListener("click",()=>doApply($("#ccMsg")));
+$("#ccDiscard").addEventListener("click",()=>doDiscard($("#ccMsg")));
+$("#ccApplyQ").addEventListener("click",()=>doApply($("#ccMsgQ")));
+$("#ccDiscardQ").addEventListener("click",()=>doDiscard($("#ccMsgQ")));
+function openPage(page){ $("#ccQuick").hidden=true; $("#ccPage").hidden=false;
+  $("#pageFonts").hidden=page!=="fonts"; $("#pageTheme").hidden=page!=="theme";
+  $("#tabFonts").classList.toggle("active",page==="fonts"); $("#tabTheme").classList.toggle("active",page==="theme"); }
+$("#tileFonts").addEventListener("click",()=>openPage("fonts"));
+$("#tileTheme").addEventListener("click",()=>openPage("theme"));
+$("#tabFonts").addEventListener("click",()=>openPage("fonts"));
+$("#tabTheme").addEventListener("click",()=>openPage("theme"));
+$("#ccBack").addEventListener("click",()=>{ $("#ccPage").hidden=true; $("#ccQuick").hidden=false; });
+const notchShape=$("#notchShape");
+function setCC(open){ document.body.classList.toggle("cc-open",open); }
+notchShape.addEventListener("click",()=>setCC(!document.body.classList.contains("cc-open")));
+$("#shade").addEventListener("click",()=>setCC(false));
+$("#grip").addEventListener("click",()=>setCC(false));
+document.addEventListener("keydown",e=>{
+  if(e.ctrlKey&&e.key===","){ e.preventDefault(); setCC(!document.body.classList.contains("cc-open")); }
+  if(e.key==="Escape") setCC(false);
+});
+refreshCC(); applyDraft();
+/* ================= debug overlays ================= */
+const OVERLAY_DEFS=[["ovlFrame","Frame"],["ovlGraph","Frame Graph"],["ovlThreads","Threads"],["ovlGeom","Geometry"],["ovlRt","Ray Tracing"],["ovlMem","Memory"]];
+$("#ovlButtons").innerHTML=OVERLAY_DEFS.map(([id,nm])=>`<button class="ovBtn on" data-ovl="${id}">${nm}</button>`).join("")+`<span class="legend" style="margin-left:8px">toggle overlays</span>`;
+$("#ovlButtons").addEventListener("click",e=>{const b=e.target.closest("[data-ovl]"); if(!b)return; b.classList.toggle("on"); document.getElementById(b.dataset.ovl).style.display=b.classList.contains("on")?"":"none";});
+/* ================= simulated engine ================= */
 const DIVISIONS=[["RenderGraph","#ffd21f"],["GeometryKernel","#f472b6"],["BVH","#38bdf8"],["ReSTIR","#a78bfa"],["CardsGI","#3ddc84"],["Clouds","#7dd3fc"],["Atmosphere","#fbbf24"],["VehicleSim","#fb923c"],["Streaming","#34d399"],["EditorUI","#e879f9"]];
 const UNITS=[["ClusterCull","#f472b6",.9],["HiZBuild","#f472b6",.5],["RayTraversal.RTX","#38bdf8",3.1],["DirectReservoir","#a78bfa",1.2],["ReservoirTemporal","#a78bfa",.8],["ReservoirSpatial","#a78bfa",.9],["ReflectionTraversal","#38bdf8",1.4],["CardRadiosity","#3ddc84",1.1],["CloudTrace","#7dd3fc",1.6],["AtmosphereScatter","#fbbf24",.4],["VisibilityResolve","#f472b6",.7],["VarianceWavelet","#a78bfa",.8],["DisplayRecombine","#e879f9",.3],["Present","#e879f9",.2]];
 const THREADS=[["Simulation",62],["Record pool · 1",78],["Record pool · 2",74],["Record pool · 3",69],["Record pool · 4",71],["Submission",44],["Streaming IO",18]];
-let frame=118340, paused=false, follow=true, rate=100;
-$("#ccRate").addEventListener("change",e=>rate=+e.target.value);
+const LEVELS=["ERROR","WARN","INFO","DEBUG","TRACE"];
+let frame=118340, paused=false, follow=true;
+/* --- filters: dropdown -> active chip list -> back to dropdown --- */
+const active={levels:new Set(), divisions:new Set()};
+const addLevel=$("#addLevel"), addDiv=$("#addDivision"), afEl=$("#activeFilters");
+function rebuildDropdowns(){
+  addLevel.innerHTML=`<option value="">＋ Add level filter…</option>`+LEVELS.filter(l=>!active.levels.has(l)).map(l=>`<option>${l}</option>`).join("");
+  addDiv.innerHTML=`<option value="">＋ Add division filter…</option>`+DIVISIONS.map(d=>d[0]).filter(d=>!active.divisions.has(d)).map(d=>`<option>${d}</option>`).join("");
+  const chips=[...active.levels].map(l=>`<span class="fchip lv-${l}">${l}<button data-rm="levels:${l}" title="Remove (returns to dropdown)">×</button></span>`).join("")
+             +[...active.divisions].map(d=>`<span class="fchip dv">${d}<button data-rm="divisions:${d}" title="Remove (returns to dropdown)">×</button></span>`).join("");
+  afEl.innerHTML=chips; afEl.classList.toggle("empty",!chips);
+  if(chips) afEl.insertAdjacentHTML("afterbegin",`<span style="font-size:.72rem;color:var(--faint);align-self:center">Active filters:</span>`);
+}
+addLevel.addEventListener("change",()=>{ if(addLevel.value){ active.levels.add(addLevel.value); rebuildDropdowns(); applyFilter(); }});
+addDiv.addEventListener("change",()=>{ if(addDiv.value){ active.divisions.add(addDiv.value); rebuildDropdowns(); applyFilter(); }});
+afEl.addEventListener("click",e=>{ const b=e.target.closest("[data-rm]"); if(!b)return; const [kind,val]=b.dataset.rm.split(":"); active[kind].delete(val); rebuildDropdowns(); applyFilter(); });
+rebuildDropdowns();
+let searchText="";
+$("#logSearch").addEventListener("input",e=>{searchText=e.target.value.toLowerCase(); applyFilter();});
+$("#pauseBtn").addEventListener("click",e=>{paused=!paused; e.target.classList.toggle("on",paused); e.target.textContent=paused?"▶ Resume":"⏸ Pause"; $("#logMeta").textContent=paused?"paused — stream held":"live";});
+$("#scrollBtn").addEventListener("click",e=>{follow=!follow; e.target.classList.toggle("on",follow);});
+const stream=$("#logStream");
+$("#clearBtn").addEventListener("click",()=>{stream.innerHTML="";});
+function applyFilter(){ $$(".logLine").forEach(el=>{ const ok=(!active.levels.size||active.levels.has(el.dataset.lvl))&&(!active.divisions.size||active.divisions.has(el.dataset.div))&&(!searchText||el.textContent.toLowerCase().includes(searchText)); el.classList.toggle("hidden",!ok); }); }
+function ts(){const d=new Date(); return d.toTimeString().slice(0,8)+"."+String(d.getMilliseconds()).padStart(3,"0");}
 const LOG_TEMPLATES=[
  ["INFO","RenderGraph","frame {f} graph compiled: 14 units, 3 culled (debug view off)"],
  ["DEBUG","GeometryKernel","cut selected {n} clusters · projected error ≤ 1.0 px · {p} pages resident"],
@@ -249,69 +483,84 @@ const LOG_TEMPLATES=[
  ["INFO","EditorUI","inspector refresh {u} µs (telemetry panel)"],
  ["ERROR","BVH","instance {n} has non-finite transform — skipped, occupant flagged"],
 ];
-const stream=$("#logStream"), divSel=$("#divFilter");
-DIVISIONS.forEach(([d])=>{const o=document.createElement("option");o.textContent=d;divSel.appendChild(o);});
-const activeLevels=new Set(["ERROR","WARN","INFO","DEBUG","TRACE"]);
-$$(".chip[data-l]").forEach(c=>c.addEventListener("click",()=>{const L=c.dataset.l; c.classList.toggle("on"); c.classList.contains("on")?activeLevels.add(L):activeLevels.delete(L); applyFilter();}));
-let searchText="", divFilter="";
-$("#logSearch").addEventListener("input",e=>{searchText=e.target.value.toLowerCase(); applyFilter();});
-divSel.addEventListener("change",()=>{divFilter=divSel.value; applyFilter();});
-$("#pauseBtn").addEventListener("click",e=>{paused=!paused; e.target.classList.toggle("on",paused); e.target.textContent=paused?"▶ Resume":"⏸ Pause"; $("#logMeta").textContent=paused?"paused — stream held":"live";});
-$("#scrollBtn").addEventListener("click",e=>{follow=!follow; e.target.classList.toggle("on",follow);});
-$("#clearBtn").addEventListener("click",()=>{stream.innerHTML=""; shown=0; countMeta();});
-let shown=0;
-function countMeta(){ if(!paused) $("#logMeta").textContent=`frame ${frame.toLocaleString()} · ${shown} lines shown`; }
-function ts(){const d=new Date(); return d.toTimeString().slice(0,8)+"."+String(d.getMilliseconds()).padStart(3,"0");}
 function fill(t){return t.replace("{f}",frame).replace("{n}",()=>40+Math.floor(Math.random()*900)).replace("{p}",()=>Math.floor(Math.random()*96)).replace("{s}",()=>Math.floor(Math.random()*24)).replace("{u}",()=>80+Math.floor(Math.random()*900)).replace("{d}",()=>Math.floor(Math.random()*9)).replace("{w}",()=>"1."+Math.floor(Math.random()*9)).replace("{e}",()=> (18+Math.random()*30).toFixed(1));}
-function applyFilter(){ $$(".logLine").forEach(el=>{ const ok=activeLevels.has(el.dataset.lvl)&&(!divFilter||el.dataset.div===divFilter)&&(!searchText||el.textContent.toLowerCase().includes(searchText)); el.classList.toggle("hidden",!ok); }); }
 function emitLog(){
   const [lvl,div,tpl]=LOG_TEMPLATES[Math.floor(Math.random()*LOG_TEMPLATES.length)];
   const el=document.createElement("div"); el.className="logLine"; el.dataset.lvl=lvl; el.dataset.div=div;
-  el.innerHTML=`<span class="t">${ts()}</span><span class="f">f${frame}</span><span class="lvl ${lvl}">${lvl}</span><span class="div">${div}</span><span class="m"></span>`;
+  el.innerHTML=`<span class="t">${ts()}</span><span class="f">f${frame}</span><span class="lvl ${lvl}">${lvl}</span><span class="divN">${div}</span><span class="m"></span>`;
   el.querySelector(".m").textContent=fill(tpl);
-  stream.appendChild(el); shown++;
+  stream.appendChild(el);
   while(stream.children.length>420) stream.removeChild(stream.firstChild);
   if(follow) stream.scrollTop=stream.scrollHeight;
-  applyFilter(); countMeta();
+  applyFilter();
+  if(!paused) $("#logMeta").textContent=`frame ${frame.toLocaleString()} · streaming`;
 }
-/* telemetry widgets */
-const unitsEl=$("#units");
-unitsEl.innerHTML=UNITS.map(([n,c])=>`<div class="unit"><span class="nm">${n}</span><div class="track"><div class="bar" style="background:${c};width:40%"></div></div><span class="ms">0.0</span></div>`).join("");
-$("#threads").innerHTML=THREADS.map(([n])=>`<div class="thread"><span class="nm" style="font-family:var(--mono)">${n}</span><div class="track"><div class="bar"></div></div><span class="ms" style="font-family:var(--mono);color:var(--dim);text-align:right">0%</span></div>`).join("");
-const dg=$("#dotgrid"); for(let i=0;i<28*5;i++){const d=document.createElement("i"); dg.appendChild(d);}
+/* widgets */
+$("#units").innerHTML=UNITS.map(([n,c])=>`<div class="unit"><span class="nm">${n}</span><div class="track"><div class="bar" style="background:${c};width:40%"></div></div><span class="ms">0.0</span></div>`).join("");
+$("#threads").innerHTML=THREADS.map(([n])=>`<div class="thread"><span class="nm" style="font-family:var(--mono)">${n}</span><div class="track"><div class="bar" style="background:var(--cyan)"></div></div><span class="ms" style="font-family:var(--mono);color:var(--dim);text-align:right">0%</span></div>`).join("");
+$("#ovGraphRows").innerHTML=UNITS.slice(0,5).map(([n,c])=>`<div class="ovlBar"><span style="width:118px;font-family:var(--mono)">${n}</span><div class="t"><div class="f" style="background:${c};width:40%"></div></div><b class="gv" style="font-family:var(--mono)">0.0</b></div>`).join("");
+$("#ovThreadRows").innerHTML=THREADS.slice(0,4).map(([n])=>`<div class="ovlBar"><span style="width:118px;font-family:var(--mono)">${n}</span><div class="t"><div class="f" style="background:var(--green);width:40%"></div></div><b class="tv" style="font-family:var(--mono)">0%</b></div>`).join("");
+const dg=$("#dotgrid"); for(let i=0;i<28*5;i++) dg.appendChild(document.createElement("i"));
 $("#dotLegend").innerHTML=DIVISIONS.slice(0,6).map(([d,c])=>`<span><i style="background:${c}"></i>${d}</span>`).join("");
-const heatEl=$("#heat"); for(let i=0;i<60;i++){const d=document.createElement("i"); heatEl.appendChild(d);}
+const heatEl=$("#heat"); for(let i=0;i<60;i++) heatEl.appendChild(document.createElement("i"));
 const hist=[];
 function jitter(b,a){return b+(Math.random()-.5)*a}
 function tick(){
   frame++;
-  const gpu=UNITS.reduce((s,u)=>s+u[2],0)*jitter(1,.12);
-  const total=gpu+4.6*jitter(1,.15);
-  $("#kFrame").innerHTML=`${total.toFixed(1)}<small> ms</small>`;
-  $("#kFrameD").textContent=`▲ ${(1000/total).toFixed(0)} fps · frame ${frame.toLocaleString()}`;
-  $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`;
-  $("#kGpuD").textContent= gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ over budget`;
-  $("#kGpuD").className="delta "+(gpu<16.6?"up":"down");
+  const gpu=UNITS.reduce((s,u)=>s+u[2],0)*jitter(1,.12), total=gpu+4.6*jitter(1,.15);
+  $("#kFrame").innerHTML=`${total.toFixed(1)}<small> ms</small>`; $("#kFrameD").textContent=`▲ ${(1000/total).toFixed(0)} fps · frame ${frame.toLocaleString()}`;
+  $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`; $("#kGpuD").textContent=gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ over budget`; $("#kGpuD").className="delta "+(gpu<16.6?"up":"down");
   $("#kRays").innerHTML=`${jitter(8.4,1.2).toFixed(1)}<small> M</small>`;
   const clu=Math.round(jitter(312,26)); $("#kClu").textContent=clu; $("#kCluD").textContent=`of 1,204 resident · ${1204-clu} culled`;
   $$("#units .unit").forEach((el,i)=>{const ms=UNITS[i][2]*jitter(1,.35); el.querySelector(".bar").style.width=Math.min(100,ms/3.4*100)+"%"; el.querySelector(".ms").textContent=ms.toFixed(2);});
   $$("#threads .thread").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); el.querySelector(".bar").style.width=v+"%"; el.querySelector(".ms").textContent=Math.round(v)+"%";});
-  const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); const c=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.background=c; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
+  /* overlays */
+  $("#ovFrameN").textContent=frame.toLocaleString(); $("#ovFrameMs").textContent=total.toFixed(1)+" ms"; $("#ovGpuMs").textContent=gpu.toFixed(1)+" ms";
+  $$("#ovGraphRows .ovlBar").forEach((el,i)=>{const ms=UNITS[i][2]*jitter(1,.35); el.querySelector(".f").style.width=Math.min(100,ms/3.4*100)+"%"; el.querySelector(".gv").textContent=ms.toFixed(2);});
+  $$("#ovThreadRows .ovlBar").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); el.querySelector(".f").style.width=v+"%"; el.querySelector(".tv").textContent=Math.round(v)+"%";});
+  $("#ovClu").textContent=clu; $("#ovCull").textContent=Math.round(jitter(640,60)); $("#ovOcc").textContent=Math.round(jitter(252,40));
+  const res=Math.round(jitter(88,6)); $("#ovPages").textContent=`${res} / 96`;
+  $("#ovRays").textContent=jitter(8.4,1.2).toFixed(1)+" M"; $("#ovReuse").textContent=jitter(91,4).toFixed(0)+"%";
+  $("#ovVram").textContent=jitter(3.8,.3).toFixed(1)+" GB"; $("#ovVramBar").style.width=jitter(46,6)+"%";
+  $("#ovTrans").textContent=Math.round(jitter(412,40))+" MB"; $("#ovArena").textContent=Math.round(jitter(268,20))+" MB";
+  const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); dots[i].style.background=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
   const cells=heatEl.children; for(let i=0;i<cells.length;i++){const v=Math.random(); cells[i].style.background=v<.5?"rgba(61,220,132,.25)":v<.75?"rgba(255,210,31,.55)":v<.9?"rgba(251,146,60,.75)":"rgba(248,113,113,.9)";}
-  const parts=UNITS.slice(0,7); const sum=parts.reduce((s,u)=>s+u[2],0);
-  $("#budgetStack").innerHTML=parts.map(u=>`<div style="background:${u[1]};width:${u[2]/sum*100}%"></div>`).join("");
+  const parts=UNITS.slice(0,7), sum=parts.reduce((s,u)=>s+u[2],0);
+  $("#budgetStack").innerHTML=parts.map(u=>`<div style="background:${u[1]};width:${(u[2]/sum*100).toFixed(1)}%"></div>`).join("");
   $("#budgetLegend").innerHTML=parts.slice(0,4).map(u=>`<span><i style="background:${u[1]}"></i>${u[0]}</span>`).join("");
   $("#budgetMs").textContent=total.toFixed(1)+" ms";
-  hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart();
+  hist.push({t:total,g:gpu,r:total-gpu}); if(hist.length>120)hist.shift(); drawChart(); drawScene(total);
   if(!paused){ const n=1+Math.floor(Math.random()*3); for(let i=0;i<n;i++) emitLog(); }
 }
 function drawChart(){
   const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=220;
   if(cv.width!==W){cv.width=W; cv.height=H;}
   ctx.clearRect(0,0,W,H); ctx.lineWidth=2;
-  const line=(key,color)=>{ctx.strokeStyle=color; ctx.beginPath(); hist.forEach((h,i)=>{const x=i/(119)*W, y=H-8-(h[key]/24)*(H-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke();};
-  ctx.strokeStyle="rgba(248,113,113,.6)"; ctx.setLineDash([6,6]); ctx.beginPath(); const y166=H-8-(16.6/24)*(H-20); ctx.moveTo(0,y166); ctx.lineTo(W,y166); ctx.stroke(); ctx.setLineDash([]);
+  const line=(key,color)=>{ctx.strokeStyle=color; ctx.beginPath(); hist.forEach((h,i)=>{const x=i/119*W, y=H-8-(h[key]/24)*(H-20); i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke();};
+  ctx.strokeStyle="rgba(248,113,113,.6)"; ctx.setLineDash([6,6]); ctx.beginPath(); const y=H-8-(16.6/24)*(H-20); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.setLineDash([]);
   line("t","#ffd21f"); line("g","#38bdf8"); line("r","#f472b6");
+  const oc=$("#ovFrameCv"), octx=oc.getContext("2d"); oc.width=340; oc.height=64; octx.clearRect(0,0,340,64);
+  octx.strokeStyle="#ffd21f"; octx.lineWidth=1.6; octx.beginPath(); hist.forEach((h,i)=>{const x=i/119*340, y=60-(h.t/24)*54; i?octx.lineTo(x,y):octx.moveTo(x,y);}); octx.stroke();
+}
+/* simulated presented frame: gradient sky, sun, ground grid, cluster patches */
+function drawScene(total){
+  const cv=$("#sceneCv"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=cv.clientHeight*2;
+  if(cv.width!==W){cv.width=W; cv.height=H;}
+  const t=performance.now()/1000;
+  const sky=ctx.createLinearGradient(0,0,0,H*.62); sky.addColorStop(0,"#7fb2e0"); sky.addColorStop(.7,"#cfdde8"); sky.addColorStop(1,"#e8e2d4");
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.62);
+  const sx=W*.72+Math.sin(t*.05)*30, sy=H*.2;
+  const sun=ctx.createRadialGradient(sx,sy,4,sx,sy,120); sun.addColorStop(0,"rgba(255,246,200,1)"); sun.addColorStop(.25,"rgba(255,238,170,.85)"); sun.addColorStop(1,"rgba(255,238,170,0)");
+  ctx.fillStyle=sun; ctx.fillRect(sx-130,sy-130,260,260);
+  ctx.fillStyle="#8b93a0"; for(let i=0;i<7;i++){const bx=W*(.08+i*.13), bh=H*(.1+((i*37)%20)/100); ctx.fillRect(bx,H*.62-bh,W*.05,bh);}
+  ctx.fillStyle="#b9bec4"; ctx.fillRect(0,H*.62,W,H*.38);
+  ctx.strokeStyle="rgba(70,80,95,.5)"; ctx.lineWidth=2;
+  for(let i=0;i<14;i++){ctx.beginPath(); ctx.moveTo(W/2+(i-7)*W*.02,H*.62); ctx.lineTo(W/2+(i-7)*W*.16,H); ctx.stroke();}
+  for(let i=0;i<7;i++){const y=H*.62+Math.pow(i/7,1.7)*H*.38; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();}
+  const cols=["#f472b6","#38bdf8","#3ddc84","#ffd21f","#a78bfa","#fb923c"];
+  for(let i=0;i<46;i++){const x=((i*173)%100)/100*W, y=H*.64+((i*97)%32)/100*H, s=14+((i*31)%36); ctx.fillStyle=cols[i%6]+"cc"; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+s,y+s*.36); ctx.lineTo(x+s*.4,y+s*.7); ctx.closePath(); ctx.fill();}
+  ctx.fillStyle="rgba(10,10,14,.55)"; ctx.fillRect(10,H-34,330,24);
+  ctx.fillStyle="#fff"; ctx.font="600 17px 'JetBrains Mono',monospace"; ctx.fillText(`f${frame} · ${total.toFixed(1)} ms · clusters ${Math.round(jitter(312,20))}`,20,H-17);
 }
 setInterval(tick,100); setInterval(()=>{ if(!paused) emitLog(); },380);
 tick();
