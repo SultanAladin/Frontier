@@ -204,6 +204,37 @@ canvas.chart{width:100%; height:110px; display:block}
 .tcard .dotgrid{grid-template-columns:repeat(30,1fr)}
 .tcard .heat i{aspect-ratio:1.35}
 
+
+/* ===== telemetry v3 alternatives (Frame Graph card intentionally unchanged) =====
+   A: Balance/Tokens portrait cards · B: glass range-bar volume card · C: bracketed overview */
+.tkpis{grid-template-columns:repeat(2,1fr)}
+.tkpi{border-radius:20px; padding:22px 24px 0; min-height:252px; display:flex; flex-direction:column; background:#0d0d0f; border:1px solid #1e1e22}
+.tkpi .lab{font-size:1rem; color:var(--text); font-weight:500; display:flex; align-items:center; gap:0}
+.tkpi .lab::before{display:none}
+.tkpi .lab .grip{margin-left:auto; color:var(--faint); letter-spacing:2px; font-size:.62rem; line-height:.5}
+.tkpi .big{font-size:2.75rem; font-weight:600; letter-spacing:-.01em; margin-top:18px}
+.tkpi .delta{margin-top:5px; font-size:.9rem; font-weight:500}
+.tkpi canvas.kspark{width:100%; height:76px; margin-top:auto; display:block}
+.tkpi .dates{display:flex; justify-content:space-between; color:var(--faint); font-size:.72rem; padding:7px 0 14px}
+.tkpi.solid{background:linear-gradient(160deg,#f5a83d,#e07f2e); border:none; color:#fff}
+.tkpi.solid .lab,.tkpi.solid .big{color:#fff}.tkpi.solid .dates{color:rgba(255,255,255,.75)}.tkpi.solid .delta{color:#fff}
+.tkpi.alert{background:color-mix(in srgb, var(--red) 14%, #0d0d0f); border-color:var(--red)}
+.glassCard{background:linear-gradient(165deg, rgba(38,42,54,.92), rgba(13,14,18,.96)); border:1px solid #2c303c; border-radius:24px; padding:24px 26px; backdrop-filter:blur(8px)}
+.glassCard .tt{font-size:1.02rem; font-weight:500}
+.glassCard .tt::before{display:none}
+.glassCard .big2{font-size:2.9rem; font-weight:300; margin:14px 0 4px}
+.glassCard .big2 small{font-size:.95rem; color:var(--dim)}
+.vtabs{display:flex; gap:22px; margin:14px 0 6px; font-size:.86rem}
+.vtabs span{color:var(--faint); cursor:pointer; padding-bottom:4px}
+.vtabs span.on{color:var(--text); border-bottom:2px solid var(--orange)}
+.bstat{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:.92rem}
+.bstat .br{color:var(--faint); font-weight:300}
+.bstat .nm{color:var(--dim)}
+.bstat .vl{margin-left:auto; font-weight:600; font-family:var(--mono)}
+.bcard{border:1px solid #232329; border-radius:6px; padding:20px 22px; background:#09090b}
+.bcard .tt{font-family:"JetBrains Mono",monospace; letter-spacing:.06em; text-transform:uppercase; font-size:.95rem}
+.bcard .tt::before{display:none}
+
 footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);font-size:.75rem}
 </style>
 </head>
@@ -296,18 +327,18 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
 
     <div style="display:flex; flex-direction:column; gap:16px; min-width:0">
       <div class="tkpis">
-        <div class="tkpi" style="--tick:#84cc16"><div class="lab">Frame</div><div class="delta up" id="kFrameD">▲ 60 fps</div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="dots" id="dotF"></div><div class="corner" id="kFrameC">frame 0</div></div>
-        <div class="tkpi" id="gpuCard" style="--tick:#3b82f6"><div class="lab">GPU</div><div class="delta up" id="kGpuD">▼ under budget</div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="dots" id="dotG"></div><div class="corner">budget 16.6 ms</div></div>
-        <div class="tkpi" style="--tick:#d946ef"><div class="lab">Rays / frame</div><div class="delta" style="color:var(--cyan)">◆ RTX ray query</div><div class="big" id="kRays">8.4<small> M</small></div><div class="dots" id="dotR"></div><div class="corner">2 bounce · ReSTIR</div></div>
-        <div class="tkpi" style="--tick:#f59e0b"><div class="lab">Clusters drawn</div><div class="delta" style="color:var(--orange)" id="kCluD">of 1,204 resident</div><div class="big" id="kClu">312</div><div class="dots" id="dotC"></div><div class="corner">cut ≤ 1.0 px</div></div>
+        <div class="tkpi"><div class="lab">Frame<span class="grip">⠿</span></div><div class="big" id="kFrame">16.6<small> ms</small></div><div class="delta up" id="kFrameD">▲ 60 fps</div><canvas class="kspark" id="sparkF"></canvas><div class="dates"><span>−120 f</span><span id="kFrameC">frame 0</span></div></div>
+        <div class="tkpi" id="gpuCard"><div class="lab">GPU<span class="grip">⠿</span></div><div class="big" id="kGpu">11.2<small> ms</small></div><div class="delta up" id="kGpuD">▼ under budget</div><canvas class="kspark" id="sparkG"></canvas><div class="dates"><span>budget</span><span>16.6 ms</span></div></div>
+        <div class="tkpi solid"><div class="lab">Rays / frame<span class="grip">⠿</span></div><div class="big" id="kRays">8.4<small> M</small></div><div class="delta">▼ RTX ray query · 2 bounce</div><canvas class="kspark" id="sparkR"></canvas><div class="dates"><span>primary</span><span>ReSTIR</span></div></div>
+        <div class="tkpi"><div class="lab">Clusters drawn<span class="grip">⠿</span></div><div class="big" id="kClu">312</div><div class="delta" style="color:var(--orange)" id="kCluD">of 1,204 resident</div><canvas class="kspark" id="sparkC"></canvas><div class="dates"><span>cut</span><span>≤ 1.0 px</span></div></div>
       </div>
 
-      <section class="tcard" style="--tick:#84cc16">
-        <div class="thead"><div><div class="tt">Frame Time</div><div class="tsub">Total frame cost, last 120 frames · 16.6 ms budget</div></div>
-        <div class="tabs"><span>Live</span><span>1 min</span><span class="on">5 min ▾</span></div></div>
-        <canvas class="chart" id="frameChart" style="height:170px; margin-top:14px"></canvas>
-        <div class="metricFoot"><div><div class="lab">Current frame</div><div class="val" id="mfVal">16.6 ms</div></div>
-        <div class="pillDelta"><span id="mfDelta" class="up">+0.0%</span><span class="circ">↗</span></div></div>
+      <section class="glassCard">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start"><div class="tt">Live Frame Volume</div><span style="color:var(--dim)">↗</span></div>
+        <div class="big2"><span id="mfVal">16.6</span><small> ms · current frame</small></div>
+        <div class="vtabs"><span class="on">Live</span><span>1 min</span><span>5 min</span><span>Session</span></div>
+        <canvas class="chart" id="frameChart" style="height:190px"></canvas>
+        <div style="display:flex;justify-content:space-between;color:var(--faint);font-size:.74rem;margin-top:4px"><span>−60 frames</span><span id="mfDelta" class="up">+0.0% vs avg</span><span>now</span></div>
       </section>
 
       <section class="tcard" style="--tick:#3b82f6">
@@ -318,18 +349,20 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
         <div class="pillDelta"><span>14 units</span><span class="circ">⧉</span></div></div>
       </section>
 
-      <section class="tcard" style="--tick:#10b981">
-        <div class="tt">Threads</div><div class="tsub">Utilisation · simulation → record pool → submission · 3 frames in flight</div>
-        <div id="threads" style="margin-top:12px"></div>
+      <section class="bcard">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="tt">Thread Overview</div><div style="color:var(--faint);font-size:.78rem">[ 3 frames in flight ]</div></div>
+        <div id="threads" style="margin-top:10px"></div>
+        <canvas class="chart" id="threadChart" style="height:120px;margin-top:10px"></canvas>
+        <div style="display:flex;justify-content:space-between;color:var(--faint);font-size:.72rem"><span>−60 samples</span><span>stacked utilisation</span></div>
       </section>
 
       <div class="cols">
-        <section class="tcard" style="--tick:#d946ef">
+        <section class="bcard">
           <div class="tt">Division Activity</div><div class="tsub">Events per second, by division</div>
           <div class="dotgrid" id="dotgrid" style="margin-top:16px"></div>
           <div class="legend" style="margin-top:12px" id="dotLegend"></div>
         </section>
-        <section class="tcard" style="--tick:#f97316">
+        <section class="bcard">
           <div class="tt">Unit Cost Heat</div><div class="tsub">Per-unit cost across the last 60 frames</div>
           <div class="heat" id="heat" style="margin-top:16px"></div>
           <div class="metricFoot"><div><div class="lab">Hottest unit</div><div class="val" id="hotUnit">RayTraversal.RTX</div></div>
@@ -483,8 +516,8 @@ function emitLog(){
   if(!paused) $("#logMeta").textContent=`frame ${frame.toLocaleString()} · streaming`;
 }
 /* widgets */
-$("#threads").innerHTML=THREADS.map(([n],i)=>`<div class="segRow"><span class="nm">${n}</span><div class="segs" style="--segc:${["#84cc16","#38bdf8","#38bdf8","#38bdf8","#38bdf8","#a78bfa","#fb923c"][i]}">${"<i></i>".repeat(22)}</div><span class="pct">0%</span></div>`).join("");
-$("#dotgrid") && ["dotF","dotG","dotR","dotC"].forEach(id=>{const el=document.getElementById(id); if(el) for(let i=0;i<6;i++){const d=document.createElement("i"); d.style.left=(8+i*16)+"%"; d.style.top=(8+Math.random()*24)+"px"; el.appendChild(d);} });
+$("#threads").innerHTML=THREADS.map(([n])=>`<div class="bstat"><span class="br">[</span><span class="nm">${n}</span><span class="vl">0%</span><span class="br">]</span></div>`).join("");
+const sparkHist={F:[],G:[],R:[],C:[]}; const threadHist=[];
 const dg=$("#dotgrid"); for(let i=0;i<28*5;i++) dg.appendChild(document.createElement("i"));
 $("#dotLegend").innerHTML=DIVISIONS.slice(0,6).map(([d,c])=>`<span><i style="background:${c}"></i>${d}</span>`).join("");
 const heatEl=$("#heat"); for(let i=0;i<60;i++) heatEl.appendChild(document.createElement("i"));
@@ -498,12 +531,21 @@ function tick(){
   $("#kGpu").innerHTML=`${gpu.toFixed(1)}<small> ms</small>`; $("#kGpuD").innerHTML=gpu<16.6?`▼ ${(16.6-gpu).toFixed(1)} ms under budget`:`▲ ${(gpu-16.6).toFixed(1)} ms over budget`; $("#kGpuD").className="delta "+(gpu<16.6?"up":"down"); $("#gpuCard").classList.toggle("alert",gpu>=16.6);
   $("#kRays").innerHTML=`${jitter(8.4,1.2).toFixed(1)}<small> M</small>`;
   const clu=Math.round(jitter(312,26)); $("#kClu").textContent=clu; $("#kCluD").textContent=`of 1,204 resident · ${1204-clu} culled`;
-  $$("#threads .segRow").forEach((el,i)=>{const v=Math.max(4,Math.min(98,THREADS[i][1]+jitter(0,22))); const on=Math.round(v/100*22); [...el.querySelectorAll(".segs i")].forEach((sg,j)=>sg.classList.toggle("on",j<on)); el.querySelector(".pct").textContent=Math.round(v)+"%";});
+  const threadNow=THREADS.map(([,b])=>Math.max(4,Math.min(98,b+jitter(0,22))));
+  $$("#threads .bstat .vl").forEach((el,i)=>el.textContent=Math.round(threadNow[i])+"%");
+  threadHist.push(threadNow); if(threadHist.length>60)threadHist.shift();
   const comp=UNITS.map(u=>[u[0],u[1],u[2]*jitter(1,.3)]).sort((a,b)=>b[2]-a[2]); const csum=comp.reduce((x,u)=>x+u[2],0);
   $("#budgetStack").innerHTML=comp.slice(0,8).map(u=>`<div style="background:${u[1]};width:${(u[2]/csum*100).toFixed(1)}%"></div>`).join("");
   $("#budgetLegend").innerHTML=comp.slice(0,8).map(u=>`<span class="r"><i style="background:${u[1]}"></i>${u[0]}<b>${u[2].toFixed(2)} ms</b></span>`).join("");
   $("#hotUnit").textContent=comp[0][0]; $("#hotMs").textContent=comp[0][2].toFixed(1)+" ms";
-  ["dotF","dotG","dotR","dotC"].forEach(id=>{const el=document.getElementById(id); if(!el)return; [...el.children].forEach(d=>{d.style.top=(6+Math.random()*26)+"px"; d.classList.toggle("hot",Math.random()<.14);});});
+  sparkHist.F.push(total); sparkHist.G.push(gpu); sparkHist.R.push(parseFloat($("#kRays").textContent)||8.4); sparkHist.C.push(clu);
+  Object.values(sparkHist).forEach(a=>{ if(a.length>48)a.shift(); });
+  const spark=(id,data,color,fill)=>{const cv=document.getElementById(id); if(!cv||data.length<2)return; const ctx=cv.getContext("2d"); const W=cv.clientWidth*2,H=152; if(cv.width!==W){cv.width=W;cv.height=H;} ctx.clearRect(0,0,W,H);
+    const mn=Math.min(...data)*.92, mx=Math.max(...data)*1.06, X=i=>i/47*W, Y=v=>H-8-((v-mn)/Math.max(mx-mn,1e-6))*(H-18);
+    ctx.beginPath(); data.forEach((v,i)=>i?ctx.lineTo(X(i),Y(v)):ctx.moveTo(X(i),Y(v))); ctx.strokeStyle=color; ctx.lineWidth=2.4; ctx.stroke();
+    ctx.lineTo(X(data.length-1),H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); };
+  spark("sparkF",sparkHist.F,"#e8e8ec","rgba(232,232,236,.08)"); spark("sparkG",sparkHist.G,"#7db4ff","rgba(59,130,246,.13)");
+  spark("sparkR",sparkHist.R,"#ffffff","rgba(255,255,255,.16)"); spark("sparkC",sparkHist.C,"#ffb35c","rgba(245,158,11,.12)"); drawThreads();
   const dots=dg.children; for(let i=0;i<dots.length;i++){const r=Math.random(); dots[i].style.background=r<.55?"var(--panel2)":DIVISIONS[Math.floor(Math.random()*DIVISIONS.length)][1]; dots[i].style.opacity=r<.55?.6:(.35+Math.random()*.65);}
   const cells=heatEl.children; for(let i=0;i<cells.length;i++){const v=Math.random(); cells[i].style.background=v<.5?"rgba(61,220,132,.25)":v<.75?"rgba(255,210,31,.55)":v<.9?"rgba(251,146,60,.75)":"rgba(248,113,113,.9)";}
 $("#budgetMs").textContent=gpu.toFixed(1)+" ms";
@@ -511,28 +553,31 @@ $("#budgetMs").textContent=gpu.toFixed(1)+" ms";
   if(!paused){ const n=1+Math.floor(Math.random()*3); for(let i=0;i<n;i++) emitLog(); }
 }
 function drawChart(){
-  const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=340;
+  const cv=$("#frameChart"), ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=380;
   if(cv.width!==W){cv.width=W; cv.height=H;}
   ctx.clearRect(0,0,W,H);
-  const Y=v=>H-14-(v/24)*(H-30), X=i=>i/119*W;
-  // 16.6 budget: faint dotted rule
-  ctx.strokeStyle="rgba(248,113,113,.45)"; ctx.setLineDash([3,7]); ctx.lineWidth=2;
-  ctx.beginPath(); ctx.moveTo(0,Y(16.6)); ctx.lineTo(W,Y(16.6)); ctx.stroke(); ctx.setLineDash([]);
-  // gradient area under total
-  if(hist.length>2){
-    const grad=ctx.createLinearGradient(0,0,0,H); grad.addColorStop(0,"rgba(132,204,22,.45)"); grad.addColorStop(1,"rgba(132,204,22,0)");
-    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
-    ctx.lineTo(X(hist.length-1),H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
-    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
-    ctx.strokeStyle="#a3e635"; ctx.lineWidth=2.6; ctx.stroke();
-    ctx.beginPath(); hist.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.g)):ctx.moveTo(X(i),Y(h.g)); });
-    ctx.strokeStyle="rgba(56,189,248,.65)"; ctx.lineWidth=1.6; ctx.stroke();
-    const lx=X(hist.length-1), ly=Y(hist[hist.length-1].t);
-    ctx.beginPath(); ctx.arc(lx-3,ly,13,0,7); ctx.fillStyle="rgba(163,230,53,.25)"; ctx.fill();
-    ctx.beginPath(); ctx.arc(lx-3,ly,6,0,7); ctx.fillStyle="#ecfccb"; ctx.fill();
-    // dotted x ticks
-    ctx.fillStyle="rgba(230,230,238,.35)"; for(let i=0;i<10;i++){ ctx.beginPath(); ctx.arc(i/9*W,H-5,2.4,0,7); ctx.fill(); }
-  }
+  const Y=v=>H-16-(v/26)*(H-30);
+  ctx.strokeStyle="rgba(255,255,255,.08)"; ctx.lineWidth=1; ctx.setLineDash([4,6]);
+  [8,16.6,24].forEach(v=>{ctx.beginPath(); ctx.moveTo(0,Y(v)); ctx.lineTo(W-86,Y(v)); ctx.stroke();
+    ctx.fillStyle="rgba(255,255,255,.4)"; ctx.font="22px 'JetBrains Mono',monospace"; ctx.fillText(v===16.6?"16.6":String(v), W-76, Y(v)+7);});
+  ctx.setLineDash([]);
+  const data=hist.slice(-60), bw=W-100, step=bw/60;
+  data.forEach((h,i)=>{
+    const x=10+i*step+step/2, lo=Math.min(h.g,h.t), hi=Math.max(h.g,h.t)+h.r*.5;
+    const last=i===data.length-1;
+    ctx.strokeStyle=last?"#fb923c":(i%2?"rgba(255,255,255,.55)":"rgba(251,146,60,.75)");
+    ctx.lineWidth=last?5:3.4; ctx.beginPath(); ctx.moveTo(x,Y(lo)); ctx.lineTo(x,Y(hi)); ctx.stroke();
+    if(last){ ctx.fillStyle="rgba(251,146,60,.18)"; const w=86; ctx.fillRect(x-w/2,Y(hi)-34,w,30);
+      ctx.fillStyle="#fdba74"; ctx.font="600 19px 'JetBrains Mono',monospace"; ctx.textAlign="center"; ctx.fillText(h.t.toFixed(1),x,Y(hi)-13); ctx.textAlign="left"; }
+  });
+}
+function drawThreads(){
+  const cv=$("#threadChart"); if(!cv||threadHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=240;
+  if(cv.width!==W){cv.width=W; cv.height=H;}
+  ctx.clearRect(0,0,W,H);
+  const cols=["#84cc16","#38bdf8","#38bdf8","#38bdf8","#38bdf8","#a78bfa","#fb923c"], bw=W/60;
+  threadHist.forEach((row,i)=>{ let y=H; row.forEach((v,t)=>{ const h=(v/100)*(H/2.6); y-=h; ctx.fillStyle=cols[t]; ctx.fillRect(i*bw+1,y,bw-2,h); }); });
+  ctx.strokeStyle="rgba(255,255,255,.14)"; ctx.beginPath(); ctx.moveTo(0,H*.38); ctx.lineTo(W,H*.38); ctx.stroke();
 }
 setInterval(tick,100); setInterval(()=>{ if(!paused) emitLog(); },380);
 tick();
