@@ -29,6 +29,12 @@ void LogStreamPanel::RecordInterface() noexcept
     if (QueryPhase() != ActivationPhase::Active) return;
     ImGui::SetNextWindowSize(ImVec2(760.0f, 520.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Log Stream")) { ImGui::End(); return; }
+    ConstructHostedInterface();
+    ImGui::End();
+}
+
+void LogStreamPanel::ConstructHostedInterface() noexcept
+{
 
     // ① Filter dropdowns: picking an entry activates it and removes it from the dropdown.
     LogStreamFilter Filter;
@@ -113,7 +119,6 @@ void LogStreamPanel::RecordInterface() noexcept
     }
     if (Follow && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
-    ImGui::End();
 }
 
 }   // namespace Frontier

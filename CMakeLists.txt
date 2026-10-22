@@ -81,7 +81,8 @@ target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
 add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp
-    UI/Editor/ContentBrowserPanel.cpp UI/Editor/LogStreamPanel.cpp)
+    UI/Editor/ContentBrowserPanel.cpp UI/Editor/ProjectBrowserPanel.cpp
+    UI/Editor/LogStreamPanel.cpp UI/Editor/LogStreamWorkspace.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface FrontierLifecycle)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
@@ -117,6 +118,17 @@ if(WIN32)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/PatternArchives/TextureStudio"
             "$<TARGET_FILE_DIR:TextureWorkspace>/EngineContent/PatternArchives/TextureStudio")
     install(TARGETS TextureWorkspace RUNTIME DESTINATION .)
+    # Frontier application: Project Browser first; a project opens in a NEW Frontier window
+    # (--project) whose only panel is the Log Stream, plus the notch.
+    add_executable(Frontier Experimental/Frontier/Native/WindowsFrontier.cpp
+        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    target_include_directories(Frontier PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
+        FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
+    target_link_libraries(Frontier PRIVATE FrontierEditorUI glfw ole32)
+    install(TARGETS Frontier RUNTIME DESTINATION .)
     add_custom_command(TARGET FrontierUI POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:FrontierUI>/EngineContent")
     install(TARGETS FrontierUI RUNTIME DESTINATION .)

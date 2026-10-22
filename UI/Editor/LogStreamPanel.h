@@ -23,6 +23,8 @@ public:
     explicit LogStreamPanel(LogStreamChannel& Stream) : Stream(Stream) {}
 
     void RecordInterface() noexcept;
+    // Content-only recording for a dockspace host window (PanelDockspace registration).
+    void ConstructHostedInterface() noexcept;
 
 private:
     LogStreamChannel&        Stream;
