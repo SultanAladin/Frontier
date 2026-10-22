@@ -156,7 +156,7 @@ term, so the plume may now read too bright. First thing to check when the render
 
 ## VolumetricFlowSolver — projection stencil inconsistency ✔️ FIXED 2026-07-31
 
-`Documentation/Prototypes/VolumetricFlowSolver.html`. The three stages that touch pressure disagreed
+`Documentation/Plans/References/InheritedEngine/Prototypes/VolumetricFlowSolver.html`. The three stages that touch pressure disagreed
 on their stencil, so the operator being **solved** was not the operator being **applied**:
 
 | Stage | Stencil (was) | Stencil (now) | Span |
@@ -635,7 +635,7 @@ rebuild a `.cpp`, so a push-constant / struct change needs the dependent `.obj` 
 
 ## Rock formation prototype — deferred (2026-07-31)
 
-`Documentation/Prototypes/RockFormation/` (WebGPU, SDF, node-based). M1 renders an arch; these were
+`Documentation/Plans/References/InheritedEngine/Prototypes/RockFormation/` (WebGPU, SDF, node-based). M1 renders an arch; these were
 deliberately deferred rather than forgotten.
 
 📝 **The prototype's own running notes live at `RockFormation/RockFormationNotes.md`** — confirmed-working
