@@ -15,11 +15,12 @@ namespace Frontier
 
 class FoundationPanel final : public ActivationSequence
 {
-public:
-    void RecordInterface() noexcept;
+  public:
+    void ConstructInterface() noexcept;
 
-private:
-    float InterfaceScale = 1.0f;
+  private:
+    float InterfaceScale  = 1.0f;
     bool  ControlsEnabled = true;
+    bool  ScaleDragging   = false;
 };
-}
+} // namespace Frontier

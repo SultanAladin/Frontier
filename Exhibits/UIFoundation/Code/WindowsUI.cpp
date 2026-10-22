@@ -177,7 +177,7 @@ int main()
                     ImGui_ImplGlfw_NewFrame();
                     ImGui::NewFrame();
                     (void)Panel->Integrate(IO.DeltaTime);
-                    Panel->RecordInterface();
+                    Panel->ConstructInterface();
                     ImGui::Render();
                     constexpr float Background[] = {0.065f, 0.065f, 0.07f, 1};
                     Display.Context->OMSetRenderTargets(1, &Display.Target, nullptr);

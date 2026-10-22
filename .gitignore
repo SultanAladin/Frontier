@@ -9,6 +9,8 @@ Binaries/
 EngineContent/*
 !EngineContent/Icons/
 !EngineContent/README.md
+!EngineContent/MaterialArchives/
+!EngineContent/PatternArchives/
 
 # Agent scratch space.
 _ClaudeScratch/

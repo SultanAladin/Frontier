@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
+find_package(Git QUIET)
+set(FRONTIER_BUILD_COMMIT "local")
+if(GIT_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=8 HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE FRONTIER_BUILD_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+
 # No scene renderer target or sources are included in this selective port.
 option(FRONTIER_HOST_VERIFICATION "Build local verification tools on a non-Windows editing host" OFF)
 if(NOT WIN32 AND NOT FRONTIER_HOST_VERIFICATION)
@@ -28,6 +36,29 @@ add_library(FrontierImGui STATIC
     "${IMGUI_ROOT}/imgui.cpp" "${IMGUI_ROOT}/imgui_draw.cpp"
     "${IMGUI_ROOT}/imgui_tables.cpp" "${IMGUI_ROOT}/imgui_widgets.cpp")
 target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
+# TextureWorkspace (copied from the working Texture Studio system): same ImGui panels, same Control Centre/notch.
+target_compile_definitions(FrontierImGui PUBLIC "ImDrawIdx=unsigned int")
+add_library(FrontierTextFiles STATIC Engine/Interface/TextFileReplacement.cpp)
+target_include_directories(FrontierTextFiles PUBLIC "${CMAKE_SOURCE_DIR}")
+add_library(FrontierVectorAuthoring STATIC
+    Engine/ContentInterchange/VectorAuthoringDocument.cpp
+    Engine/ContentInterchange/VectorAuthoringEditing.cpp
+    Engine/ContentInterchange/VectorAuthoringArrayPlacement.cpp
+    Engine/ContentInterchange/VectorAuthoringProperties.cpp
+    Engine/ContentInterchange/VectorAuthoringSelectionEditing.cpp
+    Engine/ContentInterchange/CubicPathEditing.cpp
+    Engine/Render/VectorSurfaceCompilation.cpp
+    Engine/ContentInterchange/SurfaceMapEncoding.cpp)
+target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLibrary.cpp)
+target_include_directories(FrontierMaterialLibrary PUBLIC "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_link_libraries(FrontierMaterialLibrary PUBLIC FrontierSurfaceRasterization FrontierTextFiles)
+add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
+    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
+target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
+target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
 add_library(FrontierInterface STATIC
     Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
@@ -36,14 +67,21 @@ add_library(FrontierInterface STATIC
     Engine/Interface/ContentDirectory.cpp Engine/Interface/FontCodec.cpp
     Engine/Interface/TypefaceRegistry.cpp Engine/Interface/AppearanceInspector.cpp
     Engine/Interface/AppearanceCodec.cpp Engine/Interface/MotionIntegrator.cpp
-    Engine/Interface/NotchMotion.cpp Engine/Interface/LogStreamChannel.cpp)
+    Engine/Interface/NotchMotion.cpp Engine/Interface/LogStreamChannel.cpp
+    Engine/Interface/PanelExpansionTab.cpp Engine/Interface/ConfigurationInspector.cpp
+    Engine/Interface/ConfigurationStructure.cpp Engine/Interface/InputPreferencesCodec.cpp
+    Engine/Interface/MonitorPlacement.cpp Engine/Interface/PanelDockspaceMonitor.cpp
+    Engine/Interface/PanelDockspace.cpp Engine/Interface/PanelDockspaceLayout.cpp
+    Engine/Interface/NotificationSequence.cpp Engine/Interface/ConfirmationDialogue.cpp
+    Engine/ContentInterchange/ProjectSpaceCodec.cpp)
+target_link_libraries(FrontierInterface PUBLIC FrontierTextFiles)
 add_library(FrontierLifecycle STATIC Engine/Lifecycle/StartupSequenceTrace.cpp)
 target_include_directories(FrontierLifecycle PUBLIC "${CMAKE_SOURCE_DIR}")
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static)
 add_library(FrontierEditorUI STATIC UI/Editor/FoundationPanel.cpp UI/Editor/ControlCentrePanel.cpp
-    UI/Editor/LogStreamPanel.cpp)
+    UI/Editor/ContentBrowserPanel.cpp UI/Editor/LogStreamPanel.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface FrontierLifecycle)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
@@ -63,6 +101,22 @@ if(WIN32)
         set(FRONTIER_D3DCOMPILER d3dcompiler)
     endif()
     target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
+    # TextureWorkspace: the copied Texture Studio application (Material Library + Pattern panels,
+    # Control Centre/notch from FrontierEditorUI), Vulkan presentation as on the source system.
+    add_executable(TextureWorkspace Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
+        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    target_include_directories(TextureWorkspace PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(TextureWorkspace PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
+        FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
+    target_link_libraries(TextureWorkspace PRIVATE FrontierEditorUI FrontierTextureStudioUI glfw)
+    add_custom_command(TARGET TextureWorkspace POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"
+            "$<TARGET_FILE_DIR:TextureWorkspace>/EngineContent/MaterialArchives/TextureStudio"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/PatternArchives/TextureStudio"
+            "$<TARGET_FILE_DIR:TextureWorkspace>/EngineContent/PatternArchives/TextureStudio")
+    install(TARGETS TextureWorkspace RUNTIME DESTINATION .)
     add_custom_command(TARGET FrontierUI POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:FrontierUI>/EngineContent")
     install(TARGETS FrontierUI RUNTIME DESTINATION .)
@@ -75,6 +129,8 @@ if(WIN32)
 endif()
 
 include(CTest)
+include(Automation/SurfaceRasterization.cmake)
+include(Automation/VectorCoverage.cmake)
 if(BUILD_TESTING)
     foreach(EDITOR_MODE 0 1)
         add_executable(ActivationValidation${EDITOR_MODE} Exhibits/UIFoundation/Code/ActivationValidation.cpp)

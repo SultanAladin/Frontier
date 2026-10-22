@@ -4,16 +4,12 @@
 // 🧩 Validate and atomically persist theme and typography preferences.
 
 #include "AppearanceCodec.h"
+#include "ContentDirectory.h"
+#include "TextFileReplacement.h"
 #include <cmath>
-#include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <toml++/toml.hpp>
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 namespace Frontier
 {
@@ -46,12 +42,13 @@ bool AppearanceCodec::Validate(const AppearanceSettings &Preferences) noexcept
 //                                                     DECODING
 //------------------------------------------------------------------------------------------------------------------------
 
-bool AppearanceCodec::Decode(const std::filesystem::path &Path, AppearanceSettings &Preferences,
-                             std::string &FamilyName, std::string &Diagnostic) noexcept
+bool AppearanceCodec::DecodeTable(const toml::table  &Document,
+                                  AppearanceSettings &Preferences,
+                                  std::string        &FamilyName,
+                                  std::string        &Diagnostic) noexcept
 {
     try
     {
-        const auto Document = toml::parse_file(Path.string());
         if (Document["format"].value_or(0) != 1)
             throw std::runtime_error("Unsupported appearance format");
         const auto *Sizes   = Document["sizes"].as_array();
@@ -95,17 +92,15 @@ bool AppearanceCodec::Decode(const std::filesystem::path &Path, AppearanceSettin
 //                                                      ENCODING
 //------------------------------------------------------------------------------------------------------------------------
 
-bool AppearanceCodec::Encode(const std::filesystem::path &Path, const AppearanceSettings &Preferences,
-                             const std::string &FamilyName, std::string &Diagnostic) noexcept
+bool AppearanceCodec::EncodeTable(toml::table              &Output,
+                                  const AppearanceSettings &Preferences,
+                                  const std::string        &FamilyName,
+                                  std::string              &Diagnostic) noexcept
 {
-    auto Temporary = Path;
-    Temporary += ".tmp";
     try
     {
         if (!Validate(Preferences) || FamilyName.empty())
             throw std::runtime_error("Invalid appearance settings");
-        if (!Path.parent_path().empty())
-            std::filesystem::create_directories(Path.parent_path());
         toml::array Sizes;
         toml::array Weights;
         for (uint32_t Ordinal = 0; Ordinal < AppearanceSettings::TypeRoleCount; ++Ordinal)
@@ -125,25 +120,50 @@ bool AppearanceCodec::Encode(const std::filesystem::path &Path, const Appearance
                                    {"caution", Preferences.CautionSwatch},
                                    {"sizes", std::move(Sizes)},
                                    {"weights", std::move(Weights)}};
-        std::ofstream     Output(Temporary, std::ios::trunc);
-        Output << Document;
-        Output.flush();
-        if (!Output.good())
-            throw std::runtime_error("Could not write appearance preferences");
-        Output.close();
-#ifdef _WIN32
-        if (!MoveFileExW(Temporary.c_str(), Path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            throw std::runtime_error("Could not replace appearance preferences");
-#else
-        std::filesystem::rename(Temporary, Path);
-#endif
+        Output = Document;
         Diagnostic.clear();
         return true;
     }
+
     catch (const std::exception &Failure)
     {
-        std::error_code Ignored;
-        std::filesystem::remove(Temporary, Ignored);
+        Diagnostic = Failure.what();
+        return false;
+    }
+}
+
+bool AppearanceCodec::Decode(const std::filesystem::path &Path,
+                             AppearanceSettings          &Preferences,
+                             std::string                 &FamilyName,
+                             std::string                 &Diagnostic) noexcept
+{
+    try
+    {
+        return DecodeTable(toml::parse_file(EncodeContentPath(Path)), Preferences, FamilyName, Diagnostic);
+    }
+    catch (const std::exception &Failure)
+    {
+        Diagnostic = Failure.what();
+        return false;
+    }
+}
+
+bool AppearanceCodec::Encode(const std::filesystem::path &Path,
+                             const AppearanceSettings    &Preferences,
+                             const std::string           &FamilyName,
+                             std::string                 &Diagnostic) noexcept
+{
+    try
+    {
+        toml::table Document;
+        if (!EncodeTable(Document, Preferences, FamilyName, Diagnostic))
+            return false;
+        std::ostringstream Text;
+        Text << Document;
+        return TextFileReplacement::Finalize(Path, Text.str(), Diagnostic);
+    }
+    catch (const std::exception &Failure)
+    {
         Diagnostic = Failure.what();
         return false;
     }

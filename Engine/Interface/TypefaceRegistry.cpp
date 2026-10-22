@@ -4,6 +4,7 @@
 // 🧩 Register discovered typefaces and resolve available weights in the current ImGui atlas.
 
 #include "TypefaceRegistry.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "ContentDirectory.h"
 #include <cctype>
 #include "imgui.h"
@@ -93,6 +94,7 @@ void *TypefaceRegistry::LoadFace(const std::string &Path) noexcept
 
 uint32_t TypefaceRegistry::Load(const std::filesystem::path &ArchiveRoot) noexcept
 {
+    DiagnosticJournal::Append("Fonts", "Archive=" + DiagnosticJournal::EncodePath(ResolveContentDirectory(ArchiveRoot)));
     if (Loaded)
         return QueryFamilyCount();
     if (ImGui::GetCurrentContext() == nullptr)
@@ -137,6 +139,7 @@ uint32_t TypefaceRegistry::Load(const std::filesystem::path &ArchiveRoot) noexce
             if (!Handle)
             {
                 ++RejectedFaces;
+                DiagnosticJournal::Append("FontRejected", V->FilePath);
                 continue;
             }
             Family.Faces.push_back(TypefaceFace{W, Handle});
@@ -149,6 +152,7 @@ uint32_t TypefaceRegistry::Load(const std::filesystem::path &ArchiveRoot) noexce
         Families.push_back(std::move(Family));
     }
     Loaded = !Families.empty();
+    DiagnosticJournal::Append("Fonts", "families=" + std::to_string(QueryFamilyCount()) + " rejected=" + std::to_string(RejectedFaces));
     return QueryFamilyCount();
 }
 

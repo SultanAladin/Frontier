@@ -133,7 +133,7 @@ int main(int ArgumentCount, char** Arguments)
         {
             IO.DisplayFramebufferScale = ImVec2(1.0f + IntegrationIndex, 1.0f + IntegrationIndex);
             ImGui::NewFrame();
-            static_cast<FoundationPanel*>(Panel.get())->RecordInterface();
+            static_cast<FoundationPanel*>(Panel.get())->ConstructInterface();
             ImGui::Render();
             AcknowledgeTextures();
             Require(ImGui::GetDrawData()->TotalVtxCount > 0, "UI produced no ImGui geometry");
