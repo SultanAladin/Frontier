@@ -253,6 +253,16 @@ canvas.chart{width:100%; height:110px; display:block}
 .heatTiles .ht .a{font-family:var(--mono); font-size:.62rem; font-weight:600; letter-spacing:.02em; white-space:nowrap; overflow:hidden}
 .heatTiles .ht .b{font-family:var(--mono); font-size:.78rem; font-weight:600}
 
+
+/* ===== v5: target-split line + dot-matrix division rows ===== */
+.dmRow{display:grid; grid-template-columns:126px 1fr 74px; gap:12px; align-items:center; padding:7px 0; border-bottom:1px solid #19191d}
+.dmRow:last-child{border-bottom:none}
+.dmRow .nm{font-size:.84rem; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.dmRow .vl{font-family:var(--mono); font-weight:600; text-align:right}
+.dmRow .vl small{color:var(--faint); font-weight:400; font-size:.66rem}
+.dmDots{display:flex; gap:3.5px; align-items:center}
+.dmDots i{width:6px; height:6px; border-radius:50%; background:#222228; flex:none}
+
 footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);font-size:.75rem}
 </style>
 </head>
@@ -377,9 +387,8 @@ footer{max-width:1560px;margin:0 auto;padding:0 22px 26px;color:var(--faint);fon
       <div class="cols">
         <section class="effCard">
           <div class="tt">Division Activity<span class="go">↗</span></div>
-          <div class="target">Events per second · stacked by division · last 16 samples</div>
-          <canvas class="chart" id="divChart" style="height:158px"></canvas>
-          <div id="divRows" style="margin-top:10px"></div>
+          <div class="target">Events per second · one dot row per division · brightness = rate</div>
+          <div id="divRows" style="margin-top:8px"></div>
         </section>
         <section class="effCard">
           <div class="tt">Unit Cost Heat<span class="go">↗</span></div>
@@ -541,7 +550,7 @@ function emitLog(){
 /* widgets */
 $("#threads").innerHTML=THREADS.map(([n])=>`<div class="bstat"><span class="br">[</span><span class="nm">${n}</span><span class="vl">0%</span><span class="br">]</span></div>`).join("");
 const sparkHist={F:[],G:[],R:[],C:[]}; const threadHist=[]; const divHist=[];
-$("#divRows").innerHTML=DIVISIONS.map(([d,c])=>`<div class="actRow"><i style="background:${c}"></i><span>${d}</span><span class="v" data-div="${d}">0</span><span class="u">ev/s</span></div>`).join("");
+$("#divRows").innerHTML=DIVISIONS.map(([d,c])=>`<div class="dmRow"><span class="nm">${d}</span><div class="dmDots">${"<i></i>".repeat(34)}</div><span class="vl" data-div="${d}">0 <small>ev/s</small></span></div>`).join("");
 const SHORT=["Cull","HiZ","RayRTX","DRes","ResT","ResS","Refl","Cards","Cloud","Atmo","VisRes","Denoise","Recomb","Present"];
 $("#heatTiles").innerHTML=UNITS.map((u,i)=>`<div class="ht"><span class="a">${SHORT[i]}</span><span class="b">0.0</span></div>`).join("");
 const hist=[];
@@ -570,9 +579,10 @@ function tick(){
   spark("sparkF",sparkHist.F,"#e8e8ec","rgba(232,232,236,.08)"); spark("sparkG",sparkHist.G,"#7db4ff","rgba(59,130,246,.13)");
   spark("sparkR",sparkHist.R,"#ffffff","rgba(255,255,255,.16)"); spark("sparkC",sparkHist.C,"#ffb35c","rgba(245,158,11,.12)"); drawThreads();
   // Division Activity: stacked samples + rows; Unit Cost Heat tiles
-  divHist.push(DIVISIONS.map((_,i)=>Math.max(2,(9-i)*7*jitter(1,.7)))); if(divHist.length>16)divHist.shift();
-  $$("#divRows .v").forEach((el,i)=>el.textContent=Math.round(divHist[divHist.length-1][i]));
-  drawDivisions();
+  const rates=DIVISIONS.map((_,i)=>Math.max(2,(9-i)*7*jitter(1,.7))), rmax=Math.max(...rates);
+  $$("#divRows .dmRow").forEach((row,i)=>{ row.querySelector(".vl").innerHTML=`${Math.round(rates[i])} <small>ev/s</small>`;
+    const lit=Math.round(rates[i]/rmax*34), c=DIVISIONS[i][1];
+    [...row.querySelectorAll(".dmDots i")].forEach((d,j)=>{ const on=j<lit; d.style.background=on?c:"#222228"; d.style.opacity=on?(.35+.65*(j/Math.max(lit,1))):1; }); });
   const costs=UNITS.map(u=>u[2]*jitter(1,.4)), cmax=Math.max(...costs);
   $$("#heatTiles .ht").forEach((el,i)=>{const v=costs[i]/cmax; el.style.background=`rgba(${Math.round(40+v*215)},${Math.round(190-v*120)},${Math.round(90-v*60)},${.16+v*.8})`; el.style.color=v>.62?"#fff":"var(--text)"; el.querySelector(".b").textContent=costs[i].toFixed(1);});
   $("#heatTotal").textContent=costs.reduce((a,b)=>a+b,0).toFixed(1)+" ms";
@@ -592,24 +602,20 @@ function drawChart(){
   ctx.strokeStyle="rgba(255,255,255,.34)"; ctx.lineWidth=1.6; ctx.setLineDash([9,8]);
   ctx.beginPath(); ctx.moveTo(0,Y(16.6)); ctx.lineTo(W-92,Y(16.6)); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle="rgba(255,255,255,.5)"; ctx.fillText(">60fps", W-88, Y(16.6)-10);
-  // shaded bands where the line rides high
-  data.forEach((h,i)=>{ if(h.t>15){ ctx.fillStyle="rgba(255,255,255,.055)"; ctx.fillRect(X(i)-3,Y(h.t),Math.max(4,(W-92)/119),H-18-Y(h.t)); }});
-  // thin jagged white line
-  ctx.beginPath(); data.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); });
-  ctx.strokeStyle="rgba(245,245,248,.92)"; ctx.lineWidth=1.8; ctx.stroke();
-  // orange excursion segment near the start (reference accent)
-  ctx.beginPath(); data.slice(6,14).forEach((h,j)=>{ const i=j+6; i===6?ctx.moveTo(X(i),Y(h.t)):ctx.lineTo(X(i),Y(h.t)); });
-  ctx.strokeStyle="#fb923c"; ctx.lineWidth=2.2; ctx.stroke();
-  data.slice(6,14).forEach((h,j)=>{ if(j%3===0){ ctx.beginPath(); ctx.arc(X(j+6),Y(h.t),4.6,0,7); ctx.fillStyle="#fb923c"; ctx.fill(); }});
-  // white peak dots where frames breach the target
-  data.forEach((h,i)=>{ if(h.t>16.6 && (i===0||data[i-1].t<=16.6)){ ctx.beginPath(); ctx.arc(X(i),Y(h.t),5,0,7); ctx.fillStyle="#fff"; ctx.fill(); }});
-}
-function drawDivisions(){
-  const cv=$("#divChart"); if(!cv||divHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=316;
-  if(cv.width!==W){cv.width=W; cv.height=H;}
-  ctx.clearRect(0,0,W,H);
-  const cols=DIVISIONS.map(d=>d[1]), bw=W/16, totals=divHist.map(r=>r.reduce((a,b)=>a+b,0)), mx=Math.max(...totals)*1.1;
-  divHist.forEach((row,i)=>{ let y=H-6; row.forEach((v,d)=>{ const h=(v/mx)*(H-16); y-=h; ctx.fillStyle=cols[d]; const x=i*bw+3; ctx.beginPath(); ctx.roundRect(x,y,bw-6,h,[3,3,0,0]); ctx.fill(); }); });
+  // shaded bands where the line rides above the target
+  data.forEach((h,i)=>{ if(h.t>16.6){ ctx.fillStyle="rgba(255,255,255,.05)"; ctx.fillRect(X(i)-3,Y(h.t),Math.max(4,(W-92)/119),Y(16.6)-Y(h.t)); }});
+  // The line itself is split AT the dashed rule (reference behaviour): the part above the rule
+  // is white, the part below it is red -- two clipped passes over the same path, so crossings
+  // change colour exactly where they pierce the rule.
+  const tracePath=()=>{ ctx.beginPath(); data.forEach((h,i)=>{ i?ctx.lineTo(X(i),Y(h.t)):ctx.moveTo(X(i),Y(h.t)); }); };
+  const Yt=Y(16.6);
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,Yt); ctx.clip();
+  tracePath(); ctx.strokeStyle="rgba(245,245,248,.95)"; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.rect(0,Yt,W,H-Yt); ctx.clip();
+  tracePath(); ctx.strokeStyle="#f87171"; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+  // dots on the points, coloured by which side of the rule they sit
+  data.forEach((h,i)=>{ if(i%6!==0) return; ctx.beginPath(); ctx.arc(X(i),Y(h.t),4.4,0,7);
+    ctx.fillStyle = Y(h.t)<Yt ? "#ffffff" : "#f87171"; ctx.fill(); });
 }
 function drawThreads(){
   const cv=$("#threadChart"); if(!cv||threadHist.length<2)return; const ctx=cv.getContext("2d"), W=cv.clientWidth*2, H=240;
