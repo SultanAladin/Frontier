@@ -687,6 +687,10 @@ struct BrowserPreviewRendering::RenderingAllocation
                 &Barrier, 0, nullptr, 0, nullptr);
             Geometry->TransferRecorded = true;
         }
+        // Validate + compute the projection BEFORE opening the render pass: MakeProjection throws outside the
+        // reference contract, and a throw inside the pass would submit a half-recorded buffer (device lost).
+        const bool Drafting = Channel == 5;
+        auto Projection = MakeProjection(Configuration, Camera, Channel, .85f, Target.Extent.width, Target.Extent.height);
         VkClearValue Clear[3]{};
         Clear[0].color = {{0, 0, 0, 1}};
         Clear[1].depthStencil = {1, 0};
@@ -701,8 +705,6 @@ struct BrowserPreviewRendering::RenderingAllocation
         VkRect2D Scissor{{0, 0}, Target.Extent};
         CmdSetViewport(Commands, 0, 1, &Viewport);
         CmdSetScissor(Commands, 0, 1, &Scissor);
-        const bool Drafting = Channel == 5;
-        auto Projection = MakeProjection(Configuration, Camera, Channel, .85f, Target.Extent.width, Target.Extent.height);
         CmdPushConstants(Commands, PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
             sizeof(Projection), &Projection);
         CmdBindDescriptorSets(
@@ -844,15 +846,23 @@ void BrowserPreviewRendering::ConfigureLive(const BrowserPreviewConfiguration &C
         Rendering.LiveDirty = true;
         Rendering.LiveReady = false;
     }
+    // Clamp the stored camera to the reference contract (self-heals any drifted input); compare clamped copies
+    // so a clamped input never reports dirty forever.
+    BrowserPreviewCamera Clamped = Camera;
+    if (!std::isfinite(Clamped.Azimuth) || !std::isfinite(Clamped.Elevation) || !std::isfinite(Clamped.Distance))
+        Clamped = ConfigureBrowserCamera(int(Configuration.Category), Configuration.View, Configuration.Sketch);
+    Clamped.Distance = std::clamp(Clamped.Distance, 4.0, 28.0);
+    for (double &Axis : Clamped.Target)
+        Axis = std::isfinite(Axis) ? std::clamp(Axis, -100.0, 100.0) : 0;
     if (!Rendering.LiveDirty &&
         (!SameBrowserConfiguration(Rendering.LiveConfiguration, Configuration) ||
-            !SameBrowserCamera(Rendering.LiveCamera, Camera) || Rendering.LiveChannel != Channel))
+            !SameBrowserCamera(Rendering.LiveCamera, Clamped) || Rendering.LiveChannel != Channel))
     {
         Rendering.LiveDirty = true;
         Rendering.LiveReady = false;
     }
     Rendering.LiveConfiguration = Configuration;
-    Rendering.LiveCamera = Camera;
+    Rendering.LiveCamera = Clamped;
     Rendering.LiveChannel = Channel;
 }
 

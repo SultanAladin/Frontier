@@ -436,8 +436,10 @@ inline void OrbitBrowserCamera(BrowserPreviewCamera &Camera, double DeltaX, doub
 {
     if (Pan)
     {
-        Camera.Target[0] -= DeltaX * Camera.Distance * .0015;
-        Camera.Target[1] += DeltaY * Camera.Distance * .0015;
+        // The reference contract refuses |target| > 100; clamp here so sustained panning can never strand an open
+        // render pass (a mid-record throw poisons the submit and loses the device).
+        Camera.Target[0] = std::clamp(Camera.Target[0] - DeltaX * Camera.Distance * .0015, -100.0, 100.0);
+        Camera.Target[1] = std::clamp(Camera.Target[1] + DeltaY * Camera.Distance * .0015, -100.0, 100.0);
     }
     else
     {

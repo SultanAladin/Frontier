@@ -5,6 +5,7 @@
 
 #include "ProjectBrowserPanel.h"
 #include "Engine/Interface/DropdownControls.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
 #include <cmath>
 #include <imgui.h>
@@ -2118,6 +2119,13 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                     {
                         LiveChannel = Picked;
                         CaptureDelay = 1;
+                        static bool TracedChannel = false;
+                        if (!TracedChannel)
+                        {
+                            TracedChannel = true;
+                            DiagnosticJournal::Append(
+                                "BrowserFooter", "channel control picked index=" + std::to_string(Picked));
+                        }
                     }
                     const float CapW =
                         MeasureBrowserText(Font, 8 * Scale, "Capture thumbnail").x + 16 * Scale;
@@ -2135,6 +2143,12 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                     {
                         CaptureNow();
                         Notify("Thumbnail captured from the current rendered view.");
+                        static bool TracedCapture = false;
+                        if (!TracedCapture)
+                        {
+                            TracedCapture = true;
+                            DiagnosticJournal::Append("BrowserFooter", "capture control clicked");
+                        }
                     }
                     const std::string Tris =
                         FormatBrowserCount(Preview.Statistics.Triangles) + " triangles";
