@@ -46,16 +46,16 @@ TARGETS = {
     "tour-golf-ball": "dimples", "practice-golf-ball": "dimples",
     "lime-stucco": "stucco",
     "liquid-silver": "scratchedMetal", "brushed-titanium": "scratchedMetal",
-    "pure-aluminium": "scratchedMetal", "24k-gold": "scratchedMetal",
-    "18k-yellow-gold": "scratchedMetal", "14k-yellow-gold": "scratchedMetal",
-    "18k-rose-gold": "scratchedMetal", "18k-white-gold": "scratchedMetal",
-    "pure-copper": "scratchedMetal", "maraging-steel": "scratchedMetal",
-    "cast-steel": "scratchedMetal", "stainless-steel": "scratchedMetal",
-    "pure-iron": "scratchedMetal", "chromium": "scratchedMetal",
-    "bronze-alloy": "scratchedMetal", "brass-alloy": "scratchedMetal",
-    "pure-nickel": "scratchedMetal", "titanium-metal": "scratchedMetal",
-    "pure-zinc": "scratchedMetal", "pure-silver": "scratchedMetal",
-    "pure-tin": "scratchedMetal",
+    "pure-aluminium": "bareMetal", "24k-gold": "bareMetal",
+    "18k-yellow-gold": "bareMetal", "14k-yellow-gold": "bareMetal",
+    "18k-rose-gold": "bareMetal", "18k-white-gold": "bareMetal",
+    "pure-copper": "bareMetal", "maraging-steel": "bareMetal",
+    "cast-steel": "bareMetal", "stainless-steel": "bareMetal",
+    "pure-iron": "bareMetal", "chromium": "bareMetal",
+    "bronze-alloy": "bareMetal", "brass-alloy": "bareMetal",
+    "pure-nickel": "bareMetal", "titanium-metal": "bareMetal",
+    "pure-zinc": "bareMetal", "pure-silver": "bareMetal",
+    "pure-tin": "bareMetal",
     "brake-disc": "latheMetal",
     "scratches": "scratches",
     "woven-fabric": "weave", "suede-microfiber": "weave",
@@ -85,6 +85,8 @@ OP_CHANNELS = {
     "clay": ("Albedo", "Normal"),
     "led": ("Albedo", "Normal", "Radiance"),
     "fruit": ("Albedo", "Normal"),
+    # Pure conductors are value-only: no baked channels, no texture slots.
+    "bareMetal": (),
 }
 
 # Bake-driving scalars passed through verbatim from the SourceRecipe.
@@ -101,6 +103,10 @@ OP_SCALARS = {
     "scratchedMetal": ("grain", "detailScale", "roughness", "scratchLength",
                        "scratchWidth", "scratchDepth", "scratchSpread",
                        "scratchBend", "scratchScale", "surfaceSeed"),
+    # Pure conductors carry no channel params: their finish is authored entirely
+    # in stratum scalars, and the optional scratch overlay reuses the
+    # scratchedMetal pool when the user turns it on.
+    "bareMetal": (),
     "latheMetal": ("depth", "detailScale", "roughness", "scratchLength",
                    "scratchWidth", "scratchDepth", "scratchSpread",
                    "scratchBend", "scratchScale", "surfaceSeed"),
@@ -161,6 +167,10 @@ def build_material(stem, op, recipe):
     bakes_color = op in ("solar", "knit", "led", "fruit") or (op == "weave" and recipe["fabricMode"] in ("0", "3", "4"))
     albedo = [1.0, 1.0, 1.0] if bakes_color else decode_spectrum(recipe["color"])
     mask = {"solar": 7, "scratchedMetal": 7, "latheMetal": 7, "scratches": 6, "led": 13}.get(op, 5)
+    if not OP_CHANNELS[op]:
+        # Value-only families (pure metals) bind no texture slots; the Albedo
+        # scalar is the reflectance itself, not a multiplier over a map.
+        mask = 0
     radiance = None
     if op == "led":
         strength = float(recipe["emissionStrength"])
@@ -177,9 +187,11 @@ def build_material(stem, op, recipe):
              f"TextureMask = {mask}",
              "UvScaleOffset = [9, 4.5, 0, 0]",
              "",
-             "[Strata.Textures]"]
+             ]
     if radiance is not None:
         lines.insert(2, "Radiance = [%s]" % ", ".join(radiance))
+    if OP_CHANNELS[op]:
+        lines.append("[Strata.Textures]")
     for channel in OP_CHANNELS[op]:
         lines.append(f'{channel} = "Textures/{stem}-{channel.lower()}.png"')
 

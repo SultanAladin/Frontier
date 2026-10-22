@@ -251,7 +251,9 @@ int main(int ArgumentCount, char **Arguments)
                     "Stucco preset albedo/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 5, "Stucco preset albedo/normal mask differs.");
         }
-        for (const auto *Path : {"24k-gold.material", "brushed-titanium.material", "brake-disc.material"})
+        // 📝 24k-gold is a pure conductor and ships values only, so the machined/polished families are
+        // the textured specimens here.
+        for (const auto *Path : {"liquid-silver.material", "brushed-titanium.material", "brake-disc.material"})
         {
             Confirm(ReferenceLibrary.OpenMaterial(Path), "Metal preset did not compile.");
             const auto *Compiled = ReferenceLibrary.QueryApplied();
@@ -259,6 +261,41 @@ int main(int ArgumentCount, char **Arguments)
                         Compiled->Textures[2].Levels[0].Width == 512,
                     "Metal preset albedo/ORM/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Metal preset texture mask differs.");
+        }
+        // 📝 Pure conductors are value-only: no baked channels at all, so every slot stays neutral and
+        // the Albedo scalar is the reflectance itself rather than a multiplier over a map.
+        for (const auto *Path : {"24k-gold.material", "pure-copper.material", "chromium.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Pure conductor preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 0, "Pure conductor preset bound a texture slot.");
+            Confirm(Compiled->Textures[0].Levels[0].Width == 1 && Compiled->Textures[1].Levels[0].Width == 1 &&
+                        Compiled->Textures[2].Levels[0].Width == 1,
+                "Pure conductor preset baked a detail texture instead of shipping values.");
+            Confirm(Compiled->Scattering.Illumination.Strata[0].Optics[0] > .99f,
+                "Pure conductor preset is not metallic.");
+        }
+        // 📝 The optional scratch overlay is the one texture a pure conductor may gain: it attaches to the
+        // relief and ORM slots while the Albedo stays neutral, and the staged field must still bake.
+        {
+            MaterialLibrary ScratchLibrary;
+            Confirm(ScratchLibrary.ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") &&
+                        ScratchLibrary.OpenMaterial("pure-copper.material"),
+                "Scratch overlay library did not open a pure conductor.");
+            Confirm(ScratchLibrary.ConfigureStratumChannel(0, "Normal", "scratchedMetal") &&
+                        ScratchLibrary.ConfigureStratumChannel(0, "Orm", "scratchedMetal"),
+                "Optional scratch overlay did not attach to a pure conductor.");
+            const auto ScratchDefinition = DecodeSurfaceMaterial(ScratchLibrary.QuerySource());
+            const auto Pool = std::find_if(ScratchDefinition.StratumChannels[0].begin(), ScratchDefinition.StratumChannels[0].end(),
+                [](const auto &Channel) { return !Channel.Op.empty() && Channel.Params.contains("scratchDensity"); });
+            Confirm(Pool != ScratchDefinition.StratumChannels[0].end(), "Attached scratch overlay carries no density.");
+            Confirm(ScratchLibrary.ConfigureProceduralParam(0, Pool->Name, "scratchDensity", 6.0) &&
+                        ScratchLibrary.RebakeProcedurals(512),
+                "Optional scratch overlay on a pure conductor did not bake.");
+            const auto *ScratchCompiled = ScratchLibrary.QueryApplied();
+            Confirm(ScratchCompiled->Scattering.TextureUse[0][0] == 6, "Scratch overlay bound the wrong slots.");
+            Confirm(ScratchCompiled->Textures[0].Levels[0].Width == 1, "Scratch overlay replaced the conductor albedo.");
+            Confirm(ScratchCompiled->Textures[2].Levels[0].Width == 512, "Scratch overlay did not bake relief.");
         }
         Confirm(ReferenceLibrary.OpenMaterial("sand.material"), "Sand preset did not compile.");
         Confirm(ReferenceLibrary.QueryApplied()->Scattering.TextureUse[0][0] == 7, "Sand preset texture mask differs.");
@@ -352,32 +389,20 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(Panel->SelectMaterial("ProceduralPilot.material"), "Native selection did not open the procedural pilot.");
         IntegrateInterface(1280, 1);
         IntegrateInterface(1280, 1);
-        Confirm(Panel->QueryLayerExtent("layer-1").Width() > 0, "Layer card has no interactive extent.");
-        Confirm(Panel->QueryLayerExtent("add-layer").Width() > 0, "Layer add control has no interactive extent.");
         ImGuiWindow *Properties = nullptr;
         for (auto *Candidate : ImGui::GetCurrentContext()->Windows)
         {
-            // 📝 Nested layer cards qualify under the same parent name; the scroll region itself carries no
-            // further child qualifier past its own identifier.
+            // 📝 Nested property cards qualify under the same parent name; the scroll region itself carries
+            // no further child qualifier past its own identifier.
             const std::string Name(Candidate->Name);
             const size_t Child = Name.rfind("/Material properties_");
             if (Child != std::string::npos && Name.find('/', Child + 1) == std::string::npos) Properties = Candidate;
         }
         Confirm(Properties != nullptr, "Material properties scroll region is missing.");
-        {
-            // 📝 The layer stack rides below the recipe cards, so the headless gesture scrolls the add control
-            // into the visible region before clicking it.
-            const auto Add = Panel->QueryLayerExtent("add-layer");
-            const float Target = Properties->Scroll.y +
-                ((Add.MinimumY + Add.MaximumY) / 2 - (Properties->Pos.y + Properties->Size.y / 2));
-            ImGui::SetScrollY(Properties, Target);
-        }
-        IntegrateInterface(1280, 1);
-        Click(Panel->QueryLayerExtent("add-layer"));
-        Confirm(DecodeSurfaceMaterial(Panel->QueryLibrary().QuerySource()).Scattering.Illumination.Configuration[0] == 2,
-            "Add-layer click did not append a stratum.");
-        Confirm(Panel->QueryLibrary().QueryApplied()->Scattering.Illumination.Configuration[0] == 2, "Add-layer click did not live-apply.");
-        Confirm(Panel->QueryLibrary().RevertSource(), "Pilot layer edit did not revert.");
+        // 📝 The properties panel replaces the layer stack: the recipe cards render inside this scroll
+        // region, so the headless gesture scrolls it and confirms a designer control still live-applies.
+        Confirm(Properties->ScrollMax.y > 0, "Material properties scroll region carries no recipe content.");
+        Confirm(Panel->QueryLibrary().RevertSource(), "Pilot property edit did not revert.");
         Confirm(Panel->ConfigureDirectory("EngineContent/MaterialArchives/TextureStudio") && Panel->SelectMaterial("racing-green.material"),
                 "Native automotive inspector did not open the actual preset.");
         IntegrateInterface(1280, 1);

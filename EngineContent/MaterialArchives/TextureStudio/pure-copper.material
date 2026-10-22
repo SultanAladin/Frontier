@@ -4,72 +4,11 @@ Name = "Pure Copper"
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.8631572134541023, 0.43415363617474895, 0.3049873140698863]
-Roughness = 0.52
+Roughness = 0.22
 Metallic = 1
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
-TextureMask = 7
+TextureMask = 0
 UvScaleOffset = [9, 4.5, 0, 0]
 
-[Strata.Textures]
-Albedo = "Textures/pure-copper-albedo.png"
-Orm = "Textures/pure-copper-orm.png"
-Normal = "Textures/pure-copper-normal.png"
-
-
-[[Strata.Channels]]
-Name = "Albedo"
-Op = "scratchedMetal"
-Link = "shared"
-[Strata.Channels.Params]
-grain = 0
-detailScale = 65
-roughness = 0.22
-scratchLength = 1.15
-scratchWidth = 0.01
-scratchDepth = 0.0018
-scratchSpread = 0.8
-scratchBend = 0.42
-scratchScale = 6
-surfaceSeed = 17
-scratchDensity = 0
-angle = 25
-
-
-[[Strata.Channels]]
-Name = "Orm"
-Op = "scratchedMetal"
-Link = "shared"
-[Strata.Channels.Params]
-grain = 0
-detailScale = 65
-roughness = 0.22
-scratchLength = 1.15
-scratchWidth = 0.01
-scratchDepth = 0.0018
-scratchSpread = 0.8
-scratchBend = 0.42
-scratchScale = 6
-surfaceSeed = 17
-scratchDensity = 0
-angle = 25
-
-
-[[Strata.Channels]]
-Name = "Normal"
-Op = "scratchedMetal"
-Link = "shared"
-[Strata.Channels.Params]
-grain = 0
-detailScale = 65
-roughness = 0.22
-scratchLength = 1.15
-scratchWidth = 0.01
-scratchDepth = 0.0018
-scratchSpread = 0.8
-scratchBend = 0.42
-scratchScale = 6
-surfaceSeed = 17
-scratchDensity = 0
-angle = 25

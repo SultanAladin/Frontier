@@ -18,6 +18,8 @@ struct MaterialRecipeTarget
 {
     std::string Key;
     float Minimum = 0, Maximum = 1;
+    // 📝 Integer targets round their projected value (HTML ProjectDesignerControl), e.g. thread density.
+    bool Integer = false;
 };
 
 struct MaterialRecipeControl
@@ -28,6 +30,12 @@ struct MaterialRecipeControl
     bool Direct = false, Logarithmic = false;
     float Step = .01f;
     std::string Unit;
+    // 📝 Direct controls carry their own address; macro controls project through Targets only.
+    std::string Key;
+    // 📝 Scale controls extend their domain to whatever the material currently holds, and hints are the
+    // HTML recipe's per-control guidance text.
+    bool Extend = false;
+    std::string Hint;
 };
 
 // 📝 Parsed Alloy SourceRecipe: the uniform values the baker and the procedural controls share. Scalars and

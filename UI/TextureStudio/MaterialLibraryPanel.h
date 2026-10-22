@@ -61,12 +61,10 @@ class MaterialLibraryPanel final : public ActivationSequence
     [[nodiscard]] bool QueryFullscreenPreview() const noexcept { return FullscreenPreview; }
     [[nodiscard]] PlaneExtent QuerySaveExtent() const noexcept { return SaveExtent; }
     [[nodiscard]] PlaneExtent QueryRoughnessExtent() const noexcept { return RoughnessExtent; }
+    // 📝 Optional scratch overlay toggle; recorded from the properties card so headless gestures can
+    // drive the same opt-in the user clicks.
+    [[nodiscard]] PlaneExtent QueryScratchExtent() const noexcept { return ScratchExtent; }
     [[nodiscard]] PlaneExtent QueryRevertExtent() const noexcept { return RevertExtent; }
-    [[nodiscard]] PlaneExtent QueryLayerExtent(const std::string &Name) const noexcept
-    {
-        if (const auto Found = LayerExtents.find(Name); Found != LayerExtents.end()) return Found->second;
-        return {};
-    }
     [[nodiscard]] MaterialLibrary &QueryLibrary() noexcept { return Library; }
 
   private:
@@ -84,7 +82,6 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool FullscreenPreview = false;
     bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
     uint32_t SentPreviewExtent = 0;
-    std::map<std::string, PlaneExtent> LayerExtents;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;
@@ -93,7 +90,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     void *HeadingTypeface = nullptr;
     [[nodiscard]] float QueryInterfaceScale() const noexcept;
     bool DirectoryRequested = false;
-    PlaneExtent RoughnessExtent;
+    PlaneExtent RoughnessExtent, ScratchExtent;
     void ConstructInspector();
     void ConstructViewport();
     void ConstructFullscreenPreview();

@@ -4,6 +4,7 @@
 // 🧩 Native material discovery, selection, edit/apply/revert and explicit disk operations; no simulated renderer thumbnails.
 
 #include "MaterialLibraryPanel.h"
+#include "Engine/ContentInterchange/MaterialRecipeProfiles.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Render/MaterialProceduralBaking.h"
@@ -698,9 +699,9 @@ bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum,
     float Replacement = Fraction;
     (void)ControlKit::Slider(Surface, Extent, LogarithmicRange ? 0.f : Minimum, LogarithmicRange ? 1.f : Maximum,
         Fraction, Active, Pointer, Replacement, ImGui::GetStyle().Alpha, 24, 22);
-    // 📝 First roughness slider wins: the merged panel renders recipe sliders before the layer cards, and
-    // headless gestures target the recipe control that stays above the fold.
-    if (!RoughnessRecorded && (std::string_view(Caption) == "Roughness" || std::string_view(Caption) == "Paint roughness"))
+    // 📝 First designer slider wins: the properties panel renders the finish card above every other
+    // section, so headless gestures target the control that stays above the fold.
+    if (!RoughnessRecorded)
     {
         RoughnessExtent = {Origin.x, Origin.y + 34 * Scale, Origin.x + Width, Origin.y + 58 * Scale};
         RoughnessRecorded = true;
@@ -796,21 +797,205 @@ void MaterialLibraryPanel::ConstructInspector()
             ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), DescriptionSize, ImVec2(Start.x + 3 * Scale, Start.y + 67 * Scale),
                 EncodeMaterialInk(0x868676), Description, nullptr, CardWidth - 6 * Scale);
             float CardY = Start.y + std::max(104.f * Scale, 82.f * Scale + DescriptionHeight);
+            // 📝 Properties view (the HTML designer panel). The layer stack is what the code does; the
+            // properties are the editable values projected into it, so the stratum/channel routing cards
+            // are replaced by the recipe's own grouped controls. Section order mirrors RecipeInspector:
+            // colour & finish, optional overlays, construction, then surface detail.
+            auto *Profile = Entry ? QueryMaterialRecipeProfile(Entry->Recipe.RecipeId) : nullptr;
+            // 📝 The scratch overlay is a property of the saved material, not of the profile: the staged
+            // density on the scratch channel is the single source of truth, so the toggle round-trips
+            // through the .material source with no separate flag to keep in sync.
+            bool ScratchesEnabled = false;
+            for (const auto &StratumChannels : Definition.StratumChannels)
+                for (const auto &Channel : StratumChannels)
+                    if (!Channel.Op.empty())
+                        if (const auto Density = Channel.Params.find("scratchDensity"); Density != Channel.Params.end())
+                            ScratchesEnabled = ScratchesEnabled || Density->second > 0;
+            const auto Controls = Entry ? QueryMaterialRecipeControls(*Entry, ScratchesEnabled)
+                : std::vector<MaterialRecipeControl>{};
+            // 📝 Finish colours come from the profile (label + address), not from the catalogue, so the
+            // native panel names each swatch exactly like the HTML.
+            std::vector<std::pair<std::string, std::string>> Colours;
+            if (Profile) Colours = Profile->Colours;
             std::vector<std::string> Groups{"finish"};
-            if (Entry)
-                for (const auto &Control : Entry->RecipeControls)
-                    if (std::find(Groups.begin(), Groups.end(), Control.Group) == Groups.end()) Groups.push_back(Control.Group);
+            for (const auto &Control : Controls)
+                if (std::find(Groups.begin(), Groups.end(), Control.Group) == Groups.end()) Groups.push_back(Control.Group);
+            // 📝 The scratch card must exist while the overlay is off, otherwise its toggle is
+            // unreachable and the optional cuts can never be turned on.
+            if (Profile && Profile->SupportsMetalScratches &&
+                std::find(Groups.begin(), Groups.end(), "scratches") == Groups.end())
+                Groups.push_back("scratches");
+            auto RenderColourField = [&](const std::string &Key, const std::string &Label)
+            {
+                ImGui::PushID(Key.c_str());
+                ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 10 * Scale,
+                    0xa3a393, Label.c_str());
+                ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 22 * Scale));
+                ImGui::SetNextItemWidth(CardWidth - 34 * Scale);
+                // 📝 Two colour homes: a procedural channel that owns the key as a text param (led/fruit
+                // tint, sheet colour) edits the live uniform, everything else edits the stratum albedo.
+                const MaterialProceduralChannel *TextOwner = nullptr;
+                for (const auto &StratumChannels : Definition.StratumChannels)
+                    for (const auto &Channel : StratumChannels)
+                        if (!Channel.Op.empty() && Channel.Texts.contains(Key)) TextOwner = &Channel;
+                float Spectrum[3]{1, 1, 1};
+                if (TextOwner)
+                {
+                    std::string_view Hex = TextOwner->Texts.at(Key);
+                    if (Hex.size() == 7 && Hex[0] == '#')
+                        for (size_t Channel = 0; Channel < 3; ++Channel)
+                            Spectrum[Channel] = float(std::strtoul(std::string(Hex.substr(1 + Channel * 2, 2)).c_str(), nullptr, 16)) / 255.f;
+                }
+                else
+                {
+                    // 📝 Stratum albedo is the authored colour for every value-only family.
+                    auto &Albedo = Definition.Scattering.Illumination.Strata[0].AlbedoRoughness;
+                    for (size_t Channel = 0; Channel < 3; ++Channel)
+                        Spectrum[Channel] = Albedo[Channel] <= .0031308f ? 12.92f * Albedo[Channel] :
+                            1.055f * std::pow(Albedo[Channel], 1.f / 2.4f) - .055f;
+                }
+                if (ImGui::ColorEdit3("##Colour", Spectrum, ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel |
+                    ImGuiColorEditFlags_NoTooltip))
+                {
+                    bool Written = false;
+                    if (TextOwner)
+                    {
+                        char Encoded[8];
+                        std::snprintf(Encoded, sizeof Encoded, "#%02x%02x%02x",
+                            unsigned(std::lround(std::clamp(Spectrum[0], 0.f, 1.f) * 255.f)),
+                            unsigned(std::lround(std::clamp(Spectrum[1], 0.f, 1.f) * 255.f)),
+                            unsigned(std::lround(std::clamp(Spectrum[2], 0.f, 1.f) * 255.f)));
+                        // 📝 Locate the owning stratum so the pool edit reaches the right channel.
+                        for (uint32_t Stratum = 0; Stratum < Definition.Scattering.Illumination.Configuration[0] && !Written; ++Stratum)
+                            for (const auto &Channel : Definition.StratumChannels[Stratum])
+                                if (!Channel.Op.empty() && Channel.Texts.contains(Key))
+                                    Written = Library.ConfigureProceduralText(Stratum, Channel.Name, Key, Encoded);
+                        if (Written) ProceduralDirty = true;
+                    }
+                    else
+                    {
+                        std::array<float, 3> Linear{};
+                        for (size_t Channel = 0; Channel < 3; ++Channel)
+                            Linear[Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
+                                std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
+                        Written = Library.ConfigureStratumColour(0, Linear);
+                    }
+                    Changed = Written || Changed;
+                }
+                ImGui::PopID();
+            };
+            auto RenderControl = [&](const MaterialRecipeControl &Control)
+            {
+                float Position = Control.Position;
+                bool Supported = !Control.Targets.empty();
+                for (const auto &Target : Control.Targets) Supported = QueryRecipeCoefficient(Definition, Target.Key).has_value() && Supported;
+                if (Supported)
+                {
+                    const auto &Target = Control.Targets.front();
+                    const float Coefficient = *QueryRecipeCoefficient(Definition, Target.Key);
+                    Position = Control.Direct ? Coefficient : std::abs(Target.Maximum - Target.Minimum) > .000001f ?
+                        std::clamp((Coefficient - Target.Minimum) / (Target.Maximum - Target.Minimum), 0.f, 1.f) : Control.Position;
+                }
+                else if (Control.Direct) Position = QueryRecipeCoefficient(Definition, Control.Key).value_or(Control.Position);
+                // 📝 Extending controls grow their domain to whatever the material currently holds, so a
+                // saved value above the shipped range still displays and edits instead of clamping.
+                float NativeMinimum = Control.Minimum, NativeMaximum = Control.Maximum;
+                if (Control.Extend)
+                {
+                    const float Held = QueryRecipeCoefficient(Definition, Control.Key).value_or(Control.Minimum);
+                    NativeMaximum = std::max(NativeMaximum, Held);
+                    if (Held > 0) NativeMinimum = std::min(NativeMinimum, Held);
+                }
+                bool RoughnessLimited = false;
+                for (const auto &Target : Control.Targets)
+                    if (Target.Key == "roughness" || Target.Key == "coatRoughness")
+                    {
+                        if (Control.Direct) NativeMinimum = std::max(NativeMinimum, .045f);
+                        else if (std::abs(Target.Maximum - Target.Minimum) > .000001f)
+                        {
+                            const float Boundary = (.045f - Target.Minimum) / (Target.Maximum - Target.Minimum);
+                            if (Target.Maximum > Target.Minimum) NativeMinimum = std::max(NativeMinimum, Boundary);
+                            else NativeMaximum = std::min(NativeMaximum, Boundary);
+                        }
+                        RoughnessLimited = NativeMinimum != Control.Minimum || NativeMaximum != Control.Maximum;
+                    }
+                Supported = Supported && NativeMinimum <= NativeMaximum;
+                ImGui::BeginDisabled(!Supported);
+                const char *Unavailable = !Supported ? "This recipe parameter is retained, but its procedural shader family is not ported yet." :
+                    RoughnessLimited ? "The native preview supports roughness of 0.045 or higher; this control is bounded to valid physical values." : nullptr;
+                if (ConstructProperty(Control.Caption.c_str(), NativeMinimum, NativeMaximum, Position,
+                    Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable))
+                {
+                    bool PaintChanged = false;
+                    const auto ApplyTarget = [&](const std::string &Key, float Coefficient)
+                    {
+                        if (Definition.Scattering.Paint.Configuration[3] && Key == "flakeLayers")
+                        {
+                            Definition.Scattering.Paint.Configuration[1] = uint32_t(std::clamp(std::round(Coefficient), 1.f, 4.f));
+                            PaintChanged = true;
+                            return;
+                        }
+                        if (Definition.Scattering.Paint.Configuration[3] && QueryPaintCoefficient(Definition.Scattering.Paint, Key))
+                        {
+                            *QueryPaintCoefficient(Definition.Scattering.Paint, Key) = Coefficient;
+                            PaintChanged = true;
+                            return;
+                        }
+                        if (const auto Pool = QueryRecipePoolLocation(Definition, Key))
+                        {
+                            // 📝 Recipe sliders drive the shared pool, so every linked channel rebakes from
+                            // one gesture. The roughness ceiling scalar follows the pool to preserve the
+                            // ORM scale.
+                            Changed = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, Key, Coefficient) || Changed;
+                            if (Key == "roughness")
+                            {
+                                float Lift = .3f;
+                                for (const auto &Entry : Definition.StratumChannels[Pool->Stratum])
+                                    if (Entry.Name == Pool->Channel) Lift = QueryProceduralOpCeilingLift(Entry.Op);
+                                Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "Roughness", std::min(1.f, Coefficient + Lift)) || Changed;
+                            }
+                            ProceduralDirty = true;
+                            return;
+                        }
+                        const uint32_t Index = Key.starts_with("coat") ? 1 : 0;
+                        const char *Field = Key == "roughness" || Key == "coatRoughness" ? "Roughness" :
+                            Key == "metalness" ? "Metallic" : Key == "ior" || Key == "coatIor" ? "Ior" :
+                            Key == "coat" ? "Coverage" : Key == "specular" ? "Specular" :
+                            Key == "heightStrength" ? "HeightStrength" :
+                            Key == "normalStrength" ? "NormalStrength" : "Anisotropy";
+                        Changed = Library.ConfigureStratumCoefficient(Index, Field,
+                            std::string_view(Field) == "Roughness" ? std::max(.045f, Coefficient) : Coefficient) || Changed;
+                    };
+                    if (Control.Direct)
+                        ApplyTarget(Control.Key, Position);
+                    else
+                        for (const auto &Target : Control.Targets)
+                        {
+                            const float Coefficient = Target.Minimum + Position * (Target.Maximum - Target.Minimum);
+                            ApplyTarget(Target.Key, Target.Integer ? std::round(Coefficient) : Coefficient);
+                        }
+                    if (PaintChanged) Changed = Library.ConfigurePaint(Definition.Scattering.Paint) || Changed;
+                }
+                ImGui::EndDisabled();
+                if (!Control.Hint.empty() && Supported)
+                {
+                    ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 2 * Scale, 8 * Scale,
+                        0x7b7b6b, Control.Hint.c_str());
+                    ImGui::Dummy(ImVec2(1, 14 * Scale));
+                }
+            };
             for (const auto &Group : Groups)
             {
-                std::vector<const MaterialRecipeControl *> Controls;
-                if (Entry)
-                    for (const auto &Control : Entry->RecipeControls) if (Control.Group == Group) Controls.push_back(&Control);
-                const bool Finish = Group == "finish", Flakes = Group == "flakes" && Definition.Scattering.Paint.Configuration[3];
+                std::vector<const MaterialRecipeControl *> GroupControls;
+                for (const auto &Control : Controls) if (Control.Group == Group) GroupControls.push_back(&Control);
+                const bool Finish = Group == "finish";
+                const bool Flakes = Group == "flakes" && Definition.Scattering.Paint.Configuration[3];
+                const bool Scratches = Group == "scratches";
                 const uint32_t PaletteColumns = uint32_t(std::max(1.f, std::floor((CardWidth / Scale - 28) / 29)));
                 const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
-                const float ControlsTop = Finish ? 140 : Flakes ?
-                    (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
-                const float Rows = float((Controls.empty() && Finish ? 3 : Controls.size()) + (Finish ? 3 : 0));
+                const float ControlsTop = Finish ? (Colours.empty() ? 62 : 62 + float(Colours.size()) * 46) :
+                    Flakes ? (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
+                const float Rows = float((GroupControls.empty() && Finish ? 3 : GroupControls.size()) + (Finish ? 3 : 0));
                 const bool Collapsed = FoldedInspectorCards.contains(Group);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
                 PixelSpace Surface;
@@ -821,10 +1006,15 @@ void MaterialLibraryPanel::ConstructInspector()
                 ControlKit::ConfigurePalette(CardPalette);
                 (void)ControlKit::SectionCard(Surface, {Start.x / Scale, CardY / Scale, (Start.x + CardWidth) / Scale, (CardY + CardHeight) / Scale}, 23);
                 ControlKit::ConfigurePalette(SavedPalette);
-                ConstructIcon(Finish ? IconSymbol::EditorSliders : Flakes ? IconSymbol::TextureFlakes : IconSymbol::TextureClearcoat,
+                ConstructIcon(Finish ? IconSymbol::EditorSliders : Flakes ? IconSymbol::TextureFlakes :
+                    Scratches ? IconSymbol::EditorTexture : IconSymbol::TextureClearcoat,
                     Start.x + 17 * Scale, CardY + 18 * Scale, 16 * Scale);
                 ConstructMaterialCaption(Start.x + 42 * Scale, CardY + 20 * Scale, 11 * Scale, 0xcacabd,
-                    Finish ? "Color & finish" : Flakes ? "Metallic flakes" : Group == "detail" ? "Surface detail" : Group.c_str());
+                    Finish ? (Entry && Entry->Category == "Paint" ? "Paint color & finish" : "Color & finish") :
+                    Flakes ? "Metallic flakes" : Scratches ? (Profile && Profile->SupportsMetalScratches ? "Metal scratches" : "Scratches") :
+                    Group == "detail" ? "Surface detail" : Group == "construction" ? "Construction" :
+                    Group == "grains" ? "Sand grains" : Group == "strata" ? "Sediment bands" : Group.c_str(),
+                    static_cast<ImFont *>(HeadingTypeface));
                 ImGui::PushID(Group.c_str());
                 ImGui::SetCursorScreenPos(ImVec2(Start.x + 6 * Scale, CardY + 6 * Scale));
                 if (ImGui::InvisibleButton("Fold inspector card", ImVec2(CardWidth - 12 * Scale, 39 * Scale)))
@@ -841,421 +1031,92 @@ void MaterialLibraryPanel::ConstructInspector()
                     ImGui::Dummy(ImVec2(CardWidth, 1));
                     continue;
                 }
+                ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 52 * Scale));
                 if (Finish)
                 {
-                    ConstructMaterialCaption(Start.x + 17 * Scale, CardY + 55 * Scale, 10 * Scale, 0xa3a393,
-                        Entry && Entry->Category == "Paint" ? "Paint color" : "Surface color");
-                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 75 * Scale));
-                    ImGui::SetNextItemWidth(CardWidth - 34 * Scale);
-                    auto &Albedo = Definition.Scattering.Illumination.Strata[0].AlbedoRoughness;
-                    float Spectrum[3]{};
-                    for (size_t Channel = 0; Channel < 3; ++Channel)
-                        Spectrum[Channel] = Albedo[Channel] <= .0031308f ? 12.92f * Albedo[Channel] : 1.055f * std::pow(Albedo[Channel], 1.f / 2.4f) - .055f;
-                    if (ImGui::ColorEdit3("##Colour", Spectrum, ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                    for (const auto &[Key, Label] : Colours) RenderColourField(Key, Label);
+                    for (const auto *Control : GroupControls) RenderControl(*Control);
+                    // 📝 Materials with no ported recipe profile (a fresh or unrecognised material) keep
+                    // the generic structured scalars, so their physical coefficients stay editable.
+                    if (!Profile)
                     {
-                        std::array<float, 3> Linear{};
-                        for (size_t Channel = 0; Channel < 3; ++Channel)
-                            Linear[Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f : std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
-                        Changed = Library.ConfigureStratumColour(0, Linear) || Changed;
+                        auto &Stratum = Definition.Scattering.Illumination.Strata[0];
+                        if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
+                        if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "Metallic", Stratum.Optics[0]) || Changed;
+                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[0][0]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "Anisotropy", Definition.Scattering.DirectionalOptics[0][0]) || Changed;
+                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[0][3]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "Specular", Definition.Scattering.DirectionalOptics[0][3]) || Changed;
+                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[0][0]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "NormalStrength", Definition.Scattering.StratumNormal[0][0]) || Changed;
+                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[0][1]))
+                            Changed = Library.ConfigureStratumCoefficient(0, "HeightStrength", Definition.Scattering.StratumNormal[0][1]) || Changed;
                     }
+                    ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
+                        0x7b7b6b, "Material-specific ranges. Physical values stay in balance.");
                 }
-                if (Flakes)
+                else if (Scratches)
                 {
-                    auto &Paint = Definition.Scattering.Paint;
-                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 52 * Scale));
-                    bool Enabled = Paint.Configuration[0] != 0;
-                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 50 * Scale));
-                    if (ConstructMaterialToggle("Procedural paint", Enabled, Scale))
+                    // 📝 Toggle, not a checkbox: the overlay is opt-in and the base finish stays unchanged.
+                    bool Enabled = ScratchesEnabled;
+                    const auto ToggleOrigin = ImGui::GetCursorScreenPos();
+                    ScratchExtent = {ToggleOrigin.x, ToggleOrigin.y, ToggleOrigin.x + 132 * Scale,
+                        ToggleOrigin.y + 30 * Scale};
+                    if (ConstructMaterialToggle("Enable scratches", Enabled, Scale))
                     {
-                        Paint.Configuration[0] = Enabled ? 1 : 0;
-                        Changed = Library.ConfigurePaint(Paint) || Changed;
-                    }
-                    ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + 82 * Scale));
-                    ImGui::SetNextItemWidth(CardWidth - 34 * Scale);
-                    const char *ModeOptions[]{"Palette", "Ramp", "Single"};
-                    int Mode = int(Paint.Configuration[2]);
-                    if (ConstructMaterialSelection("Paint colour mode", ModeOptions[Mode], ModeOptions, 3, Mode, Scale))
                     {
-                        Paint.Configuration[2] = uint32_t(Mode);
-                        if (Mode == 1) std::stable_sort(Paint.Palette.begin(), Paint.Palette.begin() + Paint.Configuration[3],
-                            [](const auto &First, const auto &Second) { return First[3] < Second[3]; });
-                        Changed = Library.ConfigurePaint(Paint) || Changed;
-                    }
-                    const uint32_t PaletteCount = Paint.Configuration[3];
-                    const uint32_t VisibleColours = Mode == 2 ? std::min(1u, PaletteCount) : PaletteCount;
-                    const float PaletteY = CardY + 116 * Scale;
-                    if (Mode == 1 && PaletteCount > 1)
-                    {
-                        const float StripWidth = CardWidth - 34 * Scale;
-                        const float StripHeight = 20 * Scale;
-                        const ImVec2 StripMinimum(Start.x + 17 * Scale, PaletteY);
-                        auto *Ink = ImGui::GetWindowDrawList();
-                        for (uint32_t Index = 1; Index < PaletteCount; ++Index)
+                        ScratchesEnabled = Enabled;
+                        bool Written = false;
+                        if (Enabled)
                         {
-                            const float FirstPosition = std::clamp(Paint.Palette[Index - 1][3], 0.f, 1.f);
-                            const float SecondPosition = std::clamp(Paint.Palette[Index][3], FirstPosition, 1.f);
-                            const auto ToInk = [&](uint32_t Stop)
+                            // 📝 Value-only metals carry no channel yet, so the overlay attaches the
+                            // scratch field to the relief and ORM slots; the Albedo scalar stays the
+                            // authored reflectance. Seeded params come from the recipe, which stages the
+                            // Alloy scratch defaults (density 6) for exactly this purpose.
+                            const bool HasField = std::any_of(Definition.StratumChannels[0].begin(), Definition.StratumChannels[0].end(),
+                                [](const auto &Channel) { return !Channel.Op.empty() && Channel.Name != "Albedo"; });
+                            if (!HasField)
                             {
-                                const auto &Colour = Paint.Palette[Stop];
-                                return IM_COL32(int(std::pow(Colour[0], 1.f/2.2f) * 255), int(std::pow(Colour[1], 1.f/2.2f) * 255),
-                                    int(std::pow(Colour[2], 1.f/2.2f) * 255), 255);
-                            };
-                            Ink->AddRectFilledMultiColor(ImVec2(StripMinimum.x + FirstPosition * StripWidth, StripMinimum.y),
-                                ImVec2(StripMinimum.x + SecondPosition * StripWidth, StripMinimum.y + StripHeight),
-                                ToInk(Index - 1), ToInk(Index), ToInk(Index), ToInk(Index - 1));
-                        }
-                        ImGui::SetCursorScreenPos(StripMinimum);
-                        ImGui::InvisibleButton("Ramp gradient preview", ImVec2(StripWidth, StripHeight));
-                        ConstructMaterialCaption(StripMinimum.x, StripMinimum.y + 25 * Scale, 8 * Scale, 0xa3a393,
-                            "Gradient stops below · select a swatch to edit its colour");
-                    }
-                    for (uint32_t Index = 0; Index < VisibleColours; ++Index)
-                    {
-                        ImGui::PushID(int(Index));
-                        const float SwatchWidth = 29 * Scale;
-                        const float SwatchX = Start.x + (17 + Index * 34) * Scale;
-                        const float SwatchY = PaletteY + (Mode == 1 && PaletteCount > 1 ? 40 * Scale : 0);
-                        ImGui::SetCursorScreenPos(ImVec2(SwatchX, SwatchY));
-                        float Spectrum[3]{};
-                        for (size_t Channel = 0; Channel < 3; ++Channel)
-                        {
-                            const float Linear = Paint.Palette[Index][Channel];
-                            Spectrum[Channel] = Linear <= .0031308f ? 12.92f * Linear : 1.055f * std::pow(Linear, 1.f / 2.4f) - .055f;
-                        }
-                        if (ImGui::ColorEdit3("##Flake tint", Spectrum, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs |
-                            ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoTooltip))
-                        {
-                            for (size_t Channel = 0; Channel < 3; ++Channel)
-                                Paint.Palette[Index][Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
-                                    std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
-                            Changed = Library.ConfigurePaint(Paint) || Changed;
-                        }
-                        if (ImGui::IsItemHovered())
-                        {
-                            MaterialTooltipScope Scope(Scale);
-                            const int Red = int(Spectrum[0] * 255 + .5f), Green = int(Spectrum[1] * 255 + .5f), Blue = int(Spectrum[2] * 255 + .5f);
-                            const auto Preview = ImGui::GetCursorScreenPos();
-                            ImGui::Dummy(ImVec2(36 * Scale, 20 * Scale));
-                            ImGui::GetWindowDrawList()->AddRectFilled(Preview, ImVec2(Preview.x + 36 * Scale, Preview.y + 20 * Scale),
-                                IM_COL32(Red, Green, Blue, 255), 5 * Scale);
-                            ImGui::SameLine();
-                            char Hex[16];
-                            std::snprintf(Hex, sizeof(Hex), "#%02X%02X%02X", Red, Green, Blue);
-                            ImGui::TextUnformatted(Hex);
-                            ImGui::TextDisabled("R: %d G: %d B: %d", Red, Green, Blue);
-                            ImGui::TextDisabled("(%.2f, %.2f, %.2f)", Spectrum[0], Spectrum[1], Spectrum[2]);
-                        }
-                        if (Mode == 1 && PaletteCount > 1)
-                        {
-                            ImGui::SetCursorScreenPos(ImVec2(SwatchX, SwatchY + SwatchWidth + 2 * Scale));
-                            float Position = Paint.Palette[Index][3];
-                            ImGui::SetNextItemWidth(SwatchWidth);
-                            if (ImGui::DragFloat("##Ramp stop", &Position, .005f, 0, 1, "%.2f"))
+                                Written = Library.ConfigureStratumChannel(0, "Normal", "scratchedMetal") || Written;
+                                Written = Library.ConfigureStratumChannel(0, "Orm", "scratchedMetal") || Written;
+                                // 📝 Re-read after attaching: the pool lookup needs the fresh channel block,
+                                // and the recipe stages the Alloy scratch defaults for exactly this purpose.
+                                Definition = DecodeSurfaceMaterial(Library.QuerySource());
+                            }
+                            const auto Pool = QueryRecipePoolLocation(Definition, "scratchDensity");
+                            if (Pool)
                             {
-                                Paint.Palette[Index][3] = Position;
-                                std::stable_sort(Paint.Palette.begin(), Paint.Palette.begin() + PaletteCount,
-                                    [](const auto &First, const auto &Second) { return First[3] < Second[3]; });
-                                Changed = Library.ConfigurePaint(Paint) || Changed;
+                                const auto Staged = Entry ? Entry->Recipe.Scalars.find("scratchDensity") : Entry->Recipe.Scalars.end();
+                                Written = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, "scratchDensity",
+                                    Staged != Entry->Recipe.Scalars.end() ? Staged->second : 6.0) || Written;
                             }
                         }
-                        ImGui::PopID();
+                        else if (const auto Pool = QueryRecipePoolLocation(Definition, "scratchDensity"))
+                            Written = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, "scratchDensity", 0.0) || Written;
+                        Changed = Written || Changed;
+                        if (Written) ProceduralDirty = true;
                     }
+                    }
+                    ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 6 * Scale, 8 * Scale,
+                        0x7b7b6b, "Optional surface cuts. The base finish stays unchanged when off.");
+                    if (ScratchesEnabled)
+                        for (const auto *Control : GroupControls) RenderControl(*Control);
                 }
-                ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CardY + ControlsTop * Scale));
-                ImGui::BeginChild("Coefficients", ImVec2(std::max(20.f, CardWidth - 34 * Scale), Rows * 84 * Scale + 1), ImGuiChildFlags_None,
-                    ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                for (const auto *Control : Controls)
+                else
                 {
-                    float Position = Control->Position;
-                    bool Supported = !Control->Targets.empty();
-                    for (const auto &Target : Control->Targets) Supported = QueryRecipeCoefficient(Definition, Target.Key).has_value() && Supported;
-                    if (Supported)
+                    for (const auto *Control : GroupControls) RenderControl(*Control);
+                    if (Flakes)
                     {
-                        const auto &Target = Control->Targets.front();
-                        const float Coefficient = *QueryRecipeCoefficient(Definition, Target.Key);
-                        Position = Control->Direct ? Coefficient : std::abs(Target.Maximum - Target.Minimum) > .000001f ?
-                            std::clamp((Coefficient - Target.Minimum) / (Target.Maximum - Target.Minimum), 0.f, 1.f) : Control->Position;
+                        ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
+                            0x7b7b6b, "Object-space particles. Filtered on the GPU.");
                     }
-                    float NativeMinimum = Control->Minimum, NativeMaximum = Control->Maximum;
-                    bool RoughnessLimited = false;
-                    for (const auto &Target : Control->Targets)
-                        if (Target.Key == "roughness" || Target.Key == "coatRoughness")
-                        {
-                            if (Control->Direct) NativeMinimum = std::max(NativeMinimum, .045f);
-                            else if (std::abs(Target.Maximum - Target.Minimum) > .000001f)
-                            {
-                                const float Boundary = (.045f - Target.Minimum) / (Target.Maximum - Target.Minimum);
-                                if (Target.Maximum > Target.Minimum) NativeMinimum = std::max(NativeMinimum, Boundary);
-                                else NativeMaximum = std::min(NativeMaximum, Boundary);
-                            }
-                            RoughnessLimited = NativeMinimum != Control->Minimum || NativeMaximum != Control->Maximum;
-                        }
-                    Supported = Supported && NativeMinimum <= NativeMaximum;
-                    ImGui::BeginDisabled(!Supported);
-                    const char *Unavailable = !Supported ? "This recipe parameter is retained, but its procedural shader family is not ported yet." :
-                        RoughnessLimited ? "The native preview supports roughness of 0.045 or higher; this control is bounded to valid physical values." : nullptr;
-                    if (ConstructProperty(Control->Caption.c_str(), NativeMinimum, NativeMaximum, Position,
-                        Control->Direct ? Control->Unit.c_str() : "%", Control->Logarithmic, Control->Step, Unavailable))
-                    {
-                        bool PaintChanged = false;
-                        for (const auto &Target : Control->Targets)
-                        {
-                            const float Coefficient = Control->Direct ? Position : Target.Minimum + Position * (Target.Maximum - Target.Minimum);
-                            if (Definition.Scattering.Paint.Configuration[3] && Target.Key == "flakeLayers")
-                            {
-                                Definition.Scattering.Paint.Configuration[1] = uint32_t(std::clamp(std::round(Coefficient), 1.f, 4.f));
-                                PaintChanged = true;
-                            }
-                            else if (Definition.Scattering.Paint.Configuration[3] && QueryPaintCoefficient(Definition.Scattering.Paint, Target.Key))
-                            {
-                                *QueryPaintCoefficient(Definition.Scattering.Paint, Target.Key) = Coefficient;
-                                PaintChanged = true;
-                            }
-                            else if (const auto Pool = QueryRecipePoolLocation(Definition, Target.Key))
-                            {
-                                // 📝 Recipe sliders drive the shared pool, so every linked channel rebakes from one
-                                // gesture. The roughness ceiling scalar follows the pool to preserve the ORM scale.
-                                Changed = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, Target.Key, Coefficient) || Changed;
-                                if (Target.Key == "roughness")
-                                {
-                                    float Lift = .3f;
-                                    for (const auto &Entry : Definition.StratumChannels[Pool->Stratum])
-                                        if (Entry.Name == Pool->Channel) Lift = QueryProceduralOpCeilingLift(Entry.Op);
-                                    Changed = Library.ConfigureStratumCoefficient(Pool->Stratum, "Roughness", std::min(1.f, Coefficient + Lift)) || Changed;
-                                }
-                                ProceduralDirty = true;
-                            }
-                            else
-                            {
-                                const uint32_t Index = Target.Key.starts_with("coat") ? 1 : 0;
-                                const char *Field = Target.Key == "roughness" || Target.Key == "coatRoughness" ? "Roughness" :
-                                    Target.Key == "metalness" ? "Metallic" : Target.Key == "ior" || Target.Key == "coatIor" ? "Ior" :
-                                    Target.Key == "coat" ? "Coverage" : Target.Key == "specular" ? "Specular" :
-                                    Target.Key == "heightStrength" ? "HeightStrength" :
-                                    Target.Key == "normalStrength" ? "NormalStrength" : "Anisotropy";
-                                Changed = Library.ConfigureStratumCoefficient(Index, Field, std::string_view(Field) == "Roughness" ? std::max(.045f, Coefficient) : Coefficient) || Changed;
-                            }
-                        }
-                        if (PaintChanged) Changed = Library.ConfigurePaint(Definition.Scattering.Paint) || Changed;
-                    }
-                    ImGui::EndDisabled();
                 }
-                if (Controls.empty() && Finish)
-                {
-                    auto &Stratum = Definition.Scattering.Illumination.Strata[0];
-                    if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3])) Changed = Library.ConfigureStratumCoefficient(0, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                    if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0])) Changed = Library.ConfigureStratumCoefficient(0, "Metallic", Stratum.Optics[0]) || Changed;
-                    if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[0][0])) Changed = Library.ConfigureStratumCoefficient(0, "Anisotropy", Definition.Scattering.DirectionalOptics[0][0]) || Changed;
-                }
-                if (Finish)
-                {
-                    auto &Specular = Definition.Scattering.DirectionalOptics[0][3];
-                    auto &NormalStrength = Definition.Scattering.StratumNormal[0][0];
-                    auto &HeightStrength = Definition.Scattering.StratumNormal[0][1];
-                    if (ConstructProperty("Specular", 0.f, 1.f, Specular))
-                        Changed = Library.ConfigureStratumCoefficient(0, "Specular", Specular) || Changed;
-                    if (ConstructProperty("Normal strength", 0.f, 4.f, NormalStrength))
-                        Changed = Library.ConfigureStratumCoefficient(0, "NormalStrength", NormalStrength) || Changed;
-                    if (ConstructProperty("Height strength", 0.f, 4.f, HeightStrength))
-                        Changed = Library.ConfigureStratumCoefficient(0, "HeightStrength", HeightStrength) || Changed;
-                }
-                ImGui::EndChild();
-                ConstructMaterialCaption(Start.x + 17 * Scale, CardY + CardHeight - 29 * Scale, 8 * Scale, 0x7b7b6b,
-                    Finish ? "Material-specific ranges. Physical values stay in balance." : Flakes ? "Object-space particles. Filtered on the GPU." : "Independent surface and clearcoat detail.");
                 ImGui::PopID();
                 CardY += CardHeight + 15 * Scale;
                 ImGui::SetCursorScreenPos(ImVec2(Start.x, CardY));
                 ImGui::Dummy(ImVec2(CardWidth, 1));
-            }
-            // 📝 Layer stack shares the scroll: per-layer cards with add/remove, channel routing dropdowns,
-            // and procedural op controls with link/fork/merge pool management.
-            const uint32_t Strata = Definition.Scattering.Illumination.Configuration[0];
-            ImGui::SetCursorScreenPos(ImVec2(Start.x + 3 * Scale, CardY + 8 * Scale));
-            ImGui::TextDisabled("LAYER STACK");
-            {
-                const float AddWidth = 110 * Scale;
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - AddWidth);
-                ImGui::BeginDisabled(Strata >= 8);
-                if (ImGui::Button("Add layer", ImVec2(AddWidth, 0)) && Library.InsertStratum(Strata)) Changed = true;
-                ImGui::EndDisabled();
-                LayerExtents["add-layer"] = {ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
-                    ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y};
-            }
-            bool StrataMutated = false;
-            for (uint32_t Index = 0; Index < Strata && !StrataMutated; ++Index)
-            {
-                ImGui::PushID(int(Index));
-                auto &Stratum = Definition.Scattering.Illumination.Strata[Index];
-                const bool Coat = Stratum.Classification[0] != 0;
-                ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16 * Scale);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 13 * Scale));
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.082f,.082f,.086f,1));
-                ImGui::BeginChild("Material layer card", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                ImGui::ColorButton("##Swatch", ImVec4(Stratum.AlbedoRoughness[0], Stratum.AlbedoRoughness[1],
-                    Stratum.AlbedoRoughness[2], 1), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker, ImVec2(14 * Scale, 14 * Scale));
-                ImGui::SameLine();
-                ImGui::Text("%02u %s", Index + 1, Coat ? "Clearcoat" : "Surface");
-                ImGui::SameLine();
-                ImGui::TextDisabled("%.0f%%", Coat ? Stratum.Optics[2] * 100 : 100);
-                if (Strata > 1)
-                {
-                    const float RemoveWidth = 76 * Scale;
-                    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - RemoveWidth);
-                    if (ImGui::Button("Remove", ImVec2(RemoveWidth, 0)) && Library.RemoveStratum(Index))
-                    {
-                        Changed = true;
-                        StrataMutated = true;
-                    }
-                }
-                ImGui::Separator();
-                if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
-                    Changed = Library.ConfigureStratumCoefficient(Index, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                if (Coat)
-                {
-                    if (ConstructProperty("Coverage", 0.f, 1.f, Stratum.Optics[2]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "Coverage", Stratum.Optics[2]) || Changed;
-                }
-                else if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
-                    Changed = Library.ConfigureStratumCoefficient(Index, "Metallic", Stratum.Optics[0]) || Changed;
-                if (!Coat)
-                {
-                    if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Index][3]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "Specular", Definition.Scattering.DirectionalOptics[Index][3]) || Changed;
-                    if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][0]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "NormalStrength", Definition.Scattering.StratumNormal[Index][0]) || Changed;
-                    if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Index][1]))
-                        Changed = Library.ConfigureStratumCoefficient(Index, "HeightStrength", Definition.Scattering.StratumNormal[Index][1]) || Changed;
-                }
-                static constexpr const char *ChannelNames[4] = {"Albedo", "Orm", "Normal", "Radiance"};
-                for (uint32_t Slot = 0; Slot < 4; ++Slot)
-                {
-                    ImGui::PushID(ChannelNames[Slot]);
-                    const auto &Channels = Definition.StratumChannels[Index];
-                    const auto Channel = std::find_if(Channels.begin(), Channels.end(),
-                        [&](const auto &Entry) { return Entry.Name == ChannelNames[Slot]; });
-                    const bool Procedural = Channel != Channels.end() && !Channel->Op.empty();
-                    const std::string &Source = Definition.StratumTextureSources[Index][Slot];
-                    const bool File = !Procedural && !Source.empty() && !Source.starts_with("procedural/");
-                    std::vector<std::string> Options = {"Off"};
-                    if (File) Options.emplace_back("Texture file");
-                    for (const auto &Op : QueryProceduralOps())
-                        if (const auto Supported = QueryProceduralOpChannels(Op);
-                            std::find(Supported.begin(), Supported.end(), ChannelNames[Slot]) != Supported.end())
-                            Options.emplace_back("Procedural: " + Op);
-                    std::vector<const char *> Labels;
-                    for (const auto &Option : Options) Labels.push_back(Option.c_str());
-                    int Selection = 0;
-                    if (Procedural)
-                        Selection = int(std::find(Options.begin(), Options.end(), "Procedural: " + Channel->Op) - Options.begin());
-                    else if (File) Selection = 1;
-                    if (ConstructMaterialSelection(ChannelNames[Slot], Labels[size_t(Selection)], Labels.data(), int(Labels.size()), Selection, Scale))
-                    {
-                        const std::string &Choice = Options[size_t(Selection)];
-                        const std::string Op = Choice.starts_with("Procedural: ") ? Choice.substr(12) : "";
-                        if (Library.ConfigureStratumChannel(Index, ChannelNames[Slot], Op))
-                        {
-                            Changed = true;
-                            if (!Op.empty() && Library.RebakeProcedurals(512))
-                            {
-                                PendingLivePreviewApply = false;
-                                Rebaked = true;
-                            }
-                        }
-                    }
-                    if (Procedural)
-                    {
-                        uint32_t Linked = 0;
-                        for (uint32_t Other = 0; Other < Strata; ++Other)
-                            for (const auto &Entry : Definition.StratumChannels[Other])
-                                if (Entry.Op == Channel->Op && Entry.Link == Channel->Link) ++Linked;
-                        char Header[96];
-                        std::snprintf(Header, sizeof Header, "Procedural - %s (shared x%u)", Channel->Op.c_str(), Linked);
-                        if (ImGui::TreeNode(Header))
-                        {
-                            ImGui::TextDisabled("Pool %s.%s", Channel->Op.c_str(),
-                                Channel->Link.empty() ? "shared" : Channel->Link.c_str());
-                            ImGui::SameLine();
-                            if (ImGui::Button("Fork") && Library.ForkProceduralChannel(Index, ChannelNames[Slot])) Changed = true;
-                            std::vector<std::pair<uint32_t,std::string>> Peers;
-                            std::vector<std::string> PeerLabels = {"Merge into..."};
-                            for (uint32_t Other = 0; Other < Strata; ++Other)
-                                for (uint32_t Entry = 0; Entry < Definition.StratumChannels[Other].size(); ++Entry)
-                                {
-                                    const auto &Candidate = Definition.StratumChannels[Other][Entry];
-                                    if (Candidate.Op != Channel->Op || Candidate.Link == Channel->Link) continue;
-                                    if (Other == Index && Candidate.Name == ChannelNames[Slot]) continue;
-                                    Peers.emplace_back(Other, Candidate.Name);
-                                    char Caption[64];
-                                    std::snprintf(Caption, sizeof Caption, "Layer %u - %s", Other + 1, Candidate.Name.c_str());
-                                    PeerLabels.emplace_back(Caption);
-                                }
-                            if (Peers.size() > 0)
-                            {
-                                std::vector<const char *> PeerOptions;
-                                for (const auto &Peer : PeerLabels) PeerOptions.push_back(Peer.c_str());
-                                int Peer = 0;
-                                if (ConstructMaterialSelection("Merge", PeerOptions[0], PeerOptions.data(), int(PeerOptions.size()), Peer, Scale) && Peer > 0)
-                                {
-                                    const auto &Donor = Peers[size_t(Peer) - 1];
-                                    if (Library.MergeProceduralChannel(Index, ChannelNames[Slot], Donor.first, Donor.second))
-                                        Changed = true;
-                                }
-                            }
-                            for (const auto &Param : QueryProceduralOpParams(Channel->Op))
-                            {
-                                float Value = Param.Default;
-                                if (const auto Found = Channel->Params.find(Param.Key); Found != Channel->Params.end())
-                                    Value = float(Found->second);
-                                if (ConstructProperty(Param.Label, Param.Minimum, Param.Maximum, Value, Param.Unit, Param.Logarithmic, Param.Step)
-                                    && Library.ConfigureProceduralParam(Index, ChannelNames[Slot], Param.Key, Value))
-                                {
-                                    Changed = true;
-                                    ProceduralDirty = true;
-                                }
-                            }
-                            // 📝 Coded-field palettes: sRGB hex texts edited in place; the pool edit recolours
-                            // every linked channel, and the settle-gated rebake below repaints the preview.
-                            for (const auto &TextParam : QueryProceduralOpTextParams(Channel->Op))
-                            {
-                                ImGui::PushID(TextParam.Key);
-                                std::string_view Hex = TextParam.Default;
-                                if (const auto Found = Channel->Texts.find(TextParam.Key); Found != Channel->Texts.end())
-                                    Hex = Found->second;
-                                float Spectrum[3]{1, 1, 1};
-                                if (Hex.size() == 7 && Hex[0] == '#')
-                                    for (size_t Component = 0; Component < 3; ++Component)
-                                        Spectrum[Component] = float(std::strtoul(std::string(Hex.substr(1 + Component * 2, 2)).c_str(), nullptr, 16)) / 255.f;
-                                ImGui::TextDisabled("%s", TextParam.Label);
-                                ImGui::SameLine();
-                                if (ImGui::ColorEdit3("##PaletteColour", Spectrum, ImGuiColorEditFlags_DisplayHex |
-                                        ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
-                                {
-                                    char Encoded[8];
-                                    std::snprintf(Encoded, sizeof Encoded, "#%02x%02x%02x",
-                                        unsigned(std::lround(std::clamp(Spectrum[0], 0.f, 1.f) * 255.f)),
-                                        unsigned(std::lround(std::clamp(Spectrum[1], 0.f, 1.f) * 255.f)),
-                                        unsigned(std::lround(std::clamp(Spectrum[2], 0.f, 1.f) * 255.f)));
-                                    if (Library.ConfigureProceduralText(Index, ChannelNames[Slot], TextParam.Key, Encoded))
-                                    {
-                                        Changed = true;
-                                        ProceduralDirty = true;
-                                    }
-                                }
-                                ImGui::PopID();
-                            }
-                            ImGui::TreePop();
-                        }
-                    }
-                    ImGui::PopID();
-                }
-                ImGui::EndChild();
-                LayerExtents["layer-" + std::to_string(Index + 1)] = {ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
-                    ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y};
-                ImGui::PopStyleColor();
-                ImGui::PopStyleVar(2);
-                ImGui::Dummy(ImVec2(1, 10 * Scale));
-                ImGui::PopID();
             }
         }
         if (Changed)

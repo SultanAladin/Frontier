@@ -46,7 +46,8 @@ target_include_directories(FrontierImGui PUBLIC "${IMGUI_ROOT}")
 target_compile_definitions(FrontierImGui PUBLIC "ImDrawIdx=unsigned int")
 add_library(FrontierTextFiles STATIC Engine/Interface/TextFileReplacement.cpp)
 target_include_directories(FrontierTextFiles PUBLIC "${CMAKE_SOURCE_DIR}")
-add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLibrary.cpp)
+add_library(FrontierMaterialLibrary STATIC Engine/ContentInterchange/MaterialLibrary.cpp
+    Engine/ContentInterchange/MaterialRecipeProfiles.cpp)
 target_include_directories(FrontierMaterialLibrary PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierMaterialLibrary PUBLIC FrontierSurfaceRasterization FrontierTextFiles)

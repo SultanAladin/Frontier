@@ -294,7 +294,10 @@ int main(int ArgumentCount, char **Arguments)
             else if (RecipeId == "clay" && BakeChannels(Entry, Textures, "clay", {"Albedo", "Normal"})) ++Baked;
             else if (RecipeId == "led" && BakeChannels(Entry, Textures, "led", {"Albedo", "Normal", "Radiance"})) ++Baked;
             else if (RecipeId == "fruitSurface" && BakeChannels(Entry, Textures, "fruit", {"Albedo", "Normal"})) ++Baked;
-            else if ((RecipeId == "bareMetal" || RecipeId == "polishedMetal" || RecipeId == "brushedMetal") &&
+            // 📝 Pure conductors (bareMetal) ship values only: no baked channels, so the shared baker
+            // skips them entirely. Their optional scratch overlay attaches at authoring time.
+            else if (RecipeId == "bareMetal") continue;
+            else if ((RecipeId == "polishedMetal" || RecipeId == "brushedMetal") &&
                 BakeChannels(Entry, Textures, "scratchedMetal", {"Albedo", "Orm", "Normal"}))
                 ++Baked;
             else if (RecipeId == "brake" && BakeChannels(Entry, Textures, "latheMetal", {"Albedo", "Orm", "Normal"})) ++Baked;

@@ -973,6 +973,34 @@ std::vector<ProceduralOpParam> QueryProceduralOpParams(std::string_view Op)
             {"sheetOxidation", "Weathering", 0, 1, .1f, false, "", .01f},
             {"roughness", "Surface roughness", .045f, 1, .4f, false, "", .01f},
             {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    // 📝 Machined-metal ranges mirror the Alloy scratch study plus the bare-metal tooth and the lathe
+    // ring depth. The inspector renders these, and a newly attached field seeds its block from them.
+    if (Op == "scratchedMetal")
+        return {{"grain", "Surface tooth", 0, 1, .25f, false, "", .01f},
+            {"detailScale", "Machining scale", 4, 256, 65, false, "x", 1},
+            {"roughness", "Surface roughness", .045f, 1, .23f, false, "", .01f},
+            {"scratchDensity", "Scratch density", 0, 12, 6, false, "", .1f},
+            {"scratchLength", "Scratch length", .1f, 1.65f, 1.15f, false, "", .01f},
+            {"scratchWidth", "Scratch width", .002f, .035f, .012f, false, "", .001f},
+            {"scratchDepth", "Scratch depth", 0, .006f, .0018f, false, "", .0001f},
+            {"scratchSpread", "Direction spread", 0, 1, .8f, false, "", .01f},
+            {"scratchBend", "Scratch curvature", 0, .7f, .42f, false, "", .01f},
+            {"scratchScale", "Field scale", .01f, 1000, 6, true, "x", .01f},
+            {"angle", "Preferred direction", -180, 180, 25, false, "deg", 1},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
+    if (Op == "latheMetal")
+        return {{"depth", "Ring depth", 0, .4f, .2f, false, "scene units", .01f},
+            {"detailScale", "Machining scale", 4, 256, 65, false, "x", 1},
+            {"roughness", "Surface roughness", .045f, 1, .23f, false, "", .01f},
+            {"scratchDensity", "Scratch density", 0, 12, 6, false, "", .1f},
+            {"scratchLength", "Scratch length", .1f, 1.65f, 1.15f, false, "", .01f},
+            {"scratchWidth", "Scratch width", .002f, .035f, .012f, false, "", .001f},
+            {"scratchDepth", "Scratch depth", 0, .006f, .0018f, false, "", .0001f},
+            {"scratchSpread", "Direction spread", 0, 1, .8f, false, "", .01f},
+            {"scratchBend", "Scratch curvature", 0, .7f, .42f, false, "", .01f},
+            {"scratchScale", "Field scale", .01f, 1000, 6, true, "x", .01f},
+            {"angle", "Preferred direction", -180, 180, 25, false, "deg", 1},
+            {"surfaceSeed", "Pattern seed", 0, 9999, 17, false, "", 1}};
     // 📝 Coded-field ranges mirror the HTML generator sheet (MaterialPanel GeneratorInputs limits).
     if (QueryCodedField(Op))
     {

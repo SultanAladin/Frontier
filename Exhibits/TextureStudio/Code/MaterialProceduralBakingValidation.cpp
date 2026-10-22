@@ -982,7 +982,9 @@ int main()
             }
             return Fresh;
         };
-        static const std::set<std::string> LibraryMetalIds{"bareMetal", "polishedMetal", "brushedMetal"};
+        // 📝 Pure conductors are value-only: no baked channels, so only the machined/polished families
+        // carry a scratch-field bake. Their optional overlay attaches at authoring time.
+        static const std::set<std::string> LibraryMetalIds{"polishedMetal", "brushedMetal"};
         size_t PinnedTextures = 0, SolarEntries = 0, GolfEntries = 0, StuccoEntries = 0, MetalEntries = 0,
                BrakeEntries = 0, ClayEntries = 0, LedEntries = 0, FruitEntries = 0;
         for (const auto &Entry : Library.QueryEntries())
@@ -1047,10 +1049,11 @@ int main()
                 ++PinnedTextures;
             }
         }
-        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 21 && BrakeEntries == 1 &&
+        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 2 && BrakeEntries == 1 &&
                 ClayEntries == 4 && LedEntries == 2 && FruitEntries == 1,
             "Disputed-family entry count changed.");
-        Confirm(PinnedTextures == 141, "Baked texture family count changed.");
+        // 📝 19 pure conductors dropped their 57 baked textures: 141 - 57 = 84 committed maps.
+        Confirm(PinnedTextures == 84, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }
