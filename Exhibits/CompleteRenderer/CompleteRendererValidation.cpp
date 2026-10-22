@@ -39,6 +39,23 @@ Frontier::TriangleMesh MakeCube()
 int main()
 {
     using namespace Frontier;
+    ReferenceMaterial SmoothDielectric; SmoothDielectric.Albedo={0.7,0.7,0.7}; SmoothDielectric.Roughness=0.08;
+    ReferenceMaterial RoughDielectric=SmoothDielectric; RoughDielectric.Roughness=0.8;
+    const SpectrumRgb SmoothResponse = EvaluateReferenceBrdf(SmoothDielectric,{0,0,1},{0,0,1},{0,0,1});
+    const SpectrumRgb RoughResponse = EvaluateReferenceBrdf(RoughDielectric,{0,0,1},{0,0,1},{0,0,1});
+    Check(SmoothResponse.R > RoughResponse.R * 100.0, "ported GGX response narrows as roughness decreases");
+    ReferenceMaterial RedMetal; RedMetal.Albedo={0.9,0.05,0.02}; RedMetal.Metallic=1.0; RedMetal.Roughness=0.3;
+    const SpectrumRgb MetalResponse = EvaluateReferenceBrdf(RedMetal,{0,0,1},{0,0,1},{0,0,1});
+    Check(MetalResponse.R > MetalResponse.G * 10.0 && MetalResponse.G > MetalResponse.B,
+          "metallic Fresnel follows conductor albedo tint");
+    Check(EvaluateReferenceBrdf(SmoothDielectric,{0,0,1},{0,0,1},{0,0,-1}).R == 0.0,
+          "BRDF rejects a below-surface light");
+    ReferenceMaterial Oracle; Oracle.Albedo={0.7,0.6,0.5}; Oracle.Roughness=0.5;
+    const SpectrumRgb OracleValue=EvaluateReferenceBrdf(Oracle,{0,0,1},{0,0,1},{0,0,1});
+    const double F0=0.04, ExpectedRed=F0/(4.0*3.14159265358979323846*0.5*0.5*0.5*0.5)+
+        (1.0-F0)*0.7/3.14159265358979323846;
+    Check(std::abs(OracleValue.R-ExpectedRed)<1e-12, "GGX + Smith + Schlick matches independent closed form");
+
     const CompleteFrameDeclaration Frame = DeclareCompleteFrame(160, 100, {true});
     ResolvedSubmissionOrder Order;
     std::string Diagnostic;
@@ -63,8 +80,8 @@ int main()
     Check(Atlas.TotalBytes > 0 && Atlas.TotalBytes < Atlas.UnaliasedBytes, "whole-frame transient targets alias safely");
 
     ReferenceScene Scene;
-    ReferenceMesh Ground; Ground.Geometry = MakeGround(); Ground.Albedo = {0.45,0.48,0.4};
-    ReferenceMesh Cube; Cube.Geometry = MakeCube(); Cube.Albedo = {0.8,0.25,0.1}; Cube.Translation = {0,4,0};
+    ReferenceMesh Ground; Ground.Geometry = MakeGround(); Ground.Material.Albedo = {0.45,0.48,0.4}; Ground.Material.Roughness = 0.8;
+    ReferenceMesh Cube; Cube.Geometry = MakeCube(); Cube.Material.Albedo = {0.8,0.25,0.1}; Cube.Material.Roughness = 0.36; Cube.Material.Metallic = 0.15; Cube.Translation = {0,4,0};
     Scene.Meshes = {Ground, Cube};
     Scene.Lights.push_back({ReferenceLight::Kind::Directional, {0.0,-0.4,0.916515}, {2.5,2.4,2.3}});
     Scene.Distance.AddPrimitive({DistancePrimitiveKind::HalfSpace,{0,0,0},{0,0,1},0.0});
@@ -94,6 +111,6 @@ int main()
     std::printf("reference frame: %ux%u, triangles %u/%u, surface pixels %u, mean luminance %.4f\n",
                 ImageA.Width, ImageA.Height, ImageA.Stats.TrianglesVisible, ImageA.Stats.TrianglesTotal,
                 ImageA.Stats.SurfacePixels, ImageA.Stats.MeanLuminance);
-    std::printf("complete renderer validation: %d passed, %d failed\n", 13-Failures, Failures);
+    std::printf("complete renderer validation: %d passed, %d failed\n", 17-Failures, Failures);
     return Failures == 0 ? 0 : 1;
 }

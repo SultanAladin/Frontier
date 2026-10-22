@@ -44,14 +44,30 @@ struct ReferenceLight
     SpectrumRgb   Radiance{1.0, 1.0, 1.0};   // Directional: radiance. Point: intensity (radiance * m^2).
 };
 
+struct ReferenceMaterial
+{
+    SpectrumRgb Albedo{0.8, 0.8, 0.8};
+    double      Roughness = 0.5;   // [-] - isotropic GGX perceptual roughness, [0,1]
+    double      Metallic = 0.0;    // [-] - dielectric-to-metal Fresnel blend, [0,1]
+    double      Ior = 1.5;         // [-] - dielectric relative index of refraction
+    double      SpecularLevel = 0.5; // [-] - upstream PreviewScattering dielectric level
+};
+
 struct ReferenceMesh
 {
-    TriangleMesh  Geometry;
-    SpectrumRgb   Albedo{0.8, 0.8, 0.8};
-    SpectrumRgb   Emissive{0.0, 0.0, 0.0};
-    SpatialVector Translation{};
-    double        Scale = 1.0;
+    TriangleMesh       Geometry;
+    ReferenceMaterial  Material{};
+    SpectrumRgb        Emissive{0.0, 0.0, 0.0};
+    SpatialVector      Translation{};
+    double             Scale = 1.0;
 };
+
+// Isotropic one-stratum port of upstream EvaluateScatteringReflection / the
+// non-environment path in MaterialSurface.slang. Returns the BRDF f_r [1/sr];
+// cosine (N·L) is applied by the direct-light integrator.
+[[nodiscard]] SpectrumRgb EvaluateReferenceBrdf(const ReferenceMaterial& Material,
+                                                SpatialVector Normal, SpatialVector View,
+                                                SpatialVector Light) noexcept;
 
 struct ReferenceScene
 {
@@ -127,7 +143,7 @@ class ReferenceRenderer
         TriangleMesh               WorldGeometry;
         std::vector<SpatialVector> Normals;   // smooth, per vertex
         ClusterNesting             Nesting;
-        SpectrumRgb                Albedo{};
+        ReferenceMaterial         Material{};
         SpectrumRgb                Emissive{};
     };
     ReferenceScene              Scene_;

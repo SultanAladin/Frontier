@@ -37,10 +37,10 @@ int main(int ArgumentCount, char** Arguments)
     const char* OutputPath = ArgumentCount > 1 ? Arguments[1] : "Exhibits/CompleteRenderer/Capture/reference-frame.ppm";
     const bool EnableIndirect = ArgumentCount <= 2 || std::strcmp(Arguments[2], "--direct-only") != 0;
     ReferenceScene Scene;
-    ReferenceMesh Ground; Ground.Geometry = Plane(180.0, 32); Ground.Albedo = {0.45,0.5,0.42};
-    ReferenceMesh Cube; Cube.Geometry = Box(1.0,1.0,1.0); Cube.Albedo = {0.75,0.35,0.25}; Cube.Translation = {0.0, 4.0, 1.0};
-    ReferenceMesh Ball; Ball.Geometry = Sphere(1.2, 24, 32); Ball.Albedo = {0.3,0.45,0.85}; Ball.Translation = {3.2, 5.0, 1.2};
-    ReferenceMesh LampPost; LampPost.Geometry = Box(0.12,0.12,1.6); LampPost.Albedo = {0.2,0.2,0.22}; LampPost.Translation = {-3.0, 4.0, 1.6};
+    ReferenceMesh Ground; Ground.Geometry = Plane(180.0, 32); Ground.Material.Albedo = {0.45,0.5,0.42}; Ground.Material.Roughness = 0.82;
+    ReferenceMesh Cube; Cube.Geometry = Box(1.0,1.0,1.0); Cube.Material.Albedo = {0.75,0.35,0.25}; Cube.Material.Roughness = 0.42; Cube.Material.Metallic = 0.12; Cube.Translation = {0.0, 4.0, 1.0};
+    ReferenceMesh Ball; Ball.Geometry = Sphere(1.2, 24, 32); Ball.Material.Albedo = {0.3,0.45,0.85}; Ball.Material.Roughness = 0.24; Ball.Material.Metallic = 0.64; Ball.Translation = {3.2, 5.0, 1.2};
+    ReferenceMesh LampPost; LampPost.Geometry = Box(0.12,0.12,1.6); LampPost.Material.Albedo = {0.2,0.2,0.22}; LampPost.Material.Roughness = 0.64; LampPost.Translation = {-3.0, 4.0, 1.6};
     ReferenceMesh LampBox; LampBox.Geometry = Box(0.3,0.3,0.3); LampBox.Emissive = {6.0,4.5,2.5}; LampBox.Translation = {-3.0, 4.0, 3.4};
     Scene.Meshes = {Ground, Cube, Ball, LampPost, LampBox};
 

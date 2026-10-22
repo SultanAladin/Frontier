@@ -91,7 +91,8 @@ bool Occluded(const std::vector<PreparedTri>& Triangles, SpatialVector Origin, S
 
 // Unshadowed direct contribution of one light at a surface point (Lambert).
 SpectrumRgb LightContribution(const ReferenceLight& Light, SpatialVector Point, SpatialVector Normal,
-                              const SpectrumRgb& Albedo, SpatialVector& OutDirection, double& OutDistance) noexcept
+                              SpatialVector View, const ReferenceMaterial& Material,
+                              SpatialVector& OutDirection, double& OutDistance) noexcept
 {
     double Attenuation = 1.0;
     if (Light.Kind == ReferenceLight::Kind::Directional)
@@ -107,12 +108,56 @@ SpectrumRgb LightContribution(const ReferenceLight& Light, SpatialVector Point, 
         Attenuation               = 1.0 / std::max(OutDistance * OutDistance, 1e-6);
     }
     const double NdotL = std::max(Dot(Normal, OutDirection), 0.0);
-    const double Scale = NdotL * Attenuation / Pi;
-    return {Albedo.R * Light.Radiance.R * Scale, Albedo.G * Light.Radiance.G * Scale,
-            Albedo.B * Light.Radiance.B * Scale};
+    const SpectrumRgb Brdf = EvaluateReferenceBrdf(Material, Normal, View, OutDirection);
+    const double Scale = NdotL * Attenuation;
+    return {Brdf.R * Light.Radiance.R * Scale, Brdf.G * Light.Radiance.G * Scale,
+            Brdf.B * Light.Radiance.B * Scale};
 }
 
 } // namespace
+
+SpectrumRgb EvaluateReferenceBrdf(const ReferenceMaterial& Material, SpatialVector Normal, SpatialVector View,
+                                  SpatialVector Light) noexcept
+{
+    Normal = Normalised(Normal);
+    View   = Normalised(View);
+    Light  = Normalised(Light);
+    const double NdotV = std::max(Dot(Normal, View), 0.0);
+    const double NdotL = std::max(Dot(Normal, Light), 0.0);
+    if (NdotV <= 0.0 || NdotL <= 0.0)
+    {
+        return {};
+    }
+
+    const SpatialVector Half = Normalised(Add(View, Light));
+    const double NdotH = std::clamp(Dot(Normal, Half), 0.0, 1.0);
+    const double VdotH = std::clamp(Dot(View, Half), 0.0, 1.0);
+    const double Roughness = std::clamp(Material.Roughness, 0.04, 1.0);
+    const double Alpha = Roughness * Roughness;
+    const double AlphaSquared = Alpha * Alpha;
+    const double Denominator = NdotH * NdotH * (AlphaSquared - 1.0) + 1.0;
+    const double Distribution = AlphaSquared / (Pi * Denominator * Denominator);
+    const double VisibilityDenominator =
+        NdotL * std::sqrt(NdotV * NdotV * (1.0 - AlphaSquared) + AlphaSquared) +
+        NdotV * std::sqrt(NdotL * NdotL * (1.0 - AlphaSquared) + AlphaSquared);
+    const double Visibility = 0.5 / std::max(VisibilityDenominator, 1e-12);
+
+    const double Ior = std::max(Material.Ior, 1.0);
+    const double IorRatio = (Ior - 1.0) / (Ior + 1.0);
+    const double DielectricF0 = IorRatio * IorRatio * std::clamp(Material.SpecularLevel, 0.0, 1.0) * 2.0;
+    const double Metallic = std::clamp(Material.Metallic, 0.0, 1.0);
+    const SpectrumRgb F0{DielectricF0 * (1.0 - Metallic) + Material.Albedo.R * Metallic,
+                         DielectricF0 * (1.0 - Metallic) + Material.Albedo.G * Metallic,
+                         DielectricF0 * (1.0 - Metallic) + Material.Albedo.B * Metallic};
+    const double Schlick = std::pow(1.0 - VdotH, 5.0);
+    const SpectrumRgb Fresnel{F0.R + (1.0 - F0.R) * Schlick,
+                              F0.G + (1.0 - F0.G) * Schlick,
+                              F0.B + (1.0 - F0.B) * Schlick};
+    const double DiffuseWeight = (1.0 - Metallic) / Pi;
+    return {Distribution * Visibility * Fresnel.R + (1.0 - Fresnel.R) * Material.Albedo.R * DiffuseWeight,
+            Distribution * Visibility * Fresnel.G + (1.0 - Fresnel.G) * Material.Albedo.G * DiffuseWeight,
+            Distribution * Visibility * Fresnel.B + (1.0 - Fresnel.B) * Material.Albedo.B * DiffuseWeight};
+}
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                       SCENE PREP
@@ -125,7 +170,7 @@ void ReferenceRenderer::SetScene(ReferenceScene Scene)
     for (const ReferenceMesh& Mesh : Scene_.Meshes)
     {
         PreparedMesh Prepared;
-        Prepared.Albedo   = Mesh.Albedo;
+        Prepared.Material = Mesh.Material;
         Prepared.Emissive = Mesh.Emissive;
         Prepared.WorldGeometry.Indices = Mesh.Geometry.Indices;
         Prepared.WorldGeometry.Vertices.reserve(Mesh.Geometry.Vertices.size());
@@ -231,7 +276,8 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
     // --- Raster stage: G-buffer ------------------------------------------------------------------------
     std::vector<double>        ViewDepth(PixelCount, std::numeric_limits<double>::infinity());
     std::vector<SpatialVector> WorldPos(PixelCount), WorldNormal(PixelCount);
-    std::vector<SpectrumRgb>   AlbedoBuffer(PixelCount), EmissiveBuffer(PixelCount);
+    std::vector<ReferenceMaterial> MaterialBuffer(PixelCount);
+    std::vector<SpectrumRgb>   EmissiveBuffer(PixelCount);
     std::vector<uint8_t>       HitMask(PixelCount, 0);
 
     const auto ToView = [&](SpatialVector World) {
@@ -289,7 +335,7 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             Screen.push_back({(NdcX * 0.5 + 0.5) * W, (1.0 - (NdcY * 0.5 + 0.5)) * H, 1.0 / V.View.Z, V.View.Z,
                               V.World, V.Normal});
         }
-        const SpectrumRgb& MeshAlbedo = Prepared_[Tri.Mesh].Albedo;
+        const ReferenceMaterial& MeshMaterial = Prepared_[Tri.Mesh].Material;
         const SpectrumRgb& MeshEmissive = Prepared_[Tri.Mesh].Emissive;
         for (size_t Fan = 1; Fan + 1 < Screen.size(); ++Fan)
         {
@@ -333,7 +379,7 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
                     ViewDepth[Index]     = ViewZ;
                     WorldPos[Index]      = Interp(V[0]->World, V[1]->World, V[2]->World);
                     WorldNormal[Index]   = Normalised(Interp(V[0]->Normal, V[1]->Normal, V[2]->Normal));
-                    AlbedoBuffer[Index]  = MeshAlbedo;
+                    MaterialBuffer[Index] = MeshMaterial;
                     EmissiveBuffer[Index] = MeshEmissive;
                     HitMask[Index]       = 1;
                 }
@@ -399,7 +445,8 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             DeterministicRandom Random(Settings.Seed ^ (0x9E3779B9ull * (P + 1)), 0xF00Dull + Frame);
             const SpatialVector& Point  = WorldPos[P];
             const SpatialVector& Normal = WorldNormal[P];
-            const SpectrumRgb&   Albedo = AlbedoBuffer[P];
+            const ReferenceMaterial& Material = MaterialBuffer[P];
+            const SpatialVector View = Normalised(Sub(Camera.Position, Point));
 
             // Initial candidates (RIS), temporal combine, finalise.
             Reservoir& R = Reservoirs[P];
@@ -407,7 +454,7 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             {
                 const uint32_t Light = PickLight(Random.NextUnit());
                 SpatialVector Dir; double Dist;
-                const SpectrumRgb Unshadowed = LightContribution(Scene_.Lights[Light], Point, Normal, Albedo, Dir, Dist);
+                const SpectrumRgb Unshadowed = LightContribution(Scene_.Lights[Light], Point, Normal, View, Material, Dir, Dist);
                 const double Target = Luminance(Unshadowed);
                 R.Update({Light, 0.0, 0.0}, LightPdf[Light] > 0.0 ? Target / LightPdf[Light] : 0.0, Random.NextUnit());
             }
@@ -417,13 +464,13 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
                 Previous.ClampSampleCount(20u * std::max(Settings.RisCandidates, 1u));
                 SpatialVector Dir; double Dist;
                 const double TargetHere = Luminance(LightContribution(
-                    Scene_.Lights[Previous.Sample().Candidate], Point, Normal, Albedo, Dir, Dist));
+                    Scene_.Lights[Previous.Sample().Candidate], Point, Normal, View, Material, Dir, Dist));
                 R.Combine(Previous, TargetHere, 1.0, Random.NextUnit());
             }
             if (!Scene_.Lights.empty())
             {
                 SpatialVector Dir; double Dist;
-                R.Finalize(Luminance(LightContribution(Scene_.Lights[R.Sample().Candidate], Point, Normal, Albedo, Dir, Dist)));
+                R.Finalize(Luminance(LightContribution(Scene_.Lights[R.Sample().Candidate], Point, Normal, View, Material, Dir, Dist)));
             }
 
             SpectrumRgb Direct{};
@@ -431,7 +478,7 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             {
                 const uint32_t Light = R.Sample().Candidate;
                 SpatialVector Dir; double Dist;
-                SpectrumRgb F = LightContribution(Scene_.Lights[Light], Point, Normal, Albedo, Dir, Dist);
+                SpectrumRgb F = LightContribution(Scene_.Lights[Light], Point, Normal, View, Material, Dir, Dist);
                 const SpatialVector Origin = Add(Point, Mul(Normal, 2e-3));
                 if (Occluded(Visible, Origin, Dir, Dist - 4e-3))
                 {
@@ -445,7 +492,9 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
             if (Settings.IndirectSamples > 0 && !Scene_.Distance.Primitives().empty())
             {
                 const double E = Scene_.Distance.IndirectIrradiance(Point, Normal, Settings.IndirectSamples, Random);
-                Indirect = {Albedo.R * E / Pi, Albedo.G * E / Pi, Albedo.B * E / Pi};
+                Indirect = {Material.Albedo.R * (1.0 - Material.Metallic) * E / Pi,
+                            Material.Albedo.G * (1.0 - Material.Metallic) * E / Pi,
+                            Material.Albedo.B * (1.0 - Material.Metallic) * E / Pi};
             }
             if (Scene_.Cards != nullptr && Scene_.Cards->TexelCount() > 0)
             {
@@ -457,7 +506,9 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
                     const double D2 = Dot(Delta, Delta);
                     if (D2 < BestD2) { BestD2 = D2; BestB = Scene_.Cards->Radiosity(T); }
                 }
-                Indirect = AddRgb(Indirect, {Albedo.R * BestB / Pi, Albedo.G * BestB / Pi, Albedo.B * BestB / Pi});
+                Indirect = AddRgb(Indirect, {Material.Albedo.R * (1.0 - Material.Metallic) * BestB / Pi,
+                                     Material.Albedo.G * (1.0 - Material.Metallic) * BestB / Pi,
+                                     Material.Albedo.B * (1.0 - Material.Metallic) * BestB / Pi});
             }
 
             DirectColour[P]   = Direct;
@@ -489,17 +540,17 @@ ReferenceImage ReferenceRenderer::Render(const CullCamera& Camera, const Referen
                         }
                         SpatialVector Dir; double Dist;
                         const double TargetHere = Luminance(LightContribution(
-                            Scene_.Lights[Source[NP].Sample().Candidate], WorldPos[P], WorldNormal[P],
-                            AlbedoBuffer[P], Dir, Dist));
+                            Scene_.Lights[Source[NP].Sample().Candidate], WorldPos[P], WorldNormal[P], Normalised(Sub(Camera.Position, WorldPos[P])),
+                            MaterialBuffer[P], Dir, Dist));
                         R.Combine(Source[NP], TargetHere, 1.0, Random.NextUnit());
                     }
                     SpatialVector Dir; double Dist;
                     R.Finalize(Luminance(LightContribution(Scene_.Lights[R.Sample().Candidate], WorldPos[P],
-                                                           WorldNormal[P], AlbedoBuffer[P], Dir, Dist)));
+                                                           WorldNormal[P], Normalised(Sub(Camera.Position, WorldPos[P])), MaterialBuffer[P], Dir, Dist)));
                     if (R.HasSample())
                     {
                         SpectrumRgb F = LightContribution(Scene_.Lights[R.Sample().Candidate], WorldPos[P],
-                                                          WorldNormal[P], AlbedoBuffer[P], Dir, Dist);
+                                                          WorldNormal[P], Normalised(Sub(Camera.Position, WorldPos[P])), MaterialBuffer[P], Dir, Dist);
                         const SpatialVector Origin = Add(WorldPos[P], Mul(WorldNormal[P], 2e-3));
                         if (Occluded(Visible, Origin, Dir, Dist - 4e-3))
                         {
