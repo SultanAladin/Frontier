@@ -7,7 +7,7 @@ project(FrontierLogStreamProof CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-get_filename_component(FRONTIER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+get_filename_component(FRONTIER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../Frontier" ABSOLUTE)
 get_filename_component(REPOSITORY_ROOT "${FRONTIER_ROOT}/.." ABSOLUTE)
 
 find_path(TOMLPLUSPLUS_INCLUDE_DIR toml++/toml.h

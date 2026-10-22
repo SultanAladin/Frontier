@@ -242,8 +242,30 @@
 </section>
 
 <section>
+  <h2>🗂️ Scene Directory — registration core <span class="tag">Phase 2 · portable</span></h2>
+  <p class="lede">The Outliner's foundation, the next porting step on the roadmap: <b>every scene object
+    registers itself</b> — its constructor issues a monotonic token and enters the runtime
+    <span class="num">RecordStore</span>; in Editor/Development builds it also appears in the
+    <span class="num">SceneDirectory</span> with a display name, nesting and real category tabs.
+    The destructor reverses both. Nothing registers by hand anywhere else, so a scene object
+    <b>cannot forget to appear</b> — and a stale token can never alias a later object.</p>
+  <p>Proved headlessly in all three build profiles (<span class="num">Exhibits/SceneDirectory</span>, transcripts
+    in the proofs below): registration by construction, token authentication, cycle/self parenting refused
+    <i>and logged</i>, children re-rooted when a parent dies, flattened rows + category-tab counts + inspector
+    summary from the portable view-model, 500-cycle churn with zero leaks. The Shipping profile compiles the
+    directory out for real: its binary carries <b>zero <span class="num">SceneDirectory</span> symbols</b>
+    (<span class="num">nm</span>-verified) while the store keeps resolving tokens for runtime code.
+    Native Outliner drawing joins the view-model at the SDK phase, exactly like the Log Stream did.</p>
+  <p>Also today: this checkout <b>merged SultanAladin/Frontier branch <span class="num">Frontier</span> @
+    <span class="num">fd2a957</span></b> — the tip containing merged PR #6 (preview stage levelling,
+    world-locked studio rig, LED radiance scale) — so the port and the TextureWorkspace line now share one tree.
+    Only <span class="num">README.md</span>, <span class="num">.gitignore</span> and
+    <span class="num">EngineContent/README.md</span> overlapped; all suites re-proved green after the merge.</p>
+</section>
+
+<section>
   <h2>✅ The proofs — verbatim output <span class="tag">executed 2026-10-22</span></h2>
-  <p class="lede">Two headless suites, run minutes before this page was generated
+  <p class="lede">Three headless suites, run minutes before this page was generated
     (<span class="num">g++ -std=c++17 -Wall -Wextra -Werror</span>). Expand for every check.</p>
   <details>
     <summary>Render infrastructure validation — order · atlas · math · barriers · inspection · proving grounds · threading <span class="score">63 / 63 ✔</span></summary>
@@ -410,6 +432,71 @@ Log Stream validation: 69 passed, 0 failed
     <pre>Frontier headless · ProjectZero
   entries 59 · warnings 3 · errors 1 · visible 35 · categories 12 · dropped 0
   session log: /home/user/Frontier/Frontier/Projects/Project-Zero/Saved/Logs/Frontier.log</pre>
+  </details>
+  <details>
+    <summary>Scene directory validation — registration · tokens · nesting · tabs · inspector · profiles <span class="score">37 / 37 ✔ Dev+Editor · 17 / 17 ✔ Shipping</span></summary>
+    <pre>Scene directory validation (Development profile; editor machinery on)
+  pass  store starts empty
+  pass  zero token is invalid
+  pass  constructor issues a valid token
+  pass  classification fixed at construction
+  pass  constructor inserts into the store
+  pass  token resolves to the live record
+  pass  token authenticates against its own record
+  pass  tokens issue monotonically (never reused)
+  pass  token refuses a different record
+  pass  three live records in the store
+  pass  constructor also registers with the SceneDirectory
+  pass  default display name is &#x27;&lt;Classification&gt; &lt;token&gt;&#x27;
+  pass  directory accepts a display name
+  pass  configured name reads back
+  pass  tyre nests under the vehicle
+  pass  up-link reads back
+  pass  vehicle reports one child
+  pass  cycle (vehicle under its tyre) refused
+  pass  self-parenting refused
+  pass  unknown parent refused
+  pass  cycle refusal is written to the log stream
+  pass  panel sees all three records
+  pass  rows flatten as vehicle, nested tyre, environment
+  pass  category tabs carry live counts
+  pass  classification filter shows only the tyre
+  pass  clearing the filter shows everything
+  pass  inspector summarises the selected tyre
+  pass  destroyed parent&#x27;s children re-root
+  pass  destructor unregisters from the directory
+  pass  destroying the selection empties the inspector
+  pass  live lookups consistent
+  pass  destructor removes from the store; stale token misses
+  pass  store count tracks live records
+  pass  store empties when the last record dies
+  pass  500 construct/destroy cycles issue 500 unique tokens
+  pass  no records leak under churn
+  pass  no directory entries leak under churn
+
+Scene directory validation: 37 passed, 0 failed
+
+[Shipping profile — directory compiled out, store only]
+Scene directory validation (Shipping profile; editor machinery OFF)
+  pass  store starts empty
+  pass  zero token is invalid
+  pass  constructor issues a valid token
+  pass  classification fixed at construction
+  pass  constructor inserts into the store
+  pass  token resolves to the live record
+  pass  token authenticates against its own record
+  pass  tokens issue monotonically (never reused)
+  pass  token refuses a different record
+  pass  three live records in the store
+  pass  Shipping compiled the directory registration out
+  pass  live lookups consistent
+  pass  destructor removes from the store; stale token misses
+  pass  store count tracks live records
+  pass  store empties when the last record dies
+  pass  500 construct/destroy cycles issue 500 unique tokens
+  pass  no records leak under churn
+
+Scene directory validation: 17 passed, 0 failed</pre>
   </details>
 </section>
 

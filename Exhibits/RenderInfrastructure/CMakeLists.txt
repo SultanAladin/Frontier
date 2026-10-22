@@ -5,7 +5,7 @@ project(FrontierRenderInfrastructureProof CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-get_filename_component(FRONTIER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+get_filename_component(FRONTIER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../Frontier" ABSOLUTE)
 
 add_executable(RenderInfrastructureValidation
     RenderInfrastructureValidation.cpp

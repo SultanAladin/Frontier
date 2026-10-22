@@ -2,7 +2,8 @@
 
 > **Provenance:** this file is this checkout's orientation/reference index.
 > `CLAUDE.md` in the repo root is a **verbatim sync** of upstream
-> `SultanAladin/Frontier` (branch `Frontier` @ `9ec758d`, synced 2026-10-22;
+> `SultanAladin/Frontier` (branch `Frontier` @ `fd2a957`, synced 2026-10-22 —
+> PR #6 merged upstream into that tip, and the tip merged into this checkout;
 > the owner moved the code there from `arena/db2f9953-frontier` @ `c177821`, which
 > is an ancestor — CLAUDE.md verified unchanged at the new tip)
 > per owner instruction — do not edit it here; update by re-syncing.
@@ -20,8 +21,11 @@ checkout below — never re-implement it here.
 Authoritative rules are `CLAUDE.md` + `SKILL-*.md` in
 [SultanAladin/Frontier](https://github.com/SultanAladin/Frontier/tree/Frontier)
 (branch `Frontier`; SDK contracts inspected at `676eceb`, byte-identical at
-`c177821` and again at the moved tip `9ec758d` — verified by diff; the only
-Interface change is `VulkanPresentation.cpp`, unused by our panel). PR #5
+`c177821`, at the moved tip `9ec758d`, and at `fd2a957` (PR #6: preview
+stage/lighting fixes under `Engine/Render`, no Interface changes) — verified by
+diff; the only Interface delta remains `VulkanPresentation.cpp`, unused by
+our panel). This checkout merged `fd2a957` on 2026-10-22 (unrelated
+histories; overlaps resolved: upstream README, union `.gitignore`). PR #5
 reclaimed the inherited `Applications/`, `Internal/`, `Executables/` trees
 upstream — our overlay keeps its own `Frontier/Applications`; do not blindly
 sync those deletions. Highlights that bind this repo:
@@ -34,7 +38,7 @@ SKILL-naming) · compact delivery with executed proof, never faked results.
 
 | Reference | Where | What it governs |
 |---|---|---|
-| Upstream SDK + TextureWorkspace UI | `SultanAladin/Frontier` @ branch `Frontier` (`9ec758d`) | panel dockspace + notch + ControlKit contracts; UI is **reused**, copied 1:1, never reinvented |
+| Upstream SDK + TextureWorkspace UI | `SultanAladin/Frontier` @ branch `Frontier` (`fd2a957`, incl. PR #6) | panel dockspace + notch + ControlKit contracts; UI is **reused**, copied 1:1, never reinvented |
 | VehicleHMI demo (HTML copied only) | `SultanAladin/Frontier` @ `arena/e9bd7db5-frontier`, `Experimental/VehicleHmiPrototype/` | the ReSTIR demo being ported; local copy: `Frontier/Projects/Project-VehicleHmiDemo/Reference/` |
 | **Previous project (Windows)** | [`SultanAladin/Frontier-`](https://github.com/SultanAladin/Frontier-/tree/arena/9440f4d0-frontier) @ `arena/9440f4d0-frontier` (inspected `3382938`) | the owner's earlier full engine. Patterns/code may be ported **when judged good enough** (see `Docs/MaterialAndFlakesReport.md`). Holds: `Engine/Shaders/MaterialEvaluation.slang` (OpenPBR lobe library), `Engine/Shaders/AutomotiveFlakePaint.slang` (current flakes), `Engine/PhysicalDynamics/` (C++ rigid-body solver) |
 | **Vehicle physics (Phase 7 copy source)** | previous project, `Experimental/VehicleHmiPrototype/Source/{TyreSlipSolver,VehicleSolver,VehicleSpecification}.js` | **Pacejka Magic Formula MF6.1** (pure-slip Fx/Fy + cosine combined-slip), itself a unit-for-unit port of a Frontier `PacejkaMagicFormula.cpp` / GRIT `ComputePacejka*`. No C++ copy survives — the JS is the reference. Do not port before the Phase 7 gate (plan §9); D6 is informed by this (custom Frontier forces over Jolt bodies) |
