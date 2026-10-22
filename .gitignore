@@ -35,3 +35,17 @@ __pycache__/
 
 # Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
 EngineContent/FontArchives/
+
+# Overlay (Frontier/ portable engine) outputs and local state.
+_AgentScratch/
+**/Build/Output/
+**/ThirdParty/
+*.local.*
+.env
+*.obj
+*.pdb
+*.exe
+*.dll
+*.lib
+/google_drive/
+**/Saved/
