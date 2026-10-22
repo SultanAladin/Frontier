@@ -1,0 +1,19 @@
+Format = 1
+Name = "Nero Marble"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.017641954488384078, 0.021219010376003558, 0.02315336617811041]
+Roughness = 0.16
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.45

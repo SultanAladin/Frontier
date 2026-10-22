@@ -1,0 +1,11 @@
+Format = 1
+Name = "PC Polycarbonate"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5149176653765214, 0.5972017883637634, 0.5711248294648731]
+Roughness = 0.12
+Metallic = 0
+Ior = 1.59
+Coverage = 1.0
+Anisotropy = 0

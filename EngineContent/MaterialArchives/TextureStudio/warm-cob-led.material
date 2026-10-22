@@ -1,0 +1,19 @@
+Format = 1
+Name = "Warm COB LED"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.467783796112159, 0.386429433787049, 0.14702726649759498]
+Roughness = 0.46
+Metallic = 0
+Ior = 1.5
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.15
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.25

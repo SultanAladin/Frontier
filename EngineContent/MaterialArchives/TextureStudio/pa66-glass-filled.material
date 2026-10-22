@@ -1,0 +1,11 @@
+Format = 1
+Name = "PA66 Glass Filled"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.04091519690685319, 0.0466650863368801, 0.03954623527673283]
+Roughness = 0.66
+Metallic = 0
+Ior = 1.53
+Coverage = 1.0
+Anisotropy = 0

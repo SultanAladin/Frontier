@@ -1,0 +1,11 @@
+Format = 1
+Name = "PET Polyester"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.45078578283822346, 0.5583403896342679, 0.5647115057049292]
+Roughness = 0.23
+Metallic = 0
+Ior = 1.57
+Coverage = 1.0
+Anisotropy = 0

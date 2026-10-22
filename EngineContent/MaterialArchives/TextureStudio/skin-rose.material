@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Rose"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.5840784178911641, 0.2704977910130658, 0.20863687014525575]
+Roughness = 0.48
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

@@ -1,0 +1,19 @@
+Format = 1
+Name = "Living Plant Stem"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.08650046203654976, 0.13563332965520566, 0.043735029256973465]
+Roughness = 0.48
+Metallic = 0
+Ior = 1.45
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.22
+Metallic = 0.0
+Ior = 1.45
+Coverage = 0.04

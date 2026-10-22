@@ -1,0 +1,19 @@
+Format = 1
+Name = "Salt and Pepper Granite"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.25015828472995344, 0.24228112246555486, 0.21952619972926923]
+Roughness = 0.2
+Metallic = 0
+Ior = 1.52
+Coverage = 1.0
+Anisotropy = 0
+
+[[Strata]]
+Category = "Coating"
+Albedo = [1.0, 1.0, 1.0]
+Roughness = 0.12
+Metallic = 0.0
+Ior = 1.5
+Coverage = 0.35

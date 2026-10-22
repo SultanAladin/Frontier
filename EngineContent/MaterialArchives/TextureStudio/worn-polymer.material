@@ -1,0 +1,11 @@
+Format = 1
+Name = "Worn Polymer"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.05780543019106723, 0.06301001765316767, 0.07227185068231748]
+Roughness = 0.56
+Metallic = 0
+Ior = 1.55
+Coverage = 1.0
+Anisotropy = 0

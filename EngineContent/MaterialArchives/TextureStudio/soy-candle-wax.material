@@ -1,0 +1,11 @@
+Format = 1
+Name = "Soy Candle Wax"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7758222183174236, 0.7083757798916868, 0.5520114015120001]
+Roughness = 0.5
+Metallic = 0
+Ior = 1.44
+Coverage = 1.0
+Anisotropy = 0

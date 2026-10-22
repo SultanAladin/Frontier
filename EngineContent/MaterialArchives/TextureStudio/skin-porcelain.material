@@ -1,0 +1,11 @@
+Format = 1
+Name = "Skin Porcelain"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7083757798916868, 0.386429433787049, 0.2581828529215958]
+Roughness = 0.55
+Metallic = 0
+Ior = 1.4
+Coverage = 1.0
+Anisotropy = 0

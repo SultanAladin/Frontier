@@ -1,0 +1,11 @@
+Format = 1
+Name = "PTFE Fluoropolymer"
+
+[[Strata]]
+Category = "Opaque"
+Albedo = [0.7912979403326302, 0.7835377915261935, 0.7156935005064807]
+Roughness = 0.64
+Metallic = 0
+Ior = 1.35
+Coverage = 1.0
+Anisotropy = 0
