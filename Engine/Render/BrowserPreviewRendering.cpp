@@ -644,10 +644,12 @@ struct BrowserPreviewRendering::RenderingAllocation
         std::array<float, 3> Eye{};
         std::array<float, 16> Product = ConstructBrowserViewProjection(
             Camera, double(Width) / double(Height), Channel == 5, Eye);
-        // 📝 GL clip remap: negate the Y row (Vulkan 1.0 core has no negative viewport) and fold depth to [0,1].
+        // 📝 GL clip remap: negate the Y row (Vulkan 1.0 core has no negative viewport) and fold the depth row
+        // to [0,1]. The fold must combine rows (row 2 with row 3); folding a column corrupts W and parks every
+        // orthographic vertex at negative depth, which clipped all CAD contours to black.
         for (size_t Column = 0; Column < 4; ++Column) Product[Column * 4 + 1] = -Product[Column * 4 + 1];
-        for (size_t Row = 0; Row < 4; ++Row)
-            Product[2 * 4 + Row] = 0.5f * Product[2 * 4 + Row] + 0.5f * Product[3 * 4 + Row];
+        for (size_t Column = 0; Column < 4; ++Column)
+            Product[Column * 4 + 2] = 0.5f * Product[Column * 4 + 2] + 0.5f * Product[Column * 4 + 3];
         for (const float Coefficient : Product)
             if (!std::isfinite(Coefficient)) throw std::runtime_error("Nonfinite browser projection refused.");
         std::array<double, 3> Direction{Eye[0] - Camera.Target[0], Eye[1] - Camera.Target[1], Eye[2] - Camera.Target[2]};

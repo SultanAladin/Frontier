@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Procedural surface-detail textures for shipped material presets.
 
-Generates tileable normal + ORM maps for the golf-ball dimple presets and
-albedo + ORM + normal maps for the photovoltaic-module presets. The
+Generates tileable normal + ORM maps for the golf-ball dimple presets,
+albedo + ORM + normal maps for the photovoltaic-module presets, and ribbed
+albedo + ORM + normal maps for the corrugated-sheet presets. The
 MaterialSurface shader samples these through the per-stratum TextureMask
 (albedo = 1, ORM = 2, normal = 4); normals follow the preview geometry
 convention (u right along +x pixels, v down along +y pixels, tangent =
@@ -126,6 +127,55 @@ def solar_module(stem: str, cell: tuple[int, int, int], busbar: tuple[int, int, 
     save(TEXTURES / "solar-cells-normal.png", normal)
 
 
+def wrap_blur(field, rounds: int):
+    """Cheap periodic box blur (np.roll wraps, so tiles stay seamless)."""
+    import numpy as np
+
+    for _ in range(rounds):
+        field = (
+            field
+            + np.roll(field, 1, 0)
+            + np.roll(field, -1, 0)
+            + np.roll(field, 1, 1)
+            + np.roll(field, -1, 1)
+        ) * 0.2
+    return field
+
+
+def corrugated_sheet(stem: str, base: tuple[int, int, int], roughness: float, ribs: int, trapezoid: bool,
+    spangle: float, oxidation: float, seed: int) -> None:
+    """Ribbed metal sheet: sine (rounded) or flattened (IBR trapezoidal) ribs running along v."""
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    phase = (np.arange(SIZE) / SIZE * ribs) % 1.0
+    sine = np.sin(2 * math.pi * phase)
+    rib = np.sign(sine) * np.abs(sine) ** 0.55 if trapezoid else sine
+    height = np.tile(rib, (SIZE, 1))
+    relief = (rib * 0.5 + 0.5).reshape(1, SIZE)
+    crystal = wrap_blur(rng.random((SIZE, SIZE)), 10)
+    blotch = wrap_blur((rng.random((SIZE, SIZE)) - 0.72).clip(0, None) * 3.5, 6).clip(0, 1)
+    ao = 0.88 + 0.12 * np.tile(relief, (SIZE, 1))
+    tone = ao * (1.0 + (crystal - 0.5) * 0.14 * spangle) * (1.0 - blotch * 0.30 * oxidation * 4.0).clip(0.7, 1.0)
+    albedo = np.dstack(
+        tuple((np.full((SIZE, SIZE), c) * tone).round().clip(0, 255).astype("uint8") for c in base)
+        + (np.full((SIZE, SIZE), 255, dtype="uint8"),)
+    )
+    normal = np.dstack((height_to_normal(height, 6.0), np.full((SIZE, SIZE), 255, dtype="uint8")))
+    rough = (roughness + (crystal - 0.5) * 0.10 * spangle + blotch * 0.25 * oxidation * 4.0).clip(0.05, 1.0)
+    orm = np.dstack(
+        (
+            (ao * 255.0).round().astype("uint8"),
+            (rough * 255.0).round().astype("uint8"),
+            np.full((SIZE, SIZE), 255, dtype="uint8"),
+            np.full((SIZE, SIZE), 255, dtype="uint8"),
+        )
+    )
+    save(TEXTURES / f"{stem}-albedo.png", albedo)
+    save(TEXTURES / f"{stem}-orm.png", orm)
+    save(TEXTURES / f"{stem}-normal.png", normal)
+
+
 def main() -> int:
     try:
         import numpy  # noqa: F401
@@ -139,6 +189,12 @@ def main() -> int:
     solar_module("solar-mono", cell=(0x17, 0x27, 0x42), busbar=(0xBE, 0xC6, 0xC4), jitter=0.03, seed=17)
     solar_module("solar-poly", cell=(0x25, 0x3F, 0x83), busbar=(0xBE, 0xC6, 0xC4), jitter=0.10, seed=34)
     solar_module("solar-black", cell=(0x10, 0x19, 0x1D), busbar=(0x3A, 0x40, 0x43), jitter=0.02, seed=51)
+    corrugated_sheet("corrugated-steel", base=(0xB5, 0xC0, 0xC2), roughness=0.40, ribs=3, trapezoid=True,
+        spangle=0.65, oxidation=0.06, seed=11)
+    corrugated_sheet("corrugated-zinc", base=(0xC6, 0xD0, 0xD4), roughness=0.34, ribs=4, trapezoid=False,
+        spangle=0.30, oxidation=0.16, seed=23)
+    corrugated_sheet("corrugated-aluminium", base=(0xD1, 0xD5, 0xD5), roughness=0.28, ribs=5, trapezoid=False,
+        spangle=0.15, oxidation=0.03, seed=37)
     return 0
 
 

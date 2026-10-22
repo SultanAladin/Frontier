@@ -833,12 +833,26 @@ float DrawBrowserChip(ImVec2 Min, const std::string &Label, const BrowserFrame &
     return Width;
 }
 
+float BrowserComboHeight(const BrowserFrame &Frame)
+{
+    // 📐 Native closed-combo frame: app font + the shared theme's vertical frame padding.
+    return ImGui::GetFontSize() + 16 * Frame.Scale;
+}
+float BrowserComboWidth(const BrowserFrame &Frame, const std::vector<std::string> &Options)
+{
+    float TextW = 0;
+    for (const auto &Option : Options) TextW = std::max(TextW, ImGui::CalcTextSize(Option.c_str()).x);
+    return TextW + 24 * Frame.Scale + BrowserComboHeight(Frame);
+}
 int DrawBrowserSelect(const char *Id, ImVec2 Min, float Width, const std::vector<std::string> &Options, int Current,
     const BrowserFrame &Frame, float FontSize, float PadLeft, float PadRight, float Radius, ImU32 Fill,
     float PadY, bool Disabled = false)
 {
     // 📝 Native reusable combo: the bespoke hit-test + manual popup never opened reliably.
     // Closed-frame metrics now come from the shared ControlKit theme; keep the signature stable.
+    (void)FontSize;
+    (void)PadLeft;
+    (void)PadRight;
     (void)Radius;
     (void)Fill;
     (void)PadY;
@@ -847,7 +861,8 @@ int DrawBrowserSelect(const char *Id, ImVec2 Min, float Width, const std::vector
     ImGui::PushID(Id);
     ImGui::SetNextItemWidth(Width);
     const std::string Label = Current >= 0 && size_t(Current) < Options.size() ? Options[size_t(Current)] : "";
-    const std::string Preview = EllipsizeBrowserText(Frame.Font, FontSize, Label, Width - PadLeft - PadRight);
+    const std::string Preview = EllipsizeBrowserText(ImGui::GetFont(), ImGui::GetFontSize(), Label,
+        Width - 24 * Frame.Scale - BrowserComboHeight(Frame));
     int Next = Current;
     ImGui::BeginDisabled(Disabled);
     if (DropdownControlSurface::BeginSelection("##select", Preview.c_str(), Frame.Scale))
@@ -1146,8 +1161,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
         std::max(1.f, Scale));
     const std::vector<std::string> Themes = {"OLED", "Light", "Dark"};
     const int ThemeIndex = Prefs.Theme == "light" ? 1 : Prefs.Theme == "dark" ? 2 : 0;
-    const float ThemeW =
-        MeasureBrowserText(Font, (Width <= 1100 ? 9 : 10) * Scale, "Light").x + (Narrow ? 20 : 31) * Scale;
+    const float ThemeW = BrowserComboWidth(Frame, Themes);
     const auto ImportFromDisk = [&]
     {
         if (PickImportFiles) AttachPaths(PickImportFiles());
@@ -1160,7 +1174,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
         const float ButtonH = 28 * Scale;
         const float ButtonW = MeasureBrowserText(Font, 10 * Scale, "Open from disk").x + 26 * Scale + 14 * Scale + 10 * Scale;
         const ImVec2 ButtonMin(Head.x + CentreW - 18 * Scale - ButtonW, Head.y + (HeaderH - ButtonH) / 2);
-        const int Picked = DrawBrowserSelect("theme", ImVec2(ButtonMin.x - 10 * Scale - ThemeW, Head.y + (HeaderH - 24 * Scale) / 2),
+        const int Picked = DrawBrowserSelect("theme", ImVec2(ButtonMin.x - 10 * Scale - ThemeW, Head.y + (HeaderH - BrowserComboHeight(Frame)) / 2),
             ThemeW, Themes, ThemeIndex, Frame, (Width <= 1100 ? 9 : 10) * Scale, 11 * Scale, 20 * Scale,
             30 * Scale / 2, IM_COL32(0, 0, 0, 0), 7 * Scale);
         if (Picked != ThemeIndex)
@@ -1178,8 +1192,12 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
     {
         DrawBrowserText(Draw, Font, 13 * Scale, ImVec2(Head.x + 9 * Scale, Head.y + 8 * Scale), S.Text,
             "Project browser");
-        const int Picked = DrawBrowserSelect("theme", ImVec2(Head.x + CentreW - 9 * Scale - ThemeW, Head.y + 6 * Scale),
-            ThemeW, Themes, ThemeIndex, Frame, 9 * Scale, 8 * Scale, 12 * Scale, 30 * Scale / 2,
+        const float NarrowThemeW = std::min(ThemeW,
+            CentreW - MeasureBrowserText(Font, 13 * Scale, "Project browser").x - 30 * Scale);
+        const int Picked = DrawBrowserSelect("theme",
+            ImVec2(Head.x + CentreW - 9 * Scale - NarrowThemeW,
+                Head.y + (HeaderH - BrowserComboHeight(Frame)) / 2),
+            NarrowThemeW, Themes, ThemeIndex, Frame, 9 * Scale, 8 * Scale, 12 * Scale, 30 * Scale / 2,
             IM_COL32(0, 0, 0, 0), 5 * Scale);
         if (Picked != ThemeIndex)
         {
@@ -1203,7 +1221,8 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
         ImGuiWindowFlags_NoBackground);
     Frame.Draw = ImGui::GetWindowDrawList();
     {
-        const ImVec2 Scroll = ImGui::GetWindowPos();
+        const ImVec2 Scroll = ImVec2(ImGui::GetWindowPos().x - ImGui::GetScrollX(),
+        ImGui::GetWindowPos().y - ImGui::GetScrollY());
         const float Side = Narrow ? 14 * Scale : std::min(48 * Scale, std::max(20 * Scale, Width * 0.03f));
         float Y = Scroll.y + (Narrow ? 20 : 28) * Scale;
         const float InnerW = CentreW - Side * 2;
@@ -1214,7 +1233,8 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
         const float TitleW = MeasureBrowserText(Font, 17 * Scale, Title).x;
         const float CountW = MeasureBrowserText(Font, 10 * Scale, Count).x;
         const float SearchW = (Narrow ? InnerW : 130 * Scale + 15 * Scale + 9 * 2 * Scale + 18 * Scale + 9 * Scale + 9 * Scale);
-        const float SortW = MeasureBrowserText(Font, 10 * Scale, "Last opened").x + 34 * Scale;
+        const std::vector<std::string> SortOptions = {"Last opened", "Name A–Z"};
+        const float SortW = BrowserComboWidth(Frame, SortOptions);
         if (!Narrow)
         {
             DrawBrowserText(Frame.Draw, Font, 17 * Scale, ImVec2(Scroll.x + Side, Y), S.Text, Title);
@@ -1222,8 +1242,8 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
                 S.Muted, Count);
             const float ControlsY = Y - 2 * Scale;
             const float SortX = Scroll.x + Side + InnerW - SortW;
-            const int Picked = DrawBrowserSelect("sort", ImVec2(SortX, ControlsY), SortW,
-                {"Last opened", "Name A–Z"}, SortMode == "name" ? 1 : 0, Frame, 10 * Scale, 10 * Scale, 24 * Scale,
+            const int Picked = DrawBrowserSelect("sort", ImVec2(SortX, ControlsY + (29 * Scale - BrowserComboHeight(Frame)) / 2), SortW,
+                SortOptions, SortMode == "name" ? 1 : 0, Frame, 10 * Scale, 10 * Scale, 24 * Scale,
                 7 * Scale, IM_COL32(0, 0, 0, 0), 7 * Scale);
             SortMode = Picked == 1 ? "name" : "recent";
             const float BoxW = SearchW, BoxH = 29 * Scale;
@@ -1252,7 +1272,7 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
             Frame.Draw->AddRect(Kbd, ImVec2(Kbd.x + KbdW, Kbd.y + 15 * Scale), S.Line, 3 * Scale, 0,
                 std::max(1.f, Scale));
             DrawBrowserText(Frame.Draw, Font, 10 * Scale, ImVec2(Kbd.x + 5 * Scale, Kbd.y + 1 * Scale), S.Faint, "/");
-            Y += 29 * Scale + 23 * Scale;
+            Y += std::max(29 * Scale, BrowserComboHeight(Frame)) + 23 * Scale;
         }
         else
         {
@@ -1284,10 +1304,10 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
             ImGui::PopStyleColor(3);
             Y += BoxH + 10 * Scale;
             const int Picked = DrawBrowserSelect("sort", ImVec2(Scroll.x + Side + InnerW - SortW, Y), SortW,
-                {"Last opened", "Name A–Z"}, SortMode == "name" ? 1 : 0, Frame, 10 * Scale, 10 * Scale, 24 * Scale,
+                SortOptions, SortMode == "name" ? 1 : 0, Frame, 10 * Scale, 10 * Scale, 24 * Scale,
                 7 * Scale, IM_COL32(0, 0, 0, 0), 7 * Scale);
             SortMode = Picked == 1 ? "name" : "recent";
-            Y += 24 * Scale + 23 * Scale;
+            Y += BrowserComboHeight(Frame) + 23 * Scale;
         }
         FocusSearch = false;
         const float Gap = Width > 1100 ? 22 * Scale : Width > 540 ? 15 * Scale : 12 * Scale;
@@ -1487,7 +1507,8 @@ void ProjectBrowserPanel::ConstructLibrary(float Width)
             S.Faint, Note);
         // 📜 Custom drawing never advances the cursor: pin an invisible item at the content bottom
         // so the scrollbar range tracks the cards instead of sticking at zero.
-        ImGui::SetCursorPos(ImVec2(1, FolderMin.y + (38 + 24 + 14) * Scale - Scroll.y + ImGui::GetScrollY()));
+        ImGui::SetCursorPos(ImVec2(1,
+        FolderMin.y + (38 + 24 + 14) * Scale - ImGui::GetWindowPos().y + ImGui::GetScrollY()));
         ImGui::Dummy(ImVec2(1, 1));
     }
     ImGui::EndChild();
@@ -1715,7 +1736,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
     const float StarBox = Narrow ? 25 * Scale : 30 * Scale;
     const std::vector<std::string> Themes = {"OLED", "Light", "Dark"};
     const int ThemeIndex = Prefs.Theme == "light" ? 1 : Prefs.Theme == "dark" ? 2 : 0;
-    const float ThemeW = MeasureBrowserText(Font, 9 * Scale, "Light").x + 31 * Scale;
+    const float ThemeW = BrowserComboWidth(Frame, Themes);
     const auto ThemePicker = [&](ImVec2 Min)
     {
         const int Picked = DrawBrowserSelect("theme", Min, ThemeW, Themes, ThemeIndex, Frame, 9 * Scale, 11 * Scale,
@@ -1744,7 +1765,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             EllipsizeBrowserText(Font, 11 * Scale, FullName,
                 std::max(20.f, CentreW - 16 * Scale - BackBox - 8 * Scale - 9 * Scale - ActionsW - 16 * Scale)));
         float X = Head.x + CentreW - 16 * Scale - ThemeW;
-        ThemePicker(ImVec2(X, Head.y + (HeaderH - 25 * Scale) / 2));
+        ThemePicker(ImVec2(X, Head.y + (HeaderH - BrowserComboHeight(Frame)) / 2));
         X -= 9 * Scale + LaunchW;
         if (IconLaunch)
         {
@@ -1767,13 +1788,13 @@ void ProjectBrowserPanel::ConstructReader(float Width)
         X -= 7 * Scale + RevisionW;
         if (!Entry->Imported)
         {
-            const int Picked = DrawBrowserSelect("revision", ImVec2(X, Head.y + (HeaderH - 26 * Scale) / 2),
+            const int Picked = DrawBrowserSelect("revision", ImVec2(X, Head.y + (HeaderH - BrowserComboHeight(Frame)) / 2),
                 RevisionW, RevisionOptions, ActiveRevision, Frame, 10 * Scale, 13 * Scale, 28 * Scale,
                 26 * Scale / 2, S.Selected, 8 * Scale);
             if (Picked != ActiveRevision) ConfigureRevision(Picked);
         }
         else
-            DrawBrowserSelect("revision", ImVec2(X, Head.y + (HeaderH - 26 * Scale) / 2), RevisionW,
+            DrawBrowserSelect("revision", ImVec2(X, Head.y + (HeaderH - BrowserComboHeight(Frame)) / 2), RevisionW,
                 RevisionOptions, 0, Frame, 10 * Scale, 13 * Scale, 28 * Scale, 26 * Scale / 2, S.Selected, 8 * Scale,
                 true);
     }
@@ -1787,7 +1808,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
             S.Text, EllipsizeBrowserText(Font, 10 * Scale, FullName, CentreW - 60 * Scale - BackBox));
         float X = Head.x + 9 * Scale;
         const int Picked = Entry->Imported ? 0
-                                           : DrawBrowserSelect("revision", ImVec2(X, Head.y + 41 * Scale), RevisionW,
+                                           : DrawBrowserSelect("revision", ImVec2(X, Head.y + 41 * Scale + (25 * Scale - BrowserComboHeight(Frame)) / 2), RevisionW,
                             RevisionOptions, ActiveRevision, Frame, 9 * Scale, 13 * Scale, 28 * Scale, 26 * Scale / 2,
                             S.Selected, 8 * Scale, Entry->Imported);
         if (!Entry->Imported && Picked != ActiveRevision) ConfigureRevision(Picked);
@@ -1802,7 +1823,8 @@ void ProjectBrowserPanel::ConstructReader(float Width)
         if (DrawBrowserIconButton("open", ImVec2(X, Head.y + 41 * Scale), 25 * Scale, BrowserIcon::Arrow, Frame,
                 false, S.ButtonText, 14, true))
             OpenInFrontier();
-        ThemePicker(ImVec2(Head.x + CentreW - 9 * Scale - ThemeW, Head.y + 41 * Scale));
+        ThemePicker(ImVec2(Head.x + CentreW - 9 * Scale - ThemeW,
+            Head.y + 41 * Scale + (25 * Scale - BrowserComboHeight(Frame)) / 2));
     }
     // 🖼️ Viewer scroll: heading, canvas, caption, toolbar, bottom bar.
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -1817,7 +1839,8 @@ void ProjectBrowserPanel::ConstructReader(float Width)
         ImGuiWindowFlags_NoBackground | (WasLiveHovered ? ImGuiWindowFlags_NoScrollWithMouse : 0));
     Frame.Draw = ImGui::GetWindowDrawList();
     {
-        const ImVec2 Scroll = ImGui::GetWindowPos();
+        const ImVec2 Scroll = ImVec2(ImGui::GetWindowPos().x - ImGui::GetScrollX(),
+        ImGui::GetWindowPos().y - ImGui::GetScrollY());
         const float Side = Narrow ? 12 * Scale : std::min(36 * Scale, std::max(18 * Scale, Width * 0.025f));
         float Y = Scroll.y + (Narrow ? 18 : 24) * Scale;
         const float InnerW = CentreW - Side * 2;
@@ -2071,7 +2094,7 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                             ImVec2(Live.U1, Live.V1));
                         ImGui::PopClipRect();
                         const CachedPreviewTriangles &Preview = PreviewTrianglesFor(*Entry, ActiveRevision);
-                        const float BarH = 30 * Scale;
+                        const float BarH = 32 * Scale;
                         const ImVec2 Bar(Box.x + 12 * Scale, Box.y + CanvasH - 12 * Scale - BarH);
                         const float BarW = InnerW - 24 * Scale;
                         Frame.Draw->AddRectFilled(Bar, ImVec2(Bar.x + BarW, Bar.y + BarH),
@@ -2084,12 +2107,10 @@ void ProjectBrowserPanel::ConstructReader(float Width)
                         const std::vector<std::string> Channels = {"Lit · EON / GGX", "Albedo", "Specular",
                             "Metallic", "Roughness", "CAD contours"};
                         const int ChannelIndex = LiveChannel >= 0 && LiveChannel < 6 ? LiveChannel : 0;
-                        const float SelectW =
-                            std::min(130 * Scale,
-                                MeasureBrowserText(Font, 9 * Scale, "Lit · EON / GGX").x + 30 * Scale);
+                        const float SelectW = std::min(130 * Scale, BrowserComboWidth(Frame, Channels));
                         const int Picked = DrawBrowserSelect("channel",
                             ImVec2(Bar.x + 10 * Scale + MeasureBrowserText(Font, 8 * Scale, "View").x + 6 * Scale,
-                                Bar.y + (BarH - 15 * Scale) / 2),
+                                Bar.y + (BarH - BrowserComboHeight(Frame)) / 2),
                             SelectW, Channels, ChannelIndex, Frame, 9 * Scale, 4 * Scale, 14 * Scale, 4 * Scale,
                             HexColour("#111111"), 3 * Scale);
                         if (Picked != ChannelIndex)
@@ -2299,7 +2320,8 @@ void ProjectBrowserPanel::ConstructReaderInspector(
     ImGui::BeginChild("##inspectscroll", ImVec2(RightW, Avail.y - HeaderH), false, ImGuiWindowFlags_NoBackground);
     Frame.Draw = ImGui::GetWindowDrawList();
     {
-        const ImVec2 Scroll = ImGui::GetWindowPos();
+        const ImVec2 Scroll = ImVec2(ImGui::GetWindowPos().x - ImGui::GetScrollX(),
+        ImGui::GetWindowPos().y - ImGui::GetScrollY());
         const float Side = Width <= 1100 ? 18 * Scale : 22 * Scale;
         float Y = Scroll.y + (Width <= 1100 ? 22 : 24) * Scale;
         const float InnerW = RightW - Side * 2;

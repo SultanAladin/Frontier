@@ -1,11 +1,18 @@
 Format = 1
 Name = "Corrugated Aluminium"
 
+[Textures]
+Albedo = "Textures/corrugated-aluminium-albedo.png"
+Orm = "Textures/corrugated-aluminium-orm.png"
+Normal = "Textures/corrugated-aluminium-normal.png"
+
 [[Strata]]
 Category = "Opaque"
-Albedo = [0.6375968739940326, 0.665387298282272, 0.665387298282272]
+Albedo = [1.0, 1.0, 1.0]
 Roughness = 0.28
 Metallic = 1
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 7
+UvScaleOffset = [3, 3, 0, 0]
