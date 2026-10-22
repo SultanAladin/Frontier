@@ -26,6 +26,12 @@ struct alignas(16) ScatteringStratum
     std::array<float,4> Optics{0,1.5f,1,0};                 // [-] - metallic, IOR, coverage, reserved
     std::array<float,4> AbsorptionThickness{0,0,0,0};       // [1/m,m] - absorption RGB and coating thickness
     std::array<uint32_t,4> Classification{0,0,0,0};
+    // 📝 Charlie-distribution fabric sheen (fuzz rim), zero by default so every non-fabric
+    // stratum stays bit-identical. [rgb] is the authored tint at full slider strength, [a] is
+    // the live intensity multiplier (0..1); roughness lives alongside with its own reserved pair,
+    // matching the Classification convention of one meaningful lane plus validated-zero padding.
+    std::array<float,4> Sheen{0,0,0,0};                     // [rgb] tint colour (linear), [a] intensity
+    std::array<float,4> SheenFinish{0,0,0,0};                // [x] roughness, [y,z,w] reserved, must be zero
 };
 
 struct alignas(16) PreviewScattering
@@ -40,9 +46,9 @@ struct alignas(16) PreviewScattering
     std::array<ScatteringStratum,8> Strata{};
 };
 
-static_assert(sizeof(ScatteringStratum) == 64);
+static_assert(sizeof(ScatteringStratum) == 96);
 static_assert(offsetof(PreviewScattering,Strata) == 160);
-static_assert(sizeof(PreviewScattering) == 672);
+static_assert(sizeof(PreviewScattering) == 928);
 
 inline bool ValidatePreviewScattering(const PreviewScattering &Scattering)
 {
@@ -69,16 +75,21 @@ inline bool ValidatePreviewScattering(const PreviewScattering &Scattering)
     for (size_t Index = 0; Index < Scattering.Configuration[0]; ++Index)
     {
         const auto &Stratum = Scattering.Strata[Index];
-        for (const auto *Spectrum : {&Stratum.AlbedoRoughness,&Stratum.Optics,&Stratum.AbsorptionThickness})
+        for (const auto *Spectrum : {&Stratum.AlbedoRoughness,&Stratum.Optics,&Stratum.AbsorptionThickness,
+                                     &Stratum.Sheen,&Stratum.SheenFinish})
             for (const auto Channel : *Spectrum)
                 if (!std::isfinite(Channel)) return false;
         for (size_t Channel = 0; Channel < 3; ++Channel)
             if (Stratum.AlbedoRoughness[Channel] < 0 || Stratum.AlbedoRoughness[Channel] > 1 ||
-                Stratum.AbsorptionThickness[Channel] < 0 || Stratum.AbsorptionThickness[Channel] > 100) return false;
+                Stratum.AbsorptionThickness[Channel] < 0 || Stratum.AbsorptionThickness[Channel] > 100 ||
+                Stratum.Sheen[Channel] < 0 || Stratum.Sheen[Channel] > 2) return false;
         if (Stratum.AlbedoRoughness[3] < .045f || Stratum.AlbedoRoughness[3] > 1 ||
             Stratum.Optics[0] < 0 || Stratum.Optics[0] > 1 || Stratum.Optics[1] < 1 || Stratum.Optics[1] > 3 ||
             Stratum.Optics[2] < 0 || Stratum.Optics[2] > 1 || Stratum.Optics[3] != 0 ||
             Stratum.AbsorptionThickness[3] < 0 || Stratum.AbsorptionThickness[3] > 1 ||
+            Stratum.Sheen[3] < 0 || Stratum.Sheen[3] > 1 ||
+            Stratum.SheenFinish[0] < 0 || Stratum.SheenFinish[0] > 1 ||
+            Stratum.SheenFinish[1] || Stratum.SheenFinish[2] || Stratum.SheenFinish[3] ||
             Stratum.Classification[0] > 1 || Stratum.Classification[1] || Stratum.Classification[2] || Stratum.Classification[3]) return false;
         if (Index == 0 && (Stratum.Classification[0] != 0 || Stratum.Optics[2] != 1)) return false;
         if (Stratum.Classification[0] == 1 && Stratum.Optics[0] != 0) return false;
@@ -102,6 +113,18 @@ inline double EvaluateDielectricReflectance(double Ior)
 {
     const double Ratio = (Ior-1)/(Ior+1);
     return Ratio*Ratio;
+}
+// 📝 Charlie sheen lobe (Estevez & Kulla), shared verbatim with the GPU evaluator so a fabric's
+// grazing rim matches between the CPU reference and the shader-ball preview.
+inline double EvaluateCharlieDistribution(double Roughness, double NormalHalf)
+{
+    const double InverseAlpha = 1 / std::max(Roughness*Roughness,1e-3);
+    const double SineSquared = std::max(1-NormalHalf*NormalHalf,.0078125);
+    return (2+InverseAlpha)*std::pow(SineSquared,InverseAlpha*.5)/(2*std::numbers::pi);
+}
+inline double EvaluateAshikhminVisibility(double NormalView, double NormalLight)
+{
+    return 1 / std::max(1e-4,4*(NormalLight+NormalView-NormalLight*NormalView));
 }
 inline ScatteringSpectrum EvaluateScatteringSequence(
     const PreviewScattering &Scattering,
@@ -130,7 +153,12 @@ inline ScatteringSpectrum EvaluateScatteringSequence(
             const double Fresnel = FresnelOrigin+(1-FresnelOrigin)*std::pow(1-ViewHalf,5);
             double Evaluation = Distribution*Visibility*Fresnel;
             if (Stratum.Classification[0] == 0)
+            {
                 Evaluation += (1-Fresnel)*(1-Metal)*Albedo/std::numbers::pi;
+                Evaluation += Stratum.Sheen[Channel]*Stratum.Sheen[3]*
+                    EvaluateCharlieDistribution(Stratum.SheenFinish[0],NormalHalf)*
+                    EvaluateAshikhminVisibility(NormalView,NormalLight);
+            }
             else
             {
                 const double Entrance = Reflectance+(1-Reflectance)*std::pow(1-NormalLight,5);

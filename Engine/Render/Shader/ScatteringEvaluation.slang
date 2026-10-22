@@ -9,6 +9,10 @@ struct ScatteringStratum
     float4 Optics;
     float4 AbsorptionThickness;
     uint4 Classification;
+    // 📝 Charlie-distribution fabric sheen (fuzz rim); zero by default, bit-identical for every
+    // non-fabric stratum. [rgb] tint colour, [a] intensity; SheenFinish.x is roughness.
+    float4 Sheen;
+    float4 SheenFinish;
 };
 struct PreviewScattering
 {
@@ -54,6 +58,18 @@ float EvaluateAnisotropicVisibility(float3 View,float3 Light,float2 Spread)
     float LightLength = length(float3(Light.xy*Spread,Light.z));
     return .5/max(1e-12,Light.z*ViewLength+View.z*LightLength);
 }
+// 📝 Charlie sheen lobe (Estevez & Kulla), identical to the CPU reference in ScatteringSequence.h
+// so the fabric fuzz rim matches between the shader-ball preview and the host validation suite.
+float EvaluateCharlieDistribution(float Roughness,float NormalHalf)
+{
+    float InverseAlpha = 1/max(Roughness*Roughness,1e-3);
+    float SineSquared = max(1-NormalHalf*NormalHalf,.0078125);
+    return (2+InverseAlpha)*pow(SineSquared,InverseAlpha*.5)/(2*π);
+}
+float EvaluateAshikhminVisibility(float NormalView,float NormalLight)
+{
+    return 1/max(1e-4,4*(NormalLight+NormalView-NormalLight*NormalView));
+}
 float EvaluateExactDielectricReflectance(float Cosine,float IncidentIor,float TransmittedIor)
 {
     if (IncidentIor == TransmittedIor) return 0;
@@ -69,7 +85,8 @@ float EvaluateExactDielectricReflectance(float Cosine,float IncidentIor,float Tr
     return .5*(Perpendicular*Perpendicular+Parallel*Parallel);
 }
 float3 EvaluateScatteringReflection(ScatteringStratum Stratum,float3 Albedo,float ViewHalf,
-                                   float Distribution,float Visibility,bool ExactDielectricEnabled,float SpecularLevel)
+                                   float Distribution,float Visibility,bool ExactDielectricEnabled,float SpecularLevel,
+                                   float NormalView,float NormalLight,float NormalHalf)
 {
     float Reflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
     Reflectance *= Reflectance;
@@ -79,7 +96,13 @@ float3 EvaluateScatteringReflection(ScatteringStratum Stratum,float3 Albedo,floa
         lerp(float3(EvaluateExactDielectricReflectance(ViewHalf,1,Stratum.Optics.y) * SpecularLevel * 2),Albedo,Stratum.Optics.x) :
         FresnelOrigin+(1-FresnelOrigin)*pow(1-ViewHalf,5);
     float3 Evaluation = Distribution*Visibility*Fresnel;
-    if (Stratum.Classification.x == 0) Evaluation += (1-Fresnel)*(1-Stratum.Optics.x)*Albedo/π;
+    if (Stratum.Classification.x == 0)
+    {
+        Evaluation += (1-Fresnel)*(1-Stratum.Optics.x)*Albedo/π;
+        // 📝 Fabric fuzz rim: zero for every material without an authored sheen tint.
+        Evaluation += Stratum.Sheen.rgb*Stratum.Sheen.a*
+            EvaluateCharlieDistribution(Stratum.SheenFinish.x,NormalHalf)*EvaluateAshikhminVisibility(NormalView,NormalLight);
+    }
     return Evaluation;
 }
 
@@ -102,7 +125,8 @@ float3 EvaluateScatteringSequence(PreviewScattering Scattering,float3 Normal,flo
         float Distribution = EvaluateGgxDistribution(NormalHalf,Stratum.AlbedoRoughness.w);
         float Reflectance = (Stratum.Optics.y-1)/(Stratum.Optics.y+1);
         Reflectance *= Reflectance;
-        float3 Evaluation = EvaluateScatteringReflection(Stratum,Albedo,ViewHalf,Distribution,Visibility,false,.5);
+        float3 Evaluation = EvaluateScatteringReflection(Stratum,Albedo,ViewHalf,Distribution,Visibility,false,.5,
+            NormalView,NormalLight,NormalHalf);
         if (Stratum.Classification.x == 1)
         {
             float Entrance = Reflectance+(1-Reflectance)*pow(1-NormalLight,5);

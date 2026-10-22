@@ -9,6 +9,7 @@
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Render/VectorCoverageRasterization.h"
 #include "Engine/Render/VectorSurfaceMaterialBridge.h"
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -120,6 +121,20 @@ int main(int ArgumentCount, char **Arguments)
                 ExtractText(Content/"Nested/Reference.material") == Minimal, "Structured edit changed comments or wrote to disk.");
         Confirm(!Library.ConfigureStratumCoefficient(0, "Roughness", -1), "Invalid structured coefficient accepted.");
         Confirm(Library.ConfigureStratumCoefficient(0, "Anisotropy", .35f), "Missing anisotropy could not be inserted.");
+        // 🧩 Fuzz/sheen contract: the fabric rim lobe is new ABI surface (PR #7's dormant-contract freeze
+        // taught us uniform-meaning changes must be asserted at the CPU boundary), so exercise the full
+        // coefficient + colour + compile round trip here rather than trusting the TOML plumbing alone.
+        Confirm(Library.ConfigureStratumCoefficient(0, "SheenIntensity", .4f), "Missing sheen intensity could not be inserted.");
+        Confirm(Library.ConfigureStratumCoefficient(0, "SheenRoughness", .5f), "Missing sheen roughness could not be inserted.");
+        Confirm(!Library.ConfigureStratumCoefficient(0, "SheenIntensity", -1), "Invalid sheen intensity accepted.");
+        Confirm(Library.ConfigureStratumColour(0, std::array<float,3>{.1f,.2f,.3f}, "SheenColor"), "Sheen colour could not be inserted.");
+        Confirm(Library.QuerySource().find("SheenColor") != std::string::npos &&
+                Library.QuerySource().find("SheenIntensity") != std::string::npos &&
+                Library.QuerySource().find("SheenRoughness") != std::string::npos, "Sheen fields missing from structured draft.");
+        Confirm(Library.ApplySource() &&
+                Library.QueryApplied()->Scattering.Illumination.Strata[0].Sheen[3] > 0 &&
+                Library.QueryApplied()->Scattering.Illumination.Strata[0].SheenFinish[0] > 0,
+                "Sheen coefficients did not compile into the scattering contract.");
         Confirm(Library.RevertSource(), "Structured draft did not revert.");
         const auto Edited = Minimal+"Roughness=0.75\n# User-authored footer\n";
         Library.ReplaceSource(Edited);

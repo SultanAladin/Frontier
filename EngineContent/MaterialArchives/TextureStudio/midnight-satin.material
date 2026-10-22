@@ -9,6 +9,9 @@ Metallic = 0
 Ior = 1.55
 Coverage = 1.0
 Anisotropy = 0.8
+SheenColor = [0.467783796112159, 0.5394794890121072, 0.7835377915261935]
+SheenIntensity = 0.85
+SheenRoughness = 0.34
 TextureMask = 5
 UvScaleOffset = [9, 4.5, 0, 0]
 

@@ -303,3 +303,31 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Light intensity missed the smoothed-camera discrete copy (applied only on settle snap); fixed.
 - Environment sampling at mip 2 (firefly stipple), strength target 0.3 -> 0.2, key weight
   0.4 -> 0.32 (tonemap flooding), catalogue cap 24 -> 8 (pyramid layer contract). Suite 26/26.
+
+## Fuzz/sheen BRDF and inspector card layout (2026-10-22, branch arena/b36a0fa5-frontier)
+
+- Fabrics (velvet, wool, denim, cotton, silk, satin, …) and the leather/paper/foliage recipes that
+  already carried `sheen`/`sheenRoughness`/`sheenColor` sliders were missing the grazing-angle rim
+  lobe the HTML reference renders; native output looked flat. Added a Charlie-distribution +
+  Ashikhmin-visibility sheen term (glTF `KHR_materials_sheen`-style), identical math in CPU
+  `ScatteringSequence.h` and GPU `ScatteringEvaluation.slang`, additive on the opaque stratum only.
+- ABI: `ScatteringStratum` gained `Sheen`/`SheenFinish` float4s (64 -> 96 bytes); cascaded through
+  `PreviewScattering` (672 -> 928) and `MaterialScattering` (1504 -> 1760), every offset re-asserted
+  in `SurfaceMaterial.h` and the GPU-reflection parity guard in `Automation/CompileSurfaceShaders.mjs`
+  (this guard caught a stale hardcoded size before it could ship, the exact failure mode PR #7's
+  dormant-contract freeze taught us to watch for).
+- `SheenColor`/`SheenIntensity`/`SheenRoughness` are now live TOML keys, wired end to end: the colour
+  swatch and the recipe sliders both write through `MaterialLibrary::ConfigureStratumColour` /
+  `ConfigureStratumCoefficient`. The "Sheen colour" swatch is data-driven — any recipe profile that
+  exposes a `sheen` control gets it, not a hardcoded per-material list.
+  37 shipped `.material` files seeded with their HTML-authored default sheen values (fabrics, leather,
+  paper, foliage) so the lobe is visible without hand-tuning. `MaterialLibraryValidation` gained a
+  coefficient/colour/compile round-trip check for the new fields.
+- Inspector cards: added an 8*Scale inset so cards no longer sit flush against the panel edge and
+  scrollbar; fixed the per-card row count (profiled Finish cards no longer pad in 3 phantom rows,
+  unprofiled Finish cards now count their real 6 generic sliders) so a card's background no longer
+  under/overshoots its own controls; every card (not just the first per layer) now carries a small
+  "LAYER N" tag so grouping stays legible while scrolling past several cards in the same layer.
+  Host suite 26/26.
+- Deferred, unchanged: sand op binding, thin-film, glass transmission depth, camouflage/ballistic
+  coded-field underlays.
