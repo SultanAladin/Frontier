@@ -1109,7 +1109,7 @@ void MaterialLibraryPanel::ConstructInspector()
                         if (Library.ConfigureStratumChannel(Index, ChannelNames[Slot], Op))
                         {
                             Changed = true;
-                            if (!Op.empty() && Library.RebakeProcedurals(256))
+                            if (!Op.empty() && Library.RebakeProcedurals(512))
                             {
                                 PendingLivePreviewApply = false;
                                 Rebaked = true;
@@ -1216,12 +1216,13 @@ void MaterialLibraryPanel::ConstructInspector()
             SynchronizeSource();
             PendingLivePreviewApply = true;
         }
-        // 📝 Procedural gestures rebake once at proxy resolution when the gesture ends; the rebake applies
-        // itself, so the pending structured apply is consumed with it. Disk persistence stays an explicit Save.
+        // 📝 Procedural gestures rebake once at committed-cache resolution when the gesture ends; the
+        // rebake applies itself, so the pending structured apply is consumed with it. Disk persistence
+        // stays an explicit Save.
         if (ProceduralDirty && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
         {
             ProceduralDirty = false;
-            if (Library.RebakeProcedurals(256))
+            if (Library.RebakeProcedurals(512))
             {
                 PendingLivePreviewApply = false;
                 Rebaked = true;

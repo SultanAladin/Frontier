@@ -230,9 +230,9 @@ int main(int ArgumentCount, char **Arguments)
         {
             Confirm(ReferenceLibrary.OpenMaterial(Path), "Golf preset did not compile.");
             const auto *Compiled = ReferenceLibrary.QueryApplied();
-            Confirm(Compiled->Textures[1].Levels[0].Width == 512 && Compiled->Textures[2].Levels[0].Width == 512,
-                    "Golf preset ORM/normal detail textures did not compile.");
-            Confirm(Compiled->Scattering.TextureUse[0][0] == 6, "Golf preset normal/ORM mask differs.");
+            Confirm(Compiled->Textures[0].Levels[0].Width == 512 && Compiled->Textures[2].Levels[0].Width == 512,
+                    "Golf preset albedo/normal detail textures did not compile.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 5, "Golf preset albedo/normal mask differs.");
         }
         for (const auto *Path : {"monocrystalline-solar.material", "polycrystalline-solar.material", "black-solar-module.material"})
         {
@@ -242,6 +242,23 @@ int main(int ArgumentCount, char **Arguments)
                         Compiled->Textures[2].Levels[0].Width == 512,
                     "Solar preset albedo/ORM/normal detail textures did not compile.");
             Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Solar preset texture mask differs.");
+        }
+        for (const auto *Path : {"lime-stucco.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Stucco preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Textures[0].Levels[0].Width == 512 && Compiled->Textures[2].Levels[0].Width == 512,
+                    "Stucco preset albedo/normal detail textures did not compile.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 5, "Stucco preset albedo/normal mask differs.");
+        }
+        for (const auto *Path : {"24k-gold.material", "brushed-titanium.material", "brake-disc.material"})
+        {
+            Confirm(ReferenceLibrary.OpenMaterial(Path), "Metal preset did not compile.");
+            const auto *Compiled = ReferenceLibrary.QueryApplied();
+            Confirm(Compiled->Textures[0].Levels[0].Width == 512 && Compiled->Textures[1].Levels[0].Width == 512 &&
+                        Compiled->Textures[2].Levels[0].Width == 512,
+                    "Metal preset albedo/ORM/normal detail textures did not compile.");
+            Confirm(Compiled->Scattering.TextureUse[0][0] == 7, "Metal preset texture mask differs.");
         }
         Confirm(ReferenceLibrary.OpenMaterial("sand.material"), "Sand preset did not compile.");
         Confirm(ReferenceLibrary.QueryApplied()->Scattering.TextureUse[0][0] == 7, "Sand preset texture mask differs.");

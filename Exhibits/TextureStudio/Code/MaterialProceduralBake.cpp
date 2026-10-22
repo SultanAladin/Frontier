@@ -10,7 +10,9 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
+#include <map>
 #include <set>
 
 using namespace Frontier;
@@ -163,6 +165,69 @@ bool BakeSand(const MaterialCatalogueEntry &Entry, const std::filesystem::path &
     return true;
 }
 
+std::map<std::string, double> BakeScalars(const MaterialRecipeParameters &Recipe,
+    std::initializer_list<const char *> Keys)
+{
+    std::map<std::string, double> Params;
+    for (const char *Key : Keys) Params[Key] = Scalar(Recipe, Key);
+    return Params;
+}
+
+std::map<std::string, std::string> BakeTexts(const MaterialRecipeParameters &Recipe,
+    std::initializer_list<const char *> Keys, const std::string &Stem)
+{
+    std::map<std::string, std::string> Texts;
+    for (const char *Key : Keys)
+    {
+        const std::string Value = Text(Recipe, Key);
+        if (Value.empty()) throw std::runtime_error("Procedural bake needs " + std::string(Key) + " for " + Stem + ".");
+        Texts[Key] = Value;
+    }
+    return Texts;
+}
+
+// 📝 Channel-dispatch bake: the same BakeProceduralChannelRgba path the workspace rebakes through, fed
+// from the SourceRecipe exactly as the recipe channels are. Metals stage density 0 (polished default)
+// with the Alloy scratch defaults retained for the toggle; the study keeps its direct pilot path below
+// so its committed bytes prove the dispatch reproduces the field bake.
+bool BakeChannels(const MaterialCatalogueEntry &Entry, const std::filesystem::path &Textures, std::string_view Op,
+    std::initializer_list<const char *> Channels)
+{
+    const auto &Recipe = Entry.Recipe;
+    const auto Stem = Entry.RelativePath.stem().string();
+    std::map<std::string, double> Params;
+    std::map<std::string, std::string> Texts;
+    if (Op == "solar")
+    {
+        Params = BakeScalars(Recipe, {"detailScale", "roughness", "busbarWidth", "surfaceSeed", "panelMode"});
+        Texts = BakeTexts(Recipe, {"color", "secondaryColor"}, Stem);
+    }
+    else if (Op == "dimples") Params = BakeScalars(Recipe, {"detailScale", "dimpleDepth", "surfaceSeed"});
+    else if (Op == "stucco") Params = BakeScalars(Recipe, {"detailScale", "grain", "surfaceSeed"});
+    else if (Op == "scratchedMetal" || Op == "latheMetal")
+    {
+        Params = BakeScalars(Recipe,
+            Op == "scratchedMetal"
+                ? std::initializer_list<const char *>{"grain", "detailScale", "roughness", "scratchLength",
+                      "scratchWidth", "scratchDepth", "scratchSpread", "scratchBend", "scratchScale", "surfaceSeed"}
+                : std::initializer_list<const char *>{"depth", "detailScale", "roughness", "scratchLength",
+                      "scratchWidth", "scratchDepth", "scratchSpread", "scratchBend", "scratchScale", "surfaceSeed"});
+        Params["scratchDensity"] = 0;
+        Params["angle"] = Scalar(Recipe, "scratchAngle");
+    }
+    else return false;
+    constexpr uint32_t Extent = 512;
+    for (const char *Channel : Channels)
+    {
+        const auto Rgba = BakeProceduralChannelRgba(Op, Channel, Params, Texts, Extent);
+        std::string Lower(Channel);
+        for (char &Byte : Lower) Byte = char(std::tolower((unsigned char)Byte));
+        WritePng(Textures / (Stem + "-" + Lower + ".png"), Rgba, Extent);
+    }
+    std::cout << "baked " << Stem << " (" << Op << ", seed " << Scalar(Recipe, "surfaceSeed") << ")\n";
+    return true;
+}
+
 bool BakeScratches(const MaterialCatalogueEntry &Entry, const std::filesystem::path &Textures)
 {
     // Shared-field pilot: one scratch evaluation feeds height-derived normals plus roughness/occlusion,
@@ -210,7 +275,15 @@ int main(int ArgumentCount, char **Arguments)
             // 📝 Woodland camouflage albedo is the coded field channel, rebaked live by the workspace;
             // baking the weave pair here would ship textures its .material never references.
             if (Entry.RelativePath.stem().string().starts_with("woodland-camouflage-fabric")) continue;
-            if (Entry.Recipe.RecipeId == "scratches" && BakeScratches(Entry, Textures)) ++Baked;
+            const auto &RecipeId = Entry.Recipe.RecipeId;
+            if (RecipeId == "scratches" && BakeScratches(Entry, Textures)) ++Baked;
+            else if (RecipeId == "solar" && BakeChannels(Entry, Textures, "solar", {"Albedo", "Orm", "Normal"})) ++Baked;
+            else if (RecipeId == "golf" && BakeChannels(Entry, Textures, "dimples", {"Albedo", "Normal"})) ++Baked;
+            else if (RecipeId == "stucco" && BakeChannels(Entry, Textures, "stucco", {"Albedo", "Normal"})) ++Baked;
+            else if ((RecipeId == "bareMetal" || RecipeId == "polishedMetal" || RecipeId == "brushedMetal") &&
+                BakeChannels(Entry, Textures, "scratchedMetal", {"Albedo", "Orm", "Normal"}))
+                ++Baked;
+            else if (RecipeId == "brake" && BakeChannels(Entry, Textures, "latheMetal", {"Albedo", "Orm", "Normal"})) ++Baked;
             else if (WeaveIds.contains(Entry.Recipe.RecipeId) && BakeWeave(Entry, Textures)) ++Baked;
             else if (Entry.Recipe.RecipeId == "jersey" && BakeKnit(Entry, Textures)) ++Baked;
             else if ((Entry.Recipe.RecipeId == "sand" || Entry.Recipe.RecipeId == "layeredSand") &&

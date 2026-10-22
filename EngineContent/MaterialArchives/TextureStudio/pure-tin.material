@@ -4,8 +4,72 @@ Name = "Pure Tin"
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.665387298282272, 0.6724431569576875, 0.6307571363461468]
-Roughness = 0.32
+Roughness = 0.62
 Metallic = 1
 Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
+TextureMask = 7
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/pure-tin-albedo.png"
+Orm = "Textures/pure-tin-orm.png"
+Normal = "Textures/pure-tin-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "scratchedMetal"
+Link = "shared"
+[Strata.Channels.Params]
+grain = 0.1
+detailScale = 65
+roughness = 0.32
+scratchLength = 1.15
+scratchWidth = 0.01
+scratchDepth = 0.0018
+scratchSpread = 0.8
+scratchBend = 0.42
+scratchScale = 6
+surfaceSeed = 17
+scratchDensity = 0
+angle = 25
+
+
+[[Strata.Channels]]
+Name = "Orm"
+Op = "scratchedMetal"
+Link = "shared"
+[Strata.Channels.Params]
+grain = 0.1
+detailScale = 65
+roughness = 0.32
+scratchLength = 1.15
+scratchWidth = 0.01
+scratchDepth = 0.0018
+scratchSpread = 0.8
+scratchBend = 0.42
+scratchScale = 6
+surfaceSeed = 17
+scratchDensity = 0
+angle = 25
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "scratchedMetal"
+Link = "shared"
+[Strata.Channels.Params]
+grain = 0.1
+detailScale = 65
+roughness = 0.32
+scratchLength = 1.15
+scratchWidth = 0.01
+scratchDepth = 0.0018
+scratchSpread = 0.8
+scratchBend = 0.42
+scratchScale = 6
+surfaceSeed = 17
+scratchDensity = 0
+angle = 25

@@ -213,8 +213,8 @@ int main()
         Confirm(FieldOrm[1] * .53f / 255 < .24f && FieldOrm[1] * .53f / 255 > .22f, "ORM field ratio drifts from the base.");
         // Grain ops: registry shape, Alloy formula parity, determinism, seed sensitivity, and the wear-disabled
         // passthrough that keeps unworn polymer out of the worn-roughness branch.
-        // 📝 3 Alloy grain ops + 8 coded fields (HTML FieldSpecification registry).
-        Confirm(QueryProceduralOps().size() == 11, "Procedural op registry changed.");
+        // 📝 11 Alloy ops + 8 coded fields (HTML FieldSpecification registry).
+        Confirm(QueryProceduralOps().size() == 19, "Procedural op registry changed.");
         Confirm(QueryProceduralOpChannels("camouflage") == std::vector<std::string>{"Albedo", "Normal"} &&
                 QueryProceduralOpTextParams("camouflage-smooth").size() == 4 &&
                 QueryProceduralOpTextParams("noise").empty(),
@@ -222,9 +222,27 @@ int main()
         Confirm(QueryProceduralOpChannels("metalGrain") == std::vector<std::string>{"Albedo", "Normal"},
             "Bare-metal op channel set changed.");
         Confirm(QueryProceduralOpChannels("polymerGrain").size() == 3, "Polymer op channel set changed.");
+        Confirm(QueryProceduralOpChannels("solar") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("scratchedMetal") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("latheMetal") == std::vector<std::string>{"Albedo", "Orm", "Normal"} &&
+                QueryProceduralOpChannels("dimples") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("stucco") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("weave") == std::vector<std::string>{"Albedo", "Normal"} &&
+                QueryProceduralOpChannels("knit") == std::vector<std::string>{"Albedo", "Normal"},
+            "Disputed-family op channel set changed.");
         Confirm(QueryProceduralOpCeilingLift("scratches") == .3f && QueryProceduralOpCeilingLift("polymerGrain") == .096f &&
                 QueryProceduralOpCeilingLift("metalGrain") == 0 && QueryProceduralOpCeilingLift("unknown") == 0,
             "ORM ceiling lift changed.");
+        Confirm(QueryProceduralOpCeilingLift("solar") == .02f && QueryProceduralOpCeilingLift("scratchedMetal") == .3f &&
+                QueryProceduralOpCeilingLift("latheMetal") == .3f && QueryProceduralOpCeilingLift("dimples") == 0 &&
+                QueryProceduralOpCeilingLift("stucco") == 0 && QueryProceduralOpCeilingLift("weave") == 0 &&
+                QueryProceduralOpCeilingLift("knit") == 0,
+            "Disputed-family ORM ceiling lift changed.");
+        Confirm(ResolveProceduralParamKey("scratchedMetal", "scratchAngle") == "angle" &&
+                ResolveProceduralParamKey("latheMetal", "scratchAngle") == "angle" &&
+                ResolveProceduralParamKey("scratches", "weaveAngle") == "angle" &&
+                ResolveProceduralParamKey("weave", "weaveAngle") == "weaveAngle",
+            "Scratch direction alias changed.");
         bool RejectedGrain = false;
         try { (void)BakeProceduralChannelRgba("metalGrain", "Orm", {}, 32); }
         catch (const std::exception &) { RejectedGrain = true; }
@@ -264,6 +282,211 @@ int main()
             BareUp = BareUp && BarePolymerNormal[Pixel] == 128 && BarePolymerNormal[Pixel + 1] == 128 &&
                 BarePolymerNormal[Pixel + 2] == 255;
         Confirm(BareUp, "Grain-free polymer relief tilts.");
+        // Solar cells: separators, silicon, busbars and fingers resolve; two texels pin the kernel wiring
+        // exactly (a busbar core reads full contact, a separator edge reads none).
+        const std::map<std::string, double> MonoSolar{{"detailScale", 3}, {"roughness", .2}, {"busbarWidth", .016},
+            {"surfaceSeed", 17}, {"panelMode", 0}};
+        const std::map<std::string, std::string> MonoTexts{{"color", "#172742"}, {"secondaryColor", "#bec6c4"}};
+        const auto SolarAlbedo = BakeProceduralChannelRgba("solar", "Albedo", MonoSolar, MonoTexts, 96);
+        Confirm(SolarAlbedo == BakeProceduralChannelRgba("solar", "Albedo", MonoSolar, MonoTexts, 96),
+            "Solar bake is not deterministic.");
+        bool Separator = false, Silicon = false, Contact = false;
+        for (size_t Pixel = 0; Pixel < SolarAlbedo.size(); Pixel += 4)
+        {
+            Separator = Separator || (SolarAlbedo[Pixel] < 30 && SolarAlbedo[Pixel + 1] < 30 && SolarAlbedo[Pixel + 2] < 30);
+            Silicon = Silicon || (std::abs(int(SolarAlbedo[Pixel]) - 45) < 9 && std::abs(int(SolarAlbedo[Pixel + 1]) - 56) < 9 &&
+                std::abs(int(SolarAlbedo[Pixel + 2]) - 76) < 9);
+            Contact = Contact || (SolarAlbedo[Pixel] > 150 && SolarAlbedo[Pixel + 1] > 150 && SolarAlbedo[Pixel + 2] > 150);
+        }
+        Confirm(Separator && Silicon && Contact, "Solar cell palette lost a tone.");
+        const auto SolarOrm = BakeProceduralChannelRgba("solar", "Orm", MonoSolar, MonoTexts, 96);
+        const size_t BusPixel = (size_t(48) * 96 + 48) * 4;
+        Confirm(SolarOrm[BusPixel] == 255 && SolarOrm[BusPixel + 1] == 255 && SolarOrm[BusPixel + 2] == 245,
+            "Solar busbar core misses full contact.");
+        const auto SolarGapOrm = BakeProceduralChannelRgba("solar", "Orm", MonoSolar, MonoTexts, 192);
+        const size_t GapPixel = (size_t(96) * 192 + 63) * 4;
+        Confirm(SolarGapOrm[GapPixel] == 255 && SolarGapOrm[GapPixel + 1] == 232 && SolarGapOrm[GapPixel + 2] == 64,
+            "Solar separator gap misses the field ratio.");
+        uint8_t SolarGreenMin = 255, SolarGreenMax = 0, SolarBlueMin = 255, SolarBlueMax = 0;
+        for (size_t Pixel = 0; Pixel < SolarOrm.size(); Pixel += 4)
+        {
+            Confirm(SolarOrm[Pixel] == 255 && SolarOrm[Pixel + 3] == 255, "Solar ORM carries occlusion it never bakes.");
+            SolarGreenMin = std::min(SolarGreenMin, SolarOrm[Pixel + 1]);
+            SolarGreenMax = std::max(SolarGreenMax, SolarOrm[Pixel + 1]);
+            SolarBlueMin = std::min(SolarBlueMin, SolarOrm[Pixel + 2]);
+            SolarBlueMax = std::max(SolarBlueMax, SolarOrm[Pixel + 2]);
+        }
+        Confirm(SolarGreenMin < 236 && SolarGreenMax > 250 && SolarBlueMin < 70 && SolarBlueMax > 240,
+            "Solar ORM escapes the contact mix.");
+        const auto SolarNormal = BakeProceduralChannelRgba("solar", "Normal", MonoSolar, MonoTexts, 96);
+        size_t SolarDented = 0;
+        for (size_t Pixel = 2; Pixel < SolarNormal.size(); Pixel += 4) SolarDented += SolarNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(SolarDented > 50, "Solar cell steps leave no normal dent.");
+        const std::map<std::string, double> PolySolar{{"detailScale", 3}, {"roughness", .2}, {"busbarWidth", .016},
+            {"surfaceSeed", 17}, {"panelMode", 1}};
+        const std::map<std::string, std::string> PolyTexts{{"color", "#253f83"}, {"secondaryColor", "#bec6c4"}};
+        Confirm(BakeProceduralChannelRgba("solar", "Albedo", PolySolar, PolyTexts, 64) !=
+                BakeProceduralChannelRgba("solar", "Albedo", MonoSolar, MonoTexts, 64),
+            "Polycrystalline grain matches mono.");
+        const std::map<std::string, double> BlackSolar{{"detailScale", 3}, {"roughness", .2}, {"busbarWidth", .016},
+            {"surfaceSeed", 17}, {"panelMode", 2}};
+        Confirm(BakeProceduralChannelRgba("solar", "Orm", BlackSolar, MonoTexts, 64) ==
+                BakeProceduralChannelRgba("solar", "Orm", MonoSolar, MonoTexts, 64),
+            "Black module ORM differs from mono geometry.");
+        bool RejectedSolar = false;
+        try { (void)BakeProceduralChannelRgba("solar", "Albedo", {}, MonoTexts, 32); }
+        catch (const std::exception &) { RejectedSolar = true; }
+        Confirm(RejectedSolar, "Solar bake accepted an empty scale.");
+        // Dimples: staggered bowls dent the normals, the cover grain modulates the albedo, guards hold.
+        const std::map<std::string, double> Tour{{"detailScale", 7}, {"dimpleDepth", .012}, {"surfaceSeed", 17}};
+        const auto GolfNormal = BakeProceduralChannelRgba("dimples", "Normal", Tour, {}, 128);
+        size_t Bowls = 0;
+        for (size_t Pixel = 2; Pixel < GolfNormal.size(); Pixel += 4) Bowls += GolfNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(Bowls > 100, "Dimple bowls leave no normal dent.");
+        const auto GolfAlbedo = BakeProceduralChannelRgba("dimples", "Albedo", Tour, {}, 64);
+        double GolfSum = 0;
+        for (size_t Pixel = 0; Pixel < GolfAlbedo.size(); Pixel += 4)
+        {
+            Confirm(GolfAlbedo[Pixel] == GolfAlbedo[Pixel + 1] && GolfAlbedo[Pixel + 1] == GolfAlbedo[Pixel + 2],
+                "Dimple albedo modulator carries hue.");
+            GolfSum += GolfAlbedo[Pixel];
+        }
+        const double GolfMean = GolfSum / (GolfAlbedo.size() / 4);
+        Confirm(GolfMean > 248 && GolfMean < 255 && GolfAlbedo == BakeProceduralChannelRgba("dimples", "Albedo", Tour, {}, 64),
+            "Dimple cover grain drifted or wobbles.");
+        bool RejectedDimples = false;
+        try { (void)BakeProceduralChannelRgba("dimples", "Normal", {{"detailScale", 7}}, {}, 32); }
+        catch (const std::exception &) { RejectedDimples = true; }
+        Confirm(RejectedDimples, "Dimple bake accepted an empty depth.");
+        // Stucco: aggregate over cloud drift stays near-white, relief dents, seeds separate.
+        const std::map<std::string, double> Lime{{"detailScale", 48}, {"grain", .85}, {"surfaceSeed", 17}};
+        const auto StuccoAlbedo = BakeProceduralChannelRgba("stucco", "Albedo", Lime, {}, 64);
+        double StuccoSum = 0;
+        uint8_t StuccoMin = 255, StuccoMax = 0;
+        for (size_t Pixel = 0; Pixel < StuccoAlbedo.size(); Pixel += 4)
+        {
+            StuccoMin = std::min(StuccoMin, StuccoAlbedo[Pixel]);
+            StuccoMax = std::max(StuccoMax, StuccoAlbedo[Pixel]);
+            StuccoSum += StuccoAlbedo[Pixel];
+        }
+        const double StuccoMean = StuccoSum / (StuccoAlbedo.size() / 4);
+        Confirm(StuccoMin > 200 && StuccoMax > 250 && StuccoMean > 240 && StuccoMean < 258,
+            "Stucco modulator escapes its aggregate range.");
+        const auto StuccoNormal = BakeProceduralChannelRgba("stucco", "Normal", Lime, {}, 128);
+        size_t StuccoDented = 0;
+        for (size_t Pixel = 2; Pixel < StuccoNormal.size(); Pixel += 4) StuccoDented += StuccoNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(StuccoDented > 100, "Stucco aggregate leaves no normal dent.");
+        const std::map<std::string, double> ReseededLime{{"detailScale", 48}, {"grain", .85}, {"surfaceSeed", 18}};
+        Confirm(StuccoAlbedo != BakeProceduralChannelRgba("stucco", "Albedo", ReseededLime, {}, 64),
+            "Stucco bake ignores its seed.");
+        // Scratched metal: uncut metal reproduces the bare-metal bytes exactly; cuts match the study ORM
+        // while the albedo keeps the tooth (the study's occlusion convention carries the darkening).
+        const std::map<std::string, double> CastIron{{"grain", .8}, {"detailScale", 65}, {"surfaceSeed", 17},
+            {"roughness", .56}, {"scratchDensity", 0}, {"scratchLength", 1.15}, {"scratchWidth", .01},
+            {"scratchDepth", .0018}, {"scratchSpread", .8}, {"scratchBend", .42}, {"scratchScale", 6},
+            {"angle", 25}};
+        const std::map<std::string, double> BareIron{{"grain", .8}, {"detailScale", 65}, {"surfaceSeed", 17}};
+        Confirm(BakeProceduralChannelRgba("scratchedMetal", "Albedo", CastIron, {}, 64) ==
+                BakeProceduralChannelRgba("metalGrain", "Albedo", BareIron, {}, 64),
+            "Uncut scratched metal drifts from the bare-metal albedo.");
+        Confirm(BakeProceduralChannelRgba("scratchedMetal", "Normal", CastIron, {}, 64) ==
+                BakeProceduralChannelRgba("metalGrain", "Normal", BareIron, {}, 64),
+            "Uncut scratched metal drifts from the bare-metal relief.");
+        const std::map<std::string, double> CutIron(CastIron.begin(), CastIron.end());
+        const_cast<std::map<std::string, double> &>(CutIron)["scratchDensity"] = 6;
+        const_cast<std::map<std::string, double> &>(CutIron)["roughness"] = .23;
+        const std::map<std::string, double> StudyCuts{{"scratchDensity", 6}, {"scratchLength", 1.15},
+            {"scratchWidth", .01}, {"scratchDepth", .0018}, {"scratchSpread", .8}, {"scratchBend", .42},
+            {"scratchScale", 6}, {"angle", 25}, {"surfaceSeed", 17}, {"roughness", .23}};
+        Confirm(BakeProceduralChannelRgba("scratchedMetal", "Orm", CutIron, {}, 64) ==
+                BakeProceduralChannelRgba("scratches", "Orm", StudyCuts, {}, 64),
+            "Metal cut ORM differs from the study definition.");
+        Confirm(BakeProceduralChannelRgba("scratchedMetal", "Albedo", CutIron, {}, 64) ==
+                BakeProceduralChannelRgba("metalGrain", "Albedo", BareIron, {}, 64),
+            "Metal cuts darken the albedo instead of the occlusion.");
+        const auto CutNormal = BakeProceduralChannelRgba("scratchedMetal", "Normal", CutIron, {}, 128);
+        size_t CutDented = 0;
+        for (size_t Pixel = 2; Pixel < CutNormal.size(); Pixel += 4) CutDented += CutNormal[Pixel] < 250 ? 1 : 0;
+        Confirm(CutDented > 20, "Metal cuts leave no normal dent.");
+        // Lathe metal: recipe-scale rings fade exactly as the Alloy anti-aliasing dictates, coarser scales
+        // resolve, and the uncut ORM stays flat at the base ratio.
+        const std::map<std::string, double> Brake{{"depth", .2}, {"detailScale", 180}, {"roughness", .42},
+            {"scratchDensity", 0}, {"scratchLength", 1.15}, {"scratchWidth", .01}, {"scratchDepth", .0018},
+            {"scratchSpread", .8}, {"scratchBend", .42}, {"scratchScale", 6}, {"angle", 25}, {"surfaceSeed", 17}};
+        const auto FadedRings = BakeProceduralChannelRgba("latheMetal", "Albedo", Brake, {}, 64);
+        bool RingsFlat = true;
+        for (size_t Pixel = 0; Pixel < FadedRings.size(); Pixel += 4) RingsFlat = RingsFlat && FadedRings[Pixel] == 232;
+        Confirm(RingsFlat, "Lathe anti-aliasing fade drifted.");
+        const std::map<std::string, double> CoarseBrake(Brake.begin(), Brake.end());
+        const_cast<std::map<std::string, double> &>(CoarseBrake)["detailScale"] = 8;
+        const auto ResolvedRings = BakeProceduralChannelRgba("latheMetal", "Albedo", CoarseBrake, {}, 64);
+        uint8_t RingMin = 255, RingMax = 0;
+        for (size_t Pixel = 0; Pixel < ResolvedRings.size(); Pixel += 4)
+        {
+            RingMin = std::min(RingMin, ResolvedRings[Pixel]);
+            RingMax = std::max(RingMax, ResolvedRings[Pixel]);
+        }
+        Confirm(RingMax - RingMin > 8, "Resolved lathe rings leave no modulation.");
+        const auto BrakeOrm = BakeProceduralChannelRgba("latheMetal", "Orm", Brake, {}, 32);
+        const uint8_t BrakeGreen = uint8_t(std::lround(.42f / .72f * 255));
+        bool BrakeFlat = true;
+        for (size_t Pixel = 0; Pixel < BrakeOrm.size(); Pixel += 4)
+            BrakeFlat = BrakeFlat && BrakeOrm[Pixel] == 255 && BrakeOrm[Pixel + 1] == BrakeGreen && BrakeOrm[Pixel + 2] == 255;
+        Confirm(BrakeFlat, "Uncut brake ORM misses the flat base ratio.");
+        // Weave/knit dispatch: the channel path reproduces the direct field bakes byte for byte.
+        const std::map<std::string, double> Selvedge{{"detailScale", 160}, {"weaveAngle", 0}, {"weaveRelief", .65},
+            {"fiberDetail", 12}, {"fuzz", .35}, {"slub", .35}, {"denimFade", .08}, {"grain", 0},
+            {"fabricMode", 0}, {"surfaceSeed", 17}, {"sheen", .5}, {"sheenRoughness", .75}, {"fuzzLength", .7}};
+        const std::map<std::string, std::string> SelvedgeTexts{
+            {"weavePattern", "denim"}, {"warpColor", "#163353"}, {"weftColor", "#bdb8a0"}};
+        WeaveFieldParameters SelvedgeField;
+        SelvedgeField.Type = 4;
+        SelvedgeField.Weave = 8;
+        SelvedgeField.Scale = 160;
+        SelvedgeField.Relief = .65f;
+        SelvedgeField.FiberDetail = 12;
+        SelvedgeField.Fuzz = .35f;
+        SelvedgeField.Slub = .35f;
+        SelvedgeField.DenimFade = .08f;
+        SelvedgeField.Seed = 17;
+        Confirm(DecodeHexLinearRgb("#163353", SelvedgeField.Warp) && DecodeHexLinearRgb("#bdb8a0", SelvedgeField.Weft),
+            "Selvedge yarn test colours invalid.");
+        auto SelvedgeMaps = BakeWeaveMaps(SelvedgeField, 32);
+        const float SelvedgeAmplitude = WeaveReliefAmplitude(SelvedgeField);
+        for (float &Height : SelvedgeMaps.Relief) Height /= SelvedgeAmplitude;
+        Confirm(BakeProceduralChannelRgba("weave", "Albedo", Selvedge, SelvedgeTexts, 32) ==
+                ConvertLinearAlbedoRgba(SelvedgeMaps.Albedo, 32),
+            "Weave channel albedo differs from the field bake.");
+        Confirm(BakeProceduralChannelRgba("weave", "Normal", Selvedge, SelvedgeTexts, 32) ==
+                ConvertHeightToNormalRgba(SelvedgeMaps.Relief, 32, 2.f),
+            "Weave channel normal differs from the field bake.");
+        bool RejectedWeavePattern = false;
+        try
+        {
+            (void)BakeProceduralChannelRgba(
+                "weave", "Albedo", Selvedge, {{"weavePattern", "herringbone?"}, {"warpColor", "#163353"}, {"weftColor", "#bdb8a0"}}, 16);
+        }
+        catch (const std::exception &) { RejectedWeavePattern = true; }
+        Confirm(RejectedWeavePattern, "Weave dispatch accepted an unknown pattern.");
+        const std::map<std::string, double> JerseyScalars{{"detailScale", 22}, {"grain", .6}, {"fuzz", .35},
+            {"weaveAngle", 0}, {"surfaceSeed", 17}, {"sheen", .5}};
+        const std::map<std::string, std::string> JerseyTexts{{"color", "#8d9294"}, {"secondaryColor", "#e2ddd0"}};
+        KnitFieldParameters JerseyParams;
+        JerseyParams.Scale = 22;
+        JerseyParams.Grain = .6f;
+        JerseyParams.Fuzz = .35f;
+        JerseyParams.Seed = 17;
+        Confirm(DecodeHexLinearRgb("#8d9294", JerseyParams.Color) && DecodeHexLinearRgb("#e2ddd0", JerseyParams.Secondary),
+            "Jersey test colours invalid.");
+        auto JerseyDirect = BakeKnitMaps(JerseyParams, 32);
+        const float JerseyAmplitude = KnitReliefAmplitude(JerseyParams);
+        for (float &Height : JerseyDirect.Relief) Height /= JerseyAmplitude;
+        Confirm(BakeProceduralChannelRgba("knit", "Albedo", JerseyScalars, JerseyTexts, 32) ==
+                ConvertLinearAlbedoRgba(JerseyDirect.Albedo, 32),
+            "Knit channel albedo differs from the field bake.");
+        Confirm(BakeProceduralChannelRgba("knit", "Normal", JerseyScalars, JerseyTexts, 32) ==
+                ConvertHeightToNormalRgba(JerseyDirect.Relief, 32, 2.f),
+            "Knit channel normal differs from the field bake.");
         // Weave patterns: every over/under mask resolves at cell centers exactly as the Alloy twill().
         Confirm(WeaveCell(0, 0, 0) == 'R' && WeaveCell(0, 1, 0) == 'B' && WeaveCell(0, 0, 1) == 'B' &&
                 WeaveCell(0, 1, 1) == 'R',
@@ -587,7 +810,47 @@ int main()
         };
         static const std::set<std::string> LibraryWeaveIds{"woven", "carbon", "suede", "velvet", "cotton", "denim",
             "silk", "linen", "wool"};
-        size_t PinnedTextures = 0;
+        // 📝 Channel-dispatched families pin through the same BakeProceduralChannelRgba path the offline
+        // baker and the workspace rebake use; the key lists mirror the baker entry for entry.
+        const auto BakeLibraryChannels = [&](const MaterialRecipeParameters &R, const std::string &Stem,
+            std::string_view Op, std::initializer_list<const char *> Channels)
+        {
+            std::map<std::string, double> Params;
+            std::map<std::string, std::string> Texts;
+            if (Op == "solar")
+            {
+                for (const char *Key : {"detailScale", "roughness", "busbarWidth", "surfaceSeed", "panelMode"})
+                    Params[Key] = Scalar(R, Key);
+                Texts["color"] = RecipeText(R, "color");
+                Texts["secondaryColor"] = RecipeText(R, "secondaryColor");
+            }
+            else if (Op == "dimples")
+                for (const char *Key : {"detailScale", "dimpleDepth", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "stucco")
+                for (const char *Key : {"detailScale", "grain", "surfaceSeed"}) Params[Key] = Scalar(R, Key);
+            else if (Op == "scratchedMetal" || Op == "latheMetal")
+            {
+                for (const char *Key : {Op == "scratchedMetal" ? "grain" : "depth", "detailScale", "roughness",
+                         "scratchLength", "scratchWidth", "scratchDepth", "scratchSpread", "scratchBend",
+                         "scratchScale", "surfaceSeed"})
+                    Params[Key] = Scalar(R, Key);
+                Params["scratchDensity"] = 0;
+                Params["angle"] = Scalar(R, "scratchAngle");
+            }
+            else throw std::runtime_error("Pinned family has no bake mapping.");
+            std::vector<std::pair<std::vector<uint8_t>, std::string>> Fresh;
+            for (const char *Channel : Channels)
+            {
+                std::string Lower(Channel);
+                for (char &Byte : Lower) Byte = char(std::tolower((unsigned char)Byte));
+                Fresh.push_back({BakeProceduralChannelRgba(Op, Channel, Params, Texts, 512),
+                    Stem + "-" + Lower + ".png"});
+            }
+            return Fresh;
+        };
+        static const std::set<std::string> LibraryMetalIds{"bareMetal", "polishedMetal", "brushedMetal"};
+        size_t PinnedTextures = 0, SolarEntries = 0, GolfEntries = 0, StuccoEntries = 0, MetalEntries = 0,
+               BrakeEntries = 0;
         for (const auto &Entry : Library.QueryEntries())
         {
             const auto &Id = Entry.Recipe.RecipeId;
@@ -600,17 +863,44 @@ int main()
             if (LibraryWeaveIds.contains(Id)) Fresh = BakeLibraryWeave(Entry.Recipe, Stem);
             else if (Id == "jersey") Fresh = BakeLibraryKnit(Entry.Recipe, Stem);
             else if (Id == "sand" || Id == "layeredSand") Fresh = BakeLibrarySand(Entry.Recipe, Stem);
+            else if (Id == "solar")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "solar", {"Albedo", "Orm", "Normal"});
+                ++SolarEntries;
+            }
+            else if (Id == "golf")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "dimples", {"Albedo", "Normal"});
+                ++GolfEntries;
+            }
+            else if (Id == "stucco")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "stucco", {"Albedo", "Normal"});
+                ++StuccoEntries;
+            }
+            else if (LibraryMetalIds.contains(Id))
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "scratchedMetal", {"Albedo", "Orm", "Normal"});
+                ++MetalEntries;
+            }
+            else if (Id == "brake")
+            {
+                Fresh = BakeLibraryChannels(Entry.Recipe, Stem, "latheMetal", {"Albedo", "Orm", "Normal"});
+                ++BrakeEntries;
+            }
             else continue;
             for (const auto &[Pixels, File] : Fresh)
             {
                 const auto Encoded = EncodeProceduralPng(Pixels, 512);
                 const auto Committed =
                     ReadBytes(std::filesystem::path("EngineContent/MaterialArchives/TextureStudio/Textures") / File);
-                Confirm(Committed == Encoded, "Committed weave/knit/sand texture drifted from its recipe bake.");
+                Confirm(Committed == Encoded, "Committed procedural texture drifted from its recipe bake.");
                 ++PinnedTextures;
             }
         }
-        Confirm(PinnedTextures == 44, "Baked texture family count changed.");
+        Confirm(SolarEntries == 3 && GolfEntries == 2 && StuccoEntries == 1 && MetalEntries == 21 && BrakeEntries == 1,
+            "Disputed-family entry count changed.");
+        Confirm(PinnedTextures == 125, "Baked texture family count changed.");
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions << "}\n";
         return 0;
     }

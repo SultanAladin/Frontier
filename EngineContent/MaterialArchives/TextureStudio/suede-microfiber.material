@@ -1,10 +1,6 @@
 Format = 1
 Name = "Suede Microfiber"
 
-[Textures]
-Albedo = "Textures/suede-microfiber-albedo.png"
-Normal = "Textures/suede-microfiber-normal.png"
-
 [[Strata]]
 Category = "Opaque"
 Albedo = [0.184474994500441, 0.1651321945016676, 0.14702726649759498]
@@ -14,4 +10,54 @@ Ior = 1.5
 Coverage = 1.0
 Anisotropy = 0
 TextureMask = 5
-UvScaleOffset = [1, 1, 0, 0]
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/suede-microfiber-albedo.png"
+Normal = "Textures/suede-microfiber-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "weave"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 30
+weaveAngle = 45
+weaveRelief = 0.25
+fiberDetail = 12
+fuzz = 0.85
+slub = 0.3
+denimFade = 0.12
+grain = 0
+fabricMode = 1
+surfaceSeed = 17
+sheen = 1
+sheenRoughness = 0.75
+fuzzLength = 0.55
+weavePattern = "twill"
+warpColor = "#77716b"
+weftColor = "#77716b"
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "weave"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 30
+weaveAngle = 45
+weaveRelief = 0.25
+fiberDetail = 12
+fuzz = 0.85
+slub = 0.3
+denimFade = 0.12
+grain = 0
+fabricMode = 1
+surfaceSeed = 17
+sheen = 1
+sheenRoughness = 0.75
+fuzzLength = 0.55
+weavePattern = "twill"
+warpColor = "#77716b"
+weftColor = "#77716b"

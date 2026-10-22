@@ -267,6 +267,62 @@ float EvaluateKnitLoops(float U, float V, const KnitFieldParameters &P, float St
     return ProceduralMix(.47f, Yarn * (.82f + .18f * Ribbed), 1 - ProceduralSmoothstep(.3f, 1.4f, Step));
 }
 
+// 📝 Verbatim cellular3(): 3x3x3 Worley neighbourhood, F2-F1 edge metric plus the winning cell's three
+// radiance hashes. Polycrystalline solar grain reads the second hash; the full triple stays for parity.
+void EvaluateCellular3(float X, float Y, float Z, float Seed, float Out[4])
+{
+    const float CellX = std::floor(X), CellY = std::floor(Y), CellZ = std::floor(Z);
+    const float Fx = X - CellX, Fy = Y - CellY, Fz = Z - CellZ;
+    float F1 = 1e8f, F2 = 1e8f, NearestX = 0, NearestY = 0, NearestZ = 0;
+    for (int Oz = -1; Oz <= 1; ++Oz)
+        for (int Oy = -1; Oy <= 1; ++Oy)
+            for (int Ox = -1; Ox <= 1; ++Ox)
+            {
+                const float IdX = CellX + float(Ox), IdY = CellY + float(Oy), IdZ = CellZ + float(Oz);
+                const float SiteX = .08f + .84f * ProceduralHash31(IdX + Seed, IdY + Seed, IdZ + Seed);
+                const float SiteY =
+                    .08f + .84f * ProceduralHash31(IdX + Seed + 17.31f, IdY + Seed + 17.31f, IdZ + Seed + 17.31f);
+                const float SiteZ =
+                    .08f + .84f * ProceduralHash31(IdX + Seed + 43.97f, IdY + Seed + 43.97f, IdZ + Seed + 43.97f);
+                const float Dx = float(Ox) + SiteX - Fx, Dy = float(Oy) + SiteY - Fy, Dz = float(Oz) + SiteZ - Fz;
+                const float Metric = Dx * Dx + Dy * Dy + Dz * Dz;
+                if (Metric < F1)
+                {
+                    F2 = F1;
+                    F1 = Metric;
+                    NearestX = IdX;
+                    NearestY = IdY;
+                    NearestZ = IdZ;
+                }
+                else if (Metric < F2) F2 = Metric;
+            }
+    Out[0] = std::max(0.f, std::sqrt(F2) - std::sqrt(F1));
+    Out[1] = ProceduralHash31(NearestX + Seed + 61.7f, NearestY + Seed + 61.7f, NearestZ + Seed + 61.7f);
+    Out[2] = ProceduralHash31(NearestX + Seed + 127.3f, NearestY + Seed + 127.3f, NearestZ + Seed + 127.3f);
+    Out[3] = ProceduralHash31(NearestX + Seed + 223.1f, NearestY + Seed + 223.1f, NearestZ + Seed + 223.1f);
+}
+
+// 📝 Verbatim dimple(): staggered hex packing searched over a 3x3 neighbourhood, parabolic bowl with the
+// resolved fade to the mean. Step is fwidth(uv) in scaled UV per texel.
+float EvaluateDimple(float U, float V, float Scale, float Step)
+{
+    const float Su = U * Scale, Sv = V * Scale;
+    const float CellX = std::floor(Su), CellY = std::floor(Sv / .8660254f);
+    float Nearest = 2;
+    for (int Y = -1; Y <= 1; ++Y)
+        for (int X = -1; X <= 1; ++X)
+        {
+            const float IdX = CellX + float(X), IdY = CellY + float(Y);
+            const float CenterX = IdX + .5f * ProceduralMod(IdY, 2), CenterY = IdY * .8660254f;
+            const float Dx = Su - CenterX, Dy = Sv - CenterY;
+            Nearest = std::min(Nearest, std::sqrt(Dx * Dx + Dy * Dy));
+        }
+    const float R = Nearest / .44f;
+    const float Bowl = std::pow(std::max(0.f, 1 - R * R), 1.6f);
+    const float Resolved = 1 - ProceduralSmoothstep(.3f, 1.2f, Step);
+    return ProceduralMix(.24f, Bowl, Resolved);
+}
+
 struct SandCell
 {
     float Metric = 0, Second = 0, Random = 0, Rough = 0, Spec = 0, Radius = 0;
@@ -794,7 +850,8 @@ double EvaluateCodedFieldPosition(std::string_view Identity, const CodedFieldPar
 
 std::vector<std::string> QueryProceduralOps()
 {
-    std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet"};
+    std::vector<std::string> Ops{"scratches", "metalGrain", "polymerGrain", "ribbedSheet", "solar", "dimples",
+        "stucco", "weave", "knit", "scratchedMetal", "latheMetal"};
     for (const char *Identity : CodedFieldIdentities) Ops.emplace_back(Identity);
     return Ops;
 }
@@ -807,6 +864,10 @@ std::vector<std::string> QueryProceduralOpChannels(std::string_view Op)
     if (Op == "metalGrain") return {"Albedo", "Normal"};
     if (Op == "polymerGrain") return {"Albedo", "Orm", "Normal"};
     if (Op == "ribbedSheet") return {"Albedo", "Orm", "Normal"};
+    // 📝 Alloy varies no ORM term for dimpled covers, stucco or yarn construction, so those ops offer
+    // albedo plus normals; solar contacts and scratch overlays earn the full triple.
+    if (Op == "solar" || Op == "scratchedMetal" || Op == "latheMetal") return {"Albedo", "Orm", "Normal"};
+    if (Op == "dimples" || Op == "stucco" || Op == "weave" || Op == "knit") return {"Albedo", "Normal"};
     // 📝 Coded fields bake colour (palette/ramp projection) and relief normals; ORM stays scalar-authored
     // because the HTML field carries no roughness ceiling convention the ORM ratio could divide by.
     if (QueryCodedField(Op)) return {"Albedo", "Normal"};
@@ -818,6 +879,10 @@ float QueryProceduralOpCeilingLift(std::string_view Op)
     if (Op == "scratches") return .3f;
     if (Op == "polymerGrain") return .096f;
     if (Op == "ribbedSheet") return .35f;
+    // 📝 Solar contacts lift roughness from the .2 base to .22; metal scratch overlays reuse the study's
+    // +0.3 ceiling so the shared roughness slider keeps one convention across the family.
+    if (Op == "solar") return .02f;
+    if (Op == "scratchedMetal" || Op == "latheMetal") return .3f;
     return 0;
 }
 
@@ -890,6 +955,9 @@ std::vector<ProceduralOpTextParam> QueryProceduralOpTextParams(std::string_view 
 std::string ResolveProceduralParamKey(std::string_view Op, std::string_view Key)
 {
     if (Op == "scratches" && (Key == "weaveAngle" || Key == "scratchAngle")) return "angle";
+    // 📝 Metal scratch overlays store the same canonical angle; their inspector addresses it as the
+    // independent scratch direction, never the construction thread direction.
+    if ((Op == "scratchedMetal" || Op == "latheMetal") && Key == "scratchAngle") return "angle";
     return std::string(Key);
 }
 
@@ -998,6 +1066,40 @@ std::vector<uint8_t> ConvertPolymerOrmRgba(const std::vector<float> &Roughness, 
         Pixel[3] = 255;
     }
     return Rgba;
+}
+
+std::vector<uint8_t> ConvertSolarOrmRgba(const std::vector<float> &Roughness, const std::vector<float> &Metallic,
+    uint32_t Extent, float Ceiling)
+{
+    if (!Extent || Roughness.size() != size_t(Extent) * Extent || Metallic.size() != Roughness.size() ||
+        !(Ceiling > 0) || !(Ceiling <= 1))
+        throw std::runtime_error("Solar ORM source is not square fields over a unit ceiling.");
+    // 📝 Green divides by the contact ceiling like the scratch convention; blue carries Alloy's absolute
+    // cell/contact metallic mix, so the authored scalar stays 1.
+    std::vector<uint8_t> Rgba(size_t(Extent) * Extent * 4);
+    for (size_t Index = 0; Index < Roughness.size(); ++Index)
+    {
+        uint8_t *Pixel = &Rgba[Index * 4];
+        Pixel[0] = 255;
+        Pixel[1] = uint8_t(std::lround(std::clamp(Roughness[Index] / Ceiling, 0.f, 1.f) * 255));
+        Pixel[2] = uint8_t(std::lround(std::clamp(Metallic[Index], 0.f, 1.f) * 255));
+        Pixel[3] = 255;
+    }
+    return Rgba;
+}
+
+int WeavePatternIndex(std::string_view Pattern)
+{
+    if (Pattern == "plain") return 0;
+    if (Pattern == "twill") return 1;
+    if (Pattern == "satin") return 2;
+    if (Pattern == "basket") return 3;
+    if (Pattern == "rib") return 4;
+    if (Pattern == "herringbone") return 5;
+    if (Pattern == "oxford") return 6;
+    if (Pattern == "houndstooth") return 7;
+    if (Pattern == "denim") return 8;
+    throw std::runtime_error("Weave pattern is not a known construction.");
 }
 
 std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_view Channel,
@@ -1153,6 +1255,200 @@ std::vector<uint8_t> BakeProceduralChannelRgba(std::string_view Op, std::string_
             Linear[Index * 3 + 2] = Colour[2];
         }
         return ConvertLinearAlbedoRgba(Linear, Extent);
+    }
+    if (Op == "solar")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Solar bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float BusWidth = float(Value("busbarWidth", .016));
+        const double PanelMode = Value("panelMode", 0);
+        const float Base = float(std::clamp(Value("roughness", .2), .045, 1.));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural solar params cannot bake.");
+        float CellRgb[3]{1, 1, 1}, ContactRgb[3]{1, 1, 1};
+        const auto CellText = Texts.find("color"), ContactText = Texts.find("secondaryColor");
+        if (!DecodeHexLinearRgb(CellText != Texts.end() ? CellText->second : "#172742", CellRgb) ||
+            !DecodeHexLinearRgb(ContactText != Texts.end() ? ContactText->second : "#bec6c4", ContactRgb))
+            throw std::runtime_error("Solar cell colours are not #rrggbb.");
+        // 📝 Single-face bake of the uType==17 block: cell separators, triple busbars, collection fingers
+        // and the polycrystalline Worley grain, with contact-driven roughness and metallic answers.
+        std::vector<float> Linear(size_t(Extent) * Extent * 3), Roughness(size_t(Extent) * Extent),
+            Metal(size_t(Extent) * Extent), Height(size_t(Extent) * Extent);
+        const float Step = Tiles / float(Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float UvX = (float(X) + .5f) / float(Extent) * Tiles, UvY = (float(Y) + .5f) / float(Extent) * Tiles;
+                const float Qx = ProceduralFract(UvX), Qy = ProceduralFract(UvY);
+                const float Edge = std::min(std::min(Qx, 1 - Qx), std::min(Qy, 1 - Qy));
+                const float CellMask = ProceduralSmoothstep(.013f, .013f + std::max(Step, .004f), Edge);
+                const float Bus = 1 - ProceduralSmoothstep(BusWidth, BusWidth + std::max(Step, .002f),
+                    std::abs(ProceduralFract(UvX * 3) - .5f) / 3);
+                const float Fingers = ProceduralMix(.05f,
+                    1 - ProceduralSmoothstep(.025f, .025f + std::max(Step * 36, .025f),
+                        std::abs(ProceduralFract(UvY * 36) - .5f)),
+                    1 - ProceduralSmoothstep(.2f, .8f, Step * 36));
+                const float Contact = CellMask * std::max(Bus, Fingers * .7f);
+                float Silicon[3]{CellRgb[0], CellRgb[1], CellRgb[2]};
+                if (PanelMode > .5 && PanelMode < 1.5)
+                {
+                    float Crystal[4]{0, 0, 0, 0};
+                    EvaluateCellular3(UvX * 9, UvY * 9, .3f, 7, Crystal);
+                    for (int Component = 0; Component < 3; ++Component) Silicon[Component] *= .65f + Crystal[1] * .75f;
+                }
+                const size_t Index = size_t(Y) * Extent + X;
+                for (int Component = 0; Component < 3; ++Component)
+                    Linear[Index * 3 + size_t(Component)] = ProceduralMix(
+                        ProceduralMix(.008f, Silicon[Component], CellMask), ContactRgb[Component], Contact);
+                Roughness[Index] = ProceduralMix(Base, .22f, Contact);
+                Metal[Index] = ProceduralMix(.25f, .96f, Contact);
+                Height[Index] = CellMask * .001f + Contact * .0007f;
+            }
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Linear, Extent);
+        if (Channel == "Orm") return ConvertSolarOrmRgba(Roughness, Metal, Extent, std::min(1.f, Base + .02f));
+        for (float &Relief : Height) Relief /= .0017f;
+        return ConvertHeightToNormalRgba(Height, Extent, 2.f);
+    }
+    if (Op == "dimples")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Dimple bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Depth = float(Value("dimpleDepth", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0) || !(Depth > 0)) throw std::runtime_error("Procedural dimple params cannot bake.");
+        // 📝 Single-face bake of the uType==18 block; the albedo carries the cover grain modulator under
+        // the authored colour, like the bare-metal tooth.
+        std::vector<float> Field(size_t(Extent) * Extent);
+        const float Step = Tiles / float(Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float Bowl = EvaluateDimple(U, V, Tiles, Step);
+                Field[size_t(Y) * Extent + X] =
+                    Channel == "Albedo" ? .97f + ProceduralNoise3(U * Tiles, Seed, V * Tiles) * .04f : -Bowl * Depth / Depth;
+            }
+        if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "stucco")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Stucco bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        const float Grain = float(Value("grain", 0));
+        const float Seed = float(Value("surfaceSeed", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural stucco params cannot bake.");
+        // 📝 Single-face bake of the uType==26 block: sand aggregate over a broad cloud drift; the fixed
+        // .011 nominal keeps the grain slider driving bump strength instead of normalizing it away.
+        std::vector<float> Field(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const float Sand = ProceduralStoneFbm(U * Tiles, Seed, V * Tiles);
+                const float Cloud = ProceduralStoneFbm(U * 2.8f, Seed, V * 2.8f);
+                Field[size_t(Y) * Extent + X] = Channel == "Albedo" ? .8f + Cloud * .28f + Sand * .09f
+                    : (Sand - .5f) * Grain * .022f / .011f;
+            }
+        if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
+    }
+    if (Op == "weave")
+    {
+        WeaveFieldParameters P;
+        P.Type = 4;
+        const auto Pattern = Texts.find("weavePattern");
+        P.Weave = WeavePatternIndex(Pattern != Texts.end() ? Pattern->second : "twill");
+        P.FabricMode = int(Value("fabricMode", 0));
+        P.Scale = float(Value("detailScale", 0));
+        P.AngleRadians = float(Value("weaveAngle", 0) * 3.141592653589793 / 180);
+        P.Relief = float(Value("weaveRelief", 0));
+        P.FiberDetail = float(Value("fiberDetail", 12));
+        P.Fuzz = float(Value("fuzz", 0));
+        P.Slub = float(Value("slub", 0));
+        P.DenimFade = float(Value("denimFade", 0));
+        P.Grain = float(Value("grain", 0));
+        P.Seed = float(Value("surfaceSeed", 0));
+        const auto WarpText = Texts.find("warpColor"), WeftText = Texts.find("weftColor");
+        if (!DecodeHexLinearRgb(WarpText != Texts.end() ? WarpText->second : "#b5b0a2", P.Warp) ||
+            !DecodeHexLinearRgb(WeftText != Texts.end() ? WeftText->second : "#b5b0a2", P.Weft))
+            throw std::runtime_error("Weave yarn colours are not #rrggbb.");
+        auto Maps = BakeWeaveMaps(P, Extent);
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Maps.Albedo, Extent);
+        const float Amplitude = WeaveReliefAmplitude(P);
+        if (Amplitude > 0)
+            for (float &Relief : Maps.Relief) Relief /= Amplitude;
+        return ConvertHeightToNormalRgba(Maps.Relief, Extent, 2.f);
+    }
+    if (Op == "knit")
+    {
+        KnitFieldParameters P;
+        P.Scale = float(Value("detailScale", 0));
+        P.Grain = float(Value("grain", 0));
+        P.Fuzz = float(Value("fuzz", 0));
+        P.Seed = float(Value("surfaceSeed", 0));
+        P.AngleRadians = float(Value("weaveAngle", 0) * 3.141592653589793 / 180);
+        const auto DyeText = Texts.find("color"), MelangeText = Texts.find("secondaryColor");
+        if (!DecodeHexLinearRgb(DyeText != Texts.end() ? DyeText->second : "#8d9294", P.Color) ||
+            !DecodeHexLinearRgb(MelangeText != Texts.end() ? MelangeText->second : "#e2ddd0", P.Secondary))
+            throw std::runtime_error("Knit yarn colours are not #rrggbb.");
+        auto Maps = BakeKnitMaps(P, Extent);
+        if (Channel == "Albedo") return ConvertLinearAlbedoRgba(Maps.Albedo, Extent);
+        const float Amplitude = KnitReliefAmplitude(P);
+        if (Amplitude > 0)
+            for (float &Relief : Maps.Relief) Relief /= Amplitude;
+        return ConvertHeightToNormalRgba(Maps.Relief, Extent, 2.f);
+    }
+    if (Op == "scratchedMetal" || Op == "latheMetal")
+    {
+        if (!Extent || Extent > 2048) throw std::runtime_error("Metal bake extent is unbounded.");
+        const float Tiles = float(Value("detailScale", 0));
+        if (!(Tiles > 0)) throw std::runtime_error("Procedural metal params cannot bake.");
+        const float Seed = float(Value("surfaceSeed", 0));
+        const float Base = float(std::clamp(Value("roughness", .3), .045, 1.));
+        ScratchFieldParameters Cuts;
+        Cuts.Density = float(Value("scratchDensity", 0));
+        Cuts.Length = float(Value("scratchLength", 0));
+        Cuts.Width = float(Value("scratchWidth", 0));
+        Cuts.Depth = float(Value("scratchDepth", 0));
+        Cuts.Spread = float(Value("scratchSpread", 0));
+        Cuts.Bend = float(Value("scratchBend", 0));
+        Cuts.Scale = float(Value("scratchScale", 1));
+        Cuts.AngleRadians = float(Value("angle", 0) * 3.141592653589793 / 180);
+        Cuts.Seed = Value("surfaceSeed", 0) < 0 ? 0 : uint32_t(Value("surfaceSeed", 0));
+        if (Cuts.Density > 0 && (!(Cuts.Depth > 0) || !(Cuts.Scale > 0)))
+            throw std::runtime_error("Procedural scratch params cannot bake.");
+        // 📝 Bare type-1 tooth (or type-6 lathe rings) under the optional study cuts. Uncut metal matches
+        // the metalGrain bytes exactly; the shared .004 nominal preserves Alloy's tooth-to-cut ratio.
+        const float Tooth = Op == "scratchedMetal" ? float(Value("grain", 0)) : 0;
+        const float Depth = Op == "latheMetal" ? float(Value("depth", 0)) : 0;
+        const float RingStep = Tiles * 3.3f / float(Extent);
+        std::vector<float> Field(size_t(Extent) * Extent);
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const float U = (float(X) + .5f) / float(Extent), V = (float(Y) + .5f) / float(Extent);
+                const auto Cut = EvaluateScratchField(U, V, Cuts, Cuts.Scale / float(Extent));
+                const size_t Index = size_t(Y) * Extent + X;
+                if (Channel == "Orm")
+                {
+                    Field[Index] = Cut.Coverage;
+                    continue;
+                }
+                if (Op == "scratchedMetal")
+                {
+                    const auto Bare = EvaluateMetalGrain(U, V, Tooth, Tiles, Seed);
+                    Field[Index] = Channel == "Albedo" ? Bare.Albedo : Bare.Relief + Cut.Height / .004f;
+                    continue;
+                }
+                const float Rx = (U - .5f) * Tiles, Ry = (V - .5f) * Tiles;
+                const float Phase = std::sqrt(Rx * Rx + Ry * Ry) * 3.3f;
+                const float Lines =
+                    std::sin(Phase) * .5f * (1 - ProceduralSmoothstep(.5f, 3.1f, RingStep)) + .5f;
+                Field[Index] = Channel == "Albedo" ? .84f + Lines * .14f : (Lines * .0001f * Depth + Cut.Height) / .004f;
+            }
+        if (Channel == "Albedo") return ConvertGrainAlbedoRgba(Field, Extent);
+        if (Channel == "Orm") return ConvertScratchOrmRgba(Field, Extent, Base);
+        return ConvertHeightToNormalRgba(Field, Extent, 2.f);
     }
     ScratchFieldParameters Field;
     Field.Density = float(Value("scratchDensity", 0));

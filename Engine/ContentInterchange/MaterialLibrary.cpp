@@ -1292,9 +1292,10 @@ bool MaterialLibrary::SaveMaterial()
         const auto Destination = ResolveMaterial(Selection);
         if (DecodeMaterialSource(Destination) != SavedSource)
             throw std::runtime_error("Material changed on disk; reopen it before saving to avoid overwriting external edits.");
-        // 📝 Live rebakes preview at proxy resolution; saving re-bakes full quality, persists the PNGs and
-        // rewrites the stratum sources to the files, so the saved material stands alone. Any retained op
-        // triggers the rebake — even one that has never been baked — so a channel switch alone still saves.
+        // 📝 Live rebakes already preview at committed-cache resolution; saving re-bakes to capture the
+        // latest params, persists the PNGs and rewrites the stratum sources to the files, so the saved
+        // material stands alone. Any retained op triggers the rebake — even one that has never been
+        // baked — so a channel switch alone still saves.
         const auto PreSave = DecodeSurfaceMaterial(Source);
         bool Procedural = false;
         for (const auto &Stratum : PreSave.StratumChannels)

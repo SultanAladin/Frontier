@@ -1,10 +1,6 @@
 Format = 1
 Name = "Midnight Satin"
 
-[Textures]
-Albedo = "Textures/midnight-satin-albedo.png"
-Normal = "Textures/midnight-satin-normal.png"
-
 [[Strata]]
 Category = "Opaque"
 Albedo = [1.0, 1.0, 1.0]
@@ -14,4 +10,54 @@ Ior = 1.55
 Coverage = 1.0
 Anisotropy = 0.8
 TextureMask = 5
-UvScaleOffset = [1, 1, 0, 0]
+UvScaleOffset = [9, 4.5, 0, 0]
+
+[Strata.Textures]
+Albedo = "Textures/midnight-satin-albedo.png"
+Normal = "Textures/midnight-satin-normal.png"
+
+
+[[Strata.Channels]]
+Name = "Albedo"
+Op = "weave"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 66
+weaveAngle = 25
+weaveRelief = 0.32
+fiberDetail = 20
+fuzz = 0.025
+slub = 0.3
+denimFade = 0.12
+grain = 0
+fabricMode = 4
+surfaceSeed = 17
+sheen = 0.85
+sheenRoughness = 0.34
+fuzzLength = 0.065
+weavePattern = "satin"
+warpColor = "#30374e"
+weftColor = "#30374e"
+
+
+[[Strata.Channels]]
+Name = "Normal"
+Op = "weave"
+Link = "shared"
+[Strata.Channels.Params]
+detailScale = 66
+weaveAngle = 25
+weaveRelief = 0.32
+fiberDetail = 20
+fuzz = 0.025
+slub = 0.3
+denimFade = 0.12
+grain = 0
+fabricMode = 4
+surfaceSeed = 17
+sheen = 0.85
+sheenRoughness = 0.34
+fuzzLength = 0.065
+weavePattern = "satin"
+warpColor = "#30374e"
+weftColor = "#30374e"
