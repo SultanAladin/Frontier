@@ -36,10 +36,23 @@ bool VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments, 
 {
     // 📝 The canvas runs the same unguarded curve loop as the bridge, single
     // channel; retired slots re-bracket before dense documents dispatch.
-    const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Segments, 1, DisplayExtent);
     auto &Slot = Slots[Index];
-    const size_t Which = IndexForExtent(Needed);
+    size_t Which = IndexForExtent(VectorCoverageRasterization::SelectBakeExtent(Segments, 1, DisplayExtent));
+    // 📝 Hysteresis against a jittering device-pixel hint near a pooled-tile boundary (layout
+    // rounding, DPI scale, a sub-pixel zoom): a request that only marginally crosses into the next
+    // tile up from the active one stays on the active tile instead of jumping up and immediately
+    // back down every frame. Left unguarded, that flip re-dispatches every frame and the bake badge
+    // never reaches "ready" even on a perfectly idle canvas. Only the one-tile-up case is dampened;
+    // downgrades and multi-tile jumps (an actual zoom change) still respond immediately.
+    if (DisplayExtent && Slot.Active < PooledExtents.size() && Which == Slot.Active + 1)
+    {
+        const uint32_t ActiveExtent = PooledExtents[Slot.Active];
+        const uint32_t Affordable = VectorCoverageRasterization::SelectBakeExtent(Segments, 1, 0);
+        const uint32_t Tolerance = std::max<uint32_t>(4, ActiveExtent / 32);
+        if (ActiveExtent <= Affordable && DisplayExtent <= ActiveExtent + Tolerance) Which = Slot.Active;
+    }
     if (Which == Slot.Active) return false;
+    const uint32_t Needed = PooledExtents[Which];
     if (!Slot.Extents[Which])
     {
         auto Fresh = std::make_unique<VectorCoverageRasterization>();

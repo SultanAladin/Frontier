@@ -502,7 +502,10 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
             ComponentSvgBuffer.clear();
             ComponentImageBuffer.clear();
             ImGui::CloseCurrentPopup();
-            ImGui::OpenPopup(PopupKey);
+            // 📝 Do not OpenPopup(PopupKey) here: this lambda runs inside the "Add a stamp component"
+            // dropdown's own popup window, a different ID-stack scope than where the modal is polled.
+            // Defer to the stable scope in ConstructLayers() instead (see PendingComponentPopup).
+            PendingComponentPopup = PopupKey;
         }
     };
     DecalOption("Add text...", "Add stamp text");
@@ -729,6 +732,14 @@ void StampWorkspacePanel::ConstructLayers()
         ConstructAddComponentMenu();
         DropdownControlSurface::EndMenu();
     }
+    // 📝 Open the requested add-component popup here, in the same stable ID-stack scope that
+    // ConstructTextPopup/ConstructVectorPopup/ConstructImagePopup poll with BeginPopupModal below —
+    // see PendingComponentPopup for why this cannot happen inside ConstructAddComponentMenu itself.
+    if (PendingComponentPopup)
+    {
+        ImGui::OpenPopup(PendingComponentPopup);
+        PendingComponentPopup = nullptr;
+    }
     ConstructTextPopup();
     ConstructVectorPopup();
     ConstructImagePopup();
@@ -887,6 +898,24 @@ void StampWorkspacePanel::ConstructCanvas()
         if (Controls.Button(Category ? "Ellipse tool (O)" : "Rectangle tool (R)", 32 * Scale, Tool == (Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle), ShapePaths[Category])) Tool = Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle;
         Controls.Tooltip(ShapeCaptions[Category], "Drag on the canvas to author an editable source shape.");
     }
+    ImGui::SameLine(0, 4 * Scale);
+    // 📝 Text is an immediate add-component action (typed content via a modal), not a drag-to-draw
+    // mode like Rectangle/Ellipse, so it never changes Tool/Selected state — it only stages the same
+    // request the "Add a stamp component" dropdown's "Add text..." row uses, consumed in
+    // ConstructLayers() where the matching BeginPopupModal lives (see PendingComponentPopup).
+    const bool AtComponentCap = QueryDocument().Layers.size() >= 24;
+    ImGui::BeginDisabled(AtComponentCap);
+    if (Controls.Button("Text tool (T)", 32 * Scale, false, TextIconPath))
+    {
+        ComponentEditToken = 0;
+        ComponentTextBuffer[0] = 0;
+        ComponentTextSize = 64;
+        ComponentSvgBuffer.clear();
+        ComponentImageBuffer.clear();
+        PendingComponentPopup = "Add stamp text";
+    }
+    ImGui::EndDisabled();
+    Controls.Tooltip("Text", AtComponentCap ? "Stamp decals are capped at 24 components (Pattern allows 64)." : "Add a text component to the decal. Real glyph-outline geometry, read from the bundled DM Sans font.");
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Pan tool", 32 * Scale, Tool == VectorAuthoringTool::Pan, "M7 12V6Q8 3 9 6V11V4Q11 1 12 4V11V5Q15 2 15 5V12V8Q18 5 18 8V16Q16 23 10 21L3 14Q2 10 5 12L7 14")) Tool = VectorAuthoringTool::Pan;
     ImGui::SameLine(0, 4 * Scale);

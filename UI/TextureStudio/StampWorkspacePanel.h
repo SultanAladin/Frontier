@@ -135,6 +135,13 @@ private:
     std::string ComponentSvgBuffer;
     std::string ComponentImageBuffer;
     uint32_t ComponentEditToken = 0; // 0 creates a new component; nonzero replaces that layer's content in place.
+    // 📝 ImGui popup IDs are seeded by the ID stack of whatever window is current when OpenPopup()
+    // runs. "Add text/vector/image..." are selected from deep inside the "Add a stamp component"
+    // dropdown's own transient popup window, so an OpenPopup() called right there would be keyed to
+    // that window and never match the BeginPopupModal() polled later from the stable Layers panel
+    // scope — the modal would silently never appear. Stash the request and open it from that stable
+    // scope instead, alongside the matching BeginPopupModal calls.
+    const char *PendingComponentPopup = nullptr;
     void ConstructAddComponentMenu();
     void ConstructTextPopup();
     void ConstructVectorPopup();
