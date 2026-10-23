@@ -33,6 +33,10 @@ struct VectorAuthoringLayer
     VectorAuthoringComponentKind ComponentKind = VectorAuthoringComponentKind::Freeform;
     std::string SourceMarkup;     // Text run contents, or the original sanitized SVG markup
     std::string EmbeddedImage;    // "data:image/png;base64,..." for ImportedImage components, same shape as MaterialAuthoringTexture::DataUrl
+    // 📝 The point size a Text component's outline was last (re)baked at, so editing content/size
+    // later (Inspector field or double-click-to-re-edit on canvas) can regenerate the glyph outline
+    // at a known, user-adjustable size instead of guessing one back from the baked bounds.
+    float TextPointSize = 64.f;
     bool operator==(const VectorAuthoringLayer &) const = default;
 };
 inline constexpr size_t VectorAuthoringSourceMarkupLimit = 32000; // [B] - Matches the HTML outline-command/markup bound

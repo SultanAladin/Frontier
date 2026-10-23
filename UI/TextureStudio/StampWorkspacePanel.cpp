@@ -13,6 +13,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <numbers>
@@ -498,7 +499,6 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
         {
             ComponentEditToken = 0;
             ComponentTextBuffer[0] = 0;
-            ComponentTextSize = 64;
             ComponentSvgBuffer.clear();
             ComponentImageBuffer.clear();
             ImGui::CloseCurrentPopup();
@@ -508,81 +508,135 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
             PendingComponentPopup = PopupKey;
         }
     };
-    DecalOption("Add text...", "Add stamp text");
     DecalOption("Add vector (SVG)...", "Add stamp vector");
     DecalOption("Add image...", "Add stamp image");
+    ImGui::TextDisabled("Use the Text tool in the canvas toolbar to draw and write a text component.");
     if (AtCap) ImGui::TextWrapped("Stamp decals are capped at 24 components (Pattern allows 64).");
 }
 
-void StampWorkspacePanel::ConstructTextPopup()
+// 📝 Measures Content's natural glyph-outline bounds at a reference point size (into a throwaway
+// scratch document, never touching the real one) and returns the point size that makes it fill
+// {BoxWidth, BoxHeight} as closely as possible without distorting the font (both axes scaled
+// uniformly, so the box's narrower-relative axis governs) — the "fit to box" behaviour an SVG/
+// Illustrator-style text tool gives when you drag out a frame and type into it.
+static float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
 {
-    ImGui::SetNextWindowSize(ImVec2(420 * Scale, 0));
-    const StampModalScope ModalScope(Scale);
-    if (ImGui::BeginPopupModal("Add stamp text", nullptr, ImGuiWindowFlags_NoResize))
+    constexpr float Reference = 100.f;
+    VectorAuthoringDocument Scratch; Scratch.Stamp = true;
+    const uint32_t Root = ContentRoot.empty() ? AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1})
+        : AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1},
+              (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+    VectorAuthoringLayer Layer; Layer.Token = ++Scratch.TokenClock; Layer.Root = Root;
+    Scratch.Layers.push_back(Layer);
+    const auto Bounds = QueryVectorAuthoringSelectionBounds(Scratch, std::array<uint32_t, 1>{Layer.Token});
+    const float MeasuredWidth = std::max(1.f, Bounds[2]), MeasuredHeight = std::max(1.f, Bounds[3]);
+    const float FitScale = std::min(std::max(1.f, BoxWidth) / MeasuredWidth, std::max(1.f, BoxHeight) / MeasuredHeight);
+    return std::clamp(Reference * FitScale, 4.f, 512.f);
+}
+
+void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize)
+{
+    if (Content.empty()) { Diagnostic = "Text content cannot be empty."; return; }
+    try
     {
-        ImGui::TextWrapped(ComponentEditToken ? "Edit this text component's content and size." : "Real glyph-outline geometry, read from the bundled DM Sans font.");
-        ImGui::Spacing();
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextMultiline("##StampTextContent", ComponentTextBuffer.data(), ComponentTextBuffer.size(), ImVec2(0, 60 * Scale));
-        Controls.Number("Point size", ComponentTextSize, 4, 512);
-        if (!Diagnostic.empty()) ImGui::TextWrapped("%s", Diagnostic.c_str());
-        ImGui::Spacing();
-        if (Controls.Button("Cancel", 120 * Scale)) { ImGui::CloseCurrentPopup(); Diagnostic.clear(); }
-        ImGui::SameLine(0, 8 * Scale);
-        if (Controls.Button(ComponentEditToken ? "Apply" : "Create", 120 * Scale, true))
+        EvaluateEdit([&](auto &Document)
         {
-            const std::string Content = ComponentTextBuffer.data();
-            const float Size = ComponentTextSize;
-            const uint32_t EditToken = ComponentEditToken;
-            try
-            {
-                EvaluateEdit([&](auto &Document)
-                {
-                    std::array<float, 4> Colour{.08f, .08f, .08f, 1};
-                    std::array<float, 2> AnchorCentre{256, 256};
-                    if (EditToken)
-                    {
-                        const auto Existing = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == EditToken; });
-                        if (Existing == Document.Layers.end()) throw std::runtime_error("The edited text component no longer exists.");
-                        const auto OldBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{EditToken});
-                        AnchorCentre = {OldBounds[0], OldBounds[1]};
-                        Colour = Document.Instructions[Existing->Root].Colour;
-                    }
-                    // 📝 Resolve the glyph-outline typeface off the app's own executable-relative
-                    // content root when the host configured one, instead of trusting the process's
-                    // current working directory to happen to be the EngineContent-containing folder.
-                    const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, Size, Colour)
-                        : AppendStampTextOutline(Document, Content, Size, Colour,
-                              (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
-                    if (EditToken)
-                        for (auto &Layer : Document.Layers) if (Layer.Token == EditToken) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; }
-                    else
-                    {
-                        if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
-                        VectorAuthoringLayer Layer;
-                        Layer.Token = ++Document.TokenClock;
-                        Layer.Root = NewRoot;
-                        Layer.Name = Content.size() > 24 ? Content.substr(0, 24) + "..." : Content;
-                        Layer.ComponentKind = VectorAuthoringComponentKind::Text;
-                        Layer.SourceMarkup = Content;
-                        if (Document.Layers.empty()) Document.Name = "Custom stamp";
-                        Document.Layers.push_back(Layer);
-                    }
-                    ReclaimVectorAuthoringSources(Document);
-                    const uint32_t FinalToken = EditToken ? EditToken : Document.Layers.back().Token;
-                    const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{FinalToken});
-                    VectorAuthoringSourcePatch Patch;
-                    Patch.TranslationX = AnchorCentre[0] - NewBounds[0];
-                    Patch.TranslationY = AnchorCentre[1] - NewBounds[1];
-                    TransformVectorAuthoringSelection(Document, std::array<uint32_t, 1>{FinalToken}, Patch);
-                    Selection = {FinalToken};
-                });
-                if (Diagnostic.empty()) { ImGui::CloseCurrentPopup(); ComponentEditToken = 0; }
-            }
-            catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-        }
-        ImGui::EndPopup();
+            const auto Existing = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == Token; });
+            if (Existing == Document.Layers.end()) throw std::runtime_error("The edited text component no longer exists.");
+            const auto OldBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
+            const std::array<float, 4> Colour = Document.Instructions[Existing->Root].Colour;
+            // 📝 Resolve the glyph-outline typeface off the app's own executable-relative content
+            // root when the host configured one, instead of trusting the process's current working
+            // directory to happen to be the EngineContent-containing folder.
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour)
+                : AppendStampTextOutline(Document, Content, PointSize, Colour,
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+            for (auto &Layer : Document.Layers) if (Layer.Token == Token) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; Layer.TextPointSize = PointSize; }
+            ReclaimVectorAuthoringSources(Document);
+            const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
+            VectorAuthoringSourcePatch Patch;
+            Patch.TranslationX = OldBounds[0] - NewBounds[0];
+            Patch.TranslationY = OldBounds[1] - NewBounds[1];
+            TransformVectorAuthoringSelection(Document, std::array<uint32_t, 1>{Token}, Patch);
+        });
+        Diagnostic.clear();
     }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void StampWorkspacePanel::CommitTextComposer()
+{
+    std::string Content = ComponentTextBuffer.data();
+    const auto NotSpace = [](unsigned char Character) { return !std::isspace(Character); };
+    Content.erase(Content.begin(), std::find_if(Content.begin(), Content.end(), NotSpace));
+    Content.erase(std::find_if(Content.rbegin(), Content.rend(), NotSpace).base(), Content.end());
+    const uint32_t EditToken = ComponentEditToken;
+    const auto Bounds = TextEditBounds;
+    Gesture = 0; ComponentTextBuffer[0] = 0; ComponentEditToken = 0;
+    if (Content.empty()) { Diagnostic.clear(); return; } // Nothing was written; discard the box silently.
+    try
+    {
+        const float PointSize = MeasureStampTextFitSize(Content, Bounds[2], Bounds[3], ContentRoot);
+        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize); return; }
+        EvaluateEdit([&](auto &Document)
+        {
+            if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1})
+                : AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1},
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+            VectorAuthoringLayer Layer;
+            Layer.Token = ++Document.TokenClock;
+            Layer.Root = NewRoot;
+            Layer.Name = Content.size() > 24 ? Content.substr(0, 24) + "..." : Content;
+            Layer.ComponentKind = VectorAuthoringComponentKind::Text;
+            Layer.SourceMarkup = Content;
+            Layer.TextPointSize = PointSize;
+            if (Document.Layers.empty()) Document.Name = "Custom stamp";
+            Document.Layers.push_back(Layer);
+            ReclaimVectorAuthoringSources(Document);
+            const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Layer.Token});
+            VectorAuthoringSourcePatch Patch;
+            Patch.TranslationX = Bounds[0] - NewBounds[0];
+            Patch.TranslationY = Bounds[1] - NewBounds[1];
+            TransformVectorAuthoringSelection(Document, std::array<uint32_t, 1>{Layer.Token}, Patch);
+            Selection = {Layer.Token};
+        });
+        Diagnostic.clear();
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float BoardMinimumY, float BoardSize)
+{
+    // 📝 An SVG/Illustrator-style text tool: the box was already drawn (or an existing text
+    // component's bounds were loaded) into TextEditBounds, so this just overlays a borderless,
+    // auto-focused text field exactly over that box — typing feels like writing directly onto the
+    // canvas. Escape cancels; Enter or clicking anywhere else commits (CommitTextComposer bakes the
+    // real glyph-outline component, auto-fit to the drawn box, once there is something to bake).
+    const ImVec2 Minimum(BoardMinimumX + (TextEditBounds[0] - TextEditBounds[2] * .5f) / 512 * BoardSize,
+                          BoardMinimumY + (TextEditBounds[1] - TextEditBounds[3] * .5f) / 512 * BoardSize);
+    const ImVec2 Maximum(BoardMinimumX + (TextEditBounds[0] + TextEditBounds[2] * .5f) / 512 * BoardSize,
+                          BoardMinimumY + (TextEditBounds[1] + TextEditBounds[3] * .5f) / 512 * BoardSize);
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddRectFilled(Minimum, Maximum, IM_COL32(255, 255, 255, 240));
+    Ink->AddRect(Minimum, Maximum, IM_COL32(134, 164, 112, 255), 0, 0, std::max(1.f, 1.5f * Scale));
+    ImGui::SetCursorScreenPos(Minimum);
+    ImGui::PushID("StampTextComposer");
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.06f, .06f, .05f, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+    if (TextEditFocusPending) { ImGui::SetKeyboardFocusHere(); TextEditFocusPending = false; }
+    // 📝 ImGui's multiline default is backwards for this use case (plain Enter inserts a newline;
+    // Ctrl+Enter validates) — CtrlEnterForNewLine flips it so plain Enter commits the component like
+    // the spec calls for, and Ctrl+Enter is the escape hatch for an actual multi-line caption.
+    const bool EnterCommit = ImGui::InputTextMultiline("##Compose", ComponentTextBuffer.data(), ComponentTextBuffer.size(),
+        ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
+    const bool Deactivated = ImGui::IsItemDeactivated();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    ImGui::PopID();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) { Gesture = 0; ComponentTextBuffer[0] = 0; ComponentEditToken = 0; Diagnostic.clear(); }
+    else if (EnterCommit || Deactivated) CommitTextComposer();
 }
 
 void StampWorkspacePanel::ConstructVectorPopup()
@@ -733,14 +787,13 @@ void StampWorkspacePanel::ConstructLayers()
         DropdownControlSurface::EndMenu();
     }
     // 📝 Open the requested add-component popup here, in the same stable ID-stack scope that
-    // ConstructTextPopup/ConstructVectorPopup/ConstructImagePopup poll with BeginPopupModal below —
-    // see PendingComponentPopup for why this cannot happen inside ConstructAddComponentMenu itself.
+    // ConstructVectorPopup/ConstructImagePopup poll with BeginPopupModal below — see
+    // PendingComponentPopup for why this cannot happen inside ConstructAddComponentMenu itself.
     if (PendingComponentPopup)
     {
         ImGui::OpenPopup(PendingComponentPopup);
         PendingComponentPopup = nullptr;
     }
-    ConstructTextPopup();
     ConstructVectorPopup();
     ConstructImagePopup();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * Scale, Origin.y + 64 * Scale));
@@ -899,23 +952,15 @@ void StampWorkspacePanel::ConstructCanvas()
         Controls.Tooltip(ShapeCaptions[Category], "Drag on the canvas to author an editable source shape.");
     }
     ImGui::SameLine(0, 4 * Scale);
-    // 📝 Text is an immediate add-component action (typed content via a modal), not a drag-to-draw
-    // mode like Rectangle/Ellipse, so it never changes Tool/Selected state — it only stages the same
-    // request the "Add a stamp component" dropdown's "Add text..." row uses, consumed in
-    // ConstructLayers() where the matching BeginPopupModal lives (see PendingComponentPopup).
+    // 📝 Text is a real drag-to-draw tool like Rectangle/Ellipse, not a modal trigger: drag a box on
+    // the canvas (a plain click uses a sensible default box), then write directly into it — see the
+    // Gesture == 2 (drawing the box) / Gesture == 8 (composing text, ConstructTextComposer) handling
+    // further down in this function.
     const bool AtComponentCap = QueryDocument().Layers.size() >= 24;
     ImGui::BeginDisabled(AtComponentCap);
-    if (Controls.Button("Text tool (T)", 32 * Scale, false, TextIconPath))
-    {
-        ComponentEditToken = 0;
-        ComponentTextBuffer[0] = 0;
-        ComponentTextSize = 64;
-        ComponentSvgBuffer.clear();
-        ComponentImageBuffer.clear();
-        PendingComponentPopup = "Add stamp text";
-    }
+    if (Controls.Button("Text tool (T)", 32 * Scale, Tool == VectorAuthoringTool::Text, TextIconPath)) Tool = VectorAuthoringTool::Text;
     ImGui::EndDisabled();
-    Controls.Tooltip("Text", AtComponentCap ? "Stamp decals are capped at 24 components (Pattern allows 64)." : "Add a text component to the decal. Real glyph-outline geometry, read from the bundled DM Sans font.");
+    Controls.Tooltip("Text", AtComponentCap ? "Stamp decals are capped at 24 components (Pattern allows 64)." : "Drag a box on the canvas and write directly into it. Real glyph-outline geometry, read from the bundled DM Sans font.");
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Pan tool", 32 * Scale, Tool == VectorAuthoringTool::Pan, "M7 12V6Q8 3 9 6V11V4Q11 1 12 4V11V5Q15 2 15 5V12V8Q18 5 18 8V16Q16 23 10 21L3 14Q2 10 5 12L7 14")) Tool = VectorAuthoringTool::Pan;
     ImGui::SameLine(0, 4 * Scale);
@@ -1081,12 +1126,25 @@ void StampWorkspacePanel::ConstructCanvas()
         Ink->AddRectFilled(Lower, Upper, IM_COL32(191, 216, 169, 24));
         Ink->AddRect(Lower, Upper, IM_COL32(191, 216, 169, 220));
     }
+    if (Gesture == 2 && Tool == VectorAuthoringTool::Text)
+    {
+        const ImVec2 Origin(BoardMinimum.x + PointerOrigin.X / 512 * BoardSize, BoardMinimum.y + PointerOrigin.Y / 512 * BoardSize);
+        const ImVec2 Current(BoardMinimum.x + TextBoxCurrent.X / 512 * BoardSize, BoardMinimum.y + TextBoxCurrent.Y / 512 * BoardSize);
+        const ImVec2 Lower(std::min(Origin.x, Current.x), std::min(Origin.y, Current.y));
+        const ImVec2 Upper(std::max(Origin.x, Current.x), std::max(Origin.y, Current.y));
+        Ink->AddRectFilled(Lower, Upper, IM_COL32(134, 164, 112, 40));
+        Ink->AddRect(Lower, Upper, IM_COL32(134, 164, 112, 230));
+    }
     Ink->PopClipRect();
     ImGui::SetCursorScreenPos(Minimum);
     ImGui::InvisibleButton("Stamp canvas", ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
     ControlExtents["Stamp canvas"] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
     const auto &Input = ImGui::GetIO();
     const bool Hovered = ImGui::IsItemHovered();
+    // 📝 Submitted after the invisible canvas button (not during the earlier Ink-drawing pass) so the
+    // composer's real InputTextMultiline sits on top for mouse hit-testing — otherwise the button
+    // underneath it would steal clicks meant for placing the text cursor inside the box.
+    if (Gesture == 8) ConstructTextComposer(BoardMinimum.x, BoardMinimum.y, BoardSize);
     const auto DocumentPoint = [&](ImVec2 Point, bool Snap = true)
     {
         PlanePoint Position{(Point.x - BoardMinimum.x) / BoardSize * 512, (Point.y - BoardMinimum.y) / BoardSize * 512};
@@ -1105,7 +1163,33 @@ void StampWorkspacePanel::ConstructCanvas()
         if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         else if (HoveredResize[0] || HoveredResize[1]) ImGui::SetMouseCursor(!HoveredResize[0] ? ImGuiMouseCursor_ResizeNS : !HoveredResize[1] ? ImGuiMouseCursor_ResizeEW : HoveredResize[0] == HoveredResize[1] ? ImGuiMouseCursor_ResizeNWSE : ImGuiMouseCursor_ResizeNESW);
     }
-    if (Hovered && Gesture == 0 && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))
+    bool TextReEditEntered = false;
+    if (Hovered && Gesture == 0 && Tool == VectorAuthoringTool::Select && ImGui::IsMouseDoubleClicked(0) && QuerySelectionToken)
+    {
+        // 📝 Double-clicking an existing text component re-enters the same on-canvas composer a
+        // freshly drawn box would, seeded with its current content/bounds, instead of only being
+        // editable through the Inspector.
+        try
+        {
+            const auto &Source = History.QueryDocument();
+            if (const auto Hit = QuerySelectionToken(Source, DocumentPoint(Input.MousePos, false)); Hit && *Hit)
+            {
+                const auto Position = std::find_if(Source.Layers.begin(), Source.Layers.end(), [&](const auto &Layer) { return Layer.Token == *Hit; });
+                if (Position != Source.Layers.end() && Position->ComponentKind == VectorAuthoringComponentKind::Text &&
+                    !QueryVectorAuthoringProtection(Source, *Position) && QueryVectorAuthoringVisibility(Source, *Position))
+                {
+                    TextEditBounds = QueryVectorAuthoringSelectionBounds(Source, std::array<uint32_t, 1>{*Hit});
+                    ComponentEditToken = *Hit;
+                    std::snprintf(ComponentTextBuffer.data(), ComponentTextBuffer.size(), "%s", Position->SourceMarkup.c_str());
+                    Selection = {*Hit};
+                    Gesture = 8; TextEditFocusPending = true;
+                    TextReEditEntered = true;
+                }
+            }
+        }
+        catch (const std::exception &) {}
+    }
+    if (Hovered && Gesture == 0 && !TextReEditEntered && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))
     {
         GestureSelection = Selection;
         PointerOrigin = DocumentPoint(Input.MousePos, false);
@@ -1123,6 +1207,7 @@ void StampWorkspacePanel::ConstructCanvas()
             GestureSource = History.QueryDocument();
             GestureDraft.reset();
             GesturePrimitiveToken = 0;
+            TextBoxCurrent = PointerOrigin; // Seeds the Text tool's drawn box so a plain click (no drag) still has a point to measure from.
         }
         else
         {
@@ -1189,7 +1274,13 @@ void StampWorkspacePanel::ConstructCanvas()
         }
         try
         {
-            if (Gesture == 2)
+            if (Gesture == 2 && Tool == VectorAuthoringTool::Text)
+            {
+                // 📝 Text never creates a GestureDraft primitive while dragging; it only tracks the
+                // box endpoint for the preview rectangle below and for sizing the composer on release.
+                TextBoxCurrent = Position;
+            }
+            else if (Gesture == 2)
             {
                 VectorCoverageInstruction Source;
                 Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
@@ -1240,6 +1331,21 @@ void StampWorkspacePanel::ConstructCanvas()
     if ((ImGui::IsKeyPressed(ImGuiKey_Escape) || Input.AppFocusLost || !ImGui::IsMousePosValid()) && Gesture)
     {
         Selection = GestureSelection; GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
+    }
+    else if (Gesture == 2 && Tool == VectorAuthoringTool::Text && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
+    {
+        // 📝 The box is drawn; hand off to the on-canvas composer (Gesture 8) instead of the generic
+        // shape-finalize path below, which only knows how to finalize a GestureDraft primitive.
+        constexpr float MinimumBoxExtent = 8.f, DefaultBoxWidth = 220.f, DefaultBoxHeight = 64.f;
+        const float Width = std::abs(TextBoxCurrent.X - PointerOrigin.X), Height = std::abs(TextBoxCurrent.Y - PointerOrigin.Y);
+        if (Width < MinimumBoxExtent && Height < MinimumBoxExtent)
+            TextEditBounds = {PointerOrigin.X, PointerOrigin.Y, DefaultBoxWidth, DefaultBoxHeight};
+        else
+            TextEditBounds = {(PointerOrigin.X + TextBoxCurrent.X) * .5f, (PointerOrigin.Y + TextBoxCurrent.Y) * .5f,
+                std::max(MinimumBoxExtent, Width), std::max(MinimumBoxExtent, Height)};
+        ComponentEditToken = 0;
+        ComponentTextBuffer[0] = 0;
+        GestureSource.reset(); Gesture = 8; TextEditFocusPending = true;
     }
     else if (Gesture && Gesture != 7 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
     {
@@ -1301,13 +1407,28 @@ void StampWorkspacePanel::ConstructInspector()
         ImGui::BeginDisabled(Protected);
         if (IsText)
         {
-            ImGui::TextWrapped("%s", First->SourceMarkup.c_str());
-            if (Controls.Button("Edit text...", 160 * Scale))
+            // 📝 Text properties live inline here (content + font size), not behind a modal: editing
+            // either commits (rebakes the real glyph outline, anchor held at its current centre) the
+            // moment you leave the field, via IsItemDeactivatedAfterEdit — not on every keystroke.
+            if (InspectorTextToken != First->Token)
             {
+                std::snprintf(InspectorTextBuffer.data(), InspectorTextBuffer.size(), "%s", First->SourceMarkup.c_str());
+                InspectorTextToken = First->Token;
+            }
+            ImGui::TextDisabled("Content");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputTextMultiline("##StampTextInspectorContent", InspectorTextBuffer.data(), InspectorTextBuffer.size(), ImVec2(0, 56 * Scale));
+            const bool ContentCommit = ImGui::IsItemDeactivatedAfterEdit();
+            float PointSize = First->TextPointSize;
+            Controls.Number("Font size", PointSize, 4, 512);
+            const bool SizeCommit = ImGui::IsItemDeactivatedAfterEdit();
+            if (ContentCommit || SizeCommit) RebakeTextLayer(First->Token, InspectorTextBuffer.data(), PointSize);
+            if (Controls.Button("Edit on canvas...", 160 * Scale))
+            {
+                TextEditBounds = QueryVectorAuthoringSelectionBounds(Snapshot, std::array<uint32_t, 1>{First->Token});
                 ComponentEditToken = First->Token;
                 std::snprintf(ComponentTextBuffer.data(), ComponentTextBuffer.size(), "%s", First->SourceMarkup.c_str());
-                ComponentTextSize = 64;
-                ImGui::OpenPopup("Add stamp text");
+                Gesture = 8; TextEditFocusPending = true;
             }
         }
         else if (IsVector)
@@ -1334,7 +1455,6 @@ void StampWorkspacePanel::ConstructInspector()
         }
         ImGui::EndDisabled();
         Controls.EndCard();
-        ConstructTextPopup();
         ConstructVectorPopup();
         ConstructImagePopup();
         if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
@@ -1635,6 +1755,7 @@ void StampWorkspacePanel::ConstructInterface()
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_V)) Tool = VectorAuthoringTool::Select;
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_R)) Tool = VectorAuthoringTool::Rectangle;
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_O)) Tool = VectorAuthoringTool::Ellipse;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_T)) Tool = VectorAuthoringTool::Text;
         if (ImGui::IsKeyPressed(ImGuiKey_0)) { Pan = {}; Zoom = 1; }
         if (!Selection.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete))
         {
