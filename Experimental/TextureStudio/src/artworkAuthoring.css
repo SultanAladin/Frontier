@@ -31,13 +31,8 @@
 .artwork-mask-editor footer { padding:10px 14px; color:#aaa997; font-size:9px; border-top:1px solid #ffffff0a; line-height:1.5; }
 .artwork-mask-editor footer small { display:block; color:#78786c; }
 .artwork-mask-properties .artwork-mask-coordinate-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-/* Match Stamp's two-line cards, spacing, and status treatment without replacing Pattern reorder/lock controls. */
-.studio-pattern .pe-layers-dock .se-layer-row { min-height:57px; border-radius:15px; margin:0 0 4px; background:#21211f; }
-.studio-pattern .pe-layers-dock .se-layer-row > button { display:flex; align-items:center; gap:9px; padding:10px 7px; }
-.studio-pattern .pe-layers-dock .se-layer-row > button > span { background:none!important; width:auto; height:auto; border:0; flex:1; min-width:0; }
-.studio-pattern .pe-layers-dock .se-layer-row strong { display:block; font-size:11px; font-weight:500; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
-.studio-pattern .pe-layers-dock .se-layer-row small { display:block; font-size:8px; margin-top:5px; color:#8c8b78; }
-.studio-pattern .pe-layers-dock .se-layer-row:has(button[aria-pressed=true]) { background:#292722; border-color:#d9b28144; box-shadow:none; }
+/* Pattern's layer rows reuse tp-layer-row verbatim (see PatternEditor.jsx/textureStudio.css) so the
+   stack reads identically to the Texture workspace's; only the stat-chip sizing differs here. */
 .studio-pattern .pe-layers-dock .tp-layer-stats button { border-radius:20px; height:65px; }
 .studio-pattern .pe-layers-dock .tp-layer-stats strong { font-size:20px; line-height:22px; }
 .studio-pattern .pe-layers-dock .tp-layer-stats small { font-size:9px; }
@@ -97,6 +92,12 @@
 .studio-pattern .pe-layers-dock .artwork-mask-row > button:last-child { width:29px; flex:0 0 29px; padding:5px!important; }
 .studio-pattern .pe-layers-dock .artwork-mask-row > button > span { background:none; border:0; width:auto; height:auto; display:block; flex:1; min-width:0; }
 .artwork-mask-row strong,.artwork-mask-row small { white-space:nowrap; text-overflow:ellipsis; overflow:hidden; }
+/* tp-layer-row ported 1:1 from the Texture workspace keeps its own thumbnail/kind-icon/name sizing;
+   cancel the legacy 12px swatch-square meant for the retired se-layer-row's plain icon slot. */
+.studio-pattern .pe-layers-dock .tp-layer-select > span { width:auto; height:auto; border-radius:0; flex-shrink:1; }
+.studio-pattern .pe-layers-dock .tp-layer-select > .tp-layer-thumbnail { border-radius:8px; }
+.studio-pattern .pe-layers-dock .tp-layer-select > .tp-kind-icon { border-radius:9px; }
+.studio-pattern .pe-layers-dock .tp-layer-select small { margin-left:0; }
 .pattern-library-toggle { margin-left:10px; padding:0!important; width:21px; height:21px; display:inline-grid; place-items:center; }
 .studio-pattern .pe-library[data-collapsed=true] > :not(.studio-dock-tab) { display:none; }
 @media(min-width:601px) { .studio-pattern .pe-body:has(>.pe-library[data-collapsed=true]) { grid-template-rows:32px minmax(180px,1fr); } }
@@ -120,10 +121,10 @@
 .artwork-selection-mask small { font-size:9px; color:#99998b; line-height:1.6; }
 .artwork-selection-mask button { font-size:10px; padding:9px; text-align:left; }
 .artwork-multiple-heading { font-size:13px; font-weight:500; padding:12px 0; }
-.studio-pattern input[role=switch]:not(.se-layer-toggle input):not(.se-row-flag input),.stamp-studio input[role=switch] { appearance:none!important; -webkit-appearance:none!important; width:32px!important; min-width:32px!important; height:18px!important; padding:0!important; border:1px solid #636357!important; border-radius:20px!important; background:#33332e!important; position:relative; cursor:pointer; vertical-align:middle; flex:none; }
-.studio-pattern input[role=switch]:not(.se-layer-toggle input):not(.se-row-flag input)::after,.stamp-studio input[role=switch]::after { content:""; position:absolute; width:12px; height:12px; border-radius:50%; background:#c6c6b8; left:2px; top:2px; transition:transform .12s; }
-.studio-pattern input[role=switch]:not(.se-layer-toggle input):not(.se-row-flag input):checked,.stamp-studio input[role=switch]:checked { background:#687a5a!important; }
-.studio-pattern input[role=switch]:not(.se-layer-toggle input):not(.se-row-flag input):checked::after,.stamp-studio input[role=switch]:checked::after { transform:translateX(14px); background:#eff1df; }
+.studio-pattern input[role=switch]:not(.se-row-flag input),.stamp-studio input[role=switch] { appearance:none!important; -webkit-appearance:none!important; width:32px!important; min-width:32px!important; height:18px!important; padding:0!important; border:1px solid #636357!important; border-radius:20px!important; background:#33332e!important; position:relative; cursor:pointer; vertical-align:middle; flex:none; }
+.studio-pattern input[role=switch]:not(.se-row-flag input)::after,.stamp-studio input[role=switch]::after { content:""; position:absolute; width:12px; height:12px; border-radius:50%; background:#c6c6b8; left:2px; top:2px; transition:transform .12s; }
+.studio-pattern input[role=switch]:not(.se-row-flag input):checked,.stamp-studio input[role=switch]:checked { background:#687a5a!important; }
+.studio-pattern input[role=switch]:not(.se-row-flag input):checked::after,.stamp-studio input[role=switch]:checked::after { transform:translateX(14px); background:#eff1df; }
 input[role=switch]:focus-visible { outline:2px solid #d9b281; outline-offset:3px; }
 input[role=switch]:disabled { opacity:.4; cursor:default; }
 

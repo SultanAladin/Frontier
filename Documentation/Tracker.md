@@ -357,3 +357,32 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   files this session's sheen/inspector/dialog work changed.
 - Verified: full root build + `ctest` 26/26, confirming the merge is inert for the shipped build.
 
+## Pattern layer stack visual parity + selection-bounds regression coverage (2026-10-23, branch arena/649fea90-frontier)
+
+- HTML Pattern Studio's layer rows (`PatternEditor.jsx`) now reuse the Texture workspace's
+  `tp-layer-row` chrome verbatim: a drag handle, a per-layer preview thumbnail (new
+  `PatternLayerThumbnail.jsx`, rendering the layer's own vector contour sized to just that shape's
+  own bounds via `patternSizedPath`, falling back to the shape-kind glyph for kinds with no
+  contour), the name/kind/opacity meta line, then eye/lock icon buttons — same classNames, same
+  look, as requested, instead of the retired bespoke `se-layer-row` styling. Retired the now-dead
+  `se-layer-row`/`se-layer-name`/`se-layer-toggle` CSS across `shapeEditor.css`, `studioTheme.css`
+  and `artworkAuthoring.css`; added narrow overrides so the legacy `.pe-layers button > span` 12px
+  swatch sizing doesn't clobber the ported thumbnail/kind-icon/name slots.
+- Investigated the reported native (C++) Pattern Studio selection-hitbox issue ("highlight spans the
+  whole canvas instead of hugging the selected shape"). Traced `QueryVectorSelectionExtent` /
+  `QueryVectorAuthoringSelectionBounds` (`VectorAuthoringSelectionEditing.cpp`) and the pen tool's
+  `EncodePath` (`CubicPathEditing.cpp`): both already compute tight, shape-local bounds for a single
+  selected primitive or hand-drawn/library cubic-contour path in every scenario exercised, including
+  a tile-normalized library-path simulation. Found and fixed a real gap instead: `VectorSelectionValidation.cpp`
+  (1431+ assertions covering this exact selection-bounds/resize/reorder surface) existed but was
+  never wired into CMake/ctest, so it never ran in CI. Added it as a real ctest target and added two
+  new regression checks pinning a hand-drawn motif and a tile-normalized imported path to their own
+  tight bounds, not the full 512 canvas. Host suite 27/27 (up from 26). If the on-canvas symptom
+  still reproduces after this, it is most likely the multi-select case (selecting an entire
+  array-placed group, whose true combined bounds legitimately span the tile) rather than a bounds
+  bug — flagged for the user to confirm against the next preview.
+- Deferred to follow-up: porting the same layer-row visual parity into the native (C++)
+  `PatternWorkspacePanel.cpp`, and reconstructing the pattern library's motifs (Diamond weave and
+  the rest) as composable Array/Inset/Mirror/Align-to-edge recipes in both HTML and C++ — large,
+  multi-pattern effort tracked separately.
+

@@ -72,7 +72,9 @@ import {
   Eye,
   EyeOff,
   Lock,
-  LockOpen,
+  LockKeyhole,
+  UnlockKeyhole,
+  GripVertical,
   Group,
   CircleHelp,
   FilePlus2,
@@ -98,8 +100,12 @@ import { sanitizePatternSVG } from "./patternImport.js";
 import { rasterPatternSVG, patternImage } from "./patternRuntime.js";
 import { leatherSourceSVG } from "./leatherSource.js";
 import { StudioHeader, StudioDockTab } from "./StudioUI.jsx";
+import PatternLayerThumbnail from "./PatternLayerThumbnail.jsx";
 import "./patternEditor.css";
 import "./shapeEditor.css";
+// 🧩 tp-layer-row/tp-layer-thumbnail/tp-layer-eye/tp-layer-lock chrome is shared 1:1 with the
+// Texture workspace's layer stack so both panels read identically; see textureStudio.css.
+import "./textureStudio.css";
 
 // Only mounted page cards generate SVG. Hundreds of presets must not block
 // startup, pointer moves or background material-thumbnail updates.
@@ -1615,8 +1621,9 @@ export default function PatternEditor({
                     key={p.id}
                     role="listitem"
                     className={
-                      "se-layer-row " +
-                      (selected.includes(i) && !MaskActive ? "is-selected " : "") +
+                      "tp-layer-row " +
+                      (selected.includes(i) && !MaskActive ? "selected " : "") +
+                      (!p.visible ? "hidden-row " : "") +
                       (p.locked ? "is-locked" : "")
                     }
                     draggable={!p.locked}
@@ -1661,54 +1668,55 @@ export default function PatternEditor({
                     }}
                   >
                     <button
-                      className={selected.includes(i) && !MaskActive ? "selected" : ""}
+                      className="tp-layer-drag"
+                      aria-label={`Drag ${p.name}`}
+                      title="Drag to reorder"
+                      disabled={!!p.locked}
+                      draggable={!p.locked}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <GripVertical size={12} />
+                    </button>
+                    <button
+                      className="tp-layer-select"
                       aria-pressed={selected.includes(i) && !MaskActive}
                       aria-label={p.name}
                       title={p.name + (p.group ? " · grouped" : "")}
                       onClick={(e) => selectLayer(i, e)}
                     >
-                      {React.createElement(shapeTools.find(([Category]) => Category === p.kind)?.[3] || Layers3, { size: 20 })}
-                      <span className="se-layer-name"><strong>{p.name}</strong><small>{p.kind.toUpperCase()} · {Math.round((p.opacity ?? 1) * 100)}%</small></span>
-                      {p.group && <Group size={12} />}
+                      <PatternLayerThumbnail layer={p} size={34} FallbackIcon={shapeTools.find(([Category]) => Category === p.kind)?.[3] || Layers3} />
+                      <span><strong>{p.name}</strong><small>{p.kind.toUpperCase()} · {Math.round((p.opacity ?? 1) * 100)}%{p.group ? " · grouped" : ""}</small></span>
                     </button>
-                    <label
-                      className="se-layer-toggle"
+                    <button
+                      className="tp-layer-eye"
+                      aria-label={`${p.visible ? "Hide" : "Show"} ${p.name}`}
                       title={p.visible ? "Hide layer" : "Show layer"}
+                      onClick={() =>
+                        commit({
+                          ...doc,
+                          layers: doc.layers.map((q, j) =>
+                            j === i ? { ...q, visible: !q.visible } : q,
+                          ),
+                        })
+                      }
                     >
-                      <input
-                        type="checkbox" role="switch"
-                        aria-label={`Layer visibility ${i + 1}: ${p.name}`}
-                        checked={p.visible}
-                        onChange={(e) =>
-                          commit({
-                            ...doc,
-                            layers: doc.layers.map((q, j) =>
-                              j === i ? { ...q, visible: e.target.checked } : q,
-                            ),
-                          })
-                        }
-                      />
                       {p.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-                    </label>
-                    <label
-                      className="se-layer-toggle"
+                    </button>
+                    <button
+                      className={`tp-layer-lock ${p.locked ? "locked" : ""}`}
+                      aria-label={`${p.locked ? "Unlock" : "Lock"} ${p.name}`}
                       title={p.locked ? "Unlock layer" : "Lock layer"}
+                      onClick={() =>
+                        commit({
+                          ...doc,
+                          layers: doc.layers.map((q, j) =>
+                            j === i ? { ...q, locked: !q.locked } : q,
+                          ),
+                        })
+                      }
                     >
-                      <input
-                        type="checkbox" role="switch"
-                        aria-label={`Layer lock ${i + 1}: ${p.name}`}
-                        checked={!!p.locked}
-                        onChange={(e) =>
-                          commit({
-                            ...doc,
-                            layers: doc.layers.map((q, j) =>
-                              j === i ? { ...q, locked: e.target.checked } : q,
-                            ),
-                          })
-                        }
-                      />
-                      {p.locked ? <Lock size={12} /> : <LockOpen size={12} />}
-                    </label>
+                      {p.locked ? <LockKeyhole size={12} /> : <UnlockKeyhole size={12} />}
+                    </button>
                   </div><ArtworkMaskStackRow Mask={p.mask} Name={p.name} Selected={MaskActive && MaskIdentity === p.id} Locked={p.locked}
                     OnSelect={() => { if (canvasRef.current?.hasPendingPath() && !canvasRef.current.prepareExport()) return; setSelected([i]); ConfigureMaskIdentity(p.id); setMode("design"); }}
                     OnChange={Mask => commit({ ...docRef.current, layers: docRef.current.layers.map(Entry => Entry.id === p.id ? { ...Entry, mask: Mask } : Entry) })}/></React.Fragment>
