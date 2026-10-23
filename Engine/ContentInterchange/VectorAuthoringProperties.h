@@ -17,11 +17,19 @@ namespace Frontier
 
 enum class VectorAuthoringSurfaceChannel : uint32_t
 {
-    Colour, Height, Normal, Roughness, Metalness, Opacity, Occlusion
+    Colour, Height, Normal, Roughness, Metalness, Opacity, Occlusion, Transmission, Clearcoat
 };
 enum class VectorAuthoringSurfaceStructure : uint32_t
 {
     Freeform, Stitch, Weave
+};
+// 📝 Stamp authoring provenance for a layer's contributed instructions/segments. Freeform covers
+// ordinary hand-drawn Pattern shapes (and remains the default so existing Pattern documents are
+// unaffected); Text/ImportedVector/ImportedImage are Stamp-only component kinds that retain their
+// original source alongside the baked cubic-path instructions so the component can be re-edited.
+enum class VectorAuthoringComponentKind : uint32_t
+{
+    Freeform, Text, ImportedVector, ImportedImage
 };
 enum class VectorAuthoringTextileGeometry : uint32_t
 {
@@ -44,18 +52,23 @@ struct VectorAuthoringEnclosure
     bool        GroupWideEditingEnabled = false;
     bool operator==(const VectorAuthoringEnclosure &) const = default;
 };
-using VectorAuthoringSurfaceChannels = std::array<VectorAuthoringChannelContribution, 7>;
+using VectorAuthoringSurfaceChannels = std::array<VectorAuthoringChannelContribution, 9>;
 
 struct VectorAuthoringChannelPatch
 {
-    std::array<std::optional<bool>, 7>  Enabled;
-    std::array<std::optional<float>, 7> Strength;
+    std::array<std::optional<bool>, 9>  Enabled;
+    std::array<std::optional<float>, 9> Strength;
 };
 
 constexpr VectorAuthoringSurfaceChannels ConstructVectorAuthoringSurfaceChannels() noexcept
 {
+    // 📝 Occlusion, Transmission and Clearcoat stay disabled until explicitly painted so an untouched
+    // layer never overrides a material's native ambient occlusion, transmission or clearcoat with a
+    // neutral value; indexed explicitly rather than via back() so extending the channel list is safe.
     VectorAuthoringSurfaceChannels Contributions{};
-    Contributions.back().Enabled = false;
+    Contributions[size_t(VectorAuthoringSurfaceChannel::Occlusion)].Enabled     = false;
+    Contributions[size_t(VectorAuthoringSurfaceChannel::Transmission)].Enabled = false;
+    Contributions[size_t(VectorAuthoringSurfaceChannel::Clearcoat)].Enabled    = false;
     return Contributions;
 }
 

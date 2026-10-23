@@ -874,10 +874,15 @@ void PatternWorkspacePanel::ConstructHeader()
     float PositionX = NavigationX;
     for (size_t Index = 0; Index < 5; ++Index)
     {
+        const bool Available = Index == 0 || Index == 1 || Index == 3;
         ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * Scale));
-        ImGui::BeginDisabled(Index > 1 || (Index == 0 && !ActivateMaterial));
-        if (Controls.Button(Workspaces[Index], Widths[Index] * Scale, Index == 1, {}, true) && Index == 0) ActivateMaterial();
-        Controls.Tooltip(Workspaces[Index], Index > 1 ? "This native workspace is not hosted yet. Pattern is being ported first." : "Switch workspace without losing your document.");
+        ImGui::BeginDisabled(!Available || (Index == 0 && !ActivateMaterial) || (Index == 3 && !ActivateStamp));
+        if (Controls.Button(Workspaces[Index], Widths[Index] * Scale, Index == 1, {}, true))
+        {
+            if (Index == 0 && ActivateMaterial) ActivateMaterial();
+            if (Index == 3 && ActivateStamp) ActivateStamp();
+        }
+        Controls.Tooltip(Workspaces[Index], Available ? "Switch workspace without losing your document." : "This native workspace is not hosted yet.");
         ImGui::EndDisabled();
         PositionX += Widths[Index] * Scale;
     }
@@ -2574,9 +2579,9 @@ void PatternWorkspacePanel::ConstructInspector()
                         }
                 });
             ImGui::EndDisabled();
-            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion"};
+            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion", "Transmission", "Clearcoat"};
             ImGui::BeginDisabled(Protected);
-            for (size_t Index = 0; Index < 7; ++Index)
+            for (size_t Index = 0; Index < std::size(Channels); ++Index)
             {
                 bool Enabled = First->SurfaceChannels[Index].Enabled;
                 const bool RequiredForTextile = First->SurfaceStructure != VectorAuthoringSurfaceStructure::Freeform && (Index == size_t(VectorAuthoringSurfaceChannel::Height) || Index == size_t(VectorAuthoringSurfaceChannel::Normal));
@@ -2766,7 +2771,7 @@ void PatternWorkspacePanel::SuspendContent() noexcept
 void PatternWorkspacePanel::FinalizeContent() noexcept
 {
     SuspendContent();
-    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; CancelClose = {}; EvaluateNavigationDelta = {};
+    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; ActivateStamp = {}; CancelClose = {}; EvaluateNavigationDelta = {};
 }
 
 void PatternWorkspacePanel::ConstructInterface()

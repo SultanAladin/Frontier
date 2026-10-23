@@ -6,6 +6,7 @@
 #include "VectorAuthoringEditing.h"
 #include <functional>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <numbers>
 #include <unordered_map>
@@ -18,6 +19,44 @@ namespace
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     BOUNDED LOOKUPS
 //------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Stamp image components reuse the HTML/MaterialAuthoring "data:image/png;base64,..." shape and
+// the same structural bounds (300 kB ceiling, valid PNG signature/IHDR, 1..256 px edges) without
+// pulling in MaterialAuthoring.h's wider dependency surface for a single predicate.
+bool EmbeddedStampImageValid(std::string_view DataUrl)
+{
+    constexpr std::string_view Prefix = "data:image/png;base64,";
+    if (!DataUrl.starts_with(Prefix) || DataUrl.size() > 300000) return false;
+    const std::string_view Encoded = DataUrl.substr(Prefix.size());
+    constexpr const char *Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::array<uint8_t, 36> Header{};
+    size_t Produced = 0;
+    uint32_t Accumulator = 0;
+    int Bits = 0;
+    for (const char Letter : Encoded.substr(0, 48))
+    {
+        if (Letter == '=') break;
+        const char *Position = std::strchr(Alphabet, Letter);
+        if (!Position) return false;
+        Accumulator = (Accumulator << 6) | uint32_t(Position - Alphabet);
+        Bits += 6;
+        if (Bits >= 8)
+        {
+            Bits -= 8;
+            if (Produced < Header.size()) Header[Produced++] = uint8_t((Accumulator >> Bits) & 0xff);
+        }
+    }
+    if (Produced < 24) return false;
+    constexpr std::array<uint8_t, 8> Signature{137, 80, 78, 71, 13, 10, 26, 10};
+    if (!std::equal(Signature.begin(), Signature.end(), Header.begin())) return false;
+    if (std::string_view(reinterpret_cast<const char *>(Header.data()) + 12, 4) != "IHDR") return false;
+    const auto ReadExtent = [&Header](size_t Offset) {
+        return (uint32_t(Header[Offset]) << 24) | (uint32_t(Header[Offset + 1]) << 16) |
+               (uint32_t(Header[Offset + 2]) << 8) | uint32_t(Header[Offset + 3]);
+    };
+    const uint32_t Width = ReadExtent(16), Height = ReadExtent(20);
+    return Width >= 1 && Width <= 256 && Height >= 1 && Height <= 256;
+}
 
 const VectorAuthoringEnclosure &ResolveEnclosure(const VectorAuthoringDocument &Document, uint32_t Token)
 {
@@ -137,6 +176,16 @@ void ValidateVectorAuthoringOrganization(const VectorAuthoringDocument &Document
             (!Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Enabled || Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength <= 0 ||
              !Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Enabled || Layer.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Normal)].Strength <= 0))
             throw std::runtime_error("Stitch and weave surfaces require enabled, non-zero Height and Normal contributions.");
+        if (uint32_t(Layer.ComponentKind) > uint32_t(VectorAuthoringComponentKind::ImportedImage))
+            throw std::runtime_error("Vector component kind is outside its authored domain.");
+        if (Layer.ComponentKind != VectorAuthoringComponentKind::Freeform && !Document.Stamp)
+            throw std::runtime_error("Text, SVG and image components are a Stamp-only workspace contract.");
+        if (Layer.SourceMarkup.size() > VectorAuthoringSourceMarkupLimit)
+            throw std::runtime_error("Vector component source markup exceeds its authored bound.");
+        if (Layer.ComponentKind == VectorAuthoringComponentKind::ImportedImage && !EmbeddedStampImageValid(Layer.EmbeddedImage))
+            throw std::runtime_error("An image component requires a valid bounded embedded PNG.");
+        if (Layer.ComponentKind != VectorAuthoringComponentKind::ImportedImage && !Layer.EmbeddedImage.empty())
+            throw std::runtime_error("Only image components may carry embedded image bytes.");
     }
 }
 

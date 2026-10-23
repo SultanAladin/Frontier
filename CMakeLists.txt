@@ -58,11 +58,16 @@ add_library(FrontierVectorAuthoring STATIC
     Engine/ContentInterchange/VectorAuthoringProperties.cpp
     Engine/ContentInterchange/VectorAuthoringSelectionEditing.cpp
     Engine/ContentInterchange/CubicPathEditing.cpp
+    Engine/ContentInterchange/StampTextOutline.cpp
+    Engine/ContentInterchange/StampVectorImport.cpp
     Engine/Render/VectorSurfaceCompilation.cpp
     Engine/ContentInterchange/SurfaceMapEncoding.cpp)
 target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
+    UI/TextureStudio/StampWorkspacePanel.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
@@ -86,14 +91,57 @@ add_library(FrontierEditorUI STATIC UI/Editor/ProjectBrowserPanel.cpp UI/Editor/
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
 
+# GLFW owns windows/input on every platform; DX11 is only the legacy Windows-only exhibit's display
+# adapter, not the primary renderer, and never needs GLFW built differently per platform.
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory(ExternalPackages/glfw EXCLUDE_FROM_ALL)
+
+execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE FRONTIER_BUILD_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+# TextureStudio ships on both Windows and Linux; Vulkan + GLFW own presentation on each, and the
+# shared WindowsApplication.cpp/VulkanPresentation.cpp plumbing is platform-neutral.
+add_executable(TextureStudio Experimental/TextureStudio/Native/TextureStudioApplication.cpp
+    Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+    "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+set_target_properties(TextureStudio PROPERTIES OUTPUT_NAME TextureWorkspace)
+target_include_directories(TextureStudio PRIVATE "${IMGUI_ROOT}/backends"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+target_compile_definitions(TextureStudio PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
+    FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\" FRONTIER_BUILD_REVISION="${FRONTIER_BUILD_REVISION}")
+target_link_libraries(TextureStudio PRIVATE FrontierEditorUI FrontierTextureStudioUI glfw)
+if(NOT WIN32 AND BUILD_TESTING)
+    # 📝 Host-verification builds put every plain CTest executable in this same flat binary
+    # directory; a bundled EngineContent copy sitting beside them would shadow the real,
+    # executable-relative repository content those tests deliberately verify against (see
+    # ControlCentreValidation). Windows packaging is unaffected: it is untouched by this branch.
+    set_target_properties(TextureStudio PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/TextureStudio")
+endif()
+add_custom_command(TARGET TextureStudio POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"
+        "$<TARGET_FILE_DIR:TextureStudio>/EngineContent/MaterialArchives/TextureStudio")
+add_custom_command(TARGET TextureStudio POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
+    "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:TextureStudio>/EngineContent")
+install(TARGETS TextureStudio RUNTIME DESTINATION .)
+install(DIRECTORY ExternalPackages/vulkan-headers/LICENSES DESTINATION Notices/Vulkan-Headers)
+install(DIRECTORY EngineContent DESTINATION .)
+install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)
+install(FILES ExternalPackages/glfw/LICENSE.md DESTINATION Notices RENAME GLFW-LICENSE.md)
+install(FILES ExternalPackages/tomlpp/LICENSE DESTINATION Notices RENAME TomlPlusPlus-LICENSE.txt)
+install(FILES ExternalPackages/stb/LICENSE DESTINATION Notices RENAME Stb-LICENSE.txt)
+install(FILES ExternalPackages/thorvg/LICENSE DESTINATION Notices RENAME ThorVG-LICENSE.txt)
+install(FILES Engine/Interface/Lucide.NOTICE Documentation/SourceNotices.md DESTINATION Notices)
+
 if(WIN32)
-    # GLFW owns windows/input; DX11 is only this ImGui exhibit's display adapter, not the primary renderer.
-    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    add_subdirectory(ExternalPackages/glfw EXCLUDE_FROM_ALL)
+    target_compile_definitions(TextureStudio PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(TextureStudio PRIVATE comdlg32 shell32)
+    if(MSVC)
+        target_link_options(TextureStudio PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+    endif()
     # Vulkan is the editor UI default. GLFW + the pinned ImGui Vulkan adapter own secondary-window presentation.
     add_executable(FrontierUI Exhibits/UIFoundation/Code/WindowsUI.cpp
         Engine/Interface/WindowsApplication.cpp
@@ -101,28 +149,16 @@ if(WIN32)
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
     target_include_directories(FrontierUI PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(FrontierUI PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES)
+    target_compile_definitions(FrontierUI PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE)
     target_link_libraries(FrontierUI PRIVATE FrontierEditorUI glfw)
     add_executable(Frontier Experimental/Frontier/Native/WindowsFrontier.cpp
         Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
         "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
     target_include_directories(Frontier PRIVATE "${IMGUI_ROOT}/backends"
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
+    target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
         FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
     target_link_libraries(Frontier PRIVATE FrontierEditorUI FrontierSurfaceRasterization glfw ole32)
-    add_executable(TextureStudio Experimental/TextureStudio/Native/WindowsTextureStudio.cpp
-        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
-        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
-    set_target_properties(TextureStudio PROPERTIES OUTPUT_NAME TextureWorkspace)
-    target_include_directories(TextureStudio PRIVATE "${IMGUI_ROOT}/backends"
-        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-    target_compile_definitions(TextureStudio PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES
-        FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
-    target_link_libraries(TextureStudio PRIVATE FrontierEditorUI FrontierTextureStudioUI glfw)
-    add_custom_command(TARGET TextureStudio POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/EngineContent/MaterialArchives/TextureStudio"
-            "$<TARGET_FILE_DIR:TextureStudio>/EngineContent/MaterialArchives/TextureStudio")
     if(MSVC)
         enable_language(RC)
         foreach(WORKSPACE_TARGET Frontier TextureStudio)
@@ -146,9 +182,7 @@ if(WIN32)
         set(FRONTIER_D3DCOMPILER d3dcompiler)
     endif()
     target_link_libraries(FrontierUIDX11 PRIVATE FrontierEditorUI glfw d3d11 dxgi ${FRONTIER_D3DCOMPILER} dwmapi)
-    execute_process(COMMAND git rev-parse HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-        OUTPUT_VARIABLE FRONTIER_BUILD_REVISION OUTPUT_STRIP_TRAILING_WHITESPACE)
-    foreach(UI_TARGET FrontierUI FrontierUIDX11 TextureStudio Frontier)
+    foreach(UI_TARGET FrontierUI FrontierUIDX11 Frontier)
         target_compile_definitions(${UI_TARGET} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
             FRONTIER_BUILD_REVISION="${FRONTIER_BUILD_REVISION}")
         target_link_libraries(${UI_TARGET} PRIVATE comdlg32 shell32)
@@ -158,15 +192,7 @@ if(WIN32)
         add_custom_command(TARGET ${UI_TARGET} POST_BUILD COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_SOURCE_DIR}/EngineContent" "$<TARGET_FILE_DIR:${UI_TARGET}>/EngineContent")
     endforeach()
-    install(TARGETS FrontierUI FrontierUIDX11 TextureStudio Frontier RUNTIME DESTINATION .)
-    install(DIRECTORY ExternalPackages/vulkan-headers/LICENSES DESTINATION Notices/Vulkan-Headers)
-    install(DIRECTORY EngineContent DESTINATION .)
-    install(FILES "${IMGUI_ROOT}/LICENSE.txt" DESTINATION Notices RENAME ImGui-LICENSE.txt)
-    install(FILES ExternalPackages/glfw/LICENSE.md DESTINATION Notices RENAME GLFW-LICENSE.md)
-    install(FILES ExternalPackages/tomlpp/LICENSE DESTINATION Notices RENAME TomlPlusPlus-LICENSE.txt)
-    install(FILES ExternalPackages/stb/LICENSE DESTINATION Notices RENAME Stb-LICENSE.txt)
-    install(FILES ExternalPackages/thorvg/LICENSE DESTINATION Notices RENAME ThorVG-LICENSE.txt)
-    install(FILES Engine/Interface/Lucide.NOTICE Documentation/SourceNotices.md DESTINATION Notices)
+    install(TARGETS FrontierUI FrontierUIDX11 Frontier RUNTIME DESTINATION .)
 endif()
 
 include(CTest)
@@ -220,6 +246,14 @@ if(BUILD_TESTING)
     target_link_libraries(VectorSelectionValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME VectorSelectionValidation COMMAND VectorSelectionValidation)
     set_tests_properties(VectorSelectionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextOutlineValidation Exhibits/TextureStudio/Code/StampTextOutlineValidation.cpp)
+    target_link_libraries(StampTextOutlineValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME StampTextOutlineValidation COMMAND StampTextOutlineValidation)
+    set_tests_properties(StampTextOutlineValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampVectorImportValidation Exhibits/TextureStudio/Code/StampVectorImportValidation.cpp)
+    target_link_libraries(StampVectorImportValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME StampVectorImportValidation COMMAND StampVectorImportValidation)
+    set_tests_properties(StampVectorImportValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(PatternLibraryGalleryValidation Exhibits/TextureStudio/Code/PatternLibraryGalleryValidation.cpp)
     target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)

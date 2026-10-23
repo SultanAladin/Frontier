@@ -98,6 +98,7 @@ public:
     std::function<bool(std::string_view)> SaveSource;
     std::function<std::optional<std::string>()> LoadSource;
     std::function<void()> ActivateMaterial;
+    std::function<void()> ActivateStamp;
     std::function<void()> CancelClose;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:

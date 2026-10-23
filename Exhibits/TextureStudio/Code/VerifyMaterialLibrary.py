@@ -65,7 +65,7 @@ def Main():
                     '-IExternalPackages/tomlpp/include', '-IExternalPackages/thorvg/inc']
         WindowsSources = ['Engine/Interface/WindowsApplication.cpp', 'Engine/Interface/VulkanPresentation.cpp',
                           'Exhibits/UIFoundation/Code/WindowsUI.cpp',
-                          'Experimental/TextureStudio/Native/WindowsTextureStudio.cpp',
+                          'Experimental/TextureStudio/Native/TextureStudioApplication.cpp',
                           'UI/TextureStudio/MaterialLibraryPanel.cpp', 'Engine/ContentInterchange/MaterialLibrary.cpp',
                           'UI/Editor/ControlCentrePanel.cpp', 'Engine/Render/MaterialThumbnailAtlas.cpp',
                           'Engine/Render/MaterialLibraryRendering.cpp']
@@ -90,7 +90,7 @@ def Main():
                 'UI/Editor/ControlCentrePanel.h', 'UI/Editor/ControlCentrePanel.cpp',
                 'Engine/Interface/WindowsApplication.h', 'Engine/Interface/WindowsApplication.cpp',
                 'Engine/Interface/VulkanPresentation.h', 'Engine/Interface/VulkanPresentation.cpp',
-                'Exhibits/UIFoundation/Code/WindowsUI.cpp', 'Experimental/TextureStudio/Native/WindowsTextureStudio.cpp',
+                'Exhibits/UIFoundation/Code/WindowsUI.cpp', 'Experimental/TextureStudio/Native/TextureStudioApplication.cpp',
                 'Exhibits/TextureStudio/Code/VerifyMaterialLibrary.py',
                 'Exhibits/TextureStudio/Code/RasterizeLibraryEvidence.h', 'Engine/Interface/PanelDockspace.h',
                 'Engine/Render/MaterialThumbnailAtlas.h', 'Engine/Render/MaterialThumbnailAtlas.cpp',

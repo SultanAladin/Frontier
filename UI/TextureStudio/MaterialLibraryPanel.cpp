@@ -272,6 +272,7 @@ void MaterialLibraryPanel::SynchronizeSource()
 void MaterialLibraryPanel::FinalizeContent() noexcept
 {
     ActivatePattern = {};
+    ActivateStamp = {};
     Library = MaterialLibrary{};
 }
 
@@ -1552,6 +1553,9 @@ void MaterialLibraryPanel::ConstructInterface()
     if (ConstructMaterialPill("Material", ImVec2(Origin.x + Width - 300 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale), true)) SourceVisible = false;
     ImGui::BeginDisabled(!ActivatePattern);
     if (ConstructMaterialPill("Pattern", ImVec2(Origin.x + Width - 374 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivatePattern) ActivatePattern();
+    ImGui::EndDisabled();
+    ImGui::BeginDisabled(!ActivateStamp);
+    if (ConstructMaterialPill("Stamp", ImVec2(Origin.x + Width - 448 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateStamp) ActivateStamp();
     ImGui::EndDisabled();
     if (ConstructMaterialPill("Open Library", ImVec2(Origin.x + Width - 225 * Scale, Origin.y + 8 * Scale), ImVec2(94 * Scale, 27 * Scale))) DirectoryRequested = true;
     if (ConstructMaterialPill("Refresh", ImVec2(Origin.x + Width - 120 * Scale, Origin.y + 8 * Scale), ImVec2(100 * Scale, 27 * Scale)))

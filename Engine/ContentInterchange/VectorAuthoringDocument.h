@@ -28,8 +28,14 @@ struct VectorAuthoringLayer
     VectorAuthoringSurfaceStructure SurfaceStructure = VectorAuthoringSurfaceStructure::Freeform;
     VectorAuthoringTextileGeometry TextileGeometry = VectorAuthoringTextileGeometry::Unclassified;
     float SurfaceRelief = 1.f;
+    // 📝 Stamp-only provenance: ComponentKind stays Freeform (and SourceMarkup/EmbeddedImage stay
+    // empty) for every ordinary Pattern layer, so this adds no footprint outside Stamp documents.
+    VectorAuthoringComponentKind ComponentKind = VectorAuthoringComponentKind::Freeform;
+    std::string SourceMarkup;     // Text run contents, or the original sanitized SVG markup
+    std::string EmbeddedImage;    // "data:image/png;base64,..." for ImportedImage components, same shape as MaterialAuthoringTexture::DataUrl
     bool operator==(const VectorAuthoringLayer &) const = default;
 };
+inline constexpr size_t VectorAuthoringSourceMarkupLimit = 32000; // [B] - Matches the HTML outline-command/markup bound
 struct VectorAuthoringDocument
 {
     std::string Name = "Untitled vector";
