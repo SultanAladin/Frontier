@@ -11,6 +11,7 @@
 #include "Engine/Render/VectorCoverage.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <span>
@@ -19,11 +20,12 @@
 
 namespace Frontier
 {
-inline size_t QueryPatternLibraryPresetCount() noexcept { return 7; }
+inline size_t QueryPatternLibraryPresetCount() noexcept { return 8; }
 
 inline const char *QueryPatternLibraryPresetName(size_t Index)
 {
-    constexpr const char *Names[]{"Polka Dots", "Half Drop", "Stripes", "Checker", "Diamond Lattice", "Starfield", "Diamond Weave"};
+    constexpr const char *Names[]{"Polka Dots", "Half Drop", "Stripes", "Checker", "Diamond Lattice", "Starfield",
+        "Diamond Weave", "Pebble Path"};
     if (Index >= QueryPatternLibraryPresetCount()) throw std::runtime_error("Unknown pattern library preset.");
     return Names[Index];
 }
@@ -34,6 +36,84 @@ inline const char *QueryPatternLibraryPresetName(size_t Index)
 // An "inset array" is just the existing array generator with StepX=StepY=0 and a Linear scale
 // profile: identical centred copies shrinking by a fixed amount per ring (see MirrorVectorAuthoring-
 // Motif's caller below) -- no bespoke primitive needed for that step.
+
+// 📝 Grid array: a 2D repeat of one base instruction across Columns x Rows, the C++ counterpart of
+// the HTML pattern studio's gridArray (Experimental/TextureStudio/src/patternProcedural.js) -- a
+// per-row X offset (brick/herringbone courses), and per-cell size/colour/rotation callbacks (a
+// distance/gradient size profile, checkerboards, alternating motifs). Each callback may be empty to
+// keep the base instruction's value.
+inline std::vector<VectorCoverageInstruction> ConstructGridMotif(const VectorCoverageInstruction &Base,
+    uint32_t Columns, uint32_t Rows, float StepX, float StepY,
+    const std::function<float(uint32_t)> &RowOffsetX = nullptr,
+    const std::function<float(uint32_t, uint32_t)> &SizeAt = nullptr,
+    const std::function<std::array<float, 4>(uint32_t, uint32_t)> &ColourAt = nullptr,
+    const std::function<float(uint32_t, uint32_t)> &RotationAt = nullptr)
+{
+    if (Columns == 0 || Rows == 0) throw std::runtime_error("ConstructGridMotif needs positive columns/rows.");
+    std::vector<VectorCoverageInstruction> Motif;
+    Motif.reserve(size_t(Columns) * size_t(Rows));
+    for (uint32_t Row = 0; Row < Rows; ++Row)
+    {
+        const float OffsetX = RowOffsetX ? RowOffsetX(Row) : 0.f;
+        for (uint32_t Column = 0; Column < Columns; ++Column)
+        {
+            VectorCoverageInstruction Cell = Base;
+            Cell.Bounds[0] = Base.Bounds[0] + OffsetX + StepX * float(Column);
+            Cell.Bounds[1] = Base.Bounds[1] + StepY * float(Row);
+            if (SizeAt)
+            {
+                const float Size = SizeAt(Row, Column);
+                Cell.Bounds[2] = Size;
+                Cell.Bounds[3] = Size;
+            }
+            if (ColourAt) { Cell.Colour = ColourAt(Row, Column); Cell.ColourEnd = Cell.Colour; }
+            if (RotationAt) Cell.Transform[0] = RotationAt(Row, Column);
+            Motif.push_back(Cell);
+        }
+    }
+    return Motif;
+}
+
+// 📝 Scatter placement: a deterministic pseudo-random position for motif copy `Index`, the C++
+// counterpart of the HTML scatterPlacement tool -- two coprime-ish strides modulo the tile size,
+// instead of inlined magic-number arithmetic at each call site.
+inline std::array<float, 2> QueryScatterPlacement(uint32_t Index, float StrideX = 197, float StrideY = 113,
+    float OffsetX = 0, float OffsetY = 0, float Width = 512, float Height = 512)
+{
+    const auto Wrap = [](float Value, float Span) { return std::fmod(std::fmod(Value, Span) + Span, Span); };
+    return {Wrap(float(Index) * StrideX + OffsetX, Width), Wrap(float(Index) * StrideY + OffsetY, Height)};
+}
+
+// 📝 Fibonacci square spiral: the C++ counterpart of the HTML fibonacciSquareSpiral tool -- each
+// successive square's side is the next Fibonacci number, attached to the growing bounding rectangle
+// rotating through right/up/left/down, computed from the recurrence rather than a transcribed
+// coordinate list. Returns `Count` squares in local, un-scaled spiral units (square 0 is [0, 0, 1]).
+struct FibonacciSquare { float X, Y, Side; };
+inline std::vector<FibonacciSquare> ConstructFibonacciSquareSpiral(uint32_t Count)
+{
+    if (Count == 0) throw std::runtime_error("ConstructFibonacciSquareSpiral needs a positive count.");
+    std::vector<float> Fibonacci{1, 1};
+    while (Fibonacci.size() < Count) Fibonacci.push_back(Fibonacci[Fibonacci.size() - 1] + Fibonacci[Fibonacci.size() - 2]);
+    struct { float XMin = 0, YMin = 0, XMax = 0, YMax = 0; } Bounds;
+    std::vector<FibonacciSquare> Squares;
+    Squares.reserve(Count);
+    for (uint32_t Index = 0; Index < Count; ++Index)
+    {
+        const float Side = Fibonacci[Index];
+        float X, Y;
+        if (Index == 0) { X = 0; Y = 0; Bounds.XMax = Side; Bounds.YMax = Side; }
+        else
+            switch ((Index - 1) % 4)
+            {
+            case 0: X = Bounds.XMax; Y = Bounds.YMin; Bounds.XMax += Side; break; // right
+            case 1: X = Bounds.XMin; Y = Bounds.YMin - Side; Bounds.YMin -= Side; break; // up
+            case 2: X = Bounds.XMin - Side; Y = Bounds.YMin; Bounds.XMin -= Side; break; // left
+            default: X = Bounds.XMin; Y = Bounds.YMax; Bounds.YMax += Side; break; // down
+            }
+        Squares.push_back({X, Y, Side});
+    }
+    return Squares;
+}
 
 // 📝 Array/Inset: runs the existing generic array generator (same engine the Stamp/Grid presets
 // above already use) against a throwaway scratch document and harvests the resulting instructions as
@@ -176,10 +256,10 @@ inline VectorAuthoringDocument ConstructPatternLibraryPreset(size_t Index)
     case 5: // Starfield: 4x4 stars, column ink.
         return Stamp(std::move(Document), 5, 256, 256, 92, 92, "Star", Grid(4, 4, 128, 128), 4,
             [](uint32_t Row, uint32_t Column) { return size_t((Row * 2 + Column) % 2); });
-    default: // Diamond Weave: one ring array/inset (the user's own worked example), mirrored across
-             // the tile's vertical midline, then aligned to the left/right edge quarters with a
-             // distinct accent per edge -- the composable procedural stack the whole library is
-             // meant to be reconstructed from.
+    case 6: // Diamond Weave: one ring array/inset (the user's own worked example), mirrored across
+            // the tile's vertical midline, then aligned to the left/right edge quarters with a
+            // distinct accent per edge -- the composable procedural stack the whole library is
+            // meant to be reconstructed from.
     {
         VectorCoverageInstruction Field;
         Field.Topology[0] = 0;
@@ -220,6 +300,48 @@ inline VectorAuthoringDocument ConstructPatternLibraryPreset(size_t Index)
         const std::array<std::array<float, 4>, 2> Accents{{{.8f, .4392f, .3569f, 1}, {.8471f, .6941f, .4196f, 1}}};
         const auto Placed = AlignVectorAuthoringMotifToEdges(Rows, Anchors, AccentMarker, Accents);
         for (const auto &Instruction : Placed) ConstructVectorAuthoringPrimitive(Document, Instruction, "Weave ring");
+        return Document;
+    }
+    default: // Pebble Path: a brick-offset grid of small pebbles (Grid array tool) with a handful of
+             // larger accent pebbles scattered over it (Scatter placement tool) -- the C++ side of
+             // the two HTML tools that didn't yet have a shipped demonstration (gridArray powers
+             // Cube lattice, scatterPlacement powers Painted blossoms).
+    {
+        VectorCoverageInstruction Field;
+        Field.Topology[0] = 0;
+        Field.Bounds = {256, 256, 512, 512};
+        Field.Colour = {.149f, .204f, .239f, 1};
+        Field.ColourEnd = Field.Colour;
+        Field.StrokeColour = Field.Colour;
+        ConstructVectorAuthoringPrimitive(Document, Field, "Pebble ground");
+
+        // 📝 Grid: one pebble motif repeated on a brick-offset lattice (odd rows shift half a step).
+        VectorCoverageInstruction Pebble;
+        Pebble.Topology[0] = 1;
+        Pebble.Bounds = {64, 64, 56, 56};
+        Pebble.Colour = {.74f, .71f, .62f, 1};
+        Pebble.ColourEnd = Pebble.Colour;
+        Pebble.StrokeColour = {.35f, .32f, .27f, 1};
+        Pebble.Topology[3] |= VectorCoverageStrokeColourExplicit;
+        const auto Bed = ConstructGridMotif(Pebble, 4, 4, 128, 128, [](uint32_t Row) { return (Row % 2) ? 64.f : 0.f; });
+        for (const auto &Instruction : Bed) ConstructVectorAuthoringPrimitive(Document, Instruction, "Pebble");
+
+        // 📝 Scatter: a handful of larger accent pebbles at deterministic pseudo-random positions.
+        VectorCoverageInstruction Accent;
+        Accent.Topology[0] = 1;
+        Accent.Bounds = {0, 0, 72, 72};
+        Accent.Colour = {.882f, .616f, .369f, 1};
+        Accent.ColourEnd = Accent.Colour;
+        Accent.StrokeColour = {.35f, .32f, .27f, 1};
+        Accent.Topology[3] |= VectorCoverageStrokeColourExplicit;
+        for (uint32_t Index = 0; Index < 5; ++Index)
+        {
+            const auto Position = QueryScatterPlacement(Index, 173, 149, 48, 72);
+            VectorCoverageInstruction Placed = Accent;
+            Placed.Bounds[0] = Position[0];
+            Placed.Bounds[1] = Position[1];
+            ConstructVectorAuthoringPrimitive(Document, Placed, "Pebble accent");
+        }
         return Document;
     }
     }
