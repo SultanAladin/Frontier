@@ -144,6 +144,36 @@ int main()
             catch (const std::exception &) { Rejected = true; }
             Confirm(Rejected, "Thumbnail raster accepted a zero extent.");
         }
+        // Layer-row thumbnails: one motif cropped to its own tight extent, never the full 512 tile —
+        // the same hugging-bounds contract the selection hitbox relies on, so a small dot still reads
+        // clearly inside a ~34px row preview instead of shrinking to a speck.
+        {
+            const auto Polka = ConstructPatternLibraryPreset(0);
+            const uint32_t Token = Polka.Layers.front().Token;
+            const std::string LayerSvg = EncodePatternLayerThumbnailSvg(Polka, Token, CardWell);
+            Confirm(LayerSvg.find("viewBox=\"0 0 512 512\"") == std::string::npos,
+                "Layer thumbnail still frames the full canvas tile.");
+            Confirm(LayerSvg.find("<ellipse") != std::string::npos, "Layer thumbnail dropped the motif geometry.");
+            const std::vector<uint8_t> LayerTile = RasterizePatternLayerThumbnail(Polka, Token, 64, CardWell);
+            Confirm(LayerTile.size() == size_t(64) * 64 * 4, "Layer thumbnail payload size changed.");
+            const auto LayerCentre = Texel(LayerTile, 64, 32, 32);
+            Confirm(Near(LayerCentre[0], 220) && Near(LayerCentre[1], 118) && Near(LayerCentre[2], 90),
+                "Layer thumbnail centre does not hold the motif's own ink.");
+            // 📝 At 64px cropped tightly to an 88-unit-wide motif, the dot should cover most of the row
+            // preview; the old whole-tile framing would leave only a few-pixel speck near the centre.
+            size_t MotifPixels = 0;
+            for (uint32_t Y = 0; Y < 64; ++Y)
+                for (uint32_t X = 0; X < 64; ++X)
+                {
+                    const auto Texelled = Texel(LayerTile, 64, X, Y);
+                    if (Texelled[0] > 150) ++MotifPixels;
+                }
+            Confirm(MotifPixels > 64 * 64 / 4, "Layer thumbnail did not crop tightly to its own motif.");
+            bool Rejected = false;
+            try { (void)EncodePatternLayerThumbnailSvg(Polka, 0xffffffff, CardWell); }
+            catch (const std::exception &) { Rejected = true; }
+            Confirm(Rejected, "Layer thumbnail accepted an unauthenticated token.");
+        }
         // Page blit: slot offsets, replicated gutters, baked background for empty slots.
         const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, 256, CardWell);
         std::vector<uint8_t> Slot0 = Blank, Slot23 = Blank;
@@ -181,6 +211,30 @@ int main()
         try { (void)BlitPatternThumbnailAtlas(std::vector<std::vector<uint8_t>>(37, Blank), 256, 6, CardWell); }
         catch (const std::exception &) { Rejected = true; }
         Confirm(Rejected, "Atlas blit exceeded its grid capacity.");
+        // Headless panel: the open document's own layer-row thumbnail atlas bakes once per edit
+        // revision; redundant queries never re-bake, and an edit (or clearing the document) advances it.
+        {
+            PatternWorkspacePanel RowWorkspace;
+            RowWorkspace.ConfigureDocument(ConstructPatternLibraryPreset(0));
+            Confirm(PatternWorkspacePanel::QueryLayerAtlasExtent() == (64 + 2) * 12, "Layer atlas extent is not the settled 792.");
+            const uint64_t FirstLayerAtlas = RowWorkspace.QueryLayerAtlasRevision();
+            Confirm(FirstLayerAtlas > 0, "Layer atlas revision never advanced past zero for a populated document.");
+            const auto &LayerPixels = RowWorkspace.QueryLayerAtlasPixels();
+            Confirm(LayerPixels.size() == size_t(792) * 792 * 4, "Layer atlas payload size changed.");
+            Confirm(RowWorkspace.QueryLayerAtlasRevision() == FirstLayerAtlas, "Layer atlas revision moved without a document edit.");
+            bool LayerArtwork = false;
+            for (uint32_t Y = 1; Y <= 64 && !LayerArtwork; ++Y)
+                for (uint32_t X = 1; X <= 64; ++X)
+                {
+                    const auto Card = Texel(LayerPixels, 792, X, Y);
+                    if (Card[0] != 20 || Card[1] != 23 || Card[2] != 24 || Card[3] != 255) { LayerArtwork = true; break; }
+                }
+            Confirm(LayerArtwork, "Layer atlas lead slot holds no baked artwork for the first layer.");
+            RowWorkspace.ConfigureDocument({});
+            Confirm(RowWorkspace.QueryLayerAtlasRevision() == FirstLayerAtlas,
+                "Clearing to an empty document should not advance a revision that never re-bakes an empty atlas.");
+            Confirm(RowWorkspace.QueryLayerAtlasPixels().empty(), "Empty document should leave the layer atlas empty.");
+        }
         // Headless panel: one library-wide atlas baked once; filters and page flips only re-point
         // card UVs, so the revision (and GPU upload) never moves after the first bake.
         PatternWorkspacePanel Workspace;

@@ -357,3 +357,80 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   files this session's sheen/inspector/dialog work changed.
 - Verified: full root build + `ctest` 26/26, confirming the merge is inert for the shipped build.
 
+## Pattern layer stack visual parity + selection-bounds regression coverage (2026-10-23, branch arena/649fea90-frontier)
+
+- HTML Pattern Studio's layer rows (`PatternEditor.jsx`) now reuse the Texture workspace's
+  `tp-layer-row` chrome verbatim: a drag handle, a per-layer preview thumbnail (new
+  `PatternLayerThumbnail.jsx`, rendering the layer's own vector contour sized to just that shape's
+  own bounds via `patternSizedPath`, falling back to the shape-kind glyph for kinds with no
+  contour), the name/kind/opacity meta line, then eye/lock icon buttons — same classNames, same
+  look, as requested, instead of the retired bespoke `se-layer-row` styling. Retired the now-dead
+  `se-layer-row`/`se-layer-name`/`se-layer-toggle` CSS across `shapeEditor.css`, `studioTheme.css`
+  and `artworkAuthoring.css`; added narrow overrides so the legacy `.pe-layers button > span` 12px
+  swatch sizing doesn't clobber the ported thumbnail/kind-icon/name slots.
+- Investigated the reported native (C++) Pattern Studio selection-hitbox issue ("highlight spans the
+  whole canvas instead of hugging the selected shape"). Traced `QueryVectorSelectionExtent` /
+  `QueryVectorAuthoringSelectionBounds` (`VectorAuthoringSelectionEditing.cpp`) and the pen tool's
+  `EncodePath` (`CubicPathEditing.cpp`): both already compute tight, shape-local bounds for a single
+  selected primitive or hand-drawn/library cubic-contour path in every scenario exercised, including
+  a tile-normalized library-path simulation. Found and fixed a real gap instead: `VectorSelectionValidation.cpp`
+  (1431+ assertions covering this exact selection-bounds/resize/reorder surface) existed but was
+  never wired into CMake/ctest, so it never ran in CI. Added it as a real ctest target and added two
+  new regression checks pinning a hand-drawn motif and a tile-normalized imported path to their own
+  tight bounds, not the full 512 canvas. Host suite 27/27 (up from 26). If the on-canvas symptom
+  still reproduces after this, it is most likely the multi-select case (selecting an entire
+  array-placed group, whose true combined bounds legitimately span the tile) rather than a bounds
+  bug — flagged for the user to confirm against the next preview.
+- Ported the same layer-row preview into the native Pattern panel. `ConstructLayers()`'s row no
+  longer draws a static placeholder swatch: it now renders that layer's own shape, cropped to its
+  own tight extent (new `EncodePatternLayerThumbnailSvg`/`RasterizePatternLayerThumbnail` in
+  `PatternThumbnailRaster.h/.cpp`, sharing the existing per-instruction SVG emitter with the gallery
+  encoder so the two never drift). A second, smaller GPU atlas (`PatternWorkspacePanel::LayerAtlasTile`
+  = 64px, 12×12 grid) carries every row's thumbnail for the open document and rebakes only when the
+  document's edit revision moves; `WindowsTextureStudio.cpp` wires it up exactly like the existing
+  library gallery atlas (`PatternLayerAtlas`/`PatternLayerAtlasDescriptor`, stage/upload/confirm/
+  finalize, `Pattern->QueryLayerThumbnailAtlas`). Before the atlas is baked (or if no host wires it,
+  e.g. in a headless/test build) the row falls back to a CPU vector replay of just that one layer via
+  the existing `TessellatePresetDocument` tessellator, and only falls back further to a bare outline
+  if that layer has no renderable geometry at all. `PatternThumbnailAtlasValidation` gained two new
+  headless test blocks (single-layer thumbnail crop + the open-document layer atlas revision/bake
+  contract) — 58 checks, up from 45, no new exhibit/CMake target needed. Host suite stays 27/27.
+  The Vulkan wiring in
+  `WindowsTextureStudio.cpp` is Windows-only and cannot compile-check in this Linux sandbox (same
+  constraint as the rest of that file); it is a line-for-line structural mirror of the already-shipped
+  `PatternAtlas` plumbing, reviewed by hand, and will be confirmed by the next Windows CI build.
+- Pattern library motifs: the composable procedural modifier stack the user asked for (their own
+  worked example — Diamond weave as one ring array/inset, mirrored top/bottom, then aligned to the
+  tile edges) now exists in both HTML and C++, proven against the "Diamond weave"/"Diamond Weave"
+  starter in each:
+  - HTML: new `Experimental/TextureStudio/src/patternProcedural.js` exports three pure, reusable
+    operations over a plain layer array — `arrayInset(layerFactory, kind, base, {count, sizeStep,
+    stepX, stepY, colors, roles})` (repeats/shrinks one base layer, optionally role-tagging each
+    copy), `mirrorMotif(motif, {axis, through})` (reflects x/y about a line, negating rotation) and
+    `alignToEdges(motif, anchors)` (translates a motif cluster to tile-relative anchors, optionally
+    recolouring by the `role` tag an anchor's `recolor` map names). `patternDocument.js`'s "Diamond
+    weave" starter branch now calls these three operations instead of three nested hand-written
+    loops; verified bit-for-bit identical output against the old flat implementation (same 16 diamond
+    layers, same coordinates/colours, via a direct comparison script) before and after the rewrite.
+    `validatePattern()`'s field-by-field layer rebuild already drops unknown properties, so the
+    generation-only `role`/`proceduralRole` tag never reaches the saved/exported document.
+  - C++: three analogous free functions added to `Engine/ContentInterchange/PatternLibraryPresets.h`
+    — `ConstructInsetMotif` (runs the existing, already-shipped `GenerateVectorAuthoringArray` engine
+    against a throwaway scratch document and harvests the instructions as a plain list, so Array/Inset
+    reuses one tested placement engine rather than a new shrink loop), `MirrorVectorAuthoringMotif`
+    (reflects a plain instruction list about an axis) and `AlignVectorAuthoringMotifToEdges`
+    (translates copies to anchors, recolouring instructions that match a sentinel accent colour). A
+    new 7th library preset, "Diamond Weave" (`ConstructPatternLibraryPreset(6)`,
+    `QueryPatternLibraryPresetCount()` now 7), is built from exactly these three calls: one 4-ring
+    inset array (242/189/136/83, matching the HTML sizes), mirrored across the tile's vertical
+    midline, then aligned to the left/right edge quarters with two different accent colours.
+    `PatternLibraryPresetValidation` gained a dedicated structural check (ring count, inset sizes,
+    per-edge accent count) plus the count-change assertion bump to 7 — now 2065 checks, all existing
+    index-0..5 preset checks untouched. Full build + `ctest` → 27/27 PASSED.
+  - Still open: this pattern (one base shape + array/inset + mirror + align-to-edge) has only been
+    applied to the Diamond weave/Diamond Weave starter so far, as the proof of the approach — the rest
+    of the ~7,874-line, 9-module HTML pattern library and the remaining C++ presets have not yet been
+    converted. Scoped but not started; large enough to warrant explicit user sign-off before an
+    unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
+    per-pattern visual verification).
+

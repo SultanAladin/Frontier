@@ -1,3 +1,5 @@
+import { fibonacciSquareSpiral } from "./patternProcedural.js";
+
 // Set 02 consists of independent constructions, not palette/rotation variants.
 export const geometricSetTwo = [
   [
@@ -983,14 +985,9 @@ function geometricSetThreePattern(spec) {
     const squares = ["", "", "", ""];
     let joints = "",
       progressions = "";
-    const tiles = [
-      [0, 0, 1],
-      [1, 0, 1],
-      [0, -2, 2],
-      [-3, -2, 3],
-      [-3, 1, 5],
-      [2, -2, 8],
-    ];
+    // 📝 Fibonacci square spiral tool: the six squares come from the recurrence/rotating-attachment
+    // rule, not a transcribed list of positions.
+    const tiles = fibonacciSquareSpiral(6);
     const scale = 18.5;
     for (const cy of [128, 384])
       for (const cx of [128, 384]) {

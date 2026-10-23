@@ -708,18 +708,6 @@
   background: #151515;
   border-color: #ffffff06;
 }
-.studio-pattern .se-layer-row {
-  background: transparent;
-  border-color: transparent;
-  border-radius: 8px;
-}
-.studio-pattern .se-layer-row.selected {
-  background: #262622;
-  border-color: #49493c;
-}
-.studio-pattern .se-layer-row.selected::before {
-  background: #d9b281;
-}
 .studio-pattern .pe-section,
 .studio-pattern .se-selected-panel {
   border: 1px solid #ffffff0d !important;
@@ -2144,14 +2132,9 @@
   background: #252820;
   border-color: #ffffff0d;
 }
-.studio-pattern .se-layer-row.is-selected {
-  background: #262626;
-  border-color: #45453e;
-}
 .studio-pattern .se-layer-panel {
   background: #151515;
 }
-.studio-pattern .se-layer-toggle:hover,
 .studio-pattern .se-context-menu {
   background: #292c22;
 }
@@ -2629,29 +2612,6 @@
   min-height: 0;
   max-height: none;
   overflow: auto;
-}
-.studio-pattern .pe-layers-dock .se-layer-row {
-  min-height: 48px;
-  border-radius: 9px;
-  border: 1px solid transparent;
-}
-.studio-pattern .pe-layers-dock .se-layer-row:has(button[aria-pressed="true"]) {
-  background: #262626;
-  border-color: #3e3e3c;
-  box-shadow: inset 3px 0 #d9b281;
-}
-.studio-pattern .pe-layers-dock .se-layer-row > button {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  text-align: left;
-  min-width: 0;
-  flex: 1;
-}
-.studio-pattern .pe-layers-dock .se-layer-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 @media (max-width: 600px) {
   .studio-pattern .pe-body {

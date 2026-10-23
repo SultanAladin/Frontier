@@ -4,6 +4,7 @@
 // 🧩 Exercise shared vector selection regions and local-axis transforms without rasterizing authored pixels on CPU.
 
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
+#include "Engine/ContentInterchange/CubicPathEditing.h"
 #include <iostream>
 #include <limits>
 #include <numbers>
@@ -278,6 +279,42 @@ int main()
             try { ReorderVectorAuthoringSelection(Stacking, Locked, VectorSelectionOrder(Order)); }
             catch (const std::exception &) { Refused = true; }
             Confirm(Refused && Stacking == Protected, "Stack command changed a protected source.");
+        }
+        // 📝 A selected shape/pattern's gesture frame must always hug that shape's own bounds, never
+        // the whole document tile, whether it was hand-drawn with the pen tool or carries cubic
+        // segments normalized to the tile frame (as converted library paths do).
+        {
+            VectorAuthoringDocument Drawn;
+            CubicPath Path;
+            Path.Closed = true;
+            Path.Anchors = {{{120, 80}, {120, 80}, {120, 80}}, {{160, 120}, {160, 120}, {160, 120}},
+                {{120, 160}, {120, 160}, {120, 160}}, {{80, 120}, {80, 120}, {80, 120}}};
+            const auto Token = ConstructCubicPath(Drawn, Path, {}, "Hand-drawn motif");
+            const std::array<uint32_t, 1> Selection{Token};
+            const auto Extent = QueryVectorSelectionExtent(Drawn, Selection);
+            Confirm(Near(Extent.Bounds[0], 120) && Near(Extent.Bounds[1], 120) &&
+                Near(Extent.Bounds[2], 80) && Near(Extent.Bounds[3], 80),
+                "Hand-drawn motif's selection frame did not hug its own bounds.");
+        }
+        {
+            VectorAuthoringDocument Imported;
+            VectorCoverageInstruction Source;
+            Source.Bounds = {256, 256, 512, 512}; // tile-sized stored bounds, as converted library paths carry
+            const float CentreX = 160.f / 512.f - .5f, CentreY = 160.f / 512.f - .5f, Radius = 40.f / 512.f;
+            Imported.Segments.push_back({{CentreX, CentreY - Radius, CentreX, CentreY - Radius}, {CentreX + Radius, CentreY, CentreX + Radius, CentreY}});
+            Imported.Segments.push_back({{CentreX + Radius, CentreY, CentreX + Radius, CentreY}, {CentreX, CentreY + Radius, CentreX, CentreY + Radius}});
+            Imported.Segments.push_back({{CentreX, CentreY + Radius, CentreX, CentreY + Radius}, {CentreX - Radius, CentreY, CentreX - Radius, CentreY}});
+            Imported.Segments.push_back({{CentreX - Radius, CentreY, CentreX - Radius, CentreY}, {CentreX, CentreY - Radius, CentreX, CentreY - Radius}});
+            Source.Topology = {6, 0, 4, 0};
+            VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Name = "Imported library motif"; Layer.Root = 0;
+            Imported.Instructions.push_back(Source);
+            Imported.Layers.push_back(Layer);
+            Imported.TokenClock = 1;
+            const std::array<uint32_t, 1> Selection{1};
+            const auto Extent = QueryVectorSelectionExtent(Imported, Selection);
+            Confirm(Near(Extent.Bounds[0], 160) && Near(Extent.Bounds[1], 160) &&
+                Near(Extent.Bounds[2], 80) && Near(Extent.Bounds[3], 80),
+                "Tile-normalized library path's selection frame fell back to the full canvas instead of its traced motif.");
         }
         std::cout << "{\"result\":\"passed\",\"checks\":" << Assertions
                   << ",\"windows_executed\":false,\"gpu_pixels_tested\":false}\n";

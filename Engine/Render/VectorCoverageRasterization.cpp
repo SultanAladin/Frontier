@@ -386,7 +386,7 @@ constexpr std::array<VectorAuthoringSurfaceChannel,6> AuthoringMaterialChannels{
     VectorAuthoringSurfaceChannel::Metalness,VectorAuthoringSurfaceChannel::Occlusion};
 }
 
-uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t Channels)
+uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t Channels, uint32_t DisplayExtent)
 {
     if (!Channels) throw std::runtime_error("Bake budget requires at least one channel.");
     // 📝 ~500 FLOP per curve per pixel with no bounds rejection; 2e9 curve·
@@ -395,13 +395,26 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     // single-channel canvas display may run at 1024 so light documents stay
     // crisp on screen; the six-channel bridge still tops out at 512 because
     // its pyramid restores material maps at that extent.
-    if (!Segments) return Channels == 1 ? 1024 : 512;
-    constexpr uint64_t Budget = 2000000000ull;
-    const uint64_t Load = uint64_t(Segments) * Channels;
-    if (Channels == 1 && uint64_t(1024) * 1024 * Load <= Budget) return 1024;
-    for (uint32_t Extent : {512u, 256u, 128u})
-        if (uint64_t(Extent) * Extent * Load <= Budget) return Extent;
-    return 128;
+    uint32_t Affordable;
+    if (!Segments) Affordable = Channels == 1 ? 1024 : 512;
+    else
+    {
+        constexpr uint64_t Budget = 2000000000ull;
+        const uint64_t Load = uint64_t(Segments) * Channels;
+        Affordable = 128;
+        if (Channels == 1 && uint64_t(1024) * 1024 * Load <= Budget) Affordable = 1024;
+        else
+            for (uint32_t Extent : {512u, 256u, 128u})
+                if (uint64_t(Extent) * Extent * Load <= Budget) { Affordable = Extent; break; }
+    }
+    if (!DisplayExtent) return Affordable;
+    // 📝 A live, zoom-aware canvas asks for the device-pixel size it is actually displayed at: pick
+    // the smallest pooled tier that still covers it, never exceeding what the budget above affords,
+    // so zooming in re-bakes crisper (vector-accurate, not a stretched raster) and zooming out drops
+    // back down instead of holding a needlessly large image.
+    for (uint32_t Extent : {128u, 256u, 512u, 1024u})
+        if (Extent >= DisplayExtent) return std::min(Extent, Affordable);
+    return Affordable;
 }
 
 VectorSurfaceMaterialBridge::VectorSurfaceMaterialBridge() = default;
