@@ -65,7 +65,11 @@ public:
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:
     enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan };
-    VectorAuthoringHistory History;
+    // 📝 Constructed with Stamp=true: StampWorkspacePanel's own constructor immediately seeds a
+    // Stamp document (Blank.Stamp = true) via ConfigureDocument -> History.Reset, which enforces
+    // Replacement.Stamp == the history's own workspace contract. Left defaulted to Stamp=false,
+    // that first Reset throws on every launch, before the window is usable.
+    VectorAuthoringHistory History{true};
     VectorAuthoringDocument SavedDocument;
     VectorCoverageProgram CachedCoverageProgram;
     uint32_t CachedCoverageMask = UINT32_MAX;
