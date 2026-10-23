@@ -33,7 +33,7 @@ import {
   normalizeCollectionFade,
 } from "./patternCollections.js";
 import { sanitizePatternSVG } from "./patternImport.js";
-import { arrayInset, mirrorMotif, alignToEdges } from "./patternProcedural.js";
+import { arrayInset, mirrorMotif, alignToEdges, gridArray, scatterPlacement } from "./patternProcedural.js";
 // Portable vector pattern documents. No DOM dependency; shared by editor/export.
 export const patternFinishes = {
   ink: {
@@ -465,9 +465,9 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
   } else if (name === "Painted blossoms") {
     d.background = "#fff5e4";
     d.repeat = "half-drop";
+    // 📝 Scatter: a deterministic pseudo-random placement tool, instead of inlined modulo math.
     for (let i = 0; i < 7; i++) {
-      const x = (i * 197 + 37) % 512,
-        y = (i * 113 + 64) % 512;
+      const { x, y } = scatterPlacement(i, { offsetX: 37, offsetY: 64 });
       d.layers.push(
         patternLayer("flower", {
           x,
@@ -503,21 +503,23 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
     }
   } else if (name === "Cube lattice") {
     d.background = "#207585";
-    for (let y = 0; y < 4; y++)
-      for (let x = 0; x < 4; x++)
-        d.layers.push(
-          patternLayer("path", {
-            x: x * 128 + (y % 2) * 64,
-            y: y * 128,
-            width: 128,
-            height: 128,
-            color: "#ecf0e3",
-            path: "M 50 0 L 94 25 L 94 75 L 50 100 L 6 75 L 6 25 Z M 50 0 L 50 50 L 94 75 M 50 50 L 6 75",
-            strokeWidth: 4,
-            stroke: "#ecf0e3",
-            finish: "ceramic",
-          }),
-        );
+    // 📝 Grid: one cube motif repeated on a brick-offset lattice (odd rows shift half a step).
+    d.layers.push(
+      ...gridArray(
+        patternLayer,
+        "path",
+        {
+          width: 128,
+          height: 128,
+          color: "#ecf0e3",
+          path: "M 50 0 L 94 25 L 94 75 L 50 100 L 6 75 L 6 25 Z M 50 0 L 50 50 L 94 75 M 50 50 L 6 75",
+          strokeWidth: 4,
+          stroke: "#ecf0e3",
+          finish: "ceramic",
+        },
+        { columns: 4, rows: 4, stepX: 128, stepY: 128, rowOffsetX: (row) => (row % 2) * 64 },
+      ),
+    );
   } else if (name === "Inlaid tile") {
     d.background = "#e4ded1";
     d.layers.push(
@@ -528,15 +530,22 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
         finish: "ceramic",
       }),
     );
-    for (let i = 0; i < 5; i++)
-      d.layers.push(
-        patternLayer("diamond", {
-          width: 450 - i * 85,
-          height: 450 - i * 85,
-          color: i % 2 ? "#194e60" : "#d3ae62",
-          finish: i % 2 ? "ceramic" : "foil",
-        }),
-      );
+    // 📝 Array/Inset: one diamond shrinking into 5 concentric rings, alternating finish with colour.
+    d.layers.push(
+      ...arrayInset(
+        patternLayer,
+        "diamond",
+        { width: 450, height: 450 },
+        {
+          count: 5,
+          sizeStep: 85,
+          extras: [
+            { color: "#d3ae62", finish: "foil" },
+            { color: "#194e60", finish: "ceramic" },
+          ],
+        },
+      ),
+    );
   } else if (name === "Banded geometry") {
     d.background = "#253940";
     d.repeats = 1;
@@ -552,36 +561,34 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
     const colors = ["#d6b77a", "#df7658", "#e7dfc9", "#87aaa0"];
     for (let band = 0; band < 4; band++) {
       const y = 64 + band * 128;
+      // 📝 Mirror: the two thin rule lines bracketing a band are one line reflected about the band's
+      // own centre line.
       d.layers.push(
-        patternLayer("rect", {
-          x: 256,
-          y: y - 54,
-          width: 512,
-          height: 7,
-          color: colors[band],
-          finish: "cotton",
-          relief: 0.1,
-        }),
+        ...mirrorMotif(
+          [
+            patternLayer("rect", {
+              x: 256,
+              y: y - 54,
+              width: 512,
+              height: 7,
+              color: colors[band],
+              finish: "cotton",
+              relief: 0.1,
+            }),
+          ],
+          { axis: "y", through: y },
+        ),
       );
+      // 📝 Grid: one row of 6 alternating motifs along the band.
       d.layers.push(
-        patternLayer("rect", {
-          x: 256,
-          y: y + 54,
-          width: 512,
-          height: 7,
-          color: colors[band],
-          finish: "cotton",
-          relief: 0.1,
-        }),
-      );
-      for (let x = 0; x < 6; x++) {
-        d.layers.push(
-          patternLayer(band % 2 ? "path" : "triangle", {
-            x: 42.667 + x * 85.333,
+        ...gridArray(
+          patternLayer,
+          band % 2 ? "path" : "triangle",
+          {
+            x: 42.667,
             y,
             width: 74,
             height: 78,
-            rotation: band % 2 ? 0 : (x % 2) * 180,
             color: colors[band],
             finish: "wool",
             relief: 0.7,
@@ -590,70 +597,82 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
                 ? "M50 0 L100 50 L50 100 L0 50 Z M50 23 L77 50 L50 77 L23 50 Z"
                 : "M0 20 L25 0 L50 20 L75 0 L100 20 M0 60 L25 40 L50 60 L75 40 L100 60 M0 100 L25 80 L50 100 L75 80 L100 100",
             strokeWidth: band % 2 ? 4 : 0,
-          }),
-        );
-      }
+          },
+          { columns: 6, rows: 1, stepX: 85.333, rotationAt: () => (band % 2 ? 0 : undefined) },
+        ).map((layer, column) => (band % 2 ? layer : { ...layer, rotation: (column % 2) * 180 })),
+      );
     }
   } else if (name === "Medallion rug") {
     d.background = "#253b40";
     d.repeats = 1;
-    for (let i = 0; i < 5; i++)
-      d.layers.push(
-        patternLayer("rect", {
-          width: 512 - i * 22,
-          height: 512 - i * 22,
-          color: ["#d8be8c", "#784b43", "#d8be8c", "#784b43", "#253b40"][i],
-          finish: "wool",
-          relief: i % 2 ? 0.4 : 0.65,
-        }),
-      );
+    // 📝 Array/Inset: five concentric frames, alternating relief with colour.
+    d.layers.push(
+      ...arrayInset(
+        patternLayer,
+        "rect",
+        { width: 512, height: 512, finish: "wool" },
+        {
+          count: 5,
+          sizeStep: 22,
+          colors: ["#d8be8c", "#784b43", "#d8be8c", "#784b43", "#253b40"],
+          extras: [{ relief: 0.65 }, { relief: 0.4 }],
+        },
+      ),
+    );
     const star =
       "M50 0L63 24L86 14L76 38L100 50L76 63L86 86L63 76L50 100L37 76L14 86L24 63L0 50L24 38L14 14L37 24Z";
-    for (let i = 0; i < 4; i++)
-      d.layers.push(
-        patternLayer("path", {
-          path: star,
-          width: 310 - i * 53,
-          height: 310 - i * 53,
-          color: ["#d8be8c", "#b7664e", "#253b40", "#87aaa0"][i],
-          finish: "wool",
-          relief: 0.8 - i * 0.1,
-        }),
-      );
-    for (const x of [106, 406])
-      for (const y of [106, 406])
-        for (let i = 0; i < 2; i++)
-          d.layers.push(
-            patternLayer("diamond", {
-              x,
-              y,
-              width: 64 - i * 26,
-              height: 64 - i * 26,
-              color: i ? "#b7664e" : "#d8be8c",
-              finish: "wool",
-            }),
-          );
+    // 📝 Array/Inset: four concentric stars, relief fading ring to ring.
+    d.layers.push(
+      ...arrayInset(
+        patternLayer,
+        "path",
+        { path: star, width: 310, height: 310, finish: "wool" },
+        {
+          count: 4,
+          sizeStep: 53,
+          colors: ["#d8be8c", "#b7664e", "#253b40", "#87aaa0"],
+          extrasAt: (i) => ({ relief: 0.8 - i * 0.1 }),
+        },
+      ),
+    );
+    // 📝 Array/Inset + Align-to-edge: a two-ring diamond cluster repeated at the tile's four corners.
+    const corner = arrayInset(
+      patternLayer,
+      "diamond",
+      { x: 0, y: 0, width: 64, height: 64, finish: "wool" },
+      { count: 2, sizeStep: 26, colors: ["#d8be8c", "#b7664e"] },
+    );
+    for (const x of [106, 406]) for (const y of [106, 406]) d.layers.push(...alignToEdges(corner, [{ x, y }]));
   } else if (name === "Graduated lattice") {
     d.background = "#236777";
     d.repeats = 1;
-    for (let y = 0; y < 8; y++)
-      for (let x = 0; x < 8; x++) {
-        const size = 22 + 38 * Math.pow(Math.sin((Math.PI * (y + 0.5)) / 8), 2);
-        d.layers.push(
-          patternLayer("path", {
-            x: 32 + x * 64,
-            y: 32 + y * 64,
-            width: size,
-            height: size,
-            color: "#f0efdf",
-            finish: "ceramic",
-            relief: 0.1,
-            path: "M50 0L94 25L94 75L50 100L6 75L6 25Z M50 0L50 50L94 75 M50 50L6 75",
-            strokeWidth: 4,
-          }),
-        );
-      }
+    // 📝 Grid with a per-row size gradient: one cube motif on an 8x8 lattice, scaled by a sine-wave
+    // envelope across the rows -- the "gradient array that scales with distance/size" the library
+    // needs a named tool for.
+    d.layers.push(
+      ...gridArray(
+        patternLayer,
+        "path",
+        {
+          x: 32,
+          y: 32,
+          color: "#f0efdf",
+          finish: "ceramic",
+          relief: 0.1,
+          path: "M50 0L94 25L94 75L50 100L6 75L6 25Z M50 0L50 50L94 75 M50 50L6 75",
+          strokeWidth: 4,
+        },
+        {
+          columns: 8,
+          rows: 8,
+          stepX: 64,
+          stepY: 64,
+          sizeAt: (row) => 22 + 38 * Math.pow(Math.sin((Math.PI * (row + 0.5)) / 8), 2),
+        },
+      ),
+    );
   } else {
+
     d.name = "Custom pattern";
     d.background = "#ece5d6";
   }
