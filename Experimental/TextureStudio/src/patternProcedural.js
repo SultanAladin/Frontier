@@ -100,6 +100,55 @@ export function gridArray(layerFactory, kind, base, options = {}) {
   return layers;
 }
 
+// 📝 Fibonacci square spiral: the classic construction -- each successive square (side = the next
+// Fibonacci number) is attached to the growing bounding rectangle's edge, rotating through
+// right/up/left/down -- computed from the recurrence instead of a hand-transcribed list of
+// [x, y, side] literals. Returns `count` squares as [x, y, side] in local, un-scaled spiral units
+// (square 0 occupies [0, 0, 1]); the caller projects/scales them into tile space.
+export function fibonacciSquareSpiral(count) {
+  if (!Number.isInteger(count) || count < 1) throw new Error("fibonacciSquareSpiral needs a positive integer count.");
+  const fibonacci = [1, 1];
+  while (fibonacci.length < count) fibonacci.push(fibonacci[fibonacci.length - 1] + fibonacci[fibonacci.length - 2]);
+  const directions = ["right", "up", "left", "down"];
+  const bounds = { xmin: 0, ymin: 0, xmax: 0, ymax: 0 };
+  const squares = [];
+  for (let index = 0; index < count; index++) {
+    const side = fibonacci[index];
+    let x, y;
+    if (index === 0) {
+      x = 0;
+      y = 0;
+      bounds.xmax = side;
+      bounds.ymax = side;
+    } else {
+      switch (directions[(index - 1) % 4]) {
+        case "right":
+          x = bounds.xmax;
+          y = bounds.ymin;
+          bounds.xmax += side;
+          break;
+        case "up":
+          x = bounds.xmin;
+          y = bounds.ymin - side;
+          bounds.ymin -= side;
+          break;
+        case "left":
+          x = bounds.xmin - side;
+          y = bounds.ymin;
+          bounds.xmin -= side;
+          break;
+        default: // "down"
+          x = bounds.xmin;
+          y = bounds.ymax;
+          bounds.ymax += side;
+          break;
+      }
+    }
+    squares.push([x, y, side]);
+  }
+  return squares;
+}
+
 // 📝 Scatter placement: a deterministic pseudo-random position for motif copy `index`, built from two
 // coprime-ish strides modulo the tile size -- the reusable technique behind "scattered" motifs (e.g.
 // a tossed-flower print) instead of inlined magic-number arithmetic at each call site.
