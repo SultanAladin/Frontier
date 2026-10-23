@@ -3,7 +3,9 @@
 ==========================================================================================================================================*/
 // 🧩 Run the native Project Browser; opening a project activates the editor workspace for that project.
 
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
+#endif
 #define GLFW_EXPOSE_NATIVE_WIN32
 #ifndef FRONTIER_BUILD_COMMIT
 #define FRONTIER_BUILD_COMMIT "local"

@@ -5,19 +5,25 @@
 
 #include "WindowsApplication.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
-#define GLFW_EXPOSE_NATIVE_WIN32
-#include <windows.h>
-#include <commdlg.h>
+#endif
+#include <algorithm>
 #include <memory>
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #if FRONTIER_UI_VULKAN
 #include "Engine/Interface/VulkanPresentation.h"
 #include <imgui_impl_vulkan.h>
 #else
+// 📝 The DX11 adapter is Windows-only; it is dead code for every target in this repository, which
+// all build FRONTIER_UI_VULKAN=1, but stays buildable for the standalone FrontierUIDX11 exhibit.
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 #include <d3d11.h>
 #include <imgui_impl_dx11.h>
 #endif
@@ -25,7 +31,6 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <iostream>
-#include <shellapi.h>
 
 namespace
 {
@@ -141,6 +146,21 @@ namespace Frontier
 {
 namespace
 {
+// 📝 Surface a severe failure to the user: a native message box on Windows, stderr (alongside the
+// DiagnosticJournal entry the caller already wrote) on every other platform.
+void ReportSevereFailure(const char *Title, const std::string &Message) noexcept
+{
+#ifdef _WIN32
+    wchar_t Description[2048]{};
+    const auto Length = static_cast<int>(std::min<size_t>(Message.size(), 2047));
+    const auto Decoded = MultiByteToWideChar(CP_UTF8, 0, Message.c_str(), Length, Description, 2047);
+    const std::wstring WideTitle(Title, Title + std::strlen(Title));
+    MessageBoxW(nullptr, Decoded > 0 ? Description : L"An application failure prevented normal operation.",
+                WideTitle.c_str(), MB_OK | MB_ICONERROR | MB_TASKMODAL);
+#else
+    std::cerr << Title << ": " << Message << '\n';
+#endif
+}
 int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
 {
     DiagnosticJournal::Append("Window", "Creating " + Callbacks.Title);
@@ -187,7 +207,7 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
         catch (const std::exception &Failure)
         {
             DiagnosticJournal::Append("SEVERE", std::string("GPU shutdown: ") + Failure.what());
-            MessageBoxA(nullptr, Failure.what(), "Frontier - Severe GPU shutdown failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+            ReportSevereFailure("Frontier - Severe GPU shutdown failure", Failure.what());
         }
         try
         {
@@ -197,8 +217,8 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
         catch (...)
         {
             DiagnosticJournal::Append("SEVERE", "Exception while finalizing application resources");
-            MessageBoxW(nullptr, L"Application shutdown failed. Collect %LOCALAPPDATA%/Frontier/Logs.",
-                L"Frontier - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+            ReportSevereFailure("Frontier - Severe failure",
+                "Application shutdown failed. Collect the DiagnosticJournal log (see Frontier/Logs).");
         }
     };
     struct ApplicationReclamation
@@ -310,18 +330,13 @@ int RunWindowsApplication(const ApplicationWindowCallbacks &Callbacks)
     {
         DiagnosticJournal::Append("SEVERE", Failure.what());
         std::cerr << "Severe application failure: " << Failure.what() << '\n';
-        wchar_t Description[2048]{};
         const auto Message = std::string(Failure.what()) + "\n\nDiagnostic file: " + DiagnosticJournal::EncodePath(DiagnosticJournal::QueryFilename());
-        const auto Length = static_cast<int>(std::min<size_t>(Message.size(), 2047));
-        const auto Decoded = MultiByteToWideChar(CP_UTF8, 0, Message.c_str(), Length, Description, 2047);
-        MessageBoxW(nullptr, Decoded > 0 ? Description : L"An application failure prevented normal operation.",
-                    L"Frontier - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        ReportSevereFailure("Frontier - Severe failure", Message);
     }
     catch (...)
     {
         DiagnosticJournal::Append("SEVERE", "Unknown application exception");
-        MessageBoxW(nullptr, L"An unknown application failure prevented normal operation.", L"Frontier - Severe failure",
-                    MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        ReportSevereFailure("Frontier - Severe failure", "An unknown application failure prevented normal operation.");
     }
     return 1;
 }

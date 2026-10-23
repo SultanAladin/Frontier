@@ -1,9 +1,11 @@
 /*==========================================================================================================================================
-                                                        WINDOWSTEXTURESTUDIO.CPP
+                                                      TEXTURESTUDIOAPPLICATION.CPP
 ==========================================================================================================================================*/
 // 🧩 Integrate native Pattern authoring and the selected-material preview into the shared Vulkan workspace loop.
 
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
+#endif
 #ifndef FRONTIER_BUILD_COMMIT
 #define FRONTIER_BUILD_COMMIT "local"
 #endif
@@ -30,10 +32,13 @@
 #include <deque>
 #include <map>
 #include <set>
+#ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#endif
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -53,6 +58,28 @@ void AppendPatternPreviewDebug(std::string_view Description)
 #else
 void AppendPatternPreviewDebug(std::string_view) noexcept {}
 #endif
+// 📝 Per-user writable data root: %LOCALAPPDATA% on Windows, XDG_DATA_HOME (falling back to
+// ~/.local/share) elsewhere. Mirrors the convention DiagnosticJournal already uses for logs.
+std::filesystem::path QueryUserDataDirectory() noexcept
+{
+#ifdef _WIN32
+    if (const auto *Local = _wgetenv(L"LOCALAPPDATA")) return std::filesystem::path(Local);
+#else
+    if (const auto *Local = std::getenv("XDG_DATA_HOME")) return std::filesystem::path(Local);
+    if (const auto *Home = std::getenv("HOME")) return std::filesystem::path(Home) / ".local/share";
+#endif
+    return {};
+}
+// 📝 Surface a severe startup/shutdown failure to the user: a native message box on Windows,
+// stderr (alongside the DiagnosticJournal entry already written by the caller) elsewhere.
+void ReportSevereFailure(const char *Title, const std::string &Message) noexcept
+{
+#ifdef _WIN32
+    MessageBoxA(nullptr, Message.c_str(), Title, MB_OK | MB_ICONERROR | MB_TASKMODAL);
+#else
+    std::cerr << Title << ": " << Message << '\n';
+#endif
+}
 bool SameFileContent(const std::filesystem::path &First, const std::filesystem::path &Second) noexcept
 {
     try
@@ -79,32 +106,29 @@ bool SameFileContent(const std::filesystem::path &First, const std::filesystem::
 }
 }
 
-int RunTextureWorkspace()
+int RunTextureWorkspace(int ArgumentCount, char **Arguments)
 {
     Frontier::DiagnosticJournal::Append("Startup", "Texture Workspace: Material Library / Preview / Inspector / experimental Pattern preview");
 #ifdef _DEBUG
-    AppendPatternPreviewDebug("Debug-only Pattern GPU tracing active; log=%LOCALAPPDATA%/Frontier/Logs/TextureWorkspace-*.log");
+    AppendPatternPreviewDebug("Debug-only Pattern GPU tracing active; see the DiagnosticJournal log directory for TextureWorkspace-*.log");
 #endif
     std::filesystem::path Directory;
     std::filesystem::path ShaderDirectory = "EngineContent/ShaderArchives/Surface";
-    int ArgumentCount = 0;
-    auto **Arguments = CommandLineToArgvW(GetCommandLineW(), &ArgumentCount);
-    for (int Index = 1; Arguments && Index < ArgumentCount; ++Index)
+    for (int Index = 1; Index < ArgumentCount; ++Index)
     {
-        if (std::wstring(Arguments[Index]) == L"--library" && Index+1 < ArgumentCount) Directory = Arguments[++Index];
-        else if (std::wstring(Arguments[Index]) == L"--shaders" && Index+1 < ArgumentCount) ShaderDirectory = Arguments[++Index];
+        if (std::string_view(Arguments[Index]) == "--library" && Index+1 < ArgumentCount) Directory = Arguments[++Index];
+        else if (std::string_view(Arguments[Index]) == "--shaders" && Index+1 < ArgumentCount) ShaderDirectory = Arguments[++Index];
         else
         {
-            std::cerr << "Usage: TextureWorkspace.exe [--library ContentDirectory] [--shaders ShaderDirectory]\n";
-            LocalFree(Arguments);
+            std::cerr << "Usage: TextureWorkspace [--library ContentDirectory] [--shaders ShaderDirectory]\n";
             return 2;
         }
     }
-    if (Arguments) LocalFree(Arguments);
-    std::array<wchar_t, 32768> ExecutablePath{};
-    const auto PathLength = GetModuleFileNameW(nullptr, ExecutablePath.data(), DWORD(ExecutablePath.size()));
-    const auto ExecutableDirectory = PathLength && PathLength < ExecutablePath.size() ?
-        std::filesystem::path(ExecutablePath.data()).parent_path() : std::filesystem::current_path();
+    // 📝 Reuse the same portable executable-path resolution every other Frontier content lookup
+    // already relies on (Windows/Linux/macOS), rather than hand-rolling it again here.
+    const auto EngineContentDirectory = Frontier::ResolveContentDirectory("EngineContent");
+    const auto ExecutableDirectory = EngineContentDirectory.empty() ?
+        std::filesystem::current_path() : EngineContentDirectory.parent_path();
     if (!std::filesystem::exists(ShaderDirectory) && ShaderDirectory == "EngineContent/ShaderArchives/Surface")
         ShaderDirectory = ExecutableDirectory / ShaderDirectory;
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
@@ -197,8 +221,8 @@ int RunTextureWorkspace()
     {
         Window = CurrentWindow;
         Frontier::IconPresentation::Attach(Frontier::EncodeContentPath(ContentRoot / "EngineContent/Icons"));
-        const wchar_t *LocalDirectory = _wgetenv(L"LOCALAPPDATA");
-        const auto Preferences = LocalDirectory ? std::filesystem::path(LocalDirectory)/L"Frontier/Personal.projectspace" : std::filesystem::path{};
+        const auto LocalDirectory = QueryUserDataDirectory();
+        const auto Preferences = LocalDirectory.empty() ? std::filesystem::path{} : LocalDirectory / "Frontier/Personal.projectspace";
         AppearanceOwnership.reset(new Frontier::ControlCentrePanel(ContentRoot / "EngineContent/FontArchives", Preferences));
         Appearance = static_cast<Frontier::ControlCentrePanel *>(AppearanceOwnership.get());
         Appearance->ConfigureContentBrowserVisibility(false);
@@ -220,7 +244,7 @@ int RunTextureWorkspace()
         if (Directory.empty())
         {
             const auto Presets = ContentRoot / "EngineContent/MaterialArchives/TextureStudio";
-            Directory = LocalDirectory ? std::filesystem::path(LocalDirectory) / "Frontier/TextureStudio/Materials" : Presets;
+            Directory = LocalDirectory.empty() ? Presets : LocalDirectory / "Frontier/TextureStudio/Materials";
             if (Directory != Presets)
             {
                 // 📝 Mirror the shipped preset tree (materials, Textures/ maps, presets) with skip_existing, so
@@ -991,26 +1015,26 @@ int RunTextureWorkspace()
     return Frontier::RunWindowsApplication(Callbacks);
 }
 
-int main()
+int main(int ArgumentCount, char **Arguments)
 {
     Frontier::DiagnosticJournal::Initialize("TextureWorkspace");
     try
     {
-        return RunTextureWorkspace();
+        return RunTextureWorkspace(ArgumentCount, Arguments);
     }
     catch (const std::exception &Failure)
     {
         Frontier::DiagnosticJournal::Append("SEVERE", Failure.what());
         const auto Description = std::string("Startup failed: ") + Failure.what() + "\nLogs: " +
             Frontier::DiagnosticJournal::EncodePath(Frontier::DiagnosticJournal::QueryFilename());
-        MessageBoxA(nullptr, Description.c_str(), "Texture Workspace - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        ReportSevereFailure("Texture Workspace - Severe failure", Description);
         return 1;
     }
     catch (...)
     {
         Frontier::DiagnosticJournal::Append("SEVERE", "Unknown startup failure");
-        MessageBoxW(nullptr, L"Unknown startup failure. Collect %LOCALAPPDATA%/Frontier/Logs.",
-            L"Texture Workspace - Severe failure", MB_OK | MB_ICONERROR | MB_TASKMODAL);
+        ReportSevereFailure("Texture Workspace - Severe failure",
+            "Unknown startup failure. Collect the DiagnosticJournal log (see Frontier/Logs).");
         return 1;
     }
 }

@@ -3,7 +3,9 @@
 ==========================================================================================================================================*/
 // 🧩 Select the Frontier startup workspace while Engine owns the shared native application loop.
 
+#ifndef GLFW_INCLUDE_NONE
 #define GLFW_INCLUDE_NONE
+#endif
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include "Engine/Interface/WindowsApplication.h"
 #include "Engine/Interface/ContentDirectory.h"

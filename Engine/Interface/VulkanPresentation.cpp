@@ -5,6 +5,11 @@
 
 #include "VulkanPresentation.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
+// 📝 GLFW_INCLUDE_NONE suppresses its default GL/gl.h include (not every platform ships OpenGL
+// dev headers, and this file never uses OpenGL); GLFW_INCLUDE_VULKAN still pulls in vulkan.h.
+#ifndef GLFW_INCLUDE_NONE
+#define GLFW_INCLUDE_NONE
+#endif
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <imgui.h>

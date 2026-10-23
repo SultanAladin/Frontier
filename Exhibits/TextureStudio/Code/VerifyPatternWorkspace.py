@@ -72,7 +72,7 @@ Report['sanitizers'] = Arguments.sanitizers
 Report['commands'] = Commands
 Report['revision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=Root, text=True).strip()
 Report['uncommitted_sources'] = True
-Report['source_sha256'] = {Source: hashlib.sha256((Root / Source).read_bytes()).hexdigest() for Source in Production + [Sources[-1], 'Experimental/TextureStudio/Native/WindowsTextureStudio.cpp', 'UI/TextureStudio/MaterialLibraryPanel.cpp', 'CMakeLists.txt', 'Automation/VectorCoverage.cmake', 'Automation/BuildTextureStudioWindows.py', 'Automation/VectorShaderArchives.py', 'Automation/PackageWorkspacesWindows.py', 'Engine/Render/Shader/VectorCoverage.slang', 'Automation/CompileVectorCoverage.mjs', 'Exhibits/TextureStudio/Code/VerifyPatternWorkspace.py']}
+Report['source_sha256'] = {Source: hashlib.sha256((Root / Source).read_bytes()).hexdigest() for Source in Production + [Sources[-1], 'Experimental/TextureStudio/Native/TextureStudioApplication.cpp', 'UI/TextureStudio/MaterialLibraryPanel.cpp', 'CMakeLists.txt', 'Automation/VectorCoverage.cmake', 'Automation/BuildTextureStudioWindows.py', 'Automation/VectorShaderArchives.py', 'Automation/PackageWorkspacesWindows.py', 'Engine/Render/Shader/VectorCoverage.slang', 'Automation/CompileVectorCoverage.mjs', 'Exhibits/TextureStudio/Code/VerifyPatternWorkspace.py']}
 Report['header_sha256'] = {str(Header.relative_to(Root)): hashlib.sha256(Header.read_bytes()).hexdigest() for Header in Headers if 'ExternalPackages' not in Header.parts}
 Report['font_sha256'] = hashlib.sha256(Arguments.font.read_bytes()).hexdigest()
 Report['vector_compilation_sha256'] = hashlib.sha256(Arguments.shader.with_name('VectorCompilation.json').read_bytes()).hexdigest()
@@ -87,7 +87,7 @@ if Arguments.windows_tools:
     Version = subprocess.check_output(['python3', '-m', 'ziglang', 'version'], cwd=Root, env=Environment, text=True).strip()
     if Version != '0.13.0':
         raise RuntimeError('Expected repository-reviewed Zig 0.13.0.')
-    WindowSources = Production + ['UI/TextureStudio/MaterialLibraryPanel.cpp', 'Experimental/TextureStudio/Native/WindowsTextureStudio.cpp']
+    WindowSources = Production + ['UI/TextureStudio/MaterialLibraryPanel.cpp', 'Experimental/TextureStudio/Native/TextureStudioApplication.cpp']
     WindowsDirectory = Build / 'Windows'
     WindowsDirectory.mkdir(exist_ok=True)
     WindowsFlags = ['-target', 'x86_64-windows-gnu', '-std=c++20', '-O1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN',
