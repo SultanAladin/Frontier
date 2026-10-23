@@ -65,6 +65,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     // 📝 Single-tile rebake request, issued only after the material is saved to disk.
     std::function<void(const std::filesystem::path &)> InvalidateThumbnail;
     std::function<void()> ActivatePattern;
+    std::function<void()> ActivateStamp;
     std::function<void(const std::vector<std::filesystem::path> &)> RequestThumbnails;
     bool RequestClose() noexcept;
     bool ConsumeClose() noexcept;

@@ -18,6 +18,7 @@
 #include "Engine/Render/VectorSelectionEvaluation.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
+#include "UI/TextureStudio/StampWorkspacePanel.h"
 #include <imgui_impl_vulkan.h>
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Interface/ContentDirectory.h"
@@ -109,23 +110,33 @@ int RunTextureWorkspace()
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
     Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
     Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
-    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership;
+    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
     Frontier::PatternWorkspacePanel *Pattern = nullptr;
+    Frontier::StampWorkspacePanel *Stamp = nullptr;
     GLFWwindow *Window = nullptr;
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
     std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
-    std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> AssignedPatternMaps;
-    std::filesystem::path AssignedPatternSelection;
     bool PatternApplyRequested = false;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
     std::optional<Frontier::VectorAuthoringDocument> ObservedPatternDocument;
     const std::filesystem::path PatternPreviewPath = "Pattern/live-preview";
     uint64_t PatternBridgeSubmission = 0;
     bool PatternBridgeRecorded = false;
+    // 📝 Stamp shares the one GPU Float32 authoring-map bridge below with Pattern (mutually exclusive
+    // workspaces never edit at once); its own document/submission bookkeeping stays separate so a
+    // Stamp bake can never be mistaken for a Pattern one or vice versa.
+    std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> StampAuthoringMaps;
+    bool StampApplyRequested = false;
+    Frontier::VectorAuthoringDocument SubmittedStampDocument;
+    std::optional<Frontier::VectorAuthoringDocument> ObservedStampDocument;
+    const std::filesystem::path StampPreviewPath = "Stamp/live-preview";
+    uint64_t StampBridgeSubmission = 0;
+    bool StampBridgeRecorded = false;
+    std::optional<Frontier::VectorAuthoringDocument> StampBridgeFaultedDocument;
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
     // 📝 Second, smaller atlas: the open document's own per-layer row thumbnails (Pattern layer
@@ -134,6 +145,18 @@ int RunTextureWorkspace()
     VkDescriptorSet PatternLayerAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternLayerAtlasPublished = 0;
     bool PatternLayerAtlasFaulted = false;
+    // 📝 Stamp has no library-wide gallery to browse, only its own open document's layer-row
+    // thumbnails — one small atlas, mirroring PatternLayerAtlas exactly.
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> StampLayerAtlas;
+    VkDescriptorSet StampLayerAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t StampLayerAtlasPublished = 0;
+    bool StampLayerAtlasFaulted = false;
+    // 📝 At most one workspace's Float32 authoring maps overlay the selected material's preview at
+    // once (whichever was most recently Applied); shared bookkeeping avoids any ambiguity about
+    // which of Pattern's/Stamp's maps is the one actually showing.
+    std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> AssignedWorkspaceMaps;
+    std::filesystem::path AssignedWorkspaceSelection;
+    std::filesystem::path AssignedWorkspacePreviewPath;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
     // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames, then are
     // reclaimed a few frames later instead of accumulating in the shared ImGui descriptor pool until
@@ -161,7 +184,10 @@ int RunTextureWorkspace()
     bool EnvironmentAtlasFaulted = false;
     std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
     std::filesystem::path PatternSource;
+    std::filesystem::path StampSource;
+    // 📝 At most one of these is ever true; both false means the Material Library is on screen.
     bool PatternActive = false;
+    bool StampActive = false;
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
@@ -265,11 +291,13 @@ int RunTextureWorkspace()
             PatternActive = false;
             AppendPatternPreviewDebug("Pattern workspace deactivated; Material Library preview selected.");
         };
+        Pattern->ActivateStamp = [&]() { PatternActive = false; StampActive = true; };
         Library->ActivatePattern = [&]()
         {
             PatternActive = true;
             AppendPatternPreviewDebug("Pattern workspace activated; Float32 authoring-map generation enabled.");
         };
+        Library->ActivateStamp = [&]() { StampActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -297,6 +325,60 @@ int RunTextureWorkspace()
                 }
             }
         }
+        // 📝 Stamp: same bounded-document lifecycle as Pattern above (own TOML source file, own
+        // typeface, own Material/Pattern cross-navigation), just a 24-layer decal document instead
+        // of a 64-layer tileable one.
+        StampOwnership.reset(new Frontier::StampWorkspacePanel());
+        Stamp = static_cast<Frontier::StampWorkspacePanel *>(StampOwnership.get());
+        if (!Stamp->Initialize() || !Stamp->Activate()) throw std::runtime_error("Stamp workspace activation failed.");
+        StampSource = Directory / "stamp-workspace.vector.toml";
+        Stamp->SaveSource = [&](std::string_view Source)
+        {
+            if (Source.size() > 4000000) return false;
+            std::string Diagnostic;
+            return Frontier::TextFileReplacement::Finalize(StampSource, Source, Diagnostic);
+        };
+        Stamp->LoadSource = [&]() -> std::optional<std::string>
+        {
+            std::ifstream Input(StampSource, std::ios::binary | std::ios::ate);
+            const auto Bytes = Input.tellg();
+            if (!Input || Bytes < 0 || Bytes > 4000000) return std::nullopt;
+            std::string Source(size_t(Bytes), '\0');
+            Input.seekg(0);
+            if (!Input.read(Source.data(), Bytes)) return std::nullopt;
+            return Source;
+        };
+        Stamp->ActivateMaterial = [&]() { StampActive = false; };
+        Stamp->ActivatePattern = [&]() { StampActive = false; PatternActive = true; };
+        if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
+        {
+            const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
+            if (Family >= 0) Stamp->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
+                Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
+        }
+        if (std::filesystem::is_regular_file(StampSource))
+        {
+            std::ifstream Input(StampSource, std::ios::binary | std::ios::ate);
+            const auto Bytes = Input.tellg();
+            if (Input && Bytes >= 0 && Bytes <= 4000000)
+            {
+                std::string Source(size_t(Bytes), '\0');
+                Input.seekg(0);
+                if (Input.read(Source.data(), Bytes))
+                {
+                    try
+                    {
+                        auto Document = Frontier::DecodeVectorAuthoring(Source);
+                        if (!Document.Stamp) throw std::runtime_error("stamp-workspace.vector.toml did not decode as a Stamp document.");
+                        Stamp->ConfigureDocument(std::move(Document));
+                    }
+                    catch (const std::exception &Failure)
+                    {
+                        Frontier::DiagnosticJournal::Append("StampSourceRefused", Failure.what());
+                    }
+                }
+            }
+        }
         LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         if (!Preferences.empty() && std::filesystem::exists(Preferences))
         {
@@ -310,6 +392,9 @@ int RunTextureWorkspace()
                 if (!LayoutBlocked)
                     if (const auto Layout = Document.Sections["workspace"]["texture_studio_pattern_layout"]; Layout)
                         LayoutBlocked = !Layout.is_table() || !Pattern->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
+                if (!LayoutBlocked)
+                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_stamp_layout"]; Layout)
+                        LayoutBlocked = !Layout.is_table() || !Stamp->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
             }
             if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }
@@ -338,6 +423,10 @@ int RunTextureWorkspace()
         PatternLayerAtlas->Initialize(Display.QueryRasterAccess(), Frontier::PatternWorkspacePanel::LayerAtlasTile,
             Frontier::PatternWorkspacePanel::LayerAtlasColumns);
         PatternLayerAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PatternLayerAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        StampLayerAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        StampLayerAtlas->Initialize(Display.QueryRasterAccess(), Frontier::StampWorkspacePanel::LayerAtlasTile,
+            Frontier::StampWorkspacePanel::LayerAtlasColumns);
+        StampLayerAtlasDescriptor = ImGui_ImplVulkan_AddTexture(StampLayerAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
@@ -385,6 +474,41 @@ int RunTextureWorkspace()
             return Frontier::PatternWorkspacePanel::PatternAtlasImage{PatternLayerAtlasDescriptor ? uint64_t(PatternLayerAtlasDescriptor) : uint64_t(0),
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
+        // 📝 Stamp shares the same generic CoverageRendering/SelectionEvaluation GPU singletons as
+        // Pattern above (both work over the same VectorCoverageProgram/VectorAuthoringDocument
+        // shapes) — only the fault-journal key and the dedicated layer atlas differ.
+        Stamp->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program, uint32_t DisplayExtent) -> uint64_t
+        {
+            try
+            {
+                const int Slot = CoverageRendering->SelectProgram(Program, DisplayExtent);
+                if (Slot < 0) return uint64_t(0);
+                const auto Key = std::make_pair(size_t(Slot), CoverageRendering->QuerySlotExtent(size_t(Slot)));
+                const auto Position = CoverageDescriptors.find(Key);
+                if (Position != CoverageDescriptors.end()) return uint64_t(Position->second);
+                const auto View = CoverageRendering->QueryImageView(size_t(Slot));
+                if (!View) return uint64_t(0);
+                const auto Descriptor = ImGui_ImplVulkan_AddTexture(View, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                CoverageDescriptors.emplace(Key, Descriptor);
+                return uint64_t(Descriptor);
+            }
+            catch (const std::exception &Failure)
+            {
+                JournalGpuFaultOnce("StampCoverage", Failure);
+                return uint64_t(0);
+            }
+        };
+        Stamp->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
+        Stamp->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
+        {
+            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+        };
+        Stamp->QueryLayerThumbnailAtlas = [&]()
+        {
+            const auto Uv = StampLayerAtlas ? StampLayerAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::StampWorkspacePanel::StampAtlasImage{StampLayerAtlasDescriptor ? uint64_t(StampLayerAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
         const auto AssignPatternMapsToPreview = [&]()
         {
             // 📝 Pattern edits only reach the selected material through an explicit Apply to material press.
@@ -393,9 +517,25 @@ int RunTextureWorkspace()
             if (!Applied) return false;
             auto PreviewMaterial = *Applied;
             PreviewMaterial.AuthoringMaps = *PatternAuthoringMaps;
-            AssignedPatternMaps = *PatternAuthoringMaps;
-            AssignedPatternSelection = Library->QueryLibrary().QuerySelection();
+            AssignedWorkspaceMaps = *PatternAuthoringMaps;
+            AssignedWorkspaceSelection = Library->QueryLibrary().QuerySelection();
+            AssignedWorkspacePreviewPath = PatternPreviewPath;
             Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
+            RenderingRevision = Library->QueryLibrary().QueryRevision();
+            return true;
+        };
+        const auto AssignStampMapsToPreview = [&]()
+        {
+            // 📝 Stamp edits only reach the selected material through an explicit Apply to material press.
+            if (!StampAuthoringMaps) return false;
+            const auto *Applied = Library->QueryLibrary().QueryApplied();
+            if (!Applied) return false;
+            auto PreviewMaterial = *Applied;
+            PreviewMaterial.AuthoringMaps = *StampAuthoringMaps;
+            AssignedWorkspaceMaps = *StampAuthoringMaps;
+            AssignedWorkspaceSelection = Library->QueryLibrary().QuerySelection();
+            AssignedWorkspacePreviewPath = StampPreviewPath;
+            Rendering->ConfigureSelection(StampPreviewPath, PreviewMaterial);
             RenderingRevision = Library->QueryLibrary().QueryRevision();
             return true;
         };
@@ -433,7 +573,7 @@ int RunTextureWorkspace()
                 }
                 PatternBridgeSubmission = 0;
             }
-            if (PatternActive && !PatternBridgeSubmission && Pattern->QueryAuthoringSettled() &&
+            if (PatternActive && !PatternBridgeSubmission && !StampBridgeSubmission && Pattern->QueryAuthoringSettled() &&
                 !(PatternBridgeFaultedDocument && *PatternBridgeFaultedDocument == Pattern->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
@@ -447,8 +587,8 @@ int RunTextureWorkspace()
                         SubmittedPatternDocument = CurrentPattern;
                         AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                         PatternAuthoringMaps.reset();
-                        const bool AssignedSnapshotLive = AssignedPatternMaps.has_value() &&
-                            AssignedPatternSelection == Library->QueryLibrary().QuerySelection();
+                        const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
+                            AssignedWorkspaceSelection == Library->QueryLibrary().QuerySelection();
                         if (!AssignedSnapshotLive)
                         {
                             if (const auto *Applied = Library->QueryLibrary().QueryApplied())
@@ -477,6 +617,70 @@ int RunTextureWorkspace()
                 PatternBridgeRecorded = false;
                 PatternBridgeFaultedDocument = Pattern->QueryDocument();
                 JournalGpuFaultOnce("PatternBridge", Failure);
+            }
+            try
+            {
+            // 📝 Stamp's own Float32 authoring-map pipeline, symmetric to Pattern's above and sharing
+            // the same physical MaterialBridge (mutually exclusive active workspaces never overlap).
+            if (Stamp->ConsumeMaterialApplyRequest()) StampApplyRequested = true;
+            if (StampApplyRequested && !StampBridgeSubmission && StampAuthoringMaps &&
+                Stamp->QueryDocument() == SubmittedStampDocument && AssignStampMapsToPreview())
+                StampApplyRequested = false;
+            if (StampBridgeSubmission && StampBridgeFaultedDocument &&
+                *StampBridgeFaultedDocument == SubmittedStampDocument)
+                StampBridgeSubmission = 0;
+            if (StampBridgeSubmission && StampBridgeSubmission <= Completed)
+            {
+                auto ReplacementMaps = MaterialBridge->RetrieveAuthoringMaps(Completed);
+                if (Stamp->QueryDocument() == SubmittedStampDocument)
+                {
+                    StampAuthoringMaps = std::move(ReplacementMaps);
+                    if (StampApplyRequested && AssignStampMapsToPreview()) StampApplyRequested = false;
+                }
+                else StampAuthoringMaps.reset();
+                StampBridgeSubmission = 0;
+            }
+            if (StampActive && !StampBridgeSubmission && !PatternBridgeSubmission && Stamp->QueryAuthoringSettled() &&
+                !(StampBridgeFaultedDocument && *StampBridgeFaultedDocument == Stamp->QueryDocument()))
+            {
+                // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
+                const auto CurrentStamp = Stamp->QueryDocument();
+                if (CurrentStamp == SubmittedStampDocument) ObservedStampDocument.reset();
+                else if (ObservedStampDocument && *ObservedStampDocument == CurrentStamp)
+                {
+                    ObservedStampDocument.reset();
+                    if (MaterialBridge->ConfigureDocument(CurrentStamp, Completed))
+                    {
+                        SubmittedStampDocument = CurrentStamp;
+                        StampAuthoringMaps.reset();
+                        const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
+                            AssignedWorkspaceSelection == Library->QueryLibrary().QuerySelection();
+                        if (!AssignedSnapshotLive)
+                        {
+                            if (const auto *Applied = Library->QueryLibrary().QueryApplied())
+                            {
+                                Rendering->ConfigureSelection(Library->QueryLibrary().QuerySelection(), *Applied);
+                                RenderingRevision = Library->QueryLibrary().QueryRevision();
+                            }
+                        }
+                        if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
+                        {
+                            StampBridgeSubmission = Serial;
+                            StampBridgeRecorded = true;
+                        }
+                    }
+                }
+                else ObservedStampDocument = CurrentStamp;
+            }
+            }
+            catch (const std::exception &Failure)
+            {
+                // 📝 The Stamp bridge faults against the document it was compiling; editing the
+                // document re-arms it. Preview/atlas work below is unaffected.
+                StampBridgeSubmission = 0;
+                StampBridgeRecorded = false;
+                StampBridgeFaultedDocument = Stamp->QueryDocument();
+                JournalGpuFaultOnce("StampBridge", Failure);
             }
             // 📝 The gallery bakes its 24-card page on the CPU; upload once per page flip, gated by the panel revision.
             const auto EnvironmentPreviews = Rendering->QueryEnvironmentPreviews();
@@ -511,6 +715,19 @@ int RunTextureWorkspace()
                     PatternLayerAtlasPublished = PatternLayerAtlasRevision;
                 }
                 catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
+            const uint64_t StampLayerAtlasRevision = Stamp->QueryLayerAtlasRevision();
+            if (!StampLayerAtlasFaulted && StampLayerAtlas && StampLayerAtlasRevision != StampLayerAtlasPublished)
+                try
+                {
+                    const auto &LayerPixels = Stamp->QueryLayerAtlasPixels();
+                    if (!LayerPixels.empty())
+                    {
+                        StampLayerAtlas->StagePixels(LayerPixels);
+                        StampLayerAtlas->ConstructUpload(Commands);
+                    }
+                    StampLayerAtlasPublished = StampLayerAtlasRevision;
+                }
+                catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
             {
                 // 📝 Material rendering faults latch against the current catalogue revision + preview
                 // configuration; any new edit re-arms evaluation. A partially recorded tile/preview
@@ -536,12 +753,16 @@ int RunTextureWorkspace()
                 SelectionEvaluation->ConfirmSubmission();
                 if (PatternAtlas) PatternAtlas->ConfirmSubmission();
                 if (PatternLayerAtlas) PatternLayerAtlas->ConfirmSubmission();
+                if (StampLayerAtlas) StampLayerAtlas->ConfirmSubmission();
                 if (EnvironmentAtlas) EnvironmentAtlas->ConfirmSubmission();
-                if (PatternBridgeRecorded)
+                if (PatternBridgeRecorded || StampBridgeRecorded)
                 {
+                    // 📝 One shared physical bridge: whichever workspace recorded this submission's
+                    // commands, the GPU work is the same submission and is confirmed exactly once.
                     MaterialBridge->ConfirmSubmission();
-                    AppendPatternPreviewDebug("GPU Float32 map generation submission confirmed; submission=" + std::to_string(PatternBridgeSubmission));
+                    if (PatternBridgeRecorded) AppendPatternPreviewDebug("GPU Float32 map generation submission confirmed; submission=" + std::to_string(PatternBridgeSubmission));
                     PatternBridgeRecorded = false;
+                    StampBridgeRecorded = false;
                 }
                 CoverageRendering->ConfirmSubmission();
                 Rendering->ConfirmSubmission();
@@ -622,16 +843,19 @@ int RunTextureWorkspace()
         {
             Library->QueryPanels().ResetLayout();
             Pattern->QueryPanels().ResetLayout();
+            Stamp->QueryPanels().ResetLayout();
             LayoutBlocked = false;
             LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         }
         Library->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Pattern->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
+        Stamp->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Library->ConfigurePlatform();
         (void)Pattern->QueryPanels().ConfigurePlatform();
+        (void)Stamp->QueryPanels().ConfigurePlatform();
         if (glfwWindowShouldClose(Window))
         {
-            const bool Authorized = PatternActive ? Pattern->RequestClose() : Library->RequestClose();
+            const bool Authorized = StampActive ? Stamp->RequestClose() : PatternActive ? Pattern->RequestClose() : Library->RequestClose();
             if (!Authorized) glfwSetWindowShouldClose(Window, GLFW_FALSE);
         }
     };
@@ -640,11 +864,21 @@ int RunTextureWorkspace()
     {
         ++InterfaceFrame;
         (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
-        if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
+        if (StampActive) (void)Stamp->Integrate(ImGui::GetIO().DeltaTime);
+        else if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
         else (void)Library->Integrate(ImGui::GetIO().DeltaTime);
         if (MainVisible)
         {
-            if (PatternActive)
+            if (StampActive)
+            {
+                Stamp->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
+                {
+                    return Appearance->QueryInput().QueryApplied().EvaluatePointerDelta(Displacement);
+                };
+                Stamp->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
+                Stamp->ConstructInterface();
+            }
+            else if (PatternActive)
             {
                 Pattern->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
                 {
@@ -670,12 +904,12 @@ int RunTextureWorkspace()
                     RenderingRevision = Catalogue.QueryRevision();
                     try
                     {
-                        if (Catalogue.QuerySelection() != AssignedPatternSelection) AssignedPatternMaps.reset();
-                        if (AssignedPatternMaps)
+                        if (Catalogue.QuerySelection() != AssignedWorkspaceSelection) AssignedWorkspaceMaps.reset();
+                        if (AssignedWorkspaceMaps)
                         {
                             auto PreviewMaterial = *Catalogue.QueryApplied();
-                            PreviewMaterial.AuthoringMaps = *AssignedPatternMaps;
-                            Rendering->ConfigureSelection(PatternPreviewPath, PreviewMaterial);
+                            PreviewMaterial.AuthoringMaps = *AssignedWorkspaceMaps;
+                            Rendering->ConfigureSelection(AssignedWorkspacePreviewPath, PreviewMaterial);
                         }
                         else Rendering->ConfigureSelection(Catalogue.QuerySelection(), *Catalogue.QueryApplied());
                     }
@@ -696,6 +930,7 @@ int RunTextureWorkspace()
         RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         if (PatternLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternLayerAtlasDescriptor);
+        if (StampLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(StampLayerAtlasDescriptor);
         if (EnvironmentAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(EnvironmentAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
@@ -705,12 +940,14 @@ int RunTextureWorkspace()
         if (CoverageRendering) CoverageRendering->Finalize();
         if (PatternAtlas) PatternAtlas->Finalize();
         if (PatternLayerAtlas) PatternLayerAtlas->Finalize();
+        if (StampLayerAtlas) StampLayerAtlas->Finalize();
         if (EnvironmentAtlas) EnvironmentAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
         CoverageRendering.reset();
         PatternAtlas.reset();
         PatternLayerAtlas.reset();
+        StampLayerAtlas.reset();
         EnvironmentAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)
@@ -735,8 +972,19 @@ int RunTextureWorkspace()
                     std::cerr << "TextureWorkspace Pattern layout not saved: " << Message << '\n';
                 }
             }
+            if (Stamp && Stamp->QueryPanels().QuerySeated())
+            {
+                Message.clear();
+                const auto Layout = Stamp->QueryPanels().EncodeLayout();
+                if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_stamp_layout"))
+                {
+                    Frontier::DiagnosticJournal::Append("StampLayoutSaveError", Message);
+                    std::cerr << "TextureWorkspace Stamp layout not saved: " << Message << '\n';
+                }
+            }
         }
         PatternOwnership.reset();
+        StampOwnership.reset();
         LibraryOwnership.reset();
         AppearanceOwnership.reset();
     };
