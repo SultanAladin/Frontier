@@ -486,13 +486,28 @@ void PatternWorkspacePanel::RefreshLayerAtlas()
     const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
     std::vector<std::vector<uint8_t>> Tiles;
     Tiles.reserve(Slotted);
+    std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> FreshCache;
     for (size_t Slot = 0; Slot < Slotted; ++Slot)
     {
+        const uint32_t Token = Document.Layers[Slot].Token;
+        // 📝 Only this layer's own cropped SVG text changes when this layer itself is edited; a
+        // sibling layer untouched by the edit encodes byte-identical text, so its previous raster
+        // is reused instead of paying a full ThorVG parse+raster again for every other layer.
+        try
+        {
+            std::string Markup = EncodePatternLayerThumbnailSvg(Document, Token, CardWell);
+            const auto Cached = LayerThumbnailCache.find(Token);
+            if (Cached != LayerThumbnailCache.end() && Cached->second.first == Markup)
+                Tiles.push_back(Cached->second.second);
+            else
+                Tiles.push_back(RasterizePatternLayerThumbnail(Document, Token, LayerAtlasTile, CardWell));
+            FreshCache.emplace(Token, std::make_pair(std::move(Markup), Tiles.back()));
+        }
         // 📝 A layer with no renderable geometry (e.g. an empty retained-vector shell) must not
         // sink the whole atlas bake; it simply keeps the baked background like an empty gallery slot.
-        try { Tiles.push_back(RasterizePatternLayerThumbnail(Document, Document.Layers[Slot].Token, LayerAtlasTile, CardWell)); }
         catch (const std::exception &) { Tiles.push_back(Blank); }
     }
+    LayerThumbnailCache = std::move(FreshCache);
     LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
     ++LayerAtlasRevision;
 }
@@ -2068,7 +2083,12 @@ void PatternWorkspacePanel::ConstructCanvas()
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram, RequestedExtent) : 0;
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
-    if (Texture && QueryCoverageReady && !QueryCoverageReady())
+    const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
+    if (BakePending) { if (PendingBakeSince < 0) PendingBakeSince = ImGui::GetTime(); }
+    else PendingBakeSince = -1;
+    // 📝 GPU compute for a typical edit retires within a frame or two; only show the badge once a
+    // bake has stayed pending longer than that, so routine editing stops flashing it continuously.
+    if (BakePending && PendingBakeSince >= 0 && ImGui::GetTime() - PendingBakeSince > 0.15)
     {
         const char *Badge = "Baking pattern...";
         const ImVec2 BadgeExtent = ImGui::CalcTextSize(Badge);

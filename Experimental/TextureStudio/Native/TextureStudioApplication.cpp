@@ -355,6 +355,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         StampOwnership.reset(new Frontier::StampWorkspacePanel());
         Stamp = static_cast<Frontier::StampWorkspacePanel *>(StampOwnership.get());
         if (!Stamp->Initialize() || !Stamp->Activate()) throw std::runtime_error("Stamp workspace activation failed.");
+        Stamp->ConfigureContentRoot(ContentRoot);
         StampSource = Directory / "stamp-workspace.vector.toml";
         Stamp->SaveSource = [&](std::string_view Source)
         {

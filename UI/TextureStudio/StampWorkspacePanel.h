@@ -10,6 +10,7 @@
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include "Engine/Lifecycle/ActivationSequence.h"
 
@@ -22,6 +23,13 @@ public:
     void ConstructInterface();
     void ConfigureInterfaceScale(float Scale);
     void ConfigureTypeface(void *Regular, void *Light = nullptr);
+    // 📝 AppendStampTextOutline reads a real TrueType file off disk (for glyph-outline geometry,
+    // distinct from the ImGui chrome typefaces above) via a path that defaults to a bare relative
+    // literal; that only resolves when the process's current working directory happens to be the
+    // EngineContent-containing folder. The host app already resolves its real executable-relative
+    // content root once at startup — hand it here so "Add text..." keeps working regardless of how
+    // the packaged binary was launched (shortcut, different "Start in" folder, etc).
+    void ConfigureContentRoot(std::filesystem::path Root) { ContentRoot = std::move(Root); }
     void ConfigureDocument(VectorAuthoringDocument Document);
     // 📝 One small GPU atlas carries the open Stamp's own layer row-thumbnails (the Texture-workspace-style
     // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas,
@@ -78,6 +86,9 @@ private:
     uint64_t GestureRevision = 0;
     uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
+    // 📝 Mirrors Pattern's own bake-badge debounce: only surface "Baking…" once a dispatch has
+    // stayed pending past this threshold, instead of flashing it on every single edit.
+    double PendingBakeSince = -1;
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
@@ -93,6 +104,11 @@ private:
     uint64_t LayerAtlasRevision = 0;
     uint64_t LayerAtlasBakedRevision = UINT64_MAX;
     std::vector<uint8_t> LayerAtlasPixels;
+    // 📝 Mirrors Pattern's own per-layer thumbnail cache exactly: reuse a component's last raster
+    // whenever its own cropped SVG text is unchanged, so one edited component does not force a
+    // ThorVG parse+raster pass over every other component in the decal on the UI thread.
+    std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> LayerThumbnailCache;
+    std::filesystem::path ContentRoot;
     void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     VectorAuthoringTool Tool = VectorAuthoringTool::Select;

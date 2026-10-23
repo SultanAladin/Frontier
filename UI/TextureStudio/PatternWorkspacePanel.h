@@ -112,6 +112,10 @@ private:
     uint64_t GestureRevision = 0;
     uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
+    // 📝 A fresh GPU bake usually resolves within a frame or two; showing the "Baking…" badge the
+    // instant a dispatch is pending made it flash on literally every single edit. Only surface it
+    // once a bake has stayed pending past this debounce so it reads as a real status, not UI noise.
+    double PendingBakeSince = -1;
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
@@ -146,6 +150,12 @@ private:
     uint64_t LayerAtlasRevision = 0;
     uint64_t LayerAtlasBakedRevision = UINT64_MAX;
     std::vector<uint8_t> LayerAtlasPixels;
+    // 📝 Per-layer thumbnail cache keyed by layer token: a single edit only changes that one
+    // layer's own cropped SVG text, so re-rasterizing every OTHER layer on every edit (an O(layer
+    // count) ThorVG parse+raster pass synchronously on the UI thread) is wasted work that reads as
+    // input lag the instant a gesture ends. Reuse a layer's last tile whenever its own encoded SVG
+    // text is byte-identical to the cached one; only layers that actually changed pay the raster cost.
+    std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> LayerThumbnailCache;
     void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     std::optional<VectorAuthoringDocument> PenSource, PenPreview;

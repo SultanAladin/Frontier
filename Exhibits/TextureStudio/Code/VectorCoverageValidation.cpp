@@ -29,13 +29,15 @@ int main(int Count, char **Arguments)
         // actually displayed at, so the bake tracks zoom instead of a fixed-size raster being
         // stretched (crisp when zoomed in, not needlessly large when zoomed out). The display hint
         // must never exceed what the GPU watchdog budget affords.
-        AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1) == 1024,
+        AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1) == 2048,
             "Unhinted single-channel bake extent regressed from its full-resolution default."); ++Checks;
         AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1, 256) == 256,
             "A zoomed-out display hint did not shrink an empty document's bake extent."); ++Checks;
         AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1, 300) == 512,
             "A display hint between pooled tiles did not round up to the next tile."); ++Checks;
-        AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1, 2048) == 1024,
+        AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1, 2048) == 2048,
+            "A zoomed-in display hint did not reach the raised 2048 ceiling for a light document."); ++Checks;
+        AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(0, 1, 4096) == 2048,
             "A display hint beyond the pooled ceiling was not capped at the affordable extent."); ++Checks;
         AssertRasterCondition(VectorCoverageRasterization::SelectBakeExtent(5000, 1) == 512,
             "Budget-only bake extent for a mid-size document regressed."); ++Checks;

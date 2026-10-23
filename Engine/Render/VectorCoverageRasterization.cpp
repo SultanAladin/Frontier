@@ -392,17 +392,22 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     // 📝 ~500 FLOP per curve per pixel with no bounds rejection; 2e9 curve·
     // pixel·channels ≈ 1 TFLOP per submit, under the Windows watchdog even on
     // integrated GPUs. Empty/rect-only documents keep full resolution. The
-    // single-channel canvas display may run at 1024 so light documents stay
-    // crisp on screen; the six-channel bridge still tops out at 512 because
+    // single-channel canvas display may run up to 2048 so a zoomed-in canvas
+    // still bakes vector-crisp instead of a 1024 raster being stretched past
+    // its own resolution; the six-channel bridge still tops out at 512 because
     // its pyramid restores material maps at that extent.
     uint32_t Affordable;
-    if (!Segments) Affordable = Channels == 1 ? 1024 : 512;
+    if (!Segments) Affordable = Channels == 1 ? 2048 : 512;
     else
     {
         constexpr uint64_t Budget = 2000000000ull;
         const uint64_t Load = uint64_t(Segments) * Channels;
         Affordable = 128;
-        if (Channels == 1 && uint64_t(1024) * 1024 * Load <= Budget) Affordable = 1024;
+        if (Channels == 1)
+        {
+            for (uint32_t Extent : {2048u, 1024u, 512u, 256u, 128u})
+                if (uint64_t(Extent) * Extent * Load <= Budget) { Affordable = Extent; break; }
+        }
         else
             for (uint32_t Extent : {512u, 256u, 128u})
                 if (uint64_t(Extent) * Extent * Load <= Budget) { Affordable = Extent; break; }
@@ -412,7 +417,7 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     // the smallest pooled tier that still covers it, never exceeding what the budget above affords,
     // so zooming in re-bakes crisper (vector-accurate, not a stretched raster) and zooming out drops
     // back down instead of holding a needlessly large image.
-    for (uint32_t Extent : {128u, 256u, 512u, 1024u})
+    for (uint32_t Extent : {128u, 256u, 512u, 1024u, 2048u})
         if (Extent >= DisplayExtent) return std::min(Extent, Affordable);
     return Affordable;
 }
