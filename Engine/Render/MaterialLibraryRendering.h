@@ -47,6 +47,14 @@ class MaterialLibraryRendering
     [[nodiscard]] std::vector<std::string> QueryEnvironmentNames() const;
     [[nodiscard]] EnvironmentPreviewAtlas QueryEnvironmentPreviews() const noexcept;
     void RequestLibrary(const std::filesystem::path &Directory, const std::vector<std::filesystem::path> &Visible);
+    // 📝 Opt-in disk cache for the GPU-baked gallery atlas: call once after Initialize. On the next
+    // RequestLibrary that changes the library directory, a matching on-disk atlas is loaded wholesale
+    // and only slots whose source content changed since the save are rebaked live; once every pinned
+    // slot is settled, the atlas is read back and saved automatically. Entirely best-effort -- any
+    // failure (missing file, digest drift, GPU error) silently falls back to the normal live bake and
+    // never throws, matching the atlas's own crash-never contract for this host-facing feature.
+    void ConfigureAtlasCache(const std::filesystem::path &File, uint64_t FormatDigest);
+    [[nodiscard]] bool QueryAtlasCacheSettled() const noexcept;
     void ConfigurePreview(const MaterialPreviewConfiguration &Configuration);
     [[nodiscard]] MaterialPreviewConfiguration QueryPreviewConfiguration() const;
     // 📝 Display-size preview: the square target follows the viewport pixel edge (256..2048) so the cover

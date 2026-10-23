@@ -145,6 +145,12 @@ private:
     std::string PatternAtlasKey;
     std::vector<uint8_t> PatternAtlasPixels;
     std::vector<uint8_t> PatternAtlasBaked;
+    // 📝 Identity of the bake currently loaded into PatternAtlasPixels (library file contents + palette
+    // + layout), used to find/validate the on-disk cache file so a relaunch can skip re-baking entirely.
+    uint64_t PatternAtlasContentDigest = 0;
+    bool PatternAtlasCacheLoaded = false;
+    [[nodiscard]] uint64_t ComputePatternAtlasDigest(const std::string &Palette) const;
+    [[nodiscard]] std::filesystem::path QueryPatternAtlasCacheFile(uint64_t Digest) const;
     [[nodiscard]] const std::vector<uint8_t> &QueryPatternRaster(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry);
     void RefreshPatternAtlas();
     uint64_t LayerAtlasRevision = 0;
