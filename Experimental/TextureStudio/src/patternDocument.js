@@ -33,6 +33,7 @@ import {
   normalizeCollectionFade,
 } from "./patternCollections.js";
 import { sanitizePatternSVG } from "./patternImport.js";
+import { arrayInset, mirrorMotif, alignToEdges } from "./patternProcedural.js";
 // Portable vector pattern documents. No DOM dependency; shared by editor/export.
 export const patternFinishes = {
   ink: {
@@ -443,19 +444,24 @@ export function patternStarter(name = "Diamond weave", colorway = "Indigo") {
         relief: 0.3,
       }),
     );
-    for (let y = 0; y < 2; y++)
-      for (let x = 0; x < 2; x++)
-        for (let j = 0; j < 4; j++)
-          d.layers.push(
-            patternLayer("diamond", {
-              x: 128 + x * 256,
-              y: 128 + y * 256,
-              width: 242 - j * 53,
-              height: 242 - j * 53,
-              color: j % 2 ? "#263c48" : ["#cc705b", "#d8b16b"][x],
-              finish: "wool",
-            }),
-          );
+    // 📝 Procedural reconstruction (array/inset + mirror + align-to-edge, per the pattern's own
+    // worked example): one inset array builds the "inner and outer" weave rings from a single base
+    // diamond, a vertical mirror produces the bottom row for free, and an edge alignment places two
+    // independently-coloured copies at the tile's left/right quarters -- composable operations over
+    // one base shape, not a hand-authored coordinate list.
+    const WeaveRing = arrayInset(patternLayer, "diamond", { x: 0, y: 128, width: 242, height: 242, finish: "wool" }, {
+      count: 4,
+      sizeStep: 53,
+      colors: ["accent", "#263c48"],
+      roles: ["accent", "ground"],
+    });
+    const WeaveRows = mirrorMotif(WeaveRing, { axis: "y", through: 256 });
+    d.layers.push(
+      ...alignToEdges(WeaveRows, [
+        { x: 128, y: 0, recolor: { accent: "#cc705b" } },
+        { x: 384, y: 0, recolor: { accent: "#d8b16b" } },
+      ]),
+    );
   } else if (name === "Painted blossoms") {
     d.background = "#fff5e4";
     d.repeat = "half-drop";

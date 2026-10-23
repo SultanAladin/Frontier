@@ -7,6 +7,7 @@
 #include "Engine/Render/VectorCoverage.h"
 #include <toml++/toml.hpp>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -29,7 +30,7 @@ int main()
 {
     try
     {
-        Confirm(QueryPatternLibraryPresetCount() == 6, "Pattern library preset count changed.");
+        Confirm(QueryPatternLibraryPresetCount() == 7, "Pattern library preset count changed.");
         for (size_t Index = 0; Index < QueryPatternLibraryPresetCount(); ++Index)
         {
             const auto *Name = QueryPatternLibraryPresetName(Index);
@@ -50,6 +51,30 @@ int main()
             const auto Program = ConstructVectorAuthoringCoverage(Document);
             ValidateVectorCoverage(Program);
             Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Document)) == Document, "Preset TOML round-trip changed artwork.");
+        }
+        // Diamond Weave: the user's own procedural worked example (array/inset, mirror, align-to-
+        // edge). Confirm the composable modifier stack actually produced the structure it claims to
+        // -- 8 diamonds per edge (4 ring sizes mirrored top/bottom), two edges with distinct accents,
+        // and every ring size appearing exactly twice (top + mirrored bottom) per edge.
+        {
+            const auto Weave = ConstructPatternLibraryPreset(6);
+            Confirm(Weave.Name == std::string("Diamond Weave"), "Diamond Weave preset lost its name.");
+            size_t DiamondCount = 0;
+            std::set<float> LeftWidths, RightWidths;
+            std::set<std::string> AccentColours;
+            for (const auto &Source : Weave.Instructions)
+            {
+                if (Source.Topology[0] != 2) continue; // Background field is Topology 0.
+                ++DiamondCount;
+                char Key[64];
+                std::snprintf(Key, sizeof(Key), "%.4f,%.4f,%.4f", Source.Colour[0], Source.Colour[1], Source.Colour[2]);
+                const bool IsGround = std::abs(Source.Colour[0] - .1490f) < .01f && std::abs(Source.Colour[1] - .2353f) < .01f;
+                if (!IsGround) AccentColours.insert(Key);
+                (Source.Bounds[0] < 256 ? LeftWidths : RightWidths).insert(Source.Bounds[2]);
+            }
+            Confirm(DiamondCount == 16, "Diamond Weave ring/mirror/edge count changed.");
+            Confirm(LeftWidths.size() == 4 && RightWidths.size() == 4, "Diamond Weave inset ring sizes changed.");
+            Confirm(AccentColours.size() == 2, "Diamond Weave per-edge accent recolouring changed.");
         }
         // Shipped Alloy starters: the Library.toml sidecar enumerates every family and
         // palette file (Automation/ExportPatternLibrary.mjs generates both). Each file

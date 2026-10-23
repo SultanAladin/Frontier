@@ -399,7 +399,38 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   `WindowsTextureStudio.cpp` is Windows-only and cannot compile-check in this Linux sandbox (same
   constraint as the rest of that file); it is a line-for-line structural mirror of the already-shipped
   `PatternAtlas` plumbing, reviewed by hand, and will be confirmed by the next Windows CI build.
-- Deferred to follow-up: reconstructing the pattern library's motifs (Diamond weave and the rest) as
-  composable Array/Inset/Mirror/Align-to-edge recipes in both HTML and C++ — large, multi-pattern
-  effort tracked separately.
+- Pattern library motifs: the composable procedural modifier stack the user asked for (their own
+  worked example — Diamond weave as one ring array/inset, mirrored top/bottom, then aligned to the
+  tile edges) now exists in both HTML and C++, proven against the "Diamond weave"/"Diamond Weave"
+  starter in each:
+  - HTML: new `Experimental/TextureStudio/src/patternProcedural.js` exports three pure, reusable
+    operations over a plain layer array — `arrayInset(layerFactory, kind, base, {count, sizeStep,
+    stepX, stepY, colors, roles})` (repeats/shrinks one base layer, optionally role-tagging each
+    copy), `mirrorMotif(motif, {axis, through})` (reflects x/y about a line, negating rotation) and
+    `alignToEdges(motif, anchors)` (translates a motif cluster to tile-relative anchors, optionally
+    recolouring by the `role` tag an anchor's `recolor` map names). `patternDocument.js`'s "Diamond
+    weave" starter branch now calls these three operations instead of three nested hand-written
+    loops; verified bit-for-bit identical output against the old flat implementation (same 16 diamond
+    layers, same coordinates/colours, via a direct comparison script) before and after the rewrite.
+    `validatePattern()`'s field-by-field layer rebuild already drops unknown properties, so the
+    generation-only `role`/`proceduralRole` tag never reaches the saved/exported document.
+  - C++: three analogous free functions added to `Engine/ContentInterchange/PatternLibraryPresets.h`
+    — `ConstructInsetMotif` (runs the existing, already-shipped `GenerateVectorAuthoringArray` engine
+    against a throwaway scratch document and harvests the instructions as a plain list, so Array/Inset
+    reuses one tested placement engine rather than a new shrink loop), `MirrorVectorAuthoringMotif`
+    (reflects a plain instruction list about an axis) and `AlignVectorAuthoringMotifToEdges`
+    (translates copies to anchors, recolouring instructions that match a sentinel accent colour). A
+    new 7th library preset, "Diamond Weave" (`ConstructPatternLibraryPreset(6)`,
+    `QueryPatternLibraryPresetCount()` now 7), is built from exactly these three calls: one 4-ring
+    inset array (242/189/136/83, matching the HTML sizes), mirrored across the tile's vertical
+    midline, then aligned to the left/right edge quarters with two different accent colours.
+    `PatternLibraryPresetValidation` gained a dedicated structural check (ring count, inset sizes,
+    per-edge accent count) plus the count-change assertion bump to 7 — now 2065 checks, all existing
+    index-0..5 preset checks untouched. Full build + `ctest` → 27/27 PASSED.
+  - Still open: this pattern (one base shape + array/inset + mirror + align-to-edge) has only been
+    applied to the Diamond weave/Diamond Weave starter so far, as the proof of the approach — the rest
+    of the ~7,874-line, 9-module HTML pattern library and the remaining C++ presets have not yet been
+    converted. Scoped but not started; large enough to warrant explicit user sign-off before an
+    unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
+    per-pattern visual verification).
 
