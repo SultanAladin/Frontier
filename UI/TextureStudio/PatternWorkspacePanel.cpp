@@ -471,6 +471,44 @@ const std::vector<uint8_t> &PatternWorkspacePanel::QueryPatternAtlasPixels()
     return PatternAtlasPixels;
 }
 
+void PatternWorkspacePanel::RefreshLayerAtlas()
+{
+    // 📝 One small atlas carries every row's own preview thumbnail for the document that is
+    // currently open; it rebakes whenever the document's edit revision moves (add/remove/reorder/
+    // redraw a layer all count), exactly like the library atlas rebakes per newly-cached family.
+    const uint64_t CurrentRevision = QueryRevision();
+    if (CurrentRevision == LayerAtlasBakedRevision) return;
+    LayerAtlasBakedRevision = CurrentRevision;
+    const auto &Document = QueryDocument();
+    if (Document.Layers.empty()) { LayerAtlasPixels.clear(); return; }
+    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
+    const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, LayerAtlasTile, CardWell);
+    const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
+    std::vector<std::vector<uint8_t>> Tiles;
+    Tiles.reserve(Slotted);
+    for (size_t Slot = 0; Slot < Slotted; ++Slot)
+    {
+        // 📝 A layer with no renderable geometry (e.g. an empty retained-vector shell) must not
+        // sink the whole atlas bake; it simply keeps the baked background like an empty gallery slot.
+        try { Tiles.push_back(RasterizePatternLayerThumbnail(Document, Document.Layers[Slot].Token, LayerAtlasTile, CardWell)); }
+        catch (const std::exception &) { Tiles.push_back(Blank); }
+    }
+    LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
+    ++LayerAtlasRevision;
+}
+
+uint64_t PatternWorkspacePanel::QueryLayerAtlasRevision()
+{
+    RefreshLayerAtlas();
+    return LayerAtlasRevision;
+}
+
+const std::vector<uint8_t> &PatternWorkspacePanel::QueryLayerAtlasPixels()
+{
+    RefreshLayerAtlas();
+    return LayerAtlasPixels;
+}
+
 std::vector<PatternWorkspacePanel::PatternThumbnailShape> PatternWorkspacePanel::TessellatePresetDocument(const VectorAuthoringDocument &Document)
 {
     // Paint-order tessellation for gallery cards: layers resolve their Over/boolean
@@ -1310,7 +1348,71 @@ void PatternWorkspacePanel::ConstructLayers()
         Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 12 * Scale), Layer.Name.c_str(), 11 * Scale, 0xd5d5c4);
         Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 32 * Scale), Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector", 7 * Scale, 0x93937c);
         Ink->PopClipRect();
-        Ink->AddRect(ImVec2(RowOrigin.x + 12 * Scale, RowOrigin.y + 20 * Scale), ImVec2(RowOrigin.x + 26 * Scale, RowOrigin.y + 34 * Scale), ImGui::GetColorU32(Spectrum(0xc7d9b8)), 2 * Scale);
+        // 📝 Row preview: the layer's own rendered shape, cropped to its own tight bounds — the
+        // ported Texture-workspace layer-row thumbnail, and the same own-bounds contract the
+        // selection hitbox fix relies on, instead of the old static swatch outline. The GPU atlas
+        // is the fast path once baked; otherwise fall back to a CPU vector replay of just this one
+        // layer, and only fall back further to a bare outline if that also finds nothing to draw.
+        {
+            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 9 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 45 * Scale);
+            PatternAtlasImage LayerAtlas{};
+            if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
+            const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
+            bool ThumbnailDrawn = false;
+            if (LayerAtlas.Texture != 0 && Slot < LayerAtlasCapacity && QueryLayerAtlasRevision() > 0)
+            {
+                const float Step = float(LayerAtlasTile + 2) / LayerAtlasExtent;
+                const float Span = float(LayerAtlasTile) / LayerAtlasExtent;
+                const float U0 = LayerAtlas.MinimumU + (Slot % LayerAtlasColumns) * Step;
+                const float V0 = LayerAtlas.MinimumV + (Slot / LayerAtlasColumns) * Step;
+                Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 4 * Scale);
+                Ink->AddImageRounded(ImTextureRef(LayerAtlas.Texture), ThumbMin, ThumbMax, ImVec2(U0, V0),
+                    ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 4 * Scale);
+                ThumbnailDrawn = true;
+            }
+            if (!ThumbnailDrawn)
+            {
+                try
+                {
+                    VectorAuthoringDocument OneLayer = Snapshot;
+                    OneLayer.Layers = {Layer};
+                    const auto Shapes = TessellatePresetDocument(OneLayer);
+                    if (!Shapes.empty())
+                    {
+                        const std::array<uint32_t, 1> OneToken{Layer.Token};
+                        const auto Extent = QueryVectorSelectionExtent(Snapshot, OneToken);
+                        const float Span = std::max({Extent.Bounds[2], Extent.Bounds[3], 1.f}) * 1.25f;
+                        const float Unit = (ThumbMax.x - ThumbMin.x) / Span;
+                        const ImVec2 Centre((ThumbMin.x + ThumbMax.x) * .5f, (ThumbMin.y + ThumbMax.y) * .5f);
+                        const auto Project = [&](float X, float Y)
+                        { return ImVec2(Centre.x + (X - Extent.Bounds[0]) * Unit, Centre.y + (Y - Extent.Bounds[1]) * Unit); };
+                        Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 4 * Scale);
+                        Ink->PushClipRect(ThumbMin, ThumbMax, true);
+                        for (const auto &Shape : Shapes)
+                        {
+                            if (Shape.Filled && Shape.Triangles.size() >= 3)
+                                for (size_t Triangle = 0; Triangle < Shape.Triangles.size() / 3; ++Triangle)
+                                    Ink->AddTriangleFilled(Project(Shape.Triangles[Triangle * 3][0], Shape.Triangles[Triangle * 3][1]),
+                                        Project(Shape.Triangles[Triangle * 3 + 1][0], Shape.Triangles[Triangle * 3 + 1][1]),
+                                        Project(Shape.Triangles[Triangle * 3 + 2][0], Shape.Triangles[Triangle * 3 + 2][1]), Shape.FillColour);
+                            if (Shape.Stroked && Shape.Outline.size() > 1)
+                            {
+                                std::vector<ImVec2> Polyline;
+                                for (const auto &Point : Shape.Outline) Polyline.push_back(Project(Point[0], Point[1]));
+                                Ink->AddPolyline(Polyline.data(), int(Polyline.size()), Shape.LineColour,
+                                    Shape.ClosedOutline ? ImDrawFlags_Closed : 0, std::max(Shape.StrokeWidth * Unit, 1.f));
+                            }
+                        }
+                        Ink->PopClipRect();
+                        ThumbnailDrawn = true;
+                    }
+                }
+                catch (const std::exception &) { ThumbnailDrawn = false; }
+            }
+            if (!ThumbnailDrawn)
+                Ink->AddRect(ImVec2(ThumbMin.x + 4 * Scale, ThumbMin.y + 11 * Scale), ImVec2(ThumbMin.x + 18 * Scale, ThumbMin.y + 25 * Scale),
+                    ImGui::GetColorU32(Spectrum(0xc7d9b8)), 2 * Scale);
+        }
         if (!Layer.Locked && ImGui::BeginDragDropSource())
         {
             ImGui::SetDragDropPayload("FrontierVectorAuthoringLayer", &Layer.Token, sizeof(Layer.Token));

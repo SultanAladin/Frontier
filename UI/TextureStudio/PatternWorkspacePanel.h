@@ -66,6 +66,16 @@ public:
     [[nodiscard]] uint64_t QueryPatternAtlasRevision();
     [[nodiscard]] const std::vector<uint8_t> &QueryPatternAtlasPixels();
     [[nodiscard]] static uint32_t QueryPatternAtlasExtent() noexcept { return PatternAtlasExtent; }
+    // 📝 A second, smaller GPU atlas carries the *open document's own layer* row-thumbnails (the
+    // Texture-workspace-style preview inside each layer row), rebaked whenever the document edits.
+    static constexpr uint32_t LayerAtlasTile = 64;
+    static constexpr uint32_t LayerAtlasColumns = 12;
+    static constexpr uint32_t LayerAtlasExtent = (LayerAtlasTile + 2) * LayerAtlasColumns;
+    static constexpr size_t LayerAtlasCapacity = size_t(LayerAtlasColumns) * LayerAtlasColumns;
+    std::function<PatternAtlasImage()> QueryLayerThumbnailAtlas;
+    [[nodiscard]] uint64_t QueryLayerAtlasRevision();
+    [[nodiscard]] const std::vector<uint8_t> &QueryLayerAtlasPixels();
+    [[nodiscard]] static uint32_t QueryLayerAtlasExtent() noexcept { return LayerAtlasExtent; }
     [[nodiscard]] const VectorAuthoringDocument &QueryDocument() const;
     [[nodiscard]] const std::vector<uint32_t> &QuerySelection() const noexcept { return Selection; }
     [[nodiscard]] const std::vector<size_t> &QueryAnchorSelection() const noexcept { return SelectedAnchors; }
@@ -129,6 +139,10 @@ private:
     std::vector<uint8_t> PatternAtlasBaked;
     [[nodiscard]] const std::vector<uint8_t> &QueryPatternRaster(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry);
     void RefreshPatternAtlas();
+    uint64_t LayerAtlasRevision = 0;
+    uint64_t LayerAtlasBakedRevision = UINT64_MAX;
+    std::vector<uint8_t> LayerAtlasPixels;
+    void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     std::optional<VectorAuthoringDocument> PenSource, PenPreview;
     CubicPath PendingPath;

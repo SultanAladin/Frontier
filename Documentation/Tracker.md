@@ -381,8 +381,25 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   still reproduces after this, it is most likely the multi-select case (selecting an entire
   array-placed group, whose true combined bounds legitimately span the tile) rather than a bounds
   bug — flagged for the user to confirm against the next preview.
-- Deferred to follow-up: porting the same layer-row visual parity into the native (C++)
-  `PatternWorkspacePanel.cpp`, and reconstructing the pattern library's motifs (Diamond weave and
-  the rest) as composable Array/Inset/Mirror/Align-to-edge recipes in both HTML and C++ — large,
-  multi-pattern effort tracked separately.
+- Ported the same layer-row preview into the native Pattern panel. `ConstructLayers()`'s row no
+  longer draws a static placeholder swatch: it now renders that layer's own shape, cropped to its
+  own tight extent (new `EncodePatternLayerThumbnailSvg`/`RasterizePatternLayerThumbnail` in
+  `PatternThumbnailRaster.h/.cpp`, sharing the existing per-instruction SVG emitter with the gallery
+  encoder so the two never drift). A second, smaller GPU atlas (`PatternWorkspacePanel::LayerAtlasTile`
+  = 64px, 12×12 grid) carries every row's thumbnail for the open document and rebakes only when the
+  document's edit revision moves; `WindowsTextureStudio.cpp` wires it up exactly like the existing
+  library gallery atlas (`PatternLayerAtlas`/`PatternLayerAtlasDescriptor`, stage/upload/confirm/
+  finalize, `Pattern->QueryLayerThumbnailAtlas`). Before the atlas is baked (or if no host wires it,
+  e.g. in a headless/test build) the row falls back to a CPU vector replay of just that one layer via
+  the existing `TessellatePresetDocument` tessellator, and only falls back further to a bare outline
+  if that layer has no renderable geometry at all. `PatternThumbnailAtlasValidation` gained two new
+  headless test blocks (single-layer thumbnail crop + the open-document layer atlas revision/bake
+  contract) — 58 checks, up from 45, no new exhibit/CMake target needed. Host suite stays 27/27.
+  The Vulkan wiring in
+  `WindowsTextureStudio.cpp` is Windows-only and cannot compile-check in this Linux sandbox (same
+  constraint as the rest of that file); it is a line-for-line structural mirror of the already-shipped
+  `PatternAtlas` plumbing, reviewed by hand, and will be confirmed by the next Windows CI build.
+- Deferred to follow-up: reconstructing the pattern library's motifs (Diamond weave and the rest) as
+  composable Array/Inset/Mirror/Align-to-edge recipes in both HTML and C++ — large, multi-pattern
+  effort tracked separately.
 

@@ -128,6 +128,12 @@ int RunTextureWorkspace()
     bool PatternBridgeRecorded = false;
     std::unique_ptr<Frontier::VectorSelectionEvaluation> SelectionEvaluation;
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternAtlas;
+    // 📝 Second, smaller atlas: the open document's own per-layer row thumbnails (Pattern layer
+    // stack preview), separate from the library gallery atlas above.
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> PatternLayerAtlas;
+    VkDescriptorSet PatternLayerAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t PatternLayerAtlasPublished = 0;
+    bool PatternLayerAtlasFaulted = false;
     VkDescriptorSet AtlasDescriptor = VK_NULL_HANDLE, PreviewDescriptor = VK_NULL_HANDLE;
     // 📝 Display-size preview: superseded preview descriptors stay alive for in-flight frames, then are
     // reclaimed a few frames later instead of accumulating in the shared ImGui descriptor pool until
@@ -328,6 +334,10 @@ int RunTextureWorkspace()
         PatternAtlas->Initialize(Display.QueryRasterAccess(), Frontier::PatternWorkspacePanel::PatternAtlasTile,
             Frontier::PatternWorkspacePanel::PatternAtlasColumns);
         PatternAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PatternAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        PatternLayerAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        PatternLayerAtlas->Initialize(Display.QueryRasterAccess(), Frontier::PatternWorkspacePanel::LayerAtlasTile,
+            Frontier::PatternWorkspacePanel::LayerAtlasColumns);
+        PatternLayerAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PatternLayerAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
@@ -364,6 +374,12 @@ int RunTextureWorkspace()
         {
             const auto Uv = PatternAtlas ? PatternAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
             return Frontier::PatternWorkspacePanel::PatternAtlasImage{PatternAtlasDescriptor ? uint64_t(PatternAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
+        Pattern->QueryLayerThumbnailAtlas = [&]()
+        {
+            const auto Uv = PatternLayerAtlas ? PatternLayerAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::PatternWorkspacePanel::PatternAtlasImage{PatternLayerAtlasDescriptor ? uint64_t(PatternLayerAtlasDescriptor) : uint64_t(0),
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         const auto AssignPatternMapsToPreview = [&]()
@@ -479,6 +495,19 @@ int RunTextureWorkspace()
                     PatternAtlasPublished = PatternAtlasRevision;
                 }
                 catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
+            const uint64_t PatternLayerAtlasRevision = Pattern->QueryLayerAtlasRevision();
+            if (!PatternLayerAtlasFaulted && PatternLayerAtlas && PatternLayerAtlasRevision != PatternLayerAtlasPublished)
+                try
+                {
+                    const auto &LayerPixels = Pattern->QueryLayerAtlasPixels();
+                    if (!LayerPixels.empty())
+                    {
+                        PatternLayerAtlas->StagePixels(LayerPixels);
+                        PatternLayerAtlas->ConstructUpload(Commands);
+                    }
+                    PatternLayerAtlasPublished = PatternLayerAtlasRevision;
+                }
+                catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
             {
                 // 📝 Material rendering faults latch against the current catalogue revision + preview
                 // configuration; any new edit re-arms evaluation. A partially recorded tile/preview
@@ -503,6 +532,7 @@ int RunTextureWorkspace()
             {
                 SelectionEvaluation->ConfirmSubmission();
                 if (PatternAtlas) PatternAtlas->ConfirmSubmission();
+                if (PatternLayerAtlas) PatternLayerAtlas->ConfirmSubmission();
                 if (EnvironmentAtlas) EnvironmentAtlas->ConfirmSubmission();
                 if (PatternBridgeRecorded)
                 {
@@ -662,6 +692,7 @@ int RunTextureWorkspace()
             if (Retired.first) ImGui_ImplVulkan_RemoveTexture(Retired.first);
         RetiredPreviewDescriptors.clear();
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
+        if (PatternLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternLayerAtlasDescriptor);
         if (EnvironmentAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(EnvironmentAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
@@ -670,11 +701,13 @@ int RunTextureWorkspace()
         if (MaterialBridge) MaterialBridge->Finalize();
         if (CoverageRendering) CoverageRendering->Finalize();
         if (PatternAtlas) PatternAtlas->Finalize();
+        if (PatternLayerAtlas) PatternLayerAtlas->Finalize();
         if (EnvironmentAtlas) EnvironmentAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
         CoverageRendering.reset();
         PatternAtlas.reset();
+        PatternLayerAtlas.reset();
         EnvironmentAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)
