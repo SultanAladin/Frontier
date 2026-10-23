@@ -34,7 +34,11 @@ public:
     // pixel with no bounds rejection, so a single 512px six-channel submit
     // exceeds the Windows watchdog. Picks the largest square extent whose
     // curve-pixel-channel product fits a ~2e9 budget (~1 TFLOP per submit).
-    [[nodiscard]] static uint32_t SelectBakeExtent(size_t Segments, uint32_t Channels);
+    // 📝 DisplayExtent is an optional hint (device pixels the result will actually be shown
+    // at, e.g. a live canvas tracking zoom): the smallest pooled tier covering that hint is
+    // chosen, still capped by the GPU budget above. Zero keeps the old budget-only behaviour,
+    // which the material-bake path (fixed final texture resolution) always wants.
+    [[nodiscard]] static uint32_t SelectBakeExtent(size_t Segments, uint32_t Channels, uint32_t DisplayExtent = 0);
     [[nodiscard]] VkImage QueryImage() const noexcept;
     [[nodiscard]] VkImageView QueryImageView() const noexcept;
     [[nodiscard]] VkExtent2D QueryExtent() const noexcept;

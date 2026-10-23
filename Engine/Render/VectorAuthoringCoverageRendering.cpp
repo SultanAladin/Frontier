@@ -32,14 +32,14 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     RetainedShaderEntry = Shader.Entry ? Shader.Entry : "";
 }
 
-void VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments)
+bool VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments, uint32_t DisplayExtent)
 {
     // 📝 The canvas runs the same unguarded curve loop as the bridge, single
     // channel; retired slots re-bracket before dense documents dispatch.
-    const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Segments, 1);
+    const uint32_t Needed = VectorCoverageRasterization::SelectBakeExtent(Segments, 1, DisplayExtent);
     auto &Slot = Slots[Index];
     const size_t Which = IndexForExtent(Needed);
-    if (Which == Slot.Active) return;
+    if (Which == Slot.Active) return false;
     if (!Slot.Extents[Which])
     {
         auto Fresh = std::make_unique<VectorCoverageRasterization>();
@@ -49,6 +49,7 @@ void VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments)
             std::to_string(Needed) + " for " + std::to_string(Segments) + " segments");
     }
     Slot.Active = Which;
+    return true;
 }
 
 VectorCoverageRasterization &VectorAuthoringCoverageRendering::ActiveRasterization(size_t Index)
@@ -75,11 +76,18 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     Initialize(Access, RasterShader{Words, "main"});
 }
 
-int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram &Program)
+int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram &Program, uint32_t DisplayExtent)
 {
     ValidateVectorCoverage(Program);
     if (Selected >= 0 && Slots[size_t(Selected)].Program && EquivalentProgram(*Slots[size_t(Selected)].Program, Program))
     {
+        // 📝 Unchanged content: only a DisplayExtent hint (e.g. the canvas zoomed) can still ask for a
+        // different pooled tier. Re-fitting re-dispatches the same program into the new tier's image.
+        // Skip the attempt while the slot's current image is still sampled by an earlier submission
+        // (mirrors the never-block-the-device rule below); it retries on a later, settled frame.
+        auto &Slot = Slots[size_t(Selected)];
+        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Segments.size(), DisplayExtent))
+            Slot.Pending = true;
         SampleRequested = true;
         return Selected;
     }
@@ -87,7 +95,7 @@ int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram 
     {
         auto &Slot = Slots[Index];
         if (Slot.SampledSerial > Completed) continue;
-        RefitSlot(Index, Program.Segments.size());
+        RefitSlot(Index, Program.Segments.size(), DisplayExtent);
         Slot.Program = Program;
         Slot.SurfaceProgram.reset();
         Slot.Pending = true;
@@ -100,11 +108,14 @@ int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram 
     return Selected;
 }
 
-int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfaceProgram &Program)
+int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfaceProgram &Program, uint32_t DisplayExtent)
 {
     ValidateVectorSurface(Program);
     if (Selected >= 0 && Slots[size_t(Selected)].SurfaceProgram && *Slots[size_t(Selected)].SurfaceProgram == Program)
     {
+        auto &Slot = Slots[size_t(Selected)];
+        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Coverage.Segments.size(), DisplayExtent))
+            Slot.Pending = true;
         SampleRequested = true;
         return Selected;
     }
@@ -112,7 +123,7 @@ int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfacePr
     {
         auto &Slot = Slots[Index];
         if (Slot.SampledSerial > Completed) continue;
-        RefitSlot(Index, Program.Coverage.Segments.size());
+        RefitSlot(Index, Program.Coverage.Segments.size(), DisplayExtent);
         Slot.SurfaceProgram = Program;
         Slot.Program.reset();
         Slot.Pending = true;

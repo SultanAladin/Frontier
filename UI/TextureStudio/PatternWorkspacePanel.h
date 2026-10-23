@@ -89,7 +89,10 @@ public:
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     bool RequestClose();
     bool ConsumeMaterialApplyRequest() noexcept;
-    std::function<uint64_t(const VectorCoverageProgram &)> QueryCoverage;
+    // 📝 Second argument is the device-pixel edge the returned image will actually be displayed at
+    // (the zoomed board, framebuffer-scaled): lets the GPU bake at that resolution so zooming in
+    // re-bakes vector-crisp instead of stretching a fixed-size raster, and zooming out drops back down.
+    std::function<uint64_t(const VectorCoverageProgram &, uint32_t)> QueryCoverage;
     std::function<bool()> QueryCoverageReady;
     std::function<std::optional<uint32_t>(const VectorAuthoringDocument &, PlanePoint)> QuerySelectionToken;
     std::function<bool(std::string_view)> SaveSource;

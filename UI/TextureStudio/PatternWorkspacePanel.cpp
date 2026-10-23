@@ -2055,7 +2055,12 @@ void PatternWorkspacePanel::ConstructCanvas()
         CachedGestureRevision = GestureRevision;
         CachedCoverageValid = true;
     }
-    const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram) : 0;
+    // 📝 Resolution-independence for the live canvas: ask the GPU to bake at the board's actual
+    // on-screen device-pixel edge (zoom included) rather than always sampling a fixed-size raster
+    // and stretching it — that stretch is what reads as pixelated art when zooming in or out.
+    const float DisplayPixels = BoardSize * ImGui::GetIO().DisplayFramebufferScale.x;
+    const uint32_t RequestedExtent = uint32_t(std::clamp(std::ceil(DisplayPixels), 1.f, 4096.f));
+    const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram, RequestedExtent) : 0;
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     if (Texture && QueryCoverageReady && !QueryCoverageReady())

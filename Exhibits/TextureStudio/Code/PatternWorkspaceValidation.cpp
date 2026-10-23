@@ -70,6 +70,41 @@ int main(int Count, char **Arguments)
             Pixels = CaptureBackend(Retired, 5);
             ConfirmBackend(Rendering.QueryDispatchCount() == 4 && Pixels[(256 * 512 + 256) * 4 + 3] >= 191, "Retired native output did not receive the deferred edit.");
         }
+        uint32_t ZoomResolutionChecks = 0;
+        {
+            // 📝 A zoomed canvas must re-bake at the resolution it is actually displayed at, not keep
+            // sampling a fixed-size raster and stretch it — that stretch is what reads as pixelated.
+            VectorAuthoringCoverageRendering Rendering;
+            Rendering.Initialize(Device.QueryAccess(), RasterShader{Shader, "main"});
+            const auto ConfirmZoom = [&](bool Condition, const char *Caption) { AssertRasterCondition(Condition, Caption); ++ZoomResolutionChecks; };
+            VectorCoverageProgram Program;
+            Program.Instructions.emplace_back();
+            Program.Instructions[0].Bounds = {256, 256, 160, 160};
+            uint64_t ZoomSerial = 0;
+            const auto CaptureAt = [&](int Slot, uint64_t Completed, uint32_t Extent)
+            {
+                return Device.Capture(Rendering.QueryImage(size_t(Slot)), {Extent, Extent}, [&](VkCommandBuffer Commands)
+                {
+                    Rendering.ConstructCommands(Commands, Completed, ZoomSerial + 1);
+                }, [&]() { Rendering.ConfirmSubmission(); ++ZoomSerial; });
+            };
+            // A low DisplayExtent hint (zoomed-out canvas) must cap new content below the full affordable tile.
+            const int Slot = Rendering.SelectProgram(Program, 128);
+            ConfirmZoom(Rendering.QuerySlotExtent(size_t(Slot)) == 128, "A zoomed-out DisplayExtent hint did not shrink a freshly authored document's bake tile.");
+            auto SmallPixels = CaptureAt(Slot, 0, 128);
+            ConfirmZoom(SmallPixels[(64 * 128 + 64) * 4 + 3] == 255, "Shrunk native bake lost the unchanged document's coverage.");
+            const uint64_t DispatchesBeforeZoomIn = Rendering.QueryDispatchCount();
+            // Zooming in on the same, unmodified content must re-dispatch into a sharper pooled tile.
+            const int Sharpened = Rendering.SelectProgram(Program, 1024);
+            ConfirmZoom(Sharpened == Slot, "A DisplayExtent-only change moved unchanged content to a different slot.");
+            ConfirmZoom(Rendering.QuerySlotExtent(size_t(Sharpened)) == 1024, "Zooming in on unchanged content did not re-bake it to full resolution.");
+            auto SharpPixels = CaptureAt(Sharpened, 1, 1024);
+            ConfirmZoom(Rendering.QueryDispatchCount() == DispatchesBeforeZoomIn + 1, "A DisplayExtent-only tier change skipped its GPU re-dispatch.");
+            ConfirmZoom(SharpPixels[(512 * 1024 + 512) * 4 + 3] == 255, "Full-resolution re-bake after zooming in lost the unchanged document's coverage.");
+            // Zooming back out must drop the resolution again instead of permanently holding the sharper tile.
+            const int Settled = Rendering.SelectProgram(Program, 128);
+            ConfirmZoom(Settled == Slot && Rendering.QuerySlotExtent(size_t(Settled)) == 128, "Zooming back out did not relinquish the sharper pooled tile.");
+        }
         uint32_t SourceChecks = 0;
         {
             VectorAuthoringDocument Document;
@@ -168,6 +203,7 @@ int main(int Count, char **Arguments)
         SelectionEvaluation.Initialize(Device.QueryAccess(), RasterShader{SelectionShader, "main"});
         uint64_t Serial = 0;
         std::optional<VectorCoverageProgram> Requested, Displayed;
+        uint32_t RequestedExtent = 0;
         std::vector<unsigned char> Coverage(512 * 512 * 4);
         ImGui::CreateContext();
         auto &Input = ImGui::GetIO();
@@ -186,7 +222,7 @@ int main(int Count, char **Arguments)
         auto &Workspace = *static_cast<PatternWorkspacePanel *>(Ownership.get());
         AssertRasterCondition(Workspace.Initialize() && Workspace.Activate(), "Native Pattern lifecycle activation failed.");
         Workspace.ConfigureTypeface(Typeface, LightTypeface ? LightTypeface : Typeface);
-        Workspace.QueryCoverage = [&](const VectorCoverageProgram &Program) { Requested = Program; return uint64_t(2); };
+        Workspace.QueryCoverage = [&](const VectorCoverageProgram &Program, uint32_t Extent) { Requested = Program; RequestedExtent = Extent; return uint64_t(2); };
         Workspace.QuerySelectionToken = [&](const VectorAuthoringDocument &Document, PlanePoint Point)
         {
             return SelectionEvaluation.QueryToken(ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
@@ -641,6 +677,18 @@ int main(int Count, char **Arguments)
         Capture("NativePatternWorkspace");
         const auto Board = Workspace.QueryBoardExtent();
         Confirm(std::abs(Board.Width() - 360) < 3, "Native board width differs from the approved HTML reference.");
+        // 📝 Resolution independence: the GPU bake must track the on-screen zoomed board, not stay
+        // fixed while the displayed quad grows — otherwise zooming in stretches a fixed-size raster
+        // and visibly pixelates instead of re-baking the vector content sharper.
+        const uint32_t BaselineRequestedExtent = RequestedExtent;
+        for (int Index = 0; Index < 5; ++Index) { Click("Zoom in"); Frame(); }
+        const auto ZoomedBoard = Workspace.QueryBoardExtent();
+        Confirm(ZoomedBoard.Width() > Board.Width() * 2.5f, "Repeated zoom-in did not enlarge the displayed board as expected.");
+        Confirm(RequestedExtent > BaselineRequestedExtent + 200,
+            "GPU coverage bake did not request a sharper resolution after the canvas zoomed in.");
+        Click("Fit"); Frame();
+        Confirm(std::abs(Workspace.QueryBoardExtent().Width() - Board.Width()) < 3 && RequestedExtent < ZoomedBoard.Width(),
+            "GPU coverage bake stayed at the zoomed-in resolution after Fit returned the canvas to 100%.");
         const auto Viewport = Workspace.QueryPanelExtent("Viewport");
         const auto Inspector = Workspace.QueryPanelExtent("Inspector");
         const auto Layers = Workspace.QueryPanelExtent("Layers");
@@ -1895,7 +1943,7 @@ int main(int Count, char **Arguments)
         }
         Checks += SurfaceControlChecks;
         std::ofstream Report(Destination / "NativePatternWorkspaceChecks.json");
-        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"placement_checks\":" << PlacementChecks << ",\"corner_checks\":" << CornerChecks << ",\"endpoint_checks\":" << EndpointChecks << ",\"dropdown_checks\":" << DropdownChecks << ",\"multipoint_checks\":" << MultipointChecks << ",\"segment_checks\":" << SegmentChecks << ",\"clipboard_checks\":" << ClipboardChecks << ",\"endpoint_joining_checks\":" << EndpointJoiningChecks << ",\"joining_checks\":" << JoiningChecks << ",\"continuation_checks\":" << ContinuationChecks << ",\"refinement_checks\":" << RefinementChecks << ",\"contour_checks\":" << ContourChecks << ",\"surface_control_checks\":" << SurfaceControlChecks << ",\"pen_checks\":" << PenChecks << ",\"point_checks\":" << PointChecks << ",\"picking_checks\":" << PickingChecks << ",\"gesture_checks\":" << GestureChecks << ",\"source_checks\":" << SourceChecks << ",\"dock_checks\":" << DockChecks << ",\"backend_checks\":" << BackendChecks << ",\"gpu_dispatches\":" << Raster.QueryDispatchCount() << ",\"selection_dispatches\":" << SelectionEvaluation.QueryDispatchCount() << ",\"submission_serial\":" << Serial
+        Report << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"placement_checks\":" << PlacementChecks << ",\"corner_checks\":" << CornerChecks << ",\"endpoint_checks\":" << EndpointChecks << ",\"dropdown_checks\":" << DropdownChecks << ",\"multipoint_checks\":" << MultipointChecks << ",\"segment_checks\":" << SegmentChecks << ",\"clipboard_checks\":" << ClipboardChecks << ",\"endpoint_joining_checks\":" << EndpointJoiningChecks << ",\"joining_checks\":" << JoiningChecks << ",\"continuation_checks\":" << ContinuationChecks << ",\"refinement_checks\":" << RefinementChecks << ",\"contour_checks\":" << ContourChecks << ",\"surface_control_checks\":" << SurfaceControlChecks << ",\"pen_checks\":" << PenChecks << ",\"point_checks\":" << PointChecks << ",\"picking_checks\":" << PickingChecks << ",\"gesture_checks\":" << GestureChecks << ",\"source_checks\":" << SourceChecks << ",\"dock_checks\":" << DockChecks << ",\"backend_checks\":" << BackendChecks << ",\"zoom_resolution_checks\":" << ZoomResolutionChecks << ",\"gpu_dispatches\":" << Raster.QueryDispatchCount() << ",\"selection_dispatches\":" << SelectionEvaluation.QueryDispatchCount() << ",\"submission_serial\":" << Serial
                << ",\"width\":1440,\"height\":900,\"windows_executed\":false,\"full_parity_complete\":false,\"stamp_started\":false}\n";
         std::cout << Checks << " native Pattern UI/input/GPU checks passed.\n";
         ImGui::DestroyContext();

@@ -342,13 +342,16 @@ int RunTextureWorkspace()
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
         SelectionEvaluation->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSelectionCompute.spv");
-        Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program) -> uint64_t
+        Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program, uint32_t DisplayExtent) -> uint64_t
         {
             try
             {
                 // 📝 Pooled slot extents keep their images alive until Finalize, so lazily retained
                 // descriptors stay valid without ever freeing a set a previous frame still samples.
-                const int Slot = CoverageRendering->SelectProgram(Program);
+                // 📝 DisplayExtent (the zoomed canvas board in device pixels) lets unchanged content
+                // re-bake at a sharper or coarser pooled tier instead of the shown image always being
+                // a fixed-resolution raster stretched by the zoom transform.
+                const int Slot = CoverageRendering->SelectProgram(Program, DisplayExtent);
                 if (Slot < 0) return uint64_t(0);
                 const auto Key = std::make_pair(size_t(Slot), CoverageRendering->QuerySlotExtent(size_t(Slot)));
                 const auto Position = CoverageDescriptors.find(Key);

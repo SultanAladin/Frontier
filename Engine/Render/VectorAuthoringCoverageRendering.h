@@ -20,8 +20,12 @@ public:
     void Initialize(const VulkanRasterAccess &Access, RasterShader Shader);
     void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderArchive);
     // 📝 Call during main-viewport UI construction; its chosen image is produced before that UI submission samples it.
-    int SelectProgram(const VectorCoverageProgram &Program);
-    int SelectSurfaceProgram(const VectorSurfaceProgram &Program);
+    // 📝 DisplayExtent is an optional device-pixel hint (e.g. the live canvas quad at its current
+    // zoom): when the authored content is unchanged but the hint now needs a different pooled tier,
+    // the slot re-bakes at that tier so the shown image stays vector-crisp instead of being a
+    // raster stretched past its baked resolution. Zero keeps the prior budget-only behaviour.
+    int SelectProgram(const VectorCoverageProgram &Program, uint32_t DisplayExtent = 0);
+    int SelectSurfaceProgram(const VectorSurfaceProgram &Program, uint32_t DisplayExtent = 0);
     void ConstructCommands(VkCommandBuffer Commands, uint64_t CompletedSerial, uint64_t SubmissionSerial);
     void ConfirmSubmission();
     void Finalize() noexcept;
@@ -51,7 +55,9 @@ private:
     uint64_t Completed = 0, PendingSerial = 0;
     int Selected = -1;
     bool SampleRequested = false;
-    void RefitSlot(size_t Index, size_t Segments);
+    // 📝 Returns true when the slot's active pooled extent changed (a fresh dispatch is required
+    // even if the authored content itself did not, e.g. a zoom-driven DisplayExtent change).
+    bool RefitSlot(size_t Index, size_t Segments, uint32_t DisplayExtent = 0);
     VectorCoverageRasterization &ActiveRasterization(size_t Index);
     [[nodiscard]] const VectorCoverageRasterization *QueryActiveRasterization(size_t Slot) const;
 };
