@@ -130,6 +130,17 @@ export const PAINT_CHANNELS = [
     value: 0,
   },
   {
+    id: "transmission",
+    label: "Transmission",
+    group: "Reflectance",
+    color: "#7dd3fc",
+    short: "TR",
+    edit: "scalar",
+    min: 0,
+    max: 1,
+    value: 0,
+  },
+  {
     id: "refractionIndex",
     label: "Refraction index",
     group: "Reflectance",

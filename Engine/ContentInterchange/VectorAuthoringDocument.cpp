@@ -16,7 +16,7 @@ namespace
 //                                                     STRICT OPTIONAL AUTHORING FIELDS
 //------------------------------------------------------------------------------------------------------------------------
 
-constexpr std::array<std::string_view, 7> ChannelCaptions{"colour", "height", "normal", "roughness", "metalness", "opacity", "occlusion"};
+constexpr std::array<std::string_view, 9> ChannelCaptions{"colour", "height", "normal", "roughness", "metalness", "opacity", "occlusion", "transmission", "clearcoat"};
 
 void ValidateFields(const toml::table &Source, std::initializer_list<std::string_view> Captions)
 {
@@ -212,7 +212,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
         {
             const auto *Channels = Entry["surface_channels"].as_table();
             if (!Channels) throw std::runtime_error("Expected vector surface channel table.");
-            ValidateFields(*Channels, {"colour", "height", "normal", "roughness", "metalness", "opacity", "occlusion"});
+            ValidateFields(*Channels, {"colour", "height", "normal", "roughness", "metalness", "opacity", "occlusion", "transmission", "clearcoat"});
             for (size_t Index = 0; Index < ChannelCaptions.size(); ++Index)
             {
                 if (!Channels->contains(ChannelCaptions[Index])) continue;

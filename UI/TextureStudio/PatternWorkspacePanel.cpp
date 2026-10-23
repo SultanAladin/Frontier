@@ -2574,9 +2574,9 @@ void PatternWorkspacePanel::ConstructInspector()
                         }
                 });
             ImGui::EndDisabled();
-            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion"};
+            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion", "Transmission", "Clearcoat"};
             ImGui::BeginDisabled(Protected);
-            for (size_t Index = 0; Index < 7; ++Index)
+            for (size_t Index = 0; Index < std::size(Channels); ++Index)
             {
                 bool Enabled = First->SurfaceChannels[Index].Enabled;
                 const bool RequiredForTextile = First->SurfaceStructure != VectorAuthoringSurfaceStructure::Freeform && (Index == size_t(VectorAuthoringSurfaceChannel::Height) || Index == size_t(VectorAuthoringSurfaceChannel::Normal));

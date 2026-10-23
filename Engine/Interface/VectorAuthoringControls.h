@@ -38,6 +38,7 @@ public:
         float       Maximum);
     bool Dropdown(const char *Caption, int &Selection, std::span<const char *const> Captions);
     bool Colour(const char *Caption, std::array<float, 4> &Spectrum);
+    bool RenderColourSourcePicker(std::array<float, 4> &Spectrum);
     void Tooltip(const char *Caption, const char *Description);
     void BeginCard(const char *Caption, bool Raised = false, bool Subordinate = false);
     void EndCard();

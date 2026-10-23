@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { StudioHeader, StudioDockTab } from "./StudioUI.jsx";
 import { Slider, ColorField } from "./MaterialControls.jsx";
+import { ColourSourceField } from "./ColourSourceField.jsx";
 import StampRichTextEditor from "./StampRichTextEditor.jsx";
 import useStampTransform from "./useStampTransform.js";
 import { PAINT_CHANNELS } from "./paintChannelModel.js";
@@ -128,7 +129,7 @@ export function StampChannelControls({
       ).map((channel) => (
         <div className="stamp-channel-value" key={channel.id}>
           {channel.edit === "color" ? (
-            <ColorField
+            <ColourSourceField
               label={channel.label}
               ariaLabel={`${prefix} ${channel.label}`}
               value={values[channel.id]}

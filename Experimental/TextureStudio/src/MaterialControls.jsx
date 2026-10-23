@@ -170,7 +170,7 @@ export function ColorField({
     </div>
   );
 }
-const palettes = {
+export const palettes = {
   Spectrum: ["#c6db89", "#59bea3", "#ab8bc9", "#d17b83", "#82a3d5"],
   "Vivid spectrum": ["#ec5667", "#50c38c", "#ae67e5", "#5999ee", "#edc25c"],
   "Warm metallic": ["#f0cb8a", "#d99a5d", "#b97046", "#e6bf83", "#e7d6a9"],

@@ -19,6 +19,105 @@ ImVec4 ConvertSpectrum(ColorQuad Spectrum)
 {
     return {Spectrum.Red, Spectrum.Green, Spectrum.Blue, Spectrum.Alpha};
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                             COLOUR PALETTE AND GENERATOR SOURCES
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Hex values mirror Experimental/TextureStudio/src/MaterialControls.jsx's `palettes` table so a
+// swatch picked here or in the browser authoring tool reads as the same colour either side.
+struct NamedColourPalette { const char *Name; std::array<const char *, 5> Hex; };
+constexpr std::array<NamedColourPalette, 4> AuthoringColourPalettes{{
+    {"Spectrum",        {"#c6db89", "#59bea3", "#ab8bc9", "#d17b83", "#82a3d5"}},
+    {"Vivid spectrum",  {"#ec5667", "#50c38c", "#ae67e5", "#5999ee", "#edc25c"}},
+    {"Warm metallic",   {"#f0cb8a", "#d99a5d", "#b97046", "#e6bf83", "#e7d6a9"}},
+    {"Cool metallic",   {"#93bbdc", "#a49cdc", "#6ed0c5", "#c0cedd", "#789cab"}},
+}};
+
+void ParseHexColour(const char *Hex, float &Red, float &Green, float &Blue) noexcept
+{
+    const auto Component = [&](int Index) { char Byte[3]{Hex[Index], Hex[Index + 1], 0}; return float(strtol(Byte, nullptr, 16)) / 255.f; };
+    Red = Component(1); Green = Component(3); Blue = Component(5);
+}
+
+// 📝 Named colour generators mirror Experimental/TextureStudio/src/colourGenerators.js: each derives
+// a single authored colour from the current one (plus a seed for the randomised entries) rather than
+// a spatial mask — procedural mask generators remain the separate CHANNEL_GENERATORS toolkit.
+enum class AuthoringColourGenerator : uint32_t { Complementary, HarmonicHue, Analogous, ProceduralNoise, Count };
+constexpr std::array<const char *, size_t(AuthoringColourGenerator::Count)> AuthoringColourGeneratorNames{
+    "Complementary", "Harmonic hue", "Analogous", "Procedural noise"};
+
+// 📝 Mulberry32: a tiny deterministic 32-bit generator so a repeated seed reproduces the same suggestion.
+float NextColourGeneratorSample(uint32_t &State) noexcept
+{
+    State += 0x6D2B79F5u;
+    uint32_t Mixed = State;
+    Mixed = (Mixed ^ (Mixed >> 15)) * (Mixed | 1u);
+    Mixed ^= Mixed + (Mixed ^ (Mixed >> 7)) * (Mixed | 61u);
+    return float((Mixed ^ (Mixed >> 14)) >> 0) / 4294967296.f;
+}
+
+ImVec4 GenerateColourSuggestion(AuthoringColourGenerator Generator, const std::array<float, 4> &Spectrum, uint32_t Seed) noexcept
+{
+    float Hue, Saturation, Value;
+    ImGui::ColorConvertRGBtoHSV(Spectrum[0], Spectrum[1], Spectrum[2], Hue, Saturation, Value);
+    uint32_t State = Seed;
+    switch (Generator)
+    {
+        case AuthoringColourGenerator::Complementary: Hue = std::fmod(Hue + 0.5f, 1.f); break;
+        case AuthoringColourGenerator::HarmonicHue:   Hue = std::fmod(Hue + 0.38196601125f, 1.f); break;                        // 📝 Golden-angle hue rotation
+        case AuthoringColourGenerator::Analogous:     Hue = std::fmod(Hue + (20.f + NextColourGeneratorSample(State) * 25.f) / 360.f, 1.f); break;
+        case AuthoringColourGenerator::ProceduralNoise: default:
+            Hue = NextColourGeneratorSample(State);
+            Saturation = 0.35f + NextColourGeneratorSample(State) * 0.5f;
+            Value = 0.45f + NextColourGeneratorSample(State) * 0.45f;
+            break;
+    }
+    float Red, Green, Blue;
+    ImGui::ColorConvertHSVtoRGB(Hue, Saturation, Value, Red, Green, Blue);
+    return {Red, Green, Blue, Spectrum[3]};
+}
+}
+
+bool VectorAuthoringControlSurface::RenderColourSourcePicker(std::array<float, 4> &Spectrum)
+{
+    bool Changed = false;
+    ImGui::TextDisabled("Palette");
+    for (const auto &Entry : AuthoringColourPalettes)
+    {
+        ImGui::TextDisabled("%s", Entry.Name);
+        for (size_t Index = 0; Index < Entry.Hex.size(); ++Index)
+        {
+            if (Index) ImGui::SameLine();
+            ImGui::PushID(int(Index));
+            float Red, Green, Blue;
+            ParseHexColour(Entry.Hex[Index], Red, Green, Blue);
+            if (ImGui::ColorButton(Entry.Hex[Index], ImVec4(Red, Green, Blue, 1), ImGuiColorEditFlags_NoAlpha, ImVec2(18 * Scale, 18 * Scale)))
+            {
+                Spectrum[0] = Red; Spectrum[1] = Green; Spectrum[2] = Blue;
+                Changed = true;
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::Spacing();
+    ImGui::TextDisabled("Generate");
+    for (size_t Index = 0; Index < AuthoringColourGeneratorNames.size(); ++Index)
+    {
+        ImGui::PushID(int(Index) + 100);
+        const auto Suggestion = GenerateColourSuggestion(AuthoringColourGenerator(Index), Spectrum, uint32_t(Index) * 97u + 1u);
+        ImGui::ColorButton("##Preview", Suggestion, ImGuiColorEditFlags_NoAlpha, ImVec2(16 * Scale, 16 * Scale));
+        ImGui::SameLine();
+        if (ImGui::Selectable(AuthoringColourGeneratorNames[Index]))
+        {
+            const auto Applied = GenerateColourSuggestion(AuthoringColourGenerator(Index), Spectrum,
+                uint32_t(ImGui::GetTime() * 1000.0) ^ (uint32_t(Index) * 97u + 1u));
+            Spectrum[0] = Applied.x; Spectrum[1] = Applied.y; Spectrum[2] = Applied.z;
+            Changed = true;
+        }
+        ImGui::PopID();
+    }
+    return Changed;
 }
 
 void VectorAuthoringControlSurface::Register(const char *Caption)
@@ -162,9 +261,23 @@ bool VectorAuthoringControlSurface::Colour(const char *Caption, std::array<float
     ImGui::TextDisabled("%s", Caption);
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 18 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 14 * Scale));
-    const bool Changed = ImGui::ColorEdit4(Caption, Spectrum.data(), ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueWheel);
+    bool Changed = ImGui::ColorEdit4(Caption, Spectrum.data(), ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueWheel);
     Register(Caption);
     ImGui::PopStyleVar(2);
+    // 📝 Additive palette/generator source, kept beside the native hue-wheel swatch rather than
+    // replacing it, so every existing Colour() call site keeps its current layout unchanged.
+    ImGui::SameLine();
+    ImGui::PushID(Caption);
+    if (ImGui::SmallButton("...")) ImGui::OpenPopup("ColourSourcePopup");
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 12 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12 * Scale, 12 * Scale));
+    if (ImGui::BeginPopup("ColourSourcePopup"))
+    {
+        if (RenderColourSourcePicker(Spectrum)) Changed = true;
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopID();
     return Changed;
 }
 
