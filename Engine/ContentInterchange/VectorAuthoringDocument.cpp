@@ -127,6 +127,13 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
             Channels.insert(ChannelCaptions[Index], toml::table{{"enabled", Layer.SurfaceChannels[Index].Enabled}, {"strength", double(Layer.SurfaceChannels[Index].Strength)}});
         Encoded.insert("surface_channels", std::move(Channels));
         if (Layer.Mask) Encoded.insert("mask", EncodeInstruction(*Layer.Mask));
+        if (Layer.ComponentKind != VectorAuthoringComponentKind::Freeform)
+        {
+            constexpr const char *ComponentKindNames[]{"freeform", "text", "imported_vector", "imported_image"};
+            Encoded.insert("component_kind", ComponentKindNames[uint32_t(Layer.ComponentKind)]);
+            if (!Layer.SourceMarkup.empty()) Encoded.insert("source_markup", Layer.SourceMarkup);
+            if (!Layer.EmbeddedImage.empty()) Encoded.insert("embedded_image", Layer.EmbeddedImage);
+        }
         Layers.push_back(std::move(Encoded));
     }
     for (const auto &Entry : Document.Enclosures)
@@ -161,7 +168,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     {
         if (!Encoded.as_table()) throw std::runtime_error("Invalid vector layer.");
         const auto &Entry = *Encoded.as_table();
-        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief"});
+        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image"});
         VectorAuthoringLayer Layer;
         if (!Entry["token"].is_integer() || !Entry["root"].is_integer()) throw std::runtime_error("Expected integer vector layer identity.");
         const auto Token = Entry["token"].value<int64_t>(), Root = Entry["root"].value<int64_t>();
@@ -225,6 +232,13 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
         }
         if (Entry.contains("mask") && !Entry["mask"].is_table()) throw std::runtime_error("Expected vector mask instruction table.");
         if (const auto *Mask = Entry["mask"].as_table()) Layer.Mask = DecodeInstruction(*Mask);
+        const auto ComponentKind = DecodeOptional<std::string>(Entry, "component_kind", "freeform");
+        if (ComponentKind == "text") Layer.ComponentKind = VectorAuthoringComponentKind::Text;
+        else if (ComponentKind == "imported_vector") Layer.ComponentKind = VectorAuthoringComponentKind::ImportedVector;
+        else if (ComponentKind == "imported_image") Layer.ComponentKind = VectorAuthoringComponentKind::ImportedImage;
+        else if (ComponentKind != "freeform") throw std::runtime_error("Unknown vector component kind.");
+        Layer.SourceMarkup = DecodeOptional<std::string>(Entry, "source_markup", "");
+        Layer.EmbeddedImage = DecodeOptional<std::string>(Entry, "embedded_image", "");
         Document.Layers.push_back(std::move(Layer));
     }
     if (Table.contains("enclosures"))

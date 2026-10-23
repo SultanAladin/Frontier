@@ -58,10 +58,12 @@ add_library(FrontierVectorAuthoring STATIC
     Engine/ContentInterchange/VectorAuthoringProperties.cpp
     Engine/ContentInterchange/VectorAuthoringSelectionEditing.cpp
     Engine/ContentInterchange/CubicPathEditing.cpp
+    Engine/ContentInterchange/StampTextOutline.cpp
     Engine/Render/VectorSurfaceCompilation.cpp
     Engine/ContentInterchange/SurfaceMapEncoding.cpp)
 target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
@@ -220,6 +222,10 @@ if(BUILD_TESTING)
     target_link_libraries(VectorSelectionValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME VectorSelectionValidation COMMAND VectorSelectionValidation)
     set_tests_properties(VectorSelectionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextOutlineValidation Exhibits/TextureStudio/Code/StampTextOutlineValidation.cpp)
+    target_link_libraries(StampTextOutlineValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME StampTextOutlineValidation COMMAND StampTextOutlineValidation)
+    set_tests_properties(StampTextOutlineValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(PatternLibraryGalleryValidation Exhibits/TextureStudio/Code/PatternLibraryGalleryValidation.cpp)
     target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)

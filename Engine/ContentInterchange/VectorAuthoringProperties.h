@@ -23,6 +23,14 @@ enum class VectorAuthoringSurfaceStructure : uint32_t
 {
     Freeform, Stitch, Weave
 };
+// 📝 Stamp authoring provenance for a layer's contributed instructions/segments. Freeform covers
+// ordinary hand-drawn Pattern shapes (and remains the default so existing Pattern documents are
+// unaffected); Text/ImportedVector/ImportedImage are Stamp-only component kinds that retain their
+// original source alongside the baked cubic-path instructions so the component can be re-edited.
+enum class VectorAuthoringComponentKind : uint32_t
+{
+    Freeform, Text, ImportedVector, ImportedImage
+};
 enum class VectorAuthoringTextileGeometry : uint32_t
 {
     Unclassified, NeedleEntry, StitchThread, UpperThreadPass, WeaveYarn
