@@ -114,7 +114,10 @@ class MaterialLibraryPanel final : public ActivationSequence
     void ConstructInspector();
     void ConstructViewport();
     void ConstructFullscreenPreview();
-    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr);
+    // 📝 RowWidth defaults to the surrounding content region (correct for the free-floating popup
+    // sliders), but every inspector card caller passes its own inset row width explicitly so the
+    // right-aligned value readout lands inside the card border instead of the outer panel/scrollbar edge.
+    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr, float RowWidth = -1.f);
     void ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb = 0xa3a393);
     void ConstructActions();
     std::array<char,4096> DirectoryText{}, DestinationText{};

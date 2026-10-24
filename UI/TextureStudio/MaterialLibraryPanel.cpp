@@ -733,11 +733,11 @@ void MaterialLibraryPanel::ConstructIcon(IconSymbol Symbol, float X, float Y, fl
 }
 
 bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position,
-    const char *Unit, bool Logarithmic, float Step, const char *Unavailable)
+    const char *Unit, bool Logarithmic, float Step, const char *Unavailable, float RowWidth)
 {
     const float Scale = QueryInterfaceScale();
     const auto Origin = ImGui::GetCursorScreenPos();
-    const float Width = std::max(28.f, ImGui::GetContentRegionAvail().x);
+    const float Width = std::max(28.f, RowWidth >= 0.f ? RowWidth : ImGui::GetContentRegionAvail().x);
     const bool Enabled = (ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_Disabled) == 0;
     ConstructMaterialCaption(Origin.x, Origin.y + 5 * Scale, 10 * Scale, 0xa3a393, Caption);
     ImGui::PushID(Caption);
@@ -1045,7 +1045,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 const char *Unavailable = !Supported ? "This recipe parameter is retained, but no native parameter is bound to it yet." :
                     RoughnessLimited ? "The native preview supports roughness of 0.045 or higher; this control is bounded to valid physical values." : nullptr;
                 if (ConstructProperty(Control.Caption.c_str(), NativeMinimum, NativeMaximum, Position,
-                    Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable))
+                    Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable, CardWidth - 34 * Scale))
                 {
                     bool PaintChanged = false;
                     const auto ApplyTarget = [&](const std::string &Key, float Coefficient)
@@ -1315,17 +1315,17 @@ void MaterialLibraryPanel::ConstructInspector()
                         // 📝 No recipe profile: the generic structured scalars render per layer, so
                         // upper strata stay editable instead of being stranded behind stratum 0.
                         auto &Stratum = Definition.Scattering.Illumination.Strata[Layer];
-                        if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
+                        if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                        if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
+                        if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Metallic", Stratum.Optics[0]) || Changed;
-                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0]))
+                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Anisotropy", Definition.Scattering.DirectionalOptics[Layer][0]) || Changed;
-                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3]))
+                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Specular", Definition.Scattering.DirectionalOptics[Layer][3]) || Changed;
-                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0]))
+                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "NormalStrength", Definition.Scattering.StratumNormal[Layer][0]) || Changed;
-                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1]))
+                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "HeightStrength", Definition.Scattering.StratumNormal[Layer][1]) || Changed;
                     }
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
@@ -1381,13 +1381,50 @@ void MaterialLibraryPanel::ConstructInspector()
                 else if (ScalarsCard)
                 {
                     for (auto &Scalar : ScalarsByLayer[Layer])
-                        if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value))
+                        if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value, "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, Scalar.Field, *Scalar.Value) || Changed;
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
                         0x7b7b6b, "Physical coefficients of this layer with no recipe control.");
                 }
                 else
                 {
+                    if (Flakes)
+                    {
+                        // 📝 The flake particles carry their own linear-RGB stops (single tint, an ordered
+                        // ramp, or a randomised palette - Configuration[2]), independent of the base paint
+                        // and clearcoat strata above. The card already reserved the extra ControlsTop height
+                        // for this row; until now nothing was drawn into it, so the flake tint was baked from
+                        // whatever the .material shipped with and had no inspector control at all.
+                        const uint32_t PaletteCount = std::clamp(Definition.Scattering.Paint.Configuration[3],
+                            1u, uint32_t(Definition.Scattering.Paint.Palette.size()));
+                        ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 10 * Scale,
+                            0xa3a393, PaletteCount > 1 ? "Flake palette" : "Flake colour");
+                        ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 22 * Scale));
+                        const float SwatchPitch = 29 * Scale;
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        for (uint32_t Index = 0; Index < PaletteCount; ++Index)
+                        {
+                            const uint32_t Column = Index % std::max(1u, PaletteColumns), Row = Index / std::max(1u, PaletteColumns);
+                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + Column * SwatchPitch, RowOrigin.y + Row * SwatchPitch));
+                            ImGui::PushID(int(Index));
+                            auto &Stop = Definition.Scattering.Paint.Palette[Index];
+                            float Spectrum[3];
+                            for (size_t Channel = 0; Channel < 3; ++Channel)
+                                Spectrum[Channel] = Stop[Channel] <= .0031308f ? 12.92f * Stop[Channel] :
+                                    1.055f * std::pow(Stop[Channel], 1.f / 2.4f) - .055f;
+                            if (ImGui::ColorEdit3("##FlakeColour", Spectrum, ImGuiColorEditFlags_NoInputs |
+                                ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                            {
+                                for (size_t Channel = 0; Channel < 3; ++Channel)
+                                    Stop[Channel] = Spectrum[Channel] <= .04045f ? Spectrum[Channel] / 12.92f :
+                                        std::pow((Spectrum[Channel] + .055f) / 1.055f, 2.4f);
+                                Changed = Library.ConfigurePaint(Definition.Scattering.Paint) || Changed;
+                            }
+                            ImGui::PopID();
+                        }
+                        const uint32_t SwatchRows = (PaletteCount + std::max(1u, PaletteColumns) - 1) / std::max(1u, PaletteColumns);
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + SwatchRows * SwatchPitch + 10 * Scale));
+                    }
                     for (const auto *Control : GroupControls) RenderControl(*Control);
                     if (Flakes)
                     {
