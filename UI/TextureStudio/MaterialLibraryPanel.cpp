@@ -875,6 +875,13 @@ void MaterialLibraryPanel::ConstructInspector()
             ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x + CardInset, ImGui::GetCursorScreenPos().y));
             const auto Start = ImGui::GetCursorScreenPos();
             const float CardWidth = std::max(110.f, ImGui::GetContentRegionAvail().x - CardInset);
+            // 📝 Dear ImGui snaps the cursor's X back to the window/child's native left edge after every
+            // item, not to this card's 17*Scale content inset - so any row that reads the ambient cursor
+            // position without re-anchoring first (anything after a colour field, a toggle, another
+            // slider, …) silently drifts to the wrong, too-far-left X. That drift clipped captions like
+            // "Paint roughness" down to "aint roughness" and left sliders with no left-side margin at all.
+            // Call this immediately before every row that positions itself from the ambient cursor.
+            const auto AnchorCardCursor = [&] { ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y)); };
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 8 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL-AWARE CONTROLS");
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 37 * Scale, 17 * Scale, 0xbabbab,
                 Entry && !Entry->RecipeTitle.empty() ? Entry->RecipeTitle.c_str() : "Layered material", static_cast<ImFont *>(HeadingTypeface));
@@ -1000,6 +1007,7 @@ void MaterialLibraryPanel::ConstructInspector()
             };
             auto RenderControl = [&](const MaterialRecipeControl &Control)
             {
+                AnchorCardCursor();
                 float Position = Control.Position;
                 // 📝 Direct controls carry no mapped targets — the control key IS the coefficient.
                 // Requiring targets here disabled every direct slider (detail scale, orange-peel
@@ -1323,16 +1331,22 @@ void MaterialLibraryPanel::ConstructInspector()
                         // 📝 No recipe profile: the generic structured scalars render per layer, so
                         // upper strata stay editable instead of being stranded behind stratum 0.
                         auto &Stratum = Definition.Scattering.Illumination.Strata[Layer];
+                        AnchorCardCursor();
                         if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
+                        AnchorCardCursor();
                         if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Metallic", Stratum.Optics[0]) || Changed;
+                        AnchorCardCursor();
                         if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Anisotropy", Definition.Scattering.DirectionalOptics[Layer][0]) || Changed;
+                        AnchorCardCursor();
                         if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Specular", Definition.Scattering.DirectionalOptics[Layer][3]) || Changed;
+                        AnchorCardCursor();
                         if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "NormalStrength", Definition.Scattering.StratumNormal[Layer][0]) || Changed;
+                        AnchorCardCursor();
                         if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "HeightStrength", Definition.Scattering.StratumNormal[Layer][1]) || Changed;
                     }
@@ -1389,8 +1403,11 @@ void MaterialLibraryPanel::ConstructInspector()
                 else if (ScalarsCard)
                 {
                     for (auto &Scalar : ScalarsByLayer[Layer])
+                    {
+                        AnchorCardCursor();
                         if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value, "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, Scalar.Field, *Scalar.Value) || Changed;
+                    }
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
                         0x7b7b6b, "Physical coefficients of this layer with no recipe control.");
                 }
@@ -1584,6 +1601,7 @@ void MaterialLibraryPanel::ConstructInspector()
                         const float Minimum = Selected > 0 ? Paint.Palette[Selected - 1][3] : 0.f;
                         const float Maximum = Selected + 1 < Paint.Configuration[3] ? Paint.Palette[Selected + 1][3] : 1.f;
                         float Position = Paint.Palette[Selected][3];
+                        AnchorCardCursor();
                         if (ConstructProperty("Stop position", Minimum, Maximum, Position, "%", false, 0, nullptr, CardWidth - 34 * Scale))
                         {
                             Paint.Palette[Selected][3] = Position;

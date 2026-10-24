@@ -312,6 +312,8 @@ if(BUILD_TESTING)
     set_tests_properties(WorkspaceZoomValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
     target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_executable(SliderPaddingEvidence Exhibits/TextureStudio/Code/SliderPaddingEvidence.cpp)
+    target_link_libraries(SliderPaddingEvidence PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation
         "${CMAKE_SOURCE_DIR}/Exhibits/Renderer/Materials" "${CMAKE_BINARY_DIR}/MaterialLibraryEvidence")
     set_tests_properties(MaterialLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
