@@ -42,6 +42,16 @@ public:
     // tiers (128/256/512/1024/2048, index 0..4) the slot should sit at, applying the same one-tier-up
     // hysteresis guard RefitSlot uses against a jittering device-pixel hint near a tier boundary.
     [[nodiscard]] static size_t SelectPooledTier(size_t ActiveTier, size_t Segments, uint32_t DisplayExtent) noexcept;
+    // 📝 Pure resubmission decision (no GPU access) extracted out of SelectProgram/SelectSurfaceProgram's
+    // "content unchanged" branch so it can be exercised directly by a headless CPU-only regression test:
+    // given whether this frame's RefitSlot call actually re-tiled the slot (a real change requiring a
+    // fresh bake) and whether the slot has ever completed a submission before, decides whether this frame
+    // still needs to ask the device for a new dispatch. Unchanged, already-baked content must NOT keep
+    // asking: a pipelined device only advances its completed-serial a frame or two behind whatever was
+    // just submitted, so resubmitting every single frame for no reason keeps the slot's SampledSerial
+    // perpetually ahead of Completed and QuerySelectedReady() never reports ready — the "Baking..." badge
+    // sticks forever even on a perfectly idle, unmodified canvas.
+    [[nodiscard]] static bool RequiresUnchangedResubmission(bool Retiled, uint64_t SampledSerial) noexcept;
 private:
     struct CoverageSlot
     {

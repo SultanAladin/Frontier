@@ -99,6 +99,14 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     Initialize(Access, RasterShader{Words, "main"});
 }
 
+bool VectorAuthoringCoverageRendering::RequiresUnchangedResubmission(bool Retiled, uint64_t SampledSerial) noexcept
+{
+    // 📝 A real re-tile (the pooled tier actually changed) always needs a fresh dispatch. Otherwise,
+    // only the slot's very first-ever bake (it has never completed a submission) still needs one; once
+    // settled, unchanged content stays valid on the GPU without being redrawn every frame.
+    return Retiled || SampledSerial == 0;
+}
+
 int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram &Program, uint32_t DisplayExtent)
 {
     ValidateVectorCoverage(Program);
@@ -109,9 +117,10 @@ int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram 
         // Skip the attempt while the slot's current image is still sampled by an earlier submission
         // (mirrors the never-block-the-device rule below); it retries on a later, settled frame.
         auto &Slot = Slots[size_t(Selected)];
-        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Segments.size(), DisplayExtent))
-            Slot.Pending = true;
-        SampleRequested = true;
+        bool Retiled = false;
+        if (Slot.SampledSerial <= Completed) Retiled = RefitSlot(size_t(Selected), Program.Segments.size(), DisplayExtent);
+        if (Retiled) Slot.Pending = true;
+        SampleRequested = RequiresUnchangedResubmission(Retiled, Slot.SampledSerial);
         return Selected;
     }
     for (size_t Index = 0; Index < Slots.size(); ++Index)
@@ -137,9 +146,10 @@ int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfacePr
     if (Selected >= 0 && Slots[size_t(Selected)].SurfaceProgram && *Slots[size_t(Selected)].SurfaceProgram == Program)
     {
         auto &Slot = Slots[size_t(Selected)];
-        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Coverage.Segments.size(), DisplayExtent))
-            Slot.Pending = true;
-        SampleRequested = true;
+        bool Retiled = false;
+        if (Slot.SampledSerial <= Completed) Retiled = RefitSlot(size_t(Selected), Program.Coverage.Segments.size(), DisplayExtent);
+        if (Retiled) Slot.Pending = true;
+        SampleRequested = RequiresUnchangedResubmission(Retiled, Slot.SampledSerial);
         return Selected;
     }
     for (size_t Index = 0; Index < Slots.size(); ++Index)
