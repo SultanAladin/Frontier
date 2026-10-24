@@ -15,6 +15,7 @@
 #include "Engine/ContentInterchange/ProjectSpaceCodec.h"
 #include "Engine/Render/MaterialLibraryRendering.h"
 #include "Engine/Render/MaterialThumbnailAtlas.h"
+#include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "Engine/Render/VectorSurfaceMaterialBridge.h"
 #include "Engine/Render/VectorAuthoringCoverageRendering.h"
 #include "Engine/Render/VectorSelectionEvaluation.h"
@@ -355,6 +356,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         StampOwnership.reset(new Frontier::StampWorkspacePanel());
         Stamp = static_cast<Frontier::StampWorkspacePanel *>(StampOwnership.get());
         if (!Stamp->Initialize() || !Stamp->Activate()) throw std::runtime_error("Stamp workspace activation failed.");
+        Stamp->ConfigureContentRoot(ContentRoot);
         StampSource = Directory / "stamp-workspace.vector.toml";
         Stamp->SaveSource = [&](std::string_view Source)
         {
@@ -427,6 +429,9 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     {
         Rendering = std::make_unique<Frontier::MaterialLibraryRendering>();
         Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
+        // 📝 Disk-persist the baked gallery atlas so relaunching does not re-render every visible
+        // material through the PBR pipeline again; best-effort and silently inert on any failure.
+        Rendering->ConfigureAtlasCache(Frontier::QueryFrontierCacheDirectory() / "MaterialAtlas.atlas", 0x4D41544C41533100ull);
         Rendering->ConfigureEnvironments(ContentRoot / "EngineContent/EnvironmentArchives");
         EnvironmentAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
         EnvironmentAtlas->Initialize(Display.QueryRasterAccess(),
@@ -606,9 +611,17 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 else if (ObservedPatternDocument && *ObservedPatternDocument == CurrentPattern)
                 {
                     ObservedPatternDocument.reset();
-                    if (MaterialBridge->ConfigureDocument(CurrentPattern, Completed))
+                    // 📝 Mark this exact document as submitted regardless of whether ConfigureDocument
+                    // found a change worth re-dispatching: if it returns false because the compiled
+                    // programs happen to equal the previous ones (e.g. two documents that render
+                    // identically), SubmittedPatternDocument must still advance to CurrentPattern — if
+                    // it didn't, CurrentPattern would never again equal SubmittedPatternDocument and
+                    // this settle-detect/compile cycle would retrigger forever, hammering the GPU with
+                    // a full 6-channel recompile every other frame even on a perfectly idle document.
+                    const bool PatternProgramsChanged = MaterialBridge->ConfigureDocument(CurrentPattern, Completed);
+                    SubmittedPatternDocument = CurrentPattern;
+                    if (PatternProgramsChanged)
                     {
-                        SubmittedPatternDocument = CurrentPattern;
                         AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                         PatternAuthoringMaps.reset();
                         const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
@@ -622,6 +635,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                                 AppendPatternPreviewDebug("Selected-material preview restored without pending Pattern maps while Float32 regeneration is in flight.");
                             }
                         }
+
                         if (MaterialBridge->ConstructCommands(Commands, Completed, Serial))
                         {
                             PatternBridgeSubmission = Serial;
@@ -673,9 +687,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 else if (ObservedStampDocument && *ObservedStampDocument == CurrentStamp)
                 {
                     ObservedStampDocument.reset();
-                    if (MaterialBridge->ConfigureDocument(CurrentStamp, Completed))
+                    // 📝 Same fix as the Pattern branch above: advance SubmittedStampDocument whether or
+                    // not ConfigureDocument finds an actual program change, otherwise an unchanged
+                    // (even a blank, idle) document can never again equal SubmittedStampDocument and this
+                    // settle/compile cycle retriggers every other frame forever — the "stuck baking"
+                    // symptom, and a steady stream of needless 6-channel recompiles that can starve or
+                    // crash the app under sustained load.
+                    const bool StampProgramsChanged = MaterialBridge->ConfigureDocument(CurrentStamp, Completed);
+                    SubmittedStampDocument = CurrentStamp;
+                    if (StampProgramsChanged)
                     {
-                        SubmittedStampDocument = CurrentStamp;
                         StampAuthoringMaps.reset();
                         const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
                             AssignedWorkspaceSelection == Library->QueryLibrary().QuerySelection();

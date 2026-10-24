@@ -30,12 +30,16 @@ struct MaterialThumbnailAtlas::AtlasAllocation
     VkDeviceMemory Memory = VK_NULL_HANDLE;
     VkBuffer Staging = VK_NULL_HANDLE;
     VkDeviceMemory StagingMemory = VK_NULL_HANDLE;
+    VkBuffer Readback = VK_NULL_HANDLE;
+    VkDeviceMemory ReadbackMemory = VK_NULL_HANDLE;
+    bool ReadbackRecorded = false;
+    uint64_t ReadbackSubmission = 0;
     uint32_t Tile = 0, Columns = 0, Extent = 0;
     bool Submitted = false, Recorded = false;
 #define ATLAS_FUNCTIONS(F) F(CreateImage) F(DestroyImage) F(GetImageMemoryRequirements) F(AllocateMemory) \
     F(FreeMemory) F(BindImageMemory) F(CreateImageView) F(DestroyImageView) F(CmdPipelineBarrier) \
     F(CmdCopyImage) F(CmdClearColorImage) F(CreateBuffer) F(DestroyBuffer) F(GetBufferMemoryRequirements) \
-    F(BindBufferMemory) F(MapMemory) F(UnmapMemory) F(CmdCopyBufferToImage)
+    F(BindBufferMemory) F(MapMemory) F(UnmapMemory) F(CmdCopyBufferToImage) F(CmdCopyImageToBuffer)
 #define ATLAS_DECLARE(Name) PFN_vk##Name Name = nullptr;
     ATLAS_FUNCTIONS(ATLAS_DECLARE)
 #undef ATLAS_DECLARE
@@ -46,6 +50,8 @@ struct MaterialThumbnailAtlas::AtlasAllocation
         if (Memory) FreeMemory(Access.Device, Memory, nullptr);
         if (Staging) DestroyBuffer(Access.Device, Staging, nullptr);
         if (StagingMemory) FreeMemory(Access.Device, StagingMemory, nullptr);
+        if (Readback) DestroyBuffer(Access.Device, Readback, nullptr);
+        if (ReadbackMemory) FreeMemory(Access.Device, ReadbackMemory, nullptr);
     }
     void ConstructTransition(VkCommandBuffer Commands, VkImage Target, VkImageLayout Before, VkImageLayout After,
                  VkAccessFlags SourceAccess, VkAccessFlags DestinationAccess,
@@ -225,6 +231,66 @@ void MaterialThumbnailAtlas::ConstructUpload(VkCommandBuffer Commands)
     Atlas.CmdCopyBufferToImage(Commands, Atlas.Staging, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &Region);
     Atlas.ConstructTransition(Commands, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+void MaterialThumbnailAtlas::ConstructReadback(VkCommandBuffer Commands, uint64_t SubmissionSerial)
+{
+    if (!Allocation || !Commands || Allocation->ReadbackRecorded) throw std::runtime_error("Thumbnail atlas readback is unavailable in the current state.");
+    auto &Atlas = *Allocation;
+    if (!Atlas.Readback)
+    {
+        VkBufferCreateInfo Creation{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        Creation.size = VkDeviceSize(Atlas.Extent) * Atlas.Extent * 4;
+        Creation.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        Creation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        RequireAtlasSuccess(Atlas.CreateBuffer(Atlas.Access.Device, &Creation, nullptr, &Atlas.Readback));
+        VkMemoryRequirements Requirements{};
+        Atlas.GetBufferMemoryRequirements(Atlas.Access.Device, Atlas.Readback, &Requirements);
+        VkPhysicalDeviceMemoryProperties Memory{};
+        Atlas.Access.QueryMemory(Atlas.Access.PhysicalDevice, &Memory);
+        uint32_t Index = 0;
+        for (; Index < Memory.memoryTypeCount; ++Index)
+            if ((Requirements.memoryTypeBits & (1u << Index)) &&
+                (Memory.memoryTypes[Index].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+                    (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) break;
+        if (Index == Memory.memoryTypeCount) throw std::runtime_error("No host-visible atlas readback memory.");
+        VkMemoryAllocateInfo Storage{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        Storage.allocationSize = Requirements.size;
+        Storage.memoryTypeIndex = Index;
+        RequireAtlasSuccess(Atlas.AllocateMemory(Atlas.Access.Device, &Storage, nullptr, &Atlas.ReadbackMemory));
+        RequireAtlasSuccess(Atlas.BindBufferMemory(Atlas.Access.Device, Atlas.Readback, Atlas.ReadbackMemory, 0));
+    }
+    // 📝 The atlas is only ever left in SHADER_READ_ONLY_OPTIMAL between operations (every write-copy and
+    // upload ends there); this is purely additive and never touches the single-write-per-submission state.
+    Atlas.ConstructTransition(Commands, Atlas.Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    VkBufferImageCopy Region{};
+    Region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    Region.imageExtent = {Atlas.Extent, Atlas.Extent, 1};
+    Atlas.CmdCopyImageToBuffer(Commands, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, Atlas.Readback, 1, &Region);
+    Atlas.ConstructTransition(Commands, Atlas.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    VkMemoryBarrier Host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    Host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    Host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    Atlas.CmdPipelineBarrier(Commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &Host, 0, nullptr, 0, nullptr);
+    Atlas.ReadbackRecorded = true;
+    Atlas.ReadbackSubmission = SubmissionSerial;
+}
+bool MaterialThumbnailAtlas::QueryReadbackReady(uint64_t CompletedSerial) const noexcept
+{
+    return Allocation && Allocation->ReadbackRecorded && Allocation->ReadbackSubmission <= CompletedSerial;
+}
+std::vector<uint8_t> MaterialThumbnailAtlas::RetrieveReadback(uint64_t CompletedSerial)
+{
+    if (!QueryReadbackReady(CompletedSerial)) throw std::runtime_error("Thumbnail atlas readback has not retired.");
+    auto &Atlas = *Allocation;
+    void *Mapped = nullptr;
+    RequireAtlasSuccess(Atlas.MapMemory(Atlas.Access.Device, Atlas.ReadbackMemory, 0, VK_WHOLE_SIZE, 0, &Mapped));
+    std::vector<uint8_t> Pixels(size_t(Atlas.Extent) * Atlas.Extent * 4);
+    std::memcpy(Pixels.data(), Mapped, Pixels.size());
+    Atlas.UnmapMemory(Atlas.Access.Device, Atlas.ReadbackMemory);
+    Atlas.ReadbackRecorded = false;
+    return Pixels;
 }
 void MaterialThumbnailAtlas::ConfirmSubmission() noexcept
 {

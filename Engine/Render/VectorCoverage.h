@@ -4,6 +4,7 @@
 // 🧩 Rebuildable CPU descriptors for GPU vector coverage, non-destructive Boolean expressions and masking.
 
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -14,6 +15,36 @@
 namespace Frontier
 {
 inline constexpr uint32_t VectorCoverageStrokeColourExplicit = 0x80000000u;
+// 📝 Keep these two mirrored exactly in Engine/Render/Shader/VectorCoverage.slang and VectorSurface.slang
+// (fixed-size Evaluations[]/Instructions[] array bounds there cannot include this header). Raising the
+// instruction capacity lets one composited document hold hundreds of shapes instead of the former 128-node
+// wall; the extension region packs the same 64-slot budget already shared by selection candidates and
+// surface contributions, now addressed starting right after the (larger) instruction region.
+inline constexpr uint32_t VectorCoverageInstructionCapacity = 256;
+inline constexpr uint32_t VectorCoverageExtensionCapacity = 64;
+// 📝 Wang's formula (Wang 1984): the number of uniform chords needed to flatten a cubic Bezier so no point
+// on the chord polyline deviates from the true analytic curve by more than Tolerance. Mirror this exactly
+// in VectorCoverage.slang and VectorSurface.slang's ShapeDistance (Slang/HLSL cannot include this header,
+// so GPU adaptive curve flattening is derived/tested here and hand-copied there). This CPU copy exists to
+// validate the formula and its clamping in isolation with real unit tests -- it is not itself called by
+// the GPU rasterizer and cannot by itself prove the hand-copied Slang text matches bit-for-bit; shader
+// execution still cannot be verified in this environment (see VectorCoverageCurveFlatteningValidation.cpp).
+// Small/flat ornamental curves (the common case across hundreds of authored shapes, previously forced
+// through a fixed 32-chord flatten regardless of size) collapse to as few as 2 chords; sharp or large
+// curves still subdivide enough to stay within Tolerance of the analytic curve.
+[[nodiscard]] inline uint32_t EstimateCubicFlattenSegments(std::array<float, 2> First, std::array<float, 2> Second,
+    std::array<float, 2> Third, std::array<float, 2> Fourth, float Tolerance) noexcept
+{
+    const auto Deviation = [](std::array<float, 2> A, std::array<float, 2> B, std::array<float, 2> C)
+    {
+        const float X = A[0] - 2 * B[0] + C[0], Y = A[1] - 2 * B[1] + C[1];
+        return std::sqrt(X * X + Y * Y);
+    };
+    const float ControlDeviation = std::max(Deviation(First, Second, Third), Deviation(Second, Third, Fourth));
+    const float Bounded = std::max(Tolerance, 1e-4f);
+    const float Count = std::ceil(std::sqrt(ControlDeviation * 3.f / (4.f * Bounded)));
+    return uint32_t(std::clamp(Count, 2.f, 32.f));
+}
 enum class VectorCoverageCategory : uint32_t
 {
     Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, CubicContour,
@@ -53,7 +84,7 @@ struct VectorSelectionProgram
 };
 inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 {
-    if (Program.Instructions.empty() || Program.Instructions.size() > 128 || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)
+    if (Program.Instructions.empty() || Program.Instructions.size() > VectorCoverageInstructionCapacity || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)
         throw std::runtime_error("Vector coverage exceeds bounded GPU program limits.");
     for (size_t Index = 0; Index < Program.Instructions.size(); ++Index)
     {
@@ -109,7 +140,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 inline void ValidateVectorSelection(const VectorSelectionProgram &Program)
 {
     ValidateVectorCoverage(Program.Coverage);
-    if (Program.Candidates.size() > 64) throw std::runtime_error("Vector selection exceeds candidate capacity.");
+    if (Program.Candidates.size() > VectorCoverageExtensionCapacity) throw std::runtime_error("Vector selection exceeds candidate capacity.");
     for (size_t Index = 0; Index < Program.Candidates.size(); ++Index)
     {
         const auto &Candidate = Program.Candidates[Index];

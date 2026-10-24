@@ -5,7 +5,7 @@
 
 target_sources(FrontierSurfaceRasterization PRIVATE
     Engine/Render/VectorCoverageRasterization.cpp Engine/Render/VectorAuthoringCoverageRendering.cpp
-    Engine/Render/VectorSelectionEvaluation.cpp)
+    Engine/Render/VectorSelectionEvaluation.cpp Engine/Render/VectorCoverageTileBinning.cpp)
 set(VECTOR_COVERAGE_ARCHIVE "${FRONTIER_SURFACE_SHADER_DIRECTORY}/VectorCoverageCompute.spv")
 set(VECTOR_SELECTION_ARCHIVE "${FRONTIER_SURFACE_SHADER_DIRECTORY}/VectorSelectionCompute.spv")
 set(VECTOR_SURFACE_ARCHIVE "${FRONTIER_SURFACE_SHADER_DIRECTORY}/VectorSurfaceCompute.spv")
@@ -72,6 +72,12 @@ if(BUILD_TESTING)
             set_tests_properties(VectorCoverageValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
         endif()
     endif()
+    add_executable(VectorCoverageTileBinningValidation Exhibits/TextureStudio/Code/VectorCoverageTileBinningValidation.cpp)
+    target_link_libraries(VectorCoverageTileBinningValidation PRIVATE FrontierSurfaceRasterization)
+    add_test(NAME VectorCoverageTileBinningValidation COMMAND VectorCoverageTileBinningValidation)
+    add_executable(VectorCoverageCurveFlatteningValidation Exhibits/TextureStudio/Code/VectorCoverageCurveFlatteningValidation.cpp)
+    target_link_libraries(VectorCoverageCurveFlatteningValidation PRIVATE FrontierSurfaceRasterization)
+    add_test(NAME VectorCoverageCurveFlatteningValidation COMMAND VectorCoverageCurveFlatteningValidation)
     add_executable(PatternWorkspaceValidation Exhibits/TextureStudio/Code/PatternWorkspaceValidation.cpp)
     target_include_directories(PatternWorkspaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
     target_link_libraries(PatternWorkspaceValidation PRIVATE FrontierTextureStudioUI FrontierSurfaceRasterization ${CMAKE_DL_LIBS})

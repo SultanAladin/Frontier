@@ -6,6 +6,7 @@
 #include "MaterialLibraryRendering.h"
 #include "MaterialPreviewGeometry.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
+#include "Engine/Interface/ThumbnailAtlasCache.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -598,6 +599,15 @@ struct MaterialLibraryRendering::RenderingAllocation
     int RecordedSlot = -1;
     std::string Diagnostic;
     SurfaceNormalProjection Projection;
+    // 📝 Disk cache state (see ConfigureAtlasCache). Entirely best-effort: a thrown exception from the
+    // GPU readback/upload paths is always caught and degrades to the normal live bake, never propagated.
+    std::filesystem::path CacheFile;
+    uint64_t CacheFormatDigest = 0;
+    bool CacheConfigured = false;
+    std::vector<ThumbnailAtlasSlotCacheEntry> PendingCacheManifest;
+    std::vector<uint8_t> PendingCachePixels;
+    bool PendingCacheUpload = false, RecordedCacheUpload = false;
+    bool CacheDirty = false, CacheReadbackPending = false, CacheSettled = true;
 
     const EnvironmentArchiveEntry &EnvironmentAt(uint32_t Index) const
     {
@@ -733,6 +743,20 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
         ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ClipFromSurface;
     Allocation = std::move(Resident);
 }
+void MaterialLibraryRendering::ConfigureAtlasCache(const std::filesystem::path &File, uint64_t FormatDigest)
+{
+    if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
+    auto &Rendering = *Allocation;
+    Rendering.CacheFile = File;
+    // 📝 Fold the atlas's own layout into the digest so a future tile/column size change (or cache
+    // format revision) can never be misread as a matching cache -- it folds through to a clean miss.
+    Rendering.CacheFormatDigest = CombineHash(CombineHash(FormatDigest, Rendering.Atlas.QueryExtent()), Rendering.Atlas.QueryCapacity());
+    Rendering.CacheConfigured = !File.empty();
+}
+bool MaterialLibraryRendering::QueryAtlasCacheSettled() const noexcept
+{
+    return Allocation && Allocation->CacheSettled;
+}
 void MaterialLibraryRendering::ConfigureEnvironments(const std::filesystem::path &Directory)
 {
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
@@ -811,11 +835,45 @@ void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Direc
         if (Rendering.Selected) Rendering.InFlight.push_back({Rendering.SubmittedSerial, std::move(Rendering.Selected)});
         Rendering.SelectedFingerprint = 0;
         Rendering.PreviewReady = Rendering.PreviewDirty = false;
+        // 📝 A new library identity: try a disk-cached atlas before baking anything live. A hit stages
+        // the whole atlas for one wholesale GPU upload below and lets per-slot digests decide which
+        // individual tiles (if any) still need a live bake; a miss just falls through unchanged.
+        Rendering.PendingCacheManifest.clear();
+        Rendering.PendingCachePixels.clear();
+        Rendering.PendingCacheUpload = false;
+        Rendering.CacheDirty = false;
+        Rendering.CacheSettled = true;
+        if (Rendering.CacheConfigured)
+        {
+            ThumbnailAtlasSlotCacheRecord Record;
+            const auto Extent = Rendering.Atlas.QueryExtent();
+            if (LoadThumbnailAtlasSlotCache(Rendering.CacheFile, Rendering.CacheFormatDigest, Extent, Extent, Record))
+            {
+                Rendering.PendingCacheManifest = std::move(Record.Slots);
+                Rendering.PendingCachePixels = std::move(Record.Rgba);
+                Rendering.PendingCacheUpload = true;
+            }
+        }
     }
     ++Rendering.Clock;
     // 📝 Pin all existing visible slots before allocation, so a later card cannot lose its tile mid-layout.
     for (auto &Slot : Rendering.Slots)
         Slot.Pinned = std::find(Visible.begin(), Visible.end(), Slot.Path) != Visible.end();
+    const auto ApplyCacheHit = [&](RenderingAllocation::ThumbnailSlot &Slot)
+    {
+        if (!Rendering.PendingCacheUpload) return;
+        const auto SlotIndex = size_t(&Slot - Rendering.Slots.data());
+        if (SlotIndex >= Rendering.PendingCacheManifest.size()) return;
+        const auto &Entry = Rendering.PendingCacheManifest[SlotIndex];
+        if (Entry.RelativePath.empty() || Entry.RelativePath != Slot.Path.generic_string()) return;
+        const auto Digest = ComputeMaterialSourceDigest(Rendering.Directory, Slot.Path);
+        if (!Digest || Digest != Entry.Digest) return;
+        // 📝 This slot's content has not changed since the cache was written: trust the wholesale
+        // upload about to be staged below instead of re-rendering it through the PBR pipeline.
+        Slot.Dirty = false;
+        Slot.Ready = true;
+        Slot.SourceDigest = Digest;
+    };
     for (const auto &Path : Visible)
     {
         auto Existing = std::find_if(Rendering.Slots.begin(), Rendering.Slots.end(), [&](const auto &Slot) { return Slot.Path == Path; });
@@ -832,6 +890,7 @@ void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Direc
             Existing->Path = Path;
             Existing->Generation = Generation;
             Existing->Dirty = Existing->Pinned = true;
+            ApplyCacheHit(*Existing);
         }
         Existing->Access = Rendering.Clock;
     }
@@ -893,6 +952,29 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     if (!Allocation) throw std::runtime_error("Material rendering is not initialized.");
     auto &Rendering = *Allocation;
     Rendering.CompletedSerial = std::max(Rendering.CompletedSerial, CompletedSerial);
+    // 📝 Pure-CPU poll: safe every call regardless of what else happens this frame, never touches Commands.
+    if (Rendering.CacheReadbackPending && Rendering.Atlas.QueryReadbackReady(Rendering.CompletedSerial))
+    {
+        try
+        {
+            auto Pixels = Rendering.Atlas.RetrieveReadback(Rendering.CompletedSerial);
+            std::vector<ThumbnailAtlasSlotCacheEntry> Manifest;
+            Manifest.reserve(Rendering.Slots.size());
+            for (const auto &Slot : Rendering.Slots)
+                Manifest.push_back({Slot.Path.empty() ? std::string() : Slot.Path.generic_string(), Slot.Path.empty() ? 0 : Slot.SourceDigest});
+            const auto Extent = Rendering.Atlas.QueryExtent();
+            SaveThumbnailAtlasSlotCache(Rendering.CacheFile, Rendering.CacheFormatDigest, Extent, Extent, Pixels, Manifest);
+            PruneThumbnailAtlasCacheDirectory(Rendering.CacheFile.parent_path());
+            DiagnosticJournal::Append("MaterialAtlasCache", "saved " + DiagnosticJournal::EncodePath(Rendering.CacheFile));
+        }
+        catch (const std::exception &Failure)
+        {
+            DiagnosticJournal::Append("MaterialAtlasCache", std::string("save skipped: ") + Failure.what());
+        }
+        Rendering.CacheReadbackPending = false;
+        Rendering.CacheDirty = false;
+        Rendering.CacheSettled = true;
+    }
     std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.RetiredPreviews, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
@@ -913,6 +995,23 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     Rendering.SubmittedSerial = SubmissionSerial;
     Rendering.RecordedSlot = -1;
     Rendering.RecordedPreview = false;
+    Rendering.RecordedCacheUpload = false;
+    if (Rendering.PendingCacheUpload)
+    {
+        // 📝 A disk-cached atlas is staged wholesale in one upload (same primitive the Pattern gallery
+        // already uses), bypassing every individually-matching slot's PBR render entirely. Any mismatched
+        // slots stay Dirty from RequestLibrary and bake live afterwards, naturally overwriting just their
+        // own tile region once the upload below lands. Already-validated (magic/digest/dimensions) by
+        // LoadThumbnailAtlasSlotCache, so a throw here is a genuine GPU failure -- propagate it like any
+        // other recording failure in this function rather than silently leaving stale pixels on screen.
+        Rendering.Atlas.StagePixels(Rendering.PendingCachePixels);
+        Rendering.Atlas.ConstructUpload(Commands);
+        Rendering.RecordedCacheUpload = true;
+        DiagnosticJournal::Append("MaterialAtlasCache", "loaded " + DiagnosticJournal::EncodePath(Rendering.CacheFile));
+        Rendering.PendingCacheUpload = false;
+        Rendering.PendingCachePixels.clear();
+        return;
+    }
     if (Rendering.Selected && Rendering.PreviewDirty)
     {
         auto Projection = Rendering.Projection;
@@ -934,7 +1033,19 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         return;
     }
     const auto Dirty = std::find_if(Rendering.Slots.begin(), Rendering.Slots.end(), [](const auto &Slot) { return Slot.Dirty && Slot.Pinned; });
-    if (Dirty == Rendering.Slots.end()) return;
+    if (Dirty == Rendering.Slots.end())
+    {
+        // 📝 Nothing left to bake this pass: if something changed since the last save (CacheDirty implies
+        // at least one tile write already completed, so the atlas is guaranteed to already be in its
+        // settled SHADER_READ_ONLY_OPTIMAL layout), capture one wholesale readback for the disk cache.
+        if (Rendering.CacheConfigured && Rendering.CacheDirty && !Rendering.CacheReadbackPending)
+        {
+            Rendering.Atlas.ConstructReadback(Commands, SubmissionSerial);
+            Rendering.CacheReadbackPending = true;
+            Rendering.CacheSettled = false;
+        }
+        return;
+    }
     // 📝 Baked-atlas contract: an already-baked tile whose authored inputs are unchanged keeps its
     // pixels. The digest costs one small file read instead of a full decode/procedural-bake/compile.
     const auto SourceDigest = Dirty->Ready ? ComputeMaterialSourceDigest(Rendering.Directory, Dirty->Path) : 0;
@@ -1000,7 +1111,11 @@ void MaterialLibraryRendering::ConfirmSubmission() noexcept
         ++Rendering.BakeCount;
         Slot.Ready = true;
         Slot.Dirty = false;
+        // 📝 A real PBR bake happened: the on-disk cache (if configured) is now stale and should be
+        // refreshed once every pinned slot settles again (see the readback trigger in ConstructCommands).
+        if (Rendering.CacheConfigured) { Rendering.CacheDirty = true; Rendering.CacheSettled = false; }
     }
+    if (Rendering.RecordedCacheUpload) Rendering.Atlas.ConfirmSubmission();
 }
 MaterialThumbnailSelection MaterialLibraryRendering::QueryThumbnail(const std::filesystem::path &Path) const
 {

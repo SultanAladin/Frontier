@@ -7,6 +7,7 @@
 #include "SurfaceRasterization.h"
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace Frontier
 {
@@ -33,6 +34,14 @@ class MaterialThumbnailAtlas
     // 📝 CPU-rasterized pages (pattern gallery) stage full-atlas RGBA8, then record one buffer upload per page flip.
     void StagePixels(std::span<const uint8_t> Rgba);
     void ConstructUpload(VkCommandBuffer Commands);
+    // 📝 One-shot whole-atlas readback to host memory, used only to persist a settled bake to disk.
+    // Independent of the single-tile-write contract above: it never touches Recorded/Submitted and may
+    // be recorded on any submission where the atlas is not mid-write. Requires at least one prior write
+    // or upload (the atlas must already be in its settled SHADER_READ_ONLY_OPTIMAL layout).
+    void ConstructReadback(VkCommandBuffer Commands, uint64_t SubmissionSerial);
+    [[nodiscard]] bool QueryReadbackReady(uint64_t CompletedSerial) const noexcept;
+    // 📝 Consumes the pending readback; throws if QueryReadbackReady was not true for this CompletedSerial.
+    [[nodiscard]] std::vector<uint8_t> RetrieveReadback(uint64_t CompletedSerial);
     void ConfirmSubmission() noexcept;
     void Finalize() noexcept;
     [[nodiscard]] VkImage QueryImage() const noexcept;

@@ -49,7 +49,7 @@ int main(int ArgumentCount, char **Arguments)
         // 🧩 Adaptive bake buckets keep dense weaves under the OS GPU
         // watchdog: the largest square extent fitting ~2e9 curve·pixel·
         // channels, six channels for the bridge, one for the canvas.
-        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 1024},
+        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 2048},
                  {1271, 6, 512}, {1272, 6, 256}, {5086, 6, 256}, {5087, 6, 128}, {18954, 6, 128}, {32768, 6, 128},
                  {1907, 1, 1024}, {1908, 1, 512}, {7629, 1, 512}, {7630, 1, 256}, {30517, 1, 256}, {30518, 1, 128}, {32768, 1, 128}})
             Confirm(VectorCoverageRasterization::SelectBakeExtent(Segments, Channels) == Extent, "Bake bucket boundary moved.");

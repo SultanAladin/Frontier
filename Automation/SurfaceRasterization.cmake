@@ -14,7 +14,7 @@ target_include_directories(FrontierSurfaceRasterization PUBLIC "${CMAKE_SOURCE_D
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
 target_include_directories(FrontierSurfaceRasterization PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include" "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_compile_definitions(FrontierSurfaceRasterization PUBLIC VK_NO_PROTOTYPES)
-target_link_libraries(FrontierSurfaceRasterization PUBLIC FrontierVectorAuthoring)
+target_link_libraries(FrontierSurfaceRasterization PUBLIC FrontierVectorAuthoring FrontierThumbnailAtlasCache)
 
 # Windows/native Slang is preferred. The supplied WASM path is a portable local verification alternative, not vendored.
 find_program(FRONTIER_SLANGC NAMES slangc)

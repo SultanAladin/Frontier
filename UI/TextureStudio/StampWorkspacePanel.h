@@ -10,6 +10,7 @@
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include "Engine/Lifecycle/ActivationSequence.h"
 
@@ -22,6 +23,13 @@ public:
     void ConstructInterface();
     void ConfigureInterfaceScale(float Scale);
     void ConfigureTypeface(void *Regular, void *Light = nullptr);
+    // 📝 AppendStampTextOutline reads a real TrueType file off disk (for glyph-outline geometry,
+    // distinct from the ImGui chrome typefaces above) via a path that defaults to a bare relative
+    // literal; that only resolves when the process's current working directory happens to be the
+    // EngineContent-containing folder. The host app already resolves its real executable-relative
+    // content root once at startup — hand it here so "Add text..." keeps working regardless of how
+    // the packaged binary was launched (shortcut, different "Start in" folder, etc).
+    void ConfigureContentRoot(std::filesystem::path Root) { ContentRoot = std::move(Root); }
     void ConfigureDocument(VectorAuthoringDocument Document);
     // 📝 One small GPU atlas carries the open Stamp's own layer row-thumbnails (the Texture-workspace-style
     // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas,
@@ -64,8 +72,15 @@ public:
     std::function<void()> CancelClose;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:
-    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan };
-    VectorAuthoringHistory History;
+    // 📝 Text is appended last, not inserted among Diamond..Star: Gesture==2's primitive math does
+    // `uint32_t(Tool) - uint32_t(Diamond)` to pick a shape topology, which relies on Diamond..Star
+    // staying contiguous. Text never reaches that arithmetic (it takes its own branch).
+    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Text };
+    // 📝 Constructed with Stamp=true: StampWorkspacePanel's own constructor immediately seeds a
+    // Stamp document (Blank.Stamp = true) via ConfigureDocument -> History.Reset, which enforces
+    // Replacement.Stamp == the history's own workspace contract. Left defaulted to Stamp=false,
+    // that first Reset throws on every launch, before the window is usable.
+    VectorAuthoringHistory History{true};
     VectorAuthoringDocument SavedDocument;
     VectorCoverageProgram CachedCoverageProgram;
     uint32_t CachedCoverageMask = UINT32_MAX;
@@ -74,6 +89,9 @@ private:
     uint64_t GestureRevision = 0;
     uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
+    // 📝 Mirrors Pattern's own bake-badge debounce: only surface "Baking…" once a dispatch has
+    // stayed pending past this threshold, instead of flashing it on every single edit.
+    double PendingBakeSince = -1;
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
@@ -89,6 +107,11 @@ private:
     uint64_t LayerAtlasRevision = 0;
     uint64_t LayerAtlasBakedRevision = UINT64_MAX;
     std::vector<uint8_t> LayerAtlasPixels;
+    // 📝 Mirrors Pattern's own per-layer thumbnail cache exactly: reuse a component's last raster
+    // whenever its own cropped SVG text is unchanged, so one edited component does not force a
+    // ThorVG parse+raster pass over every other component in the decal on the UI thread.
+    std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> LayerThumbnailCache;
+    std::filesystem::path ContentRoot;
     void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
     VectorAuthoringTool Tool = VectorAuthoringTool::Select;
@@ -107,16 +130,36 @@ private:
     std::array<char, 81> NameText{};
     std::array<char, 129> SearchText{};
     std::string Diagnostic;
-    // 📝 Add-component popups: Text/Vector/Image share one small staging buffer set rather than the
+    // 📝 Add-component popups: Vector/Image share one small staging buffer set rather than the
     // library-gallery machinery Pattern uses, since Stamp has no preset library to browse — only a
-    // bounded 24-layer stack of hand-authored or imported decal components.
+    // bounded 24-layer stack of hand-authored or imported decal components. Text has its own
+    // draw-a-box-then-write-on-canvas flow (see TextEditBounds/ConstructTextComposer) instead of a
+    // modal, but still stages into ComponentTextBuffer/ComponentEditToken below.
     std::array<char, 2049> ComponentTextBuffer{};
-    float ComponentTextSize = 64;
     std::string ComponentSvgBuffer;
     std::string ComponentImageBuffer;
     uint32_t ComponentEditToken = 0; // 0 creates a new component; nonzero replaces that layer's content in place.
+    // 📝 ImGui popup IDs are seeded by the ID stack of whatever window is current when OpenPopup()
+    // runs. "Add vector/image..." are selected from deep inside the "Add a stamp component"
+    // dropdown's own transient popup window, so an OpenPopup() called right there would be keyed to
+    // that window and never match the BeginPopupModal() polled later from the stable Layers panel
+    // scope — the modal would silently never appear. Stash the request and open it from that stable
+    // scope instead, alongside the matching BeginPopupModal calls.
+    const char *PendingComponentPopup = nullptr;
+    // 📝 The SVG-text-tool-style composer: Gesture 8 means "an on-canvas text field is live". The
+    // user either just dragged (or default-placed) a box with the Text tool, or double-clicked /
+    // chose "Edit on canvas..." on an existing text component. TextEditBounds is {centerX, centerY,
+    // width, height} in the 512-unit document plane; TextBoxCurrent tracks the live drag endpoint
+    // while the box itself is still being drawn (Gesture 2, Tool == Text, before Gesture 8 starts).
+    std::array<float, 4> TextEditBounds{};
+    PlanePoint TextBoxCurrent{};
+    bool TextEditFocusPending = false;
+    std::array<char, 2049> InspectorTextBuffer{};
+    uint32_t InspectorTextToken = 0;
     void ConstructAddComponentMenu();
-    void ConstructTextPopup();
+    void ConstructTextComposer(float BoardMinimumX, float BoardMinimumY, float BoardSize);
+    void CommitTextComposer();
+    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize);
     void ConstructVectorPopup();
     void ConstructImagePopup();
     void ConstructHeader();

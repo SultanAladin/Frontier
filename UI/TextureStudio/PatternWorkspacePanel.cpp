@@ -5,6 +5,7 @@
 
 #include "Engine/ContentInterchange/PatternLibraryPresets.h"
 #include "Engine/Interface/DropdownControls.h"
+#include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
 #include "PatternWorkspacePanel.h"
 #include "VectorMaskControls.h"
@@ -418,6 +419,33 @@ const std::vector<uint8_t> &PatternWorkspacePanel::QueryPatternRaster(const Patt
     return PatternRasterCache.emplace(Key, std::move(Pixels)).first->second;
 }
 
+uint64_t PatternWorkspacePanel::ComputePatternAtlasDigest(const std::string &Palette) const
+{
+    // 📝 Folds every source file this bake actually reads (per-family, per-palette SVG) plus the
+    // layout constants into one digest, so any content edit, palette switch, family add/remove or
+    // tile/column layout change naturally invalidates the on-disk cache instead of serving stale pixels.
+    uint64_t Digest = 14695981039346656037ull;
+    Digest = CombineHash(Digest, HashText(LibraryDirectory.generic_string()));
+    Digest = CombineHash(Digest, HashText(Palette));
+    Digest = CombineHash(Digest, uint64_t(PatternAtlasTile));
+    Digest = CombineHash(Digest, uint64_t(PatternAtlasColumns));
+    Digest = CombineHash(Digest, uint64_t(LibraryFamilies.size()));
+    for (const auto &Family : LibraryFamilies)
+    {
+        auto File = Family.Files.find(Palette);
+        if (File == Family.Files.end()) File = Family.Files.begin();
+        if (File == Family.Files.end()) continue;
+        Digest = CombineHash(Digest, HashText(Family.Name));
+        Digest = CombineHash(Digest, HashFileContents(LibraryDirectory / File->second));
+    }
+    return Digest;
+}
+std::filesystem::path PatternWorkspacePanel::QueryPatternAtlasCacheFile(uint64_t Digest) const
+{
+    char Hex[17]{};
+    std::snprintf(Hex, sizeof(Hex), "%016llx", static_cast<unsigned long long>(Digest));
+    return QueryFrontierCacheDirectory() / "PatternAtlas" / (std::string(Hex) + ".atlas");
+}
 void PatternWorkspacePanel::RefreshPatternAtlas()
 {
     // 📝 One library-wide atlas with stable family slots: page flips, searches and filters only
@@ -425,16 +453,40 @@ void PatternWorkspacePanel::RefreshPatternAtlas()
     // advances only when newly baked tiles join the atlas.
     const std::string Palette = LibraryPalette.empty() ? LibraryDefaultPalette : LibraryPalette;
     const std::string Key = Palette;
-    if (Key != PatternAtlasKey)
+    const bool KeyChanged = Key != PatternAtlasKey;
+    if (KeyChanged)
     {
         PatternAtlasKey = Key;
         PatternAtlasBaked.assign(LibraryFamilies.size(), 0);
         PatternAtlasPixels.clear();
+        PatternAtlasCacheLoaded = false;
     }
     if (LibraryFamilies.empty()) return;
     if (PatternAtlasBaked.size() != LibraryFamilies.size())
+    {
         PatternAtlasBaked.assign(LibraryFamilies.size(), 0);
+        PatternAtlasPixels.clear();
+        PatternAtlasCacheLoaded = false;
+    }
     bool BakedNew = PatternAtlasPixels.empty();
+    // 📝 Disk cache: on the first bake attempt for this (palette, library-content) identity, try to
+    // load a previously baked atlas before touching ThorVG at all. A hit skips every per-family SVG
+    // render outright; a miss (or any format/digest mismatch) silently falls through to the normal
+    // live bake below and the result is written back for next launch once it completes.
+    if (BakedNew && !PatternAtlasCacheLoaded)
+    {
+        PatternAtlasContentDigest = ComputePatternAtlasDigest(Palette);
+        ThumbnailAtlasCacheRecord Cached;
+        if (LoadThumbnailAtlasCache(QueryPatternAtlasCacheFile(PatternAtlasContentDigest), PatternAtlasContentDigest,
+            PatternAtlasExtent, PatternAtlasExtent, Cached))
+        {
+            PatternAtlasPixels = std::move(Cached.Rgba);
+            PatternAtlasBaked.assign(LibraryFamilies.size(), 1);
+            PatternAtlasCacheLoaded = true;
+            ++PatternAtlasRevision;
+            return;
+        }
+    }
     for (size_t Family = 0; Family < LibraryFamilies.size() && Family < PatternAtlasCapacity; ++Family)
     {
         if (PatternAtlasBaked[Family]) continue;
@@ -457,6 +509,16 @@ void PatternWorkspacePanel::RefreshPatternAtlas()
     }
     PatternAtlasPixels = BlitPatternThumbnailAtlas(Tiles, PatternAtlasTile, PatternAtlasColumns, CardWell);
     ++PatternAtlasRevision;
+    // 📝 Full bake completed (this codepath never partially bakes across calls): persist it so the
+    // next launch of this exact library+palette identity hits the cache load above instead.
+    const bool AllBaked = std::all_of(PatternAtlasBaked.begin(), PatternAtlasBaked.end(), [](uint8_t Flag) { return Flag != 0; });
+    if (AllBaked)
+    {
+        SaveThumbnailAtlasCache(QueryPatternAtlasCacheFile(PatternAtlasContentDigest), PatternAtlasContentDigest,
+            PatternAtlasExtent, PatternAtlasExtent, PatternAtlasPixels);
+        PruneThumbnailAtlasCacheDirectory(QueryFrontierCacheDirectory() / "PatternAtlas");
+        PatternAtlasCacheLoaded = true;
+    }
 }
 
 uint64_t PatternWorkspacePanel::QueryPatternAtlasRevision()
@@ -486,13 +548,28 @@ void PatternWorkspacePanel::RefreshLayerAtlas()
     const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
     std::vector<std::vector<uint8_t>> Tiles;
     Tiles.reserve(Slotted);
+    std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> FreshCache;
     for (size_t Slot = 0; Slot < Slotted; ++Slot)
     {
+        const uint32_t Token = Document.Layers[Slot].Token;
+        // 📝 Only this layer's own cropped SVG text changes when this layer itself is edited; a
+        // sibling layer untouched by the edit encodes byte-identical text, so its previous raster
+        // is reused instead of paying a full ThorVG parse+raster again for every other layer.
+        try
+        {
+            std::string Markup = EncodePatternLayerThumbnailSvg(Document, Token, CardWell);
+            const auto Cached = LayerThumbnailCache.find(Token);
+            if (Cached != LayerThumbnailCache.end() && Cached->second.first == Markup)
+                Tiles.push_back(Cached->second.second);
+            else
+                Tiles.push_back(RasterizePatternLayerThumbnail(Document, Token, LayerAtlasTile, CardWell));
+            FreshCache.emplace(Token, std::make_pair(std::move(Markup), Tiles.back()));
+        }
         // 📝 A layer with no renderable geometry (e.g. an empty retained-vector shell) must not
         // sink the whole atlas bake; it simply keeps the baked background like an empty gallery slot.
-        try { Tiles.push_back(RasterizePatternLayerThumbnail(Document, Document.Layers[Slot].Token, LayerAtlasTile, CardWell)); }
         catch (const std::exception &) { Tiles.push_back(Blank); }
     }
+    LayerThumbnailCache = std::move(FreshCache);
     LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
     ++LayerAtlasRevision;
 }
@@ -2068,7 +2145,12 @@ void PatternWorkspacePanel::ConstructCanvas()
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram, RequestedExtent) : 0;
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
-    if (Texture && QueryCoverageReady && !QueryCoverageReady())
+    const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
+    if (BakePending) { if (PendingBakeSince < 0) PendingBakeSince = ImGui::GetTime(); }
+    else PendingBakeSince = -1;
+    // 📝 GPU compute for a typical edit retires within a frame or two; only show the badge once a
+    // bake has stayed pending longer than that, so routine editing stops flashing it continuously.
+    if (BakePending && PendingBakeSince >= 0 && ImGui::GetTime() - PendingBakeSince > 0.15)
     {
         const char *Badge = "Baking pattern...";
         const ImVec2 BadgeExtent = ImGui::CalcTextSize(Badge);

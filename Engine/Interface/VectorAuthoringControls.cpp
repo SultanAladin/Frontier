@@ -10,6 +10,7 @@
 #include <imgui_internal.h>
 #include <cmath>
 #include <algorithm>
+#include <cstdio>
 
 namespace Frontier
 {
@@ -258,16 +259,93 @@ bool VectorAuthoringControlSurface::Dropdown(const char *Caption, int &Selection
 
 bool VectorAuthoringControlSurface::Colour(const char *Caption, std::array<float, 4> &Spectrum)
 {
-    ImGui::TextDisabled("%s", Caption);
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 18 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * Scale, 14 * Scale));
-    bool Changed = ImGui::ColorEdit4(Caption, Spectrum.data(), ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueWheel);
-    Register(Caption);
-    ImGui::PopStyleVar(2);
-    // 📝 Additive palette/generator source, kept beside the native hue-wheel swatch rather than
-    // replacing it, so every existing Colour() call site keeps its current layout unchanged.
-    ImGui::SameLine();
     ImGui::PushID(Caption);
+    ImGui::TextDisabled("%s", Caption);
+
+    const auto &Palette = ControlKit::Palette();
+
+    // 📝 Collapsible "colorbar" (swatch chip + hex label + caret) that expands INLINE into an SV
+    // box + a SEPARATE hue/alpha bar + a hex field — matching the HTML reference's `.colorbar` /
+    // `.picker` pair (LayerInspector.js's BuildColourField) instead of ImGui's native hue-wheel
+    // popup. Open/closed state is read from ImGui's own window state storage keyed on this
+    // Caption's ID-stack path, so (unlike the HTML's DOM, which BuildColourField's OpenPickers/
+    // BeginScrub machinery exists to protect from a full Refresh() rebuild) it just survives every
+    // frame the normal ImGui way — there is nothing here that tears the widget down mid-interaction.
+    const ImGuiID OpenId = ImGui::GetID("ColourOpen");
+    ImGuiStorage *Storage = ImGui::GetStateStorage();
+    bool Open = Storage->GetBool(OpenId, false);
+
+    const float Height = 26 * Scale;
+    const float Width  = std::max(ImGui::GetContentRegionAvail().x - 30 * Scale, Height * 3);
+    const auto Position = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("##ColourBar", ImVec2(Width, Height));
+    const bool Hovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemClicked()) { Open = !Open; Storage->SetBool(OpenId, Open); }
+    Register(Caption);
+
+    auto      *Ink      = ImGui::GetWindowDrawList();
+    const float Rounding = Height * .5f;
+    const ImVec2 BarMax(Position.x + Width, Position.y + Height);
+    Ink->AddRectFilled(Position, BarMax, ImGui::GetColorU32(ConvertSpectrum(Hovered ? Palette.Raised : Palette.Inset)), Rounding);
+    if (Open) Ink->AddRect(Position, BarMax, ImGui::GetColorU32(ConvertSpectrum(Palette.StrokeStrong)), Rounding, 0, 1 * Scale);
+
+    const float  ChipRadius = Height * .29f;
+    const ImVec2 ChipCentre(Position.x + 6 * Scale + ChipRadius, Position.y + Height * .5f);
+    const ImVec4 Swatch(std::clamp(Spectrum[0], 0.f, 1.f), std::clamp(Spectrum[1], 0.f, 1.f),
+                        std::clamp(Spectrum[2], 0.f, 1.f), std::clamp(Spectrum[3], 0.f, 1.f));
+    Ink->AddCircleFilled(ChipCentre, ChipRadius, ImGui::GetColorU32(Swatch), 20);
+    Ink->AddCircle(ChipCentre, ChipRadius, ImGui::GetColorU32(ImVec4(0, 0, 0, .35f)), 20, 1 * Scale);
+
+    char Hex[16];
+    std::snprintf(Hex, sizeof(Hex), "#%02X%02X%02X", int(std::round(Swatch.x * 255.f)),
+        int(std::round(Swatch.y * 255.f)), int(std::round(Swatch.z * 255.f)));
+    Ink->AddText(ImVec2(ChipCentre.x + ChipRadius + 7 * Scale, Position.y + (Height - ImGui::GetFontSize()) * .5f),
+        ImGui::GetColorU32(ConvertSpectrum(Palette.Text)), Hex);
+
+    // 📝 A small drawn triangle rather than a glyph, so the caret needs no icon-font/atlas lookup:
+    // it points down while closed and flips to point up while the picker is expanded.
+    const ImVec2 CaretCentre(Position.x + Width - Height * .5f, Position.y + Height * .5f);
+    const float  CaretHalf   = 3.5f * Scale;
+    const ImU32  CaretColour = ImGui::GetColorU32(ConvertSpectrum(Palette.TextDim));
+    if (Open)
+        Ink->AddTriangleFilled(ImVec2(CaretCentre.x - CaretHalf, CaretCentre.y + CaretHalf * .5f),
+            ImVec2(CaretCentre.x + CaretHalf, CaretCentre.y + CaretHalf * .5f),
+            ImVec2(CaretCentre.x, CaretCentre.y - CaretHalf * .7f), CaretColour);
+    else
+        Ink->AddTriangleFilled(ImVec2(CaretCentre.x - CaretHalf, CaretCentre.y - CaretHalf * .5f),
+            ImVec2(CaretCentre.x + CaretHalf, CaretCentre.y - CaretHalf * .5f),
+            ImVec2(CaretCentre.x, CaretCentre.y + CaretHalf * .7f), CaretColour);
+
+    bool Changed = false;
+    if (Open)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7 * Scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * Scale, 8 * Scale));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ConvertSpectrum(Palette.Panel));
+        ImGui::PushStyleColor(ImGuiCol_Border, ConvertSpectrum(Palette.StrokeStrong));
+        ImGui::BeginChild("ColourPicker", ImVec2(0, 0),
+            ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::SetNextItemWidth(-1);
+        // 📝 Square SV plane + a SEPARATE horizontal hue bar (PickerHueBar, not the native hue
+        // wheel) + a single hex field (DisplayHex, no RGB/HSV cycle button) — the same three
+        // pieces as the HTML's `.svbox` + `.barstack > .huebar` + `.hexrow`. NoSidePreview/
+        // NoSmallPreview/NoOptions drop ImGui's own preview swatches and format menu since the
+        // closed bar's chip already is the preview.
+        if (ImGui::ColorPicker4("##Picker", Spectrum.data(),
+                ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview | ImGuiColorEditFlags_NoLabel |
+                ImGuiColorEditFlags_NoOptions | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueBar |
+                ImGuiColorEditFlags_DisplayHex))
+            Changed = true;
+        ImGui::EndChild();
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(2);
+    }
+
+    // 📝 Additive palette/generator source — not part of the HTML reference, but an existing
+    // Frontier affordance nothing asked to remove, so it stays as a secondary "..." button beside
+    // the bar rather than folding into (or replacing) the redesigned picker above.
+    ImGui::SameLine();
     if (ImGui::SmallButton("...")) ImGui::OpenPopup("ColourSourcePopup");
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 12 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12 * Scale, 12 * Scale));
@@ -277,6 +355,7 @@ bool VectorAuthoringControlSurface::Colour(const char *Caption, std::array<float
         ImGui::EndPopup();
     }
     ImGui::PopStyleVar(2);
+
     ImGui::PopID();
     return Changed;
 }
