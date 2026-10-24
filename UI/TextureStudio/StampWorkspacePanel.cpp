@@ -7,6 +7,7 @@
 #include "StampWorkspacePanel.h"
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
+#include "WorkspaceZoom.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/ContentInterchange/StampTextOutline.h"
 #include "Engine/ContentInterchange/StampVectorImport.h"
@@ -520,27 +521,39 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
     if (AtCap) ImGui::TextWrapped("Stamp decals are capped at 24 components (Pattern allows 64).");
 }
 
-// 📝 Measures Content's natural glyph-outline bounds at a reference point size (into a throwaway
-// scratch document, never touching the real one) and returns the point size that makes it fill
-// {BoxWidth, BoxHeight} as closely as possible without distorting the font (both axes scaled
-// uniformly, so the box's narrower-relative axis governs) — the "fit to box" behaviour an SVG/
-// Illustrator-style text tool gives when you drag out a frame and type into it.
+// 📝 Finds the largest point size whose word-wrapped glyph-outline layout still fits inside
+// {BoxWidth, BoxHeight} (into a throwaway scratch document, never touching the real one) — the
+// "fit to box" behaviour an SVG/Illustrator-style text tool gives when you drag out a frame and
+// type into it. Text wraps onto as many lines as needed within BoxWidth, so a longer caption grows
+// downward with more lines instead of shrinking indefinitely onto one ever-thinner line; the point
+// size only shrinks once the wrapped block's own height would overflow the box. Binary-searches the
+// real glyph bounds directly (reading the baked instruction's own ink extents, never the selection
+// query's visible-canvas-clamped bounds, since this scratch text is never actually placed on a
+// canvas) because wrapping makes line count — and so required height — a step function of point
+// size, not the simple linear ratio a single probe size could extrapolate from.
 float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
 {
-    constexpr float Reference = 100.f;
-    VectorAuthoringDocument Scratch; Scratch.Stamp = true;
-    const uint32_t Root = ContentRoot.empty() ? AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1})
-        : AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1},
-              (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
-    VectorAuthoringLayer Layer; Layer.Token = ++Scratch.TokenClock; Layer.Root = Root;
-    Scratch.Layers.push_back(Layer);
-    const auto Bounds = QueryVectorAuthoringSelectionBounds(Scratch, std::array<uint32_t, 1>{Layer.Token});
-    const float MeasuredWidth = std::max(1.f, Bounds[2]), MeasuredHeight = std::max(1.f, Bounds[3]);
-    const float FitScale = std::min(std::max(1.f, BoxWidth) / MeasuredWidth, std::max(1.f, BoxHeight) / MeasuredHeight);
-    return std::clamp(Reference * FitScale, 4.f, 512.f);
+    const std::string TypefacePath = ContentRoot.empty() ? std::string("EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
+        : (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string();
+    const float Width = std::max(1.f, BoxWidth), Height = std::max(1.f, BoxHeight);
+    const auto Fits = [&](float PointSize)
+    {
+        VectorAuthoringDocument Scratch; Scratch.Stamp = true;
+        const uint32_t Root = AppendStampTextOutline(Scratch, Content, PointSize, {0, 0, 0, 1}, TypefacePath, Width);
+        const auto &Instruction = Scratch.Instructions[Root];
+        return Instruction.Bounds[2] <= Width && Instruction.Bounds[3] <= Height;
+    };
+    float Low = 4.f, High = 512.f;
+    if (!Fits(Low)) return Low; // Even the smallest permitted size cannot fit; still return something sane.
+    for (int Step = 0; Step < 28; ++Step)
+    {
+        const float Mid = (Low + High) * .5f;
+        if (Fits(Mid)) Low = Mid; else High = Mid;
+    }
+    return std::clamp(Low, 4.f, 512.f);
 }
 
-void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize)
+void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth)
 {
     if (Content.empty()) { Diagnostic = "Text content cannot be empty."; return; }
     try
@@ -554,9 +567,9 @@ void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Con
             // 📝 Resolve the glyph-outline typeface off the app's own executable-relative content
             // root when the host configured one, instead of trusting the process's current working
             // directory to happen to be the EngineContent-containing folder.
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour)
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", WrapWidth)
                 : AppendStampTextOutline(Document, Content, PointSize, Colour,
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), WrapWidth);
             for (auto &Layer : Document.Layers) if (Layer.Token == Token) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; Layer.TextPointSize = PointSize; }
             ReclaimVectorAuthoringSources(Document);
             const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
@@ -583,13 +596,13 @@ void StampWorkspacePanel::CommitTextComposer()
     try
     {
         const float PointSize = MeasureStampTextFitSize(Content, Bounds[2], Bounds[3], ContentRoot);
-        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize); return; }
+        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize, Bounds[2]); return; }
         EvaluateEdit([&](auto &Document)
         {
             if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1})
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1}, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", Bounds[2])
                 : AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1},
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), Bounds[2]);
             VectorAuthoringLayer Layer;
             Layer.Token = ++Document.TokenClock;
             Layer.Root = NewRoot;
@@ -1009,7 +1022,7 @@ void StampWorkspacePanel::ConstructCanvas()
     Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(Spectrum(0x20241d)));
     Caption(At(36, 226), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0xa5b394);
     ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
-    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = std::max(.125f, Zoom / 1.25f);
+    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
@@ -1017,7 +1030,7 @@ void StampWorkspacePanel::ConstructCanvas()
     // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
     // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
     // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
-    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(10.f, Zoom * 1.25f);
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;
@@ -1184,7 +1197,7 @@ void StampWorkspacePanel::ConstructCanvas()
     if (Hovered && Input.MouseWheel != 0 && Gesture == 0)
     {
         const float Previous = Zoom;
-        Zoom = std::clamp(Zoom * std::pow(1.1f, Input.MouseWheel), .125f, 8.f);
+        Zoom = ApplyWorkspaceWheelZoom(Zoom, Input.MouseWheel);
         Pan.X += (Input.MousePos.x - Centre.x) * (1 - Zoom / Previous);
         Pan.Y += (Input.MousePos.y - Centre.y) * (1 - Zoom / Previous);
     }

@@ -174,7 +174,7 @@ private:
     void ConstructAddComponentMenu();
     void ConstructTextComposer(float BoardMinimumX, float BoardMinimumY, float BoardSize);
     void CommitTextComposer();
-    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize);
+    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth = 0.f);
     void ConstructVectorPopup();
     void ConstructImagePopup();
     void ConstructHeader();

@@ -9,6 +9,7 @@
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
 #include "PatternWorkspacePanel.h"
 #include "VectorMaskControls.h"
+#include "WorkspaceZoom.h"
 #include <toml++/toml.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -2086,7 +2087,7 @@ void PatternWorkspacePanel::ConstructCanvas()
     Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(Spectrum(0x20241d)));
     Caption(At(36, 226), "VECTOR CANVAS    512 × 512", 8 * Scale, 0xa5b394);
     ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
-    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = std::max(.125f, Zoom / 1.25f);
+    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
@@ -2094,7 +2095,7 @@ void PatternWorkspacePanel::ConstructCanvas()
     // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
     // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
     // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
-    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(10.f, Zoom * 1.25f);
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;
@@ -2253,7 +2254,7 @@ void PatternWorkspacePanel::ConstructCanvas()
     if (Hovered && Input.MouseWheel != 0 && Gesture == 0)
     {
         const float Previous = Zoom;
-        Zoom = std::clamp(Zoom * std::pow(1.1f, Input.MouseWheel), .125f, 8.f);
+        Zoom = ApplyWorkspaceWheelZoom(Zoom, Input.MouseWheel);
         Pan.X += (Input.MousePos.x - Centre.x) * (1 - Zoom / Previous);
         Pan.Y += (Input.MousePos.y - Centre.y) * (1 - Zoom / Previous);
     }
