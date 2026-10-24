@@ -1531,15 +1531,7 @@ void PatternWorkspacePanel::ConstructLayers()
             if (const auto *Payload = ImGui::AcceptDragDropPayload("FrontierVectorAuthoringLayer"); Payload && Payload->IsDelivery())
             {
                 const auto SourceToken = *static_cast<const uint32_t *>(Payload->Data);
-                EvaluateEdit([&](auto &Document)
-                {
-                    const auto SourcePosition = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == SourceToken; });
-                    if (SourcePosition == Document.Layers.end() || QueryVectorAuthoringProtection(Document, *SourcePosition)) return;
-                    const auto Copy = *SourcePosition;
-                    Document.Layers.erase(SourcePosition);
-                    const auto Destination = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == Layer.Token; });
-                    Document.Layers.insert(Destination, Copy);
-                });
+                EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringLayerByDrag(Document, SourceToken, Layer.Token); });
             }
             ImGui::EndDragDropTarget();
         }

@@ -568,6 +568,24 @@ void ReorderVectorAuthoringSelection(
     Document = std::move(Replacement);
 }
 
+void ReorderVectorAuthoringLayerByDrag(VectorAuthoringDocument &Document, uint32_t SourceToken, uint32_t DestinationToken)
+{
+    if (SourceToken == DestinationToken) return;
+    const auto SourcePosition = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == SourceToken; });
+    if (SourcePosition == Document.Layers.end() || QueryVectorAuthoringProtection(Document, *SourcePosition)) return;
+    const auto DestinationPosition = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == DestinationToken; });
+    if (DestinationPosition == Document.Layers.end()) return;
+    const bool DraggedDownward = DestinationPosition > SourcePosition;
+    const auto Copy = *SourcePosition;
+    Document.Layers.erase(SourcePosition);
+    auto Destination = std::find_if(Document.Layers.begin(), Document.Layers.end(),
+        [&](const auto &Candidate) { return Candidate.Token == DestinationToken; });
+    if (DraggedDownward && Destination != Document.Layers.end()) ++Destination;
+    Document.Layers.insert(Destination, Copy);
+}
+
 uint32_t IntegrateVectorAuthoringBoolean(VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, VectorCoverageCategory Category)
 {
     (void)ConstructVectorAuthoringCoverage(Document);

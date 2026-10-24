@@ -68,6 +68,14 @@ void ReorderVectorAuthoringSelection(
     VectorAuthoringDocument   &Document,
     std::span<const uint32_t>  Selection,
     VectorSelectionOrder      Order);
+// 🧩 Shared by the Pattern and Stamp layer-list drag-and-drop reorder handlers: move SourceToken to sit
+// beside DestinationToken. Dropping onto a row used to always insert *before* it, which meant a layer
+// dragged onto the very last row could never actually become the last layer (at best it landed
+// second-to-last, and with exactly two layers the drag was a silent no-op). Inserting after the
+// destination when the drag moved the layer downward in the original order - and before it otherwise -
+// fixes both of those without changing the feel of reordering anywhere else in the list. A no-op
+// (unknown/matching/locked tokens) leaves Document untouched.
+void ReorderVectorAuthoringLayerByDrag(VectorAuthoringDocument &Document, uint32_t SourceToken, uint32_t DestinationToken);
 
 uint32_t IntegrateVectorAuthoringBoolean(VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, VectorCoverageCategory Category);
 }

@@ -297,7 +297,38 @@ int ConstructApplicationWindow(const ApplicationWindowCallbacks &Callbacks)
         ImGui_ImplGlfw_NewFrame();
         if (Callbacks.RecoverWindows) Callbacks.RecoverWindows();
         ImGui::NewFrame();
-        if (Callbacks.ConstructInterface) Callbacks.ConstructInterface(MainVisible);
+        // 📝 A single bad frame used to be fatal: any exception thrown while building this frame's
+        // interface (a corrupted dock graph being walked, a document edit hitting a bad allocation,
+        // etc.) unwound straight out of the main loop, through Reclamation/Display/Lifetime's
+        // destructors (which is why the DiagnosticJournal shows a full, orderly "GPU idle confirmed" /
+        // "Application resources finalized" shutdown sequence immediately before the crash - that
+        // sequence *is* the stack unwinding, not an unrelated later failure), and finally surfaced as
+        // the generic "Frontier - Severe failure" dialog with no indication of what actually went
+        // wrong mid-session. Contain it to this one frame instead: log precisely what failed, end the
+        // ImGui frame we already started (ConfigErrorRecovery tolerates the resulting unbalanced
+        // Begin/End stack) so the next frame starts clean, skip presenting this broken frame, and keep
+        // the application - and the user's unsaved work - running.
+        bool InterfaceFaulted = false;
+        try
+        {
+            if (Callbacks.ConstructInterface) Callbacks.ConstructInterface(MainVisible);
+        }
+        catch (const std::exception &Failure)
+        {
+            DiagnosticJournal::Append("FrameConstructError", Failure.what());
+            InterfaceFaulted = true;
+        }
+        catch (...)
+        {
+            DiagnosticJournal::Append("FrameConstructError", "Unknown interface construction failure");
+            InterfaceFaulted = true;
+        }
+        if (InterfaceFaulted)
+        {
+            try { ImGui::EndFrame(); }
+            catch (...) { DiagnosticJournal::Append("FrameConstructError", "Frame recovery failed"); }
+            continue;
+        }
         ImGui::Render();
         static int TracedBuilt = 0;
         if (TracedBuilt < 8)
