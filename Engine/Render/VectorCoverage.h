@@ -14,6 +14,13 @@
 namespace Frontier
 {
 inline constexpr uint32_t VectorCoverageStrokeColourExplicit = 0x80000000u;
+// 📝 Keep these two mirrored exactly in Engine/Render/Shader/VectorCoverage.slang and VectorSurface.slang
+// (fixed-size Evaluations[]/Instructions[] array bounds there cannot include this header). Raising the
+// instruction capacity lets one composited document hold hundreds of shapes instead of the former 128-node
+// wall; the extension region packs the same 64-slot budget already shared by selection candidates and
+// surface contributions, now addressed starting right after the (larger) instruction region.
+inline constexpr uint32_t VectorCoverageInstructionCapacity = 256;
+inline constexpr uint32_t VectorCoverageExtensionCapacity = 64;
 enum class VectorCoverageCategory : uint32_t
 {
     Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, CubicContour,
@@ -53,7 +60,7 @@ struct VectorSelectionProgram
 };
 inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 {
-    if (Program.Instructions.empty() || Program.Instructions.size() > 128 || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)
+    if (Program.Instructions.empty() || Program.Instructions.size() > VectorCoverageInstructionCapacity || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)
         throw std::runtime_error("Vector coverage exceeds bounded GPU program limits.");
     for (size_t Index = 0; Index < Program.Instructions.size(); ++Index)
     {
@@ -109,7 +116,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 inline void ValidateVectorSelection(const VectorSelectionProgram &Program)
 {
     ValidateVectorCoverage(Program.Coverage);
-    if (Program.Candidates.size() > 64) throw std::runtime_error("Vector selection exceeds candidate capacity.");
+    if (Program.Candidates.size() > VectorCoverageExtensionCapacity) throw std::runtime_error("Vector selection exceeds candidate capacity.");
     for (size_t Index = 0; Index < Program.Candidates.size(); ++Index)
     {
         const auto &Candidate = Program.Candidates[Index];

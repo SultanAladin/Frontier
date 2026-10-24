@@ -11,7 +11,7 @@ namespace Frontier
 void ValidateVectorSurface(const VectorSurfaceProgram &Program)
 {
     ValidateVectorCoverage(Program.Coverage);
-    if (uint32_t(Program.Channel) > 6 || Program.Contributions.size() > 64)
+    if (uint32_t(Program.Channel) > 6 || Program.Contributions.size() > VectorCoverageExtensionCapacity)
         throw std::runtime_error("Vector surface channel or contribution population is invalid.");
     std::unordered_set<uint32_t> Tokens;
     for (const auto &Contribution : Program.Contributions)

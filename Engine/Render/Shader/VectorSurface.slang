@@ -14,11 +14,35 @@ struct VectorCoverageInstruction
     float4 Paint;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
-struct CoverageProjection { uint Width; uint Height; uint Count; uint Root; uint Channel; uint Contributions; };
+// 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
+// (this header cannot be included from Slang, so these two constants must stay hand-synchronized).
+static const uint InstructionCapacity = 256;
+struct TileDirectoryEntry { uint Offset; uint Count; };
+// 📝 TileSize/TilesPerRow sit right after Root so the first six words exactly match VectorCoverage.slang's
+// own CoverageProjection layout; Channel/Contributions (surface-only) are appended last.
+struct CoverageProjection { uint Width; uint Height; uint Count; uint Root; uint TileSize; uint TilesPerRow; uint Channel; uint Contributions; };
 [[vk::push_constant]] ConstantBuffer<CoverageProjection> Projection;
 [[vk::binding(0, 0)]] StructuredBuffer<VectorCoverageInstruction> Instructions;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba32f")]] RWTexture2D<float4> Coverage;
 [[vk::binding(2, 0)]] StructuredBuffer<VectorCubicSegment> Segments;
+// 📝 CPU-binned per-tile leaf culling (Engine/Render/VectorCoverageTileBinning.h); see VectorCoverage.slang
+// for the full rationale -- this Float32 channel shader shares the identical gating, including inside
+// EvaluateSurfaceHeight's four neighbour-offset resamples below (each resample's own Point maps to its own
+// tile, which VectorLeafVisible recomputes from Point directly rather than trusting the dispatch thread ID).
+[[vk::binding(3, 0)]] StructuredBuffer<TileDirectoryEntry> TileDirectory;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> TileIndices;
+bool VectorLeafVisible(uint Index, float2 Point)
+{
+    float2 PixelPosition = clamp(Point / 512.0 * float2(Projection.Width, Projection.Height),
+        0.0, float2(Projection.Width, Projection.Height) - 1.0);
+    uint TilesPerColumn = max((Projection.Height + Projection.TileSize - 1) / Projection.TileSize, 1);
+    uint TileX = min(uint(PixelPosition.x) / Projection.TileSize, max(Projection.TilesPerRow, 1) - 1);
+    uint TileY = min(uint(PixelPosition.y) / Projection.TileSize, TilesPerColumn - 1);
+    TileDirectoryEntry Entry = TileDirectory[TileY * Projection.TilesPerRow + TileX];
+    for (uint Scan = 0; Scan < Entry.Count; ++Scan)
+        if (TileIndices[Entry.Offset + Scan] == Index) return true;
+    return false;
+}
 
 float SegmentDistance(float2 Point, float2 Start, float2 End)
 {
@@ -135,14 +159,14 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
     }
     return Inside ? -Distance : Distance;
 }
-void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[128])
+void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[InstructionCapacity])
 {
     for (uint Index = 0; Index < Projection.Count; ++Index)
     {
         VectorCoverageInstruction Instruction = Instructions[Index];
         uint Category = Instruction.Topology.x;
         float4 Result = 0;
-        if (Category <= 6)
+        if (Category <= 6 && VectorLeafVisible(Index, Point))
         {
             float2 Translation = Point - Instruction.Bounds.xy;
             float Sine = sin(Instruction.Transform.x), Cosine = cos(Instruction.Transform.x);
@@ -160,7 +184,7 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[1
                 ? (StrokeColour.rgb * StrokeAlpha + FillColour.rgb * FillAlpha * (1 - StrokeAlpha)) / Result.a
                 : 0;
         }
-        else
+        else if (Category > 6)
         {
             float4 Lower = Evaluations[Instruction.Topology.y], Upper = Evaluations[Instruction.Topology.z];
             Result = Lower;
@@ -185,12 +209,12 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[1
 }
 float EvaluateSurfaceHeight(float2 Point, float Antialias)
 {
-    float4 Evaluations[128];
+    float4 Evaluations[InstructionCapacity];
     EvaluateVectorPoint(Point, Antialias, Evaluations);
     float Height = 0;
     for (uint Index = 0; Index < Projection.Contributions; ++Index)
     {
-        VectorCoverageInstruction Contribution = Instructions[128 + Index];
+        VectorCoverageInstruction Contribution = Instructions[InstructionCapacity + Index];
         float Alpha = Evaluations[Contribution.Topology.x].a;
         uint Enabled = Contribution.Topology.z;
         // Derived normals consume a layer only when both authored channels are
@@ -207,13 +231,13 @@ void VectorSurfaceCompute(uint3 Pixel : SV_DispatchThreadID)
     if (Pixel.x >= Projection.Width || Pixel.y >= Projection.Height) return;
     float2 Point = (float2(Pixel.xy) + .5) / float2(Projection.Width, Projection.Height) * 512;
     float Antialias = 512.0 / min(Projection.Width, Projection.Height);
-    float4 Evaluations[128];
+    float4 Evaluations[InstructionCapacity];
     EvaluateVectorPoint(Point, Antialias, Evaluations);
     float4 Colour = 0;
     float ChannelAlpha = 0;
     for (uint Index = 0; Index < Projection.Contributions; ++Index)
     {
-        VectorCoverageInstruction Contribution = Instructions[128 + Index];
+        VectorCoverageInstruction Contribution = Instructions[InstructionCapacity + Index];
         if ((Contribution.Topology.z & (1u << Projection.Channel)) == 0) continue;
         float4 LayerColour = Evaluations[Contribution.Topology.x];
         float OutputAlpha = LayerColour.a + ChannelAlpha * (1 - LayerColour.a);
@@ -233,7 +257,7 @@ void VectorSurfaceCompute(uint3 Pixel : SV_DispatchThreadID)
         Surface = 0;
         for (uint Index = 0; Index < Projection.Contributions; ++Index)
         {
-            VectorCoverageInstruction Contribution = Instructions[128 + Index];
+            VectorCoverageInstruction Contribution = Instructions[InstructionCapacity + Index];
             float CoverageAlpha = Evaluations[Contribution.Topology.x].a;
             if ((Contribution.Topology.z & 2u) != 0)
                 Surface = lerp(Surface, float3(Contribution.Transform.w * Contribution.Bounds.y), saturate(CoverageAlpha));
@@ -255,7 +279,7 @@ void VectorSurfaceCompute(uint3 Pixel : SV_DispatchThreadID)
         Surface = float3(Default);
         for (uint Index = 0; Index < Projection.Contributions; ++Index)
         {
-            VectorCoverageInstruction Contribution = Instructions[128 + Index];
+            VectorCoverageInstruction Contribution = Instructions[InstructionCapacity + Index];
             float CoverageAlpha = Evaluations[Contribution.Topology.x].a;
             uint Channel = Projection.Channel;
             if ((Contribution.Topology.z & (1u << Channel)) == 0) continue;

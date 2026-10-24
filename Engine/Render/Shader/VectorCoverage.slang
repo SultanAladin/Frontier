@@ -14,11 +14,36 @@ struct VectorCoverageInstruction
     float4 Paint;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
-struct CoverageProjection { uint Width; uint Height; uint Count; uint Root; };
+// 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
+// (this header cannot be included from Slang, so these two constants must stay hand-synchronized).
+static const uint InstructionCapacity = 256;
+struct TileDirectoryEntry { uint Offset; uint Count; };
+struct CoverageProjection { uint Width; uint Height; uint Count; uint Root; uint TileSize; uint TilesPerRow; };
 [[vk::push_constant]] ConstantBuffer<CoverageProjection> Projection;
 [[vk::binding(0, 0)]] StructuredBuffer<VectorCoverageInstruction> Instructions;
 [[vk::binding(1, 0)]] [[vk::image_format("rgba8")]] RWTexture2D<float4> Coverage;
 [[vk::binding(2, 0)]] StructuredBuffer<VectorCubicSegment> Segments;
+// 📝 CPU-binned per-tile leaf culling (Engine/Render/VectorCoverageTileBinning.h): every leaf instruction's
+// padded footprint is computed on the CPU once per upload and bucketed into Width x Height's pixel-space
+// tile grid, so a pixel only walks the (usually small) subset of leaves whose footprint can actually reach
+// its own tile instead of every leaf in the whole document -- the O(pixels x shapes x segments) wall this
+// engine's vector rasterizer used to hit before "hundreds of shapes." Boolean/mask instructions are cheap
+// (reading two already-evaluated slots) and are therefore always evaluated unconditionally below; only the
+// expensive analytic distance work for a leaf is gated on tile membership.
+[[vk::binding(3, 0)]] StructuredBuffer<TileDirectoryEntry> TileDirectory;
+[[vk::binding(4, 0)]] StructuredBuffer<uint> TileIndices;
+bool VectorLeafVisible(uint Index, float2 Point)
+{
+    float2 PixelPosition = clamp(Point / 512.0 * float2(Projection.Width, Projection.Height),
+        0.0, float2(Projection.Width, Projection.Height) - 1.0);
+    uint TilesPerColumn = max((Projection.Height + Projection.TileSize - 1) / Projection.TileSize, 1);
+    uint TileX = min(uint(PixelPosition.x) / Projection.TileSize, max(Projection.TilesPerRow, 1) - 1);
+    uint TileY = min(uint(PixelPosition.y) / Projection.TileSize, TilesPerColumn - 1);
+    TileDirectoryEntry Entry = TileDirectory[TileY * Projection.TilesPerRow + TileX];
+    for (uint Scan = 0; Scan < Entry.Count; ++Scan)
+        if (TileIndices[Entry.Offset + Scan] == Index) return true;
+    return false;
+}
 
 float SegmentDistance(float2 Point, float2 Start, float2 End)
 {
@@ -135,14 +160,14 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
     }
     return Inside ? -Distance : Distance;
 }
-void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[128])
+void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[InstructionCapacity])
 {
     for (uint Index = 0; Index < Projection.Count; ++Index)
     {
         VectorCoverageInstruction Instruction = Instructions[Index];
         uint Category = Instruction.Topology.x;
         float4 Result = 0;
-        if (Category <= 6)
+        if (Category <= 6 && VectorLeafVisible(Index, Point))
         {
             float2 Translation = Point - Instruction.Bounds.xy;
             float Sine = sin(Instruction.Transform.x), Cosine = cos(Instruction.Transform.x);
@@ -160,7 +185,7 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[1
                 ? (StrokeColour.rgb * StrokeAlpha + FillColour.rgb * FillAlpha * (1 - StrokeAlpha)) / Result.a
                 : 0;
         }
-        else
+        else if (Category > 6)
         {
             float4 Lower = Evaluations[Instruction.Topology.y], Upper = Evaluations[Instruction.Topology.z];
             Result = Lower;
@@ -189,7 +214,7 @@ void VectorCoverageCompute(uint3 Pixel : SV_DispatchThreadID)
 {
     if (Pixel.x >= Projection.Width || Pixel.y >= Projection.Height) return;
     float2 Point = (float2(Pixel.xy) + .5) / float2(Projection.Width, Projection.Height) * 512;
-    float4 Evaluations[128];
+    float4 Evaluations[InstructionCapacity];
     EvaluateVectorPoint(Point, 512.0 / min(Projection.Width, Projection.Height), Evaluations);
     Coverage[Pixel.xy] = Evaluations[Projection.Root];
 }
@@ -198,8 +223,8 @@ void VectorCoverageCompute(uint3 Pixel : SV_DispatchThreadID)
 void VectorSelectionCompute(uint3 Pixel : SV_DispatchThreadID)
 {
     if (Pixel.x != 0 || Pixel.y != 0) return;
-    float4 Evaluations[128];
-    float2 Point = Instructions[128].Bounds.xy;
+    float4 Evaluations[InstructionCapacity];
+    float2 Point = Instructions[InstructionCapacity].Bounds.xy;
     if (any(Point < 0) || any(Point > 512))
     {
         Coverage[uint2(0, 0)] = 0; return;
@@ -208,7 +233,7 @@ void VectorSelectionCompute(uint3 Pixel : SV_DispatchThreadID)
     uint Token = 0;
     for (uint Index = 0; Index < Projection.Root; ++Index)
     {
-        uint4 Candidate = Instructions[128 + Index].Topology;
+        uint4 Candidate = Instructions[InstructionCapacity + Index].Topology;
         // 📝 Match nonzero coverage at the authored tile's antialias footprint; keep holes and masks on the GPU.
         if (Evaluations[Candidate.x].a >= (1.0 / 255.0)) Token = Candidate.y;
     }
