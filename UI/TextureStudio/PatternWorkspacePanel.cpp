@@ -543,7 +543,12 @@ void PatternWorkspacePanel::RefreshLayerAtlas()
     LayerAtlasBakedRevision = CurrentRevision;
     const auto &Document = QueryDocument();
     if (Document.Layers.empty()) { LayerAtlasPixels.clear(); return; }
-    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
+    // 📝 Same reasoning as Stamp's own RefreshLayerAtlas: a layer's authored fill is routinely dark
+    // (ink/outline colours), which can render at near-zero contrast against the library grid's dark
+    // "empty tile" well — a seemingly missing row preview that actually rasterized fine, just
+    // invisibly. Match the real 2D viewport's own board colour (Spectrum(0xede7d7), see
+    // ConstructCanvas) instead, so a row's thumbnail always matches what the canvas itself shows.
+    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(215) << 16 | uint32_t(231) << 8 | uint32_t(237);
     const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, LayerAtlasTile, CardWell);
     const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
     std::vector<std::vector<uint8_t>> Tiles;
@@ -1436,7 +1441,10 @@ void PatternWorkspacePanel::ConstructLayers()
         // is the fast path once baked; otherwise fall back to a CPU vector replay of just this one
         // layer, and only fall back further to a bare outline if that also finds nothing to draw.
         {
-            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 9 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 45 * Scale);
+            // 📝 Square preview (24x24, vertically centred in the 56-tall row) — the box was
+            // previously 24 wide by 36 tall, a non-square crop window that distorted every row
+            // thumbnail's aspect regardless of what atlas content filled it.
+            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 16 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 40 * Scale);
             PatternAtlasImage LayerAtlas{};
             if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
             const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
@@ -2083,7 +2091,10 @@ void PatternWorkspacePanel::ConstructCanvas()
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
     ImGui::SameLine(0, 4 * Scale);
-    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(8.f, Zoom * 1.25f);
+    // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
+    // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
+    // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(10.f, Zoom * 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;

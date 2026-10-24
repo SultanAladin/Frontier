@@ -155,7 +155,13 @@ void StampWorkspacePanel::RefreshLayerAtlas()
     LayerAtlasBakedRevision = CurrentRevision;
     const auto &Document = QueryDocument();
     if (Document.Layers.empty()) { LayerAtlasPixels.clear(); return; }
-    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
+    // 📝 The dark gallery-card well (near-black) that the library-browsing grid uses is wrong here:
+    // a component's authored ink is routinely dark too (the Text tool's own default fill is
+    // {.08,.08,.08,1}, ~rgb(20,20,20)), which was rendering at effectively zero contrast against a
+    // ~rgb(20,23,24) well — a seemingly "blank"/missing row preview that was actually rasterizing
+    // correctly, just invisibly. Match the real 2D viewport's own board colour (Spectrum(0xede7d7),
+    // see ConstructCanvas) instead, so a row's thumbnail always matches what the canvas itself shows.
+    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(215) << 16 | uint32_t(231) << 8 | uint32_t(237);
     const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
     const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, LayerAtlasTile, CardWell);
     std::vector<std::vector<uint8_t>> Tiles;
@@ -519,7 +525,7 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
 // {BoxWidth, BoxHeight} as closely as possible without distorting the font (both axes scaled
 // uniformly, so the box's narrower-relative axis governs) — the "fit to box" behaviour an SVG/
 // Illustrator-style text tool gives when you drag out a frame and type into it.
-static float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
+float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
 {
     constexpr float Reference = 100.f;
     VectorAuthoringDocument Scratch; Scratch.Stamp = true;
@@ -625,6 +631,23 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.06f, .06f, .05f, 1));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+    // 📝 Keep the live text already at the size the commit will actually bake at — recomputed (via
+    // the same MeasureStampTextFitSize the commit itself calls) only when the composed text changes,
+    // never every frame. Without this the field typed at a small, generic caret size and only jumped
+    // to the real auto-fit size (often much larger) the instant the box committed.
+    const std::string CurrentContent = ComponentTextBuffer.data();
+    char BoxKeySuffix[64]{};
+    std::snprintf(BoxKeySuffix, sizeof(BoxKeySuffix), "\x01%.3f\x01%.3f", double(TextEditBounds[2]), double(TextEditBounds[3]));
+    const std::string CacheKey = CurrentContent + BoxKeySuffix;
+    if (CacheKey != TextComposerFitCacheKey)
+    {
+        TextComposerFitCacheKey = CacheKey;
+        try { TextComposerFitPointSize = CurrentContent.empty() ? 0.f : MeasureStampTextFitSize(CurrentContent, TextEditBounds[2], TextEditBounds[3], ContentRoot); }
+        catch (const std::exception &) { TextComposerFitPointSize = 0.f; }
+    }
+    const float LivePixelSize = TextComposerFitPointSize > 0
+        ? std::clamp(TextComposerFitPointSize * (BoardSize / 512.f), 8.f, 400.f) : 16.f * Scale;
+    ImGui::PushFont(static_cast<ImFont *>(RegularTypeface ? RegularTypeface : LightTypeface), LivePixelSize);
     if (TextEditFocusPending) { ImGui::SetKeyboardFocusHere(); TextEditFocusPending = false; }
     // 📝 ImGui's multiline default is backwards for this use case (plain Enter inserts a newline;
     // Ctrl+Enter validates) — CtrlEnterForNewLine flips it so plain Enter commits the component like
@@ -632,6 +655,7 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     const bool EnterCommit = ImGui::InputTextMultiline("##Compose", ComponentTextBuffer.data(), ComponentTextBuffer.size(),
         ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
     const bool Deactivated = ImGui::IsItemDeactivated();
+    ImGui::PopFont();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
     ImGui::PopID();
@@ -849,7 +873,10 @@ void StampWorkspacePanel::ConstructLayers()
         // once baked; Stamp skips the CPU vector-replay middle tier (atlas bakes within a frame or
         // two of a CPU-side SVG rasterize, so the gap is a brief placeholder, not a real regression).
         {
-            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 9 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 45 * Scale);
+            // 📝 Square preview (24x24, vertically centred in the 56-tall row) — the box was
+            // previously 24 wide by 36 tall, a non-square crop window that distorted every row
+            // thumbnail's aspect regardless of what atlas content filled it.
+            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 16 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 40 * Scale);
             StampAtlasImage LayerAtlas{};
             if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
             const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
@@ -987,7 +1014,10 @@ void StampWorkspacePanel::ConstructCanvas()
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
     ImGui::SameLine(0, 4 * Scale);
-    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(8.f, Zoom * 1.25f);
+    // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
+    // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
+    // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(10.f, Zoom * 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;

@@ -12,10 +12,18 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <string>
 #include "Engine/Lifecycle/ActivationSequence.h"
 
 namespace Frontier
 {
+// 📝 Measures Content's natural glyph-outline bounds at a reference point size and returns the
+// point size that makes it fill {BoxWidth, BoxHeight} as closely as possible without distorting the
+// font (both axes scaled uniformly, so the box's narrower-relative axis governs) — the "fit to box"
+// behaviour an SVG/Illustrator-style text tool gives when you drag out a frame and type into it.
+// Exposed (not file-local) so both the live on-canvas composer preview and the final bake-on-commit
+// call the exact same real function, and so a headless CPU test can exercise it directly.
+[[nodiscard]] float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot);
 class StampWorkspacePanel final : public ActivationSequence
 {
 public:
@@ -154,6 +162,13 @@ private:
     std::array<float, 4> TextEditBounds{};
     PlanePoint TextBoxCurrent{};
     bool TextEditFocusPending = false;
+    // 📝 Live auto-fit cache for the on-canvas composer (see ConstructTextComposer): recomputed only
+    // when the composed text actually changes (never every frame — MeasureStampTextFitSize rebuilds
+    // real glyph outlines), so the font size shown while typing already matches the size the commit
+    // will bake at, instead of typing at a small generic caret size and only jumping to the real,
+    // much larger auto-fit size once the box commits.
+    std::string TextComposerFitCacheKey;
+    float TextComposerFitPointSize = 0;
     std::array<char, 2049> InspectorTextBuffer{};
     uint32_t InspectorTextToken = 0;
     void ConstructAddComponentMenu();
