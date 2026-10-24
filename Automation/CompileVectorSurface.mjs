@@ -39,8 +39,14 @@ const Bytes = Buffer.from(Linked.getEntryPointCodeBlob(0, 0));
 Assert(Bytes.length >= 20 && Bytes.readUInt32LE(0) === 0x07230203, 'Expected valid SPIR-V');
 const Reflection = Linked.getLayout(0).toJsonObject();
 const Projection = Reflection.parameters.find(Parameter => Parameter.name === 'Projection');
-Assert.equal(Projection?.type.elementType.sizes.find(Size => Size.kind === 'uniform').value, 24,
-    'Float32 surface compute push ABI must contain 24 bytes.');
+// 📝 VectorSurface's own CoverageProjection grew from 6 uints (24 bytes) to 8 — the shared
+// Width/Height/Count/Root/TileSize/TilesPerRow fields plus the surface-only Channel/Contributions
+// fields appended last — when the coverage/selection shaders gained per-tile leaf-gating. 32 bytes
+// is the current, intentional ABI; keep this in sync with Engine/Render/Shader/VectorSurface.slang's
+// `struct CoverageProjection` and the `OutputFormat == VK_FORMAT_R32G32B32A32_SFLOAT ? 32u : 24u`
+// branch in Engine/Render/VectorCoverageRasterization.cpp.
+Assert.equal(Projection?.type.elementType.sizes.find(Size => Size.kind === 'uniform').value, 32,
+    'Float32 surface compute push ABI must contain 32 bytes.');
 let StorageImageFormat = 0;
 for (let Offset = 20; Offset < Bytes.length;)
 {
@@ -58,7 +64,7 @@ Assert.equal(StorageImageFormat, 1, 'Float32 shader archive has no typed Rgba32f
 Fs.mkdirSync(Destination, {recursive: true});
 Fs.writeFileSync(Path.join(Destination, 'VectorSurfaceCompute.spv'), Bytes);
 const Manifest = {compiler: Compiler.getVersionString(), entry: 'VectorSurfaceCompute', target: 'SPIRV',
-    output_format: 'rgba32f', push_constant_bytes: 24,
+    output_format: 'rgba32f', push_constant_bytes: 32,
     source_sha256: Crypto.createHash('sha256').update(Source).digest('hex'), dependencies: Dependencies,
     binary_sha256: Crypto.createHash('sha256').update(Bytes).digest('hex')};
 Fs.writeFileSync(Path.join(Destination, 'VectorSurfaceCompilation.json'), JSON.stringify(Manifest, null, 2) + '\n');

@@ -48,7 +48,12 @@ try
             Assert.equal(Parameter.type.resultType.sizes.find(Entry => Entry.kind === "uniform").value, Size);
             Assert.equal(Parameter.binding.index, Binding);
         }
-        Assert.equal(Reflection.parameters.find(Parameter => Parameter.name === "Projection").type.elementType.sizes.find(Entry => Entry.kind === "uniform").value, 16);
+        // 📝 CoverageProjection grew from 4 uints (16 bytes) to 6 — Width/Height/Count/Root plus the CPU
+        // tile-binning fields TileSize/TilesPerRow — when the coverage/selection shaders gained per-tile
+        // leaf-gating. 24 bytes is the current, intentional ABI; keep this in sync with
+        // Engine/Render/Shader/VectorCoverage.slang's `struct CoverageProjection` and the matching
+        // `Resident->PushConstantBytes` branch in Engine/Render/VectorCoverageRasterization.cpp.
+        Assert.equal(Reflection.parameters.find(Parameter => Parameter.name === "Projection").type.elementType.sizes.find(Entry => Entry.kind === "uniform").value, 24);
 
         Fs.mkdirSync(Destination, { recursive: true });
         Fs.writeFileSync(Path.join(Destination, EntryCaption + ".spv"), Buffer.from(Blob));
