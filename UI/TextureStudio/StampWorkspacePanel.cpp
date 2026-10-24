@@ -1347,7 +1347,14 @@ void StampWorkspacePanel::ConstructCanvas()
         ComponentTextBuffer[0] = 0;
         GestureSource.reset(); Gesture = 8; TextEditFocusPending = true;
     }
-    else if (Gesture && Gesture != 7 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
+    // 📝 Gesture 7 (marquee) and Gesture 8 (on-canvas text composer) both legitimately persist across
+    // many idle-mouse frames after the mouse that opened them is released — Gesture 8 especially, since
+    // the whole point is to keep the InputTextMultiline mounted and focused while the user types with the
+    // mouse sitting untouched. Excluding only 7 here let this catch-all drag-release cleanup fire on the
+    // very next frame after the Text tool handed off to the composer, snapping Gesture back to 0 (with no
+    // GestureDraft to finalize) before a single character could be typed — the composer box vanished
+    // instantly, nothing reached the layer stack, exactly the reported "Text tool is broken" symptom.
+    else if (Gesture && Gesture != 7 && Gesture != 8 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
     {
         if (Gesture == 4 && GestureSource)
         {
