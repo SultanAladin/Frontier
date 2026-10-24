@@ -48,8 +48,15 @@ int main(int ArgumentCount, char **Arguments)
         Confirm(ArgumentCount == 3, "Expected material specimens and scratch output directory.");
         // 🧩 Adaptive bake buckets keep dense weaves under the OS GPU
         // watchdog: the largest square extent fitting ~2e9 curve·pixel·
-        // channels, six channels for the bridge, one for the canvas.
-        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 2048},
+        // channels, six channels for the bridge, one for the canvas. The
+        // empty/simple single-channel ceiling is 4096 (not 2048): both canvas
+        // panels already clamp their own zoomed, device-pixel display size to
+        // 4096, and VectorCoverageRasterization::Initialize's own image-size
+        // validation already allows up to 4096x4096 — a 2048 ceiling here left
+        // a sufficiently zoomed-in (e.g. 800%) canvas baking at a frozen 2048
+        // while the displayed quad kept growing, a stretched raster visibly
+        // pixelating past that zoom level.
+        for (const auto &[Segments, Channels, Extent] : {std::tuple<size_t, uint32_t, uint32_t>{0, 6, 512}, {0, 1, 4096},
                  {1271, 6, 512}, {1272, 6, 256}, {5086, 6, 256}, {5087, 6, 128}, {18954, 6, 128}, {32768, 6, 128},
                  {1907, 1, 1024}, {1908, 1, 512}, {7629, 1, 512}, {7630, 1, 256}, {30517, 1, 256}, {30518, 1, 128}, {32768, 1, 128}})
             Confirm(VectorCoverageRasterization::SelectBakeExtent(Segments, Channels) == Extent, "Bake bucket boundary moved.");

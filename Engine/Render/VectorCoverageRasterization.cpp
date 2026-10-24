@@ -436,12 +436,20 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     // 📝 ~500 FLOP per curve per pixel with no bounds rejection; 2e9 curve·
     // pixel·channels ≈ 1 TFLOP per submit, under the Windows watchdog even on
     // integrated GPUs. Empty/rect-only documents keep full resolution. The
-    // single-channel canvas display may run up to 2048 so a zoomed-in canvas
-    // still bakes vector-crisp instead of a 1024 raster being stretched past
-    // its own resolution; the six-channel bridge still tops out at 512 because
-    // its pyramid restores material maps at that extent.
+    // single-channel canvas display may run up to 4096 (both Pattern's and
+    // Stamp's own canvas already clamp their zoomed, device-pixel display size
+    // to that same ceiling, and VectorCoverageRasterization::Initialize's own
+    // image-size validation already allows up to 4096x4096) so a zoomed-in
+    // canvas still bakes vector-crisp instead of a smaller raster being
+    // stretched past its own resolution — this previously topped out at 2048,
+    // one tier short of what the canvas could actually ask for: any zoom past
+    // ~4x on a 512-unit canvas (the reported repro was 800%, ~4096 device
+    // pixels) kept baking at a frozen 2048 while the displayed quad kept
+    // growing, a stretched raster visibly pixelating past that point. The
+    // six-channel bridge still tops out at 512 because its pyramid restores
+    // material maps at that extent.
     uint32_t Affordable;
-    if (!Segments) Affordable = Channels == 1 ? 2048 : 512;
+    if (!Segments) Affordable = Channels == 1 ? 4096 : 512;
     else
     {
         constexpr uint64_t Budget = 2000000000ull;
@@ -449,7 +457,7 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
         Affordable = 128;
         if (Channels == 1)
         {
-            for (uint32_t Extent : {2048u, 1024u, 512u, 256u, 128u})
+            for (uint32_t Extent : {4096u, 2048u, 1024u, 512u, 256u, 128u})
                 if (uint64_t(Extent) * Extent * Load <= Budget) { Affordable = Extent; break; }
         }
         else
@@ -461,7 +469,7 @@ uint32_t VectorCoverageRasterization::SelectBakeExtent(size_t Segments, uint32_t
     // the smallest pooled tier that still covers it, never exceeding what the budget above affords,
     // so zooming in re-bakes crisper (vector-accurate, not a stretched raster) and zooming out drops
     // back down instead of holding a needlessly large image.
-    for (uint32_t Extent : {128u, 256u, 512u, 1024u, 2048u})
+    for (uint32_t Extent : {128u, 256u, 512u, 1024u, 2048u, 4096u})
         if (Extent >= DisplayExtent) return std::min(Extent, Affordable);
     return Affordable;
 }

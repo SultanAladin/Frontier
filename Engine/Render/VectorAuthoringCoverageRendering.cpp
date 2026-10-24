@@ -16,12 +16,12 @@ bool EquivalentProgram(const VectorCoverageProgram &First, const VectorCoverageP
 {
     return First.Root == Second.Root && First.Instructions == Second.Instructions && First.Segments == Second.Segments;
 }
-constexpr std::array<uint32_t, 5> PooledExtents{128, 256, 512, 1024, 2048};
+constexpr std::array<uint32_t, 6> PooledExtents{128, 256, 512, 1024, 2048, 4096};
 size_t IndexForExtent(uint32_t Extent)
 {
     for (size_t Index = 0; Index < PooledExtents.size(); ++Index)
         if (PooledExtents[Index] == Extent) return Index;
-    return Extent <= 128 ? 0 : Extent <= 256 ? 1 : Extent <= 512 ? 2 : Extent <= 1024 ? 3 : 4;
+    return Extent <= 128 ? 0 : Extent <= 256 ? 1 : Extent <= 512 ? 2 : Extent <= 1024 ? 3 : Extent <= 2048 ? 4 : 5;
 }
 }
 

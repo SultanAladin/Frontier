@@ -45,10 +45,14 @@ public:
 private:
     struct CoverageSlot
     {
-        // 📝 One retained rasterization per bake extent (128/256/512/1024/2048): reselecting a pattern reuses
-        // its extent instead of destroying pipelines on the UI thread, and keeps the last valid image live.
-        std::array<std::unique_ptr<VectorCoverageRasterization>, 5> Extents;
-        size_t Active = 5;
+        // 📝 One retained rasterization per bake extent (128/256/512/1024/2048/4096): reselecting a pattern
+        // reuses its extent instead of destroying pipelines on the UI thread, and keeps the last valid
+        // image live. 4096 matches the documented ceiling both canvas panels already clamp their
+        // zoomed, device-pixel display size to (and VectorCoverageRasterization::Initialize's own
+        // 4096x4096 image validation already allows) — below this, a sufficiently zoomed-in canvas
+        // outgrows its own baked texture and visibly pixelates, a stretched raster past its resolution.
+        std::array<std::unique_ptr<VectorCoverageRasterization>, 6> Extents;
+        size_t Active = 6;
         std::optional<VectorCoverageProgram> Program;
         std::optional<VectorSurfaceProgram> SurfaceProgram;
         uint64_t SampledSerial = 0;
