@@ -4,6 +4,7 @@
 // 🧩 Port the approved Pattern layout to native controls; retain actual GPU canvas images and atomic source edits across dock presentations.
 
 #include "Engine/ContentInterchange/PatternLibraryPresets.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
@@ -508,8 +509,20 @@ void PatternWorkspacePanel::RefreshPatternAtlas()
         const auto &Entry = QueryPresetEntry(LibraryFamilies[Family]);
         Tiles.push_back(!Entry.Failed && !Entry.Shapes.empty() ? QueryPatternRaster(LibraryFamilies[Family], Entry) : Blank);
     }
-    PatternAtlasPixels = BlitPatternThumbnailAtlas(Tiles, PatternAtlasTile, PatternAtlasColumns, CardWell);
-    ++PatternAtlasRevision;
+    // 📝 A blit failure (bounded-grid rejection, or genuine allocation exhaustion under memory
+    // pressure) must never propagate into the render loop uncaught — that previously surfaced as a
+    // fatal "bad allocation" dialog on shutdown unwind. Keep whatever atlas was last valid and
+    // simply retry on the next bake-triggering change instead of tearing the application down.
+    try
+    {
+        PatternAtlasPixels = BlitPatternThumbnailAtlas(Tiles, PatternAtlasTile, PatternAtlasColumns, CardWell);
+        ++PatternAtlasRevision;
+    }
+    catch (const std::exception &Failure)
+    {
+        Frontier::DiagnosticJournal::Append("PatternAtlasBlitError", Failure.what());
+        return;
+    }
     // 📝 Full bake completed (this codepath never partially bakes across calls): persist it so the
     // next launch of this exact library+palette identity hits the cache load above instead.
     const bool AllBaked = std::all_of(PatternAtlasBaked.begin(), PatternAtlasBaked.end(), [](uint8_t Flag) { return Flag != 0; });
@@ -576,8 +589,11 @@ void PatternWorkspacePanel::RefreshLayerAtlas()
         catch (const std::exception &) { Tiles.push_back(Blank); }
     }
     LayerThumbnailCache = std::move(FreshCache);
-    LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
-    ++LayerAtlasRevision;
+    // 📝 Same reasoning as RefreshPatternAtlas: never let a blit failure (bounded-grid rejection or
+    // allocation exhaustion) escape uncaught — reordering/adding/removing layers bumps the document
+    // revision every time, which re-enters this exact call every frame until it bakes cleanly again.
+    try { LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell); ++LayerAtlasRevision; }
+    catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append("PatternLayerAtlasBlitError", Failure.what()); }
 }
 
 uint64_t PatternWorkspacePanel::QueryLayerAtlasRevision()

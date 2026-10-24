@@ -100,6 +100,10 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
     bool CoatRoughnessRecorded = false;
     uint32_t InspectorLayerContext = 0;
+    // 📝 Which Palette[] slot the flake colour ramp editor is currently showing in its selected-stop
+    // (hex + remove) row; clamped to the live palette count every frame, so a stale index from a
+    // previously open material (or one invalidated by a remove) never reads/writes out of bounds.
+    uint32_t FlakeColourSelection = 0;
     uint32_t SentPreviewExtent = 0;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;

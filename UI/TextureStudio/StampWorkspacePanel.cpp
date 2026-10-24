@@ -8,6 +8,7 @@
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
 #include "WorkspaceZoom.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/ContentInterchange/StampTextOutline.h"
 #include "Engine/ContentInterchange/StampVectorImport.h"
@@ -184,8 +185,11 @@ void StampWorkspacePanel::RefreshLayerAtlas()
         catch (const std::exception &) { Tiles.push_back(Blank); }
     }
     LayerThumbnailCache = std::move(FreshCache);
-    LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
-    ++LayerAtlasRevision;
+    // 📝 Mirrors Pattern's own guard: a blit failure (bounded-grid rejection or allocation
+    // exhaustion) must never propagate uncaught into the render loop — reordering/adding/removing
+    // layers bumps the document revision every time, re-entering this call until it bakes cleanly.
+    try { LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell); ++LayerAtlasRevision; }
+    catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append("StampLayerAtlasBlitError", Failure.what()); }
 }
 
 uint64_t StampWorkspacePanel::QueryLayerAtlasRevision()
