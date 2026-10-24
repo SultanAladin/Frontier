@@ -36,6 +36,12 @@ public:
     // 📝 True once the selected program's image has been recorded and its sampling submission retired.
     [[nodiscard]] bool QuerySelectedReady() const noexcept;
     [[nodiscard]] uint64_t QueryDispatchCount() const noexcept;
+    // 📝 Pure pooled-tier decision (no GPU access, no allocation) extracted out of RefitSlot so it can be
+    // exercised directly by a headless CPU-only regression test: given the slot's current pooled tier
+    // index (5 == none fitted yet) and the requested Segments/DisplayExtent, returns which of the 5 pooled
+    // tiers (128/256/512/1024/2048, index 0..4) the slot should sit at, applying the same one-tier-up
+    // hysteresis guard RefitSlot uses against a jittering device-pixel hint near a tier boundary.
+    [[nodiscard]] static size_t SelectPooledTier(size_t ActiveTier, size_t Segments, uint32_t DisplayExtent) noexcept;
 private:
     struct CoverageSlot
     {
