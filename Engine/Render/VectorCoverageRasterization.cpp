@@ -48,7 +48,7 @@ struct VectorCoverageRasterization::CoverageAllocation
     VkPipeline Pipeline = VK_NULL_HANDLE;
     uint32_t Count = 0, Root = 0, Channel = 0, Contributions = 0;
     VkFormat OutputFormat = VK_FORMAT_R8G8B8A8_UNORM;
-    uint32_t PushConstantBytes = 16;
+    uint32_t PushConstantBytes = 24; // 📝 Default matches the non-Float32 CoverageProjection ABI; Configure() overwrites this per OutputFormat below.
     uint64_t LastSubmission = 0, PendingSubmission = 0, Dispatches = 0, ReadbackSubmission = 0;
     bool Ready = false, Dirty = false, Recorded = false, ReadbackRecorded = false, ReadbackAvailable = false;
 #define FRONTIER_COVERAGE_FUNCTIONS(Function) \
