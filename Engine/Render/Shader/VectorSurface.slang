@@ -131,10 +131,20 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
                 Winding += CubicWinding(Segment, Local);
             float2 Outside = max(max(CageMinimum - Local, Local - CageMaximum), 0);
             if (length(Outside) > min(Distance, Knee) + 1e-3) continue;
+            // 📝 Wang's formula (mirror EstimateCubicFlattenSegments in VectorCoverage.h exactly): small/flat
+            // ornamental curves collapse to as few as 2 chords instead of the former fixed 32, while sharp or
+            // large curves still subdivide enough to stay within a quarter-pixel of the analytic curve. The
+            // winding above stays exact regardless (it solves the cubic analytically, never flattens), so
+            // this only ever changes antialiasing/stroke-edge smoothness, never fill/hole correctness.
+            float2 SecondDifferenceA = Segment.StartControl.xy - 2 * Segment.StartControl.zw + Segment.ControlEnd.xy;
+            float2 SecondDifferenceB = Segment.StartControl.zw - 2 * Segment.ControlEnd.xy + Segment.ControlEnd.zw;
+            float ControlDeviation = max(length(SecondDifferenceA), length(SecondDifferenceB));
+            float FlattenTolerance = max(Antialias * .25, 1e-4);
+            uint SegmentCount = uint(clamp(ceil(sqrt(ControlDeviation * 3.0 / (4.0 * FlattenTolerance))), 2.0, 32.0));
             float2 Start = Segment.StartControl.xy;
-            for (uint Interval = 1; Interval <= 32; ++Interval)
+            for (uint Interval = 1; Interval <= SegmentCount; ++Interval)
             {
-                float2 End = CubicPoint(Segment, Interval / 32.0);
+                float2 End = CubicPoint(Segment, Interval / float(SegmentCount));
                 Distance = min(Distance, SegmentDistance(Local, Start, End)); Start = End;
             }
         }
