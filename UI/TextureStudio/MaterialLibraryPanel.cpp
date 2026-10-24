@@ -1549,19 +1549,26 @@ void MaterialLibraryPanel::ConstructInspector()
                             }
                         }
                         ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + PaletteRows * SwatchPitch + 10 * Scale));
-                        // 📝 Selected-stop row: the hex value of whichever swatch/marker was last clicked,
-                        // plus the only way to shrink the ramp back down (disabled at the 1-stop floor so the
-                        // flake tint can never be configured into an empty, unsampleable palette).
-                        const auto &Selected = Paint.Palette[FlakeColourSelection];
-                        char HexLabel[16];
-                        std::snprintf(HexLabel, sizeof(HexLabel), "#%02X%02X%02X",
-                            uint8_t(std::clamp(ToSrgb(Selected[0]), 0.f, 1.f) * 255 + .5f),
-                            uint8_t(std::clamp(ToSrgb(Selected[1]), 0.f, 1.f) * 255 + .5f),
-                            uint8_t(std::clamp(ToSrgb(Selected[2]), 0.f, 1.f) * 255 + .5f));
+                        // 📝 Selected-stop row: a real editable swatch + hex field (click the swatch for the
+                        // full picker popup, or type a hex code directly) for whichever swatch/marker was
+                        // last clicked - exactly the same ColorEdit3(DisplayHex) pattern the main Paint
+                        // colour field above already uses - plus the only way to shrink the ramp back down
+                        // (disabled at the 1-stop floor so the flake tint can never be configured into an
+                        // empty, unsampleable palette). A plain text caption here (the previous approach)
+                        // only ever displayed the hex value; it could never actually be edited.
+                        auto &Selected = Paint.Palette[FlakeColourSelection];
+                        float SelectedSpectrum[3]{ToSrgb(Selected[0]), ToSrgb(Selected[1]), ToSrgb(Selected[2])};
                         const ImVec2 RowY = ImGui::GetCursorScreenPos();
-                        ImGui::GetWindowDrawList()->AddRectFilled(RowY, ImVec2(RowY.x + 20 * Scale, RowY.y + 20 * Scale), StopInk(FlakeColourSelection), 4 * Scale);
-                        ConstructMaterialCaption(RowY.x + 28 * Scale, RowY.y + 5 * Scale, 9 * Scale, 0xc7c7ba, HexLabel);
-                        ImGui::SetCursorScreenPos(ImVec2(RowY.x + CardWidth - 34 * Scale - 60 * Scale, RowY.y - 2 * Scale));
+                        ImGui::SetNextItemWidth(CardWidth - 34 * Scale - 70 * Scale);
+                        ImGui::PushID("FlakeSelectedColour");
+                        if (ImGui::ColorEdit3("##FlakeSelectedColour", SelectedSpectrum,
+                            ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                        {
+                            for (size_t Channel = 0; Channel < 3; ++Channel) Selected[Channel] = ToLinear(SelectedSpectrum[Channel]);
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                        ImGui::PopID();
+                        ImGui::SetCursorScreenPos(ImVec2(RowY.x + CardWidth - 34 * Scale - 60 * Scale, RowY.y));
                         ImGui::BeginDisabled(PaletteCount <= 1);
                         if (ImGui::Button("Remove##FlakeColour", ImVec2(60 * Scale, 24 * Scale))) RemoveStop();
                         ImGui::EndDisabled();

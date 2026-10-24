@@ -121,13 +121,31 @@ struct HostLifetime
     bool        PlatformReady = false;
     ~HostLifetime()
     {
-        if (PlatformReady)
-            ImGui_ImplGlfw_Shutdown();
-        if (ContextReady)
-            ImGui::DestroyContext();
-        if (Window)
-            glfwDestroyWindow(Window);
-        glfwTerminate();
+        // 📝 Last-resort shutdown guard: ImGui::DestroyContext() walks its own internal dock node
+        // graph to release it, and a docking state corrupted earlier in the session (surfaced
+        // separately as a "Cyclic, shared or out-of-range layout region" workspace-layout-save
+        // rejection) can turn that walk into an unbounded allocation loop that throws std::bad_alloc
+        // here — well after every application resource has already been finalized, with nothing left
+        // that depends on this teardown completing. Swallow any such failure instead of letting it
+        // escape as a fatal "Severe failure" dialog on an application that is already closing.
+        try
+        {
+            if (PlatformReady)
+                ImGui_ImplGlfw_Shutdown();
+            if (ContextReady)
+                ImGui::DestroyContext();
+            if (Window)
+                glfwDestroyWindow(Window);
+            glfwTerminate();
+        }
+        catch (const std::exception &Failure)
+        {
+            Frontier::DiagnosticJournal::Append("ShutdownTeardownError", Failure.what());
+        }
+        catch (...)
+        {
+            Frontier::DiagnosticJournal::Append("ShutdownTeardownError", "Unknown platform teardown failure");
+        }
     }
 };
 
