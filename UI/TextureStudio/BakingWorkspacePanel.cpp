@@ -1216,8 +1216,28 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
     ImGui::Dummy(ImVec2(1, 10 * S));
     if (BakeRunning.load())
     {
-        const float Fraction = BakeTotal.load() ? float(double(BakeDone.load()) / double(BakeTotal.load())) : 0.f;
-        ImGui::ProgressBar(Fraction, ImVec2(-1, 0), BakeProgressLabel.c_str());
+        // 🧩 1:1 with .bk-progress: a left-aligned status <span>, a thin green pill <progress> (accent-color:
+        // #94aa7a in studioTheme.css), not ImGui::ProgressBar's default bright-yellow ImGuiCol_PlotHistogram
+        // bar - this was the one remaining raw-ImGui-default-colour control left in the panel.
+        const uint64_t Done = BakeDone.load(), Total = std::max<uint64_t>(1, BakeTotal.load());
+        const float Fraction = std::clamp(float(double(Done) / double(Total)), 0.f, 1.f);
+        char Counter[48];
+        std::snprintf(Counter, sizeof(Counter), "%s %llu/%llu", BakeProgressLabel.c_str(), (unsigned long long)Done, (unsigned long long)Total);
+        const auto LabelExtent = ImGui::CalcTextSize(Counter);
+        const float BarHeight = 4 * S, RowHeight = std::max(BarHeight, LabelExtent.y);
+        ImGui::TextColored(Spectrum(0xa9b993), "%s", Counter);
+        ImGui::SameLine(0, 10 * S);
+        const ImVec2 BarMinimum = ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + (RowHeight - BarHeight) * .5f);
+        const float BarWidth = std::max(60.f * S, ImGui::GetContentRegionAvail().x);
+        const ImVec2 BarMaximum(BarMinimum.x + BarWidth, BarMinimum.y + BarHeight);
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->AddRectFilled(BarMinimum, BarMaximum, ImGui::GetColorU32(Spectrum(0x24261f)), BarHeight * .5f);
+        if (Fraction > 0.f)
+        {
+            const float FillWidth = std::max(BarHeight, BarWidth * Fraction);
+            Ink->AddRectFilled(BarMinimum, ImVec2(BarMinimum.x + FillWidth, BarMaximum.y), ImGui::GetColorU32(Spectrum(0x94aa7a)), BarHeight * .5f);
+        }
+        ImGui::Dummy(ImVec2(1, RowHeight));
     }
     // .bk-run-actions: Bake (bk-primary) + Export on the left, .bk-settings-history's Undo/Redo pair pinned to
     // the row's far right via BakingStudio.jsx's travel("undo"/"redo") - backed by the real coalesced settings
