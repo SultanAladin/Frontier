@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
 #include "Engine/Interface/ControlKit.h"
+#include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
 #include <stb_image_write.h>
 #include <imgui.h>
@@ -762,13 +763,37 @@ void BakingWorkspacePanel::ConstructAssetsDock(PlaneExtent Region)
         {
             bool Checked = std::find(SelectedTargets.begin(), SelectedTargets.end(), Part.Name) != SelectedTargets.end();
             ImGui::BeginDisabled(BakeRunning.load());
-            ImGui::PushStyleColor(ImGuiCol_Text, Spectrum(0xb9bca3));
-            if (ImGui::Checkbox(Part.Name.c_str(), &Checked))
+            ImGui::PushID(Part.Name.c_str());
+            // 🧩 Hand-drawn checkbox tinted to `.bk-target-list input { accent-color: #a3aa8a; }` - a muted
+            // sage green - instead of ImGui::Checkbox, which paints its default bright blue CheckMark/FrameBg
+            // since nothing in this panel overrides those colours for raw widgets.
+            const float BoxSize = 14 * S;
+            const ImVec2 BoxMinimum = ImGui::GetCursorScreenPos();
+            const ImVec2 BoxMaximum(BoxMinimum.x + BoxSize, BoxMinimum.y + BoxSize);
+            ImGui::InvisibleButton("CheckBox", ImVec2(BoxSize, BoxSize));
+            const bool BoxClicked = ImGui::IsItemClicked();
+            auto *CheckInk = ImGui::GetWindowDrawList();
+            if (Checked)
             {
+                CheckInk->AddRectFilled(BoxMinimum, BoxMaximum, ImGui::GetColorU32(Spectrum(0xa3aa8a)), 3 * S);
+                PixelSpace IconSurface;
+                (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+                GlyphSpace::Stroke(IconSurface, "M20 6L9 17l-5-5", {BoxMinimum.x + 2 * S, BoxMinimum.y + 3.5f * S, 10 * S, 1.8f, SpectrumQuad(0x14160f)});
+            }
+            else
+            {
+                CheckInk->AddRectFilled(BoxMinimum, BoxMaximum, ImGui::GetColorU32(Spectrum(0x1a1a18)), 3 * S);
+                CheckInk->AddRect(BoxMinimum, BoxMaximum, ImGui::GetColorU32(Spectrum(0xa3aa8a, .55f)), 3 * S);
+            }
+            ImGui::SameLine(0, 7 * S);
+            ImGui::TextColored(Spectrum(0xb9bca3), "%s", Part.Name.c_str());
+            if (BoxClicked)
+            {
+                Checked = !Checked;
                 if (Checked) SelectedTargets.push_back(Part.Name);
                 else SelectedTargets.erase(std::remove(SelectedTargets.begin(), SelectedTargets.end(), Part.Name), SelectedTargets.end());
             }
-            ImGui::PopStyleColor();
+            ImGui::PopID();
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::TextColored(Spectrum(0x757967), "%u tris", Part.TriangleCount());
@@ -809,11 +834,16 @@ void BakingWorkspacePanel::ConstructAssetsDock(PlaneExtent Region)
     ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x + 8 * S, ImGui::GetCursorScreenPos().y));
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 16 * S);
     ImGui::BeginDisabled(BakeRunning.load());
-    if (ImGui::BeginCombo("##Demo", DemoShape.c_str()))
+    // 🧩 DropdownControlSurface (the same themed PushSurface/BeginCombo/PopSurface wrapper every other
+    // workspace's selects use via Controls.Dropdown), not a raw ImGui::BeginCombo - the latter falls back to
+    // ImGui's own default blue frame/highlight colours since this panel never pushes a themed style block raw
+    // widgets would otherwise inherit. Called directly (not through Controls.Dropdown) so the already-drawn
+    // "Built-in study" caption above stays the only label, instead of Controls.Dropdown printing its own.
+    if (DropdownControlSurface::BeginSelection("##Demo", DemoShape.c_str(), S))
     {
         for (const char *Shape : {"Teapot", "Cube", "Sphere"})
-            if (ImGui::Selectable(Shape, DemoShape == Shape)) SelectDemo(Shape);
-        ImGui::EndCombo();
+            if (DropdownControlSurface::Option(Shape, DemoShape == Shape, S)) SelectDemo(Shape);
+        DropdownControlSurface::EndSelection();
     }
     ImGui::EndDisabled();
     ImGui::Dummy(ImVec2(1, 18 * S));
@@ -1081,22 +1111,24 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         const float ToolbarRowHeight = 11 * S + 30 * S + 11 * S;
         ImGui::SetCursorScreenPos(ImVec2(ToolbarOrigin.x + 18 * S, ToolbarOrigin.y + 11 * S));
         ImGui::SetNextItemWidth(170 * S);
-        if (ImGui::BeginCombo("##Set", PreviewSetName.c_str()))
+        // 🧩 Themed dropdowns (DropdownControlSurface), not raw ImGui::BeginCombo - see the "Built-in study"
+        // dropdown above for why.
+        if (DropdownControlSurface::BeginSelection("##Set", PreviewSetName.c_str(), S))
         {
             for (const auto &Result : Results)
-                if (ImGui::Selectable(Result.Name.c_str(), Result.Name == PreviewSetName)) PreviewSetName = Result.Name;
-            ImGui::EndCombo();
+                if (DropdownControlSurface::Option(Result.Name.c_str(), Result.Name == PreviewSetName, S)) PreviewSetName = Result.Name;
+            DropdownControlSurface::EndSelection();
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth(170 * S);
-        if (ImGui::BeginCombo("##Map", FindMeshMap(PreviewMapKey) ? FindMeshMap(PreviewMapKey)->Label : PreviewMapKey.c_str()))
+        if (DropdownControlSurface::BeginSelection("##Map", FindMeshMap(PreviewMapKey) ? FindMeshMap(PreviewMapKey)->Label : PreviewMapKey.c_str(), S))
         {
             for (const auto &Key : Settings.Channels)
             {
                 const auto *Meta = FindMeshMap(Key);
-                if (ImGui::Selectable(Meta ? Meta->Label : Key.c_str(), Key == PreviewMapKey)) PreviewMapKey = Key;
+                if (DropdownControlSurface::Option(Meta ? Meta->Label : Key.c_str(), Key == PreviewMapKey, S)) PreviewMapKey = Key;
             }
-            ImGui::EndCombo();
+            DropdownControlSurface::EndSelection();
         }
 
         const BakeMapImage *CurrentImage = nullptr;
@@ -1431,6 +1463,45 @@ void BakingWorkspacePanel::ConstructInspector(PlaneExtent Region)
 
 void BakingWorkspacePanel::ConstructInterface()
 {
+    // 🧩 Same themed style-colour/style-var block Pattern/StampWorkspacePanel push around their own
+    // ConstructInterface() bodies - without it, every raw ImGui widget in this panel (Controls.Number's
+    // InputFloat, the demo/preview dropdowns' ImGui::BeginCombo frame, popup backgrounds, etc.) falls back to
+    // ImGui's own default dark-theme colours, which are a visibly blue FrameBg/CheckMark/accent - exactly the
+    // "default ImGui blue" this workspace was never actually themed against before this pass.
+    const auto SavedPalette = ControlKit::Palette();
+    auto Palette = SavedPalette;
+    Palette.Panel = {.0706f, .0706f, .0706f, 1};
+    Palette.Inset = {.098f, .098f, .098f, 1};
+    Palette.Raised = {.133f, .133f, .133f, 1};
+    Palette.Selected = {.20f, .208f, .173f, 1};
+    Palette.Text = {.808f, .808f, .753f, 1};
+    Palette.TextDim = {.56f, .58f, .50f, 1};
+    Palette.TextFaint = {.35f, .37f, .30f, 1};
+    Palette.Accent = {.39f, .45f, .31f, 1};
+    ControlKit::ConfigurePalette(Palette);
+    const auto ToneQuad = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
+    ImGui::PushStyleColor(ImGuiCol_Text, ToneQuad(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ToneQuad(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Spectrum(0x141412));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Spectrum(0x191916));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_Header, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Spectrum(0x272923));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, Spectrum(0x2c2e27));
+    ImGui::PushStyleColor(ImGuiCol_Button, Spectrum(0x222222));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Spectrum(0x2e2e28));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Spectrum(0x33352c));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, Spectrum(0xa3aa8a));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, Spectrum(0xa3aa8a));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, Spectrum(0xb7bf9c));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .055f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
+
     PollBake();
     ConstructHeader();
     const auto *Viewport = ImGui::GetMainViewport();
@@ -1462,5 +1533,8 @@ void BakingWorkspacePanel::ConstructInterface()
         if (ImGui::SmallButton("Dismiss")) Error.clear();
         ImGui::End();
     }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(19);
+    ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier
