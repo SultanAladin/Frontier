@@ -440,13 +440,137 @@ BakeTriangleBvh::Hit BakeTriangleBvh::CastRay(const float Origin[3], const float
     return Result;
 }
 
+namespace
+{
+float BoxDistanceSquared(const float Point[3], const float Minimum[3], const float Maximum[3]) noexcept
+{
+    float Sum = 0;
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        const float Value = Point[Axis];
+        if (Value < Minimum[Axis]) Sum += (Minimum[Axis] - Value) * (Minimum[Axis] - Value);
+        else if (Value > Maximum[Axis]) Sum += (Value - Maximum[Axis]) * (Value - Maximum[Axis]);
+    }
+    return Sum;
+}
+// 📝 Ericson, "Real-Time Collision Detection" 5.1.5: nearest point on triangle ABC to Point, handling the
+// three vertex, three edge and one face Voronoi regions explicitly (no iteration, no degenerate branches).
+void ClosestPointOnTriangle(const float Point[3], const float A[3], const float B[3], const float C[3], float Out[3]) noexcept
+{
+    const float Ab[3]{B[0] - A[0], B[1] - A[1], B[2] - A[2]};
+    const float Ac[3]{C[0] - A[0], C[1] - A[1], C[2] - A[2]};
+    const float Ap[3]{Point[0] - A[0], Point[1] - A[1], Point[2] - A[2]};
+    const float D1 = Dot(Ab, Ap), D2 = Dot(Ac, Ap);
+    if (D1 <= 0 && D2 <= 0) { Out[0] = A[0]; Out[1] = A[1]; Out[2] = A[2]; return; }
+    const float Bp[3]{Point[0] - B[0], Point[1] - B[1], Point[2] - B[2]};
+    const float D3 = Dot(Ab, Bp), D4 = Dot(Ac, Bp);
+    if (D3 >= 0 && D4 <= D3) { Out[0] = B[0]; Out[1] = B[1]; Out[2] = B[2]; return; }
+    const float Vc = D1 * D4 - D3 * D2;
+    if (Vc <= 0 && D1 >= 0 && D3 <= 0)
+    {
+        const float V = D1 / (D1 - D3);
+        for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = A[Axis] + Ab[Axis] * V;
+        return;
+    }
+    const float Cp[3]{Point[0] - C[0], Point[1] - C[1], Point[2] - C[2]};
+    const float D5 = Dot(Ab, Cp), D6 = Dot(Ac, Cp);
+    if (D6 >= 0 && D5 <= D6) { Out[0] = C[0]; Out[1] = C[1]; Out[2] = C[2]; return; }
+    const float Vb = D5 * D2 - D1 * D6;
+    if (Vb <= 0 && D2 >= 0 && D6 <= 0)
+    {
+        const float W = D2 / (D2 - D6);
+        for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = A[Axis] + Ac[Axis] * W;
+        return;
+    }
+    const float Va = D3 * D6 - D5 * D4;
+    if (Va <= 0 && (D4 - D3) >= 0 && (D5 - D6) >= 0)
+    {
+        const float W = (D4 - D3) / ((D4 - D3) + (D5 - D6));
+        for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = B[Axis] + (C[Axis] - B[Axis]) * W;
+        return;
+    }
+    const float Denominator = 1.f / (Va + Vb + Vc);
+    const float V = Vb * Denominator, W = Vc * Denominator;
+    for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = A[Axis] + Ab[Axis] * V + Ac[Axis] * W;
+}
+// 📝 Barycentric weights of a point already known to lie in triangle ABC's plane (the result of
+// ClosestPointOnTriangle above) — used to interpolate a smooth normal at the nearest point, rather than
+// taking one vertex's/the face's flat normal.
+void PlaneBarycentric(const float Point[3], const float A[3], const float B[3], const float C[3], float Weights[3]) noexcept
+{
+    const float V0[3]{B[0] - A[0], B[1] - A[1], B[2] - A[2]};
+    const float V1[3]{C[0] - A[0], C[1] - A[1], C[2] - A[2]};
+    const float V2[3]{Point[0] - A[0], Point[1] - A[1], Point[2] - A[2]};
+    const float D00 = Dot(V0, V0), D01 = Dot(V0, V1), D11 = Dot(V1, V1), D20 = Dot(V2, V0), D21 = Dot(V2, V1);
+    const float Denominator = D00 * D11 - D01 * D01;
+    if (std::fabs(Denominator) < 1e-20f) { Weights[0] = 1; Weights[1] = Weights[2] = 0; return; }
+    const float V = (D11 * D20 - D01 * D21) / Denominator;
+    const float W = (D00 * D21 - D01 * D20) / Denominator;
+    Weights[0] = 1.f - V - W;
+    Weights[1] = V;
+    Weights[2] = W;
+}
+} // namespace
+
+BakeTriangleBvh::ClosestPointResult BakeTriangleBvh::ClosestPoint(const float Point[3], float MaxDistance) const
+{
+    ClosestPointResult Result;
+    if (Nodes.empty()) return Result;
+    float BestDistanceSquared = MaxDistance * MaxDistance;
+    // 📝 Explicit stack, nearer child pushed last (visited first): a plain two-child BVH needs no priority
+    // queue to get effective nearest-point pruning, just child-order-by-box-distance on each descent.
+    std::vector<int32_t> Stack{0};
+    while (!Stack.empty())
+    {
+        const int32_t NodeIndex = Stack.back();
+        Stack.pop_back();
+        const auto &Node_ = Nodes[NodeIndex];
+        if (BoxDistanceSquared(Point, Node_.Minimum, Node_.Maximum) > BestDistanceSquared) continue;
+        if (Node_.Left < 0)
+        {
+            for (uint32_t Index = 0; Index < Node_.Count; ++Index)
+            {
+                const auto &Triangle_ = Triangles[Order[Node_.Start + Index]];
+                float Closest[3];
+                ClosestPointOnTriangle(Point, Triangle_.A, Triangle_.B, Triangle_.C, Closest);
+                const float Delta[3]{Closest[0] - Point[0], Closest[1] - Point[1], Closest[2] - Point[2]};
+                const float DistanceSquared = Dot(Delta, Delta);
+                if (DistanceSquared < BestDistanceSquared)
+                {
+                    BestDistanceSquared = DistanceSquared;
+                    Result.Found = true;
+                    Result.Distance = std::sqrt(DistanceSquared);
+                    Result.PartIndex = Triangle_.PartIndex;
+                    for (int Axis = 0; Axis < 3; ++Axis) Result.Point[Axis] = Closest[Axis];
+                    float Weights[3];
+                    PlaneBarycentric(Closest, Triangle_.A, Triangle_.B, Triangle_.C, Weights);
+                    for (int Axis = 0; Axis < 3; ++Axis)
+                        Result.Normal[Axis] = Weights[0] * Triangle_.NormalA[Axis] + Weights[1] * Triangle_.NormalB[Axis] +
+                            Weights[2] * Triangle_.NormalC[Axis];
+                    Normalize(Result.Normal);
+                }
+            }
+        }
+        else
+        {
+            const float LeftDistance = BoxDistanceSquared(Point, Nodes[Node_.Left].Minimum, Nodes[Node_.Left].Maximum);
+            const float RightDistance = BoxDistanceSquared(Point, Nodes[Node_.Right].Minimum, Nodes[Node_.Right].Maximum);
+            // 📝 Push the farther child first so the nearer one is popped (visited) first, tightening
+            // BestDistanceSquared before the farther subtree is even tested against the box prune above.
+            if (LeftDistance <= RightDistance) { Stack.push_back(Node_.Right); Stack.push_back(Node_.Left); }
+            else { Stack.push_back(Node_.Left); Stack.push_back(Node_.Right); }
+        }
+    }
+    return Result;
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                        MESH MAP EVALUATION
 //------------------------------------------------------------------------------------------------------------------------
 
 const std::vector<std::string> &ImplementedMeshMapKeys()
 {
-    static const std::vector<std::string> Keys{"normal", "world-normal", "coverage", "alpha"};
+    static const std::vector<std::string> Keys{"normal", "world-normal", "coverage", "alpha", "occlusion", "curvature"};
     return Keys;
 }
 bool IsMeshMapImplemented(const std::string &Key)
@@ -493,6 +617,16 @@ void TangentBasis(const float Normal[3], float Tangent[3], float Bitangent[3]) n
     Cross(Normal, Tangent, Bitangent);
     Normalize(Bitangent);
 }
+// 📝 1:1 port of meshBakeCore.js's hemisphere(normal): an arbitrary (but deterministic) tangent frame
+// around a world-space hit normal, used to orient occlusion's cosine-weighted samples and curvature's
+// four cardinal tangent-plane probes.
+void Hemisphere(const float Normal[3], float Tangent[3], float Bitangent[3]) noexcept
+{
+    const float ZReference[3]{0, 0, 1}, YReference[3]{0, 1, 0};
+    Cross(std::fabs(Normal[2]) < 0.9f ? ZReference : YReference, Normal, Tangent);
+    Normalize(Tangent);
+    Cross(Normal, Tangent, Bitangent);
+}
 } // namespace
 
 std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Targets, const BakeMeshSet &High,
@@ -507,6 +641,22 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
     BakeTriangleBvh Bvh;
     Bvh.Build(High);
     const uint32_t Resolution = std::max(8u, std::min(1024u, Settings.Resolution));
+    const bool NeedOcclusion = std::find(Channels.begin(), Channels.end(), std::string("occlusion")) != Channels.end();
+    const bool NeedCurvature = std::find(Channels.begin(), Channels.end(), std::string("curvature")) != Channels.end();
+
+    // 📝 epsilon = max(highMeshBoundingBoxDiagonal * 1e-5, 1e-7) — meshBakeCore.js's self-intersection
+    // bias for occlusion/thickness ray origins, scaled to the actual high mesh's size instead of a fixed
+    // constant that would be wrong for a thumbnail-sized demo mesh or a building-sized imported one.
+    float BoundsMinimum[3]{3.402823e38f, 3.402823e38f, 3.402823e38f}, BoundsMaximum[3]{-3.402823e38f, -3.402823e38f, -3.402823e38f};
+    for (const auto &Part : High.Parts)
+        for (const auto &Vertex : Part.Vertices)
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                BoundsMinimum[Axis] = std::min(BoundsMinimum[Axis], Vertex.Position[Axis]);
+                BoundsMaximum[Axis] = std::max(BoundsMaximum[Axis], Vertex.Position[Axis]);
+            }
+    const float Diagonal[3]{BoundsMaximum[0] - BoundsMinimum[0], BoundsMaximum[1] - BoundsMinimum[1], BoundsMaximum[2] - BoundsMinimum[2]};
+    const float Epsilon = std::max(std::sqrt(Dot(Diagonal, Diagonal)) * 1e-5f, 1e-7f);
 
     for (uint32_t TargetIndex = 0; TargetIndex < Targets.size(); ++TargetIndex)
     {
@@ -548,6 +698,90 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                     Covered = true;
                 }
 
+                // 📝 One shared high-surface hit per texel: every map below (tangent/world normal, alpha,
+                // occlusion, curvature) reads the same projected point/normal, instead of each map key
+                // re-casting its own identical ray as the previous single-map-at-a-time version did.
+                bool HasHit = false;
+                BakeTriangleBvh::Hit Hit;
+                float WorldNormal[3]{0, 0, 1};
+                if (Covered)
+                {
+                    float WorldPosition[3];
+                    Transform(Part.ObjectToWorld, Sample.Position, WorldPosition);
+                    for (int Axis = 0; Axis < 3; ++Axis) WorldNormal[Axis] = Sample.Normal[Axis];
+                    Normalize(WorldNormal);
+                    // 📝 "Ray front/back limits act as a uniform projection envelope" (baking-studio.md): a
+                    // single ray spans from Back behind the low surface to Front in front of it along the
+                    // normal, taking the nearest high-surface hit anywhere in that envelope. This also makes
+                    // an identical low==high demo mesh self-intersect correctly (hit at t ≈ Back), instead of
+                    // two directionally-exclusive half-searches that can straddle a flat surface and miss it.
+                    const float EnvelopeLength = Settings.Back + Settings.Front;
+                    float RayOrigin[3]{WorldPosition[0] - WorldNormal[0] * Settings.Back, WorldPosition[1] - WorldNormal[1] * Settings.Back,
+                        WorldPosition[2] - WorldNormal[2] * Settings.Back};
+                    Hit = Bvh.CastRay(RayOrigin, WorldNormal, 0.f, EnvelopeLength);
+                    HasHit = Hit.Found;
+                    if (HasHit) ++Result.Stats.Hits; else ++Result.Stats.Misses;
+                }
+
+                // 📝 Ambient occlusion: 1:1 port of meshBakeCore.js's cosine-weighted, golden-angle
+                // hemisphere sampler around the resolved high-surface normal (not the low mesh's own
+                // normal) - a deterministic, world-position-seeded rotation avoids UV-chart-boundary noise.
+                float Visibility = 1.f;
+                if (HasHit && (NeedOcclusion || NeedCurvature))
+                {
+                    float Tangent[3], Bitangent[3];
+                    Hemisphere(Hit.Normal, Tangent, Bitangent);
+                    if (NeedOcclusion)
+                    {
+                        const float Origin[3]{Hit.Position[0] + Hit.Normal[0] * Epsilon * 3, Hit.Position[1] + Hit.Normal[1] * Epsilon * 3,
+                            Hit.Position[2] + Hit.Normal[2] * Epsilon * 3};
+                        const uint32_t Samples = std::max(1u, Settings.Samples);
+                        uint32_t Blocked = 0;
+                        const float Seed = std::fmod(Hit.Position[0] * 0.754877666f + Hit.Position[1] * 0.569840296f +
+                            Hit.Position[2] * 0.438579021f, 1.f);
+                        for (uint32_t S = 0; S < Samples; ++S)
+                        {
+                            const float U = (float(S) + 0.5f) / float(Samples);
+                            const float Z = std::sqrt(std::max(0.f, 1.f - U)), R = std::sqrt(U);
+                            const float Angle = float(S) * 2.399963229728653f + Seed * 6.283185307179586f;
+                            const float Direction[3]{Hit.Normal[0] * Z + Tangent[0] * std::cos(Angle) * R + Bitangent[0] * std::sin(Angle) * R,
+                                Hit.Normal[1] * Z + Tangent[1] * std::cos(Angle) * R + Bitangent[1] * std::sin(Angle) * R,
+                                Hit.Normal[2] * Z + Tangent[2] * std::cos(Angle) * R + Bitangent[2] * std::sin(Angle) * R};
+                            const auto Obstruction = Bvh.CastRay(Origin, Direction, Epsilon, Settings.AoDistance);
+                            if (Obstruction.Found) ++Blocked;
+                        }
+                        Visibility = 1.f - float(Blocked) / float(Samples);
+                    }
+                }
+                // 📝 Curvature: four cardinal tangent-plane probes find the nearest high-surface point in
+                // each direction; the signed divergence of that neighbour's normal from the centre normal,
+                // projected back onto the probe direction, is meshBakeCore.js's discrete curvature estimate
+                // (positive = convex, negative = concave), remapped from [-1,1] into the [0,1] map range.
+                float SignedCurvature = 0.f;
+                if (HasHit && NeedCurvature)
+                {
+                    float Tangent[3], Bitangent[3];
+                    Hemisphere(Hit.Normal, Tangent, Bitangent);
+                    float Sum = 0.f;
+                    uint32_t Count = 0;
+                    for (int S = 0; S < 4; ++S)
+                    {
+                        const float Angle = float(S) * 1.5707963267948966f;
+                        const float Direction[3]{Tangent[0] * std::cos(Angle) + Bitangent[0] * std::sin(Angle),
+                            Tangent[1] * std::cos(Angle) + Bitangent[1] * std::sin(Angle), Tangent[2] * std::cos(Angle) + Bitangent[2] * std::sin(Angle)};
+                        const float Query[3]{Hit.Position[0] + Direction[0] * Settings.CurvatureRadius,
+                            Hit.Position[1] + Direction[1] * Settings.CurvatureRadius, Hit.Position[2] + Direction[2] * Settings.CurvatureRadius};
+                        const auto Near = Bvh.ClosestPoint(Query, Settings.CurvatureRadius * 2.f);
+                        if (Near.Found)
+                        {
+                            const float Delta[3]{Near.Normal[0] - Hit.Normal[0], Near.Normal[1] - Hit.Normal[1], Near.Normal[2] - Hit.Normal[2]};
+                            Sum += Dot(Delta, Direction);
+                            ++Count;
+                        }
+                    }
+                    SignedCurvature = Count ? Sum / float(Count) : 0.f;
+                }
+
                 for (auto &Map : Result.Maps)
                 {
                     uint8_t Out[4]{0, 0, 0, 0};
@@ -556,46 +790,35 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                         Out[0] = Out[1] = Out[2] = Covered ? 255 : 0;
                         Out[3] = Covered ? 255 : 0;
                     }
-                    else if (Covered && (Map.Key == "normal" || Map.Key == "world-normal" || Map.Key == "alpha"))
+                    else if (Map.Key == "occlusion")
                     {
-                        float WorldPosition[3], WorldNormal[3];
-                        Transform(Part.ObjectToWorld, Sample.Position, WorldPosition);
-                        for (int Axis = 0; Axis < 3; ++Axis) WorldNormal[Axis] = Sample.Normal[Axis];
-                        Normalize(WorldNormal);
-                        // 📝 "Ray front/back limits act as a uniform projection envelope" (baking-studio.md): a
-                        // single ray spans from Back behind the low surface to Front in front of it along the
-                        // normal, taking the nearest high-surface hit anywhere in that envelope. This also makes
-                        // an identical low==high demo mesh self-intersect correctly (hit at t ≈ Back), instead of
-                        // two directionally-exclusive half-searches that can straddle a flat surface and miss it.
-                        const float EnvelopeLength = Settings.Back + Settings.Front;
-                        float RayOrigin[3]{WorldPosition[0] - WorldNormal[0] * Settings.Back, WorldPosition[1] - WorldNormal[1] * Settings.Back,
-                            WorldPosition[2] - WorldNormal[2] * Settings.Back};
-                        auto Hit = Bvh.CastRay(RayOrigin, WorldNormal, 0.f, EnvelopeLength);
-                        if (Hit.Found)
-                        {
-                            ++Result.Stats.Hits;
-                            if (Map.Key == "alpha") { Out[0] = Out[1] = Out[2] = Out[3] = 255; }
-                            else if (Map.Key == "world-normal")
-                            {
-                                float Signed = Settings.NormalPlusY ? Hit.Normal[1] : -Hit.Normal[1];
-                                Out[0] = ToByte(Hit.Normal[0] * 0.5f + 0.5f);
-                                Out[1] = ToByte(Signed * 0.5f + 0.5f);
-                                Out[2] = ToByte(Hit.Normal[2] * 0.5f + 0.5f);
-                                Out[3] = 255;
-                            }
-                            else // tangent normal
-                            {
-                                float Tangent[3], Bitangent[3];
-                                TangentBasis(WorldNormal, Tangent, Bitangent);
-                                float Tx = Dot(Hit.Normal, Tangent), Ty = Dot(Hit.Normal, Bitangent), Tz = Dot(Hit.Normal, WorldNormal);
-                                if (!Settings.NormalPlusY) Ty = -Ty;
-                                Out[0] = ToByte(Tx * 0.5f + 0.5f);
-                                Out[1] = ToByte(Ty * 0.5f + 0.5f);
-                                Out[2] = ToByte(Tz * 0.5f + 0.5f);
-                                Out[3] = 255;
-                            }
-                        }
-                        else ++Result.Stats.Misses;
+                        Out[0] = Out[1] = Out[2] = ToByte(Visibility);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "curvature")
+                    {
+                        Out[0] = Out[1] = Out[2] = ToByte(0.5f + SignedCurvature * 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (HasHit && Map.Key == "alpha") { Out[0] = Out[1] = Out[2] = Out[3] = 255; }
+                    else if (HasHit && Map.Key == "world-normal")
+                    {
+                        float Signed = Settings.NormalPlusY ? Hit.Normal[1] : -Hit.Normal[1];
+                        Out[0] = ToByte(Hit.Normal[0] * 0.5f + 0.5f);
+                        Out[1] = ToByte(Signed * 0.5f + 0.5f);
+                        Out[2] = ToByte(Hit.Normal[2] * 0.5f + 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (HasHit && Map.Key == "normal") // tangent normal
+                    {
+                        float Tangent[3], Bitangent[3];
+                        TangentBasis(WorldNormal, Tangent, Bitangent);
+                        float Tx = Dot(Hit.Normal, Tangent), Ty = Dot(Hit.Normal, Bitangent), Tz = Dot(Hit.Normal, WorldNormal);
+                        if (!Settings.NormalPlusY) Ty = -Ty;
+                        Out[0] = ToByte(Tx * 0.5f + 0.5f);
+                        Out[1] = ToByte(Ty * 0.5f + 0.5f);
+                        Out[2] = ToByte(Tz * 0.5f + 0.5f);
+                        Out[3] = 255;
                     }
                     Map.Rgba[Pixel + 0] = Out[0];
                     Map.Rgba[Pixel + 1] = Out[1];

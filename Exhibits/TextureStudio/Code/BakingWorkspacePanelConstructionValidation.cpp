@@ -67,7 +67,9 @@ int main()
         Require(IsMeshMapImplemented("world-normal"), "World normal must be reported as implemented");
         Require(IsMeshMapImplemented("coverage"), "UV coverage must be reported as implemented");
         Require(IsMeshMapImplemented("alpha"), "Alpha/hit mask must be reported as implemented");
-        Require(!IsMeshMapImplemented("curvature"), "Curvature is Stage 2+ scope and must not claim implemented");
+        Require(IsMeshMapImplemented("occlusion"), "Ambient occlusion must be reported as implemented");
+        Require(IsMeshMapImplemented("curvature"), "Curvature must be reported as implemented");
+        Require(!IsMeshMapImplemented("thickness"), "Thickness is a later-stage map and must not claim implemented");
 
         ValidateShape("Cube");
         ValidateShape("Sphere");

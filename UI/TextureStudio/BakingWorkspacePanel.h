@@ -9,6 +9,7 @@
 #pragma once
 #include "Engine/ContentInterchange/BakeMesh.h"
 #include "Engine/Interface/PixelSpace.h"
+#include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include <atomic>
 #include <filesystem>
@@ -27,6 +28,10 @@ class BakingWorkspacePanel final : public ActivationSequence
     void ConstructInterface();
     void ConfigureInterfaceScale(float Scale) noexcept { Scale = Scale > 0.1f ? Scale : 1.f; InterfaceScale = Scale; }
     [[nodiscard]] float QueryInterfaceScale() const noexcept { return InterfaceScale; }
+    // 📝 Same contract as Pattern/Stamp's ConfigureTypeface: the app hands this the shared "DM Sans" regular/light
+    // handles once at startup so the "Baking" pane heading and card titles read with the same type family as
+    // every other native workspace instead of ImGui's bundled default font.
+    void ConfigureTypeface(void *Regular, void *Light = nullptr) noexcept { RegularTypeface = Regular; LightTypeface = Light ? Light : Regular; }
 
     // 📝 Cross-workspace navigation, wired exactly like Stamp/Pattern's ActivateMaterial/ActivatePattern/ActivateStamp.
     std::function<void()> ActivateMaterial;
@@ -110,5 +115,11 @@ class BakingWorkspacePanel final : public ActivationSequence
 
     std::map<std::string, PlaneExtent> ControlExtents;
     void Track(const std::string &Caption);
+
+    // 📝 Same shared rounded-control surface Pattern/Stamp draw their cards, pill buttons and field rows
+    // with (Engine/Interface/VectorAuthoringControls.h) - reused here instead of raw ImGui widgets so the
+    // Baking workspace actually matches the rest of the app's "Alloy" design language, not a bespoke look.
+    VectorAuthoringControlSurface Controls;
+    void *RegularTypeface = nullptr, *LightTypeface = nullptr;
 };
 } // namespace Frontier

@@ -420,6 +420,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Baking->ActivateMaterial = [&]() { BakingActive = false; };
         Baking->ActivatePattern = [&]() { BakingActive = false; PatternActive = true; };
         Baking->ActivateStamp = [&]() { BakingActive = false; StampActive = true; };
+        if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
+        {
+            const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
+            if (Family >= 0) Baking->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
+                Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
+        }
 
         LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         if (!Preferences.empty() && std::filesystem::exists(Preferences))

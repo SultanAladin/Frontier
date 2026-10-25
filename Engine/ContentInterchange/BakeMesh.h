@@ -5,10 +5,10 @@
 //    and meshBakeCore.js. Holds the low/high mesh data model, the three built-in study meshes (Teapot/Cube/Sphere, ported
 //    1:1 from the web reference's three.js geometry), a bounded CPU BVH, and the first slice of mesh-map evaluators.
 //
-// 📝 Scope (first native slice — see Experimental/TextureStudio/docs/baking-studio.md for the full 27-map contract):
-//    implemented maps are Tangent normal, World normal, UV coverage and Alpha/hit mask. The remaining Normals/Surface/
-//    Coordinates/Masks/Color maps are deliberately not evaluated yet; BakeMeshEngine reports them as not-yet-implemented
-//    rather than inventing placeholder pixels.
+// 📝 Scope (native slice — see Experimental/TextureStudio/docs/baking-studio.md for the full 27-map contract):
+//    implemented maps are Tangent normal, World normal, UV coverage, Alpha/hit mask, Ambient occlusion and
+//    Curvature. The remaining Normals/Surface/Coordinates/Masks/Color maps are deliberately not evaluated
+//    yet; BakeMeshEngine reports them as not-yet-implemented rather than inventing placeholder pixels.
 
 #pragma once
 #include <array>
@@ -90,6 +90,18 @@ class BakeTriangleBvh
     };
     // 📝 Casts a ray from Origin along Direction (expected normalized), accepting hits in [MinDistance, MaxDistance].
     [[nodiscard]] Hit CastRay(const float Origin[3], const float Direction[3], float MinDistance, float MaxDistance) const;
+
+    struct ClosestPointResult
+    {
+        bool Found = false;
+        float Distance = 0;
+        float Point[3]{0, 0, 0};
+        float Normal[3]{0, 0, 0};
+        uint32_t PartIndex = 0;
+    };
+    // 📝 Nearest point on the high-surface mesh to Point, within MaxDistance (meshBakeCore.js's
+    // closestPointToPoint via three-mesh-bvh) — used by curvature's tangent-plane neighbour sampling.
+    [[nodiscard]] ClosestPointResult ClosestPoint(const float Point[3], float MaxDistance) const;
     [[nodiscard]] bool Empty() const noexcept { return Triangles.empty(); }
 
   private:
