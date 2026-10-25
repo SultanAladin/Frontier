@@ -22,6 +22,7 @@
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
 #include "UI/TextureStudio/StampWorkspacePanel.h"
+#include "UI/TextureStudio/BakingWorkspacePanel.h"
 #include <imgui_impl_vulkan.h>
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Interface/ContentDirectory.h"
@@ -135,11 +136,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
     Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
     Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
-    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership;
+    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership, BakingOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
     Frontier::PatternWorkspacePanel *Pattern = nullptr;
     Frontier::StampWorkspacePanel *Stamp = nullptr;
+    Frontier::BakingWorkspacePanel *Baking = nullptr;
     GLFWwindow *Window = nullptr;
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
@@ -210,9 +212,10 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     std::map<std::pair<size_t, uint32_t>, VkDescriptorSet> CoverageDescriptors;
     std::filesystem::path PatternSource;
     std::filesystem::path StampSource;
-    // 📝 At most one of these is ever true; both false means the Material Library is on screen.
+    // 📝 At most one of these is ever true; all false means the Material Library is on screen.
     bool PatternActive = false;
     bool StampActive = false;
+    bool BakingActive = false;
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
@@ -317,12 +320,14 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             AppendPatternPreviewDebug("Pattern workspace deactivated; Material Library preview selected.");
         };
         Pattern->ActivateStamp = [&]() { PatternActive = false; StampActive = true; };
+        Pattern->ActivateBaking = [&]() { PatternActive = false; BakingActive = true; };
         Library->ActivatePattern = [&]()
         {
             PatternActive = true;
             AppendPatternPreviewDebug("Pattern workspace activated; Float32 authoring-map generation enabled.");
         };
         Library->ActivateStamp = [&]() { StampActive = true; };
+        Library->ActivateBaking = [&]() { BakingActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -376,6 +381,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         };
         Stamp->ActivateMaterial = [&]() { StampActive = false; };
         Stamp->ActivatePattern = [&]() { StampActive = false; PatternActive = true; };
+        Stamp->ActivateBaking = [&]() { StampActive = false; BakingActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -405,6 +411,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 }
             }
         }
+        // 📝 Baking: Stage 1 native port (UI + 3D viewport + a few real mesh maps). No TOML source/layout
+        // persistence yet (deliberately deferred scope) — it always opens on the built-in Teapot demo.
+        BakingOwnership.reset(new Frontier::BakingWorkspacePanel());
+        Baking = static_cast<Frontier::BakingWorkspacePanel *>(BakingOwnership.get());
+        if (!Baking->Initialize() || !Baking->Activate()) throw std::runtime_error("Baking workspace activation failed.");
+        Baking->ConfigureExportDirectory(Directory / "BakingExports");
+        Baking->ActivateMaterial = [&]() { BakingActive = false; };
+        Baking->ActivatePattern = [&]() { BakingActive = false; PatternActive = true; };
+        Baking->ActivateStamp = [&]() { BakingActive = false; StampActive = true; };
+
         LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         if (!Preferences.empty() && std::filesystem::exists(Preferences))
         {
@@ -911,10 +927,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
         if (StampActive) (void)Stamp->Integrate(ImGui::GetIO().DeltaTime);
         else if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
+        else if (BakingActive) (void)Baking->Integrate(ImGui::GetIO().DeltaTime);
         else (void)Library->Integrate(ImGui::GetIO().DeltaTime);
         if (MainVisible)
         {
-            if (StampActive)
+            if (BakingActive)
+            {
+                Baking->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
+                Baking->ConstructInterface();
+            }
+            else if (StampActive)
             {
                 Stamp->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
                 {
@@ -1030,6 +1052,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         }
         PatternOwnership.reset();
         StampOwnership.reset();
+        BakingOwnership.reset();
         LibraryOwnership.reset();
         AppearanceOwnership.reset();
         // 📝 Everything above this point already ran inside a guarded zone (the shared application

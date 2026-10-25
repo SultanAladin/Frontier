@@ -940,13 +940,14 @@ void StampWorkspacePanel::ConstructHeader()
     float PositionX = NavigationX;
     for (size_t Index = 0; Index < 5; ++Index)
     {
-        const bool Available = Index == 0 || Index == 1 || Index == 3;
+        const bool Available = Index == 0 || Index == 1 || Index == 3 || Index == 4;
         ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * Scale));
-        ImGui::BeginDisabled(!Available || (Index == 0 && !ActivateMaterial) || (Index == 1 && !ActivatePattern));
+        ImGui::BeginDisabled(!Available || (Index == 0 && !ActivateMaterial) || (Index == 1 && !ActivatePattern) || (Index == 4 && !ActivateBaking));
         if (Controls.Button(Workspaces[Index], Widths[Index] * Scale, Index == 3, {}, true))
         {
             if (Index == 0 && ActivateMaterial) ActivateMaterial();
             if (Index == 1 && ActivatePattern) ActivatePattern();
+            if (Index == 4 && ActivateBaking) ActivateBaking();
         }
         Controls.Tooltip(Workspaces[Index], Available ? "Switch workspace without losing your document." : "This native workspace is not hosted yet.");
         ImGui::EndDisabled();
@@ -2673,7 +2674,7 @@ void StampWorkspacePanel::SuspendContent() noexcept
 void StampWorkspacePanel::FinalizeContent() noexcept
 {
     SuspendContent();
-    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; ActivatePattern = {}; CancelClose = {}; EvaluateNavigationDelta = {};
+    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; ActivatePattern = {}; ActivateBaking = {}; CancelClose = {}; EvaluateNavigationDelta = {};
 }
 
 void StampWorkspacePanel::ConstructInterface()

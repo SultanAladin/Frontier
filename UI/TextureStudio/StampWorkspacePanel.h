@@ -78,6 +78,7 @@ public:
     std::function<std::optional<std::string>()> LoadSource;
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivatePattern;
+    std::function<void()> ActivateBaking;
     std::function<void()> CancelClose;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:
