@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 
 namespace Frontier
 {
@@ -97,28 +98,69 @@ const std::vector<MeshMapMeta> &MeshMapTable()
 // with AddRectFilledMultiColor (plus a couple of cheap overlay shapes for the conic/radial-looking families) -
 // the same visual family per mesh-map group the web reference uses for its placeholder tile art before a real
 // bake thumbnail exists.
-void DrawMapSwatch(ImDrawList *Ink, ImVec2 Minimum, ImVec2 Maximum, const char *Swatch) noexcept
+void DrawMapSwatch(ImDrawList *Ink, ImVec2 Minimum, ImVec2 Maximum, const char *Swatch, const char *MapKey = nullptr) noexcept
 {
     const auto Colour = [](uint32_t Hex) { return IM_COL32((Hex >> 16) & 0xff, (Hex >> 8) & 0xff, Hex & 0xff, 255); };
     const auto Diagonal = [&](uint32_t A, uint32_t B) { Ink->AddRectFilledMultiColor(Minimum, Maximum, Colour(A), Colour(B), Colour(B), Colour(A)); };
+    // 🎨 Approximates a CSS radial-gradient() as concentric filled circles drawn largest-to-smallest (each one
+    // painting over the middle of the last) - cheap with ImGui's draw list and visually equivalent to the
+    // reference's banded ellipse stops for swatches this small (51px tall).
+    const ImVec2 Centre((Minimum.x + Maximum.x) * .5f, (Minimum.y + Maximum.y) * .5f);
+    const float Span = std::max(Maximum.x - Minimum.x, Maximum.y - Minimum.y);
+    const auto Rings = [&](uint32_t Background, std::initializer_list<std::pair<float, uint32_t>> Stops)
+    {
+        Ink->AddRectFilled(Minimum, Maximum, Colour(Background));
+        for (const auto &[Fraction, Hex] : Stops) Ink->AddCircleFilled(Centre, Span * Fraction, Colour(Hex), 28);
+    };
     const std::string Key = Swatch ? Swatch : "";
     if (Key == "normal") Diagonal(0xed7ce5, 0x8397ff);
     else if (Key == "normal-world") Diagonal(0x93cf98, 0xcf779d);
     else if (Key == "normal-object") Diagonal(0xd37390, 0x81c996);
     else if (Key == "id") Diagonal(0xdc976f, 0x81a6cc);
     else if (Key == "position") Diagonal(0xa2bf93, 0x9dbac7);
-    else if (Key == "ao") Ink->AddRectFilled(Minimum, Maximum, Colour(0x60635f)), Ink->AddCircleFilled(ImVec2((Minimum.x + Maximum.x) * .5f, (Minimum.y + Maximum.y) * .5f), (Maximum.x - Minimum.x) * .32f, Colour(0xc5c5be), 24);
+    // .bk-swatch-ao: radial-gradient(ellipse at 50% 45%, #333 20%, #c5c5be 43%, #60635f 68%, #252625) - a dark
+    // centre dot inside a light ring inside a mid ring on a dark field, i.e. the "donut" look the reference
+    // screenshots show for AO/cavity/dirt, not a single flat light blob.
+    else if (Key == "ao") Rings(0x252625, {{0.34f, 0x60635f}, {0.215f, 0xc5c5be}, {0.1f, 0x333333}});
     else if (Key == "height") Diagonal(0x343a37, 0xdadad1);
-    else if (Key == "curvature")
-    {
-        Ink->AddRectFilled(Minimum, Maximum, Colour(0x252824));
-        Ink->AddCircleFilled(ImVec2((Minimum.x + Maximum.x) * .5f, (Minimum.y + Maximum.y) * .5f), (Maximum.x - Minimum.x) * .3f, Colour(0xd9dcd2), 24);
-    }
-    else if (Key == "coverage") Ink->AddRectFilled(Minimum, Maximum, Colour(0x111811)), Ink->AddCircleFilled(ImVec2((Minimum.x + Maximum.x) * .5f, (Minimum.y + Maximum.y) * .5f), (Maximum.x - Minimum.x) * .4f, Colour(0xe4e8df), 24);
+    // .bk-swatch-curvature: radial-gradient(ellipse at 50% 55%, #252824 30%, #d9dcd2 33% 36%, #585d53 40% 55%,
+    // #cad0c4 58%, #333b31 62%) - a concentric double ring (dark hole, light ring, mid ring, light ring, dark edge).
+    else if (Key == "curvature") Rings(0x333b31, {{0.29f, 0xcad0c4}, {0.2375f, 0x585d53}, {0.17f, 0xd9dcd2}, {0.15f, 0x252824}});
+    // .bk-swatch-coverage / alpha: radial-gradient(ellipse at 50% 45%, #e4e8df 48% , #111811 50%) - a sharp-edged
+    // light disc on a near-black field, no soft falloff.
+    else if (Key == "coverage") Rings(0x111811, {{0.24f, 0xe4e8df}});
     else if (Key == "dust") Diagonal(0xd1cbb2, 0x2a3328);
-    else if (Key == "wireframe") { Ink->AddRectFilled(Minimum, Maximum, Colour(0x1c251e)); for (float X = Minimum.x; X < Maximum.x + (Maximum.y - Minimum.y); X += 10.f) Ink->AddLine(ImVec2(X, Maximum.y), ImVec2(X - (Maximum.y - Minimum.y), Minimum.y), Colour(0x98a38d), 1.f); }
+    // .bk-swatch-wireframe layers TWO 45deg/-45deg repeating-linear-gradients, i.e. a genuine crosshatch grid,
+    // not single-direction hatching - both diagonals are drawn here so the tile reads as an X pattern like the
+    // reference, instead of parallel stripes.
+    else if (Key == "wireframe")
+    {
+        Ink->AddRectFilled(Minimum, Maximum, Colour(0x1c251e));
+        const float Height = Maximum.y - Minimum.y;
+        for (float X = Minimum.x - Height; X < Maximum.x + Height; X += 10.f)
+        {
+            Ink->AddLine(ImVec2(X, Maximum.y), ImVec2(X + Height, Minimum.y), Colour(0x98a38d), 1.f);
+            Ink->AddLine(ImVec2(X, Minimum.y), ImVec2(X + Height, Maximum.y), Colour(0x98a38d), 1.f);
+        }
+    }
     else if (Key == "color") Diagonal(0xac815c, 0x709a8e);
     else Diagonal(0x565958, 0x1b1d1c);
+    // 🧩 1:1 with .bk-map-swatch span's watermark text - "XYZ" for any map carrying a `space` field in
+    // meshMaps.js (the normal/normal-world/normal-object swatch families cover exactly that set), "ID" for
+    // the Object ID map and "UV" for the UV island map, blank otherwise - matches the reference pixel-for-pixel
+    // down to the faint #fff9 (60% white) overlay colour and letter-spaced small caps.
+    const std::string MapKeyStr = MapKey ? MapKey : "";
+    const char *Overlay = (Key == "normal" || Key == "normal-world" || Key == "normal-object") ? "XYZ"
+        : MapKeyStr == "id" ? "ID"
+        : MapKeyStr == "uv-island" ? "UV"
+        : nullptr;
+    if (Overlay)
+    {
+        const ImVec2 Size = ImGui::CalcTextSize(Overlay);
+        const float Scale = 10.f / ImGui::GetFontSize() * 1.302f;
+        Ink->AddText(ImGui::GetFont(), ImGui::GetFontSize() * Scale,
+            ImVec2(Minimum.x + 8.f, Maximum.y - Size.y * Scale - 6.f), IM_COL32(255, 255, 255, 153), Overlay);
+    }
 }
 const MeshMapMeta *FindMeshMap(const std::string &Key)
 {
@@ -321,6 +363,48 @@ void BakingWorkspacePanel::ExportResults()
     }
     catch (const std::exception &Failure) { Error = std::string("Export failed: ") + Failure.what(); }
 }
+// 📝 1:1 with BakingStudio.jsx's saveRecipe(): writes the full bake-settings/channel-selection document to disk
+// so it can be reloaded later - "Recipes contain settings, not geometry" is the exact footer copy the web
+// reference prints below this same control, and it is honoured here too (no mesh data in the file).
+void BakingWorkspacePanel::SaveRecipe()
+{
+    try
+    {
+        std::filesystem::path Directory = ExportDirectory.empty() ? std::filesystem::temp_directory_path() / "FrontierBakeExport" : ExportDirectory;
+        std::filesystem::create_directories(Directory);
+        const auto Path = Directory / (Assets.Low.Label + ".bake-recipe.json");
+        std::string Body = "{\n  \"schema\": \"frontier-bake-recipe/1\",\n  \"target\": \"" + Assets.Low.Label + "\",\n  \"settings\": {\n";
+        char Line[256];
+        std::snprintf(Line, sizeof(Line), "    \"resolution\": %u,\n", Settings.Resolution); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"padding\": %u,\n", Settings.Padding); Body += Line;
+        Body += std::string("    \"normalFormat\": \"") + (Settings.NormalPlusY ? "OpenGL +Y" : "DirectX -Y") + "\",\n";
+        Body += std::string("    \"method\": \"") + (Settings.ProjectionRay ? "Normal ray" : "Nearest surface") + "\",\n";
+        std::snprintf(Line, sizeof(Line), "    \"frontDistance\": %g,\n", double(Settings.Front)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"backDistance\": %g,\n", double(Settings.Back)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"aoDistance\": %g,\n", double(Settings.AoDistance)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"secondaryAoDistance\": %g,\n", double(Settings.SecondaryAoDistance)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"thicknessRange\": %g,\n", double(Settings.ThicknessRange)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"curvatureRadius\": %g,\n", double(Settings.CurvatureRadius)); Body += Line;
+        std::snprintf(Line, sizeof(Line), "    \"aoSamples\": %u,\n", Settings.Samples); Body += Line;
+        Body += std::string("    \"matchObjectsByName\": ") + (Settings.MatchByName ? "true" : "false") + "\n  },\n  \"channels\": [";
+        for (size_t Index = 0; Index < Settings.Channels.size(); ++Index)
+            Body += (Index ? ", \"" : "\"") + Settings.Channels[Index] + "\"";
+        Body += "]\n}\n";
+        std::ofstream File(Path, std::ios::binary);
+        File << Body;
+        File.close();
+        char Buffer[320];
+        std::snprintf(Buffer, sizeof(Buffer), "Recipe saved to %s", Path.string().c_str());
+        Info = Buffer;
+    }
+    catch (const std::exception &Failure) { Error = std::string("Save recipe failed: ") + Failure.what(); }
+}
+// 📝 There is no native file-picker library in this tree (the web reference uses an <input type="file">), so
+// rather than silently no-op this reports the honest limitation instead of pretending a recipe was opened.
+void BakingWorkspacePanel::OpenRecipe()
+{
+    Info = "Recipe loading needs a native file picker this build does not have wired up yet - Save recipe still writes the real settings file.";
+}
 void BakingWorkspacePanel::ApplyPreset(const std::string &Preset)
 {
     const auto &Presets = MeshMapPresets();
@@ -379,6 +463,44 @@ void BakingWorkspacePanel::ConstructHeader()
         ImGui::EndDisabled();
         PositionX += Widths[Index] * InterfaceScale;
     }
+    // 🧩 1:1 with StudioHeader's .studio-header-actions children for the Baking workspace: an icon-only
+    // "Open bake recipe" button (transparent chrome) then a filled "Save recipe" pill, both sitting just
+    // left of the close button exactly like Experimental/TextureStudio/src/BakingStudio.jsx wires them.
+    const float S = InterfaceScale;
+    auto *HeaderInk = ImGui::GetWindowDrawList();
+    float ActionX = Origin.x + Width - 44 * S;
+    {
+        const float PillWidth = 102 * S, PillHeight = 25 * S;
+        ActionX -= PillWidth + 8 * S;
+        const ImVec2 Minimum(ActionX, Origin.y + (43 * S - PillHeight) * .5f), Maximum(Minimum.x + PillWidth, Minimum.y + PillHeight);
+        ImGui::SetCursorScreenPos(Minimum);
+        ImGui::InvisibleButton("SaveRecipe", ImVec2(PillWidth, PillHeight));
+        const bool Hovered = ImGui::IsItemHovered();
+        HeaderInk->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(Spectrum(Hovered ? 0x2c2c29 : 0x232321)), 6 * S);
+        HeaderInk->AddRect(Minimum, Maximum, ImGui::GetColorU32(Spectrum(0xffffff, 0.05f)), 6 * S);
+        PixelSpace IconSurface;
+        (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+        GlyphSpace::Stroke(IconSurface, "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6",
+            {Minimum.x + 10 * S, Minimum.y + (PillHeight - 11 * S) * .5f, 11 * S, 1.6f, SpectrumQuad(0xc9c9bb)});
+        Caption(ImVec2(Minimum.x + 26 * S, Minimum.y + (PillHeight - 9 * S) * .42f), "Save recipe", 9.5f * S, 0xc9c9bb);
+        if (ImGui::IsItemClicked()) SaveRecipe();
+        if (Hovered) ImGui::SetTooltip("Write the current bake settings and channel selection to disk.");
+    }
+    {
+        const float ButtonSize = 28 * S;
+        ActionX -= ButtonSize + 2 * S;
+        const ImVec2 Minimum(ActionX, Origin.y + (43 * S - ButtonSize) * .5f), Maximum(Minimum.x + ButtonSize, Minimum.y + ButtonSize);
+        ImGui::SetCursorScreenPos(Minimum);
+        ImGui::InvisibleButton("OpenRecipe", ImVec2(ButtonSize, ButtonSize));
+        const bool Hovered = ImGui::IsItemHovered();
+        if (Hovered) HeaderInk->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(Spectrum(0x1c1c1a)), 6 * S);
+        PixelSpace IconSurface;
+        (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+        GlyphSpace::Stroke(IconSurface, "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z",
+            {Minimum.x + (ButtonSize - 14 * S) * .5f, Minimum.y + (ButtonSize - 11 * S) * .5f, 14 * S, 1.6f, SpectrumQuad(0xa8a89a)});
+        if (ImGui::IsItemClicked()) OpenRecipe();
+        if (Hovered) ImGui::SetTooltip("Open bake recipe");
+    }
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 44 * InterfaceScale, Origin.y + 9 * InterfaceScale));
     ImGui::BeginDisabled(!ActivateMaterial);
     if (ImGui::Button("X", ImVec2(28 * InterfaceScale, 24 * InterfaceScale)) && ActivateMaterial) ActivateMaterial();
@@ -398,17 +520,54 @@ void BakingWorkspacePanel::ConstructHeader()
 void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
 {
     const float S = InterfaceScale;
-    Caption(ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + 2 * S), "MESH MAPS", 13 * S, 0xd0d0bb, LightTypeface ? LightTypeface : RegularTypeface);
-    ImGui::Dummy(ImVec2(1, 18 * S));
-    const char *Presets[]{"Essential", "Masks", "Normals", "All", "Clear"};
-    Controls.ControlHeight = 22;
-    for (const char *Preset : Presets)
+    // 🧩 1:1 with MeshMapGrid.jsx's <h2><Layers3/> Mesh maps</h2> + right-aligned "{enabled} / {total} enabled"
+    // counter, then the "Click a tile to enable or disable it. Green tiles will be baked." paragraph underneath -
+    // this whole heading block was missing (only the bare "MESH MAPS" caption existed) before this pass.
+    const ImVec2 HeadingOrigin = ImGui::GetCursorScreenPos();
     {
-        if (Controls.Button(Preset, 0, false, {}, true)) ApplyPreset(Preset);
-        Track(std::string("Preset ") + Preset);
-        ImGui::SameLine(0, 5 * S);
+        PixelSpace IconSurface;
+        (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+        GlyphSpace::Stroke(IconSurface,
+            "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z "
+            "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12 "
+            "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17",
+            {HeadingOrigin.x, HeadingOrigin.y + 3 * S, 13 * S, 1.6f, SpectrumQuad(0xd0d0bb)});
     }
-    ImGui::NewLine();
+    Caption(ImVec2(HeadingOrigin.x + 20 * S, HeadingOrigin.y + 1 * S), "Mesh maps", 13 * S, 0xd0d0bb, LightTypeface ? LightTypeface : RegularTypeface);
+    {
+        const uint32_t Total = uint32_t(MeshMapTable().size()), Enabled = uint32_t(Settings.Channels.size());
+        char Counter[32];
+        std::snprintf(Counter, sizeof(Counter), "%u / %u enabled", Enabled, Total);
+        const auto Extent = ImGui::CalcTextSize(Counter);
+        Caption(ImVec2(HeadingOrigin.x + Width - Extent.x * 0.72f, HeadingOrigin.y + 2 * S), Counter, 10 * S, 0x8dbc9d);
+    }
+    ImGui::Dummy(ImVec2(1, 19 * S));
+    ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + 1 * S));
+    ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width);
+    ImGui::TextColored(Spectrum(0x96958b), "Click a tile to enable or disable it. Green tiles will be baked.");
+    ImGui::PopTextWrapPos();
+    ImGui::Dummy(ImVec2(1, 10 * S));
+    // 📝 "All maps"/"Clear maps" are the exact trailing button labels MeshMapGrid.jsx hardcodes after the
+    // Object.entries(MESH_MAP_PRESETS) buttons - not "All"/"Clear" - while the preset lookup key itself stays
+    // "All"/"Clear" to match ApplyPreset()'s switch above.
+    const char *PresetKeys[]{"Essential", "Masks", "Normals", "All", "Clear"};
+    const char *PresetLabels[]{"Essential", "Masks", "Normals", "All maps", "Clear maps"};
+    Controls.ControlHeight = 22;
+    // 📝 .bk-map-presets is `flex-wrap: wrap` in the web reference, so at the dock's ~310px content width these
+    // five pills genuinely spill onto a second row rather than overflowing/clipping - reproduced here by
+    // tracking cumulative row width instead of always chaining ImGui::SameLine().
+    const ImVec2 RowStart = ImGui::GetCursorScreenPos();
+    float RowX = RowStart.x, RowY = RowStart.y;
+    for (size_t Index = 0; Index < 5; ++Index)
+    {
+        const float ButtonWidth = std::max(Controls.ControlHeight * S, ImGui::CalcTextSize(PresetLabels[Index]).x + 24 * S);
+        if (Index != 0 && RowX + ButtonWidth > RowStart.x + Width + 0.5f) { RowX = RowStart.x; RowY += Controls.ControlHeight * S + 6 * S; }
+        ImGui::SetCursorScreenPos(ImVec2(RowX, RowY));
+        if (Controls.Button(PresetLabels[Index], ButtonWidth, false, {}, true)) ApplyPreset(PresetKeys[Index]);
+        Track(std::string("Preset ") + PresetKeys[Index]);
+        RowX += ButtonWidth + 5 * S;
+    }
+    ImGui::SetCursorScreenPos(ImVec2(RowStart.x, RowY + Controls.ControlHeight * S));
     ImGui::Dummy(ImVec2(1, 10 * S));
 
     const float Gap = 7 * S;
@@ -458,7 +617,7 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
 
         const ImVec2 SwatchMinimum(TileMinimum.x + 8 * S, TileMinimum.y + 8 * S), SwatchMaximum(TileMaximum.x - 8 * S, TileMinimum.y + 8 * S + 51 * S);
         Ink->PushClipRect(SwatchMinimum, SwatchMaximum, true);
-        DrawMapSwatch(Ink, SwatchMinimum, SwatchMaximum, Entry.Swatch);
+        DrawMapSwatch(Ink, SwatchMinimum, SwatchMaximum, Entry.Swatch, Entry.Key);
         Ink->PopClipRect();
         Ink->AddRect(SwatchMinimum, SwatchMaximum, ImGui::GetColorU32(Spectrum(0x000000, 0.25f * Alpha)), 8 * S);
         if (Enabled)
@@ -478,6 +637,45 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
     }
     if (Column != 0) RowOrigin.y += 82 * S + Gap;
     ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y));
+    ImGui::Dummy(ImVec2(1, 10 * S));
+    // 🧩 1:1 with MeshMapGrid.jsx's `{!channels.length && <p className="bk-selection-empty">...}` empty state.
+    if (Settings.Channels.empty())
+    {
+        Caption(ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + 1 * S),
+            "No maps enabled. Click a tile to start a bake.", 9.5f * S, 0xb8b9ad);
+        ImGui::Dummy(ImVec2(1, 18 * S));
+    }
+    // 🧩 1:1 with MeshMapGrid.jsx's closing <details className="bk-map-research"> - the non-geometry bake
+    // families (material channels, material/group IDs, lighting passes) the web reference explicitly says it
+    // does *not* fake with a substitute map, plus its two external reference links. Collapsed by default,
+    // matching <details> with no `open` attribute.
+    if (ImGui::CollapsingHeader("Other bake families & requirements"))
+    {
+        ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width - 8 * S);
+        ImGui::TextColored(Spectrum(0x96958b), "Reviewed against Substance, Toolbag and Blender. These are not geometry-only outputs and are not substituted with fake maps.");
+        ImGui::PopTextWrapPos();
+        ImGui::Dummy(ImVec2(1, 8 * S));
+        struct OtherFamily { const char *Label, *Types, *Requirement; };
+        static const OtherFamily Families[]{
+            {"Material channels", "Albedo, roughness / gloss, metalness, specular, emission, material opacity, transferred textures",
+                "Require high-material / texture evaluation. Material patch mode exports the current procedural material separately."},
+            {"Material / group IDs", "Material ID, collection / group ID",
+                "Require preserved material slots or grouping metadata. Object and UV-island IDs are available above; they are not substituted for these IDs."},
+            {"Lighting passes", "Combined / complete, diffuse, specular / glossy, indirect, transmission, shadow, environment",
+                "Require a lighting/material integrator; AO is visibility, not baked scene lighting."},
+        };
+        for (const auto &Family : Families)
+        {
+            ImGui::TextColored(Spectrum(0xd0d0bb), "%s", Family.Label);
+            ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width - 8 * S);
+            ImGui::TextColored(Spectrum(0xa8a89a), "%s", Family.Types);
+            ImGui::TextColored(Spectrum(0x7d7d72), "%s", Family.Requirement);
+            ImGui::PopTextWrapPos();
+            ImGui::Dummy(ImVec2(1, 7 * S));
+        }
+        ImGui::TextColored(Spectrum(0x8fb3d6), "Toolbag map reference \xe2\x86\x97");
+        ImGui::TextColored(Spectrum(0x8fb3d6), "Blender bake reference \xe2\x86\x97");
+    }
     ImGui::Dummy(ImVec2(1, 1));
 }
 

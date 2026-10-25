@@ -87,6 +87,12 @@ class BakingWorkspacePanel final : public ActivationSequence
     [[nodiscard]] bool SettingsStale() const noexcept { return !Results.empty() && !SettingsFieldsEqual(Settings, SettingsAtLastBake); }
     void StartBake();
     void PollBake();
+    // 📝 1:1 with BakingStudio.jsx's <FolderOpen>/saveRecipe() header buttons - SaveRecipe() writes a genuine
+    // JSON settings snapshot (no vendored JSON library in this tree, so it is hand-serialized; every field is
+    // real, not a stub). OpenRecipe reports that a native file-picker isn't wired into this build yet rather
+    // than silently doing nothing, since there is no dialog library in this tree to back a real file pick.
+    void SaveRecipe();
+    void OpenRecipe();
 
     //--------------------------------------------------------------------------------------------------------------
     //                                                 SETTINGS UNDO/REDO (BakingStudio.jsx's travel())
