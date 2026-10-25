@@ -146,6 +146,32 @@ int main(int ArgumentCount, char **Arguments)
         Click(Panel->QueryControlExtent("View3D"));
         for (int Index = 0; Index < 2; ++Index) Capture();
 
+        // 7) The "Material patch"/"Volume SDF" mode switches render an early-return placeholder panel in
+        //    ConstructInspector - a regression once left a stray End()/PopStyleColor() behind in that branch
+        //    from before PanelDockspace owned the window, which threw off ImGui's internal Begin/End and
+        //    style-colour stacks (visible on Windows as a "Calling End() too many times!" debug overlay).
+        //    ImGui's error-recovery system self-heals the stacks before the next frame, so a post-hoc stack
+        //    size check alone would not catch this - install a real ErrorCallback so any recoverable ImGui
+        //    error raised while visiting either placeholder mode fails this evidence loudly.
+        int ImGuiErrorCount = 0;
+        auto *Context = ImGui::GetCurrentContext();
+        Context->ErrorCallbackUserData = &ImGuiErrorCount;
+        Context->ErrorCallback = [](ImGuiContext *, void *UserData, const char *Message)
+        {
+            ++(*static_cast<int *>(UserData));
+            std::cerr << "Unexpected ImGui error: " << Message << "\n";
+        };
+        Click(Panel->QueryControlExtent("Mode Material"));
+        Capture();
+        Click(Panel->QueryControlExtent("Mode Volume"));
+        Capture();
+        Click(Panel->QueryControlExtent("Mode Mesh"));
+        Capture();
+        Context->ErrorCallback = nullptr;
+        Require(ImGuiErrorCount == 0, "Visiting the Material patch / Volume SDF placeholder modes raised a recoverable ImGui error "
+            "(stray Begin/End or PushStyleColor/PopStyleColor imbalance in ConstructInspector's placeholder branch).");
+        std::cout << "Visited Material patch / Volume SDF placeholder modes - no ImGui window/style-colour stack errors raised.\n";
+
         ImGui::DestroyContext();
         std::cout << "PASS: Baking Studio Stage 1 (UI + 3D viewport + Teapot demo + a real worker-thread bake "
             "of the \"Essential\" mesh-map preset + 2D map preview + real PNG export) verified against the "

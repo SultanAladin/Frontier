@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
+# 📝 Defines/caches BUILD_TESTING (default ON) via the standard CTest module. This must run before any
+# `if(BUILD_TESTING)` guard below - on a from-scratch configure (no existing CMakeCache.txt) the variable
+# is otherwise unset at that point, so a guard checked earlier in the file would silently evaluate false
+# on a brand-new checkout even though CTest ends up enabled later in the same configure pass. The
+# TextureStudio RUNTIME_OUTPUT_DIRECTORY guard a little further down (keeping its bundled EngineContent
+# copy out of the flat host-verification ctest binary directory) depends on this ordering.
+include(CTest)
+
 find_package(Git QUIET)
 set(FRONTIER_BUILD_COMMIT "local")
 if(GIT_FOUND)
@@ -203,7 +211,6 @@ if(WIN32)
     install(TARGETS FrontierUI FrontierUIDX11 Frontier RUNTIME DESTINATION .)
 endif()
 
-include(CTest)
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
 if(BUILD_TESTING)

@@ -735,6 +735,7 @@ void BakingWorkspacePanel::ConstructAssetsDock()
             ImGui::PushID(Index);
             ImGui::InvisibleButton("Mode", ImVec2(SegMax.x - SegMin.x, SegMax.y - SegMin.y));
             if (ImGui::IsItemClicked()) Mode = StudioMode(Index);
+            Track(Index == 0 ? "Mode Mesh" : Index == 1 ? "Mode Material" : "Mode Volume");
             if (Selected) Ink->AddRectFilled(SegMin, SegMax, ImGui::GetColorU32(Spectrum(0x2a2a26)), (SegMax.y - SegMin.y) * .5f);
             const auto Extent = ImGui::CalcTextSize(Modes[Index]);
             Caption(ImVec2(SegMin.x + ((SegMax.x - SegMin.x) - Extent.x * 0.72f) * .5f, SegMin.y + ((SegMax.y - SegMin.y) - Extent.y * 0.72f) * .5f), Modes[Index],
@@ -1484,8 +1485,6 @@ void BakingWorkspacePanel::ConstructInspector()
         ImGui::PopTextWrapPos();
         ImGui::Unindent(19 * S);
         ImGui::EndChild();
-        ImGui::End();
-        ImGui::PopStyleColor();
         return;
     }
 
