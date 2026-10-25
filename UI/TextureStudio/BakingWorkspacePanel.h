@@ -8,9 +8,11 @@
 
 #pragma once
 #include "Engine/ContentInterchange/BakeMesh.h"
+#include "Engine/Interface/PanelDockspace.h"
 #include "Engine/Interface/PixelSpace.h"
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
+#include "Engine/Render/MaterialPreviewConfiguration.h"
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -26,7 +28,7 @@ class BakingWorkspacePanel final : public ActivationSequence
   public:
     BakingWorkspacePanel();
     void ConstructInterface();
-    void ConfigureInterfaceScale(float Scale) noexcept { Scale = Scale > 0.1f ? Scale : 1.f; InterfaceScale = Scale; }
+    void ConfigureInterfaceScale(float Scale) noexcept { Scale = Scale > 0.1f ? Scale : 1.f; InterfaceScale = Scale; Controls.Scale = Scale; }
     [[nodiscard]] float QueryInterfaceScale() const noexcept { return InterfaceScale; }
     // 📝 Same contract as Pattern/Stamp's ConfigureTypeface: the app hands this the shared "DM Sans" regular/light
     // handles once at startup so the "Baking" pane heading and card titles read with the same type family as
@@ -50,6 +52,12 @@ class BakingWorkspacePanel final : public ActivationSequence
     // 📝 Read-only access to the live recipe (headless evidence/validation needs this to assert, e.g., that
     // the "All" preset really did select every implemented mesh map, not just open a dialog that looked right).
     [[nodiscard]] const BakeSettings &QuerySettings() const noexcept { return Settings; }
+
+    // 📝 Same host contract Pattern/StampWorkspacePanel expose (TextureStudioApplication.cpp calls these on
+    // every registered workspace's Panels instance): layout persistence, detached-window platform windows and
+    // recovery all go through this one shared dockspace instead of Baking inventing its own.
+    [[nodiscard]] PanelDockspace &QueryPanels() noexcept { return Panels; }
+    void ConfigurePlatform() { (void)Panels.ConfigurePlatform(); }
 
   private:
     bool InitializeContent() noexcept override;
@@ -127,24 +135,35 @@ class BakingWorkspacePanel final : public ActivationSequence
     //--------------------------------------------------------------------------------------------------------------
     //                                                 3D ORBIT VIEWPORT (ImGui draw-list rasterization)
     //--------------------------------------------------------------------------------------------------------------
-    struct OrbitCamera
-    {
-        float Yaw = 0.7f, Pitch = 0.35f, Distance = 4.2f;
-    } Camera;
+    // 📝 Reuses the real Material-workspace orbit camera (Engine/Render/MaterialPreviewConfiguration.h) -
+    // the same Yaw/Pitch/Zoom/Pan fields and the same ConstructOrbitProjection() math
+    // MaterialLibraryPanel's inspector preview drags - instead of a separately hand-rolled camera struct.
+    // Baking has no fixed per-shape bounding table like Material's five catalogue shapes, so it supplies its
+    // own live-measured demo-mesh radius/pivot to ConstructOrbitProjection() rather than reusing
+    // ConstructMaterialPreviewProjection()'s Shape-indexed lookup, which is specific to Material's fixed
+    // ShaderBall/Sphere/Plane/Cube/Cloth catalogue (and its thumbnail-atlas 16-unit shape spacing).
+    // 📝 Pitch is 0.16 rather than the pre-port 0.35 because ConstructOrbitProjection already adds its own
+    // .1908 rad "look slightly down" base elevation (the same Alloy capture-rig default Material's preview
+    // starts at) - added together the two land at roughly the same starting elevation as before.
+    MaterialPreviewConfiguration Camera{.Yaw = .7f, .Pitch = .16f};
     bool Overlay = false, Wireframe = false;
     void ConstructViewport3D(PlaneExtent Region);
-    void ResetCamera() noexcept { Camera = OrbitCamera{}; }
+    void ResetCamera() noexcept { ResetMaterialPreviewView(Camera); }
 
     //--------------------------------------------------------------------------------------------------------------
     //                                                 LAYOUT SECTIONS
     //--------------------------------------------------------------------------------------------------------------
     float InterfaceScale = 1.f;
     void ConstructHeader();
-    void ConstructAssetsDock(PlaneExtent Region);
-    void ConstructPreviewDock(PlaneExtent Region);
-    void ConstructInspector(PlaneExtent Region);
+    void ConstructAssetsDock();
+    void ConstructPreviewDock();
+    void ConstructInspector();
     void ConstructMeshMapGrid(float Width);
     void ApplyPreset(const std::string &Preset);
+    // 📝 The reusable dockable-panel host every other TextureWorkspace panel (Material/Pattern/Stamp)
+    // registers its own docks with - registered once in the constructor (see the .cpp), replacing Baking's
+    // previous bespoke fixed-position SetNextWindowPos/Size layout for the Assets/Preview/Inspector docks.
+    PanelDockspace Panels;
 
     std::map<std::string, PlaneExtent> ControlExtents;
     void Track(const std::string &Caption);

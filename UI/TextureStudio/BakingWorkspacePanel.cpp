@@ -10,6 +10,7 @@
 #include <imgui_internal.h>
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -203,7 +204,21 @@ Vec3 NormalizeV(Vec3 V) noexcept
 //                                                     LIFECYCLE
 //------------------------------------------------------------------------------------------------------------------------
 
-BakingWorkspacePanel::BakingWorkspacePanel() { Settings.Channels.assign(std::begin(kDefaultChannels), std::end(kDefaultChannels)); }
+BakingWorkspacePanel::BakingWorkspacePanel()
+{
+    Settings.Channels.assign(std::begin(kDefaultChannels), std::end(kDefaultChannels));
+    // 📝 Same reusable PanelDockspace every other TextureWorkspace panel registers with (Pattern/Stamp/
+    // Material) instead of Baking's previous bespoke fixed-position three-pane layout - this is what makes
+    // the Assets/Preview/Inspector docks actually dockable, resizable and rearrangeable like the rest of the
+    // app, not a Baking-only quirk.
+    (void)Panels.ConfigureDockspaceKey("TextureWorkspace Baking panels");
+    Panels.ConfigureWorkspaceInsets(43, 24);
+    Panels.ConfigureTabExtent(130, 26);
+    Panels.Register({"baking-assets", "Bake project", [&]() { ConstructAssetsDock(); }});
+    Panels.Register({"baking-preview", "Baking viewport", [&]() { ConstructPreviewDock(); }});
+    Panels.Register({"baking-inspector", "Baking inspector", [&]() { ConstructInspector(); }});
+    Panels.ConfigureColumns({{"baking-assets", .22f}, {"baking-preview", .56f}, {"baking-inspector", .22f}});
+}
 
 bool BakingWorkspacePanel::InitializeContent() noexcept
 {
@@ -444,6 +459,7 @@ void BakingWorkspacePanel::ConstructHeader()
     ImGui::SameLine();
     ImGui::TextColored(Spectrum(0x67675b), ".bake");
 
+    Controls.ControlHeight = 24;
     const float NavigationX = Origin.x + std::max(230.f * InterfaceScale, Width - 620.f * InterfaceScale);
     const char *Workspaces[]{"Material", "Pattern", "Texture", "Stamp", "Baking"};
     const float Widths[]{64, 58, 54, 52, 64};
@@ -453,19 +469,17 @@ void BakingWorkspacePanel::ConstructHeader()
         const bool Available = Index == 0 || Index == 1 || Index == 3 || Index == 4;
         ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * InterfaceScale));
         ImGui::BeginDisabled(!Available || (Index == 0 && !ActivateMaterial) || (Index == 1 && !ActivatePattern) || (Index == 3 && !ActivateStamp));
-        ImGui::PushStyleColor(ImGuiCol_Button, Index == 4 ? Spectrum(0x2a2a2a) : Spectrum(0x161616));
-        if (ImGui::Button(Workspaces[Index], ImVec2(Widths[Index] * InterfaceScale, 24 * InterfaceScale)))
+        if (Controls.Button(Workspaces[Index], Widths[Index] * InterfaceScale, Index == 4, {}, true))
         {
             if (Index == 0 && ActivateMaterial) ActivateMaterial();
             if (Index == 1 && ActivatePattern) ActivatePattern();
             if (Index == 3 && ActivateStamp) ActivateStamp();
         }
-        ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s", Available ? "Switch workspace without losing your document." : "This native workspace is not hosted yet.");
+        Controls.Tooltip(Workspaces[Index], Available ? "Switch workspace without losing your document." : "This native workspace is not hosted yet.");
         ImGui::EndDisabled();
         PositionX += Widths[Index] * InterfaceScale;
     }
+
     // 🧩 1:1 with StudioHeader's .studio-header-actions children for the Baking workspace: an icon-only
     // "Open bake recipe" button (transparent chrome) then a filled "Save recipe" pill, both sitting just
     // left of the close button exactly like Experimental/TextureStudio/src/BakingStudio.jsx wires them.
@@ -690,13 +704,12 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
 // .bk-mode-switch/.bk-card chrome: a big light-weight "Baking" heading, a pill-shaped 3-way mode switch, then
 // rounded gradient "Low UV targets"/"High source" cards with a big triangle-count numeral - not plain
 // sequential ImGui text/buttons.
-void BakingWorkspacePanel::ConstructAssetsDock(PlaneExtent Region)
+void BakingWorkspacePanel::ConstructAssetsDock()
 {
+    // 📝 Docked by PanelDockspace (see the constructor's Panels.Register call) exactly like Pattern/Stamp's
+    // own panel callbacks - no SetNextWindowPos/Size or ImGui::Begin/End here; the content below starts
+    // straight from the cursor PanelDockspace has already placed inside its own managed, dockable window.
     const float S = InterfaceScale;
-    ImGui::SetNextWindowPos(ImVec2(Region.MinimumX, Region.MinimumY));
-    ImGui::SetNextWindowSize(ImVec2(Region.Width(), Region.Height()));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
-    ImGui::Begin("Bake project", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     Controls.Scale = S;
 
     // .bk-pane-heading: h1 23px/weight-300 + small 8px muted subtitle, baseline-aligned.
@@ -871,8 +884,6 @@ void BakingWorkspacePanel::ConstructAssetsDock(PlaneExtent Region)
         const auto Extent = ImGui::CalcTextSize(SetsLabel);
         Caption(ImVec2(FooterMaximum.x - 16 * S - Extent.x * 0.54f, (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), SetsLabel, 7 * S, 0x686e59);
     }
-    ImGui::End();
-    ImGui::PopStyleColor();
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -883,13 +894,16 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
 {
     ImGui::InvisibleButton("##BakeViewport", ImVec2(Region.Width(), Region.Height()));
     const bool Hovered = ImGui::IsItemHovered();
+    // 📝 Same orbit gesture mapping as MaterialLibraryPanel's inspector preview (drag = yaw/pitch, wheel =
+    // Zoom, same clamp ranges ValidateMaterialPreviewConfiguration enforces) - driving the same
+    // MaterialPreviewConfiguration fields, not a separately invented drag-to-Distance scheme.
     if (Hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
     {
         const ImVec2 Delta = ImGui::GetIO().MouseDelta;
-        Camera.Yaw += Delta.x * 0.01f;
-        Camera.Pitch = std::clamp(Camera.Pitch - Delta.y * 0.01f, -1.5f, 1.5f);
+        Camera.Yaw = std::remainder(Camera.Yaw + Delta.x * 0.01f, 6.2831853f);
+        Camera.Pitch = std::clamp(Camera.Pitch - Delta.y * 0.01f, -1.45f, 1.45f);
     }
-    if (Hovered) Camera.Distance = std::clamp(Camera.Distance - ImGui::GetIO().MouseWheel * 0.3f, 1.2f, 12.f);
+    if (Hovered) Camera.Zoom = std::clamp(Camera.Zoom + ImGui::GetIO().MouseWheel * 0.1f, .5f, 5.f);
 
     const BakePart *Part = nullptr;
     for (const auto &Candidate : Assets.Low.Parts)
@@ -901,11 +915,29 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
     DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), ImGui::GetColorU32(Spectrum(0x111010)));
     if (Part && !Part->Indices.empty())
     {
-        const Vec3 Eye{Camera.Distance * std::cos(Camera.Pitch) * std::sin(Camera.Yaw), Camera.Distance * std::sin(Camera.Pitch),
-            Camera.Distance * std::cos(Camera.Pitch) * std::cos(Camera.Yaw)};
-        const Vec3 Forward = NormalizeV(Sub(Vec3{}, Eye));
-        const Vec3 Right = NormalizeV(CrossV(Forward, Vec3{0, 1, 0}));
-        const Vec3 Up = CrossV(Right, Forward);
+        // 📝 Live-measured bounding sphere of the actual demo mesh (Material's five preview shapes instead use
+        // a fixed per-shape constant table, since their geometry never changes) - the one per-subject input
+        // ConstructOrbitProjection/ConstructOrbitProjection needs that Material's catalogue hardcodes.
+        float BoundsMinimum[3]{FLT_MAX, FLT_MAX, FLT_MAX}, BoundsMaximum[3]{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+        for (const auto &Vertex : Part->Vertices)
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                BoundsMinimum[Axis] = std::min(BoundsMinimum[Axis], Vertex.Position[Axis]);
+                BoundsMaximum[Axis] = std::max(BoundsMaximum[Axis], Vertex.Position[Axis]);
+            }
+        float Pivot[3]{(BoundsMinimum[0] + BoundsMaximum[0]) * .5f, (BoundsMinimum[1] + BoundsMaximum[1]) * .5f,
+            (BoundsMinimum[2] + BoundsMaximum[2]) * .5f};
+        const float Extent[3]{BoundsMaximum[0] - Pivot[0], BoundsMaximum[1] - Pivot[1], BoundsMaximum[2] - Pivot[2]};
+        const float Radius = std::max(.05f, std::sqrt(Extent[0] * Extent[0] + Extent[1] * Extent[1] + Extent[2] * Extent[2]));
+        // 📝 Same 5.8/1.35 Alloy capture-rig frame ratio Material's own preview uses (see
+        // ConstructMaterialPreviewProjection) - this orbit is the same camera, just framing Baking's live
+        // demo-mesh bounds instead of Material's five fixed catalogue shapes.
+        const auto Orbit = ConstructOrbitProjection(Camera.Yaw, Camera.Pitch, Camera.Zoom, Camera.PanX, Camera.PanY,
+            Radius, Pivot, 5.8f / 1.35f);
+        const Vec3 Eye{Orbit.Eye[0], Orbit.Eye[1], Orbit.Eye[2]};
+        const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};
+        const Vec3 Right{Orbit.Right[0], Orbit.Right[1], Orbit.Right[2]};
+        const Vec3 Up{Orbit.Up[0], Orbit.Up[1], Orbit.Up[2]};
         const float CenterX = (Region.MinimumX + Region.MaximumX) * 0.5f, CenterY = (Region.MinimumY + Region.MaximumY) * 0.5f;
         const float FocalLength = std::min(Region.Width(), Region.Height()) * 0.8f;
         const Vec3 Light = NormalizeV(Vec3{0.4f, 0.8f, 0.5f});
@@ -1089,14 +1121,18 @@ bool BakingWorkspacePanel::ConstructMapPreview(PlaneExtent Region)
 // 🧩 1:1 with BakingStudio.jsx's <section className="bk-dock bk-preview"> + .bk-preview-toolbar/.bk-view-tabs/
 // .bk-mesh-toolbar chrome: a 73px title strip (16px/weight-300 part name + muted subtitle, pill 3D/2D tabs on
 // the right) and, in 3D mode, a second Frame/overlay/wireframe toolbar row - not inline SmallButtons.
-void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
+void BakingWorkspacePanel::ConstructPreviewDock()
 {
+    // 📝 Docked by PanelDockspace, same contract as ConstructAssetsDock/ConstructInspector - no manual
+    // SetNextWindowPos/Size or Begin/End. The preview dock's background is a slightly lighter 0x141414 than
+    // the shared 0x121212 the dockspace's own windows paint (studioTheme.css's .bk-preview is one step
+    // brighter than its siblings), so repaint that one rect explicitly instead of a WindowBg style push -
+    // a push here would land after PanelDockspace's own ImGui::Begin() already baked this frame's background.
     const float S = InterfaceScale;
-    ImGui::SetNextWindowPos(ImVec2(Region.MinimumX, Region.MinimumY));
-    ImGui::SetNextWindowSize(ImVec2(Region.Width(), Region.Height()));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x141414));
-    ImGui::Begin("Baking viewport", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     Controls.Scale = S;
+    ImGui::GetWindowDrawList()->AddRectFilled(ImGui::GetWindowPos(),
+        ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y),
+        ImGui::GetColorU32(Spectrum(0x141414)));
 
     // .bk-preview-toolbar
     {
@@ -1262,7 +1298,8 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         if (CurrentImage)
         {
             const float ButtonSize = 26 * S;
-            ImGui::SetCursorScreenPos(ImVec2(Region.MaximumX - 18 * S - ButtonSize, ToolbarOrigin.y + 11 * S + 2 * S));
+            const float WindowRight = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x;
+            ImGui::SetCursorScreenPos(ImVec2(WindowRight - 18 * S - ButtonSize, ToolbarOrigin.y + 11 * S + 2 * S));
             Controls.ControlHeight = 26;
             if (Controls.Button("Download this map as PNG", ButtonSize, false,
                 "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5", true))
@@ -1410,8 +1447,6 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
             ImGui::Dummy(ImVec2(1, 14 * S));
         }
     }
-    ImGui::End();
-    ImGui::PopStyleColor();
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1423,18 +1458,14 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
 // "OUTPUT" section caption, then three accent-barred cards (Texture settings / Map inspector / High-to-low
 // projection) built from Controls.Dropdown/Number/Range/Toggle field rows, a Bake-contract notes card, and a
 // pinned .bk-pane-footer - not raw sequential ImGui combos/sliders/checkboxes.
-void BakingWorkspacePanel::ConstructInspector(PlaneExtent Region)
+void BakingWorkspacePanel::ConstructInspector()
 {
+    // 📝 Docked by PanelDockspace - no manual SetNextWindowPos/Size or Begin/End. The card stack can
+    // comfortably exceed the inspector's height (especially with "Map inspector" populated); the inner
+    // "InspectorScroll" child below (not the dock window itself) is what actually scrolls, so the
+    // .bk-pane-footer strip drawn last against the window's own fixed bottom edge stays pinned on top
+    // regardless of the child's scroll offset, exactly as it did before PanelDockspace owned this window.
     const float S = InterfaceScale;
-    ImGui::SetNextWindowPos(ImVec2(Region.MinimumX, Region.MinimumY));
-    ImGui::SetNextWindowSize(ImVec2(Region.Width(), Region.Height()));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
-    // 📝 Unlike the Assets/Preview docks, this panel's card stack can comfortably exceed the inspector's
-    // height (especially with "Map inspector" populated) - NoDecoration also implies NoScrollbar, so build
-    // the flag set without it here and let ImGui auto-scroll; the .bk-pane-footer strip below is still drawn
-    // last against the window's fixed bottom edge, so it stays pinned on top regardless of scroll offset.
-    ImGui::Begin("Baking inspector", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
     Controls.Scale = S;
     SettingsAtFrameStart = Settings;
     const float FooterHeight = 39 * S;
@@ -1592,8 +1623,6 @@ void BakingWorkspacePanel::ConstructInspector(PlaneExtent Region)
         const auto Extent = ImGui::CalcTextSize(Sub);
         Caption(ImVec2(FooterMaximum.x - 19 * S - Extent.x * 0.54f, (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), Sub, 7 * S, 0x686e59);
     }
-    ImGui::End();
-    ImGui::PopStyleColor();
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1619,6 +1648,11 @@ void BakingWorkspacePanel::ConstructInterface()
     Palette.Accent = {.39f, .45f, .31f, 1};
     ControlKit::ConfigurePalette(Palette);
     const auto ToneQuad = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
+    // 📝 Single shared dock-window background, pushed once before Panels.ConstructInterface() the same way
+    // Pattern/StampWorkspacePanel push it before their own Panels.ConstructInterface() call - PanelDockspace
+    // owns the ImGui::Begin() for every registered dock window, so a push made per-panel inside e.g.
+    // ConstructAssetsDock would land after that Begin() already baked this frame's background.
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
     ImGui::PushStyleColor(ImGuiCol_Text, ToneQuad(Palette.Text));
     ImGui::PushStyleColor(ImGuiCol_TextDisabled, ToneQuad(Palette.TextDim));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
@@ -1643,17 +1677,16 @@ void BakingWorkspacePanel::ConstructInterface()
 
     PollBake();
     ConstructHeader();
+    // 📝 PanelDockspace itself now owns the Assets/Preview/Inspector docks - same ConfigureWorkspaceInsets(43,
+    // 24) reservation above/below as before (header height / status-bar height), but the dockspace handles
+    // placement, resize, drag-to-rearrange and (once the app wires Baking's QueryPanels() the way it already
+    // does for Pattern/Stamp) layout persistence, instead of this function computing fixed Left/Top/Right/
+    // Bottom rects and calling each dock function directly.
+    Panels.ConstructInterface(InterfaceScale);
     const auto *Viewport = ImGui::GetMainViewport();
-    const float HeaderHeight = 43 * InterfaceScale, StatusHeight = 24 * InterfaceScale;
-    const float Top = Viewport->WorkPos.y + HeaderHeight;
+    const float StatusHeight = 24 * InterfaceScale;
     const float Bottom = Viewport->WorkPos.y + Viewport->WorkSize.y - StatusHeight;
     const float Left = Viewport->WorkPos.x, Right = Viewport->WorkPos.x + Viewport->WorkSize.x;
-    const float AssetsWidth = std::clamp(Viewport->WorkSize.x * 0.22f, 260.f, 420.f) * InterfaceScale;
-    const float InspectorWidth = std::clamp(Viewport->WorkSize.x * 0.22f, 260.f, 420.f) * InterfaceScale;
-
-    ConstructAssetsDock(Spanning(Left, Top, AssetsWidth, Bottom - Top));
-    ConstructPreviewDock(Spanning(Left + AssetsWidth, Top, Right - Left - AssetsWidth - InspectorWidth, Bottom - Top));
-    ConstructInspector(Spanning(Right - InspectorWidth, Top, InspectorWidth, Bottom - Top));
 
     ImGui::SetNextWindowPos(ImVec2(Left, Bottom));
     ImGui::SetNextWindowSize(ImVec2(Right - Left, StatusHeight));
@@ -1673,7 +1706,7 @@ void BakingWorkspacePanel::ConstructInterface()
         ImGui::End();
     }
     ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(19);
+    ImGui::PopStyleColor(20);
     ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier

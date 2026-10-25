@@ -40,7 +40,10 @@ int main(int ArgumentCount, char **Arguments)
         ImGui::CreateContext();
         auto &IO = ImGui::GetIO();
         IO.IniFilename = nullptr;
-        IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        // 📝 Stage 8: Baking's docks are now hosted by the shared PanelDockspace (same as Pattern/Stamp),
+        // which needs real ImGui docking enabled or its DockBuilder calls crash against a docking context
+        // that was never set up.
+        IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
         IO.DisplaySize = ImVec2(1680, 1000);
         IO.DeltaTime = 1.f / 60;
         IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;

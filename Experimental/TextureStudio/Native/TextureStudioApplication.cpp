@@ -443,6 +443,9 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 if (!LayoutBlocked)
                     if (const auto Layout = Document.Sections["workspace"]["texture_studio_stamp_layout"]; Layout)
                         LayoutBlocked = !Layout.is_table() || !Stamp->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
+                if (!LayoutBlocked)
+                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_baking_layout"]; Layout)
+                        LayoutBlocked = !Layout.is_table() || !Baking->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
             }
             if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }
@@ -911,15 +914,18 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             Library->QueryPanels().ResetLayout();
             Pattern->QueryPanels().ResetLayout();
             Stamp->QueryPanels().ResetLayout();
+            Baking->QueryPanels().ResetLayout();
             LayoutBlocked = false;
             LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         }
         Library->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Pattern->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Stamp->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
+        Baking->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Library->ConfigurePlatform();
         (void)Pattern->QueryPanels().ConfigurePlatform();
         (void)Stamp->QueryPanels().ConfigurePlatform();
+        (void)Baking->QueryPanels().ConfigurePlatform();
         if (glfwWindowShouldClose(Window))
         {
             const bool Authorized = StampActive ? Stamp->RequestClose() : PatternActive ? Pattern->RequestClose() : Library->RequestClose();
@@ -1053,6 +1059,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 {
                     Frontier::DiagnosticJournal::Append("StampLayoutSaveError", Message);
                     std::cerr << "TextureWorkspace Stamp layout not saved: " << Message << '\n';
+                }
+            }
+            if (Baking && Baking->QueryPanels().QuerySeated())
+            {
+                Message.clear();
+                const auto Layout = Baking->QueryPanels().EncodeLayout();
+                if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_baking_layout"))
+                {
+                    Frontier::DiagnosticJournal::Append("BakingLayoutSaveError", Message);
+                    std::cerr << "TextureWorkspace Baking layout not saved: " << Message << '\n';
                 }
             }
         }
