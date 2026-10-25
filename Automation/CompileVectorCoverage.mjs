@@ -42,7 +42,7 @@ try
             Offset += Words * 4;
         }
         Assert(ComputeEntry, "The Vulkan archive must expose the compute entry named main.");
-        for (const [Name, Size, Binding] of [["Instructions", 112, 0], ["Segments", 32, 2]])
+        for (const [Name, Size, Binding] of [["Instructions", 176, 0], ["Segments", 32, 2]])
         {
             const Parameter = Reflection.parameters.find(Choice => Choice.name === Name);
             Assert.equal(Parameter.type.resultType.sizes.find(Entry => Entry.kind === "uniform").value, Size);
@@ -59,7 +59,7 @@ try
         Fs.writeFileSync(Path.join(Destination, EntryCaption + ".spv"), Buffer.from(Blob));
         Fs.writeFileSync(Path.join(Destination, EntryCaption + ".json"), JSON.stringify(Reflection, null, 2));
         Manifest.entries.push({ entry: EntryCaption, spirv_sha256: Digest(Buffer.from(Blob)) });
-        console.log(Compiler.getVersionString(), EntryCaption + " compiled; instruction/segment ABI 112/32 bytes.");
+        console.log(Compiler.getVersionString(), EntryCaption + " compiled; instruction/segment ABI 176/32 bytes.");
     }
     Fs.writeFileSync(Path.join(Destination, "VectorCompilation.json"), JSON.stringify(Manifest, null, 2));
 }
