@@ -353,6 +353,9 @@ if(BUILD_TESTING)
     add_executable(BakingWorkspaceEvidence Exhibits/TextureStudio/Code/BakingWorkspaceEvidence.cpp)
     target_link_libraries(BakingWorkspaceEvidence PRIVATE FrontierTextureStudioUI)
 
+    add_executable(BakingMeshMapCompletionEvidence Exhibits/TextureStudio/Code/BakingMeshMapCompletionEvidence.cpp)
+    target_link_libraries(BakingMeshMapCompletionEvidence PRIVATE FrontierTextureStudioUI)
+
     add_executable(MirrorNoiseOffsetModifierEvidence Exhibits/TextureStudio/Code/MirrorNoiseOffsetModifierEvidence.cpp)
     target_link_libraries(MirrorNoiseOffsetModifierEvidence PRIVATE FrontierTextureStudioUI)
 

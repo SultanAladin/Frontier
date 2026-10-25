@@ -6,9 +6,10 @@
 //    1:1 from the web reference's three.js geometry), a bounded CPU BVH, and the first slice of mesh-map evaluators.
 //
 // 📝 Scope (native slice — see Experimental/TextureStudio/docs/baking-studio.md for the full 27-map contract):
-//    implemented maps are Tangent normal, World normal, UV coverage, Alpha/hit mask, Ambient occlusion and
-//    Curvature. The remaining Normals/Surface/Coordinates/Masks/Color maps are deliberately not evaluated
-//    yet; BakeMeshEngine reports them as not-yet-implemented rather than inventing placeholder pixels.
+//    every one of the 27 mesh maps now has a real CPU evaluator (RunMeshBake). "Vertex color" is the one
+//    honest exception in spirit, not in code: the geometry-only data model never carries per-vertex color
+//    (no built-in demo mesh or importer path defines one), so it always resolves to the documented
+//    "white if no vertex color exists" fallback rather than inventing a painted texture.
 
 #pragma once
 #include <array>
@@ -127,10 +128,8 @@ class BakeTriangleBvh
 //                                                        BAKE SETTINGS + ENGINE
 //------------------------------------------------------------------------------------------------------------------------
 
-// 📝 Mirrors Experimental/TextureStudio/src/baking/bakeRecipe.js / meshBakeCore.js validateMeshBakeSettings' fields
-// that the first native slice actually consumes. Fields the native engine does not yet evaluate (bevel/dust/mask
-// strength, secondary AO, curvature radius, …) are still carried so the inspector and recipe schema stay 1:1,
-// even before their maps are implemented.
+// 📝 Mirrors Experimental/TextureStudio/src/baking/bakeRecipe.js / meshBakeCore.js validateMeshBakeSettings'
+// fields 1:1; every field here is now consumed by at least one of the 27 map evaluators in RunMeshBake.
 struct BakeSettings
 {
     uint32_t Resolution = 256;
@@ -183,8 +182,8 @@ struct BakeProgress
     uint64_t Done = 0, Total = 0;
 };
 
-// 📝 The mesh map keys this native slice can actually evaluate; everything else in the 27-map contract is left
-// as a disabled, labeled tile in the UI rather than a fake result (see BakingWorkspacePanel).
+// 📝 All 27 mesh map keys from the web reference's contract; every one now has a real evaluator (see
+// BakingWorkspacePanel, which no longer needs to gray out any tile).
 [[nodiscard]] const std::vector<std::string> &ImplementedMeshMapKeys();
 [[nodiscard]] bool IsMeshMapImplemented(const std::string &Key);
 

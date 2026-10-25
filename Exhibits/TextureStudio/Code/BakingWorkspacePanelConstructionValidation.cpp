@@ -63,13 +63,17 @@ int main()
         Require(Panel.Initialize(), "BakingWorkspacePanel::Initialize must succeed");
         Require(Panel.Activate(), "BakingWorkspacePanel::Activate must succeed");
 
-        Require(IsMeshMapImplemented("normal"), "Tangent normal must be reported as implemented");
-        Require(IsMeshMapImplemented("world-normal"), "World normal must be reported as implemented");
-        Require(IsMeshMapImplemented("coverage"), "UV coverage must be reported as implemented");
-        Require(IsMeshMapImplemented("alpha"), "Alpha/hit mask must be reported as implemented");
-        Require(IsMeshMapImplemented("occlusion"), "Ambient occlusion must be reported as implemented");
-        Require(IsMeshMapImplemented("curvature"), "Curvature must be reported as implemented");
-        Require(!IsMeshMapImplemented("thickness"), "Thickness is a later-stage map and must not claim implemented");
+        // 📝 Stage 2: every key in the 27-map contract (Experimental/TextureStudio/src/baking/meshMaps.js)
+        // now has a real evaluator - this list is deliberately exhaustive rather than a handful of spot
+        // checks, so adding a 28th map key to meshMaps.js without a matching native evaluator fails loudly.
+        static const char *AllMeshMapKeys[]{
+            "normal", "world-normal", "object-normal", "bent-normal", "bent-world-normal", "bent-object-normal", "bevel-normal",
+            "occlusion", "occlusion-secondary", "curvature", "convexity", "cavity", "thickness", "height", "vector-displacement",
+            "position", "id", "uv-island", "uv", "wireframe", "coverage", "alpha", "bevel-mask", "dust", "dirt", "edge-wear", "base-color"};
+        Require(ImplementedMeshMapKeys().size() == sizeof(AllMeshMapKeys) / sizeof(AllMeshMapKeys[0]),
+            "ImplementedMeshMapKeys must list exactly the 27-map contract");
+        for (const char *Key : AllMeshMapKeys)
+            Require(IsMeshMapImplemented(Key), (std::string(Key) + " must be reported as implemented").c_str());
 
         ValidateShape("Cube");
         ValidateShape("Sphere");

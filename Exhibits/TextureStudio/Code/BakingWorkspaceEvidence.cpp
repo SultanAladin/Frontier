@@ -2,11 +2,14 @@
                                                    BAKINGWORKSPACEEVIDENCE.CPP
 ==========================================================================================================================================*/
 // 🧩 Headless, CPU-rasterized visual proof of the Baking Studio native port, Stage 1: built-in Teapot demo
-//    mesh, the 27-tile mesh-map grid (4 implemented/clickable, 23 disabled+labeled "not yet implemented"),
-//    the hand-rolled ImGui draw-list 3D orbit viewport, a real worker-thread bake run against the CPU BVH
-//    engine, the 2D map preview (drawn from the real baked RGBA8 buffer, not a placeholder), and a genuine
-//    PNG export to disk. No OS window and no GPU texture upload are involved - this workspace renders entirely
-//    on the CPU by design (see BakingWorkspacePanel.h), so this evidence needs no Vulkan device at all.
+//    mesh, the 27-tile mesh-map grid, the hand-rolled ImGui draw-list 3D orbit viewport, a real worker-thread
+//    bake run against the CPU BVH engine, the 2D map preview (drawn from the real baked RGBA8 buffer, not a
+//    placeholder), and a genuine PNG export to disk. No OS window and no GPU texture upload are involved -
+//    this workspace renders entirely on the CPU by design (see BakingWorkspacePanel.h), so this evidence
+//    needs no Vulkan device at all.
+//    📝 Stage 1 exercised only the first 4 implemented maps via the "Essential" preset below; see
+//    BakingMeshMapCompletionEvidence.cpp for Stage 2's coverage of all 27 maps + the 3D-preview-texture
+//    dropdown.
 
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
 #include "RasterizeLibraryEvidence.h"
@@ -142,7 +145,7 @@ int main(int ArgumentCount, char **Arguments)
 
         ImGui::DestroyContext();
         std::cout << "PASS: Baking Studio Stage 1 (UI + 3D viewport + Teapot demo + a real worker-thread bake "
-            "of the 4 currently-implemented mesh maps + 2D map preview + real PNG export) verified against the "
+            "of the \"Essential\" mesh-map preset + 2D map preview + real PNG export) verified against the "
             "actual rendered canvas, see " << Output.string() << "\n";
     }
     catch (const std::exception &Failure)

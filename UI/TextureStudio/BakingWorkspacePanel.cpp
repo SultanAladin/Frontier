@@ -7,7 +7,9 @@
 #include "Engine/Interface/GlyphSpace.h"
 #include <stb_image_write.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -917,33 +919,113 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
             Screen = ImVec2(CenterX + Cx * FocalLength / Z, CenterY - Cy * FocalLength / Z);
         };
 
-        struct DrawTriangle { ImVec2 A, B, C; float Shade; float Depth; };
+        // 📝 When a baked map is picked for 3D preview, paint the model with its real texels instead of the
+        // flat demo colour - same "genuine CPU representation, no GPU texture upload" philosophy as
+        // ConstructMapPreview's 2D block raster. Looks up the actual BakeMapImage for Part/Preview3DMapKey and,
+        // if present, subdivides each source triangle into a small barycentric lattice so the baked bitmap is
+        // sampled (bilinear) at several points across each face instead of just its three corners.
+        const BakeMapImage *TextureImage = nullptr;
+        uint32_t TextureResolution = 0;
+        if (!Preview3DMapKey.empty())
+            for (const auto &Result : Results)
+                if (Result.Name == Part->Name)
+                {
+                    TextureResolution = Result.Resolution;
+                    for (const auto &Map : Result.Maps)
+                        if (Map.Key == Preview3DMapKey) TextureImage = &Map;
+                    break;
+                }
+        const auto SampleTexel = [&](float U, float V) -> ImU32
+        {
+            // 📝 Inverse of RunMeshBake's own texel->UV mapping ("texture v grows upward"): row 0 is the top of
+            // the stored RGBA buffer but corresponds to V close to 1, not 0.
+            const float Tx = U * float(TextureResolution) - 0.5f, Ty = (1.f - V) * float(TextureResolution) - 0.5f;
+            const int X0 = int(std::floor(Tx)), Y0 = int(std::floor(Ty));
+            const float Fx = Tx - float(X0), Fy = Ty - float(Y0);
+            const auto ClampCoord = [&](int Value) { return std::clamp(Value, 0, int(TextureResolution) - 1); };
+            float Out[4]{0, 0, 0, 0};
+            for (int Dy = 0; Dy < 2; ++Dy)
+                for (int Dx = 0; Dx < 2; ++Dx)
+                {
+                    const size_t Offset = (size_t(ClampCoord(Y0 + Dy)) * TextureResolution + size_t(ClampCoord(X0 + Dx))) * 4;
+                    const float Weight = (Dx ? Fx : 1 - Fx) * (Dy ? Fy : 1 - Fy);
+                    for (int Channel = 0; Channel < 4; ++Channel) Out[Channel] += TextureImage->Rgba[Offset + Channel] * Weight;
+                }
+            return IM_COL32(uint8_t(Out[0]), uint8_t(Out[1]), uint8_t(Out[2]), 255);
+        };
+
+        struct DrawTriangle { ImVec2 A, B, C; ImU32 ColourA, ColourB, ColourC; float Depth; };
         std::vector<DrawTriangle> Triangles;
-        Triangles.reserve(Part->Indices.size() / 3);
+        constexpr int Subdivisions = 3; // only subdivide while actually sampling a baked bitmap
+        Triangles.reserve(Part->Indices.size() / 3 * (TextureImage ? size_t(Subdivisions * Subdivisions) : 1));
+        const ImU32 BaseColour = ImGui::GetColorU32(Spectrum(0x8f8fe0));
         for (size_t Index = 0; Index + 2 < Part->Indices.size(); Index += 3)
         {
             const auto &VA = Part->Vertices[Part->Indices[Index + 0]];
             const auto &VB = Part->Vertices[Part->Indices[Index + 1]];
             const auto &VC = Part->Vertices[Part->Indices[Index + 2]];
-            ImVec2 Sa, Sb, Sc; float Da, Db, Dc;
-            Project(VA.Position, Sa, Da);
-            Project(VB.Position, Sb, Db);
-            Project(VC.Position, Sc, Dc);
-            if (Da <= 0.05f || Db <= 0.05f || Dc <= 0.05f) continue;
             const Vec3 FaceNormal = NormalizeV(CrossV(Sub(Vec3{VB.Position[0], VB.Position[1], VB.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]}),
                 Sub(Vec3{VC.Position[0], VC.Position[1], VC.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]})));
             if (DotV(FaceNormal, Forward) > -0.02f) continue; // backface cull (camera looks along +Forward into the scene)
             const float Shade = std::clamp(0.25f + 0.75f * std::max(0.f, DotV(FaceNormal, Light)), 0.f, 1.f);
-            Triangles.push_back({Sa, Sb, Sc, Shade, (Da + Db + Dc) / 3.f});
+            const uint8_t Level = uint8_t(Shade * 255.f);
+            const auto Tint = [&](ImU32 Source) -> ImU32
+            {
+                return IM_COL32(uint8_t(((Source & 0xff) * Level) / 255), uint8_t((((Source >> 8) & 0xff) * Level) / 255),
+                    uint8_t((((Source >> 16) & 0xff) * Level) / 255), 255);
+            };
+            const auto EmitSubTriangle = [&](std::array<float, 3> Wa, std::array<float, 3> Wb, std::array<float, 3> Wc)
+            {
+                const auto LerpPosition = [&](std::array<float, 3> W, float Out[3])
+                { for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = VA.Position[Axis] * W[0] + VB.Position[Axis] * W[1] + VC.Position[Axis] * W[2]; };
+                float Pa[3], Pb[3], Pc[3];
+                LerpPosition(Wa, Pa); LerpPosition(Wb, Pb); LerpPosition(Wc, Pc);
+                ImVec2 Sa, Sb, Sc; float Da, Db, Dc;
+                Project(Pa, Sa, Da); Project(Pb, Sb, Db); Project(Pc, Sc, Dc);
+                if (Da <= 0.05f || Db <= 0.05f || Dc <= 0.05f) return;
+                ImU32 ColourA = Tint(BaseColour), ColourB = Tint(BaseColour), ColourC = Tint(BaseColour);
+                if (TextureImage)
+                {
+                    const auto LerpUv = [&](std::array<float, 3> W) { return ImVec2(VA.Uv[0] * W[0] + VB.Uv[0] * W[1] + VC.Uv[0] * W[2], VA.Uv[1] * W[0] + VB.Uv[1] * W[1] + VC.Uv[1] * W[2]); };
+                    const ImVec2 Uva = LerpUv(Wa), Uvb = LerpUv(Wb), Uvc = LerpUv(Wc);
+                    ColourA = Tint(SampleTexel(Uva.x, Uva.y));
+                    ColourB = Tint(SampleTexel(Uvb.x, Uvb.y));
+                    ColourC = Tint(SampleTexel(Uvc.x, Uvc.y));
+                }
+                Triangles.push_back({Sa, Sb, Sc, ColourA, ColourB, ColourC, (Da + Db + Dc) / 3.f});
+            };
+            if (!TextureImage) EmitSubTriangle({1, 0, 0}, {0, 1, 0}, {0, 0, 1});
+            else
+                for (int I = 0; I < Subdivisions; ++I)
+                    for (int J = 0; I + J < Subdivisions; ++J)
+                    {
+                        const auto Weight = [&](int Si, int Sj) { return std::array<float, 3>{float(Subdivisions - Si - Sj) / Subdivisions, float(Si) / Subdivisions, float(Sj) / Subdivisions}; };
+                        EmitSubTriangle(Weight(I, J), Weight(I + 1, J), Weight(I, J + 1));
+                        if (I + J + 1 < Subdivisions) EmitSubTriangle(Weight(I + 1, J), Weight(I + 1, J + 1), Weight(I, J + 1));
+                    }
         }
         std::sort(Triangles.begin(), Triangles.end(), [](const DrawTriangle &A, const DrawTriangle &B) { return A.Depth > B.Depth; });
-        const ImU32 BaseColour = ImGui::GetColorU32(Spectrum(0x8f8fe0));
         for (const auto &Triangle_ : Triangles)
         {
-            const uint8_t Level = uint8_t(Triangle_.Shade * 255.f);
-            const ImU32 Fill = IM_COL32(uint8_t(((BaseColour & 0xff) * Level) / 255), uint8_t((((BaseColour >> 8) & 0xff) * Level) / 255),
-                uint8_t((((BaseColour >> 16) & 0xff) * Level) / 255), 255);
-            DrawList->AddTriangleFilled(Triangle_.A, Triangle_.B, Triangle_.C, Fill);
+            // 📝 One self-contained PrimReserve per triangle (not a single bulk reservation for the whole
+            // batch): the optional AddTriangle() wireframe overlay right below does its own PrimReserve calls,
+            // and a bulk up-front reservation would leave its line geometry appended past the end of this
+            // batch's block instead of between triangles, corrupting draw order/vertex bounds.
+            DrawList->PrimReserve(3, 3);
+            ImDrawVert *Vertex = DrawList->_VtxWritePtr;
+            ImDrawIdx *IndexCursor = DrawList->_IdxWritePtr;
+            ImDrawIdx Base = DrawList->_VtxCurrentIdx;
+            for (const auto &Corner : {std::pair{Triangle_.A, Triangle_.ColourA}, std::pair{Triangle_.B, Triangle_.ColourB}, std::pair{Triangle_.C, Triangle_.ColourC}})
+            {
+                Vertex->pos = Corner.first;
+                Vertex->uv = DrawList->_Data->TexUvWhitePixel;
+                Vertex->col = Corner.second;
+                ++Vertex;
+                *IndexCursor++ = Base++;
+            }
+            DrawList->_VtxWritePtr = Vertex;
+            DrawList->_IdxWritePtr = IndexCursor;
+            DrawList->_VtxCurrentIdx = Base;
             if (Wireframe) DrawList->AddTriangle(Triangle_.A, Triangle_.B, Triangle_.C, IM_COL32(20, 20, 20, 160), 1.f);
         }
     }
@@ -1088,6 +1170,43 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         if (ToolbarButton("Frame", false, false, "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7")) ResetCamera();
         if (ToolbarButton("High overlay", Overlay, true)) Overlay = !Overlay;
         if (ToolbarButton("Wireframe", Wireframe, true)) Wireframe = !Wireframe;
+
+        // 🧩 Native-only addition (no .bk-mesh-toolbar counterpart - the web reference always hardwires the
+        // bevel/tangent normal onto the 3D mesh with no picker): lets the user actually see a baked map's real
+        // texels painted on the model, not just in the flat 2D grid. Only offers maps this part has actually
+        // baked; falls back to "Shaded" the moment that set has nothing baked yet.
+        {
+            const std::string ActiveSetName = PreviewSetName.empty() ? (SelectedTargets.empty() ? std::string() : SelectedTargets.front()) : PreviewSetName;
+            const BakePartResult *ActiveResult = nullptr;
+            for (const auto &Result : Results)
+                if (Result.Name == ActiveSetName) { ActiveResult = &Result; break; }
+            const bool HasBakedMaps = ActiveResult && !ActiveResult->Maps.empty();
+            if (!HasBakedMaps) Preview3DMapKey.clear();
+            ImGui::SetCursorScreenPos(ImVec2(CursorX, Origin.y + (RowHeight - 24 * S) * .5f));
+            ImGui::BeginDisabled(!HasBakedMaps);
+            ImGui::SetNextItemWidth(142 * S);
+            const auto *Current3DMeta = FindMeshMap(Preview3DMapKey);
+            const char *Current3DLabel = Preview3DMapKey.empty() ? "Shaded" : (Current3DMeta ? Current3DMeta->Label : Preview3DMapKey.c_str());
+            const bool Preview3DDropdownOpen = DropdownControlSurface::BeginSelection("##Preview3DTexture", Current3DLabel, S);
+            // 📝 Track the combo's own closed-state trigger item immediately, before any Option() rows below
+            // can overwrite ImGui's LastItemData - QueryControlExtent("Preview3DTexture") must always resolve
+            // to the clickable dropdown button itself, open or closed, for headless evidence to find it.
+            Track("Preview3DTexture");
+            if (Preview3DDropdownOpen)
+            {
+                if (DropdownControlSurface::Option("Shaded", Preview3DMapKey.empty(), S)) Preview3DMapKey.clear();
+                if (ActiveResult)
+                    for (const auto &Map : ActiveResult->Maps)
+                    {
+                        const auto *Meta = FindMeshMap(Map.Key);
+                        if (DropdownControlSurface::Option(Meta ? Meta->Label : Map.Key.c_str(), Map.Key == Preview3DMapKey, S)) Preview3DMapKey = Map.Key;
+                    }
+                DropdownControlSurface::EndSelection();
+            }
+            ImGui::EndDisabled();
+            Controls.Tooltip("Preview texture", "Paints the 3D model with a baked map's real pixels instead of the plain shaded surface.");
+            CursorX += 142 * S + 6 * S;
+        }
         const char *Hint = "Orbit · scroll to zoom";
         const auto HintExtent = ImGui::CalcTextSize(Hint);
         Caption(ImVec2(Origin.x + RowWidth - 18 * S - HintExtent.x * 0.54f, Origin.y + (RowHeight - 7 * S) * .5f), Hint, 7 * S, 0x697459);

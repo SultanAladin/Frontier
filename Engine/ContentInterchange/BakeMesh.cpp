@@ -570,7 +570,14 @@ BakeTriangleBvh::ClosestPointResult BakeTriangleBvh::ClosestPoint(const float Po
 
 const std::vector<std::string> &ImplementedMeshMapKeys()
 {
-    static const std::vector<std::string> Keys{"normal", "world-normal", "coverage", "alpha", "occlusion", "curvature"};
+    // 📝 All 27 keys from meshMaps.js's MESH_MAPS now have a real evaluator below - see RunMeshBake's per-texel
+    // loop. "base-color" is included honestly: the geometry-only data model never carries vertex color (none
+    // of the built-in demo meshes or the importer contract define one), so it always resolves to the exact
+    // documented fallback ("White if no vertex color exists"), not a fabricated value.
+    static const std::vector<std::string> Keys{
+        "normal", "world-normal", "object-normal", "bent-normal", "bent-world-normal", "bent-object-normal", "bevel-normal",
+        "occlusion", "occlusion-secondary", "curvature", "convexity", "cavity", "thickness", "height", "vector-displacement",
+        "position", "id", "uv-island", "uv", "wireframe", "coverage", "alpha", "bevel-mask", "dust", "dirt", "edge-wear", "base-color"};
     return Keys;
 }
 bool IsMeshMapImplemented(const std::string &Key)
@@ -627,6 +634,54 @@ void Hemisphere(const float Normal[3], float Tangent[3], float Bitangent[3]) noe
     Normalize(Tangent);
     Cross(Normal, Tangent, Bitangent);
 }
+// 📝 1:1 with meshBakeCore.js's `localNormal`: the low target's original local axes, undone from its imported
+// world transform by the PLAIN transpose of the upper 3x3 (not a true inverse-transpose) - matches the web
+// reference's own normal-matrix shortcut exactly, which is only exact for orthonormal (rotation-only, no
+// non-uniform scale) object-to-world matrices, same as every built-in demo part's transform.
+void TransformLocalNormal(const std::array<float, 16> &ObjectToWorld, const float World[3], float Out[3]) noexcept
+{
+    for (int Row = 0; Row < 3; ++Row)
+        Out[Row] = ObjectToWorld[0 * 4 + Row] * World[0] + ObjectToWorld[1 * 4 + Row] * World[1] + ObjectToWorld[2 * 4 + Row] * World[2];
+    Normalize(Out);
+}
+// 📝 1:1 with meshBakeCore.js's uvIslandColor: a bijective odd multiplication mod 2^24 so chart colors are
+// deterministic and distinct for every supported chart count; zero stays reserved for "outside".
+void UvIslandColor(uint32_t Id, uint8_t Out[3]) noexcept
+{
+    const uint32_t Code = (Id * 0x9e3779u) & 0xffffffu;
+    Out[0] = uint8_t(Code & 255);
+    Out[1] = uint8_t((Code >> 8) & 255);
+    Out[2] = uint8_t((Code >> 16) & 255);
+}
+// 📝 1:1 with meshBakeCore.js's averageNormal: a local high-normal average around Point within Radius, biased
+// slightly inward (-Radius*0.3 along Normal) so the sample ring follows rounded geometry rather than floating
+// above it, weighted by distance falloff and rejecting samples that face sharply away from Normal/Facing -
+// the geometry-only "rounded edge" approximation behind bevel-normal/bevel-mask. Zero radius is a bypass.
+void AverageNormal(const BakeTriangleBvh &Bvh, const float Point[3], const float Normal[3], const float Facing[3], float Radius,
+    uint32_t Samples, float Epsilon, float Out[3]) noexcept
+{
+    if (Radius <= Epsilon) { Out[0] = Normal[0]; Out[1] = Normal[1]; Out[2] = Normal[2]; return; }
+    float Tangent[3], Bitangent[3];
+    Hemisphere(Normal, Tangent, Bitangent);
+    float Sum[3]{Normal[0] * 2.f, Normal[1] * 2.f, Normal[2] * 2.f};
+    float Weight = 2.f;
+    const float SearchRadius = Radius * 1.8f;
+    for (uint32_t K = 0; K < Samples; ++K)
+    {
+        const float Angle = (float(K) / float(std::max(1u, Samples))) * 6.283185307179586f;
+        const float Query[3]{Point[0] + Tangent[0] * std::cos(Angle) * Radius + Bitangent[0] * std::sin(Angle) * Radius - Normal[0] * Radius * 0.3f,
+            Point[1] + Tangent[1] * std::cos(Angle) * Radius + Bitangent[1] * std::sin(Angle) * Radius - Normal[1] * Radius * 0.3f,
+            Point[2] + Tangent[2] * std::cos(Angle) * Radius + Bitangent[2] * std::sin(Angle) * Radius - Normal[2] * Radius * 0.3f};
+        const auto Near = Bvh.ClosestPoint(Query, SearchRadius);
+        if (!Near.Found || Near.Distance > SearchRadius) continue;
+        if (Dot(Near.Normal, Normal) < -0.1f || Dot(Near.Normal, Facing) < -1e-6f) continue;
+        const float SampleWeight = 1.f - std::clamp(Near.Distance / SearchRadius, 0.f, 1.f);
+        Sum[0] += Near.Normal[0] * SampleWeight; Sum[1] += Near.Normal[1] * SampleWeight; Sum[2] += Near.Normal[2] * SampleWeight;
+        Weight += SampleWeight;
+    }
+    Out[0] = Sum[0] / Weight; Out[1] = Sum[1] / Weight; Out[2] = Sum[2] / Weight;
+    Normalize(Out);
+}
 } // namespace
 
 std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Targets, const BakeMeshSet &High,
@@ -641,8 +696,21 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
     BakeTriangleBvh Bvh;
     Bvh.Build(High);
     const uint32_t Resolution = std::max(8u, std::min(1024u, Settings.Resolution));
-    const bool NeedOcclusion = std::find(Channels.begin(), Channels.end(), std::string("occlusion")) != Channels.end();
-    const bool NeedCurvature = std::find(Channels.begin(), Channels.end(), std::string("curvature")) != Channels.end();
+    const auto Needs = [&](const char *Key) { return std::find(Channels.begin(), Channels.end(), std::string(Key)) != Channels.end(); };
+    const bool NeedOcclusion = Needs("occlusion");
+    const bool NeedCurvature = Needs("curvature");
+    const bool NeedOcclusionSecondary = Needs("occlusion-secondary");
+    const bool NeedBentNormal = Needs("bent-normal"), NeedBentWorldNormal = Needs("bent-world-normal"), NeedBentObjectNormal = Needs("bent-object-normal");
+    const bool NeedDust = Needs("dust"), NeedDirt = Needs("dirt"), NeedEdgeWear = Needs("edge-wear");
+    const bool NeedConvexity = Needs("convexity"), NeedCavity = Needs("cavity");
+    const bool NeedThickness = Needs("thickness");
+    const bool NeedBevelNormal = Needs("bevel-normal"), NeedBevelMask = Needs("bevel-mask");
+    // 📝 Hemisphere sampling (occlusion + bent-* normals) and the curvature probes are each one shared pass
+    // per texel - every map that reads their result just consumes Visibility/Bent/SignedCurvature below,
+    // matching meshBakeCore.js's own `if (maps.occlusion || maps["bent-normal"] || ...)` gating exactly.
+    const bool NeedHemisphereSampling = NeedOcclusion || NeedOcclusionSecondary || NeedBentNormal || NeedBentWorldNormal || NeedBentObjectNormal ||
+        NeedDust || NeedDirt || NeedEdgeWear;
+    const bool NeedCurvatureSampling = NeedCurvature || NeedConvexity || NeedCavity || NeedDirt || NeedEdgeWear;
 
     // 📝 epsilon = max(highMeshBoundingBoxDiagonal * 1e-5, 1e-7) — meshBakeCore.js's self-intersection
     // bias for occlusion/thickness ray origins, scaled to the actual high mesh's size instead of a fixed
@@ -682,6 +750,10 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
 
                 bool Covered = false;
                 Interpolated Sample{};
+                // 📝 Retained for wireframe (texture-space distance to the winning triangle's nearest edge)
+                // and uv-island (its chart id) - both are pure low-mesh quantities, not high-surface hits.
+                const BakeVertex *WinningA = nullptr, *WinningB = nullptr, *WinningC = nullptr;
+                float WinningWeightA = 0.f, WinningWeightB = 0.f, WinningWeightC = 0.f;
                 for (size_t Index = 0; Index + 2 < Part.Indices.size() && !Covered; Index += 3)
                 {
                     const auto &A = Part.Vertices[Part.Indices[Index + 0]];
@@ -695,6 +767,8 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                     const float WeightC = 1.f - WeightA - WeightB;
                     if (WeightA < -1e-4f || WeightB < -1e-4f || WeightC < -1e-4f) continue;
                     Sample = BarycentricLerp(A, B, C, WeightA, WeightB, WeightC);
+                    WinningA = &A; WinningB = &B; WinningC = &C;
+                    WinningWeightA = WeightA; WinningWeightB = WeightB; WinningWeightC = WeightC;
                     Covered = true;
                 }
 
@@ -704,9 +778,9 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                 bool HasHit = false;
                 BakeTriangleBvh::Hit Hit;
                 float WorldNormal[3]{0, 0, 1};
+                float WorldPosition[3]{0, 0, 0};
                 if (Covered)
                 {
-                    float WorldPosition[3];
                     Transform(Part.ObjectToWorld, Sample.Position, WorldPosition);
                     for (int Axis = 0; Axis < 3; ++Axis) WorldNormal[Axis] = Sample.Normal[Axis];
                     Normalize(WorldNormal);
@@ -723,20 +797,33 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                     if (HasHit) ++Result.Stats.Hits; else ++Result.Stats.Misses;
                 }
 
-                // 📝 Ambient occlusion: 1:1 port of meshBakeCore.js's cosine-weighted, golden-angle
-                // hemisphere sampler around the resolved high-surface normal (not the low mesh's own
-                // normal) - a deterministic, world-position-seeded rotation avoids UV-chart-boundary noise.
-                float Visibility = 1.f;
-                if (HasHit && (NeedOcclusion || NeedCurvature))
+                // 📝 "NH"/"Q" mirror meshBakeCore.js's own names: the resolved high-surface normal/position on
+                // a hit, falling back to the low mesh's own interpolated normal/position on a miss (its
+                // documented "neutral low normals/zero displacement" fallback) - every map below reads these,
+                // not Hit.Normal/Hit.Position directly, so a miss still produces the spec's fallback pixel
+                // instead of a transparent hole.
+                const float *NH = HasHit ? Hit.Normal : WorldNormal;
+                const float *Q = HasHit ? Hit.Position : WorldPosition;
+
+                // 📝 Ambient occlusion + bent normals + secondary AO: one shared cosine-weighted, golden-angle
+                // hemisphere sampler around NH (1:1 port of meshBakeCore.js's combined occlusion/bent-normal
+                // loop) - a deterministic, world-position-seeded rotation avoids UV-chart-boundary noise. Bent
+                // accumulates every unblocked sample direction; occlusion-secondary reuses the same samples
+                // against its own distance instead of re-sampling.
+                float Visibility = 1.f, SecondaryVisibility = 1.f;
+                float Bent[3]{NH[0], NH[1], NH[2]};
+                if (HasHit && (NeedHemisphereSampling || NeedCurvatureSampling))
                 {
                     float Tangent[3], Bitangent[3];
                     Hemisphere(Hit.Normal, Tangent, Bitangent);
-                    if (NeedOcclusion)
+                    if (NeedHemisphereSampling)
                     {
                         const float Origin[3]{Hit.Position[0] + Hit.Normal[0] * Epsilon * 3, Hit.Position[1] + Hit.Normal[1] * Epsilon * 3,
                             Hit.Position[2] + Hit.Normal[2] * Epsilon * 3};
                         const uint32_t Samples = std::max(1u, Settings.Samples);
-                        uint32_t Blocked = 0;
+                        const float SampleDistance = NeedOcclusionSecondary ? std::max(Settings.AoDistance, Settings.SecondaryAoDistance) : Settings.AoDistance;
+                        uint32_t Blocked = 0, SecondaryBlocked = 0;
+                        float BentSum[3]{0, 0, 0};
                         const float Seed = std::fmod(Hit.Position[0] * 0.754877666f + Hit.Position[1] * 0.569840296f +
                             Hit.Position[2] * 0.438579021f, 1.f);
                         for (uint32_t S = 0; S < Samples; ++S)
@@ -747,10 +834,16 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                             const float Direction[3]{Hit.Normal[0] * Z + Tangent[0] * std::cos(Angle) * R + Bitangent[0] * std::sin(Angle) * R,
                                 Hit.Normal[1] * Z + Tangent[1] * std::cos(Angle) * R + Bitangent[1] * std::sin(Angle) * R,
                                 Hit.Normal[2] * Z + Tangent[2] * std::cos(Angle) * R + Bitangent[2] * std::sin(Angle) * R};
-                            const auto Obstruction = Bvh.CastRay(Origin, Direction, Epsilon, Settings.AoDistance);
-                            if (Obstruction.Found) ++Blocked;
+                            const auto Obstruction = Bvh.CastRay(Origin, Direction, Epsilon, SampleDistance);
+                            const bool Occluded = Obstruction.Found && Obstruction.Distance <= Settings.AoDistance;
+                            if (Occluded) ++Blocked;
+                            else { BentSum[0] += Direction[0]; BentSum[1] += Direction[1]; BentSum[2] += Direction[2]; }
+                            if (Obstruction.Found && Obstruction.Distance <= Settings.SecondaryAoDistance) ++SecondaryBlocked;
                         }
                         Visibility = 1.f - float(Blocked) / float(Samples);
+                        SecondaryVisibility = 1.f - float(SecondaryBlocked) / float(Samples);
+                        if (Dot(BentSum, BentSum) < 1e-12f) { Bent[0] = Hit.Normal[0]; Bent[1] = Hit.Normal[1]; Bent[2] = Hit.Normal[2]; }
+                        else { Bent[0] = BentSum[0]; Bent[1] = BentSum[1]; Bent[2] = BentSum[2]; Normalize(Bent); }
                     }
                 }
                 // 📝 Curvature: four cardinal tangent-plane probes find the nearest high-surface point in
@@ -758,7 +851,7 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                 // projected back onto the probe direction, is meshBakeCore.js's discrete curvature estimate
                 // (positive = convex, negative = concave), remapped from [-1,1] into the [0,1] map range.
                 float SignedCurvature = 0.f;
-                if (HasHit && NeedCurvature)
+                if (HasHit && NeedCurvatureSampling)
                 {
                     float Tangent[3], Bitangent[3];
                     Hemisphere(Hit.Normal, Tangent, Bitangent);
@@ -782,6 +875,58 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                     SignedCurvature = Count ? Sum / float(Count) : 0.f;
                 }
 
+                // 📝 Convexity/cavity isolate the signed curvature's positive/negative half into independent
+                // bright-edge masks, each bounded by mask-strength - 1:1 with meshBakeCore.js's `convexity =
+                // clamp(signedCurvature * maskStrength)`, `cavity = clamp(-signedCurvature * maskStrength)`.
+                const float Convexity = std::clamp(SignedCurvature * Settings.MaskStrength, 0.f, 1.f);
+                const float Cavity = std::clamp(-SignedCurvature * Settings.MaskStrength, 0.f, 1.f);
+
+                // 📝 Thickness: an inward ray (opposite NH) from just past the surface to the nearest backside
+                // hit - "ray searches beyond that display range, so farther surfaces saturate white instead of
+                // becoming false holes"; an open mesh with no inward hit also reads white (thick/no hole), not
+                // black (a false thin spot).
+                float ThicknessValue = 0.f;
+                if (HasHit && NeedThickness)
+                {
+                    const float InwardOrigin[3]{Q[0] - Hit.Normal[0] * Epsilon * 3, Q[1] - Hit.Normal[1] * Epsilon * 3, Q[2] - Hit.Normal[2] * Epsilon * 3};
+                    const float InwardDirection[3]{-Hit.Normal[0], -Hit.Normal[1], -Hit.Normal[2]};
+                    const auto Inward = Bvh.CastRay(InwardOrigin, InwardDirection, Epsilon, 3.402823e38f);
+                    ThicknessValue = Inward.Found ? std::clamp((Inward.Distance + Epsilon * 3) / std::max(1e-6f, Settings.ThicknessRange), 0.f, 1.f) : 1.f;
+                }
+
+                // 📝 Bevel normal/mask: a local high-normal average within BevelRadius, blended with NH by
+                // BevelStrength - "changes shading only"; the mask isolates how much that averaging actually
+                // bent the normal (meshBakeCore.js's `clamp((1 - NH.dot(averaged)) * 8)`).
+                float BevelNormal[3]{NH[0], NH[1], NH[2]};
+                float BevelMaskValue = 0.f;
+                if (HasHit && (NeedBevelNormal || NeedBevelMask))
+                {
+                    float Averaged[3];
+                    AverageNormal(Bvh, Q, Hit.Normal, WorldNormal, Settings.BevelRadius, std::max(1u, Settings.BevelSamples), Epsilon, Averaged);
+                    const float InverseStrength = 1.f - std::clamp(Settings.BevelStrength, 0.f, 1.f);
+                    BevelNormal[0] = Averaged[0] * Settings.BevelStrength + Hit.Normal[0] * InverseStrength;
+                    BevelNormal[1] = Averaged[1] * Settings.BevelStrength + Hit.Normal[1] * InverseStrength;
+                    BevelNormal[2] = Averaged[2] * Settings.BevelStrength + Hit.Normal[2] * InverseStrength;
+                    Normalize(BevelNormal);
+                    BevelMaskValue = std::clamp((1.f - Dot(Hit.Normal, BevelNormal)) * 8.f, 0.f, 1.f);
+                }
+
+                // 📝 Shared tangent-space encoder for normal/bent-normal/bevel-normal: project Direction onto
+                // the low mesh's own tangent frame (built from WorldNormal, not the hit normal) - the only
+                // three outputs the NormalPlusY flip applies to (baking-studio.md: "flips green for tangent,
+                // bent-tangent and bevel-normal outputs only. Object/world vector normals are not altered").
+                const auto EncodeTangentSpace = [&](const float Direction[3], uint8_t Out[3])
+                {
+                    float Tangent[3], Bitangent[3];
+                    TangentBasis(WorldNormal, Tangent, Bitangent);
+                    float Tx = Dot(Direction, Tangent), Ty = Dot(Direction, Bitangent), Tz = Dot(Direction, WorldNormal);
+                    if (!Settings.NormalPlusY) Ty = -Ty;
+                    Out[0] = ToByte(Tx * 0.5f + 0.5f);
+                    Out[1] = ToByte(Ty * 0.5f + 0.5f);
+                    Out[2] = ToByte(Tz * 0.5f + 0.5f);
+                };
+                const float MaxFrontBack = std::max(1e-6f, std::max(Settings.Front, Settings.Back));
+
                 for (auto &Map : Result.Maps)
                 {
                     uint8_t Out[4]{0, 0, 0, 0};
@@ -795,11 +940,18 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                         Out[0] = Out[1] = Out[2] = ToByte(Visibility);
                         Out[3] = 255;
                     }
+                    else if (Map.Key == "occlusion-secondary")
+                    {
+                        Out[0] = Out[1] = Out[2] = ToByte(SecondaryVisibility);
+                        Out[3] = 255;
+                    }
                     else if (Map.Key == "curvature")
                     {
                         Out[0] = Out[1] = Out[2] = ToByte(0.5f + SignedCurvature * 0.5f);
                         Out[3] = 255;
                     }
+                    else if (Map.Key == "convexity") { Out[0] = Out[1] = Out[2] = ToByte(Convexity); Out[3] = 255; }
+                    else if (Map.Key == "cavity") { Out[0] = Out[1] = Out[2] = ToByte(Cavity); Out[3] = 255; }
                     else if (HasHit && Map.Key == "alpha") { Out[0] = Out[1] = Out[2] = Out[3] = 255; }
                     else if (HasHit && Map.Key == "world-normal")
                     {
@@ -809,15 +961,108 @@ std::vector<BakePartResult> RunMeshBake(const std::vector<const BakePart *> &Tar
                         Out[2] = ToByte(Hit.Normal[2] * 0.5f + 0.5f);
                         Out[3] = 255;
                     }
-                    else if (HasHit && Map.Key == "normal") // tangent normal
+                    else if (HasHit && Map.Key == "normal") { EncodeTangentSpace(Hit.Normal, Out); Out[3] = 255; } // tangent normal
+                    else if (Map.Key == "object-normal")
                     {
-                        float Tangent[3], Bitangent[3];
-                        TangentBasis(WorldNormal, Tangent, Bitangent);
-                        float Tx = Dot(Hit.Normal, Tangent), Ty = Dot(Hit.Normal, Bitangent), Tz = Dot(Hit.Normal, WorldNormal);
-                        if (!Settings.NormalPlusY) Ty = -Ty;
-                        Out[0] = ToByte(Tx * 0.5f + 0.5f);
-                        Out[1] = ToByte(Ty * 0.5f + 0.5f);
-                        Out[2] = ToByte(Tz * 0.5f + 0.5f);
+                        float LocalNormal[3];
+                        TransformLocalNormal(Part.ObjectToWorld, NH, LocalNormal);
+                        Out[0] = ToByte(LocalNormal[0] * 0.5f + 0.5f);
+                        Out[1] = ToByte(LocalNormal[1] * 0.5f + 0.5f);
+                        Out[2] = ToByte(LocalNormal[2] * 0.5f + 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "bent-normal") { EncodeTangentSpace(Bent, Out); Out[3] = 255; }
+                    else if (Map.Key == "bent-world-normal")
+                    {
+                        Out[0] = ToByte(Bent[0] * 0.5f + 0.5f); Out[1] = ToByte(Bent[1] * 0.5f + 0.5f); Out[2] = ToByte(Bent[2] * 0.5f + 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "bent-object-normal")
+                    {
+                        float LocalBent[3];
+                        TransformLocalNormal(Part.ObjectToWorld, Bent, LocalBent);
+                        Out[0] = ToByte(LocalBent[0] * 0.5f + 0.5f); Out[1] = ToByte(LocalBent[1] * 0.5f + 0.5f); Out[2] = ToByte(LocalBent[2] * 0.5f + 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "bevel-normal") { EncodeTangentSpace(BevelNormal, Out); Out[3] = 255; }
+                    else if (Map.Key == "bevel-mask") { Out[0] = Out[1] = Out[2] = ToByte(BevelMaskValue); Out[3] = 255; }
+                    else if (Map.Key == "thickness") { Out[0] = Out[1] = Out[2] = ToByte(ThicknessValue); Out[3] = 255; }
+                    else if (Map.Key == "height")
+                    {
+                        const float Delta[3]{Q[0] - WorldPosition[0], Q[1] - WorldPosition[1], Q[2] - WorldPosition[2]};
+                        const float Signed = HasHit ? Dot(Delta, WorldNormal) : 0.f;
+                        Out[0] = Out[1] = Out[2] = ToByte(0.5f + Signed / (2.f * MaxFrontBack));
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "vector-displacement")
+                    {
+                        const float Delta[3]{Q[0] - WorldPosition[0], Q[1] - WorldPosition[1], Q[2] - WorldPosition[2]};
+                        Out[0] = ToByte(0.5f + Delta[0] / (2.f * MaxFrontBack));
+                        Out[1] = ToByte(0.5f + Delta[1] / (2.f * MaxFrontBack));
+                        Out[2] = ToByte(0.5f + Delta[2] / (2.f * MaxFrontBack));
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "position")
+                    {
+                        for (int Axis = 0; Axis < 3; ++Axis)
+                            Out[Axis] = ToByte(Diagonal[Axis] > 1e-9f ? (Q[Axis] - BoundsMinimum[Axis]) / Diagonal[Axis] : 0.5f);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "id")
+                    {
+                        const uint32_t Id = HasHit ? Hit.PartIndex + 1 : 0;
+                        Out[0] = uint8_t(Id & 255); Out[1] = uint8_t((Id >> 8) & 255); Out[2] = uint8_t((Id >> 16) & 255);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "uv-island" && Covered) { UvIslandColor(WinningA->ChartId, Out); Out[3] = 255; }
+                    else if (Map.Key == "uv" && Covered)
+                    {
+                        Out[0] = ToByte(PixelU); Out[1] = ToByte(PixelV); Out[2] = 255; Out[3] = 255;
+                    }
+                    else if (Map.Key == "wireframe" && Covered && WinningA)
+                    {
+                        const float Ua[2]{WinningA->Uv[0] * Resolution, WinningA->Uv[1] * Resolution};
+                        const float Ub[2]{WinningB->Uv[0] * Resolution, WinningB->Uv[1] * Resolution};
+                        const float Uc[2]{WinningC->Uv[0] * Resolution, WinningC->Uv[1] * Resolution};
+                        const float Area = std::fabs((Ub[0] - Ua[0]) * (Uc[1] - Ua[1]) - (Ub[1] - Ua[1]) * (Uc[0] - Ua[0]));
+                        const auto EdgeLength = [](const float P0[2], const float P1[2]) { return std::max(1e-9f, std::sqrt((P0[0] - P1[0]) * (P0[0] - P1[0]) + (P0[1] - P1[1]) * (P0[1] - P1[1]))); };
+                        const float DistanceA = std::fabs(WinningWeightA) * Area / EdgeLength(Ub, Uc);
+                        const float DistanceB = std::fabs(WinningWeightB) * Area / EdgeLength(Uc, Ua);
+                        const float DistanceC = std::fabs(WinningWeightC) * Area / EdgeLength(Ua, Ub);
+                        const float Distance = std::min({DistanceA, DistanceB, DistanceC});
+                        Out[0] = Out[1] = Out[2] = ToByte(Settings.WireWidth + 0.5f - Distance);
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "base-color" && Covered)
+                    {
+                        // 📝 The geometry-only data model never carries a per-vertex color (no built-in demo
+                        // mesh defines one), so this is always the documented fallback, not a placeholder.
+                        Out[0] = Out[1] = Out[2] = Out[3] = 255;
+                    }
+                    else if (Map.Key == "dust")
+                    {
+                        if (HasHit)
+                        {
+                            float DustUp[3]{0, 0, 0};
+                            if (Settings.DustAxis.size() == 2)
+                            {
+                                const int Axis = Settings.DustAxis[1] == 'X' ? 0 : Settings.DustAxis[1] == 'Y' ? 1 : Settings.DustAxis[1] == 'Z' ? 2 : 1;
+                                DustUp[Axis] = Settings.DustAxis[0] == '-' ? -1.f : 1.f;
+                            }
+                            const float Facing = std::max(0.f, Dot(NH, DustUp));
+                            const float Value = std::pow(Facing, std::max(1e-3f, Settings.DustFalloff)) * (0.65f + 0.35f * (1.f - Visibility));
+                            Out[0] = Out[1] = Out[2] = ToByte(Value);
+                        }
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "dirt")
+                    {
+                        if (HasHit) Out[0] = Out[1] = Out[2] = ToByte(std::clamp((1.f - Visibility) * Settings.MaskStrength + Cavity * 0.5f, 0.f, 1.f));
+                        Out[3] = 255;
+                    }
+                    else if (Map.Key == "edge-wear")
+                    {
+                        if (HasHit) Out[0] = Out[1] = Out[2] = ToByte(Convexity * Visibility);
                         Out[3] = 255;
                     }
                     Map.Rgba[Pixel + 0] = Out[0];

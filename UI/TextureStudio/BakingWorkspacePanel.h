@@ -47,6 +47,9 @@ class BakingWorkspacePanel final : public ActivationSequence
     // QueryControlExtent convention so headless evidence/validation can drive real clicks instead of poking
     // private state. Only the handful of controls automated evidence actually needs are tracked (see .cpp).
     [[nodiscard]] PlaneExtent QueryControlExtent(const std::string &Caption) const;
+    // 📝 Read-only access to the live recipe (headless evidence/validation needs this to assert, e.g., that
+    // the "All" preset really did select every implemented mesh map, not just open a dialog that looked right).
+    [[nodiscard]] const BakeSettings &QuerySettings() const noexcept { return Settings; }
 
   private:
     bool InitializeContent() noexcept override;
@@ -67,6 +70,13 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::vector<std::string> SelectedTargets; // low part names included in the next bake
     std::string InspectMapKey = "normal";
     std::string PreviewSetName, PreviewMapKey = "normal";
+    // 📝 3D-preview texture choice: empty ("Shaded") keeps the plain Lambert-lit surface; any other value is a
+    // baked map key, and ConstructViewport3D paints the mesh with that map's actual baked texels (sampled at
+    // each triangle's real UVs, not a GPU texture - same "genuine CPU representation of the real data" approach
+    // as ConstructMapPreview's 2D block raster) tinted by the same per-face Lambert shade. Native-only addition
+    // requested directly by the user; the web reference always hardwires the bevel/tangent normal in 3D with no
+    // picker, so there is no studioTheme.css/BakingStudio.jsx counterpart to port for this dropdown.
+    std::string Preview3DMapKey;
 
     void SelectDemo(const std::string &Shape);
     void ClearResults() noexcept;
