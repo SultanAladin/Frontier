@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
 #include "Engine/Interface/ControlKit.h"
+#include "Engine/Interface/GlyphSpace.h"
 #include <stb_image_write.h>
 #include <imgui.h>
 #include <algorithm>
@@ -18,6 +19,12 @@ namespace
 ImVec4 Spectrum(uint32_t Colour, float Alpha = 1.f) noexcept
 {
     return ImVec4(float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha);
+}
+// 🎨 Same hex colour, but as the ColorQuad GlyphSpace::Stroke's GlyphPlacement expects (its own hand-drawn
+// icons, e.g. the .bk-empty stage glyph, are not ImGui-styled widgets going through ConvertSpectrum).
+ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
 }
 // 🎨 Same helper as Pattern/Stamp's ThemeQuad: lets this panel's own card chrome read straight from
 // ControlKit::Palette() so it tracks the applied theme instead of a hard-coded colour set.
@@ -171,7 +178,7 @@ void BakingWorkspacePanel::FinalizeContent() noexcept
     }
     ControlExtents.clear();
 }
-void BakingWorkspacePanel::IntegrateContent(double) noexcept { PollBake(); }
+void BakingWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept { SettingsCoalesceClockSeconds += DeltaSeconds; PollBake(); }
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     DOCUMENT / BAKE OPERATIONS
@@ -202,6 +209,41 @@ void BakingWorkspacePanel::Track(const std::string &Caption)
     const ImVec2 Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
     ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
 }
+// 🧩 1:1 behaviour with BakingStudio.jsx's travel()/setSettingsDocument() history: every inspector field change
+// is coalesced into a single undo step while it is still being actively edited (continuous drags/typing), and a
+// new step only starts once 650ms have passed since the last push - not one undo entry per dragged pixel.
+bool BakingWorkspacePanel::SettingsFieldsEqual(const BakeSettings &A, const BakeSettings &B) noexcept
+{
+    return A.Resolution == B.Resolution && A.Padding == B.Padding && A.NormalPlusY == B.NormalPlusY &&
+        A.ProjectionRay == B.ProjectionRay && A.Front == B.Front && A.Back == B.Back && A.AoDistance == B.AoDistance &&
+        A.SecondaryAoDistance == B.SecondaryAoDistance && A.ThicknessRange == B.ThicknessRange &&
+        A.CurvatureRadius == B.CurvatureRadius && A.Samples == B.Samples && A.MatchByName == B.MatchByName &&
+        A.Channels == B.Channels;
+}
+void BakingWorkspacePanel::CoalesceSettingsUndo()
+{
+    if (SettingsFieldsEqual(Settings, SettingsAtFrameStart)) return;
+    if (SettingsUndoStack.empty() || SettingsCoalesceClockSeconds - LastSettingsPushSeconds > 0.65)
+        SettingsUndoStack.push_back(SettingsAtFrameStart);
+    LastSettingsPushSeconds = SettingsCoalesceClockSeconds;
+    SettingsRedoStack.clear();
+}
+void BakingWorkspacePanel::UndoSettings()
+{
+    if (SettingsUndoStack.empty()) return;
+    SettingsRedoStack.push_back(Settings);
+    Settings = SettingsUndoStack.back();
+    SettingsUndoStack.pop_back();
+    LastSettingsPushSeconds = -1000.0;
+}
+void BakingWorkspacePanel::RedoSettings()
+{
+    if (SettingsRedoStack.empty()) return;
+    SettingsUndoStack.push_back(Settings);
+    Settings = SettingsRedoStack.back();
+    SettingsRedoStack.pop_back();
+    LastSettingsPushSeconds = -1000.0;
+}
 void BakingWorkspacePanel::StartBake()
 {
     if (BakeRunning.load() || SelectedTargets.empty() || Settings.Channels.empty()) return;
@@ -215,6 +257,7 @@ void BakingWorkspacePanel::StartBake()
     BakeTotal.store(1);
     Error.clear();
     BakeProgressLabel = "Baking mesh maps…";
+    SettingsAtLastBake = Settings;
     // 📝 Copy by value into the worker: Assets/Settings must outlive the bake even if the panel is torn
     // down mid-bake (FinalizeContent waits on BakeFuture first, so this is belt-and-braces, not load-bearing).
     const BakeMeshSet HighCopy = Assets.High;
@@ -687,10 +730,13 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
 // 📝 Draws the selected bake result directly from its real RGBA8 pixels via a coarse block grid (ImGui's draw
 // list, same technique as the 3D viewport) — a genuine representation of the baked data without requiring a
 // new GPU-texture upload path. ExportResults() below writes the full-resolution PNGs to disk for pixel-exact use.
-void BakingWorkspacePanel::ConstructMapPreview(PlaneExtent Region)
+// 📝 1:1 with .bk-map-image's `repeating-conic-gradient(#23251f 0% 25%, #191c16 0% 50%) 50% / 16px 16px`
+// transparency checkerboard plus its 1px #ffffff0d / 5px-radius border - the reference never shows a baked
+// map floating on a flat panel background, so neither does this. Returns false (and draws nothing) when
+// PreviewSetName/PreviewMapKey resolve to no map yet; the caller substitutes the full .bk-empty screen instead.
+bool BakingWorkspacePanel::ConstructMapPreview(PlaneExtent Region)
 {
     auto *DrawList = ImGui::GetWindowDrawList();
-    DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), ImGui::GetColorU32(Spectrum(0x111010)));
     const BakeMapImage *Image = nullptr;
     uint32_t Resolution = 0;
     for (const auto &Result : Results)
@@ -700,11 +746,15 @@ void BakingWorkspacePanel::ConstructMapPreview(PlaneExtent Region)
             for (const auto &Map : Result.Maps)
                 if (Map.Key == PreviewMapKey) Image = &Map;
         }
-    if (!Image)
-    {
-        DrawList->AddText(ImVec2(Region.MinimumX + 10, Region.MinimumY + 10), ImGui::GetColorU32(Spectrum(0x716f62)), "No baked maps yet.");
-        return;
-    }
+    if (!Image) return false;
+    const float CheckerCell = 16 * InterfaceScale;
+    DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
+    for (float Cy = Region.MinimumY; Cy < Region.MaximumY; Cy += CheckerCell)
+        for (float Cx = Region.MinimumX; Cx < Region.MaximumX; Cx += CheckerCell)
+        {
+            const int Parity = (int(std::round((Cx - Region.MinimumX) / CheckerCell)) + int(std::round((Cy - Region.MinimumY) / CheckerCell))) & 1;
+            DrawList->AddRectFilled(ImVec2(Cx, Cy), ImVec2(Cx + CheckerCell, Cy + CheckerCell), ImGui::GetColorU32(Spectrum(Parity ? 0x191c16 : 0x23251f)));
+        }
     constexpr uint32_t Blocks = 96; // coarse in-app preview grid; ExportResults() keeps the real resolution
     const float CellWidth = Region.Width() / float(Blocks), CellHeight = Region.Height() / float(Blocks);
     for (uint32_t By = 0; By < Blocks; ++By)
@@ -717,6 +767,9 @@ void BakingWorkspacePanel::ConstructMapPreview(PlaneExtent Region)
             const float X0 = Region.MinimumX + Bx * CellWidth, Y0 = Region.MinimumY + By * CellHeight;
             DrawList->AddRectFilled(ImVec2(X0, Y0), ImVec2(X0 + CellWidth + 0.5f, Y0 + CellHeight + 0.5f), Colour);
         }
+    DrawList->PopClipRect();
+    DrawList->AddRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), ImGui::GetColorU32(Spectrum(0xffffff, 0.05f)), 5 * InterfaceScale);
+    return true;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -744,7 +797,8 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         Ink->AddLine(ImVec2(Origin.x, Origin.y + ToolbarHeight), ImVec2(Origin.x + ToolbarWidth, Origin.y + ToolbarHeight), ImGui::GetColorU32(Spectrum(0xffffff, 0.02f)));
         const std::string PartLabel = PreviewSetName.empty() ? Assets.Low.Label : PreviewSetName;
         Caption(ImVec2(Origin.x + 19 * S, Origin.y + 20 * S), PartLabel.c_str(), 16 * S, 0xd0d4be, LightTypeface ? LightTypeface : RegularTypeface);
-        const char *Subtitle = Mode == StudioMode::Volume ? "High mesh · 3D distance volume" : Mode == StudioMode::Material ? "Procedural flat-patch export" : "Mesh-map authoring";
+        const char *Subtitle = Mode == StudioMode::Volume ? "High mesh · 3D distance volume" : Mode == StudioMode::Material ? "Procedural flat-patch export" :
+            SettingsStale() ? "Previous bake · settings changed" : "Mesh-map authoring";
         Caption(ImVec2(Origin.x + 19 * S, Origin.y + 45 * S), Subtitle, 8 * S, 0x7d856b);
 
         const float TabsWidth = 160 * S, TabsHeight = 34 * S;
@@ -780,22 +834,30 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         auto *Ink = ImGui::GetWindowDrawList();
         Ink->AddRectFilled(Origin, ImVec2(Origin.x + RowWidth, Origin.y + RowHeight), ImGui::GetColorU32(Spectrum(0x151515)));
         float CursorX = Origin.x + 18 * S;
-        const auto ToolbarButton = [&](const char *Label, bool Active, bool Toggle) -> bool
+        const auto ToolbarButton = [&](const char *Label, bool Active, bool Toggle, const char *IconPath = nullptr) -> bool
         {
             const auto Extent = ImGui::CalcTextSize(Label);
-            const float ButtonWidth = Extent.x * 0.72f + 18 * S, ButtonHeight = 24 * S;
+            const float IconGutter = IconPath ? 15 * S : 0.f;
+            const float ButtonWidth = Extent.x * 0.72f + 18 * S + IconGutter, ButtonHeight = 24 * S;
             const ImVec2 Minimum(CursorX, Origin.y + (RowHeight - ButtonHeight) * .5f), Maximum(Minimum.x + ButtonWidth, Minimum.y + ButtonHeight);
             ImGui::SetCursorScreenPos(Minimum);
             ImGui::PushID(Label);
             ImGui::InvisibleButton("Mesh", ImVec2(ButtonWidth, ButtonHeight));
             const bool Clicked = ImGui::IsItemClicked();
             if (Toggle && Active) Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(Spectrum(0x33392b)), 6 * S);
-            Caption(ImVec2(Minimum.x + 9 * S, Minimum.y + (ButtonHeight - 8 * S) * .4f), Label, 8 * S, Toggle && Active ? 0xd0dfb8 : 0xa8ab98);
+            const uint32_t LabelColour = Toggle && Active ? 0xd0dfb8 : 0xa8ab98;
+            if (IconPath)
+            {
+                PixelSpace IconSurface;
+                (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+                GlyphSpace::Stroke(IconSurface, IconPath, {Minimum.x + 9 * S, Minimum.y + (ButtonHeight - 11 * S) * .5f, 11 * S, 1.7f, SpectrumQuad(LabelColour)});
+            }
+            Caption(ImVec2(Minimum.x + 9 * S + IconGutter, Minimum.y + (ButtonHeight - 8 * S) * .4f), Label, 8 * S, LabelColour);
             ImGui::PopID();
             CursorX += ButtonWidth + 6 * S;
             return Clicked;
         };
-        if (ToolbarButton("Frame", false, false)) ResetCamera();
+        if (ToolbarButton("Frame", false, false, "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7")) ResetCamera();
         if (ToolbarButton("High overlay", Overlay, true)) Overlay = !Overlay;
         if (ToolbarButton("Wireframe", Wireframe, true)) Wireframe = !Wireframe;
         const char *Hint = "Orbit · scroll to zoom";
@@ -814,7 +876,13 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
     }
     else
     {
-        ImGui::SetNextItemWidth(160);
+        // .bk-map-toolbar: 11px/18px padded row - the set/map pickers on the left, a right-aligned icon-only
+        // PNG download button for whichever single map is on screen (studioTheme.css's `margin-left: auto`
+        // button), only present once a map actually exists to download - not a bare two-combo row.
+        const ImVec2 ToolbarOrigin = ImGui::GetCursorScreenPos();
+        const float ToolbarRowHeight = 11 * S + 30 * S + 11 * S;
+        ImGui::SetCursorScreenPos(ImVec2(ToolbarOrigin.x + 18 * S, ToolbarOrigin.y + 11 * S));
+        ImGui::SetNextItemWidth(170 * S);
         if (ImGui::BeginCombo("##Set", PreviewSetName.c_str()))
         {
             for (const auto &Result : Results)
@@ -822,7 +890,7 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(160);
+        ImGui::SetNextItemWidth(170 * S);
         if (ImGui::BeginCombo("##Map", FindMeshMap(PreviewMapKey) ? FindMeshMap(PreviewMapKey)->Label : PreviewMapKey.c_str()))
         {
             for (const auto &Key : Settings.Channels)
@@ -832,14 +900,87 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
             }
             ImGui::EndCombo();
         }
+
+        const BakeMapImage *CurrentImage = nullptr;
+        uint32_t CurrentResolution = 0;
+        for (const auto &Result : Results)
+            if (Result.Name == PreviewSetName)
+            {
+                CurrentResolution = Result.Resolution;
+                for (const auto &Map : Result.Maps)
+                    if (Map.Key == PreviewMapKey) CurrentImage = &Map;
+            }
+        if (CurrentImage)
+        {
+            const float ButtonSize = 26 * S;
+            ImGui::SetCursorScreenPos(ImVec2(Region.MaximumX - 18 * S - ButtonSize, ToolbarOrigin.y + 11 * S + 2 * S));
+            Controls.ControlHeight = 26;
+            if (Controls.Button("Download this map as PNG", ButtonSize, false,
+                "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5", true))
+            {
+                try
+                {
+                    std::filesystem::path Directory = ExportDirectory.empty() ? std::filesystem::temp_directory_path() / "FrontierBakeExport" : ExportDirectory;
+                    std::filesystem::create_directories(Directory);
+                    const auto Path = Directory / (PreviewSetName + "-" + PreviewMapKey + ".png");
+                    if (stbi_write_png(Path.string().c_str(), int(CurrentResolution), int(CurrentResolution), 4, CurrentImage->Rgba.data(), int(CurrentResolution) * 4))
+                    {
+                        LastExportDirectory = Directory.string();
+                        Info = "Map PNG written to " + Path.string();
+                    }
+                }
+                catch (const std::exception &Failure) { Error = std::string("PNG export failed: ") + Failure.what(); }
+            }
+            Controls.Tooltip("Download this map as PNG", "Writes just the map on screen, not the whole bake's set.");
+            Track("DownloadMapPNG");
+        }
+        ImGui::SetCursorScreenPos(ImVec2(ToolbarOrigin.x, ToolbarOrigin.y + ToolbarRowHeight));
+
         const ImVec2 CursorScreen = ImGui::GetCursorScreenPos();
         const ImVec2 Available = ImGui::GetContentRegionAvail();
         // 📝 Leave the same ~92*S margin below the image as the 3D branch leaves below its viewport, so the
         // Bake/Export row and result captions that follow (outside this if/else) always have room instead of
         // being clipped against the window's bottom edge.
-        const float ImageSize = std::max(64.f, std::min(Available.x, Available.y - 92.f * S) - 8.f);
-        ConstructMapPreview(Spanning(CursorScreen.x, CursorScreen.y, ImageSize, ImageSize));
-        ImGui::Dummy(ImVec2(ImageSize, ImageSize + 4));
+        if (CurrentImage)
+        {
+            // .bk-map-image: 17px padding around a checkerboard-backed, bordered square, with a caption line
+            // below it ("{res} × {res} · {colorSpace} · current/previous bake") - not a bare edge-to-edge raster.
+            const float ImageSize = std::max(64.f, std::min(Available.x - 34.f * S, Available.y - 92.f * S - 26.f * S) - 8.f);
+            const ImVec2 ImageOrigin(CursorScreen.x + (Available.x - ImageSize) * .5f, CursorScreen.y + 17 * S);
+            ConstructMapPreview(Spanning(ImageOrigin.x, ImageOrigin.y, ImageSize, ImageSize));
+            const bool Stale = SettingsStale();
+            const char *ColourSpace = PreviewMapKey == "base-color" ? "sRGB" : "linear";
+            char CaptionLine[160];
+            std::snprintf(CaptionLine, sizeof(CaptionLine), "%u × %u · %s · %s", CurrentResolution, CurrentResolution, ColourSpace, Stale ? "previous recipe" : "current bake");
+            const auto LineExtent = ImGui::CalcTextSize(CaptionLine);
+            Caption(ImVec2(CursorScreen.x + (Available.x - LineExtent.x * 0.69f) * .5f, ImageOrigin.y + ImageSize + 12 * S), CaptionLine, 9 * S, 0x7c8a6a);
+            ImGui::Dummy(ImVec2(Available.x, ImageSize + 17 * S + 26 * S));
+        }
+        else
+        {
+            // .bk-empty: centred stack icon + "No baked maps yet" + the same explainer paragraph as the web
+            // reference, filling the whole stage instead of a one-line draw-list caption in the corner.
+            const float StageHeight = std::max(120.f, Available.y - 92.f * S);
+            const ImVec2 StageCentre(CursorScreen.x + Available.x * .5f, CursorScreen.y + StageHeight * .5f);
+            auto *Ink = ImGui::GetWindowDrawList();
+            PixelSpace IconSurface;
+            (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+            GlyphSpace::Stroke(IconSurface, "M12 2L2 7L12 12L22 7ZM2 17L12 22L22 17M2 12L12 17L22 12",
+                {StageCentre.x - 15 * S, StageCentre.y - 58 * S, 30 * S, 1.6f, SpectrumQuad(0x748463)});
+            const char *Heading = "No baked maps yet";
+            const auto HeadingExtent = ImGui::CalcTextSize(Heading);
+            Caption(ImVec2(StageCentre.x - HeadingExtent.x * 0.64f, StageCentre.y - 16 * S), Heading, 16 * S, 0xbdcba9, LightTypeface ? LightTypeface : RegularTypeface);
+            ImGui::SetCursorScreenPos(ImVec2(StageCentre.x - 190 * S, StageCentre.y + 10 * S));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380 * S);
+            ImGui::PushStyleColor(ImGuiCol_Text, Spectrum(0x748463));
+            ImGui::TextWrapped("Choose your low UV targets and high source, then bake the selected maps. "
+                "Material-patch mode downloads its own six-map ZIP.");
+            ImGui::PopStyleColor();
+            ImGui::PopTextWrapPos();
+            (void)Ink;
+            ImGui::SetCursorScreenPos(CursorScreen);
+            ImGui::Dummy(ImVec2(Available.x, StageHeight));
+        }
     }
 
     ImGui::Dummy(ImVec2(1, 10 * S));
@@ -848,6 +989,9 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
         const float Fraction = BakeTotal.load() ? float(double(BakeDone.load()) / double(BakeTotal.load())) : 0.f;
         ImGui::ProgressBar(Fraction, ImVec2(-1, 0), BakeProgressLabel.c_str());
     }
+    // .bk-run-actions: Bake (bk-primary) + Export on the left, .bk-settings-history's Undo/Redo pair pinned to
+    // the row's far right via BakingStudio.jsx's travel("undo"/"redo") - backed by the real coalesced settings
+    // history CoalesceSettingsUndo() builds in ConstructInspector, not decorative disabled buttons.
     ImGui::BeginDisabled(BakeRunning.load() || SelectedTargets.empty() || Settings.Channels.empty());
     Controls.ControlHeight = 32;
     if (Controls.Button(SelectedTargets.size() > 1 ? "Bake all selected meshes" : "Bake mesh maps", 220 * S)) StartBake();
@@ -856,13 +1000,46 @@ void BakingWorkspacePanel::ConstructPreviewDock(PlaneExtent Region)
     if (!Results.empty())
     {
         ImGui::SameLine();
+        Controls.ControlHeight = 32;
         if (Controls.Button("Export maps (PNG)", 0)) ExportResults();
         Track("Export");
-        ImGui::SameLine();
-        ImGui::TextColored(Spectrum(0x9fd9a8), "%zu result%s ready", Results.size(), Results.size() == 1 ? "" : "s");
+    }
+    {
+        const float HistoryWidth = 25 * S * 2 + 4 * S;
+        ImGui::SameLine(0, 0);
+        ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX() + 8 * S, ImGui::GetWindowContentRegionMax().x - HistoryWidth));
+        Controls.ControlHeight = 25;
+        ImGui::BeginDisabled(SettingsUndoStack.empty());
+        if (Controls.Button("Undo bake settings", 25 * S, false,
+            "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11", true)) UndoSettings();
+        ImGui::EndDisabled();
+        Controls.Tooltip("Undo bake settings", "Steps back through the inspector's resolution/projection history.");
+        Track("UndoSettings");
+        ImGui::SameLine(0, 4 * S);
+        ImGui::BeginDisabled(SettingsRedoStack.empty());
+        if (Controls.Button("Redo bake settings", 25 * S, false,
+            "M15 14l5-5-5-5M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13", true)) RedoSettings();
+        ImGui::EndDisabled();
+        Controls.Tooltip("Redo bake settings", "Replays a step the undo button just stepped back from.");
+        Track("RedoSettings");
+    }
+    // .bk-result-summary: one Check-prefixed line per bake result, below the actions row - "N results ready"
+    // is not in the web reference, so this native build no longer invents that heading either.
+    if (!Results.empty())
+    {
+        ImGui::Dummy(ImVec2(1, 10 * S));
         for (const auto &Result : Results)
-            ImGui::TextDisabled("%s: %u charts, %llu hits, %llu misses", Result.Name.c_str(), Result.Stats.Charts,
+        {
+            const ImVec2 LineOrigin = ImGui::GetCursorScreenPos();
+            PixelSpace IconSurface;
+            (void)IconSurface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+            GlyphSpace::Stroke(IconSurface, "M20 6L9 17l-5-5", {LineOrigin.x, LineOrigin.y + 1 * S, 9 * S, 1.8f, SpectrumQuad(0x8b9d76)});
+            char Line[200];
+            std::snprintf(Line, sizeof(Line), "%s · %u charts · %llu hits · %llu misses", Result.Name.c_str(), Result.Stats.Charts,
                 (unsigned long long)Result.Stats.Hits, (unsigned long long)Result.Stats.Misses);
+            Caption(ImVec2(LineOrigin.x + 15 * S, LineOrigin.y), Line, 8.5f * S, 0x8b9d76);
+            ImGui::Dummy(ImVec2(1, 14 * S));
+        }
     }
     ImGui::End();
     ImGui::PopStyleColor();
@@ -890,6 +1067,7 @@ void BakingWorkspacePanel::ConstructInspector(PlaneExtent Region)
     ImGui::Begin("Baking inspector", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
     Controls.Scale = S;
+    SettingsAtFrameStart = Settings;
     const float FooterHeight = 39 * S;
     // 📝 The card stack scrolls inside its own child (height = window height minus the footer strip), clipped
     // to that child's rect - so it can never paint over the pinned .bk-pane-footer below it the way unclipped
@@ -1028,6 +1206,7 @@ void BakingWorkspacePanel::ConstructInspector(PlaneExtent Region)
     }
     Controls.EndCard();
     ImGui::Unindent(19 * S);
+    CoalesceSettingsUndo();
     ImGui::EndChild();
 
     // .bk-pane-footer: pinned 39px strip - "Settings + selected maps" / "Source meshes: session only" - drawn

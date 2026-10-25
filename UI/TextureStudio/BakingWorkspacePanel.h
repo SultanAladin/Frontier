@@ -80,13 +80,30 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::string BakeProgressLabel;
     std::vector<BakePartResult> Results;
     std::string Info, Error;
+    // 📝 1:1 with BakingStudio.jsx's `stale` flag: true once the inspector's settings have changed since the
+    // snapshot StartBake() captured for the bake that produced Results - drives the "Previous bake · settings
+    // changed" subtitle and the 2D map caption's "previous recipe" vs "current bake" wording.
+    BakeSettings SettingsAtLastBake;
+    [[nodiscard]] bool SettingsStale() const noexcept { return !Results.empty() && !SettingsFieldsEqual(Settings, SettingsAtLastBake); }
     void StartBake();
     void PollBake();
 
     //--------------------------------------------------------------------------------------------------------------
+    //                                                 SETTINGS UNDO/REDO (BakingStudio.jsx's travel())
+    //--------------------------------------------------------------------------------------------------------------
+    std::vector<BakeSettings> SettingsUndoStack, SettingsRedoStack;
+    BakeSettings SettingsAtFrameStart;
+    double SettingsCoalesceClockSeconds = 0.0, LastSettingsPushSeconds = -1000.0;
+    static bool SettingsFieldsEqual(const BakeSettings &A, const BakeSettings &B) noexcept;
+    void CoalesceSettingsUndo();
+    void UndoSettings();
+    void RedoSettings();
+
+
+    //--------------------------------------------------------------------------------------------------------------
     //                                                 2D MAP PREVIEW (DRAW-LIST BLOCK RASTER) + PNG EXPORT
     //--------------------------------------------------------------------------------------------------------------
-    void ConstructMapPreview(PlaneExtent Region);
+    bool ConstructMapPreview(PlaneExtent Region);
     std::filesystem::path ExportDirectory;
     std::string LastExportDirectory;
     void ExportResults();
