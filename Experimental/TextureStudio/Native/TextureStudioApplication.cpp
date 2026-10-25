@@ -1032,6 +1032,31 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         StampOwnership.reset();
         LibraryOwnership.reset();
         AppearanceOwnership.reset();
+        // 📝 Everything above this point already ran inside a guarded zone (the shared application
+        // host wraps this whole Finalize callback in its own try/catch). The objects below are
+        // RunTextureWorkspace's own locals, which the host has no visibility into at all - left
+        // alone, they would only be destructed later as RunTextureWorkspace itself returns, entirely
+        // *outside* any guard, and any failure there (the diagnostic logs from a layer-stack-reorder
+        // shutdown crash show no intervening message between "Application resources finalized" and
+        // a bare "[SEVERE] bad allocation" - consistent with an unguarded destructor further up the
+        // call stack than this callback) would surface only as that unexplained generic allocation
+        // failure. A session that reorders/adds/removes Pattern or Stamp layers heavily populates
+        // exactly this state (submitted/observed documents, in-flight authoring map pyramids), so
+        // retire it here instead, one group at a time, each wrapped and diagnosed individually - a
+        // failure is then caught and logged with a precise tag instead of reaching the user as a
+        // fatal "Severe failure" dialog on an application that is already closing regardless.
+        const auto RetireQuietly = [](const char *Tag, const std::function<void()> &Retire)
+        {
+            try { Retire(); }
+            catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append(Tag, Failure.what()); }
+            catch (...) { Frontier::DiagnosticJournal::Append(Tag, "Unknown failure"); }
+        };
+        RetireQuietly("PatternDocumentRetireError", [&]()
+            { SubmittedPatternDocument = {}; ObservedPatternDocument.reset(); PatternBridgeFaultedDocument.reset(); });
+        RetireQuietly("StampDocumentRetireError", [&]()
+            { SubmittedStampDocument = {}; ObservedStampDocument.reset(); StampBridgeFaultedDocument.reset(); });
+        RetireQuietly("AuthoringMapsRetireError", [&]()
+            { PatternAuthoringMaps.reset(); StampAuthoringMaps.reset(); AssignedWorkspaceMaps.reset(); });
     };
     return Frontier::RunWindowsApplication(Callbacks);
 }

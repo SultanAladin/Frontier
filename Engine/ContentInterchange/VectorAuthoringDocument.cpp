@@ -66,6 +66,17 @@ toml::table EncodeInstruction(const VectorCoverageInstruction &Instruction)
     if (Instruction.Topology[0] <= 6 &&
         ((Instruction.Topology[3] & VectorCoverageStrokeColourExplicit) != 0 || Instruction.StrokeColour != Instruction.Colour))
         Result.insert("stroke_colour", EncodeCoordinates(Instruction.StrokeColour));
+    // 📝 Only a gradient fill (Transform.w != 0) ever reads these, so a plain solid-colour shape's saved
+    // file stays exactly as before - but when it IS a gradient, every one of its up-to-4 colour stops and
+    // its own on-canvas axis/radius handles (see VectorCoverage.h's GradientAxis) must round-trip, or a
+    // reopened document would silently collapse back to a plain 2-stop, box-cornered ramp.
+    if (Instruction.Topology[0] <= 6 && Instruction.Transform[3] != 0)
+    {
+        Result.insert("gradient_stop_positions", EncodeCoordinates(Instruction.GradientStopPositions));
+        Result.insert("gradient_stop_colour2", EncodeCoordinates(Instruction.GradientStopColour2));
+        Result.insert("gradient_stop_colour3", EncodeCoordinates(Instruction.GradientStopColour3));
+        Result.insert("gradient_axis", EncodeCoordinates(Instruction.GradientAxis));
+    }
     return Result;
 }
 std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &Field)
@@ -80,9 +91,227 @@ std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &
     }
     return Result;
 }
+toml::table EncodeArraySpecification(const VectorAuthoringArraySpecification &Specification)
+{
+    constexpr const char *CategoryNames[]{"linear", "grid", "circular", "radial"};
+    constexpr const char *ProfileNames[]{"uniform", "linear", "circular", "radial", "noise"};
+    return toml::table{
+        {"category", CategoryNames[uint32_t(Specification.Category)]},
+        {"scale_profile", ProfileNames[uint32_t(Specification.ScaleProfile)]},
+        {"count", int64_t(Specification.Count)}, {"columns", int64_t(Specification.Columns)}, {"rows", int64_t(Specification.Rows)},
+        {"rings", int64_t(Specification.Rings)}, {"seed", int64_t(Specification.Seed)},
+        {"start_scale", double(Specification.StartScale)}, {"end_scale", double(Specification.EndScale)},
+        {"step_x", double(Specification.StepX)}, {"step_y", double(Specification.StepY)},
+        {"centre_x", double(Specification.CentreX)}, {"centre_y", double(Specification.CentreY)},
+        {"radius", double(Specification.Radius)}, {"radius_step", double(Specification.RadiusStep)},
+        {"start_angle", double(Specification.StartAngle)}, {"sweep", double(Specification.Sweep)},
+        {"rotate_copies", Specification.RotateCopies}};
+}
+VectorAuthoringArraySpecification DecodeArraySpecification(const toml::table &Source)
+{
+    ValidateFields(Source, {"category", "scale_profile", "count", "columns", "rows", "rings", "seed",
+        "start_scale", "end_scale", "step_x", "step_y", "centre_x", "centre_y", "radius", "radius_step", "start_angle", "sweep", "rotate_copies"});
+    VectorAuthoringArraySpecification Specification;
+    const auto Category = DecodeOptional<std::string>(Source, "category", "linear");
+    if (Category == "linear") Specification.Category = VectorAuthoringArrayCategory::Linear;
+    else if (Category == "grid") Specification.Category = VectorAuthoringArrayCategory::Grid;
+    else if (Category == "circular") Specification.Category = VectorAuthoringArrayCategory::Circular;
+    else if (Category == "radial") Specification.Category = VectorAuthoringArrayCategory::Radial;
+    else throw std::runtime_error("Unknown native array modifier category.");
+    const auto Profile = DecodeOptional<std::string>(Source, "scale_profile", "uniform");
+    if (Profile == "uniform") Specification.ScaleProfile = VectorAuthoringScaleProfile::Uniform;
+    else if (Profile == "linear") Specification.ScaleProfile = VectorAuthoringScaleProfile::Linear;
+    else if (Profile == "circular") Specification.ScaleProfile = VectorAuthoringScaleProfile::Circular;
+    else if (Profile == "radial") Specification.ScaleProfile = VectorAuthoringScaleProfile::Radial;
+    else if (Profile == "noise") Specification.ScaleProfile = VectorAuthoringScaleProfile::Noise;
+    else throw std::runtime_error("Unknown native array modifier scale profile.");
+    const auto Unsigned = [&](std::string_view Caption, uint32_t Fallback) -> uint32_t
+    {
+        const auto Decoded = DecodeOptional<int64_t>(Source, Caption, Fallback);
+        if (Decoded < 0 || Decoded > UINT32_MAX) throw std::runtime_error("Invalid native array modifier count.");
+        return uint32_t(Decoded);
+    };
+    Specification.Count = Unsigned("count", Specification.Count);
+    Specification.Columns = Unsigned("columns", Specification.Columns);
+    Specification.Rows = Unsigned("rows", Specification.Rows);
+    Specification.Rings = Unsigned("rings", Specification.Rings);
+    Specification.Seed = Unsigned("seed", Specification.Seed);
+    const auto Finite = [&](std::string_view Caption, float Fallback) -> float
+    {
+        const auto Decoded = float(DecodeOptional<double>(Source, Caption, double(Fallback)));
+        if (!std::isfinite(Decoded) || std::abs(Decoded) > 1e9f) throw std::runtime_error("Invalid native array modifier coordinate.");
+        return Decoded;
+    };
+    Specification.StartScale = Finite("start_scale", Specification.StartScale);
+    Specification.EndScale = Finite("end_scale", Specification.EndScale);
+    Specification.StepX = Finite("step_x", Specification.StepX);
+    Specification.StepY = Finite("step_y", Specification.StepY);
+    Specification.CentreX = Finite("centre_x", Specification.CentreX);
+    Specification.CentreY = Finite("centre_y", Specification.CentreY);
+    Specification.Radius = Finite("radius", Specification.Radius);
+    Specification.RadiusStep = Finite("radius_step", Specification.RadiusStep);
+    Specification.StartAngle = Finite("start_angle", Specification.StartAngle);
+    Specification.Sweep = Finite("sweep", Specification.Sweep);
+    Specification.RotateCopies = DecodeOptional<bool>(Source, "rotate_copies", Specification.RotateCopies);
+    return Specification;
+}
+float DecodeFiniteField(const toml::table &Source, std::string_view Caption, float Fallback, std::string_view Grievance)
+{
+    const auto Decoded = float(DecodeOptional<double>(Source, Caption, double(Fallback)));
+    if (!std::isfinite(Decoded) || std::abs(Decoded) > 1e9f) throw std::runtime_error(std::string(Grievance));
+    return Decoded;
+}
+toml::table EncodeMirrorSpecification(const VectorAuthoringMirrorSpecification &Specification)
+{
+    return toml::table{{"pivot_x", double(Specification.PivotX)}, {"pivot_y", double(Specification.PivotY)},
+        {"axis_angle", double(Specification.AxisAngle)}, {"keep_original", Specification.KeepOriginal}};
+}
+VectorAuthoringMirrorSpecification DecodeMirrorSpecification(const toml::table &Source)
+{
+    ValidateFields(Source, {"pivot_x", "pivot_y", "axis_angle", "keep_original"});
+    VectorAuthoringMirrorSpecification Specification;
+    Specification.PivotX = DecodeFiniteField(Source, "pivot_x", Specification.PivotX, "Invalid native mirror modifier pivot.");
+    Specification.PivotY = DecodeFiniteField(Source, "pivot_y", Specification.PivotY, "Invalid native mirror modifier pivot.");
+    Specification.AxisAngle = DecodeFiniteField(Source, "axis_angle", Specification.AxisAngle, "Invalid native mirror modifier axis angle.");
+    Specification.KeepOriginal = DecodeOptional<bool>(Source, "keep_original", Specification.KeepOriginal);
+    return Specification;
+}
+toml::table EncodeNoiseSpecification(const VectorAuthoringNoiseSpecification &Specification)
+{
+    return toml::table{{"position_jitter", double(Specification.PositionJitter)}, {"rotation_jitter", double(Specification.RotationJitter)},
+        {"scale_jitter", double(Specification.ScaleJitter)}, {"seed", int64_t(Specification.Seed)}};
+}
+VectorAuthoringNoiseSpecification DecodeNoiseSpecification(const toml::table &Source)
+{
+    ValidateFields(Source, {"position_jitter", "rotation_jitter", "scale_jitter", "seed"});
+    VectorAuthoringNoiseSpecification Specification;
+    Specification.PositionJitter = DecodeFiniteField(Source, "position_jitter", Specification.PositionJitter, "Invalid native noise modifier jitter.");
+    Specification.RotationJitter = DecodeFiniteField(Source, "rotation_jitter", Specification.RotationJitter, "Invalid native noise modifier jitter.");
+    Specification.ScaleJitter = DecodeFiniteField(Source, "scale_jitter", Specification.ScaleJitter, "Invalid native noise modifier jitter.");
+    const auto Seed = DecodeOptional<int64_t>(Source, "seed", Specification.Seed);
+    if (Seed < 0 || Seed > UINT32_MAX) throw std::runtime_error("Invalid native noise modifier seed.");
+    Specification.Seed = uint32_t(Seed);
+    return Specification;
+}
+toml::table EncodeOffsetSpecification(const VectorAuthoringOffsetSpecification &Specification)
+{
+    return toml::table{{"distance", double(Specification.Distance)}};
+}
+VectorAuthoringOffsetSpecification DecodeOffsetSpecification(const toml::table &Source)
+{
+    ValidateFields(Source, {"distance"});
+    VectorAuthoringOffsetSpecification Specification;
+    Specification.Distance = DecodeFiniteField(Source, "distance", Specification.Distance, "Invalid native offset modifier distance.");
+    return Specification;
+}
+toml::table EncodeColourSpecification(const VectorAuthoringColourSpecification &Specification)
+{
+    constexpr const char *GeneratorNames[]{"linear", "radial", "ramp"};
+    constexpr const char *TargetNames[]{"fill", "stroke", "both"};
+    return toml::table{
+        {"generator", GeneratorNames[uint32_t(Specification.Generator)]},
+        {"target", TargetNames[uint32_t(Specification.Target)]},
+        {"axis_angle", double(Specification.AxisAngle)},
+        {"centre_x", double(Specification.CentreX)}, {"centre_y", double(Specification.CentreY)}, {"radius", double(Specification.Radius)},
+        {"stop_count", int64_t(Specification.StopCount)},
+        {"stop_1", EncodeCoordinates(Specification.Stops[0])}, {"stop_2", EncodeCoordinates(Specification.Stops[1])},
+        {"stop_3", EncodeCoordinates(Specification.Stops[2])}, {"stop_4", EncodeCoordinates(Specification.Stops[3])},
+        {"auto_group", Specification.AutoGroup}, {"group_size", int64_t(Specification.GroupSize)}};
+}
+VectorAuthoringColourSpecification DecodeColourSpecification(const toml::table &Source)
+{
+    ValidateFields(Source, {"generator", "target", "axis_angle", "centre_x", "centre_y", "radius", "stop_count",
+        "stop_1", "stop_2", "stop_3", "stop_4", "auto_group", "group_size"});
+    VectorAuthoringColourSpecification Specification;
+    const auto Generator = DecodeOptional<std::string>(Source, "generator", "ramp");
+    if (Generator == "linear") Specification.Generator = VectorAuthoringColourGenerator::Linear;
+    else if (Generator == "radial") Specification.Generator = VectorAuthoringColourGenerator::Radial;
+    else if (Generator == "ramp") Specification.Generator = VectorAuthoringColourGenerator::Ramp;
+    else throw std::runtime_error("Unknown native colour modifier generator.");
+    const auto Target = DecodeOptional<std::string>(Source, "target", "fill");
+    if (Target == "fill") Specification.Target = VectorAuthoringColourTarget::Fill;
+    else if (Target == "stroke") Specification.Target = VectorAuthoringColourTarget::Stroke;
+    else if (Target == "both") Specification.Target = VectorAuthoringColourTarget::Both;
+    else throw std::runtime_error("Unknown native colour modifier target.");
+    Specification.AxisAngle = DecodeFiniteField(Source, "axis_angle", Specification.AxisAngle, "Invalid native colour modifier axis angle.");
+    Specification.CentreX = DecodeFiniteField(Source, "centre_x", Specification.CentreX, "Invalid native colour modifier centre.");
+    Specification.CentreY = DecodeFiniteField(Source, "centre_y", Specification.CentreY, "Invalid native colour modifier centre.");
+    Specification.Radius = DecodeFiniteField(Source, "radius", Specification.Radius, "Invalid native colour modifier radius.");
+    const auto StopCount = DecodeOptional<int64_t>(Source, "stop_count", 2);
+    if (StopCount < 2 || StopCount > 4) throw std::runtime_error("Native colour modifier stop count must be 2-4.");
+    Specification.StopCount = uint32_t(StopCount);
+    Specification.Stops[0] = DecodeCoordinates(Source["stop_1"]); Specification.Stops[1] = DecodeCoordinates(Source["stop_2"]);
+    Specification.Stops[2] = DecodeCoordinates(Source["stop_3"]); Specification.Stops[3] = DecodeCoordinates(Source["stop_4"]);
+    for (const auto &Stop : Specification.Stops)
+        for (float Channel : Stop) if (Channel < 0 || Channel > 1) throw std::runtime_error("Native colour modifier stop channel must be normalized.");
+    Specification.AutoGroup = DecodeOptional<bool>(Source, "auto_group", Specification.AutoGroup);
+    const auto GroupSize = DecodeOptional<int64_t>(Source, "group_size", Specification.GroupSize);
+    if (GroupSize < 1 || GroupSize > 64) throw std::runtime_error("Native colour modifier group size must be 1-64.");
+    Specification.GroupSize = uint32_t(GroupSize);
+    return Specification;
+}
+toml::table EncodeArrayModifier(const VectorAuthoringModifier &Modifier)
+{
+    constexpr const char *OperationNames[]{"array", "mirror", "noise", "offset", "colour"};
+    toml::table Result{{"enabled", Modifier.Enabled}, {"operation", OperationNames[uint32_t(Modifier.Operation)]}};
+    switch (Modifier.Operation)
+    {
+    case VectorAuthoringModifierOperation::Array:  Result.insert("array", EncodeArraySpecification(Modifier.Array)); break;
+    case VectorAuthoringModifierOperation::Mirror: Result.insert("mirror", EncodeMirrorSpecification(Modifier.Mirror)); break;
+    case VectorAuthoringModifierOperation::Noise:  Result.insert("noise", EncodeNoiseSpecification(Modifier.Noise)); break;
+    case VectorAuthoringModifierOperation::Offset: Result.insert("offset", EncodeOffsetSpecification(Modifier.Offset)); break;
+    case VectorAuthoringModifierOperation::Colour: Result.insert("colour", EncodeColourSpecification(Modifier.Colour)); break;
+    }
+    return Result;
+}
+VectorAuthoringModifier DecodeArrayModifier(const toml::table &Source)
+{
+    ValidateFields(Source, {"enabled", "operation", "array", "mirror", "noise", "offset", "colour"});
+    VectorAuthoringModifier Modifier;
+    Modifier.Enabled = DecodeOptional<bool>(Source, "enabled", true);
+    const auto Operation = DecodeOptional<std::string>(Source, "operation", "array");
+    if (Operation == "array")
+    {
+        Modifier.Operation = VectorAuthoringModifierOperation::Array;
+        const auto *Specification = Source["array"].as_table();
+        if (!Specification) throw std::runtime_error("Expected native array modifier specification.");
+        Modifier.Array = DecodeArraySpecification(*Specification);
+    }
+    else if (Operation == "mirror")
+    {
+        Modifier.Operation = VectorAuthoringModifierOperation::Mirror;
+        const auto *Specification = Source["mirror"].as_table();
+        if (!Specification) throw std::runtime_error("Expected native mirror modifier specification.");
+        Modifier.Mirror = DecodeMirrorSpecification(*Specification);
+    }
+    else if (Operation == "noise")
+    {
+        Modifier.Operation = VectorAuthoringModifierOperation::Noise;
+        const auto *Specification = Source["noise"].as_table();
+        if (!Specification) throw std::runtime_error("Expected native noise modifier specification.");
+        Modifier.Noise = DecodeNoiseSpecification(*Specification);
+    }
+    else if (Operation == "offset")
+    {
+        Modifier.Operation = VectorAuthoringModifierOperation::Offset;
+        const auto *Specification = Source["offset"].as_table();
+        if (!Specification) throw std::runtime_error("Expected native offset modifier specification.");
+        Modifier.Offset = DecodeOffsetSpecification(*Specification);
+    }
+    else if (Operation == "colour")
+    {
+        Modifier.Operation = VectorAuthoringModifierOperation::Colour;
+        const auto *Specification = Source["colour"].as_table();
+        if (!Specification) throw std::runtime_error("Expected native colour modifier specification.");
+        Modifier.Colour = DecodeColourSpecification(*Specification);
+    }
+    else throw std::runtime_error("Unknown native vector modifier operation.");
+    return Modifier;
+}
 VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
 {
-    ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint"});
+    ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint",
+        "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis"});
     VectorCoverageInstruction Result;
     const auto *Topology = Source["topology"].as_array(); if (!Topology || Topology->size() != 4) throw std::runtime_error("Expected four vector topology tokens.");
     for (size_t Index = 0; Index < 4; ++Index)
@@ -96,11 +325,21 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
     Result.Colour = DecodeCoordinates(Source["colour"]); Result.ColourEnd = DecodeCoordinates(Source["colour_end"]);
     if (Source.contains("stroke_colour"))
     {
+
         Result.StrokeColour = DecodeCoordinates(Source["stroke_colour"]);
         if (Result.Topology[0] <= 6) Result.Topology[3] |= VectorCoverageStrokeColourExplicit;
     }
     else Result.StrokeColour = Result.Colour;
-    Result.Paint = DecodeCoordinates(Source["paint"]); return Result;
+    Result.Paint = DecodeCoordinates(Source["paint"]);
+    // 📝 Older documents saved before multi-stop/free-placed gradients existed simply won't have these
+    // keys - fall back to this struct's own (linear) defaults, or the radial-correct equivalent for a
+    // gradient that was already radial, so an old 2-stop file re-opens looking exactly as it did before.
+    const bool Radial = Result.Transform[3] == 2;
+    Result.GradientStopPositions = Source.contains("gradient_stop_positions") ? DecodeCoordinates(Source["gradient_stop_positions"]) : std::array<float, 4>{0.f, 1.f, -1.f, -1.f};
+    Result.GradientStopColour2 = Source.contains("gradient_stop_colour2") ? DecodeCoordinates(Source["gradient_stop_colour2"]) : std::array<float, 4>{1, 1, 1, 1};
+    Result.GradientStopColour3 = Source.contains("gradient_stop_colour3") ? DecodeCoordinates(Source["gradient_stop_colour3"]) : std::array<float, 4>{1, 1, 1, 1};
+    Result.GradientAxis = Source.contains("gradient_axis") ? DecodeCoordinates(Source["gradient_axis"]) : (Radial ? std::array<float, 4>{0.f, 0.f, .5f, 0.f} : std::array<float, 4>{-.5f, 0.f, .5f, 0.f});
+    return Result;
 }
 }
 std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
@@ -134,6 +373,12 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
             if (!Layer.SourceMarkup.empty()) Encoded.insert("source_markup", Layer.SourceMarkup);
             if (!Layer.EmbeddedImage.empty()) Encoded.insert("embedded_image", Layer.EmbeddedImage);
             if (Layer.ComponentKind == VectorAuthoringComponentKind::Text) Encoded.insert("text_point_size", double(Layer.TextPointSize));
+        }
+        if (!Layer.Modifiers.empty())
+        {
+            toml::array Modifiers;
+            for (const auto &Modifier : Layer.Modifiers) Modifiers.push_back(EncodeArrayModifier(Modifier));
+            Encoded.insert("modifiers", std::move(Modifiers));
         }
         Layers.push_back(std::move(Encoded));
     }
@@ -169,7 +414,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     {
         if (!Encoded.as_table()) throw std::runtime_error("Invalid vector layer.");
         const auto &Entry = *Encoded.as_table();
-        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image", "text_point_size"});
+        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image", "text_point_size", "modifiers"});
         VectorAuthoringLayer Layer;
         if (!Entry["token"].is_integer() || !Entry["root"].is_integer()) throw std::runtime_error("Expected integer vector layer identity.");
         const auto Token = Entry["token"].value<int64_t>(), Root = Entry["root"].value<int64_t>();
@@ -241,6 +486,16 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
         Layer.SourceMarkup = DecodeOptional<std::string>(Entry, "source_markup", "");
         Layer.EmbeddedImage = DecodeOptional<std::string>(Entry, "embedded_image", "");
         Layer.TextPointSize = float(DecodeOptional<double>(Entry, "text_point_size", 64));
+        if (Entry.contains("modifiers"))
+        {
+            const auto *Modifiers = Entry["modifiers"].as_array();
+            if (!Modifiers || Modifiers->size() > 4) throw std::runtime_error("Expected at most 4 native array modifiers per layer.");
+            for (const auto &Encoded : *Modifiers)
+            {
+                if (!Encoded.as_table()) throw std::runtime_error("Invalid native array modifier.");
+                Layer.Modifiers.push_back(DecodeArrayModifier(*Encoded.as_table()));
+            }
+        }
         Document.Layers.push_back(std::move(Layer));
     }
     if (Table.contains("enclosures"))

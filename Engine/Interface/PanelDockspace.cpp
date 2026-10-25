@@ -8,6 +8,7 @@
 #include <cmath>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <set>
 
 namespace Frontier
 {
@@ -163,9 +164,19 @@ bool PanelDockspace::ConfigurePlatform() noexcept
 
 namespace
 {
-void ConfigureLeafButtons(ImGuiDockNode *Region, bool &Requested)
+// 📝 This walk runs on the *live* ImGuiDockNode graph every single frame (unlike
+// PanelDockspaceLayout.cpp's EncodeLayout, which only runs once at shutdown). A session that leaves
+// the dock graph corrupted - a node reachable from more than one parent, or genuinely cyclic - used
+// to send this straight into unbounded recursion on every frame from the moment the corruption
+// appeared, which is a far more likely source of a creeping/exhausted allocation (and an eventual
+// std::bad_alloc, since each ImGuiDockNode's own child-walk itself allocates) than the once-only
+// EncodeLayout walk that already has this guard. Depth-cap and refuse to re-enter a node already
+// visited *this call*, exactly like EncodeLayout's Capture guard: a healthy tree never reaches either
+// limit, a corrupted one just stops adding buttons to the offending branch instead of recursing
+// forever.
+void ConfigureLeafButtons(ImGuiDockNode *Region, bool &Requested, std::set<ImGuiDockNode *> &Visited, int Depth = 0)
 {
-    if (!Region)
+    if (!Region || Depth > 32 || !Visited.insert(Region).second)
         return;
     if (Region->IsLeafNode())
     {
@@ -174,8 +185,8 @@ void ConfigureLeafButtons(ImGuiDockNode *Region, bool &Requested)
     }
     else
     {
-        ConfigureLeafButtons(Region->ChildNodes[0], Requested);
-        ConfigureLeafButtons(Region->ChildNodes[1], Requested);
+        ConfigureLeafButtons(Region->ChildNodes[0], Requested, Visited, Depth + 1);
+        ConfigureLeafButtons(Region->ChildNodes[1], Requested, Visited, Depth + 1);
     }
 }
 } // namespace
@@ -260,7 +271,8 @@ void PanelDockspace::ConstructInterface(float Scale)
             Reattach = false;
         }
         bool AddRequested = false;
-        ConfigureLeafButtons(ImGui::DockBuilderGetNode(Dockspace), AddRequested);
+        std::set<ImGuiDockNode *> VisitedLeafButtonNodes;
+        ConfigureLeafButtons(ImGui::DockBuilderGetNode(Dockspace), AddRequested, VisitedLeafButtonNodes);
         if (std::none_of(Entries.begin(), Entries.end(), [](const auto &Entry) { return Entry.Specification.Open; }) &&
             ImGui::BeginTabBar("Closed panel catalogue"))
         {

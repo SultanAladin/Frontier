@@ -214,12 +214,24 @@ toml::table PanelDockspace::EncodeLayout() const
                     return &Entry;
         return nullptr;
     };
-    const auto Capture = [&](auto &&Self, ImGuiDockNode *Region) -> size_t
+    // 📝 The live ImGui dock node graph is walked by raw pointer below; it is supposed to be a simple
+    // binary split tree, but a corrupted/merged docking state (observed in the field as the
+    // "Cyclic, shared or out-of-range layout region" rejection a few lines later) can leave a node
+    // reachable from more than one parent, or even from itself. Without a visited-set guard, that
+    // walk recurses without bound, pushing a fresh Regions entry on every call until the process runs
+    // out of memory (a genuine std::bad_alloc) well before ValidateLayout ever gets a chance to reject
+    // the result. Cap recursion depth and refuse to re-enter an already-visited node — on a healthy
+    // tree neither limit is ever reached; on a corrupted one we fall back to an empty leaf for the
+    // offending branch so EncodeLayout always returns a small, finite table for ValidateLayout to
+    // examine (and reject) instead of ever growing unbounded.
+    std::set<ImGuiDockNode *> VisitedNodes;
+    const auto Capture = [&](auto &&Self, ImGuiDockNode *Region, int Depth = 0) -> size_t
     {
         const auto Index = Regions.size();
         Regions.push_back(toml::table{});
         toml::table Section;
-        if (Region && Region->IsSplitNode())
+        const bool Corrupted = Depth > 32 || (Region && !VisitedNodes.insert(Region).second);
+        if (Region && !Corrupted && Region->IsSplitNode())
         {
             const bool Horizontal = Region->SplitAxis == ImGuiAxis_X;
             const auto First      = Region->ChildNodes[0];
@@ -229,8 +241,16 @@ toml::table PanelDockspace::EncodeLayout() const
             const auto Extent = Horizontal ? First->SizeRef.x : First->SizeRef.y;
             Section           = toml::table{{"axis", Horizontal ? "x" : "y"},
                                             {"ratio", std::clamp(Quantize(Extent / std::max(1.0f, Across)), .01, .99)},
-                                            {"first", static_cast<int64_t>(Self(Self, First))},
-                                            {"second", static_cast<int64_t>(Self(Self, Second))}};
+                                            {"first", static_cast<int64_t>(Self(Self, First, Depth + 1))},
+                                            {"second", static_cast<int64_t>(Self(Self, Second, Depth + 1))}};
+        }
+        else if (Corrupted)
+        {
+            // 📝 Dead branch of a corrupted tree: emit a harmless empty leaf rather than recursing
+            // further or dereferencing a node we cannot trust. ValidateLayout will still reject the
+            // overall table (the real fix for the underlying dock corruption is tracked separately),
+            // but this guarantees EncodeLayout itself always terminates and stays bounded in size.
+            Section = toml::table{{"axis", "none"}, {"tabs", toml::array{}}, {"selected", std::string()}};
         }
         else
         {

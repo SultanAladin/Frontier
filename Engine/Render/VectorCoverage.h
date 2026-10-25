@@ -60,6 +60,29 @@ struct alignas(16) VectorCoverageInstruction
     std::array<float, 4> ColourEnd{1, 1, 1, 1};
     std::array<float, 4> StrokeColour{1, 1, 1, 1};
     std::array<float, 4> Paint{0, .45f, 6, 1};
+    // 🧩 Multi-stop gradient ramp: up to 4 colour stops per shape. Slot 0's colour is Colour, slot 1's
+    // is ColourEnd (kept for backward authoring compatibility with the original 2-stop model), slots 2
+    // and 3 are these two extra channels. GradientStopPositions holds every slot's Fraction (the same
+    // 0..1 axis the shader already computes for the 2-stop lerp) in strictly ascending order starting
+    // at index 0; a position of -1 marks that slot and every slot after it as unused, so a plain 2-stop
+    // gradient (the only kind this engine supported before) is just {0, 1, -1, -1} — its default below.
+    // Mirror this struct's field order and the new slots exactly in VectorCoverage.slang/VectorSurface.slang.
+    std::array<float, 4> GradientStopPositions{0.f, 1.f, -1.f, -1.f};
+    std::array<float, 4> GradientStopColour2{1, 1, 1, 1};
+    std::array<float, 4> GradientStopColour3{1, 1, 1, 1};
+    // 🧩 The gradient's own geometric line/radius, independent of the shape's bounding box: (AxisStartX,
+    // AxisStartY, AxisEndX, AxisEndY) in the shape's local, unrotated, bounds-normalized frame (the same
+    // "Local / Bounds.zw" space the shader already computes everything else in) — so dragging these two
+    // points on the canvas (see StampWorkspacePanel.cpp/PatternWorkspacePanel.cpp's gradient-axis handles)
+    // places the ramp's start/end anywhere relative to the shape, exactly like Illustrator/Figma's gradient
+    // tool, instead of only ever spanning corner-to-corner of the bounding box at a fixed angle. Linear
+    // reads it as the two ends of the ramp line; radial reads slot 0/1 as the centre and slot 2/3 as a
+    // point on the circle's edge (so dragging it both re-centres and resizes/re-orients the radius). The
+    // default below spans the box horizontally, matching this engine's original angle-based linear default
+    // exactly; PaintCategory switches re-seed it with the category-appropriate default (see Stamp/Pattern's
+    // "Component/Motif fill source" dropdown handler) since a plain centre-to-edge default would misplace a
+    // freshly chosen radial gradient. Mirror this exactly in VectorCoverage.slang/VectorSurface.slang.
+    std::array<float, 4> GradientAxis{-.5f, 0.f, .5f, 0.f};
     bool operator==(const VectorCoverageInstruction &) const = default;
 };
 struct alignas(16) VectorCubicSegment
@@ -68,7 +91,7 @@ struct alignas(16) VectorCubicSegment
     std::array<float, 4> ControlEnd{};
     bool operator==(const VectorCubicSegment &) const = default;
 };
-static_assert(sizeof(VectorCoverageInstruction) == 112 && sizeof(VectorCubicSegment) == 32);
+static_assert(sizeof(VectorCoverageInstruction) == 176 && sizeof(VectorCubicSegment) == 32);
 struct VectorCoverageProgram
 {
     std::vector<VectorCoverageInstruction> Instructions;
@@ -89,7 +112,8 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
     for (size_t Index = 0; Index < Program.Instructions.size(); ++Index)
     {
         const auto &Instruction = Program.Instructions[Index];
-        for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint})
+        for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint,
+            Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis})
             for (float Coordinate : Coordinates) if (!std::isfinite(Coordinate)) throw std::runtime_error("Non-finite vector coverage descriptor.");
         const auto Category = Instruction.Topology[0];
         if (Category <= 6)
@@ -129,9 +153,33 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
         else throw std::runtime_error("Unsupported GPU vector coverage operation.");
         if (Instruction.Transform[1] < 0 || Instruction.Transform[1] > 100 || Instruction.Transform[2] < 0 || Instruction.Transform[2] > 1 || Instruction.Transform[3] < 0 || Instruction.Transform[3] > 2 || std::floor(Instruction.Transform[3]) != Instruction.Transform[3] || std::abs(Instruction.Transform[0]) > 1e6f || std::abs(Instruction.Paint[0]) > 1e6f || (Instruction.Paint[3] != 0 && Instruction.Paint[3] != 1))
             throw std::runtime_error("Vector stroke, opacity or paint category is invalid.");
+        for (float Coordinate : Instruction.GradientAxis) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector gradient axis extends absurdly far past the shape's own bounds.");
         for (float Channel : Instruction.Colour) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector colour must be normalized.");
         for (float Channel : Instruction.ColourEnd) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector gradient colour must be normalized.");
         for (float Channel : Instruction.StrokeColour) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector stroke colour must be normalized.");
+        for (float Channel : Instruction.GradientStopColour2) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector gradient colour must be normalized.");
+        for (float Channel : Instruction.GradientStopColour3) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector gradient colour must be normalized.");
+        // 📝 GradientStopPositions must describe a contiguous, strictly ascending run of 2–4 active stops
+        // starting at slot 0 (a bare -1 everywhere past the active run) so both the CPU authoring tools and
+        // the GPU shader's piecewise lerp can walk it without ever needing to re-sort at draw time.
+        {
+            float Previous = -1.f; bool Closed = false;
+            for (int Stop = 0; Stop < 4; ++Stop)
+            {
+                const float StopPosition = Instruction.GradientStopPositions[Stop];
+                if (StopPosition < 0.f)
+                {
+                    if (StopPosition != -1.f) throw std::runtime_error("Vector gradient stop position must be 0..1, or exactly -1 for an unused stop.");
+                    Closed = true; continue;
+                }
+                if (Closed) throw std::runtime_error("Vector gradient stops must be contiguous starting at slot 0.");
+                if (StopPosition > 1.f) throw std::runtime_error("Vector gradient stop position must be 0..1.");
+                if (Stop > 0 && StopPosition <= Previous) throw std::runtime_error("Vector gradient stops must be strictly ascending.");
+                Previous = StopPosition;
+            }
+            if (Instruction.GradientStopPositions[0] < 0.f || Instruction.GradientStopPositions[1] < 0.f)
+                throw std::runtime_error("Vector gradient requires at least two active stops.");
+        }
     }
     for (const auto &Segment : Program.Segments)
         for (const auto &Coordinates : {Segment.StartControl, Segment.ControlEnd})

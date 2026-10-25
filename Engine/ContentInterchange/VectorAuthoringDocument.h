@@ -6,6 +6,7 @@
 #pragma once
 #include "Engine/Render/VectorCoverage.h"
 #include "VectorAuthoringProperties.h"
+#include "VectorAuthoringArrayPlacement.h"
 #include <string>
 #include <optional>
 #include <algorithm>
@@ -37,6 +38,12 @@ struct VectorAuthoringLayer
     // later (Inspector field or double-click-to-re-edit on canvas) can regenerate the glyph outline
     // at a known, user-adjustable size instead of guessing one back from the baked bounds.
     float TextPointSize = 64.f;
+    // 📝 Blender-style modifier stack, evaluated live (never mutating this layer's own Root/Instructions)
+    // by ConstructEvaluatedVectorAuthoringDocument whenever at least one entry is Enabled. Empty for every
+    // ordinary layer - only populated once a user clicks "Add as modifier" (Array, Mirror, Noise or
+    // Offset) on a layer's card. Applying an entry bakes it into real duplicate/replacement layers via
+    // the matching Generate* function and erases it from here; Deleting it just erases it.
+    std::vector<VectorAuthoringModifier> Modifiers;
     bool operator==(const VectorAuthoringLayer &) const = default;
 };
 inline constexpr size_t VectorAuthoringSourceMarkupLimit = 32000; // [B] - Matches the HTML outline-command/markup bound

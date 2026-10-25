@@ -6,6 +6,7 @@
 // fill remains; primitive half-extents match the coverage shader (Bounds.zw * .5).
 
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
+#include "Engine/ContentInterchange/VectorGradientStops.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -45,20 +46,59 @@ std::string ColourLiteral(const std::array<float, 4> &Colour)
     return Buffer;
 }
 
-std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity)
+// 📝 Linear/radial gradient fills are a real <linearGradient>/<radialGradient> def (gradientUnits=
+// "userSpaceOnUse", so its coordinates live in the same absolute tile-space as everything else this file
+// emits), its x1/y1/x2/y2 (or cx/cy/r) derived from the shape's own GradientAxis A/B control points via
+// the same rotate-then-translate placement as every other primitive below - so what the gallery thumbnail
+// shows is the exact axis the user dragged, not a fixed corner-to-corner guess. Returns the "url(#id)"
+// reference to use as fill, or an empty string if this instruction isn't a gradient fill.
+std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint32_t Root, float Opacity,
+    const std::function<std::array<float, 2>(float, float)> &Place, std::string &Defs)
+{
+    const uint32_t Category = uint32_t(Source.Transform[3]);
+    if (Category != 1 && Category != 2) return {};
+    const auto A = Place(Source.GradientAxis[0] * Source.Bounds[2], Source.GradientAxis[1] * Source.Bounds[3]);
+    const auto B = Place(Source.GradientAxis[2] * Source.Bounds[2], Source.GradientAxis[3] * Source.Bounds[3]);
+    const std::string Id = "pattern-gradient-" + std::to_string(Root);
+    std::string Def;
+    if (Category == 1)
+        Def = "<linearGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" x1=\"" + Number(A[0]) + "\" y1=\"" +
+              Number(A[1]) + "\" x2=\"" + Number(B[0]) + "\" y2=\"" + Number(B[1]) + "\">";
+    else
+    {
+        const float Radius = std::max(std::hypot(B[0] - A[0], B[1] - A[1]), .01f);
+        Def = "<radialGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" cx=\"" + Number(A[0]) + "\" cy=\"" +
+              Number(A[1]) + "\" r=\"" + Number(Radius) + "\">";
+    }
+    for (const auto &Stop : QueryVectorGradientStops(Source))
+        Def += "<stop offset=\"" + Number(std::clamp(Stop.Position, 0.f, 1.f) * 100.f) + "%\" stop-color=\"" +
+               ColourLiteral(Stop.Colour) + "\" stop-opacity=\"" + Number(std::clamp(Stop.Colour[3] * Opacity, 0.f, 1.f)) + "\"/>";
+    Def += Category == 1 ? "</linearGradient>" : "</radialGradient>";
+    Defs += Def;
+    return "url(#" + Id + ")";
+}
+
+std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity, const std::string &GradientFill)
 {
     std::string Text;
-    const std::string Fill = ColourLiteral(Source.Colour);
     if (Source.Paint[3] != 0)
-        Text += " fill=\"" + Fill + "\" fill-opacity=\"" + Number(std::clamp(Source.Colour[3] * Opacity, 0.f, 1.f)) + "\"";
+    {
+        if (!GradientFill.empty()) Text += " fill=\"" + GradientFill + "\"";
+        else Text += " fill=\"" + ColourLiteral(Source.Colour) + "\" fill-opacity=\"" + Number(std::clamp(Source.Colour[3] * Opacity, 0.f, 1.f)) + "\"";
+    }
     else
         Text += " fill=\"none\"";
-    if (Source.Transform[1] > 0)
+    // 📝 Only a category-6 cubic path (Pen/Polyline) can swing between an open line and a closed filled
+    // shape during its own lifetime, so only it reads Paint[0] - its own independent closed/filled outline
+    // width - while filled; every other category (and an unfilled/open path) keeps using Transform[1], the
+    // plain stroke width, exactly as before.
+    const float StrokeWidth = (Source.Topology[0] == 6 && Source.Paint[3] != 0) ? Source.Paint[0] : Source.Transform[1];
+    if (StrokeWidth > 0)
     {
         const bool Explicit = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0;
         const auto &Line = Explicit ? Source.StrokeColour : Source.Colour;
         Text += " stroke=\"" + ColourLiteral(Line) + "\" stroke-opacity=\"" +
-                Number(std::clamp(Line[3] * Opacity, 0.f, 1.f)) + "\" stroke-width=\"" + Number(Source.Transform[1]) +
+                Number(std::clamp(Line[3] * Opacity, 0.f, 1.f)) + "\" stroke-width=\"" + Number(StrokeWidth) +
                 "\" stroke-linejoin=\"round\" stroke-linecap=\"round\"";
     }
     return Text;
@@ -67,7 +107,7 @@ std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, flo
 // 📝 Shared recursive emitter: appends one instruction (and, for Boolean/composite roots, both
 // children) to Svg in absolute tile-space coordinates. Used both for the whole-document gallery
 // encoding and the single-layer row-thumbnail encoding below, so the two never drift apart.
-void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Root, uint32_t Depth, std::string &Svg)
+void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Root, uint32_t Depth, std::string &Svg, std::string &Defs)
 {
     if (Root >= Document.Instructions.size() || Depth > 16) return;
     const auto &Source = Document.Instructions[Root];
@@ -75,9 +115,9 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     if (Category > 6)
     {
         // 📝 Boolean/composite roots emit both children in order, matching card paint order.
-        EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg);
+        EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs);
         if (Source.Topology[0] != 17 && Source.Topology[0] != 24 && Source.Topology[0] != 25)
-            EmitPatternInstruction(Document, Source.Topology[2], Depth + 1, Svg);
+            EmitPatternInstruction(Document, Source.Topology[2], Depth + 1, Svg, Defs);
         return;
     }
     const float Opacity = Source.Transform[2];
@@ -89,7 +129,17 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
         return std::array<float, 2>{Source.Bounds[0] + Cosine * LocalX - Sine * LocalY,
             Source.Bounds[1] + Sine * LocalX + Cosine * LocalY};
     };
-    const std::string Paint = PatternInstructionStyle(Source, Opacity);
+    // 📝 The ellipse branch below bakes its own rotation into a separate SVG transform="rotate(...)"
+    // attribute instead of pre-rotating its points like every other category does via Place - so its
+    // gradient (which SVG resolves in the coordinate system already carrying that transform) must be
+    // defined in the SAME unrotated frame, or the rotation would apply to it twice.
+    const auto PlaceUnrotated = [&](float LocalX, float LocalY)
+    {
+        return std::array<float, 2>{Source.Bounds[0] + LocalX, Source.Bounds[1] + LocalY};
+    };
+    const std::function<std::array<float, 2>(float, float)> GradientPlace = Category == 1 ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
+    const std::string GradientFill = EmitPatternGradientDef(Source, Root, Opacity, GradientPlace, Defs);
+    const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill);
     // 📝 Bounds.zw are full extents; the coverage shader halves them, and so does this encoding.
     const float HalfX = Source.Bounds[2] * .5f, HalfY = Source.Bounds[3] * .5f;
     const auto Points = [&](const std::vector<std::array<float, 2>> &Loop)
@@ -165,11 +215,14 @@ std::string EncodePatternThumbnailSvg(const VectorAuthoringDocument &Document, u
             BackgroundAbgr & 255, (BackgroundAbgr >> 8) & 255, (BackgroundAbgr >> 16) & 255);
         Svg += Buffer;
     }
+    std::string Defs, Body;
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
-        EmitPatternInstruction(Document, Layer.Root, 0, Svg);
+        EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
     }
+    if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
+    Svg += Body;
     Svg += "</svg>";
     return Svg;
 }
@@ -195,10 +248,14 @@ std::string EncodePatternLayerThumbnailSvg(const VectorAuthoringDocument &Docume
             BackgroundAbgr & 255, (BackgroundAbgr >> 8) & 255, (BackgroundAbgr >> 16) & 255);
         Svg += Buffer;
     }
-    if (QueryVectorAuthoringVisibility(Document, *Position)) EmitPatternInstruction(Document, Position->Root, 0, Svg);
+    std::string Defs, Body;
+    if (QueryVectorAuthoringVisibility(Document, *Position)) EmitPatternInstruction(Document, Position->Root, 0, Body, Defs);
+    if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
+    Svg += Body;
     Svg += "</svg>";
     return Svg;
 }
+
 
 std::vector<uint8_t> RasterizePatternThumbnailSvg(
     const VectorAuthoringDocument &Document, uint32_t Extent, uint32_t BackgroundAbgr)

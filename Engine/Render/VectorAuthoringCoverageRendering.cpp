@@ -16,12 +16,12 @@ bool EquivalentProgram(const VectorCoverageProgram &First, const VectorCoverageP
 {
     return First.Root == Second.Root && First.Instructions == Second.Instructions && First.Segments == Second.Segments;
 }
-constexpr std::array<uint32_t, 5> PooledExtents{128, 256, 512, 1024, 2048};
+constexpr std::array<uint32_t, 6> PooledExtents{128, 256, 512, 1024, 2048, 4096};
 size_t IndexForExtent(uint32_t Extent)
 {
     for (size_t Index = 0; Index < PooledExtents.size(); ++Index)
         if (PooledExtents[Index] == Extent) return Index;
-    return Extent <= 128 ? 0 : Extent <= 256 ? 1 : Extent <= 512 ? 2 : Extent <= 1024 ? 3 : 4;
+    return Extent <= 128 ? 0 : Extent <= 256 ? 1 : Extent <= 512 ? 2 : Extent <= 1024 ? 3 : Extent <= 2048 ? 4 : 5;
 }
 }
 
@@ -32,25 +32,35 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     RetainedShaderEntry = Shader.Entry ? Shader.Entry : "";
 }
 
+size_t VectorAuthoringCoverageRendering::SelectPooledTier(size_t ActiveTier, size_t Segments, uint32_t DisplayExtent) noexcept
+{
+    const size_t Which = IndexForExtent(VectorCoverageRasterization::SelectBakeExtent(Segments, 1, DisplayExtent));
+    if (!DisplayExtent || ActiveTier >= PooledExtents.size() || Which == ActiveTier) return Which;
+    // 📝 Two-sided hysteresis (a Schmitt trigger) against a jittering device-pixel hint near a pooled-tile
+    // boundary (layout rounding, DPI scale, a sub-pixel zoom): once settled on a tier, only leave it once the
+    // request clears a tolerance band around that tier's own extent, in EITHER direction. The original guard
+    // only dampened a one-tile *upgrade* with a tiny ActiveExtent/32 tolerance (4px at the smallest 128
+    // tile) — a jitter source producing anything larger than that (ordinary layout/DPI rounding routinely
+    // does, e.g. ~16px) still flips the tier every single frame: upgrade dampened one frame, downgrade (never
+    // dampened at all) fires the next, forever. That perpetual re-dispatch is why RefitSlot never settles and
+    // QuerySelectedReady() never reports ready — the "Baking..." badge got stuck even on a perfectly idle,
+    // empty canvas. Dampening the downgrade symmetrically, with a much wider tolerance, closes that loop. A
+    // real zoom change still moves the request by a wide margin (not just past the tile boundary by a few
+    // device pixels) and is never swallowed by either side of this band.
+    const uint32_t ActiveExtent = PooledExtents[ActiveTier];
+    const uint32_t Affordable = VectorCoverageRasterization::SelectBakeExtent(Segments, 1, 0);
+    const uint32_t Tolerance = std::max<uint32_t>(32, ActiveExtent / 8);
+    if (Which == ActiveTier + 1 && ActiveExtent <= Affordable && DisplayExtent <= ActiveExtent + Tolerance) return ActiveTier;
+    if (ActiveTier > 0 && Which == ActiveTier - 1 && DisplayExtent + Tolerance >= PooledExtents[ActiveTier - 1]) return ActiveTier;
+    return Which;
+}
+
 bool VectorAuthoringCoverageRendering::RefitSlot(size_t Index, size_t Segments, uint32_t DisplayExtent)
 {
     // 📝 The canvas runs the same unguarded curve loop as the bridge, single
     // channel; retired slots re-bracket before dense documents dispatch.
     auto &Slot = Slots[Index];
-    size_t Which = IndexForExtent(VectorCoverageRasterization::SelectBakeExtent(Segments, 1, DisplayExtent));
-    // 📝 Hysteresis against a jittering device-pixel hint near a pooled-tile boundary (layout
-    // rounding, DPI scale, a sub-pixel zoom): a request that only marginally crosses into the next
-    // tile up from the active one stays on the active tile instead of jumping up and immediately
-    // back down every frame. Left unguarded, that flip re-dispatches every frame and the bake badge
-    // never reaches "ready" even on a perfectly idle canvas. Only the one-tile-up case is dampened;
-    // downgrades and multi-tile jumps (an actual zoom change) still respond immediately.
-    if (DisplayExtent && Slot.Active < PooledExtents.size() && Which == Slot.Active + 1)
-    {
-        const uint32_t ActiveExtent = PooledExtents[Slot.Active];
-        const uint32_t Affordable = VectorCoverageRasterization::SelectBakeExtent(Segments, 1, 0);
-        const uint32_t Tolerance = std::max<uint32_t>(4, ActiveExtent / 32);
-        if (ActiveExtent <= Affordable && DisplayExtent <= ActiveExtent + Tolerance) Which = Slot.Active;
-    }
+    const size_t Which = SelectPooledTier(Slot.Active, Segments, DisplayExtent);
     if (Which == Slot.Active) return false;
     const uint32_t Needed = PooledExtents[Which];
     if (!Slot.Extents[Which])
@@ -89,6 +99,14 @@ void VectorAuthoringCoverageRendering::Initialize(const VulkanRasterAccess &Acce
     Initialize(Access, RasterShader{Words, "main"});
 }
 
+bool VectorAuthoringCoverageRendering::RequiresUnchangedResubmission(bool Retiled, uint64_t SampledSerial) noexcept
+{
+    // 📝 A real re-tile (the pooled tier actually changed) always needs a fresh dispatch. Otherwise,
+    // only the slot's very first-ever bake (it has never completed a submission) still needs one; once
+    // settled, unchanged content stays valid on the GPU without being redrawn every frame.
+    return Retiled || SampledSerial == 0;
+}
+
 int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram &Program, uint32_t DisplayExtent)
 {
     ValidateVectorCoverage(Program);
@@ -99,9 +117,10 @@ int VectorAuthoringCoverageRendering::SelectProgram(const VectorCoverageProgram 
         // Skip the attempt while the slot's current image is still sampled by an earlier submission
         // (mirrors the never-block-the-device rule below); it retries on a later, settled frame.
         auto &Slot = Slots[size_t(Selected)];
-        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Segments.size(), DisplayExtent))
-            Slot.Pending = true;
-        SampleRequested = true;
+        bool Retiled = false;
+        if (Slot.SampledSerial <= Completed) Retiled = RefitSlot(size_t(Selected), Program.Segments.size(), DisplayExtent);
+        if (Retiled) Slot.Pending = true;
+        SampleRequested = RequiresUnchangedResubmission(Retiled, Slot.SampledSerial);
         return Selected;
     }
     for (size_t Index = 0; Index < Slots.size(); ++Index)
@@ -127,9 +146,10 @@ int VectorAuthoringCoverageRendering::SelectSurfaceProgram(const VectorSurfacePr
     if (Selected >= 0 && Slots[size_t(Selected)].SurfaceProgram && *Slots[size_t(Selected)].SurfaceProgram == Program)
     {
         auto &Slot = Slots[size_t(Selected)];
-        if (Slot.SampledSerial <= Completed && RefitSlot(size_t(Selected), Program.Coverage.Segments.size(), DisplayExtent))
-            Slot.Pending = true;
-        SampleRequested = true;
+        bool Retiled = false;
+        if (Slot.SampledSerial <= Completed) Retiled = RefitSlot(size_t(Selected), Program.Coverage.Segments.size(), DisplayExtent);
+        if (Retiled) Slot.Pending = true;
+        SampleRequested = RequiresUnchangedResubmission(Retiled, Slot.SampledSerial);
         return Selected;
     }
     for (size_t Index = 0; Index < Slots.size(); ++Index)

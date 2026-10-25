@@ -12,6 +12,16 @@ struct VectorCoverageInstruction
     float4 ColourEnd;
     float4 StrokeColour;
     float4 Paint;
+    // 🧩 Mirror Engine/Render/VectorCoverage.h's VectorCoverageInstruction exactly: up to 4 gradient
+    // stops (Colour/ColourEnd/GradientStopColour2/GradientStopColour3), with GradientStopPositions
+    // giving each slot's Fraction in strictly ascending order starting at slot 0; -1 marks a slot (and
+    // everything after it) unused. See EvaluateGradientColour below.
+    float4 GradientStopPositions;
+    float4 GradientStopColour2;
+    float4 GradientStopColour3;
+    // 🧩 (AxisStartX, AxisStartY, AxisEndX, AxisEndY) in the shape's local, unrotated, bounds-normalized
+    // frame - see the field comment on Engine/Render/VectorCoverage.h's VectorCoverageInstruction.
+    float4 GradientAxis;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
 // 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
@@ -170,6 +180,26 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
     }
     return Inside ? -Distance : Distance;
 }
+// 📝 Piecewise-lerps across whichever pair of active stops bracket Fraction. Mirrors the packed-slot
+// contract documented on VectorCoverageInstruction/GradientStopPositions in Engine/Render/VectorCoverage.h
+// exactly (ascending positions, contiguous from slot 0, -1 sentinel ends the active run) — a plain 2-stop
+// gradient (GradientStopPositions = {0,1,-1,-1}) collapses straight back to the original single lerp.
+float4 EvaluateGradientColour(VectorCoverageInstruction Instruction, float Fraction)
+{
+    float4 Colours[4] = {Instruction.Colour, Instruction.ColourEnd, Instruction.GradientStopColour2, Instruction.GradientStopColour3};
+    float Positions[4] = {Instruction.GradientStopPositions.x, Instruction.GradientStopPositions.y, Instruction.GradientStopPositions.z, Instruction.GradientStopPositions.w};
+    uint Count = Positions[1] < 0 ? 1 : Positions[2] < 0 ? 2 : Positions[3] < 0 ? 3 : 4;
+    if (Count <= 1 || Fraction <= Positions[0]) return Colours[0];
+    if (Fraction >= Positions[Count - 1]) return Colours[Count - 1];
+    for (uint Stop = 0; Stop < Count - 1; ++Stop)
+    {
+        if (Fraction > Positions[Stop + 1]) continue;
+        float Span = max(Positions[Stop + 1] - Positions[Stop], 1e-5);
+        float Local = saturate((Fraction - Positions[Stop]) / Span);
+        return lerp(Colours[Stop], Colours[Stop + 1], Local);
+    }
+    return Colours[Count - 1];
+}
 void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[InstructionCapacity])
 {
     for (uint Index = 0; Index < Projection.Count; ++Index)
@@ -185,8 +215,16 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
             float Distance = ShapeDistance(Instruction, Local);
             float Fill = Instruction.Paint.w != 0 ? saturate(.5 - Distance / Antialias) : 0;
             float Stroke = Instruction.Transform.y > 0 ? saturate(.5 - (abs(Distance) - Instruction.Transform.y * .5) / Antialias) : 0;
-            float Fraction = Instruction.Transform.w == 1 ? saturate(.5 + dot(Local / Instruction.Bounds.zw, float2(cos(Instruction.Paint.x), sin(Instruction.Paint.x)))) : Instruction.Transform.w == 2 ? saturate(length(Local / Instruction.Bounds.zw) * 2) : 0;
-            float4 FillColour = lerp(Instruction.Colour, Instruction.ColourEnd, Fraction);
+            // 📝 GradientAxis.xy/zw are the ramp's own two control points (see the struct field comment
+            // above) in this same LocalNorm frame - linear projects LocalNorm onto that A->B segment;
+            // radial reads xy as the centre and zw as a point on the circle's edge (so its distance from
+            // the centre doubles as the radius). Replaces the old fixed-angle, bounds-cornered formula.
+            float2 LocalNorm = Local / Instruction.Bounds.zw;
+            float2 AxisStart = Instruction.GradientAxis.xy, AxisEnd = Instruction.GradientAxis.zw;
+            float2 AxisVector = AxisEnd - AxisStart;
+            float Fraction = Instruction.Transform.w == 1 ? saturate(dot(LocalNorm - AxisStart, AxisVector) / max(dot(AxisVector, AxisVector), 1e-6))
+                : Instruction.Transform.w == 2 ? saturate(length(LocalNorm - AxisStart) / max(length(AxisVector), 1e-4)) : 0;
+            float4 FillColour = EvaluateGradientColour(Instruction, Fraction);
             float4 StrokeColour = (Instruction.Topology.w & 0x80000000) != 0 ? Instruction.StrokeColour : Instruction.Colour;
             float FillAlpha = Fill * FillColour.a * Instruction.Transform.z;
             float StrokeAlpha = Stroke * StrokeColour.a * Instruction.Transform.z;

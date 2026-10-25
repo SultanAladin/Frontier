@@ -4,6 +4,7 @@
 // 🧩 Exercise production source-only arrays, channel edits, enclosure protection, strict TOML and atomic history on the editing host.
 
 #include "Engine/ContentInterchange/VectorAuthoringEditing.h"
+#include "Engine/ContentInterchange/CubicPathEditing.h"
 #include <iostream>
 #include <limits>
 #include <numbers>
@@ -333,6 +334,354 @@ void VerifyRetainedExpressions()
     Confirm(!ApplyVectorAuthoringSurfacePatch(Channels, Patch), "Reusable channel patch treated a no-op as an edit.");
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     MIRROR / NOISE / OFFSET MODIFIERS
+//------------------------------------------------------------------------------------------------------------------------
+
+void VerifyModifiers()
+{
+    // 📝 Mirror on a procedurally-regular shape (Category 0): closed-form centre/angle reflection.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Rectangle;
+        Rectangle.Bounds = {300, 220, 40, 20};
+        Rectangle.Transform[0] = .3f;
+        Document.Instructions = {Rectangle};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Name = "Plate"; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringMirrorSpecification Specification;
+        Specification.PivotX = 256; Specification.PivotY = 256; Specification.AxisAngle = 90; // vertical axis
+        Specification.KeepOriginal = true;
+        const auto EncodedBefore = EncodeVectorAuthoring(Document);
+        const auto Result = GenerateVectorAuthoringMirror(Document, Selection, Specification);
+        Confirm(EncodeVectorAuthoring(Document) == EncodedBefore, "Mirror modified its input.");
+        Confirm(Result.Document.Layers.size() == 2, "Mirror with KeepOriginal did not add a companion layer.");
+        Confirm(Result.Selection.size() == 2, "Mirror selection did not include both the source and its reflection.");
+        const auto &Original = Result.Document.Instructions[Result.Document.Layers[0].Root];
+        Confirm(Original.Bounds == Rectangle.Bounds && Original.Transform[0] == Rectangle.Transform[0], "Mirror disturbed the kept original.");
+        const auto &Mirrored = Result.Document.Instructions[Result.Document.Layers[1].Root];
+        Confirm(std::abs(Mirrored.Bounds[0] - (2 * 256 - 300)) < .003f, "Vertical mirror did not reflect the X centre across the pivot.");
+        Confirm(std::abs(Mirrored.Bounds[1] - 220) < .003f, "Vertical mirror disturbed the Y centre.");
+        Confirm(std::abs(Mirrored.Bounds[2] - 40) < .003f && std::abs(Mirrored.Bounds[3] - 20) < .003f, "Mirror resized a reflected shape.");
+        const float ExpectedAngle = std::numbers::pi_v<float> - .3f; // 2α−θ, α=90°=π/2
+        Confirm(std::abs(Mirrored.Transform[0] - ExpectedAngle) < .003f, "Mirror angle did not match 2α−θ.");
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Result.Document)) == Result.Document, "Mirror source failed TOML round trip.");
+        // 📝 KeepOriginal=false replaces the layer in place, keeping its own token and the document's population.
+        Specification.KeepOriginal = false;
+        const auto Replaced = GenerateVectorAuthoringMirror(Document, Selection, Specification);
+        Confirm(Replaced.Document.Layers.size() == 1 && Replaced.Document.Layers[0].Token == 1, "Mirror without KeepOriginal should replace the source layer in place.");
+        Confirm(std::abs(Replaced.Document.Instructions[Replaced.Document.Layers[0].Root].Bounds[0] - (2 * 256 - 300)) < .003f, "In-place mirror did not reflect the shape.");
+    }
+    // 📝 Mirror on an asymmetric freeform path (Category 6): must genuinely flip the contour, not merely
+    // reposition it - every vertex should land at its true geometric reflection across the axis.
+    {
+        VectorAuthoringDocument Document;
+        CubicPath Triangle;
+        Triangle.Closed = true;
+        Triangle.Anchors = {{{120, 120}, {120, 120}, {120, 120}}, {{220, 140}, {220, 140}, {220, 140}}, {{140, 230}, {140, 230}, {140, 230}}};
+        const auto Token = ConstructCubicPath(Document, Triangle, {}, "Scalene");
+        const std::array<uint32_t, 1> Selection{Token};
+        VectorAuthoringMirrorSpecification Specification;
+        Specification.PivotX = 180; Specification.PivotY = 256; Specification.AxisAngle = 90; // vertical line x=180
+        Specification.KeepOriginal = false;
+        const auto Result = GenerateVectorAuthoringMirror(Document, Selection, Specification);
+        const auto Reflected = DecodeCubicPath(Result.Document, Token);
+        Confirm(Reflected.Anchors.size() == Triangle.Anchors.size(), "Mirrored freeform path lost anchors.");
+        for (size_t Index = 0; Index < Triangle.Anchors.size(); ++Index)
+        {
+            const auto &Source = Triangle.Anchors[Index].Position;
+            const auto &Mirrored = Reflected.Anchors[Index].Position;
+            const std::array<float, 2> Expected{2 * 180 - Source[0], Source[1]};
+            Confirm(std::hypot(Mirrored[0] - Expected[0], Mirrored[1] - Expected[1]) < .01f,
+                "Freeform path vertex did not land at its true geometric reflection (a repositioned-but-unflipped copy would fail this).");
+        }
+        // 📝 The reflected contour must still close and fill correctly (even though its winding direction
+        // reversed) - the GPU fill rule tests abs(Winding), so re-validating it here would already throw
+        // on an invalid/degenerate contour; ConstructVectorAuthoringCoverage inside GenerateVectorAuthoringMirror
+        // already proved this, this just re-confirms the round trip remains internally consistent.
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Result.Document)) == Result.Document, "Mirrored freeform source failed TOML round trip.");
+    }
+    // 📝 Mirror input validation.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Rectangle; Rectangle.Bounds = {256, 256, 20, 20};
+        Document.Instructions = {Rectangle};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringMirrorSpecification Bad;
+        Bad.PivotX = std::numeric_limits<float>::quiet_NaN();
+        ConfirmRefused([&] { GenerateVectorAuthoringMirror(Document, Selection, Bad); }, "Nonfinite mirror pivot accepted.");
+        Bad = {}; Bad.AxisAngle = 720;
+        ConfirmRefused([&] { GenerateVectorAuthoringMirror(Document, Selection, Bad); }, "Out-of-domain mirror axis angle accepted.");
+        Document.Layers[0].Locked = true;
+        ConfirmRefused([&] { GenerateVectorAuthoringMirror(Document, Selection, {}); }, "Mirror accepted a protected layer.");
+    }
+    // 📝 Noise/jitter: deterministic given a seed, bounded by amplitude, a zero amplitude is a true no-op.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {256, 256, 20, 20};
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringNoiseSpecification Zero; Zero.PositionJitter = 0; Zero.RotationJitter = 0; Zero.ScaleJitter = 0;
+        const auto Still = GenerateVectorAuthoringNoise(Document, Selection, Zero);
+        Confirm(Still.Document.Instructions[Still.Document.Layers[0].Root].Bounds == Square.Bounds, "Zero-amplitude jitter was not a no-op.");
+        VectorAuthoringNoiseSpecification Specification; Specification.Seed = 7;
+        const auto First = GenerateVectorAuthoringNoise(Document, Selection, Specification);
+        const auto Second = GenerateVectorAuthoringNoise(Document, Selection, Specification);
+        Confirm(First.Document == Second.Document, "Seeded jitter was not deterministic.");
+        Specification.Seed = 8;
+        const auto Third = GenerateVectorAuthoringNoise(Document, Selection, Specification);
+        Confirm(First.Document != Third.Document, "Different jitter seeds produced identical placements.");
+        const auto &Jittered = First.Document.Instructions[First.Document.Layers[0].Root];
+        Confirm(std::abs(Jittered.Bounds[0] - 256) <= Specification.PositionJitter + .01f, "Jitter X exceeded its declared amplitude.");
+        Confirm(std::abs(Jittered.Bounds[1] - 256) <= Specification.PositionJitter + .01f, "Jitter Y exceeded its declared amplitude.");
+        Confirm(std::abs(Jittered.Transform[0]) <= Specification.RotationJitter * std::numbers::pi_v<float> / 180 + .001f, "Jitter rotation exceeded its declared amplitude.");
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(First.Document)) == First.Document, "Jittered source failed TOML round trip.");
+        VectorAuthoringNoiseSpecification BadAmplitude; BadAmplitude.PositionJitter = 1000;
+        ConfirmRefused([&] { GenerateVectorAuthoringNoise(Document, Selection, BadAmplitude); }, "Out-of-domain jitter amplitude accepted.");
+        BadAmplitude = {}; BadAmplitude.Seed = 1000000;
+        ConfirmRefused([&] { GenerateVectorAuthoringNoise(Document, Selection, BadAmplitude); }, "Out-of-domain jitter seed accepted.");
+    }
+    // 📝 Offset/outline: exact bbox growth, shrink, clamped minimum extent, domain validation.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 2;
+        VectorCoverageInstruction Rectangle; Rectangle.Bounds = {256, 256, 40, 20};
+        VectorCoverageInstruction Ellipse = Rectangle; Ellipse.Topology[0] = 1; Ellipse.Bounds[0] = 320;
+        Document.Instructions = {Rectangle, Ellipse};
+        VectorAuthoringLayer First; First.Token = 1; First.Root = 0;
+        VectorAuthoringLayer Second; Second.Token = 2; Second.Root = 1;
+        Document.Layers = {First, Second};
+        const std::array<uint32_t, 2> Selection{1, 2};
+        VectorAuthoringOffsetSpecification Grow; Grow.Distance = 6;
+        const auto Grown = GenerateVectorAuthoringOffset(Document, Selection, Grow);
+        Confirm(Grown.Document.Instructions[Grown.Document.Layers[0].Root].Bounds[2] == 52 && Grown.Document.Instructions[Grown.Document.Layers[0].Root].Bounds[3] == 32,
+            "Positive offset did not grow the rectangle's bounding frame by exactly 2x the distance.");
+        Confirm(Grown.Document.Instructions[Grown.Document.Layers[0].Root].Bounds[0] == 256, "Offset moved a shape's own centre.");
+        VectorAuthoringOffsetSpecification Shrink; Shrink.Distance = -8;
+        const auto Shrunk = GenerateVectorAuthoringOffset(Document, Selection, Shrink);
+        Confirm(Shrunk.Document.Instructions[Shrunk.Document.Layers[0].Root].Bounds[2] == 24 && Shrunk.Document.Instructions[Shrunk.Document.Layers[0].Root].Bounds[3] == 4,
+            "Negative offset did not shrink the bounding frame by exactly 2x the distance.");
+        VectorAuthoringOffsetSpecification Collapse; Collapse.Distance = -100;
+        const auto Collapsed = GenerateVectorAuthoringOffset(Document, Selection, Collapse);
+        Confirm(Collapsed.Document.Instructions[Collapsed.Document.Layers[0].Root].Bounds[2] >= .02f && Collapsed.Document.Instructions[Collapsed.Document.Layers[0].Root].Bounds[3] >= .02f,
+            "Collapsing offset did not clamp to a minimum positive extent.");
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Grown.Document)) == Grown.Document, "Offset source failed TOML round trip.");
+        VectorAuthoringOffsetSpecification BadDistance; BadDistance.Distance = 1000;
+        ConfirmRefused([&] { GenerateVectorAuthoringOffset(Document, Selection, BadDistance); }, "Out-of-domain offset distance accepted.");
+        Document.Layers[0].Locked = true;
+        ConfirmRefused([&] { GenerateVectorAuthoringOffset(Document, Selection, Grow); }, "Offset accepted a protected layer.");
+    }
+    // 📝 The modifier stack dispatcher and live evaluation chain mixed Operations exactly like Blender's own
+    // stack - a Mirror followed by a Noise jitter acts on the WHOLE mirrored result, not just the source.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {200, 256, 20, 20};
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Name = "Charm"; Layer.Root = 0;
+        VectorAuthoringModifier MirrorEntry; MirrorEntry.Operation = VectorAuthoringModifierOperation::Mirror;
+        MirrorEntry.Mirror.PivotX = 256; MirrorEntry.Mirror.AxisAngle = 90; MirrorEntry.Mirror.KeepOriginal = true;
+        VectorAuthoringModifier NoiseEntry; NoiseEntry.Operation = VectorAuthoringModifierOperation::Noise;
+        NoiseEntry.Noise.PositionJitter = 0; NoiseEntry.Noise.RotationJitter = 0; NoiseEntry.Noise.ScaleJitter = 0; // deterministic no-op, isolates the chaining behaviour
+        Layer.Modifiers = {MirrorEntry, NoiseEntry};
+        Document.Layers = {Layer};
+        const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Document);
+        Confirm(Evaluated.Layers.size() == 2, "Stacked Mirror+Noise modifiers did not expand into the expected population.");
+        Confirm(std::all_of(Evaluated.Layers.begin(), Evaluated.Layers.end(), [](const auto &Candidate) { return Candidate.Modifiers.empty(); }),
+            "Evaluated document retained residual modifier metadata.");
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Document)) == Document, "Mixed-kind modifier stack failed TOML round trip.");
+        const auto Dispatched = ApplyVectorAuthoringModifier(Document, std::array<uint32_t, 1>{1}, MirrorEntry);
+        const auto Direct = GenerateVectorAuthoringMirror(Document, std::array<uint32_t, 1>{1}, MirrorEntry.Mirror);
+        Confirm(Dispatched.Document == Direct.Document, "Modifier dispatcher diverged from calling its Generate* function directly.");
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     COLOUR MODIFIER
+//------------------------------------------------------------------------------------------------------------------------
+
+void VerifyColour()
+{
+    // 📝 Ramp (discrete, grouped) target=Fill, manual GroupSize: 4 elements, GroupSize=2, 2 stops ->
+    // [A,A,B,B] by generation order, never blended.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 4;
+        for (int Index = 0; Index < 4; ++Index)
+        {
+            VectorCoverageInstruction Square; Square.Bounds = {float(100 * Index), 256, 20, 20};
+            Document.Instructions.push_back(Square);
+            VectorAuthoringLayer Layer; Layer.Token = uint32_t(Index + 1); Layer.Root = uint32_t(Index);
+            Document.Layers.push_back(Layer);
+        }
+        const std::array<uint32_t, 4> Selection{1, 2, 3, 4};
+        VectorAuthoringColourSpecification Ramp;
+        Ramp.Generator = VectorAuthoringColourGenerator::Ramp; Ramp.Target = VectorAuthoringColourTarget::Fill;
+        Ramp.StopCount = 2; Ramp.Stops[0] = {1, 0, 0, 1}; Ramp.Stops[1] = {0, 0, 1, 1};
+        Ramp.AutoGroup = false; Ramp.GroupSize = 2;
+        const auto EncodedBefore = EncodeVectorAuthoring(Document);
+        const auto Result = GenerateVectorAuthoringColour(Document, Selection, Ramp);
+        Confirm(EncodeVectorAuthoring(Document) == EncodedBefore, "Colour modified its input.");
+        const auto Fill = [&](uint32_t Token) { return Result.Document.Instructions[Result.Document.Layers[Token - 1].Root].Colour; };
+        Confirm(Fill(1) == Ramp.Stops[0] && Fill(2) == Ramp.Stops[0], "Ramp group 0 did not receive stop 0.");
+        Confirm(Fill(3) == Ramp.Stops[1] && Fill(4) == Ramp.Stops[1], "Ramp group 1 did not receive stop 1.");
+        // 📝 A Fill-only paint leaves StrokeColour at its untouched default, which differs from the new
+        // fill Colour - the pre-existing codec (see VectorAuthoringDocument.cpp's EncodeInstruction) already
+        // persists that incidental difference even without the explicit-stroke flag, and decode then raises
+        // the flag defensively on read-back. That one-way flag gain is a pre-existing codec trait, not a
+        // Colour-modifier regression, so stability (a further round trip changes nothing more) is what's
+        // actually guaranteed here rather than bit-exact equality against the pre-serialization in-memory copy.
+        const auto RoundTripped = DecodeVectorAuthoring(EncodeVectorAuthoring(Result.Document));
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(RoundTripped)) == RoundTripped, "Ramp-coloured source was not stable across a second TOML round trip.");
+    }
+    // 📝 Linear (continuous, spatial): auto-fit across the selection's own combined bounding box - the
+    // extreme elements land exactly on stop 0/stop 1, nothing needs a manual pivot.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 2;
+        VectorCoverageInstruction Left; Left.Bounds = {100, 256, 20, 20};
+        VectorCoverageInstruction Right; Right.Bounds = {300, 256, 20, 20};
+        Document.Instructions = {Left, Right};
+        VectorAuthoringLayer First; First.Token = 1; First.Root = 0;
+        VectorAuthoringLayer Second; Second.Token = 2; Second.Root = 1;
+        Document.Layers = {First, Second};
+        const std::array<uint32_t, 2> Selection{1, 2};
+        VectorAuthoringColourSpecification Linear;
+        Linear.Generator = VectorAuthoringColourGenerator::Linear; Linear.AxisAngle = 0; // left-to-right
+        Linear.StopCount = 2; Linear.Stops[0] = {1, 1, 1, 1}; Linear.Stops[1] = {0, 0, 0, 1};
+        const auto Result = GenerateVectorAuthoringColour(Document, Selection, Linear);
+        Confirm(Result.Document.Instructions[Result.Document.Layers[0].Root].Colour == Linear.Stops[0], "Linear gradient did not place the leftmost element on stop 0.");
+        Confirm(Result.Document.Instructions[Result.Document.Layers[1].Root].Colour == Linear.Stops[1], "Linear gradient did not place the rightmost element on stop 1.");
+    }
+    // 📝 Radial (continuous, spatial): T = distance/Radius from an explicit centre - an element at exactly
+    // half the radius must land exactly halfway between the two stops.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {306, 256, 20, 20}; // 50px from (256,256)
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringColourSpecification Radial;
+        Radial.Generator = VectorAuthoringColourGenerator::Radial; Radial.CentreX = 256; Radial.CentreY = 256; Radial.Radius = 100;
+        Radial.StopCount = 2; Radial.Stops[0] = {0, 0, 0, 1}; Radial.Stops[1] = {1, 1, 1, 1};
+        const auto Result = GenerateVectorAuthoringColour(Document, Selection, Radial);
+        const auto &Blend = Result.Document.Instructions[Result.Document.Layers[0].Root].Colour;
+        for (size_t Channel = 0; Channel < 3; ++Channel) Confirm(std::abs(Blend[Channel] - .5f) < .005f, "Radial gradient at half-radius did not land halfway between its two stops.");
+    }
+    // 📝 Target selectability: Fill/Stroke/Both independently drive Colour vs StrokeColour (+ the explicit
+    // persistence flag), and never disturb the channel they were not asked to touch.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {256, 256, 20, 20}; Square.Colour = {.2f, .3f, .4f, 1};
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringColourSpecification Stroke;
+        Stroke.Generator = VectorAuthoringColourGenerator::Ramp; Stroke.Target = VectorAuthoringColourTarget::Stroke;
+        Stroke.StopCount = 2; Stroke.Stops[0] = {0, 1, 0, 1}; Stroke.AutoGroup = false; Stroke.GroupSize = 1;
+        const auto StrokeOnly = GenerateVectorAuthoringColour(Document, Selection, Stroke);
+        const auto &StrokeInstruction = StrokeOnly.Document.Instructions[StrokeOnly.Document.Layers[0].Root];
+        Confirm(StrokeInstruction.Colour == Square.Colour, "Stroke-only target disturbed the untouched fill colour.");
+        Confirm(StrokeInstruction.StrokeColour == Stroke.Stops[0], "Stroke-only target did not paint the stroke colour.");
+        Confirm((StrokeInstruction.Topology[3] & VectorCoverageStrokeColourExplicit) != 0, "Stroke-only target did not mark the stroke colour explicit for persistence.");
+        // 📝 Same pre-existing codec trait as above (a Colour away from pure default makes some untouched
+        // leaf's incidental Colour/StrokeColour mismatch persist, and decode conservatively raises the
+        // explicit flag on it) - stability across a second round trip is the guarantee that actually holds.
+        const auto StrokeRoundTripped = DecodeVectorAuthoring(EncodeVectorAuthoring(StrokeOnly.Document));
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(StrokeRoundTripped)) == StrokeRoundTripped, "Stroke-coloured source was not stable across a second TOML round trip.");
+        VectorAuthoringColourSpecification Both = Stroke; Both.Target = VectorAuthoringColourTarget::Both;
+        const auto BothResult = GenerateVectorAuthoringColour(Document, Selection, Both);
+        const auto &BothInstruction = BothResult.Document.Instructions[BothResult.Document.Layers[0].Root];
+        Confirm(BothInstruction.Colour == Both.Stops[0] && BothInstruction.StrokeColour == Both.Stops[0], "Both target did not paint fill and stroke identically.");
+    }
+    // 📝 AutoGroup resolution: Grid bands by row (Columns), Radial bands by ring (Count), a single-axis
+    // category bands the whole population as one group, and no preceding Array falls back to GroupSize=1.
+    {
+        VectorAuthoringModifier GridEntry; GridEntry.Operation = VectorAuthoringModifierOperation::Array;
+        GridEntry.Array.Category = VectorAuthoringArrayCategory::Grid; GridEntry.Array.Columns = 3; GridEntry.Array.Rows = 2;
+        VectorAuthoringColourSpecification Auto; Auto.AutoGroup = true;
+        Confirm(ResolveVectorAuthoringColourGrouping(Auto, &GridEntry).GroupSize == 3, "Grid array did not auto-group Colour by its own row width.");
+        VectorAuthoringModifier RadialEntry; RadialEntry.Operation = VectorAuthoringModifierOperation::Array;
+        RadialEntry.Array.Category = VectorAuthoringArrayCategory::Radial; RadialEntry.Array.Count = 4; RadialEntry.Array.Rings = 2;
+        Confirm(ResolveVectorAuthoringColourGrouping(Auto, &RadialEntry).GroupSize == 4, "Radial array did not auto-group Colour by its own per-ring population.");
+        VectorAuthoringModifier LinearEntry; LinearEntry.Operation = VectorAuthoringModifierOperation::Array;
+        LinearEntry.Array.Category = VectorAuthoringArrayCategory::Linear; LinearEntry.Array.Count = 6;
+        Confirm(ResolveVectorAuthoringColourGrouping(Auto, &LinearEntry).GroupSize == 6, "Single-axis array did not auto-group Colour as one whole-population band.");
+        Confirm(ResolveVectorAuthoringColourGrouping(Auto, nullptr).GroupSize == 1, "AutoGroup with no preceding array did not fall back to one element per group.");
+        VectorAuthoringModifier MirrorEntry; MirrorEntry.Operation = VectorAuthoringModifierOperation::Mirror;
+        Confirm(ResolveVectorAuthoringColourGrouping(Auto, &MirrorEntry).GroupSize == 1, "AutoGroup behind a non-Array modifier did not fall back to one element per group.");
+        VectorAuthoringColourSpecification Manual; Manual.AutoGroup = false; Manual.GroupSize = 7;
+        Confirm(ResolveVectorAuthoringColourGrouping(Manual, &GridEntry).GroupSize == 7, "AutoGroup=false overrode the author's own manual GroupSize.");
+    }
+    // 📝 End-to-end chaining: a Grid Array followed by a live Colour modifier bands the evaluated document
+    // by row exactly like the resolver predicts, with zero residual modifier metadata left behind.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {256, 256, 16, 16};
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Name = "Bead"; Layer.Root = 0;
+        VectorAuthoringModifier ArrayEntry; ArrayEntry.Operation = VectorAuthoringModifierOperation::Array;
+        ArrayEntry.Array.Category = VectorAuthoringArrayCategory::Grid;
+        ArrayEntry.Array.Columns = 3; ArrayEntry.Array.Rows = 2; ArrayEntry.Array.StepX = 40; ArrayEntry.Array.StepY = 40;
+        VectorAuthoringModifier ColourEntry; ColourEntry.Operation = VectorAuthoringModifierOperation::Colour;
+        ColourEntry.Colour.Generator = VectorAuthoringColourGenerator::Ramp; ColourEntry.Colour.AutoGroup = true;
+        ColourEntry.Colour.StopCount = 2; ColourEntry.Colour.Stops[0] = {1, 0, 0, 1}; ColourEntry.Colour.Stops[1] = {0, 0, 1, 1};
+        Layer.Modifiers = {ArrayEntry, ColourEntry};
+        Document.Layers = {Layer};
+        const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Document);
+        Confirm(Evaluated.Layers.size() == 6, "Array+Colour stack did not expand to the expected 3x2 population.");
+        Confirm(std::all_of(Evaluated.Layers.begin(), Evaluated.Layers.end(), [](const auto &Candidate) { return Candidate.Modifiers.empty(); }),
+            "Evaluated Array+Colour stack retained residual modifier metadata.");
+        for (size_t Index = 0; Index < 3; ++Index)
+            Confirm(Evaluated.Instructions[Evaluated.Layers[Index].Root].Colour == ColourEntry.Colour.Stops[0], "Auto-grouped row 0 did not receive stop 0 after a live Array+Colour chain.");
+        for (size_t Index = 3; Index < 6; ++Index)
+            Confirm(Evaluated.Instructions[Evaluated.Layers[Index].Root].Colour == ColourEntry.Colour.Stops[1], "Auto-grouped row 1 did not receive stop 1 after a live Array+Colour chain.");
+        Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Document)) == Document, "Array+Colour modifier stack failed TOML round trip.");
+        const auto Dispatched = ApplyVectorAuthoringModifier(Document, std::array<uint32_t, 1>{1}, ColourEntry, &ArrayEntry);
+        Confirm(Dispatched.Document.Instructions[Dispatched.Document.Layers[0].Root].Colour == ColourEntry.Colour.Stops[0],
+            "Dispatcher did not resolve AutoGroup from the Previous modifier it was given.");
+    }
+    // 📝 Validation: malformed generator/target, stop domain, axis/centre/radius domain, group size domain
+    // and protected layers are all refused outright.
+    {
+        VectorAuthoringDocument Document;
+        Document.TokenClock = 1;
+        VectorCoverageInstruction Square; Square.Bounds = {256, 256, 20, 20};
+        Document.Instructions = {Square};
+        VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0;
+        Document.Layers = {Layer};
+        const std::array<uint32_t, 1> Selection{1};
+        VectorAuthoringColourSpecification Bad;
+        Bad.StopCount = 1;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Out-of-domain colour stop count accepted.");
+        Bad = {}; Bad.Stops[0][0] = 1.5f;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Out-of-range colour stop channel accepted.");
+        Bad = {}; Bad.AxisAngle = std::numeric_limits<float>::quiet_NaN();
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Nonfinite colour axis angle accepted.");
+        Bad = {}; Bad.CentreX = 5000;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Out-of-domain colour centre accepted.");
+        Bad = {}; Bad.Radius = -1;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Non-positive colour radius accepted.");
+        Bad = {}; Bad.AutoGroup = false; Bad.GroupSize = 0;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, Bad); }, "Zero colour group size accepted.");
+        Document.Layers[0].Locked = true;
+        ConfirmRefused([&] { GenerateVectorAuthoringColour(Document, Selection, {}); }, "Colour accepted a protected layer.");
+    }
+}
+
 void VerifyCodec()
 {
     const std::string Legacy = "format='frontier.vector_artwork'\nversion=1\ntoken_clock=0\nlayers=[]\ninstructions=[]\nsegments=[]\n";
@@ -366,6 +715,8 @@ int main()
             VerifyOrganization(Stamp);
         }
         VerifyRetainedExpressions();
+        VerifyModifiers();
+        VerifyColour();
         VerifyCodec();
         std::cout << "{\"result\":\"passed\",\"checks\":" << Checks << ",\"windows_executed\":false,\"gpu_pixels_tested\":false,\"workspace_ui_integrated\":false}\n";
         return 0;

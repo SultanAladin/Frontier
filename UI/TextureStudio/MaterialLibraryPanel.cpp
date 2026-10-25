@@ -733,11 +733,11 @@ void MaterialLibraryPanel::ConstructIcon(IconSymbol Symbol, float X, float Y, fl
 }
 
 bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position,
-    const char *Unit, bool Logarithmic, float Step, const char *Unavailable)
+    const char *Unit, bool Logarithmic, float Step, const char *Unavailable, float RowWidth)
 {
     const float Scale = QueryInterfaceScale();
     const auto Origin = ImGui::GetCursorScreenPos();
-    const float Width = std::max(28.f, ImGui::GetContentRegionAvail().x);
+    const float Width = std::max(28.f, RowWidth >= 0.f ? RowWidth : ImGui::GetContentRegionAvail().x);
     const bool Enabled = (ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_Disabled) == 0;
     ConstructMaterialCaption(Origin.x, Origin.y + 5 * Scale, 10 * Scale, 0xa3a393, Caption);
     ImGui::PushID(Caption);
@@ -875,6 +875,13 @@ void MaterialLibraryPanel::ConstructInspector()
             ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x + CardInset, ImGui::GetCursorScreenPos().y));
             const auto Start = ImGui::GetCursorScreenPos();
             const float CardWidth = std::max(110.f, ImGui::GetContentRegionAvail().x - CardInset);
+            // 📝 Dear ImGui snaps the cursor's X back to the window/child's native left edge after every
+            // item, not to this card's 17*Scale content inset - so any row that reads the ambient cursor
+            // position without re-anchoring first (anything after a colour field, a toggle, another
+            // slider, …) silently drifts to the wrong, too-far-left X. That drift clipped captions like
+            // "Paint roughness" down to "aint roughness" and left sliders with no left-side margin at all.
+            // Call this immediately before every row that positions itself from the ambient cursor.
+            const auto AnchorCardCursor = [&] { ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y)); };
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 8 * Scale, 7 * Scale, 0x8b8d79, "MATERIAL-AWARE CONTROLS");
             ConstructMaterialCaption(Start.x + 3 * Scale, Start.y + 37 * Scale, 17 * Scale, 0xbabbab,
                 Entry && !Entry->RecipeTitle.empty() ? Entry->RecipeTitle.c_str() : "Layered material", static_cast<ImFont *>(HeadingTypeface));
@@ -1000,6 +1007,7 @@ void MaterialLibraryPanel::ConstructInspector()
             };
             auto RenderControl = [&](const MaterialRecipeControl &Control)
             {
+                AnchorCardCursor();
                 float Position = Control.Position;
                 // 📝 Direct controls carry no mapped targets — the control key IS the coefficient.
                 // Requiring targets here disabled every direct slider (detail scale, orange-peel
@@ -1045,7 +1053,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 const char *Unavailable = !Supported ? "This recipe parameter is retained, but no native parameter is bound to it yet." :
                     RoughnessLimited ? "The native preview supports roughness of 0.045 or higher; this control is bounded to valid physical values." : nullptr;
                 if (ConstructProperty(Control.Caption.c_str(), NativeMinimum, NativeMaximum, Position,
-                    Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable))
+                    Control.Direct ? Control.Unit.c_str() : "%", Control.Logarithmic, Control.Step, Unavailable, CardWidth - 34 * Scale))
                 {
                     bool PaintChanged = false;
                     const auto ApplyTarget = [&](const std::string &Key, float Coefficient)
@@ -1243,9 +1251,17 @@ void MaterialLibraryPanel::ConstructInspector()
                 const bool Flakes = Group == "flakes" && Definition.Scattering.Paint.Configuration[3];
                 const bool Scratches = Group == "scratches";
                 const uint32_t PaletteColumns = uint32_t(std::max(1.f, std::floor((CardWidth / Scale - 28) / 29)));
-                const uint32_t PaletteRows = Flakes ? (Definition.Scattering.Paint.Configuration[3] + PaletteColumns - 1) / PaletteColumns : 1;
+                // 📝 Full colour-ramp editor: the swatch grid always reserves one extra tile for the "+"
+                // add button (unless already at the 12-stop cap), Ramp mode additionally shows a gradient
+                // preview bar above the grid and a "Stop position" slider below (counted into Rows, not
+                // ControlsTop, so it reuses the same 84px row rhythm as every other paint control).
+                const uint32_t PaletteStopCount = Flakes ? std::clamp(Definition.Scattering.Paint.Configuration[3],
+                    1u, uint32_t(Definition.Scattering.Paint.Palette.size())) : 0;
+                const uint32_t PaletteTileCount = Flakes ? std::min(PaletteStopCount + (PaletteStopCount < 12 ? 1u : 0u), 12u) : 0;
+                const uint32_t PaletteRows = Flakes ? (PaletteTileCount + PaletteColumns - 1) / std::max(1u, PaletteColumns) : 1;
+                const bool FlakeRampMode = Flakes && Definition.Scattering.Paint.Configuration[2] == 1;
                 const float ControlsTop = Finish ? (LayerColours.empty() ? 62 : 62 + float(LayerColours.size()) * 46) :
-                    Flakes ? (Definition.Scattering.Paint.Configuration[2] == 1 ? 230.f : 155.f + 29 * (PaletteRows - 1)) : 62;
+                    Flakes ? (22 + 30 + (FlakeRampMode ? 30.f : 0.f) + float(PaletteRows) * 29 + 10 + 34) : 62;
                 // 📝 Card height must match what Finish actually renders: a profiled recipe only draws its
                 // own GroupControls (no fallback), while an unprofiled material falls back to the 6 generic
                 // sliders (Roughness/Metallic/Anisotropy/Specular/Normal/Height strength). The previous fixed
@@ -1253,7 +1269,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 // let the next card's background start before this card's controls actually ended.
                 const float Rows = ScalarsCard ? float(LayerScalars.size()) :
                     Finish ? float(GroupControls.empty() ? (Profile ? 0 : 6) : GroupControls.size()) :
-                    float(GroupControls.size());
+                    float(GroupControls.size()) + (FlakeRampMode ? 1.f : 0.f);
                 const bool Collapsed = FoldedInspectorCards.contains(CardKey);
                 const float CardHeight = (Collapsed ? 52.f : ControlsTop + Rows * 84 + 48) * Scale;
                 PixelSpace Surface;
@@ -1315,17 +1331,23 @@ void MaterialLibraryPanel::ConstructInspector()
                         // 📝 No recipe profile: the generic structured scalars render per layer, so
                         // upper strata stay editable instead of being stranded behind stratum 0.
                         auto &Stratum = Definition.Scattering.Illumination.Strata[Layer];
-                        if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Roughness", .045f, 1.f, Stratum.AlbedoRoughness[3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Roughness", Stratum.AlbedoRoughness[3]) || Changed;
-                        if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Metallic", 0.f, 1.f, Stratum.Optics[0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Metallic", Stratum.Optics[0]) || Changed;
-                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Anisotropy", -.9f, .9f, Definition.Scattering.DirectionalOptics[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Anisotropy", Definition.Scattering.DirectionalOptics[Layer][0]) || Changed;
-                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Specular", 0.f, 1.f, Definition.Scattering.DirectionalOptics[Layer][3], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "Specular", Definition.Scattering.DirectionalOptics[Layer][3]) || Changed;
-                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Normal strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][0], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "NormalStrength", Definition.Scattering.StratumNormal[Layer][0]) || Changed;
-                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1]))
+                        AnchorCardCursor();
+                        if (ConstructProperty("Height strength", 0.f, 4.f, Definition.Scattering.StratumNormal[Layer][1], "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, "HeightStrength", Definition.Scattering.StratumNormal[Layer][1]) || Changed;
                     }
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
@@ -1381,14 +1403,211 @@ void MaterialLibraryPanel::ConstructInspector()
                 else if (ScalarsCard)
                 {
                     for (auto &Scalar : ScalarsByLayer[Layer])
-                        if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value))
+                    {
+                        AnchorCardCursor();
+                        if (ConstructProperty(Scalar.Caption, Scalar.Minimum, Scalar.Maximum, *Scalar.Value, "%", false, 0, nullptr, CardWidth - 34 * Scale))
                             Changed = Library.ConfigureStratumCoefficient(Layer, Scalar.Field, *Scalar.Value) || Changed;
+                    }
                     ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,
                         0x7b7b6b, "Physical coefficients of this layer with no recipe control.");
                 }
                 else
                 {
+                    if (Flakes)
+                    {
+                        // 📝 Flake colours are a genuine stop-based ramp/palette editor (add and remove
+                        // stops, drag a blended gradient preview, pick which of Single/Ramp/Palette mode
+                        // the flake particles sample - Configuration[2]), not just a fixed-size row of
+                        // swatches: a single static row could never express "two colours blended" or
+                        // "five colours drawn at random per particle" as distinct, editable concepts.
+                        auto &Paint = Definition.Scattering.Paint;
+                        const uint32_t PaletteCount = std::clamp(Paint.Configuration[3], 1u, uint32_t(Paint.Palette.size()));
+                        FlakeColourSelection = std::min(FlakeColourSelection, PaletteCount - 1);
+                        const auto ToSrgb = [](float Linear) { return Linear <= .0031308f ? 12.92f * Linear :
+                            1.055f * std::pow(std::max(Linear, 0.f), 1.f / 2.4f) - .055f; };
+                        const auto ToLinear = [](float Srgb) { return Srgb <= .04045f ? Srgb / 12.92f :
+                            std::pow((Srgb + .055f) / 1.055f, 2.4f); };
+                        const auto StopInk = [&](uint32_t Index)
+                        {
+                            const auto &Stop = Paint.Palette[Index];
+                            return IM_COL32(uint8_t(std::clamp(ToSrgb(Stop[0]), 0.f, 1.f) * 255 + .5f),
+                                uint8_t(std::clamp(ToSrgb(Stop[1]), 0.f, 1.f) * 255 + .5f),
+                                uint8_t(std::clamp(ToSrgb(Stop[2]), 0.f, 1.f) * 255 + .5f), 255);
+                        };
+                        // 📝 Shared by the "+" add control regardless of mode: find the single largest gap
+                        // between consecutive stop positions (treating 0 and 1 as implicit bounds) and insert
+                        // a new stop at its midpoint, in sorted order - this keeps Palette[] monotonically
+                        // ordered by position at all times, which Ramp mode's own validation requires, so
+                        // switching into Ramp mode later never trips on stops collected while browsing
+                        // Palette or Single mode.
+                        const auto AddStop = [&]()
+                        {
+                            if (PaletteCount >= 12) return;
+                            float Previous = 0.f, BestGap = 0.f, BestPosition = 1.f;
+                            for (uint32_t Index = 0; Index <= PaletteCount; ++Index)
+                            {
+                                const float Current = Index < PaletteCount ? Paint.Palette[Index][3] : 1.f;
+                                if (Current - Previous > BestGap) { BestGap = Current - Previous; BestPosition = (Current + Previous) * .5f; }
+                                Previous = Current;
+                            }
+                            uint32_t InsertAt = PaletteCount;
+                            for (uint32_t Index = 0; Index < PaletteCount; ++Index)
+                                if (Paint.Palette[Index][3] > BestPosition) { InsertAt = Index; break; }
+                            for (uint32_t Index = PaletteCount; Index > InsertAt; --Index) Paint.Palette[Index] = Paint.Palette[Index - 1];
+                            Paint.Palette[InsertAt] = {.26f, .26f, .26f, BestPosition};
+                            Paint.Configuration[3] = PaletteCount + 1;
+                            FlakeColourSelection = InsertAt;
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        };
+                        const auto RemoveStop = [&]()
+                        {
+                            if (PaletteCount <= 1) return;
+                            const uint32_t Remove = std::min(FlakeColourSelection, PaletteCount - 1);
+                            for (uint32_t Index = Remove; Index + 1 < PaletteCount; ++Index) Paint.Palette[Index] = Paint.Palette[Index + 1];
+                            Paint.Palette[PaletteCount - 1] = {};
+                            Paint.Configuration[3] = PaletteCount - 1;
+                            FlakeColourSelection = Remove > 0 ? Remove - 1 : 0;
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        };
+                        const auto CursorTop = ImGui::GetCursorScreenPos().y;
+                        ConstructMaterialCaption(Start.x + 17 * Scale, CursorTop + 4 * Scale, 10 * Scale, 0xa3a393, "Flake colors");
+                        char CountLabel[8]; std::snprintf(CountLabel, sizeof(CountLabel), "%u/12", PaletteCount);
+                        ConstructMaterialCaption(Start.x + CardWidth - 44 * Scale, CursorTop + 4 * Scale, 8 * Scale, 0x777766, CountLabel);
+                        ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, CursorTop + 22 * Scale));
+                        // 📝 Mode is independent of the stored stop count, exactly like the HTML reference:
+                        // switching modes never discards stops, it only changes how the engine samples them
+                        // (Palette = one at random per particle, Ramp = blended by position, Single = stop 0).
+                        const std::array<std::pair<const char *, uint32_t>, 3> Modes{{{"Palette", 0}, {"Ramp", 1}, {"Single", 2}}};
+                        const float ModeWidth = (CardWidth - 34 * Scale - 8 * Scale) / 3;
+                        for (size_t Index = 0; Index < Modes.size(); ++Index)
+                        {
+                            if (Index) ImGui::SameLine(0, 4 * Scale);
+                            const bool Active = Paint.Configuration[2] == Modes[Index].second;
+                            ImGui::PushStyleColor(ImGuiCol_Button, EncodeMaterialInk(Active ? 0x3a3e30 : 0x1d1d1b, 255));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EncodeMaterialInk(Active ? 0x454a37 : 0x27271f, 255));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, EncodeMaterialInk(Active ? 0x454a37 : 0x27271f, 255));
+                            ImGui::PushStyleColor(ImGuiCol_Text, EncodeMaterialInk(Active ? 0xd9dcc4 : 0x8d8d7f, 255));
+                            if (ImGui::Button((std::string(Modes[Index].first) + "##FlakeColourMode").c_str(), ImVec2(ModeWidth, 22 * Scale)) && !Active)
+                            {
+                                Paint.Configuration[2] = Modes[Index].second;
+                                Changed = Library.ConfigurePaint(Paint) || Changed;
+                            }
+                            ImGui::PopStyleColor(4);
+                        }
+                        ImGui::SetCursorScreenPos(ImVec2(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 30 * Scale));
+                        if (FlakeRampMode)
+                        {
+                            // 📝 Blended gradient preview: one filled segment per pair of consecutive stops
+                            // (already position-sorted - see AddStop), plus a small marker per stop so a click
+                            // anywhere on the bar selects the nearest stop for the hex/position row below.
+                            const ImVec2 BarOrigin = ImGui::GetCursorScreenPos();
+                            const float BarWidth = CardWidth - 34 * Scale, BarHeight = 18 * Scale;
+                            auto *Ink = ImGui::GetWindowDrawList();
+                            Ink->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), EncodeMaterialInk(0x101010), 4 * Scale);
+                            for (uint32_t Index = 0; Index + 1 < PaletteCount; ++Index)
+                            {
+                                const float X0 = BarOrigin.x + Paint.Palette[Index][3] * BarWidth, X1 = BarOrigin.x + Paint.Palette[Index + 1][3] * BarWidth;
+                                Ink->AddRectFilledMultiColor(ImVec2(X0, BarOrigin.y), ImVec2(X1, BarOrigin.y + BarHeight),
+                                    StopInk(Index), StopInk(Index + 1), StopInk(Index + 1), StopInk(Index));
+                            }
+                            if (PaletteCount == 1)
+                                Ink->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), StopInk(0), 4 * Scale);
+                            Ink->AddRect(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), EncodeMaterialInk(0xffffff, 26), 4 * Scale);
+                            for (uint32_t Index = 0; Index < PaletteCount; ++Index)
+                            {
+                                const float MarkerX = BarOrigin.x + Paint.Palette[Index][3] * BarWidth;
+                                ImGui::SetCursorScreenPos(ImVec2(MarkerX - 6 * Scale, BarOrigin.y + BarHeight + 2 * Scale));
+                                ImGui::PushID(int(Index) + 100);
+                                if (ImGui::InvisibleButton("##RampStop", ImVec2(12 * Scale, 8 * Scale))) FlakeColourSelection = Index;
+                                ImGui::PopID();
+                                const bool Selected = Index == FlakeColourSelection;
+                                Ink->AddTriangleFilled(ImVec2(MarkerX, BarOrigin.y + BarHeight + 2 * Scale),
+                                    ImVec2(MarkerX - 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
+                                    ImVec2(MarkerX + 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
+                                    EncodeMaterialInk(Selected ? 0xd9dcc4 : 0x6c6c60, 255));
+                            }
+                            ImGui::SetCursorScreenPos(ImVec2(BarOrigin.x, BarOrigin.y + BarHeight + 12 * Scale));
+                        }
+                        const float SwatchPitch = 29 * Scale;
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        for (uint32_t Index = 0; Index < PaletteCount; ++Index)
+                        {
+                            const uint32_t Column = Index % std::max(1u, PaletteColumns), Row = Index / std::max(1u, PaletteColumns);
+                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + Column * SwatchPitch, RowOrigin.y + Row * SwatchPitch));
+                            ImGui::PushID(int(Index));
+                            auto &Stop = Paint.Palette[Index];
+                            float Spectrum[3]{ToSrgb(Stop[0]), ToSrgb(Stop[1]), ToSrgb(Stop[2])};
+                            const bool Selected = Index == FlakeColourSelection;
+                            if (Selected)
+                            {
+                                const auto SwatchOrigin = ImGui::GetCursorScreenPos();
+                                ImGui::GetWindowDrawList()->AddRect(ImVec2(SwatchOrigin.x - 2 * Scale, SwatchOrigin.y - 2 * Scale),
+                                    ImVec2(SwatchOrigin.x + 26 * Scale, SwatchOrigin.y + 26 * Scale), EncodeMaterialInk(0xd9dcc4, 220), 3 * Scale, 0, 2 * Scale);
+                            }
+                            if (ImGui::ColorEdit3("##FlakeColour", Spectrum, ImGuiColorEditFlags_NoInputs |
+                                ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                            {
+                                for (size_t Channel = 0; Channel < 3; ++Channel) Stop[Channel] = ToLinear(Spectrum[Channel]);
+                                Changed = Library.ConfigurePaint(Paint) || Changed;
+                            }
+                            if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) FlakeColourSelection = Index;
+                            ImGui::PopID();
+                        }
+                        {
+                            const uint32_t AddColumn = PaletteCount % std::max(1u, PaletteColumns), AddRow = PaletteCount / std::max(1u, PaletteColumns);
+                            if (PaletteCount < 12)
+                            {
+                                ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + AddColumn * SwatchPitch, RowOrigin.y + AddRow * SwatchPitch));
+                                ImGui::PushStyleColor(ImGuiCol_Button, EncodeMaterialInk(0x1d1d1b, 255));
+                                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EncodeMaterialInk(0x27271f, 255));
+                                ImGui::PushStyleColor(ImGuiCol_ButtonActive, EncodeMaterialInk(0x27271f, 255));
+                                if (ImGui::Button("+##AddFlakeColour", ImVec2(24 * Scale, 24 * Scale))) AddStop();
+                                ImGui::PopStyleColor(3);
+                            }
+                        }
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + PaletteRows * SwatchPitch + 10 * Scale));
+                        // 📝 Selected-stop row: a real editable swatch + hex field (click the swatch for the
+                        // full picker popup, or type a hex code directly) for whichever swatch/marker was
+                        // last clicked - exactly the same ColorEdit3(DisplayHex) pattern the main Paint
+                        // colour field above already uses - plus the only way to shrink the ramp back down
+                        // (disabled at the 1-stop floor so the flake tint can never be configured into an
+                        // empty, unsampleable palette). A plain text caption here (the previous approach)
+                        // only ever displayed the hex value; it could never actually be edited.
+                        auto &Selected = Paint.Palette[FlakeColourSelection];
+                        float SelectedSpectrum[3]{ToSrgb(Selected[0]), ToSrgb(Selected[1]), ToSrgb(Selected[2])};
+                        const ImVec2 RowY = ImGui::GetCursorScreenPos();
+                        ImGui::SetNextItemWidth(CardWidth - 34 * Scale - 70 * Scale);
+                        ImGui::PushID("FlakeSelectedColour");
+                        if (ImGui::ColorEdit3("##FlakeSelectedColour", SelectedSpectrum,
+                            ImGuiColorEditFlags_DisplayHex | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
+                        {
+                            for (size_t Channel = 0; Channel < 3; ++Channel) Selected[Channel] = ToLinear(SelectedSpectrum[Channel]);
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                        ImGui::PopID();
+                        ImGui::SetCursorScreenPos(ImVec2(RowY.x + CardWidth - 34 * Scale - 60 * Scale, RowY.y));
+                        ImGui::BeginDisabled(PaletteCount <= 1);
+                        if (ImGui::Button("Remove##FlakeColour", ImVec2(60 * Scale, 24 * Scale))) RemoveStop();
+                        ImGui::EndDisabled();
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowY.y + 30 * Scale));
+                    }
                     for (const auto *Control : GroupControls) RenderControl(*Control);
+                    if (FlakeRampMode)
+                    {
+                        // 📝 Counted as the extra Rows entry added above, so it inherits the same 84px rhythm
+                        // (label + numeric field + track) as every other paint slider in this card.
+                        auto &Paint = Definition.Scattering.Paint;
+                        const uint32_t Selected = std::min(FlakeColourSelection, Paint.Configuration[3] - 1);
+                        const float Minimum = Selected > 0 ? Paint.Palette[Selected - 1][3] : 0.f;
+                        const float Maximum = Selected + 1 < Paint.Configuration[3] ? Paint.Palette[Selected + 1][3] : 1.f;
+                        float Position = Paint.Palette[Selected][3];
+                        AnchorCardCursor();
+                        if (ConstructProperty("Stop position", Minimum, Maximum, Position, "%", false, 0, nullptr, CardWidth - 34 * Scale))
+                        {
+                            Paint.Palette[Selected][3] = Position;
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                    }
                     if (Flakes)
                     {
                         ConstructMaterialCaption(Start.x + 17 * Scale, ImGui::GetCursorScreenPos().y + 4 * Scale, 8 * Scale,

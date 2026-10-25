@@ -9,13 +9,22 @@
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
+#include "Engine/ContentInterchange/CubicPathEditing.h"
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <string>
 #include "Engine/Lifecycle/ActivationSequence.h"
 
 namespace Frontier
 {
+// 📝 Measures Content's natural glyph-outline bounds at a reference point size and returns the
+// point size that makes it fill {BoxWidth, BoxHeight} as closely as possible without distorting the
+// font (both axes scaled uniformly, so the box's narrower-relative axis governs) — the "fit to box"
+// behaviour an SVG/Illustrator-style text tool gives when you drag out a frame and type into it.
+// Exposed (not file-local) so both the live on-canvas composer preview and the final bake-on-commit
+// call the exact same real function, and so a headless CPU test can exercise it directly.
+[[nodiscard]] float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot);
 class StampWorkspacePanel final : public ActivationSequence
 {
 public:
@@ -55,7 +64,7 @@ public:
     [[nodiscard]] PlaneExtent QueryPanelExtent(const std::string &Caption) const;
     [[nodiscard]] PlaneExtent QueryBoardExtent() const noexcept { return BoardExtent; }
     [[nodiscard]] bool QueryModified() const { return QueryDocument() != SavedDocument; }
-    [[nodiscard]] bool QueryAuthoringSettled() const noexcept { return Gesture == 0; }
+    [[nodiscard]] bool QueryAuthoringSettled() const noexcept { return Gesture == 0 && !PenSource; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     bool RequestClose();
     bool ConsumeMaterialApplyRequest() noexcept;
@@ -74,8 +83,10 @@ public:
 private:
     // 📝 Text is appended last, not inserted among Diamond..Star: Gesture==2's primitive math does
     // `uint32_t(Tool) - uint32_t(Diamond)` to pick a shape topology, which relies on Diamond..Star
-    // staying contiguous. Text never reaches that arithmetic (it takes its own branch).
-    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Text };
+    // staying contiguous. Text never reaches that arithmetic (it takes its own branch). Points/Pen/
+    // Polyline are appended after that for the same reason - they build/edit a cubic path directly
+    // (ConstructPenInteraction/ConstructPointInteraction), never through the Diamond..Star arithmetic.
+    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Text, Points, Pen, Polyline };
     // 📝 Constructed with Stamp=true: StampWorkspacePanel's own constructor immediately seeds a
     // Stamp document (Blank.Stamp = true) via ConfigureDocument -> History.Reset, which enforces
     // Replacement.Stamp == the history's own workspace contract. Left defaulted to Stamp=false,
@@ -114,6 +125,36 @@ private:
     std::filesystem::path ContentRoot;
     void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
+    // 📝 Pen/Polyline shared state (ConstructPenInteraction): Polyline is a Pen session with
+    // PolylineSession latched true for its whole lifetime - every anchor it places keeps Incoming/
+    // Outgoing coincident with Position (a straight corner, never a dragged tangent), and automatic
+    // tangent smoothing never applies to it even if AutomaticPen is otherwise enabled.
+    std::optional<VectorAuthoringDocument> PenSource, PenPreview;
+    CubicPath PendingPath;
+    uint32_t PenToken = 0;
+    size_t PenAnchorFloor = 0;
+    bool PenReversed = false;
+    bool IndependentPenContinuation = false;
+    bool AutomaticPen = false;
+    bool PolylineSession = false;
+    void ResumePen(uint32_t Token, bool FromStart);
+    std::vector<uint32_t> PenSelection;
+    void RefreshPenPreview();
+    bool FinishPen(bool Closed);
+    void CancelPen();
+    bool ConstructPenInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered);
+    // 📝 Points-tool shared state (ConstructPointInteraction): works on any non-Boolean source,
+    // converting a still-parametric primitive (rect/ellipse/diamond/triangle/polygon/star) to a plain
+    // cubic path the first time one of its corners is dragged, via DerivePrimitiveCubicPath - exactly
+    // the Inspector's own explicit "Convert to cubic path" button, just triggered by the first drag.
+    CubicPath PointDragSource;
+    std::vector<size_t> SelectedAnchors;
+    CubicSegmentProjection SegmentProjection;
+    bool SegmentBending = false;
+    uint32_t PointToken = 0;
+    size_t ActiveAnchor = SIZE_MAX;
+    CubicControl ActiveControl = CubicControl::Anchor;
+    bool ConstructPointInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered);
     VectorAuthoringTool Tool = VectorAuthoringTool::Select;
     PlaneExtent BoardExtent;
     PlanePoint PointerOrigin{}, Pan{}, PanOrigin{}, SelectionPointer{};
@@ -122,6 +163,12 @@ private:
     float Scale = 1, Zoom = 1;
     int Gesture = 0, Filter = 0;
     std::array<int, 2> ResizeDirection{};
+    // 📝 Gesture 9 is "dragging a gradient colour-stop marker on the canvas" (see ConstructInterface);
+    // GradientDragSlot names which of the shape's up-to-4 packed stop slots the drag is moving, and
+    // SelectedGradientStop is whichever slot the Inspector's ramp editor currently shows/edits — the two
+    // stay in sync (selecting a marker on the canvas selects it in the Inspector and vice versa).
+    int GradientDragSlot = -1;
+    int SelectedGradientStop = 0;
     bool MarqueeAdditive = false, SelectionExtend = false;
     uint32_t MaskSelection = 0;
     bool ChannelsOpen = false, CloseRequested = false;
@@ -154,12 +201,19 @@ private:
     std::array<float, 4> TextEditBounds{};
     PlanePoint TextBoxCurrent{};
     bool TextEditFocusPending = false;
+    // 📝 Live auto-fit cache for the on-canvas composer (see ConstructTextComposer): recomputed only
+    // when the composed text actually changes (never every frame — MeasureStampTextFitSize rebuilds
+    // real glyph outlines), so the font size shown while typing already matches the size the commit
+    // will bake at, instead of typing at a small generic caret size and only jumping to the real,
+    // much larger auto-fit size once the box commits.
+    std::string TextComposerFitCacheKey;
+    float TextComposerFitPointSize = 0;
     std::array<char, 2049> InspectorTextBuffer{};
     uint32_t InspectorTextToken = 0;
     void ConstructAddComponentMenu();
     void ConstructTextComposer(float BoardMinimumX, float BoardMinimumY, float BoardSize);
     void CommitTextComposer();
-    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize);
+    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth = 0.f);
     void ConstructVectorPopup();
     void ConstructImagePopup();
     void ConstructHeader();

@@ -7,9 +7,14 @@
 #include "StampWorkspacePanel.h"
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
+#include "WorkspaceZoom.h"
+#include "Engine/Diagnostics/DiagnosticJournal.h"
+#include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/ContentInterchange/StampTextOutline.h"
 #include "Engine/ContentInterchange/StampVectorImport.h"
+#include "Engine/ContentInterchange/VectorAuthoringEditing.h"
+#include "Engine/ContentInterchange/VectorGradientStops.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
@@ -40,9 +45,55 @@ ImVec4 Spectrum(uint32_t Colour)
     return {float((Colour >> 16) & 255) / 255, float((Colour >> 8) & 255) / 255, float(Colour & 255) / 255, 1};
 }
 
+// 🎨 The vector canvas's outer chrome (the well behind the 512×512 board, its header/ruler strips,
+// and the "VECTOR CANVAS" caption) used to hard-code its own green-tinted palette instead of
+// following the app's actual selected theme. Reading straight from ControlKit::Palette() keeps it
+// in lockstep with whatever theme is active (and any future theme switch), matching the neutral
+// dark-charcoal chrome used everywhere else (toolbars, cards, Material inspector, etc).
+ImVec4 ThemeQuad(const ColorQuad &Colour, float AlphaOverride = -1.0f)
+{
+    return {Colour.Red, Colour.Green, Colour.Blue, AlphaOverride >= 0.0f ? AlphaOverride : Colour.Alpha};
+}
+
 void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, void *Typeface = nullptr)
 {
     ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
+}
+
+// 🎨 The two document-space control points of a gradient-filled shape's own axis/radius handles — the
+// exact inverse of VectorCoverage.slang's EvaluateVectorPoint Fraction formula's LocalNorm construction,
+// reading Source.GradientAxis (linear: the ramp's literal start/end; radial: centre + a point on the
+// circle's edge) directly instead of deriving a fixed corner-to-corner line from an angle, so these two
+// points can be dragged anywhere relative to the shape (see Gesture 10/11 below) exactly like Illustrator/
+// Figma's gradient tool - e.g. placed at a text layer's left/right or top/bottom instead of its box corners.
+std::array<PlanePoint, 2> QueryGradientAxisEndpoints(const VectorCoverageInstruction &Source, const std::array<float, 4> &Bounds, float ShapeRotation)
+{
+    const auto ToPlane = [&](float LocalNormX, float LocalNormY) -> PlanePoint
+    {
+        const float LocalX = LocalNormX * Bounds[2], LocalY = LocalNormY * Bounds[3];
+        return {Bounds[0] + LocalX * std::cos(ShapeRotation) - LocalY * std::sin(ShapeRotation),
+                Bounds[1] + LocalX * std::sin(ShapeRotation) + LocalY * std::cos(ShapeRotation)};
+    };
+    return {ToPlane(Source.GradientAxis[0], Source.GradientAxis[1]), ToPlane(Source.GradientAxis[2], Source.GradientAxis[3])};
+}
+
+// 📝 The exact inverse of QueryGradientAxisEndpoints' ToPlane: turns a document-space point (e.g. the live
+// mouse position while dragging an axis handle) back into the shape's own LocalNorm frame, ready to write
+// straight into GradientAxis.
+std::array<float, 2> QueryGradientLocalNorm(PlanePoint Point, const std::array<float, 4> &Bounds, float ShapeRotation)
+{
+    const float Δx = Point.X - Bounds[0], Δy = Point.Y - Bounds[1];
+    const float Cosine = std::cos(ShapeRotation), Sine = std::sin(ShapeRotation);
+    return {(Cosine * Δx + Sine * Δy) / Bounds[2], (-Sine * Δx + Cosine * Δy) / Bounds[3]};
+}
+
+// 📝 Projects Point onto the Start→End segment and returns how far along it landed, unclamped — reused
+// to turn a mouse position into a gradient Fraction (clamp at each call site, since the drag case clamps
+// to neighbouring stops instead of a flat 0..1).
+float ProjectAlongSegment(PlanePoint Point, PlanePoint Start, PlanePoint End)
+{
+    const float Length2 = std::max(1e-4f, (End.X - Start.X) * (End.X - Start.X) + (End.Y - Start.Y) * (End.Y - Start.Y));
+    return ((Point.X - Start.X) * (End.X - Start.X) + (Point.Y - Start.Y) * (End.Y - Start.Y)) / Length2;
 }
 
 // 📝 Rounded, padded modal chrome, matching Pattern's own close/unsaved-changes prompt and the
@@ -155,7 +206,13 @@ void StampWorkspacePanel::RefreshLayerAtlas()
     LayerAtlasBakedRevision = CurrentRevision;
     const auto &Document = QueryDocument();
     if (Document.Layers.empty()) { LayerAtlasPixels.clear(); return; }
-    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
+    // 📝 The dark gallery-card well (near-black) that the library-browsing grid uses is wrong here:
+    // a component's authored ink is routinely dark too (the Text tool's own default fill is
+    // {.08,.08,.08,1}, ~rgb(20,20,20)), which was rendering at effectively zero contrast against a
+    // ~rgb(20,23,24) well — a seemingly "blank"/missing row preview that was actually rasterizing
+    // correctly, just invisibly. Match the real 2D viewport's own board colour (Spectrum(0xede7d7),
+    // see ConstructCanvas) instead, so a row's thumbnail always matches what the canvas itself shows.
+    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(215) << 16 | uint32_t(231) << 8 | uint32_t(237);
     const size_t Slotted = std::min(Document.Layers.size(), LayerAtlasCapacity);
     const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, LayerAtlasTile, CardWell);
     std::vector<std::vector<uint8_t>> Tiles;
@@ -177,8 +234,11 @@ void StampWorkspacePanel::RefreshLayerAtlas()
         catch (const std::exception &) { Tiles.push_back(Blank); }
     }
     LayerThumbnailCache = std::move(FreshCache);
-    LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell);
-    ++LayerAtlasRevision;
+    // 📝 Mirrors Pattern's own guard: a blit failure (bounded-grid rejection or allocation
+    // exhaustion) must never propagate uncaught into the render loop — reordering/adding/removing
+    // layers bumps the document revision every time, re-entering this call until it bakes cleanly.
+    try { LayerAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LayerAtlasTile, LayerAtlasColumns, CardWell); ++LayerAtlasRevision; }
+    catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append("StampLayerAtlasBlitError", Failure.what()); }
 }
 
 uint64_t StampWorkspacePanel::QueryLayerAtlasRevision()
@@ -349,6 +409,488 @@ void StampWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Capt
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
 }
 
+//------------------------------------------------------------------------------------------------------------------------
+//                                               PEN, POLYLINE AND POINTS TOOLS
+//------------------------------------------------------------------------------------------------------------------------
+
+void StampWorkspacePanel::CancelPen()
+{
+    PenSource.reset(); PenPreview.reset(); PendingPath = {}; PenSelection.clear(); ++GestureRevision;
+    PenToken = 0; PenAnchorFloor = 0; PenReversed = false; IndependentPenContinuation = false; PolylineSession = false;
+    Diagnostic.clear();
+    if (Gesture == 12) Gesture = 0;
+}
+
+void StampWorkspacePanel::ResumePen(uint32_t Token, bool FromStart)
+{
+    const auto &Source = History.QueryDocument();
+    const auto Position = std::find_if(Source.Layers.begin(), Source.Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; });
+    if (Position == Source.Layers.end() || MaskSelection || QueryVectorAuthoringProtection(Source, *Position)
+        || !QueryVectorAuthoringVisibility(Source, *Position)) throw std::runtime_error("Select one visible, editable open cubic source to continue.");
+    auto Path = DecodeCubicPath(Source, Token);
+    if (Path.Closed || Path.Anchors.size() >= 400) throw std::runtime_error("Continue an open path below its 400-anchor budget.");
+    if (FromStart) ReverseCubicPath(Path);
+    auto &Endpoint = Path.Anchors.back();
+    for (size_t Axis = 0; Axis < 2; ++Axis) Endpoint.Outgoing[Axis] = 2 * Endpoint.Position[Axis] - Endpoint.Incoming[Axis];
+    CancelPen();
+    PenSource = Source;
+    PenSelection = Selection;
+    PendingPath = std::move(Path);
+    PenToken = Token; PenAnchorFloor = PendingPath.Anchors.size(); PenReversed = FromStart;
+    Tool = VectorAuthoringTool::Pen;
+}
+
+void StampWorkspacePanel::RefreshPenPreview()
+{
+    PenPreview.reset();
+    ++GestureRevision;
+    if (!PenSource || PendingPath.Anchors.size() < 2) return;
+    if (PenToken && PendingPath.Anchors.size() == PenAnchorFloor && !PendingPath.Closed) return;
+    auto Draft = *PenSource;
+    if (PenToken)
+    {
+        auto Path = PendingPath;
+        if (PenReversed) ReverseCubicPath(Path);
+        ReplaceCubicPath(Draft, PenToken, Path);
+        PenPreview = std::move(Draft);
+        return;
+    }
+    VectorCoverageInstruction Style;
+    Style.Transform[1] = 1.4f;
+    Style.Paint[3] = PendingPath.Closed ? 1.f : 0.f;
+    auto Path = PendingPath;
+    if (AutomaticPen && !PolylineSession)
+    {
+        std::vector<size_t> Indices;
+        for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Indices.push_back(Index);
+        ConfigureAutomaticCubicTangents(Path, Indices);
+    }
+    ConstructCubicPath(Draft, Path, Style, "Pen contour");
+    PenPreview = std::move(Draft);
+}
+
+bool StampWorkspacePanel::FinishPen(bool Closed)
+{
+    if (!PenSource) return true;
+    try
+    {
+        if (PenToken && PendingPath.Anchors.size() == PenAnchorFloor && !Closed) { CancelPen(); return true; }
+        auto Path = PendingPath; Path.Closed = Closed;
+        if (AutomaticPen && !PenToken && !PolylineSession)
+        {
+            std::vector<size_t> Indices;
+            for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Indices.push_back(Index);
+            ConfigureAutomaticCubicTangents(Path, Indices);
+        }
+        if (PenReversed) ReverseCubicPath(Path);
+        auto Draft = *PenSource;
+        VectorCoverageInstruction Style;
+        Style.Transform[1] = 1.4f;
+        // 📝 Seed the closed/filled state's own independent outline width (Paint[0]) to match the
+        // line's starting thickness, purely for visual continuity the instant a brand-new path first
+        // closes into a shape - from here on the two widths are edited and stored completely separately.
+        if (Closed) Style.Paint[0] = Style.Transform[1];
+        uint32_t Token = PenToken;
+        if (Token) ReplaceCubicPath(Draft, Token, Path);
+        else Token = ConstructCubicPath(Draft, Path, Style, "Pen contour");
+        Selection = PenSelection;
+        CancelPen();
+        Finalize(std::move(Draft), {Token});
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+}
+
+bool StampWorkspacePanel::ConstructPenInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered)
+{
+    if (Tool != VectorAuthoringTool::Pen && Tool != VectorAuthoringTool::Polyline && !PenSource) return false;
+    const auto &Input = ImGui::GetIO();
+    if (PenSource && Tool != VectorAuthoringTool::Pen && Tool != VectorAuthoringTool::Polyline)
+    {
+        if (!FinishPen(false)) Tool = PolylineSession ? VectorAuthoringTool::Polyline : VectorAuthoringTool::Pen;
+        return true;
+    }
+    if (PenSource && (Input.AppFocusLost || ImGui::IsKeyPressed(ImGuiKey_Escape)))
+    {
+        CancelPen(); return true;
+    }
+    if (PenSource && !Input.WantTextInput)
+    {
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) { Save(); return true; }
+        if (Input.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) { CancelPen(); return true; }
+        if (Gesture == 0 && !Input.KeyCtrl)
+        {
+            std::optional<VectorAuthoringTool> Requested;
+            if (ImGui::IsKeyPressed(ImGuiKey_V)) Requested = VectorAuthoringTool::Select;
+            if (ImGui::IsKeyPressed(ImGuiKey_A)) Requested = VectorAuthoringTool::Points;
+            if (ImGui::IsKeyPressed(ImGuiKey_R)) Requested = VectorAuthoringTool::Rectangle;
+            if (ImGui::IsKeyPressed(ImGuiKey_O)) Requested = VectorAuthoringTool::Ellipse;
+            if (!PolylineSession && ImGui::IsKeyPressed(ImGuiKey_L)) Requested = VectorAuthoringTool::Polyline;
+            if (PolylineSession && ImGui::IsKeyPressed(ImGuiKey_P)) Requested = VectorAuthoringTool::Pen;
+            if (Requested) { if (FinishPen(false)) Tool = *Requested; return true; }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter)) { FinishPen(false); return true; }
+        if (Gesture == 0 && ImGui::IsKeyPressed(ImGuiKey_Backspace))
+        {
+            if (PenToken && PendingPath.Anchors.size() <= PenAnchorFloor) { CancelPen(); return true; }
+            PendingPath.Anchors.pop_back();
+            if (PendingPath.Anchors.empty()) CancelPen();
+            else RefreshPenPreview();
+            return true;
+        }
+    }
+    if (MaskSelection) return false;
+    const auto DocumentPoint = [&]()
+    {
+        std::array<float, 2> Coordinate{(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+            (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+        if (SnappingEnabled) for (auto &Position : Coordinate) Position = std::round(Position / 16) * 16;
+        return Coordinate;
+    };
+    const auto Project = [&](std::array<float, 2> Coordinate)
+    {
+        return ImVec2(Board.MinimumX + Coordinate[0] / 512 * Board.Width(), Board.MinimumY + Coordinate[1] / 512 * Board.Height());
+    };
+    uint32_t ResumeToken = 0;
+    bool ResumeStart = false;
+    if (!PenSource && Selection.size() == 1)
+    {
+        const auto &Source = History.QueryDocument();
+        const auto Position = std::find_if(Source.Layers.begin(), Source.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+        if (Position != Source.Layers.end() && !QueryVectorAuthoringProtection(Source, *Position)
+            && QueryVectorAuthoringVisibility(Source, *Position) && Source.Instructions[Position->Root].Topology[0] == 6)
+        {
+            try
+            {
+                const auto Path = DecodeCubicPath(Source, Position->Token);
+                if (!Path.Closed && Path.Anchors.size() < 400)
+                {
+                    auto *Ink = ImGui::GetWindowDrawList();
+                    Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+                    for (bool FromStart : {true, false})
+                    {
+                        const auto Endpoint = Project(FromStart ? Path.Anchors.front().Position : Path.Anchors.back().Position);
+                        const float Radius = 7 * Scale;
+                        ControlExtents[FromStart ? "Resume start endpoint" : "Resume end endpoint"] = {Endpoint.x - Radius, Endpoint.y - Radius, Endpoint.x + Radius, Endpoint.y + Radius};
+                        Ink->AddCircle(Endpoint, 5 * Scale, IM_COL32(204, 230, 181, 255));
+                        if (std::hypot(Input.MousePos.x - Endpoint.x, Input.MousePos.y - Endpoint.y) <= Radius)
+                        {
+                            ResumeToken = Position->Token; ResumeStart = FromStart;
+                        }
+                    }
+                    Ink->PopClipRect();
+                }
+            }
+            catch (const std::exception &) {}
+        }
+    }
+    uint32_t JoinToken = 0;
+    bool JoinEnd = false;
+    if (PenSource && PenToken && Gesture == 0)
+    {
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+        float Nearest = 7 * Scale;
+        for (auto Layer = PenSource->Layers.rbegin(); Layer != PenSource->Layers.rend(); ++Layer)
+        {
+            if (Layer->Token == PenToken || !QueryVectorAuthoringVisibility(*PenSource, *Layer)
+                || PenSource->Instructions[Layer->Root].Topology[0] != 6) continue;
+            CubicPath Path;
+            try { Path = DecodeCubicPath(*PenSource, Layer->Token); }
+            catch (const std::exception &) { continue; } // Compound contours remain visible but are not endpoint targets.
+            if (Path.Closed) continue;
+            for (bool End : {false, true})
+            {
+                const auto Endpoint = Project(End ? Path.Anchors.back().Position : Path.Anchors.front().Position);
+                const float Radius = 7 * Scale;
+                ControlExtents[std::string(End ? "Join end endpoint:" : "Join start endpoint:") + std::to_string(Layer->Token)]
+                    = {Endpoint.x - Radius, Endpoint.y - Radius, Endpoint.x + Radius, Endpoint.y + Radius};
+                Ink->AddCircle(Endpoint, 5 * Scale, IM_COL32(204, 230, 181, 255));
+                const float Distance = std::hypot(Input.MousePos.x - Endpoint.x, Input.MousePos.y - Endpoint.y);
+                if (Distance < Nearest)
+                {
+                    Nearest = Distance; JoinToken = Layer->Token; JoinEnd = End;
+                }
+            }
+        }
+        Ink->PopClipRect();
+    }
+    bool Consumed = Gesture == 12;
+    try
+    {
+        if (Gesture == 0 && Hovered && ImGui::IsMouseClicked(0) && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            Consumed = true;
+            if (!PenSource && ResumeToken && !Input.KeyCtrl)
+            {
+                ResumePen(ResumeToken, ResumeStart);
+                IndependentPenContinuation = false;
+                PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                    (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+                Gesture = 12;
+                return true;
+            }
+            if (PenSource && !PendingPath.Anchors.empty())
+            {
+                const auto Last = Project(PendingPath.Anchors.back().Position);
+                if (!PolylineSession && Input.KeyAlt && std::hypot(Input.MousePos.x - Last.x, Input.MousePos.y - Last.y) <= 7 * Scale)
+                {
+                    if (AutomaticPen && !PenToken) throw std::runtime_error("Disable automatic Pen curves before breaking an outgoing tangent.");
+                    // 📝 Keep the incoming curve; only the following segment receives this corner or independent drag.
+                    PendingPath.Anchors.back().Outgoing = PendingPath.Anchors.back().Position;
+                    IndependentPenContinuation = true;
+                    PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                        (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+                    Gesture = 12;
+                    RefreshPenPreview();
+                    return true;
+                }
+                const auto First = Project(PendingPath.Anchors.front().Position);
+                if (std::hypot(Input.MousePos.x - First.x, Input.MousePos.y - First.y) <= 7 * Scale)
+                {
+                    if (PendingPath.Anchors.size() < 3) throw std::runtime_error("A closed path needs at least three anchors.");
+                    FinishPen(true); return true;
+                }
+            }
+            if (JoinToken && !Input.KeyCtrl)
+            {
+                // 📝 Build and validate the entire continuation/join before consuming either retained source.
+                auto Draft = *PenSource;
+                auto Path = PendingPath;
+                if (PenReversed) ReverseCubicPath(Path);
+                ReplaceCubicPath(Draft, PenToken, Path);
+                const auto Token = IntegrateCubicPaths(Draft, PenToken, JoinToken, PenReversed, JoinEnd);
+                Selection = PenSelection;
+                CancelPen();
+                Finalize(std::move(Draft), {Token});
+                return true;
+            }
+            if (PendingPath.Anchors.size() >= 400) throw std::runtime_error("Pen paths support at most 400 anchors.");
+            if (!PenSource)
+            {
+                PenSource = History.QueryDocument(); PenSelection = Selection;
+                PendingPath = {};
+                PolylineSession = Tool == VectorAuthoringTool::Polyline;
+            }
+            auto Position = DocumentPoint();
+            if (Input.KeyShift && !PendingPath.Anchors.empty()) Position = ConstrainCubicDirection(PendingPath.Anchors.back().Position, Position);
+            IndependentPenContinuation = false;
+            PendingPath.Anchors.push_back({Position, Position, Position});
+            PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+            Gesture = 12;
+            RefreshPenPreview();
+        }
+        if (Gesture == 12 && PenSource && ImGui::IsKeyDown(ImGuiKey_Space) && ImGui::IsMousePosValid())
+        {
+            // 📝 Move only the newly placed anchor, never the retained endpoint being resumed.
+            if (!PenToken || PendingPath.Anchors.size() > PenAnchorFloor)
+            {
+                auto &Anchor = PendingPath.Anchors.back();
+                const std::array<float, 2> Displacement{Input.MouseDelta.x / Board.Width() * 512,
+                    Input.MouseDelta.y / Board.Height() * 512};
+                for (auto *Point : {&Anchor.Position, &Anchor.Incoming, &Anchor.Outgoing})
+                    for (size_t Axis = 0; Axis < 2; ++Axis) (*Point)[Axis] += Displacement[Axis];
+                PointerOrigin.X += Displacement[0]; PointerOrigin.Y += Displacement[1];
+                RefreshPenPreview();
+            }
+        }
+        else
+        if (Gesture == 12 && PenSource && (ImGui::IsMouseDragging(0, 2) || ImGui::IsMouseReleased(0)) && ImGui::IsMousePosValid()
+            && std::hypot((Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+        {
+            if (!PolylineSession)
+            {
+                auto &Anchor = PendingPath.Anchors.back();
+                auto Position = DocumentPoint();
+                if (Input.KeyShift) Position = ConstrainCubicDirection(Anchor.Position, Position);
+                Anchor.Outgoing = Position;
+                // 📝 The resumed endpoint's incoming control belongs to an existing segment; never mirror over it.
+                if (!IndependentPenContinuation && (!PenToken || PendingPath.Anchors.size() > PenAnchorFloor))
+                    for (size_t Axis = 0; Axis < 2; ++Axis)
+                        Anchor.Incoming[Axis] = Input.KeyAlt ? Anchor.Position[Axis] : 2 * Anchor.Position[Axis] - Position[Axis];
+                RefreshPenPreview();
+            }
+        }
+        if (PenSource)
+        {
+            auto *Ink = ImGui::GetWindowDrawList();
+            Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+            auto Guides = PendingPath;
+            if (AutomaticPen && !PenToken && !PolylineSession && Guides.Anchors.size() >= 2)
+            {
+                std::vector<size_t> Indices;
+                for (size_t Index = 0; Index < Guides.Anchors.size(); ++Index) Indices.push_back(Index);
+                ConfigureAutomaticCubicTangents(Guides, Indices);
+            }
+            for (size_t Index = 0; Index < Guides.Anchors.size(); ++Index)
+            {
+                const auto &Anchor = Guides.Anchors[Index];
+                const auto Position = Project(Anchor.Position);
+                ControlExtents["Pen anchor " + std::to_string(Index)] = {Position.x - 6 * Scale, Position.y - 6 * Scale, Position.x + 6 * Scale, Position.y + 6 * Scale};
+                Ink->AddCircle(Position, 4 * Scale, IM_COL32(204, 230, 181, 255));
+                if (Index + 1 == PendingPath.Anchors.size())
+                {
+                    Ink->AddLine(Project(Anchor.Incoming), Project(Anchor.Outgoing), IM_COL32(170, 197, 150, 210));
+                    for (auto Coordinate : {Anchor.Incoming, Anchor.Outgoing}) Ink->AddCircleFilled(Project(Coordinate), 3 * Scale, IM_COL32(204, 230, 181, 255));
+                }
+            }
+            Ink->PopClipRect();
+        }
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+    return Consumed;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     RETAINED POINT GUIDES AND INPUT
+//------------------------------------------------------------------------------------------------------------------------
+
+bool StampWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered)
+{
+    if ((Tool != VectorAuthoringTool::Points && Gesture != 13 && Gesture != 14) || MaskSelection || Selection.size() != 1) return false;
+    const auto Snapshot = QueryDocument();
+    const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+    // 📝 Any non-Boolean source (0-5 primitives, or an existing 6=cubic path) can be driven by this
+    // tool: dragging a primitive's corner the first time implicitly converts it via DerivePrimitiveCubicPath,
+    // exactly what the Inspector's own "Convert to cubic path" button does explicitly.
+    if (Position == Snapshot.Layers.end() || Snapshot.Instructions[Position->Root].Topology[0] > 6
+        || QueryVectorAuthoringProtection(Snapshot, *Position) || !QueryVectorAuthoringVisibility(Snapshot, *Position)) return false;
+    if (PointToken != Position->Token) { PointToken = Position->Token; ActiveAnchor = SIZE_MAX; SelectedAnchors.clear(); }
+    const auto &Input = ImGui::GetIO();
+    try
+    {
+        const auto Category = Snapshot.Instructions[Position->Root].Topology[0];
+        const auto Path = Category == 6 ? DecodeCubicPath(Snapshot, PointToken) : DerivePrimitiveCubicPath(Snapshot, PointToken);
+        if (ActiveAnchor >= Path.Anchors.size()) ActiveAnchor = SIZE_MAX;
+        std::erase_if(SelectedAnchors, [&](size_t Index) { return Index >= Path.Anchors.size(); });
+        const auto Project = [&](std::array<float, 2> Coordinate)
+        {
+            return ImVec2(Board.MinimumX + Coordinate[0] / 512 * Board.Width(), Board.MinimumY + Coordinate[1] / 512 * Board.Height());
+        };
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->PushClipRect(ImVec2(Canvas.MinimumX, Canvas.MinimumY), ImVec2(Canvas.MaximumX, Canvas.MaximumY), true);
+        size_t Hit = SIZE_MAX;
+        CubicControl HitControl = CubicControl::Anchor;
+        const auto Grip = [&](size_t Index, CubicControl Control, const char *Caption, std::array<float, 2> Coordinate)
+        {
+            const auto Point = Project(Coordinate);
+            const float Radius = 6 * Scale;
+            ControlExtents[std::string(Caption) + std::to_string(Index)] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
+            const bool Selected = std::find(SelectedAnchors.begin(), SelectedAnchors.end(), Index) != SelectedAnchors.end();
+            Ink->AddCircleFilled(Point, (Control == CubicControl::Anchor ? 4 : 3) * Scale,
+                Selected ? IM_COL32(230, 246, 211, 255) : IM_COL32(130, 153, 117, 255));
+            Ink->AddCircle(Point, (Control == CubicControl::Anchor ? 4 : 3) * Scale, IM_COL32(45, 65, 40, 255));
+            if (std::hypot(Input.MousePos.x - Point.x, Input.MousePos.y - Point.y) <= Radius)
+            {
+                Hit = Index; HitControl = Control;
+            }
+        };
+        if (ActiveAnchor != SIZE_MAX)
+        {
+            const auto &Anchor = Path.Anchors[ActiveAnchor];
+            for (auto Control : {CubicControl::Incoming, CubicControl::Outgoing})
+            {
+                if ((!Path.Closed && ActiveAnchor == 0 && Control == CubicControl::Incoming)
+                    || (!Path.Closed && ActiveAnchor + 1 == Path.Anchors.size() && Control == CubicControl::Outgoing)) continue;
+                const auto Coordinate = Control == CubicControl::Incoming ? Anchor.Incoming : Anchor.Outgoing;
+                Ink->AddLine(Project(Anchor.Position), Project(Coordinate), IM_COL32(170, 197, 150, 210));
+                Grip(ActiveAnchor, Control, Control == CubicControl::Incoming ? "Path incoming " : "Path outgoing ", Coordinate);
+            }
+        }
+        // 📝 Anchors take hit precedence over coincident corner tangents.
+        for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) Grip(Index, CubicControl::Anchor, "Path anchor ", Path.Anchors[Index].Position);
+        Ink->PopClipRect();
+        const std::array<float, 2> Pointer{(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+            (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+        if (Gesture == 0 && Hovered && Hit == SIZE_MAX && ImGui::IsMousePosValid() && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            const auto Projection = ProjectCubicSegment(Path, Pointer);
+            if (Projection.Distance * Board.Width() / 512 <= 6 * Scale && Projection.Parameter >= .02f && Projection.Parameter <= .98f)
+            {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                if (ImGui::IsMouseClicked(0))
+                {
+                    SegmentProjection = Projection; SegmentBending = false; PointDragSource = Path;
+                    GestureSource = History.QueryDocument(); GestureSelection = Selection;
+                    PointerOrigin = {Pointer[0], Pointer[1]}; Gesture = 14;
+                }
+            }
+        }
+        if (Gesture == 14 && GestureSource)
+        {
+            if (std::hypot(Pointer[0] - PointerOrigin.X, Pointer[1] - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+                SegmentBending = true;
+            if (SegmentBending || ImGui::IsMouseReleased(0))
+            {
+                auto Edited = PointDragSource;
+                if (SegmentBending) BendCubicSegment(Edited, SegmentProjection.SegmentIndex, SegmentProjection.Parameter,
+                    {Pointer[0] - PointerOrigin.X, Pointer[1] - PointerOrigin.Y});
+                else
+                {
+                    SubdivideCubicSegment(Edited, SegmentProjection.SegmentIndex, SegmentProjection.Parameter);
+                    ActiveAnchor = SegmentProjection.SegmentIndex + 1; SelectedAnchors = {ActiveAnchor};
+                }
+                auto Draft = *GestureSource; ReplaceCubicPath(Draft, PointToken, Edited); GestureDraft = std::move(Draft); ++GestureRevision;
+            }
+            return true;
+        }
+        if (Hovered && Hit != SIZE_MAX) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (Gesture == 0 && Hovered && Hit != SIZE_MAX && ImGui::IsMouseClicked(0) && !ImGui::IsKeyDown(ImGuiKey_Space))
+        {
+            if (HitControl == CubicControl::Anchor)
+            {
+                const auto Included = std::find(SelectedAnchors.begin(), SelectedAnchors.end(), Hit);
+                if (Input.KeyShift && Included != SelectedAnchors.end())
+                {
+                    SelectedAnchors.erase(Included);
+                    ActiveAnchor = SelectedAnchors.empty() ? SIZE_MAX : SelectedAnchors.back();
+                    return true;
+                }
+                if (Included == SelectedAnchors.end())
+                {
+                    if (!Input.KeyShift) SelectedAnchors.clear();
+                    SelectedAnchors.push_back(Hit);
+                }
+            }
+            ActiveAnchor = Hit; ActiveControl = HitControl;
+            PointDragSource = Path;
+            GestureSource = History.QueryDocument(); GestureSelection = Selection;
+            PointerOrigin = {(Input.MousePos.x - Board.MinimumX) / Board.Width() * 512,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512};
+            Gesture = 13;
+        }
+        if (Gesture == 13 && GestureSource && (ImGui::IsMouseDragging(0, 2) || ImGui::IsMouseReleased(0)) && ImGui::IsMousePosValid()
+            && std::hypot((Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y) * Board.Width() / 512 >= 2 * Scale)
+        {
+            const auto &Anchor = PointDragSource.Anchors.at(ActiveAnchor);
+            const auto Origin = ActiveControl == CubicControl::Anchor ? Anchor.Position
+                : ActiveControl == CubicControl::Incoming ? Anchor.Incoming : Anchor.Outgoing;
+            std::array<float, 2> Destination{Origin[0] + (Input.MousePos.x - Board.MinimumX) / Board.Width() * 512 - PointerOrigin.X,
+                Origin[1] + (Input.MousePos.y - Board.MinimumY) / Board.Height() * 512 - PointerOrigin.Y};
+            if (SnappingEnabled) for (auto &Coordinate : Destination) Coordinate = std::round(Coordinate / 16) * 16;
+            if (Input.KeyShift && ActiveControl != CubicControl::Anchor) Destination = ConstrainCubicDirection(Anchor.Position, Destination);
+            auto Edited = PointDragSource;
+            if (ActiveControl == CubicControl::Anchor)
+                TranslateCubicAnchors(Edited, SelectedAnchors, {Destination[0] - Origin[0], Destination[1] - Origin[1]});
+            else TranslateCubicControl(Edited, ActiveAnchor, ActiveControl, Destination, Input.KeyAlt);
+            auto Draft = *GestureSource;
+            ReplaceCubicPath(Draft, PointToken, Edited);
+            GestureDraft = std::move(Draft);
+            ++GestureRevision;
+        }
+        return Gesture == 13;
+    }
+    catch (const std::exception &Failure)
+    {
+        Diagnostic = Failure.what();
+        if (Gesture == 13 || Gesture == 14) { GestureDraft.reset(); GestureSource.reset(); Gesture = 0; ++GestureRevision; }
+        return true;
+    }
+}
+
 bool StampWorkspacePanel::Save()
 {
     if (!SaveSource) return false;
@@ -514,27 +1056,39 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
     if (AtCap) ImGui::TextWrapped("Stamp decals are capped at 24 components (Pattern allows 64).");
 }
 
-// 📝 Measures Content's natural glyph-outline bounds at a reference point size (into a throwaway
-// scratch document, never touching the real one) and returns the point size that makes it fill
-// {BoxWidth, BoxHeight} as closely as possible without distorting the font (both axes scaled
-// uniformly, so the box's narrower-relative axis governs) — the "fit to box" behaviour an SVG/
-// Illustrator-style text tool gives when you drag out a frame and type into it.
-static float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
+// 📝 Finds the largest point size whose word-wrapped glyph-outline layout still fits inside
+// {BoxWidth, BoxHeight} (into a throwaway scratch document, never touching the real one) — the
+// "fit to box" behaviour an SVG/Illustrator-style text tool gives when you drag out a frame and
+// type into it. Text wraps onto as many lines as needed within BoxWidth, so a longer caption grows
+// downward with more lines instead of shrinking indefinitely onto one ever-thinner line; the point
+// size only shrinks once the wrapped block's own height would overflow the box. Binary-searches the
+// real glyph bounds directly (reading the baked instruction's own ink extents, never the selection
+// query's visible-canvas-clamped bounds, since this scratch text is never actually placed on a
+// canvas) because wrapping makes line count — and so required height — a step function of point
+// size, not the simple linear ratio a single probe size could extrapolate from.
+float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
 {
-    constexpr float Reference = 100.f;
-    VectorAuthoringDocument Scratch; Scratch.Stamp = true;
-    const uint32_t Root = ContentRoot.empty() ? AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1})
-        : AppendStampTextOutline(Scratch, Content, Reference, {0, 0, 0, 1},
-              (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
-    VectorAuthoringLayer Layer; Layer.Token = ++Scratch.TokenClock; Layer.Root = Root;
-    Scratch.Layers.push_back(Layer);
-    const auto Bounds = QueryVectorAuthoringSelectionBounds(Scratch, std::array<uint32_t, 1>{Layer.Token});
-    const float MeasuredWidth = std::max(1.f, Bounds[2]), MeasuredHeight = std::max(1.f, Bounds[3]);
-    const float FitScale = std::min(std::max(1.f, BoxWidth) / MeasuredWidth, std::max(1.f, BoxHeight) / MeasuredHeight);
-    return std::clamp(Reference * FitScale, 4.f, 512.f);
+    const std::string TypefacePath = ContentRoot.empty() ? std::string("EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
+        : (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string();
+    const float Width = std::max(1.f, BoxWidth), Height = std::max(1.f, BoxHeight);
+    const auto Fits = [&](float PointSize)
+    {
+        VectorAuthoringDocument Scratch; Scratch.Stamp = true;
+        const uint32_t Root = AppendStampTextOutline(Scratch, Content, PointSize, {0, 0, 0, 1}, TypefacePath, Width);
+        const auto &Instruction = Scratch.Instructions[Root];
+        return Instruction.Bounds[2] <= Width && Instruction.Bounds[3] <= Height;
+    };
+    float Low = 4.f, High = 512.f;
+    if (!Fits(Low)) return Low; // Even the smallest permitted size cannot fit; still return something sane.
+    for (int Step = 0; Step < 28; ++Step)
+    {
+        const float Mid = (Low + High) * .5f;
+        if (Fits(Mid)) Low = Mid; else High = Mid;
+    }
+    return std::clamp(Low, 4.f, 512.f);
 }
 
-void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize)
+void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth)
 {
     if (Content.empty()) { Diagnostic = "Text content cannot be empty."; return; }
     try
@@ -548,9 +1102,9 @@ void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Con
             // 📝 Resolve the glyph-outline typeface off the app's own executable-relative content
             // root when the host configured one, instead of trusting the process's current working
             // directory to happen to be the EngineContent-containing folder.
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour)
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", WrapWidth)
                 : AppendStampTextOutline(Document, Content, PointSize, Colour,
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), WrapWidth);
             for (auto &Layer : Document.Layers) if (Layer.Token == Token) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; Layer.TextPointSize = PointSize; }
             ReclaimVectorAuthoringSources(Document);
             const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
@@ -577,13 +1131,13 @@ void StampWorkspacePanel::CommitTextComposer()
     try
     {
         const float PointSize = MeasureStampTextFitSize(Content, Bounds[2], Bounds[3], ContentRoot);
-        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize); return; }
+        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize, Bounds[2]); return; }
         EvaluateEdit([&](auto &Document)
         {
             if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1})
+            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1}, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", Bounds[2])
                 : AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1},
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string());
+                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), Bounds[2]);
             VectorAuthoringLayer Layer;
             Layer.Token = ++Document.TokenClock;
             Layer.Root = NewRoot;
@@ -625,6 +1179,23 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.06f, .06f, .05f, 1));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
+    // 📝 Keep the live text already at the size the commit will actually bake at — recomputed (via
+    // the same MeasureStampTextFitSize the commit itself calls) only when the composed text changes,
+    // never every frame. Without this the field typed at a small, generic caret size and only jumped
+    // to the real auto-fit size (often much larger) the instant the box committed.
+    const std::string CurrentContent = ComponentTextBuffer.data();
+    char BoxKeySuffix[64]{};
+    std::snprintf(BoxKeySuffix, sizeof(BoxKeySuffix), "\x01%.3f\x01%.3f", double(TextEditBounds[2]), double(TextEditBounds[3]));
+    const std::string CacheKey = CurrentContent + BoxKeySuffix;
+    if (CacheKey != TextComposerFitCacheKey)
+    {
+        TextComposerFitCacheKey = CacheKey;
+        try { TextComposerFitPointSize = CurrentContent.empty() ? 0.f : MeasureStampTextFitSize(CurrentContent, TextEditBounds[2], TextEditBounds[3], ContentRoot); }
+        catch (const std::exception &) { TextComposerFitPointSize = 0.f; }
+    }
+    const float LivePixelSize = TextComposerFitPointSize > 0
+        ? std::clamp(TextComposerFitPointSize * (BoardSize / 512.f), 8.f, 400.f) : 16.f * Scale;
+    ImGui::PushFont(static_cast<ImFont *>(RegularTypeface ? RegularTypeface : LightTypeface), LivePixelSize);
     if (TextEditFocusPending) { ImGui::SetKeyboardFocusHere(); TextEditFocusPending = false; }
     // 📝 ImGui's multiline default is backwards for this use case (plain Enter inserts a newline;
     // Ctrl+Enter validates) — CtrlEnterForNewLine flips it so plain Enter commits the component like
@@ -632,6 +1203,7 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     const bool EnterCommit = ImGui::InputTextMultiline("##Compose", ComponentTextBuffer.data(), ComponentTextBuffer.size(),
         ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
     const bool Deactivated = ImGui::IsItemDeactivated();
+    ImGui::PopFont();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(2);
     ImGui::PopID();
@@ -849,7 +1421,10 @@ void StampWorkspacePanel::ConstructLayers()
         // once baked; Stamp skips the CPU vector-replay middle tier (atlas bakes within a frame or
         // two of a CPU-side SVG rasterize, so the gap is a brief placeholder, not a real regression).
         {
-            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 9 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 45 * Scale);
+            // 📝 Square preview (24x24, vertically centred in the 56-tall row) — the box was
+            // previously 24 wide by 36 tall, a non-square crop window that distorted every row
+            // thumbnail's aspect regardless of what atlas content filled it.
+            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 16 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 40 * Scale);
             StampAtlasImage LayerAtlas{};
             if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
             const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
@@ -880,15 +1455,7 @@ void StampWorkspacePanel::ConstructLayers()
             if (const auto *Payload = ImGui::AcceptDragDropPayload("FrontierStampComponentLayer"); Payload && Payload->IsDelivery())
             {
                 const auto SourceToken = *static_cast<const uint32_t *>(Payload->Data);
-                EvaluateEdit([&](auto &Document)
-                {
-                    const auto SourcePosition = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == SourceToken; });
-                    if (SourcePosition == Document.Layers.end() || QueryVectorAuthoringProtection(Document, *SourcePosition)) return;
-                    const auto Copy = *SourcePosition;
-                    Document.Layers.erase(SourcePosition);
-                    const auto Destination = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Candidate) { return Candidate.Token == Layer.Token; });
-                    Document.Layers.insert(Destination, Copy);
-                });
+                EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringLayerByDrag(Document, SourceToken, Layer.Token); });
             }
             ImGui::EndDragDropTarget();
         }
@@ -945,6 +1512,9 @@ void StampWorkspacePanel::ConstructCanvas()
     Controls.ControlHeight = 32;
     if (Controls.Button("Select tool (V)", 32 * Scale, Tool == VectorAuthoringTool::Select, SelectPath)) Tool = VectorAuthoringTool::Select;
     Controls.Tooltip("Select", "Select visible GPU contours; Shift-click to extend. Drag once for one undoable source edit.");
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Point tool (A)", 32 * Scale, Tool == VectorAuthoringTool::Points, "M4 3L11 21L14 14L21 11Z")) Tool = VectorAuthoringTool::Points;
+    Controls.Tooltip("Point editing", "Select one non-Boolean source (a primitive is converted to an editable path on first drag). Click a segment to split; drag it to bend with fixed anchors. Drag anchors/tangents; Alt moves tangents independently. Escape cancels.");
     for (uint32_t Category = 0; Category < 2; ++Category)
     {
         ImGui::SameLine(0, 4 * Scale);
@@ -961,6 +1531,12 @@ void StampWorkspacePanel::ConstructCanvas()
     if (Controls.Button("Text tool (T)", 32 * Scale, Tool == VectorAuthoringTool::Text, TextIconPath)) Tool = VectorAuthoringTool::Text;
     ImGui::EndDisabled();
     Controls.Tooltip("Text", AtComponentCap ? "Stamp decals are capped at 24 components (Pattern allows 64)." : "Drag a box on the canvas and write directly into it. Real glyph-outline geometry, read from the bundled DM Sans font.");
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Pen tool (P)", 32 * Scale, Tool == VectorAuthoringTool::Pen, "M12 3L21 12L15 21L3 9ZM3 9L12 12L15 21M12 12V3")) Tool = VectorAuthoringTool::Pen;
+    Controls.Tooltip("Pen", "Click anchors; drag tangents for curves. Hold Space during placement to reposition the new anchor and controls. Alt-click the last pending anchor to break its outgoing tangent; drag independently. Click an open endpoint to continue; while continuing, click another path endpoint to join. Ctrl bypasses endpoint joining or starts a separate path. Shift constrains direction; Alt moves independently. First anchor closes; Enter finishes; Escape cancels.");
+    ImGui::SameLine(0, 4 * Scale);
+    if (Controls.Button("Polyline tool (L)", 32 * Scale, Tool == VectorAuthoringTool::Polyline, "M4 19L9 7L15 16L20 5")) Tool = VectorAuthoringTool::Polyline;
+    Controls.Tooltip("Polyline", "Same as Pen, but every anchor stays a sharp corner - straight segments only, no curve tangents. Click the first anchor again to close it into a filled shape; Enter finishes it open as a plain line. Shift constrains direction; Enter finishes; Escape cancels.");
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Pan tool", 32 * Scale, Tool == VectorAuthoringTool::Pan, "M7 12V6Q8 3 9 6V11V4Q11 1 12 4V11V5Q15 2 15 5V12V8Q18 5 18 8V16Q16 23 10 21L3 14Q2 10 5 12L7 14")) Tool = VectorAuthoringTool::Pan;
     ImGui::SameLine(0, 4 * Scale);
@@ -979,20 +1555,23 @@ void StampWorkspacePanel::ConstructCanvas()
         DropdownControlSurface::EndMenu();
     }
     Controls.ControlHeight = 24;
-    Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(Spectrum(0x20241d)));
-    Caption(At(36, 226), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0xa5b394);
+    Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
+    Caption(At(36, 226), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0x888888);
     ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
-    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = std::max(.125f, Zoom / 1.25f);
+    if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
     ImGui::SameLine(0, 4 * Scale);
-    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = std::min(8.f, Zoom * 1.25f);
+    // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
+    // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
+    // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
+    if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;
     const ImVec2 Minimum = At(25, 248), Maximum = At(Width / Scale - 25, 678);
-    Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(Spectrum(0x242c26)));
+    Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Inset)));
     const float BoardSize = std::max(32.f, std::min(InnerWidth - 120 * Scale, 360 * Scale)) * Zoom;
     const ImVec2 Centre((Minimum.x + Maximum.x) * .5f + Pan.X, (Minimum.y + Maximum.y) * .5f + Pan.Y);
     const ImVec2 BoardMinimum(Centre.x - BoardSize * .5f, Centre.y - BoardSize * .5f), BoardMaximum(Centre.x + BoardSize * .5f, Centre.y + BoardSize * .5f);
@@ -1006,30 +1585,24 @@ void StampWorkspacePanel::ConstructCanvas()
                 if ((int((X - BoardMinimum.x) / (12 * Scale)) + int((Y - BoardMinimum.y) / (12 * Scale))) % 2)
                     Ink->AddRectFilled(ImVec2(X, Y), ImVec2(std::min(X + 12 * Scale, BoardMaximum.x), std::min(Y + 12 * Scale, BoardMaximum.y)), ImGui::GetColorU32(Spectrum(0xb5b8ae)));
     }
-    Ink->AddRectFilled(Minimum, ImVec2(Maximum.x, Minimum.y + 21 * Scale), ImGui::GetColorU32(Spectrum(0x1c211a)));
-    Ink->AddRectFilled(Minimum, ImVec2(Minimum.x + 23 * Scale, Maximum.y), ImGui::GetColorU32(Spectrum(0x1c211a)));
-    for (int Coordinate = -256; Coordinate <= 768; Coordinate += 64)
-    {
-        const float Horizontal = BoardMinimum.x + float(Coordinate) / 512 * BoardSize;
-        const float Vertical = BoardMinimum.y + float(Coordinate) / 512 * BoardSize;
-        char Label[16]; std::snprintf(Label, sizeof(Label), "%d", Coordinate);
-        if (Horizontal > Minimum.x + 24 * Scale && Horizontal < Maximum.x)
-        {
-            Ink->AddLine(ImVec2(Horizontal, Minimum.y), ImVec2(Horizontal, Minimum.y + 20 * Scale), IM_COL32(80, 94, 66, 170));
-            Caption(ImVec2(Horizontal + 4 * Scale, Minimum.y + 4 * Scale), Label, 7 * Scale, 0x879576);
-        }
-        if (Vertical > Minimum.y + 22 * Scale && Vertical < Maximum.y)
-        {
-            Ink->AddLine(ImVec2(Minimum.x, Vertical), ImVec2(Minimum.x + 22 * Scale, Vertical), IM_COL32(80, 94, 66, 170));
-            Caption(ImVec2(Minimum.x + 3 * Scale, Vertical + 3 * Scale), Label, 7 * Scale, 0x879576);
-        }
-    }
+    // 📏 The ruler/grid used to step through content units in a fixed 64-unit stride. That reads fine
+    // at 100% zoom, but at high zoom each 64-unit cell spans hundreds of screen pixels, so once panned
+    // even slightly, the whole -256..768 sweep can land zero ruler ticks (and zero interior grid lines,
+    // further down) inside the currently-visible window — the grid appears to "vanish" and whatever's
+    // drawn on the board (shapes, the baked texture) reads as sitting on top of nothing. Deriving the
+    // step from the live pixels-per-unit density keeps a tick/line on screen at every zoom level.
+    float GridStepUnits = 64.0f;
+    const float MaxRulerPixelSpacing = 140.0f * Scale, MinRulerPixelSpacing = 28.0f * Scale;
+    while (GridStepUnits / 512.0f * BoardSize > MaxRulerPixelSpacing && GridStepUnits > 4.0f) GridStepUnits *= 0.5f;
+    while (GridStepUnits / 512.0f * BoardSize < MinRulerPixelSpacing && GridStepUnits < 512.0f) GridStepUnits *= 2.0f;
     const auto &Snapshot = QueryDocument();
     const uint64_t HistoryRevision = History.QueryRevision();
     if (!CachedCoverageValid || CachedCoverageMask != MaskSelection || CachedHistoryRevision != HistoryRevision ||
         CachedGestureRevision != GestureRevision)
     {
-        CachedCoverageProgram = ConstructVectorAuthoringCoverage(Snapshot);
+        // 📝 Future-proofing: evaluate any modifier stack (e.g. Array) before rendering, same as Pattern -
+        // currently always a no-op here since Stamp documents never populate Layer.Modifiers.
+        CachedCoverageProgram = ConstructVectorAuthoringCoverage(ConstructEvaluatedVectorAuthoringDocument(Snapshot));
         if (MaskSelection)
         {
             const auto Position = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == MaskSelection; });
@@ -1059,17 +1632,49 @@ void StampWorkspacePanel::ConstructCanvas()
         Ink->AddRect(BadgeMinimum, BadgeMaximum, IM_COL32(191, 216, 169, 255), 6 * Scale);
         Ink->AddText(ImVec2(BadgeMinimum.x + 10 * Scale, BadgeMinimum.y + 5 * Scale), IM_COL32(212, 232, 192, 255), Badge);
     }
+    // 🧱 Drawn after the coverage/shape image above (and after the "Baking..." badge), so the grid is
+    // always the topmost layer on the board — shapes can never paint over it. Reuses GridStepUnits
+    // (recomputed above from the live zoom) instead of a fixed 64-unit stride, so there's always a
+    // visible line on screen no matter how far in the user has zoomed.
     if (GridEnabled)
     {
-        for (float Coordinate = 0; Coordinate <= 512; Coordinate += 64)
+        for (float Coordinate = 0; Coordinate <= 512; Coordinate += GridStepUnits)
         {
             const float Pixel = Coordinate / 512 * BoardSize;
-            Ink->AddLine(ImVec2(BoardMinimum.x + Pixel, BoardMinimum.y), ImVec2(BoardMinimum.x + Pixel, BoardMaximum.y), IM_COL32(75, 90, 70, 65));
-            Ink->AddLine(ImVec2(BoardMinimum.x, BoardMinimum.y + Pixel), ImVec2(BoardMaximum.x, BoardMinimum.y + Pixel), IM_COL32(75, 90, 70, 65));
+            Ink->AddLine(ImVec2(BoardMinimum.x + Pixel, BoardMinimum.y), ImVec2(BoardMinimum.x + Pixel, BoardMaximum.y), IM_COL32(80, 80, 80, 75));
+            Ink->AddLine(ImVec2(BoardMinimum.x, BoardMinimum.y + Pixel), ImVec2(BoardMaximum.x, BoardMinimum.y + Pixel), IM_COL32(80, 80, 80, 75));
+        }
+    }
+    // 🧱 The top/left ruler strips (and their tick marks) are fixed UI chrome anchored to the
+    // viewport's own edges, not to the board — but they used to be drawn before the coverage image,
+    // so once the board was zoomed in past the point where it fully covers the visible viewport (any
+    // zoom level much past 100%, depending on pan), the baked shape painted straight over them and they
+    // read as having "disappeared". Drawing them last, after the shape and the interior grid, keeps
+    // them visible at every zoom level, exactly like the interior grid above.
+    Ink->AddRectFilled(Minimum, ImVec2(Maximum.x, Minimum.y + 21 * Scale), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Panel)));
+    Ink->AddRectFilled(Minimum, ImVec2(Minimum.x + 23 * Scale, Maximum.y), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Panel)));
+    const int GridStep = std::max(1, int(GridStepUnits));
+    for (int Coordinate = -256; Coordinate <= 768; Coordinate += GridStep)
+    {
+        const float Horizontal = BoardMinimum.x + float(Coordinate) / 512 * BoardSize;
+        const float Vertical = BoardMinimum.y + float(Coordinate) / 512 * BoardSize;
+        char Label[16]; std::snprintf(Label, sizeof(Label), "%d", Coordinate);
+        if (Horizontal > Minimum.x + 24 * Scale && Horizontal < Maximum.x)
+        {
+            Ink->AddLine(ImVec2(Horizontal, Minimum.y), ImVec2(Horizontal, Minimum.y + 20 * Scale), IM_COL32(136, 136, 136, 190));
+            Caption(ImVec2(Horizontal + 4 * Scale, Minimum.y + 4 * Scale), Label, 7 * Scale, 0x888888);
+        }
+        if (Vertical > Minimum.y + 22 * Scale && Vertical < Maximum.y)
+        {
+            Ink->AddLine(ImVec2(Minimum.x, Vertical), ImVec2(Minimum.x + 22 * Scale, Vertical), IM_COL32(136, 136, 136, 190));
+            Caption(ImVec2(Minimum.x + 3 * Scale, Vertical + 3 * Scale), Label, 7 * Scale, 0x888888);
         }
     }
     std::array<int, 2> HoveredResize{};
     bool HoveredRotation = false;
+    int GradientHoverSlot = -1;
+    float GradientLineHoverT = -1;
+    int GradientAxisHoverEnd = -1;
     if (!Selection.empty() && !MaskSelection)
     {
         try
@@ -1113,6 +1718,87 @@ void StampWorkspacePanel::ConstructCanvas()
                     const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
                     if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
                 }
+                // 🎨 Interactive gradient colour-stop markers: only for a single selected shape whose fill
+                // is a gradient. Lets the ramp be edited directly on the artwork — click the axis line to
+                // drop a new stop where you clicked, drag an existing marker to retime it, click one to
+                // select it for colour-editing in the Inspector's ramp editor (kept in sync both ways).
+                if (Selection.size() == 1)
+                {
+                    const auto GradientLayer = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+                    if (GradientLayer != Snapshot.Layers.end() && GradientLayer->Root < Snapshot.Instructions.size())
+                    {
+                        const auto &GradientSource = Snapshot.Instructions[GradientLayer->Root];
+                        if (uint32_t(GradientSource.Transform[3]) == 1 || uint32_t(GradientSource.Transform[3]) == 2)
+                        {
+                            const auto Axis = QueryGradientAxisEndpoints(GradientSource, Bounds, Extent.Rotation);
+                            const ImVec2 AxisStart = ScreenPoint(Axis[0].X - Bounds[0], Axis[0].Y - Bounds[1]);
+                            const ImVec2 AxisEnd = ScreenPoint(Axis[1].X - Bounds[0], Axis[1].Y - Bounds[1]);
+                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(255, 255, 255, 205), 1.6f * Scale);
+                            // 🎨 Two square "axis" handles at the ramp's own A/B control points (see GradientAxis
+                            // on VectorCoverageInstruction) — distinct from the round colour-stop markers below,
+                            // which sit ON this line at their own Fraction. Dragging a square repositions the
+                            // whole line/radius (Gesture 10/11); dragging a circle only retimes that stop's
+                            // Fraction along whatever line is already there (Gesture 9). A fresh gradient's
+                            // first/last stops sit exactly at A and B, so each square is drawn and hit-tested a
+                            // fixed few pixels further out along the line's own direction - just past its
+                            // coincident stop circle, like a small flag past the end of the line - rather than
+                            // directly on top of it, so both stay independently grabbable even when stacked.
+                            const auto Mouse = ImGui::GetIO().MousePos;
+                            const ImVec2 LineDelta(AxisEnd.x - AxisStart.x, AxisEnd.y - AxisStart.y);
+                            const float LineLength = std::hypot(LineDelta.x, LineDelta.y);
+                            const ImVec2 LineDirection = LineLength > 1e-4f ? ImVec2(LineDelta.x / LineLength, LineDelta.y / LineLength) : ImVec2(1, 0);
+                            constexpr float HandleStandoff = 11.f;
+                            const ImVec2 AxisHandleA(AxisStart.x - LineDirection.x * HandleStandoff * Scale, AxisStart.y - LineDirection.y * HandleStandoff * Scale);
+                            const ImVec2 AxisHandleB(AxisEnd.x + LineDirection.x * HandleStandoff * Scale, AxisEnd.y + LineDirection.y * HandleStandoff * Scale);
+                            for (int End = 0; End < 2; ++End)
+                            {
+                                const ImVec2 &LineEnd = End == 0 ? AxisStart : AxisEnd;
+                                const ImVec2 &Point = End == 0 ? AxisHandleA : AxisHandleB;
+                                Ink->AddLine(LineEnd, Point, IM_COL32(255, 255, 255, 130), 1.2f * Scale);
+                                const float HalfExtent = 5 * Scale;
+                                Ink->AddRect(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(255, 255, 255, 235), 0, 0, 2 * Scale);
+                            }
+                            const auto Stops = QueryVectorGradientStops(GradientSource);
+                            SelectedGradientStop = std::clamp(SelectedGradientStop, 0, int(Stops.size()) - 1);
+                            for (size_t Index = 0; Index < Stops.size(); ++Index)
+                            {
+                                const ImVec2 Point(AxisStart.x + (AxisEnd.x - AxisStart.x) * Stops[Index].Position, AxisStart.y + (AxisEnd.y - AxisStart.y) * Stops[Index].Position);
+                                const bool IsSelected = int(Index) == SelectedGradientStop;
+                                const float Radius = (IsSelected ? 7.f : 5.5f) * Scale;
+                                const auto &C = Stops[Index].Colour;
+                                const ImU32 StopColour = IM_COL32(uint8_t(std::clamp(C[0], 0.f, 1.f) * 255), uint8_t(std::clamp(C[1], 0.f, 1.f) * 255), uint8_t(std::clamp(C[2], 0.f, 1.f) * 255), 255);
+                                Ink->AddCircleFilled(Point, Radius, StopColour);
+                                Ink->AddCircle(Point, Radius, IsSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 20, 20, 220), 0, (IsSelected ? 2.4f : 1.4f) * Scale);
+                                const std::string Name = std::string("Gradient stop:") + std::to_string(Index);
+                                const float HitRadius = 9 * Scale;
+                                ControlExtents[Name] = {Point.x - HitRadius, Point.y - HitRadius, Point.x + HitRadius, Point.y + HitRadius};
+                                if (std::abs(Mouse.x - Point.x) <= HitRadius && std::abs(Mouse.y - Point.y) <= HitRadius) GradientHoverSlot = int(Index);
+                            }
+                            {
+                                // 📝 Standing a fixed standoff away from the line's own coincident stop keeps
+                                // this independently hit-testable without needing to arbitrate priority against
+                                // the stop-marker loop above (its own hit box never reaches this far out).
+                                const float AxisHitRadius = 9 * Scale;
+                                for (int End = 0; End < 2; ++End)
+                                {
+                                    const ImVec2 &Point = End == 0 ? AxisHandleA : AxisHandleB;
+                                    const std::string Name = std::string("Gradient axis:") + std::to_string(End);
+                                    ControlExtents[Name] = {Point.x - AxisHitRadius, Point.y - AxisHitRadius, Point.x + AxisHitRadius, Point.y + AxisHitRadius};
+                                    if (std::abs(Mouse.x - Point.x) <= AxisHitRadius && std::abs(Mouse.y - Point.y) <= AxisHitRadius) GradientAxisHoverEnd = End;
+                                }
+                            }
+                            if (GradientHoverSlot < 0 && GradientAxisHoverEnd < 0 && Stops.size() < size_t(VectorGradientStopCapacity))
+                            {
+                                const float Along = ProjectAlongSegment({Mouse.x, Mouse.y}, {AxisStart.x, AxisStart.y}, {AxisEnd.x, AxisEnd.y});
+                                if (Along > .02f && Along < .98f)
+                                {
+                                    const ImVec2 Nearest(AxisStart.x + Along * (AxisEnd.x - AxisStart.x), AxisStart.y + Along * (AxisEnd.y - AxisStart.y));
+                                    if (std::hypot(Mouse.x - Nearest.x, Mouse.y - Nearest.y) <= 10 * Scale) GradientLineHoverT = Along;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         catch (const std::exception &) {}
@@ -1154,7 +1840,7 @@ void StampWorkspacePanel::ConstructCanvas()
     if (Hovered && Input.MouseWheel != 0 && Gesture == 0)
     {
         const float Previous = Zoom;
-        Zoom = std::clamp(Zoom * std::pow(1.1f, Input.MouseWheel), .125f, 8.f);
+        Zoom = ApplyWorkspaceWheelZoom(Zoom, Input.MouseWheel);
         Pan.X += (Input.MousePos.x - Centre.x) * (1 - Zoom / Previous);
         Pan.Y += (Input.MousePos.y - Centre.y) * (1 - Zoom / Previous);
     }
@@ -1163,6 +1849,8 @@ void StampWorkspacePanel::ConstructCanvas()
         if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         else if (HoveredResize[0] || HoveredResize[1]) ImGui::SetMouseCursor(!HoveredResize[0] ? ImGuiMouseCursor_ResizeNS : !HoveredResize[1] ? ImGuiMouseCursor_ResizeEW : HoveredResize[0] == HoveredResize[1] ? ImGuiMouseCursor_ResizeNWSE : ImGuiMouseCursor_ResizeNESW);
     }
+    const bool PenInput = ConstructPenInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
+    const bool PointInput = ConstructPointInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     bool TextReEditEntered = false;
     if (Hovered && Gesture == 0 && Tool == VectorAuthoringTool::Select && ImGui::IsMouseDoubleClicked(0) && QuerySelectionToken)
     {
@@ -1189,12 +1877,47 @@ void StampWorkspacePanel::ConstructCanvas()
         }
         catch (const std::exception &) {}
     }
-    if (Hovered && Gesture == 0 && !TextReEditEntered && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))
+    if (!PenInput && !PointInput && Hovered && Gesture == 0 && !TextReEditEntered && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))
     {
         GestureSelection = Selection;
         PointerOrigin = DocumentPoint(Input.MousePos, false);
         if (ImGui::IsMouseClicked(2) || Tool == VectorAuthoringTool::Pan || ImGui::IsKeyDown(ImGuiKey_Space)) { Gesture = 3; PanOrigin = Pan; }
         else if (MaskSelection) { /* Mask descriptor interaction remains in the Inspector. */ }
+        else if (GradientAxisHoverEnd >= 0)
+        {
+            Gesture = GradientAxisHoverEnd == 0 ? 10 : 11;
+            GestureSource = History.QueryDocument();
+        }
+        else if (GradientHoverSlot >= 0)
+        {
+            Gesture = 9;
+            GradientDragSlot = GradientHoverSlot;
+            SelectedGradientStop = GradientHoverSlot;
+            GestureSource = History.QueryDocument();
+        }
+        else if (GradientLineHoverT >= 0)
+        {
+            // 📝 A single immediate edit (like the Inspector's own "Add mask" button), not a drag: the
+            // new stop's colour starts as a blend of whichever two stops it landed between, so it reads
+            // as inserted into the ramp rather than appearing as a jarring flat band.
+            try
+            {
+                const auto &Live = History.QueryDocument();
+                const auto GradientLayer = std::find_if(Live.Layers.begin(), Live.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+                if (GradientLayer != Live.Layers.end())
+                {
+                    auto Stops = QueryVectorGradientStops(Live.Instructions[GradientLayer->Root]);
+                    const auto Colour = EvaluateVectorGradientColour(Stops, GradientLineHoverT);
+                    Stops.push_back({std::clamp(GradientLineHoverT, 0.f, 1.f), Colour});
+                    std::sort(Stops.begin(), Stops.end(), [](const auto &A, const auto &B) { return A.Position < B.Position; });
+                    const auto Inserted = std::find_if(Stops.begin(), Stops.end(), [&](const auto &Stop) { return Stop.Position == std::clamp(GradientLineHoverT, 0.f, 1.f); });
+                    SelectedGradientStop = int(Inserted - Stops.begin());
+                    VectorAuthoringSourcePatch Patch; ApplyVectorGradientStops(Patch, Stops);
+                    ApplySourcePatch(Patch);
+                }
+            }
+            catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+        }
         else if (HoveredRotation || HoveredResize[0] || HoveredResize[1])
         {
             Gesture = HoveredRotation ? 6 : 5;
@@ -1264,7 +1987,7 @@ void StampWorkspacePanel::ConstructCanvas()
         const auto Δ = EvaluateNavigationDelta ? EvaluateNavigationDelta({Input.MouseDelta.x, Input.MouseDelta.y}) : PlanePoint{Input.MouseDelta.x, Input.MouseDelta.y};
         Pan.X += Δ.X; Pan.Y += Δ.Y;
     }
-    if ((Gesture == 1 || Gesture == 2 || Gesture == 5 || Gesture == 6) && (ImGui::IsMouseDragging(0, 2) || (Gesture == 1 && SelectionReleased && SelectionTravel >= 2 * Scale)) && GestureSource)
+    if ((Gesture == 1 || Gesture == 2 || Gesture == 5 || Gesture == 6 || Gesture == 9 || Gesture == 10 || Gesture == 11) && (ImGui::IsMouseDragging(0, 2) || (Gesture == 1 && SelectionReleased && SelectionTravel >= 2 * Scale)) && GestureSource)
     {
         auto Position = DocumentPoint(Input.MousePos, Gesture != 6);
         if (Gesture == 1 && SelectionReleased)
@@ -1289,6 +2012,11 @@ void StampWorkspacePanel::ConstructCanvas()
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
                 Source.StrokeColour = {.23f, .24f, .28f, 1};
                 Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
+                // 📝 Paint[2]/Paint[1] default-initialize to zero, which the renderer floors to a 3-sided
+                // sliver - seed a sensible pentagon/5-point-star so a freshly drawn Polygon or Star reads as
+                // one immediately, before the Inspector's own Sides/Inner radius fields are ever touched.
+                if (Source.Topology[0] == 4) Source.Paint[2] = 5;
+                else if (Source.Topology[0] == 5) { Source.Paint[2] = 5; Source.Paint[1] = .5f; }
                 if (!GestureDraft)
                 {
                     auto Draft = *GestureSource;
@@ -1304,6 +2032,53 @@ void StampWorkspacePanel::ConstructCanvas()
                     if (Layer == Draft.Layers.end()) throw std::runtime_error("The in-progress shape lost its authenticated layer token.");
                     Draft.Instructions.at(Layer->Root).Bounds = Source.Bounds;
                 }
+                ++GestureRevision;
+            }
+            else if (Gesture == 9)
+            {
+                // 📝 Reprojects the live mouse position onto the gradient's own axis (recomputed from
+                // GestureSource so a drag mid-flight always measures against the pre-drag shape, exactly
+                // like Gesture 1/5/6 above) to get a Fraction, then clamps it strictly between its two
+                // immediate neighbours (plus a small gap) so dragging a marker can never cross another
+                // one and silently reorder the packed stop slots underneath the user.
+                auto Draft = *GestureSource;
+                const auto GradientLayer = std::find_if(Draft.Layers.begin(), Draft.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+                if (GradientLayer == Draft.Layers.end()) throw std::runtime_error("Gradient selection lost its authenticated layer token.");
+                const auto &GradientSource = Draft.Instructions.at(GradientLayer->Root);
+                const auto Extent = QueryVectorSelectionExtent(Draft, Selection);
+                const auto Axis = QueryGradientAxisEndpoints(GradientSource, Extent.Bounds, Extent.Rotation);
+                const float Along = std::clamp(ProjectAlongSegment(Position, Axis[0], Axis[1]), 0.f, 1.f);
+                auto Stops = QueryVectorGradientStops(GradientSource);
+                if (GradientDragSlot < 0 || GradientDragSlot >= int(Stops.size())) throw std::runtime_error("Gradient stop drag lost its slot.");
+                constexpr float Gap = .01f;
+                const float LowerBound = GradientDragSlot > 0 ? Stops[GradientDragSlot - 1].Position + Gap : 0.f;
+                const float UpperBound = GradientDragSlot + 1 < int(Stops.size()) ? Stops[GradientDragSlot + 1].Position - Gap : 1.f;
+                Stops[GradientDragSlot].Position = std::clamp(Along, std::min(LowerBound, UpperBound), std::max(LowerBound, UpperBound));
+                VectorAuthoringSourcePatch Patch; Patch.GradientStopPositions = {Stops.size() > 0 ? Stops[0].Position : 0.f, Stops.size() > 1 ? Stops[1].Position : 1.f,
+                    Stops.size() > 2 ? Stops[2].Position : -1.f, Stops.size() > 3 ? Stops[3].Position : -1.f};
+                TransformVectorAuthoringSelection(Draft, Selection, Patch);
+                GestureDraft = std::move(Draft);
+                ++GestureRevision;
+            }
+            else if (Gesture == 10 || Gesture == 11)
+            {
+                // 📝 Repositions the ramp's own A (Gesture 10) or B (Gesture 11) control point to wherever
+                // the mouse is now, in the shape's own LocalNorm frame (QueryGradientLocalNorm, the exact
+                // inverse of the marker-drawing math) — re-anchored from the frozen pre-drag GestureSource,
+                // same convention as every other drag gesture here. Per-stop Fractions are left untouched,
+                // so the ramp itself doesn't visually jump; only where its line/radius sits does.
+                auto Draft = *GestureSource;
+                const auto GradientLayer = std::find_if(Draft.Layers.begin(), Draft.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
+                if (GradientLayer == Draft.Layers.end()) throw std::runtime_error("Gradient selection lost its authenticated layer token.");
+                const auto &GradientSource = Draft.Instructions.at(GradientLayer->Root);
+                const auto Extent = QueryVectorSelectionExtent(Draft, Selection);
+                const auto LocalNorm = QueryGradientLocalNorm(Position, Extent.Bounds, Extent.Rotation);
+                auto Axis = GradientSource.GradientAxis;
+                if (Gesture == 10) { Axis[0] = LocalNorm[0]; Axis[1] = LocalNorm[1]; }
+                else { Axis[2] = LocalNorm[0]; Axis[3] = LocalNorm[1]; }
+                VectorAuthoringSourcePatch Patch; Patch.GradientAxis = Axis;
+                TransformVectorAuthoringSelection(Draft, Selection, Patch);
+                GestureDraft = std::move(Draft);
                 ++GestureRevision;
             }
             else
@@ -1347,7 +2122,14 @@ void StampWorkspacePanel::ConstructCanvas()
         ComponentTextBuffer[0] = 0;
         GestureSource.reset(); Gesture = 8; TextEditFocusPending = true;
     }
-    else if (Gesture && Gesture != 7 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
+    // 📝 Gesture 7 (marquee) and Gesture 8 (on-canvas text composer) both legitimately persist across
+    // many idle-mouse frames after the mouse that opened them is released — Gesture 8 especially, since
+    // the whole point is to keep the InputTextMultiline mounted and focused while the user types with the
+    // mouse sitting untouched. Excluding only 7 here let this catch-all drag-release cleanup fire on the
+    // very next frame after the Text tool handed off to the composer, snapping Gesture back to 0 (with no
+    // GestureDraft to finalize) before a single character could be typed — the composer box vanished
+    // instantly, nothing reached the layer stack, exactly the reported "Text tool is broken" symptom.
+    else if (Gesture && Gesture != 7 && Gesture != 8 && !ImGui::IsMouseDown(0) && !ImGui::IsMouseDown(2))
     {
         if (Gesture == 4 && GestureSource)
         {
@@ -1361,18 +2143,10 @@ void StampWorkspacePanel::ConstructCanvas()
     Ink->AddRectFilled(At(24, 678), At(Width / Scale - 24, 711), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
     Caption(At(35, 689), "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
     Caption(At(Width / Scale - 114, 689), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
-    Caption(At(24, 733), "Decal preview on a plain surface", 10 * Scale, 0xc3cbb5);
-    const ImVec2 PreviewMinimum = At(24, 753), PreviewMaximum = At(Width / Scale - 24, 885);
-    Ink->AddRectFilled(PreviewMinimum, PreviewMaximum, ImGui::GetColorU32(Spectrum(0xede7d7)), 8 * Scale);
-    if (Texture && !MaskSelection)
-    {
-        // 📝 One centred image, not a tiled repeat: a decal is a single applied sticker, not a
-        // seamless pattern, so this mirrors how "Apply to material" will actually place it.
-        const float Edge = std::min(PreviewMaximum.x - PreviewMinimum.x, PreviewMaximum.y - PreviewMinimum.y) * .72f;
-        const ImVec2 Centre((PreviewMinimum.x + PreviewMaximum.x) * .5f, (PreviewMinimum.y + PreviewMaximum.y) * .5f);
-        Ink->AddImage(ImTextureRef(Texture), ImVec2(Centre.x - Edge * .5f, Centre.y - Edge * .5f), ImVec2(Centre.x + Edge * .5f, Centre.y + Edge * .5f));
-    }
-    ImGui::SetCursorScreenPos(PreviewMaximum);
+    // 📝 The standalone "Decal preview on a plain surface" panel that used to live here was removed —
+    // it duplicated the main board above with no extra information. The sizing nudge below now just
+    // pins the scroll region to the bottom of the status bar instead of the old preview's footprint.
+    ImGui::SetCursorScreenPos(At(Width / Scale - 24, 711));
     ImGui::Dummy(ImVec2(1, 1));
 }
 
@@ -1386,6 +2160,18 @@ void StampWorkspacePanel::ConstructInspector()
     const auto Position = ImGui::GetCursorScreenPos();
     ImGui::SetCursorScreenPos(ImVec2(Position.x + 18 * Scale, Position.y + 30 * Scale));
     ImGui::BeginChild("Stamp inspector scroll", ImVec2(ImGui::GetContentRegionAvail().x - 18 * Scale, 0));
+    if (PenSource)
+    {
+        Controls.BeginCard(PolylineSession ? "Pending polyline path" : "Pending pen path", true);
+        ImGui::TextWrapped(PolylineSession
+            ? "Click to place straight-corner anchors. Ctrl-click a retained endpoint to start a separate path. While continuing a retained path, click another endpoint to join; Ctrl bypasses joining. Hold Space during placement to reposition the new anchor. Click the first anchor to close it into a filled shape. Enter finishes it open as a plain line; Escape cancels; Backspace removes the last anchor."
+            : "Click to place anchors; drag tangents. Ctrl-click a retained endpoint to start a separate path. While continuing a retained path, click another endpoint to join; Ctrl bypasses joining. Joins require adjacent matching opaque strokes, matching group/channels and no owned masks. Hold Space during placement to reposition the new anchor. Alt-click the last anchor to break its outgoing tangent (manual curves). Click the first anchor to close. Enter finishes open; Escape cancels; Backspace removes the last anchor.");
+        if (Controls.Button("Finish open path", 200 * Scale)) FinishPen(false);
+        if (Controls.Button(PolylineSession ? "Cancel polyline path" : "Cancel pen path", 200 * Scale)) CancelPen();
+        Controls.EndCard();
+        ImGui::EndChild();
+        return;
+    }
     const auto Snapshot = QueryDocument();
     const auto SelectedTokens = Selection;
     const auto Selected = [&](const auto &Layer) { return std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end(); };
@@ -1544,6 +2330,92 @@ void StampWorkspacePanel::ConstructInspector()
         }
         ImGui::Dummy(ImVec2(0, 0));
     }
+    if (!MaskSelection && Selection.size() == 1 && Tool == VectorAuthoringTool::Points)
+    {
+        Controls.BeginCard("Path points", true);
+        const auto Category = Snapshot.Instructions[First->Root].Topology[0];
+        ImGui::BeginDisabled(Protected || Gesture != 0);
+        if (Category < 6)
+        {
+            ImGui::TextWrapped("Convert this primitive to an editable cubic path. Ellipses use a four-curve approximation; Polygon/Star keep their own corner count.");
+            if (Controls.Button("Convert to cubic path", 200 * Scale))
+                EvaluateEdit([&](auto &Document) { ReplaceCubicPath(Document, First->Token, DerivePrimitiveCubicPath(Document, First->Token)); });
+        }
+        else if (Category == 6)
+        {
+            ImGui::TextWrapped("Shift-click anchors to select or deselect several. Drag or nudge selected anchors together. Automatic tangents use neighbours; Delete removes selected anchors. Escape cancels a drag.");
+            ImGui::Text("%zu anchors selected", SelectedAnchors.size());
+            if (Controls.Button("Select all anchors", 200 * Scale))
+            {
+                try
+                {
+                    const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                    PointToken = First->Token; SelectedAnchors.clear();
+                    for (size_t Index = 0; Index < Path.Anchors.size(); ++Index) SelectedAnchors.push_back(Index);
+                    ActiveAnchor = SelectedAnchors.back();
+                }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+            }
+            ImGui::BeginDisabled(PointToken != First->Token || SelectedAnchors.empty());
+            if (Controls.Button("Automatic selected tangents", 220 * Scale))
+                EvaluateEdit([&](auto &Document)
+                {
+                    auto Path = DecodeCubicPath(Document, First->Token);
+                    ConfigureAutomaticCubicTangents(Path, SelectedAnchors);
+                    ReplaceCubicPath(Document, First->Token, Path);
+                });
+            Controls.Tooltip("Automatic selected tangents", "Derive aligned tangents from neighbouring anchor positions. Lengths use one third of each adjacent chord. Only selected anchors change; one undo restores the source.");
+            for (bool Smooth : {false, true})
+                if (Controls.Button(SelectedAnchors.size() > 1
+                    ? (Smooth ? "Smooth selected anchors" : "Corner selected anchors")
+                    : (Smooth ? "Smooth active anchor" : "Corner active anchor"), 200 * Scale))
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        auto Path = DecodeCubicPath(Document, First->Token);
+                        for (size_t Index : SelectedAnchors) ConfigureCubicTangent(Path, Index, Smooth);
+                        ReplaceCubicPath(Document, First->Token, Path);
+                    });
+            bool SegmentEligible = false;
+            try
+            {
+                const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                SegmentEligible = ActiveAnchor < Path.Anchors.size() && Path.Anchors.size() < 400
+                    && (Path.Closed || ActiveAnchor + 1 < Path.Anchors.size());
+            }
+            catch (const std::exception &) {}
+            ImGui::BeginDisabled(!SegmentEligible);
+            if (Controls.Button("Subdivide following segment", 220 * Scale))
+                EvaluateEdit([&](auto &Document)
+                {
+                    auto Path = DecodeCubicPath(Document, First->Token);
+                    SubdivideCubicSegment(Path, ActiveAnchor);
+                    ReplaceCubicPath(Document, First->Token, Path);
+                    ++ActiveAnchor; SelectedAnchors = {ActiveAnchor};
+                });
+            Controls.Tooltip("Subdivide segment", "Insert an anchor halfway along the following cubic using de Casteljau subdivision. The curve is preserved; one undo restores the source.");
+            ImGui::EndDisabled();
+            ImGui::EndDisabled();
+            bool ResumeEligible = false;
+            try
+            {
+                const auto Path = DecodeCubicPath(Snapshot, First->Token);
+                ResumeEligible = !Path.Closed && Path.Anchors.size() < 400;
+            }
+            catch (const std::exception &) {}
+            ImGui::BeginDisabled(!ResumeEligible);
+            for (bool FromStart : {true, false})
+                if (Controls.Button(FromStart ? "Resume from start" : "Resume from end", 200 * Scale))
+                {
+                    try { ResumePen(First->Token, FromStart); }
+                    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+                }
+            ImGui::EndDisabled();
+        }
+        else ImGui::TextWrapped("Select an independent source path; aggregate expressions are not flattened for point editing.");
+        ImGui::EndDisabled();
+        Controls.EndCard();
+        if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+    }
     if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
     Controls.BeginCard(MaskSelection ? "Vector mask" : "Selected component", true);
     ImGui::BeginDisabled(Protected);
@@ -1613,27 +2485,145 @@ void StampWorkspacePanel::ConstructInspector()
         const auto &Source = Snapshot.Instructions[First->Root];
         float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
         if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
+        // 📝 Polygon/Star stay this parametric corner-count category only until a corner is first dragged
+        // with the Points tool - that one-time edit bakes it into a plain cubic path (see CubicPathEditing's
+        // ReplaceCubicPath), after which it is an ordinary freeform shape and this field naturally disappears,
+        // exactly like "outlining" a parametric shape in other vector editors.
+        if (Source.Topology[0] == 4 || Source.Topology[0] == 5)
+        {
+            float Sides = std::clamp(Source.Paint[2], 3.f, 35.f);
+            if (Controls.Range(Source.Topology[0] == 4 ? "Sides" : "Points", Sides, 3, 35))
+            {
+                VectorAuthoringSourcePatch Patch; Patch.PolygonSides = uint32_t(std::lround(Sides)); ApplySourcePatch(Patch);
+            }
+        }
+        if (Source.Topology[0] == 5)
+        {
+            float InnerRadius = std::clamp(Source.Paint[1], .05f, .95f) * 100;
+            if (Controls.Range("Inner radius %", InnerRadius, 5, 95))
+            {
+                VectorAuthoringSourcePatch Patch; Patch.StarInnerRadius = std::clamp(InnerRadius / 100.f, .05f, .95f); ApplySourcePatch(Patch);
+            }
+        }
         Controls.EndCard();
         Controls.BeginCard("Fill", false, true);
         int Category = int(Source.Transform[3]);
         const char *Sources[]{"Solid colour", "Linear gradient", "Radial gradient"};
-        if (Controls.Dropdown("Component fill source", Category, Sources)) { VectorAuthoringSourcePatch Patch; Patch.PaintCategory = uint32_t(Category); ApplySourcePatch(Patch); }
-        auto Colour = Source.Colour;
-        if (Controls.Colour("Fill colour", Colour)) { VectorAuthoringSourcePatch Patch; Patch.Colour = Colour; ApplySourcePatch(Patch); }
-        if (Category)
+        if (Controls.Dropdown("Component fill source", Category, Sources))
         {
-            auto EndColour = Source.ColourEnd;
-            if (Controls.Colour("Gradient end colour", EndColour)) { VectorAuthoringSourcePatch Patch; Patch.ColourEnd = EndColour; ApplySourcePatch(Patch); }
+            // 📝 Re-seeds the ramp's own axis/radius to the category-appropriate default (a radial
+            // gradient centred on the shape vs. a linear one spanning it horizontally) every time the fill
+            // source actually changes, rather than carrying over whatever the other mode's handles were
+            // last dragged to - a bare centre-to-edge default would otherwise misplace a freshly chosen
+            // radial gradient if the shape was just a linear one a moment ago, and vice versa.
+            VectorAuthoringSourcePatch Patch; Patch.PaintCategory = uint32_t(Category);
+            Patch.GradientAxis = Category == 2 ? std::array<float, 4>{0.f, 0.f, .5f, 0.f} : std::array<float, 4>{-.5f, 0.f, .5f, 0.f};
+            ApplySourcePatch(Patch);
+        }
+        if (!Category)
+        {
+            auto Colour = Source.Colour;
+            if (Controls.Colour("Fill colour", Colour)) { VectorAuthoringSourcePatch Patch; Patch.Colour = Colour; ApplySourcePatch(Patch); }
+        }
+        else
+        {
+            // 🎨 Interactive colour-ramp editor (mirrors MaterialLibraryPanel's flake-colour ramp): a
+            // blended gradient preview bar with one draggable-on-canvas marker per stop underneath it,
+            // click a marker to select it, Add/Remove stop buttons, and a colour + position field bound
+            // to whichever stop is selected — kept in sync with the matching markers drawn on the shape
+            // itself over in ConstructInterface (SelectedGradientStop is shared by both).
+            auto Stops = QueryVectorGradientStops(Source);
+            SelectedGradientStop = std::clamp(SelectedGradientStop, 0, int(Stops.size()) - 1);
+            const float CardWidth = ImGui::GetContentRegionAvail().x;
+            const ImVec2 BarOrigin = ImGui::GetCursorScreenPos();
+            const float BarHeight = 18 * Scale;
+            auto *RampInk = ImGui::GetWindowDrawList();
+            const auto RampColour = [](const std::array<float, 4> &C) { return ImGui::GetColorU32(ImVec4(C[0], C[1], C[2], 1)); };
+            RampInk->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + CardWidth, BarOrigin.y + BarHeight), IM_COL32(16, 16, 16, 255), 4 * Scale);
+            for (size_t Index = 0; Index + 1 < Stops.size(); ++Index)
+            {
+                const float X0 = BarOrigin.x + Stops[Index].Position * CardWidth, X1 = BarOrigin.x + Stops[Index + 1].Position * CardWidth;
+                RampInk->AddRectFilledMultiColor(ImVec2(X0, BarOrigin.y), ImVec2(X1, BarOrigin.y + BarHeight),
+                    RampColour(Stops[Index].Colour), RampColour(Stops[Index + 1].Colour), RampColour(Stops[Index + 1].Colour), RampColour(Stops[Index].Colour));
+            }
+            RampInk->AddRect(BarOrigin, ImVec2(BarOrigin.x + CardWidth, BarOrigin.y + BarHeight), IM_COL32(255, 255, 255, 26), 4 * Scale);
+            for (size_t Index = 0; Index < Stops.size(); ++Index)
+            {
+                const float MarkerX = BarOrigin.x + Stops[Index].Position * CardWidth;
+                ImGui::SetCursorScreenPos(ImVec2(MarkerX - 6 * Scale, BarOrigin.y + BarHeight + 2 * Scale));
+                ImGui::PushID(int(Index) + 500);
+                if (ImGui::InvisibleButton("##GradientStop", ImVec2(12 * Scale, 8 * Scale))) SelectedGradientStop = int(Index);
+                ImGui::PopID();
+                const bool IsSelected = int(Index) == SelectedGradientStop;
+                RampInk->AddTriangleFilled(ImVec2(MarkerX, BarOrigin.y + BarHeight + 2 * Scale),
+                    ImVec2(MarkerX - 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale), ImVec2(MarkerX + 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
+                    IsSelected ? IM_COL32(255, 255, 255, 255) : RampColour(Stops[Index].Colour));
+            }
+            ImGui::SetCursorScreenPos(ImVec2(BarOrigin.x, BarOrigin.y + BarHeight + 18 * Scale));
+            auto SelectedColour = Stops[SelectedGradientStop].Colour;
+            char StopLabel[24]; std::snprintf(StopLabel, sizeof(StopLabel), "Stop %d colour", SelectedGradientStop + 1);
+            if (Controls.Colour(StopLabel, SelectedColour))
+            {
+                Stops[SelectedGradientStop].Colour = SelectedColour;
+                VectorAuthoringSourcePatch Patch; ApplyVectorGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            float StopPosition = Stops[SelectedGradientStop].Position * 100;
+            const float LowerBound = SelectedGradientStop > 0 ? Stops[SelectedGradientStop - 1].Position * 100 + 1 : 0.f;
+            const float UpperBound = SelectedGradientStop + 1 < int(Stops.size()) ? Stops[SelectedGradientStop + 1].Position * 100 - 1 : 100.f;
+            if (Controls.Number("Stop position %", StopPosition, LowerBound, UpperBound))
+            {
+                Stops[SelectedGradientStop].Position = std::clamp(StopPosition / 100.f, 0.f, 1.f);
+                VectorAuthoringSourcePatch Patch; ApplyVectorGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::BeginDisabled(Stops.size() >= size_t(VectorGradientStopCapacity));
+            if (Controls.Button("Add stop", (CardWidth - 8 * Scale) * .5f))
+            {
+                float Previous = 0.f, BestGap = 0.f, BestPosition = .5f;
+                for (size_t Index = 0; Index <= Stops.size(); ++Index)
+                {
+                    const float Current = Index < Stops.size() ? Stops[Index].Position : 1.f;
+                    if (Current - Previous > BestGap) { BestGap = Current - Previous; BestPosition = (Current + Previous) * .5f; }
+                    Previous = Current;
+                }
+                const auto NewColour = EvaluateVectorGradientColour(Stops, BestPosition);
+                Stops.push_back({BestPosition, NewColour});
+                std::sort(Stops.begin(), Stops.end(), [](const auto &A, const auto &B) { return A.Position < B.Position; });
+                const auto Inserted = std::find_if(Stops.begin(), Stops.end(), [&](const auto &Stop) { return Stop.Position == BestPosition; });
+                SelectedGradientStop = int(Inserted - Stops.begin());
+                VectorAuthoringSourcePatch Patch; ApplyVectorGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0, 8 * Scale);
+            ImGui::BeginDisabled(Stops.size() <= 2);
+            if (Controls.Button("Remove stop", (CardWidth - 8 * Scale) * .5f))
+            {
+                Stops.erase(Stops.begin() + SelectedGradientStop);
+                SelectedGradientStop = std::clamp(SelectedGradientStop, 0, int(Stops.size()) - 1);
+                VectorAuthoringSourcePatch Patch; ApplyVectorGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::EndDisabled();
         }
         bool Filled = Source.Paint[3] != 0;
         if (Controls.Toggle("Fill enabled", Filled)) { VectorAuthoringSourcePatch Patch; Patch.FillEnabled = Filled; ApplySourcePatch(Patch); }
         Controls.EndCard();
         Controls.BeginCard("Stroke", false, true);
-        float Stroke = Source.Transform[1];
-        if (Controls.Number("Stroke width", Stroke, 0, 25)) { VectorAuthoringSourcePatch Patch; Patch.StrokeWidth = Stroke; ApplySourcePatch(Patch); }
+        // 📝 A category-6 cubic path (Pen/Polyline) alone can swing between an open line and a closed
+        // filled shape during its own lifetime, so while it is closed+filled this edits its own independent
+        // outline width (Paint[0]) rather than Transform[1] (the open line's own thickness) - closing a line
+        // into a shape, or reopening it, never silently inherits or overwrites the other state's width.
+        const bool ClosedFilledPath = Source.Topology[0] == 6 && Source.Paint[3] != 0;
+        float Stroke = ClosedFilledPath ? Source.Paint[0] : Source.Transform[1];
+        if (Controls.Number(ClosedFilledPath ? "Outline width" : "Stroke width", Stroke, 0, 25))
+        {
+            VectorAuthoringSourcePatch Patch;
+            if (ClosedFilledPath) Patch.ClosedOutlineWidth = Stroke; else Patch.StrokeWidth = Stroke;
+            ApplySourcePatch(Patch);
+        }
         auto StrokeColour = Source.StrokeColour;
-        if (Controls.Colour("Stroke colour", StrokeColour)) { VectorAuthoringSourcePatch Patch; Patch.StrokeColour = StrokeColour; ApplySourcePatch(Patch); }
-        ImGui::TextWrapped("Fill and stroke colours are independent. Stroke image sources remain deferred.");
+        if (Controls.Colour(ClosedFilledPath ? "Outline colour" : "Stroke colour", StrokeColour)) { VectorAuthoringSourcePatch Patch; Patch.StrokeColour = StrokeColour; ApplySourcePatch(Patch); }
+        ImGui::TextWrapped(ClosedFilledPath
+            ? "This outline width is independent of the same path's thickness while it was (or becomes) an open line."
+            : "Fill and stroke colours are independent. Stroke image sources remain deferred.");
         Controls.EndCard();
     }
     ImGui::EndDisabled();
@@ -1756,6 +2746,9 @@ void StampWorkspacePanel::ConstructInterface()
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_R)) Tool = VectorAuthoringTool::Rectangle;
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_O)) Tool = VectorAuthoringTool::Ellipse;
         if (!Command && ImGui::IsKeyPressed(ImGuiKey_T)) Tool = VectorAuthoringTool::Text;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_A)) Tool = VectorAuthoringTool::Points;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_P)) Tool = VectorAuthoringTool::Pen;
+        if (!Command && ImGui::IsKeyPressed(ImGuiKey_L)) Tool = VectorAuthoringTool::Polyline;
         if (ImGui::IsKeyPressed(ImGuiKey_0)) { Pan = {}; Zoom = 1; }
         if (!Selection.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete))
         {

@@ -9,6 +9,7 @@
 #include <functional>
 #include <span>
 #include <array>
+#include <string>
 #include <string_view>
 
 namespace Frontier
@@ -48,6 +49,17 @@ public:
         size_t                     SelectionCount,
         size_t                     Limit,
         bool                       Protected);
+    // 📝 Just the layout/profile field widgets shared by the one-shot "Generate array" card above and a
+    // per-modifier live-edit card (Blender-style stack entry) - no population caption, no Generate button,
+    // no BeginDisabled wrapper (the caller decides that). Suffix keeps on-canvas captions readable while
+    // still giving each stacked modifier instance its own unique RegisterExtent/ImGui identity.
+    void ArrayFields(VectorAuthoringArraySpecification &Specification, const std::string &Suffix = {});
+    // 📝 Same contract as ArrayFields, one sibling per modifier operation - no caption/Generate button, only
+    // the raw field widgets a modifier-stack card wraps for its own live-edit/Apply/Delete chrome.
+    void MirrorFields(VectorAuthoringMirrorSpecification &Specification, const std::string &Suffix = {});
+    void NoiseFields(VectorAuthoringNoiseSpecification &Specification, const std::string &Suffix = {});
+    void OffsetFields(VectorAuthoringOffsetSpecification &Specification, const std::string &Suffix = {});
+    void ColourFields(VectorAuthoringColourSpecification &Specification, const std::string &Suffix = {});
 private:
     void Register(const char *Caption);
 };

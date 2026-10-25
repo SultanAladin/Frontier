@@ -102,7 +102,9 @@ public:
     std::function<void()> CancelClose;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:
-    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Points, Pen };
+    // 📝 Polyline is appended after Pen (not inserted among the contiguous Diamond..Star arithmetic
+    // block some shape-dropdown code relies on) so it never shifts any existing enum value.
+    enum class VectorAuthoringTool { Select, Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, Pan, Points, Pen, Polyline };
     VectorAuthoringHistory History;
     VectorAuthoringDocument SavedDocument;
     VectorCoverageProgram CachedCoverageProgram;
@@ -171,6 +173,10 @@ private:
     bool PenReversed = false;
     bool IndependentPenContinuation = false;
     bool AutomaticPen = false;
+    // 📝 Latched true for a Polyline-tool session's whole lifetime: every anchor it places keeps
+    // Incoming/Outgoing coincident with Position (a straight corner, never a dragged tangent), and
+    // automatic tangent smoothing never applies even if AutomaticPen is otherwise enabled.
+    bool PolylineSession = false;
     void ResumePen(uint32_t Token, bool FromStart);
     std::vector<uint32_t> PenSelection;
     void RefreshPenPreview();
@@ -194,10 +200,19 @@ private:
     float Scale = 1, Zoom = 1;
     int Gesture = 0, Filter = 0;
     std::array<int, 2> ResizeDirection{};
+    // 📝 Gesture 9 is "dragging a gradient colour-stop marker on the canvas" (see ConstructInterface);
+    // GradientDragSlot names which of the shape's up-to-4 packed stop slots the drag is moving, and
+    // SelectedGradientStop is whichever slot the Inspector's ramp editor currently shows/edits — the two
+    // stay in sync (selecting a marker on the canvas selects it in the Inspector and vice versa).
+    int GradientDragSlot = -1;
+    int SelectedGradientStop = 0;
     bool MarqueeAdditive = false, SelectionExtend = false;
     uint32_t MaskSelection = 0;
     bool GroupsOpen = false, ArraysOpen = false, ChannelsOpen = false, CloseRequested = false;
     bool TransparentCanvas = false, GridEnabled = false, SnappingEnabled = false;
+    // 📝 Replaces the old standalone "Seamless repeat preview" panel: when on, the baked texture is
+    // tiled directly across the canvas itself instead of once centred in the board.
+    bool SeamlessPreviewEnabled = false;
     void *RegularTypeface = nullptr, *LightTypeface = nullptr;
     std::array<char, 81> NameText{};
     std::array<char, 129> SearchText{};
