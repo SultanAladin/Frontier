@@ -471,7 +471,8 @@ void BakingWorkspacePanel::AcceptBakeResults()
         {
             PreviewSetName = Results.front().Name;
             PreviewMapKey = Settings.Channels.empty() ? "normal" : Settings.Channels.front();
-            View = ViewMode::Maps2D;
+            // 📝 Keep whichever viewport the user is already in when a bake lands: forcing Maps2D here yanked
+            // them out of the 3D orbit view they were framing. The 3D/2D tabs remain the only view switch.
         }
     }
     catch (const std::exception &Failure) { Error = Failure.what(); }
@@ -664,10 +665,11 @@ void BakingWorkspacePanel::ConstructHeader()
 //                                                     MESH MAP GRID
 //------------------------------------------------------------------------------------------------------------------------
 
-// 🧩 1:1 with Experimental/TextureStudio/src/baking/MeshMapGrid.jsx + its .bk-map-tile/.bk-map-swatch chrome
-// in studioTheme.css: a 2-column grid of rounded 13px tile cards, each with a 51px gradient swatch (a green
-// check badge when selected), a bold label and a small caption, grouped under uppercase family headers -
-// not a row of plain ImGui buttons.
+// 🧩 Based on Experimental/TextureStudio/src/baking/MeshMapGrid.jsx + its .bk-map-tile/.bk-map-swatch chrome
+// in studioTheme.css: a 2-column grid of rounded 13px tile cards (a green check badge when selected), a bold
+// label and a small caption, grouped under uppercase family headers - not a row of plain ImGui buttons. The
+// native preview area is deliberately square (user preference) rather than the web tile's 51px-tall rectangle:
+// bake maps are square textures, so their previews should read square at any window/dock size.
 void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
 {
     const float S = InterfaceScale;
@@ -731,6 +733,12 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
     const float Gap = 7 * S;
     const uint32_t Columns = 2;
     const float TileWidth = (Width - Gap * float(Columns - 1)) / float(Columns);
+    // 📝 Square previews by construction: the swatch/image area is exactly TilePreviewSide x TilePreviewSide
+    // (the tile's inner width), and the tile height is that side plus fixed chrome (8px top padding, the
+    // label/hint lines, 8px bottom padding). Nothing in the preview's aspect derives from the dock height or
+    // the rectangular window, so maps stay square however the workspace is resized.
+    const float TilePreviewSide = std::max(1.f, TileWidth - 16 * S);
+    const float TileHeight = TilePreviewSide + 46 * S;
     const char *LastFamily = "";
     uint32_t Column = 0;
     ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
@@ -757,7 +765,6 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
         const bool Implemented = IsMeshMapImplemented(Entry.Key);
         const bool Enabled = std::find(Settings.Channels.begin(), Settings.Channels.end(), std::string(Entry.Key)) != Settings.Channels.end();
         const ImVec2 TileMinimum(RowOrigin.x + Column * (TileWidth + Gap), RowOrigin.y);
-        const float TileHeight = 82 * S;
         const ImVec2 TileMaximum(TileMinimum.x + TileWidth, TileMinimum.y + TileHeight);
 
         ImGui::PushID(Entry.Key);
@@ -780,11 +787,12 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
         Ink->AddRectFilled(TileMinimum, TileMaximum, ImGui::GetColorU32(Spectrum(TileFill, Alpha)), 13 * S);
         Ink->AddRect(TileMinimum, TileMaximum, ImGui::GetColorU32(Spectrum(TileBorder, Alpha)), 13 * S);
 
-        const ImVec2 SwatchMinimum(TileMinimum.x + 8 * S, TileMinimum.y + 8 * S), SwatchMaximum(TileMaximum.x - 8 * S, TileMinimum.y + 8 * S + 51 * S);
+        const ImVec2 SwatchMinimum(TileMinimum.x + 8 * S, TileMinimum.y + 8 * S), SwatchMaximum(TileMaximum.x - 8 * S, TileMinimum.y + 8 * S + TilePreviewSide);
         Ink->PushClipRect(SwatchMinimum, SwatchMaximum, true);
         // 🧩 1:1 with MeshMapGrid.jsx's `{image ? <img> : <span>}`: once the active set has a baked image for
-        // this key, the tile shows that image (studioTheme.css: `object-fit: contain` on #080a08, so the square
-        // map is centred at swatch height with dark side bars) instead of the gradient swatch + watermark.
+        // this key, the tile shows that image instead of the gradient swatch + watermark. The preview rect is
+        // square and the baked texture is square, so the image fills it edge-to-edge (the #080a08 field only
+        // shows through transparent texels).
         // Same coarse block-raster sampling as ConstructMapPreview, and skipped entirely for tiles the scroll
         // clip has already culled, so a 27-tile grid costs thumbnails only for the rows on screen.
         const BakeMapImage *TileImage = nullptr;
@@ -835,7 +843,7 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
 
         if (++Column >= Columns) { Column = 0; RowOrigin.y += TileHeight + Gap; }
     }
-    if (Column != 0) RowOrigin.y += 82 * S + Gap;
+    if (Column != 0) RowOrigin.y += TileHeight + Gap;
     ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y));
     ImGui::Dummy(ImVec2(1, 10 * S));
     // 🧩 1:1 with MeshMapGrid.jsx's `{!channels.length && <p className="bk-selection-empty">...}` empty state.
