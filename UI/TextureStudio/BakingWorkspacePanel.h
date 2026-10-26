@@ -7,6 +7,7 @@
 //    mode-switch buttons the web app has, but their content panels are not yet native — see ConstructInspector.
 
 #pragma once
+#include "Engine/ContentInterchange/BakeField.h"
 #include "Engine/ContentInterchange/BakeMesh.h"
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/Interface/PixelSpace.h"
@@ -18,6 +19,7 @@
 #include <functional>
 #include <future>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -39,6 +41,15 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
+
+    // 📝 GPU bake hooks bound by the host application, exactly like Pattern/Stamp's QueryCoverage: this panel
+    // never touches Vulkan itself. QueryGpuBakeDevice returns the compute device's name ("" = unavailable, the
+    // inspector's device choice stays CPU), SubmitGpuBake hands over one flattened BakeFieldRequest, and
+    // PollGpuBake reports band progress until BakeGpuOutcome::Complete. Any GPU refusal falls back to the CPU
+    // route for that bake (see PollBake), never to a silently skipped bake.
+    std::function<std::string()> QueryGpuBakeDevice;
+    std::function<bool(std::shared_ptr<const BakeFieldRequest>)> SubmitGpuBake;
+    std::function<BakeGpuOutcome()> PollGpuBake;
 
     // 📝 Where ConstructInterface last wrote exported PNG/manifest files (QueryExportDirectory to configure it);
     // empty until a bake has been exported at least once this session.
@@ -98,6 +109,22 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::string BakeProgressLabel;
     std::vector<BakePartResult> Results;
     std::string Info, Error;
+    // 📝 Device choice + the in-flight step PollBake walks: the CPU route is one worker future, the GPU route
+    // is prepare-on-worker (flatten + rasterize) -> compute-via-host-hooks (banded, across frames) ->
+    // encode-on-worker. Snapshots are retained for the whole bake so a GPU refusal at any step can restart
+    // the identical bake on the CPU (FallbackToCpuBake) against the settings the user actually pressed Bake with.
+    bool PreferGpuBake = false;
+    enum class BakeStep { Idle, CpuBaking, GpuPreparing, GpuComputing, GpuEncoding };
+    BakeStep ActiveBakeStep = BakeStep::Idle;
+    std::future<std::shared_ptr<BakeFieldRequest>> GpuRequestFuture;
+    std::shared_ptr<const BakeFieldRequest> GpuRequest;
+    BakeMeshSet BakeHighSnapshot;
+    std::vector<BakePart> BakeTargetSnapshots;
+    BakeSettings BakeSettingsSnapshot;
+    std::string BakeDeviceUsed = "CPU"; // completion-line device attribution (GPU name, or the refusal that fell back)
+    void StartCpuBake();
+    void FallbackToCpuBake(const std::string &Reason);
+    void AcceptBakeResults();
     // 📝 1:1 with BakingStudio.jsx's `stale` flag: true once the inspector's settings have changed since the
     // snapshot StartBake() captured for the bake that produced Results - drives the "Previous bake · settings
     // changed" subtitle and the 2D map caption's "previous recipe" vs "current bake" wording.

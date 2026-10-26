@@ -18,6 +18,7 @@
 #include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "Engine/Render/VectorSurfaceMaterialBridge.h"
 #include "Engine/Render/VectorAuthoringCoverageRendering.h"
+#include "Engine/Render/BakeRasterization.h"
 #include "Engine/Render/VectorSelectionEvaluation.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
@@ -146,6 +147,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
     std::unique_ptr<Frontier::VectorAuthoringCoverageRendering> CoverageRendering;
+    std::unique_ptr<Frontier::BakeRasterization> BakeCompute;
     std::optional<std::array<Frontier::MaterialTexturePyramid, 6>> PatternAuthoringMaps;
     bool PatternApplyRequested = false;
     Frontier::VectorAuthoringDocument SubmittedPatternDocument;
@@ -199,6 +201,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (ReportedGpuFaults.insert(Key).second) Frontier::DiagnosticJournal::Append("GpuFaultIsolated", Key);
     };
     bool SelectionEvaluationFaulted = false, CoverageRenderingFaulted = false, PatternAtlasFaulted = false;
+    bool BakeComputeFaulted = false;
     std::optional<Frontier::VectorAuthoringDocument> PatternBridgeFaultedDocument;
     std::string MaterialRenderingFaultKey;
     VkImageView LastPreviewView = VK_NULL_HANDLE;
@@ -601,6 +604,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             if (!CoverageRenderingFaulted)
                 try { CoverageRendering->ConstructCommands(Commands, Completed, Serial); }
                 catch (const std::exception &Failure) { CoverageRenderingFaulted = true; JournalGpuFaultOnce("CoverageRendering", Failure); }
+            // 📝 One bake band is recorded per frame submission (and the previous band harvested) inside
+            // ConstructCommands; a throw latches the unit faulted AND converts the in-flight bake into a
+            // failed outcome, so the panel's next poll restarts that bake on the CPU instead of hanging.
+            if (!BakeComputeFaulted && BakeCompute)
+                try { (void)BakeCompute->ConstructCommands(Commands, Completed, Serial); }
+                catch (const std::exception &Failure) { BakeComputeFaulted = true; BakeCompute->ConfigureFaulted(Failure.what()); JournalGpuFaultOnce("BakeRasterization", Failure); }
             try
             {
             if (Pattern->ConsumeMaterialApplyRequest()) PatternApplyRequested = true;

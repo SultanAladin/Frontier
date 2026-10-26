@@ -236,6 +236,11 @@ void BakingWorkspacePanel::FinalizeContent() noexcept
     {
         try { BakeFuture.wait(); } catch (...) {}
     }
+    if (GpuRequestFuture.valid())
+    {
+        try { GpuRequestFuture.wait(); } catch (...) {}
+    }
+    GpuRequest.reset();
     ControlExtents.clear();
 }
 void BakingWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept { SettingsCoalesceClockSeconds += DeltaSeconds; PollBake(); }
@@ -316,14 +321,48 @@ void BakingWorkspacePanel::StartBake()
     BakeDone.store(0);
     BakeTotal.store(1);
     Error.clear();
-    BakeProgressLabel = "Baking mesh maps…";
     SettingsAtLastBake = Settings;
-    // 📝 Copy by value into the worker: Assets/Settings must outlive the bake even if the panel is torn
+    // 📝 Snapshot by value for the whole bake: workers and the GPU hooks must never read Assets/Settings the
+    // user can still edit mid-bake, and a GPU refusal at any step restarts the CPU route from these exact
+    // inputs instead of whatever the inspector happens to hold by then.
+    BakeHighSnapshot = Assets.High;
+    BakeSettingsSnapshot = Settings;
+    BakeTargetSnapshots.clear();
+    for (const auto *Part : Targets) BakeTargetSnapshots.push_back(*Part);
+    GpuRequest.reset();
+
+    const std::string GpuDevice = (PreferGpuBake && QueryGpuBakeDevice && SubmitGpuBake && PollGpuBake)
+        ? QueryGpuBakeDevice() : std::string();
+    if (!GpuDevice.empty())
+    {
+        BakeDeviceUsed = GpuDevice;
+        ActiveBakeStep = BakeStep::GpuPreparing;
+        BakeProgressLabel = "Preparing GPU bake…";
+        // 📝 Flattening the BVH and rasterizing UV coverage is the one CPU-costly step of a GPU bake, so it
+        // runs on a worker like the CPU bake does; only the finished request crosses to the host's GPU hooks.
+        const BakeMeshSet HighCopy = BakeHighSnapshot;
+        const BakeSettings SettingsCopy = BakeSettingsSnapshot;
+        const std::vector<BakePart> TargetCopies = BakeTargetSnapshots;
+        GpuRequestFuture = std::async(std::launch::async, [HighCopy, SettingsCopy, TargetCopies]() mutable
+        {
+            std::vector<const BakePart *> Pointers;
+            for (const auto &Part : TargetCopies) Pointers.push_back(&Part);
+            return std::make_shared<BakeFieldRequest>(ConstructBakeFieldRequest(Pointers, HighCopy, SettingsCopy));
+        });
+        return;
+    }
+    BakeDeviceUsed = PreferGpuBake ? "CPU (no Vulkan compute GPU)" : "CPU";
+    StartCpuBake();
+}
+void BakingWorkspacePanel::StartCpuBake()
+{
+    ActiveBakeStep = BakeStep::CpuBaking;
+    BakeProgressLabel = "Baking mesh maps…";
+    // 📝 Copy by value into the worker: the snapshots must outlive the bake even if the panel is torn
     // down mid-bake (FinalizeContent waits on BakeFuture first, so this is belt-and-braces, not load-bearing).
-    const BakeMeshSet HighCopy = Assets.High;
-    const BakeSettings SettingsCopy = Settings;
-    std::vector<BakePart> TargetCopies;
-    for (const auto *Part : Targets) TargetCopies.push_back(*Part);
+    const BakeMeshSet HighCopy = BakeHighSnapshot;
+    const BakeSettings SettingsCopy = BakeSettingsSnapshot;
+    const std::vector<BakePart> TargetCopies = BakeTargetSnapshots;
     BakeFuture = std::async(std::launch::async, [this, HighCopy, SettingsCopy, TargetCopies]() mutable
     {
         std::vector<const BakePart *> Pointers;
@@ -335,20 +374,79 @@ void BakingWorkspacePanel::StartBake()
         });
     });
 }
+void BakingWorkspacePanel::FallbackToCpuBake(const std::string &Reason)
+{
+    // 📝 The refusal stays named in the completion line so a fallback bake is never mistaken for a GPU bake.
+    BakeDeviceUsed = "CPU after GPU refusal: " + Reason;
+    GpuRequest.reset();
+    StartCpuBake();
+}
 void BakingWorkspacePanel::PollBake()
 {
-    if (!BakeRunning.load() || !BakeFuture.valid()) return;
-    if (BakeFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    if (!BakeRunning.load()) return;
+    switch (ActiveBakeStep)
+    {
+    case BakeStep::GpuPreparing:
+    {
+        if (!GpuRequestFuture.valid() || GpuRequestFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        try { GpuRequest = GpuRequestFuture.get(); }
+        catch (const std::exception &Failure) { FallbackToCpuBake(Failure.what()); return; }
+        if (!SubmitGpuBake || !SubmitGpuBake(GpuRequest)) { FallbackToCpuBake("the GPU bake unit is busy or faulted"); return; }
+        ActiveBakeStep = BakeStep::GpuComputing;
+        BakeProgressLabel = "Baking mesh maps on GPU…";
+        return;
+    }
+    case BakeStep::GpuComputing:
+    {
+        BakeGpuOutcome Outcome;
+        if (PollGpuBake) Outcome = PollGpuBake();
+        else { Outcome.Complete = true; Outcome.Failed = true; Outcome.Failure = "GPU bake hooks were detached mid-bake"; }
+        BakeDone.store(Outcome.DoneTexels);
+        BakeTotal.store(std::max<uint64_t>(1, Outcome.TotalTexels));
+        if (!Outcome.Complete) return;
+        if (Outcome.Failed)
+        {
+            FallbackToCpuBake(Outcome.Failure.empty() ? "unspecified GPU bake failure" : Outcome.Failure);
+            return;
+        }
+        // 📝 Encoding is plain CPU arithmetic (no BVH queries), but at GPU-only resolutions it is still
+        // worker-sized work, so it returns through the same BakeFuture the CPU route completes on.
+        ActiveBakeStep = BakeStep::GpuEncoding;
+        BakeProgressLabel = "Encoding baked maps…";
+        BakeDone.store(0);
+        BakeTotal.store(1);
+        const std::shared_ptr<const BakeFieldRequest> Request = GpuRequest;
+        const BakeSettings SettingsCopy = BakeSettingsSnapshot;
+        std::vector<std::vector<BakeTexelField>> Fields = std::move(Outcome.Fields);
+        BakeFuture = std::async(std::launch::async, [Request, SettingsCopy, Fields = std::move(Fields)]() mutable
+        {
+            return EncodeBakeResults(*Request, Fields, SettingsCopy);
+        });
+        return;
+    }
+    case BakeStep::CpuBaking:
+    case BakeStep::GpuEncoding:
+        if (!BakeFuture.valid() || BakeFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        AcceptBakeResults();
+        return;
+    case BakeStep::Idle:
+    default:
+        return;
+    }
+}
+void BakingWorkspacePanel::AcceptBakeResults()
+{
     try
     {
         Results = BakeFuture.get();
         uint64_t Misses = 0;
         for (const auto &Result : Results) Misses += Result.Stats.Misses;
-        char Buffer[256];
-        std::snprintf(Buffer, sizeof(Buffer), "%zu texture set%s baked. %llu missed projection%s%s.", Results.size(),
-            Results.size() == 1 ? "" : "s", (unsigned long long)Misses, Misses == 1 ? "" : "s",
-            Misses ? " — check ray distance/alignment" : "");
-        Info = Buffer;
+        // 📝 The completion line names the device that actually baked and the resolution actually produced
+        // (the CPU route clamps above 1024), so neither can be misread from the inspector's current values.
+        const uint32_t BakedResolution = Results.empty() ? 0 : Results.front().Resolution;
+        Info = std::to_string(Results.size()) + " texture set" + (Results.size() == 1 ? "" : "s") + " baked on " + BakeDeviceUsed +
+            " at " + std::to_string(BakedResolution) + " x " + std::to_string(BakedResolution) + ". " +
+            std::to_string(Misses) + " missed projection" + (Misses == 1 ? "" : "s") + (Misses ? " — check ray distance/alignment." : ".");
         if (!Results.empty())
         {
             PreviewSetName = Results.front().Name;
@@ -357,6 +455,8 @@ void BakingWorkspacePanel::PollBake()
         }
     }
     catch (const std::exception &Failure) { Error = Failure.what(); }
+    GpuRequest.reset();
+    ActiveBakeStep = BakeStep::Idle;
     BakeRunning.store(false);
 }
 void BakingWorkspacePanel::ExportResults()
@@ -1561,11 +1661,30 @@ void BakingWorkspacePanel::ConstructInspector()
     Controls.BeginCard("", true);
     {
         AccentBar(0x8b9b82, "Texture settings");
-        const char *ResolutionLabels[]{"64 x 64", "128 x 128", "256 x 256", "512 x 512", "1024 x 1024"};
-        const int Resolutions[]{64, 128, 256, 512, 1024};
+        const char *ResolutionLabels[]{"64 x 64", "128 x 128", "256 x 256", "512 x 512", "1024 x 1024", "2048 x 2048 (GPU)", "4096 x 4096 (GPU)"};
+        const int Resolutions[]{64, 128, 256, 512, 1024, 2048, 4096};
         int ResolutionIndex = 2;
-        for (int Index = 0; Index < 5; ++Index) if (Resolutions[Index] == int(Settings.Resolution)) ResolutionIndex = Index;
+        for (int Index = 0; Index < 7; ++Index) if (Resolutions[Index] == int(Settings.Resolution)) ResolutionIndex = Index;
         if (Controls.Dropdown("Resolution", ResolutionIndex, ResolutionLabels)) Settings.Resolution = uint32_t(Resolutions[ResolutionIndex]);
+        // 📝 Bake device: the GPU route (host-owned BakeRasterization over the BakeFieldCompute shader)
+        // evaluates the identical per-texel queries on any Vulkan compute queue and is the only route past
+        // 1024 (the legacy CPU scan clamps there; the bake completion line states what was actually baked).
+        // The host names its detected device through QueryGpuBakeDevice; with none bound, the choice is
+        // disabled and says why instead of silently doing nothing.
+        const std::string GpuDevice = QueryGpuBakeDevice ? QueryGpuBakeDevice() : std::string();
+        const char *DeviceLabels[]{"CPU", "GPU (Vulkan compute)"};
+        int DeviceIndex = (PreferGpuBake && !GpuDevice.empty()) ? 1 : 0;
+        if (GpuDevice.empty()) ImGui::BeginDisabled(true);
+        if (Controls.Dropdown("Bake device", DeviceIndex, DeviceLabels)) PreferGpuBake = DeviceIndex == 1;
+        if (GpuDevice.empty()) ImGui::EndDisabled();
+        Track("BakeDevice");
+        Caption(ImGui::GetCursorScreenPos(), GpuDevice.empty() ? "No Vulkan compute GPU detected - CPU bake only." : GpuDevice.c_str(), 7.5f * S, 0x728060);
+        ImGui::Dummy(ImVec2(1, 15 * S));
+        if (Settings.Resolution > 1024 && !PreferGpuBake)
+        {
+            Caption(ImGui::GetCursorScreenPos(), "Above 1024 needs the GPU device - CPU bakes clamp to 1024.", 7.5f * S, 0xa79171);
+            ImGui::Dummy(ImVec2(1, 15 * S));
+        }
         float Padding = float(Settings.Padding);
         if (Controls.Number("Padding", Padding, 0, 32)) Settings.Padding = uint32_t(std::clamp(Padding, 0.f, 32.f));
         const char *NormalFormats[]{"OpenGL +Y", "DirectX -Y"};
