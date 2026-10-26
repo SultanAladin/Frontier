@@ -171,6 +171,28 @@ int main(int ArgumentCount, char **Arguments)
         std::cout << "Selected \"Scratch normal\" - its derived Normal card shows no mode switch, and Height's "
             "Generator mode still switches independently.\n";
 
+        // 9d) "Maker's stamp" starts with zero channel targets (it is a decal layer) - the Channel targets card
+        //     must still appear so "+ Add channel" is reachable, "Add channel" was previously a dead stub that
+        //     did nothing at all. Open its grouped picker, enable a Radiance-group channel (Emission) and a
+        //     paired Surface one (Normal, which must also silently enable Height), verify their cards and chips
+        //     render, remove one chip via its own "x", then Clear all back to zero.
+        Click(Panel->QueryControlExtent("TextureLayerSelect:4"));
+        Capture();
+        Click(Panel->QueryControlExtent("Add channel"));
+        Capture();
+        Click(Panel->QueryControlExtent("Emission"));
+        Capture();
+        Click(Panel->QueryControlExtent("Normal"));
+        Capture();
+        std::cout << "Opened \"Maker's stamp\"'s empty Channel targets card, added Emission and Normal (which "
+            "also enabled Height) through the grouped \"Add channel\" picker.\n";
+        Click(Panel->QueryControlExtent("ChannelChipRemove:emission"));
+        Capture();
+        std::cout << "Removed the Emission chip through its own \"x\" without disturbing Normal/Height.\n";
+        Click(Panel->QueryControlExtent("Clear all"));
+        Capture();
+        std::cout << "\"Clear all\" emptied every remaining channel target on \"Maker's stamp\".\n";
+
         // 10) Cross-workspace navigation pills actually invoke the wired callbacks.
         Require(MaterialActivations == 0, "ActivateMaterial fired before its pill was clicked.");
         Click(Panel->QueryControlExtent("Material"));

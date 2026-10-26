@@ -57,11 +57,54 @@ const KindMeta &QueryKindMeta(const std::string &Kind) noexcept
     static const KindMeta Fallback{"Layer", 0x9a9a8f, "?"};
     return Found == Table.end() ? Fallback : Found->second;
 }
-// 🎨 1:1 with paintChannelModel.js's PAINT_CHANNELS palette for the subset of channels this static port surfaces.
+// 🎨 1:1 with paintChannelModel.js's PAINT_CHANNELS palette - every channel the "Add channel" picker can enable,
+// not just the handful the demo document ships pre-enabled with.
 constexpr uint32_t kBaseColourTint = 0xb87333, kMetalnessTint = 0x8b5cf6, kRoughnessTint = 0x3b82f6, kHeightTint = 0x8a8a8a,
-    kNormalTint = 0x10b981, kOpacityTint = 0x94a3b8;
+    kNormalTint = 0x10b981, kOpacityTint = 0x94a3b8, kEmissionTint = 0xf59e0b, kOcclusionTint = 0x6b7280,
+    kAnisotropyTint = 0x22d3ee, kAnisotropyAngleTint = 0x0ea5e9, kClearcoatTint = 0xe2e8f0, kTransmissionTint = 0x7dd3fc,
+    kRefractionTint = 0xa78bfa, kSheenTint = 0xf472b6, kSubsurfaceTint = 0xfb7185;
+
+// 📝 1:1 with paintChannelModel.js's PAINT_CHANNELS table - the single source of truth for every channel's
+// label, group (Surface/Radiance/Reflectance/Scattering, matching CHANNEL_GROUPS), tint, edit kind, range and
+// default colour. Used to render the enabled-channel chips, the "Add channel" picker's grouped checklist and
+// each channel's own property card, so all three always agree on what a given channel id means.
+struct ChannelMeta
+{
+    const char *Id, *Label, *Group, *EditKind, *Note;
+    uint32_t Tint;
+    float Minimum, Maximum, Default;
+    std::array<float, 4> DefaultColour;
+};
+const std::array<ChannelMeta, 15> &QueryChannelCatalogue()
+{
+    static const std::array<ChannelMeta, 15> Catalogue{{
+        {"baseColor", "Base color", "Surface", "color", "Flat colour source for this channel.", kBaseColourTint, 0.f, 1.f, 0.f, {.722f, .451f, .2f, 1.f}},
+        {"metalness", "Metalness", "Surface", "scalar", "Dielectric to conductor blend.", kMetalnessTint, 0.f, 1.f, 0.f, {}},
+        {"roughness", "Roughness", "Surface", "scalar", "Controls micro-facet spread (0 = mirror, 1 = matte).", kRoughnessTint, 0.f, 1.f, .5f, {}},
+        {"height", "Height", "Surface", "scalar", "Surface displacement source.", kHeightTint, 0.f, 1.f, .5f, {}},
+        {"normal", "Normal", "Surface", "derived", "Normal follows the Height target.", kNormalTint, 0.f, 1.f, 0.f, {}},
+        {"opacity", "Opacity", "Surface", "scalar", "Per-texel coverage.", kOpacityTint, 0.f, 1.f, 1.f, {}},
+        {"emission", "Emission", "Radiance", "color", "Self-illumination source.", kEmissionTint, 0.f, 1.f, 0.f, {0.f, 0.f, 0.f, 1.f}},
+        {"occlusion", "Ambient occlusion", "Radiance", "scalar", "Cavity / contact-shadow source.", kOcclusionTint, 0.f, 1.f, 1.f, {}},
+        {"anisotropy", "Anisotropy", "Reflectance", "scalar", "Directional-highlight stretch amount.", kAnisotropyTint, 0.f, 1.f, 0.f, {}},
+        {"anisotropyAngle", "Anisotropy angle", "Reflectance", "scalar", "Highlight direction in degrees.", kAnisotropyAngleTint, 0.f, 360.f, 0.f, {}},
+        {"clearcoat", "Clearcoat", "Reflectance", "scalar", "Secondary lacquer-layer strength.", kClearcoatTint, 0.f, 1.f, 0.f, {}},
+        {"transmission", "Transmission", "Reflectance", "scalar", "Glass-like see-through amount.", kTransmissionTint, 0.f, 1.f, 0.f, {}},
+        {"refractionIndex", "Refraction index", "Reflectance", "scalar", "Index of refraction for transmission.", kRefractionTint, 1.f, 3.f, 1.5f, {}},
+        {"sheen", "Sheen", "Scattering", "color", "Fabric-like grazing highlight tint.", kSheenTint, 0.f, 1.f, 0.f, {.227f, .227f, .227f, 1.f}},
+        {"subsurface", "Subsurface", "Scattering", "color", "Soft subsurface-scattering tint.", kSubsurfaceTint, 0.f, 1.f, 0.f, {.851f, .541f, .447f, 1.f}},
+    }};
+    return Catalogue;
+}
+constexpr const char *ChannelGroups[]{"Surface", "Radiance", "Reflectance", "Scattering"};
+const ChannelMeta *QueryChannelMeta(const std::string &Id)
+{
+    for (const auto &Entry : QueryChannelCatalogue()) if (Id == Entry.Id) return &Entry;
+    return nullptr;
+}
 
 constexpr const char *PlusPath = "M12 5V19M5 12H19";
+constexpr const char *CrossPath = "M6 6L18 18M6 18L18 6";
 constexpr const char *LockPath = "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10";
 constexpr const char *UnlockPath = "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 15.5 6.3";
 constexpr const char *EyePath = "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z";
@@ -185,6 +228,37 @@ void TextureWorkspacePanel::SelectLayer(int Index, bool ToggleMask)
     SelectedLayer = Index;
     MaskSelected = ToggleMask && Layers[size_t(Index)].HasMask;
     RightTab = InspectorTab::Properties;
+    ChannelPickerOpen = false;
+}
+
+void TextureWorkspacePanel::ToggleChannel(TextureLayerRow &Layer, const std::string &Id, bool Enable)
+{
+    auto Has = [&](const std::string &ChannelId) { return std::find(Layer.Channels.begin(), Layer.Channels.end(), ChannelId) != Layer.Channels.end(); };
+    auto Add = [&](const std::string &ChannelId) { if (!Has(ChannelId)) Layer.Channels.push_back(ChannelId); };
+    auto Remove = [&](const std::string &ChannelId) { Layer.Channels.erase(std::remove(Layer.Channels.begin(), Layer.Channels.end(), ChannelId), Layer.Channels.end()); };
+    if (Enable)
+    {
+        Add(Id);
+        if (Id == "normal") Add("height"); // Normal is purely derived from Height - it never exists alone.
+    }
+    else
+    {
+        Remove(Id);
+        if (Id == "height") Remove("normal");
+    }
+    // 📝 Re-sort to the catalogue's canonical Surface/Radiance/Reflectance/Scattering order so a freshly added
+    // channel slots into the same stable position every time, instead of wherever it happened to be clicked
+    // from in the grouped picker.
+    const auto &Catalogue = QueryChannelCatalogue();
+    std::stable_sort(Layer.Channels.begin(), Layer.Channels.end(), [&](const std::string &A, const std::string &B)
+    {
+        const auto IndexOf = [&](const std::string &ChannelId) -> size_t
+        {
+            for (size_t Index = 0; Index < Catalogue.size(); ++Index) if (ChannelId == Catalogue[Index].Id) return Index;
+            return Catalogue.size();
+        };
+        return IndexOf(A) < IndexOf(B);
+    });
 }
 void TextureWorkspacePanel::AddLayer(const std::string &Kind)
 {
@@ -482,6 +556,30 @@ void TextureWorkspacePanel::ConstructLayersDock()
 //                                                     VIEWPORT DOCK (CHROME ONLY - NO REAL 3D CANVAS)
 //------------------------------------------------------------------------------------------------------------------------
 
+bool TextureWorkspacePanel::ConstructInlineDropdown(const char *Label, const char *Id, int &Selection,
+    std::span<const char *const> Captions, float ComboWidth)
+{
+    const float S = InterfaceScale;
+    ImGui::PushID(Id);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(Spectrum(0x747467), "%s", Label);
+    ImGui::SameLine(0, 6 * S);
+    bool Changed = false;
+    if (!Captions.empty())
+    {
+        ImGui::SetNextItemWidth(ComboWidth);
+        if (DropdownControlSurface::BeginSelection("##Selection", Captions[size_t(std::clamp(Selection, 0, int(Captions.size()) - 1))], S))
+        {
+            for (size_t Index = 0; Index < Captions.size(); ++Index)
+                if (DropdownControlSurface::Option(Captions[Index], Selection == int(Index), S)) { Selection = int(Index); Changed = true; }
+            DropdownControlSurface::EndSelection();
+        }
+        Track(Id);
+    }
+    ImGui::PopID();
+    return Changed;
+}
+
 void TextureWorkspacePanel::ConstructViewportDock()
 {
     const float S = InterfaceScale;
@@ -495,30 +593,40 @@ void TextureWorkspacePanel::ConstructViewportDock()
     Ink->AddRectFilled(ImVec2(Origin.x + 84 * S, Origin.y + 9 * S), ImVec2(Origin.x + 140 * S, Origin.y + 25 * S), ImGui::GetColorU32(Spectrum(0x2a2a1e)), 4 * S);
     Caption(ImVec2(Origin.x + 90 * S, Origin.y + 13 * S), "PREVIEW", 7.5f * S, 0xb9a66a);
 
+    // 📝 Was built from Controls.Dropdown() - the inspector's full-width, label-ABOVE-box form field - laid
+    // out with plain ImGui::SameLine() calls. Controls.Dropdown() force-overrides its combo to the full
+    // remaining line width (SetNextItemWidth(-1)) regardless of what the caller asked for, so every entry here
+    // actually rendered on its OWN line and stacked on top of the authoring bar / "Stamp studio ->" link below
+    // it instead of sitting in one compact row. ConstructInlineDropdown() is the single-line "label beside a
+    // fixed-width box" variant the web app's .tp-header-field uses for exactly this toolbar.
     Controls.ControlHeight = 26;
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 428 * S, Origin.y + 8 * S));
+    const char *ShadingLabels[]{"Lit", "Wireframe", "Matcap"};
+    const char *TargetLabels[]{"Whole object", "Lid", "Body", "Handle", "Spout"};
+    const char *UVLabels[]{"UV0", "UV1"};
+    const float ShadingBoxWidth = 92 * S, TargetBoxWidth = 110 * S, UVBoxWidth = 66 * S;
+    const float FieldGap = 6 * S, GroupGap = 10 * S, IconGap = 4 * S, IconWidth = 28 * S;
+    const float GroupWidth =
+        ImGui::CalcTextSize("Shading").x + FieldGap + ShadingBoxWidth + GroupGap +
+        ImGui::CalcTextSize("Target").x + FieldGap + TargetBoxWidth + GroupGap +
+        ImGui::CalcTextSize("UV set").x + FieldGap + UVBoxWidth + GroupGap +
+        IconWidth + IconGap + IconWidth + IconGap + IconWidth;
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - GroupWidth, Origin.y + 8 * S));
     ImGui::BeginGroup();
     {
-        const char *ShadingLabels[]{"Lit", "Wireframe", "Matcap"};
         int ShadingIndex = int(Shading);
-        ImGui::SetNextItemWidth(92 * S);
-        if (Controls.Dropdown("Shading", ShadingIndex, ShadingLabels)) Shading = ShadingMode(ShadingIndex);
-        ImGui::SameLine(0, 6 * S);
-        const char *TargetLabels[]{"Whole object", "Lid", "Body", "Handle", "Spout"};
-        ImGui::SetNextItemWidth(110 * S);
-        Controls.Dropdown("Target", TargetPart, TargetLabels);
-        ImGui::SameLine(0, 6 * S);
-        const char *UVLabels[]{"UV0", "UV1"};
-        ImGui::SetNextItemWidth(66 * S);
-        Controls.Dropdown("UV set", UVSet, UVLabels);
-        ImGui::SameLine(0, 10 * S);
-        if (Controls.Button("Frame", 28 * S, false, FramePath)) Info = "Frame view (chrome only - no live camera behind this).";
+        if (ConstructInlineDropdown("Shading", "ShadingSelect", ShadingIndex, ShadingLabels, ShadingBoxWidth)) Shading = ShadingMode(ShadingIndex);
+        ImGui::SameLine(0, GroupGap);
+        ConstructInlineDropdown("Target", "TargetSelect", TargetPart, TargetLabels, TargetBoxWidth);
+        ImGui::SameLine(0, GroupGap);
+        ConstructInlineDropdown("UV set", "UVSetSelect", UVSet, UVLabels, UVBoxWidth);
+        ImGui::SameLine(0, GroupGap);
+        if (Controls.Button("Frame", IconWidth, false, FramePath)) Info = "Frame view (chrome only - no live camera behind this).";
         Controls.Tooltip("Frame selection", "Frame selection");
-        ImGui::SameLine(0, 4 * S);
-        if (Controls.Button("Grid", 28 * S, GridVisible, GridPath)) GridVisible = !GridVisible;
+        ImGui::SameLine(0, IconGap);
+        if (Controls.Button("Grid", IconWidth, GridVisible, GridPath)) GridVisible = !GridVisible;
         Controls.Tooltip("Toggle grid", "Toggle grid");
-        ImGui::SameLine(0, 4 * S);
-        if (Controls.Button("Reset", 28 * S, false, ResetPath)) ZoomPercent = 100;
+        ImGui::SameLine(0, IconGap);
+        if (Controls.Button("Reset", IconWidth, false, ResetPath)) ZoomPercent = 100;
         Controls.Tooltip("Reset view", "Reset view");
     }
     ImGui::EndGroup();
@@ -825,34 +933,62 @@ void TextureWorkspacePanel::ConstructInspectorProperties(float Width)
         Controls.EndCard();
     }
 
-    if (!Layer.Channels.empty())
     {
+        // 📝 1:1 with ChannelPropertyPanel.jsx's channel-target-card - always present (even with zero channels
+        // enabled, which shows the "No painting channels enabled" note) so "+ Add channel" is always reachable,
+        // not hidden away the moment a layer happens to start with no channels.
         ImGui::TextColored(Spectrum(0x7c7c6d), "CHANNEL TARGETS \xC2\xB7 %zu", Layer.Channels.size());
         Controls.BeginCard("", true);
         {
-            for (const auto &Id : Layer.Channels)
+            if (Layer.Channels.empty())
+                ImGui::TextColored(Spectrum(0x75756a), "No painting channels enabled. Existing channel values are retained.");
+            else
             {
-                ImGui::TextColored(Spectrum(0xbcbcae), "%s", Id.c_str());
-                ImGui::SameLine();
+                // 📝 Real chips now, not raw channel ids: a tint dot + proper label + a per-chip "x" to disable
+                // just that one channel, matching ChannelPropertyPanel.jsx's .channel-chip - and they wrap
+                // instead of running off the card's right edge once more than a couple are enabled.
+                const float RightEdge = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+                bool FirstChip = true;
+                for (const auto &Id : Layer.Channels)
+                {
+                    const auto *Meta = QueryChannelMeta(Id);
+                    if (!Meta) continue;
+                    const float ChipHeight = 22 * S;
+                    const float ChipWidth = 16 * S + ImGui::CalcTextSize(Meta->Label).x + 22 * S;
+                    if (!FirstChip)
+                    {
+                        if (ImGui::GetCursorScreenPos().x + 6 * S + ChipWidth > RightEdge) ImGui::NewLine();
+                        else ImGui::SameLine(0, 6 * S);
+                    }
+                    FirstChip = false;
+                    ImGui::PushID(Id.c_str());
+                    const auto ChipOrigin = ImGui::GetCursorScreenPos();
+                    Ink->AddRectFilled(ChipOrigin, ImVec2(ChipOrigin.x + ChipWidth, ChipOrigin.y + ChipHeight), ImGui::GetColorU32(Spectrum(0x191916)), ChipHeight * .5f);
+                    Ink->AddCircleFilled(ImVec2(ChipOrigin.x + 11 * S, ChipOrigin.y + ChipHeight * .5f), 3 * S, ImGui::GetColorU32(Spectrum(Meta->Tint)));
+                    Caption(ImVec2(ChipOrigin.x + 19 * S, ChipOrigin.y + (ChipHeight - 9 * S) * .5f), Meta->Label, 9 * S, 0xbfbfae);
+                    ImGui::SetCursorScreenPos(ImVec2(ChipOrigin.x + ChipWidth - 17 * S, ChipOrigin.y + (ChipHeight - 14 * S) * .5f));
+                    if (ImGui::InvisibleButton("Remove", ImVec2(14 * S, 14 * S))) ToggleChannel(Layer, Id, false);
+                    Track(std::string("ChannelChipRemove:") + Id);
+                    StrokeIcon(ImGui::GetItemRectMin(), 10 * S, CrossPath, ImGui::IsItemHovered() ? 0xc9c9ba : 0x86867d);
+                    Controls.Tooltip((std::string("Disable ") + Meta->Label).c_str(), "Removes this channel target from the layer.");
+                    ImGui::SetCursorScreenPos(ImVec2(ChipOrigin.x + ChipWidth, ChipOrigin.y));
+                    ImGui::PopID();
+                }
+                ImGui::NewLine();
             }
-            ImGui::NewLine();
-            if (Controls.Button("Add channel", 0, false, PlusPath)) {}
-            ImGui::SameLine(0, 4 * S);
-            Controls.Button("Clear all", 0, false);
+            if (Controls.Button("Add channel", 0, ChannelPickerOpen, PlusPath)) ChannelPickerOpen = !ChannelPickerOpen;
+            if (!Layer.Channels.empty())
+            {
+                ImGui::SameLine(0, 4 * S);
+                if (Controls.Button("Clear all", 0, false)) { Layer.Channels.clear(); ChannelPickerOpen = false; }
+            }
+            if (ChannelPickerOpen) ConstructChannelPicker(Width, Layer);
         }
         Controls.EndCard();
-        struct ChannelMeta { const char *Id; const char *Label; uint32_t Tint; const char *EditKind; const char *Note; float Minimum, Maximum, Default; };
-        static const ChannelMeta Table[]{
-            {"baseColor", "Base color", kBaseColourTint, "color", "Flat colour source for this channel.", 0.f, 1.f, 0.f},
-            {"roughness", "Roughness", kRoughnessTint, "scalar", "Controls micro-facet spread (0 = mirror, 1 = matte).", 0.f, 1.f, .5f},
-            {"metalness", "Metalness", kMetalnessTint, "scalar", "Dielectric to conductor blend.", 0.f, 1.f, 0.f},
-            {"normal", "Normal", kNormalTint, "derived", "Normal follows the Height target.", 0.f, 1.f, 0.f},
-            {"height", "Height", kHeightTint, "scalar", "Surface displacement source.", 0.f, 1.f, .5f},
-            {"opacity", "Opacity", kOpacityTint, "scalar", "Per-texel coverage.", 0.f, 1.f, 1.f},
-        };
-        for (const auto &Entry : Table)
+        for (const auto &Entry : QueryChannelCatalogue())
             if (std::find(Layer.Channels.begin(), Layer.Channels.end(), Entry.Id) != Layer.Channels.end())
-                ConstructChannelCard(Width, Entry.Id, Entry.Label, Entry.Tint, Entry.EditKind, Entry.Note, Entry.Minimum, Entry.Maximum, Entry.Default);
+                ConstructChannelCard(Width, Entry.Id, Entry.Label, Entry.Tint, Entry.EditKind, Entry.Note, Entry.Minimum, Entry.Maximum, Entry.Default,
+                    Entry.DefaultColour);
     }
 
     ImGui::Dummy(ImVec2(1, 6 * S));
@@ -862,7 +998,7 @@ void TextureWorkspacePanel::ConstructInspectorProperties(float Width)
 }
 
 void TextureWorkspacePanel::ConstructChannelCard(float Width, const std::string &Id, const char *Label, uint32_t Tint,
-    const char *EditKind, const char *Note, float Minimum, float Maximum, float Default)
+    const char *EditKind, const char *Note, float Minimum, float Maximum, float Default, const std::array<float, 4> &DefaultColour)
 {
     const float S = InterfaceScale;
     const bool Derived = std::strcmp(EditKind, "derived") == 0;
@@ -911,7 +1047,7 @@ void TextureWorkspacePanel::ConstructChannelCard(float Width, const std::string 
                 }
                 ImGui::Dummy(ImVec2(1, 6 * S));
                 if (Mode == 0) ConstructChannelTextureSource(Key, Label);
-                else if (Mode == 1) ConstructChannelColourSource(Key, Id, Label, Minimum, Maximum, Default);
+                else if (Mode == 1) ConstructChannelColourSource(Key, Id, Label, EditKind, Minimum, Maximum, Default, DefaultColour);
                 else ConstructChannelGeneratorSource(Key, Label);
             }
         }
@@ -949,14 +1085,17 @@ void TextureWorkspacePanel::ConstructChannelTextureSource(const std::string &Key
 }
 
 void TextureWorkspacePanel::ConstructChannelColourSource(const std::string &Key, const std::string &Id, const char *Label,
-    float Minimum, float Maximum, float Default)
+    const char *EditKind, float Minimum, float Maximum, float Default, const std::array<float, 4> &DefaultColour)
 {
-    // 📝 ChannelPropertyPanel.jsx shows a real <ColorField> for edit:"color" channels (just baseColor among the
-    // ones this demo document enables) and a <Slider> for edit:"scalar" channels (roughness/metalness/height/
-    // opacity) - reproduce that split instead of one generic placeholder for every channel.
-    if (Id == "baseColor")
+    // 📝 ChannelPropertyPanel.jsx shows a real <ColorField> for every edit:"color" channel (baseColor, emission,
+    // sheen, subsurface - not just baseColor) and a <Slider> for edit:"scalar" channels (roughness/metalness/
+    // height/opacity/occlusion/anisotropy/.../refractionIndex) - each colour channel keeps its own catalogue
+    // default (e.g. emission starts black, sheen starts dark grey) instead of every channel defaulting to the
+    // teapot's clay orange.
+    const bool IsColour = std::strcmp(EditKind, "color") == 0;
+    if (IsColour)
     {
-        auto &Swatch = ChannelColour.try_emplace(Key, std::array<float, 4>{.722f, .451f, .2f, 1.f}).first->second;
+        auto &Swatch = ChannelColour.try_emplace(Key, DefaultColour).first->second;
         Controls.Colour("Colour", Swatch);
     }
     else
@@ -965,8 +1104,9 @@ void TextureWorkspacePanel::ConstructChannelColourSource(const std::string &Key,
         Controls.Range("Amount", Amount, Minimum, Maximum);
     }
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-    ImGui::TextColored(Spectrum(0x868872), "%s source value for %s - not composited onto the surface.", Id == "baseColor" ? "Flat colour" : "Flat scalar", Label);
+    ImGui::TextColored(Spectrum(0x868872), "%s source value for %s - not composited onto the surface.", IsColour ? "Flat colour" : "Flat scalar", Label);
     ImGui::PopTextWrapPos();
+    (void)Id;
 }
 
 void TextureWorkspacePanel::ConstructChannelGeneratorSource(const std::string &Key, const char *Label)
@@ -1003,6 +1143,41 @@ void TextureWorkspacePanel::ConstructChannelGeneratorSource(const std::string &K
         float &Value = ChannelGeneratorParameters.try_emplace(ParameterKey, Parameter.second).first->second;
         Controls.Range(Parameter.first, Value, 0.f, Parameter.first == std::string("Angle") ? 360.f : 1.f);
     }
+}
+
+void TextureWorkspacePanel::ConstructChannelPicker(float Width, TextureLayerRow &Layer)
+{
+    // 📝 1:1 with ChannelPropertyPanel.jsx's inline "channel-picker" (CHANNEL_GROUPS -> PAINT_CHANNELS, each a
+    // checkbox row) - a normal flow panel that expands directly under "+ Add channel" inside the SAME card,
+    // separated by a thin rule, exactly like the web app's CSS (`margin-top` + `border-top`, no absolute/fixed
+    // positioning). This was the one piece of the inspector that previously had no implementation at all - the
+    // "+" button was a dead stub that could never actually add a channel.
+    const float S = InterfaceScale;
+    const auto &Catalogue = QueryChannelCatalogue();
+    ImGui::Dummy(ImVec2(1, 6 * S));
+    auto *Ink = ImGui::GetWindowDrawList();
+    const auto RuleOrigin = ImGui::GetCursorScreenPos();
+    Ink->AddLine(RuleOrigin, ImVec2(RuleOrigin.x + Width - 24 * S, RuleOrigin.y), ImGui::GetColorU32(Spectrum(0xffffff, 0.05f)));
+    ImGui::Dummy(ImVec2(1, 10 * S));
+    for (const char *Group : ChannelGroups)
+    {
+        ImGui::TextColored(Spectrum(0x8b8b7f), "%s", Group);
+        for (const auto &Entry : Catalogue)
+        {
+            if (std::strcmp(Entry.Group, Group) != 0) continue;
+            ImGui::PushID(Entry.Id);
+            bool Enabled = std::find(Layer.Channels.begin(), Layer.Channels.end(), std::string(Entry.Id)) != Layer.Channels.end();
+            const auto RowOrigin = ImGui::GetCursorScreenPos();
+            Ink->AddCircleFilled(ImVec2(RowOrigin.x + 6 * S, RowOrigin.y + 14 * S), 3 * S, ImGui::GetColorU32(Spectrum(Entry.Tint)));
+            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + 14 * S, RowOrigin.y));
+            if (Controls.Toggle(Entry.Label, Enabled)) ToggleChannel(Layer, Entry.Id, Enabled);
+            ImGui::PopID();
+        }
+        ImGui::Dummy(ImVec2(1, 2 * S));
+    }
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+    ImGui::TextColored(Spectrum(0x686859), "Toggling Normal also toggles Height - Normal is always derived from it.");
+    ImGui::PopTextWrapPos();
 }
 
 void TextureWorkspacePanel::ConstructInspectorHistory(float Width)

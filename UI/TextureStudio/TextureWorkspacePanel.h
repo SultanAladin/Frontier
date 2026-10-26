@@ -75,6 +75,7 @@ class TextureWorkspacePanel final : public ActivationSequence
     std::string LayerQuery;
     int LayerFilter = 0; // 0 all, 1 visible, 2 hidden, 3 locked
     bool AddLayerMenuOpen = false;
+    bool ChannelPickerOpen = false; // "Add channel" grouped checklist, expanded inline under the Channel targets card
     std::set<std::string> FoldedChannels; // channel ids collapsed in the inspector
 
     //--------------------------------------------------------------------------------------------------------------
@@ -116,6 +117,9 @@ class TextureWorkspacePanel final : public ActivationSequence
 
     void SelectLayer(int Index, bool ToggleMask = false);
     void AddLayer(const std::string &Kind);
+    // 📝 1:1 with paintChannelModel.js's togglePaintChannel - adding/removing a channel, pairing Normal and
+    // Height together since Normal is purely derived from Height here.
+    static void ToggleChannel(TextureLayerRow &Layer, const std::string &Id, bool Enable);
 
     //--------------------------------------------------------------------------------------------------------------
     //                                                 LAYOUT SECTIONS
@@ -128,13 +132,24 @@ class TextureWorkspacePanel final : public ActivationSequence
     void ConstructInspectorProperties(float Width);
     void ConstructInspectorHistory(float Width);
     void ConstructChannelCard(float Width, const std::string &Id, const char *Label, uint32_t Tint, const char *EditKind,
-        const char *Note, float Minimum, float Maximum, float Default);
+        const char *Note, float Minimum, float Maximum, float Default, const std::array<float, 4> &DefaultColour);
     // 📝 One body-renderer per Texture/Colour/Generator source mode (ChannelPropertyPanel.jsx's three branches,
     // minus the Gradient mode - see ConstructChannelCard's comment for why).
     void ConstructChannelTextureSource(const std::string &Key, const char *Label);
-    void ConstructChannelColourSource(const std::string &Key, const std::string &Id, const char *Label, float Minimum, float Maximum, float Default);
+    void ConstructChannelColourSource(const std::string &Key, const std::string &Id, const char *Label, const char *EditKind,
+        float Minimum, float Maximum, float Default, const std::array<float, 4> &DefaultColour);
     void ConstructChannelGeneratorSource(const std::string &Key, const char *Label);
+    // 📝 1:1 with ChannelPropertyPanel.jsx's inline (non-floating) "channel-picker" - a grouped checklist that
+    // expands directly under the "+ Add channel" button inside the same card, not a separate popup/menu.
+    void ConstructChannelPicker(float Width, TextureLayerRow &Layer);
     void ConstructMaskToolbar(float Width);
+    // 📝 The inspector's Controls.Dropdown() is a full-width, label-ABOVE-box form field (built for vertical
+    // property-panel forms like "Blend"/"Opacity") - it even force-overrides any caller-requested width to the
+    // full line. Reusing it for the viewport toolbar's Shading/Target/UV set row, which needs several compact
+    // selectors side by side on ONE line, made every entry wrap onto its own line and stack on top of the rows
+    // below it (the authoring bar, the "Stamp studio ->" link). This is the compact single-line variant that
+    // mirrors the web app's ".tp-header-field" (a small label immediately left of a fixed-width select box).
+    bool ConstructInlineDropdown(const char *Label, const char *Id, int &Selection, std::span<const char *const> Captions, float ComboWidth);
 
     PanelDockspace Panels;
     std::map<std::string, PlaneExtent> ControlExtents;
