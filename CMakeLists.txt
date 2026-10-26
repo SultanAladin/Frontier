@@ -83,7 +83,7 @@ target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
     UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
-    Engine/ContentInterchange/BakeMesh.cpp Engine/Render/StbImageWriteImplementation.cpp)
+    Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
 target_include_directories(FrontierTextureStudioUI PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
@@ -213,6 +213,7 @@ endif()
 
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
+include(Automation/BakeRasterization.cmake)
 if(BUILD_TESTING)
     find_program(FRONTIER_PATTERN_IMPORT_NODE NAMES node)
     if(FRONTIER_PATTERN_IMPORT_NODE)

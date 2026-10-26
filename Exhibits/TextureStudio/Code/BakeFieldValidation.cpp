@@ -1,4 +1,6 @@
-/*==========================================================================================================================================\n                                                   BAKEFIELDVALIDATION.CPP\n==========================================================================================================================================*/
+/*==========================================================================================================================================
+                                                   BAKEFIELDVALIDATION.CPP
+==========================================================================================================================================*/
 // 🧩 Pixel-level proof that the flattened bake field (Engine/ContentInterchange/BakeField) reproduces the
 //    legacy CPU bake (RunMeshBake) map-for-map: same demo meshes, same 27 channels, same settings, compared
 //    byte-by-byte with per-map difference statistics, timings and retained PNG triplets (legacy / field /

@@ -1,4 +1,6 @@
-/*============================================================================================================================================\n                                                        BAKEFIELDEVALUATION.SLANG\n============================================================================================================================================*/
+/*============================================================================================================================================
+                                                        BAKEFIELDEVALUATION.SLANG
+============================================================================================================================================*/
 // 🧩 Per-texel mesh-bake field evaluation over the flattened high BVH: primary projection ray, cosine-weighted
 //    hemisphere occlusion/bent sampling, curvature probes, thickness ray and bevel normal averaging. Mirrors
 //    Engine/ContentInterchange/BakeField.cpp's EvaluateTexel statement-for-statement so the CPU reference
