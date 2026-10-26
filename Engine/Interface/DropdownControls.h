@@ -60,14 +60,19 @@ public:
         const char *Caption,
         bool        Selected = false,
         float       Scale = 1,
-        bool        Enabled = true)
+        bool        Enabled = true,
+        float       MinimumWidth = 0.f)
     {
+        // 📝 MinimumWidth lets a caller reserve room for content this row draws itself beyond the Caption
+        // text (e.g. ConstructChannelGeneratorSource's right-aligned descriptive note) - without it, a row
+        // only ever sizes to its own label and a second manually-drawn string can overlap that label instead
+        // of sitting cleanly to its right.
         ImGui::BeginDisabled(!Enabled);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
-        const float Width = std::max(ImGui::GetContentRegionAvail().x, ImGui::CalcTextSize(Caption, nullptr, true).x + 2 * PaddingX * Scale);
+        const float Width = std::max({ImGui::GetContentRegionAvail().x, ImGui::CalcTextSize(Caption, nullptr, true).x + 2 * PaddingX * Scale, MinimumWidth});
         const bool Pressed = ImGui::Selectable(Caption, Selected, ImGuiSelectableFlags_NoPadWithHalfSpacing, ImVec2(Width, RowHeight * Scale));
         ImGui::PopStyleColor(4);
         const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
