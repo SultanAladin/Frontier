@@ -891,6 +891,34 @@ void BakingWorkspacePanel::ConstructAssetsDock()
 //                                                     3D ORBIT VIEWPORT
 //------------------------------------------------------------------------------------------------------------------------
 
+// 🧩 1:1 with MaterialLibraryPanel::SynchronizePreviewCamera: Camera (the drag/wheel target) eases toward
+// SmoothedCamera every frame with the same exp(-dt*8) blend, so Baking's orbit camera glides exactly like
+// Material's instead of snapping straight to the dragged value.
+void BakingWorkspacePanel::SynchronizeCamera()
+{
+    if (!SmoothedCameraReady)
+    {
+        SmoothedCamera = Camera;
+        SmoothedCameraReady = true;
+        return;
+    }
+    SmoothedCamera.Shape = Camera.Shape;
+    SmoothedCamera.Environment = Camera.Environment;
+    SmoothedCamera.Exposure = Camera.Exposure;
+    SmoothedCamera.LightIntensity = Camera.LightIntensity;
+    const float Blend = 1 - std::exp(-std::min(ImGui::GetIO().DeltaTime, .1f) * 8);
+    SmoothedCamera.Yaw = std::remainder(SmoothedCamera.Yaw + std::remainder(Camera.Yaw - SmoothedCamera.Yaw, 6.2831853f) * Blend, 6.2831853f);
+    SmoothedCamera.Pitch += (Camera.Pitch - SmoothedCamera.Pitch) * Blend;
+    SmoothedCamera.Zoom += (Camera.Zoom - SmoothedCamera.Zoom) * Blend;
+    SmoothedCamera.PanX += (Camera.PanX - SmoothedCamera.PanX) * Blend;
+    SmoothedCamera.PanY += (Camera.PanY - SmoothedCamera.PanY) * Blend;
+    // 📝 Snap once the lag closes so the preview stops dirtying every frame and settles exactly on target.
+    if (std::abs(std::remainder(Camera.Yaw - SmoothedCamera.Yaw, 6.2831853f)) < .0002f &&
+        std::abs(Camera.Pitch - SmoothedCamera.Pitch) < .0002f && std::abs(Camera.Zoom - SmoothedCamera.Zoom) < .0002f &&
+        std::abs(Camera.PanX - SmoothedCamera.PanX) < .0002f && std::abs(Camera.PanY - SmoothedCamera.PanY) < .0002f)
+        SmoothedCamera = Camera;
+}
+
 void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
 {
     ImGui::InvisibleButton("##BakeViewport", ImVec2(Region.Width(), Region.Height()));
@@ -905,6 +933,7 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
         Camera.Pitch = std::clamp(Camera.Pitch - Delta.y * 0.01f, -1.45f, 1.45f);
     }
     if (Hovered) Camera.Zoom = std::clamp(Camera.Zoom + ImGui::GetIO().MouseWheel * 0.1f, .5f, 5.f);
+    SynchronizeCamera();
 
     const BakePart *Part = nullptr;
     for (const auto &Candidate : Assets.Low.Parts)
@@ -933,7 +962,7 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
         // 📝 Same 5.8/1.35 Alloy capture-rig frame ratio Material's own preview uses (see
         // ConstructMaterialPreviewProjection) - this orbit is the same camera, just framing Baking's live
         // demo-mesh bounds instead of Material's five fixed catalogue shapes.
-        const auto Orbit = ConstructOrbitProjection(Camera.Yaw, Camera.Pitch, Camera.Zoom, Camera.PanX, Camera.PanY,
+        const auto Orbit = ConstructOrbitProjection(SmoothedCamera.Yaw, SmoothedCamera.Pitch, SmoothedCamera.Zoom, SmoothedCamera.PanX, SmoothedCamera.PanY,
             Radius, Pivot, 5.8f / 1.35f);
         const Vec3 Eye{Orbit.Eye[0], Orbit.Eye[1], Orbit.Eye[2]};
         const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};

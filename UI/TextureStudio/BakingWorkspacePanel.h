@@ -146,6 +146,13 @@ class BakingWorkspacePanel final : public ActivationSequence
     // .1908 rad "look slightly down" base elevation (the same Alloy capture-rig default Material's preview
     // starts at) - added together the two land at roughly the same starting elevation as before.
     MaterialPreviewConfiguration Camera{.Yaw = .7f, .Pitch = .16f};
+    // 📝 Same orbit lag as MaterialLibraryPanel's inspector preview (see its SynchronizePreviewCamera): Camera
+    // is the raw drag/wheel target, SmoothedCamera eases toward it every frame so the viewport glides instead
+    // of snapping, using the identical exponential blend. Reset view therefore also glides, not snaps - same
+    // feel as Material, since ResetCamera() only resets the target (see below).
+    MaterialPreviewConfiguration SmoothedCamera;
+    bool SmoothedCameraReady = false;
+    void SynchronizeCamera();
     bool Overlay = false, Wireframe = false;
     void ConstructViewport3D(PlaneExtent Region);
     void ResetCamera() noexcept { ResetMaterialPreviewView(Camera); }
