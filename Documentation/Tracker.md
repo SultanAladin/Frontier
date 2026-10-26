@@ -473,4 +473,32 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   zig cross-build remains unexercised here. An RTX ray-query fast path can layer on the same field
   layout later without changing the panel or encoder.
 
+## Baking Workspace UI parity pass against Alloy Studio (2026-10-26, branch arena/4014756b-frontier)
+
+- Audited `UI/TextureStudio/BakingWorkspacePanel.cpp` section-by-section against the Alloy original
+  (`Experimental/TextureStudio/src/BakingStudio.jsx`, `baking/MeshMapGrid.jsx`, `studioTheme.css`) using
+  Material/Pattern/Stamp as the native reference ports, and fixed the concrete divergences found (UI only):
+  dock columns now use the reference 278/820/338-of-1436 grid and a 32px status inset; the assets dock
+  gained its missing `.bk-asset-scroll` region so the 27-tile grid scrolls instead of running under the
+  pinned footer; pane/section headings and card object-counts are right-aligned on their baselines as the
+  CSS flex rows specify; mesh stats regained the Box glyph and locale-grouped counts; import buttons carry
+  the Upload glyph; target rows show the bare grouped triangle count at the right edge.
+- Restored behaviour the port had dropped: after a bake, tiles show the active set's real map thumbnails
+  (`object-fit: contain` on `#080a08`, culled to visible rows) instead of permanent gradient swatches; the
+  Map inspector card regained its per-map parameter fields (bevel radius/strength/samples, dust axis/falloff,
+  wireframe line width, mask strength — now also covered by settings undo/stale detection and recipe save);
+  the 2D preview selectors are fed by baked results only, disabled when empty, and fall back to the active
+  set's first map like the web original; the 2D stage respects texel alpha over its checkerboard.
+- Locked the workspace like the original while a bake runs (`locked = busy`): recipe actions, mode switch
+  (which also forces the 3D view for Material patch/Volume SDF again), presets/tiles, every inspector
+  field, and settings undo/redo. The Bake action now only appears in Mesh-maps mode and reads
+  "Baking mesh maps…" while busy; no Cancel button was faked (there is no native cancellation channel yet).
+  The stale Bake-contract paragraph (it claimed only six maps were implemented) now matches the original's
+  copy, the status bar is the 32px dot/ellipsis strip, and errors surface as the top-centre amber toast.
+- Verified in this sandbox: `TextureStudio` and `BakingWorkspacePanelConstructionValidation` rebuild and
+  link, and the construction validation passes. Still open (unchanged, not UI): mesh import, recipe loading
+  (no native file picker), Material patch / Volume SDF native panels, bake cancellation, and any
+  GTX/RTX or Windows visual confirmation.
+
+
 
