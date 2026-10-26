@@ -7,6 +7,7 @@
 #include "Engine/ContentInterchange/MaterialRecipeProfiles.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/DropdownControls.h"
+#include "Engine/Interface/InspectorFold.h"
 #include "Engine/Render/MaterialProceduralBaking.h"
 #include <algorithm>
 #include <cstdio>
@@ -1304,11 +1305,9 @@ void MaterialLibraryPanel::ConstructInspector()
                     Group == "grains" ? "Sand grains" : Group == "strata" ? "Sediment bands" : Group.c_str(),
                     static_cast<ImFont *>(HeadingTypeface));
                 ImGui::PushID(CardKey.c_str());
-                ImGui::SetCursorScreenPos(ImVec2(Start.x + 6 * Scale, CardY + 6 * Scale));
-                if (ImGui::InvisibleButton("Fold inspector card", ImVec2(CardWidth - 12 * Scale, 39 * Scale)))
-                {
-                    if (!FoldedInspectorCards.erase(CardKey)) FoldedInspectorCards.insert(CardKey);
-                }
+                // 📝 Shared with BakingWorkspacePanel's inspector cards - see Engine/Interface/InspectorFold.h.
+                (void)ToggleInspectorFold(FoldedInspectorCards, CardKey, ImVec2(Start.x + 6 * Scale, CardY + 6 * Scale),
+                    ImVec2(CardWidth - 12 * Scale, 39 * Scale), "Fold inspector card");
                 ConstructIcon(Collapsed ? IconSymbol::EditorChevronRight : IconSymbol::EditorChevronDown,
                     Start.x + CardWidth - 31 * Scale, CardY + 20 * Scale, 12 * Scale, 0x858577);
                 if (Collapsed)

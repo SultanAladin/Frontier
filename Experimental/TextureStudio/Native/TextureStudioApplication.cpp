@@ -415,6 +415,14 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         // persistence yet (deliberately deferred scope) — it always opens on the built-in Teapot demo.
         BakingOwnership.reset(new Frontier::BakingWorkspacePanel());
         Baking = static_cast<Frontier::BakingWorkspacePanel *>(BakingOwnership.get());
+        // 📝 Same IconPresentation binding as Library->PresentIcon above - the inspector's section icons and
+        // fold chevrons are real shared editor artwork, not the bespoke hand-drawn draw-list glyphs this
+        // workspace used before its inspector redesign.
+        Baking->PresentIcon = [](Frontier::IconSymbol Symbol, Frontier::PlanePoint Point, float Size, Frontier::ColorQuad Tint)
+        {
+            return Frontier::IconPresentation::Draw(ImGui::GetWindowDrawList(), Symbol, ImVec2(Point.X, Point.Y), Size, ImGui::GetStyle().Alpha,
+                Frontier::IconDomain::Texture, ImGui::ColorConvertFloat4ToU32(ImVec4(Tint.Red, Tint.Green, Tint.Blue, Tint.Alpha)));
+        };
         if (!Baking->Initialize() || !Baking->Activate()) throw std::runtime_error("Baking workspace activation failed.");
         Baking->ConfigureExportDirectory(Directory / "BakingExports");
         Baking->ActivateMaterial = [&]() { BakingActive = false; };

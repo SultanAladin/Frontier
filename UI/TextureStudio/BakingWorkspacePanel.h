@@ -8,6 +8,7 @@
 
 #pragma once
 #include "Engine/ContentInterchange/BakeMesh.h"
+#include "Engine/Interface/IconArt.h"
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/Interface/PixelSpace.h"
 #include "Engine/Interface/VectorAuthoringControls.h"
@@ -18,6 +19,7 @@
 #include <functional>
 #include <future>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -39,6 +41,11 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
+    // 📝 Same dependency-injection contract as MaterialLibraryPanel::PresentIcon (TextureStudioApplication.cpp
+    // binds both to the identical IconPresentation::Draw lambda) - the inspector's section icons and fold
+    // chevrons are real shared editor artwork reused from the Material workspace's inspector, not bespoke
+    // hand-drawn draw-list shapes the way this panel's identity glyph used to be.
+    std::function<bool(IconSymbol, PlanePoint, float, ColorQuad)> PresentIcon;
 
     // 📝 Where ConstructInterface last wrote exported PNG/manifest files (QueryExportDirectory to configure it);
     // empty until a bake has been exported at least once this session.
@@ -180,5 +187,12 @@ class BakingWorkspacePanel final : public ActivationSequence
     // Baking workspace actually matches the rest of the app's "Alloy" design language, not a bespoke look.
     VectorAuthoringControlSurface Controls;
     void *RegularTypeface = nullptr, *LightTypeface = nullptr;
+
+    // 📝 Inspector redesign (reuses MaterialLibraryPanel's inspector components): PresentIcon draws real
+    // shared editor artwork (ConstructIcon is just its thin positional wrapper, same shape as
+    // MaterialLibraryPanel::ConstructIcon), and FoldedInspectorCards drives the exact same collapsible-card
+    // affordance as Material's per-layer property cards via Engine/Interface/InspectorFold.h.
+    void ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb = 0xa3a393);
+    std::set<std::string> FoldedInspectorCards;
 };
 } // namespace Frontier

@@ -5,6 +5,7 @@
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
+#include "Engine/Interface/InspectorFold.h"
 #include <stb_image_write.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -269,16 +270,29 @@ void BakingWorkspacePanel::Track(const std::string &Caption)
     const ImVec2 Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
     ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
 }
+
+// 🧩 Thin positional wrapper over the host-bound PresentIcon, same shape as MaterialLibraryPanel::ConstructIcon -
+// draws nothing if the host never wired PresentIcon (headless evidence/validation builds), exactly like Material.
+void BakingWorkspacePanel::ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb)
+{
+    if (PresentIcon) (void)PresentIcon(Symbol, {X, Y}, Size, SpectrumQuad(Rgb));
+}
 // 🧩 1:1 behaviour with BakingStudio.jsx's travel()/setSettingsDocument() history: every inspector field change
 // is coalesced into a single undo step while it is still being actively edited (continuous drags/typing), and a
 // new step only starts once 650ms have passed since the last push - not one undo entry per dragged pixel.
 bool BakingWorkspacePanel::SettingsFieldsEqual(const BakeSettings &A, const BakeSettings &B) noexcept
 {
+    // 📝 Previously missing the bevel/dust/wireframe/mask-strength fields entirely, so editing them (now
+    // exposed in ConstructInspector's per-map Map inspector card) neither coalesced into undo/redo history
+    // nor marked a prior bake "stale" - the same bug class the rest of this function already guards against
+    // for every other settings field.
     return A.Resolution == B.Resolution && A.Padding == B.Padding && A.NormalPlusY == B.NormalPlusY &&
         A.ProjectionRay == B.ProjectionRay && A.Front == B.Front && A.Back == B.Back && A.AoDistance == B.AoDistance &&
         A.SecondaryAoDistance == B.SecondaryAoDistance && A.ThicknessRange == B.ThicknessRange &&
         A.CurvatureRadius == B.CurvatureRadius && A.Samples == B.Samples && A.MatchByName == B.MatchByName &&
-        A.Channels == B.Channels;
+        A.BevelRadius == B.BevelRadius && A.BevelStrength == B.BevelStrength && A.BevelSamples == B.BevelSamples &&
+        A.DustAxis == B.DustAxis && A.DustFalloff == B.DustFalloff && A.WireWidth == B.WireWidth &&
+        A.MaskStrength == B.MaskStrength && A.Channels == B.Channels;
 }
 void BakingWorkspacePanel::CoalesceSettingsUndo()
 {
@@ -1485,9 +1499,21 @@ void BakingWorkspacePanel::ConstructPreviewDock()
 
 // 🧩 1:1 with BakingStudio.jsx's <aside className="bk-dock bk-inspector"> + studioTheme.css's
 // .bk-inspector-identity/.bk-section-caption/.bk-card/.bk-field chrome: an icon-chip identity block, an
-// "OUTPUT" section caption, then three accent-barred cards (Texture settings / Map inspector / High-to-low
-// projection) built from Controls.Dropdown/Number/Range/Toggle field rows, a Bake-contract notes card, and a
+// "OUTPUT" section caption, then collapsible accent-barred cards (Texture settings / Map inspector /
+// High-to-low projection / Bake contract) built from Controls.Dropdown/Number/Range/Toggle field rows and a
 // pinned .bk-pane-footer - not raw sequential ImGui combos/sliders/checkboxes.
+//
+// 🧩 REDESIGN: this card stack now reuses the same components MaterialLibraryPanel's inspector is built from -
+// real IconPresentation/IconSymbol artwork (via the newly wired PresentIcon, matching Library->PresentIcon's
+// exact binding in TextureStudioApplication.cpp) instead of bespoke hand-drawn draw-list glyphs, and the
+// identical Engine/Interface/InspectorFold.h fold-toggle primitive driving Material's own per-layer property
+// cards, so every card here collapses with the same chevron and the same click geometry as Material's.
+// Substance Painter's own Baking properties panel is the other reference point: each bake-map entry there
+// shows a small map-family thumbnail beside its name/description and reveals only the parameters that map
+// actually uses (bevel radius/strength/samples, dust axis/falloff, wire width, mask strength, …) - this "Map
+// inspector" card now does the same instead of only ever showing the label/description/enabled line, which
+// left every one of those seven real BakeSettings fields (see SettingsFieldsEqual) completely unreachable in
+// this native build even though BakeMesh.cpp/the GPU bake kernel both already implement them.
 void BakingWorkspacePanel::ConstructInspector()
 {
     // 📝 Docked by PanelDockspace - no manual SetNextWindowPos/Size or Begin/End. The card stack can
@@ -1518,15 +1544,15 @@ void BakingWorkspacePanel::ConstructInspector()
     }
 
     // .bk-inspector-identity: a rounded icon chip + "STATIC HIGH -> LOW" eyebrow + big "Mesh map bake" title.
+    // 📝 The chip now draws the real shared IconSymbol::EditorBake artwork (same Library->PresentIcon binding
+    // Material's inspector thumbnail/favourite icons use) instead of a bespoke hand-drawn triangle+line glyph.
     {
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
         auto *Ink = ImGui::GetWindowDrawList();
         const float ChipSize = 51 * S;
         Ink->AddRectFilled(Origin, ImVec2(Origin.x + ChipSize, Origin.y + ChipSize), ImGui::GetColorU32(Spectrum(0x21231d)), 16 * S);
         Ink->AddRect(Origin, ImVec2(Origin.x + ChipSize, Origin.y + ChipSize), ImGui::GetColorU32(Spectrum(0xffffff, 0.03f)), 16 * S);
-        const float Cx = Origin.x + ChipSize * .5f, Cy = Origin.y + ChipSize * .5f;
-        Ink->AddTriangleFilled(ImVec2(Cx - 9 * S, Cy - 7 * S), ImVec2(Cx - 9 * S, Cy + 7 * S), ImVec2(Cx + 3 * S, Cy), ImGui::GetColorU32(Spectrum(0xa5b38a)));
-        Ink->AddLine(ImVec2(Cx - 2 * S, Cy), ImVec2(Cx + 10 * S, Cy), ImGui::GetColorU32(Spectrum(0xa5b38a)), 2 * S);
+        ConstructIcon(IconSymbol::EditorBake, Origin.x + ChipSize * .5f - 10 * S, Origin.y + ChipSize * .5f - 10 * S, 20 * S, 0xa5b38a);
         const float TextX = Origin.x + ChipSize + 12 * S;
         Caption(ImVec2(TextX, Origin.y + 1 * S), "STATIC HIGH -> LOW", 7 * S, 0x859271);
         Caption(ImVec2(TextX, Origin.y + 13 * S), "Mesh map bake", 22 * S, 0xd8dfc7, LightTypeface ? LightTypeface : RegularTypeface);
@@ -1546,21 +1572,35 @@ void BakingWorkspacePanel::ConstructInspector()
         ImGui::Dummy(ImVec2(1, 19 * S));
     }
 
-    const auto AccentBar = [&](uint32_t Colour, const char *Label)
+    // 📝 AccentBar now draws a small shared IconSymbol beside the title (same per-card icon idea as Material's
+    // "LAYER N" property cards) and a real EditorChevronDown/Right fold affordance wired through
+    // Engine/Interface/InspectorFold.h - the identical primitive MaterialLibraryPanel's own cards fold with -
+    // and returns whether the card body should render *this* frame, so a collapsed card's BeginCard/EndCard
+    // child auto-shrinks to just the header row instead of a hand-measured CardHeight like Material's.
+    const auto AccentBar = [&](uint32_t Colour, const char *Label, const std::string &CardKey, IconSymbol Icon) -> bool
     {
         auto *Ink = ImGui::GetWindowDrawList();
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float AvailableWidth = ImGui::GetContentRegionAvail().x;
         Ink->AddRectFilled(ImVec2(Origin.x - 14 * S, Origin.y - 2 * S), ImVec2(Origin.x - 11 * S, Origin.y + 10 * S), ImGui::GetColorU32(Spectrum(Colour)), 1.5f * S);
-        Caption(ImVec2(Origin.x, Origin.y), Label, 11 * S, 0xd0d0bb);
+        ConstructIcon(Icon, Origin.x, Origin.y - 2 * S, 12 * S, 0x9ea384);
+        Caption(ImVec2(Origin.x + 18 * S, Origin.y), Label, 11 * S, 0xd0d0bb);
+        const bool WasCollapsed = FoldedInspectorCards.contains(CardKey);
+        const float ChevronSize = 11 * S;
+        ConstructIcon(WasCollapsed ? IconSymbol::EditorChevronRight : IconSymbol::EditorChevronDown,
+            Origin.x + AvailableWidth - ChevronSize, Origin.y - 1 * S, ChevronSize, 0x858577);
+        (void)ToggleInspectorFold(FoldedInspectorCards, CardKey, ImVec2(Origin.x - 14 * S, Origin.y - 6 * S),
+            ImVec2(AvailableWidth + 14 * S, 22 * S), CardKey.c_str());
         ImGui::Dummy(ImVec2(1, 26 * S));
+        return !WasCollapsed;
     };
 
     Controls.ControlHeight = 29;
 
     // "Texture settings" card.
     Controls.BeginCard("", true);
+    if (AccentBar(0x8b9b82, "Texture settings", "texture-settings", IconSymbol::EditorSliders))
     {
-        AccentBar(0x8b9b82, "Texture settings");
         const char *ResolutionLabels[]{"64 x 64", "128 x 128", "256 x 256", "512 x 512", "1024 x 1024"};
         const int Resolutions[]{64, 128, 256, 512, 1024};
         int ResolutionIndex = 2;
@@ -1574,30 +1614,70 @@ void BakingWorkspacePanel::ConstructInspector()
     }
     Controls.EndCard();
 
-    // "Map inspector" card.
+    // "Map inspector" card - redesigned Substance-Painter-style: a map-family thumbnail beside the label (the
+    // exact same DrawMapSwatch art MeshMapGrid's tiles use, reused rather than re-invented for this card), then
+    // every per-map parameter BakingStudio.jsx conditionally reveals for the currently inspected map (bevel,
+    // dust, wireframe, mask-strength families) - previously only the label/description/enabled line rendered
+    // here, so these seven real BakeSettings fields had no control anywhere in this native build.
     Controls.BeginCard("", true);
+    if (AccentBar(0x82939e, "Map inspector", "map-inspector", IconSymbol::EditorTexture))
     {
-        AccentBar(0x82939e, "Map inspector");
         const auto *Meta = FindMeshMap(InspectMapKey);
         if (Meta)
         {
-            Caption(ImGui::GetCursorScreenPos(), Meta->Label, 10 * S, 0xd9d4c4);
-            ImGui::Dummy(ImVec2(1, 16 * S));
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            const float Swatch = 44 * S;
+            auto *Ink = ImGui::GetWindowDrawList();
+            const ImVec2 SwatchMinimum = Origin, SwatchMaximum(Origin.x + Swatch, Origin.y + Swatch);
+            Ink->PushClipRect(SwatchMinimum, SwatchMaximum, true);
+            DrawMapSwatch(Ink, SwatchMinimum, SwatchMaximum, Meta->Swatch, Meta->Key);
+            Ink->PopClipRect();
+            Ink->AddRect(SwatchMinimum, SwatchMaximum, ImGui::GetColorU32(Spectrum(0x000000, 0.3f)), 8 * S);
+            Caption(ImVec2(Origin.x + Swatch + 12 * S, Origin.y + 2 * S), Meta->Label, 10 * S, 0xd9d4c4);
+            Caption(ImVec2(Origin.x + Swatch + 12 * S, Origin.y + 17 * S), Meta->Hint, 7 * S, 0x767c62);
+            const bool Enabled = std::find(Settings.Channels.begin(), Settings.Channels.end(), InspectMapKey) != Settings.Channels.end();
+            Caption(ImVec2(Origin.x + Swatch + 12 * S, Origin.y + 30 * S),
+                IsMeshMapImplemented(InspectMapKey) ? (Enabled ? "Enabled - will be baked" : "Disabled - click its tile") : "Not yet implemented",
+                7 * S, 0x82846c);
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + Swatch + 10 * S));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
             ImGui::TextColored(Spectrum(0xa3a68c), "%s", Meta->Description);
             ImGui::PopTextWrapPos();
-            const bool Enabled = std::find(Settings.Channels.begin(), Settings.Channels.end(), InspectMapKey) != Settings.Channels.end();
-            ImGui::TextColored(Spectrum(0x82846c), "%s", IsMeshMapImplemented(InspectMapKey) ? (Enabled ? "Enabled - will be baked" : "Disabled - click its tile to enable")
-                                                                                              : "Not yet implemented in this native build.");
-            ImGui::Dummy(ImVec2(1, 6 * S));
+            ImGui::Dummy(ImVec2(1, 8 * S));
+
+            // 📝 1:1 with BakingStudio.jsx's ["bevel-normal","bevel-mask"].includes(inspectMap) conditional block.
+            if (InspectMapKey == "bevel-normal" || InspectMapKey == "bevel-mask")
+            {
+                Controls.Number("Bevel radius", Settings.BevelRadius, 0.f, 10.f);
+                Controls.Number("Bevel strength", Settings.BevelStrength, 0.f, 1.f);
+                const char *BevelSampleLabels[]{"4", "8", "12", "16"};
+                const int BevelSampleOptions[]{4, 8, 12, 16};
+                int BevelSampleIndex = 1;
+                for (int Index = 0; Index < 4; ++Index) if (BevelSampleOptions[Index] == int(Settings.BevelSamples)) BevelSampleIndex = Index;
+                if (Controls.Dropdown("Bevel samples", BevelSampleIndex, BevelSampleLabels)) Settings.BevelSamples = uint32_t(BevelSampleOptions[BevelSampleIndex]);
+            }
+            // 📝 1:1 with BakingStudio.jsx's inspectMap === "dust" conditional block.
+            if (InspectMapKey == "dust")
+            {
+                const char *DustAxisLabels[]{"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+                int DustAxisIndex = 2;
+                for (int Index = 0; Index < 6; ++Index) if (Settings.DustAxis == DustAxisLabels[Index]) DustAxisIndex = Index;
+                if (Controls.Dropdown("Dust up axis", DustAxisIndex, DustAxisLabels)) Settings.DustAxis = DustAxisLabels[DustAxisIndex];
+                Controls.Number("Slope falloff", Settings.DustFalloff, 0.1f, 16.f);
+            }
+            // 📝 1:1 with BakingStudio.jsx's inspectMap === "wireframe" conditional block.
+            if (InspectMapKey == "wireframe") Controls.Number("Line width (px)", Settings.WireWidth, 0.25f, 8.f);
+            // 📝 1:1 with BakingStudio.jsx's ["convexity","cavity","dirt","edge-wear"].includes(inspectMap) block.
+            if (InspectMapKey == "convexity" || InspectMapKey == "cavity" || InspectMapKey == "dirt" || InspectMapKey == "edge-wear")
+                Controls.Number("Mask strength", Settings.MaskStrength, 0.f, 16.f);
         }
     }
     Controls.EndCard();
 
     // "High-to-low projection" card.
     Controls.BeginCard("", true);
+    if (AccentBar(0xa79171, "High-to-low projection", "projection", IconSymbol::Camera))
     {
-        AccentBar(0xa79171, "High-to-low projection");
         const char *Methods[]{"Normal ray", "Nearest surface"};
         int MethodIndex = Settings.ProjectionRay ? 0 : 1;
         if (Controls.Dropdown("Method", MethodIndex, Methods)) Settings.ProjectionRay = MethodIndex == 0;
@@ -1622,8 +1702,8 @@ void BakingWorkspacePanel::ConstructInspector()
 
     // "Bake contract" notes card.
     Controls.BeginCard("", true);
+    if (AccentBar(0x8b9b82, "Bake contract", "bake-contract", IconSymbol::EditorCheck))
     {
-        AccentBar(0x8b9b82, "Bake contract");
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
         ImGui::TextColored(Spectrum(0x8e9c7d), "Each low object is its own UV texture set. Misses, chart count and coverage are reported rather than hidden.");
         ImGui::Dummy(ImVec2(1, 8 * S));
