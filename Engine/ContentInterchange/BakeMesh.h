@@ -105,7 +105,9 @@ class BakeTriangleBvh
     [[nodiscard]] ClosestPointResult ClosestPoint(const float Point[3], float MaxDistance) const;
     [[nodiscard]] bool Empty() const noexcept { return Triangles.empty(); }
 
-  private:
+    // 📝 Exposed read-only (not private) so a GPU upload path (Engine/Render/MeshBakeGpu.cpp) can flatten this
+    // exact tree into device buffers without duplicating the CPU builder - CastRay/ClosestPoint above already
+    // hand out this same underlying data per-query, this just exposes the whole arrays at once for bulk upload.
     struct Triangle
     {
         float A[3], B[3], C[3];
@@ -121,6 +123,8 @@ class BakeTriangleBvh
     std::vector<Triangle> Triangles;
     std::vector<uint32_t> Order;
     std::vector<Node> Nodes;
+
+  private:
     int32_t BuildRange(uint32_t Start, uint32_t Count);
 };
 
