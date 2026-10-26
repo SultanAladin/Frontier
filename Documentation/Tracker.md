@@ -434,3 +434,43 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+## GPU mesh baking (Vulkan compute, GTX + RTX) (2026-10-26, branch arena/4014756b-frontier)
+
+- The Baking Workspace's 27 mesh maps (previously CPU-only in `Engine/ContentInterchange/BakeMesh.cpp`)
+  now have a GPU route behind an inspector "Bake device" choice (CPU default; GPU appears when the
+  host supplies a device name and also unlocks 2048/4096 resolutions). One Vulkan compute path serves
+  GTX and RTX — GTX has no RT cores/`VK_KHR_ray_query`, and the bake needs closest-point bevel queries
+  that are compute work anyway; CUDA/OptiX and an RTX ray-query fast path were considered and deferred.
+- New `Engine/ContentInterchange/BakeField.h/.cpp` flattens a bake request (std430 triangle/BVH slots,
+  pre-interpolated per-texel surfaces, a field-need mask) and re-implements the per-texel evaluation
+  statement-for-statement as the CPU reference twin. `BakeFieldValidation` compares it against
+  `RunMeshBake` over all 27 maps × 4 scenarios (Teapot/Cube 256², two-part DirectX/dust 128²,
+  query-free 128²): **bit-exact — 100% identical texels, 0 LSB worst channel difference**, with
+  guards (≤2 LSB, ≥99.99% within 1) for cross-platform float noise. Evidence retained in
+  `Exhibits/TextureStudio/Results/GpuBakeField/` (checks JSON + Teapot legacy/field/difference
+  PNGs; difference frames are black). The field route is also faster on CPU (Teapot 256² ≈2.9s → ≈2.0s)
+  thanks to index-order bbox UV coverage instead of a per-texel full-triangle scan.
+- `Engine/Render/Shader/BakeFieldEvaluation.slang` mirrors the twin in compute (64-wide workgroups,
+  manual normalize, identical tolerances/traversal order); compiled to `BakeFieldCompute.spv` via
+  slangc or the pinned Slang WASM route (`Automation/CompileBakeField.mjs`, which asserts the
+  48-byte push-constant ABI from reflection) and installed beside the other surface archives
+  (`Automation/BakeRasterization.cmake`). `Engine/Render/BakeRasterization.h/.cpp` is the
+  borrowed-device host in the `VectorCoverageRasterization` idiom: staged device-local BVH,
+  262,144-texel banded submission (TDR budget), serial field harvest, and refusal-as-data — any
+  failure becomes a `BakeGpuOutcome` the panel turns into a same-settings CPU re-bake, named in the
+  completion line. The panel (`UI/TextureStudio/BakingWorkspacePanel.*`) gained device hooks only —
+  no Vulkan in the panel; `TextureStudioApplication.cpp` owns the unit behind a fault latch.
+- Verified in this sandbox (host-verification CMake/Ninja, null GLFW backends): `BakeFieldValidation`
+  and the full `TextureStudio` (`TextureWorkspace`) targets build and link, the shader compiles, and
+  the CTest passes. Windows CI gained the `BakeFieldValidation` target/test; it only triggers on
+  push to `Eksa`/`arena/db2f9953-frontier`, so this branch has no CI run.
+- **Not yet proven:** any GTX/RTX execution — the sandbox has no GPU or Vulkan ICD, so the shader has
+  been compiled but never run. First hardware run needs the user's Windows machine: pick "GPU" in
+  the Baking inspector; GPU fields may differ from CPU by a few LSB (FMA/libm), which the validation
+  thresholds anticipate. Also noted while packaging: `Automation/BuildTextureStudioWindows.py`'s
+  hardcoded shader count was already stale (10 surface → now 14) and its render source list predates
+  the vector-coverage units; the count is corrected to 18 and `BakeRasterization` added, but that
+  zig cross-build remains unexercised here. An RTX ray-query fast path can layer on the same field
+  layout later without changing the panel or encoder.
+
+

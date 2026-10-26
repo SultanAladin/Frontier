@@ -78,11 +78,11 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Compile Frontier, Texture Workspace, shader entries and acceptance tests
         run: |
-          cmake --build Build/Windows --config $env:BUILD_CONFIGURATION --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders VectorAuthoringImportValidation MaterialPreviewConfigurationValidation MaterialLibraryValidation MaterialAtlasValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
+          cmake --build Build/Windows --config $env:BUILD_CONFIGURATION --parallel 4 --target Frontier TextureStudio FrontierSurfaceShaders VectorAuthoringImportValidation MaterialPreviewConfigurationValidation MaterialLibraryValidation MaterialAtlasValidation IconDomainValidation ProjectBrowserValidation SurfaceGeometryValidation BakeFieldValidation 2>&1 | Tee-Object Build/Diagnostics/Compile.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Execute Windows CPU and native UI acceptance tests
         run: |
-          ctest --test-dir Build/Windows -C $env:BUILD_CONFIGURATION --output-on-failure -R '^(WebPatternNativeImportFixture|WebPatternNativeImportValidation|MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
+          ctest --test-dir Build/Windows -C $env:BUILD_CONFIGURATION --output-on-failure -R '^(WebPatternNativeImportFixture|WebPatternNativeImportValidation|MaterialPreviewConfigurationValidation|MaterialLibraryValidation|IconDomainValidation|ProjectBrowserValidation|SurfaceGeometryValidation|BakeFieldValidation)$' 2>&1 | Tee-Object Build/Diagnostics/Acceptance.log
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify fail-closed distribution checks
         run: |
