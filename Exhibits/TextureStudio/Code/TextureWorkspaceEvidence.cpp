@@ -142,6 +142,35 @@ int main(int ArgumentCount, char **Arguments)
         Click(Panel->QueryControlExtent("Inspector"));
         Capture();
 
+        // 9b) Select "Edge wear" - it carries two channel targets at once (baseColor/roughness), each drawing
+        //     its own "Texture"/"Colour"/"Generator" mode switch with identical literal captions. Before
+        //     ConstructChannelCard() scoped each card with ImGui::PushID(channel id), Dear ImGui raised a "2
+        //     visible items with conflicting ID" programmer error here (reported against the real app) and
+        //     driving one card's buttons could silently mutate a different card's state. Exercise every mode
+        //     on both channels and require zero such errors. (Clay base has a third channel, metalness, whose
+        //     expanded card falls below this harness's fixed 1000px canvas without scrolling the inspector -
+        //     exactly like the real scrollable dock would require a scroll gesture - so it is not used here.)
+        Click(Panel->QueryControlExtent("TextureLayerSelect:2"));
+        Capture();
+        Click(Panel->QueryControlExtent("Generator"));
+        Capture();
+        Click(Panel->QueryControlExtent("Colour"));
+        Capture();
+        Click(Panel->QueryControlExtent("Texture"));
+        Capture();
+        std::cout << "Cycled every channel card's Texture/Colour/Generator source mode on \"Edge wear\" (two "
+            "simultaneous channel targets), with no ImGui ID-conflict errors.\n";
+
+        // 9c) "Scratch normal" pairs a derived channel (Normal, no mode switch at all) with a real one
+        //     (Height) - make sure the derived card renders its note only and the Height card still switches
+        //     cleanly alongside it.
+        Click(Panel->QueryControlExtent("TextureLayerSelect:3"));
+        Capture();
+        Click(Panel->QueryControlExtent("Generator"));
+        Capture();
+        std::cout << "Selected \"Scratch normal\" - its derived Normal card shows no mode switch, and Height's "
+            "Generator mode still switches independently.\n";
+
         // 10) Cross-workspace navigation pills actually invoke the wired callbacks.
         Require(MaterialActivations == 0, "ActivateMaterial fired before its pill was clicked.");
         Click(Panel->QueryControlExtent("Material"));

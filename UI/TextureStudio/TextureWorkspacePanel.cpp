@@ -8,8 +8,11 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
+#include <array>
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace Frontier
 {
@@ -83,6 +86,38 @@ constexpr const char *FolderOpenPath = "M22 19H2V5H9L11 8H22Z";
 constexpr const char *FolderPlusPath = "M22 19H2V5H9L11 8H22Z M12 11V17M9 14H15";
 constexpr const char *SavePath = "M19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3H16L21 8V19A2 2 0 0 1 19 21ZM7 3V8H15V3M7 13H17V21H7Z";
 constexpr const char *ArrowUpRightPath = "M7 17L17 7M17 7H8M17 7V16";
+constexpr const char *ImagePath = "M3 4H21V20H3ZM3 15L8.5 9.5L13 14L16.5 10.5L21 15";
+constexpr const char *UploadPath = "M12 16V4M7 9L12 4L17 9M4 20H20";
+constexpr const char *TrashPath = "M4 7H20M9 7V4H15V7M7 7L8 21H16L17 7";
+constexpr const char *SparklePath = "M11 3L12.6 8.4L18 10L12.6 11.6L11 17L9.4 11.6L4 10L9.4 8.4ZM19 14L19.8 16.6L22 17L19.8 17.4L19 20L18.2 17.4L16 17L18.2 16.6Z";
+
+// 📝 1:1 with paintChannelModel.js's CHANNEL_GENERATORS - label/group/parameter metadata only, purely for the
+// generator picker's visual fidelity (grouped "Mask / Wear / Procedural" option list + its parameter sliders).
+// Picking one here never samples a real mesh map or runs any noise kernel - this is still UI-only chrome.
+struct ChannelGeneratorMeta
+{
+    const char *Id;
+    const char *Label;
+    const char *Group;
+    const char *Note;
+    std::array<std::pair<const char *, float>, 3> Parameters; // {label, default}; unused slots have a null label
+};
+const std::array<ChannelGeneratorMeta, 10> &QueryGeneratorCatalogue()
+{
+    static const std::array<ChannelGeneratorMeta, 10> Catalogue{{
+        {"CurvatureEdges", "Curvature", "Mask", "Needs curvature mesh map", {{{"Balance", .5f}, {"Contrast", .7f}, {"Radius", .25f}}}},
+        {"AmbientOcclusion", "Ambient Occlusion", "Mask", "Needs occlusion mesh map", {{{"Spread", .4f}, {"Contrast", .6f}, {nullptr, 0.f}}}},
+        {"Thickness", "Thickness", "Mask", "Needs thickness mesh map", {{{"Depth", .5f}, {"Contrast", .5f}, {nullptr, 0.f}}}},
+        {"PositionGradient", "Position Gradient", "Mask", "World-axis ramp configuration", {{{"Origin", .5f}, {"Falloff", .35f}, {nullptr, 0.f}}}},
+        {"MetalEdgeWear", "Metal Edge Wear", "Wear", "Needs curvature / grunge inputs", {{{"Intensity", .6f}, {"Softness", .3f}, {"Grain", .45f}}}},
+        {"DirtAccumulation", "Dirt", "Wear", "Needs occlusion input", {{{"Amount", .5f}, {"Scale", .3f}, {nullptr, 0.f}}}},
+        {"WaterRunoff", "Water Runoff", "Wear", "Gravity-streak configuration", {{{"Length", .55f}, {"Density", .4f}, {"Gravity", .8f}}}},
+        {"PerlinNoise", "Perlin Noise", "Procedural", "Fractal-noise configuration", {{{"Scale", .4f}, {"Octaves", .5f}, {"Contrast", .5f}}}},
+        {"VoronoiCells", "Voronoi", "Procedural", "Cellular configuration", {{{"Density", .35f}, {"Jitter", .7f}, {nullptr, 0.f}}}},
+        {"BrushedAnisotropy", "Brushed Metal", "Procedural", "Directional-grain configuration", {{{"Angle", 0.f}, {"Grain", .6f}, {nullptr, 0.f}}}},
+    }};
+    return Catalogue;
+}
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -137,6 +172,11 @@ void TextureWorkspacePanel::Track(const std::string &Caption)
 {
     const ImVec2 Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
     ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+}
+
+std::string TextureWorkspacePanel::QueryChannelKey(const std::string &ChannelId) const
+{
+    return std::to_string(SelectedLayer) + ":" + ChannelId;
 }
 
 void TextureWorkspacePanel::SelectLayer(int Index, bool ToggleMask)
@@ -801,18 +841,18 @@ void TextureWorkspacePanel::ConstructInspectorProperties(float Width)
             Controls.Button("Clear all", 0, false);
         }
         Controls.EndCard();
-        struct ChannelMeta { const char *Id; const char *Label; uint32_t Tint; const char *Mode; const char *Note; };
+        struct ChannelMeta { const char *Id; const char *Label; uint32_t Tint; const char *EditKind; const char *Note; float Minimum, Maximum, Default; };
         static const ChannelMeta Table[]{
-            {"baseColor", "Base color", kBaseColourTint, "Colour", "Flat colour source for this channel."},
-            {"roughness", "Roughness", kRoughnessTint, "Scalar", "Controls micro-facet spread (0 = mirror, 1 = matte)."},
-            {"metalness", "Metalness", kMetalnessTint, "Scalar", "Dielectric to conductor blend."},
-            {"normal", "Normal", kNormalTint, "Derived", "Normal follows the Height target."},
-            {"height", "Height", kHeightTint, "Scalar", "Surface displacement source."},
-            {"opacity", "Opacity", kOpacityTint, "Scalar", "Per-texel coverage."},
+            {"baseColor", "Base color", kBaseColourTint, "color", "Flat colour source for this channel.", 0.f, 1.f, 0.f},
+            {"roughness", "Roughness", kRoughnessTint, "scalar", "Controls micro-facet spread (0 = mirror, 1 = matte).", 0.f, 1.f, .5f},
+            {"metalness", "Metalness", kMetalnessTint, "scalar", "Dielectric to conductor blend.", 0.f, 1.f, 0.f},
+            {"normal", "Normal", kNormalTint, "derived", "Normal follows the Height target.", 0.f, 1.f, 0.f},
+            {"height", "Height", kHeightTint, "scalar", "Surface displacement source.", 0.f, 1.f, .5f},
+            {"opacity", "Opacity", kOpacityTint, "scalar", "Per-texel coverage.", 0.f, 1.f, 1.f},
         };
         for (const auto &Entry : Table)
             if (std::find(Layer.Channels.begin(), Layer.Channels.end(), Entry.Id) != Layer.Channels.end())
-                ConstructChannelCard(Width, Entry.Label, Entry.Tint, Entry.Mode, Entry.Note);
+                ConstructChannelCard(Width, Entry.Id, Entry.Label, Entry.Tint, Entry.EditKind, Entry.Note, Entry.Minimum, Entry.Maximum, Entry.Default);
     }
 
     ImGui::Dummy(ImVec2(1, 6 * S));
@@ -821,40 +861,148 @@ void TextureWorkspacePanel::ConstructInspectorProperties(float Width)
     Controls.Button("Add colour mask", 0, false);
 }
 
-void TextureWorkspacePanel::ConstructChannelCard(float Width, const char *Label, uint32_t Tint, const char *Mode, const char *Note)
+void TextureWorkspacePanel::ConstructChannelCard(float Width, const std::string &Id, const char *Label, uint32_t Tint,
+    const char *EditKind, const char *Note, float Minimum, float Maximum, float Default)
 {
     const float S = InterfaceScale;
-    const std::string Id = Label;
+    const bool Derived = std::strcmp(EditKind, "derived") == 0;
     const bool Folded = FoldedChannels.count(Id) != 0;
+    // 📝 Every nested control below (fold toggle, the Texture/Colour/Generator switch, the swatch/slider/
+    // dropdown bodies) reuses the exact same literal captions across every channel card ("Texture", "Amount",
+    // "Generator"...) - without this PushID scope they'd all resolve to the same ImGui ID within this shared
+    // "Channel targets" card and Dear ImGui would raise its "2 visible items with conflicting ID" programmer
+    // error the moment two channel cards are open at once. Scoping the whole card by the channel's stable id
+    // (not the display Label, which can collide with other UI strings) fixes every control inside for free.
+    ImGui::PushID(Id.c_str());
+    const std::string Key = QueryChannelKey(Id);
+    int &Mode = ChannelSourceMode.try_emplace(Key, Derived ? 2 : std::strcmp(EditKind, "color") == 0 ? 1 : 0).first->second;
     Controls.BeginCard("", true);
     {
         const auto HeadOrigin = ImGui::GetCursorScreenPos();
         auto *Ink = ImGui::GetWindowDrawList();
         Ink->AddCircleFilled(ImVec2(HeadOrigin.x + 5 * S, HeadOrigin.y + 7 * S), 4 * S, ImGui::GetColorU32(Spectrum(Tint)));
-        if (ImGui::InvisibleButton(("Fold" + Id).c_str(), ImVec2(Width - 24 * S, 20 * S)))
+        if (ImGui::InvisibleButton("Fold", ImVec2(Width - 24 * S, 20 * S)))
         {
             if (Folded) FoldedChannels.erase(Id); else FoldedChannels.insert(Id);
         }
         Caption(ImVec2(HeadOrigin.x + 16 * S, HeadOrigin.y + 2 * S), Label, 10 * S, 0xd9d4c4);
-        Caption(ImVec2(HeadOrigin.x + Width - 130 * S, HeadOrigin.y + 3 * S), Mode, 8.5f * S, 0x9a9a8c);
+        // 📝 Mirrors ChannelPropertyPanel.jsx's <small> next to the channel name - it names whichever source
+        // mode is actually active right now, not a fixed type hint.
+        const char *ModeCaption = Derived ? "Height-derived" : Mode == 1 ? "Colour" : Mode == 2 ? "Generator" : "Texture";
+        Caption(ImVec2(HeadOrigin.x + Width - 130 * S, HeadOrigin.y + 3 * S), ModeCaption, 8.5f * S, 0x9a9a8c);
         StrokeIcon(ImVec2(HeadOrigin.x + Width - 44 * S, HeadOrigin.y + 2 * S), 11 * S, Folded ? ChevronRightPath : ChevronDownPath, 0x8f8f7e);
         if (!Folded)
         {
             ImGui::SetCursorScreenPos(ImVec2(HeadOrigin.x, HeadOrigin.y + 24 * S));
-            const char *Modes[]{"Texture", "Colour", "Generator"};
-            int ModeIndex = std::strcmp(Mode, "Colour") == 0 ? 1 : std::strcmp(Mode, "Derived") == 0 ? 2 : 0;
-            for (int Index = 0; Index < 3; ++Index)
+            if (Derived)
             {
-                if (Index) ImGui::SameLine(0, 4 * S);
-                Controls.Button(Modes[Index], 0, ModeIndex == Index, {}, true);
+                // 📝 Normal has no source switch at all in the web app - it only ever follows Height.
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+                ImGui::TextColored(Spectrum(0x868872), "%s", Note);
+                ImGui::PopTextWrapPos();
             }
-            ImGui::Dummy(ImVec2(1, 4 * S));
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-            ImGui::TextColored(Spectrum(0x868872), "%s", Note);
-            ImGui::PopTextWrapPos();
+            else
+            {
+                const char *Modes[]{"Texture", "Colour", "Generator"};
+                for (int Index = 0; Index < 3; ++Index)
+                {
+                    if (Index) ImGui::SameLine(0, 4 * S);
+                    if (Controls.Button(Modes[Index], 0, Mode == Index, {}, true)) Mode = Index;
+                }
+                ImGui::Dummy(ImVec2(1, 6 * S));
+                if (Mode == 0) ConstructChannelTextureSource(Key, Label);
+                else if (Mode == 1) ConstructChannelColourSource(Key, Id, Label, Minimum, Maximum, Default);
+                else ConstructChannelGeneratorSource(Key, Label);
+            }
         }
     }
     Controls.EndCard();
+    ImGui::PopID();
+}
+
+void TextureWorkspacePanel::ConstructChannelTextureSource(const std::string &Key, const char *Label)
+{
+    // 📝 1:1 with ChannelPropertyPanel.jsx's empty "channel-texture-empty" state - this native build never
+    // actually imports or paints a channel source, so the card always shows the empty placeholder.
+    const float S = InterfaceScale;
+    const float Width = ImGui::GetContentRegionAvail().x;
+    Controls.BeginCard("", false, true);
+    {
+        const auto Origin = ImGui::GetCursorScreenPos();
+        const float CardWidth = ImGui::GetContentRegionAvail().x;
+        ImGui::GetWindowDrawList()->AddRectFilled(Origin, ImVec2(Origin.x + CardWidth, Origin.y + 64 * S), ImGui::GetColorU32(Spectrum(0x161614)), 6 * S);
+        StrokeIcon(ImVec2(Origin.x + CardWidth * .5f - 11 * S, Origin.y + 14 * S), 22 * S, ImagePath, 0x5c5c51);
+        const char *Placeholder = "Paint or import a texture source";
+        const float TextWidth = ImGui::GetFont()->CalcTextSizeA(9 * S * 1.302f, FLT_MAX, 0, Placeholder).x; // same font size Caption() actually draws with.
+        Caption(ImVec2(Origin.x + (CardWidth - TextWidth) * .5f, Origin.y + 44 * S), Placeholder, 9 * S, 0x75756a);
+        ImGui::Dummy(ImVec2(1, 68 * S));
+    }
+    Controls.EndCard();
+    if (Controls.Button("Import texture", (Width - 4 * S) * .5f, false, UploadPath)) {}
+    ImGui::SameLine(0, 4 * S);
+    if (Controls.Button("Paint texture", (Width - 4 * S) * .5f, false, BrushPath)) {}
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+    ImGui::TextColored(Spectrum(0x686859), "PNG, JPEG or WebP - source import and in-card painting are not implemented in this native build.");
+    ImGui::PopTextWrapPos();
+    (void)Key;
+    (void)Label;
+}
+
+void TextureWorkspacePanel::ConstructChannelColourSource(const std::string &Key, const std::string &Id, const char *Label,
+    float Minimum, float Maximum, float Default)
+{
+    // 📝 ChannelPropertyPanel.jsx shows a real <ColorField> for edit:"color" channels (just baseColor among the
+    // ones this demo document enables) and a <Slider> for edit:"scalar" channels (roughness/metalness/height/
+    // opacity) - reproduce that split instead of one generic placeholder for every channel.
+    if (Id == "baseColor")
+    {
+        auto &Swatch = ChannelColour.try_emplace(Key, std::array<float, 4>{.722f, .451f, .2f, 1.f}).first->second;
+        Controls.Colour("Colour", Swatch);
+    }
+    else
+    {
+        float &Amount = ChannelAmount.try_emplace(Key, Default).first->second;
+        Controls.Range("Amount", Amount, Minimum, Maximum);
+    }
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+    ImGui::TextColored(Spectrum(0x868872), "%s source value for %s - not composited onto the surface.", Id == "baseColor" ? "Flat colour" : "Flat scalar", Label);
+    ImGui::PopTextWrapPos();
+}
+
+void TextureWorkspacePanel::ConstructChannelGeneratorSource(const std::string &Key, const char *Label)
+{
+    // 📝 1:1 with ChannelPropertyPanel.jsx's generator <select> (grouped Mask / Wear / Procedural options) plus
+    // the picked generator's parameter sliders - QueryGeneratorCatalogue() mirrors paintChannelModel.js's
+    // CHANNEL_GENERATORS table. Picking a generator and dragging its sliders is purely a UI affordance here;
+    // nothing samples a mesh map or runs a noise kernel.
+    const auto &Catalogue = QueryGeneratorCatalogue();
+    std::vector<std::string> Owned;
+    std::vector<const char *> Captions{"Choose a generator..."};
+    Owned.reserve(Catalogue.size());
+    for (const auto &Entry : Catalogue)
+    {
+        Owned.push_back(std::string(Entry.Group) + " \xC2\xB7 " + Entry.Label);
+        Captions.push_back(Owned.back().c_str());
+    }
+    int &Choice = ChannelGeneratorChoice.try_emplace(Key, -1).first->second;
+    int Selection = Choice + 1;
+    if (Controls.Dropdown("Generator", Selection, Captions)) Choice = Selection - 1;
+    if (Choice < 0)
+    {
+        ImGui::TextColored(Spectrum(0x75756a), "No generator picked yet for %s.", Label);
+        return;
+    }
+    const auto &Picked = Catalogue[size_t(Choice)];
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+    ImGui::TextColored(Spectrum(0x868872), "%s - source configuration.", Picked.Note);
+    ImGui::PopTextWrapPos();
+    for (const auto &Parameter : Picked.Parameters)
+    {
+        if (!Parameter.first) continue;
+        const std::string ParameterKey = Key + ":" + Parameter.first;
+        float &Value = ChannelGeneratorParameters.try_emplace(ParameterKey, Parameter.second).first->second;
+        Controls.Range(Parameter.first, Value, 0.f, Parameter.first == std::string("Angle") ? 360.f : 1.f);
+    }
 }
 
 void TextureWorkspacePanel::ConstructInspectorHistory(float Width)

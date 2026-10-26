@@ -14,6 +14,7 @@
 #include "Engine/Interface/PixelSpace.h"
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
+#include <array>
 #include <functional>
 #include <map>
 #include <set>
@@ -101,6 +102,18 @@ class TextureWorkspacePanel final : public ActivationSequence
     InspectorTab RightTab = InspectorTab::Properties;
     int HistoryFilter = 0; // 0 all edits, 1 strokes
 
+    // 📝 Per-channel source-mode state for the "Channel targets" cards (ChannelPropertyPanel.jsx's Texture /
+    // Value / Generator switch, minus the Gradient mode which needs the point-gradient editor out of scope
+    // here). Keyed by "<layer row index>:<channel id>" so switching the selected layer and back doesn't
+    // clobber another layer's choice. Nothing here touches real compositing - it only decides which static
+    // body the inspector renders for that channel.
+    std::map<std::string, int> ChannelSourceMode;               // 0 = Texture, 1 = Colour/Value, 2 = Generator
+    std::map<std::string, std::array<float, 4>> ChannelColour;  // Colour-mode swatch (baseColor channel only)
+    std::map<std::string, float> ChannelAmount;                 // Colour-mode scalar value (non-baseColor channels)
+    std::map<std::string, int> ChannelGeneratorChoice;          // -1 = none picked yet, else index into ChannelGeneratorCatalogue
+    std::map<std::string, float> ChannelGeneratorParameters;    // keyed by "<channel key>:<parameter key>"
+    [[nodiscard]] std::string QueryChannelKey(const std::string &ChannelId) const;
+
     void SelectLayer(int Index, bool ToggleMask = false);
     void AddLayer(const std::string &Kind);
 
@@ -114,7 +127,13 @@ class TextureWorkspacePanel final : public ActivationSequence
     void ConstructInspectorDock();
     void ConstructInspectorProperties(float Width);
     void ConstructInspectorHistory(float Width);
-    void ConstructChannelCard(float Width, const char *Label, uint32_t Tint, const char *Mode, const char *Note);
+    void ConstructChannelCard(float Width, const std::string &Id, const char *Label, uint32_t Tint, const char *EditKind,
+        const char *Note, float Minimum, float Maximum, float Default);
+    // 📝 One body-renderer per Texture/Colour/Generator source mode (ChannelPropertyPanel.jsx's three branches,
+    // minus the Gradient mode - see ConstructChannelCard's comment for why).
+    void ConstructChannelTextureSource(const std::string &Key, const char *Label);
+    void ConstructChannelColourSource(const std::string &Key, const std::string &Id, const char *Label, float Minimum, float Maximum, float Default);
+    void ConstructChannelGeneratorSource(const std::string &Key, const char *Label);
     void ConstructMaskToolbar(float Width);
 
     PanelDockspace Panels;
