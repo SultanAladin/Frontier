@@ -1015,16 +1015,17 @@ void PatternWorkspacePanel::ConstructHeader()
     float PositionX = NavigationX;
     for (size_t Index = 0; Index < 5; ++Index)
     {
-        const bool Available = Index == 0 || Index == 1 || Index == 3 || Index == 4;
         ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * Scale));
-        ImGui::BeginDisabled(!Available || (Index == 0 && !ActivateMaterial) || (Index == 3 && !ActivateStamp) || (Index == 4 && !ActivateBaking));
+        ImGui::BeginDisabled((Index == 0 && !ActivateMaterial) || (Index == 2 && !ActivateTexture) || (Index == 3 && !ActivateStamp) ||
+            (Index == 4 && !ActivateBaking));
         if (Controls.Button(Workspaces[Index], Widths[Index] * Scale, Index == 1, {}, true))
         {
             if (Index == 0 && ActivateMaterial) ActivateMaterial();
+            if (Index == 2 && ActivateTexture) ActivateTexture();
             if (Index == 3 && ActivateStamp) ActivateStamp();
             if (Index == 4 && ActivateBaking) ActivateBaking();
         }
-        Controls.Tooltip(Workspaces[Index], Available ? "Switch workspace without losing your document." : "This native workspace is not hosted yet.");
+        Controls.Tooltip(Workspaces[Index], "Switch workspace without losing your document.");
         ImGui::EndDisabled();
         PositionX += Widths[Index] * Scale;
     }
@@ -3358,7 +3359,7 @@ void PatternWorkspacePanel::SuspendContent() noexcept
 void PatternWorkspacePanel::FinalizeContent() noexcept
 {
     SuspendContent();
-    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; ActivateStamp = {}; ActivateBaking = {}; CancelClose = {}; EvaluateNavigationDelta = {};
+    QueryCoverage = {}; QueryCoverageReady = {}; QuerySelectionToken = {}; SaveSource = {}; LoadSource = {}; ActivateMaterial = {}; ActivateStamp = {}; ActivateBaking = {}; ActivateTexture = {}; CancelClose = {}; EvaluateNavigationDelta = {};
 }
 
 void PatternWorkspacePanel::ConstructInterface()

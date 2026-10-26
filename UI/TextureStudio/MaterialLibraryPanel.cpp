@@ -274,6 +274,7 @@ void MaterialLibraryPanel::FinalizeContent() noexcept
     ActivatePattern = {};
     ActivateStamp = {};
     ActivateBaking = {};
+    ActivateTexture = {};
     Library = MaterialLibrary{};
 }
 
@@ -1774,11 +1775,16 @@ void MaterialLibraryPanel::ConstructInterface()
     ImGui::BeginDisabled(!ActivatePattern);
     if (ConstructMaterialPill("Pattern", ImVec2(Origin.x + Width - 374 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivatePattern) ActivatePattern();
     ImGui::EndDisabled();
+    // 📝 Inserted between Pattern and Stamp to match the canonical Material/Pattern/Texture/Stamp/Baking order
+    // every other workspace's header switcher already uses - Material previously had no Texture tab at all.
+    ImGui::BeginDisabled(!ActivateTexture);
+    if (ConstructMaterialPill("Texture", ImVec2(Origin.x + Width - 448 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateTexture) ActivateTexture();
+    ImGui::EndDisabled();
     ImGui::BeginDisabled(!ActivateStamp);
-    if (ConstructMaterialPill("Stamp", ImVec2(Origin.x + Width - 448 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateStamp) ActivateStamp();
+    if (ConstructMaterialPill("Stamp", ImVec2(Origin.x + Width - 522 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateStamp) ActivateStamp();
     ImGui::EndDisabled();
     ImGui::BeginDisabled(!ActivateBaking);
-    if (ConstructMaterialPill("Baking", ImVec2(Origin.x + Width - 522 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateBaking) ActivateBaking();
+    if (ConstructMaterialPill("Baking", ImVec2(Origin.x + Width - 596 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateBaking) ActivateBaking();
     ImGui::EndDisabled();
     if (ConstructMaterialPill("Open Library", ImVec2(Origin.x + Width - 225 * Scale, Origin.y + 8 * Scale), ImVec2(94 * Scale, 27 * Scale))) DirectoryRequested = true;
     if (ConstructMaterialPill("Refresh", ImVec2(Origin.x + Width - 120 * Scale, Origin.y + 8 * Scale), ImVec2(100 * Scale, 27 * Scale)))

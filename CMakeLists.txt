@@ -81,7 +81,7 @@ target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
 target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
-    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp
+    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TextureWorkspacePanel.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
     Engine/ContentInterchange/BakeMesh.cpp Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
@@ -359,6 +359,9 @@ if(BUILD_TESTING)
 
     add_executable(BakingWorkspaceEvidence Exhibits/TextureStudio/Code/BakingWorkspaceEvidence.cpp)
     target_link_libraries(BakingWorkspaceEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(TextureWorkspaceEvidence Exhibits/TextureStudio/Code/TextureWorkspaceEvidence.cpp)
+    target_link_libraries(TextureWorkspaceEvidence PRIVATE FrontierTextureStudioUI)
 
     add_executable(BakingMeshMapCompletionEvidence Exhibits/TextureStudio/Code/BakingMeshMapCompletionEvidence.cpp)
     target_link_libraries(BakingMeshMapCompletionEvidence PRIVATE FrontierTextureStudioUI)

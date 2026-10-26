@@ -39,6 +39,7 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
+    std::function<void()> ActivateTexture;
 
     // 📝 Where ConstructInterface last wrote exported PNG/manifest files (QueryExportDirectory to configure it);
     // empty until a bake has been exported at least once this session.

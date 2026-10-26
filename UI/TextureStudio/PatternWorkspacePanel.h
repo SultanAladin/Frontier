@@ -100,6 +100,7 @@ public:
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivateStamp;
     std::function<void()> ActivateBaking;
+    std::function<void()> ActivateTexture;
     std::function<void()> CancelClose;
     std::function<PlanePoint(PlanePoint)> EvaluateNavigationDelta;
 private:
