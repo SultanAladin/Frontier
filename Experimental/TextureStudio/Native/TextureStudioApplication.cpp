@@ -371,6 +371,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Stamp = static_cast<Frontier::StampWorkspacePanel *>(StampOwnership.get());
         if (!Stamp->Initialize() || !Stamp->Activate()) throw std::runtime_error("Stamp workspace activation failed.");
         Stamp->ConfigureContentRoot(ContentRoot);
+        Stamp->ConfigureStampLibraryDirectory(Directory / "Stamps"); // same folder Texture Paint's stamp grid scans
         StampSource = Directory / "stamp-workspace.vector.toml";
         Stamp->SaveSource = [&](std::string_view Source)
         {

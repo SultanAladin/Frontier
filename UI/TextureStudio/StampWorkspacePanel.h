@@ -39,6 +39,7 @@ public:
     // content root once at startup — hand it here so "Add text..." keeps working regardless of how
     // the packaged binary was launched (shortcut, different "Start in" folder, etc).
     void ConfigureContentRoot(std::filesystem::path Root) { ContentRoot = std::move(Root); }
+    void ConfigureStampLibraryDirectory(std::filesystem::path Directory) { StampLibraryDirectory = std::move(Directory); }
     void ConfigureDocument(VectorAuthoringDocument Document);
     // 📝 One small GPU atlas carries the open Stamp's own layer row-thumbnails (the Texture-workspace-style
     // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas,

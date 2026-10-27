@@ -936,11 +936,12 @@ bool StampWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneExt
 
 bool StampWorkspacePanel::Save()
 {
-    if (!SaveSource) return false;
+    if (!SaveSource) { Diagnostic = "No document save target is configured by the host - use Save to stamp library instead."; return false; }
     try
     {
-        if (!SaveSource(EncodeVectorAuthoring(QueryDocument()))) return false;
+        if (!SaveSource(EncodeVectorAuthoring(QueryDocument()))) { Diagnostic = "The host refused the document source (too large or unwritable)."; return false; }
         SavedDocument = QueryDocument();
+        Diagnostic = "Document saved. Use Save to stamp library to also make it a Texture Paint stamp.";
         return true;
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
@@ -1048,6 +1049,17 @@ void StampWorkspacePanel::ConstructHeader()
             else try { if (const auto Source = LoadSource()) ConfigureDocument(DecodeVectorAuthoring(*Source)); }
                 catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
         }
+        const auto DocumentOption = [&](const char *CaptionText, bool Enabled)
+        {
+            const bool Activated = DropdownControlSurface::Option(CaptionText, false, Scale, Enabled);
+            const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+            ControlExtents[std::string("Document ") + CaptionText] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+            return Activated;
+        };
+        if (DocumentOption("Save document", bool(SaveSource))) Save();
+        // 🖨️ Rasterises this document into the project Stamps folder so Texture Paint's stamp tool
+        // can place it (its right-click grid rescans the folder every time it opens).
+        if (DocumentOption("Save to stamp library", true)) SaveToLibrary();
         const auto EditOption = [&](const char *CaptionText, bool Enabled)
         {
             const bool Activated = DropdownControlSurface::Option(CaptionText, false, Scale, Enabled);
@@ -1479,7 +1491,9 @@ void StampWorkspacePanel::ConstructLayers()
             Caption(ImVec2(CardMin.x + 11 * Scale, CardMax.y - 19 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
             char Number[8];
             std::snprintf(Number, sizeof(Number), "%02zu", Counts[Index]);
-            Caption(ImVec2(CardMax.x - 11 * Scale - CaptionWidth(Number, 29 * Scale, LightTypeface), CardMax.y - 38 * Scale), Number, 29 * Scale, 0xddddcf, LightTypeface);
+            // 📝 The numeral rides the disc row, top-right: Texture Paint's 29pt bottom-right numeral
+            // overruns this narrower three-card column and collides with the caption (seen on Windows).
+            Caption(ImVec2(CardMax.x - 10 * Scale - CaptionWidth(Number, 20 * Scale, LightTypeface), CardMin.y + 11 * Scale), Number, 20 * Scale, 0xddddcf, LightTypeface);
         }
         ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 60 * Scale));
     }

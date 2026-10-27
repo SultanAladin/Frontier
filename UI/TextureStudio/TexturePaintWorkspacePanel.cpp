@@ -2399,11 +2399,16 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Navigate teapot");
         X += 96 * S;
-        ImGui::BeginDisabled(true);
+        ImGui::BeginDisabled(!DigitalPaintAvailable());
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        (void)PillButton("ToolStamp", "Stamp", 78 * S, false, "M5 22H19M12 2V10M8 10H16L17 18H7Z");
+        if (PillButton("ToolStamp", "Stamp", 78 * S, Tool == AuthorTool::Stamp && !DigitalActive, "M5 22H19M12 2V10M8 10H16L17 18H7Z"))
+        {
+            Tool = AuthorTool::Stamp;
+            DigitalActive = false;
+            EnsureStampLibrary(true); // presets + anything saved to the project Stamps folder
+        }
         ImGui::EndDisabled();
-        Controls.Tooltip("Viewport stamp brush", "Decal placement is not native yet - author stamps in the Stamp workspace (Stamp studio, right).");
+        Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp, right-click the viewport for the stamp grid. Author new stamps in the Stamp workspace (Stamp studio, right).");
         X += 82 * S;
         ImGui::BeginDisabled(true);
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
@@ -2694,6 +2699,8 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             {
                 if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select)
                     MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
+                else if (Tool == AuthorTool::Stamp && !DigitalActive)
+                    PlaceStampAt(HitUv); // a click (not an orbit drag) drops the picked library stamp here
                 else if (!DigitalActive) TargetPart = Hit->Part;
             }
     }
@@ -2938,6 +2945,12 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
             {
                 if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select && !UvSource)
                     MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
+                else if (Tool == AuthorTool::Stamp && !DigitalActive)
+                {
+                    // Placements live in authoring-UV space, same as dabs - source-UV view is inspect-only.
+                    if (UvSource) Status = "Switch from source UVs to authoring UVs to place stamps";
+                    else PlaceStampAt(Point);
+                }
                 else if (!DigitalActive) TargetPart = Hit->Part;
             }
         }
