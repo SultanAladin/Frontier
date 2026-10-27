@@ -1481,7 +1481,7 @@ void PatternWorkspacePanel::ConstructLayers()
         DropdownControlSurface::EndMenu();
     }
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * Scale, Origin.y + 64 * Scale));
-    ImGui::BeginChild("Pattern layers body", ImVec2(Width - 16 * Scale, 0), ImGuiChildFlags_None);
+    ImGui::BeginChild("Pattern layers body", ImVec2(Width - 16 * Scale, -45 * Scale), ImGuiChildFlags_None);
     Controls.ControlHeight = 48;
     if (Controls.Button("Groups & folders", ImGui::GetContentRegionAvail().x, GroupsOpen, {}, true)) GroupsOpen = !GroupsOpen;
     Controls.ControlHeight = 30;
@@ -1515,42 +1515,41 @@ void PatternWorkspacePanel::ConstructLayers()
     ImGui::EndDisabled();
     Controls.ControlHeight = 30;
     const auto Snapshot = QueryDocument();
-    size_t Visible = 0, Locked = 0;
-    for (const auto &Layer : Snapshot.Layers) { if (Layer.Visible) ++Visible; if (Layer.Locked) ++Locked; }
-    const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible, Locked};
-    // Filter cards, Texture-Paint style: disc glyphs + light numerals (the count rides the heading).
+    size_t Visible = 0;
+    for (const auto &Layer : Snapshot.Layers) if (Layer.Visible) ++Visible;
+    const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible};
+    // Filter cards, Texture-Paint style: two 66px cards (Visible / Hidden) with disc glyphs.
     {
         const ImVec2 CardOrigin = ImGui::GetCursorScreenPos();
         const float InnerWidth = ImGui::GetContentRegionAvail().x;
-        const float CardWidth = (InnerWidth - 28 * Scale) / 3.f;
-        const struct { const char *Label; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[3]{
+        const float CardWidth = (InnerWidth - 20 * Scale) / 2.f;
+        const struct { const char *Label; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[2]{
             {"Visible", "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
-            {"Hidden", HiddenPath, 0x292929, 0x676760},
-            {"Locked", LockPath, 0x292929, 0x676760}};
+            {"Hidden", HiddenPath, 0x292929, 0x676760}};
         auto *Ink = ImGui::GetWindowDrawList();
-        for (int Index = 0; Index < 3; ++Index)
+        for (int Index = 0; Index < 2; ++Index)
         {
             const ImVec2 CardMin(CardOrigin.x + 6 * Scale + Index * (CardWidth + 8 * Scale), CardOrigin.y);
-            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 60 * Scale);
+            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 66 * Scale);
             const bool Pressed = Filter == Index + 1;
             ImGui::SetCursorScreenPos(CardMin);
             ImGui::PushID(Index);
-            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 60 * Scale));
+            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 66 * Scale));
             ImGui::PopID();
             char StatLabel[32];
             std::snprintf(StatLabel, sizeof(StatLabel), "%02zu\n%s", Counts[Index], Cards[Index].Label);
             NoteExtent(StatLabel); // same caption the pre-restyle stat buttons registered
             if (Clicked) Filter = Pressed ? 0 : Index + 1;
-            Ink->AddRectFilled(CardMin, CardMax, Ink32(Pressed ? 0x25221d : 0x191919), 16 * Scale);
-            Ink->AddRect(CardMin, CardMax, Ink32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 16 * Scale);
-            Ink->AddCircleFilled(ImVec2(CardMin.x + 20 * Scale, CardMin.y + 20 * Scale), 9.5f * Scale, Ink32(Cards[Index].Disc), 24);
-            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 14.5f * Scale, CardMin.y + 14.5f * Scale), 11 * Scale, Cards[Index].Glyph, 2.2f);
-            Caption(ImVec2(CardMin.x + 11 * Scale, CardMax.y - 19 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
+            Ink->AddRectFilled(CardMin, CardMax, Ink32(Pressed ? 0x25221d : 0x191919), 20 * Scale);
+            Ink->AddRect(CardMin, CardMax, Ink32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 20 * Scale);
+            Ink->AddCircleFilled(ImVec2(CardMin.x + 22.5f * Scale, CardMin.y + 21.5f * Scale), 10.5f * Scale, Ink32(Cards[Index].Disc), 24);
+            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 16.5f * Scale, CardMin.y + 15.5f * Scale), 12 * Scale, Cards[Index].Glyph, 2.2f);
+            Caption(ImVec2(CardMin.x + 12 * Scale, CardMax.y - 21 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
             char Number[8];
             std::snprintf(Number, sizeof(Number), "%02zu", Counts[Index]);
-            Caption(ImVec2(CardMax.x - 10 * Scale - CaptionWidth(Number, 20 * Scale, LightTypeface), CardMin.y + 11 * Scale), Number, 20 * Scale, 0xddddcf, LightTypeface);
+            Caption(ImVec2(CardMax.x - 13 * Scale - CaptionWidth(Number, 29 * Scale, LightTypeface), CardMax.y - 40 * Scale), Number, 29 * Scale, 0xddddcf, LightTypeface);
         }
-        ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 60 * Scale));
+        ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 66 * Scale));
     }
     // Search pill: 36px, search glyph, frameless entry, clear icon.
     {
@@ -1587,7 +1586,6 @@ void PatternWorkspacePanel::ConstructLayers()
         {
             if (Filter == 1 && !Layer.Visible) continue;
             if (Filter == 2 && Layer.Visible) continue;
-            if (Filter == 3 && !Layer.Locked) continue;
             if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
             ++Shown;
         }
@@ -1605,7 +1603,6 @@ void PatternWorkspacePanel::ConstructLayers()
         const auto &Layer = *Position;
         if (Filter == 1 && !Layer.Visible) continue;
         if (Filter == 2 && Layer.Visible) continue;
-        if (Filter == 3 && !Layer.Locked) continue;
         if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
         // 🎨 Row chrome mirrors Texture Paint's layer rows (via the Stamp stack): 62px,
         // hover/selected washes only, gold accent bar, grip dots, 34px thumbnail chip,
@@ -1769,6 +1766,55 @@ void PatternWorkspacePanel::ConstructLayers()
     Controls.ControlHeight = 30;
     if (Snapshot.Layers.empty()) ImGui::TextWrapped("Draw your first shape to start a pattern.");
     ImGui::EndChild();
+    // .tp-pane-footer treatment: stack details on the left, selection controls on the right.
+    {
+        const ImVec2 FooterOrigin(Origin.x, ImGui::GetCursorScreenPos().y);
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->AddRectFilled(FooterOrigin, ImVec2(Origin.x + Width, FooterOrigin.y + 45 * Scale), Ink32(0x151515));
+        Ink->AddLine(FooterOrigin, ImVec2(Origin.x + Width, FooterOrigin.y), Ink32(0xffffff, .02f));
+        const auto Stat = [&](float X, const char *Label, const std::string &Value, uint32_t ValueColour)
+        {
+            Caption(ImVec2(Origin.x + X, FooterOrigin.y + 9 * Scale), Label, 7 * Scale, 0x5f5f58);
+            Caption(ImVec2(Origin.x + X, FooterOrigin.y + 23 * Scale), Value.c_str(), 9 * Scale, ValueColour);
+        };
+        Stat(12 * Scale, "MOTIFS", std::to_string(Snapshot.Layers.size()), 0x8eb896);
+        Stat(72 * Scale, "VISIBLE", std::to_string(Visible), 0xa6a699);
+        Stat(122 * Scale, "SELECTED", std::to_string(Selection.size()), 0xa6a699);
+        const bool FooterEditable = !Selection.empty() && !MaskSelection && !PenSource && Gesture == 0 &&
+            std::none_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer)
+            {
+                return std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
+                    (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer));
+            });
+        float ButtonX = Origin.x + Width - 112 * Scale;
+        const float ButtonY = FooterOrigin.y + 11.5f * Scale;
+        ImGui::BeginDisabled(!FooterEditable);
+        ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
+        if (BareIconButton("LayerFooterDuplicate", CopyPath, 22 * Scale, Scale, false, 0x8a8a80)) ReplicateSelection();
+        NoteExtent("Layer footer duplicate");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Duplicate selection");
+        ButtonX += 26 * Scale;
+        ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
+        if (BareIconButton("LayerFooterBringForward", "M12 19V5M6 11L12 5L18 11", 22 * Scale, Scale, false, 0x8a8a80))
+            EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringSelection(Document, Selection, VectorSelectionOrder::Forward); });
+        NoteExtent("Layer footer bring forward");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Bring selection forward");
+        ButtonX += 26 * Scale;
+        ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
+        if (BareIconButton("LayerFooterSendBackward", "M12 5V19M6 13L12 19L18 13", 22 * Scale, Scale, false, 0x8a8a80))
+            EvaluateEdit([&](auto &Document) { ReorderVectorAuthoringSelection(Document, Selection, VectorSelectionOrder::Backward); });
+        NoteExtent("Layer footer send backward");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Send selection backward");
+        ButtonX += 26 * Scale;
+        ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
+        if (BareIconButton("LayerFooterDelete", TrashPath, 22 * Scale, Scale, false, 0x8a8a80))
+            EvaluateEdit([&](auto &Document) { PartitionVectorAuthoringSelection(Document, Selection); });
+        NoteExtent("Layer footer delete");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Delete selection");
+        ImGui::EndDisabled();
+        ImGui::SetCursorScreenPos(ImVec2(FooterOrigin.x, FooterOrigin.y + 45 * Scale));
+        ImGui::Dummy(ImVec2(0, 0));
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------

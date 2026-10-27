@@ -227,7 +227,15 @@ void PanelDockspace::ConstructInterface(float Scale)
             ImGui::DockBuilderAddNode(Dockspace, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodePos(Dockspace, Origin);
             ImGui::DockBuilderSetNodeSize(Dockspace, Extent);
-            if (DefaultColumns.empty())
+            const bool HasPendingLayout = !PendingLayout.empty();
+            if (HasPendingLayout)
+            {
+                // Restore onto the clean dockspace shell. Building the default split tree first and
+                // then splitting those nodes again in RestoreLayout corrupts/nests the dock graph,
+                // which can strand panels such as the Inspector outside their saved column.
+                RestoreLayout(Scale);
+            }
+            else if (DefaultColumns.empty())
             {
                 for (const auto &Entry : Entries)
                     ImGui::DockBuilderDockWindow(Entry.WindowName.c_str(), Dockspace);
@@ -259,9 +267,8 @@ void PanelDockspace::ConstructInterface(float Scale)
                     else ImGui::DockBuilderDockWindow(Entry->WindowName.c_str(), Destination);
                 }
             }
-            ImGui::DockBuilderFinish(Dockspace);
-            if (!PendingLayout.empty())
-                RestoreLayout(Scale);
+            if (!HasPendingLayout)
+                ImGui::DockBuilderFinish(Dockspace);
             Seated = true;
         }
         if (Reattach)

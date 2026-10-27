@@ -471,20 +471,33 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             if (!Frontier::ProjectSpaceCodec::Decode(Preferences, Document, Message)) LayoutBlocked = true;
             else
             {
-                if (const auto Layout = Document.Sections["workspace"]["texture_studio_layout"]; Layout)
-                    LayoutBlocked = !Layout.is_table() || !Library->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_pattern_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Pattern->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_stamp_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Stamp->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_baking_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Baking->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
-                if (!LayoutBlocked)
-                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_texture_layout"]; Layout)
-                        LayoutBlocked = !Layout.is_table() || !Texture->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
+                // Keep each workspace independent: one stale/corrupt saved table must not stop the
+                // remaining layouts from loading, and must not make every workspace session-only.
+                // The affected workspace falls back to defaults and its table is replaced on exit.
+                // LayoutBlocked is reserved for a preferences file that cannot be decoded at all.
+                std::string LayoutDiagnostics;
+                const auto ConfigureSavedLayout = [&](const char *Key, auto &Panels)
+                {
+                    const auto Layout = Document.Sections["workspace"][Key];
+                    if (!Layout) return;
+                    std::string SectionMessage;
+                    if (!Layout.is_table() || !Panels.ConfigureLayout(*Layout.as_table(), SectionMessage))
+                    {
+                        if (!LayoutDiagnostics.empty()) LayoutDiagnostics += ' ';
+                        LayoutDiagnostics += Key;
+                        LayoutDiagnostics += ": ";
+                        LayoutDiagnostics += SectionMessage.empty() ? "saved layout is not a table." : SectionMessage;
+                    }
+                };
+                ConfigureSavedLayout("texture_studio_layout", Library->QueryPanels());
+                ConfigureSavedLayout("texture_studio_pattern_layout", Pattern->QueryPanels());
+                ConfigureSavedLayout("texture_studio_stamp_layout", Stamp->QueryPanels());
+                ConfigureSavedLayout("texture_studio_baking_layout", Baking->QueryPanels());
+                ConfigureSavedLayout("texture_studio_texture_layout", Texture->QueryPanels());
+                if (!LayoutDiagnostics.empty())
+                    Appearance->ConfigureLayoutDiagnostic(
+                        "Some TextureWorkspace layouts were refused; affected workspaces use defaults and will save a replacement layout. " +
+                        LayoutDiagnostics);
             }
             if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }

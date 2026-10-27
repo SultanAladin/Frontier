@@ -154,16 +154,9 @@ bool PanelDockspace::ConfigureLayout(const toml::table &Layout, std::string &Dia
 {
     if (Seated || !ValidateLayout(Layout, Diagnostic))
         return false;
-    for (const auto &Panel : *Layout["panels"].as_array())
-    {
-        const auto Name = Panel.as_table()->at("key").value<std::string>();
-        if (std::none_of(Entries.begin(), Entries.end(),
-                         [&](const auto &Entry) { return Entry.Specification.Key == *Name; }))
-        {
-            Diagnostic = "Layout references an unavailable panel";
-            return false;
-        }
-    }
+    // Panel keys from a newer/older build may no longer be registered. RestoreLayout ignores
+    // unknown panels and docks newly registered panels itself, so a stale extra key must not
+    // reject the whole saved arrangement (and thereby disable layout saving for the session).
     PendingLayout = Layout;
     return true;
 }
@@ -320,6 +313,28 @@ void PanelDockspace::RestoreLayout(float Scale)
     const auto &Regions       = *Layout["regions"].as_array();
     const auto *Main          = ImGui::GetMainViewport();
     const bool  NativeEnabled = ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable;
+    // A panel registered after this layout was saved has no saved tab/geometry. Dock it into the
+    // clean root before the split restore below; ImGui carries it into a leaf as nodes split,
+    // instead of leaving the new panel floating/undocked on first presentation.
+    for (auto &Entry : Entries)
+    {
+        bool Saved = false;
+        for (const auto &Panel : *Layout["panels"].as_array())
+        {
+            const auto Name = Panel.as_table()->at("key").value<std::string>();
+            if (Name && *Name == Entry.Specification.Key)
+            {
+                Saved = true;
+                break;
+            }
+        }
+        if (!Saved)
+        {
+            Entry.NativeWindow    = false;
+            Entry.RestoreGeometry = false;
+            ImGui::DockBuilderDockWindow(Entry.WindowName.c_str(), Dockspace);
+        }
+    }
     for (const auto &Panel : *Layout["panels"].as_array())
         for (auto &Entry : Entries)
             if (Entry.Specification.Key == Panel.as_table()->at("key").value<std::string>())
