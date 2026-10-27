@@ -8,6 +8,8 @@
 #include "Engine/ContentInterchange/VectorGradientStops.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/ControlKit.h"
+#include "Engine/Interface/GlyphSpace.h"
+#include "Engine/Interface/PixelSpace.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
@@ -60,6 +62,47 @@ void Caption(
 {
     ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
 }
+
+// 🎨 Texture Paint layer-stack chrome, mirrored from StampWorkspacePanel.cpp: packed draw colour
+// with alpha, measured caption widths, bare glyphs and icon buttons (no capsule fill - hover /
+// selected washes only).
+ImU32 Ink32(uint32_t Colour, float Alpha = 1.f)
+{
+    ImVec4 Quad = Spectrum(Colour);
+    Quad.w = Alpha;
+    return ImGui::GetColorU32(Quad);
+}
+ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
+}
+float CaptionWidth(const char *Text, float Size, void *Typeface = nullptr)
+{
+    ImFont *Font = Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont();
+    return Font->CalcTextSizeA(Size * 1.302f, 1e9f, 0.f, Text).x;
+}
+void DrawGlyph(const char *Path, ImVec2 Position, float Size, uint32_t Colour, float StrokeWidth = 1.6f)
+{
+    PixelSpace Surface;
+    (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+    GlyphSpace::Stroke(Surface, Path, {Position.x, Position.y, Size, StrokeWidth, SpectrumQuad(Colour)});
+}
+bool BareIconButton(const char *Id, const char *Path, float Size, float Scale, bool Selected, uint32_t Colour)
+{
+    const ImVec2 Position = ImGui::GetCursorScreenPos();
+    ImGui::PushID(Id);
+    const bool Pressed = ImGui::InvisibleButton("##Icon", ImVec2(Size, Size));
+    ImGui::PopID();
+    const bool Hovered = ImGui::IsItemHovered();
+    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
+    auto *Ink = ImGui::GetWindowDrawList();
+    if (Selected || (Hovered && !Disabled))
+        Ink->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size), Ink32(Selected ? 0x2a2a27 : 0x232320, Disabled ? .4f : 1.f), 6 * Scale);
+    const float Glyph = Size * .55f;
+    DrawGlyph(Path, ImVec2(Position.x + (Size - Glyph) * .5f, Position.y + (Size - Glyph) * .5f), Glyph, Disabled ? 0x4c4c44 : Colour);
+    return Pressed && !Disabled;
+}
+constexpr const char *HiddenPath = "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20";
 
 // 🎨 See the matching helper in StampWorkspacePanel.cpp: the two document-space control points of a
 // gradient-filled shape's own axis/radius handles, read directly from Source.GradientAxis (linear: the
@@ -928,6 +971,17 @@ void PatternWorkspacePanel::Select(uint32_t Token, bool Extend)
     MaskSelection = 0;
 }
 
+std::array<float, 4> PatternWorkspacePanel::CanvasInkColour() const noexcept
+{
+    // Fresh vectors must contrast whatever the board shows: transparent -> white, a dark board
+    // -> white, a light board -> black. (Board base is 0xede7d7; see ConstructCanvas.)
+    if (TransparentCanvas) return {1, 1, 1, 1};
+    constexpr uint32_t Board = 0xede7d7;
+    const float Luminance = (.2126f * float((Board >> 16) & 255) + .7152f * float((Board >> 8) & 255)
+        + .0722f * float(Board & 255)) / 255.f;
+    return Luminance > .5f ? std::array<float, 4>{0, 0, 0, 1} : std::array<float, 4>{1, 1, 1, 1};
+}
+
 void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *CaptionText)
 {
     try
@@ -938,7 +992,7 @@ void PatternWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Ca
         Source.Bounds = {256, 256, 160, 160};
         Source.Colour = {.8627f, .4627f, .3529f, 1};
         Source.ColourEnd = {.35f, .55f, .45f, 1};
-        Source.StrokeColour = {.23f, .24f, .28f, 1};
+        Source.StrokeColour = CanvasInkColour();
         Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
         if (Document.Layers.empty()) Document.Name = "Custom pattern";
         const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
@@ -1404,9 +1458,15 @@ void PatternWorkspacePanel::ConstructLibrary()
 void PatternWorkspacePanel::ConstructLayers()
 {
     CapturePanel("Layers");
+    const auto NoteExtent = [&](const std::string &CaptionText) {
+        const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+        ControlExtents[CaptionText] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+    };
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
     Caption(ImVec2(Origin.x + 16 * Scale, Origin.y + 15 * Scale), "Motifs", 23 * Scale, 0xd9d9cc, LightTypeface);
+    char CountText[16]; std::snprintf(CountText, sizeof(CountText), "%zu", QueryDocument().Layers.size());
+    Caption(ImVec2(Origin.x + 16 * Scale + CaptionWidth("Motifs", 23 * Scale, LightTypeface) + 10 * Scale, Origin.y + 27 * Scale), CountText, 9 * Scale, 0x8a8a7c);
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 44 * Scale, Origin.y + 14 * Scale));
     if (Controls.Button("Add pattern layer", 28 * Scale, false, PlusPath)) ImGui::OpenPopup("Add a pattern motif");
     if (DropdownControlSurface::BeginMenu("Add a pattern motif", Scale))
@@ -1458,21 +1518,88 @@ void PatternWorkspacePanel::ConstructLayers()
     size_t Visible = 0, Locked = 0;
     for (const auto &Layer : Snapshot.Layers) { if (Layer.Visible) ++Visible; if (Layer.Locked) ++Locked; }
     const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible, Locked};
-    const char *Captions[]{"Visible", "Hidden", "Locked"};
-    const float StatWidth = (ImGui::GetContentRegionAvail().x - 12 * Scale) / 3;
-    for (int Index = 0; Index < 3; ++Index)
+    // Filter cards, Texture-Paint style: disc glyphs + light numerals (the count rides the heading).
     {
-        if (Index) ImGui::SameLine(0, 6 * Scale);
-        char Label[32]; std::snprintf(Label, sizeof(Label), "%02zu\n%s", Counts[Index], Captions[Index]);
-        Controls.ControlHeight = 64;
-        if (Controls.Button(Label, StatWidth, Filter == Index + 1, {}, true)) Filter = Filter == Index + 1 ? 0 : Index + 1;
+        const ImVec2 CardOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        const float CardWidth = (InnerWidth - 28 * Scale) / 3.f;
+        const struct { const char *Label; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[3]{
+            {"Visible", "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
+            {"Hidden", HiddenPath, 0x292929, 0x676760},
+            {"Locked", LockPath, 0x292929, 0x676760}};
+        auto *Ink = ImGui::GetWindowDrawList();
+        for (int Index = 0; Index < 3; ++Index)
+        {
+            const ImVec2 CardMin(CardOrigin.x + 6 * Scale + Index * (CardWidth + 8 * Scale), CardOrigin.y);
+            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 60 * Scale);
+            const bool Pressed = Filter == Index + 1;
+            ImGui::SetCursorScreenPos(CardMin);
+            ImGui::PushID(Index);
+            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 60 * Scale));
+            ImGui::PopID();
+            char StatLabel[32];
+            std::snprintf(StatLabel, sizeof(StatLabel), "%02zu\n%s", Counts[Index], Cards[Index].Label);
+            NoteExtent(StatLabel); // same caption the pre-restyle stat buttons registered
+            if (Clicked) Filter = Pressed ? 0 : Index + 1;
+            Ink->AddRectFilled(CardMin, CardMax, Ink32(Pressed ? 0x25221d : 0x191919), 16 * Scale);
+            Ink->AddRect(CardMin, CardMax, Ink32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 16 * Scale);
+            Ink->AddCircleFilled(ImVec2(CardMin.x + 20 * Scale, CardMin.y + 20 * Scale), 9.5f * Scale, Ink32(Cards[Index].Disc), 24);
+            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 14.5f * Scale, CardMin.y + 14.5f * Scale), 11 * Scale, Cards[Index].Glyph, 2.2f);
+            Caption(ImVec2(CardMin.x + 11 * Scale, CardMax.y - 19 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
+            char Number[8];
+            std::snprintf(Number, sizeof(Number), "%02zu", Counts[Index]);
+            Caption(ImVec2(CardMax.x - 10 * Scale - CaptionWidth(Number, 20 * Scale, LightTypeface), CardMin.y + 11 * Scale), Number, 20 * Scale, 0xddddcf, LightTypeface);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 60 * Scale));
     }
-    Controls.ControlHeight = 30;
-    ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##FindLayer", "Find a layer...", SearchText.data(), SearchText.size());
-    ImGui::Dummy(ImVec2(0, 8 * Scale));
-    ImGui::TextDisabled("Top layers render in front · drag to reorder");
+    // Search pill: 36px, search glyph, frameless entry, clear icon.
+    {
+        const ImVec2 SearchOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        const ImVec2 BoxMin(SearchOrigin.x + 6 * Scale, SearchOrigin.y + 12 * Scale), BoxMax(SearchOrigin.x + InnerWidth - 6 * Scale, SearchOrigin.y + 48 * Scale);
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->AddRectFilled(BoxMin, BoxMax, Ink32(0x191919), 18 * Scale);
+        Ink->AddRect(BoxMin, BoxMax, Ink32(0x2c2c2c), 18 * Scale);
+        DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", ImVec2(BoxMin.x + 11 * Scale, BoxMin.y + 11 * Scale), 14 * Scale, 0x77776f);
+        ImGui::SetCursorScreenPos(ImVec2(BoxMin.x + 33 * Scale, BoxMin.y + 6 * Scale));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+        ImGui::SetNextItemWidth(BoxMax.x - BoxMin.x - 66 * Scale);
+        ImGui::InputText("##FindLayer", SearchText.data(), SearchText.size());
+        const bool SearchActive = ImGui::IsItemActive();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        if (!SearchText[0] && !SearchActive)
+            Caption(ImVec2(BoxMin.x + 37 * Scale, BoxMin.y + 12 * Scale), "Find a layer...", 10 * Scale, 0x787871);
+        if (SearchText[0])
+        {
+            ImGui::SetCursorScreenPos(ImVec2(BoxMax.x - 28 * Scale, BoxMin.y + 7 * Scale));
+            if (BareIconButton("ClearLayerSearch", "M6 6L18 18M6 18L18 6", 22 * Scale, Scale, false, 0x8a8a80)) SearchText[0] = '\0';
+        }
+        ImGui::SetCursorScreenPos(ImVec2(SearchOrigin.x, SearchOrigin.y + 56 * Scale));
+    }
+    // Order microcopy: which end renders in front + how many rows pass the filters.
+    {
+        size_t Shown = 0;
+        for (const auto &Layer : Snapshot.Layers)
+        {
+            if (Filter == 1 && !Layer.Visible) continue;
+            if (Filter == 2 && Layer.Visible) continue;
+            if (Filter == 3 && !Layer.Locked) continue;
+            if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
+            ++Shown;
+        }
+        const ImVec2 OrderOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        Caption(ImVec2(OrderOrigin.x + 10 * Scale, OrderOrigin.y + 2 * Scale), "TOP -> BOTTOM", 8 * Scale, 0x686862);
+        char ShownText[32];
+        std::snprintf(ShownText, sizeof(ShownText), "%zu shown", Shown);
+        Caption(ImVec2(OrderOrigin.x + InnerWidth - 10 * Scale - CaptionWidth(ShownText, 8 * Scale), OrderOrigin.y + 2 * Scale), ShownText, 8 * Scale, 0x55554f);
+        ImGui::SetCursorScreenPos(ImVec2(OrderOrigin.x, OrderOrigin.y + 21 * Scale));
+        ImGui::Dummy(ImVec2(0, 0));
+    }
     for (auto Position = Snapshot.Layers.rbegin(); Position != Snapshot.Layers.rend(); ++Position)
     {
         const auto &Layer = *Position;
@@ -1480,32 +1607,43 @@ void PatternWorkspacePanel::ConstructLayers()
         if (Filter == 2 && Layer.Visible) continue;
         if (Filter == 3 && !Layer.Locked) continue;
         if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
+        // 🎨 Row chrome mirrors Texture Paint's layer rows (via the Stamp stack): 62px,
+        // hover/selected washes only, gold accent bar, grip dots, 34px thumbnail chip,
+        // bare eye/lock glyphs at the right edge.
         const auto RowOrigin = ImGui::GetCursorScreenPos();
-        const auto RowWidth = ImGui::GetContentRegionAvail().x;
+        const float RowX = RowOrigin.x + 2 * Scale;
+        const float RowWidth = ImGui::GetContentRegionAvail().x - 4 * Scale;
+        constexpr float RowHeightUnits = 62.f;
         const bool Selected = !MaskSelection && std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end();
         auto *Ink = ImGui::GetWindowDrawList();
-        Ink->AddRectFilled(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(Selected ? 0x28271f : 0x222220)), 8 * Scale);
-        if (Selected) Ink->AddRect(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(0x5b523b)), 8 * Scale);
         ImGui::PushID(int(Layer.Token));
-        Controls.ControlHeight = 48;
         const std::string SelectCaption = "Select:" + std::to_string(Layer.Token);
-        if (ImGui::InvisibleButton(SelectCaption.c_str(), ImVec2(std::max(30.f, RowWidth - 66 * Scale), 56 * Scale))) Select(Layer.Token, ImGui::GetIO().KeyShift);
-        ControlExtents[SelectCaption] = {RowOrigin.x, RowOrigin.y, RowOrigin.x + RowWidth - 66 * Scale, RowOrigin.y + 56 * Scale};
-        const auto &Source = Snapshot.Instructions[Layer.Root];
-        Ink->PushClipRect(ImVec2(RowOrigin.x + 32 * Scale, RowOrigin.y), ImVec2(RowOrigin.x + RowWidth - 64 * Scale, RowOrigin.y + 56 * Scale), true);
-        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 12 * Scale), Layer.Name.c_str(), 11 * Scale, 0xd5d5c4);
-        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 32 * Scale), Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector", 7 * Scale, 0x93937c);
-        Ink->PopClipRect();
+        ImGui::SetCursorScreenPos(ImVec2(RowX + 20 * Scale, RowOrigin.y));
+        const bool RowClicked = ImGui::InvisibleButton(SelectCaption.c_str(), ImVec2(std::max(30.f, RowWidth - 68 * Scale), RowHeightUnits * Scale));
+        const bool RowHovered = ImGui::IsItemHovered();
+        if (RowClicked) Select(Layer.Token, ImGui::GetIO().KeyShift);
+        ControlExtents[SelectCaption] = {RowX, RowOrigin.y, RowX + RowWidth - 48 * Scale, RowOrigin.y + RowHeightUnits * Scale};
+        if (Selected || RowHovered)
+            Ink->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * Scale), Ink32(Selected ? 0x262626 : 0x1b1b1b), 9 * Scale);
+        if (Selected)
+        {
+            Ink->AddRect(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * Scale), Ink32(0x3e3e3c), 9 * Scale);
+            Ink->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + 3 * Scale, RowOrigin.y + RowHeightUnits * Scale), Ink32(0xd9b281), 3 * Scale);
+        }
+        for (int DotY = 0; DotY < 3; ++DotY)
+            for (int DotX = 0; DotX < 2; ++DotX)
+                Ink->AddCircleFilled(ImVec2(RowX + (7 + DotX * 4) * Scale, RowOrigin.y + (25 + DotY * 6) * Scale), 1.1f * Scale, Ink32(0x55534a), 8);
+        const ImVec2 ChipMin(RowX + 20 * Scale, RowOrigin.y + 14 * Scale), ChipMax(ChipMin.x + 34 * Scale, ChipMin.y + 34 * Scale);
+        Ink->AddRectFilled(ChipMin, ChipMax, Ink32(0x161614), 9 * Scale);
         // 📝 Row preview: the layer's own rendered shape, cropped to its own tight bounds — the
         // ported Texture-workspace layer-row thumbnail, and the same own-bounds contract the
         // selection hitbox fix relies on, instead of the old static swatch outline. The GPU atlas
         // is the fast path once baked; otherwise fall back to a CPU vector replay of just this one
         // layer, and only fall back further to a bare outline if that also finds nothing to draw.
         {
-            // 📝 Square preview (24x24, vertically centred in the 56-tall row) — the box was
-            // previously 24 wide by 36 tall, a non-square crop window that distorted every row
-            // thumbnail's aspect regardless of what atlas content filled it.
-            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 16 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 40 * Scale);
+            // 📝 Square 34px chip preview, vertically centred in the 62-tall row (a non-square
+            // crop window would distort every row thumbnail's aspect regardless of content).
+            const ImVec2 ThumbMin(ChipMin), ThumbMax(ChipMax);
             PatternAtlasImage LayerAtlas{};
             if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
             const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
@@ -1516,9 +1654,9 @@ void PatternWorkspacePanel::ConstructLayers()
                 const float Span = float(LayerAtlasTile) / LayerAtlasExtent;
                 const float U0 = LayerAtlas.MinimumU + (Slot % LayerAtlasColumns) * Step;
                 const float V0 = LayerAtlas.MinimumV + (Slot / LayerAtlasColumns) * Step;
-                Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 4 * Scale);
+                Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 9 * Scale);
                 Ink->AddImageRounded(ImTextureRef(LayerAtlas.Texture), ThumbMin, ThumbMax, ImVec2(U0, V0),
-                    ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 4 * Scale);
+                    ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 9 * Scale);
                 ThumbnailDrawn = true;
             }
             if (!ThumbnailDrawn)
@@ -1537,7 +1675,7 @@ void PatternWorkspacePanel::ConstructLayers()
                         const ImVec2 Centre((ThumbMin.x + ThumbMax.x) * .5f, (ThumbMin.y + ThumbMax.y) * .5f);
                         const auto Project = [&](float X, float Y)
                         { return ImVec2(Centre.x + (X - Extent.Bounds[0]) * Unit, Centre.y + (Y - Extent.Bounds[1]) * Unit); };
-                        Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 4 * Scale);
+                        Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 9 * Scale);
                         Ink->PushClipRect(ThumbMin, ThumbMax, true);
                         for (const auto &Shape : Shapes)
                         {
@@ -1561,9 +1699,18 @@ void PatternWorkspacePanel::ConstructLayers()
                 catch (const std::exception &) { ThumbnailDrawn = false; }
             }
             if (!ThumbnailDrawn)
-                Ink->AddRect(ImVec2(ThumbMin.x + 4 * Scale, ThumbMin.y + 11 * Scale), ImVec2(ThumbMin.x + 18 * Scale, ThumbMin.y + 25 * Scale),
+                Ink->AddRect(ImVec2(ThumbMin.x + 10 * Scale, ThumbMin.y + 10 * Scale), ImVec2(ThumbMin.x + 24 * Scale, ThumbMin.y + 24 * Scale),
                     ImGui::GetColorU32(Spectrum(0xc7d9b8)), 2 * Scale);
         }
+        const auto &Source = Snapshot.Instructions[Layer.Root];
+        Ink->PushClipRect(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y), ImVec2(RowX + RowWidth - 52 * Scale, RowOrigin.y + RowHeightUnits * Scale), true);
+        Caption(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y + 15 * Scale), Layer.Name.c_str(), 11 * Scale,
+            !Layer.Visible ? 0x6a6a62 : Selected ? 0xeeeee8 : 0xc0c0b8);
+        char Sub[96];
+        std::snprintf(Sub, sizeof(Sub), "%s · %s%s%s", Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector",
+            Layer.Visible ? "Visible" : "Hidden", Layer.Locked ? " · Locked" : "", Layer.Mask ? " · Mask" : "");
+        Caption(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y + 34 * Scale), Sub, 8 * Scale, Selected ? 0xa29c90 : 0x696964);
+        Ink->PopClipRect();
         if (!Layer.Locked && ImGui::BeginDragDropSource())
         {
             ImGui::SetDragDropPayload("FrontierVectorAuthoringLayer", &Layer.Token, sizeof(Layer.Token));
@@ -1579,17 +1726,43 @@ void PatternWorkspacePanel::ConstructLayers()
             }
             ImGui::EndDragDropTarget();
         }
-        Controls.ControlHeight = 26;
-        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 60 * Scale, RowOrigin.y + 15 * Scale));
-        if (Controls.Button(("Visibility:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Visible, VisiblePath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Visible = !Candidate.Visible; });
-        ImGui::SameLine(0, 2 * Scale);
-        if (Controls.Button(("Lock:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Locked, LockPath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Locked = !Candidate.Locked; });
-        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + 62 * Scale));
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 46 * Scale, RowOrigin.y + 19 * Scale));
+        const std::string VisibilityCaption = "Visibility:" + std::to_string(Layer.Token);
+        const bool ToggleVisible = BareIconButton(VisibilityCaption.c_str(), Layer.Visible ? VisiblePath : HiddenPath, 20 * Scale, Scale, false, 0x8a8a80);
+        NoteExtent(VisibilityCaption);
+        if (ToggleVisible) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Visible = !Candidate.Visible; });
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 24 * Scale, RowOrigin.y + 19 * Scale));
+        const std::string LockCaption = "Lock:" + std::to_string(Layer.Token);
+        const bool ToggleLock = BareIconButton(LockCaption.c_str(), LockPath, 20 * Scale, Scale, Layer.Locked, Layer.Locked ? 0xbaa789 : 0x8a8a80);
+        NoteExtent(LockCaption);
+        if (ToggleLock) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Locked = !Candidate.Locked; });
+        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + (RowHeightUnits + 2) * Scale));
         ImGui::Dummy(ImVec2(0, 0));
         if (Layer.Mask)
         {
-            Controls.ControlHeight = 28;
-            if (Controls.Button(("Mask · " + Layer.Name).c_str(), RowWidth - 18 * Scale, MaskSelection == Layer.Token)) { Selection = {Layer.Token}; MaskSelection = Layer.Token; }
+            const ImVec2 MaskOrigin = ImGui::GetCursorScreenPos();
+            const float MaskX = MaskOrigin.x + 27 * Scale;
+            const float MaskWidth = ImGui::GetContentRegionAvail().x - 29 * Scale;
+            const bool MaskSelectedRow = MaskSelection == Layer.Token;
+            ImGui::SetCursorScreenPos(ImVec2(MaskX, MaskOrigin.y));
+            const bool MaskClicked = ImGui::InvisibleButton("##MaskSelect", ImVec2(MaskWidth, 43 * Scale));
+            NoteExtent("Mask · " + Layer.Name);
+            if (MaskClicked) { Selection = {Layer.Token}; MaskSelection = Layer.Token; }
+            if (MaskSelectedRow || ImGui::IsItemHovered())
+                Ink->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * Scale), Ink32(MaskSelectedRow ? 0x262626 : 0x1b1b1b), 8 * Scale);
+            if (MaskSelectedRow)
+            {
+                Ink->AddRect(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * Scale), Ink32(0x3c3c37), 8 * Scale);
+                Ink->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + 3 * Scale, MaskOrigin.y + 43 * Scale), Ink32(0xd9b281), 3 * Scale);
+            }
+            const ImVec2 MaskChip(MaskX + 8 * Scale, MaskOrigin.y + 11.5f * Scale);
+            Ink->AddRectFilled(MaskChip, ImVec2(MaskChip.x + 20 * Scale, MaskChip.y + 20 * Scale), Ink32(0x0c0c0c), 5 * Scale);
+            Ink->AddRect(MaskChip, ImVec2(MaskChip.x + 20 * Scale, MaskChip.y + 20 * Scale), Ink32(0x595954), 5 * Scale);
+            Ink->AddRectFilled(ImVec2(MaskChip.x + 2 * Scale, MaskChip.y + 2 * Scale), ImVec2(MaskChip.x + 18 * Scale, MaskChip.y + 18 * Scale), Ink32(0xe6e6df), 2 * Scale);
+            Caption(ImVec2(MaskChip.x + 29 * Scale, MaskOrigin.y + 8 * Scale), "Layer mask", 10 * Scale, 0xc8c8ba);
+            Caption(ImVec2(MaskChip.x + 29 * Scale, MaskOrigin.y + 25 * Scale), Layer.MaskEnabled ? "Owned mask" : "Owned mask · off", 8 * Scale, 0x777770);
+            ImGui::SetCursorScreenPos(ImVec2(MaskOrigin.x, MaskOrigin.y + 45 * Scale));
+            ImGui::Dummy(ImVec2(0, 0));
         }
         ImGui::PopID();
     }
@@ -1646,6 +1819,11 @@ void PatternWorkspacePanel::RefreshPenPreview()
     }
     VectorCoverageInstruction Style;
     Style.Transform[1] = 1.4f;
+    // New pen/polyline paths draw in canvas-contrast ink (the instruction default is white,
+    // which vanishes on the light board); recolour any time from the Inspector.
+    Style.Colour = CanvasInkColour();
+    Style.StrokeColour = Style.Colour;
+    Style.Topology[3] |= VectorCoverageStrokeColourExplicit;
     Style.Paint[3] = PendingPath.Closed ? 1.f : 0.f;
     auto Path = PendingPath;
     if (AutomaticPen && !PolylineSession)
@@ -1675,6 +1853,9 @@ bool PatternWorkspacePanel::FinishPen(bool Closed)
         auto Draft = *PenSource;
         VectorCoverageInstruction Style;
         Style.Transform[1] = 1.4f;
+        Style.Colour = CanvasInkColour();
+        Style.StrokeColour = Style.Colour;
+        Style.Topology[3] |= VectorCoverageStrokeColourExplicit;
         // 📝 Seed the closed/filled state's own independent outline width (Paint[0]) to match the
         // line's starting thickness, purely for visual continuity the instant a brand-new path first
         // closes into a shape - from here on the two widths are edited and stored completely separately.
@@ -2090,27 +2271,25 @@ void PatternWorkspacePanel::ConstructCanvas()
     const auto ContentOrigin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
     const auto At = [&](float X, float Y) { return ImVec2(ContentOrigin.x + X * Scale, ContentOrigin.y + Y * Scale); };
-    const float InnerWidth = Width - 48 * Scale;
-    ImGui::SetCursorScreenPos(At(24, 17));
-    Controls.ControlHeight = 28;
-    Controls.Button("Design tile", 72 * Scale, true, {}, true);
-    ImGui::SameLine(0, 6 * Scale);
-    ImGui::BeginDisabled(); Controls.Button("3D material", 76 * Scale, false, {}, true); Controls.Tooltip("3D material", "Native channel targets and material application are not hosted yet."); ImGui::EndDisabled();
-    Caption(At(std::max(200.f, Width / Scale - 212), 26), "Compose in 2D. See it on a real surface.", 10 * Scale, 0x777766);
-    ImGui::GetWindowDrawList()->AddLine(At(24, 60), At(Width / Scale - 24, 60), ImGui::GetColorU32(Spectrum(0x1e1e1e)));
-    Caption(At(24, 89), MaskSelection ? "OWNED MASK / 512 UNITS" : "REPEAT TILE / 512 UNITS", 8 * Scale, 0x8d8d7b);
+    const float AvailableHeight = ImGui::GetContentRegionAvail().y;
+    // Slim document row (overline + compact rename field + saved state), mirroring the Stamp
+    // workspace: the former Design/3D mode buttons, strapline and 20pt name heading are gone
+    // so the tile owns the viewport height.
+    const char *Overline = MaskSelection ? "OWNED MASK / 512 UNITS" : "REPEAT TILE / 512 UNITS";
+    Caption(At(24, 16), Overline, 8 * Scale, 0x8d8d7b);
     auto Name = QueryDocument().Name;
     std::snprintf(NameText.data(), NameText.size(), "%s", Name.c_str());
-    ImGui::SetCursorScreenPos(At(24, 105));
+    ImGui::SetCursorScreenPos(At(24 + CaptionWidth(Overline, 8 * Scale) / Scale + 12, 6));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-    ImGui::PushFont(static_cast<ImFont *>(LightTypeface ? LightTypeface : RegularTypeface), 20 * 1.302f * Scale);
-    ImGui::SetNextItemWidth(InnerWidth - 150 * Scale);
+    ImGui::PushFont(static_cast<ImFont *>(LightTypeface ? LightTypeface : RegularTypeface), 11 * 1.302f * Scale);
+    ImGui::SetNextItemWidth(220 * Scale);
     if (ImGui::InputText("##PatternName", NameText.data(), NameText.size())) EvaluateEdit([&](auto &Document) { Document.Name = NameText.data(); });
     ImGui::PopFont(); ImGui::PopStyleColor();
-    Caption(At(Width / Scale - 132, 109), QueryModified() ? "Unsaved changes" : "Document saved", 9 * Scale, 0x969b81);
+    Controls.Tooltip("Pattern name", "Names the saved document and its library entry.");
+    Caption(At(Width / Scale - 132, 16), QueryModified() ? "Unsaved changes" : "Document saved", 9 * Scale, 0x969b81);
     auto *Ink = ImGui::GetWindowDrawList();
-    Ink->AddRectFilled(At(24, 161), At(Width / Scale - 24, 211), ImGui::GetColorU32(Spectrum(0x191919)), 8 * Scale);
-    ImGui::SetCursorScreenPos(At(32, 170));
+    Ink->AddRectFilled(At(24, 44), At(Width / Scale - 24, 94), ImGui::GetColorU32(Spectrum(0x191919)), 8 * Scale);
+    ImGui::SetCursorScreenPos(At(32, 53));
     Controls.ControlHeight = 32;
     if (Controls.Button("Select tool (V)", 32 * Scale, Tool == VectorAuthoringTool::Select, SelectPath)) Tool = VectorAuthoringTool::Select;
     Controls.Tooltip("Select", "Select visible GPU contours; Shift-click to extend. Drag once for one undoable source edit.");
@@ -2121,6 +2300,16 @@ void PatternWorkspacePanel::ConstructCanvas()
     {
         ImGui::SameLine(0, 4 * Scale);
         if (Controls.Button(Category ? "Ellipse tool (O)" : "Rectangle tool (R)", 32 * Scale, Tool == (Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle), ShapePaths[Category])) Tool = Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle;
+        Controls.Tooltip(ShapeCaptions[Category], "Drag on the tile to author an editable source shape.");
+    }
+    // Polygon + Star are first-class toolbar tools (they used to hide in "More tools").
+    for (uint32_t Category = 4; Category < 6; ++Category)
+    {
+        ImGui::SameLine(0, 4 * Scale);
+        const auto ShapeTool = VectorAuthoringTool(uint32_t(VectorAuthoringTool::Diamond) + Category - 2);
+        if (Controls.Button(Category == 4 ? "Polygon tool" : "Star tool", 32 * Scale, Tool == ShapeTool, ShapePaths[Category])) Tool = ShapeTool;
+        const auto ItemMinimum = ImGui::GetItemRectMin(), ItemMaximum = ImGui::GetItemRectMax();
+        ControlExtents[ShapeCaptions[Category]] = {ItemMinimum.x, ItemMinimum.y, ItemMaximum.x, ItemMaximum.y};
         Controls.Tooltip(ShapeCaptions[Category], "Drag on the tile to author an editable source shape.");
     }
     ImGui::SameLine(0, 4 * Scale);
@@ -2137,7 +2326,7 @@ void PatternWorkspacePanel::ConstructCanvas()
     if (Controls.Button("More tools", 78 * Scale)) ImGui::OpenPopup("Pattern more tools");
     if (DropdownControlSurface::BeginMenu("Pattern more tools", Scale))
     {
-        for (uint32_t Category = 2; Category < 6; ++Category)
+        for (uint32_t Category = 2; Category < 4; ++Category)
         {
             if (DropdownControlSurface::Option(ShapeCaptions[Category], false, Scale)) { Tool = VectorAuthoringTool(uint32_t(VectorAuthoringTool::Diamond) + Category - 2); ImGui::CloseCurrentPopup(); }
             const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
@@ -2155,24 +2344,27 @@ void PatternWorkspacePanel::ConstructCanvas()
         DropdownControlSurface::EndMenu();
     }
     Controls.ControlHeight = 24;
-    Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
-    Caption(At(36, 226), "VECTOR CANVAS    512 × 512", 8 * Scale, 0x888888);
-    ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
+    Ink->AddRectFilled(At(24, 94), At(Width / Scale - 24, 132), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
+    Caption(At(36, 109), "VECTOR CANVAS    512 × 512", 8 * Scale, 0x888888);
+    ImGui::SetCursorScreenPos(At(Width / Scale - 219, 101));
     if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
     ImGui::SameLine(0, 4 * Scale);
     // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
-    // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
-    // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
+    // on-screen device-pixel request to is 4096, and the fit-sized board below at 1000% zoom
+    // still sits comfortably under that clamp on typical docks, so this stays crisp.
     if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;
-    const ImVec2 Minimum = At(25, 248), Maximum = At(Width / Scale - 25, 678);
+    const float ContentBottom = ContentOrigin.y + AvailableHeight;
+    const ImVec2 Minimum = At(25, 131), Maximum(ImVec2(ContentOrigin.x + Width - 25 * Scale, ContentBottom - 41 * Scale));
     Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Inset)));
-    const float BoardSize = std::max(32.f, std::min(InnerWidth - 120 * Scale, 360 * Scale)) * Zoom;
+    // Fit = the whole dock-space fit (Zoom 1.0 fills the smaller region dimension minus margins).
+    const float FitSize = std::max(32.f, std::min(Maximum.x - Minimum.x, Maximum.y - Minimum.y) - 56 * Scale);
+    const float BoardSize = FitSize * Zoom;
     const ImVec2 Centre((Minimum.x + Maximum.x) * .5f + Pan.X, (Minimum.y + Maximum.y) * .5f + Pan.Y);
     const ImVec2 BoardMinimum(Centre.x - BoardSize * .5f, Centre.y - BoardSize * .5f), BoardMaximum(Centre.x + BoardSize * .5f, Centre.y + BoardSize * .5f);
     BoardExtent = {BoardMinimum.x, BoardMinimum.y, BoardMaximum.x, BoardMaximum.y};
@@ -2574,10 +2766,15 @@ void PatternWorkspacePanel::ConstructCanvas()
             {
                 VectorCoverageInstruction Source;
                 Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
-                Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
-                    std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
+                // Ctrl draws the shape out from the drag start as its centre (mouse = centre).
+                if (Input.KeyCtrl || Input.KeySuper)
+                    Source.Bounds = {PointerOrigin.X, PointerOrigin.Y,
+                        std::max(1.f, 2.f * std::abs(Position.X - PointerOrigin.X)), std::max(1.f, 2.f * std::abs(Position.Y - PointerOrigin.Y))};
+                else
+                    Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
+                        std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
-                Source.StrokeColour = {.23f, .24f, .28f, 1};
+                Source.StrokeColour = CanvasInkColour();
                 Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
                 // 📝 Paint[2]/Paint[1] default-initialize to zero, which the renderer floors to a 3-sided
                 // sliver - seed a sensible pentagon/5-point-star so a freshly drawn Polygon or Star reads as
@@ -2685,14 +2882,14 @@ void PatternWorkspacePanel::ConstructCanvas()
         if (GestureDraft) { auto Document = std::move(*GestureDraft); GestureDraft.reset(); Finalize(std::move(Document), Selection); }
         GestureSource.reset(); Gesture = 0;
     }
-    Ink->AddRectFilled(At(24, 678), At(Width / Scale - 24, 711), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
-    Caption(At(35, 689), Tool == VectorAuthoringTool::Points ? "Shift-click anchors to multi-select · Drag curve to bend · Click curve to split · Space pan" : "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
-    Caption(At(Width / Scale - 114, 689), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
+    Ink->AddRectFilled(ImVec2(At(24, 0).x, Maximum.y), ImVec2(At(Width / Scale - 24, 0).x, Maximum.y + 33 * Scale), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
+    Caption(ImVec2(At(35, 0).x, Maximum.y + 11 * Scale), Tool == VectorAuthoringTool::Points ? "Shift-click anchors to multi-select · Drag curve to bend · Click curve to split · Space pan" : "Marquee to select · Shift constrain · Alt centred resize · Ctrl centre draw · Space pan", 8 * Scale, 0x909a7c);
+    Caption(ImVec2(At(Width / Scale - 114, 0).x, Maximum.y + 11 * Scale), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
     // 📝 The standalone "Seamless repeat preview" panel that used to live here was removed in favour of
     // the "Preview seamless repeat" toggle above, which tiles the same texture directly on the canvas.
-    // The sizing nudge below now just pins the scroll region to the bottom of the status bar instead of
-    // the old preview panel's footprint.
-    ImGui::SetCursorScreenPos(At(Width / Scale - 24, 711));
+    // Content height is exactly the dock's available height (see Maximum), so the panel never
+    // scrolls: canvas + hint bar always fit.
+    ImGui::SetCursorScreenPos(ImVec2(At(Width / Scale - 24, 0).x, ContentOrigin.y + AvailableHeight - 1));
     ImGui::Dummy(ImVec2(1, 1));
 }
 

@@ -227,6 +227,9 @@ private:
     void ConstructCloseDialogue();
     void ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected, size_t Slot);
     void ConstructPrimitive(uint32_t Category, const char *Caption);
+    // Contrast ink for newly drawn vectors: white on a transparent/dark board, black on a light
+    // one, so a fresh polyline/shape outline never vanishes against the canvas while drawing.
+    [[nodiscard]] std::array<float, 4> CanvasInkColour() const noexcept;
     void ApplyLibraryPreset(size_t Index);
     void ApplyPresetDocument(VectorAuthoringDocument Document);
     void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens);

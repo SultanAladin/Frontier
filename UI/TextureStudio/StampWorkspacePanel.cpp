@@ -432,6 +432,17 @@ void StampWorkspacePanel::Select(uint32_t Token, bool Extend)
     MaskSelection = 0;
 }
 
+std::array<float, 4> StampWorkspacePanel::CanvasInkColour() const noexcept
+{
+    // Fresh vectors must contrast whatever the board shows: transparent -> white, a dark board
+    // -> white, a light board -> black. (Board base is 0xede7d7; see ConstructCanvas.)
+    if (TransparentCanvas) return {1, 1, 1, 1};
+    constexpr uint32_t Board = 0xede7d7;
+    const float Luminance = (.2126f * float((Board >> 16) & 255) + .7152f * float((Board >> 8) & 255)
+        + .0722f * float(Board & 255)) / 255.f;
+    return Luminance > .5f ? std::array<float, 4>{0, 0, 0, 1} : std::array<float, 4>{1, 1, 1, 1};
+}
+
 void StampWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *CaptionText)
 {
     try
@@ -442,7 +453,7 @@ void StampWorkspacePanel::ConstructPrimitive(uint32_t Category, const char *Capt
         Source.Bounds = {256, 256, 160, 160};
         Source.Colour = {.8627f, .4627f, .3529f, 1};
         Source.ColourEnd = {.35f, .55f, .45f, 1};
-        Source.StrokeColour = {.23f, .24f, .28f, 1};
+        Source.StrokeColour = CanvasInkColour();
         Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
         if (Document.Layers.empty()) Document.Name = "Custom stamp";
         const auto Token = ConstructVectorAuthoringPrimitive(Document, Source, CaptionText == std::string_view(ShapeCaptions[Category]) ? ShapeNames[Category] : CaptionText);
@@ -500,6 +511,11 @@ void StampWorkspacePanel::RefreshPenPreview()
     }
     VectorCoverageInstruction Style;
     Style.Transform[1] = 1.4f;
+    // New pen/polyline paths draw in canvas-contrast ink (the instruction default is white,
+    // which vanishes on the light board); recolour any time from the Inspector.
+    Style.Colour = CanvasInkColour();
+    Style.StrokeColour = Style.Colour;
+    Style.Topology[3] |= VectorCoverageStrokeColourExplicit;
     Style.Paint[3] = PendingPath.Closed ? 1.f : 0.f;
     auto Path = PendingPath;
     if (AutomaticPen && !PolylineSession)
@@ -529,6 +545,9 @@ bool StampWorkspacePanel::FinishPen(bool Closed)
         auto Draft = *PenSource;
         VectorCoverageInstruction Style;
         Style.Transform[1] = 1.4f;
+        Style.Colour = CanvasInkColour();
+        Style.StrokeColour = Style.Colour;
+        Style.Topology[3] |= VectorCoverageStrokeColourExplicit;
         // 📝 Seed the closed/filled state's own independent outline width (Paint[0]) to match the
         // line's starting thickness, purely for visual continuity the instant a brand-new path first
         // closes into a shape - from here on the two widths are edited and stored completely separately.
@@ -2211,10 +2230,15 @@ void StampWorkspacePanel::ConstructCanvas()
             {
                 VectorCoverageInstruction Source;
                 Source.Topology[0] = Tool == VectorAuthoringTool::Rectangle ? 0u : Tool == VectorAuthoringTool::Ellipse ? 1u : uint32_t(Tool) - uint32_t(VectorAuthoringTool::Diamond) + 2;
-                Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
-                    std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
+                // Ctrl draws the shape out from the drag start as its centre (mouse = centre).
+                if (Input.KeyCtrl || Input.KeySuper)
+                    Source.Bounds = {PointerOrigin.X, PointerOrigin.Y,
+                        std::max(1.f, 2.f * std::abs(Position.X - PointerOrigin.X)), std::max(1.f, 2.f * std::abs(Position.Y - PointerOrigin.Y))};
+                else
+                    Source.Bounds = {(Position.X + PointerOrigin.X) * .5f, (Position.Y + PointerOrigin.Y) * .5f,
+                        std::max(1.f, std::abs(Position.X - PointerOrigin.X)), std::max(1.f, std::abs(Position.Y - PointerOrigin.Y))};
                 Source.Colour = {.8627f, .4627f, .3529f, 1};
-                Source.StrokeColour = {.23f, .24f, .28f, 1};
+                Source.StrokeColour = CanvasInkColour();
                 Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
                 // 📝 Paint[2]/Paint[1] default-initialize to zero, which the renderer floors to a 3-sided
                 // sliver - seed a sensible pentagon/5-point-star so a freshly drawn Polygon or Star reads as
@@ -2345,7 +2369,7 @@ void StampWorkspacePanel::ConstructCanvas()
         GestureSource.reset(); Gesture = 0;
     }
     Ink->AddRectFilled(ImVec2(At(24, 0).x, Maximum.y), ImVec2(At(Width / Scale - 24, 0).x, Maximum.y + 33 * Scale), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
-    Caption(ImVec2(At(35, 0).x, Maximum.y + 11 * Scale), "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
+    Caption(ImVec2(At(35, 0).x, Maximum.y + 11 * Scale), "Marquee to select · Shift constrain · Alt centred resize · Ctrl centre draw · Space pan", 8 * Scale, 0x909a7c);
     Caption(ImVec2(At(Width / Scale - 114, 0).x, Maximum.y + 11 * Scale), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
     // 📝 The standalone "Decal preview on a plain surface" panel that used to live here was removed —
     // it duplicated the main board above with no extra information. Content height is exactly the
