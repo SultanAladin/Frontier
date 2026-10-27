@@ -24,6 +24,7 @@
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include "Engine/Render/MaterialPreviewConfiguration.h"
 #include "UI/TextureStudio/PaintStampEngine.h"
+#include "UI/TextureStudio/StampLibrary.h"
 #include <array>
 #include <filesystem>
 #include <functional>
@@ -66,6 +67,14 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     // 📝 Save project / autosaved draft land here (the material library directory the app already owns).
     void ConfigureProjectDirectory(std::filesystem::path Directory) { ProjectDirectory = std::move(Directory); }
 
+    // 🖨️ Shared stamp library folder (<library>/Stamps): the Stamp workspace saves decals here, the
+    //    stamp tool's right-click picker reads them (plus built-in presets) from the same place.
+    void ConfigureStampLibraryDirectory(std::filesystem::path Directory)
+    {
+        StampLibraryDirectory = std::move(Directory);
+        EnsureStampLibrary(true);
+    }
+
     // 📝 Read-only document facts for headless construction validation (mirrors Baking's QuerySettings).
     [[nodiscard]] const std::string &QueryDocumentName() const noexcept { return DocumentName; }
     [[nodiscard]] size_t QueryLayerCount() const noexcept { return Layers.size(); }
@@ -104,6 +113,16 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         int Triangle = -1;
         std::array<float, 4> Colour{1, 1, 1, 1};
     };
+    // 🖨️ One placed decal: a StampLibrary entry (by id) centred at an authoring UV, sized/rotated in
+    //    UV space like dabs are, tinted at placement time. Evaluated per-triangle in the preview.
+    struct StampPlacement
+    {
+        std::string StampId;
+        float U = 0, V = 0;
+        float Radius = 0.06f; // half-size in authoring-UV units
+        float Rotation = 0;   // radians, counter-clockwise in UV space
+        std::array<float, 4> Tint{1, 1, 1, 1};
+    };
     struct MaskState
     {
         bool Present = false;
@@ -141,6 +160,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         MaskState Mask;
         std::vector<PaintDab> Dabs;
         std::vector<PaintFill> Fills;
+        std::vector<StampPlacement> Stamps;
         int StrokeCount = 0;
         int DecalCount = 0;
         std::string SourceAsset;       // assigned content-browser asset name, empty = none
@@ -293,6 +313,18 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] bool BuildStampHit(const float Uv[2], int Triangle, float RadiusUv, StampHit &Out, float &WorldRadius) const noexcept;
     void SyncStampParams(float WorldRadius) noexcept;
     void ClearStampCanvas() noexcept;
+    // 🖨️ Stamp library + decal placement (StampLibrary.h). The picker is a right-click popup in the
+    // viewport while the Stamp author tool is active; placements live on layers like dabs/fills do.
+    StampLibrary StampLib;
+    std::filesystem::path StampLibraryDirectory;
+    std::string ActiveStampId;
+    bool StampLibraryScanned = false;
+    bool StampRightDownValid = false;
+    float StampRightDownX = 0, StampRightDownY = 0;
+    void EnsureStampLibrary(bool ForceReload = false);
+    [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
+    void PlaceStampAt(const float Uv[2]);
+    void ConstructStampPicker();
     bool StrokeActive = false;
     bool StrokeChanged = false;
     bool StrokeTargetMask = false;

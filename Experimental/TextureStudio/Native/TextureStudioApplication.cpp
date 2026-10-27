@@ -444,6 +444,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Texture = static_cast<Frontier::TexturePaintWorkspacePanel *>(TextureOwnership.get());
         if (!Texture->Initialize() || !Texture->Activate()) throw std::runtime_error("Texture Paint workspace activation failed.");
         Texture->ConfigureProjectDirectory(Directory);
+        Texture->ConfigureStampLibraryDirectory(Directory / "Stamps");
         Texture->ActivateMaterial = [&]() { TextureActive = false; };
         Texture->ActivatePattern = [&]() { TextureActive = false; PatternActive = true; };
         Texture->ActivateStamp = [&]() { TextureActive = false; StampActive = true; };

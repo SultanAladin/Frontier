@@ -82,7 +82,7 @@ target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
     UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
-    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp
+    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
     Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
@@ -309,6 +309,10 @@ if(BUILD_TESTING)
     target_link_libraries(PaintStampEngineValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PaintStampEngineValidation COMMAND PaintStampEngineValidation)
     set_tests_properties(PaintStampEngineValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampLibraryValidation Exhibits/TextureStudio/Code/StampLibraryValidation.cpp)
+    target_link_libraries(StampLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampLibraryValidation COMMAND StampLibraryValidation)
+    set_tests_properties(StampLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(StampTextGestureValidation Exhibits/TextureStudio/Code/StampTextGestureValidation.cpp)
     target_link_libraries(StampTextGestureValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME StampTextGestureValidation COMMAND StampTextGestureValidation

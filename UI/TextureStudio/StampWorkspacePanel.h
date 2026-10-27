@@ -231,6 +231,10 @@ private:
     void CapturePanel(const char *Caption);
     void ApplySourcePatch(const VectorAuthoringSourcePatch &Patch);
     bool Save();
+    // 🖨️ Rasterizes the current decal (transparent surround) into the shared stamp library as a PNG
+    // plus its vector source sidecar, so Texture Paint's stamp picker can place it. Diagnostic reports.
+    bool SaveToLibrary();
+    std::filesystem::path StampLibraryDirectory;
     void SuspendContent() noexcept override;
     void FinalizeContent() noexcept override;
 };

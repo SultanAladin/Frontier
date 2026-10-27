@@ -346,4 +346,45 @@ std::vector<uint8_t> BlitPatternThumbnailAtlas(
     }
     return Atlas;
 }
+
+std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document)
+{
+    // 🖨️ EncodePatternThumbnailSvg minus the opaque background rect: stamp artwork must keep a
+    // transparent surround so Texture Paint can composite it as a decal.
+    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">";
+    std::string Defs, Body;
+    for (const auto &Layer : Document.Layers)
+    {
+        if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
+        EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
+    }
+    if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
+    Svg += Body;
+    Svg += "</svg>";
+    return Svg;
+}
+
+std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Document, uint32_t Extent)
+{
+    if (!Extent || Extent > 1024) throw std::runtime_error("Stamp raster extent is unbounded.");
+    const std::string Svg = EncodeStampDocumentSvg(Document);
+    EnsureThorVg();
+    std::vector<uint8_t> Pixels(size_t(Extent) * Extent * 4, 0);
+    std::unique_ptr<tvg::SwCanvas> Canvas(tvg::SwCanvas::gen());
+    std::unique_ptr<tvg::Picture, ReleasePaint> Picture(tvg::Picture::gen());
+    if (!Canvas || !Picture) throw std::runtime_error("ThorVG stamp canvas allocation failed.");
+    bool Ok = Picture->load(Svg.data(), uint32_t(Svg.size()), "svg", nullptr, true) == tvg::Result::Success;
+    if (Ok) Ok = Picture->size(float(Extent), float(Extent)) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->target(reinterpret_cast<uint32_t *>(Pixels.data()), Extent, Extent, Extent,
+                     tvg::ColorSpace::ABGR8888S) == tvg::Result::Success;
+    if (Ok)
+    {
+        Ok = Canvas->add(Picture.get()) == tvg::Result::Success;
+        if (Ok) Picture.release();
+    }
+    if (Ok) Ok = Canvas->draw(true) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->sync() == tvg::Result::Success;
+    if (!Ok) throw std::runtime_error("ThorVG could not rasterize the stamp document SVG.");
+    return Pixels;
+}
 } // namespace Frontier

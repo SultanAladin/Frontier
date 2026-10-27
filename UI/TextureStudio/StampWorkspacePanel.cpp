@@ -5,12 +5,15 @@
 //    24-layer decal stack (Shape/Text/Vector/Image components) instead of a tileable preset library.
 
 #include "StampWorkspacePanel.h"
+#include "StampLibrary.h"
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
 #include "WorkspaceZoom.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
+#include "Engine/Interface/GlyphSpace.h"
+#include "Engine/Interface/PixelSpace.h"
 #include "Engine/ContentInterchange/StampTextOutline.h"
 #include "Engine/ContentInterchange/StampVectorImport.h"
 #include "Engine/ContentInterchange/VectorAuthoringEditing.h"
@@ -59,6 +62,46 @@ void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, voi
 {
     ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
 }
+
+// 🎨 Texture Paint layer-stack chrome, mirrored: packed draw colour with alpha, measured caption
+// widths, bare glyphs and icon buttons (no capsule fill - hover/selected washes only).
+ImU32 Ink32(uint32_t Colour, float Alpha = 1.f)
+{
+    ImVec4 Quad = Spectrum(Colour);
+    Quad.w = Alpha;
+    return ImGui::GetColorU32(Quad);
+}
+ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
+}
+float CaptionWidth(const char *Text, float Size, void *Typeface = nullptr)
+{
+    ImFont *Font = Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont();
+    return Font->CalcTextSizeA(Size * 1.302f, 1e9f, 0.f, Text).x;
+}
+void DrawGlyph(const char *Path, ImVec2 Position, float Size, uint32_t Colour, float StrokeWidth = 1.6f)
+{
+    PixelSpace Surface;
+    (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+    GlyphSpace::Stroke(Surface, Path, {Position.x, Position.y, Size, StrokeWidth, SpectrumQuad(Colour)});
+}
+bool BareIconButton(const char *Id, const char *Path, float Size, float Scale, bool Selected, uint32_t Colour)
+{
+    const ImVec2 Position = ImGui::GetCursorScreenPos();
+    ImGui::PushID(Id);
+    const bool Pressed = ImGui::InvisibleButton("##Icon", ImVec2(Size, Size));
+    ImGui::PopID();
+    const bool Hovered = ImGui::IsItemHovered();
+    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
+    auto *Ink = ImGui::GetWindowDrawList();
+    if (Selected || (Hovered && !Disabled))
+        Ink->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size), Ink32(Selected ? 0x2a2a27 : 0x232320, Disabled ? .4f : 1.f), 6 * Scale);
+    const float Glyph = Size * .55f;
+    DrawGlyph(Path, ImVec2(Position.x + (Size - Glyph) * .5f, Position.y + (Size - Glyph) * .5f), Glyph, Disabled ? 0x4c4c44 : Colour);
+    return Pressed && !Disabled;
+}
+constexpr const char *HiddenPath = "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20";
 
 // 🎨 The two document-space control points of a gradient-filled shape's own axis/radius handles — the
 // exact inverse of VectorCoverage.slang's EvaluateVectorPoint Fraction formula's LocalNorm construction,
@@ -903,6 +946,31 @@ bool StampWorkspacePanel::Save()
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
 }
 
+bool StampWorkspacePanel::SaveToLibrary()
+{
+    if (StampLibraryDirectory.empty()) { Diagnostic = "No stamp library directory is configured by the host."; return false; }
+    const auto &Document = QueryDocument();
+    if (Document.Layers.empty()) { Diagnostic = "Add a component before saving this stamp to the library."; return false; }
+    try
+    {
+        // 📝 ThorVG's ABGR8888S target lands in memory as R,G,B,A bytes (little-endian word), which is
+        // exactly the straight-alpha RGBA the library PNG stores - no swizzle, no unpremultiply.
+        constexpr uint32_t Extent = 512;
+        const std::vector<uint8_t> Pixels = RasterizeStampDocument(Document, Extent);
+        bool AnyArt = false;
+        for (size_t Pixel = 3; Pixel < Pixels.size(); Pixel += 4)
+            if (Pixels[Pixel] > 0) { AnyArt = true; break; }
+        if (!AnyArt) { Diagnostic = "The stamp rasterized fully transparent - check component visibility."; return false; }
+        std::string Id;
+        if (!StampLibrary::SaveRaster(StampLibraryDirectory, Document.Name, int(Extent), int(Extent), Pixels,
+                EncodeVectorAuthoring(Document), Id, Diagnostic))
+            return false;
+        Diagnostic = "Saved '" + Document.Name + "' to the stamp library - pick it from Texture Paint's stamp tool (right-click the viewport).";
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+}
+
 bool StampWorkspacePanel::RequestClose()
 {
     if (GestureSource) { Selection = GestureSelection; GestureSource.reset(); GestureDraft.reset(); Gesture = 0; }
@@ -1349,6 +1417,12 @@ void StampWorkspacePanel::ConstructImagePopup()
 void StampWorkspacePanel::ConstructLayers()
 {
     CapturePanel("Layers");
+    // 📝 Controls.Register is private; restyled bare buttons record the same captions/extents the old
+    // capsule buttons did, straight into the panel map the RegisterExtent callback writes.
+    const auto NoteExtent = [&](const std::string &CaptionText) {
+        const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+        ControlExtents[CaptionText] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+    };
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
     Caption(ImVec2(Origin.x + 16 * Scale, Origin.y + 15 * Scale), "Components", 23 * Scale, 0xd9d9cc, LightTypeface);
@@ -1372,27 +1446,91 @@ void StampWorkspacePanel::ConstructLayers()
     ConstructImagePopup();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * Scale, Origin.y + 64 * Scale));
     ImGui::BeginChild("Stamp layers body", ImVec2(Width - 16 * Scale, 0), ImGuiChildFlags_None);
-    Controls.ControlHeight = 48;
     size_t Visible = 0, Locked = 0;
     for (const auto &Layer : Snapshot.Layers) { if (Layer.Visible) ++Visible; if (Layer.Locked) ++Locked; }
-    char CapLabel[32]; std::snprintf(CapLabel, sizeof(CapLabel), "%02zu\n/ 24", Snapshot.Layers.size());
     const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible, Locked};
-    const char *Captions[]{"Visible", "Hidden", "Locked"};
-    const float StatWidth = (ImGui::GetContentRegionAvail().x - 18 * Scale) / 4;
-    Controls.Button(CapLabel, StatWidth, false, {}, true);
-    Controls.Tooltip("Component cap", "Stamp decals are capped at 24 components (Pattern allows 64).");
-    for (int Index = 0; Index < 3; ++Index)
+    // .tp-layer-stats treatment: filter cards with disc glyphs and light numerals (the cap rides the heading).
     {
-        ImGui::SameLine(0, 6 * Scale);
-        char Label[32]; std::snprintf(Label, sizeof(Label), "%02zu\n%s", Counts[Index], Captions[Index]);
-        if (Controls.Button(Label, StatWidth, Filter == Index + 1, {}, true)) Filter = Filter == Index + 1 ? 0 : Index + 1;
+        const ImVec2 CardOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        const float CardWidth = (InnerWidth - 28 * Scale) / 3.f;
+        const struct { const char *Label; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[3]{
+            {"Visible", "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
+            {"Hidden", HiddenPath, 0x292929, 0x676760},
+            {"Locked", LockPath, 0x292929, 0x676760}};
+        auto *Ink = ImGui::GetWindowDrawList();
+        for (int Index = 0; Index < 3; ++Index)
+        {
+            const ImVec2 CardMin(CardOrigin.x + 6 * Scale + Index * (CardWidth + 8 * Scale), CardOrigin.y);
+            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 60 * Scale);
+            const bool Pressed = Filter == Index + 1;
+            ImGui::SetCursorScreenPos(CardMin);
+            ImGui::PushID(Index);
+            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 60 * Scale));
+            ImGui::PopID();
+            char StatLabel[32];
+            std::snprintf(StatLabel, sizeof(StatLabel), "%02zu\n%s", Counts[Index], Cards[Index].Label);
+            NoteExtent(StatLabel); // same caption the pre-restyle stat buttons registered
+            if (Clicked) Filter = Pressed ? 0 : Index + 1;
+            Ink->AddRectFilled(CardMin, CardMax, Ink32(Pressed ? 0x25221d : 0x191919), 16 * Scale);
+            Ink->AddRect(CardMin, CardMax, Ink32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 16 * Scale);
+            Ink->AddCircleFilled(ImVec2(CardMin.x + 20 * Scale, CardMin.y + 20 * Scale), 9.5f * Scale, Ink32(Cards[Index].Disc), 24);
+            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 14.5f * Scale, CardMin.y + 14.5f * Scale), 11 * Scale, Cards[Index].Glyph, 2.2f);
+            Caption(ImVec2(CardMin.x + 11 * Scale, CardMax.y - 19 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
+            char Number[8];
+            std::snprintf(Number, sizeof(Number), "%02zu", Counts[Index]);
+            Caption(ImVec2(CardMax.x - 11 * Scale - CaptionWidth(Number, 29 * Scale, LightTypeface), CardMax.y - 38 * Scale), Number, 29 * Scale, 0xddddcf, LightTypeface);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 60 * Scale));
     }
-    Controls.ControlHeight = 30;
-    ImGui::Spacing();
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputTextWithHint("##FindComponent", "Find a component...", SearchText.data(), SearchText.size());
-    ImGui::Dummy(ImVec2(0, 8 * Scale));
-    ImGui::TextDisabled("Top components render in front · drag to reorder");
+    // .tp-layer-search treatment: 36px pill, search glyph, frameless entry, clear icon.
+    {
+        const ImVec2 SearchOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        const ImVec2 BoxMin(SearchOrigin.x + 6 * Scale, SearchOrigin.y + 12 * Scale), BoxMax(SearchOrigin.x + InnerWidth - 6 * Scale, SearchOrigin.y + 48 * Scale);
+        auto *Ink = ImGui::GetWindowDrawList();
+        Ink->AddRectFilled(BoxMin, BoxMax, Ink32(0x191919), 18 * Scale);
+        Ink->AddRect(BoxMin, BoxMax, Ink32(0x2c2c2c), 18 * Scale);
+        DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", ImVec2(BoxMin.x + 11 * Scale, BoxMin.y + 11 * Scale), 14 * Scale, 0x77776f);
+        ImGui::SetCursorScreenPos(ImVec2(BoxMin.x + 33 * Scale, BoxMin.y + 6 * Scale));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+        ImGui::SetNextItemWidth(BoxMax.x - BoxMin.x - 66 * Scale);
+        ImGui::InputText("##FindComponent", SearchText.data(), SearchText.size());
+        const bool SearchActive = ImGui::IsItemActive();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        if (!SearchText[0] && !SearchActive)
+            Caption(ImVec2(BoxMin.x + 37 * Scale, BoxMin.y + 12 * Scale), "Find a component...", 10 * Scale, 0x787871);
+        if (SearchText[0])
+        {
+            ImGui::SetCursorScreenPos(ImVec2(BoxMax.x - 28 * Scale, BoxMin.y + 7 * Scale));
+            if (BareIconButton("ClearComponentSearch", "M6 6L18 18M6 18L18 6", 22 * Scale, Scale, false, 0x8a8a80)) SearchText[0] = '\0';
+        }
+        ImGui::SetCursorScreenPos(ImVec2(SearchOrigin.x, SearchOrigin.y + 56 * Scale));
+    }
+    // .tp-layer-order treatment.
+    {
+        size_t Shown = 0;
+        for (const auto &Layer : Snapshot.Layers)
+        {
+            if (Filter == 1 && !Layer.Visible) continue;
+            if (Filter == 2 && Layer.Visible) continue;
+            if (Filter == 3 && !Layer.Locked) continue;
+            if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
+            ++Shown;
+        }
+        const ImVec2 OrderOrigin = ImGui::GetCursorScreenPos();
+        const float InnerWidth = ImGui::GetContentRegionAvail().x;
+        Caption(ImVec2(OrderOrigin.x + 10 * Scale, OrderOrigin.y + 2 * Scale), "TOP -> BOTTOM", 8 * Scale, 0x686862);
+        char ShownText[32];
+        std::snprintf(ShownText, sizeof(ShownText), "%zu shown", Shown);
+        Caption(ImVec2(OrderOrigin.x + InnerWidth - 10 * Scale - CaptionWidth(ShownText, 8 * Scale), OrderOrigin.y + 2 * Scale), ShownText, 8 * Scale, 0x55554f);
+        ImGui::SetCursorScreenPos(ImVec2(OrderOrigin.x, OrderOrigin.y + 21 * Scale));
+        ImGui::Dummy(ImVec2(0, 0));
+    }
     const char *KindCaptions[]{"", "Text", "Imported vector", "Imported image"};
     for (auto Position = Snapshot.Layers.rbegin(); Position != Snapshot.Layers.rend(); ++Position)
     {
@@ -1401,32 +1539,35 @@ void StampWorkspacePanel::ConstructLayers()
         if (Filter == 2 && Layer.Visible) continue;
         if (Filter == 3 && !Layer.Locked) continue;
         if (FoldCaption(Layer.Name).find(FoldCaption(SearchText.data())) == std::string::npos) continue;
+        // 🎨 Row chrome mirrors Texture Paint's layer rows: 62px, hover/selected washes only, gold
+        // accent bar, grip dots, 34px thumbnail chip, bare eye/lock glyphs at the right edge.
         const auto RowOrigin = ImGui::GetCursorScreenPos();
-        const auto RowWidth = ImGui::GetContentRegionAvail().x;
+        const float RowX = RowOrigin.x + 2 * Scale;
+        const float RowWidth = ImGui::GetContentRegionAvail().x - 4 * Scale;
+        constexpr float RowHeightUnits = 62.f;
         const bool Selected = !MaskSelection && std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end();
         auto *Ink = ImGui::GetWindowDrawList();
-        Ink->AddRectFilled(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(Selected ? 0x28271f : 0x222220)), 8 * Scale);
-        if (Selected) Ink->AddRect(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 56 * Scale), ImGui::GetColorU32(Spectrum(0x5b523b)), 8 * Scale);
         ImGui::PushID(int(Layer.Token));
-        Controls.ControlHeight = 48;
         const std::string SelectCaption = "Select:" + std::to_string(Layer.Token);
-        if (ImGui::InvisibleButton(SelectCaption.c_str(), ImVec2(std::max(30.f, RowWidth - 66 * Scale), 56 * Scale))) Select(Layer.Token, ImGui::GetIO().KeyShift);
-        ControlExtents[SelectCaption] = {RowOrigin.x, RowOrigin.y, RowOrigin.x + RowWidth - 66 * Scale, RowOrigin.y + 56 * Scale};
-        const auto &Source = Snapshot.Instructions[Layer.Root];
-        Ink->PushClipRect(ImVec2(RowOrigin.x + 32 * Scale, RowOrigin.y), ImVec2(RowOrigin.x + RowWidth - 64 * Scale, RowOrigin.y + 56 * Scale), true);
-        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 12 * Scale), Layer.Name.c_str(), 11 * Scale, 0xd5d5c4);
-        const char *Kind = Layer.ComponentKind != VectorAuthoringComponentKind::Freeform ? KindCaptions[uint32_t(Layer.ComponentKind)]
-            : Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector";
-        Caption(ImVec2(RowOrigin.x + 36 * Scale, RowOrigin.y + 32 * Scale), Kind, 7 * Scale, 0x93937c);
-        Ink->PopClipRect();
-        // 📝 Row preview: same own-bounds-cropped SVG raster Pattern uses, backed by the GPU atlas
-        // once baked; Stamp skips the CPU vector-replay middle tier (atlas bakes within a frame or
-        // two of a CPU-side SVG rasterize, so the gap is a brief placeholder, not a real regression).
+        ImGui::SetCursorScreenPos(ImVec2(RowX + 20 * Scale, RowOrigin.y));
+        const bool RowClicked = ImGui::InvisibleButton(SelectCaption.c_str(), ImVec2(std::max(30.f, RowWidth - 68 * Scale), RowHeightUnits * Scale));
+        const bool RowHovered = ImGui::IsItemHovered();
+        if (RowClicked) Select(Layer.Token, ImGui::GetIO().KeyShift);
+        ControlExtents[SelectCaption] = {RowX, RowOrigin.y, RowX + RowWidth - 48 * Scale, RowOrigin.y + RowHeightUnits * Scale};
+        if (Selected || RowHovered)
+            Ink->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * Scale), Ink32(Selected ? 0x262626 : 0x1b1b1b), 9 * Scale);
+        if (Selected)
         {
-            // 📝 Square preview (24x24, vertically centred in the 56-tall row) — the box was
-            // previously 24 wide by 36 tall, a non-square crop window that distorted every row
-            // thumbnail's aspect regardless of what atlas content filled it.
-            const ImVec2 ThumbMin(RowOrigin.x + 8 * Scale, RowOrigin.y + 16 * Scale), ThumbMax(RowOrigin.x + 32 * Scale, RowOrigin.y + 40 * Scale);
+            Ink->AddRect(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * Scale), Ink32(0x3e3e3c), 9 * Scale);
+            Ink->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + 3 * Scale, RowOrigin.y + RowHeightUnits * Scale), Ink32(0xd9b281), 3 * Scale);
+        }
+        for (int DotY = 0; DotY < 3; ++DotY)
+            for (int DotX = 0; DotX < 2; ++DotX)
+                Ink->AddCircleFilled(ImVec2(RowX + (7 + DotX * 4) * Scale, RowOrigin.y + (25 + DotY * 6) * Scale), 1.1f * Scale, Ink32(0x55534a), 8);
+        // 34px thumbnail chip: the component's own-bounds atlas raster once baked (square, centred).
+        const ImVec2 ChipMin(RowX + 20 * Scale, RowOrigin.y + 14 * Scale), ChipMax(ChipMin.x + 34 * Scale, ChipMin.y + 34 * Scale);
+        Ink->AddRectFilled(ChipMin, ChipMax, Ink32(0x161614), 9 * Scale);
+        {
             StampAtlasImage LayerAtlas{};
             if (QueryLayerThumbnailAtlas) LayerAtlas = QueryLayerThumbnailAtlas();
             const size_t Slot = size_t(&Layer - Snapshot.Layers.data());
@@ -1437,15 +1578,25 @@ void StampWorkspacePanel::ConstructLayers()
                 const float Span = float(LayerAtlasTile) / LayerAtlasExtent;
                 const float U0 = LayerAtlas.MinimumU + (Slot % LayerAtlasColumns) * Step;
                 const float V0 = LayerAtlas.MinimumV + (Slot / LayerAtlasColumns) * Step;
-                Ink->AddRectFilled(ThumbMin, ThumbMax, ImGui::GetColorU32(Spectrum(0x161614)), 4 * Scale);
-                Ink->AddImageRounded(ImTextureRef(LayerAtlas.Texture), ThumbMin, ThumbMax, ImVec2(U0, V0),
-                    ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 4 * Scale);
+                Ink->AddImageRounded(ImTextureRef(LayerAtlas.Texture), ChipMin, ChipMax, ImVec2(U0, V0),
+                    ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 9 * Scale);
                 ThumbnailDrawn = true;
             }
             if (!ThumbnailDrawn)
-                Ink->AddRect(ImVec2(ThumbMin.x + 4 * Scale, ThumbMin.y + 11 * Scale), ImVec2(ThumbMin.x + 18 * Scale, ThumbMin.y + 25 * Scale),
+                Ink->AddRect(ImVec2(ChipMin.x + 10 * Scale, ChipMin.y + 10 * Scale), ImVec2(ChipMin.x + 24 * Scale, ChipMin.y + 24 * Scale),
                     ImGui::GetColorU32(Spectrum(0xc7d9b8)), 2 * Scale);
         }
+        const auto &Source = Snapshot.Instructions[Layer.Root];
+        Ink->PushClipRect(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y), ImVec2(RowX + RowWidth - 52 * Scale, RowOrigin.y + RowHeightUnits * Scale), true);
+        Caption(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y + 15 * Scale), Layer.Name.c_str(), 11 * Scale,
+            !Layer.Visible ? 0x6a6a62 : Selected ? 0xeeeee8 : 0xc0c0b8);
+        const char *Kind = Layer.ComponentKind != VectorAuthoringComponentKind::Freeform ? KindCaptions[uint32_t(Layer.ComponentKind)]
+            : Source.Topology[0] < 6 ? ShapeCaptions[Source.Topology[0]] : "Retained vector";
+        char Sub[96];
+        std::snprintf(Sub, sizeof(Sub), "%s · %s%s%s", Kind, Layer.Visible ? "Visible" : "Hidden",
+            Layer.Locked ? " · Locked" : "", Layer.Mask ? " · Mask" : "");
+        Caption(ImVec2(ChipMax.x + 7 * Scale, RowOrigin.y + 34 * Scale), Sub, 8 * Scale, Selected ? 0xa29c90 : 0x696964);
+        Ink->PopClipRect();
         if (!Layer.Locked && ImGui::BeginDragDropSource())
         {
             ImGui::SetDragDropPayload("FrontierStampComponentLayer", &Layer.Token, sizeof(Layer.Token));
@@ -1461,17 +1612,43 @@ void StampWorkspacePanel::ConstructLayers()
             }
             ImGui::EndDragDropTarget();
         }
-        Controls.ControlHeight = 26;
-        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 60 * Scale, RowOrigin.y + 15 * Scale));
-        if (Controls.Button(("Visibility:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Visible, VisiblePath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Visible = !Candidate.Visible; });
-        ImGui::SameLine(0, 2 * Scale);
-        if (Controls.Button(("Lock:" + std::to_string(Layer.Token)).c_str(), 25 * Scale, Layer.Locked, LockPath)) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Locked = !Candidate.Locked; });
-        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + 62 * Scale));
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 46 * Scale, RowOrigin.y + 19 * Scale));
+        const std::string VisibilityCaption = "Visibility:" + std::to_string(Layer.Token);
+        const bool ToggleVisible = BareIconButton(VisibilityCaption.c_str(), Layer.Visible ? VisiblePath : HiddenPath, 20 * Scale, Scale, false, 0x8a8a80);
+        NoteExtent(VisibilityCaption);
+        if (ToggleVisible) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Visible = !Candidate.Visible; });
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 24 * Scale, RowOrigin.y + 19 * Scale));
+        const std::string LockCaption = "Lock:" + std::to_string(Layer.Token);
+        const bool ToggleLock = BareIconButton(LockCaption.c_str(), LockPath, 20 * Scale, Scale, Layer.Locked, Layer.Locked ? 0xbaa789 : 0x8a8a80);
+        NoteExtent(LockCaption);
+        if (ToggleLock) EvaluateEdit([&](auto &Document) { for (auto &Candidate : Document.Layers) if (Candidate.Token == Layer.Token) Candidate.Locked = !Candidate.Locked; });
+        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + (RowHeightUnits + 2) * Scale));
         ImGui::Dummy(ImVec2(0, 0));
         if (Layer.Mask)
         {
-            Controls.ControlHeight = 28;
-            if (Controls.Button(("Mask · " + Layer.Name).c_str(), RowWidth - 18 * Scale, MaskSelection == Layer.Token)) { Selection = {Layer.Token}; MaskSelection = Layer.Token; }
+            const ImVec2 MaskOrigin = ImGui::GetCursorScreenPos();
+            const float MaskX = MaskOrigin.x + 27 * Scale;
+            const float MaskWidth = ImGui::GetContentRegionAvail().x - 29 * Scale;
+            const bool MaskSelectedRow = MaskSelection == Layer.Token;
+            ImGui::SetCursorScreenPos(ImVec2(MaskX, MaskOrigin.y));
+            const bool MaskClicked = ImGui::InvisibleButton("##MaskSelect", ImVec2(MaskWidth, 43 * Scale));
+            NoteExtent("Mask · " + Layer.Name);
+            if (MaskClicked) { Selection = {Layer.Token}; MaskSelection = Layer.Token; }
+            if (MaskSelectedRow || ImGui::IsItemHovered())
+                Ink->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * Scale), Ink32(MaskSelectedRow ? 0x262626 : 0x1b1b1b), 8 * Scale);
+            if (MaskSelectedRow)
+            {
+                Ink->AddRect(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * Scale), Ink32(0x3c3c37), 8 * Scale);
+                Ink->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + 3 * Scale, MaskOrigin.y + 43 * Scale), Ink32(0xd9b281), 3 * Scale);
+            }
+            const ImVec2 MaskChip(MaskX + 8 * Scale, MaskOrigin.y + 11.5f * Scale);
+            Ink->AddRectFilled(MaskChip, ImVec2(MaskChip.x + 20 * Scale, MaskChip.y + 20 * Scale), Ink32(0x0c0c0c), 5 * Scale);
+            Ink->AddRect(MaskChip, ImVec2(MaskChip.x + 20 * Scale, MaskChip.y + 20 * Scale), Ink32(0x595954), 5 * Scale);
+            Ink->AddRectFilled(ImVec2(MaskChip.x + 2 * Scale, MaskChip.y + 2 * Scale), ImVec2(MaskChip.x + 18 * Scale, MaskChip.y + 18 * Scale), Ink32(0xe6e6df), 2 * Scale);
+            Caption(ImVec2(MaskChip.x + 29 * Scale, MaskOrigin.y + 8 * Scale), "Layer mask", 10 * Scale, 0xc8c8ba);
+            Caption(ImVec2(MaskChip.x + 29 * Scale, MaskOrigin.y + 25 * Scale), Layer.MaskEnabled ? "Owned mask" : "Owned mask · off", 8 * Scale, 0x777770);
+            ImGui::SetCursorScreenPos(ImVec2(MaskOrigin.x, MaskOrigin.y + 45 * Scale));
+            ImGui::Dummy(ImVec2(0, 0));
         }
         ImGui::PopID();
     }

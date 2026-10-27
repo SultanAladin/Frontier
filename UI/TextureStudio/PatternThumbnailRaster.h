@@ -17,6 +17,10 @@ namespace Frontier
 // 📝 ThorVG raster of that SVG at Extent×Extent (ABGR8888S straight alpha, anti-aliased).
 [[nodiscard]] std::vector<uint8_t> RasterizePatternThumbnailSvg(
     const VectorAuthoringDocument &Document, uint32_t Extent, uint32_t BackgroundAbgr);
+// 🖨️ Stamp-library raster: the same document encoding with NO baked background rect, so everything
+// outside the artwork stays transparent and the decal can composite over a painted surface.
+[[nodiscard]] std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document);
+[[nodiscard]] std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Document, uint32_t Extent);
 // 📝 Encodes just one layer, cropped to its own tight extent (never the full tile) — the layer-row
 // preview thumbnail asked of the Pattern workspace, mirroring the selection hitbox's own bounds.
 [[nodiscard]] std::string EncodePatternLayerThumbnailSvg(

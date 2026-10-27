@@ -768,7 +768,23 @@ std::string TexturePaintWorkspacePanel::SerializeProject() const
             Out += ", \"mask\": {\"kind\": \"" + JsonEscape(Layer.Mask.Kind) + "\", \"enabled\": " + (Layer.Mask.Enabled ? "true" : "false") +
                 ", \"inverted\": " + (Layer.Mask.Inverted ? "true" : "false") + ", \"fill\": " + std::to_string(Layer.Mask.Fill) +
                 ", \"strength\": " + std::to_string(Layer.Mask.Strength) + ", \"color\": \"" + HexColour(Layer.Mask.Colour) + "\"}";
-        Out += ", \"previewDabs\": " + std::to_string(Layer.Dabs.size()) + ", \"previewFills\": " + std::to_string(Layer.Fills.size()) + "}";
+        Out += ", \"previewDabs\": " + std::to_string(Layer.Dabs.size()) + ", \"previewFills\": " + std::to_string(Layer.Fills.size());
+        if (!Layer.Stamps.empty())
+        {
+            // 🖨️ Stamp placements are small enough to serialize whole (id/uv/size/rotation/tint);
+            // like dabs, the current reader doesn't restore preview paint from them yet.
+            Out += ", \"stamps\": [";
+            for (size_t StampIndex = 0; StampIndex < Layer.Stamps.size(); ++StampIndex)
+            {
+                const auto &Placement = Layer.Stamps[StampIndex];
+                Out += (StampIndex ? ", " : "") + std::string("{\"id\": \"") + JsonEscape(Placement.StampId) +
+                    "\", \"u\": " + std::to_string(Placement.U) + ", \"v\": " + std::to_string(Placement.V) +
+                    ", \"radius\": " + std::to_string(Placement.Radius) + ", \"rotation\": " + std::to_string(Placement.Rotation) +
+                    ", \"tint\": \"" + HexColour(Placement.Tint) + "\"}";
+            }
+            Out += "]";
+        }
+        Out += "}";
         Out += Index + 1 < Layers.size() ? ",\n" : "\n";
     }
     Out += "  ]\n}\n";
@@ -1003,6 +1019,25 @@ std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const Top
                 if (Distance < Dab.Radius)
                     BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
             }
+        }
+        // 🖨️ Decals ride over the layer's paint: centroid into stamp space (image top toward +V so
+        // stamps read upright in the UV view), bilinear library sample, placement tint applied.
+        for (const auto &Placement : Layer.Stamps)
+        {
+            const float Du = Uv[0] - Placement.U, Dv = Uv[1] - Placement.V;
+            if (std::fabs(Du) > Placement.Radius * 1.42f || std::fabs(Dv) > Placement.Radius * 1.42f) continue;
+            const auto *Entry = StampLib.Find(Placement.StampId);
+            if (!Entry) continue;
+            const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
+            const float LocalX = Du * CosR + Dv * SinR, LocalY = -Du * SinR + Dv * CosR;
+            const float SampleU = LocalX / (2.f * Placement.Radius) + 0.5f;
+            const float SampleV = 0.5f - LocalY / (2.f * Placement.Radius);
+            if (SampleU < 0.f || SampleU > 1.f || SampleV < 0.f || SampleV > 1.f) continue;
+            const auto Texel = StampLibrary::Sample(*Entry, SampleU, SampleV);
+            if (Texel[3] <= 0.003f) continue;
+            BlendOver(Base,
+                {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3]},
+                Alpha, Layer.Blend);
         }
     }
     return Base;
@@ -1286,6 +1321,164 @@ void TexturePaintWorkspacePanel::FeedStampEngine(const LayerState &Layer, const 
     }
     StampEngine.Stamp(Hit, ClockSeconds);
 }
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     STAMP LIBRARY + DECAL PLACEMENT
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::EnsureStampLibrary(bool ForceReload)
+{
+    if (StampLibraryScanned && !ForceReload) return;
+    StampLibraryScanned = true;
+    std::filesystem::path Directory = StampLibraryDirectory;
+    if (Directory.empty() && !ProjectDirectory.empty()) Directory = ProjectDirectory / "Stamps";
+    StampLib.Reload(Directory);
+    if (!StampLib.Find(ActiveStampId))
+        ActiveStampId = StampLib.Entries().empty() ? std::string{} : StampLib.Entries().front().Id;
+}
+
+const StampLibraryEntry *TexturePaintWorkspacePanel::ActiveStamp() const noexcept
+{
+    return StampLib.Find(ActiveStampId);
+}
+
+void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
+{
+    EnsureStampLibrary();
+    const auto *Entry = ActiveStamp();
+    if (!Entry)
+    {
+        Status = "No stamp picked - right-click the viewport for the stamp library";
+        return;
+    }
+    auto *Layer = FindLayer(SelectedLayerId);
+    if (!Layer || MaskSelected || Layer->Kind == LayerKind::Folder || EffectiveLocked(*Layer) || !EffectiveVisible(*Layer))
+    {
+        Status = "Select an unlocked paint layer to place a stamp";
+        return;
+    }
+    if (View == ViewMode::Wireframe)
+    {
+        Status = "Stamps can't be placed in Wireframe view";
+        return;
+    }
+    if (Layer->Stamps.size() >= 256)
+    {
+        Status = "Preview stamps on this layer reached their 256-placement session limit";
+        return;
+    }
+    StampPlacement Placement;
+    Placement.StampId = Entry->Id;
+    Placement.U = Uv[0];
+    Placement.V = Uv[1];
+    Placement.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f); // brush size drives decal size
+    Placement.Rotation = 0.f;
+    const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f);
+    // White preset art takes the brush colour; authored stamps keep their own colours.
+    Placement.Tint = Entry->Tintable ? std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength}
+                                     : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
+    Layer->Stamps.push_back(Placement);
+    ++Layer->DecalCount;
+    CommitHistory("Place stamp", Layer->Name + " · " + Entry->Name, "stamp");
+    MarkDirty();
+    Status = "Placed '" + Entry->Name + "' on " + Layer->Name;
+}
+
+void TexturePaintWorkspacePanel::ConstructStampPicker()
+{
+    const float S = InterfaceScale;
+    if (!ImGui::BeginPopup("StampLibraryPicker")) return;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+    constexpr int Columns = 4;
+    const float CellW = 78 * S, CellH = 90 * S;
+    const float GridWidth = Columns * CellW + 8 * S;
+    ImGui::Dummy(ImVec2(GridWidth, 1)); // pin the popup width to the grid
+    Caption(ImVec2(Origin.x + 10 * S, Origin.y + 6 * S), "STAMP LIBRARY", 9 * S, 0x9b927f);
+    const std::string Count = std::to_string(StampLib.DiskCount()) + " saved · " +
+        std::to_string(StampLib.Entries().size() - StampLib.DiskCount()) + " presets";
+    Caption(ImVec2(Origin.x + 14 * S + CaptionWidth("STAMP LIBRARY", 9 * S), Origin.y + 7 * S), Count.c_str(), 8 * S, 0x55554f);
+
+    float CursorY = Origin.y + 28 * S;
+    const auto DrawSection = [&](const char *Title, bool Builtins) {
+        bool Any = false;
+        for (const auto &Entry : StampLib.Entries())
+            if (Entry.Builtin == Builtins) Any = true;
+        if (!Any) return;
+        Caption(ImVec2(Origin.x + 10 * S, CursorY), Title, 8 * S, 0x686862);
+        CursorY += 16 * S;
+        int Slot = 0;
+        for (const auto &Entry : StampLib.Entries())
+        {
+            if (Entry.Builtin != Builtins) continue;
+            const ImVec2 Cell(Origin.x + 4 * S + (Slot % Columns) * CellW, CursorY + (Slot / Columns) * CellH);
+            ImGui::PushID(Entry.Id.c_str());
+            ImGui::SetCursorScreenPos(Cell);
+            const bool Clicked = ImGui::InvisibleButton("##StampCell", ImVec2(CellW - 4 * S, CellH - 4 * S));
+            ImGui::PopID();
+            const bool Hovered = ImGui::IsItemHovered();
+            const bool Active = Entry.Id == ActiveStampId;
+            if (Clicked)
+            {
+                ActiveStampId = Entry.Id;
+                Status = "Stamp: " + Entry.Name + " - click the teapot to place it";
+                ImGui::CloseCurrentPopup();
+            }
+            if (Active || Hovered)
+                Ink->AddRectFilled(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), Colour32(Active ? 0x262626 : 0x1b1b1b), 9 * S);
+            if (Active)
+                Ink->AddRect(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), Colour32(0xd9b281), 9 * S);
+            // CPU thumbnail: checker well + the stamp's own pixels as coarse blocks (no GPU upload in this panel).
+            const ImVec2 ThumbMin(Cell.x + (CellW - 4 * S - 54 * S) * .5f, Cell.y + 7 * S);
+            const float Thumb = 54 * S;
+            Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x1e1e1e), 6 * S);
+            Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Colour32(0x2a2a2a), 6 * S);
+            Ink->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x2a2a2a), 6 * S);
+            constexpr int Blocks = 18;
+            const float Block = Thumb / Blocks;
+            for (int By = 0; By < Blocks; ++By)
+                for (int Bx = 0; Bx < Blocks; ++Bx)
+                {
+                    const auto Texel = StampLibrary::Sample(Entry, (Bx + .5f) / Blocks, (By + .5f) / Blocks);
+                    if (Texel[3] <= 0.03f) continue;
+                    const uint32_t Packed = (uint32_t(std::clamp(Texel[0], 0.f, 1.f) * 255) << 16) |
+                        (uint32_t(std::clamp(Texel[1], 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(Texel[2], 0.f, 1.f) * 255);
+                    Ink->AddRectFilled(ImVec2(ThumbMin.x + Bx * Block, ThumbMin.y + By * Block),
+                        ImVec2(ThumbMin.x + (Bx + 1) * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f), Colour32(Packed, Texel[3]));
+                }
+            Ink->PushClipRect(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), true);
+            Caption(ImVec2(Cell.x + std::max(2 * S, (CellW - 4 * S - CaptionWidth(Entry.Name.c_str(), 8 * S)) * .5f), Cell.y + 66 * S),
+                Entry.Name.c_str(), 8 * S, Active ? 0xeeeee8 : 0xa8a89a);
+            Ink->PopClipRect();
+            if (Hovered) ImGui::SetTooltip("%s%s", Entry.Name.c_str(), Entry.Tintable ? " - tinted by brush colour" : "");
+            ++Slot;
+        }
+        CursorY += ((Slot + Columns - 1) / Columns) * CellH + 6 * S;
+    };
+    DrawSection("PRESETS", true);
+    DrawSection("SAVED STAMPS", false);
+    if (StampLib.DiskCount() == 0)
+    {
+        Caption(ImVec2(Origin.x + 10 * S, CursorY), "No saved stamps yet - author one in the Stamp workspace,", 8 * S, 0x777770);
+        Caption(ImVec2(Origin.x + 10 * S, CursorY + 12 * S), "then Document actions -> Save to stamp library.", 8 * S, 0x777770);
+        CursorY += 28 * S;
+    }
+    Caption(ImVec2(Origin.x + 10 * S, CursorY + 2 * S), "Brush size sets stamp size · brush colour tints presets", 8 * S, 0x686862);
+    CursorY += 20 * S;
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * S, CursorY));
+    ImGui::BeginDisabled(!ActivateStamp);
+    if (PillButton("PickerOpenStampStudio", "Stamp studio", 112 * S, false) && ActivateStamp)
+    {
+        ImGui::CloseCurrentPopup();
+        ActivateStamp();
+    }
+    ImGui::EndDisabled();
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 128 * S, CursorY));
+    if (PillButton("PickerReloadStamps", "Reload", 78 * S, false)) EnsureStampLibrary(true);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x, CursorY + 32 * S));
+    ImGui::Dummy(ImVec2(0, 0));
+    ImGui::EndPopup();
+}
 std::string TexturePaintWorkspacePanel::MaskRegionLabel() const
 {
     if (!MaskEditor.SelectedRegion) return "No surface selection";
@@ -1382,7 +1575,27 @@ void TexturePaintWorkspacePanel::HandlePaintPointer(bool Hovered, bool IsUv)
     if (!Hovered && !StrokeActive) return;
     const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
     const bool Painting = (DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed;
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && Hovered && !ImGui::GetIO().WantTextInput)
+    if (Hovered && !ImGui::GetIO().WantTextInput && Tool == AuthorTool::Stamp && !DigitalActive)
+    {
+        // 🖨️ Right-click (a click, not a right-drag - that still pans) opens the stamp library grid.
+        const ImVec2 Mouse = ImGui::GetIO().MousePos;
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        {
+            StampRightDownValid = true;
+            StampRightDownX = Mouse.x;
+            StampRightDownY = Mouse.y;
+        }
+        if (StampRightDownValid && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+        {
+            StampRightDownValid = false;
+            if (std::hypot(Mouse.x - StampRightDownX, Mouse.y - StampRightDownY) < 5.f)
+            {
+                EnsureStampLibrary(true); // catch stamps saved since the picker last opened
+                ImGui::OpenPopup("StampLibraryPicker");
+            }
+        }
+    }
+    else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && Hovered && !ImGui::GetIO().WantTextInput)
         BrushStudioOpen = true; // Alloy: right-click the viewport opens the brush studio
     if (!Painting) return;
     if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -2246,7 +2459,10 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         ImGui::EndDisabled();
         X += 76 * S;
         // Authoring state + Stamp studio link ride the right edge.
+        const auto *CurrentStamp = ActiveStamp();
         const std::string State = MaskSelected ? "Mask mode · " + (Selected ? Selected->Name : std::string())
+            : Tool == AuthorTool::Stamp && !DigitalActive
+                ? "Stamp mode · " + (CurrentStamp ? CurrentStamp->Name : std::string("no stamp picked"))
             : DigitalActive ? "Paint mode · Digital " + Brush.Tool
                             : "Paint mode · Digital tools available";
         const float LinkWidth = 104 * S;
@@ -2357,6 +2573,7 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
     ImGui::SetCursorScreenPos(ImVec2(Region.MinimumX, Region.MinimumY));
     if (View == ViewMode::Uv) ConstructUvViewport(Region);
     else ConstructSceneViewport(Region);
+    ConstructStampPicker(); // polls the right-click popup HandlePaintPointer opens, same ID scope
 
     // Shared scene overlays (caption / zoom nav / axis / hint) sit above both viewport kinds.
     {
