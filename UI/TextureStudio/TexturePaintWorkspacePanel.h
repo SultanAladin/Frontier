@@ -28,6 +28,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -128,6 +129,14 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float Opacity = 100.f;
         std::string Blend = "Normal";
         std::vector<std::string> Channels;
+        // 📝 paintChannelModel's channelSettings, flattened: per-channel source configuration (mode/value/
+        // generator) stored sparsely - a missing key reads as Alloy's documented default for that channel.
+        // These are authoring targets only; the preview composite does not evaluate channel sources.
+        std::map<std::string, std::string> ChannelModes;                          // value | texture | generator | gradient
+        std::map<std::string, float> ChannelValues;                               // scalar-edit channels
+        std::map<std::string, std::array<float, 4>> ChannelColours;               // color-edit channels
+        std::map<std::string, std::string> ChannelGenerators;                     // generator id ("" = none)
+        std::map<std::string, std::map<std::string, float>> ChannelGeneratorParams;
         MaskState Mask;
         std::vector<PaintDab> Dabs;
         std::vector<PaintFill> Fills;
@@ -348,6 +357,9 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     RightPanelTab RightTab = RightPanelTab::Inspector;
     bool HistoryStrokesOnly = false;
     int HistoryChosen = -1;
+    // 📝 ChannelPropertyPanel's picker + per-channel fold state (Alloy starts these six channels folded).
+    bool ChannelPickerOpen = false;
+    std::set<std::string> ChannelFolded{"height", "normal", "occlusion", "anisotropy", "anisotropyAngle", "clearcoat"};
     char LayerQuery[64]{};
     enum class LayerFilter { All, Visible, Hidden };
     LayerFilter Filter = LayerFilter::All;
@@ -380,6 +392,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void ConstructBrushStudio();
     void ConstructContentBrowser();
     void ConstructStatusBar();
+    void DrawLayerThumbnail(float MinimumX, float MinimumY, float Size, const LayerState &Layer) const;
     [[nodiscard]] bool PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath = nullptr, uint32_t Accent = 0);
     [[nodiscard]] bool IconButton(const char *Id, const char *IconPath, float Size, bool Selected = false, uint32_t Colour = 0x9a9a8e);
     void ApplyBrushPreset(const std::string &PresetId);
