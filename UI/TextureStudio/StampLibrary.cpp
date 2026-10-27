@@ -172,6 +172,78 @@ std::vector<StampLibraryEntry> StampLibrary::BuiltinPresets()
         const int CellX = int(std::floor((X + 1.f) * 4.f)), CellY = int(std::floor((Y + 1.f) * 4.f));
         return Disc * (((CellX + CellY) % 2 == 0) ? 1.f : 0.18f);
     })));
+    // Soft disc: radial falloff for gentle decal fades and airbrush-style spots
+    Presets.push_back(MakePreset("soft-disc", "Soft disc", EvaluateField([](float X, float Y) {
+        return std::clamp((0.85f - Length2(X, Y)) / 0.45f, 0.f, 1.f);
+    })));
+    // Crescent moon: a disc with an offset bite
+    Presets.push_back(MakePreset("crescent", "Crescent", EvaluateField([&](float X, float Y) {
+        const float Outer = Length2(X, Y) - 0.78f;
+        const float Bite = Length2(X - 0.34f, Y + 0.10f) - 0.64f;
+        return CoverageFromDistance(std::max(Outer, -Bite) / PixelInField);
+    })));
+    // Heart: classic parametric outline sampled to a polygon (+Y is image-down, hence the flip)
+    {
+        std::vector<std::array<float, 2>> Heart;
+        for (int I = 0; I < 72; ++I)
+        {
+            const float T = float(I) / 72.f * 6.2831853f;
+            const float S = std::sin(T);
+            const float Hx = 16.f * S * S * S;
+            const float Hy = 13.f * std::cos(T) - 5.f * std::cos(2 * T) - 2.f * std::cos(3 * T) - std::cos(4 * T);
+            Heart.push_back({Hx / 19.f, -Hy / 19.f});
+        }
+        Presets.push_back(MakePreset("heart", "Heart", PolygonField(Heart)));
+    }
+    // Lightning bolt
+    Presets.push_back(MakePreset("bolt", "Bolt", PolygonField({
+        {0.18f, -0.85f}, {-0.32f, 0.08f}, {-0.02f, 0.08f}, {-0.18f, 0.85f}, {0.34f, -0.12f}, {0.03f, -0.12f}})));
+    // Ring presets share an outer-minus-inner polygon field
+    const auto RingField = [](const std::vector<std::array<float, 2>> &Outer, const std::vector<std::array<float, 2>> &Inner) {
+        auto Field = PolygonField(Outer);
+        const auto Cut = PolygonField(Inner);
+        for (size_t I = 0; I < Field.size(); ++I) Field[I] = std::clamp(Field[I] - Cut[I], 0.f, 1.f);
+        return Field;
+    };
+    // Hex badge: hexagon ring
+    {
+        std::vector<std::array<float, 2>> Outer, Inner;
+        for (int I = 0; I < 6; ++I)
+        {
+            const float Angle = 0.5235988f + I * 1.0471976f;
+            Outer.push_back({std::cos(Angle) * 0.82f, std::sin(Angle) * 0.82f});
+            Inner.push_back({std::cos(Angle) * 0.60f, std::sin(Angle) * 0.60f});
+        }
+        Presets.push_back(MakePreset("hex-badge", "Hex badge", RingField(Outer, Inner)));
+    }
+    // Warning: triangle ring
+    Presets.push_back(MakePreset("warning", "Warning", RingField(
+        {{0.f, -0.80f}, {0.78f, 0.62f}, {-0.78f, 0.62f}},
+        {{0.f, -0.48f}, {0.50f, 0.44f}, {-0.50f, 0.44f}})));
+    // Splatter: a union of deterministic blobs
+    Presets.push_back(MakePreset("splatter", "Splatter", EvaluateField([&](float X, float Y) {
+        static constexpr std::array<std::array<float, 3>, 9> Blobs{{
+            {0.f, 0.f, .42f}, {-.38f, -.20f, .20f}, {.34f, -.30f, .16f}, {.42f, .24f, .13f}, {-.30f, .34f, .15f},
+            {.08f, -.50f, .10f}, {-.55f, .05f, .08f}, {.60f, -.05f, .07f}, {-.12f, .56f, .09f}}};
+        float Best = 1e9f;
+        for (const auto &Blob : Blobs) Best = std::min(Best, Length2(X - Blob[0], Y - Blob[1]) - Blob[2]);
+        return CoverageFromDistance(Best / PixelInField);
+    })));
+    // Paw print: elliptical pad plus four toes
+    Presets.push_back(MakePreset("paw", "Paw print", EvaluateField([&](float X, float Y) {
+        float Best = (Length2(X / 0.46f, (Y - 0.28f) / 0.34f) - 1.f) * 0.34f; // scaled-space ellipse distance, approx.
+        static constexpr std::array<std::array<float, 3>, 4> Toes{{
+            {-.48f, -.18f, .15f}, {-.17f, -.36f, .16f}, {.17f, -.36f, .16f}, {.48f, -.18f, .15f}}};
+        for (const auto &Toe : Toes) Best = std::min(Best, Length2(X - Toe[0], Y - Toe[1]) - Toe[2]);
+        return CoverageFromDistance(Best / PixelInField);
+    })));
+    // Sunburst: twelve alternating rays inside a disc with a solid heart
+    Presets.push_back(MakePreset("sunburst", "Sunburst", EvaluateField([&](float X, float Y) {
+        const float Radius = Length2(X, Y);
+        const float Disc = CoverageFromDistance((Radius - 0.82f) / PixelInField);
+        const float Sector = std::fmod(std::atan2(Y, X) * 1.9098593f + 12.f, 2.f);
+        return Disc * (Radius < 0.20f ? 1.f : (Sector < 1.f ? 1.f : 0.16f));
+    })));
     return Presets;
 }
 

@@ -1150,22 +1150,27 @@ void PatternWorkspacePanel::ConstructHeader()
 
 void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry &Family, const PatternPresetCacheEntry &Entry, float Width, bool Selected, size_t Slot)
 {
-    // One card per family, matching the Alloy .pe-starters card: bordered button,
-    // 76px cover-fit tile preview, 10px wrapped name, description tooltip.
-    if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), 10 * 1.302f * Scale);
-    const float LineHeight = ImGui::GetTextLineHeight();
-    const float ThumbHeight = 76 * Scale;
-    const float NameHeight = LineHeight * 3 + 18 * Scale;
+    // Material-catalogue card (MaterialLibraryPanel::ConstructCatalogue): fixed 125px box, 15px radius,
+    // 85px cover-fit tile preview, 9px name + 7px collection, green check disc when selected.
+    const float ThumbHeight = 85 * Scale;
     const ImVec2 Origin = ImGui::GetCursorScreenPos();
-    const ImVec2 Size(Width, ThumbHeight + NameHeight);
+    const ImVec2 Size(Width, 125 * Scale);
     const ImVec2 Far(Origin.x + Size.x, Origin.y + Size.y);
     ImGui::InvisibleButton(("##LibraryCard-" + Family.Name).c_str(), Size);
     const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
     ControlExtents[Family.Name] = {Origin.x, Origin.y, Far.x, Far.y};
+    // The grid registers every match (validation reads card extents), but fully offscreen cards skip
+    // the expensive tile replay - dense weaves cache tens of thousands of triangles per card.
+    const float ClipTop = ImGui::GetWindowPos().y, ClipBottom = ClipTop + ImGui::GetWindowSize().y;
+    if (Far.y < ClipTop || Origin.y > ClipBottom)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Far.y));
+        return;
+    }
     const char *Description = Family.Description.empty() ? Family.Name.c_str() : Family.Description.c_str();
     Controls.Tooltip(Family.Name.c_str(), Description);
     ImDrawList *Draw = ImGui::GetWindowDrawList();
-    Draw->AddRectFilled(Origin, Far, Selected ? IM_COL32(53, 66, 55, 255) : Hovered ? IM_COL32(52, 61, 56, 255) : IM_COL32(35, 40, 41, 255), 7 * Scale);
+    Draw->AddRectFilled(Origin, Far, Ink32(0x191919), 15 * Scale);
     const ImVec2 ThumbFar(Far.x, Origin.y + ThumbHeight);
     ImGui::PushClipRect(Origin, ThumbFar, true);
     Draw->AddRectFilled(Origin, ThumbFar, IM_COL32(20, 23, 24, 255));
@@ -1244,22 +1249,21 @@ void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry
     else
     {
         const char *Empty = Entry.Failed ? "Unreadable preset" : "Empty preset";
-        Draw->AddText(ImVec2(Origin.x + (Size.x - ImGui::CalcTextSize(Empty).x) * .5f, Origin.y + (ThumbHeight - LineHeight) * .5f),
-            IM_COL32(140, 145, 155, 255), Empty);
+        Caption(ImVec2(Origin.x + (Size.x - CaptionWidth(Empty, 9 * Scale)) * .5f, Origin.y + (ThumbHeight - 11 * Scale) * .5f),
+            Empty, 9 * Scale, 0x8c919b);
     }
     ImGui::PopClipRect();
     ImGui::PushClipRect(ImVec2(Origin.x, ThumbFar.y), Far, true);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 9 * Scale, ThumbFar.y + 9 * Scale));
-    ImGui::PushTextWrapPos(Far.x - 9 * Scale);
-    ImGui::TextUnformatted(Family.Name.c_str());
-    ImGui::PopTextWrapPos();
+    Caption(ImVec2(Origin.x + 12 * Scale, Origin.y + 89 * Scale), Family.Name.c_str(), 9 * Scale, 0xc8c8b6);
+    Caption(ImVec2(Origin.x + 12 * Scale, Origin.y + 105 * Scale), Family.Group.empty() ? "Pattern family" : Family.Group.c_str(), 7 * Scale, 0x767665);
     ImGui::PopClipRect();
-    Draw->AddRect(Origin, Far, Selected ? IM_COL32(179, 200, 166, 255) : Hovered ? IM_COL32(109, 129, 112, 255) : IM_COL32(54, 61, 61, 255),
-        7 * Scale, 0, Selected || Hovered ? 2.f : 1.f);
-    if (RegularTypeface) ImGui::PopFont();
-    // 📝 The wrapped name leaves the cursor mid-card, which collapsed the
-    // gallery rows into a diagonal cascade; restore the documented card box
-    // so the grid caller can place the next column and row absolutely.
+    if (Selected)
+    {
+        Draw->AddCircleFilled(ImVec2(Origin.x + 14 * Scale, Origin.y + 14 * Scale), 6 * Scale, Ink32(0xa5b99c));
+        Draw->AddLine(ImVec2(Origin.x + 11 * Scale, Origin.y + 14 * Scale), ImVec2(Origin.x + 13 * Scale, Origin.y + 16 * Scale), Ink32(0x2a3927));
+        Draw->AddLine(ImVec2(Origin.x + 13 * Scale, Origin.y + 16 * Scale), ImVec2(Origin.x + 18 * Scale, Origin.y + 11 * Scale), Ink32(0x2a3927));
+    }
+    if (Hovered) Draw->AddRect(Origin, Far, Ink32(0x707173), 15 * Scale);
     ImGui::SetCursorScreenPos(ImVec2(Origin.x, Far.y));
     if (Clicked && !Entry.Failed)
     {
@@ -1271,12 +1275,12 @@ void PatternWorkspacePanel::ConstructLibraryCard(const PatternLibraryFamilyEntry
         catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
     }
 }
-
 void PatternWorkspacePanel::ConstructLibrary()
 {
-    // Pattern library gallery, ported 1:1 from the Alloy Studio library panel:
-    // kicker, collection shortcuts, collection filter, search, print palette,
-    // result count, two-column starter cards (24 per page), paging, notes.
+    // Pattern library gallery in the Material workspace's catalogue design
+    // (MaterialLibraryPanel::ConstructCatalogue): two shortcut pills, 18px heading + count, padded
+    // search, wrapping collection pills, print-palette selector, hairline + overline, then every
+    // match as a two-column 125px card inside one scrolling grid (no paging), closing footer tag.
     CapturePanel("Library");
     if (ImGui::GetContentRegionAvail().y < 35 * Scale) return;
     if (LibraryFamilies.empty())
@@ -1290,78 +1294,66 @@ void PatternWorkspacePanel::ConstructLibrary()
         }
         return;
     }
-    const float ContentWidth = ImGui::GetContentRegionAvail().x - 16 * Scale;
+    const auto Origin = ImGui::GetCursorScreenPos();
+    const float Width = ImGui::GetContentRegionAvail().x;
+    const float Bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+    const auto At = [&](float X, float Y) { return ImVec2(Origin.x + X * Scale, Origin.y + Y * Scale); };
     const auto SmallFont = [&](float Pixels)
     {
         if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), Pixels * 1.302f * Scale);
     };
     const auto PopSmallFont = [&]() { if (RegularTypeface) ImGui::PopFont(); };
-    ImGui::SetCursorPosX(16 * Scale);
-    SmallFont(9);
-    ImGui::TextColored(ImVec4(155 / 255.f, 170 / 255.f, 158 / 255.f, 1), "START WITH A STRUCTURE");
-    PopSmallFont();
-    const auto GalleryButton = [&](const char *Caption, float Width)
-    {
-        SmallFont(11);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(35 / 255.f, 40 / 255.f, 41 / 255.f, 1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(52 / 255.f, 61 / 255.f, 56 / 255.f, 1));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(52 / 255.f, 61 / 255.f, 56 / 255.f, 1));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(54 / 255.f, 61 / 255.f, 61 / 255.f, 1));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(215 / 255.f, 223 / 255.f, 216 / 255.f, 1));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7 * Scale);
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 9 * Scale));
-        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0, .5f));
-        ImGui::SetCursorPosX(16 * Scale);
-        const bool Pressed = ImGui::Button(Caption, ImVec2(Width, 0));
-        ImGui::PopStyleVar(4);
-        ImGui::PopStyleColor(5);
-        PopSmallFont();
+    const auto Pill = [&](const char *Label, ImVec2 Position, float PillWidth, float PillHeight, bool Selected) {
+        ImGui::SetCursorScreenPos(Position);
+        ImGui::PushID(Label);
+        const bool Pressed = ImGui::InvisibleButton("##LibraryPill", ImVec2(PillWidth, PillHeight));
+        ImGui::PopID();
+        const bool Hovered = ImGui::IsItemHovered();
+        auto *PillInk = ImGui::GetWindowDrawList();
+        const ImVec2 Far(Position.x + PillWidth, Position.y + PillHeight);
+        PillInk->AddRectFilled(Position, Far, Ink32(Selected ? 0x2a2a28 : Hovered ? 0x2e2e2a : 0x1d1d1b), PillHeight * .5f);
+        PillInk->AddRect(Position, Far, Ink32(0xffffff, Selected ? .10f : .045f), PillHeight * .5f);
+        PillInk->PushClipRect(Position, Far, true);
+        Caption(ImVec2(Position.x + std::max(4 * Scale, (PillWidth - CaptionWidth(Label, 8.5f * Scale)) * .5f),
+                       Position.y + (PillHeight - 9 * Scale) * .42f),
+            Label, 8.5f * Scale, Selected ? 0xf0e9d8 : 0xc8c8ba);
+        PillInk->PopClipRect();
         return Pressed;
     };
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8 * Scale);
-    // The packaged DM Sans face carries no U+2197 glyph, so the web shortcut
-    // arrows render as a plain ASCII marker with identical behaviour.
-    if (GalleryButton("Geometric constructions >", ContentWidth))
+
+    // Top shortcut row, mirroring Material's Workspace / My collection pills.
+    const float HalfPill = (Width - 34 * Scale) * .5f;
+    if (Pill("Geometric constructions", At(14, 10), HalfPill, 27 * Scale, LibraryGroup == "Geometric constructions"))
         ConfigureLibraryFilter("Geometric constructions", LibraryDefaultPalette, true);
-    if (GalleryButton("Stitches \xc2\xb7 one thread color >", ContentWidth))
+    if (Pill("Stitches \xc2\xb7 one thread", ImVec2(Origin.x + Width * .5f + 3 * Scale, At(0, 10).y), HalfPill, 27 * Scale, LibraryGroup == "Stitch patterns"))
         ConfigureLibraryFilter("Stitch patterns", "", true);
+
+    Caption(At(20, 50), "Pattern library", 18 * Scale, 0xd3d3c8, LightTypeface);
+    Caption(ImVec2(Origin.x + 28 * Scale + CaptionWidth("Pattern library", 18 * Scale, LightTypeface), At(0, 59).y),
+        std::to_string(LibraryFamilies.size()).c_str(), 8 * Scale, 0x777766);
+
+    ImGui::SetCursorScreenPos(At(14, 82));
+    ImGui::SetNextItemWidth(Width - 28 * Scale);
     SmallFont(11);
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::SetNextItemWidth(ContentWidth);
-    if (DropdownControlSurface::BeginSelection("##PatternCollection", LibraryGroup.c_str(), Scale))
-    {
-        if (DropdownControlSurface::Option("All patterns", LibraryGroup == "All patterns", Scale))
-        {
-            ConfigureLibraryFilter("All patterns", "", false);
-            ImGui::CloseCurrentPopup();
-        }
-        for (const auto &Group : LibraryGroups)
-            if (DropdownControlSurface::Option(Group.c_str(), LibraryGroup == Group, Scale))
-            {
-                ConfigureLibraryFilter(Group, "", false);
-                ImGui::CloseCurrentPopup();
-            }
-        DropdownControlSurface::EndSelection();
-    }
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::SetNextItemWidth(ContentWidth);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(35 * Scale, 11.5f * Scale));
     if (ImGui::InputTextWithHint("##LibrarySearch", "Search weaves, stitches, checks\xe2\x80\xa6", LibrarySearchText.data(), LibrarySearchText.size()))
         LibraryPage = 0;
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
     PopSmallFont();
+    DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", At(27, 94), 15 * Scale, 0x77776f);
+
+    float Y = 130;
     const bool ConcealsPalette = LibraryGroup == "Fabric weaves" || LibraryGroup == "Stitch patterns" ||
         LibraryGroup == "Islamic geometry" || LibraryGroup == "African traditional";
     const std::string Palette = LibraryPalette.empty() ? LibraryDefaultPalette : LibraryPalette;
     if (!ConcealsPalette)
     {
-        SmallFont(10);
-        ImGui::SetCursorPosX(16 * Scale);
-        ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), "Print palette \xc2\xb7 not a separate pattern");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Color option for printed basic families only");
-        PopSmallFont();
+        Caption(At(17, Y), "PRINT PALETTE \xc2\xb7 NOT A SEPARATE PATTERN", 7 * Scale, 0x7e7e70);
         SmallFont(11);
-        ImGui::SetCursorPosX(16 * Scale);
-        ImGui::SetNextItemWidth(ContentWidth);
+        ImGui::SetCursorScreenPos(At(14, Y + 13));
+        ImGui::SetNextItemWidth(Width - 28 * Scale);
         const std::vector<std::string> Options = LibraryPalettes.empty() ? std::vector<std::string>{LibraryDefaultPalette} : LibraryPalettes;
         if (DropdownControlSurface::BeginSelection("##LibraryPalette", Palette.c_str(), Scale))
         {
@@ -1374,87 +1366,81 @@ void PatternWorkspacePanel::ConstructLibrary()
             DropdownControlSurface::EndSelection();
         }
         PopSmallFont();
+        Y += 52;
     }
+
+    // Collection filter as wrapping pills instead of a dropdown, like Material's category row.
+    float PillX = 14;
+    const auto CollectionPill = [&](const std::string &Group) {
+        const float Edge = CaptionWidth(Group.c_str(), 8.5f * Scale) / Scale + 18;
+        if (PillX + Edge > Width / Scale - 14) { PillX = 14; Y += 29; }
+        if (Pill(Group.c_str(), At(PillX, Y), Edge * Scale, 24 * Scale, LibraryGroup == Group))
+            ConfigureLibraryFilter(Group, "", false);
+        PillX += Edge + 5;
+    };
+    CollectionPill("All patterns");
+    for (const auto &Group : LibraryGroups) CollectionPill(Group);
+    Y += 24 + 8;
+
     if (LibraryGroup == "Islamic geometry" || LibraryGroup == "African traditional")
     {
         SmallFont(10);
-        ImGui::SetCursorPosX(16 * Scale);
-        ImGui::PushTextWrapPos(16 * Scale + ContentWidth);
+        ImGui::SetCursorScreenPos(At(16, Y));
+        ImGui::PushTextWrapPos(Origin.x + Width - 16 * Scale);
         ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
             "Original vector studies inspired by named traditions, not historical reproductions. Edit colours in Design palette.");
         ImGui::PopTextWrapPos();
         PopSmallFont();
+        Y = (ImGui::GetCursorScreenPos().y - Origin.y) / Scale + 6;
     }
+
     RefreshPatternAtlas();
     const auto Matches = QueryLibraryMatches();
-    SmallFont(10);
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::TextColored(ImVec4(178 / 255.f, 199 / 255.f, 167 / 255.f, 1), "%zu results \xc2\xb7 one card per family", Matches.size());
-    PopSmallFont();
-    const size_t Pages = std::max<size_t>(1, (Matches.size() + 23) / 24);
-    const size_t Page = std::min(LibraryPage, Pages - 1);
-    const float Gap = 9 * Scale;
-    const float CardWidth = (ContentWidth - Gap) * .5f;
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (15 - 4) * Scale);
-    float RowTop = ImGui::GetCursorPosY();
-    for (size_t Slot = Page * 24; Slot < std::min(Page * 24 + 24, Matches.size()); ++Slot)
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddLine(At(0, Y), ImVec2(Origin.x + Width, At(0, Y).y), Ink32(0xffffff, .051f));
+    Caption(At(17, Y + 12), "THE PATTERN COLLECTION", 8 * Scale, 0x7e7e70);
+    const std::string MatchCount = std::to_string(Matches.size());
+    Caption(ImVec2(Origin.x + Width - 17 * Scale - CaptionWidth(MatchCount.c_str(), 8 * Scale), At(0, Y + 12).y),
+        MatchCount.c_str(), 8 * Scale, 0x7e7e70);
+
+    const float FooterY = Bottom - 71 * Scale;
+    ImGui::SetCursorScreenPos(At(16, Y + 31));
+    ImGui::BeginChild("Pattern grid", ImVec2(Width - 32 * Scale, std::max(1.f, FooterY - At(0, Y + 31).y)), ImGuiChildFlags_None);
+    const float Gap = 9 * Scale, CardHeight = 125 * Scale;
+    const float CardWidth = std::max(32.f, (ImGui::GetContentRegionAvail().x - Gap) * .5f);
+    const auto GridOrigin = ImGui::GetCursorScreenPos();
+    const float ClipTop = ImGui::GetWindowPos().y, ClipBottom = ClipTop + ImGui::GetWindowSize().y;
+    static const PatternPresetCacheEntry EmptyEntry;
+    for (size_t Ordinal = 0; Ordinal < Matches.size(); ++Ordinal)
     {
-        // 📝 Cards restore the cursor to their own box bottom, so the second
-        // column pins to the captured row top instead of SameLine, which
-        // would inherit the sibling's bottom edge and shear the grid.
-        const bool FirstColumn = (Slot - Page * 24) % 2 == 0;
-        if (FirstColumn) { RowTop = ImGui::GetCursorPosY(); ImGui::SetCursorPosX(16 * Scale); }
-        else ImGui::SetCursorPos(ImVec2(16 * Scale + CardWidth + Gap, RowTop));
-        const auto &Family = LibraryFamilies[Matches[Slot]];
-        const auto &Entry = QueryPresetEntry(Family);
-        ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name, Matches[Slot]);
-        if (!FirstColumn) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Gap - 4 * Scale);
+        const ImVec2 Position(GridOrigin.x + (Ordinal % 2) * (CardWidth + Gap), GridOrigin.y + (Ordinal / 2) * (CardHeight + Gap));
+        ImGui::SetCursorScreenPos(Position);
+        const auto &Family = LibraryFamilies[Matches[Ordinal]];
+        // Only rows near the viewport pay the preset decode/tessellation lookup; far cards still
+        // register their extents (validation + grid geometry) with an empty placeholder entry.
+        const bool Near = Position.y + CardHeight >= ClipTop - CardHeight && Position.y <= ClipBottom + CardHeight;
+        const auto &Entry = Near ? QueryPresetEntry(Family) : EmptyEntry;
+        ConstructLibraryCard(Family, Entry, CardWidth, LibrarySelected == Family.Name, Matches[Ordinal]);
     }
+    const size_t Rows = (Matches.size() + 1) / 2;
+    ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, GridOrigin.y + float(Rows) * (CardHeight + Gap) + 2 * Scale));
+    SmallFont(10);
+    ImGui::PushTextWrapPos(GridOrigin.x + ImGui::GetContentRegionAvail().x);
     if (Matches.empty())
-    {
-        SmallFont(10);
-        ImGui::SetCursorPosX(16 * Scale);
         ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), "No matches. Try another collection or search.");
-        PopSmallFont();
-    }
-    SmallFont(10);
-    SmallFont(11);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
-    const float ArrowWidth = ImGui::CalcTextSize(">").x + 24 * Scale;
-    ImGui::PopStyleVar();
-    PopSmallFont();
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
-    ImGui::BeginDisabled(Page == 0);
-    SmallFont(11);
-    const bool Previous = ImGui::Button("<", ImVec2(ArrowWidth, 0));
-    PopSmallFont();
-    ImGui::EndDisabled();
-    ImGui::PopStyleVar();
-    if (Previous && Page > 0) LibraryPage = Page - 1;
-    ImGui::SameLine();
-    const std::string PageCaption = "Page " + std::to_string(Page + 1) + " / " + std::to_string(Pages);
-    const float PageWidth = ImGui::CalcTextSize(PageCaption.c_str()).x;
-    ImGui::SetCursorPosX(16 * Scale + (ContentWidth - PageWidth) * .5f);
-    ImGui::TextColored(ImVec4(170 / 255.f, 183 / 255.f, 176 / 255.f, 1), "%s", PageCaption.c_str());
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(16 * Scale + ContentWidth - ArrowWidth);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * Scale, 5 * Scale));
-    ImGui::BeginDisabled(Page + 1 >= Pages);
-    SmallFont(11);
-    const bool Next = ImGui::Button(">", ImVec2(ArrowWidth, 0));
-    PopSmallFont();
-    ImGui::EndDisabled();
-    ImGui::PopStyleVar();
-    if (Next) LibraryPage = Page + 1;
-    ImGui::SetCursorPosX(16 * Scale);
-    ImGui::PushTextWrapPos(16 * Scale + ContentWidth);
     ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
         "Stitches and weaves use one thread/yarn color. Backgrounds, colors, direction and draft variants do not add library cards. The rejected rug collections have been removed.");
     ImGui::PopTextWrapPos();
     PopSmallFont();
-}
+    ImGui::Dummy(ImVec2(1, 1));
+    ImGui::EndChild();
 
+    Ink->AddRectFilled(ImVec2(Origin.x, FooterY), ImVec2(Origin.x + Width, Bottom), Ink32(0x151515));
+    DrawGlyph("M12 3L13.8 8.2L19 10L13.8 11.8L12 17L10.2 11.8L5 10L10.2 8.2Z", ImVec2(Origin.x + 19 * Scale, FooterY + 20 * Scale), 19 * Scale, 0x9a9a8e);
+    Caption(ImVec2(Origin.x + 51 * Scale, FooterY + 20 * Scale), "Seamless by construction.", 9 * Scale, 0xaeae9b);
+    const std::string Footer = std::to_string(LibraryFamilies.size()) + " presets \xc2\xb7 editable vector tiles.";
+    Caption(ImVec2(Origin.x + 51 * Scale, FooterY + 37 * Scale), Footer.c_str(), 7 * Scale, 0x6b6b60);
+}
 void PatternWorkspacePanel::ConstructLayers()
 {
     CapturePanel("Layers");
@@ -3644,7 +3630,7 @@ void PatternWorkspacePanel::ConstructInterface()
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * Scale, 9 * Scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * Scale, 10 * Scale));
     ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 4 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f); // hidden bars: eased wheel scrolling (ImGui Patch H) carries every list
     const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
     const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
     ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;

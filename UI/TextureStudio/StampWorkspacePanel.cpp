@@ -2987,7 +2987,7 @@ void StampWorkspacePanel::ConstructInterface()
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * Scale, 9 * Scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * Scale, 10 * Scale));
     ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 4 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f); // hidden bars: eased wheel scrolling (ImGui Patch H) carries every list
     const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
     const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
     ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;

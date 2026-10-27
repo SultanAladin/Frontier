@@ -2044,8 +2044,26 @@ void BakingWorkspacePanel::ConstructInterface()
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
+    // 🧩 Dock chrome: the same near-black title/tab/docking-empty colours Stamp/Pattern/Material push
+    // before their PanelDockspace runs - without these, Baking's dock tabs and title strips fell back
+    // to the host theme and visibly mismatched the other studios.
+    for (ImGuiCol Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg})
+        ImGui::PushStyleColor(Slot, Spectrum(0x090909));
+    for (ImGuiCol Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
+        ImGui::PushStyleColor(Slot, Spectrum(0x101010));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * InterfaceScale);
+    // No visible scrollbars anywhere in the workspace: wheel scrolling stays live (and eased, with
+    // overscroll, via ImGui Patch H) but the bar/track chrome is gone.
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f);
+    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
+    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
 
     PollBake();
     ConstructHeader();
@@ -2109,8 +2127,10 @@ void BakingWorkspacePanel::ConstructInterface()
         ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
     }
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(20);
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(31);
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
     ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier

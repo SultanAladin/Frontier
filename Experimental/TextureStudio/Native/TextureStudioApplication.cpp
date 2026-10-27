@@ -1036,8 +1036,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             }
             else if (TextureActive)
             {
-                // 📝 The content browser reads the same catalogue the Material workspace owns; only
-                // re-copy it when the entry count changes (refresh/directory switch).
+                // 📝 Texture Paint keeps a snapshot of the catalogue the Material workspace owns for
+                // layer source-asset links; only re-copy it when the entry count changes.
                 const auto &Entries = Library->QueryLibrary().QueryEntries();
                 if (TextureAssetsSyncedCount != Entries.size())
                 {

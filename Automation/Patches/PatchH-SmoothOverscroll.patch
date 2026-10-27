@@ -1,0 +1,99 @@
+diff --git a/imgui.cpp b/imgui.cpp
+--- a/imgui.cpp
++++ b/imgui.cpp
+@@ -8616,7 +8616,8 @@
+ 
+         // Apply scrolling
+         window->Scroll = CalcNextScrollFromScrollTargetAndClamp(window);
+-        window->ScrollTarget = ImVec2(FLT_MAX, FLT_MAX);
++        // [FRONTIER PATCH H] ScrollTarget is retired inside CalcNextScrollFromScrollTargetAndClamp()
++        //   once the eased position settles; clearing it here would freeze smooth scrolls mid-flight.
+         window->DecoInnerSizeX1 = window->DecoInnerSizeY1 = 0.0f;
+ 
+         // DRAWING
+@@ -11280,7 +11281,10 @@
+                 LockWheelingWindow(window, wheel.x);
+                 float max_step = window->InnerRect.GetWidth() * 0.67f;
+                 float scroll_step = ImTrunc(ImMin(2 * window->FontRefSize, max_step));
+-                SetScrollX(window, window->Scroll.x - wheel.x * scroll_step);
++                // [FRONTIER PATCH H] Accumulate from the in-flight eased target (rapid wheel ticks
++                //   must not be swallowed by the lag) and allow a small overshoot past either end.
++                float current_x = (window->ScrollTarget.x < FLT_MAX && window->ScrollTargetCenterRatio.x == 0.0f) ? window->ScrollTarget.x : window->Scroll.x;
++                SetScrollX(window, ImClamp(current_x - wheel.x * scroll_step, -56.0f, window->ScrollMax.x + 56.0f));
+                 g.WheelingWindowScrolledFrame = g.FrameCount;
+             }
+             if (do_scroll[ImGuiAxis_Y])
+@@ -11288,7 +11292,9 @@
+                 LockWheelingWindow(window, wheel.y);
+                 float max_step = window->InnerRect.GetHeight() * 0.67f;
+                 float scroll_step = ImTrunc(ImMin(5 * window->FontRefSize, max_step));
+-                SetScrollY(window, window->Scroll.y - wheel.y * scroll_step);
++                // [FRONTIER PATCH H] Same target accumulation + overshoot allowance as the X axis.
++                float current_y = (window->ScrollTarget.y < FLT_MAX && window->ScrollTargetCenterRatio.y == 0.0f) ? window->ScrollTarget.y : window->Scroll.y;
++                SetScrollY(window, ImClamp(current_y - wheel.y * scroll_step, -56.0f, window->ScrollMax.y + 56.0f));
+                 g.WheelingWindowScrolledFrame = g.FrameCount;
+             }
+         }
+@@ -12755,8 +12761,17 @@
+ {
+     ImVec2 scroll = window->Scroll;
+     ImVec2 decoration_size(window->DecoOuterSizeX1 + window->DecoInnerSizeX1 + window->DecoOuterSizeX2, window->DecoOuterSizeY1 + window->DecoInnerSizeY1 + window->DecoOuterSizeY2);
++    // [FRONTIER PATCH H] Smooth scrolling with overscroll: the position eases toward its target with
++    //   a short physical lag instead of snapping, and may travel a little past either end before
++    //   springing back. Begin() no longer clears ScrollTarget; a target retires here only once the
++    //   eased position settles on it, and an out-of-range target settles on the overshoot first and
++    //   then retargets the boundary so the surface bounces home on the following frames.
++    const float frontier_dt = (GImGui->IO.DeltaTime > 0.0f) ? ImClamp(GImGui->IO.DeltaTime, 0.001f, 0.05f) : (1.0f / 60.0f);
++    const float frontier_alpha = ImClamp(frontier_dt * 16.0f, 0.05f, 1.0f);
++    const float frontier_overscroll = 56.0f;
+     for (int axis = 0; axis < 2; axis++)
+     {
++        const float visible_size = window->SizeFull[axis] - decoration_size[axis];
+         if (window->ScrollTarget[axis] < FLT_MAX)
+         {
+             float center_ratio = window->ScrollTargetCenterRatio[axis];
+@@ -12767,11 +12782,41 @@
+                 float snap_max = window->ScrollMax[axis] + window->SizeFull[axis] - decoration_size[axis];
+                 scroll_target = CalcScrollEdgeSnap(scroll_target, snap_min, snap_max, window->ScrollTargetEdgeSnapDist[axis], center_ratio);
+             }
+-            scroll[axis] = scroll_target - center_ratio * (window->SizeFull[axis] - decoration_size[axis]);
++            float desired = ImClamp(scroll_target - center_ratio * visible_size, -frontier_overscroll, window->ScrollMax[axis] + frontier_overscroll);
++            const float settled_from = scroll[axis];
++            float eased = settled_from + (desired - settled_from) * frontier_alpha;
++            if (ImAbs(desired - eased) <= 1.0f)
++                eased = desired;
++            else if (ImRound64(eased) == ImRound64(settled_from))
++                eased = settled_from + (desired > settled_from ? 1.0f : -1.0f); // never stall a pixel short
++            scroll[axis] = eased;
++            if (eased == desired)
++            {
++                if (desired < 0.0f)
++                    window->ScrollTarget[axis] = center_ratio * visible_size; // spring back to 0
++                else if (desired > window->ScrollMax[axis])
++                    window->ScrollTarget[axis] = window->ScrollMax[axis] + center_ratio * visible_size; // spring back to max
++                else
++                    window->ScrollTarget[axis] = FLT_MAX;
++            }
++        }
++        else if (!window->Collapsed && !window->SkipItems && (scroll[axis] < 0.0f || scroll[axis] > window->ScrollMax[axis]))
++        {
++            // Content shrank beneath an overshot position: glide back inside instead of jumping.
++            const float bound = ImClamp(scroll[axis], 0.0f, window->ScrollMax[axis]);
++            scroll[axis] += (bound - scroll[axis]) * frontier_alpha;
++            if (ImAbs(bound - scroll[axis]) <= 1.0f)
++                scroll[axis] = bound;
++            else
++            {
++                window->ScrollTarget[axis] = bound;
++                window->ScrollTargetCenterRatio[axis] = 0.0f;
++                window->ScrollTargetEdgeSnapDist[axis] = 0.0f;
++            }
+         }
+-        scroll[axis] = ImRound64(ImMax(scroll[axis], 0.0f));
++        scroll[axis] = ImRound64(ImMax(scroll[axis], -frontier_overscroll));
+         if (!window->Collapsed && !window->SkipItems)
+-            scroll[axis] = ImMin(scroll[axis], window->ScrollMax[axis]);
++            scroll[axis] = ImMin(scroll[axis], window->ScrollMax[axis] + frontier_overscroll);
+     }
+     return scroll;
+ }

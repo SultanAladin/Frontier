@@ -272,9 +272,9 @@ bool PointInTriangle(float Px, float Py, const float A[2], const float B[2], con
 TexturePaintWorkspacePanel::TexturePaintWorkspacePanel()
 {
     // 📝 Same reusable PanelDockspace + 278/1fr/338 grid (against the shared 1436px reference) as Baking;
-    // bottom inset reserves the 38px content-browser launcher slot + 31px .tp-status-bar.
+    // bottom inset reserves only the 31px .tp-status-bar (the content browser was deleted).
     (void)Panels.ConfigureDockspaceKey("TextureWorkspace TexturePaint panels");
-    Panels.ConfigureWorkspaceInsets(43, 69);
+    Panels.ConfigureWorkspaceInsets(43, 31);
     Panels.ConfigureTabExtent(130, 26);
     Panels.Register({"texture-layers", "Layer stack", [&]() { ConstructLayersDock(); }});
     Panels.Register({"texture-viewport", "Viewport Teapot", [&]() { ConstructViewportDock(); }});
@@ -1760,6 +1760,7 @@ void TexturePaintWorkspacePanel::EnsureStampLibrary(bool ForceReload)
     std::filesystem::path Directory = StampLibraryDirectory;
     if (Directory.empty() && !ProjectDirectory.empty()) Directory = ProjectDirectory / "Stamps";
     StampLib.Reload(Directory);
+    StampThumbCache.clear(); // reloaded pixels invalidate the picker thumbnails too
     ++StampLibraryGeneration; // reloaded pixels can change placed stamps - recomposite the UV canvas
     if (!StampLib.Find(ActiveStampId))
         ActiveStampId = StampLib.Entries().empty() ? std::string{} : StampLib.Entries().front().Id;
@@ -1830,92 +1831,146 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
 
 void TexturePaintWorkspacePanel::ConstructStampPicker()
 {
+    // 🧩 Material-catalogue styling (MaterialLibraryPanel::ConstructCatalogue): 18px heading + count,
+    // padded search field, wrapping filter pills, hairline + overline, two-column 125px cards (centred
+    // thumb well, name + category, green check disc on the active stamp) in a scrolling grid, footer tag.
     const float S = InterfaceScale;
     if (!ImGui::BeginPopup("StampLibraryPicker")) return;
     auto *Ink = ImGui::GetWindowDrawList();
     const ImVec2 Origin = ImGui::GetCursorScreenPos();
-    constexpr int Columns = 4;
-    const float CellW = 78 * S, CellH = 90 * S;
-    const float GridWidth = Columns * CellW + 8 * S;
-    ImGui::Dummy(ImVec2(GridWidth, 1)); // pin the popup width to the grid
-    Caption(ImVec2(Origin.x + 10 * S, Origin.y + 6 * S), "STAMP LIBRARY", 9 * S, 0x9b927f);
-    const std::string Count = std::to_string(StampLib.DiskCount()) + " saved · " +
-        std::to_string(StampLib.Entries().size() - StampLib.DiskCount()) + " presets";
-    Caption(ImVec2(Origin.x + 14 * S + CaptionWidth("STAMP LIBRARY", 9 * S), Origin.y + 7 * S), Count.c_str(), 8 * S, 0x55554f);
+    const float Width = 356 * S;
+    ImGui::Dummy(ImVec2(Width, 1)); // pin the popup width to the catalogue column
 
-    float CursorY = Origin.y + 28 * S;
-    const auto DrawSection = [&](const char *Title, bool Builtins) {
-        bool Any = false;
-        for (const auto &Entry : StampLib.Entries())
-            if (Entry.Builtin == Builtins) Any = true;
-        if (!Any) return;
-        Caption(ImVec2(Origin.x + 10 * S, CursorY), Title, 8 * S, 0x686862);
-        CursorY += 16 * S;
-        int Slot = 0;
-        for (const auto &Entry : StampLib.Entries())
+    Caption(ImVec2(Origin.x + 20 * S, Origin.y + 10 * S), "Stamp library", 18 * S, 0xd3d3c8,
+        LightTypeface ? LightTypeface : RegularTypeface);
+    const std::string Total = std::to_string(StampLib.Entries().size());
+    Caption(ImVec2(Origin.x + 26 * S + CaptionWidth("Stamp library", 18 * S, LightTypeface), Origin.y + 19 * S),
+        Total.c_str(), 8 * S, 0x777766);
+
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, Origin.y + 42 * S));
+    ImGui::SetNextItemWidth(Width - 28 * S);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(35 * S, 11.5f * S));
+    ImGui::InputTextWithHint("##StampSearch", "Search stamps...", StampSearch, sizeof(StampSearch));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", ImVec2(Origin.x + 27 * S, Origin.y + 54 * S), 15 * S, 0x77776f);
+
+    float PillX = 14 * S;
+    const char *Filters[]{"All stamps", "Presets", "Saved"};
+    for (int Filter = 0; Filter < 3; ++Filter)
+    {
+        const float PillWidth = CaptionWidth(Filters[Filter], 9.5f * S) + 20 * S;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + PillX, Origin.y + 90 * S));
+        if (PillButton((std::string("StampFilter") + Filters[Filter]).c_str(), Filters[Filter], PillWidth, StampFilter == Filter))
+            StampFilter = Filter;
+        PillX += PillWidth + 5 * S;
+    }
+
+    const std::string Query = Lowered(StampSearch);
+    std::vector<const StampLibraryEntry *> Visible;
+    for (const auto &Entry : StampLib.Entries())
+    {
+        if (StampFilter == 1 && !Entry.Builtin) continue;
+        if (StampFilter == 2 && Entry.Builtin) continue;
+        if (!Query.empty() && Lowered(Entry.Name).find(Query) == std::string::npos) continue;
+        Visible.push_back(&Entry);
+    }
+
+    Ink->AddLine(ImVec2(Origin.x, Origin.y + 126 * S), ImVec2(Origin.x + Width, Origin.y + 126 * S), Colour32(0xffffff, .051f));
+    Caption(ImVec2(Origin.x + 17 * S, Origin.y + 138 * S), "THE STAMP COLLECTION", 8 * S, 0x7e7e70);
+    const std::string VisibleCount = std::to_string(Visible.size());
+    Caption(ImVec2(Origin.x + Width - 17 * S - CaptionWidth(VisibleCount.c_str(), 8 * S), Origin.y + 138 * S),
+        VisibleCount.c_str(), 8 * S, 0x7e7e70);
+
+    const size_t Rows = (Visible.size() + 1) / 2;
+    const float GridHeight = std::clamp(float(Rows) * 134 * S, 134 * S, 402 * S);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 16 * S, Origin.y + 157 * S));
+    ImGui::BeginChild("Stamp grid", ImVec2(Width - 32 * S, GridHeight), ImGuiChildFlags_None);
+    const ImVec2 GridOrigin = ImGui::GetCursorScreenPos();
+    const float Gap = 9 * S, CardHeight = 125 * S;
+    const float CardWidth = std::max(32.f, (ImGui::GetContentRegionAvail().x - Gap) * .5f);
+    if (Visible.empty())
+    {
+        if (StampFilter == 2 && StampLib.DiskCount() == 0)
         {
-            if (Entry.Builtin != Builtins) continue;
-            const ImVec2 Cell(Origin.x + 4 * S + (Slot % Columns) * CellW, CursorY + (Slot / Columns) * CellH);
-            ImGui::PushID(Entry.Id.c_str());
-            ImGui::SetCursorScreenPos(Cell);
-            const bool Clicked = ImGui::InvisibleButton("##StampCell", ImVec2(CellW - 4 * S, CellH - 4 * S));
-            ImGui::PopID();
-            const bool Hovered = ImGui::IsItemHovered();
-            const bool Active = Entry.Id == ActiveStampId;
-            if (Clicked)
-            {
-                ActiveStampId = Entry.Id;
-                Status = "Stamp: " + Entry.Name + " - click the teapot to place it";
-                ImGui::CloseCurrentPopup();
-            }
-            if (Active || Hovered)
-                Ink->AddRectFilled(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), Colour32(Active ? 0x262626 : 0x1b1b1b), 9 * S);
-            if (Active)
-                Ink->AddRect(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), Colour32(0xd9b281), 9 * S);
-            // CPU thumbnail: checker well + the stamp's own pixels as coarse blocks (no GPU upload in this panel).
-            const ImVec2 ThumbMin(Cell.x + (CellW - 4 * S - 54 * S) * .5f, Cell.y + 7 * S);
-            const float Thumb = 54 * S;
-            Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x1e1e1e), 6 * S);
-            Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Colour32(0x2a2a2a), 6 * S);
-            Ink->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x2a2a2a), 6 * S);
-            constexpr int Blocks = 48; // near per-pixel at the 54-unit thumb, 2x2-supersampled for AA
-            const float Block = Thumb / Blocks;
-            for (int By = 0; By < Blocks; ++By)
-                for (int Bx = 0; Bx < Blocks; ++Bx)
+            Caption(ImVec2(GridOrigin.x + 2 * S, GridOrigin.y + 6 * S), "No saved stamps yet - author one in the Stamp workspace,", 8 * S, 0x777770);
+            Caption(ImVec2(GridOrigin.x + 2 * S, GridOrigin.y + 20 * S), "then Document actions -> Save to stamp library.", 8 * S, 0x777770);
+        }
+        else Caption(ImVec2(GridOrigin.x + 2 * S, GridOrigin.y + 6 * S), "No stamps match. Try another filter or search.", 8 * S, 0x777770);
+    }
+    for (size_t Ordinal = 0; Ordinal < Visible.size(); ++Ordinal)
+    {
+        const StampLibraryEntry &Entry = *Visible[Ordinal];
+        const ImVec2 Position(GridOrigin.x + (Ordinal % 2) * (CardWidth + Gap), GridOrigin.y + (Ordinal / 2) * (CardHeight + Gap));
+        const ImVec2 Far(Position.x + CardWidth, Position.y + CardHeight);
+        ImGui::SetCursorScreenPos(Position);
+        ImGui::PushID(Entry.Id.c_str());
+        const bool Clicked = ImGui::InvisibleButton("Stamp card", ImVec2(CardWidth, CardHeight));
+        ImGui::PopID();
+        const bool Hovered = ImGui::IsItemHovered();
+        const bool Active = Entry.Id == ActiveStampId;
+        if (Clicked)
+        {
+            ActiveStampId = Entry.Id;
+            Status = "Stamp: " + Entry.Name + " - click the teapot to place it";
+            ImGui::CloseCurrentPopup();
+        }
+        Ink->AddRectFilled(Position, Far, Colour32(0x191919), 15 * S);
+        if (Hovered) Ink->AddRect(Position, Far, Colour32(0x707173), 15 * S);
+        // Checker well + the stamp's own pixels (48-block cache, 2x2-supersampled once per stamp).
+        const float Thumb = 72 * S;
+        const ImVec2 ThumbMin(Position.x + (CardWidth - Thumb) * .5f, Position.y + 6 * S);
+        Ink->PushClipRect(Position, Far, true);
+        Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x1e1e1e), 8 * S);
+        Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Colour32(0x2a2a2a), 8 * S);
+        Ink->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x2a2a2a), 8 * S);
+        auto &ThumbCache = StampThumbCache[Entry.Id];
+        if (ThumbCache.empty())
+        {
+            ThumbCache.resize(48 * 48);
+            for (int By = 0; By < 48; ++By)
+                for (int Bx = 0; Bx < 48; ++Bx)
                 {
                     std::array<float, 4> Texel{0, 0, 0, 0};
                     for (int Sy = 0; Sy < 2; ++Sy)
                         for (int Sx = 0; Sx < 2; ++Sx)
                         {
-                            const auto Corner = StampLibrary::Sample(Entry, (Bx + .25f + .5f * Sx) / Blocks, (By + .25f + .5f * Sy) / Blocks);
+                            const auto Corner = StampLibrary::Sample(Entry, (Bx + .25f + .5f * Sx) / 48, (By + .25f + .5f * Sy) / 48);
                             for (int Channel = 0; Channel < 4; ++Channel) Texel[size_t(Channel)] += Corner[size_t(Channel)] * .25f;
                         }
-                    if (Texel[3] <= 0.03f) continue;
                     const uint32_t Packed = (uint32_t(std::clamp(Texel[0], 0.f, 1.f) * 255) << 16) |
                         (uint32_t(std::clamp(Texel[1], 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(Texel[2], 0.f, 1.f) * 255);
-                    Ink->AddRectFilled(ImVec2(ThumbMin.x + Bx * Block, ThumbMin.y + By * Block),
-                        ImVec2(ThumbMin.x + (Bx + 1) * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f), Colour32(Packed, Texel[3]));
+                    ThumbCache[size_t(By) * 48 + Bx] = Colour32(Packed, Texel[3]);
                 }
-            Ink->PushClipRect(Cell, ImVec2(Cell.x + CellW - 4 * S, Cell.y + CellH - 4 * S), true);
-            Caption(ImVec2(Cell.x + std::max(2 * S, (CellW - 4 * S - CaptionWidth(Entry.Name.c_str(), 8 * S)) * .5f), Cell.y + 66 * S),
-                Entry.Name.c_str(), 8 * S, Active ? 0xeeeee8 : 0xa8a89a);
-            Ink->PopClipRect();
-            if (Hovered) ImGui::SetTooltip("%s%s", Entry.Name.c_str(), Entry.Tintable ? " - tinted by brush colour" : "");
-            ++Slot;
         }
-        CursorY += ((Slot + Columns - 1) / Columns) * CellH + 6 * S;
-    };
-    DrawSection("PRESETS", true);
-    DrawSection("SAVED STAMPS", false);
-    if (StampLib.DiskCount() == 0)
-    {
-        Caption(ImVec2(Origin.x + 10 * S, CursorY), "No saved stamps yet - author one in the Stamp workspace,", 8 * S, 0x777770);
-        Caption(ImVec2(Origin.x + 10 * S, CursorY + 12 * S), "then Document actions -> Save to stamp library.", 8 * S, 0x777770);
-        CursorY += 28 * S;
+        const float Block = Thumb / 48;
+        for (int By = 0; By < 48; ++By)
+            for (int Bx = 0; Bx < 48; ++Bx)
+            {
+                const uint32_t Pixel = ThumbCache[size_t(By) * 48 + Bx];
+                if (((Pixel >> IM_COL32_A_SHIFT) & 0xffu) < 8) continue;
+                Ink->AddRectFilled(ImVec2(ThumbMin.x + Bx * Block, ThumbMin.y + By * Block),
+                    ImVec2(ThumbMin.x + (Bx + 1) * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f), Pixel);
+            }
+        Caption(ImVec2(Position.x + 12 * S, Position.y + 89 * S), Entry.Name.c_str(), 9 * S, 0xc8c8b6);
+        Caption(ImVec2(Position.x + 12 * S, Position.y + 105 * S),
+            Entry.Builtin ? (Entry.Tintable ? "Preset · tintable" : "Preset") : "Saved stamp", 7 * S, 0x767665);
+        if (Active)
+        {
+            Ink->AddCircleFilled(ImVec2(Position.x + 14 * S, Position.y + 14 * S), 6 * S, Colour32(0xa5b99c));
+            Ink->AddLine(ImVec2(Position.x + 11 * S, Position.y + 14 * S), ImVec2(Position.x + 13 * S, Position.y + 16 * S), Colour32(0x2a3927));
+            Ink->AddLine(ImVec2(Position.x + 13 * S, Position.y + 16 * S), ImVec2(Position.x + 18 * S, Position.y + 11 * S), Colour32(0x2a3927));
+        }
+        Ink->PopClipRect();
+        if (Hovered) ImGui::SetTooltip("%s%s", Entry.Name.c_str(), Entry.Tintable ? " - tinted by brush colour" : "");
     }
-    Caption(ImVec2(Origin.x + 10 * S, CursorY + 2 * S), "Brush size sets stamp size · brush colour tints presets", 8 * S, 0x686862);
-    CursorY += 20 * S;
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * S, CursorY));
+    ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, GridOrigin.y + float(Rows) * (CardHeight + Gap)));
+    ImGui::Dummy(ImVec2(1, 1));
+    ImGui::EndChild();
+
+    const float ActionY = Origin.y + 157 * S + GridHeight + 10 * S;
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, ActionY));
     ImGui::BeginDisabled(!ActivateStamp);
     if (PillButton("PickerOpenStampStudio", "Stamp studio", 112 * S, false) && ActivateStamp)
     {
@@ -1923,9 +1978,17 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         ActivateStamp();
     }
     ImGui::EndDisabled();
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 128 * S, CursorY));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 134 * S, ActionY));
     if (PillButton("PickerReloadStamps", "Reload", 78 * S, false)) EnsureStampLibrary(true);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x, CursorY + 32 * S));
+
+    const float FooterY = ActionY + 38 * S;
+    const ImVec2 WindowPos = ImGui::GetWindowPos();
+    Ink->AddRectFilled(ImVec2(WindowPos.x, FooterY), ImVec2(WindowPos.x + ImGui::GetWindowSize().x, FooterY + 60 * S), Colour32(0x151515));
+    DrawGlyph("M5 22H19M12 2V10M8 10H16L17 18H7Z", ImVec2(Origin.x + 19 * S, FooterY + 18 * S), 19 * S, 0x9a9a8e);
+    Caption(ImVec2(Origin.x + 51 * S, FooterY + 18 * S), "Placed by the brush.", 9 * S, 0xaeae9b);
+    const std::string FooterLine = Total + " stamps · brush size sets scale, colour tints presets";
+    Caption(ImVec2(Origin.x + 51 * S, FooterY + 35 * S), FooterLine.c_str(), 7 * S, 0x6b6b60);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x, FooterY + 60 * S));
     ImGui::Dummy(ImVec2(0, 0));
     ImGui::EndPopup();
 }
@@ -4874,184 +4937,6 @@ void TexturePaintWorkspacePanel::ConstructBrushStudio()
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                                     CONTENT BROWSER (BOTTOM)
-//------------------------------------------------------------------------------------------------------------------------
-
-void TexturePaintWorkspacePanel::ConstructContentBrowser()
-{
-    const float S = InterfaceScale;
-    Controls.Scale = S;
-    const auto *Viewport = ImGui::GetMainViewport();
-    const float Left = Viewport->WorkPos.x, Right = Left + Viewport->WorkSize.x;
-    const float StatusTop = Viewport->WorkPos.y + Viewport->WorkSize.y - 31 * S;
-    const float Height = BrowserOpen ? std::min(340 * S, Viewport->WorkSize.y - 120 * S) : 38 * S;
-    ImGui::SetNextWindowPos(ImVec2(Left, StatusTop - Height));
-    ImGui::SetNextWindowSize(ImVec2(Right - Left, Height));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x191919));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, BrowserOpen ? 12 * S : 0.f);
-    ImGui::Begin("Texture content browser", nullptr,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar);
-    auto *Ink = ImGui::GetWindowDrawList();
-    const ImVec2 Origin = ImGui::GetWindowPos();
-    const float Width = Right - Left;
-    // .cb-bar
-    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 37 * S), Colour32(0x222220));
-    Ink->AddLine(Origin, ImVec2(Origin.x + Width, Origin.y), Colour32(0x5b5b54));
-    Ink->AddRectFilled(ImVec2(Origin.x + Width * .5f - 24 * S, Origin.y + 2 * S), ImVec2(Origin.x + Width * .5f + 24 * S, Origin.y + 5 * S), Colour32(0x777b83), 2 * S);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 10 * S, Origin.y + 6 * S));
-    if (PillButton("ToggleContentBrowser", "Content browser", 150 * S, BrowserOpen, "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"))
-        BrowserOpen = !BrowserOpen;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", BrowserOpen ? "Collapse content browser" : "Open content browser");
-    Track("Content browser");
-    char Counts[96];
-    std::snprintf(Counts, sizeof(Counts), "%zu materials · 5 instruments · 10 generators · 0 stamps", MaterialAssets.size());
-    Caption(ImVec2(Origin.x + 174 * S, Origin.y + 13 * S), Counts, 10 * S, 0x9598a3);
-    const std::string Hint = BrowserSelected.empty() ? "Drag the top edge upward to open the asset workspace" : BrowserSelected;
-    Caption(ImVec2(Origin.x + Width - 58 * S - CaptionWidth(Hint.c_str(), 10 * S), Origin.y + 13 * S), Hint.c_str(), 10 * S, 0x868b95);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 42 * S, Origin.y + 5 * S));
-    if (IconButton("ExpandContentBrowser", "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7", 27 * S, BrowserOpen)) BrowserOpen = !BrowserOpen;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand content browser");
-
-    if (BrowserOpen)
-    {
-        const float BodyY = Origin.y + 37 * S;
-        const float BodyHeight = Height - 37 * S;
-        // .cb-outliner
-        Ink->AddRectFilled(ImVec2(Origin.x, BodyY), ImVec2(Origin.x + 178 * S, BodyY + BodyHeight), Colour32(0x1c1c1c));
-        Ink->AddLine(ImVec2(Origin.x + 178 * S, BodyY), ImVec2(Origin.x + 178 * S, BodyY + BodyHeight), Colour32(0xffffff, .04f));
-        DrawGlyph(LayersIconPath, ImVec2(Origin.x + 14 * S, BodyY + 15 * S), 13 * S, 0xa8a89a);
-        Caption(ImVec2(Origin.x + 34 * S, BodyY + 15 * S), "Asset library", 11 * S, 0xd8d8cd);
-        const struct { BrowserKind Kind; const char *Label; size_t Count; const char *Icon; } Kinds[4]{
-            {BrowserKind::Material, "Materials", MaterialAssets.size(), LayersIconPath},
-            {BrowserKind::Brush, "Brushes / instruments", 5, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
-            {BrowserKind::Generator, "Generators", 10, "M12 3L13.8 8.2L19 10L13.8 11.8L12 17L10.2 11.8L5 10L10.2 8.2Z"},
-            {BrowserKind::Stamp, "Stamp presets", 0, "M5 22H19M12 2V10M8 10H16L17 18H7Z"}};
-        float RowY = BodyY + 44 * S;
-        for (const auto &Entry : Kinds)
-        {
-            ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * S, RowY));
-            const std::string Label = std::string(Entry.Label) + "  " + std::to_string(Entry.Count);
-            if (PillButton((std::string("BrowserKind") + Entry.Label).c_str(), Label.c_str(), 162 * S, BrowserTab == Entry.Kind, Entry.Icon))
-            {
-                BrowserTab = Entry.Kind;
-                BrowserSelected.clear();
-            }
-            RowY += 32 * S;
-        }
-        // Search + asset grid.
-        const float GridX = Origin.x + 178 * S;
-        const float InspectorWidth = 300 * S;
-        const float GridWidth = std::max(180.f, Width - 178 * S - InspectorWidth);
-        ImGui::SetCursorScreenPos(ImVec2(GridX + 12 * S, BodyY + 10 * S));
-        ImGui::SetNextItemWidth(std::min(280 * S, GridWidth - 24 * S));
-        ImGui::InputText("##BrowserSearch", BrowserQuery, sizeof(BrowserQuery));
-        if (!BrowserQuery[0] && !ImGui::IsItemActive())
-            Caption(ImVec2(GridX + 22 * S, BodyY + 17 * S), "Search assets…", 10 * S, 0x787871);
-        ImGui::SetCursorScreenPos(ImVec2(GridX, BodyY + 44 * S));
-        ImGui::BeginChild("BrowserAssets", ImVec2(GridWidth, BodyHeight - 44 * S), false);
-        const std::string Query = Lowered(BrowserQuery);
-        const float TileWidth = 158 * S, TileHeight = 58 * S;
-        int Column = 0;
-        const int Columns = std::max(1, int(ImGui::GetContentRegionAvail().x / (TileWidth + 8 * S)));
-        const ImVec2 GridOrigin = ImGui::GetCursorScreenPos();
-        float TileY = GridOrigin.y + 4 * S;
-        int VisibleAssets = 0;
-        const auto AssetTile = [&](const std::string &Name, const std::string &Category, uint32_t ChipColour, const std::function<void()> &OnSelect)
-        {
-            if (!Query.empty() && Lowered(Name + " " + Category).find(Query) == std::string::npos) return;
-            ++VisibleAssets;
-            const ImVec2 TileMin(GridOrigin.x + 8 * S + Column * (TileWidth + 8 * S), TileY);
-            ImGui::SetCursorScreenPos(TileMin);
-            ImGui::PushID(Name.c_str());
-            const bool Clicked = ImGui::InvisibleButton("##Asset", ImVec2(TileWidth, TileHeight));
-            ImGui::PopID();
-            const bool SelectedAsset = BrowserSelected == Name;
-            if (SelectedAsset || ImGui::IsItemHovered())
-                Ink->AddRectFilled(TileMin, ImVec2(TileMin.x + TileWidth, TileMin.y + TileHeight), Colour32(SelectedAsset ? 0x333c38 : 0x242422), 10 * S);
-            if (SelectedAsset) Ink->AddRect(TileMin, ImVec2(TileMin.x + TileWidth, TileMin.y + TileHeight), Colour32(0x527660), 10 * S);
-            Ink->AddRectFilled(ImVec2(TileMin.x + 9 * S, TileMin.y + 13 * S), ImVec2(TileMin.x + 41 * S, TileMin.y + 45 * S), Colour32(ChipColour), 8 * S);
-            Caption(ImVec2(TileMin.x + 50 * S, TileMin.y + 13 * S), Name.c_str(), 9.5f * S, 0xd8d8cd);
-            Caption(ImVec2(TileMin.x + 50 * S, TileMin.y + 30 * S), Category.c_str(), 8 * S, 0x8a8a7c);
-            if (Clicked) { BrowserSelected = Name; OnSelect(); }
-            if (++Column >= Columns) { Column = 0; TileY += TileHeight + 8 * S; }
-        };
-        if (BrowserTab == BrowserKind::Material)
-        {
-            for (const auto &Asset : MaterialAssets)
-            {
-                const auto Colour = ParseHexColour(Asset.ColourHex, {.45f, .45f, .42f, 1.f});
-                const uint32_t Packed = (uint32_t(Colour[0] * 255) << 16) | (uint32_t(Colour[1] * 255) << 8) | uint32_t(Colour[2] * 255);
-                AssetTile(Asset.Name, Asset.Category.empty() ? "Material" : Asset.Category, Packed, []() {});
-            }
-            if (MaterialAssets.empty()) ImGui::TextDisabled("No materials in the loaded library directory.");
-        }
-        else if (BrowserTab == BrowserKind::Brush)
-        {
-            for (const auto &Preset : PresetTable)
-                AssetTile(Preset.Name, Preset.Note, 0xd79564, [&]() { ApplyBrushPreset(Preset.Id); });
-        }
-        else if (BrowserTab == BrowserKind::Generator)
-        {
-            for (const auto &Generator : GeneratorTable)
-                AssetTile(Generator.Label, std::string(Generator.Group) + " · " + Generator.Note, 0x78ab96, []() {});
-        }
-        else
-        {
-            ImGui::TextDisabled("No stamp presets in this native session.");
-            ImGui::Dummy(ImVec2(1, 8 * S));
-            ImGui::BeginDisabled(!ActivateStamp);
-            if (PillButton("BrowserOpenStamp", "Open Stamp workspace", 180 * S, false) && ActivateStamp) ActivateStamp();
-            ImGui::EndDisabled();
-        }
-        ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, TileY + TileHeight + 12 * S));
-        char Footer[32];
-        std::snprintf(Footer, sizeof(Footer), "%d assets", VisibleAssets);
-        Caption(ImGui::GetCursorScreenPos(), Footer, 8 * S, 0x77776f);
-        ImGui::Dummy(ImVec2(0, 0));
-        ImGui::EndChild();
-        // Preview + assign column.
-        const float PanelX = GridX + GridWidth;
-        Ink->AddLine(ImVec2(PanelX, BodyY), ImVec2(PanelX, BodyY + BodyHeight), Colour32(0xffffff, .04f));
-        ImGui::SetCursorScreenPos(ImVec2(PanelX + 14 * S, BodyY + 12 * S));
-        ImGui::BeginChild("BrowserPreview", ImVec2(InspectorWidth - 20 * S, BodyHeight - 16 * S), false);
-        ImGui::TextDisabled("%s", BrowserTab == BrowserKind::Material ? "Material" : BrowserTab == BrowserKind::Brush ? "Instrument"
-            : BrowserTab == BrowserKind::Generator ? "Generator" : "Stamp preset");
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + InspectorWidth - 34 * S);
-        if (BrowserSelected.empty()) ImGui::TextWrapped("%s", "Select an asset to assign it to the selected layer.");
-        else
-        {
-            ImGui::Text("%s", BrowserSelected.c_str());
-            ImGui::TextWrapped("%s", BrowserTab == BrowserKind::Brush
-                    ? "Selecting a preset applies it to the digital brush immediately. Assign stores an asset link on the layer."
-                    : "Assign stores an asset link on the selected layer - it is not paint compositing and does not bake maps.");
-        }
-        ImGui::PopTextWrapPos();
-        ImGui::Dummy(ImVec2(1, 8 * S));
-        auto *Layer = SelectedLayer();
-        ImGui::BeginDisabled(!Layer || BrowserSelected.empty() || BrowserTab == BrowserKind::Stamp || (Layer && EffectiveLocked(*Layer)));
-        if (PillButton("AssignAsset", "Assign to layer", 150 * S, false) && Layer)
-        {
-            Layer->SourceAsset = BrowserSelected;
-            Layer->SourceAssetType = BrowserTab == BrowserKind::Material ? "material" : BrowserTab == BrowserKind::Generator ? "generator" : "brush";
-            Layer->SourceColour = {0, 0, 0, 0};
-            if (BrowserTab == BrowserKind::Material)
-                for (const auto &Asset : MaterialAssets)
-                    if (Asset.Name == BrowserSelected) Layer->SourceColour = ParseHexColour(Asset.ColourHex, {.55f, .55f, .52f, 1.f});
-            CommitHistory("Assign source asset", Layer->Name + " · " + BrowserSelected, "source");
-            MarkDirty();
-            Status = "Asset link stored on the layer · not paint compositing.";
-        }
-        ImGui::EndDisabled();
-        if (!Layer) ImGui::TextDisabled("Select a layer first.");
-        ImGui::EndChild();
-    }
-    ImGui::End();
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor();
-}
-
-//------------------------------------------------------------------------------------------------------------------------
 //                                                     STATUS BAR + TOP LEVEL
 //------------------------------------------------------------------------------------------------------------------------
 
@@ -5132,8 +5017,26 @@ void TexturePaintWorkspacePanel::ConstructInterface()
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
+    // 🧩 Dock chrome: the same near-black title/tab/docking-empty colours Stamp/Pattern/Material push
+    // before their PanelDockspace runs - without these, Texture Paint's dock tabs and title strips
+    // fell back to the host theme and visibly mismatched the other studios.
+    for (ImGuiCol Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg})
+        ImGui::PushStyleColor(Slot, Spectrum(0x090909));
+    for (ImGuiCol Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
+        ImGui::PushStyleColor(Slot, Spectrum(0x101010));
+    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * InterfaceScale);
+    // No visible scrollbars anywhere in the workspace: wheel scrolling stays live (and eased, with
+    // overscroll, via ImGui Patch H) but the bar/track chrome is gone.
+    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f);
+    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
+    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
 
     // ⌨️ TexturePaintStudio's shortcuts: undo/redo, duplicate, save (frame keys live with the viewports).
     if (!ImGui::GetIO().WantTextInput)
@@ -5147,7 +5050,6 @@ void TexturePaintWorkspacePanel::ConstructInterface()
 
     ConstructHeader();
     Panels.ConstructInterface(InterfaceScale);
-    ConstructContentBrowser();
     ConstructBrushStudio();
     ConstructStatusBar();
 
@@ -5171,7 +5073,6 @@ void TexturePaintWorkspacePanel::ConstructInterface()
         ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 26 * S));
         ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x);
         ImGui::TextColored(Spectrum(0xb8b8ac), "%s",
-            "Open the shared content browser below to store a material asset link on the selected layer. "
             "Part-targeted material snapshots are saved with the project but are not shade-evaluated in this native build yet.");
         ImGui::Spacing();
         ImGui::TextColored(Spectrum(0xb8b8ac), "%s",
@@ -5229,8 +5130,10 @@ void TexturePaintWorkspacePanel::ConstructInterface()
     }
     else if (!Toast.empty()) Toast.clear();
 
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(20);
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(31);
+    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
+    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
     ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier

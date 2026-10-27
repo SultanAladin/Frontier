@@ -52,9 +52,10 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     std::function<void()> ActivateStamp;
     std::function<void()> ActivateBaking;
 
-    // 📝 Material catalogue snapshot for the content browser (name/category/colour only - assigning one stores
-    // an asset link on the selected layer, Alloy's own "Asset link stored on the layer" behaviour, it does not
-    // shade the preview with that material's full recipe).
+    // 📝 Material catalogue snapshot retained for layer source-asset links (name/category/colour only -
+    // assigning one stores an asset link on the selected layer, Alloy's own "Asset link stored on the
+    // layer" behaviour; it does not shade the preview with that material's full recipe). The content
+    // browser UI that consumed this snapshot was deleted; the data plumbing stays for its return.
     struct MaterialAsset
     {
         std::string Name;
@@ -353,6 +354,11 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     bool StampLibraryScanned = false;
     bool StampRightDownValid = false;
     float StampRightDownX = 0, StampRightDownY = 0;
+    // Material-catalogue-style picker state: All / Presets / Saved filter + name search, plus a
+    // 48-block thumbnail cache so the picker samples each stamp once instead of every frame.
+    int StampFilter = 0;
+    char StampSearch[64]{};
+    std::map<std::string, std::vector<uint32_t>> StampThumbCache;
     void EnsureStampLibrary(bool ForceReload = false);
     [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
     void PlaceStampAt(const float Uv[2]);
@@ -472,11 +478,6 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     double ToastClock = -100.0;
     void ShowToast(const std::string &Text) { Toast = Text; ToastClock = ClockSeconds; }
 
-    enum class BrowserKind { Material, Brush, Generator, Stamp };
-    bool BrowserOpen = false;
-    BrowserKind BrowserTab = BrowserKind::Material;
-    char BrowserQuery[64]{};
-    std::string BrowserSelected;
     std::vector<MaterialAsset> MaterialAssets;
 
     void ConstructHeader();
@@ -486,7 +487,6 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void ConstructInspector();
     void ConstructHistory();
     void ConstructBrushStudio();
-    void ConstructContentBrowser();
     void ConstructStatusBar();
     void DrawLayerThumbnail(float MinimumX, float MinimumY, float Size, const LayerState &Layer) const;
     [[nodiscard]] bool PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath = nullptr, uint32_t Accent = 0);
