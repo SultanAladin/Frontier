@@ -939,7 +939,8 @@ bool TexturePaintWorkspacePanel::FillMatches(const PaintFill &Fill, const Topolo
     }
     return false;
 }
-float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept
+float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const TopologyTriangle &Triangle, const float Uv[2],
+    const std::vector<int32_t> *DabCandidates) const noexcept
 {
     const auto &Mask = Layer.Mask;
     if (!Mask.Present || !Mask.Enabled) return 1.f;
@@ -960,9 +961,9 @@ float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const 
     }
     for (const auto &Fill : Mask.Fills)
         if (FillMatches(Fill, Triangle)) Value += (Fill.Colour[0] - Value) * std::clamp(Fill.Colour[3], 0.f, 1.f);
-    for (const auto &Dab : Mask.Dabs)
+    const auto ApplyMaskDab = [&](const auto &Dab)
     {
-        if (Dab.Part != Triangle.Part) continue;
+        if (Dab.Part != Triangle.Part) return;
         const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
         const float Distance = std::sqrt(Du * Du + Dv * Dv);
         if (Distance < Dab.Radius)
@@ -970,7 +971,11 @@ float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const 
             const float Falloff = std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f);
             Value += (Dab.Colour[0] - Value) * Falloff * std::clamp(Dab.Colour[3], 0.f, 1.f);
         }
-    }
+    };
+    if (DabCandidates)
+        for (const int32_t Index : *DabCandidates) ApplyMaskDab(Mask.Dabs[size_t(Index)]);
+    else
+        for (const auto &Dab : Mask.Dabs) ApplyMaskDab(Dab);
     if (Mask.Inverted) Value = 1.f - Value;
     return std::clamp(Value * Mask.Strength / 100.f + (1.f - Mask.Strength / 100.f), 0.f, 1.f);
 }
@@ -989,58 +994,439 @@ std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const Top
         }
     }
     // 📝 Bottom-to-top (vector order is topmost-first), honoring visibility/opacity/blend/masks - the same
-    // evaluation order Alloy's stack uses, at per-triangle preview fidelity.
+    // evaluation order Alloy's stack uses. This centroid form backs the fallback (untextured) preview;
+    // the UV canvas compositor below drives the same per-layer block per texel.
     for (auto Iterator = Layers.rbegin(); Iterator != Layers.rend(); ++Iterator)
+        ApplyPreviewLayer(Base, *Iterator, Triangle, Uv, nullptr, nullptr);
+    return Base;
+}
+
+void TexturePaintWorkspacePanel::ApplyPreviewLayer(std::array<float, 3> &Base, const LayerState &Layer,
+    const TopologyTriangle &Triangle, const float Uv[2], const std::vector<int32_t> *DabCandidates,
+    const std::vector<int32_t> *MaskDabCandidates, bool VisibilityPrechecked) const noexcept
+{
+    if (Layer.Kind == LayerKind::Folder || Layer.Opacity <= 0.f) return;
+    if (!VisibilityPrechecked && !EffectiveVisible(Layer)) return;
+    const float Coverage = MaskCoverageAt(Layer, Triangle, Uv, MaskDabCandidates);
+    const float Alpha = Layer.Opacity / 100.f * Coverage;
+    if (Alpha <= 0.f) return;
+    if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f)
+        BlendOver(Base, Layer.SourceColour, Alpha, Layer.Blend);
+    for (const auto &Fill : Layer.Fills)
+        if (FillMatches(Fill, Triangle)) BlendOver(Base, Fill.Colour, Alpha, Layer.Blend);
+    if (StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId)
     {
-        const auto &Layer = *Iterator;
-        if (Layer.Kind == LayerKind::Folder || !EffectiveVisible(Layer) || Layer.Opacity <= 0.f) continue;
-        const float Coverage = MaskCoverageAt(Layer, Triangle, Uv);
-        const float Alpha = Layer.Opacity / 100.f * Coverage;
-        if (Alpha <= 0.f) continue;
-        if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f)
-            BlendOver(Base, Layer.SourceColour, Alpha, Layer.Blend);
-        for (const auto &Fill : Layer.Fills)
-            if (FillMatches(Fill, Triangle)) BlendOver(Base, Fill.Colour, Alpha, Layer.Blend);
-        if (StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId)
+        // 🖌️ This layer owns the PaintWorkshop stamp canvas: its paint is the raster (colour + coverage);
+        // the dab records stay the document/undo truth.
+        const auto Sample = StampEngine.SampleCanvas(Uv[0], Uv[1]);
+        if (Sample[3] > 0.001f)
+            BlendOver(Base, {Sample[0], Sample[1], Sample[2], 1.f}, Alpha * Sample[3], Layer.Blend);
+    }
+    else
+    {
+        const auto ApplyDab = [&](const auto &Dab)
         {
-            // 🖌️ This layer owns the PaintWorkshop stamp canvas: its paint is the raster (colour + coverage),
-            // sampled once per triangle centroid; the dab records below stay the document/undo truth.
-            const auto Sample = StampEngine.SampleCanvas(Uv[0], Uv[1]);
-            if (Sample[3] > 0.001f)
-                BlendOver(Base, {Sample[0], Sample[1], Sample[2], 1.f}, Alpha * Sample[3], Layer.Blend);
-        }
+            if (Dab.Part != Triangle.Part) return;
+            const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+            const float Distance = std::sqrt(Du * Du + Dv * Dv);
+            if (Distance < Dab.Radius)
+                BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
+        };
+        if (DabCandidates)
+            for (const int32_t Index : *DabCandidates) ApplyDab(Layer.Dabs[size_t(Index)]);
         else
+            for (const auto &Dab : Layer.Dabs) ApplyDab(Dab);
+    }
+    // 🖨️ Decals ride over the layer's paint: point into stamp space (image top toward +V so
+    // stamps read upright in the UV view), bilinear library sample, placement tint applied.
+    for (const auto &Placement : Layer.Stamps)
+    {
+        const float Du = Uv[0] - Placement.U, Dv = Uv[1] - Placement.V;
+        if (std::fabs(Du) > Placement.Radius * 1.42f || std::fabs(Dv) > Placement.Radius * 1.42f) continue;
+        const auto *Entry = StampLib.Find(Placement.StampId);
+        if (!Entry) continue;
+        const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
+        const float LocalX = Du * CosR + Dv * SinR, LocalY = -Du * SinR + Dv * CosR;
+        const float SampleU = LocalX / (2.f * Placement.Radius) + 0.5f;
+        const float SampleV = 0.5f - LocalY / (2.f * Placement.Radius);
+        if (SampleU < 0.f || SampleU > 1.f || SampleV < 0.f || SampleV > 1.f) continue;
+        const auto Texel = StampLibrary::Sample(*Entry, SampleU, SampleV);
+        if (Texel[3] <= 0.003f) continue;
+        BlendOver(Base,
+            {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3]},
+            Alpha, Layer.Blend);
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     UV PREVIEW CANVAS (PER-TEXEL COMPOSITE)
+//------------------------------------------------------------------------------------------------------------------------
+// 🎨 The HTML workshop paints into a UV-space texture and the 3D view samples it per pixel; this is
+// the native equivalent. The four UDIM parts (authoring U in [0,4], V in [0,1]) become the four 512²
+// tiles of one atlas page (tile row 0 = V 1, so the page reads upright in the UV view). An owner map
+// (owning Topology triangle per texel) keeps region fills/masks/dab part checks exact at texel
+// fidelity, dab spatial grids keep large documents cheap, per-layer content bounds limit each pass
+// to the texels the layer can touch, and a content fingerprint gates recomposites to real changes
+// (throttled to ~12 Hz while a stroke is live).
+
+namespace
+{
+// Dab indices bucketed over authoring UV ([0,4]x[0,1] in 1/16 cells); insertion order per cell
+// preserves document dab order, so candidate-restricted loops composite identically to full loops.
+struct PreviewDabGrid
+{
+    bool Active = false;
+    std::vector<int32_t> Cells[64 * 16];
+};
+
+template <typename Records> PreviewDabGrid BuildPreviewDabGrid(const Records &Dabs)
+{
+    PreviewDabGrid Grid;
+    if (Dabs.size() <= 16) return Grid;
+    Grid.Active = true;
+    const auto CellX = [](float U) { return std::clamp(int(U * 16.f), 0, 63); };
+    const auto CellY = [](float V) { return std::clamp(int(V * 16.f), 0, 15); };
+    for (int32_t Index = 0; Index < int32_t(Dabs.size()); ++Index)
+    {
+        const auto &Dab = Dabs[size_t(Index)];
+        for (int Y = CellY(Dab.V - Dab.Radius); Y <= CellY(Dab.V + Dab.Radius); ++Y)
+            for (int X = CellX(Dab.U - Dab.Radius); X <= CellX(Dab.U + Dab.Radius); ++X)
+                Grid.Cells[size_t(Y * 64 + X)].push_back(Index);
+    }
+    return Grid;
+}
+
+const std::vector<int32_t> *PreviewDabCell(const PreviewDabGrid &Grid, float U, float V)
+{
+    if (!Grid.Active) return nullptr;
+    return &Grid.Cells[size_t(std::clamp(int(V * 16.f), 0, 15) * 64 + std::clamp(int(U * 16.f), 0, 63))];
+}
+} // namespace
+
+uint64_t TexturePaintWorkspacePanel::QueryPaintCanvasRevision() { return PaintCanvasRevision; }
+const std::vector<uint8_t> &TexturePaintWorkspacePanel::QueryPaintCanvasPixels() { return PaintCanvasPixels; }
+
+bool TexturePaintWorkspacePanel::PreviewCanvasTextured() const
+{
+    return PaintCanvasComposited && QueryPaintCanvasImage && QueryPaintCanvasImage().Texture != 0;
+}
+
+std::array<float, 2> TexturePaintWorkspacePanel::PreviewCanvasUv(int Part, float U, float V) const noexcept
+{
+    const float Tile = float(PaintCanvasTile), Extent = float(PaintCanvasExtent);
+    const int P = std::clamp(Part, 0, 3);
+    const float OriginX = float((P % 2) * int(PaintCanvasTile + 2) + 1), OriginY = float((P / 2) * int(PaintCanvasTile + 2) + 1);
+    return {(OriginX + std::clamp(U - float(P), 0.f, 1.f) * Tile) / Extent,
+        (OriginY + (1.f - std::clamp(V, 0.f, 1.f)) * Tile) / Extent};
+}
+
+void TexturePaintWorkspacePanel::BuildPreviewCanvasOwners()
+{
+    const int Extent = int(PaintCanvasExtent), Tile = int(PaintCanvasTile);
+    PaintCanvasOwners.assign(size_t(Extent) * Extent, -1);
+    for (size_t TriangleIndex = 0; TriangleIndex < Topology.size(); ++TriangleIndex)
+    {
+        const auto &Triangle = Topology[TriangleIndex];
+        const int Part = std::clamp(Triangle.Part, 0, 3);
+        const int OriginX = (Part % 2) * (Tile + 2) + 1, OriginY = (Part / 2) * (Tile + 2) + 1;
+        float X[3], Y[3];
+        for (int Corner = 0; Corner < 3; ++Corner)
         {
-            for (const auto &Dab : Layer.Dabs)
-            {
-                if (Dab.Part != Triangle.Part) continue;
-                const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
-                const float Distance = std::sqrt(Du * Du + Dv * Dv);
-                if (Distance < Dab.Radius)
-                    BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
-            }
+            X[Corner] = (Triangle.AuthoringUv[Corner][0] - float(Part)) * float(Tile);
+            Y[Corner] = (1.f - Triangle.AuthoringUv[Corner][1]) * float(Tile);
         }
-        // 🖨️ Decals ride over the layer's paint: centroid into stamp space (image top toward +V so
-        // stamps read upright in the UV view), bilinear library sample, placement tint applied.
+        const float Area = (X[1] - X[0]) * (Y[2] - Y[0]) - (Y[1] - Y[0]) * (X[2] - X[0]);
+        if (std::fabs(Area) < 1e-6f) continue;
+        const int MinX = std::clamp(int(std::floor(std::min({X[0], X[1], X[2]}))), 0, Tile - 1);
+        const int MaxX = std::clamp(int(std::ceil(std::max({X[0], X[1], X[2]}))), 0, Tile - 1);
+        const int MinY = std::clamp(int(std::floor(std::min({Y[0], Y[1], Y[2]}))), 0, Tile - 1);
+        const int MaxY = std::clamp(int(std::ceil(std::max({Y[0], Y[1], Y[2]}))), 0, Tile - 1);
+        for (int Py = MinY; Py <= MaxY; ++Py)
+            for (int Px = MinX; Px <= MaxX; ++Px)
+            {
+                const float Cx = Px + .5f, Cy = Py + .5f;
+                const float W0 = (X[1] - Cx) * (Y[2] - Cy) - (Y[1] - Cy) * (X[2] - Cx);
+                const float W1 = (X[2] - Cx) * (Y[0] - Cy) - (Y[2] - Cy) * (X[0] - Cx);
+                const float W2 = (X[0] - Cx) * (Y[1] - Cy) - (Y[0] - Cy) * (X[1] - Cx);
+                const bool Inside = Area > 0.f ? (W0 >= 0.f && W1 >= 0.f && W2 >= 0.f) : (W0 <= 0.f && W1 <= 0.f && W2 <= 0.f);
+                if (Inside) PaintCanvasOwners[size_t(OriginY + Py) * Extent + (OriginX + Px)] = int32_t(TriangleIndex);
+            }
+    }
+    PaintCanvasOwnersBuilt = true;
+    PaintCanvasOwnersTopology = Topology.size();
+}
+
+uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
+{
+    uint64_t Hash = 1469598103934665603ull;
+    const auto Mix = [&](uint64_t Value) noexcept { Hash ^= Value; Hash *= 1099511628211ull; };
+    const auto MixText = [&](const std::string &Text) noexcept
+    {
+        for (const char Character : Text) Mix(uint8_t(Character));
+        Mix(0xffu);
+    };
+    const auto MixFloat = [&](float Value) noexcept
+    {
+        uint32_t Bits;
+        std::memcpy(&Bits, &Value, 4);
+        Mix(Bits);
+    };
+    Mix(Topology.size());
+    Mix(Layers.size());
+    Mix(MaskPreview ? 1 : 0);
+    MixText(SelectedLayerId);
+    Mix(StampCanvasConfigured ? 1 : 0);
+    MixText(StampCanvasLayerId);
+    Mix(StampLibraryGeneration);
+    Mix(StampLib.Entries().size());
+    for (const auto &Layer : Layers)
+    {
+        MixText(Layer.Id);
+        MixText(Layer.ParentId);
+        Mix(uint32_t(Layer.Kind));
+        Mix(Layer.Visible ? 1 : 0);
+        MixFloat(Layer.Opacity);
+        MixText(Layer.Blend);
+        for (const float Channel : Layer.SourceColour) MixFloat(Channel);
+        Mix(Layer.Dabs.size());
+        Mix(Layer.Fills.size());
+        for (const auto &Fill : Layer.Fills)
+        {
+            Mix(uint32_t(Fill.Scope));
+            Mix(uint32_t(Fill.Part + 2));
+            Mix(uint32_t(Fill.Chart + 2));
+            Mix(uint32_t(Fill.Triangle + 2));
+            for (const float Channel : Fill.Colour) MixFloat(Channel);
+        }
+        Mix(Layer.Stamps.size());
         for (const auto &Placement : Layer.Stamps)
         {
-            const float Du = Uv[0] - Placement.U, Dv = Uv[1] - Placement.V;
-            if (std::fabs(Du) > Placement.Radius * 1.42f || std::fabs(Dv) > Placement.Radius * 1.42f) continue;
-            const auto *Entry = StampLib.Find(Placement.StampId);
-            if (!Entry) continue;
-            const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
-            const float LocalX = Du * CosR + Dv * SinR, LocalY = -Du * SinR + Dv * CosR;
-            const float SampleU = LocalX / (2.f * Placement.Radius) + 0.5f;
-            const float SampleV = 0.5f - LocalY / (2.f * Placement.Radius);
-            if (SampleU < 0.f || SampleU > 1.f || SampleV < 0.f || SampleV > 1.f) continue;
-            const auto Texel = StampLibrary::Sample(*Entry, SampleU, SampleV);
-            if (Texel[3] <= 0.003f) continue;
-            BlendOver(Base,
-                {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3]},
-                Alpha, Layer.Blend);
+            MixText(Placement.StampId);
+            MixFloat(Placement.U);
+            MixFloat(Placement.V);
+            MixFloat(Placement.Radius);
+            MixFloat(Placement.Rotation);
+            for (const float Channel : Placement.Tint) MixFloat(Channel);
+        }
+        const auto &Mask = Layer.Mask;
+        Mix(Mask.Present ? 1 : 0);
+        Mix(Mask.Enabled ? 1 : 0);
+        Mix(Mask.Inverted ? 1 : 0);
+        MixText(Mask.Kind);
+        MixFloat(Mask.Fill);
+        MixFloat(Mask.Strength);
+        MixFloat(Mask.Tolerance);
+        MixFloat(Mask.Softness);
+        for (const float Channel : Mask.Colour) MixFloat(Channel);
+        Mix(Mask.Fills.size());
+        for (const auto &Fill : Mask.Fills)
+        {
+            Mix(uint32_t(Fill.Scope));
+            Mix(uint32_t(Fill.Part + 2));
+            Mix(uint32_t(Fill.Chart + 2));
+            Mix(uint32_t(Fill.Triangle + 2));
+            for (const float Channel : Fill.Colour) MixFloat(Channel);
+        }
+        Mix(Mask.Dabs.size());
+    }
+    if (StampCanvasConfigured)
+    {
+        // The physics canvas keeps evolving (drying/flow) without touching the document; probe it on
+        // a coarse lattice so the preview recomposites while it visibly settles, then goes quiet.
+        for (int Y = 0; Y < 8; ++Y)
+            for (int X = 0; X < 32; ++X)
+            {
+                const auto Sample = StampEngine.SampleCanvas((X + .5f) / 32.f * 4.f, (Y + .5f) / 8.f);
+                for (const float Channel : Sample) Mix(uint32_t(std::clamp(Channel, 0.f, 1.f) * 255.f));
+            }
+    }
+    return Hash;
+}
+
+void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
+{
+    if (!QueryPaintCanvasImage || QueryPaintCanvasImage().Texture == 0) return; // no GPU canvas in this host
+    if (Topology.empty()) return;
+    if (!PaintCanvasOwnersBuilt || PaintCanvasOwnersTopology != Topology.size())
+    {
+        BuildPreviewCanvasOwners();
+        PaintCanvasComposited = false;
+    }
+    const uint64_t Fingerprint = PreviewCanvasFingerprint();
+    if (PaintCanvasComposited && Fingerprint == PaintCanvasFingerprintCache) return;
+    const double Now = ImGui::GetTime();
+    if (StrokeActive && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.08) return;
+    CompositePreviewCanvas();
+    PaintCanvasFingerprintCache = Fingerprint;
+    PaintCanvasComposited = true;
+    PaintCanvasLastComposite = Now;
+    ++PaintCanvasRevision;
+}
+
+void TexturePaintWorkspacePanel::CompositePreviewCanvas()
+{
+    const int Extent = int(PaintCanvasExtent), Tile = int(PaintCanvasTile);
+    if (PaintCanvasScratch.size() != size_t(Extent) * Extent) PaintCanvasScratch.assign(size_t(Extent) * Extent, {});
+    for (auto &Texel : PaintCanvasScratch) Texel = {0.92f, 0.91f, 0.88f};
+    const auto TileOriginX = [&](int Part) { return (Part % 2) * (Tile + 2) + 1; };
+    const auto TileOriginY = [&](int Part) { return (Part / 2) * (Tile + 2) + 1; };
+    bool MaskPreviewDone = false;
+    if (MaskPreview)
+    {
+        if (const auto *Selected = FindLayer(SelectedLayerId); Selected && Selected->Mask.Present)
+        {
+            MaskPreviewDone = true;
+            const PreviewDabGrid MaskGrid = BuildPreviewDabGrid(Selected->Mask.Dabs);
+            for (int Part = 0; Part < 4; ++Part)
+            {
+                const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
+                for (int Py = 0; Py < Tile; ++Py)
+                    for (int Px = 0; Px < Tile; ++Px)
+                    {
+                        const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
+                        const int32_t Owner = PaintCanvasOwners[At];
+                        if (Owner < 0) continue;
+                        const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
+                        const float Coverage = MaskCoverageAt(*Selected, Topology[size_t(Owner)], Uv, PreviewDabCell(MaskGrid, Uv[0], Uv[1]));
+                        PaintCanvasScratch[At] = {Coverage, Coverage, Coverage};
+                    }
+            }
         }
     }
-    return Base;
+    if (!MaskPreviewDone)
+    {
+        std::vector<PreviewDabGrid> DabGrids(Layers.size()), MaskGrids(Layers.size());
+        for (size_t Index = 0; Index < Layers.size(); ++Index)
+        {
+            DabGrids[Index] = BuildPreviewDabGrid(Layers[Index].Dabs);
+            MaskGrids[Index] = BuildPreviewDabGrid(Layers[Index].Mask.Dabs);
+        }
+        struct TileBox
+        {
+            int MinX = 0, MinY = 0, MaxX = -1, MaxY = -1;
+        };
+        for (int LayerIndex = int(Layers.size()) - 1; LayerIndex >= 0; --LayerIndex)
+        {
+            const auto &Layer = Layers[size_t(LayerIndex)];
+            if (Layer.Kind == LayerKind::Folder || !EffectiveVisible(Layer) || Layer.Opacity <= 0.f) continue;
+            TileBox Boxes[4];
+            const auto AddTileBox = [&](int Part, float U0, float V0, float U1, float V1)
+            {
+                const float LocalU0 = std::clamp(U0 - float(Part), 0.f, 1.f), LocalU1 = std::clamp(U1 - float(Part), 0.f, 1.f);
+                const float LocalV0 = std::clamp(V0, 0.f, 1.f), LocalV1 = std::clamp(V1, 0.f, 1.f);
+                if (LocalU1 < LocalU0 || LocalV1 < LocalV0) return;
+                const int X0 = std::clamp(int(std::floor(LocalU0 * Tile)) - 1, 0, Tile - 1);
+                const int X1 = std::clamp(int(std::ceil(LocalU1 * Tile)) + 1, 0, Tile - 1);
+                const int Y0 = std::clamp(int(std::floor((1.f - LocalV1) * Tile)) - 1, 0, Tile - 1);
+                const int Y1 = std::clamp(int(std::ceil((1.f - LocalV0) * Tile)) + 1, 0, Tile - 1);
+                TileBox &Box = Boxes[Part];
+                if (Box.MaxX < 0) Box = {X0, Y0, X1, Y1};
+                else
+                {
+                    Box.MinX = std::min(Box.MinX, X0);
+                    Box.MinY = std::min(Box.MinY, Y0);
+                    Box.MaxX = std::max(Box.MaxX, X1);
+                    Box.MaxY = std::max(Box.MaxY, Y1);
+                }
+            };
+            const auto AddUvBox = [&](float U0, float V0, float U1, float V1)
+            {
+                for (int Part = 0; Part < 4; ++Part)
+                    if (U1 >= float(Part) && U0 <= float(Part) + 1.f) AddTileBox(Part, U0, V0, U1, V1);
+            };
+            const bool EngineLayer = StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId;
+            if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f) AddUvBox(0.f, 0.f, 4.f, 1.f);
+            for (const auto &Fill : Layer.Fills)
+            {
+                int Part = Fill.Part;
+                if (Fill.Scope == RegionScope::Face && Fill.Triangle >= 0 && Fill.Triangle < int(Topology.size()))
+                    Part = Topology[size_t(Fill.Triangle)].Part;
+                else if (Fill.Scope == RegionScope::Island)
+                    Part = Fill.Chart >= 0 ? PartForPatch(Fill.Chart) : -1;
+                if (Part >= 0 && Part < 4) AddTileBox(Part, float(Part), 0.f, float(Part) + 1.f, 1.f);
+                else AddUvBox(0.f, 0.f, 4.f, 1.f);
+            }
+            if (EngineLayer && Layer.Dabs.empty()) AddUvBox(0.f, 0.f, 4.f, 1.f);
+            const float DabPad = EngineLayer ? 2.f : 1.f; // engine deposits spread past the dab record radius
+            for (const auto &Dab : Layer.Dabs)
+                AddUvBox(Dab.U - Dab.Radius * DabPad, Dab.V - Dab.Radius * DabPad, Dab.U + Dab.Radius * DabPad, Dab.V + Dab.Radius * DabPad);
+            for (const auto &Placement : Layer.Stamps)
+                AddUvBox(Placement.U - Placement.Radius * 1.42f, Placement.V - Placement.Radius * 1.42f,
+                    Placement.U + Placement.Radius * 1.42f, Placement.V + Placement.Radius * 1.42f);
+            for (int Part = 0; Part < 4; ++Part)
+            {
+                const TileBox &Box = Boxes[Part];
+                if (Box.MaxX < 0) continue;
+                const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
+                for (int Py = Box.MinY; Py <= Box.MaxY; ++Py)
+                    for (int Px = Box.MinX; Px <= Box.MaxX; ++Px)
+                    {
+                        const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
+                        const int32_t Owner = PaintCanvasOwners[At];
+                        if (Owner < 0) continue;
+                        const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
+                        ApplyPreviewLayer(PaintCanvasScratch[At], Layer, Topology[size_t(Owner)], Uv,
+                            PreviewDabCell(DabGrids[size_t(LayerIndex)], Uv[0], Uv[1]),
+                            PreviewDabCell(MaskGrids[size_t(LayerIndex)], Uv[0], Uv[1]), true);
+                    }
+            }
+        }
+    }
+    // Dilation: bleed island-edge colours a couple of texels into the chart gutters so linear
+    // filtering across seams does not drag the unpainted base onto the model.
+    if (PaintCanvasFilled.size() != size_t(Extent) * Extent) PaintCanvasFilled.assign(size_t(Extent) * Extent, 0);
+    for (size_t At = 0; At < PaintCanvasOwners.size(); ++At) PaintCanvasFilled[At] = PaintCanvasOwners[At] >= 0 ? 1 : 0;
+    for (int Pass = 0; Pass < 2; ++Pass)
+    {
+        std::vector<uint8_t> Next = PaintCanvasFilled;
+        for (int Part = 0; Part < 4; ++Part)
+        {
+            const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
+            for (int Py = 0; Py < Tile; ++Py)
+                for (int Px = 0; Px < Tile; ++Px)
+                {
+                    const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
+                    if (PaintCanvasFilled[At]) continue;
+                    const int Dx[4]{1, -1, 0, 0}, Dy[4]{0, 0, 1, -1};
+                    for (int Direction = 0; Direction < 4; ++Direction)
+                    {
+                        const int Nx = Px + Dx[Direction], Ny = Py + Dy[Direction];
+                        if (Nx < 0 || Ny < 0 || Nx >= Tile || Ny >= Tile) continue;
+                        const size_t Near = size_t(Oy + Ny) * Extent + (Ox + Nx);
+                        if (PaintCanvasFilled[Near])
+                        {
+                            PaintCanvasScratch[At] = PaintCanvasScratch[Near];
+                            Next[At] = 1;
+                            break;
+                        }
+                    }
+                }
+        }
+        PaintCanvasFilled = std::move(Next);
+    }
+    // Gutter replication: tile edge texels copied 1px outward so atlas tile borders filter cleanly.
+    for (int Part = 0; Part < 4; ++Part)
+    {
+        const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
+        for (int Px = 0; Px < Tile; ++Px)
+        {
+            PaintCanvasScratch[size_t(Oy - 1) * Extent + (Ox + Px)] = PaintCanvasScratch[size_t(Oy) * Extent + (Ox + Px)];
+            PaintCanvasScratch[size_t(Oy + Tile) * Extent + (Ox + Px)] = PaintCanvasScratch[size_t(Oy + Tile - 1) * Extent + (Ox + Px)];
+        }
+        for (int Py = -1; Py <= Tile; ++Py)
+        {
+            PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox - 1)] = PaintCanvasScratch[size_t(Oy + Py) * Extent + Ox];
+            PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox + Tile)] = PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox + Tile - 1)];
+        }
+    }
+    PaintCanvasPixels.assign(size_t(Extent) * Extent * 4, 255);
+    for (size_t At = 0; At < PaintCanvasScratch.size(); ++At)
+    {
+        const auto &Texel = PaintCanvasScratch[At];
+        PaintCanvasPixels[At * 4 + 0] = uint8_t(std::clamp(Texel[0], 0.f, 1.f) * 255.f);
+        PaintCanvasPixels[At * 4 + 1] = uint8_t(std::clamp(Texel[1], 0.f, 1.f) * 255.f);
+        PaintCanvasPixels[At * 4 + 2] = uint8_t(std::clamp(Texel[2], 0.f, 1.f) * 255.f);
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1333,6 +1719,7 @@ void TexturePaintWorkspacePanel::EnsureStampLibrary(bool ForceReload)
     std::filesystem::path Directory = StampLibraryDirectory;
     if (Directory.empty() && !ProjectDirectory.empty()) Directory = ProjectDirectory / "Stamps";
     StampLib.Reload(Directory);
+    ++StampLibraryGeneration; // reloaded pixels can change placed stamps - recomposite the UV canvas
     if (!StampLib.Find(ActiveStampId))
         ActiveStampId = StampLib.Entries().empty() ? std::string{} : StampLib.Entries().front().Id;
 }
@@ -1351,10 +1738,26 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
         Status = "No stamp picked - right-click the viewport for the stamp library";
         return;
     }
-    auto *Layer = FindLayer(SelectedLayerId);
-    if (!Layer || MaskSelected || Layer->Kind == LayerKind::Folder || EffectiveLocked(*Layer) || !EffectiveVisible(*Layer))
+    if (MaskSelected)
     {
-        Status = "Select an unlocked paint layer to place a stamp";
+        Status = "Stamps land on paint layers - select the layer itself, not its mask";
+        return;
+    }
+    auto *Layer = FindLayer(SelectedLayerId);
+    if (!Layer || Layer->Kind == LayerKind::Folder)
+    {
+        // No paint layer to land on: the first stamp creates (and selects) the first layer.
+        AddLayer(LayerKind::Paint);
+        Layer = FindLayer(SelectedLayerId);
+        if (!Layer || Layer->Kind == LayerKind::Folder)
+        {
+            Status = "No stamp layer could be created - has the 64-layer limit been reached?";
+            return;
+        }
+    }
+    if (EffectiveLocked(*Layer) || !EffectiveVisible(*Layer))
+    {
+        Status = "The selected layer is locked or hidden - unlock/show it to place a stamp";
         return;
     }
     if (View == ViewMode::Wireframe)
@@ -1434,12 +1837,18 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
             Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x1e1e1e), 6 * S);
             Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Colour32(0x2a2a2a), 6 * S);
             Ink->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x2a2a2a), 6 * S);
-            constexpr int Blocks = 18;
+            constexpr int Blocks = 48; // near per-pixel at the 54-unit thumb, 2x2-supersampled for AA
             const float Block = Thumb / Blocks;
             for (int By = 0; By < Blocks; ++By)
                 for (int Bx = 0; Bx < Blocks; ++Bx)
                 {
-                    const auto Texel = StampLibrary::Sample(Entry, (Bx + .5f) / Blocks, (By + .5f) / Blocks);
+                    std::array<float, 4> Texel{0, 0, 0, 0};
+                    for (int Sy = 0; Sy < 2; ++Sy)
+                        for (int Sx = 0; Sx < 2; ++Sx)
+                        {
+                            const auto Corner = StampLibrary::Sample(Entry, (Bx + .25f + .5f * Sx) / Blocks, (By + .25f + .5f * Sy) / Blocks);
+                            for (int Channel = 0; Channel < 4; ++Channel) Texel[size_t(Channel)] += Corner[size_t(Channel)] * .25f;
+                        }
                     if (Texel[3] <= 0.03f) continue;
                     const uint32_t Packed = (uint32_t(std::clamp(Texel[0], 0.f, 1.f) * 255) << 16) |
                         (uint32_t(std::clamp(Texel[1], 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(Texel[2], 0.f, 1.f) * 255);
@@ -2399,7 +2808,8 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Navigate teapot");
         X += 96 * S;
-        ImGui::BeginDisabled(!DigitalPaintAvailable());
+        // 🖨️ The stamp tool is always selectable: with no suitable layer, the first placed stamp
+        // creates (and selects) the first paint layer instead of refusing (see PlaceStampAt).
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
         if (PillButton("ToolStamp", "Stamp", 78 * S, Tool == AuthorTool::Stamp && !DigitalActive, "M5 22H19M12 2V10M8 10H16L17 18H7Z"))
         {
@@ -2407,7 +2817,6 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             DigitalActive = false;
             EnsureStampLibrary(true); // presets + anything saved to the project Stamps folder
         }
-        ImGui::EndDisabled();
         Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp, right-click the viewport for the stamp grid. Author new stamps in the Stamp workspace (Stamp studio, right).");
         X += 82 * S;
         ImGui::BeginDisabled(true);
@@ -2780,11 +3189,13 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                 if (Dc > .05f && Dd > .05f) DrawList->AddLine(Sc, Sd, Colour32(0xffffff, .045f), 1.f);
             }
         }
-        struct DrawTriangle { ImVec2 A, B, C; ImU32 Colour; float Depth; int Part; };
+        EnsurePreviewCanvas(); // recomposites the UV canvas only when the document actually changed
+        const bool Wire = View == ViewMode::Wireframe;
+        const bool Textured = !Wire && PreviewCanvasTextured();
+        struct DrawTriangle { ImVec2 A, B, C; ImU32 Colour; float Depth; int Part; float Uv[3][2]; };
         std::vector<DrawTriangle> Triangles;
         Triangles.reserve(Topology.size());
         Picks.reserve(Topology.size());
-        const bool Wire = View == ViewMode::Wireframe;
         for (const auto &Triangle : Topology)
         {
             const auto &VA = Part.Vertices[Triangle.VertexIndex[0]];
@@ -2813,24 +3224,45 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             Pick.Index = Triangle.Index;
             if (Front) Picks.push_back(Pick);
             // 🎨 Flat Lambert shade over the preview composite (same look family as Baking's CPU viewport).
+            // Textured path: the UV canvas carries the composite per texel, so the vertex colour is
+            // only the shade multiplier (the shader multiplies texture x vertex colour) and no
+            // per-triangle evaluation runs. Fallback keeps the centroid composite.
             const float Shade = std::clamp(.30f + .70f * std::max(0.f, DotV(FaceNormal, Light)), 0.f, 1.f);
-            std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
-            if (TargetPart >= 0)
+            ImU32 Packed;
+            if (Textured)
             {
-                if (Triangle.Part == TargetPart)
-                {
-                    const uint32_t Tint = PartTable[size_t(Triangle.Part)].Colour;
-                    Colour[0] += (float((Tint >> 16) & 0xff) / 255.f - Colour[0]) * .22f;
-                    Colour[1] += (float((Tint >> 8) & 0xff) / 255.f - Colour[1]) * .22f;
-                    Colour[2] += (float(Tint & 0xff) / 255.f - Colour[2]) * .22f;
-                }
-                else for (float &Channel : Colour) Channel *= .82f;
+                float Dim = Shade;
+                if (TargetPart >= 0 && Triangle.Part != TargetPart) Dim *= .82f;
+                const uint8_t Grey = uint8_t(std::clamp(Dim, 0.f, 1.f) * 255.f);
+                Packed = IM_COL32(Grey, Grey, Grey, 255);
             }
-            const ImU32 Packed = IM_COL32(uint8_t(std::clamp(Colour[0] * Shade, 0.f, 1.f) * 255.f),
-                uint8_t(std::clamp(Colour[1] * Shade, 0.f, 1.f) * 255.f), uint8_t(std::clamp(Colour[2] * Shade, 0.f, 1.f) * 255.f), 255);
-            Triangles.push_back({Sa, Sb, Sc, Packed, Pick.Depth, Triangle.Part});
+            else
+            {
+                std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
+                if (TargetPart >= 0)
+                {
+                    if (Triangle.Part == TargetPart)
+                    {
+                        const uint32_t Tint = PartTable[size_t(Triangle.Part)].Colour;
+                        Colour[0] += (float((Tint >> 16) & 0xff) / 255.f - Colour[0]) * .22f;
+                        Colour[1] += (float((Tint >> 8) & 0xff) / 255.f - Colour[1]) * .22f;
+                        Colour[2] += (float(Tint & 0xff) / 255.f - Colour[2]) * .22f;
+                    }
+                    else for (float &Channel : Colour) Channel *= .82f;
+                }
+                Packed = IM_COL32(uint8_t(std::clamp(Colour[0] * Shade, 0.f, 1.f) * 255.f),
+                    uint8_t(std::clamp(Colour[1] * Shade, 0.f, 1.f) * 255.f), uint8_t(std::clamp(Colour[2] * Shade, 0.f, 1.f) * 255.f), 255);
+            }
+            DrawTriangle Drawn{Sa, Sb, Sc, Packed, Pick.Depth, Triangle.Part, {}};
+            for (int Corner = 0; Corner < 3; ++Corner)
+            {
+                Drawn.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
+                Drawn.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
+            }
+            Triangles.push_back(Drawn);
         }
         std::sort(Triangles.begin(), Triangles.end(), [](const DrawTriangle &A, const DrawTriangle &B) { return A.Depth > B.Depth; });
+        if (Textured) DrawList->PushTexture(ImTextureRef(ImTextureID(QueryPaintCanvasImage().Texture)));
         for (const auto &Triangle : Triangles)
         {
             if (!Wire)
@@ -2839,10 +3271,16 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                 ImDrawVert *Vertex = DrawList->_VtxWritePtr;
                 ImDrawIdx *IndexCursor = DrawList->_IdxWritePtr;
                 ImDrawIdx Base = DrawList->_VtxCurrentIdx;
-                for (const ImVec2 &Corner : {Triangle.A, Triangle.B, Triangle.C})
+                const ImVec2 Corners[3]{Triangle.A, Triangle.B, Triangle.C};
+                for (int Corner = 0; Corner < 3; ++Corner)
                 {
-                    Vertex->pos = Corner;
-                    Vertex->uv = DrawList->_Data->TexUvWhitePixel;
+                    Vertex->pos = Corners[Corner];
+                    if (Textured)
+                    {
+                        const auto Cuv = PreviewCanvasUv(Triangle.Part, Triangle.Uv[Corner][0], Triangle.Uv[Corner][1]);
+                        Vertex->uv = ImVec2(Cuv[0], Cuv[1]);
+                    }
+                    else Vertex->uv = DrawList->_Data->TexUvWhitePixel;
                     Vertex->col = Triangle.Colour;
                     ++Vertex;
                     *IndexCursor++ = Base++;
@@ -2857,6 +3295,7 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                 DrawList->AddTriangle(Triangle.A, Triangle.B, Triangle.C, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
             }
         }
+        if (Textured) DrawList->PopTexture();
     }
     else Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 40 * S), "Preparing teapot…", 10 * S, 0x98998e);
     LastPickTriangles = std::move(Picks);
@@ -2958,6 +3397,9 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
     if (Hovered && !ImGui::GetIO().WantTextInput && (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_R)))
         FrameUv(Region.Width(), Region.Height());
 
+    EnsurePreviewCanvas();
+    const bool Textured = !UvSource && PreviewCanvasTextured();
+    const uint64_t CanvasTexture = Textured ? QueryPaintCanvasImage().Texture : 0;
     auto *DrawList = ImGui::GetWindowDrawList();
     DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
     DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), Colour32(0x141719));
@@ -2966,6 +3408,12 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
     {
         const ImVec2 TopLeft = UvToScreen(float(Tile), 1.f), BottomRight = UvToScreen(float(Tile) + 1.f, 0.f);
         DrawList->AddRectFilled(TopLeft, BottomRight, Colour32(0x1d2226));
+        if (Textured)
+        {
+            const auto UvMin = PreviewCanvasUv(Tile, float(Tile), 1.f), UvMax = PreviewCanvasUv(Tile, float(Tile) + 1.f, 0.f);
+            DrawList->AddImage(ImTextureRef(ImTextureID(CanvasTexture)), TopLeft, BottomRight,
+                ImVec2(UvMin[0], UvMin[1]), ImVec2(UvMax[0], UvMax[1]));
+        }
         if (Grid)
             for (int Step = 1; Step < 10; ++Step)
             {
@@ -2990,9 +3438,12 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
             MinY = std::min(MinY, Points[Corner].y); MaxY = std::max(MaxY, Points[Corner].y);
         }
         if (MaxX < Region.MinimumX || MinX > Region.MaximumX || MaxY < Region.MinimumY || MinY > Region.MaximumY) continue;
-        const std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
-        const ImU32 Fill = IM_COL32(uint8_t(Colour[0] * 255), uint8_t(Colour[1] * 255), uint8_t(Colour[2] * 255), 210);
-        DrawList->AddTriangleFilled(Points[0], Points[1], Points[2], Fill);
+        if (!Textured)
+        {
+            const std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
+            const ImU32 Fill = IM_COL32(uint8_t(Colour[0] * 255), uint8_t(Colour[1] * 255), uint8_t(Colour[2] * 255), 210);
+            DrawList->AddTriangleFilled(Points[0], Points[1], Points[2], Fill);
+        }
         const uint32_t PartColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
         const bool Emphasised = TargetPart == Triangle.Part;
         DrawList->AddTriangle(Points[0], Points[1], Points[2], Colour32(PartColour, Emphasised ? .66f : .33f), Emphasised ? 1.1f : .7f);
@@ -3005,9 +3456,10 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
             if (Matches) DrawList->AddTriangle(Points[0], Points[1], Points[2], Colour32(0xedc391, .8f), 1.1f);
         }
     }
-    if (!UvSource)
+    if (!UvSource && !Textured)
     {
-        // 🎨 Dab footprints, bottom-to-top like the composite they preview.
+        // 🎨 Dab footprints, bottom-to-top like the composite they preview (fallback only - the
+        // textured canvas already contains the real falloff composite of every dab).
         for (auto Iterator = Layers.rbegin(); Iterator != Layers.rend(); ++Iterator)
         {
             if (!EffectiveVisible(*Iterator)) continue;
@@ -3050,7 +3502,8 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
     }
     UvHoverText = Readout;
     Caption(ImVec2(Region.MinimumX + 20 * S, Region.MaximumY - 52 * S), Readout.c_str(), 9 * S, 0xaeb6be);
-    const char *Small = "UV topology + artwork footprints · mask guides · no baked atlas";
+    const char *Small = Textured ? "UV texture canvas · 512x512 per UDIM tile · live layer composite"
+                                  : "UV topology + artwork footprints · mask guides · no baked atlas";
     Caption(ImVec2(Region.MaximumX - 20 * S - CaptionWidth(Small, 8 * S), Region.MaximumY - 52 * S), Small, 8 * S, 0x6d7680);
     if (Hovered && Painting)
     {

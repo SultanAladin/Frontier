@@ -75,6 +75,25 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         EnsureStampLibrary(true);
     }
 
+    // 🎨 UV-space preview canvas: the layer stack composited per texel (one 512² tile per UDIM part,
+    // 2x2 in a MaterialThumbnailAtlas page) so the 3D/2D views texture-map the mesh per pixel like
+    // the HTML paint workshop, instead of flat-shading one colour per face. Host plumbing mirrors
+    // the Stamp/Pattern layer atlases exactly: the host supplies the sampled image through
+    // QueryPaintCanvasImage and uploads QueryPaintCanvasPixels whenever the revision moves. With no
+    // host image the panel keeps its per-triangle centroid preview (headless validation hosts).
+    static constexpr uint32_t PaintCanvasTile = 512;
+    static constexpr uint32_t PaintCanvasColumns = 2;
+    static constexpr uint32_t PaintCanvasExtent = (PaintCanvasTile + 2) * PaintCanvasColumns;
+    struct PaintCanvasImage
+    {
+        uint64_t Texture = 0;
+        float MinimumU = 0, MinimumV = 0, MaximumU = 1, MaximumV = 1;
+    };
+    std::function<PaintCanvasImage()> QueryPaintCanvasImage;
+    [[nodiscard]] uint64_t QueryPaintCanvasRevision();
+    [[nodiscard]] const std::vector<uint8_t> &QueryPaintCanvasPixels();
+    [[nodiscard]] static uint32_t QueryPaintCanvasExtent() noexcept { return PaintCanvasExtent; }
+
     // 📝 Read-only document facts for headless construction validation (mirrors Baking's QuerySettings).
     [[nodiscard]] const std::string &QueryDocumentName() const noexcept { return DocumentName; }
     [[nodiscard]] size_t QueryLayerCount() const noexcept { return Layers.size(); }
@@ -295,8 +314,21 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     //                                                 PREVIEW COMPOSITE + PAINT INPUT
     //--------------------------------------------------------------------------------------------------------------
     [[nodiscard]] static bool FillMatches(const PaintFill &Fill, const TopologyTriangle &Triangle) noexcept;
-    [[nodiscard]] float MaskCoverageAt(const LayerState &Layer, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept;
+    [[nodiscard]] float MaskCoverageAt(const LayerState &Layer, const TopologyTriangle &Triangle, const float Uv[2],
+        const std::vector<int32_t> *DabCandidates = nullptr) const noexcept;
     [[nodiscard]] std::array<float, 3> EvaluatePreviewColour(const TopologyTriangle &Triangle) const noexcept;
+    // One layer's contribution at an explicit authoring-UV point (the per-layer block of
+    // EvaluatePreviewColour, shared with the texel compositor). Candidate lists optionally restrict
+    // the dab loops to one spatial-grid cell - same result, dabs outside the cell cannot reach here.
+    void ApplyPreviewLayer(std::array<float, 3> &Base, const LayerState &Layer, const TopologyTriangle &Triangle,
+        const float Uv[2], const std::vector<int32_t> *DabCandidates, const std::vector<int32_t> *MaskDabCandidates,
+        bool VisibilityPrechecked = false) const noexcept;
+    void EnsurePreviewCanvas();
+    void CompositePreviewCanvas();
+    void BuildPreviewCanvasOwners();
+    [[nodiscard]] uint64_t PreviewCanvasFingerprint() const noexcept;
+    [[nodiscard]] bool PreviewCanvasTextured() const;
+    [[nodiscard]] std::array<float, 2> PreviewCanvasUv(int Part, float U, float V) const noexcept;
     [[nodiscard]] bool DigitalPaintAvailable() const noexcept;
     void ApplyPaintAt(const float Uv[2], int Part, int Chart, int Triangle, float RadiusUv);
     void FinishStroke();
@@ -325,6 +357,21 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
     void PlaceStampAt(const float Uv[2]);
     void ConstructStampPicker();
+    // 🎨 Preview-canvas state (see QueryPaintCanvasImage above). Scratch/Owners/Pixels all share the
+    // atlas-page layout (PaintCanvasExtent², tiles inset by the 1px gutter); owners map each texel
+    // to the Topology triangle that owns it so region fills/masks keep their per-face identity at
+    // texel fidelity. Recomposited only when the content fingerprint moves.
+    std::vector<uint8_t> PaintCanvasPixels;
+    std::vector<std::array<float, 3>> PaintCanvasScratch;
+    std::vector<int32_t> PaintCanvasOwners;
+    std::vector<uint8_t> PaintCanvasFilled;
+    uint64_t PaintCanvasRevision = 0;
+    uint64_t PaintCanvasFingerprintCache = 0;
+    uint64_t StampLibraryGeneration = 0;
+    bool PaintCanvasComposited = false;
+    bool PaintCanvasOwnersBuilt = false;
+    size_t PaintCanvasOwnersTopology = 0;
+    double PaintCanvasLastComposite = -1.0;
     bool StrokeActive = false;
     bool StrokeChanged = false;
     bool StrokeTargetMask = false;
