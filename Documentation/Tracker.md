@@ -530,5 +530,35 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   (FrontierInterface-only, untouched here, aborting on ImGui asserts in this sandbox build config).
   Sandbox has no GPU/display: Windows visual confirmation still pending.
 
+## Texture Paint fixes from first Windows test (2026-10-27, branch arena/4014756b-frontier)
+
+- User-tested `8c01cf4` on Windows: workspace runs, three issue classes fixed here.
+  (1) Dear ImGui "SetCursorScreenPos() to extend window/parent boundaries" errors (Layer stack window +
+  list child, Inspector card): every terminal cursor jump in the docks now submits a zero-size Dummy
+  anchor (layer list, pane footer, Digital-painting card, history rows, browser grid, viewport footer,
+  and all new channel-panel rows), so scroll/auto-resize boundaries include the reserved extents.
+  (2) Viewport: removed the two radial-gradient discs (clear flat field, as requested) and framed the
+  teapot closer (3.1x bounding sphere vs the material capture rig's 5.8/1.35, matching Alloy's Texture
+  scene; Baking keeps its own framing).
+  (3) Inspector parity audit against `TextureLayerInspector.jsx` / `ChannelPropertyPanel.jsx` /
+  `textureStudio.css` / `paintChannelModel.js`: field rows are now label-left + 128px select-right
+  (`.tp-field-row`), sliders are Alloy's label+value-capsule row over a 24px pill track (`.tp-amount`),
+  card notes are 8px with the top rule (`.tp-card-note`), warm accent corrected to `#a79171`, mask card
+  gained its reset button, Alloy's White/Black + "Uniform/Inverted fill" preview wording, the
+  "Paint overlay · n records / Clear painted mask overlay" block, "Selected colour" + per-UDIM-part
+  effective-coverage swatches (native `ColourMaskPreview`), and "Remove layer mask". Layer thumbnails
+  now follow `LayerThumbnail` (material swatch / paint checker + recorded dabs / kind icon) in rows,
+  identity and source summary; mask identity icon is 32px with effective fill + colour dot.
+- Channel targets rebuilt as Alloy's `ChannelPropertyPanel`: heading with count badge + picker toggle,
+  removable channel chips, Clear all, grouped picker rows, then one folded card per enabled channel
+  (Alloy's six default-folded channels) with source-mode pills (Value/Texture/Generator/Gradient —
+  Gradient Base-color-only), per-channel value/colour defaults and ranges from `paintChannelModel.js`,
+  generator choice + its real parameter sliders, "Value swatch · Not composited", and the Normal
+  Height-derived note. Settings persist in the document/history/JSON as sparse `channelSettings`.
+  Honest scope unchanged: these are stored authoring targets — texture import, source canvas, material-
+  studio generator and gradient point editing say "not native yet"; nothing composites PBR maps.
+- Verified in this sandbox: `TextureStudio` + TexturePaint/Baking/Stamp construction validations build
+  and pass. Windows visual re-check pending (user).
+
 
 
