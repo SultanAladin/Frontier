@@ -23,6 +23,7 @@
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include "Engine/Render/MaterialPreviewConfiguration.h"
+#include "UI/TextureStudio/PaintStampEngine.h"
 #include <array>
 #include <filesystem>
 #include <functional>
@@ -151,6 +152,9 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     {
         std::string Preset = "round";
         std::string Tool = "paint"; // paint | erase | fill
+        // 🖌️ PaintWorkshop instrument driving the stamp engine (PaintStampEngine.h). "Digital" preserves the
+        // original dab-only behaviour; anything else feeds the raster stamp canvas for the stroke's layer.
+        std::string PhysicalTool = "Digital";
         std::array<float, 4> Colour{0.843f, 0.549f, 0.349f, 1.f}; // #d78c59
         float Size = 24.f;
         float Opacity = 1.f;
@@ -276,6 +280,19 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] bool DigitalPaintAvailable() const noexcept;
     void ApplyPaintAt(const float Uv[2], int Part, int Chart, int Triangle, float RadiusUv);
     void FinishStroke();
+    // 🖌️ PaintWorkshop stamp engine (HarborPaintWorkshop.html port): a 2048x512 raster canvas over the 4-tile
+    // UDIM strip. One layer owns the canvas at a time (the last layer painted with a physical tool); dabs stay
+    // the document/undo truth, the canvas is the preview surface for its owning layer.
+    PaintStampEngine StampEngine;
+    bool StampCanvasConfigured = false;
+    std::string StampCanvasLayerId;
+    bool StampStrokeActive = false;
+    void EnsureStampEngine();
+    [[nodiscard]] bool StampToolSelected() const noexcept;
+    void FeedStampEngine(const LayerState &Layer, const float Uv[2], int Triangle, float RadiusUv, bool Erasing);
+    [[nodiscard]] bool BuildStampHit(const float Uv[2], int Triangle, float RadiusUv, StampHit &Out, float &WorldRadius) const noexcept;
+    void SyncStampParams(float WorldRadius) noexcept;
+    void ClearStampCanvas() noexcept;
     bool StrokeActive = false;
     bool StrokeChanged = false;
     bool StrokeTargetMask = false;

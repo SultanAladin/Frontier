@@ -299,6 +299,8 @@ void TexturePaintWorkspacePanel::FinalizeContent() noexcept
 void TexturePaintWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept
 {
     ClockSeconds += DeltaSeconds;
+    // 🖌️ Wetness/solvent drying, drips and dust settle run on wall-clock time, exactly like the HTML fields.
+    if (StampCanvasConfigured) StampEngine.StepFields(DeltaSeconds);
     // 📝 Alloy coalesces continuous edits into one history step after 650ms idle (commitTextureHistory's key).
     if (PendingHistory && ClockSeconds - PendingHistoryClock > 0.65)
     {
@@ -341,6 +343,7 @@ void TexturePaintWorkspacePanel::ResetDocument()
     SelectedLayerId = "surface-detail";
     MaskSelected = false;
     Brush = BrushState{};
+    ClearStampCanvas();
     HistoryEntries.clear();
     HistoryIndex = -1;
     PendingHistory.reset();
@@ -641,6 +644,9 @@ void TexturePaintWorkspacePanel::RestoreSnapshot(const Snapshot &State)
     MaskSelected = State.MaskSelected && Selected && Selected->Mask.Present;
     DigitalActive = false;
     StrokeActive = false;
+    // 📝 The raster stamp canvas is not snapshot state (a 2048x512 canvas per undo step would be absurd), so
+    // undo/redo drops it and the preview falls back to the dab truth restored above.
+    ClearStampCanvas();
     LayerNameSelectionId.clear();
 }
 void TexturePaintWorkspacePanel::CommitHistory(const std::string &Label, const std::string &Detail, const std::string &Kind)
@@ -979,13 +985,24 @@ std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const Top
             BlendOver(Base, Layer.SourceColour, Alpha, Layer.Blend);
         for (const auto &Fill : Layer.Fills)
             if (FillMatches(Fill, Triangle)) BlendOver(Base, Fill.Colour, Alpha, Layer.Blend);
-        for (const auto &Dab : Layer.Dabs)
+        if (StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId)
         {
-            if (Dab.Part != Triangle.Part) continue;
-            const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
-            const float Distance = std::sqrt(Du * Du + Dv * Dv);
-            if (Distance < Dab.Radius)
-                BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
+            // 🖌️ This layer owns the PaintWorkshop stamp canvas: its paint is the raster (colour + coverage),
+            // sampled once per triangle centroid; the dab records below stay the document/undo truth.
+            const auto Sample = StampEngine.SampleCanvas(Uv[0], Uv[1]);
+            if (Sample[3] > 0.001f)
+                BlendOver(Base, {Sample[0], Sample[1], Sample[2], 1.f}, Alpha * Sample[3], Layer.Blend);
+        }
+        else
+        {
+            for (const auto &Dab : Layer.Dabs)
+            {
+                if (Dab.Part != Triangle.Part) continue;
+                const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+                const float Distance = std::sqrt(Du * Du + Dv * Dv);
+                if (Distance < Dab.Radius)
+                    BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
+            }
         }
     }
     return Base;
@@ -1038,6 +1055,9 @@ void TexturePaintWorkspacePanel::ApplyPaintAt(const float Uv[2], int Part, int C
         return;
     }
     const bool Erasing = DigitalActive && Brush.Tool == "erase";
+    // 🖌️ Physical PaintWorkshop stamps run on their own interpolation, so feed the engine before the dab
+    // spacing early-return below can skip a slow drag. Mask painting stays dab-only (coverage, not pigment).
+    if (DigitalActive && !Mask) FeedStampEngine(*Layer, Uv, Triangle, RadiusUv, Erasing);
     if (Erasing)
     {
         const size_t Before = Dabs.size();
@@ -1080,6 +1100,12 @@ void TexturePaintWorkspacePanel::FinishStroke()
     if (!StrokeActive) return;
     StrokeActive = false;
     LastDabValid = false;
+    if (StampStrokeActive)
+    {
+        StampEngine.EndStroke(); // splat bursts fire here, on release
+        StampStrokeActive = false;
+        if (StampEngine.HasPaint()) StrokeChanged = true;
+    }
     if (!StrokeChanged) return;
     StrokeChanged = false;
     if (auto *Layer = FindLayer(StrokeTargetLayerId))
@@ -1091,6 +1117,174 @@ void TexturePaintWorkspacePanel::FinishStroke()
             Layer->Name + (Mask ? " · Mask coverage · " : " · ") + BrushPresetName(), "stroke");
     }
     MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     PAINTWORKSHOP STAMP ENGINE DRIVER
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::EnsureStampEngine()
+{
+    if (StampCanvasConfigured) return;
+    // 🗺️ One canvas over the whole UDIM strip: authoring U spans four part tiles, V the packed 0..1 range.
+    StampEngine.Configure(2048, 512, 512, 128, 4.f, 1.f, {235.f, 232.f, 224.f}, false);
+    StampCanvasConfigured = true;
+}
+
+bool TexturePaintWorkspacePanel::StampToolSelected() const noexcept
+{
+    return Brush.PhysicalTool != "Digital";
+}
+
+void TexturePaintWorkspacePanel::ClearStampCanvas() noexcept
+{
+    if (StampCanvasConfigured) StampEngine.Clear();
+    StampCanvasLayerId.clear();
+    StampStrokeActive = false;
+}
+
+void TexturePaintWorkspacePanel::SyncStampParams(float WorldRadius) noexcept
+{
+    auto &Params = StampEngine.Parameters();
+    const std::array<float, 3> Rgb{Brush.Colour[0] * 255.f, Brush.Colour[1] * 255.f, Brush.Colour[2] * 255.f};
+    const bool ColourChanged = Params.Colour != Rgb;
+    Params.Colour = Params.DryColour = Params.DigitalColour = Params.SprayColour = Rgb;
+    Params.MarkerColour = Params.SplatColour = Params.SootColour = Rgb;
+    Params.DustColour = {Rgb[0] * 0.55f + 74.f, Rgb[1] * 0.55f + 63.f, Rgb[2] * 0.55f + 47.f}; // dust reads as settled film of the hue
+    if (ColourChanged) StampEngine.Dip();
+    Params.Alpha = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f);
+    Params.DigitalOpacity = Params.Alpha;
+    Params.DigitalHardness = Brush.Hardness;
+    const float R = std::max(0.002f, WorldRadius);
+    Params.Radius = R;
+    Params.DigitalSize = R;
+    Params.DrySize = R * 1.1f;
+    Params.PencilSize = R * 0.55f;
+    Params.MarkerSize = R * 0.7f;
+    Params.SandSize = R * 1.2f;
+    Params.DustSize = R * 1.2f;
+    Params.EraserSize = R;
+    Params.EraserStrength = std::clamp(Brush.Opacity, 0.1f, 1.f);
+    Params.EraserSoftness = 1.f - Brush.Hardness;
+}
+
+bool TexturePaintWorkspacePanel::BuildStampHit(const float Uv[2], int Triangle, float RadiusUv, StampHit &Out, float &WorldRadius) const noexcept
+{
+    // 🧭 Reconstruct the 3D stamp frame (position/normal/UV Jacobian) the HTML got from its raycast, from the
+    // picked topology triangle: barycentric position+normal at the authoring UV, dP/dUV from the triangle.
+    if (Triangle < 0 || Triangle >= int(Topology.size()) || Assets.Low.Parts.empty()) return false;
+    const auto &Tri = Topology[size_t(Triangle)];
+    const auto &Mesh = Assets.Low.Parts.front();
+    float Pos[3][3], Nrm[3][3];
+    for (int Corner = 0; Corner < 3; ++Corner)
+    {
+        const auto &Vertex = Mesh.Vertices[Tri.VertexIndex[Corner]];
+        for (int Axis = 0; Axis < 3; ++Axis) { Pos[Corner][Axis] = Vertex.Position[Axis]; Nrm[Corner][Axis] = Vertex.Normal[Axis]; }
+    }
+    const float U1 = Tri.AuthoringUv[1][0] - Tri.AuthoringUv[0][0], V1 = Tri.AuthoringUv[1][1] - Tri.AuthoringUv[0][1];
+    const float U2 = Tri.AuthoringUv[2][0] - Tri.AuthoringUv[0][0], V2 = Tri.AuthoringUv[2][1] - Tri.AuthoringUv[0][1];
+    const float Det = U1 * V2 - V1 * U2;
+    if (std::fabs(Det) < 1e-12f) return false;
+    const float Du = Uv[0] - Tri.AuthoringUv[0][0], Dv = Uv[1] - Tri.AuthoringUv[0][1];
+    const float W1 = (Du * V2 - Dv * U2) / Det, W2 = (U1 * Dv - V1 * Du) / Det;
+    const auto Sub = [](const float A[3], const float B[3], float O[3]) noexcept { O[0] = A[0] - B[0]; O[1] = A[1] - B[1]; O[2] = A[2] - B[2]; };
+    const auto Dot = [](const float A[3], const float B[3]) noexcept { return A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; };
+    float E1[3], E2[3];
+    Sub(Pos[1], Pos[0], E1);
+    Sub(Pos[2], Pos[0], E2);
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        Out.Point[Axis] = Pos[0][Axis] + E1[Axis] * W1 + E2[Axis] * W2;
+        Out.Normal[Axis] = Nrm[0][Axis] + (Nrm[1][Axis] - Nrm[0][Axis]) * W1 + (Nrm[2][Axis] - Nrm[0][Axis]) * W2;
+    }
+    float NormalLength = std::sqrt(Dot(Out.Normal, Out.Normal));
+    if (NormalLength < 1e-6f)
+    {   // degenerate vertex normals: fall back to the face normal
+        Out.Normal[0] = E1[1] * E2[2] - E1[2] * E2[1];
+        Out.Normal[1] = E1[2] * E2[0] - E1[0] * E2[2];
+        Out.Normal[2] = E1[0] * E2[1] - E1[1] * E2[0];
+        NormalLength = std::sqrt(Dot(Out.Normal, Out.Normal));
+        if (NormalLength < 1e-9f) return false;
+    }
+    for (float &Component : Out.Normal) Component /= NormalLength;
+    float DPdU[3], DPdV[3];
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        DPdU[Axis] = (E1[Axis] * V2 - E2[Axis] * V1) / Det;
+        DPdV[Axis] = (E2[Axis] * U1 - E1[Axis] * U2) / Det;
+    }
+    const float LenU = std::sqrt(Dot(DPdU, DPdU)), LenV = std::sqrt(Dot(DPdV, DPdV));
+    if (LenU < 1e-9f || LenV < 1e-9f) return false;
+    for (int Axis = 0; Axis < 3; ++Axis) Out.AxisX[Axis] = DPdU[Axis] / LenU;
+    const float Slide = Dot(DPdV, Out.AxisX);
+    for (int Axis = 0; Axis < 3; ++Axis) Out.AxisY[Axis] = DPdV[Axis] - Out.AxisX[Axis] * Slide;
+    const float LenY = std::sqrt(Dot(Out.AxisY, Out.AxisY));
+    if (LenY < 1e-9f) return false;
+    for (float &Component : Out.AxisY) Component /= LenY;
+    // UV-per-world-unit along each axis: invert the Gram matrix of [dP/dU dP/dV].
+    const float G00 = Dot(DPdU, DPdU), G01 = Dot(DPdU, DPdV), G11 = Dot(DPdV, DPdV);
+    const float GDet = G00 * G11 - G01 * G01;
+    if (std::fabs(GDet) < 1e-12f) return false;
+    const auto AxisGradient = [&](const float Axis[3], float Gradient[2]) noexcept {
+        const float B0 = Dot(Axis, DPdU), B1 = Dot(Axis, DPdV);
+        Gradient[0] = (G11 * B0 - G01 * B1) / GDet;
+        Gradient[1] = (G00 * B1 - G01 * B0) / GDet;
+    };
+    AxisGradient(Out.AxisX, Out.DUvDx);
+    AxisGradient(Out.AxisY, Out.DUvDy);
+    // 👁️ Spray obliquity needs a view direction: the orbit camera sits at Yaw/Pitch on a fixed radius.
+    const float Eye[3]{std::sin(Camera.Yaw) * std::cos(Camera.Pitch) * 4.5f, std::sin(Camera.Pitch) * 4.5f,
+        std::cos(Camera.Yaw) * std::cos(Camera.Pitch) * 4.5f};
+    float View[3]{Eye[0] - Out.Point[0], Eye[1] - Out.Point[1], Eye[2] - Out.Point[2]};
+    const float ViewLength = std::sqrt(Dot(View, View));
+    if (ViewLength > 1e-6f)
+        for (float &Component : View) Component /= ViewLength;
+    else
+        for (int Axis = 0; Axis < 3; ++Axis) View[Axis] = Out.Normal[Axis];
+    for (int Axis = 0; Axis < 3; ++Axis) Out.ViewDir[Axis] = View[Axis];
+    Out.U = Uv[0];
+    Out.V = Uv[1];
+    Out.Pressure = 0.f; // no stylus pressure in the panel yet; engine uses its mouse default
+    WorldRadius = RadiusUv * 0.5f * (LenU + LenV);
+    return true;
+}
+
+void TexturePaintWorkspacePanel::FeedStampEngine(const LayerState &Layer, const float Uv[2], int Triangle, float RadiusUv, bool Erasing)
+{
+    const bool OwnsCanvas = StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId;
+    // Physical tools always engage; on the canvas-owning layer even Digital paint/erase must go through the
+    // canvas or the preview (which samples the canvas there) would ignore the stroke entirely.
+    if (!OwnsCanvas && !StampToolSelected()) return;
+    if (Erasing && !OwnsCanvas && Brush.PhysicalTool != "Eraser") return;
+    EnsureStampEngine();
+    if (!Erasing && Layer.Id != StampCanvasLayerId)
+    {
+        StampEngine.Clear(); // first physical paint moves the single canvas to this layer
+        StampCanvasLayerId = Layer.Id;
+    }
+    StampHit Hit;
+    float WorldRadius = 0.f;
+    if (!BuildStampHit(Uv, Triangle, RadiusUv, Hit, WorldRadius)) return;
+    SyncStampParams(WorldRadius);
+    if (!StampStrokeActive)
+    {
+        StampTool Selected = StampTool::Digital;
+        const std::string &Name = Brush.PhysicalTool;
+        if (Erasing || Name == "Eraser") Selected = StampTool::Eraser;
+        else if (Name == "PaintBrush") Selected = StampTool::PaintBrush;
+        else if (Name == "Spray") Selected = StampTool::Spray;
+        else if (Name == "Dry") Selected = StampTool::Dry;
+        else if (Name == "Pencil") Selected = StampTool::Pencil;
+        else if (Name == "Marker") Selected = StampTool::Marker;
+        else if (Name == "Sand") Selected = StampTool::Sand;
+        else if (Name == "Splat") Selected = StampTool::Splat;
+        else if (Name == "Dust") Selected = StampTool::Dust;
+        else if (Name == "Soot") Selected = StampTool::Soot;
+        StampEngine.BeginStroke(Selected);
+        StampStrokeActive = true;
+        StrokeChanged = true; // a stamp stroke (incl. a click-aim splat) always earns its history step
+    }
+    StampEngine.Stamp(Hit, ClockSeconds);
 }
 std::string TexturePaintWorkspacePanel::MaskRegionLabel() const
 {
@@ -1307,9 +1501,11 @@ void TexturePaintWorkspacePanel::ApplyBrushPreset(const std::string &PresetId)
     // 🧩 selectDigitalBrush: defaults + the preset's property overrides, keeping colour and tool.
     const auto Colour = Brush.Colour;
     const std::string ToolName = Brush.Tool;
+    const std::string PhysicalToolName = Brush.PhysicalTool;
     Brush = BrushState{};
     Brush.Colour = Colour;
     Brush.Tool = ToolName;
+    Brush.PhysicalTool = PhysicalToolName;
     Brush.Preset = PresetId;
     if (PresetId == "soft") { Brush.Hardness = .1f; Brush.Flow = .3f; Brush.Spacing = .12f; }
     else if (PresetId == "flat") { Brush.Roundness = .3f; Brush.Follow = true; }
@@ -3764,6 +3960,37 @@ void TexturePaintWorkspacePanel::ConstructBrushStudio()
             if (Pressed) ApplyBrushPreset(Preset.Id);
             ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 38 * S));
         }
+    }
+    // 🖌️ PaintWorkshop physical instruments: the HarborPaintWorkshop stamp engine's eleven tools. Digital keeps
+    // the dab renderer; every other choice paints the preview through the raster stamp canvas on that layer.
+    {
+        const float X0 = ImGui::GetCursorScreenPos().x;
+        const float Y0 = ImGui::GetCursorScreenPos().y + 4 * S;
+        Caption(ImVec2(X0, Y0), "PAINTWORKSHOP INSTRUMENTS", 8 * S, 0x909080);
+        const struct { const char *Id; const char *Label; } PhysicalTools[]{
+            {"Digital", "Digital"}, {"PaintBrush", "Paint brush"}, {"Spray", "Spray"},
+            {"Dry", "Dry media"}, {"Pencil", "Pencil"}, {"Marker", "Marker"},
+            {"Sand", "Sand"}, {"Splat", "Splat"}, {"Dust", "Dust"},
+            {"Soot", "Soot"}, {"Eraser", "Eraser"}};
+        int Slot = 0;
+        for (const auto &Entry : PhysicalTools)
+        {
+            const float X = X0 + (Slot % 3) * 88 * S;
+            const float Y = Y0 + 16 * S + (Slot / 3) * 30 * S;
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton((std::string("StudioPhysical") + Entry.Id).c_str(), Entry.Label, 84 * S, Brush.PhysicalTool == Entry.Id))
+            {
+                Brush.PhysicalTool = Entry.Id;
+                if (Brush.Tool == "fill") Brush.Tool = "paint";
+                Status = std::string(Entry.Label) + " - PaintWorkshop stamp engine";
+                CommitHistory("PaintWorkshop instrument", Entry.Label, "tool");
+                MarkDirty();
+            }
+            ++Slot;
+        }
+        const int Rows = (Slot + 2) / 3;
+        ImGui::SetCursorScreenPos(ImVec2(X0, Y0 + 16 * S + Rows * 30 * S));
+        ImGui::Dummy(ImVec2(0, 0));
     }
     {
         float X = ImGui::GetCursorScreenPos().x;
