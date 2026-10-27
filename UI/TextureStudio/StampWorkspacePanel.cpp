@@ -1680,28 +1680,25 @@ void StampWorkspacePanel::ConstructCanvas()
     CapturePanel("Viewport");
     const auto ContentOrigin = ImGui::GetCursorScreenPos();
     const float Width = ImGui::GetContentRegionAvail().x;
+    const float AvailableHeight = ImGui::GetContentRegionAvail().y;
     const auto At = [&](float X, float Y) { return ImVec2(ContentOrigin.x + X * Scale, ContentOrigin.y + Y * Scale); };
-    const float InnerWidth = Width - 48 * Scale;
-    ImGui::SetCursorScreenPos(At(24, 17));
-    Controls.ControlHeight = 28;
-    Controls.Button("Design decal", 76 * Scale, true, {}, true);
-    ImGui::SameLine(0, 6 * Scale);
-    ImGui::BeginDisabled(); Controls.Button("3D material", 76 * Scale, false, {}, true); Controls.Tooltip("3D material", "Native channel targets and material application are not hosted yet."); ImGui::EndDisabled();
-    Caption(At(std::max(200.f, Width / Scale - 212), 26), "Compose one decal. Apply it to a real surface.", 10 * Scale, 0x777766);
-    ImGui::GetWindowDrawList()->AddLine(At(24, 60), At(Width / Scale - 24, 60), ImGui::GetColorU32(Spectrum(0x1e1e1e)));
-    Caption(At(24, 89), MaskSelection ? "OWNED MASK / 512 UNITS" : "DECAL CANVAS / 512 UNITS", 8 * Scale, 0x8d8d7b);
+    // Slim document row (overline + compact rename field + saved state): the former Design/3D mode
+    // buttons, strapline and 20pt name heading are gone so the canvas owns the viewport height.
+    const char *Overline = MaskSelection ? "OWNED MASK / 512 UNITS" : "DECAL CANVAS / 512 UNITS";
+    Caption(At(24, 16), Overline, 8 * Scale, 0x8d8d7b);
     auto Name = QueryDocument().Name;
     std::snprintf(NameText.data(), NameText.size(), "%s", Name.c_str());
-    ImGui::SetCursorScreenPos(At(24, 105));
+    ImGui::SetCursorScreenPos(At(24 + CaptionWidth(Overline, 8 * Scale) / Scale + 12, 6));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-    ImGui::PushFont(static_cast<ImFont *>(LightTypeface ? LightTypeface : RegularTypeface), 20 * 1.302f * Scale);
-    ImGui::SetNextItemWidth(InnerWidth - 150 * Scale);
+    ImGui::PushFont(static_cast<ImFont *>(LightTypeface ? LightTypeface : RegularTypeface), 11 * 1.302f * Scale);
+    ImGui::SetNextItemWidth(220 * Scale);
     if (ImGui::InputText("##StampName", NameText.data(), NameText.size())) EvaluateEdit([&](auto &Document) { Document.Name = NameText.data(); });
     ImGui::PopFont(); ImGui::PopStyleColor();
-    Caption(At(Width / Scale - 132, 109), QueryModified() ? "Unsaved changes" : "Document saved", 9 * Scale, 0x969b81);
+    Controls.Tooltip("Stamp name", "Names the saved document and its stamp-library PNG.");
+    Caption(At(Width / Scale - 132, 16), QueryModified() ? "Unsaved changes" : "Document saved", 9 * Scale, 0x969b81);
     auto *Ink = ImGui::GetWindowDrawList();
-    Ink->AddRectFilled(At(24, 161), At(Width / Scale - 24, 211), ImGui::GetColorU32(Spectrum(0x191919)), 8 * Scale);
-    ImGui::SetCursorScreenPos(At(32, 170));
+    Ink->AddRectFilled(At(24, 44), At(Width / Scale - 24, 94), ImGui::GetColorU32(Spectrum(0x191919)), 8 * Scale);
+    ImGui::SetCursorScreenPos(At(32, 53));
     Controls.ControlHeight = 32;
     if (Controls.Button("Select tool (V)", 32 * Scale, Tool == VectorAuthoringTool::Select, SelectPath)) Tool = VectorAuthoringTool::Select;
     Controls.Tooltip("Select", "Select visible GPU contours; Shift-click to extend. Drag once for one undoable source edit.");
@@ -1712,6 +1709,16 @@ void StampWorkspacePanel::ConstructCanvas()
     {
         ImGui::SameLine(0, 4 * Scale);
         if (Controls.Button(Category ? "Ellipse tool (O)" : "Rectangle tool (R)", 32 * Scale, Tool == (Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle), ShapePaths[Category])) Tool = Category ? VectorAuthoringTool::Ellipse : VectorAuthoringTool::Rectangle;
+        Controls.Tooltip(ShapeCaptions[Category], "Drag on the canvas to author an editable source shape.");
+    }
+    // Polygon + Star are first-class toolbar tools (they used to hide in "More tools").
+    for (uint32_t Category = 4; Category < 6; ++Category)
+    {
+        ImGui::SameLine(0, 4 * Scale);
+        const VectorAuthoringTool ShapeTool = VectorAuthoringTool(uint32_t(VectorAuthoringTool::Diamond) + Category - 2);
+        if (Controls.Button(Category == 4 ? "Polygon tool" : "Star tool", 32 * Scale, Tool == ShapeTool, ShapePaths[Category])) Tool = ShapeTool;
+        const auto ItemMinimum = ImGui::GetItemRectMin(), ItemMaximum = ImGui::GetItemRectMax();
+        ControlExtents[ShapeCaptions[Category]] = {ItemMinimum.x, ItemMinimum.y, ItemMaximum.x, ItemMaximum.y};
         Controls.Tooltip(ShapeCaptions[Category], "Drag on the canvas to author an editable source shape.");
     }
     ImGui::SameLine(0, 4 * Scale);
@@ -1736,7 +1743,7 @@ void StampWorkspacePanel::ConstructCanvas()
     if (Controls.Button("More tools", 78 * Scale)) ImGui::OpenPopup("Stamp more tools");
     if (DropdownControlSurface::BeginMenu("Stamp more tools", Scale))
     {
-        for (uint32_t Category = 2; Category < 6; ++Category)
+        for (uint32_t Category = 2; Category < 4; ++Category)
         {
             if (DropdownControlSurface::Option(ShapeCaptions[Category], false, Scale)) { Tool = VectorAuthoringTool(uint32_t(VectorAuthoringTool::Diamond) + Category - 2); ImGui::CloseCurrentPopup(); }
             const auto Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
@@ -1748,24 +1755,28 @@ void StampWorkspacePanel::ConstructCanvas()
         DropdownControlSurface::EndMenu();
     }
     Controls.ControlHeight = 24;
-    Ink->AddRectFilled(At(24, 211), At(Width / Scale - 24, 249), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
-    Caption(At(36, 226), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0x888888);
-    ImGui::SetCursorScreenPos(At(Width / Scale - 219, 218));
+    Ink->AddRectFilled(At(24, 94), At(Width / Scale - 24, 132), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
+    Caption(At(36, 109), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0x888888);
+    ImGui::SetCursorScreenPos(At(Width / Scale - 219, 101));
     if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     char ZoomText[32]; std::snprintf(ZoomText, sizeof(ZoomText), "%.0f%%", Zoom * 100);
     Controls.Button(ZoomText, 62 * Scale, false, {}, true);
     ImGui::SameLine(0, 4 * Scale);
     // 📝 Raised from 8x (800%) to 10x (1000%): the bake ceiling both canvases clamp their
-    // on-screen device-pixel request to is 4096, and the 360-unit base board at 1000% zoom
-    // (3600 device pixels at 1x DPI) still sits comfortably under that, so this stays crisp.
+    // on-screen device-pixel request to is 4096, so even a fit-sized board at 1000% zoom just
+    // clamps its coverage request to that ceiling instead of growing unbounded.
     if (Controls.Button("Zoom in", 26 * Scale, false, PlusPath)) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.25f);
     ImGui::SameLine(0, 4 * Scale);
     if (Controls.Button("Fit", 46 * Scale, false, {}, true)) { Zoom = 1; Pan = {}; }
     Controls.ControlHeight = 30;
-    const ImVec2 Minimum = At(25, 248), Maximum = At(Width / Scale - 25, 678);
+    // The canvas owns whatever height the dock gives it (minus the hint bar): at Zoom 1 ("Fit") the
+    // board fills the region's short side, grows/shrinks with the window, and the panel never scrolls.
+    const ImVec2 Minimum = At(25, 131);
+    const ImVec2 Maximum(At(Width / Scale - 25, 0).x, std::max(Minimum.y + 120 * Scale, ContentOrigin.y + AvailableHeight - 41 * Scale));
     Ink->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Inset)));
-    const float BoardSize = std::max(32.f, std::min(InnerWidth - 120 * Scale, 360 * Scale)) * Zoom;
+    const float FitSize = std::max(32.f, std::min(Maximum.x - Minimum.x, Maximum.y - Minimum.y) - 56 * Scale);
+    const float BoardSize = FitSize * Zoom;
     const ImVec2 Centre((Minimum.x + Maximum.x) * .5f + Pan.X, (Minimum.y + Maximum.y) * .5f + Pan.Y);
     const ImVec2 BoardMinimum(Centre.x - BoardSize * .5f, Centre.y - BoardSize * .5f), BoardMaximum(Centre.x + BoardSize * .5f, Centre.y + BoardSize * .5f);
     BoardExtent = {BoardMinimum.x, BoardMinimum.y, BoardMaximum.x, BoardMaximum.y};
@@ -2333,13 +2344,13 @@ void StampWorkspacePanel::ConstructCanvas()
         if (GestureDraft) { auto Document = std::move(*GestureDraft); GestureDraft.reset(); Finalize(std::move(Document), Selection); }
         GestureSource.reset(); Gesture = 0;
     }
-    Ink->AddRectFilled(At(24, 678), At(Width / Scale - 24, 711), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
-    Caption(At(35, 689), "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
-    Caption(At(Width / Scale - 114, 689), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
+    Ink->AddRectFilled(ImVec2(At(24, 0).x, Maximum.y), ImVec2(At(Width / Scale - 24, 0).x, Maximum.y + 33 * Scale), ImGui::GetColorU32(Spectrum(0x191c16)), 6 * Scale);
+    Caption(ImVec2(At(35, 0).x, Maximum.y + 11 * Scale), "Marquee to select · Shift constrain · Alt centred resize · Space pan", 8 * Scale, 0x909a7c);
+    Caption(ImVec2(At(Width / Scale - 114, 0).x, Maximum.y + 11 * Scale), (std::to_string(Selection.size()) + " selected").c_str(), 8 * Scale, 0xc6d2b5);
     // 📝 The standalone "Decal preview on a plain surface" panel that used to live here was removed —
-    // it duplicated the main board above with no extra information. The sizing nudge below now just
-    // pins the scroll region to the bottom of the status bar instead of the old preview's footprint.
-    ImGui::SetCursorScreenPos(At(Width / Scale - 24, 711));
+    // it duplicated the main board above with no extra information. Content height is exactly the
+    // dock's available height (see Maximum), so the panel never scrolls: canvas + hint bar always fit.
+    ImGui::SetCursorScreenPos(ImVec2(At(Width / Scale - 24, 0).x, ContentOrigin.y + AvailableHeight - 1));
     ImGui::Dummy(ImVec2(1, 1));
 }
 

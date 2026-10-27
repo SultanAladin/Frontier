@@ -9,6 +9,7 @@
 #include <imgui_internal.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cfloat>
 #include <cmath>
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <thread>
 
 namespace Frontier
 {
@@ -1067,7 +1069,7 @@ void TexturePaintWorkspacePanel::ApplyPreviewLayer(std::array<float, 3> &Base, c
 // (owning Topology triangle per texel) keeps region fills/masks/dab part checks exact at texel
 // fidelity, dab spatial grids keep large documents cheap, per-layer content bounds limit each pass
 // to the texels the layer can touch, and a content fingerprint gates recomposites to real changes
-// (throttled to ~12 Hz while a stroke is live).
+// (row-parallel across CPU cores, throttled to ~30 Hz while a stroke is live).
 
 namespace
 {
@@ -1100,6 +1102,32 @@ const std::vector<int32_t> *PreviewDabCell(const PreviewDabGrid &Grid, float U, 
 {
     if (!Grid.Active) return nullptr;
     return &Grid.Cells[size_t(std::clamp(int(V * 16.f), 0, 15) * 64 + std::clamp(int(U * 16.f), 0, 63))];
+}
+
+// Row-parallel loop for the compositor's texel passes: work-stealing over rows across up to 8
+// threads, serial below 32 rows (spawn cost would dominate). RowFn must only touch its own row's
+// texels (all compositor passes do), which keeps output byte-identical to the serial order.
+template <typename RowFunction> void ParallelCanvasRows(int First, int Last, RowFunction &&RowFn)
+{
+    const int Rows = Last - First;
+    static const unsigned Hardware = std::thread::hardware_concurrency();
+    const int Workers = int(std::clamp(Hardware ? Hardware : 1u, 1u, 8u));
+    if (Rows < 32 || Workers <= 1)
+    {
+        for (int Y = First; Y < Last; ++Y) RowFn(Y);
+        return;
+    }
+    std::atomic<int> Next{First};
+    const auto Work = [&]
+    {
+        for (int Y = Next.fetch_add(1, std::memory_order_relaxed); Y < Last; Y = Next.fetch_add(1, std::memory_order_relaxed))
+            RowFn(Y);
+    };
+    std::vector<std::thread> Pool;
+    Pool.reserve(size_t(Workers - 1));
+    for (int Index = 1; Index < Workers; ++Index) Pool.emplace_back(Work);
+    Work();
+    for (auto &Thread : Pool) Thread.join();
 }
 } // namespace
 
@@ -1255,7 +1283,7 @@ void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
     const uint64_t Fingerprint = PreviewCanvasFingerprint();
     if (PaintCanvasComposited && Fingerprint == PaintCanvasFingerprintCache) return;
     const double Now = ImGui::GetTime();
-    if (StrokeActive && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.08) return;
+    if (StrokeActive && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.033) return;
     CompositePreviewCanvas();
     PaintCanvasFingerprintCache = Fingerprint;
     PaintCanvasComposited = true;
@@ -1267,7 +1295,10 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
 {
     const int Extent = int(PaintCanvasExtent), Tile = int(PaintCanvasTile);
     if (PaintCanvasScratch.size() != size_t(Extent) * Extent) PaintCanvasScratch.assign(size_t(Extent) * Extent, {});
-    for (auto &Texel : PaintCanvasScratch) Texel = {0.92f, 0.91f, 0.88f};
+    ParallelCanvasRows(0, Extent, [&](int Y)
+    {
+        for (int X = 0; X < Extent; ++X) PaintCanvasScratch[size_t(Y) * Extent + X] = {0.92f, 0.91f, 0.88f};
+    });
     const auto TileOriginX = [&](int Part) { return (Part % 2) * (Tile + 2) + 1; };
     const auto TileOriginY = [&](int Part) { return (Part / 2) * (Tile + 2) + 1; };
     bool MaskPreviewDone = false;
@@ -1280,7 +1311,8 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
             for (int Part = 0; Part < 4; ++Part)
             {
                 const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
-                for (int Py = 0; Py < Tile; ++Py)
+                ParallelCanvasRows(0, Tile, [&](int Py)
+                {
                     for (int Px = 0; Px < Tile; ++Px)
                     {
                         const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
@@ -1290,6 +1322,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         const float Coverage = MaskCoverageAt(*Selected, Topology[size_t(Owner)], Uv, PreviewDabCell(MaskGrid, Uv[0], Uv[1]));
                         PaintCanvasScratch[At] = {Coverage, Coverage, Coverage};
                     }
+                });
             }
         }
     }
@@ -1358,7 +1391,8 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                 const TileBox &Box = Boxes[Part];
                 if (Box.MaxX < 0) continue;
                 const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
-                for (int Py = Box.MinY; Py <= Box.MaxY; ++Py)
+                ParallelCanvasRows(Box.MinY, Box.MaxY + 1, [&](int Py)
+                {
                     for (int Px = Box.MinX; Px <= Box.MaxX; ++Px)
                     {
                         const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
@@ -1369,6 +1403,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                             PreviewDabCell(DabGrids[size_t(LayerIndex)], Uv[0], Uv[1]),
                             PreviewDabCell(MaskGrids[size_t(LayerIndex)], Uv[0], Uv[1]), true);
                     }
+                });
             }
         }
     }
@@ -1382,7 +1417,8 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
         for (int Part = 0; Part < 4; ++Part)
         {
             const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
-            for (int Py = 0; Py < Tile; ++Py)
+            ParallelCanvasRows(0, Tile, [&](int Py)
+            {
                 for (int Px = 0; Px < Tile; ++Px)
                 {
                     const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
@@ -1401,6 +1437,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         }
                     }
                 }
+            });
         }
         PaintCanvasFilled = std::move(Next);
     }
@@ -1420,13 +1457,17 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
         }
     }
     PaintCanvasPixels.assign(size_t(Extent) * Extent * 4, 255);
-    for (size_t At = 0; At < PaintCanvasScratch.size(); ++At)
+    ParallelCanvasRows(0, Extent, [&](int Y)
     {
-        const auto &Texel = PaintCanvasScratch[At];
-        PaintCanvasPixels[At * 4 + 0] = uint8_t(std::clamp(Texel[0], 0.f, 1.f) * 255.f);
-        PaintCanvasPixels[At * 4 + 1] = uint8_t(std::clamp(Texel[1], 0.f, 1.f) * 255.f);
-        PaintCanvasPixels[At * 4 + 2] = uint8_t(std::clamp(Texel[2], 0.f, 1.f) * 255.f);
-    }
+        for (int X = 0; X < Extent; ++X)
+        {
+            const size_t At = size_t(Y) * Extent + X;
+            const auto &Texel = PaintCanvasScratch[At];
+            PaintCanvasPixels[At * 4 + 0] = uint8_t(std::clamp(Texel[0], 0.f, 1.f) * 255.f);
+            PaintCanvasPixels[At * 4 + 1] = uint8_t(std::clamp(Texel[1], 0.f, 1.f) * 255.f);
+            PaintCanvasPixels[At * 4 + 2] = uint8_t(std::clamp(Texel[2], 0.f, 1.f) * 255.f);
+        }
+    });
 }
 
 //------------------------------------------------------------------------------------------------------------------------
