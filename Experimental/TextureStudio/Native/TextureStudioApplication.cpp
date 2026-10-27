@@ -24,6 +24,7 @@
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
 #include "UI/TextureStudio/StampWorkspacePanel.h"
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
+#include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
 #include <imgui_impl_vulkan.h>
 #include "Engine/Interface/IconPresentation.h"
 #include "Engine/Interface/ContentDirectory.h"
@@ -137,12 +138,14 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     const auto ContentRoot = std::filesystem::exists("EngineContent/FontArchives") ? std::filesystem::current_path() : ExecutableDirectory;
     Frontier::DiagnosticJournal::Append("Paths", "Executable=" + Frontier::DiagnosticJournal::EncodePath(ExecutableDirectory));
     Frontier::DiagnosticJournal::Append("Paths", "Content=" + Frontier::DiagnosticJournal::EncodePath(ContentRoot) + " shaders=" + Frontier::DiagnosticJournal::EncodePath(ShaderDirectory));
-    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership, BakingOwnership;
+    Frontier::ActivationOwnership AppearanceOwnership, LibraryOwnership, PatternOwnership, StampOwnership, BakingOwnership, TextureOwnership;
     Frontier::ControlCentrePanel *Appearance = nullptr;
     Frontier::MaterialLibraryPanel *Library = nullptr;
     Frontier::PatternWorkspacePanel *Pattern = nullptr;
     Frontier::StampWorkspacePanel *Stamp = nullptr;
     Frontier::BakingWorkspacePanel *Baking = nullptr;
+    Frontier::TexturePaintWorkspacePanel *Texture = nullptr;
+    size_t TextureAssetsSyncedCount = SIZE_MAX;
     GLFWwindow *Window = nullptr;
     std::unique_ptr<Frontier::MaterialLibraryRendering> Rendering;
     std::unique_ptr<Frontier::VectorSurfaceMaterialBridge> MaterialBridge;
@@ -219,6 +222,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     bool PatternActive = false;
     bool StampActive = false;
     bool BakingActive = false;
+    bool TextureActive = false;
     uint64_t RenderingRevision = UINT64_MAX, LayoutResetRevision = 0;
     bool LayoutBlocked = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
@@ -324,6 +328,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         };
         Pattern->ActivateStamp = [&]() { PatternActive = false; StampActive = true; };
         Pattern->ActivateBaking = [&]() { PatternActive = false; BakingActive = true; };
+        Pattern->ActivateTexture = [&]() { PatternActive = false; TextureActive = true; };
         Library->ActivatePattern = [&]()
         {
             PatternActive = true;
@@ -331,6 +336,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         };
         Library->ActivateStamp = [&]() { StampActive = true; };
         Library->ActivateBaking = [&]() { BakingActive = true; };
+        Library->ActivateTexture = [&]() { TextureActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -385,6 +391,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Stamp->ActivateMaterial = [&]() { StampActive = false; };
         Stamp->ActivatePattern = [&]() { StampActive = false; PatternActive = true; };
         Stamp->ActivateBaking = [&]() { StampActive = false; BakingActive = true; };
+        Stamp->ActivateTexture = [&]() { StampActive = false; TextureActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
@@ -423,10 +430,28 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Baking->ActivateMaterial = [&]() { BakingActive = false; };
         Baking->ActivatePattern = [&]() { BakingActive = false; PatternActive = true; };
         Baking->ActivateStamp = [&]() { BakingActive = false; StampActive = true; };
+        Baking->ActivateTexture = [&]() { BakingActive = false; TextureActive = true; };
         if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
         {
             const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
             if (Family >= 0) Baking->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
+                Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
+        }
+        // 📝 Texture Paint: native port of TexturePaintStudio.jsx (layer document + teapot viewport +
+        // preview paint). Like Baking it opens on the built-in Teapot demo; its project JSON/draft
+        // land in the library directory (see TexturePaintWorkspacePanel's scope note).
+        TextureOwnership.reset(new Frontier::TexturePaintWorkspacePanel());
+        Texture = static_cast<Frontier::TexturePaintWorkspacePanel *>(TextureOwnership.get());
+        if (!Texture->Initialize() || !Texture->Activate()) throw std::runtime_error("Texture Paint workspace activation failed.");
+        Texture->ConfigureProjectDirectory(Directory);
+        Texture->ActivateMaterial = [&]() { TextureActive = false; };
+        Texture->ActivatePattern = [&]() { TextureActive = false; PatternActive = true; };
+        Texture->ActivateStamp = [&]() { TextureActive = false; StampActive = true; };
+        Texture->ActivateBaking = [&]() { TextureActive = false; BakingActive = true; };
+        if (auto *Registry = Frontier::TypefaceRegistry::QueryCurrent())
+        {
+            const int32_t Family = Registry->ResolveFamilyIndex("DM Sans");
+            if (Family >= 0) Texture->ConfigureTypeface(Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Regular),
                 Registry->QueryHandle(uint32_t(Family), Frontier::FontWeightCategory::Light));
         }
 
@@ -449,6 +474,9 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 if (!LayoutBlocked)
                     if (const auto Layout = Document.Sections["workspace"]["texture_studio_baking_layout"]; Layout)
                         LayoutBlocked = !Layout.is_table() || !Baking->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
+                if (!LayoutBlocked)
+                    if (const auto Layout = Document.Sections["workspace"]["texture_studio_texture_layout"]; Layout)
+                        LayoutBlocked = !Layout.is_table() || !Texture->QueryPanels().ConfigureLayout(*Layout.as_table(), Message);
             }
             if (LayoutBlocked) Appearance->ConfigureLayoutDiagnostic("TextureWorkspace layout read refused; defaults remain session-only. " + Message);
         }
@@ -924,6 +952,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             Pattern->QueryPanels().ResetLayout();
             Stamp->QueryPanels().ResetLayout();
             Baking->QueryPanels().ResetLayout();
+            Texture->QueryPanels().ResetLayout();
             LayoutBlocked = false;
             LayoutResetRevision = Appearance->QueryLayoutResetRevision();
         }
@@ -931,10 +960,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Pattern->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Stamp->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Baking->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
+        Texture->QueryPanels().ConfigureDetachedWindows(Appearance->QueryDetachedWindows());
         Library->ConfigurePlatform();
         (void)Pattern->QueryPanels().ConfigurePlatform();
         (void)Stamp->QueryPanels().ConfigurePlatform();
         (void)Baking->QueryPanels().ConfigurePlatform();
+        (void)Texture->QueryPanels().ConfigurePlatform();
         if (glfwWindowShouldClose(Window))
         {
             const bool Authorized = StampActive ? Stamp->RequestClose() : PatternActive ? Pattern->RequestClose() : Library->RequestClose();
@@ -949,6 +980,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (StampActive) (void)Stamp->Integrate(ImGui::GetIO().DeltaTime);
         else if (PatternActive) (void)Pattern->Integrate(ImGui::GetIO().DeltaTime);
         else if (BakingActive) (void)Baking->Integrate(ImGui::GetIO().DeltaTime);
+        else if (TextureActive) (void)Texture->Integrate(ImGui::GetIO().DeltaTime);
         else (void)Library->Integrate(ImGui::GetIO().DeltaTime);
         if (MainVisible)
         {
@@ -956,6 +988,22 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             {
                 Baking->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
                 Baking->ConstructInterface();
+            }
+            else if (TextureActive)
+            {
+                // 📝 The content browser reads the same catalogue the Material workspace owns; only
+                // re-copy it when the entry count changes (refresh/directory switch).
+                const auto &Entries = Library->QueryLibrary().QueryEntries();
+                if (TextureAssetsSyncedCount != Entries.size())
+                {
+                    TextureAssetsSyncedCount = Entries.size();
+                    std::vector<Frontier::TexturePaintWorkspacePanel::MaterialAsset> Assets;
+                    Assets.reserve(Entries.size());
+                    for (const auto &Entry : Entries) Assets.push_back({Entry.Name, Entry.Category, Entry.ColourHex});
+                    Texture->ConfigureMaterialAssets(std::move(Assets));
+                }
+                Texture->ConfigureInterfaceScale(Appearance->QueryAppearance().QueryApplied().InterfaceScale / 100.f);
+                Texture->ConstructInterface();
             }
             else if (StampActive)
             {
@@ -1080,10 +1128,21 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     std::cerr << "TextureWorkspace Baking layout not saved: " << Message << '\n';
                 }
             }
+            if (Texture && Texture->QueryPanels().QuerySeated())
+            {
+                Message.clear();
+                const auto Layout = Texture->QueryPanels().EncodeLayout();
+                if (!Layout.empty() && !Appearance->PersistWorkspaceLayout(Layout, Message, "texture_studio_texture_layout"))
+                {
+                    Frontier::DiagnosticJournal::Append("TextureLayoutSaveError", Message);
+                    std::cerr << "TextureWorkspace Texture layout not saved: " << Message << '\n';
+                }
+            }
         }
         PatternOwnership.reset();
         StampOwnership.reset();
         BakingOwnership.reset();
+        TextureOwnership.reset();
         LibraryOwnership.reset();
         AppearanceOwnership.reset();
         // 📝 Everything above this point already ran inside a guarded zone (the shared application

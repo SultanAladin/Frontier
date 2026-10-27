@@ -41,6 +41,7 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::function<void()> ActivateMaterial;
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
+    std::function<void()> ActivateTexture;
 
     // 📝 GPU bake hooks bound by the host application, exactly like Pattern/Stamp's QueryCoverage: this panel
     // never touches Vulkan itself. QueryGpuBakeDevice returns the compute device's name ("" = unavailable, the

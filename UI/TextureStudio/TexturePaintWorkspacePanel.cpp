@@ -1,0 +1,3762 @@
+/*============================================================================================================================================
+                                                  TEXTUREPAINTWORKSPACEPANEL.CPP
+============================================================================================================================================*/
+#include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
+#include "Engine/Interface/ControlKit.h"
+#include "Engine/Interface/DropdownControls.h"
+#include "Engine/Interface/GlyphSpace.h"
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cfloat>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+#include <fstream>
+
+namespace Frontier
+{
+namespace
+{
+ImVec4 Spectrum(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return ImVec4(float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha);
+}
+ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
+}
+ImU32 Colour32(uint32_t Colour, float Alpha = 1.f) noexcept
+{
+    return IM_COL32((Colour >> 16) & 0xff, (Colour >> 8) & 0xff, Colour & 0xff, uint8_t(std::clamp(Alpha, 0.f, 1.f) * 255.f));
+}
+// 🎨 Same absolute-position caption helper Baking/Pattern/Stamp use (STB pixel height vs CSS em: DM Sans 1.302).
+void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, void *Typeface = nullptr)
+{
+    ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position,
+        ImGui::GetColorU32(Spectrum(Colour)), Text);
+}
+float CaptionWidth(const char *Text, float Size, void *Typeface = nullptr)
+{
+    return (Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont())->CalcTextSizeA(Size * 1.302f, FLT_MAX, 0.f, Text).x;
+}
+std::string Lowered(std::string Text) noexcept
+{
+    for (auto &Character : Text) Character = char(std::tolower(uint8_t(Character)));
+    return Text;
+}
+std::string Trimmed(const std::string &Text)
+{
+    size_t Begin = 0, End = Text.size();
+    while (Begin < End && std::isspace(uint8_t(Text[Begin]))) ++Begin;
+    while (End > Begin && std::isspace(uint8_t(Text[End - 1]))) --End;
+    return Text.substr(Begin, End - Begin);
+}
+std::string JsonEscape(const std::string &Text)
+{
+    std::string Out;
+    for (const char Character : Text)
+    {
+        if (Character == '"') Out += "\\\"";
+        else if (Character == '\\') Out += "\\\\";
+        else if (Character == '\n') Out += "\\n";
+        else if (uint8_t(Character) < 0x20) { char Buffer[8]; std::snprintf(Buffer, sizeof(Buffer), "\\u%04x", Character); Out += Buffer; }
+        else Out += Character;
+    }
+    return Out;
+}
+std::string NowTimeText()
+{
+    const std::time_t Now = std::time(nullptr);
+    std::tm Local{};
+#ifdef _WIN32
+    localtime_s(&Local, &Now);
+#else
+    localtime_r(&Now, &Local);
+#endif
+    char Buffer[16];
+    std::snprintf(Buffer, sizeof(Buffer), "%02d:%02d:%02d", Local.tm_hour, Local.tm_min, Local.tm_sec);
+    return Buffer;
+}
+std::array<float, 4> ParseHexColour(const std::string &Hex, std::array<float, 4> Fallback) noexcept
+{
+    if (Hex.size() != 7 || Hex[0] != '#') return Fallback;
+    const auto Component = [&](int Index)
+    {
+        char Byte[3]{Hex[size_t(Index)], Hex[size_t(Index) + 1], 0};
+        return float(std::strtol(Byte, nullptr, 16)) / 255.f;
+    };
+    return {Component(1), Component(3), Component(5), 1.f};
+}
+std::string HexColour(const std::array<float, 4> &Colour)
+{
+    char Buffer[16];
+    std::snprintf(Buffer, sizeof(Buffer), "#%02x%02x%02x", int(std::clamp(Colour[0], 0.f, 1.f) * 255.f),
+        int(std::clamp(Colour[1], 0.f, 1.f) * 255.f), int(std::clamp(Colour[2], 0.f, 1.f) * 255.f));
+    return Buffer;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                       STATIC TABLES (1:1 WITH THE ALLOY SOURCES)
+//------------------------------------------------------------------------------------------------------------------------
+
+struct KindMeta
+{
+    const char *Id;
+    const char *Label;
+    const char *Description;
+    const char *MenuHint;
+    uint32_t Colour;
+    const char *Icon;
+};
+// 📝 textureDocument.js TEXTURE_KINDS + TextureLayerStack.jsx's add-menu hints/icon mapping, in Alloy's menu order.
+constexpr std::array<KindMeta, 6> KindTable{{
+    {"paint", "Paint", "A sparse digital paint layer with editable UV strokes and per-channel values.", "Digital strokes · Paint / Erase", 0xd79564,
+        "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
+    {"fill", "Fill", "Digital channel fills, scoped to real faces, islands or mesh components.", "Digital channel region fills", 0x779cd1,
+        "M5 11L12 4L19 11L12 18ZM12 18V21M5 21H19"},
+    {"material", "Material", "A native material snapshot covering the whole object or one part.", "Source and material setup", 0xaa98d0,
+        "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"},
+    {"generator", "Generator", "A layer for a future procedural source.", "Source and material setup", 0x78ab96,
+        "M12 3L13.8 8.2L19 10L13.8 11.8L12 17L10.2 11.8L5 10L10.2 8.2Z"},
+    {"decal", "Decal", "A surface-projected stamp layer containing multiple decal components.", "Surface stamps · multiple components", 0xc4aa7a,
+        "M5 22H19M12 2V10M8 10H16L17 18H7Z"},
+    {"folder", "Folder", "A layer group with its own blend, opacity and optional coverage mask.", "Group layers · folder mask", 0xbfac88,
+        "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"},
+}};
+const KindMeta &MetaForKind(size_t Kind) noexcept
+{
+    // 📝 KindTable is in menu order; the panel's LayerKind enumerates the same order (see the header).
+    return KindTable[std::min(Kind, KindTable.size() - 1)];
+}
+struct ChannelMeta
+{
+    const char *Id;
+    const char *Label;
+    const char *Short;
+    const char *Group;
+    uint32_t Colour;
+};
+// 📝 paintChannelModel.js PAINT_CHANNELS (id/label/short/group/colour), verbatim.
+constexpr std::array<ChannelMeta, 15> ChannelTable{{
+    {"baseColor", "Base color", "C", "Surface", 0xb87333},
+    {"metalness", "Metalness", "M", "Surface", 0x8b5cf6},
+    {"roughness", "Roughness", "R", "Surface", 0x3b82f6},
+    {"height", "Height", "H", "Surface", 0x8a8a8a},
+    {"normal", "Normal", "N", "Surface", 0x10b981},
+    {"opacity", "Opacity", "A", "Surface", 0x94a3b8},
+    {"emission", "Emission", "E", "Radiance", 0xf59e0b},
+    {"occlusion", "Ambient occlusion", "AO", "Radiance", 0x6b7280},
+    {"anisotropy", "Anisotropy", "AN", "Reflectance", 0x22d3ee},
+    {"anisotropyAngle", "Anisotropy angle", "°", "Reflectance", 0x0ea5e9},
+    {"clearcoat", "Clearcoat", "CC", "Reflectance", 0xe2e8f0},
+    {"transmission", "Transmission", "TR", "Reflectance", 0x7dd3fc},
+    {"refractionIndex", "Refraction index", "IOR", "Reflectance", 0xa78bfa},
+    {"sheen", "Sheen", "SH", "Scattering", 0xf472b6},
+    {"subsurface", "Subsurface", "SS", "Scattering", 0xfb7185},
+}};
+struct PartMeta
+{
+    const char *Name;
+    int Tile;
+    uint32_t Colour;
+};
+// 📝 textureSurfaceModel.js TEXTURE_PARTS (order/tile/colour), verbatim.
+constexpr std::array<PartMeta, 4> PartTable{{
+    {"Body", 1001, 0x9daf98},
+    {"Lid", 1002, 0xd5b78c},
+    {"Handle", 1003, 0x92aac5},
+    {"Spout", 1004, 0xb39dc5},
+}};
+constexpr std::array<const char *, 6> BlendTable{"Normal", "Multiply", "Screen", "Overlay", "Add", "Darken"};
+struct PresetMeta
+{
+    const char *Id;
+    const char *Name;
+    const char *Note;
+};
+// 📝 digitalBrush.js DIGITAL_BRUSH_PRESETS, verbatim.
+constexpr std::array<PresetMeta, 5> PresetTable{{
+    {"round", "Studio round", "A clean, pressure-sensitive round tip"},
+    {"soft", "Soft round", "A smooth digital falloff"},
+    {"flat", "Flat tip", "An elliptical tip following the stroke"},
+    {"pixel", "Pixel pen", "A hard square digital tip"},
+    {"grain", "Grain round", "Procedural digital texture, not physical paint"},
+}};
+struct GeneratorMeta
+{
+    const char *Id;
+    const char *Label;
+    const char *Group;
+    const char *Note;
+};
+// 📝 paintChannelModel.js CHANNEL_GENERATORS, verbatim.
+constexpr std::array<GeneratorMeta, 10> GeneratorTable{{
+    {"CurvatureEdges", "Curvature", "Mask", "Needs curvature mesh map"},
+    {"AmbientOcclusion", "Ambient Occlusion", "Mask", "Needs occlusion mesh map"},
+    {"Thickness", "Thickness", "Mask", "Needs thickness mesh map"},
+    {"PositionGradient", "Position Gradient", "Mask", "World-axis ramp configuration"},
+    {"MetalEdgeWear", "Metal Edge Wear", "Wear", "Needs curvature / grunge inputs"},
+    {"DirtAccumulation", "Dirt", "Wear", "Needs occlusion input"},
+    {"WaterRunoff", "Water Runoff", "Wear", "Gravity-streak configuration"},
+    {"PerlinNoise", "Perlin Noise", "Procedural", "Fractal-noise configuration"},
+    {"VoronoiCells", "Voronoi", "Procedural", "Cellular configuration"},
+    {"BrushedAnisotropy", "Brushed Metal", "Procedural", "Directional-grain configuration"},
+}};
+constexpr const char *LayersIconPath =
+    "M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z "
+    "M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12 "
+    "M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17";
+constexpr const char *BoxIconPath =
+    "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
+    "M3.3 7 12 12l8.7-5M12 22V12";
+void DrawGlyph(const char *Path, ImVec2 Position, float Size, uint32_t Colour, float StrokeWidth = 1.6f)
+{
+    PixelSpace Surface;
+    (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
+    GlyphSpace::Stroke(Surface, Path, {Position.x, Position.y, Size, StrokeWidth, SpectrumQuad(Colour)});
+}
+struct Vec3 { float X = 0, Y = 0, Z = 0; };
+Vec3 Sub(Vec3 A, Vec3 B) noexcept { return {A.X - B.X, A.Y - B.Y, A.Z - B.Z}; }
+Vec3 CrossV(Vec3 A, Vec3 B) noexcept { return {A.Y * B.Z - A.Z * B.Y, A.Z * B.X - A.X * B.Z, A.X * B.Y - A.Y * B.X}; }
+float DotV(Vec3 A, Vec3 B) noexcept { return A.X * B.X + A.Y * B.Y + A.Z * B.Z; }
+Vec3 NormalizeV(Vec3 V) noexcept
+{
+    const float Length = std::sqrt(DotV(V, V));
+    return Length > 1e-9f ? Vec3{V.X / Length, V.Y / Length, V.Z / Length} : V;
+}
+bool PointInTriangle(float Px, float Py, const float A[2], const float B[2], const float C[2], float Weights[3]) noexcept
+{
+    const float Denominator = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+    if (std::abs(Denominator) < 1e-12f) return false;
+    Weights[0] = ((B[1] - C[1]) * (Px - C[0]) + (C[0] - B[0]) * (Py - C[1])) / Denominator;
+    Weights[1] = ((C[1] - A[1]) * (Px - C[0]) + (A[0] - C[0]) * (Py - C[1])) / Denominator;
+    Weights[2] = 1.f - Weights[0] - Weights[1];
+    return Weights[0] >= -1e-5f && Weights[1] >= -1e-5f && Weights[2] >= -1e-5f;
+}
+} // namespace
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     LIFECYCLE
+//------------------------------------------------------------------------------------------------------------------------
+
+TexturePaintWorkspacePanel::TexturePaintWorkspacePanel()
+{
+    // 📝 Same reusable PanelDockspace + 278/1fr/338 grid (against the shared 1436px reference) as Baking;
+    // bottom inset reserves the 38px content-browser launcher slot + 31px .tp-status-bar.
+    (void)Panels.ConfigureDockspaceKey("TextureWorkspace TexturePaint panels");
+    Panels.ConfigureWorkspaceInsets(43, 69);
+    Panels.ConfigureTabExtent(130, 26);
+    Panels.Register({"texture-layers", "Layer stack", [&]() { ConstructLayersDock(); }});
+    Panels.Register({"texture-viewport", "Viewport Teapot", [&]() { ConstructViewportDock(); }});
+    Panels.Register({"texture-inspector", "Inspector", [&]() { ConstructInspectorDock(); }});
+    Panels.ConfigureColumns({{"texture-layers", 278.f / 1436}, {"texture-viewport", 820.f / 1436}, {"texture-inspector", 338.f / 1436}});
+    ResetDocument();
+}
+
+bool TexturePaintWorkspacePanel::InitializeContent() noexcept
+{
+    try
+    {
+        Assets = BuildDemoBakeAssets("Teapot");
+        BuildTopology();
+        return !Topology.empty();
+    }
+    catch (...) { return false; }
+}
+void TexturePaintWorkspacePanel::FinalizeContent() noexcept
+{
+    ControlExtents.clear();
+    LastPickTriangles.clear();
+}
+void TexturePaintWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept
+{
+    ClockSeconds += DeltaSeconds;
+    // 📝 Alloy coalesces continuous edits into one history step after 650ms idle (commitTextureHistory's key).
+    if (PendingHistory && ClockSeconds - PendingHistoryClock > 0.65)
+    {
+        CommitHistory(PendingHistory->Label, PendingHistory->Detail, PendingHistory->Kind);
+        PendingHistory.reset();
+    }
+    // 📝 Alloy autosaves a local draft 500ms after each document change; natively that is a real JSON file in
+    // the configured project directory, and the status line says so only once the write actually succeeded.
+    if (Dirty && !ProjectDirectory.empty() && ClockSeconds - LastEditClock > 0.5)
+    {
+        if (WriteProjectFile(ProjectDirectory / "texture-paint-draft.texture.json"))
+        {
+            Dirty = false;
+            Status = "Layer draft saved locally";
+        }
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     DOCUMENT OPERATIONS
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ResetDocument()
+{
+    Layers.clear();
+    const auto MakeLayer = [&](const char *Id, const char *Name, LayerKind Kind, std::vector<std::string> Channels)
+    {
+        LayerState Layer;
+        Layer.Id = Id;
+        Layer.Name = Name;
+        Layer.Kind = Kind;
+        Layer.Channels = std::move(Channels);
+        return Layer;
+    };
+    // 🧩 createTextureDocument()'s default stack, topmost first.
+    Layers.push_back(MakeLayer("surface-detail", "Surface detail", LayerKind::Paint, {"baseColor", "roughness"}));
+    Layers.push_back(MakeLayer("surface-finish", "Surface finish", LayerKind::Fill, {"baseColor", "roughness"}));
+    Layers.push_back(MakeLayer("base-material", "Base material", LayerKind::Material,
+        {"baseColor", "metalness", "roughness", "height", "normal", "occlusion"}));
+    SelectedLayerId = "surface-detail";
+    MaskSelected = false;
+    Brush = BrushState{};
+    HistoryEntries.clear();
+    HistoryIndex = -1;
+    PendingHistory.reset();
+    CommitHistory("Opened project", DocumentName, "project");
+}
+
+TexturePaintWorkspacePanel::LayerState *TexturePaintWorkspacePanel::FindLayer(const std::string &Id) noexcept
+{
+    for (auto &Layer : Layers)
+        if (Layer.Id == Id) return &Layer;
+    return nullptr;
+}
+const TexturePaintWorkspacePanel::LayerState *TexturePaintWorkspacePanel::FindLayer(const std::string &Id) const noexcept
+{
+    for (const auto &Layer : Layers)
+        if (Layer.Id == Id) return &Layer;
+    return nullptr;
+}
+std::string TexturePaintWorkspacePanel::QuerySelectedLayerName() const
+{
+    const auto *Layer = FindLayer(SelectedLayerId);
+    return Layer ? Layer->Name : std::string{};
+}
+int TexturePaintWorkspacePanel::LayerDepth(const LayerState &Layer) const noexcept
+{
+    int Depth = 0;
+    std::string Parent = Layer.ParentId;
+    while (!Parent.empty() && Depth < 16)
+    {
+        const auto *Next = FindLayer(Parent);
+        if (!Next) break;
+        ++Depth;
+        Parent = Next->ParentId;
+    }
+    return Depth;
+}
+bool TexturePaintWorkspacePanel::EffectiveLocked(const LayerState &Layer) const noexcept
+{
+    if (Layer.Locked) return true;
+    std::string Parent = Layer.ParentId;
+    while (!Parent.empty())
+    {
+        const auto *Next = FindLayer(Parent);
+        if (!Next) return false;
+        if (Next->Locked) return true;
+        Parent = Next->ParentId;
+    }
+    return false;
+}
+bool TexturePaintWorkspacePanel::EffectiveVisible(const LayerState &Layer) const noexcept
+{
+    if (!Layer.Visible) return false;
+    std::string Parent = Layer.ParentId;
+    while (!Parent.empty())
+    {
+        const auto *Next = FindLayer(Parent);
+        if (!Next) return true;
+        if (!Next->Visible) return false;
+        Parent = Next->ParentId;
+    }
+    return true;
+}
+bool TexturePaintWorkspacePanel::HiddenByCollapsedFolder(const LayerState &Layer) const noexcept
+{
+    std::string Parent = Layer.ParentId;
+    while (!Parent.empty())
+    {
+        const auto *Next = FindLayer(Parent);
+        if (!Next) return false;
+        if (Next->Kind == LayerKind::Folder && !Next->Expanded) return true;
+        Parent = Next->ParentId;
+    }
+    return false;
+}
+bool TexturePaintWorkspacePanel::IsDescendantOf(const std::string &Id, const std::string &AncestorId) const noexcept
+{
+    const auto *Layer = FindLayer(Id);
+    std::string Parent = Layer ? Layer->ParentId : std::string{};
+    while (!Parent.empty())
+    {
+        if (Parent == AncestorId) return true;
+        const auto *Next = FindLayer(Parent);
+        if (!Next) return false;
+        Parent = Next->ParentId;
+    }
+    return false;
+}
+void TexturePaintWorkspacePanel::SelectLayer(const std::string &Id, bool Mask)
+{
+    const auto *Layer = FindLayer(Id);
+    if (!Layer) return;
+    DigitalActive = false; // Alloy cancels the armed digital tool on target change
+    SelectedLayerId = Id;
+    MaskSelected = Mask && Layer->Mask.Present;
+    if (MaskSelected && MaskPreview == false && Layer->Mask.Present) { /* preview tab stays user-controlled */ }
+    LayerNameSelectionId.clear(); // force the inspector name field to re-sync
+}
+std::string TexturePaintWorkspacePanel::MakeLayerId(const char *Prefix)
+{
+    std::string Id;
+    do { Id = std::string(Prefix) + "-" + std::to_string(NextLayerSerial++); } while (FindLayer(Id));
+    return Id;
+}
+std::string TexturePaintWorkspacePanel::UniqueLayerName(const std::string &Base) const
+{
+    const auto Taken = [&](const std::string &Name)
+    {
+        for (const auto &Layer : Layers)
+            if (Layer.Name == Name) return true;
+        return false;
+    };
+    if (!Taken(Base)) return Base;
+    for (int Index = 2; Index < 1000; ++Index)
+    {
+        const std::string Candidate = Base + " " + std::to_string(Index);
+        if (!Taken(Candidate)) return Candidate;
+    }
+    return Base;
+}
+void TexturePaintWorkspacePanel::AddLayer(LayerKind Kind)
+{
+    if (Layers.size() >= 64) { Error = "The 64-layer limit has been reached."; return; }
+    LayerState Layer;
+    Layer.Id = MakeLayerId(MetaForKind(size_t(Kind)).Id);
+    Layer.Kind = Kind;
+    Layer.Name = UniqueLayerName(Kind == LayerKind::Folder ? "Folder" : std::string(MetaForKind(size_t(Kind)).Label) + " layer");
+    Layer.Expanded = Kind == LayerKind::Folder;
+    if (Kind != LayerKind::Folder) Layer.Channels = {"baseColor", "roughness"};
+    // 📝 insertTextureLayer inserts above the current selection (vector order is topmost-first).
+    size_t InsertAt = 0;
+    if (const auto *Selected = SelectedLayer())
+    {
+        Layer.ParentId = Selected->ParentId;
+        InsertAt = size_t(Selected - Layers.data());
+    }
+    const std::string NewId = Layer.Id, NewName = Layer.Name;
+    Layers.insert(Layers.begin() + intptr_t(InsertAt), std::move(Layer));
+    SelectLayer(NewId);
+    CommitHistory(Kind == LayerKind::Folder ? "Add folder" : "Add layer", NewName, Kind == LayerKind::Folder ? "folder" : "layer");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::DuplicateSelectedLayer()
+{
+    const auto *Source = SelectedLayer();
+    if (!Source || Layers.size() >= 64) return;
+    LayerState Copy = *Source;
+    Copy.Id = MakeLayerId(MetaForKind(size_t(Copy.Kind)).Id);
+    Copy.Name = UniqueLayerName(Source->Name + " copy");
+    const size_t InsertAt = size_t(Source - Layers.data());
+    const std::string NewId = Copy.Id, NewName = Copy.Name;
+    Layers.insert(Layers.begin() + intptr_t(InsertAt), std::move(Copy));
+    SelectLayer(NewId);
+    CommitHistory("Duplicate layer / folder", NewName, "layer");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::DeleteSelectedLayer()
+{
+    const auto *Source = SelectedLayer();
+    if (!Source || EffectiveLocked(*Source)) return;
+    const std::string RemovedId = Source->Id, RemovedName = Source->Name;
+    const bool WasFolder = Source->Kind == LayerKind::Folder;
+    std::vector<std::string> Removed{RemovedId};
+    if (WasFolder)
+        for (const auto &Layer : Layers)
+            if (IsDescendantOf(Layer.Id, RemovedId)) Removed.push_back(Layer.Id);
+    Layers.erase(std::remove_if(Layers.begin(), Layers.end(),
+                     [&](const LayerState &Layer) { return std::find(Removed.begin(), Removed.end(), Layer.Id) != Removed.end(); }),
+        Layers.end());
+    MaskSelected = false;
+    SelectedLayerId = Layers.empty() ? std::string{} : Layers.front().Id;
+    LayerNameSelectionId.clear();
+    CommitHistory(WasFolder ? "Remove / ungroup folder" : "Delete layer", RemovedName, WasFolder ? "folder" : "layer");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::MoveSelectedLayer(int Direction)
+{
+    const auto *Selected = SelectedLayer();
+    if (!Selected || EffectiveLocked(*Selected)) return;
+    const size_t Index = size_t(Selected - Layers.data());
+    // 📝 Swap with the nearest sibling (same parent) in the requested direction.
+    for (intptr_t At = intptr_t(Index) + Direction; At >= 0 && At < intptr_t(Layers.size()); At += Direction)
+    {
+        if (Layers[size_t(At)].ParentId == Selected->ParentId)
+        {
+            std::swap(Layers[Index], Layers[size_t(At)]);
+            CommitHistory("Reorder layers", "Top-to-bottom layer order", "layer");
+            MarkDirty();
+            return;
+        }
+        if (!IsDescendantOf(Layers[size_t(At)].Id, Direction < 0 ? Selected->ParentId : Layers[size_t(At)].Id)) { /* keep scanning */ }
+    }
+}
+void TexturePaintWorkspacePanel::SetLayerParent(const std::string &Id, const std::string &ParentId)
+{
+    auto *Layer = FindLayer(Id);
+    if (!Layer || Layer->ParentId == ParentId) return;
+    if (!ParentId.empty())
+    {
+        const auto *Parent = FindLayer(ParentId);
+        if (!Parent || Parent->Kind != LayerKind::Folder || ParentId == Id || IsDescendantOf(ParentId, Id)) return;
+    }
+    LayerState Moving = *Layer;
+    Moving.ParentId = ParentId;
+    const std::string Name = Moving.Name;
+    Layers.erase(Layers.begin() + intptr_t(Layer - Layers.data()));
+    size_t InsertAt = 0;
+    if (!ParentId.empty())
+    {
+        // 📝 Land directly under the folder row, ahead of its existing children.
+        for (size_t Index = 0; Index < Layers.size(); ++Index)
+            if (Layers[Index].Id == ParentId) { InsertAt = Index + 1; break; }
+        if (auto *Parent = FindLayer(ParentId)) Parent->Expanded = true;
+    }
+    Layers.insert(Layers.begin() + intptr_t(InsertAt), std::move(Moving));
+    const auto *Parent = FindLayer(ParentId);
+    CommitHistory("Move to folder", Name + " -> " + (Parent ? Parent->Name : std::string("Root")), "folder");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::UngroupSelectedFolder()
+{
+    const auto *Folder = SelectedLayer();
+    if (!Folder || Folder->Kind != LayerKind::Folder || EffectiveLocked(*Folder)) return;
+    const std::string FolderId = Folder->Id, FolderName = Folder->Name, GrandParent = Folder->ParentId;
+    for (auto &Layer : Layers)
+        if (Layer.ParentId == FolderId) Layer.ParentId = GrandParent;
+    Layers.erase(std::remove_if(Layers.begin(), Layers.end(), [&](const LayerState &Layer) { return Layer.Id == FolderId; }), Layers.end());
+    SelectedLayerId = Layers.empty() ? std::string{} : Layers.front().Id;
+    MaskSelected = false;
+    CommitHistory("Remove / ungroup folder", FolderName, "folder");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::AddMaskToSelected(bool ColourMask)
+{
+    auto *Layer = SelectedLayer();
+    if (!Layer || Layer->Mask.Present || EffectiveLocked(*Layer)) return;
+    Layer->Mask = MaskState{};
+    Layer->Mask.Present = true;
+    Layer->Mask.Kind = ColourMask ? "color" : "fill";
+    const std::string Name = Layer->Name;
+    SelectLayer(Layer->Id, true);
+    CommitHistory(ColourMask ? "Add colour mask" : "Add layer mask", Name, "mask");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::RemoveSelectedMask()
+{
+    auto *Layer = SelectedLayer();
+    if (!Layer || !Layer->Mask.Present || EffectiveLocked(*Layer)) return;
+    Layer->Mask = MaskState{};
+    MaskSelected = false;
+    if (MaskPreview) MaskPreview = false;
+    CommitHistory("Remove mask", Layer->Name, "mask");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::ToggleChannel(LayerState &Layer, const std::string &ChannelId)
+{
+    const auto Present = std::find(Layer.Channels.begin(), Layer.Channels.end(), ChannelId);
+    if (Present == Layer.Channels.end())
+    {
+        Layer.Channels.push_back(ChannelId);
+        // 📝 paintChannelModel's invariant: Normal is Height-derived, so enabling it enables Height too.
+        if (ChannelId == "normal" && std::find(Layer.Channels.begin(), Layer.Channels.end(), "height") == Layer.Channels.end())
+            Layer.Channels.push_back("height");
+    }
+    else Layer.Channels.erase(Present);
+    // 📝 Keep document order canonical (Alloy normalizes channels back into PAINT_CHANNELS order).
+    std::vector<std::string> Ordered;
+    for (const auto &Channel : ChannelTable)
+        if (std::find(Layer.Channels.begin(), Layer.Channels.end(), Channel.Id) != Layer.Channels.end()) Ordered.push_back(Channel.Id);
+    Layer.Channels = std::move(Ordered);
+    CommitHistory("Channel targets", Layer.Name + " · " + std::to_string(Layer.Channels.size()) + " enabled", "channel");
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::ClearSelectedPaint()
+{
+    auto *Layer = SelectedLayer();
+    if (!Layer || EffectiveLocked(*Layer)) return;
+    Layer->Dabs.clear();
+    Layer->Fills.clear();
+    Layer->StrokeCount = 0;
+    CommitHistory("Clear layer digital paint", Layer->Name, "stroke");
+    MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     HISTORY
+//------------------------------------------------------------------------------------------------------------------------
+
+TexturePaintWorkspacePanel::Snapshot TexturePaintWorkspacePanel::CaptureSnapshot() const
+{
+    return Snapshot{Layers, SelectedLayerId, MaskSelected, Brush};
+}
+void TexturePaintWorkspacePanel::RestoreSnapshot(const Snapshot &State)
+{
+    Layers = State.Layers;
+    Brush = State.Brush;
+    SelectedLayerId = FindLayer(State.SelectedId) ? State.SelectedId : (Layers.empty() ? std::string{} : Layers.front().Id);
+    const auto *Selected = FindLayer(SelectedLayerId);
+    MaskSelected = State.MaskSelected && Selected && Selected->Mask.Present;
+    DigitalActive = false;
+    StrokeActive = false;
+    LayerNameSelectionId.clear();
+}
+void TexturePaintWorkspacePanel::CommitHistory(const std::string &Label, const std::string &Detail, const std::string &Kind)
+{
+    HistoryEntry Entry;
+    Entry.State = CaptureSnapshot();
+    Entry.Label = Label;
+    Entry.Detail = Detail;
+    Entry.Kind = Kind;
+    Entry.TimeText = NowTimeText();
+    if (HistoryIndex >= 0 && HistoryIndex + 1 < int(HistoryEntries.size()))
+        HistoryEntries.erase(HistoryEntries.begin() + HistoryIndex + 1, HistoryEntries.end());
+    HistoryEntries.push_back(std::move(Entry));
+    // 📝 TEXTURE_HISTORY_LIMIT: keep at most 80 undo steps behind the present state.
+    while (HistoryEntries.size() > 81) HistoryEntries.erase(HistoryEntries.begin());
+    HistoryIndex = int(HistoryEntries.size()) - 1;
+    HistoryChosen = -1;
+}
+void TexturePaintWorkspacePanel::QueueHistory(const std::string &Label, const std::string &Detail, const std::string &Kind)
+{
+    HistoryEntry Pending;
+    Pending.Label = Label;
+    Pending.Detail = Detail;
+    Pending.Kind = Kind;
+    PendingHistory = std::move(Pending);
+    PendingHistoryClock = ClockSeconds;
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::Undo()
+{
+    if (!CanUndo()) return;
+    PendingHistory.reset();
+    --HistoryIndex;
+    RestoreSnapshot(HistoryEntries[size_t(HistoryIndex)].State);
+    Status = "Saving layer draft…";
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::Redo()
+{
+    if (!CanRedo()) return;
+    PendingHistory.reset();
+    ++HistoryIndex;
+    RestoreSnapshot(HistoryEntries[size_t(HistoryIndex)].State);
+    Status = "Saving layer draft…";
+    MarkDirty();
+}
+void TexturePaintWorkspacePanel::RestoreHistoryEntry(int Index)
+{
+    if (Index < 0 || Index >= int(HistoryEntries.size()) || Index == HistoryIndex) return;
+    PendingHistory.reset();
+    HistoryIndex = Index;
+    RestoreSnapshot(HistoryEntries[size_t(Index)].State);
+    Status = "Saving layer draft…";
+    MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     PROJECT SAVE
+//------------------------------------------------------------------------------------------------------------------------
+
+std::string TexturePaintWorkspacePanel::SerializeProject() const
+{
+    // 🧩 Hand-serialized alloy.texture.v1 subset (this tree vendors no JSON writer): every field written here is
+    // real document state. Paint dabs/fills serialize as compact preview records, not Alloy's replayable stroke
+    // geometry - the header comment's scope note applies to this file too.
+    std::string Out = "{\n  \"schema\": \"alloy.texture.v1\",\n  \"name\": \"" + JsonEscape(DocumentName) + "\",\n  \"scene\": \"teapot\",\n";
+    Out += "  \"digitalPainting\": {\"preset\": \"" + JsonEscape(Brush.Preset) + "\", \"tool\": \"" + JsonEscape(Brush.Tool) +
+        "\", \"color\": \"" + HexColour(Brush.Colour) + "\", \"size\": " + std::to_string(Brush.Size) + "},\n  \"layers\": [\n";
+    for (size_t Index = 0; Index < Layers.size(); ++Index)
+    {
+        const auto &Layer = Layers[Index];
+        Out += "    {\"id\": \"" + JsonEscape(Layer.Id) + "\", \"kind\": \"" + MetaForKind(size_t(Layer.Kind)).Id +
+            "\", \"name\": \"" + JsonEscape(Layer.Name) + "\", \"parentId\": " +
+            (Layer.ParentId.empty() ? std::string("null") : "\"" + JsonEscape(Layer.ParentId) + "\"") +
+            ", \"visible\": " + (Layer.Visible ? "true" : "false") + ", \"locked\": " + (Layer.Locked ? "true" : "false") +
+            ", \"opacity\": " + std::to_string(Layer.Opacity) + ", \"blend\": \"" + JsonEscape(Layer.Blend) + "\", \"channels\": [";
+        for (size_t Channel = 0; Channel < Layer.Channels.size(); ++Channel)
+            Out += (Channel ? ", " : "") + std::string("\"") + Layer.Channels[Channel] + "\"";
+        Out += "]";
+        if (!Layer.SourceAsset.empty())
+            Out += ", \"sourceAsset\": {\"type\": \"" + JsonEscape(Layer.SourceAssetType) + "\", \"name\": \"" + JsonEscape(Layer.SourceAsset) + "\"}";
+        if (Layer.Mask.Present)
+            Out += ", \"mask\": {\"kind\": \"" + JsonEscape(Layer.Mask.Kind) + "\", \"enabled\": " + (Layer.Mask.Enabled ? "true" : "false") +
+                ", \"inverted\": " + (Layer.Mask.Inverted ? "true" : "false") + ", \"fill\": " + std::to_string(Layer.Mask.Fill) +
+                ", \"strength\": " + std::to_string(Layer.Mask.Strength) + ", \"color\": \"" + HexColour(Layer.Mask.Colour) + "\"}";
+        Out += ", \"previewDabs\": " + std::to_string(Layer.Dabs.size()) + ", \"previewFills\": " + std::to_string(Layer.Fills.size()) + "}";
+        Out += Index + 1 < Layers.size() ? ",\n" : "\n";
+    }
+    Out += "  ]\n}\n";
+    return Out;
+}
+bool TexturePaintWorkspacePanel::WriteProjectFile(const std::filesystem::path &Path) const
+{
+    try
+    {
+        std::error_code Failure;
+        if (!Path.parent_path().empty()) std::filesystem::create_directories(Path.parent_path(), Failure);
+        std::ofstream Output(Path, std::ios::binary | std::ios::trunc);
+        if (!Output) return false;
+        Output << SerializeProject();
+        return bool(Output);
+    }
+    catch (...) { return false; }
+}
+void TexturePaintWorkspacePanel::SaveProject()
+{
+    if (ProjectDirectory.empty())
+    {
+        Error = "No project directory is configured for this session, so the layer project cannot be written.";
+        return;
+    }
+    std::string FileStem = DocumentName;
+    for (auto &Character : FileStem)
+        if (!std::isalnum(uint8_t(Character)) && Character != '_' && Character != '-') Character = '-';
+    if (FileStem.empty()) FileStem = "Surface";
+    if (WriteProjectFile(ProjectDirectory / (FileStem + ".texture.json")))
+    {
+        Dirty = false;
+        Status = "Layer draft saved locally";
+        ShowToast("Layer project saved · sources included, no composited maps");
+    }
+    else Error = "The layer project could not be written to the project directory.";
+}
+void TexturePaintWorkspacePanel::OpenProject()
+{
+    // 📝 Same honest limitation as Baking's OpenRecipe: no native file picker is wired into this build yet.
+    Status = "Opening a layer project needs a native file picker this build does not have wired up yet - Save project still writes the real JSON file.";
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     TEAPOT TOPOLOGY + UV SETS
+//------------------------------------------------------------------------------------------------------------------------
+
+int TexturePaintWorkspacePanel::PartForPatch(int Patch) noexcept
+{
+    // 🧩 textureSurfaceModel.js teapotPatchPart: lid 20-27, handle 12-15, spout 16-19, body otherwise.
+    if (Patch >= 20 && Patch < 28) return 1;
+    if (Patch >= 12 && Patch < 16) return 2;
+    if (Patch >= 16 && Patch < 20) return 3;
+    return 0;
+}
+void TexturePaintWorkspacePanel::SourceUvFor(const BakeVertex &Vertex, float Out[2]) const noexcept
+{
+    // 📝 Invert BakeMesh.cpp's packTeapotUVs (8x4 patch tiling, 0.045 gutter, 1-T / 1-S) back to the original
+    // per-patch UV0 - the overlapping "Source UV0" set Alloy shows read-only.
+    const int Patch = int(Vertex.ChartId) - 1;
+    if (Patch < 0 || Patch >= 32) { Out[0] = Vertex.Uv[0]; Out[1] = Vertex.Uv[1]; return; }
+    constexpr float Gutter = 0.045f;
+    const float Column = float(Patch % 8), Row = float(Patch / 8);
+    const float LocalU = std::clamp((Vertex.Uv[0] * 8.f - Column - Gutter) / (1.f - 2.f * Gutter), 0.f, 1.f);
+    const float LocalV = std::clamp((Vertex.Uv[1] * 4.f - Row - Gutter) / (1.f - 2.f * Gutter), 0.f, 1.f);
+    Out[0] = 1.f - LocalU; // source.getX == T, and the packer stored (1 - T)
+    Out[1] = 1.f - LocalV; // source.getY == S, and the packer stored (1 - S)
+}
+void TexturePaintWorkspacePanel::AuthoringUvFor(const BakeVertex &Vertex, float Out[2]) const noexcept
+{
+    // 🧩 createTextureTeapotGeometry's authoring set: each part's patches re-tiled inside its own UDIM tile.
+    const int Patch = int(Vertex.ChartId) - 1;
+    float Source[2];
+    SourceUvFor(Vertex, Source);
+    if (Patch < 0 || Patch >= 32) { Out[0] = Source[0]; Out[1] = Source[1]; return; }
+    const int Part = PartForPatch(Patch);
+    const int Local = Part == 0 ? (Patch < 12 ? Patch : Patch - 16)
+        : Part == 1 ? Patch - 20
+        : Part == 2 ? Patch - 12
+                    : Patch - 16;
+    const float Columns = (Part == 0 || Part == 1) ? 4.f : 2.f;
+    const float Rows = Part == 0 ? 4.f : 2.f;
+    constexpr float Gutter = 0.045f;
+    Out[0] = float(Part) + (float(Local % int(Columns)) + Gutter + Source[0] * (1.f - Gutter * 2.f)) / Columns;
+    Out[1] = (float(Local / int(Columns)) + Gutter + Source[1] * (1.f - Gutter * 2.f)) / Rows;
+}
+void TexturePaintWorkspacePanel::BuildTopology()
+{
+    Topology.clear();
+    if (Assets.Low.Parts.empty()) return;
+    const auto &Part = Assets.Low.Parts.front();
+    Topology.reserve(Part.TriangleCount());
+    for (size_t Index = 0; Index + 2 < Part.Indices.size(); Index += 3)
+    {
+        TopologyTriangle Triangle;
+        Triangle.Index = int(Topology.size());
+        float Centroid[2]{0, 0};
+        for (int Corner = 0; Corner < 3; ++Corner)
+        {
+            const uint32_t VertexIndex = Part.Indices[Index + size_t(Corner)];
+            Triangle.VertexIndex[Corner] = VertexIndex;
+            const auto &Vertex = Part.Vertices[VertexIndex];
+            AuthoringUvFor(Vertex, Triangle.AuthoringUv[Corner]);
+            SourceUvFor(Vertex, Triangle.SourceUv[Corner]);
+            Centroid[0] += Triangle.AuthoringUv[Corner][0] / 3.f;
+            Centroid[1] += Triangle.AuthoringUv[Corner][1] / 3.f;
+            if (!Corner)
+            {
+                Triangle.Chart = int(Vertex.ChartId) - 1;
+                Triangle.Part = PartForPatch(Triangle.Chart);
+            }
+        }
+        Triangle.CentroidUv[0] = Centroid[0];
+        Triangle.CentroidUv[1] = Centroid[1];
+        Topology.push_back(Triangle);
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     PREVIEW COMPOSITE
+//------------------------------------------------------------------------------------------------------------------------
+
+namespace
+{
+void BlendOver(std::array<float, 3> &Base, const std::array<float, 4> &Colour, float Alpha, const std::string &Blend) noexcept
+{
+    Alpha = std::clamp(Alpha * Colour[3], 0.f, 1.f);
+    if (Alpha <= 0.f) return;
+    for (int Channel = 0; Channel < 3; ++Channel)
+    {
+        float Mixed = Colour[size_t(Channel)];
+        if (Blend == "Multiply") Mixed = Base[size_t(Channel)] * Colour[size_t(Channel)];
+        else if (Blend == "Screen") Mixed = 1.f - (1.f - Base[size_t(Channel)]) * (1.f - Colour[size_t(Channel)]);
+        else if (Blend == "Overlay")
+            Mixed = Base[size_t(Channel)] < .5f ? 2.f * Base[size_t(Channel)] * Colour[size_t(Channel)]
+                                                : 1.f - 2.f * (1.f - Base[size_t(Channel)]) * (1.f - Colour[size_t(Channel)]);
+        else if (Blend == "Add") Mixed = std::min(1.f, Base[size_t(Channel)] + Colour[size_t(Channel)]);
+        else if (Blend == "Darken") Mixed = std::min(Base[size_t(Channel)], Colour[size_t(Channel)]);
+        Base[size_t(Channel)] += (Mixed - Base[size_t(Channel)]) * Alpha;
+    }
+}
+} // namespace
+
+bool TexturePaintWorkspacePanel::FillMatches(const PaintFill &Fill, const TopologyTriangle &Triangle) noexcept
+{
+    switch (Fill.Scope)
+    {
+        case RegionScope::Face: return Fill.Triangle == Triangle.Index;
+        case RegionScope::Island: return Fill.Chart == Triangle.Chart;
+        case RegionScope::Tile: [[fallthrough]];
+        case RegionScope::Object: return Fill.Part == Triangle.Part;
+    }
+    return false;
+}
+float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept
+{
+    const auto &Mask = Layer.Mask;
+    if (!Mask.Present || !Mask.Enabled) return 1.f;
+    float Value = Mask.Fill;
+    if (Mask.Kind == "color")
+    {
+        // 📝 Colour-selection masks read source RGB per tile in Alloy; the native preview approximates the
+        // selection as distance from the part colour to the authored colour (tolerance/softness falloff).
+        const uint32_t PartColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
+        const float Reference[3]{float((PartColour >> 16) & 0xff) / 255.f, float((PartColour >> 8) & 0xff) / 255.f, float(PartColour & 0xff) / 255.f};
+        const float Distance = std::sqrt((Reference[0] - Mask.Colour[0]) * (Reference[0] - Mask.Colour[0]) +
+            (Reference[1] - Mask.Colour[1]) * (Reference[1] - Mask.Colour[1]) + (Reference[2] - Mask.Colour[2]) * (Reference[2] - Mask.Colour[2]));
+        Value = std::clamp(1.f - (Distance - Mask.Tolerance) / std::max(Mask.Softness, 0.01f), 0.f, 1.f);
+    }
+    else if (Mask.Kind == "gradient")
+    {
+        Value = std::clamp(Uv[1], 0.f, 1.f); // simple vertical field stand-in for the point-gradient editor
+    }
+    for (const auto &Fill : Mask.Fills)
+        if (FillMatches(Fill, Triangle)) Value += (Fill.Colour[0] - Value) * std::clamp(Fill.Colour[3], 0.f, 1.f);
+    for (const auto &Dab : Mask.Dabs)
+    {
+        if (Dab.Part != Triangle.Part) continue;
+        const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+        const float Distance = std::sqrt(Du * Du + Dv * Dv);
+        if (Distance < Dab.Radius)
+        {
+            const float Falloff = std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f);
+            Value += (Dab.Colour[0] - Value) * Falloff * std::clamp(Dab.Colour[3], 0.f, 1.f);
+        }
+    }
+    if (Mask.Inverted) Value = 1.f - Value;
+    return std::clamp(Value * Mask.Strength / 100.f + (1.f - Mask.Strength / 100.f), 0.f, 1.f);
+}
+
+std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const TopologyTriangle &Triangle) const noexcept
+{
+    // 🎨 Layer 0: the locked white mesh-base fallback Alloy composites under everything.
+    std::array<float, 3> Base{0.92f, 0.91f, 0.88f};
+    const float *Uv = Triangle.CentroidUv;
+    if (MaskPreview)
+    {
+        if (const auto *Selected = FindLayer(SelectedLayerId); Selected && Selected->Mask.Present)
+        {
+            const float Coverage = MaskCoverageAt(*Selected, Triangle, Uv);
+            return {Coverage, Coverage, Coverage};
+        }
+    }
+    // 📝 Bottom-to-top (vector order is topmost-first), honoring visibility/opacity/blend/masks - the same
+    // evaluation order Alloy's stack uses, at per-triangle preview fidelity.
+    for (auto Iterator = Layers.rbegin(); Iterator != Layers.rend(); ++Iterator)
+    {
+        const auto &Layer = *Iterator;
+        if (Layer.Kind == LayerKind::Folder || !EffectiveVisible(Layer) || Layer.Opacity <= 0.f) continue;
+        const float Coverage = MaskCoverageAt(Layer, Triangle, Uv);
+        const float Alpha = Layer.Opacity / 100.f * Coverage;
+        if (Alpha <= 0.f) continue;
+        if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f)
+            BlendOver(Base, Layer.SourceColour, Alpha, Layer.Blend);
+        for (const auto &Fill : Layer.Fills)
+            if (FillMatches(Fill, Triangle)) BlendOver(Base, Fill.Colour, Alpha, Layer.Blend);
+        for (const auto &Dab : Layer.Dabs)
+        {
+            if (Dab.Part != Triangle.Part) continue;
+            const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+            const float Distance = std::sqrt(Du * Du + Dv * Dv);
+            if (Distance < Dab.Radius)
+                BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
+        }
+    }
+    return Base;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     PAINT INPUT
+//------------------------------------------------------------------------------------------------------------------------
+
+bool TexturePaintWorkspacePanel::DigitalPaintAvailable() const noexcept
+{
+    // 🧩 useDigitalPainting.js's `available`, verbatim conditions.
+    const auto *Layer = FindLayer(SelectedLayerId);
+    if (!Layer) return false;
+    const bool Mask = MaskSelected && Layer->Mask.Present;
+    if (!Mask && Layer->Kind == LayerKind::Folder) return false;
+    if (EffectiveLocked(*Layer) || !EffectiveVisible(*Layer)) return false;
+    if (View == ViewMode::Wireframe) return false;
+    if (View == ViewMode::Uv && UvSource) return false;
+    if (!Mask)
+    {
+        bool AnyChannel = false;
+        for (const auto &Channel : Layer->Channels)
+            if (Channel != "normal") AnyChannel = true;
+        if (!AnyChannel) return false;
+    }
+    return true;
+}
+
+void TexturePaintWorkspacePanel::ApplyPaintAt(const float Uv[2], int Part, int Chart, int Triangle, float RadiusUv)
+{
+    auto *Layer = FindLayer(StrokeTargetLayerId);
+    if (!Layer) return;
+    const bool Mask = StrokeTargetMask && Layer->Mask.Present;
+    auto &Dabs = Mask ? Layer->Mask.Dabs : Layer->Dabs;
+    auto &Fills = Mask ? Layer->Mask.Fills : Layer->Fills;
+    const float Strength = Mask && !DigitalActive ? MaskEditor.Opacity / 100.f : Brush.Opacity * Brush.Flow;
+    if (Brush.Tool == "fill" && DigitalActive)
+    {
+        if (LastDabValid) return; // one fill per click, not one per frame the button stays down
+        LastDabValid = true;
+        PaintFill Fill;
+        Fill.Scope = Brush.FillScope;
+        Fill.Part = Part;
+        Fill.Chart = Chart;
+        Fill.Triangle = Triangle;
+        Fill.Colour = Mask ? std::array<float, 4>{MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, Strength}
+                           : std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength};
+        if (Fills.size() < 512) { Fills.push_back(Fill); StrokeChanged = true; }
+        return;
+    }
+    const bool Erasing = DigitalActive && Brush.Tool == "erase";
+    if (Erasing)
+    {
+        const size_t Before = Dabs.size();
+        Dabs.erase(std::remove_if(Dabs.begin(), Dabs.end(),
+                       [&](const PaintDab &Dab)
+                       {
+                           const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+                           return Dab.Part == Part && (Du * Du + Dv * Dv) < RadiusUv * RadiusUv;
+                       }),
+            Dabs.end());
+        if (Dabs.size() != Before) StrokeChanged = true;
+        return;
+    }
+    if (LastDabValid)
+    {
+        const float Du = Uv[0] - LastDabUv[0], Dv = Uv[1] - LastDabUv[1];
+        const float Spacing = std::max(RadiusUv * Brush.Spacing * 2.f, 0.002f);
+        if ((Du * Du + Dv * Dv) < Spacing * Spacing) return;
+    }
+    if (Dabs.size() >= 2048)
+    {
+        Status = "Preview paint on this layer reached its 2048-dab session limit; clear paint or use Fill.";
+        return;
+    }
+    PaintDab Dab;
+    Dab.U = Uv[0];
+    Dab.V = Uv[1];
+    Dab.Radius = std::clamp(RadiusUv, 0.004f, 0.4f);
+    Dab.Part = Part;
+    Dab.Colour = Mask ? std::array<float, 4>{MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, Strength}
+                      : std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength};
+    Dabs.push_back(Dab);
+    LastDabUv[0] = Uv[0];
+    LastDabUv[1] = Uv[1];
+    LastDabValid = true;
+    StrokeChanged = true;
+}
+void TexturePaintWorkspacePanel::FinishStroke()
+{
+    if (!StrokeActive) return;
+    StrokeActive = false;
+    LastDabValid = false;
+    if (!StrokeChanged) return;
+    StrokeChanged = false;
+    if (auto *Layer = FindLayer(StrokeTargetLayerId))
+    {
+        ++Layer->StrokeCount;
+        const bool Mask = StrokeTargetMask;
+        const char *Operation = DigitalActive && Brush.Tool == "erase" ? "Erase" : DigitalActive && Brush.Tool == "fill" ? "Fill" : "Paint";
+        CommitHistory(std::string(Operation) + (Mask ? " mask" : " channels"),
+            Layer->Name + (Mask ? " · Mask coverage · " : " · ") + BrushPresetName(), "stroke");
+    }
+    MarkDirty();
+}
+std::string TexturePaintWorkspacePanel::MaskRegionLabel() const
+{
+    if (!MaskEditor.SelectedRegion) return "No surface selection";
+    const auto &Region = *MaskEditor.SelectedRegion;
+    const char *Name = Region.Part >= 0 && Region.Part < 4 ? PartTable[size_t(Region.Part)].Name : "Teapot";
+    switch (Region.Scope)
+    {
+        case RegionScope::Object: return std::string(Name) + " · Object";
+        case RegionScope::Tile: return std::string(Name) + " · UV Tile " + std::to_string(PartTable[size_t(std::clamp(Region.Part, 0, 3))].Tile);
+        case RegionScope::Island: return std::string(Name) + " · UV Island " + std::to_string(Region.Chart + 1);
+        case RegionScope::Face: return std::string(Name) + " · Face " + std::to_string(Region.Triangle + 1);
+    }
+    return "No surface selection";
+}
+void TexturePaintWorkspacePanel::FillMaskRegion()
+{
+    auto *Layer = SelectedLayer();
+    if (!Layer || !Layer->Mask.Present || !MaskEditor.SelectedRegion || EffectiveLocked(*Layer)) return;
+    PaintFill Fill;
+    Fill.Scope = MaskEditor.SelectedRegion->Scope;
+    Fill.Part = MaskEditor.SelectedRegion->Part;
+    Fill.Chart = MaskEditor.SelectedRegion->Chart;
+    Fill.Triangle = MaskEditor.SelectedRegion->Triangle;
+    const float Ink = MaskEditor.InkWhite ? 1.f : 0.f;
+    Fill.Colour = {Ink, Ink, Ink, MaskEditor.Opacity / 100.f};
+    if (Layer->Mask.Kind == "fill") Layer->Mask.Kind = "paint";
+    Layer->Mask.Fills.push_back(Fill);
+    CommitHistory("Fill mask region", Layer->Name + " · " + MaskRegionLabel(), "mask");
+    MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     CAMERAS + PICKING
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::SynchronizeCamera()
+{
+    if (!SmoothedCameraReady)
+    {
+        SmoothedCamera = Camera;
+        SmoothedCameraReady = true;
+        return;
+    }
+    const float Blend = 1 - std::exp(-std::min(ImGui::GetIO().DeltaTime, .1f) * 8);
+    SmoothedCamera.Yaw = std::remainder(SmoothedCamera.Yaw + std::remainder(Camera.Yaw - SmoothedCamera.Yaw, 6.2831853f) * Blend, 6.2831853f);
+    SmoothedCamera.Pitch += (Camera.Pitch - SmoothedCamera.Pitch) * Blend;
+    SmoothedCamera.Zoom += (Camera.Zoom - SmoothedCamera.Zoom) * Blend;
+    SmoothedCamera.PanX += (Camera.PanX - SmoothedCamera.PanX) * Blend;
+    SmoothedCamera.PanY += (Camera.PanY - SmoothedCamera.PanY) * Blend;
+    if (std::abs(std::remainder(Camera.Yaw - SmoothedCamera.Yaw, 6.2831853f)) < .0002f &&
+        std::abs(Camera.Pitch - SmoothedCamera.Pitch) < .0002f && std::abs(Camera.Zoom - SmoothedCamera.Zoom) < .0002f &&
+        std::abs(Camera.PanX - SmoothedCamera.PanX) < .0002f && std::abs(Camera.PanY - SmoothedCamera.PanY) < .0002f)
+        SmoothedCamera = Camera;
+}
+void TexturePaintWorkspacePanel::FrameCamera() noexcept
+{
+    ResetMaterialPreviewView(Camera);
+    Camera.Yaw = .7f;
+    Camera.Pitch = .16f;
+}
+void TexturePaintWorkspacePanel::FrameUv(float RegionWidth, float RegionHeight)
+{
+    // 🧩 TextureUVView.frame(): fit all tiles (or the selected part's tile) with the same top/bottom reserve.
+    const float Width = (!UvSource && TargetPart >= 0) ? 1.f : (UvSource ? 1.f : 4.f);
+    const float Top = RegionHeight < 260 ? 64 : 120;
+    const float AvailableHeight = std::max(24.f, RegionHeight - Top - 62.f);
+    UvScale = std::max(12.f * InterfaceScale, std::min((RegionWidth - 52.f * InterfaceScale) / Width, AvailableHeight));
+    UvFrameScale = UvScale;
+    const float CentreU = (!UvSource && TargetPart >= 0) ? float(TargetPart) + .5f : Width * .5f;
+    UvOffsetX = RegionWidth * .5f - CentreU * UvScale;
+    UvOffsetY = Top + AvailableHeight * .5f - UvScale * .5f; // screen Y of V=1 (top), V grows upward
+    UvFrameRequested = false;
+}
+const TexturePaintWorkspacePanel::PickTriangle *TexturePaintWorkspacePanel::PickScene(float X, float Y, float OutUv[2]) const noexcept
+{
+    const PickTriangle *Best = nullptr;
+    float BestDepth = FLT_MAX;
+    float Weights[3];
+    for (const auto &Triangle : LastPickTriangles)
+    {
+        if (PointInTriangle(X, Y, Triangle.Screen[0], Triangle.Screen[1], Triangle.Screen[2], Weights) && Triangle.Depth < BestDepth)
+        {
+            Best = &Triangle;
+            BestDepth = Triangle.Depth;
+            OutUv[0] = Weights[0] * Triangle.Uv[0][0] + Weights[1] * Triangle.Uv[1][0] + Weights[2] * Triangle.Uv[2][0];
+            OutUv[1] = Weights[0] * Triangle.Uv[0][1] + Weights[1] * Triangle.Uv[1][1] + Weights[2] * Triangle.Uv[2][1];
+        }
+    }
+    return Best;
+}
+void TexturePaintWorkspacePanel::HandlePaintPointer(bool Hovered, bool IsUv)
+{
+    (void)IsUv;
+    if (!Hovered && !StrokeActive) return;
+    const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
+    const bool Painting = (DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed;
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && Hovered && !ImGui::GetIO().WantTextInput)
+        BrushStudioOpen = true; // Alloy: right-click the viewport opens the brush studio
+    if (!Painting) return;
+    if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    {
+        StrokeActive = true;
+        StrokeChanged = false;
+        StrokeTargetLayerId = SelectedLayerId;
+        StrokeTargetMask = MaskSelected;
+        LastDabValid = false;
+    }
+    if (StrokeActive && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) FinishStroke();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SHARED UI HELPERS
+//------------------------------------------------------------------------------------------------------------------------
+
+PlaneExtent TexturePaintWorkspacePanel::QueryControlExtent(const std::string &Caption) const
+{
+    const auto Position = ControlExtents.find(Caption);
+    return Position == ControlExtents.end() ? PlaneExtent{} : Position->second;
+}
+void TexturePaintWorkspacePanel::Track(const std::string &Caption)
+{
+    const ImVec2 Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
+    ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
+}
+bool TexturePaintWorkspacePanel::PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath, uint32_t Accent)
+{
+    const float S = InterfaceScale;
+    const float Height = 26 * S;
+    const ImVec2 Position = ImGui::GetCursorScreenPos();
+    ImGui::PushID(Id);
+    const bool Pressed = ImGui::InvisibleButton("##Pill", ImVec2(Width, Height));
+    ImGui::PopID();
+    Track(Label);
+    const bool Hovered = ImGui::IsItemHovered();
+    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const uint32_t Background = Selected ? (Accent ? Accent : 0x2a2a28) : Hovered && !Disabled ? 0x2e2e2a : 0x1d1d1b;
+    Ink->AddRectFilled(Position, ImVec2(Position.x + Width, Position.y + Height), Colour32(Background, Disabled ? .45f : 1.f), Height * .5f);
+    Ink->AddRect(Position, ImVec2(Position.x + Width, Position.y + Height), Colour32(0xffffff, Selected ? .10f : .045f), Height * .5f);
+    float TextX = Position.x + 10 * S;
+    if (IconPath)
+    {
+        DrawGlyph(IconPath, ImVec2(Position.x + 8 * S, Position.y + (Height - 12 * S) * .5f), 12 * S, Selected ? 0xedc391 : 0xa8a89a);
+        TextX += 15 * S;
+    }
+    else TextX = Position.x + (Width - CaptionWidth(Label, 9.5f * S)) * .5f;
+    Caption(ImVec2(TextX, Position.y + (Height - 10 * S) * .42f), Label, 9.5f * S, Disabled ? 0x5c5c54 : Selected ? 0xf0e9d8 : 0xc8c8ba);
+    return Pressed && !Disabled;
+}
+bool TexturePaintWorkspacePanel::IconButton(const char *Id, const char *IconPath, float Size, bool Selected, uint32_t Colour)
+{
+    const float S = InterfaceScale;
+    const ImVec2 Position = ImGui::GetCursorScreenPos();
+    ImGui::PushID(Id);
+    const bool Pressed = ImGui::InvisibleButton("##Icon", ImVec2(Size, Size));
+    ImGui::PopID();
+    const bool Hovered = ImGui::IsItemHovered();
+    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
+    auto *Ink = ImGui::GetWindowDrawList();
+    if (Selected || (Hovered && !Disabled))
+        Ink->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size), Colour32(Selected ? 0x2a2a27 : 0x232320, Disabled ? .4f : 1.f), 6 * S);
+    const float Glyph = Size * .55f;
+    DrawGlyph(IconPath, ImVec2(Position.x + (Size - Glyph) * .5f, Position.y + (Size - Glyph) * .5f), Glyph, Disabled ? 0x4c4c44 : Colour);
+    return Pressed && !Disabled;
+}
+const char *TexturePaintWorkspacePanel::BrushPresetName() const noexcept
+{
+    for (const auto &Preset : PresetTable)
+        if (Brush.Preset == Preset.Id) return Preset.Name;
+    return "Studio round";
+}
+void TexturePaintWorkspacePanel::ApplyBrushPreset(const std::string &PresetId)
+{
+    // 🧩 selectDigitalBrush: defaults + the preset's property overrides, keeping colour and tool.
+    const auto Colour = Brush.Colour;
+    const std::string ToolName = Brush.Tool;
+    Brush = BrushState{};
+    Brush.Colour = Colour;
+    Brush.Tool = ToolName;
+    Brush.Preset = PresetId;
+    if (PresetId == "soft") { Brush.Hardness = .1f; Brush.Flow = .3f; Brush.Spacing = .12f; }
+    else if (PresetId == "flat") { Brush.Roundness = .3f; Brush.Follow = true; }
+    else if (PresetId == "pixel") { Brush.Shape = "square"; Brush.Hardness = 1.f; Brush.Size = 12.f; Brush.Spacing = .08f; }
+    else if (PresetId == "grain") { Brush.Grain = "noise"; Brush.GrainAmount = .5f; Brush.GrainScale = 4.f; Brush.Hardness = .8f; }
+    CommitHistory("Digital brush settings", BrushPresetName(), "tool");
+    MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     HEADER (WORKSPACE SWITCHER)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructHeader()
+{
+    const auto *Viewport = ImGui::GetMainViewport();
+    const float S = InterfaceScale;
+    ImGui::SetNextWindowPos(Viewport->WorkPos);
+    ImGui::SetNextWindowSize(ImVec2(Viewport->WorkSize.x, 43 * S));
+    ImGui::Begin("Texture paint header", nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+            ImGuiWindowFlags_NoScrollbar);
+    const auto Origin = ImGui::GetWindowPos();
+    const float Width = ImGui::GetWindowWidth();
+    ImGui::GetWindowDrawList()->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 43 * S), Colour32(0x0b0b0b));
+    Caption(ImVec2(Origin.x + 16 * S, Origin.y + 16 * S), DocumentName.c_str(), 10 * S, 0xc5c5b8);
+    Caption(ImVec2(Origin.x + 22 * S + CaptionWidth(DocumentName.c_str(), 10 * S), Origin.y + 19 * S), ".texture", 7 * S, 0x67675b);
+
+    Controls.ControlHeight = 24;
+    const float NavigationX = Origin.x + std::max(200.f * S, Width - 700.f * S);
+    const char *Workspaces[]{"Material", "Pattern", "Texture", "Stamp", "Baking"};
+    const float Widths[]{64, 58, 54, 52, 64};
+    float PositionX = NavigationX;
+    for (size_t Index = 0; Index < 5; ++Index)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(PositionX, Origin.y + 9 * S));
+        ImGui::BeginDisabled((Index == 0 && !ActivateMaterial) || (Index == 1 && !ActivatePattern) || (Index == 3 && !ActivateStamp) ||
+            (Index == 4 && !ActivateBaking));
+        if (Controls.Button(Workspaces[Index], Widths[Index] * S, Index == 2, {}, true))
+        {
+            if (Index == 0 && ActivateMaterial) ActivateMaterial();
+            if (Index == 1 && ActivatePattern) ActivatePattern();
+            if (Index == 3 && ActivateStamp) ActivateStamp();
+            if (Index == 4 && ActivateBaking) ActivateBaking();
+        }
+        Controls.Tooltip(Workspaces[Index], "Switch workspace without losing your document.");
+        ImGui::EndDisabled();
+        PositionX += Widths[Index] * S;
+    }
+
+    // 🧩 StudioHeader's Texture children, right-to-left: close X, "Save project", open-project icon, paint tool.
+    float ActionX = Origin.x + Width - 44 * S;
+    ImGui::SetCursorScreenPos(ImVec2(ActionX, Origin.y + 9 * S));
+    ImGui::BeginDisabled(!ActivateMaterial);
+    if (ImGui::Button("X", ImVec2(28 * S, 24 * S)) && ActivateMaterial) ActivateMaterial();
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Close texture studio");
+    ImGui::EndDisabled();
+    {
+        const float PillWidth = 108 * S;
+        ActionX -= PillWidth + 8 * S;
+        ImGui::SetCursorScreenPos(ImVec2(ActionX, Origin.y + 9 * S));
+        Controls.ControlHeight = 24;
+        if (PillButton("SaveProject", "Save project", PillWidth, false, "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6")) SaveProject();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save the layer project JSON (sources included, no composited maps).");
+    }
+    {
+        ActionX -= 30 * S;
+        ImGui::SetCursorScreenPos(ImVec2(ActionX, Origin.y + 8 * S));
+        if (IconButton("OpenProject", "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z", 26 * S)) OpenProject();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open layer project JSON");
+    }
+    {
+        const std::string Preset = BrushPresetName();
+        const float PillWidth = 34 * S + CaptionWidth(Preset.c_str(), 9.5f * S);
+        ActionX -= PillWidth + 4 * S;
+        ImGui::SetCursorScreenPos(ImVec2(ActionX, Origin.y + 9 * S));
+        if (PillButton("PaintToolMenu", Preset.c_str(), PillWidth, BrushStudioOpen, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"))
+            BrushStudioOpen = !BrushStudioOpen;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Digital Paint / Erase / Fill · also right-click the viewport");
+        Track("Open paint tool menu");
+    }
+    ImGui::End();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     LAYER STACK DOCK (LEFT)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructLayersDock()
+{
+    // 📝 Docked by PanelDockspace - no SetNextWindowPos/Size or Begin/End here.
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImVec2 WindowPosition = ImGui::GetWindowPos();
+    const float WindowWidth = ImGui::GetWindowWidth();
+
+    // .tp-pane-heading: 71px, h1 23px/300 "Layers", "{count} / 64", round folder-plus / plus icons at right.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(Origin.x + 21 * S, Origin.y + 22 * S), "Layers", 23 * S, 0xe6e6dc, LightTypeface ? LightTypeface : RegularTypeface);
+        char Count[24];
+        std::snprintf(Count, sizeof(Count), "%zu / 64", Layers.size());
+        Caption(ImVec2(Origin.x + 30 * S + CaptionWidth("Layers", 23 * S, LightTypeface), Origin.y + 34 * S), Count, 9 * S, 0x676760);
+        ImGui::BeginDisabled(Layers.size() >= 64);
+        ImGui::SetCursorScreenPos(ImVec2(WindowPosition.x + WindowWidth - 76 * S, Origin.y + 21 * S));
+        if (IconButton("AddLayerFolder",
+                "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2ZM12 10v6M9 13h6", 29 * S))
+            AddLayer(LayerKind::Folder);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("New folder");
+        ImGui::SetCursorScreenPos(ImVec2(WindowPosition.x + WindowWidth - 44 * S, Origin.y + 21 * S));
+        if (IconButton("AddLayer", "M12 5v14M5 12h14", 29 * S, AddMenuOpen)) AddMenuOpen = !AddMenuOpen;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Add layer");
+        ImGui::EndDisabled();
+        Track("Add layer");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 71 * S));
+    }
+
+    // 📝 Add-layer menu (.tp-add-menu): absolute card under the heading listing every TEXTURE_KINDS entry.
+    if (AddMenuOpen)
+    {
+        ImGui::SetNextWindowPos(ImVec2(WindowPosition.x + 13 * S, ImGui::GetCursorScreenPos().y + 19 * S), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(WindowWidth - 26 * S, 0));
+        ImGui::OpenPopup("AddTextureLayerMenu");
+        AddMenuOpen = false;
+    }
+    if (ImGui::BeginPopup("AddTextureLayerMenu"))
+    {
+        const ImVec2 MenuCaptionOrigin = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(MenuCaptionOrigin.x + 8 * S, MenuCaptionOrigin.y + 2 * S), "ADD A LAYER", 8 * S, 0x77776e);
+        ImGui::Dummy(ImVec2(1, 18 * S));
+        for (size_t Index = 0; Index < KindTable.size(); ++Index)
+        {
+            const auto &Kind = KindTable[Index];
+            const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+            const float RowWidth = ImGui::GetContentRegionAvail().x;
+            ImGui::PushID(int(Index));
+            const bool Pressed = ImGui::InvisibleButton("##Kind", ImVec2(RowWidth, 44 * S));
+            ImGui::PopID();
+            if (ImGui::IsItemHovered()) Ink->AddRectFilled(RowOrigin, ImVec2(RowOrigin.x + RowWidth, RowOrigin.y + 44 * S), Colour32(0x2a2a26), 9 * S);
+            Ink->AddRectFilled(ImVec2(RowOrigin.x + 5 * S, RowOrigin.y + 7 * S), ImVec2(RowOrigin.x + 35 * S, RowOrigin.y + 37 * S), Colour32(0x232323), 9 * S);
+            Ink->AddRect(ImVec2(RowOrigin.x + 5 * S, RowOrigin.y + 7 * S), ImVec2(RowOrigin.x + 35 * S, RowOrigin.y + 37 * S), Colour32(0xffffff, .05f), 9 * S);
+            DrawGlyph(Kind.Icon, ImVec2(RowOrigin.x + 12.5f * S, RowOrigin.y + 14.5f * S), 15 * S, Kind.Colour);
+            const std::string Label = std::string(Kind.Label) + (Index == 5 ? "" : " layer");
+            Caption(ImVec2(RowOrigin.x + 44 * S, RowOrigin.y + 9 * S), Label.c_str(), 11 * S, 0xd6d6ca);
+            Caption(ImVec2(RowOrigin.x + 44 * S, RowOrigin.y + 26 * S), Kind.MenuHint, 8 * S, 0x7d7d73);
+            Caption(ImVec2(RowOrigin.x + RowWidth - 20 * S, RowOrigin.y + 14 * S), "+", 13 * S, 0x9a9a8c);
+            if (Pressed)
+            {
+                AddLayer(LayerKind(Index));
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
+    int VisibleCount = 0;
+    for (const auto &Layer : Layers)
+        if (EffectiveVisible(Layer)) ++VisibleCount;
+    const int HiddenCount = int(Layers.size()) - VisibleCount;
+
+    // .tp-layer-stats: two 66px cards (Visible / Hidden) that double as the stack filter.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float CardWidth = (WindowWidth - 36 * S) * .5f;
+        const struct { const char *Label; int Count; LayerFilter Value; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[2]{
+            {"Visible", VisibleCount, LayerFilter::Visible, "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
+            {"Hidden", HiddenCount, LayerFilter::Hidden, "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20", 0x292929, 0x676760}};
+        for (int Index = 0; Index < 2; ++Index)
+        {
+            const ImVec2 CardMin(Origin.x + 14 * S + Index * (CardWidth + 8 * S), Origin.y);
+            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 66 * S);
+            const bool Pressed = Filter == Cards[Index].Value;
+            ImGui::SetCursorScreenPos(CardMin);
+            ImGui::PushID(Index);
+            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 66 * S));
+            ImGui::PopID();
+            if (Clicked) Filter = Pressed ? LayerFilter::All : Cards[Index].Value;
+            Ink->AddRectFilled(CardMin, CardMax, Colour32(Pressed ? 0x25221d : 0x191919), 20 * S);
+            Ink->AddRect(CardMin, CardMax, Colour32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 20 * S);
+            Ink->AddCircleFilled(ImVec2(CardMin.x + 22.5f * S, CardMin.y + 21.5f * S), 10.5f * S, Colour32(Cards[Index].Disc), 24);
+            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 16.5f * S, CardMin.y + 15.5f * S), 12 * S, Cards[Index].Glyph, 2.2f);
+            Caption(ImVec2(CardMin.x + 12 * S, CardMax.y - 21 * S), Cards[Index].Label, 9 * S, 0x99998f);
+            char Number[8];
+            std::snprintf(Number, sizeof(Number), "%02d", Cards[Index].Count);
+            Caption(ImVec2(CardMax.x - 13 * S - CaptionWidth(Number, 29 * S, LightTypeface), CardMax.y - 40 * S), Number, 29 * S, 0xddddcf,
+                LightTypeface ? LightTypeface : RegularTypeface);
+        }
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 66 * S));
+    }
+
+    // .tp-layer-search: 36px pill with search glyph, text entry and a clear button.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const ImVec2 BoxMin(Origin.x + 14 * S, Origin.y + 12 * S), BoxMax(Origin.x + WindowWidth - 14 * S, Origin.y + 48 * S);
+        Ink->AddRectFilled(BoxMin, BoxMax, Colour32(0x191919), 18 * S);
+        Ink->AddRect(BoxMin, BoxMax, Colour32(0x2c2c2c), 18 * S);
+        DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", ImVec2(BoxMin.x + 11 * S, BoxMin.y + 11 * S), 14 * S, 0x77776f);
+        ImGui::SetCursorScreenPos(ImVec2(BoxMin.x + 33 * S, BoxMin.y + 6 * S));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+        ImGui::SetNextItemWidth(BoxMax.x - BoxMin.x - 66 * S);
+        ImGui::InputText("##FindLayer", LayerQuery, sizeof(LayerQuery));
+        const bool SearchActive = ImGui::IsItemActive();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+        Track("Find a layer");
+        if (!LayerQuery[0] && !SearchActive)
+            Caption(ImVec2(BoxMin.x + 37 * S, BoxMin.y + 12 * S), "Find a layer…", 10 * S, 0x787871);
+        if (LayerQuery[0])
+        {
+            ImGui::SetCursorScreenPos(ImVec2(BoxMax.x - 28 * S, BoxMin.y + 7 * S));
+            if (IconButton("ClearLayerSearch", "M6 6L18 18M6 18L18 6", 22 * S)) LayerQuery[0] = '\0';
+        }
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 56 * S));
+    }
+    if (Filter != LayerFilter::All)
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(Origin.x + 17 * S, Origin.y), Filter == LayerFilter::Visible ? "Visible layers" : "Hidden layers", 9 * S, 0x9b927f);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + WindowWidth - 96 * S, Origin.y - 3 * S));
+        if (PillButton("ClearFilter", "Clear filter", 82 * S, false)) Filter = LayerFilter::All;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 22 * S));
+    }
+
+    // Shown set: folder-collapse, visibility filter and search all apply to the flat top-to-bottom order.
+    const std::string Query = Lowered(LayerQuery);
+    std::vector<size_t> Shown;
+    for (size_t Index = 0; Index < Layers.size(); ++Index)
+    {
+        const auto &Layer = Layers[Index];
+        if (HiddenByCollapsedFolder(Layer)) continue;
+        if (Filter == LayerFilter::Visible && !EffectiveVisible(Layer)) continue;
+        if (Filter == LayerFilter::Hidden && EffectiveVisible(Layer)) continue;
+        if (!Query.empty() && Lowered(Layer.Name).find(Query) == std::string::npos) continue;
+        Shown.push_back(Index);
+    }
+
+    // .tp-layer-order
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(Origin.x + 18 * S, Origin.y + 10 * S), "TOP -> BOTTOM", 8 * S, 0x686862);
+        char ShownText[32];
+        std::snprintf(ShownText, sizeof(ShownText), "%zu shown", Shown.size());
+        Caption(ImVec2(Origin.x + WindowWidth - 18 * S - CaptionWidth(ShownText, 8 * S), Origin.y + 10 * S), ShownText, 8 * S, 0x55554f);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 29 * S));
+    }
+
+    const float ReservedBottom = (40 + 34 + 45 + (SystemBaseOpen ? 168 : 0)) * S;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::BeginChild("TextureLayerList", ImVec2(0, std::max(40.f, ImGui::GetContentRegionAvail().y - ReservedBottom)), false);
+    ImGui::PopStyleVar();
+    const float ListWidth = ImGui::GetContentRegionAvail().x;
+    for (const size_t LayerIndex : Shown)
+    {
+        if (LayerIndex >= Layers.size()) continue; // an in-row action may have shrunk the stack this frame
+        const std::string LayerId = Layers[LayerIndex].Id;
+        const LayerState LayerSnapshot = Layers[LayerIndex];
+        const bool Selected = SelectedLayerId == LayerId && !MaskSelected;
+        const bool Locked = EffectiveLocked(LayerSnapshot);
+        const int Depth = LayerDepth(LayerSnapshot);
+        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+        const float RowX = RowOrigin.x + 10 * S + Depth * 10 * S;
+        const float RowWidth = ListWidth - 20 * S - Depth * 10 * S;
+        constexpr float RowHeightUnits = 62.f;
+        ImGui::PushID(LayerId.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(RowX + 20 * S, RowOrigin.y));
+        const bool RowClicked = ImGui::InvisibleButton("##Select", ImVec2(RowWidth - 68 * S, RowHeightUnits * S));
+        const bool RowHovered = ImGui::IsItemHovered();
+        if (RowClicked) SelectLayer(LayerId);
+        if (Selected) Track("Selected layer row");
+        auto *RowInk = ImGui::GetWindowDrawList();
+        if (Selected || RowHovered)
+            RowInk->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * S), Colour32(Selected ? 0x262626 : 0x1b1b1b), 9 * S);
+        if (Selected)
+        {
+            RowInk->AddRect(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + RowWidth, RowOrigin.y + RowHeightUnits * S), Colour32(0x3e3e3c), 9 * S);
+            RowInk->AddRectFilled(ImVec2(RowX, RowOrigin.y), ImVec2(RowX + 3 * S, RowOrigin.y + RowHeightUnits * S), Colour32(0xd9b281), 3 * S);
+        }
+        // Grip dots (drag reorder is pointer-driven in Alloy; native reorder lives on the action bar below).
+        for (int DotY = 0; DotY < 3; ++DotY)
+            for (int DotX = 0; DotX < 2; ++DotX)
+                RowInk->AddCircleFilled(ImVec2(RowX + (7 + DotX * 4) * S, RowOrigin.y + (25 + DotY * 6) * S), 1.1f * S, Colour32(0x55534a), 8);
+        // Disclosure chevron.
+        ImGui::SetCursorScreenPos(ImVec2(RowX + 14 * S, RowOrigin.y + 19 * S));
+        if (IconButton("Disclosure", LayerSnapshot.Expanded ? "m6 9 6 6 6-6" : "m9 6 6 6-6 6", 14 * S, false, 0x707068))
+            if (auto *Layer = FindLayer(LayerId)) Layer->Expanded = !Layer->Expanded;
+        // Kind thumbnail chip (34px, tinted by kind colour, or the assigned asset colour when one is linked).
+        const auto &Kind = MetaForKind(size_t(LayerSnapshot.Kind));
+        const ImVec2 ChipMin(RowX + 32 * S, RowOrigin.y + 14 * S), ChipMax(ChipMin.x + 34 * S, ChipMin.y + 34 * S);
+        if (LayerSnapshot.SourceColour[3] > 0.f)
+            RowInk->AddRectFilledMultiColor(ChipMin, ChipMax,
+                Colour32(uint32_t(std::clamp(LayerSnapshot.SourceColour[0], 0.f, 1.f) * 255) << 16 |
+                    uint32_t(std::clamp(LayerSnapshot.SourceColour[1], 0.f, 1.f) * 255) << 8 |
+                    uint32_t(std::clamp(LayerSnapshot.SourceColour[2], 0.f, 1.f) * 255)),
+                Colour32(0x232323), Colour32(0x232323), Colour32(0x2c2c2c));
+        else RowInk->AddRectFilled(ChipMin, ChipMax, Colour32(0x232323), 9 * S);
+        RowInk->AddRect(ChipMin, ChipMax, Colour32(0xffffff, .05f), 9 * S);
+        DrawGlyph(Kind.Icon, ImVec2(ChipMin.x + 8.5f * S, ChipMin.y + 8.5f * S), 17 * S, Kind.Colour);
+        // Name + "{kind} · {blend} · {opacity}%".
+        const bool Dimmed = !EffectiveVisible(LayerSnapshot);
+        Caption(ImVec2(ChipMax.x + 7 * S, RowOrigin.y + 15 * S), LayerSnapshot.Name.c_str(), 11 * S, Dimmed ? 0x6a6a62 : Selected ? 0xeeeee8 : 0xc0c0b8);
+        char Sub[96];
+        if (LayerSnapshot.Kind == LayerKind::Folder)
+        {
+            int Items = 0;
+            for (const auto &Candidate : Layers)
+                if (Candidate.ParentId == LayerId) ++Items;
+            std::snprintf(Sub, sizeof(Sub), "%d %s · %s · %d%%", Items, Items == 1 ? "item" : "items", LayerSnapshot.Blend.c_str(), int(std::round(LayerSnapshot.Opacity)));
+        }
+        else std::snprintf(Sub, sizeof(Sub), "%s · %s · %d%%", Kind.Label, LayerSnapshot.Blend.c_str(), int(std::round(LayerSnapshot.Opacity)));
+        Caption(ImVec2(ChipMax.x + 7 * S, RowOrigin.y + 34 * S), Sub, 8 * S, Selected ? 0xa29c90 : 0x696964);
+        // Eye + lock at the row's right edge.
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 46 * S, RowOrigin.y + 19 * S));
+        if (IconButton("Eye", LayerSnapshot.Visible ? "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z"
+                                                     : "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20",
+                20 * S, false, 0x8a8a80))
+        {
+            if (auto *Layer = FindLayer(LayerId))
+            {
+                Layer->Visible = !Layer->Visible;
+                CommitHistory(Layer->Visible ? "Show layer / folder" : "Hide layer / folder", Layer->Name, "layer");
+                MarkDirty();
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s %s", LayerSnapshot.Visible ? "Hide" : "Show", LayerSnapshot.Name.c_str());
+        ImGui::SetCursorScreenPos(ImVec2(RowX + RowWidth - 24 * S, RowOrigin.y + 19 * S));
+        const bool InheritedLock = Locked && !LayerSnapshot.Locked;
+        ImGui::BeginDisabled(InheritedLock);
+        if (IconButton("Lock", Locked ? "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10" : "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 15.5 4.5", 20 * S, Locked,
+                Locked ? 0xbaa789 : 0x8a8a80))
+        {
+            if (auto *Layer = FindLayer(LayerId))
+            {
+                Layer->Locked = !Layer->Locked;
+                CommitHistory(Layer->Locked ? "Lock layer / folder" : "Unlock layer / folder", Layer->Name, "layer");
+                MarkDirty();
+            }
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s %s", LayerSnapshot.Locked ? "Unlock" : "Lock", LayerSnapshot.Name.c_str());
+        ImGui::PopID();
+        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + (RowHeightUnits + 2) * S));
+
+        // Mask sub-row.
+        if (LayerSnapshot.Mask.Present)
+        {
+            const bool MaskIsSelected = SelectedLayerId == LayerId && MaskSelected;
+            const ImVec2 MaskOrigin = ImGui::GetCursorScreenPos();
+            const float MaskX = MaskOrigin.x + 35 * S + Depth * 10 * S;
+            const float MaskWidth = ListWidth - 44 * S - Depth * 10 * S;
+            ImGui::PushID((LayerId + "-mask").c_str());
+            ImGui::SetCursorScreenPos(ImVec2(MaskX, MaskOrigin.y));
+            const bool MaskClicked = ImGui::InvisibleButton("##MaskSelect", ImVec2(MaskWidth - 26 * S, 43 * S));
+            if (MaskClicked) SelectLayer(LayerId, true);
+            if (MaskIsSelected)
+            {
+                RowInk->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * S), Colour32(0x262626), 8 * S);
+                RowInk->AddRect(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + MaskWidth, MaskOrigin.y + 43 * S), Colour32(0x3c3c37), 8 * S);
+                RowInk->AddRectFilled(ImVec2(MaskX, MaskOrigin.y), ImVec2(MaskX + 3 * S, MaskOrigin.y + 43 * S), Colour32(0xd9b281), 3 * S);
+            }
+            const ImVec2 MaskChip(MaskX + 8 * S, MaskOrigin.y + 11.5f * S);
+            RowInk->AddRectFilled(MaskChip, ImVec2(MaskChip.x + 20 * S, MaskChip.y + 20 * S), Colour32(0x0c0c0c), 5 * S);
+            RowInk->AddRect(MaskChip, ImVec2(MaskChip.x + 20 * S, MaskChip.y + 20 * S), Colour32(0x595954), 5 * S);
+            uint32_t Inner = LayerSnapshot.Mask.Kind == "color"
+                ? (uint32_t(LayerSnapshot.Mask.Colour[0] * 255) << 16 | uint32_t(LayerSnapshot.Mask.Colour[1] * 255) << 8 | uint32_t(LayerSnapshot.Mask.Colour[2] * 255))
+                : LayerSnapshot.Mask.Fill >= .5f ? 0xe6e6df : 0x090909;
+            if (LayerSnapshot.Mask.Kind == "gradient") Inner = 0x8a8a82;
+            RowInk->AddRectFilled(ImVec2(MaskChip.x + 2 * S, MaskChip.y + 2 * S), ImVec2(MaskChip.x + 18 * S, MaskChip.y + 18 * S), Colour32(Inner), 2 * S);
+            const char *MaskLabel = LayerSnapshot.Mask.Kind == "color" ? "Colour mask" : LayerSnapshot.Mask.Kind == "gradient" ? "Gradient mask" : "Layer mask";
+            Caption(ImVec2(MaskChip.x + 29 * S, MaskOrigin.y + 8 * S), MaskLabel, 10 * S, 0xc8c8ba);
+            char MaskSub[64];
+            const std::string FillLabel = LayerSnapshot.Mask.Kind == "gradient" ? "Surface field"
+                : LayerSnapshot.Mask.Kind == "color" ? HexColour(LayerSnapshot.Mask.Colour)
+                : LayerSnapshot.Mask.Inverted ? "Inverted" : LayerSnapshot.Mask.Fill >= .5f ? "White" : "Black";
+            std::snprintf(MaskSub, sizeof(MaskSub), "%s · %d%%", FillLabel.c_str(), int(std::round(LayerSnapshot.Mask.Strength)));
+            Caption(ImVec2(MaskChip.x + 29 * S, MaskOrigin.y + 25 * S), MaskSub, 8 * S, 0x777770);
+            ImGui::SetCursorScreenPos(ImVec2(MaskX + MaskWidth - 24 * S, MaskOrigin.y + 9.5f * S));
+            ImGui::BeginDisabled(Locked);
+            if (IconButton("MaskEye", LayerSnapshot.Mask.Enabled ? "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z"
+                                                                 : "M2 12Q12 0 22 12Q12 24 2 12ZM4 4L20 20",
+                    20 * S, false, 0x8a8a80))
+            {
+                if (auto *Layer = FindLayer(LayerId))
+                {
+                    Layer->Mask.Enabled = !Layer->Mask.Enabled;
+                    CommitHistory("Mask properties", Layer->Name, "mask");
+                    MarkDirty();
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::PopID();
+            ImGui::SetCursorScreenPos(ImVec2(MaskOrigin.x, MaskOrigin.y + 48 * S));
+        }
+
+        // Expanded channel-target chips (.tp-layer-expanded).
+        if (LayerSnapshot.Expanded && LayerSnapshot.Kind != LayerKind::Folder)
+        {
+            const ImVec2 Origin2 = ImGui::GetCursorScreenPos();
+            const float BlockX = Origin2.x + 27 * S + Depth * 10 * S;
+            RowInk->AddLine(ImVec2(BlockX - 10 * S, Origin2.y + 4 * S), ImVec2(BlockX - 10 * S, Origin2.y + 58 * S), Colour32(0x343431));
+            Caption(ImVec2(BlockX, Origin2.y + 6 * S), LayerSnapshot.SourceAsset.empty() ? "CHANNEL TARGETS" : "MATERIAL", 7 * S, 0x8f8f86);
+            if (!LayerSnapshot.SourceAsset.empty())
+            {
+                Caption(ImVec2(BlockX, Origin2.y + 22 * S), LayerSnapshot.SourceAsset.c_str(), 9 * S, 0xa8a89a);
+                Caption(ImVec2(BlockX, Origin2.y + 40 * S), "Native material · asset link stored on the layer", 8 * S, 0x75756d);
+            }
+            else
+            {
+                float ChipX = BlockX;
+                for (const auto &Channel : ChannelTable)
+                {
+                    if (std::find(LayerSnapshot.Channels.begin(), LayerSnapshot.Channels.end(), Channel.Id) == LayerSnapshot.Channels.end()) continue;
+                    RowInk->AddRectFilled(ImVec2(ChipX, Origin2.y + 20 * S), ImVec2(ChipX + 22 * S, Origin2.y + 41 * S), Colour32(0x21211f), 6 * S);
+                    RowInk->AddRect(ImVec2(ChipX, Origin2.y + 20 * S), ImVec2(ChipX + 22 * S, Origin2.y + 41 * S), Colour32(0xffffff, .035f), 6 * S);
+                    Caption(ImVec2(ChipX + (22 * S - CaptionWidth(Channel.Short, 8 * S)) * .5f, Origin2.y + 26 * S), Channel.Short, 8 * S, Channel.Colour);
+                    ChipX += 26 * S;
+                    if (ChipX > Origin2.x + ListWidth - 60 * S) break;
+                }
+                if (LayerSnapshot.Channels.empty()) Caption(ImVec2(BlockX, Origin2.y + 24 * S), "No channels enabled", 9 * S, 0x666660);
+                const char *Note = LayerSnapshot.StrokeCount > 0 ? "Preview paint · setup visible in viewport"
+                    : LayerSnapshot.Kind == LayerKind::Paint ? "Empty texture source · setup only"
+                                                              : "Unevaluated source · setup only";
+                Caption(ImVec2(BlockX, Origin2.y + 47 * S), Note, 8 * S, 0x75756d);
+            }
+            ImGui::SetCursorScreenPos(ImVec2(Origin2.x, Origin2.y + 64 * S));
+        }
+    }
+    if (Shown.empty())
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float CentreX = Origin.x + ListWidth * .5f;
+        DrawGlyph(LayersIconPath, ImVec2(CentreX - 13 * S, Origin.y + 35 * S), 26 * S, 0x6f6f66);
+        const char *Title = Layers.empty() ? "Start with a layer" : "No matching layers";
+        Caption(ImVec2(CentreX - CaptionWidth(Title, 13 * S) * .5f, Origin.y + 72 * S), Title, 13 * S, 0xb5b5a9);
+        const char *Body = Layers.empty() ? "Add a layer to organize your surface." : "Clear the search or visibility filter.";
+        Caption(ImVec2(CentreX - CaptionWidth(Body, 9 * S) * .5f, Origin.y + 94 * S), Body, 9 * S, 0x77776f);
+        ImGui::SetCursorScreenPos(ImVec2(CentreX - 55 * S, Origin.y + 118 * S));
+        if (PillButton("EmptyAction", Layers.empty() ? "+ Add layer" : "Clear filters", 110 * S, false))
+        {
+            if (Layers.empty()) AddMenuOpen = true;
+            else { LayerQuery[0] = '\0'; Filter = LayerFilter::All; }
+        }
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 200 * S));
+    }
+    ImGui::EndChild();
+
+    // .tp-layer-actions toolbar.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddLine(ImVec2(Origin.x, Origin.y), ImVec2(Origin.x + WindowWidth, Origin.y), Colour32(0xffffff, .03f));
+        const auto *Selected = SelectedLayer();
+        const bool LockedSel = !Selected || EffectiveLocked(*Selected);
+        const size_t SelectedIndex = Selected ? size_t(Selected - Layers.data()) : 0;
+        float X = Origin.x + 13 * S;
+        const float Y = Origin.y + 6 * S;
+        ImGui::BeginDisabled(LockedSel || !Selected || SelectedIndex == 0);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (IconButton("MoveLayerUp", "M12 19V5M5 12l7-7 7 7", 28 * S)) MoveSelectedLayer(-1);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move up");
+        X += 34 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (IconButton("MoveLayerDown", "M12 5v14M5 12l7 7 7-7", 28 * S)) MoveSelectedLayer(1);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move down");
+        ImGui::EndDisabled();
+        float RightX = Origin.x + WindowWidth - 13 * S - 28 * S;
+        ImGui::BeginDisabled(LockedSel);
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Y));
+        if (IconButton("DeleteLayer", "M3 6H21M8 6V3H16V6M6 6L7 21H17L18 6M10 10V17M14 10V17", 28 * S)) DeleteSelectedLayer();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", Selected && Selected->Kind == LayerKind::Folder ? "Delete folder and its contents" : "Delete layer");
+        RightX -= 34 * S;
+        ImGui::BeginDisabled(!Selected || Selected->Mask.Present);
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Y));
+        if (IconButton("AddColourMask", "M12 21a9 9 0 1 1 9-9c0 2-1.5 3-4 3h-2a2 2 0 0 0-1 3c.3 1-1 3-2 3Z", 28 * S)) AddMaskToSelected(true);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Colour selection mask");
+        ImGui::EndDisabled();
+        RightX -= 34 * S;
+        ImGui::BeginDisabled(!Selected || Selected->Mask.Present);
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Y));
+        const bool MaskPressed = IconButton("AddLayerMask", "M4 4H20V20H4ZM12 4V20", 28 * S);
+        if (MaskPressed) AddMaskToSelected(false);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Add white mask");
+        ImGui::EndDisabled();
+        RightX -= 34 * S;
+        ImGui::BeginDisabled(!Selected || Layers.size() >= 64);
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Y));
+        if (IconButton("DuplicateLayer", "M8 8H21V21H8ZM16 8V3H3V16H8", 28 * S)) DuplicateSelectedLayer();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Duplicate · Ctrl/⌘ D");
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        Track("Duplicate layer");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 40 * S));
+    }
+
+    // .tp-system-base: locked Layer 0 row + optional info card.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddLine(ImVec2(Origin.x, Origin.y), ImVec2(Origin.x + WindowWidth, Origin.y), Colour32(0xffffff, .06f));
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + 10 * S, Origin.y + 5 * S));
+        const bool Pressed = ImGui::InvisibleButton("SystemLayer0", ImVec2(WindowWidth - 20 * S, 24 * S));
+        if (Pressed) SystemBaseOpen = !SystemBaseOpen;
+        Ink->AddRectFilled(ImVec2(Origin.x + 10 * S, Origin.y + 11 * S), ImVec2(Origin.x + 22 * S, Origin.y + 23 * S), Colour32(0xffffff), 4 * S);
+        DrawGlyph("M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10", ImVec2(Origin.x + 29 * S, Origin.y + 11 * S), 12 * S, 0x93978d);
+        Caption(ImVec2(Origin.x + 48 * S, Origin.y + 12 * S), "Layer 0 · Mesh base", 10 * S, 0x93978d);
+        bool Replaced = false;
+        for (const auto &Layer : Layers)
+            if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f && EffectiveVisible(Layer) && Layer.Opacity >= 99.f) Replaced = true;
+        const char *AutoLabel = Replaced ? "Replaced" : "Auto";
+        Caption(ImVec2(Origin.x + WindowWidth - 34 * S - CaptionWidth(AutoLabel, 9 * S), Origin.y + 12 * S), AutoLabel, 9 * S, 0xadad99);
+        DrawGlyph(SystemBaseOpen ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6", ImVec2(Origin.x + WindowWidth - 28 * S, Origin.y + 11 * S), 12 * S, 0x93978d);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 34 * S));
+        if (SystemBaseOpen)
+        {
+            const ImVec2 InfoOrigin = ImGui::GetCursorScreenPos();
+            Ink->AddRectFilled(ImVec2(InfoOrigin.x + 9 * S, InfoOrigin.y), ImVec2(InfoOrigin.x + WindowWidth - 9 * S, InfoOrigin.y + 162 * S), Colour32(0x252722), 13 * S);
+            Ink->AddRect(ImVec2(InfoOrigin.x + 9 * S, InfoOrigin.y), ImVec2(InfoOrigin.x + WindowWidth - 9 * S, InfoOrigin.y + 162 * S), Colour32(0xffffff, .10f), 13 * S);
+            ImGui::SetCursorScreenPos(ImVec2(InfoOrigin.x + 23 * S, InfoOrigin.y + 12 * S));
+            ImGui::PushTextWrapPos(InfoOrigin.x + WindowWidth - 23 * S);
+            ImGui::TextColored(Spectrum(0xdeded0), "Locked · hidden from editable stack");
+            ImGui::TextWrapped("%s", Replaced ? "White fallback automatically replaced by opaque materials. Masks, hidden layers or zero opacity restore it where needed."
+                                              : "White fallback for Body, Lid, Handle, Spout. Masks, hidden layers or zero opacity restore it where needed.");
+            ImGui::TextWrapped("%s", "No baked mesh maps attached. Bake the built-in teapot to attach AO / normal support.");
+            ImGui::PopTextWrapPos();
+            ImGui::SetCursorScreenPos(ImVec2(InfoOrigin.x + 23 * S, InfoOrigin.y + 118 * S));
+            Controls.ControlHeight = 26;
+            ImGui::BeginDisabled(!ActivateBaking);
+            if (PillButton("BakeTeapotSupport", "Bake matching teapot support · 512", WindowWidth - 64 * S, true, nullptr, 0xbfc19b))
+                if (ActivateBaking) ActivateBaking();
+            ImGui::EndDisabled();
+            ImGui::SetCursorScreenPos(ImVec2(InfoOrigin.x, InfoOrigin.y + 168 * S));
+        }
+    }
+
+    // .tp-pane-footer
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddRectFilled(ImVec2(Origin.x, Origin.y), ImVec2(Origin.x + WindowWidth, Origin.y + 45 * S), Colour32(0x151515));
+        Ink->AddLine(ImVec2(Origin.x, Origin.y), ImVec2(Origin.x + WindowWidth, Origin.y), Colour32(0xffffff, .02f));
+        int Decals = 0;
+        for (const auto &Layer : Layers) Decals += Layer.DecalCount;
+        const auto Stat = [&](float X, const char *Label, const std::string &Value, uint32_t ValueColour)
+        {
+            Caption(ImVec2(Origin.x + X, Origin.y + 9 * S), Label, 7 * S, 0x5f5f58);
+            Caption(ImVec2(Origin.x + X, Origin.y + 23 * S), Value.c_str(), 9 * S, ValueColour);
+        };
+        Stat(16 * S, "LAYERS", std::to_string(Layers.size()), 0x8eb896);
+        Stat(76 * S, "VISIBLE", std::to_string(VisibleCount), 0xa6a699);
+        Stat(136 * S, "CONTENT", std::to_string(Decals) + " decals", 0xa6a699);
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     VIEWPORT DOCK (CENTER)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructViewportDock()
+{
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const float DockWidth = ImGui::GetContentRegionAvail().x;
+    // 📝 useMaskEditing resets a UV-tile scope to Object outside the UV view (tile picking needs UV space).
+    if (View != ViewMode::Uv && MaskEditor.Scope == RegionScope::Tile) MaskEditor.Scope = RegionScope::Object;
+
+    const auto CompactDropdown = [&](const char *Id, const char *CurrentLabel, float Width, const std::vector<std::string> &Options, int SelectedIndex) -> int
+    {
+        ImGui::SetNextItemWidth(Width);
+        int Chosen = -1;
+        if (DropdownControlSurface::BeginSelection(Id, CurrentLabel, S))
+        {
+            Track(CurrentLabel);
+            for (size_t Index = 0; Index < Options.size(); ++Index)
+                if (DropdownControlSurface::Option(Options[Index].c_str(), int(Index) == SelectedIndex, S)) Chosen = int(Index);
+            DropdownControlSurface::EndSelection();
+        }
+        return Chosen;
+    };
+
+    // .tp-viewport-toolbar
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Height = 48 * S;
+        Ink->AddRectFilled(Origin, ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0x151515));
+        Ink->AddLine(ImVec2(Origin.x, Origin.y + Height), ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0xffffff, .02f));
+        Ink->AddRectFilled(ImVec2(Origin.x + 14 * S, Origin.y + 9 * S), ImVec2(Origin.x + 44 * S, Origin.y + 39 * S), Colour32(0x222222), 9 * S);
+        Ink->AddRect(ImVec2(Origin.x + 14 * S, Origin.y + 9 * S), ImVec2(Origin.x + 44 * S, Origin.y + 39 * S), Colour32(0xffffff, .03f), 9 * S);
+        DrawGlyph(BoxIconPath, ImVec2(Origin.x + 20.5f * S, Origin.y + 15.5f * S), 17 * S, 0xaaaa9c);
+        Caption(ImVec2(Origin.x + 54 * S, Origin.y + 16 * S), "Teapot", 14 * S, 0xd8d8cd, LightTypeface ? LightTypeface : RegularTypeface);
+        const float BadgeX = Origin.x + 62 * S + CaptionWidth("Teapot", 14 * S, LightTypeface);
+        Ink->AddRect(ImVec2(BadgeX, Origin.y + 17 * S), ImVec2(BadgeX + 46 * S, Origin.y + 31 * S), Colour32(0xffffff, .05f), 6 * S);
+        Caption(ImVec2(BadgeX + 6 * S, Origin.y + 20.5f * S), "PREVIEW", 6 * S, 0x8c8776);
+        float X = BadgeX + 60 * S;
+        const float FieldY = Origin.y + 10 * S;
+        const auto HeaderField = [&](const char *Label, float LabelWidth)
+        {
+            Caption(ImVec2(X, FieldY + 7 * S), Label, 8 * S, 0x747467);
+            X += LabelWidth;
+            ImGui::SetCursorScreenPos(ImVec2(X, FieldY));
+        };
+        HeaderField("SHADING", 52 * S);
+        {
+            const char *Labels[]{"Lit", "Wireframe", "UV / Texture"};
+            const int Current = int(View);
+            if (const int Chosen = CompactDropdown("##ViewportShading", Labels[Current], 118 * S, {"Lit", "Wireframe", "UV / Texture"}, Current); Chosen >= 0)
+            {
+                View = ViewMode(Chosen);
+                if (View == ViewMode::Uv) UvFrameRequested = true;
+                if (View == ViewMode::Wireframe) DigitalActive = false;
+            }
+            Track("Viewport shading");
+            X += 128 * S;
+        }
+        HeaderField("TARGET", 46 * S);
+        {
+            std::vector<std::string> Options{"All parts"};
+            for (const auto &Part : PartTable) Options.push_back(Part.Name);
+            const int Current = TargetPart + 1;
+            if (const int Chosen = CompactDropdown("##TextureMeshParts", Options[size_t(Current)].c_str(), 104 * S, Options, Current); Chosen >= 0)
+                TargetPart = Chosen - 1;
+            Track("Texture mesh parts");
+            X += 114 * S;
+        }
+        if (View == ViewMode::Uv)
+        {
+            HeaderField("UV SET", 46 * S);
+            const int Current = UvSource ? 1 : 0;
+            const char *Labels[]{"Authoring UDIMs · 1001–1004", "Source UV0 · overlapping"};
+            if (const int Chosen = CompactDropdown("##UvCoordinateSet", Labels[Current], 196 * S, {Labels[0], Labels[1]}, Current); Chosen >= 0)
+            {
+                UvSource = Chosen == 1;
+                UvFrameRequested = true;
+                if (UvSource) DigitalActive = false;
+            }
+            Track("UV coordinate set");
+            X += 206 * S;
+        }
+        // .tp-viewport-end: Frame (F), grid toggle, reset (R).
+        float RightX = Origin.x + DockWidth - 14 * S - 30 * S;
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Origin.y + 9 * S));
+        if (IconButton("ResetView", "M3 12a9 9 0 1 0 3-6.7M3 4v5h5", 30 * S))
+        {
+            if (View == ViewMode::Uv) UvFrameRequested = true; else FrameCamera();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Reset view · R");
+        RightX -= 35 * S;
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Origin.y + 9 * S));
+        if (IconButton("ToggleGrid", "M3 3H10V10H3ZM14 3H21V10H14ZM3 14H10V21H3ZM14 14H21V21H14Z", 30 * S, Grid)) Grid = !Grid;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ground grid");
+        Track("Toggle viewport grid");
+        RightX -= 96 * S;
+        ImGui::SetCursorScreenPos(ImVec2(RightX, Origin.y + 10 * S));
+        if (PillButton("FrameView", "Frame F", 92 * S, false, "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
+        {
+            if (View == ViewMode::Uv) UvFrameRequested = true; else FrameCamera();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", View == ViewMode::Uv ? "Frame selected UV tile or all tiles · F" : "Frame teapot · F");
+        Track(View == ViewMode::Uv ? "Frame UVs" : "Frame teapot");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + Height));
+    }
+
+    // .tp-authoring-bar
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Height = 38 * S;
+        Ink->AddRectFilled(Origin, ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0x151515));
+        Ink->AddLine(ImVec2(Origin.x, Origin.y + Height), ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0xffffff, .03f));
+        float X = Origin.x + 12 * S;
+        const float Y = Origin.y + 6 * S;
+        const auto *Selected = SelectedLayer();
+        const bool LockedSel = !Selected || EffectiveLocked(*Selected);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("ToolNavigate", "Navigate", 92 * S, Tool == AuthorTool::Navigate && !DigitalActive && MaskEditor.ActiveTool != MaskEditorState::Tool::Brush,
+                "M4 3L11 21L14 14L21 11Z"))
+        {
+            Tool = AuthorTool::Navigate;
+            DigitalActive = false;
+            MaskEditor.ActiveTool = MaskEditorState::Tool::Navigate;
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Navigate teapot");
+        X += 96 * S;
+        ImGui::BeginDisabled(true);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        (void)PillButton("ToolStamp", "Stamp", 78 * S, false, "M5 22H19M12 2V10M8 10H16L17 18H7Z");
+        ImGui::EndDisabled();
+        Controls.Tooltip("Viewport stamp brush", "Decal placement is not native yet - author stamps in the Stamp workspace (Stamp studio, right).");
+        X += 82 * S;
+        ImGui::BeginDisabled(true);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        (void)PillButton("ToolTransform", "Transform", 102 * S, false, "M5 9L2 12L5 15M9 5L12 2L15 5M15 19L12 22L9 19M19 9L22 12L19 15M2 12H22M12 2V22");
+        ImGui::EndDisabled();
+        Controls.Tooltip("Viewport decal transform", "Decal transform gizmos are not native yet.");
+        X += 114 * S;
+        Ink->AddLine(ImVec2(X, Y + 5 * S), ImVec2(X, Y + 19 * S), Colour32(0x33332c));
+        X += 9 * S;
+        // DigitalPaintToolbar: Paint / Erase / Fill + the "{size} px" brush-settings button.
+        const bool PaintAvailable = DigitalPaintAvailable();
+        const struct { const char *Id; const char *Label; const char *Icon; } DigitalTools[3]{
+            {"paint", "Paint", "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
+            {"erase", "Erase", "M7 21L3 17L14 6L20 12L13 19H8ZM14 6L18 2L22 6L20 8"},
+            {"fill", "Fill", "M5 11L12 4L19 11L12 18ZM12 18V21M5 21H19"}};
+        for (const auto &Entry : DigitalTools)
+        {
+            ImGui::BeginDisabled(!PaintAvailable);
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            const float Width = (Entry.Label[0] == 'P' ? 76 : Entry.Label[0] == 'E' ? 76 : 64) * S;
+            if (PillButton((std::string("Digital") + Entry.Id).c_str(), Entry.Label, Width, DigitalActive && Brush.Tool == Entry.Id, Entry.Icon))
+            {
+                if (Brush.Tool != Entry.Id)
+                {
+                    Brush.Tool = Entry.Id;
+                    CommitHistory("Digital tool", BrushPresetName(), "tool");
+                }
+                DigitalActive = true;
+                if (MaskSelected) MaskEditor.ActiveTool = MaskEditorState::Tool::Brush;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s %s", Entry.Label, MaskSelected ? "mask digitally" : "layer channels");
+            X += Width + 4 * S;
+        }
+        char SizeLabel[24];
+        std::snprintf(SizeLabel, sizeof(SizeLabel), "%d px", int(std::round(Brush.Size)));
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("DigitalBrushSettings", SizeLabel, 78 * S, BrushStudioOpen, "M4 8H20M4 16H20M8 5V11M16 13V19")) BrushStudioOpen = !BrushStudioOpen;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Digital brush settings");
+        Track("Digital brush settings");
+        X += 92 * S;
+        Ink->AddLine(ImVec2(X, Y + 5 * S), ImVec2(X, Y + 19 * S), Colour32(0x33332c));
+        X += 9 * S;
+        // Material / Mask preview tabs.
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("PreviewMaterial", "Material", 76 * S, !MaskPreview, nullptr, 0x5a4531)) MaskPreview = false;
+        X += 80 * S;
+        const bool MaskTabAvailable = (MaskSelected && Selected && Selected->Mask.Present) && !(View == ViewMode::Uv && UvSource);
+        ImGui::BeginDisabled(!MaskTabAvailable);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("PreviewMask", "Mask", 64 * S, MaskPreview, nullptr, 0x5a4531)) MaskPreview = true;
+        ImGui::EndDisabled();
+        X += 76 * S;
+        // Authoring state + Stamp studio link ride the right edge.
+        const std::string State = MaskSelected ? "Mask mode · " + (Selected ? Selected->Name : std::string())
+            : DigitalActive ? "Paint mode · Digital " + Brush.Tool
+                            : "Paint mode · Digital tools available";
+        const float LinkWidth = 104 * S;
+        const float StateX = Origin.x + DockWidth - 12 * S - LinkWidth - 10 * S - CaptionWidth(State.c_str(), 9 * S);
+        Caption(ImVec2(std::max(X, StateX), Y + 7 * S), State.c_str(), 9 * S, 0x9a9a8c);
+        Track("Texture editing mode");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + DockWidth - 12 * S - LinkWidth, Y));
+        ImGui::BeginDisabled(!ActivateStamp);
+        if (PillButton("OpenStampStudio", "Stamp studio", LinkWidth, false) && ActivateStamp) ActivateStamp();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Open Stamp workspace");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + Height));
+        (void)LockedSel;
+    }
+
+    // TextureMaskToolbar (only while a mask is the selection).
+    if (MaskSelected && SelectedLayer() && SelectedLayer()->Mask.Present)
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const auto *Layer = SelectedLayer();
+        const bool Available = !EffectiveLocked(*Layer) && EffectiveVisible(*Layer) && View != ViewMode::Wireframe && !(View == ViewMode::Uv && UvSource);
+        float Y = Origin.y + 7 * S;
+        float X = Origin.x + 12 * S;
+        const struct { RegionScope Scope; const char *Label; float Width; } Scopes[4]{
+            {RegionScope::Face, "Face", 66}, {RegionScope::Tile, "UV Tile", 84}, {RegionScope::Island, "UV Island", 96}, {RegionScope::Object, "Object", 80}};
+        for (const auto &Entry : Scopes)
+        {
+            ImGui::BeginDisabled(!Available || (Entry.Scope == RegionScope::Tile && View != ViewMode::Uv));
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton((std::string("MaskScope") + Entry.Label).c_str(), Entry.Label, Entry.Width * S,
+                    MaskEditor.ActiveTool == MaskEditorState::Tool::Select && MaskEditor.Scope == Entry.Scope, "M4 3L11 21L14 14L21 11Z"))
+            {
+                MaskEditor.ActiveTool = MaskEditorState::Tool::Select;
+                MaskEditor.Scope = Entry.Scope;
+                DigitalActive = false;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", Entry.Scope == RegionScope::Tile ? "UV tile selection is available in packed UV / Texture mode" : "Select a real region on the teapot");
+            X += Entry.Width * S + 5 * S;
+        }
+        ImGui::BeginDisabled(!Available);
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("PaintMask", "Paint mask", 104 * S, MaskEditor.ActiveTool == MaskEditorState::Tool::Brush, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"))
+            MaskEditor.ActiveTool = MaskEditorState::Tool::Brush;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Paint on the selected mask with the current brush and ink. White reveals the layer; black conceals it.");
+        X += 109 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        ImGui::BeginDisabled(!Available || !MaskEditor.SelectedRegion);
+        if (PillButton("FillMaskSelection", "Fill selection", 108 * S, false)) FillMaskRegion();
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Fill the selected face, UV tile, UV island or object region with the active mask ink.");
+        X += 113 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        ImGui::BeginDisabled(!MaskEditor.SelectedRegion);
+        if (PillButton("ClearMaskSelection", "Clear", 64 * S, false)) MaskEditor.SelectedRegion.reset();
+        ImGui::EndDisabled();
+        X += 69 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("MaskBrushOptions", "Brush settings", 112 * S, MaskEditor.OptionsOpen)) MaskEditor.OptionsOpen = !MaskEditor.OptionsOpen;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide brush settings for the current mask. This does not change the selected layer.");
+        ImGui::EndDisabled();
+        Y += 33 * S;
+        if (MaskEditor.OptionsOpen)
+        {
+            X = Origin.x + 12 * S;
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton("MaskInkWhite", "White", 72 * S, MaskEditor.InkWhite)) MaskEditor.InkWhite = true;
+            X += 77 * S;
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton("MaskInkBlack", "Black", 72 * S, !MaskEditor.InkWhite)) MaskEditor.InkWhite = false;
+            X += 86 * S;
+            const auto InlineSlider = [&](const char *Label, float &Value, float Minimum, float Maximum, const char *Format)
+            {
+                Caption(ImVec2(X, Y + 6 * S), Label, 9 * S, 0xa8a89a);
+                X += CaptionWidth(Label, 9 * S) + 7 * S;
+                ImGui::SetCursorScreenPos(ImVec2(X, Y + 2 * S));
+                ImGui::SetNextItemWidth(58 * S);
+                ImGui::PushID(Label);
+                ImGui::SliderFloat("##MaskSlider", &Value, Minimum, Maximum, Format, ImGuiSliderFlags_NoInput);
+                ImGui::PopID();
+                char Out[16];
+                std::snprintf(Out, sizeof(Out), Format, Value);
+                Caption(ImVec2(X + 62 * S, Y + 6 * S), Out, 9 * S, 0xc8c8ba);
+                X += 104 * S;
+            };
+            InlineSlider("Size", MaskEditor.SizePercent, .2f, 25.f, "%.1f%%");
+            InlineSlider("Opacity", MaskEditor.Opacity, 0.f, 100.f, "%.0f%%");
+            InlineSlider("Hardness", MaskEditor.Hardness, 0.f, 100.f, "%.0f%%");
+            Y += 33 * S;
+        }
+        std::string RegionText = MaskRegionLabel();
+        if (!MaskEditor.SelectedRegion && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush) RegionText += " · Brush is scoped to the hit component";
+        if (!Layer->Mask.Enabled) RegionText += " · Mask bypassed (enable to see coverage)";
+        if (UvSource && View == ViewMode::Uv) RegionText += " · Source UVs are read-only";
+        if (Layer->Mask.Kind == "color") RegionText += " · Source RGB per UV tile, not shaded material";
+        Caption(ImVec2(Origin.x + 12 * S, Y + 2 * S), RegionText.c_str(), 9 * S, 0x93989f);
+        Track("Selected mask region");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Y + 22 * S));
+    }
+
+    // .tp-scene-viewport (12px side margins) + .tp-viewport-footer.
+    const ImVec2 StageOrigin = ImGui::GetCursorScreenPos();
+    const float StageHeight = std::max(80.f, ImGui::GetContentRegionAvail().y - 45 * S);
+    const PlaneExtent Region = Spanning(StageOrigin.x + 12 * S, StageOrigin.y, std::max(40.f, DockWidth - 24 * S), StageHeight);
+    ImGui::SetCursorScreenPos(ImVec2(Region.MinimumX, Region.MinimumY));
+    if (View == ViewMode::Uv) ConstructUvViewport(Region);
+    else ConstructSceneViewport(Region);
+
+    // Shared scene overlays (caption / zoom nav / axis / hint) sit above both viewport kinds.
+    {
+        Ink->AddCircleFilled(ImVec2(Region.MinimumX + 21.5f * S, Region.MinimumY + 25 * S), 1.5f * S, Colour32(0x959d8f), 10);
+        Caption(ImVec2(Region.MinimumX + 28 * S, Region.MinimumY + 22 * S), "TEAPOT STUDY", 7 * S, 0x73786f);
+        Caption(ImVec2(Region.MinimumX + 35 * S + CaptionWidth("TEAPOT STUDY", 7 * S), Region.MinimumY + 22.5f * S), "01 / DEFAULT MESH", 6 * S, 0x50574f);
+        const int ZoomPercent = View == ViewMode::Uv ? int(std::round(UvScale / std::max(UvFrameScale, 1.f) * 100.f)) : int(std::round(Camera.Zoom * 100.f));
+        const float NavWidth = 104 * S, NavHeight = 31 * S;
+        const ImVec2 NavMin(Region.MaximumX - 18 * S - NavWidth, Region.MinimumY + 18 * S);
+        Ink->AddRectFilled(NavMin, ImVec2(NavMin.x + NavWidth, NavMin.y + NavHeight), Colour32(0x161818, .77f), NavHeight * .5f);
+        Ink->AddRect(NavMin, ImVec2(NavMin.x + NavWidth, NavMin.y + NavHeight), Colour32(0xffffff, .03f), NavHeight * .5f);
+        ImGui::SetCursorScreenPos(ImVec2(NavMin.x + 4 * S, NavMin.y + 4 * S));
+        if (IconButton("ZoomOut", "M5 12H19", 23 * S))
+        {
+            if (View == ViewMode::Uv)
+            {
+                const float CentreX = Region.Width() * .5f, CentreY = Region.Height() * .5f;
+                const float NewScale = std::clamp(UvScale * .8f, 12.f, 4096.f);
+                UvOffsetX = CentreX - (CentreX - UvOffsetX) * NewScale / UvScale;
+                UvOffsetY = CentreY - (CentreY - UvOffsetY) * NewScale / UvScale;
+                UvScale = NewScale;
+            }
+            else Camera.Zoom = std::clamp(Camera.Zoom * .8f, .5f, 5.f);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", View == ViewMode::Uv ? "Zoom out UVs" : "Zoom out teapot");
+        char ZoomText[16];
+        std::snprintf(ZoomText, sizeof(ZoomText), "%d%%", ZoomPercent);
+        Caption(ImVec2(NavMin.x + (NavWidth - CaptionWidth(ZoomText, 9 * S)) * .5f, NavMin.y + 10 * S), ZoomText, 9 * S, 0xabab9e);
+        ImGui::SetCursorScreenPos(ImVec2(NavMin.x + NavWidth - 27 * S, NavMin.y + 4 * S));
+        if (IconButton("ZoomIn", "M12 5v14M5 12h14", 23 * S))
+        {
+            if (View == ViewMode::Uv)
+            {
+                const float CentreX = Region.Width() * .5f, CentreY = Region.Height() * .5f;
+                const float NewScale = std::clamp(UvScale * 1.25f, 12.f, 4096.f);
+                UvOffsetX = CentreX - (CentreX - UvOffsetX) * NewScale / UvScale;
+                UvOffsetY = CentreY - (CentreY - UvOffsetY) * NewScale / UvScale;
+                UvScale = NewScale;
+            }
+            else Camera.Zoom = std::clamp(Camera.Zoom * 1.25f, .5f, 5.f);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", View == ViewMode::Uv ? "Zoom in UVs" : "Zoom in teapot");
+        Track(View == ViewMode::Uv ? "UV zoom" : "Teapot zoom");
+        // .tp-view-axis: Alloy's static SVG gizmo, copied 1:1.
+        const ImVec2 AxisCentre(Region.MaximumX - 53 * S, Region.MaximumY - 45 * S);
+        const ImVec2 AxisY(AxisCentre.x, AxisCentre.y - 27 * S), AxisX(AxisCentre.x + 23 * S, AxisCentre.y + 11 * S), AxisZ(AxisCentre.x - 22 * S, AxisCentre.y + 13 * S);
+        Ink->AddLine(AxisCentre, AxisY, Colour32(0x666666));
+        Ink->AddLine(AxisCentre, AxisX, Colour32(0x666666));
+        Ink->AddLine(AxisCentre, AxisZ, Colour32(0x666666));
+        Ink->AddCircleFilled(AxisCentre, 3 * S, Colour32(0xbcbcb9), 12);
+        const auto AxisBall = [&](ImVec2 Centre, uint32_t Fill, uint32_t Text, const char *Letter)
+        {
+            Ink->AddCircleFilled(Centre, 8 * S, Colour32(Fill), 20);
+            Caption(ImVec2(Centre.x - CaptionWidth(Letter, 8 * S) * .5f, Centre.y - 4.5f * S), Letter, 8 * S, Text);
+        };
+        AxisBall(AxisY, 0x253b2d, 0x95bca1, "Y");
+        AxisBall(AxisX, 0x44302e, 0xc18e85, "X");
+        AxisBall(AxisZ, 0x2b3346, 0x97a7c8, "Z");
+        Caption(ImVec2(Region.MinimumX + 23 * S, Region.MaximumY - 30 * S),
+            DigitalActive ? "Paint the surface · Navigate to orbit" : "Drag to orbit · scroll to zoom", 8 * S, 0x656d64);
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(StageOrigin.x, StageOrigin.y + StageHeight));
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddCircleFilled(ImVec2(Origin.x + 21.5f * S, Origin.y + 22 * S), 2.5f * S, Colour32(0x8aa27e), 10);
+        Caption(ImVec2(Origin.x + 28 * S, Origin.y + 18 * S), "Three.js · WebGL", 8 * S, 0x77786d);
+        bool LiveStack = false, AnyDecals = false;
+        for (const auto &Layer : Layers)
+        {
+            if (Layer.SourceColour[3] > 0.f || Layer.StrokeCount > 0) LiveStack = true;
+            if (Layer.DecalCount > 0) AnyDecals = true;
+        }
+        const char *Scope = View == ViewMode::Uv ? "Ordered lit UV appearance · not exported PBR maps"
+            : LiveStack ? "Layer stack live · top layers cover lower decals"
+            : AnyDecals ? "Layer stack live · decals follow layer order"
+                        : "Layer 0 · white fallback · digital tools available";
+        Caption(ImVec2(Origin.x + DockWidth - 19 * S - CaptionWidth(Scope, 8 * S), Origin.y + 18 * S), Scope, 8 * S, 0x908c7d);
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     3D SCENE VIEWPORT
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
+{
+    const float S = InterfaceScale;
+    ImGui::InvisibleButton("##TextureSceneViewport", ImVec2(Region.Width(), Region.Height()));
+    const bool Hovered = ImGui::IsItemHovered();
+    const ImVec2 Mouse = ImGui::GetIO().MousePos;
+    HandlePaintPointer(Hovered, false);
+    const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
+    const bool Painting = StrokeActive || (Hovered && ((DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed));
+    if (StrokeActive && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        float HitUv[2];
+        if (const auto *Hit = PickScene(Mouse.x, Mouse.y, HitUv))
+        {
+            const float RadiusUv = DigitalActive ? std::clamp(0.035f * Brush.Size / 24.f, .006f, .25f) : MaskEditor.SizePercent / 100.f;
+            ApplyPaintAt(HitUv, Hit->Part, Hit->Chart, Hit->Index, RadiusUv);
+        }
+    }
+    if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !Painting)
+    {
+        PointerDownValid = true;
+        PointerDownX = Mouse.x;
+        PointerDownY = Mouse.y;
+    }
+    if (PointerDownValid && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    {
+        PointerDownValid = false;
+        const float Moved = std::hypot(Mouse.x - PointerDownX, Mouse.y - PointerDownY);
+        float HitUv[2];
+        if (Moved < 4 * S && Hovered)
+            if (const auto *Hit = PickScene(Mouse.x, Mouse.y, HitUv))
+            {
+                if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select)
+                    MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
+                else if (!DigitalActive) TargetPart = Hit->Part;
+            }
+    }
+    // 📝 Same orbit gesture mapping as Material/Baking (drag = yaw/pitch, wheel = Zoom, shared clamps);
+    // middle/right drag pans. Painting owns the left button while a stroke is armed.
+    if (Hovered && !Painting && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+    {
+        const ImVec2 Delta = ImGui::GetIO().MouseDelta;
+        Camera.Yaw = std::remainder(Camera.Yaw + Delta.x * 0.01f, 6.2831853f);
+        Camera.Pitch = std::clamp(Camera.Pitch - Delta.y * 0.01f, -1.45f, 1.45f);
+    }
+    if (Hovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) || ImGui::IsMouseDragging(ImGuiMouseButton_Right)))
+    {
+        const ImVec2 Delta = ImGui::GetIO().MouseDelta;
+        Camera.PanX = std::clamp(Camera.PanX + Delta.x * 0.002f, -2.f, 2.f);
+        Camera.PanY = std::clamp(Camera.PanY - Delta.y * 0.002f, -2.f, 2.f);
+    }
+    if (Hovered) Camera.Zoom = std::clamp(Camera.Zoom + ImGui::GetIO().MouseWheel * 0.1f, .5f, 5.f);
+    if (Hovered && !ImGui::GetIO().WantTextInput)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_R)) FrameCamera();
+    }
+    SynchronizeCamera();
+
+    auto *DrawList = ImGui::GetWindowDrawList();
+    DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
+    // 🎨 .tp-scene-viewport's radial gradient, approximated with a soft centre disc over the flat field.
+    DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), Colour32(0x111212));
+    DrawList->AddCircleFilled(ImVec2((Region.MinimumX + Region.MaximumX) * .5f, Region.MinimumY + Region.Height() * .35f),
+        std::min(Region.Width(), Region.Height()) * .52f, Colour32(0x242626, .55f), 48);
+    DrawList->AddCircleFilled(ImVec2((Region.MinimumX + Region.MaximumX) * .5f, Region.MinimumY + Region.Height() * .35f),
+        std::min(Region.Width(), Region.Height()) * .34f, Colour32(0x2a2c2c, .35f), 48);
+
+    std::vector<PickTriangle> Picks;
+    if (!Assets.Low.Parts.empty() && !Topology.empty())
+    {
+        const auto &Part = Assets.Low.Parts.front();
+        float BoundsMinimum[3]{FLT_MAX, FLT_MAX, FLT_MAX}, BoundsMaximum[3]{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+        for (const auto &Vertex : Part.Vertices)
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                BoundsMinimum[Axis] = std::min(BoundsMinimum[Axis], Vertex.Position[Axis]);
+                BoundsMaximum[Axis] = std::max(BoundsMaximum[Axis], Vertex.Position[Axis]);
+            }
+        float Pivot[3]{(BoundsMinimum[0] + BoundsMaximum[0]) * .5f, (BoundsMinimum[1] + BoundsMaximum[1]) * .5f,
+            (BoundsMinimum[2] + BoundsMaximum[2]) * .5f};
+        const float Extent[3]{BoundsMaximum[0] - Pivot[0], BoundsMaximum[1] - Pivot[1], BoundsMaximum[2] - Pivot[2]};
+        const float Radius = std::max(.05f, std::sqrt(Extent[0] * Extent[0] + Extent[1] * Extent[1] + Extent[2] * Extent[2]));
+        const auto Orbit = ConstructOrbitProjection(SmoothedCamera.Yaw, SmoothedCamera.Pitch, SmoothedCamera.Zoom, SmoothedCamera.PanX,
+            SmoothedCamera.PanY, Radius, Pivot, 5.8f / 1.35f);
+        const Vec3 Eye{Orbit.Eye[0], Orbit.Eye[1], Orbit.Eye[2]};
+        const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};
+        const Vec3 Right{Orbit.Right[0], Orbit.Right[1], Orbit.Right[2]};
+        const Vec3 Up{Orbit.Up[0], Orbit.Up[1], Orbit.Up[2]};
+        const float CenterX = (Region.MinimumX + Region.MaximumX) * .5f, CenterY = (Region.MinimumY + Region.MaximumY) * .5f;
+        const float FocalLength = std::min(Region.Width(), Region.Height()) * .8f;
+        const Vec3 Light = NormalizeV(Vec3{.4f, .8f, .5f});
+        const auto Project = [&](const float P[3], ImVec2 &Screen, float &Depth) noexcept
+        {
+            const Vec3 World = Sub(Vec3{P[0], P[1], P[2]}, Eye);
+            const float Cx = DotV(World, Right), Cy = DotV(World, Up), Cz = DotV(World, Forward);
+            Depth = Cz;
+            const float Z = std::max(Cz, .05f);
+            Screen = ImVec2(CenterX + Cx * FocalLength / Z, CenterY - Cy * FocalLength / Z);
+        };
+        if (Grid)
+        {
+            // 🌐 Ground grid at the mesh's base plane (Alloy's gridVisible), projected through the same camera.
+            const float GroundY = BoundsMinimum[1];
+            const float Half = Radius * 1.7f, Step = Radius * .425f;
+            for (float At = -Half; At <= Half + 1e-4f; At += Step)
+            {
+                const float A[3]{Pivot[0] + At, GroundY, Pivot[2] - Half}, B[3]{Pivot[0] + At, GroundY, Pivot[2] + Half};
+                const float C[3]{Pivot[0] - Half, GroundY, Pivot[2] + At}, D[3]{Pivot[0] + Half, GroundY, Pivot[2] + At};
+                ImVec2 Sa, Sb, Sc, Sd;
+                float Da, Db, Dc, Dd;
+                Project(A, Sa, Da); Project(B, Sb, Db); Project(C, Sc, Dc); Project(D, Sd, Dd);
+                if (Da > .05f && Db > .05f) DrawList->AddLine(Sa, Sb, Colour32(0xffffff, .045f), 1.f);
+                if (Dc > .05f && Dd > .05f) DrawList->AddLine(Sc, Sd, Colour32(0xffffff, .045f), 1.f);
+            }
+        }
+        struct DrawTriangle { ImVec2 A, B, C; ImU32 Colour; float Depth; int Part; };
+        std::vector<DrawTriangle> Triangles;
+        Triangles.reserve(Topology.size());
+        Picks.reserve(Topology.size());
+        const bool Wire = View == ViewMode::Wireframe;
+        for (const auto &Triangle : Topology)
+        {
+            const auto &VA = Part.Vertices[Triangle.VertexIndex[0]];
+            const auto &VB = Part.Vertices[Triangle.VertexIndex[1]];
+            const auto &VC = Part.Vertices[Triangle.VertexIndex[2]];
+            const Vec3 FaceNormal = NormalizeV(CrossV(Sub(Vec3{VB.Position[0], VB.Position[1], VB.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]}),
+                Sub(Vec3{VC.Position[0], VC.Position[1], VC.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]})));
+            const bool Front = DotV(FaceNormal, Forward) <= -0.02f;
+            if (!Wire && !Front) continue;
+            ImVec2 Sa, Sb, Sc;
+            float Da, Db, Dc;
+            Project(VA.Position, Sa, Da); Project(VB.Position, Sb, Db); Project(VC.Position, Sc, Dc);
+            if (Da <= .05f || Db <= .05f || Dc <= .05f) continue;
+            PickTriangle Pick;
+            Pick.Screen[0][0] = Sa.x; Pick.Screen[0][1] = Sa.y;
+            Pick.Screen[1][0] = Sb.x; Pick.Screen[1][1] = Sb.y;
+            Pick.Screen[2][0] = Sc.x; Pick.Screen[2][1] = Sc.y;
+            for (int Corner = 0; Corner < 3; ++Corner)
+            {
+                Pick.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
+                Pick.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
+            }
+            Pick.Depth = (Da + Db + Dc) / 3.f;
+            Pick.Part = Triangle.Part;
+            Pick.Chart = Triangle.Chart;
+            Pick.Index = Triangle.Index;
+            if (Front) Picks.push_back(Pick);
+            // 🎨 Flat Lambert shade over the preview composite (same look family as Baking's CPU viewport).
+            const float Shade = std::clamp(.30f + .70f * std::max(0.f, DotV(FaceNormal, Light)), 0.f, 1.f);
+            std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
+            if (TargetPart >= 0)
+            {
+                if (Triangle.Part == TargetPart)
+                {
+                    const uint32_t Tint = PartTable[size_t(Triangle.Part)].Colour;
+                    Colour[0] += (float((Tint >> 16) & 0xff) / 255.f - Colour[0]) * .22f;
+                    Colour[1] += (float((Tint >> 8) & 0xff) / 255.f - Colour[1]) * .22f;
+                    Colour[2] += (float(Tint & 0xff) / 255.f - Colour[2]) * .22f;
+                }
+                else for (float &Channel : Colour) Channel *= .82f;
+            }
+            const ImU32 Packed = IM_COL32(uint8_t(std::clamp(Colour[0] * Shade, 0.f, 1.f) * 255.f),
+                uint8_t(std::clamp(Colour[1] * Shade, 0.f, 1.f) * 255.f), uint8_t(std::clamp(Colour[2] * Shade, 0.f, 1.f) * 255.f), 255);
+            Triangles.push_back({Sa, Sb, Sc, Packed, Pick.Depth, Triangle.Part});
+        }
+        std::sort(Triangles.begin(), Triangles.end(), [](const DrawTriangle &A, const DrawTriangle &B) { return A.Depth > B.Depth; });
+        for (const auto &Triangle : Triangles)
+        {
+            if (!Wire)
+            {
+                DrawList->PrimReserve(3, 3);
+                ImDrawVert *Vertex = DrawList->_VtxWritePtr;
+                ImDrawIdx *IndexCursor = DrawList->_IdxWritePtr;
+                ImDrawIdx Base = DrawList->_VtxCurrentIdx;
+                for (const ImVec2 &Corner : {Triangle.A, Triangle.B, Triangle.C})
+                {
+                    Vertex->pos = Corner;
+                    Vertex->uv = DrawList->_Data->TexUvWhitePixel;
+                    Vertex->col = Triangle.Colour;
+                    ++Vertex;
+                    *IndexCursor++ = Base++;
+                }
+                DrawList->_VtxWritePtr = Vertex;
+                DrawList->_IdxWritePtr = IndexCursor;
+                DrawList->_VtxCurrentIdx = Base;
+            }
+            else
+            {
+                const uint32_t WireColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
+                DrawList->AddTriangle(Triangle.A, Triangle.B, Triangle.C, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
+            }
+        }
+    }
+    else Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 40 * S), "Preparing teapot…", 10 * S, 0x98998e);
+    LastPickTriangles = std::move(Picks);
+    if (Hovered && Painting)
+    {
+        const float CursorRadius = DigitalActive ? Brush.Size * S * .5f : MaskEditor.SizePercent * Region.Height() * .005f;
+        if (Brush.Shape == "square" && DigitalActive)
+            DrawList->AddRect(ImVec2(Mouse.x - CursorRadius, Mouse.y - CursorRadius), ImVec2(Mouse.x + CursorRadius, Mouse.y + CursorRadius), Colour32(0xedc391, .85f), 2 * S);
+        else DrawList->AddCircle(Mouse, std::max(CursorRadius, 2.f), Colour32(0xedc391, .85f), 32, 1.2f * S);
+    }
+    if (MaskSelected && MaskEditor.SelectedRegion && View != ViewMode::Uv)
+        Caption(ImVec2(Region.MinimumX + 23 * S, Region.MinimumY + 44 * S), MaskRegionLabel().c_str(), 8 * S, 0x9b927f);
+    DrawList->PopClipRect();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     UV / UDIM VIEWPORT
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
+{
+    const float S = InterfaceScale;
+    ImGui::InvisibleButton("##TextureUvViewport", ImVec2(Region.Width(), Region.Height()));
+    const bool Hovered = ImGui::IsItemHovered();
+    const ImVec2 Mouse = ImGui::GetIO().MousePos;
+    if (UvFrameRequested || UvScale <= 0.f) FrameUv(Region.Width(), Region.Height());
+    const auto UvToScreen = [&](float U, float V)
+    {
+        return ImVec2(Region.MinimumX + UvOffsetX + U * UvScale, Region.MinimumY + UvOffsetY + (1.f - V) * UvScale);
+    };
+    const auto ScreenToUv = [&](float X, float Y, float Out[2])
+    {
+        Out[0] = (X - Region.MinimumX - UvOffsetX) / UvScale;
+        Out[1] = 1.f - (Y - Region.MinimumY - UvOffsetY) / UvScale;
+    };
+    const auto HitUv = [&](const float Point[2], bool Authoring) -> const TopologyTriangle *
+    {
+        float Weights[3];
+        for (const auto &Triangle : Topology)
+        {
+            const float (*Coords)[2] = Authoring ? Triangle.AuthoringUv : Triangle.SourceUv;
+            if (PointInTriangle(Point[0], Point[1], Coords[0], Coords[1], Coords[2], Weights)) return &Triangle;
+        }
+        return nullptr;
+    };
+    HandlePaintPointer(Hovered, true);
+    const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
+    const bool Painting = StrokeActive || (Hovered && ((DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed) && !UvSource);
+    if (Hovered && ImGui::GetIO().MouseWheel != 0.f)
+    {
+        float Before[2];
+        ScreenToUv(Mouse.x, Mouse.y, Before);
+        UvScale = std::clamp(UvScale * std::exp(ImGui::GetIO().MouseWheel * .12f), 12.f, 4096.f);
+        UvOffsetX = (Mouse.x - Region.MinimumX) - Before[0] * UvScale;
+        UvOffsetY = (Mouse.y - Region.MinimumY) - (1.f - Before[1]) * UvScale;
+    }
+    if (Hovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseDragging(ImGuiMouseButton_Left))))
+    {
+        UvOffsetX += ImGui::GetIO().MouseDelta.x;
+        UvOffsetY += ImGui::GetIO().MouseDelta.y;
+    }
+    if (StrokeActive && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !UvSource)
+    {
+        float Point[2];
+        ScreenToUv(Mouse.x, Mouse.y, Point);
+        if (const auto *Hit = HitUv(Point, true))
+        {
+            const float RadiusUv = DigitalActive ? (Brush.Size * S * .5f) / UvScale : MaskEditor.SizePercent / 100.f;
+            ApplyPaintAt(Point, Hit->Part, Hit->Chart, Hit->Index, RadiusUv);
+        }
+    }
+    if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !Painting && !ImGui::GetIO().KeyAlt)
+    {
+        PointerDownValid = true;
+        PointerDownX = Mouse.x;
+        PointerDownY = Mouse.y;
+    }
+    if (PointerDownValid && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+    {
+        PointerDownValid = false;
+        if (Hovered && std::hypot(Mouse.x - PointerDownX, Mouse.y - PointerDownY) < 4 * S)
+        {
+            float Point[2];
+            ScreenToUv(Mouse.x, Mouse.y, Point);
+            if (const auto *Hit = HitUv(Point, !UvSource))
+            {
+                if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select && !UvSource)
+                    MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
+                else if (!DigitalActive) TargetPart = Hit->Part;
+            }
+        }
+    }
+    if (Hovered && !ImGui::GetIO().WantTextInput && (ImGui::IsKeyPressed(ImGuiKey_F) || ImGui::IsKeyPressed(ImGuiKey_R)))
+        FrameUv(Region.Width(), Region.Height());
+
+    auto *DrawList = ImGui::GetWindowDrawList();
+    DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
+    DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), Colour32(0x141719));
+    const int TileCount = UvSource ? 1 : 4;
+    for (int Tile = 0; Tile < TileCount; ++Tile)
+    {
+        const ImVec2 TopLeft = UvToScreen(float(Tile), 1.f), BottomRight = UvToScreen(float(Tile) + 1.f, 0.f);
+        DrawList->AddRectFilled(TopLeft, BottomRight, Colour32(0x1d2226));
+        if (Grid)
+            for (int Step = 1; Step < 10; ++Step)
+            {
+                const float X = TopLeft.x + (BottomRight.x - TopLeft.x) * Step / 10.f;
+                const float Y = TopLeft.y + (BottomRight.y - TopLeft.y) * Step / 10.f;
+                DrawList->AddLine(ImVec2(X, TopLeft.y), ImVec2(X, BottomRight.y), Colour32(0xffffff, .03f), 1.f);
+                DrawList->AddLine(ImVec2(TopLeft.x, Y), ImVec2(BottomRight.x, Y), Colour32(0xffffff, .03f), 1.f);
+            }
+        DrawList->AddRect(TopLeft, BottomRight, Colour32(0x5b626b), 0.f, 0, 1.f);
+        const std::string TileLabel = UvSource ? "1001 · SOURCE UV0" : std::to_string(PartTable[size_t(Tile)].Tile) + " · " + PartTable[size_t(Tile)].Name;
+        Caption(ImVec2(TopLeft.x + 7 * S, BottomRight.y - 18 * S), TileLabel.c_str(), 8 * S, 0x6d7680);
+    }
+    for (const auto &Triangle : Topology)
+    {
+        ImVec2 Points[3];
+        float MinX = FLT_MAX, MinY = FLT_MAX, MaxX = -FLT_MAX, MaxY = -FLT_MAX;
+        for (int Corner = 0; Corner < 3; ++Corner)
+        {
+            const float *Coords = UvSource ? Triangle.SourceUv[Corner] : Triangle.AuthoringUv[Corner];
+            Points[Corner] = UvToScreen(Coords[0], Coords[1]);
+            MinX = std::min(MinX, Points[Corner].x); MaxX = std::max(MaxX, Points[Corner].x);
+            MinY = std::min(MinY, Points[Corner].y); MaxY = std::max(MaxY, Points[Corner].y);
+        }
+        if (MaxX < Region.MinimumX || MinX > Region.MaximumX || MaxY < Region.MinimumY || MinY > Region.MaximumY) continue;
+        const std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
+        const ImU32 Fill = IM_COL32(uint8_t(Colour[0] * 255), uint8_t(Colour[1] * 255), uint8_t(Colour[2] * 255), 210);
+        DrawList->AddTriangleFilled(Points[0], Points[1], Points[2], Fill);
+        const uint32_t PartColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
+        const bool Emphasised = TargetPart == Triangle.Part;
+        DrawList->AddTriangle(Points[0], Points[1], Points[2], Colour32(PartColour, Emphasised ? .66f : .33f), Emphasised ? 1.1f : .7f);
+        if (MaskEditor.SelectedRegion && MaskSelected)
+        {
+            const auto &Selected = *MaskEditor.SelectedRegion;
+            const bool Matches = (Selected.Scope == RegionScope::Face && Selected.Triangle == Triangle.Index) ||
+                (Selected.Scope == RegionScope::Island && Selected.Chart == Triangle.Chart) ||
+                ((Selected.Scope == RegionScope::Object || Selected.Scope == RegionScope::Tile) && Selected.Part == Triangle.Part);
+            if (Matches) DrawList->AddTriangle(Points[0], Points[1], Points[2], Colour32(0xedc391, .8f), 1.1f);
+        }
+    }
+    if (!UvSource)
+    {
+        // 🎨 Dab footprints, bottom-to-top like the composite they preview.
+        for (auto Iterator = Layers.rbegin(); Iterator != Layers.rend(); ++Iterator)
+        {
+            if (!EffectiveVisible(*Iterator)) continue;
+            const auto &Dabs = MaskPreview && Iterator->Id == SelectedLayerId ? Iterator->Mask.Dabs : Iterator->Dabs;
+            for (const auto &Dab : Dabs)
+            {
+                const ImVec2 Centre = UvToScreen(Dab.U, Dab.V);
+                const float Radius = Dab.Radius * UvScale;
+                if (Centre.x + Radius < Region.MinimumX || Centre.x - Radius > Region.MaximumX || Centre.y + Radius < Region.MinimumY || Centre.y - Radius > Region.MaximumY) continue;
+                DrawList->AddCircleFilled(Centre, std::max(Radius, 1.f),
+                    IM_COL32(uint8_t(Dab.Colour[0] * 255), uint8_t(Dab.Colour[1] * 255), uint8_t(Dab.Colour[2] * 255), uint8_t(std::clamp(Dab.Colour[3], 0.f, 1.f) * 200)), 20);
+            }
+        }
+    }
+    // .tp-uv-info / source notice / readout.
+    const char *InfoTitle = UvSource ? "SOURCE UV0 · OVERLAPPING" : "AUTHORING UDIMS";
+    Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 52 * S), InfoTitle, 10 * S, 0xd8dde2);
+    char Info[96];
+    std::snprintf(Info, sizeof(Info), "32 charts · %d %s · %zu triangles", TileCount, TileCount == 1 ? "tile" : "tiles", Topology.size());
+    Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 68 * S), Info, 9 * S, 0x8b949d);
+    if (UvSource)
+    {
+        const char *Notice = "The original 32 patch UVs overlap in 1001. Inspect only; use Authoring UDIMs for unambiguous placement.";
+        DrawList->AddRectFilled(ImVec2(Region.MinimumX + 16 * S, Region.MinimumY + 86 * S),
+            ImVec2(Region.MinimumX + 20 * S + CaptionWidth(Notice, 9 * S) + 12 * S, Region.MinimumY + 112 * S), Colour32(0x2a2118, .9f), 8 * S);
+        Caption(ImVec2(Region.MinimumX + 26 * S, Region.MinimumY + 95 * S), Notice, 9 * S, 0xd8c49a);
+    }
+    std::string Readout = "Pan: middle drag / Alt-drag · Zoom: wheel · F: frame";
+    if (Hovered)
+    {
+        float Point[2];
+        ScreenToUv(Mouse.x, Mouse.y, Point);
+        if (const auto *Hit = HitUv(Point, !UvSource))
+        {
+            char Buffer[96];
+            std::snprintf(Buffer, sizeof(Buffer), "%s · %d · U %.3f / V %.3f", PartTable[size_t(Hit->Part)].Name,
+                PartTable[size_t(Hit->Part)].Tile, Point[0], Point[1]);
+            Readout = Buffer;
+        }
+    }
+    UvHoverText = Readout;
+    Caption(ImVec2(Region.MinimumX + 20 * S, Region.MaximumY - 52 * S), Readout.c_str(), 9 * S, 0xaeb6be);
+    const char *Small = "UV topology + artwork footprints · mask guides · no baked atlas";
+    Caption(ImVec2(Region.MaximumX - 20 * S - CaptionWidth(Small, 8 * S), Region.MaximumY - 52 * S), Small, 8 * S, 0x6d7680);
+    if (Hovered && Painting)
+    {
+        const float CursorRadius = DigitalActive ? Brush.Size * S * .5f : MaskEditor.SizePercent / 100.f * UvScale;
+        DrawList->AddCircle(Mouse, std::max(CursorRadius, 2.f), Colour32(0xedc391, .85f), 32, 1.2f * S);
+    }
+    DrawList->PopClipRect();
+    Track("UV texture-space canvas");
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     INSPECTOR / HISTORY DOCK (RIGHT)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructInspectorDock()
+{
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    auto *Ink = ImGui::GetWindowDrawList();
+    // .tp-inspector-tabs: the right dock's own Inspector | History tab strip.
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Width = ImGui::GetContentRegionAvail().x;
+        Ink->AddLine(ImVec2(Origin.x, Origin.y + 32 * S), ImVec2(Origin.x + Width, Origin.y + 32 * S), Colour32(0xffffff, .03f));
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + 10 * S, Origin.y + 3 * S));
+        if (PillButton("RightTabInspector", "Inspector", 118 * S, RightTab == RightPanelTab::Inspector, "M4 8H20M4 16H20M8 5V11M16 13V19"))
+            RightTab = RightPanelTab::Inspector;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + 132 * S, Origin.y + 3 * S));
+        if (PillButton("RightTabHistory", "History", 104 * S, RightTab == RightPanelTab::History, "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 3"))
+            RightTab = RightPanelTab::History;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 33 * S));
+    }
+    if (RightTab == RightPanelTab::History) ConstructHistory();
+    else ConstructInspector();
+}
+
+void TexturePaintWorkspacePanel::ConstructInspector()
+{
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const float FooterHeight = 39 * S;
+    LayerState *Layer = SelectedLayer();
+    const bool Locked = Layer && EffectiveLocked(*Layer);
+    const bool InheritedLock = Layer && Locked && !Layer->Locked;
+    int SelectedIndex = -1;
+    for (size_t Index = 0; Index < Layers.size(); ++Index)
+        if (Layers[Index].Id == SelectedLayerId) SelectedIndex = int(Index);
+
+    ImGui::BeginChild("TextureInspectorScroll", ImVec2(0, std::max(40.f, ImGui::GetContentRegionAvail().y - FooterHeight)), false);
+    ImGui::Indent(19 * S);
+    ImGui::Dummy(ImVec2(1, 16 * S));
+    if (!Layer)
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float CentreX = Origin.x + ImGui::GetContentRegionAvail().x * .5f;
+        DrawGlyph("M4 8H20M4 16H20M8 5V11M16 13V19", ImVec2(CentreX - 14 * S, Origin.y + 30 * S), 28 * S, 0x6f6f66);
+        Caption(ImVec2(CentreX - CaptionWidth("No layer selected", 13 * S) * .5f, Origin.y + 70 * S), "No layer selected", 13 * S, 0xb5b5a9);
+        const char *Body = "Add a layer or select an existing one to inspect its settings.";
+        Caption(ImVec2(CentreX - CaptionWidth(Body, 9 * S) * .5f, Origin.y + 92 * S), Body, 9 * S, 0x77776f);
+    }
+    else
+    {
+        const auto AccentBar = [&](uint32_t Colour, const char *Label, const char *Small = nullptr)
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            Ink->AddRectFilled(ImVec2(Origin.x - 14 * S, Origin.y - 2 * S), ImVec2(Origin.x - 11 * S, Origin.y + 10 * S), Colour32(Colour), 1.5f * S);
+            Caption(Origin, Label, 11 * S, 0xd8d8cd);
+            if (Small)
+                Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - CaptionWidth(Small, 8 * S), Origin.y + 1 * S), Small, 8 * S, 0x7a7a69);
+            ImGui::Dummy(ImVec2(1, 26 * S));
+        };
+        const auto SectionLabel = [&](const char *Label, const char *Small)
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            Caption(ImVec2(Origin.x + 3 * S, Origin.y), Label, 8 * S, 0x909080);
+            Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - CaptionWidth(Small, 8 * S), Origin.y), Small, 8 * S, 0x65655c);
+            ImGui::Dummy(ImVec2(1, 19 * S));
+        };
+        const auto WrapNote = [&](const char *Text, uint32_t Colour = 0x93938d)
+        {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(Colour), "%s", Text);
+            ImGui::PopTextWrapPos();
+        };
+
+        // .tp-inspector-trail + identity + status pills.
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            DrawGlyph(LayersIconPath, ImVec2(Origin.x, Origin.y), 11 * S, 0x73736a);
+            const char *Trail = MaskSelected ? (Layer->Mask.Kind == "color" ? "Colour mask" : Layer->Mask.Kind == "gradient" ? "Gradient mask" : "Layer mask")
+                : Layer->Kind == LayerKind::Folder ? "Layer folder" : "Surface layer";
+            Caption(ImVec2(Origin.x + 17 * S, Origin.y + 1 * S), "Teapot", 8 * S, 0x73736a);
+            Caption(ImVec2(Origin.x + 23 * S + CaptionWidth("Teapot", 8 * S), Origin.y + 1 * S), "/", 8 * S, 0x73736a);
+            Caption(ImVec2(Origin.x + 33 * S + CaptionWidth("Teapot", 8 * S), Origin.y + 1 * S), Trail, 8 * S, 0xb1b1a6);
+            ImGui::Dummy(ImVec2(1, 30 * S));
+        }
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            Ink->AddRectFilled(Origin, ImVec2(Origin.x + 55 * S, Origin.y + 55 * S), Colour32(0x212121), 17 * S);
+            Ink->AddRect(Origin, ImVec2(Origin.x + 55 * S, Origin.y + 55 * S), Colour32(0xffffff, .03f), 17 * S);
+            if (MaskSelected)
+            {
+                Ink->AddRectFilled(ImVec2(Origin.x + 16 * S, Origin.y + 16 * S), ImVec2(Origin.x + 39 * S, Origin.y + 39 * S),
+                    Colour32(Layer->Mask.Fill >= .5f ? 0xe6e6df : 0x090909), 4 * S);
+                Ink->AddRect(ImVec2(Origin.x + 16 * S, Origin.y + 16 * S), ImVec2(Origin.x + 39 * S, Origin.y + 39 * S), Colour32(0x595954), 4 * S);
+            }
+            else DrawGlyph(MetaForKind(size_t(Layer->Kind)).Icon, ImVec2(Origin.x + 16.5f * S, Origin.y + 16.5f * S), 22 * S, MetaForKind(size_t(Layer->Kind)).Colour);
+            std::string Eyebrow = MaskSelected ? "MASK PROPERTIES" : std::string(MetaForKind(size_t(Layer->Kind)).Label) + " LAYER";
+            for (auto &Character : Eyebrow) Character = char(std::toupper(uint8_t(Character)));
+            const std::string Title = MaskSelected ? (Layer->Mask.Kind == "color" ? "Colour mask" : Layer->Mask.Kind == "gradient" ? "Gradient mask" : "Layer mask")
+                                                   : Layer->Name;
+            Caption(ImVec2(Origin.x + 67 * S, Origin.y + 2 * S), Eyebrow.c_str(), 7 * S, 0x8e8b7c);
+            Caption(ImVec2(Origin.x + 67 * S, Origin.y + 13 * S), Title.c_str(), 22 * S, 0xe6e6dc, LightTypeface ? LightTypeface : RegularTypeface);
+            char Position[64];
+            if (MaskSelected) std::snprintf(Position, sizeof(Position), "On %s", Layer->Name.c_str());
+            else std::snprintf(Position, sizeof(Position), "Position %d of %zu · top to bottom", SelectedIndex + 1, Layers.size());
+            Caption(ImVec2(Origin.x + 67 * S, Origin.y + 43 * S), Position, 8 * S, 0x73736b);
+            ImGui::Dummy(ImVec2(1, 69 * S));
+        }
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos(Origin);
+            if (PillButton("InspectorVisibility", Layer->Visible ? "Visible" : "Hidden", 96 * S, Layer->Visible,
+                    Layer->Visible ? "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9Z" : "M2 12Q12 0 22 12Q12 24 2 12ZM4 4L20 20"))
+            {
+                Layer->Visible = !Layer->Visible;
+                CommitHistory(Layer->Visible ? "Show layer / folder" : "Hide layer / folder", Layer->Name, "layer");
+                MarkDirty();
+            }
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x + 104 * S, Origin.y));
+            ImGui::BeginDisabled(InheritedLock);
+            if (PillButton("InspectorLock", Locked ? "Locked" : "Unlocked", 108 * S, Locked,
+                    Locked ? "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10" : "M6 10H18V21H6ZM8 10V7A4 4 0 0 1 15.5 4.5"))
+            {
+                Layer->Locked = !Layer->Locked;
+                CommitHistory(Layer->Locked ? "Lock layer / folder" : "Unlock layer / folder", Layer->Name, "layer");
+                MarkDirty();
+            }
+            ImGui::EndDisabled();
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 44 * S));
+        }
+        if (Locked)
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            const float Width = ImGui::GetContentRegionAvail().x;
+            Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 34 * S), Colour32(0x292519), 9 * S);
+            Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 34 * S), Colour32(0xa7905a, .15f), 9 * S);
+            DrawGlyph("M6 10H18V21H6ZM8 10V7A4 4 0 0 1 16 7V10", ImVec2(Origin.x + 10 * S, Origin.y + 11 * S), 12 * S, 0xc0ad8b);
+            Caption(ImVec2(Origin.x + 29 * S, Origin.y + 12 * S),
+                InheritedLock ? "This layer inherits a locked folder. Unlock the folder to edit its contents." : "Unlock this layer to edit its properties.",
+                9 * S, 0xc0ad8b);
+            ImGui::Dummy(ImVec2(1, 48 * S));
+        }
+
+        if (MaskSelected && Layer->Mask.Present)
+        {
+            SectionLabel("MASK SETTINGS", Layer->Kind == LayerKind::Folder ? "Folder & descendants" : "Layer source");
+            Controls.BeginCard("", true);
+            {
+                const char *Title = Layer->Mask.Kind == "gradient" ? "Gradient coverage" : Layer->Mask.Kind == "color" ? "Colour selection" : "Coverage mask";
+                AccentBar(0x8b9b82, Title);
+                // Mask type pills.
+                const struct { const char *Id; const char *Label; } Types[4]{{"fill", "Fill"}, {"paint", "Paint"}, {"color", "Colour"}, {"gradient", "Gradient"}};
+                float X = ImGui::GetCursorScreenPos().x;
+                const float Y = ImGui::GetCursorScreenPos().y;
+                const float PillWidth = (ImGui::GetContentRegionAvail().x - 12 * S) / 4.f;
+                for (const auto &Entry : Types)
+                {
+                    ImGui::BeginDisabled(Locked);
+                    ImGui::SetCursorScreenPos(ImVec2(X, Y));
+                    if (PillButton((std::string("MaskType") + Entry.Id).c_str(), Entry.Label, PillWidth, Layer->Mask.Kind == Entry.Id))
+                    {
+                        Layer->Mask.Kind = Entry.Id;
+                        CommitHistory("Mask properties", Layer->Name, "mask");
+                        MarkDirty();
+                    }
+                    ImGui::EndDisabled();
+                    X += PillWidth + 4 * S;
+                }
+                ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, Y + 36 * S));
+                ImGui::BeginDisabled(Locked);
+                Controls.ControlHeight = 29;
+                if (Layer->Mask.Kind == "gradient")
+                {
+                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    const float Width = ImGui::GetContentRegionAvail().x;
+                    Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
+                    Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x595954), 5 * S);
+                    ImGui::Dummy(ImVec2(1, 30 * S));
+                    WrapNote("Surface-field gradient: the native preview reads a vertical falloff over each UDIM tile. Point editing is not native yet.");
+                }
+                else if (Layer->Mask.Kind == "color")
+                {
+                    if (Controls.Colour("Colour", Layer->Mask.Colour)) QueueHistory("Mask properties", Layer->Name, "mask");
+                    if (Controls.Range("Tolerance", Layer->Mask.Tolerance, 0.f, 1.f)) QueueHistory("Mask properties", Layer->Name, "mask");
+                    if (Controls.Range("Softness", Layer->Mask.Softness, 0.f, 1.f)) QueueHistory("Mask properties", Layer->Name, "mask");
+                    WrapNote("The preview selects parts whose UDIM tint is within tolerance of this colour. Source RGB per UV tile, not shaded material.");
+                }
+                else
+                {
+                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    Ink->AddRectFilled(Origin, ImVec2(Origin.x + 62 * S, Origin.y + 62 * S), Colour32(Layer->Mask.Fill >= .5f ? 0xe6e6df : 0x090909), 6 * S);
+                    Ink->AddRect(Origin, ImVec2(Origin.x + 62 * S, Origin.y + 62 * S), Colour32(0x595954), 6 * S);
+                    const size_t Records = Layer->Mask.Dabs.size() + Layer->Mask.Fills.size();
+                    const std::string Summary = Records ? std::to_string(Records) + " preview paint records" : (Layer->Mask.Fill >= .5f ? "White fill" : "Black fill");
+                    Caption(ImVec2(Origin.x + 74 * S, Origin.y + 8 * S), Summary.c_str(), 10 * S, 0xd8d8cd);
+                    Caption(ImVec2(Origin.x + 74 * S, Origin.y + 26 * S), Layer->Mask.Inverted ? "Inverted" : "Not inverted", 8 * S, 0x8a8a7c);
+                    ImGui::Dummy(ImVec2(1, 70 * S));
+                    const char *FillLabels[]{"White", "Black"};
+                    int FillIndex = Layer->Mask.Fill >= .5f ? 0 : 1;
+                    if (Controls.Dropdown("Fill", FillIndex, FillLabels))
+                    {
+                        Layer->Mask.Fill = FillIndex == 0 ? 1.f : 0.f;
+                        CommitHistory("Mask properties", Layer->Name, "mask");
+                        MarkDirty();
+                    }
+                    if (Records)
+                    {
+                        if (PillButton("ClearMaskPaint", "Clear mask paint", 130 * S, false))
+                        {
+                            Layer->Mask.Dabs.clear();
+                            Layer->Mask.Fills.clear();
+                            CommitHistory("Mask properties", Layer->Name, "mask");
+                            MarkDirty();
+                        }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                    }
+                }
+                ImGui::EndDisabled();
+                bool Enabled = Layer->Mask.Enabled;
+                if (Controls.Toggle("Mask enabled", Enabled))
+                {
+                    Layer->Mask.Enabled = Enabled;
+                    CommitHistory("Mask properties", Layer->Name, "mask");
+                    MarkDirty();
+                }
+                bool Inverted = Layer->Mask.Inverted;
+                ImGui::BeginDisabled(Locked);
+                if (Controls.Toggle("Invert mask", Inverted))
+                {
+                    Layer->Mask.Inverted = Inverted;
+                    CommitHistory("Mask properties", Layer->Name, "mask");
+                    MarkDirty();
+                }
+                if (Controls.Range("Mask strength", Layer->Mask.Strength, 0.f, 100.f)) QueueHistory("Mask properties", Layer->Name, "mask");
+                ImGui::EndDisabled();
+                WrapNote("White reveals the layer and black conceals it in the preview composite. Digital Paint / Erase / Fill also writes this mask while it is selected.");
+            }
+            Controls.EndCard();
+            {
+                const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                const float Half = (ImGui::GetContentRegionAvail().x - 8 * S) * .5f;
+                ImGui::BeginDisabled(Locked);
+                ImGui::SetCursorScreenPos(Origin);
+                if (PillButton("RemoveMask", "Remove mask", Half, false, "M3 6H21M8 6V3H16V6M6 6L7 21H17L18 6M10 10V17M14 10V17")) RemoveSelectedMask();
+                ImGui::EndDisabled();
+                ImGui::SetCursorScreenPos(ImVec2(Origin.x + Half + 8 * S, Origin.y));
+                if (PillButton("BackToLayer", "Back to layer", Half, false)) SelectLayer(Layer->Id, false);
+                ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 36 * S));
+            }
+        }
+        else
+        {
+            SectionLabel("LAYER PROPERTIES", "Authoring setup");
+            Controls.BeginCard("", true);
+            {
+                AccentBar(0x8b9b82, "Composition", "Layer setup");
+                Controls.ControlHeight = 29;
+                // Name (AuthoringNameField: commits on deactivation, never to an empty string).
+                if (LayerNameSelectionId != Layer->Id)
+                {
+                    std::strncpy(LayerNameBuffer, Layer->Name.c_str(), sizeof(LayerNameBuffer) - 1);
+                    LayerNameBuffer[sizeof(LayerNameBuffer) - 1] = '\0';
+                    LayerNameSelectionId = Layer->Id;
+                }
+                ImGui::TextDisabled("Name");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::BeginDisabled(Locked);
+                ImGui::InputText("##LayerName", LayerNameBuffer, sizeof(LayerNameBuffer));
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    const std::string NewName = Trimmed(LayerNameBuffer);
+                    if (!NewName.empty() && NewName != Layer->Name)
+                    {
+                        const std::string Old = Layer->Name;
+                        Layer->Name = NewName.substr(0, 80);
+                        CommitHistory("Rename layer", Old + " -> " + Layer->Name, "layer");
+                        MarkDirty();
+                    }
+                    LayerNameSelectionId.clear();
+                }
+                ImGui::EndDisabled();
+                Track("Layer name");
+                // Folder assignment.
+                {
+                    std::vector<std::string> Options{"Root / ungrouped"}, Ids{""};
+                    for (const auto &Candidate : Layers)
+                    {
+                        if (Candidate.Kind != LayerKind::Folder || Candidate.Id == Layer->Id || IsDescendantOf(Candidate.Id, Layer->Id)) continue;
+                        Options.push_back(std::string(LayerDepth(Candidate), '-') + (LayerDepth(Candidate) ? " " : "") + Candidate.Name);
+                        Ids.push_back(Candidate.Id);
+                    }
+                    std::vector<const char *> Labels;
+                    for (const auto &Option : Options) Labels.push_back(Option.c_str());
+                    int FolderIndex = 0;
+                    for (size_t Index = 0; Index < Ids.size(); ++Index)
+                        if (Ids[Index] == Layer->ParentId) FolderIndex = int(Index);
+                    ImGui::BeginDisabled(Locked);
+                    if (Controls.Dropdown("Folder", FolderIndex, Labels)) SetLayerParent(Layer->Id, Ids[size_t(FolderIndex)]);
+                    ImGui::EndDisabled();
+                    Layer = SelectedLayer(); // SetLayerParent may have moved the record
+                    if (!Layer) { Controls.EndCard(); ImGui::Unindent(19 * S); ImGui::EndChild(); return; }
+                }
+                if (Layer->Kind == LayerKind::Folder)
+                {
+                    int Descendants = 0;
+                    for (const auto &Candidate : Layers)
+                        if (IsDescendantOf(Candidate.Id, Layer->Id)) ++Descendants;
+                    char Summary[48];
+                    std::snprintf(Summary, sizeof(Summary), "%d descendant layers", Descendants);
+                    ImGui::TextDisabled("%s", Summary);
+                    ImGui::BeginDisabled(Locked);
+                    if (PillButton("UngroupFolder", "Ungroup folder", 130 * S, false)) { UngroupSelectedFolder(); Controls.EndCard(); ImGui::Unindent(19 * S); ImGui::EndChild(); return; }
+                    ImGui::EndDisabled();
+                    ImGui::Dummy(ImVec2(1, 6 * S));
+                }
+                int BlendIndex = 0;
+                for (size_t Index = 0; Index < BlendTable.size(); ++Index)
+                    if (Layer->Blend == BlendTable[Index]) BlendIndex = int(Index);
+                ImGui::BeginDisabled(Locked);
+                if (Controls.Dropdown("Blend mode", BlendIndex, BlendTable))
+                {
+                    Layer->Blend = BlendTable[size_t(BlendIndex)];
+                    CommitHistory("Layer blend", Layer->Name + " · " + Layer->Blend, "layer");
+                    MarkDirty();
+                }
+                if (Controls.Range("Layer opacity", Layer->Opacity, 0.f, 100.f))
+                {
+                    char Detail[96];
+                    std::snprintf(Detail, sizeof(Detail), "%s · %d%%", Layer->Name.c_str(), int(std::round(Layer->Opacity)));
+                    QueueHistory("Layer opacity", Detail, "layer");
+                }
+                ImGui::EndDisabled();
+                WrapNote("Digital strokes, native materials and decals follow stack order, layer opacity and inherited masks. Brush channels evaluate before PBR lighting. Digital colour blends are supported; native material blend modes remain metadata.");
+            }
+            Controls.EndCard();
+
+            if (Layer->Kind != LayerKind::Folder)
+            {
+                Controls.BeginCard("", false);
+                {
+                    char Small[40];
+                    std::snprintf(Small, sizeof(Small), "%d segments / fills", Layer->StrokeCount);
+                    AccentBar(0xd79564, "Digital painting", Small);
+                    WrapNote("Paint or erase enabled channels in Lit or packed UV view. Fill a real mesh component, island or face. Digital strokes are portable and undoable.");
+                    ImGui::Dummy(ImVec2(1, 8 * S));
+                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    const float Half = (ImGui::GetContentRegionAvail().x - 8 * S) * .5f;
+                    ImGui::SetCursorScreenPos(Origin);
+                    if (PillButton("OpenBrushStudio", "Brush studio", Half, BrushStudioOpen, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10")) BrushStudioOpen = true;
+                    ImGui::BeginDisabled(Locked || (Layer->Dabs.empty() && Layer->Fills.empty()));
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Half + 8 * S, Origin.y));
+                    if (PillButton("ClearLayerPaint", "Clear paint", Half, false, "M3 12a9 9 0 1 0 3-6.7M3 4v5h5")) ClearSelectedPaint();
+                    ImGui::EndDisabled();
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 32 * S));
+                }
+                Controls.EndCard();
+            }
+
+            if (Layer->Kind != LayerKind::Folder && Layer->Kind != LayerKind::Decal)
+            {
+                char Enabled[32];
+                std::snprintf(Enabled, sizeof(Enabled), "%zu enabled", Layer->Channels.size());
+                SectionLabel("CHANNEL TARGETS", Enabled);
+                Controls.BeginCard("", false);
+                {
+                    AccentBar(0x8b9b82, "Channel targets");
+                    const float CellWidth = (ImGui::GetContentRegionAvail().x - 6 * S) * .5f;
+                    const char *Groups[]{"Surface", "Radiance", "Reflectance", "Scattering"};
+                    for (const char *Group : Groups)
+                    {
+                        Caption(ImGui::GetCursorScreenPos(), Group, 8 * S, 0x909080);
+                        ImGui::Dummy(ImVec2(1, 16 * S));
+                        int Column = 0;
+                        const float RowX = ImGui::GetCursorScreenPos().x;
+                        float RowY = ImGui::GetCursorScreenPos().y;
+                        for (const auto &Channel : ChannelTable)
+                        {
+                            if (std::string(Channel.Group) != Group) continue;
+                            const bool On = std::find(Layer->Channels.begin(), Layer->Channels.end(), Channel.Id) != Layer->Channels.end();
+                            ImGui::BeginDisabled(Locked);
+                            ImGui::SetCursorScreenPos(ImVec2(RowX + Column * (CellWidth + 6 * S), RowY));
+                            if (PillButton((std::string("Channel") + Channel.Id).c_str(), Channel.Label, CellWidth, On))
+                            {
+                                ToggleChannel(*Layer, Channel.Id);
+                                Layer = SelectedLayer();
+                                if (!Layer) break;
+                            }
+                            ImGui::EndDisabled();
+                            if (++Column == 2) { Column = 0; RowY += 30 * S; }
+                        }
+                        if (Column) RowY += 30 * S;
+                        ImGui::SetCursorScreenPos(ImVec2(RowX, RowY + 6 * S));
+                        if (!Layer) break;
+                    }
+                    if (Layer)
+                        WrapNote("Channel sources are configuration only in this native build; the viewport composite reads painted coverage, not evaluated PBR maps. Normal follows the Height target.");
+                }
+                Controls.EndCard();
+                Layer = SelectedLayer();
+            }
+
+            if (Layer)
+            {
+                Controls.BeginCard("", false);
+                {
+                    AccentBar(0xd79564, Layer->Kind == LayerKind::Folder ? "Folder coverage" : "Layer source", "Source setup");
+                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    Ink->AddRectFilled(Origin, ImVec2(Origin.x + 36 * S, Origin.y + 36 * S), Colour32(0x232323), 9 * S);
+                    DrawGlyph(MetaForKind(size_t(Layer->Kind)).Icon, ImVec2(Origin.x + 9 * S, Origin.y + 9 * S), 18 * S, MetaForKind(size_t(Layer->Kind)).Colour);
+                    Caption(ImVec2(Origin.x + 46 * S, Origin.y + 2 * S), MetaForKind(size_t(Layer->Kind)).Label, 11 * S, 0xd8d8cd);
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 46 * S, Origin.y + 18 * S));
+                    ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x + 46 * S);
+                    if (!Layer->SourceAsset.empty())
+                        ImGui::TextColored(Spectrum(0x93938d), "Assigned %s: %s", Layer->SourceAssetType.c_str(), Layer->SourceAsset.c_str());
+                    else ImGui::TextColored(Spectrum(0x93938d), "%s", MetaForKind(size_t(Layer->Kind)).Description);
+                    ImGui::PopTextWrapPos();
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 52 * S));
+                    if (Layer->Mask.Present)
+                    {
+                        if (PillButton("InspectLayerMask", "Inspect layer mask", 170 * S, false)) SelectLayer(Layer->Id, true);
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                    }
+                    else
+                    {
+                        ImGui::BeginDisabled(Locked);
+                        if (PillButton("AddLayerMaskInspector", "Add layer mask +", 170 * S, false)) AddMaskToSelected(false);
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        if (PillButton("AddColourMaskInspector", "Add colour mask +", 170 * S, false)) AddMaskToSelected(true);
+                        ImGui::EndDisabled();
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                    }
+                }
+                Controls.EndCard();
+            }
+        }
+
+        // .tp-stage-note
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            DrawGlyph("M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3ZM12 11V16M12 8V8.01", ImVec2(Origin.x, Origin.y + 2 * S), 13 * S, 0x8a8a7c);
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x + 21 * S, Origin.y));
+            ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x);
+            ImGui::TextColored(Spectrum(0x93938d), "%s",
+                "Materials and decals evaluate bottom to top. Locked Layer 0 supplies white fallback and baked AO / normal support. "
+                "Preview paint is evaluated per-triangle on screen; this live surface stack is not a baked UV atlas.");
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::Dummy(ImVec2(1, 12 * S));
+    }
+    ImGui::Unindent(19 * S);
+    ImGui::EndChild();
+    // .tp-inspector-footer
+    {
+        const ImVec2 WindowPosition = ImGui::GetWindowPos(), WindowSize = ImGui::GetWindowSize();
+        const ImVec2 FooterMinimum(WindowPosition.x, WindowPosition.y + WindowSize.y - FooterHeight);
+        Ink->AddRectFilled(FooterMinimum, ImVec2(FooterMinimum.x + WindowSize.x, FooterMinimum.y + FooterHeight), Colour32(0x151515));
+        Ink->AddLine(FooterMinimum, ImVec2(FooterMinimum.x + WindowSize.x, FooterMinimum.y), Colour32(0xffffff, .02f));
+        Ink->AddCircleFilled(ImVec2(FooterMinimum.x + 21.5f * S, FooterMinimum.y + FooterHeight * .5f), 2.5f * S, Colour32(0x8aa27e), 10);
+        Caption(ImVec2(FooterMinimum.x + 28 * S, FooterMinimum.y + FooterHeight * .5f - 5 * S), "Layer sources", 8 * S, 0x777d66);
+        const char *State = !Layer ? "No selection" : Locked ? "Read only" : "Editable";
+        Caption(ImVec2(FooterMinimum.x + WindowSize.x - 19 * S - CaptionWidth(State, 7 * S), FooterMinimum.y + FooterHeight * .5f - 4.5f * S), State, 7 * S, 0x686e59);
+    }
+}
+
+void TexturePaintWorkspacePanel::ConstructHistory()
+{
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const float FooterHeight = 39 * S;
+    const int Inspected = HistoryChosen >= 0 && HistoryChosen < int(HistoryEntries.size()) ? HistoryChosen : HistoryIndex;
+    ImGui::BeginChild("TextureHistoryScroll", ImVec2(0, std::max(40.f, ImGui::GetContentRegionAvail().y - FooterHeight)), false);
+    ImGui::Indent(19 * S);
+    ImGui::Dummy(ImVec2(1, 16 * S));
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(Origin, "DOCUMENT TIMELINE", 7 * S, 0x8e8b7c);
+        Caption(ImVec2(Origin.x, Origin.y + 12 * S), "History", 22 * S, 0xe6e6dc, LightTypeface ? LightTypeface : RegularTypeface);
+        char States[24];
+        std::snprintf(States, sizeof(States), "%zu states", HistoryEntries.size());
+        Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - CaptionWidth(States, 8 * S), Origin.y + 16 * S), States, 8 * S, 0x7a7a69);
+        ImGui::Dummy(ImVec2(1, 52 * S));
+    }
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Half = (ImGui::GetContentRegionAvail().x - 8 * S) * .5f;
+        ImGui::BeginDisabled(!CanUndo());
+        ImGui::SetCursorScreenPos(Origin);
+        if (PillButton("HistoryUndo", "Undo", Half, false, "M9 14L4 9L9 4M4 9H14a6 6 0 0 1 0 12h-3")) Undo();
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(!CanRedo());
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + Half + 8 * S, Origin.y));
+        if (PillButton("HistoryRedo", "Redo", Half, false, "M15 14L20 9L15 4M20 9H10a6 6 0 0 0 0 12h3")) Redo();
+        ImGui::EndDisabled();
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 38 * S));
+    }
+    // Last-stroke preview card: the inspected entry's real dab records, plotted in UDIM space.
+    Controls.BeginCard("", true);
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddRectFilled(ImVec2(Origin.x - 14 * S, Origin.y - 2 * S), ImVec2(Origin.x - 11 * S, Origin.y + 10 * S), Colour32(0x8b9b82), 1.5f * S);
+        Caption(Origin, "Last stroke", 11 * S, 0xd8d8cd);
+        const bool HasStroke = Inspected >= 0 && HistoryEntries[size_t(Inspected)].Kind == "stroke";
+        const char *Small = HasStroke ? (HistoryEntries[size_t(Inspected)].Detail.find("Mask coverage") != std::string::npos ? "Mask coverage" : "Surface channels") : "2D source";
+        Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - CaptionWidth(Small, 8 * S), Origin.y + 1 * S), Small, 8 * S, 0x7a7a69);
+        ImGui::Dummy(ImVec2(1, 24 * S));
+        if (HasStroke)
+        {
+            const auto &Entry = HistoryEntries[size_t(Inspected)];
+            const ImVec2 PlotOrigin = ImGui::GetCursorScreenPos();
+            const float PlotWidth = ImGui::GetContentRegionAvail().x, PlotHeight = 92 * S;
+            constexpr float Cell = 11.f;
+            for (float Y = PlotOrigin.y; Y < PlotOrigin.y + PlotHeight; Y += Cell * S)
+                for (float X = PlotOrigin.x; X < PlotOrigin.x + PlotWidth; X += Cell * S)
+                {
+                    const int Parity = (int((X - PlotOrigin.x) / (Cell * S)) + int((Y - PlotOrigin.y) / (Cell * S))) & 1;
+                    Ink->AddRectFilled(ImVec2(X, Y), ImVec2(std::min(X + Cell * S, PlotOrigin.x + PlotWidth), std::min(Y + Cell * S, PlotOrigin.y + PlotHeight)),
+                        Colour32(Parity ? 0x252525 : 0x45453c));
+                }
+            for (const auto &Layer : Entry.State.Layers)
+            {
+                const auto Plot = [&](const std::vector<PaintDab> &Dabs)
+                {
+                    for (const auto &Dab : Dabs)
+                        Ink->AddCircleFilled(ImVec2(PlotOrigin.x + Dab.U / 4.f * PlotWidth, PlotOrigin.y + (1.f - Dab.V) * PlotHeight),
+                            std::max(1.5f * S, Dab.Radius * PlotWidth / 4.f),
+                            IM_COL32(uint8_t(Dab.Colour[0] * 255), uint8_t(Dab.Colour[1] * 255), uint8_t(Dab.Colour[2] * 255), 200), 10);
+                };
+                Plot(Layer.Dabs);
+                Plot(Layer.Mask.Dabs);
+            }
+            ImGui::Dummy(ImVec2(1, PlotHeight + 10 * S));
+            const char *Preset = "Studio round";
+            for (const auto &Candidate : PresetTable)
+                if (Entry.State.Brush.Preset == Candidate.Id) Preset = Candidate.Name;
+            Caption(ImGui::GetCursorScreenPos(), Preset, 10 * S, 0xd8d8cd);
+            ImGui::Dummy(ImVec2(1, 16 * S));
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s\nActual recorded stroke at this history state. Plotted from the committed dab records, not a tool-setting illustration.", Entry.Detail.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        else
+        {
+            const ImVec2 EmptyOrigin = ImGui::GetCursorScreenPos();
+            const float CentreX = EmptyOrigin.x + ImGui::GetContentRegionAvail().x * .5f;
+            DrawGlyph("M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10", ImVec2(CentreX - 10.5f * S, EmptyOrigin.y + 8 * S), 21 * S, 0x6f6f66);
+            Caption(ImVec2(CentreX - CaptionWidth("No recorded stroke", 11 * S) * .5f, EmptyOrigin.y + 38 * S), "No recorded stroke", 11 * S, 0xb5b5a9);
+            const char *Body = "Use digital Paint / Erase / Fill on a layer or mask.";
+            Caption(ImVec2(CentreX - CaptionWidth(Body, 8 * S) * .5f, EmptyOrigin.y + 56 * S), Body, 8 * S, 0x77776f);
+            ImGui::Dummy(ImVec2(1, 72 * S));
+        }
+    }
+    Controls.EndCard();
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Half = (ImGui::GetContentRegionAvail().x - 8 * S) * .5f;
+        ImGui::SetCursorScreenPos(Origin);
+        if (PillButton("HistoryFilterAll", "All edits", Half, !HistoryStrokesOnly)) HistoryStrokesOnly = false;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + Half + 8 * S, Origin.y));
+        if (PillButton("HistoryFilterStrokes", "Strokes", Half, HistoryStrokesOnly)) HistoryStrokesOnly = true;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 38 * S));
+    }
+    int ShownEntries = 0;
+    for (int Index = int(HistoryEntries.size()) - 1; Index >= 0; --Index)
+    {
+        const auto &Entry = HistoryEntries[size_t(Index)];
+        if (HistoryStrokesOnly && Entry.Kind != "stroke") continue;
+        ++ShownEntries;
+        const bool Current = Index == HistoryIndex;
+        const bool Chosen = Index == Inspected;
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float Width = ImGui::GetContentRegionAvail().x, Height = 54 * S;
+        ImGui::PushID(Index);
+        ImGui::SetCursorScreenPos(Origin);
+        const bool Clicked = ImGui::InvisibleButton("##HistoryEntry", ImVec2(Width, Height));
+        ImGui::PopID();
+        if (Clicked) HistoryChosen = Index;
+        if (Chosen || Current) Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + Height), Colour32(Current ? 0x26261f : 0x1e1e1c), 10 * S);
+        if (Current) Ink->AddRectFilled(Origin, ImVec2(Origin.x + 3 * S, Origin.y + Height), Colour32(0xd9b281), 3 * S);
+        const char *Icon = Entry.Kind == "stroke" || Entry.Kind == "tool" ? "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"
+            : Entry.Kind == "folder" ? "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"
+            : Entry.Kind == "channel" ? "M4 8H20M4 16H20M8 5V11M16 13V19"
+            : Entry.Kind == "source" ? "M3 5H21V19H3ZM3 15L8 10L12 14L16 10L21 15"
+            : Entry.Kind == "project" ? "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 3"
+                                      : LayersIconPath;
+        Ink->AddRectFilled(ImVec2(Origin.x + 8 * S, Origin.y + 10 * S), ImVec2(Origin.x + 42 * S, Origin.y + 44 * S), Colour32(0x232323), 9 * S);
+        DrawGlyph(Icon, ImVec2(Origin.x + 18 * S, Origin.y + 20 * S), 14 * S, Index > HistoryIndex ? 0x66665c : 0xa8a89a);
+        Caption(ImVec2(Origin.x + 52 * S, Origin.y + 8 * S), Entry.Label.c_str(), 10 * S, Index > HistoryIndex ? 0x7a7a6e : 0xd8d8cd);
+        Caption(ImVec2(Origin.x + 52 * S, Origin.y + 24 * S), Entry.Detail.c_str(), 8 * S, 0x8a8a7c);
+        char State[64];
+        std::snprintf(State, sizeof(State), "%s · %s", Current ? "Current state" : Index > HistoryIndex ? "Undone" : "Applied", Entry.TimeText.c_str());
+        Caption(ImVec2(Origin.x + 52 * S, Origin.y + 38 * S), State, 7 * S, 0x66665a);
+        char Number[8];
+        std::snprintf(Number, sizeof(Number), "%02d", Index);
+        Caption(ImVec2(Origin.x + Width - 26 * S, Origin.y + 10 * S), Number, 10 * S, 0x8a8a7c);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + Height + 4 * S));
+    }
+    if (!ShownEntries)
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        const float CentreX = Origin.x + ImGui::GetContentRegionAvail().x * .5f;
+        DrawGlyph("M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3ZM12 7V12L15 15", ImVec2(CentreX - 9 * S, Origin.y + 16 * S), 18 * S, 0x6f6f66);
+        const char *Body = "No stroke transactions in this session.";
+        Caption(ImVec2(CentreX - CaptionWidth(Body, 9 * S) * .5f, Origin.y + 42 * S), Body, 9 * S, 0x77776f);
+        ImGui::Dummy(ImVec2(1, 66 * S));
+    }
+    ImGui::Unindent(19 * S);
+    ImGui::EndChild();
+    // .tp-history-footer
+    {
+        const ImVec2 WindowPosition = ImGui::GetWindowPos(), WindowSize = ImGui::GetWindowSize();
+        const ImVec2 FooterMinimum(WindowPosition.x, WindowPosition.y + WindowSize.y - FooterHeight);
+        Ink->AddRectFilled(FooterMinimum, ImVec2(FooterMinimum.x + WindowSize.x, FooterMinimum.y + FooterHeight), Colour32(0x151515));
+        Ink->AddLine(FooterMinimum, ImVec2(FooterMinimum.x + WindowSize.x, FooterMinimum.y), Colour32(0xffffff, .02f));
+        Caption(ImVec2(FooterMinimum.x + 19 * S, FooterMinimum.y + FooterHeight * .5f - 4.5f * S), "Session history · 80 undo steps", 7 * S, 0x686e59);
+        ImGui::BeginDisabled(Inspected < 0 || Inspected == HistoryIndex);
+        ImGui::SetCursorScreenPos(ImVec2(FooterMinimum.x + WindowSize.x - 19 * S - 132 * S, FooterMinimum.y + 6.5f * S));
+        if (PillButton("RestoreHistoryState", "Restore this state", 132 * S, false)) RestoreHistoryEntry(Inspected);
+        ImGui::EndDisabled();
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     DIGITAL BRUSH STUDIO (POPUP)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructBrushStudio()
+{
+    if (!BrushStudioOpen) return;
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    const auto *Viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(Viewport->WorkPos.x + Viewport->WorkSize.x * .5f, Viewport->WorkPos.y + Viewport->WorkSize.y * .5f),
+        ImGuiCond_Appearing, ImVec2(.5f, .5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(460 * S, Viewport->WorkSize.x * .94f), std::min(580 * S, Viewport->WorkSize.y * .9f)), ImGuiCond_Appearing);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14 * S);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * S, 14 * S));
+    ImGui::Begin("Digital brush studio", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
+    auto *Ink = ImGui::GetWindowDrawList();
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        DrawGlyph("M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10", Origin, 17 * S, 0xedc391);
+        Caption(ImVec2(Origin.x + 24 * S, Origin.y + 1 * S), "Digital brush studio", 14 * S, 0xe8e2d2, LightTypeface ? LightTypeface : RegularTypeface);
+        const char *Note = Brush.Tool == "erase" ? "Erase removes authored pixels and reveals the layer below; masks restore their original source."
+            : Brush.Tool == "fill" ? "Fill uses channel values and opacity. Click a face, island or mesh component."
+                                   : "Paint deposits the brush colour on enabled channels.";
+        Caption(ImVec2(Origin.x + 24 * S, Origin.y + 20 * S), Note, 8 * S, 0x8a8474);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - 28 * S, Origin.y));
+        if (IconButton("CloseBrushStudio", "M6 6L18 18M6 18L18 6", 26 * S)) BrushStudioOpen = false;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Close digital brush studio");
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 40 * S));
+    }
+    ImGui::BeginChild("BrushStudioScroll", ImVec2(0, std::max(60.f, ImGui::GetContentRegionAvail().y - 40 * S)), false);
+    const auto AccentBar = [&](const char *Label)
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Ink->AddRectFilled(ImVec2(Origin.x - 14 * S, Origin.y - 2 * S), ImVec2(Origin.x - 11 * S, Origin.y + 10 * S), Colour32(0xd9b281), 1.5f * S);
+        Caption(Origin, Label, 11 * S, 0xd8d8cd);
+        ImGui::Dummy(ImVec2(1, 26 * S));
+    };
+    const auto QueueBrush = [&]() { QueueHistory("Digital brush settings", BrushPresetName(), "tool"); };
+    // Tools + presets.
+    {
+        float X = ImGui::GetCursorScreenPos().x;
+        const float Y = ImGui::GetCursorScreenPos().y;
+        const struct { const char *Id; const char *Label; const char *Icon; } Tools[3]{
+            {"paint", "Paint", "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
+            {"erase", "Erase", "M7 21L3 17L14 6L20 12L13 19H8ZM14 6L18 2L22 6L20 8"},
+            {"fill", "Fill", "M5 11L12 4L19 11L12 18ZM12 18V21M5 21H19"}};
+        for (const auto &Entry : Tools)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton((std::string("StudioTool") + Entry.Id).c_str(), Entry.Label, 84 * S, Brush.Tool == Entry.Id, Entry.Icon))
+            {
+                Brush.Tool = Entry.Id;
+                CommitHistory("Digital tool", BrushPresetName(), "tool");
+                MarkDirty();
+            }
+            X += 88 * S;
+        }
+        ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, Y + 34 * S));
+        Caption(ImGui::GetCursorScreenPos(), "DIGITAL BRUSH PRESETS", 8 * S, 0x909080);
+        ImGui::Dummy(ImVec2(1, 18 * S));
+        for (const auto &Preset : PresetTable)
+        {
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            const float Width = ImGui::GetContentRegionAvail().x;
+            ImGui::PushID(Preset.Id);
+            const bool Pressed = ImGui::InvisibleButton("##Preset", ImVec2(Width, 36 * S));
+            ImGui::PopID();
+            const bool SelectedPreset = Brush.Preset == Preset.Id;
+            if (SelectedPreset || ImGui::IsItemHovered())
+                Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 36 * S), Colour32(SelectedPreset ? 0x2c2620 : 0x232320), 9 * S);
+            Caption(ImVec2(Origin.x + 10 * S, Origin.y + 5 * S), Preset.Name, 10 * S, SelectedPreset ? 0xf0e9d8 : 0xc8c8ba);
+            Caption(ImVec2(Origin.x + 10 * S, Origin.y + 21 * S), Preset.Note, 8 * S, 0x8a8a7c);
+            if (Pressed) ApplyBrushPreset(Preset.Id);
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 38 * S));
+        }
+    }
+    {
+        float X = ImGui::GetCursorScreenPos().x;
+        const float Y = ImGui::GetCursorScreenPos().y;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("StudioTabBrush", "Brush properties", 150 * S, !BrushStudioChannels, "M4 8H20M4 16H20M8 5V11M16 13V19")) BrushStudioChannels = false;
+        X += 154 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("StudioTabChannels", "Channel properties", 164 * S, BrushStudioChannels, LayersIconPath)) BrushStudioChannels = true;
+        X += 168 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("StudioResetBrush", "Reset", 72 * S, false)) ApplyBrushPreset(Brush.Preset);
+        ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, Y + 36 * S));
+    }
+    Controls.ControlHeight = 29;
+    if (!BrushStudioChannels)
+    {
+        if (Brush.Tool == "fill")
+        {
+            const char *Scopes[]{"Face", "Island", "Object", "Tile"};
+            const RegionScope Mapping[]{RegionScope::Face, RegionScope::Island, RegionScope::Object, RegionScope::Tile};
+            int Index = 2;
+            for (int At = 0; At < 4; ++At)
+                if (Mapping[At] == Brush.FillScope) Index = At;
+            if (Controls.Dropdown("Fill region", Index, Scopes)) { Brush.FillScope = Mapping[Index]; QueueBrush(); }
+        }
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Stroke path");
+            if (Controls.Range("Size", Brush.Size, 0.f, 128.f)) QueueBrush();
+            if (Controls.Range("Opacity", Brush.Opacity, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Flow", Brush.Flow, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Spacing", Brush.Spacing, .05f, 2.f)) QueueBrush();
+            if (Controls.Range("Stabilization", Brush.Stabilization, 0.f, 1.f)) QueueBrush();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s", "Size is the diameter in screen pixels. Zero size or opacity paints nothing.");
+            ImGui::PopTextWrapPos();
+        }
+        Controls.EndCard();
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Shape");
+            const char *Shapes[]{"Round", "Square"};
+            int ShapeIndex = Brush.Shape == "square" ? 1 : 0;
+            if (Controls.Dropdown("Digital brush tip shape", ShapeIndex, Shapes)) { Brush.Shape = ShapeIndex ? "square" : "round"; QueueBrush(); }
+            if (Controls.Range("Hardness", Brush.Hardness, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Roundness", Brush.Roundness, .05f, 1.f)) QueueBrush();
+            if (Controls.Range("Rotation", Brush.Rotation, 0.f, 360.f)) QueueBrush();
+            if (Controls.Toggle("Digital brush follow stroke", Brush.Follow)) QueueBrush();
+        }
+        Controls.EndCard();
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Grain");
+            const char *Grains[]{"None", "Noise", "Lines", "Checker"};
+            const char *GrainIds[]{"none", "noise", "lines", "checker"};
+            int GrainIndex = 0;
+            for (int At = 0; At < 4; ++At)
+                if (Brush.Grain == GrainIds[At]) GrainIndex = At;
+            if (Controls.Dropdown("Digital brush grain texture", GrainIndex, Grains)) { Brush.Grain = GrainIds[GrainIndex]; QueueBrush(); }
+            if (Controls.Range("Grain amount", Brush.GrainAmount, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Grain scale", Brush.GrainScale, 1.f, 32.f)) QueueBrush();
+        }
+        Controls.EndCard();
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Stroke dynamics");
+            if (Controls.Range("Size jitter", Brush.SizeJitter, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Opacity jitter", Brush.OpacityJitter, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Scatter", Brush.Scatter, 0.f, 1.f)) QueueBrush();
+        }
+        Controls.EndCard();
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Colour dynamics");
+            if (Controls.Colour("Colour", Brush.Colour)) QueueBrush();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s", MaskSelected ? "Mask ink is grayscale; colour applies when painting layer channels." : "The colour Paint and Fill deposit on enabled channels.");
+            ImGui::PopTextWrapPos();
+        }
+        Controls.EndCard();
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Pressure and surface");
+            if (Controls.Range("Height strength", Brush.HeightStrength, 0.f, 2.f)) QueueBrush();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s", "Stylus pressure curves are configuration only in this native build; pointer input paints at full pressure.");
+            ImGui::PopTextWrapPos();
+        }
+        Controls.EndCard();
+    }
+    else if (MaskSelected)
+    {
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Digital mask target");
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s",
+                "Paint changes grayscale coverage. Erase removes the painted overlay, restoring the mask's original source. Fill writes the active ink to a real region.");
+            ImGui::PopTextWrapPos();
+            ImGui::Dummy(ImVec2(1, 8 * S));
+            float X = ImGui::GetCursorScreenPos().x;
+            const float Y = ImGui::GetCursorScreenPos().y;
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton("StudioInkWhite", "White", 84 * S, MaskEditor.InkWhite)) { MaskEditor.InkWhite = true; DigitalActive = DigitalActive; }
+            X += 88 * S;
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            if (PillButton("StudioInkBlack", "Black", 84 * S, !MaskEditor.InkWhite)) MaskEditor.InkWhite = false;
+            ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, Y + 34 * S));
+        }
+        Controls.EndCard();
+    }
+    else if (auto *Layer = SelectedLayer())
+    {
+        Controls.BeginCard("", false);
+        {
+            AccentBar("Channel targets");
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
+            ImGui::TextColored(Spectrum(0x93938d), "%s", "Enable the channels this brush writes. Erase only affects enabled channels.");
+            ImGui::PopTextWrapPos();
+            ImGui::Dummy(ImVec2(1, 8 * S));
+            for (const auto &Channel : ChannelTable)
+            {
+                bool On = std::find(Layer->Channels.begin(), Layer->Channels.end(), Channel.Id) != Layer->Channels.end();
+                if (Controls.Toggle(Channel.Label, On))
+                {
+                    ToggleChannel(*Layer, Channel.Id);
+                    Layer = SelectedLayer();
+                    if (!Layer) break;
+                }
+            }
+        }
+        Controls.EndCard();
+    }
+    else ImGui::TextDisabled("Select a layer to edit its channel targets.");
+    ImGui::EndChild();
+    {
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(ImVec2(Origin.x, Origin.y + 8 * S), MaskSelected ? "Painting the selected mask" : "Painting layer channels", 8 * S, 0x8a8474);
+        float X = Origin.x + ImGui::GetContentRegionAvail().x - 232 * S;
+        ImGui::BeginDisabled(!CanUndo());
+        ImGui::SetCursorScreenPos(ImVec2(X, Origin.y));
+        if (IconButton("StudioUndo", "M9 14L4 9L9 4M4 9H14a6 6 0 0 1 0 12h-3", 28 * S)) Undo();
+        ImGui::EndDisabled();
+        X += 32 * S;
+        ImGui::BeginDisabled(!CanRedo());
+        ImGui::SetCursorScreenPos(ImVec2(X, Origin.y));
+        if (IconButton("StudioRedo", "M15 14L20 9L15 4M20 9H10a6 6 0 0 0 0 12h3", 28 * S)) Redo();
+        ImGui::EndDisabled();
+        X += 40 * S;
+        ImGui::SetCursorScreenPos(ImVec2(X, Origin.y));
+        if (PillButton("StudioSave", "Save project", 116 * S, false)) SaveProject();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     CONTENT BROWSER (BOTTOM)
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructContentBrowser()
+{
+    const float S = InterfaceScale;
+    Controls.Scale = S;
+    const auto *Viewport = ImGui::GetMainViewport();
+    const float Left = Viewport->WorkPos.x, Right = Left + Viewport->WorkSize.x;
+    const float StatusTop = Viewport->WorkPos.y + Viewport->WorkSize.y - 31 * S;
+    const float Height = BrowserOpen ? std::min(340 * S, Viewport->WorkSize.y - 120 * S) : 38 * S;
+    ImGui::SetNextWindowPos(ImVec2(Left, StatusTop - Height));
+    ImGui::SetNextWindowSize(ImVec2(Right - Left, Height));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, BrowserOpen ? 12 * S : 0.f);
+    ImGui::Begin("Texture content browser", nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar);
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImVec2 Origin = ImGui::GetWindowPos();
+    const float Width = Right - Left;
+    // .cb-bar
+    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 37 * S), Colour32(0x222220));
+    Ink->AddLine(Origin, ImVec2(Origin.x + Width, Origin.y), Colour32(0x5b5b54));
+    Ink->AddRectFilled(ImVec2(Origin.x + Width * .5f - 24 * S, Origin.y + 2 * S), ImVec2(Origin.x + Width * .5f + 24 * S, Origin.y + 5 * S), Colour32(0x777b83), 2 * S);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 10 * S, Origin.y + 6 * S));
+    if (PillButton("ToggleContentBrowser", "Content browser", 150 * S, BrowserOpen, "M3 7a2 2 0 0 1 2-2h3.5l1.7 1.7H19a2 2 0 0 1 2 2v7.3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"))
+        BrowserOpen = !BrowserOpen;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", BrowserOpen ? "Collapse content browser" : "Open content browser");
+    Track("Content browser");
+    char Counts[96];
+    std::snprintf(Counts, sizeof(Counts), "%zu materials · 5 instruments · 10 generators · 0 stamps", MaterialAssets.size());
+    Caption(ImVec2(Origin.x + 174 * S, Origin.y + 13 * S), Counts, 10 * S, 0x9598a3);
+    const std::string Hint = BrowserSelected.empty() ? "Drag the top edge upward to open the asset workspace" : BrowserSelected;
+    Caption(ImVec2(Origin.x + Width - 58 * S - CaptionWidth(Hint.c_str(), 10 * S), Origin.y + 13 * S), Hint.c_str(), 10 * S, 0x868b95);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 42 * S, Origin.y + 5 * S));
+    if (IconButton("ExpandContentBrowser", "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7", 27 * S, BrowserOpen)) BrowserOpen = !BrowserOpen;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand content browser");
+
+    if (BrowserOpen)
+    {
+        const float BodyY = Origin.y + 37 * S;
+        const float BodyHeight = Height - 37 * S;
+        // .cb-outliner
+        Ink->AddRectFilled(ImVec2(Origin.x, BodyY), ImVec2(Origin.x + 178 * S, BodyY + BodyHeight), Colour32(0x1c1c1c));
+        Ink->AddLine(ImVec2(Origin.x + 178 * S, BodyY), ImVec2(Origin.x + 178 * S, BodyY + BodyHeight), Colour32(0xffffff, .04f));
+        DrawGlyph(LayersIconPath, ImVec2(Origin.x + 14 * S, BodyY + 15 * S), 13 * S, 0xa8a89a);
+        Caption(ImVec2(Origin.x + 34 * S, BodyY + 15 * S), "Asset library", 11 * S, 0xd8d8cd);
+        const struct { BrowserKind Kind; const char *Label; size_t Count; const char *Icon; } Kinds[4]{
+            {BrowserKind::Material, "Materials", MaterialAssets.size(), LayersIconPath},
+            {BrowserKind::Brush, "Brushes / instruments", 5, "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
+            {BrowserKind::Generator, "Generators", 10, "M12 3L13.8 8.2L19 10L13.8 11.8L12 17L10.2 11.8L5 10L10.2 8.2Z"},
+            {BrowserKind::Stamp, "Stamp presets", 0, "M5 22H19M12 2V10M8 10H16L17 18H7Z"}};
+        float RowY = BodyY + 44 * S;
+        for (const auto &Entry : Kinds)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x + 8 * S, RowY));
+            const std::string Label = std::string(Entry.Label) + "  " + std::to_string(Entry.Count);
+            if (PillButton((std::string("BrowserKind") + Entry.Label).c_str(), Label.c_str(), 162 * S, BrowserTab == Entry.Kind, Entry.Icon))
+            {
+                BrowserTab = Entry.Kind;
+                BrowserSelected.clear();
+            }
+            RowY += 32 * S;
+        }
+        // Search + asset grid.
+        const float GridX = Origin.x + 178 * S;
+        const float InspectorWidth = 300 * S;
+        const float GridWidth = std::max(180.f, Width - 178 * S - InspectorWidth);
+        ImGui::SetCursorScreenPos(ImVec2(GridX + 12 * S, BodyY + 10 * S));
+        ImGui::SetNextItemWidth(std::min(280 * S, GridWidth - 24 * S));
+        ImGui::InputText("##BrowserSearch", BrowserQuery, sizeof(BrowserQuery));
+        if (!BrowserQuery[0] && !ImGui::IsItemActive())
+            Caption(ImVec2(GridX + 22 * S, BodyY + 17 * S), "Search assets…", 10 * S, 0x787871);
+        ImGui::SetCursorScreenPos(ImVec2(GridX, BodyY + 44 * S));
+        ImGui::BeginChild("BrowserAssets", ImVec2(GridWidth, BodyHeight - 44 * S), false);
+        const std::string Query = Lowered(BrowserQuery);
+        const float TileWidth = 158 * S, TileHeight = 58 * S;
+        int Column = 0;
+        const int Columns = std::max(1, int(ImGui::GetContentRegionAvail().x / (TileWidth + 8 * S)));
+        const ImVec2 GridOrigin = ImGui::GetCursorScreenPos();
+        float TileY = GridOrigin.y + 4 * S;
+        int VisibleAssets = 0;
+        const auto AssetTile = [&](const std::string &Name, const std::string &Category, uint32_t ChipColour, const std::function<void()> &OnSelect)
+        {
+            if (!Query.empty() && Lowered(Name + " " + Category).find(Query) == std::string::npos) return;
+            ++VisibleAssets;
+            const ImVec2 TileMin(GridOrigin.x + 8 * S + Column * (TileWidth + 8 * S), TileY);
+            ImGui::SetCursorScreenPos(TileMin);
+            ImGui::PushID(Name.c_str());
+            const bool Clicked = ImGui::InvisibleButton("##Asset", ImVec2(TileWidth, TileHeight));
+            ImGui::PopID();
+            const bool SelectedAsset = BrowserSelected == Name;
+            if (SelectedAsset || ImGui::IsItemHovered())
+                Ink->AddRectFilled(TileMin, ImVec2(TileMin.x + TileWidth, TileMin.y + TileHeight), Colour32(SelectedAsset ? 0x333c38 : 0x242422), 10 * S);
+            if (SelectedAsset) Ink->AddRect(TileMin, ImVec2(TileMin.x + TileWidth, TileMin.y + TileHeight), Colour32(0x527660), 10 * S);
+            Ink->AddRectFilled(ImVec2(TileMin.x + 9 * S, TileMin.y + 13 * S), ImVec2(TileMin.x + 41 * S, TileMin.y + 45 * S), Colour32(ChipColour), 8 * S);
+            Caption(ImVec2(TileMin.x + 50 * S, TileMin.y + 13 * S), Name.c_str(), 9.5f * S, 0xd8d8cd);
+            Caption(ImVec2(TileMin.x + 50 * S, TileMin.y + 30 * S), Category.c_str(), 8 * S, 0x8a8a7c);
+            if (Clicked) { BrowserSelected = Name; OnSelect(); }
+            if (++Column >= Columns) { Column = 0; TileY += TileHeight + 8 * S; }
+        };
+        if (BrowserTab == BrowserKind::Material)
+        {
+            for (const auto &Asset : MaterialAssets)
+            {
+                const auto Colour = ParseHexColour(Asset.ColourHex, {.45f, .45f, .42f, 1.f});
+                const uint32_t Packed = (uint32_t(Colour[0] * 255) << 16) | (uint32_t(Colour[1] * 255) << 8) | uint32_t(Colour[2] * 255);
+                AssetTile(Asset.Name, Asset.Category.empty() ? "Material" : Asset.Category, Packed, []() {});
+            }
+            if (MaterialAssets.empty()) ImGui::TextDisabled("No materials in the loaded library directory.");
+        }
+        else if (BrowserTab == BrowserKind::Brush)
+        {
+            for (const auto &Preset : PresetTable)
+                AssetTile(Preset.Name, Preset.Note, 0xd79564, [&]() { ApplyBrushPreset(Preset.Id); });
+        }
+        else if (BrowserTab == BrowserKind::Generator)
+        {
+            for (const auto &Generator : GeneratorTable)
+                AssetTile(Generator.Label, std::string(Generator.Group) + " · " + Generator.Note, 0x78ab96, []() {});
+        }
+        else
+        {
+            ImGui::TextDisabled("No stamp presets in this native session.");
+            ImGui::Dummy(ImVec2(1, 8 * S));
+            ImGui::BeginDisabled(!ActivateStamp);
+            if (PillButton("BrowserOpenStamp", "Open Stamp workspace", 180 * S, false) && ActivateStamp) ActivateStamp();
+            ImGui::EndDisabled();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, TileY + TileHeight + 12 * S));
+        char Footer[32];
+        std::snprintf(Footer, sizeof(Footer), "%d assets", VisibleAssets);
+        Caption(ImGui::GetCursorScreenPos(), Footer, 8 * S, 0x77776f);
+        ImGui::EndChild();
+        // Preview + assign column.
+        const float PanelX = GridX + GridWidth;
+        Ink->AddLine(ImVec2(PanelX, BodyY), ImVec2(PanelX, BodyY + BodyHeight), Colour32(0xffffff, .04f));
+        ImGui::SetCursorScreenPos(ImVec2(PanelX + 14 * S, BodyY + 12 * S));
+        ImGui::BeginChild("BrowserPreview", ImVec2(InspectorWidth - 20 * S, BodyHeight - 16 * S), false);
+        ImGui::TextDisabled("%s", BrowserTab == BrowserKind::Material ? "Material" : BrowserTab == BrowserKind::Brush ? "Instrument"
+            : BrowserTab == BrowserKind::Generator ? "Generator" : "Stamp preset");
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + InspectorWidth - 34 * S);
+        if (BrowserSelected.empty()) ImGui::TextWrapped("%s", "Select an asset to assign it to the selected layer.");
+        else
+        {
+            ImGui::Text("%s", BrowserSelected.c_str());
+            ImGui::TextWrapped("%s", BrowserTab == BrowserKind::Brush
+                    ? "Selecting a preset applies it to the digital brush immediately. Assign stores an asset link on the layer."
+                    : "Assign stores an asset link on the selected layer - it is not paint compositing and does not bake maps.");
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::Dummy(ImVec2(1, 8 * S));
+        auto *Layer = SelectedLayer();
+        ImGui::BeginDisabled(!Layer || BrowserSelected.empty() || BrowserTab == BrowserKind::Stamp || (Layer && EffectiveLocked(*Layer)));
+        if (PillButton("AssignAsset", "Assign to layer", 150 * S, false) && Layer)
+        {
+            Layer->SourceAsset = BrowserSelected;
+            Layer->SourceAssetType = BrowserTab == BrowserKind::Material ? "material" : BrowserTab == BrowserKind::Generator ? "generator" : "brush";
+            Layer->SourceColour = {0, 0, 0, 0};
+            if (BrowserTab == BrowserKind::Material)
+                for (const auto &Asset : MaterialAssets)
+                    if (Asset.Name == BrowserSelected) Layer->SourceColour = ParseHexColour(Asset.ColourHex, {.55f, .55f, .52f, 1.f});
+            CommitHistory("Assign source asset", Layer->Name + " · " + BrowserSelected, "source");
+            MarkDirty();
+            Status = "Asset link stored on the layer · not paint compositing.";
+        }
+        ImGui::EndDisabled();
+        if (!Layer) ImGui::TextDisabled("Select a layer first.");
+        ImGui::EndChild();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     STATUS BAR + TOP LEVEL
+//------------------------------------------------------------------------------------------------------------------------
+
+void TexturePaintWorkspacePanel::ConstructStatusBar()
+{
+    const float S = InterfaceScale;
+    const auto *Viewport = ImGui::GetMainViewport();
+    const float Height = 31 * S;
+    const float Left = Viewport->WorkPos.x, Right = Left + Viewport->WorkSize.x;
+    const float Bottom = Viewport->WorkPos.y + Viewport->WorkSize.y - Height;
+    ImGui::SetNextWindowPos(ImVec2(Left, Bottom));
+    ImGui::SetNextWindowSize(ImVec2(Right - Left, Height));
+    ImGui::Begin("Texture paint status", nullptr,
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoScrollbar);
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddRectFilled(ImVec2(Left, Bottom), ImVec2(Right, Bottom + Height), Colour32(0x0c0c0c));
+    Ink->AddLine(ImVec2(Left, Bottom), ImVec2(Right, Bottom), Colour32(0xffffff, .03f));
+    Ink->AddCircleFilled(ImVec2(Left + 18.5f * S, Bottom + Height * .5f), 2.5f * S, Colour32(0x8aa27e), 10);
+    const char *Stage = "DIGITAL PAINT / LAYERS";
+    const float StageX = Right - 16 * S - CaptionWidth(Stage, 7 * S);
+    Ink->PushClipRect(ImVec2(Left, Bottom), ImVec2(StageX - 160 * S, Bottom + Height), true);
+    Caption(ImVec2(Left + 26 * S, Bottom + Height * .5f - 4.5f * S), Status.c_str(), 8 * S, 0x74776b);
+    Ink->PopClipRect();
+    float X = (Left + Right) * .5f - 86 * S;
+    const float Y = Bottom + 4.5f * S;
+    ImGui::BeginDisabled(!CanUndo());
+    ImGui::SetCursorScreenPos(ImVec2(X, Y));
+    if (IconButton("StatusUndo", "M9 14L4 9L9 4M4 9H14a6 6 0 0 1 0 12h-3", 22 * S)) Undo();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Undo · Ctrl/⌘ Z");
+    X += 26 * S;
+    ImGui::BeginDisabled(!CanRedo());
+    ImGui::SetCursorScreenPos(ImVec2(X, Y));
+    if (IconButton("StatusRedo", "M15 14L20 9L15 4M20 9H10a6 6 0 0 0 0 12h3", 22 * S)) Redo();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Redo · Ctrl/⌘ Shift Z");
+    X += 38 * S;
+    Ink->AddLine(ImVec2(X - 7 * S, Bottom + 10 * S), ImVec2(X - 7 * S, Bottom + 20 * S), Colour32(0x33332c));
+    ImGui::SetCursorScreenPos(ImVec2(X, Y));
+    if (PillButton("LayerDocumentHelp", "Layer document", 118 * S, HelpOpen, "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8ZM14 2v6h6")) HelpOpen = !HelpOpen;
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Layer workspace help");
+    Caption(ImVec2(StageX, Bottom + Height * .5f - 4 * S), Stage, 7 * S, 0x6c6d62);
+    ImGui::End();
+}
+
+void TexturePaintWorkspacePanel::ConstructInterface()
+{
+    // 🧩 Same themed style block as BakingWorkspacePanel::ConstructInterface, warm Texture accent.
+    const auto SavedPalette = ControlKit::Palette();
+    auto Palette = SavedPalette;
+    Palette.Panel = {.0706f, .0706f, .0706f, 1};
+    Palette.Inset = {.098f, .098f, .098f, 1};
+    Palette.Raised = {.133f, .133f, .133f, 1};
+    Palette.Selected = {.20f, .19f, .15f, 1};
+    Palette.Text = {.808f, .808f, .753f, 1};
+    Palette.TextDim = {.56f, .58f, .50f, 1};
+    Palette.TextFaint = {.35f, .37f, .30f, 1};
+    Palette.Accent = {.85f, .70f, .51f, 1};
+    ControlKit::ConfigurePalette(Palette);
+    const auto ToneQuad = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
+    ImGui::PushStyleColor(ImGuiCol_Text, ToneQuad(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ToneQuad(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Spectrum(0x141412));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Spectrum(0x191916));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_Header, Spectrum(0x191919));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Spectrum(0x272923));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, Spectrum(0x2c2e27));
+    ImGui::PushStyleColor(ImGuiCol_Button, Spectrum(0x222222));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Spectrum(0x2e2e28));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Spectrum(0x33352c));
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, Spectrum(0xd9b281));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, Spectrum(0xd9b281));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, Spectrum(0xedc391));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .055f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
+    ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
+
+    // ⌨️ TexturePaintStudio's shortcuts: undo/redo, duplicate, save (frame keys live with the viewports).
+    if (!ImGui::GetIO().WantTextInput)
+    {
+        const bool Command = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper;
+        if (Command && ImGui::IsKeyPressed(ImGuiKey_Z)) { if (ImGui::GetIO().KeyShift) Redo(); else Undo(); }
+        else if (Command && ImGui::IsKeyPressed(ImGuiKey_Y)) Redo();
+        else if (Command && ImGui::IsKeyPressed(ImGuiKey_S)) SaveProject();
+        else if (Command && ImGui::IsKeyPressed(ImGuiKey_D)) DuplicateSelectedLayer();
+    }
+
+    ConstructHeader();
+    Panels.ConstructInterface(InterfaceScale);
+    ConstructContentBrowser();
+    ConstructBrushStudio();
+    ConstructStatusBar();
+
+    const auto *Viewport = ImGui::GetMainViewport();
+    const float S = InterfaceScale;
+    const float Left = Viewport->WorkPos.x, Right = Left + Viewport->WorkSize.x;
+    const float BottomEdge = Viewport->WorkPos.y + Viewport->WorkSize.y;
+    if (HelpOpen)
+    {
+        ImGui::SetNextWindowPos(ImVec2(Right - 16 * S, BottomEdge - 85 * S), ImGuiCond_Always, ImVec2(1, 1));
+        ImGui::SetNextWindowSize(ImVec2(std::min(430 * S, (Right - Left) * .92f), 0));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x1d1d1a));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14 * S);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18 * S, 16 * S));
+        ImGui::Begin("Layer workspace guide", nullptr,
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoResize);
+        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+        Caption(Origin, "Part materials & UV authoring", 15 * S, 0xe8e2d2, LightTypeface ? LightTypeface : RegularTypeface);
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - 26 * S, Origin.y - 3 * S));
+        if (IconButton("CloseHelp", "M6 6L18 18M6 18L18 6", 26 * S)) HelpOpen = false;
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 26 * S));
+        ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x);
+        ImGui::TextColored(Spectrum(0xb8b8ac), "%s",
+            "Open the shared content browser below to store a material asset link on the selected layer. "
+            "Part-targeted material snapshots are saved with the project but are not shade-evaluated in this native build yet.");
+        ImGui::Spacing();
+        ImGui::TextColored(Spectrum(0xb8b8ac), "%s",
+            "Choose UV / Texture to see the actual authoring charts in UDIMs 1001–1004. Paint there or on the 3D surface and the "
+            "preview composite follows on the correct part. Source UV0 is read-only because its patches overlap.");
+        ImGui::Spacing();
+        ImGui::TextColored(Spectrum(0xb8b8ac), "%s", "Ctrl/⌘ Z Undo · Ctrl/⌘ D Duplicate · Ctrl/⌘ S Save project JSON · F Frame teapot.");
+        ImGui::Spacing();
+        ImGui::TextColored(Spectrum(0x8a8a7c), "%s",
+            "Digital Paint / Erase / Fill works on the selected layer or mask in Lit and packed UV views as a per-triangle preview "
+            "composite - not Alloy's GPU paint slices or exported PBR maps. Physical-media instruments are configuration only, not simulated.");
+        ImGui::PopTextWrapPos();
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+    }
+    if (!Error.empty())
+    {
+        const float ToastWidth = std::min(600 * S, (Right - Left) * 0.92f);
+        const float TextWidth = std::max(80 * S, ToastWidth - 66 * S);
+        const float ToastHeight = std::max(48 * S, ImGui::CalcTextSize(Error.c_str(), nullptr, false, TextWidth).y + 24 * S);
+        ImGui::SetNextWindowPos(ImVec2((Left + Right) * .5f, Viewport->WorkPos.y + 55 * S), ImGuiCond_Always, ImVec2(.5f, 0.f));
+        ImGui::SetNextWindowSize(ImVec2(ToastWidth, ToastHeight));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x34281b));
+        ImGui::PushStyleColor(ImGuiCol_Border, Spectrum(0x896541));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 13 * S);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16 * S, 12 * S));
+        ImGui::Begin("Texture paint error", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + TextWidth);
+        ImGui::TextColored(Spectrum(0xdec3a6), "%s", Error.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::SetCursorPos(ImVec2(ToastWidth - 38 * S, 11 * S));
+        if (IconButton("DismissTextureError", "M6 6L18 18M6 18L18 6", 24 * S)) Error.clear();
+        ImGui::End();
+        ImGui::PopStyleVar(3);
+        ImGui::PopStyleColor(2);
+    }
+    if (!Toast.empty() && ClockSeconds - ToastClock < 2.8)
+    {
+        const float ToastWidth = CaptionWidth(Toast.c_str(), 9 * S) + 52 * S;
+        ImGui::SetNextWindowPos(ImVec2((Left + Right) * .5f, BottomEdge - 92 * S), ImGuiCond_Always, ImVec2(.5f, 1.f));
+        ImGui::SetNextWindowSize(ImVec2(ToastWidth, 36 * S));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x23281f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 18 * S);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::Begin("Texture paint toast", nullptr,
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs);
+        const ImVec2 Origin = ImGui::GetWindowPos();
+        DrawGlyph("M20 6L9 17l-5-5", ImVec2(Origin.x + 14 * S, Origin.y + 11 * S), 13 * S, 0x9dc08d, 2.2f);
+        Caption(ImVec2(Origin.x + 34 * S, Origin.y + 12 * S), Toast.c_str(), 9 * S, 0xd8e2cc);
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+    }
+    else if (!Toast.empty()) Toast.clear();
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(20);
+    ControlKit::ConfigurePalette(SavedPalette);
+}
+} // namespace Frontier

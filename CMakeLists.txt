@@ -81,7 +81,7 @@ target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
 target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
-    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp
+    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
     Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
@@ -300,6 +300,10 @@ if(BUILD_TESTING)
     target_link_libraries(BakingWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME BakingWorkspacePanelConstructionValidation COMMAND BakingWorkspacePanelConstructionValidation)
     set_tests_properties(BakingWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(TexturePaintWorkspacePanelConstructionValidation Exhibits/TextureStudio/Code/TexturePaintWorkspacePanelConstructionValidation.cpp)
+    target_link_libraries(TexturePaintWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME TexturePaintWorkspacePanelConstructionValidation COMMAND TexturePaintWorkspacePanelConstructionValidation)
+    set_tests_properties(TexturePaintWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(StampTextGestureValidation Exhibits/TextureStudio/Code/StampTextGestureValidation.cpp)
     target_link_libraries(StampTextGestureValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME StampTextGestureValidation COMMAND StampTextGestureValidation

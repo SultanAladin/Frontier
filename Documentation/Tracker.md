@@ -500,5 +500,35 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   (no native file picker), Material patch / Volume SDF native panels, bake cancellation, and any
   GTX/RTX or Windows visual confirmation.
 
+## Texture Paint Workspace native port (2026-10-27, branch arena/4014756b-frontier)
+
+- New `UI/TextureStudio/TexturePaintWorkspacePanel.h/.cpp`: the Alloy `TexturePaintStudio.jsx` composition
+  copied 1:1 onto the shared native surfaces (PanelDockspace, VectorAuthoringControlSurface, GlyphSpace,
+  the Material/Baking orbit camera) — 43px header with the five-workspace switcher, Layers dock (LEFT,
+  278/1436), Teapot viewport dock (CENTER), Inspector/History dock (RIGHT, 338/1436), content-browser
+  strip and 31px status bar. The long-disabled "Texture" pills in Material/Pattern/Stamp/Baking are now
+  live (`ActivateTexture` wired both ways in `TextureStudioApplication.cpp`, layout persisted as
+  `texture_studio_texture_layout`, project JSON/draft in the library directory).
+- The layer document is real local state, modelled on `textureDocument.js`/`useTextureDocument.js`:
+  Alloy's default three layers (Surface detail/Surface finish/Base material), max 64, add/duplicate/
+  delete/reorder/folder-assignment/ungroup, masks (fill/paint/colour/gradient), the 15 canonical channel
+  targets (Height auto-enabled by Normal), inherited visibility/locking, collapsed-folder hiding,
+  81-entry snapshot history (80 undo steps, delayed commits) and `alloy.texture.v1` JSON save/autosave.
+- The viewport reuses the Baking workspace's CPU rasterizer pattern over the same built-in Teapot
+  (`BakeMesh.h`): smoothed orbit/pan/zoom, Lit/Wireframe, ground grid, UDIM part targeting (Body/Lid/
+  Handle/Spout → 1001–1004 derived from real chart ids), an authoring-UDIM UV view plus read-only Source
+  UV0, and digital Paint/Erase/Fill + mask region editing evaluated per-triangle as a preview composite.
+- Scope stated plainly (also in the panel header): this is NOT Alloy's WebGL surface compositor. No GPU
+  paint slices, no baked/exported PBR maps, no decal/stamp projection engine, no material-snapshot
+  shading; content-browser assignment stores an asset link (Alloy's own behaviour), channel sources are
+  configuration only, and unported actions (Stamp/Transform placement, project file picker) stay disabled
+  or say so in the status line instead of faking results.
+- Verified in this sandbox: `TextureStudio` and `TexturePaintWorkspacePanelConstructionValidation` build
+  and link; the new validation (default document/history/topology) passes, as do the Baking/Stamp
+  construction validations. Full CTest: 46/48 — the two failures are the pre-existing
+  `DockCycleRecoveryValidation`/`FrameFaultRecoveryValidation` ImGui fault-injection exhibits
+  (FrontierInterface-only, untouched here, aborting on ImGui asserts in this sandbox build config).
+  Sandbox has no GPU/display: Windows visual confirmation still pending.
+
 
 

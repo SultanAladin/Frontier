@@ -67,6 +67,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
     std::function<void()> ActivateBaking;
+    std::function<void()> ActivateTexture;
     std::function<void(const std::vector<std::filesystem::path> &)> RequestThumbnails;
     bool RequestClose() noexcept;
     bool ConsumeClose() noexcept;
