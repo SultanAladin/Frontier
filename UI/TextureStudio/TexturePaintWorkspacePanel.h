@@ -134,15 +134,30 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         int Triangle = -1;
         std::array<float, 4> Colour{1, 1, 1, 1};
     };
-    // 🖨️ One placed decal: a StampLibrary entry (by id) centred at an authoring UV, sized/rotated in
-    //    UV space like dabs are, tinted at placement time. Evaluated per-triangle in the preview.
+    // 🖨️ One placed decal: a StampLibrary entry (by id) anchored at an authoring UV, tinted at
+    //    placement time, with its own PBR behaviour. Two evaluations exist: the legacy UV-planar
+    //    quad (U/V/Radius) and the surface PROJECTOR (Projected=true) - a world-space frame the
+    //    stamp is projected through onto the surface, so it lands only where the projector box and
+    //    facing test say, never smeared across unrelated UV islands or the model's back side.
+    //    U/V/Radius stay maintained as UV-space mirrors (UV-view gizmo, footprint extents).
     struct StampPlacement
     {
         std::string StampId;
         float U = 0, V = 0;
-        float Radius = 0.06f; // half-size in authoring-UV units
-        float Rotation = 0;   // radians, counter-clockwise in UV space
+        float Radius = 0.06f; // half-size in authoring-UV units (mirror of WorldRadius when projected)
+        float Rotation = 0;   // radians, counter-clockwise about the projector normal / in UV space
         std::array<float, 4> Tint{1, 1, 1, 1};
+        bool Projected = false;
+        float Origin[3]{};    // projector centre on the surface (world)
+        float AxisRight[3]{}; // final stamp axes (base frame rotated by Rotation about Normal)
+        float AxisUp[3]{};
+        float Normal[3]{}; // projector aim: the stamp projects along -Normal
+        float BaseRight[3]{}; // unrotated anchor frame (camera- or UV-tangent-aligned at placement)
+        float BaseUp[3]{};
+        float WorldRadius = 0; // half-size in world units
+        // 🎚️ Per-decal PBR behaviour (document data, like every other channel value here; seeded from
+        // the stamp design's surface-channel strengths when it carries a vector source).
+        float Roughness = 0.6f, Metalness = 0.f, Height = 0.5f;
     };
     struct MaskState
     {
@@ -305,6 +320,10 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float AuthoringUv[3][2]{}; // UDIM authoring set (U offset by part tile)
         float SourceUv[3][2]{};    // original overlapping patch UV0
         float CentroidUv[2]{0, 0};
+        float Position[3][3]{};    // world-space corners (decal projection evaluates per-texel world points)
+        float Normal[3]{};         // outward face normal
+        float CentroidWorld[3]{};
+        float BoundsRadius = 0;    // world bounding-sphere radius about CentroidWorld
     };
     std::vector<TopologyTriangle> Topology;
     void BuildTopology();
@@ -375,6 +394,14 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     std::set<std::pair<std::string, int>> StampRasterFallbacks; // (stamp, extent) already known to have no better source
     [[nodiscard]] static int StampRasterExtentFor(float Radius) noexcept;
     void ResolveStampRasters();
+    // Resolve ONE library entry at an extent (builtin field re-render / vector sidecar re-rasterize),
+    // verified against the stored raster so a stale sidecar can never override the art the library
+    // shows. Returns &Entry when the stored raster is already the best source. Warms the caches.
+    [[nodiscard]] const StampLibraryEntry *ResolveStampEntry(const StampLibraryEntry &Entry, int Extent);
+    // Placement anchoring handoff: the viewports set these immediately before PlaceStampAt so the new
+    // stamp is born projected (surface triangle + which base frame to align to).
+    const TopologyTriangle *PendingAnchorTriangle = nullptr;
+    bool PendingAnchorCamera = false;
     [[nodiscard]] const StampLibraryEntry *ResolvedStampRaster(const StampPlacement &Placement) const noexcept;
     // 🧲 Stamp dragging (Transform tool, and grabbing an existing stamp with the Stamp tool): one
     // placement is manipulated at a time; the gesture mutates live and commits one history step on
@@ -388,6 +415,9 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float GrabDu = 0, GrabDv = 0; // move: placement centre minus grab point (authoring UV)
         float GrabAngle = 0;          // rotate/scale: pointer angle/distance at grab
         float GrabDistance = 0;
+        float GrabLocal[2]{};            // 3D move: grab point in projector-local coords (keeps the grab spot glued)
+        float GrabScreenCentre[2]{};     // 3D scale/rotate: gizmo centre on screen at grab
+        bool SceneGesture = false;       // drag lives in the 3D viewport (screen-space scale/rotate)
         StampPlacement Original;
         bool Moved = false;
     } StampDrag;
@@ -400,6 +430,34 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void BeginStampDrag(const std::string &LayerId, size_t Index, int Mode, const float Uv[2]);
     void UpdateStampDrag(const float Uv[2]);
     void FinishStampDrag();
+    // 🎯 Surface-projection plumbing. Anchors (re)build a placement's projector frame on a surface
+    // triangle at an authoring UV: UV-tangent base frame (stamp reads aligned with the UVs) or
+    // camera-aligned base frame (stamp reads upright to the view it was placed from). Both keep the
+    // U/V/Radius mirrors coherent. Weights come from the authoring-UV barycentric of the point.
+    static void SyncProjectorAxes(StampPlacement &Placement) noexcept;
+    void AnchorProjector(StampPlacement &Placement, const TopologyTriangle &Triangle, const float Uv[2], const float RightDirection[3]) const noexcept;
+    void AnchorStampFromUv(StampPlacement &Placement, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept;
+    void AnchorStampFromCamera(StampPlacement &Placement, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept;
+    [[nodiscard]] const TopologyTriangle *TriangleAtAuthoringUv(const float Uv[2], float Weights[3]) const noexcept;
+    [[nodiscard]] static bool BarycentricWeights(const TopologyTriangle &Triangle, const float Uv[2], float Weights[3]) noexcept;
+    [[nodiscard]] static float WorldPerUvAt(const TopologyTriangle &Triangle, const float Weights[3]) noexcept;
+    // 👻 Hover ghost: with the Stamp tool armed, the picked stamp is live-projected onto the surface
+    // under the cursor (composited at reduced strength, no click needed), exactly as a click would
+    // drop it. Built fresh each frame from the current pick; never part of the layer document.
+    StampPlacement HoverStamp;
+    bool HoverStampActive = false;
+    void RefreshHoverStamp(const TopologyTriangle *Hit, const float Uv[2], bool CameraAligned);
+    // Last drawn 3D camera frame (for camera-aligned anchors between the interaction and draw phases).
+    float SceneRight[3]{1, 0, 0}, SceneUp[3]{0, 1, 0};
+    bool SceneFrameValid = false;
+    // 🧲 3D stamp gizmo, cached from the last draw for this frame's hit-testing (screen points:
+    // 0-3 corners, 4 rotate grip, 5 centre).
+    float StampGizmoScreen[6][2]{};
+    bool StampGizmoValid = false;
+    std::string StampGizmoLayerId;
+    size_t StampGizmoIndex = 0;
+    void BeginStampDragScene(const std::string &LayerId, size_t Index, int Mode, const TopologyTriangle *Hit, const float Uv[2], float MouseX, float MouseY);
+    void DragStampScene(const TopologyTriangle *Hit, const float Uv[2], float MouseX, float MouseY);
     // 🎨 Preview-canvas state (see QueryPaintCanvasImage above). Scratch/Owners/Pixels all share the
     // atlas-page layout (PaintCanvasExtent², tiles inset by the 1px gutter); owners map each texel
     // to the Topology triangle that owns it so region fills/masks keep their per-face identity at

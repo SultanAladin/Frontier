@@ -762,7 +762,20 @@ std::string TexturePaintWorkspacePanel::SerializeProject() const
                 Out += (StampIndex ? ", " : "") + std::string("{\"id\": \"") + JsonEscape(Placement.StampId) +
                     "\", \"u\": " + std::to_string(Placement.U) + ", \"v\": " + std::to_string(Placement.V) +
                     ", \"radius\": " + std::to_string(Placement.Radius) + ", \"rotation\": " + std::to_string(Placement.Rotation) +
-                    ", \"tint\": \"" + HexColour(Placement.Tint) + "\"}";
+                    ", \"tint\": \"" + HexColour(Placement.Tint) + "\"" +
+                    ", \"roughness\": " + std::to_string(Placement.Roughness) +
+                    ", \"metalness\": " + std::to_string(Placement.Metalness) +
+                    ", \"height\": " + std::to_string(Placement.Height);
+                if (Placement.Projected)
+                {
+                    const auto Vec = [](const float Value[3]) {
+                        return "[" + std::to_string(Value[0]) + ", " + std::to_string(Value[1]) + ", " + std::to_string(Value[2]) + "]";
+                    };
+                    Out += ", \"projector\": {\"origin\": " + Vec(Placement.Origin) + ", \"right\": " + Vec(Placement.BaseRight) +
+                        ", \"up\": " + Vec(Placement.BaseUp) + ", \"normal\": " + Vec(Placement.Normal) +
+                        ", \"worldRadius\": " + std::to_string(Placement.WorldRadius) + "}";
+                }
+                Out += "}";
             }
             Out += "]";
         }
@@ -873,6 +886,11 @@ void TexturePaintWorkspacePanel::BuildTopology()
             SourceUvFor(Vertex, Triangle.SourceUv[Corner]);
             Centroid[0] += Triangle.AuthoringUv[Corner][0] / 3.f;
             Centroid[1] += Triangle.AuthoringUv[Corner][1] / 3.f;
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                Triangle.Position[Corner][Axis] = Vertex.Position[Axis];
+                Triangle.CentroidWorld[Axis] += Vertex.Position[Axis] / 3.f;
+            }
             if (!Corner)
             {
                 Triangle.Chart = int(Vertex.ChartId) - 1;
@@ -881,6 +899,22 @@ void TexturePaintWorkspacePanel::BuildTopology()
         }
         Triangle.CentroidUv[0] = Centroid[0];
         Triangle.CentroidUv[1] = Centroid[1];
+        // 🌐 World frame for decal projection: outward face normal (same cross order the 3D draw's
+        // front-face test relies on) + a bounding sphere for cheap projector overlap rejection.
+        {
+            const Vec3 A{Triangle.Position[0][0], Triangle.Position[0][1], Triangle.Position[0][2]};
+            const Vec3 B{Triangle.Position[1][0], Triangle.Position[1][1], Triangle.Position[1][2]};
+            const Vec3 C{Triangle.Position[2][0], Triangle.Position[2][1], Triangle.Position[2][2]};
+            const Vec3 N = NormalizeV(CrossV(Sub(B, A), Sub(C, A)));
+            Triangle.Normal[0] = N.X; Triangle.Normal[1] = N.Y; Triangle.Normal[2] = N.Z;
+            const Vec3 Centre{Triangle.CentroidWorld[0], Triangle.CentroidWorld[1], Triangle.CentroidWorld[2]};
+            Triangle.BoundsRadius = 0;
+            for (const Vec3 Corner : {A, B, C})
+            {
+                const Vec3 D = Sub(Corner, Centre);
+                Triangle.BoundsRadius = std::max(Triangle.BoundsRadius, std::sqrt(DotV(D, D)));
+            }
+        }
         Topology.push_back(Triangle);
     }
 }
@@ -1019,24 +1053,59 @@ void TexturePaintWorkspacePanel::ApplyPreviewLayer(std::array<float, 3> &Base, c
         else
             for (const auto &Dab : Layer.Dabs) ApplyDab(Dab);
     }
-    // 🖨️ Decals ride over the layer's paint: point into stamp space (image top toward +V so
-    // stamps read upright in the UV view), bilinear sample of the footprint-matched raster the
-    // placement resolved to (ResolveStampRasters), placement tint applied.
+    // 🖨️ Decals ride over the layer's paint. PROJECTED stamps evaluate in world space: the texel's
+    // 3D point goes through the projector frame (in-box test + facing fade), so the art lands only
+    // on the surface it was aimed at - no copies on other UV islands, no mirror on the back side,
+    // no grazing-angle smear. Legacy placements keep the UV-planar quad. Either way the sample
+    // comes from the footprint-matched raster (ResolveStampRasters), placement tint applied.
+    bool WorldReady = false;
+    Vec3 World{0, 0, 0};
     for (const auto &Placement : Layer.Stamps)
     {
-        const float Du = Uv[0] - Placement.U, Dv = Uv[1] - Placement.V;
-        if (std::fabs(Du) > Placement.Radius * 1.42f || std::fabs(Dv) > Placement.Radius * 1.42f) continue;
+        float SampleU, SampleV, Fade = 1.f;
+        if (Placement.Projected)
+        {
+            if (Placement.WorldRadius <= 0.f) continue;
+            if (!WorldReady)
+            {
+                float Weights[3];
+                BarycentricWeights(Triangle, Uv, Weights);
+                World = {Weights[0] * Triangle.Position[0][0] + Weights[1] * Triangle.Position[1][0] + Weights[2] * Triangle.Position[2][0],
+                    Weights[0] * Triangle.Position[0][1] + Weights[1] * Triangle.Position[1][1] + Weights[2] * Triangle.Position[2][1],
+                    Weights[0] * Triangle.Position[0][2] + Weights[1] * Triangle.Position[1][2] + Weights[2] * Triangle.Position[2][2]};
+                WorldReady = true;
+            }
+            const Vec3 D{World.X - Placement.Origin[0], World.Y - Placement.Origin[1], World.Z - Placement.Origin[2]};
+            const float R = Placement.WorldRadius;
+            if (DotV(D, D) > (R * 1.95f) * (R * 1.95f)) continue; // outside the projector's reach entirely
+            const float Depth = DotV(D, Vec3{Placement.Normal[0], Placement.Normal[1], Placement.Normal[2]});
+            if (Depth < -R * 1.25f || Depth > R * 0.75f) continue; // projector box: wrap curve behind, limited lift in front
+            const float LocalX = DotV(D, Vec3{Placement.AxisRight[0], Placement.AxisRight[1], Placement.AxisRight[2]});
+            const float LocalY = DotV(D, Vec3{Placement.AxisUp[0], Placement.AxisUp[1], Placement.AxisUp[2]});
+            if (std::fabs(LocalX) > R || std::fabs(LocalY) > R) continue;
+            const float Facing = Triangle.Normal[0] * Placement.Normal[0] +
+                Triangle.Normal[1] * Placement.Normal[1] + Triangle.Normal[2] * Placement.Normal[2];
+            if (Facing < 0.02f) continue; // back-facing or edge-on to the projector: no decal, no smear
+            Fade = std::clamp((Facing - 0.02f) / 0.33f, 0.f, 1.f);
+            SampleU = LocalX / (2.f * R) + 0.5f;
+            SampleV = 0.5f - LocalY / (2.f * R);
+        }
+        else
+        {
+            const float Du = Uv[0] - Placement.U, Dv = Uv[1] - Placement.V;
+            if (std::fabs(Du) > Placement.Radius * 1.42f || std::fabs(Dv) > Placement.Radius * 1.42f) continue;
+            const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
+            const float LocalX = Du * CosR + Dv * SinR, LocalY = -Du * SinR + Dv * CosR;
+            SampleU = LocalX / (2.f * Placement.Radius) + 0.5f;
+            SampleV = 0.5f - LocalY / (2.f * Placement.Radius);
+            if (SampleU < 0.f || SampleU > 1.f || SampleV < 0.f || SampleV > 1.f) continue;
+        }
         const auto *Entry = ResolvedStampRaster(Placement);
         if (!Entry) continue;
-        const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
-        const float LocalX = Du * CosR + Dv * SinR, LocalY = -Du * SinR + Dv * CosR;
-        const float SampleU = LocalX / (2.f * Placement.Radius) + 0.5f;
-        const float SampleV = 0.5f - LocalY / (2.f * Placement.Radius);
-        if (SampleU < 0.f || SampleU > 1.f || SampleV < 0.f || SampleV > 1.f) continue;
         const auto Texel = StampLibrary::Sample(*Entry, SampleU, SampleV);
         if (Texel[3] <= 0.003f) continue;
         BlendOver(Base,
-            {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3]},
+            {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3] * Fade},
             Alpha, Layer.Blend);
     }
 }
@@ -1216,6 +1285,15 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
             MixFloat(Placement.Radius);
             MixFloat(Placement.Rotation);
             for (const float Channel : Placement.Tint) MixFloat(Channel);
+            Mix(Placement.Projected ? 1 : 0);
+            if (Placement.Projected)
+            {
+                for (const float Value : Placement.Origin) MixFloat(Value);
+                for (const float Value : Placement.AxisRight) MixFloat(Value);
+                for (const float Value : Placement.AxisUp) MixFloat(Value);
+                for (const float Value : Placement.Normal) MixFloat(Value);
+                MixFloat(Placement.WorldRadius);
+            }
         }
         const auto &Mask = Layer.Mask;
         Mix(Mask.Present ? 1 : 0);
@@ -1237,6 +1315,17 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
             for (const float Channel : Fill.Colour) MixFloat(Channel);
         }
         Mix(Mask.Dabs.size());
+    }
+    Mix(HoverStampActive ? 1 : 0);
+    if (HoverStampActive)
+    {
+        MixText(HoverStamp.StampId);
+        for (const float Value : HoverStamp.Origin) MixFloat(Value);
+        for (const float Value : HoverStamp.AxisRight) MixFloat(Value);
+        for (const float Value : HoverStamp.AxisUp) MixFloat(Value);
+        for (const float Value : HoverStamp.Normal) MixFloat(Value);
+        MixFloat(HoverStamp.WorldRadius);
+        for (const float Channel : HoverStamp.Tint) MixFloat(Channel);
     }
     if (StampCanvasConfigured)
     {
@@ -1265,7 +1354,7 @@ void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
     const uint64_t Fingerprint = PreviewCanvasFingerprint();
     if (PaintCanvasComposited && Fingerprint == PaintCanvasFingerprintCache) return;
     const double Now = ImGui::GetTime();
-    if ((StrokeActive || StampDrag.Active) && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.033) return;
+    if ((StrokeActive || StampDrag.Active || HoverStampActive) && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.033) return;
     CompositePreviewCanvas();
     PaintCanvasFingerprintCache = Fingerprint;
     PaintCanvasComposited = true;
@@ -1366,8 +1455,34 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
             for (const auto &Dab : Layer.Dabs)
                 AddUvBox(Dab.U - Dab.Radius * DabPad, Dab.V - Dab.Radius * DabPad, Dab.U + Dab.Radius * DabPad, Dab.V + Dab.Radius * DabPad);
             for (const auto &Placement : Layer.Stamps)
-                AddUvBox(Placement.U - Placement.Radius * 1.42f, Placement.V - Placement.Radius * 1.42f,
-                    Placement.U + Placement.Radius * 1.42f, Placement.V + Placement.Radius * 1.42f);
+            {
+                if (!Placement.Projected)
+                {
+                    AddUvBox(Placement.U - Placement.Radius * 1.42f, Placement.V - Placement.Radius * 1.42f,
+                        Placement.U + Placement.Radius * 1.42f, Placement.V + Placement.Radius * 1.42f);
+                    continue;
+                }
+                // 🎯 A projector's UV footprint is wherever the surface inside its reach lives in UV:
+                // bound it by the UV AABBs of the triangles whose world bounds meet the projector sphere.
+                const float Reach = Placement.WorldRadius * 1.95f;
+                for (const auto &Candidate : Topology)
+                {
+                    const float Dx = Candidate.CentroidWorld[0] - Placement.Origin[0];
+                    const float Dy = Candidate.CentroidWorld[1] - Placement.Origin[1];
+                    const float Dz = Candidate.CentroidWorld[2] - Placement.Origin[2];
+                    const float Limit = Reach + Candidate.BoundsRadius;
+                    if (Dx * Dx + Dy * Dy + Dz * Dz > Limit * Limit) continue;
+                    float MinU = Candidate.AuthoringUv[0][0], MaxU = MinU, MinV = Candidate.AuthoringUv[0][1], MaxV = MinV;
+                    for (int Corner = 1; Corner < 3; ++Corner)
+                    {
+                        MinU = std::min(MinU, Candidate.AuthoringUv[Corner][0]);
+                        MaxU = std::max(MaxU, Candidate.AuthoringUv[Corner][0]);
+                        MinV = std::min(MinV, Candidate.AuthoringUv[Corner][1]);
+                        MaxV = std::max(MaxV, Candidate.AuthoringUv[Corner][1]);
+                    }
+                    AddUvBox(MinU, MinV, MaxU, MaxV);
+                }
+            }
             for (int Part = 0; Part < 4; ++Part)
             {
                 const TileBox &Box = Boxes[Part];
@@ -1387,6 +1502,65 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                     }
                 });
             }
+        }
+    }
+    if (HoverStampActive && !MaskPreviewDone)
+    {
+        // 👻 The hover ghost composites on top of the stack through the very same per-texel stamp
+        // evaluation (projector included), over the same topology-scanned bounds - what you see
+        // trailing the cursor is pixel-for-pixel what a click will drop.
+        LayerState Ghost;
+        Ghost.Visible = true;
+        Ghost.Opacity = 100.f;
+        Ghost.Blend = "Normal";
+        Ghost.Stamps.push_back(HoverStamp);
+        struct GhostBox { int MinX = 0, MinY = 0, MaxX = -1, MaxY = -1; };
+        GhostBox Boxes[4];
+        const float Reach = HoverStamp.WorldRadius * 1.95f;
+        for (const auto &Candidate : Topology)
+        {
+            const float Dx = Candidate.CentroidWorld[0] - HoverStamp.Origin[0];
+            const float Dy = Candidate.CentroidWorld[1] - HoverStamp.Origin[1];
+            const float Dz = Candidate.CentroidWorld[2] - HoverStamp.Origin[2];
+            const float Limit = Reach + Candidate.BoundsRadius;
+            if (Dx * Dx + Dy * Dy + Dz * Dz > Limit * Limit) continue;
+            const int Part = std::clamp(Candidate.Part, 0, 3);
+            float MinU = Candidate.AuthoringUv[0][0], MaxU = MinU, MinV = Candidate.AuthoringUv[0][1], MaxV = MinV;
+            for (int Corner = 1; Corner < 3; ++Corner)
+            {
+                MinU = std::min(MinU, Candidate.AuthoringUv[Corner][0]);
+                MaxU = std::max(MaxU, Candidate.AuthoringUv[Corner][0]);
+                MinV = std::min(MinV, Candidate.AuthoringUv[Corner][1]);
+                MaxV = std::max(MaxV, Candidate.AuthoringUv[Corner][1]);
+            }
+            const int X0 = std::clamp(int(std::floor((MinU - float(Part)) * Tile)) - 1, 0, Tile - 1);
+            const int X1 = std::clamp(int(std::ceil((MaxU - float(Part)) * Tile)) + 1, 0, Tile - 1);
+            const int Y0 = std::clamp(int(std::floor((1.f - MaxV) * Tile)) - 1, 0, Tile - 1);
+            const int Y1 = std::clamp(int(std::ceil((1.f - MinV) * Tile)) + 1, 0, Tile - 1);
+            GhostBox &Box = Boxes[Part];
+            if (Box.MaxX < 0) Box = {X0, Y0, X1, Y1};
+            else
+            {
+                Box.MinX = std::min(Box.MinX, X0); Box.MinY = std::min(Box.MinY, Y0);
+                Box.MaxX = std::max(Box.MaxX, X1); Box.MaxY = std::max(Box.MaxY, Y1);
+            }
+        }
+        for (int Part = 0; Part < 4; ++Part)
+        {
+            const GhostBox &Box = Boxes[Part];
+            if (Box.MaxX < 0) continue;
+            const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
+            ParallelCanvasRows(Box.MinY, Box.MaxY + 1, [&](int Py)
+            {
+                for (int Px = Box.MinX; Px <= Box.MaxX; ++Px)
+                {
+                    const size_t At = size_t(Oy + Py) * Extent + (Ox + Px);
+                    const int32_t Owner = PaintCanvasOwners[At];
+                    if (Owner < 0) continue;
+                    const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
+                    ApplyPreviewLayer(PaintCanvasScratch[At], Ghost, Topology[size_t(Owner)], Uv, nullptr, nullptr, true);
+                }
+            });
         }
     }
     // Dilation: bleed island-edge colours a couple of texels into the chart gutters so linear
@@ -1787,6 +1961,60 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
     // White preset art takes the brush colour; authored stamps keep their own colours.
     Placement.Tint = Entry->Tintable ? std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength}
                                      : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
+    // 🎯 Born projected: the viewport handed over the surface triangle it picked, so the stamp is a
+    // surface projector from the first frame - clean on the UV at any camera angle, no island smear.
+    const TopologyTriangle *Anchor = PendingAnchorTriangle;
+    PendingAnchorTriangle = nullptr;
+    if (!Anchor)
+    {
+        float Weights[3];
+        Anchor = TriangleAtAuthoringUv(Uv, Weights);
+    }
+    if (Anchor)
+    {
+        if (PendingAnchorCamera && SceneFrameValid) AnchorStampFromCamera(Placement, *Anchor, Uv);
+        else AnchorStampFromUv(Placement, *Anchor, Uv);
+    }
+    PendingAnchorCamera = false;
+    // 🎚️ Per-decal PBR, seeded from the stamp design itself when it carries a vector source: the mean
+    // surface-channel strengths of its visible layers become this decal's roughness/metalness/height,
+    // so every stamp keeps the material behaviour it was created with (editable in the Inspector).
+    if (!Entry->Builtin && !Entry->File.empty())
+    {
+        try
+        {
+            const auto Sidecar = Entry->File.parent_path() / (Entry->File.stem().string() + ".stamp.toml");
+            std::ifstream Input(Sidecar, std::ios::binary);
+            if (Input)
+            {
+                std::ostringstream Buffer;
+                Buffer << Input.rdbuf();
+                const auto Design = DecodeVectorAuthoring(Buffer.str());
+                float Sum[3]{0, 0, 0};
+                int Counted = 0;
+                for (const auto &DesignLayer : Design.Layers)
+                {
+                    if (!DesignLayer.Visible) continue;
+                    const auto &Channels = DesignLayer.SurfaceChannels;
+                    const auto Strength = [&](VectorAuthoringSurfaceChannel Channel) {
+                        const auto &Contribution = Channels[size_t(Channel)];
+                        return Contribution.Enabled ? Contribution.Strength : 0.f;
+                    };
+                    Sum[0] += Strength(VectorAuthoringSurfaceChannel::Roughness);
+                    Sum[1] += Strength(VectorAuthoringSurfaceChannel::Metalness);
+                    Sum[2] += Strength(VectorAuthoringSurfaceChannel::Height);
+                    ++Counted;
+                }
+                if (Counted > 0)
+                {
+                    Placement.Roughness = std::clamp(Sum[0] / Counted, 0.f, 1.f);
+                    Placement.Metalness = std::clamp(Sum[1] / Counted, 0.f, 1.f);
+                    Placement.Height = std::clamp(Sum[2] / Counted, 0.f, 1.f);
+                }
+            }
+        }
+        catch (...) { /* an unreadable sidecar leaves the neutral PBR defaults */ }
+    }
     LayerState Layer;
     Layer.Id = MakeLayerId(MetaForKind(size_t(LayerKind::Decal)).Id);
     Layer.Kind = LayerKind::Decal;
@@ -1821,51 +2049,99 @@ int TexturePaintWorkspacePanel::StampRasterExtentFor(float Radius) noexcept
     return 2048;
 }
 
+namespace
+{
+// 🔎 Coarse art fingerprint (48x48 probes): solid-texel coverage + mean colour. Two renders of the
+// same stamp agree closely; a stale sidecar describing different art does not.
+bool StampArtStats(const StampLibraryEntry &Entry, float &Coverage, float Mean[3]) noexcept
+{
+    Coverage = 0;
+    Mean[0] = Mean[1] = Mean[2] = 0;
+    if (Entry.Width <= 0 || Entry.Height <= 0) return false;
+    size_t Solid = 0;
+    for (int By = 0; By < 48; ++By)
+        for (int Bx = 0; Bx < 48; ++Bx)
+        {
+            const auto Texel = StampLibrary::Sample(Entry, (Bx + .5f) / 48, (By + .5f) / 48);
+            if (Texel[3] <= .5f) continue;
+            ++Solid;
+            for (int Channel = 0; Channel < 3; ++Channel) Mean[Channel] += Texel[size_t(Channel)];
+        }
+    if (!Solid) return false;
+    Coverage = float(Solid) / (48.f * 48.f);
+    for (int Channel = 0; Channel < 3; ++Channel) Mean[Channel] /= float(Solid);
+    return true;
+}
+} // namespace
+
+const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const StampLibraryEntry &Entry, int Extent)
+{
+    // 🎨 The ACTUAL stamp at the needed size: builtin presets re-render their signed-distance fields;
+    // stamps saved from the Stamp workspace re-rasterize their vector document (.stamp.toml sidecar);
+    // raster-only stamps keep their stored pixels (their real ceiling). A sidecar re-render must
+    // still LOOK like the stamp the library shows - if it disagrees with the stored raster (stale
+    // sidecar from an older design, an imported-image component the SVG encoder can't reproduce),
+    // the stored raster wins: the decal takes the colour it was created with, never a surrogate.
+    if (std::max(Entry.Width, Entry.Height) >= Extent) return &Entry;
+    const auto Key = std::pair<std::string, int>{Entry.Id, Extent};
+    if (const auto Found = StampRasterCache.find(Key); Found != StampRasterCache.end()) return &Found->second;
+    if (StampRasterFallbacks.count(Key)) return &Entry;
+    StampLibraryEntry Resolved;
+    bool Have = false;
+    if (Entry.Builtin)
+    {
+        Have = StampLibrary::RenderBuiltinAt(Entry.Id, Extent, Resolved);
+    }
+    else if (!Entry.File.empty())
+    {
+        try
+        {
+            const auto Sidecar = Entry.File.parent_path() / (Entry.File.stem().string() + ".stamp.toml");
+            std::ifstream Input(Sidecar, std::ios::binary);
+            if (Input)
+            {
+                std::ostringstream Buffer;
+                Buffer << Input.rdbuf();
+                auto Pixels = RasterizeStampDocument(DecodeVectorAuthoring(Buffer.str()), uint32_t(Extent));
+                if (Pixels.size() == size_t(Extent) * Extent * 4)
+                {
+                    Resolved = Entry;
+                    Resolved.Width = Resolved.Height = Extent;
+                    Resolved.Rgba = std::move(Pixels);
+                    float StoredCoverage = 0, StoredMean[3], FreshCoverage = 0, FreshMean[3];
+                    if (StampArtStats(Entry, StoredCoverage, StoredMean) && StoredCoverage > 0.01f &&
+                        StampArtStats(Resolved, FreshCoverage, FreshMean))
+                    {
+                        const float Ratio = FreshCoverage / std::max(StoredCoverage, 1e-4f);
+                        float WorstDelta = 0;
+                        for (int Channel = 0; Channel < 3; ++Channel)
+                            WorstDelta = std::max(WorstDelta, std::fabs(FreshMean[Channel] - StoredMean[Channel]));
+                        Have = Ratio > 0.55f && Ratio < 1.8f && WorstDelta <= 0.20f;
+                    }
+                    else Have = true; // nothing meaningful stored to disagree with
+                }
+            }
+        }
+        catch (...) { /* a malformed sidecar keeps the stored raster */ }
+    }
+    if (Have)
+    {
+        const auto Inserted = StampRasterCache.emplace(Key, std::move(Resolved));
+        return &Inserted.first->second;
+    }
+    StampRasterFallbacks.insert(Key); // remembered so the attempt doesn't repeat every frame
+    return &Entry;
+}
+
 void TexturePaintWorkspacePanel::ResolveStampRasters()
 {
-    // 🎨 Fill missing (stamp, extent) rasters from the ACTUAL stamp source: builtin presets re-render
-    // their signed-distance fields; stamps saved from the Stamp workspace re-rasterize their vector
-    // document (.stamp.toml sidecar); raster-only stamps keep their stored pixels (their real ceiling).
     for (const auto &Layer : Layers)
         for (const auto &Placement : Layer.Stamps)
-        {
-            const auto *Entry = StampLib.Find(Placement.StampId);
-            if (!Entry) continue;
-            const int Extent = StampRasterExtentFor(Placement.Radius);
-            if (std::max(Entry->Width, Entry->Height) >= Extent) continue; // stored raster already covers it
-            const auto Key = std::pair<std::string, int>{Placement.StampId, Extent};
-            if (StampRasterCache.count(Key) || StampRasterFallbacks.count(Key)) continue;
-            StampLibraryEntry Resolved;
-            bool Have = false;
-            if (Entry->Builtin)
-            {
-                Have = StampLibrary::RenderBuiltinAt(Entry->Id, Extent, Resolved);
-            }
-            else if (!Entry->File.empty())
-            {
-                try
-                {
-                    const auto Sidecar = Entry->File.parent_path() / (Entry->File.stem().string() + ".stamp.toml");
-                    std::ifstream Input(Sidecar, std::ios::binary);
-                    if (Input)
-                    {
-                        std::ostringstream Buffer;
-                        Buffer << Input.rdbuf();
-                        auto Pixels = RasterizeStampDocument(DecodeVectorAuthoring(Buffer.str()), uint32_t(Extent));
-                        if (Pixels.size() == size_t(Extent) * Extent * 4)
-                        {
-                            Resolved = *Entry;
-                            Resolved.Width = Resolved.Height = Extent;
-                            Resolved.Rgba = std::move(Pixels);
-                            Have = true;
-                        }
-                    }
-                }
-                catch (...) { /* a malformed sidecar keeps the stored raster */ }
-            }
-            if (Have) StampRasterCache[Key] = std::move(Resolved);
-            else StampRasterFallbacks.insert(Key); // remembered so the attempt doesn't repeat every frame
-        }
+            if (const auto *Entry = StampLib.Find(Placement.StampId))
+                (void)ResolveStampEntry(*Entry, StampRasterExtentFor(Placement.Radius));
+    if (HoverStampActive)
+        if (const auto *Entry = StampLib.Find(HoverStamp.StampId))
+            (void)ResolveStampEntry(*Entry, StampRasterExtentFor(HoverStamp.Radius));
 }
 
 const StampLibraryEntry *TexturePaintWorkspacePanel::ResolvedStampRaster(const StampPlacement &Placement) const noexcept
@@ -1968,6 +2244,19 @@ void TexturePaintWorkspacePanel::UpdateStampDrag(const float Uv[2])
         const float Angle = std::atan2(Uv[1] - Original.V, Uv[0] - Original.U);
         Placement.Rotation = Original.Rotation + (Angle - StampDrag.GrabAngle);
     }
+    if (Placement.Projected)
+    {
+        // 🎯 The UV gesture edits the mirrors; re-anchor the projector on the surface under the new
+        // centre (UV-tangent frame, so the gizmo the user sees is the frame that stamps). Scale
+        // drags make the UV Radius authoritative again.
+        if (StampDrag.Mode == 1) Placement.WorldRadius = 0.f;
+        const float MirrorUv[2]{Placement.U, Placement.V};
+        float Weights[3];
+        if (const auto *Anchor = TriangleAtAuthoringUv(MirrorUv, Weights))
+            AnchorStampFromUv(Placement, *Anchor, MirrorUv);
+        else
+            SyncProjectorAxes(Placement); // centre over empty UV: keep frame, pick up rotation changes
+    }
     StampDrag.Moved = true;
     MarkDirty(); // fingerprint moves with the placement; the canvas recomposites live
 }
@@ -1980,6 +2269,241 @@ void TexturePaintWorkspacePanel::FinishStampDrag()
     const auto *Layer = FindLayer(StampDrag.LayerId);
     CommitHistory(StampDrag.Mode == 0 ? "Move stamp" : StampDrag.Mode == 1 ? "Scale stamp" : "Rotate stamp",
         Layer ? Layer->Name : std::string("stamp"), "stamp");
+    MarkDirty();
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SURFACE PROJECTION (decal projector frames)
+//------------------------------------------------------------------------------------------------------------------------
+
+namespace
+{
+// Affine UV tangents of a topology triangle: dP/dU and dP/dV in world units (constant per triangle).
+bool UvTangents(const float Position[3][3], const float Uvs[3][2], Vec3 &OutU, Vec3 &OutV) noexcept
+{
+    const auto &P = Position;
+    const auto &T = Uvs;
+    const float Du1 = T[1][0] - T[0][0], Dv1 = T[1][1] - T[0][1];
+    const float Du2 = T[2][0] - T[0][0], Dv2 = T[2][1] - T[0][1];
+    const float Det = Du1 * Dv2 - Du2 * Dv1;
+    if (std::fabs(Det) < 1e-12f) return false;
+    const Vec3 E1{P[1][0] - P[0][0], P[1][1] - P[0][1], P[1][2] - P[0][2]};
+    const Vec3 E2{P[2][0] - P[0][0], P[2][1] - P[0][1], P[2][2] - P[0][2]};
+    OutU = {(E1.X * Dv2 - E2.X * Dv1) / Det, (E1.Y * Dv2 - E2.Y * Dv1) / Det, (E1.Z * Dv2 - E2.Z * Dv1) / Det};
+    OutV = {(E2.X * Du1 - E1.X * Du2) / Det, (E2.Y * Du1 - E1.Y * Du2) / Det, (E2.Z * Du1 - E1.Z * Du2) / Det};
+    return true;
+}
+// Orthonormal stamp base frame on a tangent plane: Right = Direction projected into the plane
+// (falling back to any stable tangent when Direction runs along the normal), Up = Normal x Right,
+// so (Right, Up, Normal) stays right-handed and the art is never mirrored.
+void TangentFrame(const float NormalIn[3], const Vec3 &Direction, float Right[3], float Up[3]) noexcept
+{
+    const Vec3 N{NormalIn[0], NormalIn[1], NormalIn[2]};
+    Vec3 R = Sub(Direction, Vec3{N.X * DotV(N, Direction), N.Y * DotV(N, Direction), N.Z * DotV(N, Direction)});
+    if (DotV(R, R) < 1e-8f)
+    {
+        const Vec3 Seed = std::fabs(N.Y) < 0.9f ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+        R = Sub(Seed, Vec3{N.X * DotV(N, Seed), N.Y * DotV(N, Seed), N.Z * DotV(N, Seed)});
+    }
+    R = NormalizeV(R);
+    const Vec3 U = CrossV(N, R);
+    Right[0] = R.X; Right[1] = R.Y; Right[2] = R.Z;
+    Up[0] = U.X; Up[1] = U.Y; Up[2] = U.Z;
+}
+} // namespace
+
+void TexturePaintWorkspacePanel::SyncProjectorAxes(StampPlacement &Placement) noexcept
+{
+    const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        Placement.AxisRight[Axis] = Placement.BaseRight[Axis] * CosR + Placement.BaseUp[Axis] * SinR;
+        Placement.AxisUp[Axis] = Placement.BaseUp[Axis] * CosR - Placement.BaseRight[Axis] * SinR;
+    }
+}
+
+bool TexturePaintWorkspacePanel::BarycentricWeights(const TopologyTriangle &Triangle, const float Uv[2], float Weights[3]) noexcept
+{
+    const auto &A = Triangle.AuthoringUv[0], &B = Triangle.AuthoringUv[1], &C = Triangle.AuthoringUv[2];
+    const float Denom = (B[1] - C[1]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[1] - C[1]);
+    if (std::fabs(Denom) < 1e-14f) { Weights[0] = Weights[1] = Weights[2] = 1.f / 3.f; return false; }
+    Weights[0] = ((B[1] - C[1]) * (Uv[0] - C[0]) + (C[0] - B[0]) * (Uv[1] - C[1])) / Denom;
+    Weights[1] = ((C[1] - A[1]) * (Uv[0] - C[0]) + (A[0] - C[0]) * (Uv[1] - C[1])) / Denom;
+    Weights[2] = 1.f - Weights[0] - Weights[1];
+    float Sum = 0;
+    for (int Corner = 0; Corner < 3; ++Corner) { Weights[Corner] = std::max(Weights[Corner], 0.f); Sum += Weights[Corner]; }
+    if (Sum > 1e-8f) for (int Corner = 0; Corner < 3; ++Corner) Weights[Corner] /= Sum;
+    return true;
+}
+
+float TexturePaintWorkspacePanel::WorldPerUvAt(const TopologyTriangle &Triangle, const float[3]) noexcept
+{
+    Vec3 TangentU, TangentV;
+    if (!UvTangents(Triangle.Position, Triangle.AuthoringUv, TangentU, TangentV)) return 1.f;
+    const float Per = (std::sqrt(DotV(TangentU, TangentU)) + std::sqrt(DotV(TangentV, TangentV))) * .5f;
+    return Per > 1e-6f ? Per : 1.f;
+}
+
+const TexturePaintWorkspacePanel::TopologyTriangle *TexturePaintWorkspacePanel::TriangleAtAuthoringUv(
+    const float Uv[2], float Weights[3]) const noexcept
+{
+    for (const auto &Triangle : Topology)
+        if (PointInTriangle(Uv[0], Uv[1], Triangle.AuthoringUv[0], Triangle.AuthoringUv[1], Triangle.AuthoringUv[2], Weights))
+            return &Triangle;
+    return nullptr;
+}
+
+// Shared anchor core: origin on the triangle at Uv, face normal, world/UV radius mirrors kept coherent
+// (an existing WorldRadius wins over the UV Radius so dragging across charts cannot change the size).
+void TexturePaintWorkspacePanel::AnchorProjector(StampPlacement &Placement, const TopologyTriangle &Triangle,
+    const float Uv[2], const float RightDirection[3]) const noexcept
+{
+    float Weights[3];
+    BarycentricWeights(Triangle, Uv, Weights);
+    for (int Axis = 0; Axis < 3; ++Axis)
+    {
+        Placement.Origin[Axis] = Weights[0] * Triangle.Position[0][Axis] +
+            Weights[1] * Triangle.Position[1][Axis] + Weights[2] * Triangle.Position[2][Axis];
+        Placement.Normal[Axis] = Triangle.Normal[Axis];
+    }
+    TangentFrame(Placement.Normal, Vec3{RightDirection[0], RightDirection[1], RightDirection[2]},
+        Placement.BaseRight, Placement.BaseUp);
+    const float WorldPerUv = WorldPerUvAt(Triangle, Weights);
+    if (Placement.WorldRadius > 0.f)
+        Placement.Radius = std::clamp(Placement.WorldRadius / WorldPerUv, 0.005f, 0.6f);
+    else
+        Placement.WorldRadius = Placement.Radius * WorldPerUv;
+    Placement.U = Uv[0];
+    Placement.V = Uv[1];
+    Placement.Projected = true;
+    SyncProjectorAxes(Placement);
+}
+
+void TexturePaintWorkspacePanel::AnchorStampFromUv(StampPlacement &Placement, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept
+{
+    Vec3 TangentU{1, 0, 0}, TangentV;
+    (void)UvTangents(Triangle.Position, Triangle.AuthoringUv, TangentU, TangentV);
+    const float Right[3]{TangentU.X, TangentU.Y, TangentU.Z};
+    AnchorProjector(Placement, Triangle, Uv, Right);
+}
+
+void TexturePaintWorkspacePanel::AnchorStampFromCamera(StampPlacement &Placement, const TopologyTriangle &Triangle, const float Uv[2]) const noexcept
+{
+    AnchorProjector(Placement, Triangle, Uv, SceneRight);
+}
+
+void TexturePaintWorkspacePanel::RefreshHoverStamp(const TopologyTriangle *Hit, const float Uv[2], bool CameraAligned)
+{
+    // 👻 The ghost is a placement exactly as a click would drop it (same size law, tint, anchor), at
+    // 85% strength, rebuilt from the live pick each frame - so what you see following the mouse is
+    // precisely what will stamp, projected clean on the surface at any camera angle.
+    HoverStampActive = false;
+    if (!Hit || StampDrag.Active || ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
+    if (Tool != AuthorTool::Stamp || DigitalActive || MaskSelected || View == ViewMode::Wireframe) return;
+    const auto *Entry = ActiveStamp();
+    if (!Entry) return;
+    HoverStamp = {};
+    HoverStamp.StampId = Entry->Id;
+    HoverStamp.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f);
+    const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f) * 0.85f;
+    HoverStamp.Tint = Entry->Tintable ? std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength}
+                                      : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
+    if (CameraAligned && SceneFrameValid) AnchorStampFromCamera(HoverStamp, *Hit, Uv);
+    else AnchorStampFromUv(HoverStamp, *Hit, Uv);
+    HoverStampActive = true;
+}
+
+void TexturePaintWorkspacePanel::BeginStampDragScene(const std::string &LayerId, size_t Index, int Mode,
+    const TopologyTriangle *Hit, const float Uv[2], float MouseX, float MouseY)
+{
+    auto *Layer = FindLayer(LayerId);
+    if (!Layer || Index >= Layer->Stamps.size()) return;
+    SelectLayer(LayerId);
+    StampFocusLayerId = LayerId;
+    StampFocusIndex = int(Index);
+    const auto &Placement = Layer->Stamps[Index];
+    StampDrag = {};
+    StampDrag.Active = true;
+    StampDrag.SceneGesture = true;
+    StampDrag.Mode = Mode;
+    StampDrag.LayerId = LayerId;
+    StampDrag.Index = Index;
+    StampDrag.Original = Placement;
+    StampDrag.GrabDu = Placement.U - Uv[0];
+    StampDrag.GrabDv = Placement.V - Uv[1];
+    StampDrag.GrabScreenCentre[0] = StampGizmoScreen[5][0];
+    StampDrag.GrabScreenCentre[1] = StampGizmoScreen[5][1];
+    StampDrag.GrabAngle = std::atan2(MouseY - StampDrag.GrabScreenCentre[1], MouseX - StampDrag.GrabScreenCentre[0]);
+    StampDrag.GrabDistance = std::max(4.f, std::hypot(MouseX - StampDrag.GrabScreenCentre[0], MouseY - StampDrag.GrabScreenCentre[1]));
+    if (Hit && Placement.Projected)
+    {
+        float Weights[3];
+        BarycentricWeights(*Hit, Uv, Weights);
+        float Point[3]{};
+        for (int Axis = 0; Axis < 3; ++Axis)
+            Point[Axis] = Weights[0] * Hit->Position[0][Axis] + Weights[1] * Hit->Position[1][Axis] + Weights[2] * Hit->Position[2][Axis];
+        const Vec3 D{Point[0] - Placement.Origin[0], Point[1] - Placement.Origin[1], Point[2] - Placement.Origin[2]};
+        StampDrag.GrabLocal[0] = DotV(D, Vec3{Placement.AxisRight[0], Placement.AxisRight[1], Placement.AxisRight[2]});
+        StampDrag.GrabLocal[1] = DotV(D, Vec3{Placement.AxisUp[0], Placement.AxisUp[1], Placement.AxisUp[2]});
+    }
+}
+
+void TexturePaintWorkspacePanel::DragStampScene(const TopologyTriangle *Hit, const float Uv[2], float MouseX, float MouseY)
+{
+    if (!StampDrag.Active || !StampDrag.SceneGesture) return;
+    auto *Layer = FindLayer(StampDrag.LayerId);
+    if (!Layer || StampDrag.Index >= Layer->Stamps.size()) { StampDrag.Active = false; return; }
+    auto &Placement = Layer->Stamps[StampDrag.Index];
+    const auto &Original = StampDrag.Original;
+    if (!Placement.Projected)
+    {
+        // Legacy UV-planar stamp: the scene gesture is a move (scale/rotate live in the UV view).
+        if (StampDrag.Mode == 0 && Hit)
+        {
+            Placement.U = std::clamp(Uv[0] + StampDrag.GrabDu, -0.5f, 4.5f);
+            Placement.V = std::clamp(Uv[1] + StampDrag.GrabDv, -0.5f, 1.5f);
+            StampDrag.Moved = true;
+            MarkDirty();
+        }
+        return;
+    }
+    if (StampDrag.Mode == 0)
+    {
+        if (!Hit) return; // off-mesh: hold position, the surface slide resumes when the pick returns
+        float Weights[3];
+        BarycentricWeights(*Hit, Uv, Weights);
+        float Point[3]{};
+        for (int Axis = 0; Axis < 3; ++Axis)
+            Point[Axis] = Weights[0] * Hit->Position[0][Axis] + Weights[1] * Hit->Position[1][Axis] + Weights[2] * Hit->Position[2][Axis];
+        // Keep the grabbed spot of the art under the cursor (offset in the projector's tangent plane),
+        // then re-hug the new face: fresh normal, camera-aligned base, same size and twist.
+        for (int Axis = 0; Axis < 3; ++Axis)
+            Placement.Origin[Axis] = Point[Axis] -
+                (Placement.AxisRight[Axis] * StampDrag.GrabLocal[0] + Placement.AxisUp[Axis] * StampDrag.GrabLocal[1]);
+        Placement.U = Uv[0] + StampDrag.GrabDu;
+        Placement.V = Uv[1] + StampDrag.GrabDv;
+        for (int Axis = 0; Axis < 3; ++Axis) Placement.Normal[Axis] = Hit->Normal[Axis];
+        TangentFrame(Placement.Normal, Vec3{SceneRight[0], SceneRight[1], SceneRight[2]}, Placement.BaseRight, Placement.BaseUp);
+        const float WorldPerUv = WorldPerUvAt(*Hit, Weights);
+        Placement.Radius = std::clamp(Placement.WorldRadius / WorldPerUv, 0.005f, 0.6f);
+        SyncProjectorAxes(Placement);
+    }
+    else if (StampDrag.Mode == 1)
+    {
+        const float Distance = std::hypot(MouseX - StampDrag.GrabScreenCentre[0], MouseY - StampDrag.GrabScreenCentre[1]);
+        Placement.WorldRadius = std::clamp(Original.WorldRadius * Distance / StampDrag.GrabDistance, 1e-4f, 10.f);
+        const float MirrorUv[2]{Placement.U, Placement.V};
+        float Weights[3];
+        if (const auto *Anchor = TriangleAtAuthoringUv(MirrorUv, Weights))
+            Placement.Radius = std::clamp(Placement.WorldRadius / WorldPerUvAt(*Anchor, Weights), 0.005f, 0.6f);
+    }
+    else
+    {
+        const float Angle = std::atan2(MouseY - StampDrag.GrabScreenCentre[1], MouseX - StampDrag.GrabScreenCentre[0]);
+        Placement.Rotation = Original.Rotation - (Angle - StampDrag.GrabAngle); // screen Y is down: screen-clockwise = -Rotation
+        SyncProjectorAxes(Placement);
+    }
+    StampDrag.Moved = true;
     MarkDirty();
 }
 
@@ -2072,41 +2596,58 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         }
         Ink->AddRectFilled(Position, Far, Colour32(0x191919), 15 * S);
         if (Hovered) Ink->AddRect(Position, Far, Colour32(0x707173), 15 * S);
-        // Checker well + the stamp's own pixels (48-block cache, 2x2-supersampled once per stamp).
+        // Checker well + the stamp's own pixels at display-matched fidelity: a 128-block cache
+        // (blocks land sub-pixel at card size, so no chunky upscaling), 2x2-supersampled from the
+        // stamp's resolved 512px source raster - the same full-fidelity art that gets stamped.
         const float Thumb = 72 * S;
         const ImVec2 ThumbMin(Position.x + (CardWidth - Thumb) * .5f, Position.y + 6 * S);
         Ink->PushClipRect(Position, Far, true);
         Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x1e1e1e), 8 * S);
         Ink->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Colour32(0x2a2a2a), 8 * S);
         Ink->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ImVec2(ThumbMin.x + Thumb, ThumbMin.y + Thumb), Colour32(0x2a2a2a), 8 * S);
+        constexpr int ThumbBlocks = 128;
         auto &ThumbCache = StampThumbCache[Entry.Id];
         if (ThumbCache.empty())
         {
-            ThumbCache.resize(48 * 48);
-            for (int By = 0; By < 48; ++By)
-                for (int Bx = 0; Bx < 48; ++Bx)
+            const StampLibraryEntry *Source = ResolveStampEntry(Entry, 512);
+            ThumbCache.resize(ThumbBlocks * ThumbBlocks);
+            for (int By = 0; By < ThumbBlocks; ++By)
+                for (int Bx = 0; Bx < ThumbBlocks; ++Bx)
                 {
                     std::array<float, 4> Texel{0, 0, 0, 0};
                     for (int Sy = 0; Sy < 2; ++Sy)
                         for (int Sx = 0; Sx < 2; ++Sx)
                         {
-                            const auto Corner = StampLibrary::Sample(Entry, (Bx + .25f + .5f * Sx) / 48, (By + .25f + .5f * Sy) / 48);
+                            const auto Corner = StampLibrary::Sample(*Source, (Bx + .25f + .5f * Sx) / ThumbBlocks, (By + .25f + .5f * Sy) / ThumbBlocks);
                             for (int Channel = 0; Channel < 4; ++Channel) Texel[size_t(Channel)] += Corner[size_t(Channel)] * .25f;
                         }
                     const uint32_t Packed = (uint32_t(std::clamp(Texel[0], 0.f, 1.f) * 255) << 16) |
                         (uint32_t(std::clamp(Texel[1], 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(Texel[2], 0.f, 1.f) * 255);
-                    ThumbCache[size_t(By) * 48 + Bx] = Colour32(Packed, Texel[3]);
+                    ThumbCache[size_t(By) * ThumbBlocks + Bx] = Colour32(Packed, Texel[3]);
                 }
         }
-        const float Block = Thumb / 48;
-        for (int By = 0; By < 48; ++By)
-            for (int Bx = 0; Bx < 48; ++Bx)
+        const float Block = Thumb / ThumbBlocks;
+        for (int By = 0; By < ThumbBlocks; ++By)
+        {
+            // Horizontal runs of equal colour merge into one rect (flat art stays a handful of draws).
+            int RunStart = -1;
+            uint32_t RunColour = 0;
+            const auto Flush = [&](int EndX)
             {
-                const uint32_t Pixel = ThumbCache[size_t(By) * 48 + Bx];
-                if (((Pixel >> IM_COL32_A_SHIFT) & 0xffu) < 8) continue;
-                Ink->AddRectFilled(ImVec2(ThumbMin.x + Bx * Block, ThumbMin.y + By * Block),
-                    ImVec2(ThumbMin.x + (Bx + 1) * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f), Pixel);
+                if (RunStart < 0) return;
+                Ink->AddRectFilled(ImVec2(ThumbMin.x + RunStart * Block, ThumbMin.y + By * Block),
+                    ImVec2(ThumbMin.x + EndX * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f), RunColour);
+                RunStart = -1;
+            };
+            for (int Bx = 0; Bx < ThumbBlocks; ++Bx)
+            {
+                const uint32_t Pixel = ThumbCache[size_t(By) * ThumbBlocks + Bx];
+                if (((Pixel >> IM_COL32_A_SHIFT) & 0xffu) < 8) { Flush(Bx); continue; }
+                if (RunStart < 0) { RunStart = Bx; RunColour = Pixel; }
+                else if (Pixel != RunColour) { Flush(Bx); RunStart = Bx; RunColour = Pixel; }
             }
+            Flush(ThumbBlocks);
+        }
         Caption(ImVec2(Position.x + 12 * S, Position.y + 89 * S), Entry.Name.c_str(), 9 * S, 0xc8c8b6);
         Caption(ImVec2(Position.x + 12 * S, Position.y + 105 * S),
             Entry.Builtin ? (Entry.Tintable ? "Preset · tintable" : "Preset") : "Saved stamp", 7 * S, 0x767665);
@@ -3314,26 +3855,60 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             ApplyPaintAt(HitUv, Hit->Part, Hit->Chart, Hit->Index, RadiusUv);
         }
     }
+    // 👻 Hover ghost: while the Stamp tool is armed, the picked stamp rides the surface under the
+    // cursor, projected live - position it by eye first, click only commits it.
+    if (Hovered && !Painting)
+    {
+        float HoverUv[2]{0, 0};
+        const auto *HoverPick = PickScene(Mouse.x, Mouse.y, HoverUv);
+        RefreshHoverStamp(HoverPick && HoverPick->Index >= 0 && HoverPick->Index < int(Topology.size())
+                ? &Topology[size_t(HoverPick->Index)] : nullptr, HoverUv, true);
+    }
+    else HoverStampActive = false;
     if (Hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !Painting)
     {
         // 🧲 Pressing on a placed stamp grabs it (Transform tool: any stamp; Stamp tool: stamps on the
-        // selected layer, so stamping over other layers still places). The grab suppresses the
-        // click-to-place below and the orbit drag - the stamp slides over the surface instead.
+        // selected layer, so stamping over other layers still places). The 3D gizmo's handles (cached
+        // from last frame's draw) win first - rotate grip, scale corners, body - then the surface pick
+        // itself. The grab suppresses click-to-place and the orbit drag.
         bool Grabbed = false;
         if (!DigitalActive && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp))
         {
-            float GrabUv[2];
-            if (PickScene(Mouse.x, Mouse.y, GrabUv))
+            float GrabUv[2]{0, 0};
+            const auto *Pick = PickScene(Mouse.x, Mouse.y, GrabUv);
+            const TopologyTriangle *PickTri = Pick && Pick->Index >= 0 && Pick->Index < int(Topology.size())
+                ? &Topology[size_t(Pick->Index)] : nullptr;
+            std::string HitLayerId;
+            size_t HitIndex = 0;
+            int Zone = -1;
+            if (StampGizmoValid && (Tool == AuthorTool::Transform || StampGizmoLayerId == SelectedLayerId))
             {
-                std::string HitLayerId;
-                size_t HitIndex = 0;
-                int HitZone = 0;
-                if (HitTestStamp(GrabUv, 0.f, HitLayerId, HitIndex, HitZone) &&
-                    (Tool == AuthorTool::Transform || HitLayerId == SelectedLayerId))
+                const auto Near = [&](int Point) {
+                    return std::hypot(Mouse.x - StampGizmoScreen[Point][0], Mouse.y - StampGizmoScreen[Point][1]) < 11 * S;
+                };
+                if (Near(4)) Zone = 2;
+                else for (int Corner = 0; Corner < 4 && Zone < 0; ++Corner)
+                    if (Near(Corner)) Zone = 1;
+                if (Zone < 0)
                 {
-                    BeginStampDrag(HitLayerId, HitIndex, 0, GrabUv);
-                    Grabbed = true;
+                    float Weights[3];
+                    if (PointInTriangle(Mouse.x, Mouse.y, StampGizmoScreen[0], StampGizmoScreen[1], StampGizmoScreen[2], Weights) ||
+                        PointInTriangle(Mouse.x, Mouse.y, StampGizmoScreen[0], StampGizmoScreen[2], StampGizmoScreen[3], Weights))
+                        Zone = 0;
                 }
+                if (Zone >= 0) { HitLayerId = StampGizmoLayerId; HitIndex = StampGizmoIndex; }
+            }
+            if (Zone < 0 && PickTri)
+            {
+                int UvZone = 0;
+                if (HitTestStamp(GrabUv, 0.f, HitLayerId, HitIndex, UvZone) &&
+                    (Tool == AuthorTool::Transform || HitLayerId == SelectedLayerId))
+                    Zone = 0;
+            }
+            if (Zone >= 0)
+            {
+                BeginStampDragScene(HitLayerId, HitIndex, Zone, PickTri, GrabUv, Mouse.x, Mouse.y);
+                Grabbed = true;
             }
         }
         if (!Grabbed)
@@ -3347,8 +3922,12 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
     {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
         {
-            float DragUv[2];
-            if (PickScene(Mouse.x, Mouse.y, DragUv)) UpdateStampDrag(DragUv); // off-mesh: keep last spot
+            float DragUv[2]{0, 0};
+            const auto *Pick = PickScene(Mouse.x, Mouse.y, DragUv);
+            const TopologyTriangle *PickTri = Pick && Pick->Index >= 0 && Pick->Index < int(Topology.size())
+                ? &Topology[size_t(Pick->Index)] : nullptr;
+            if (StampDrag.SceneGesture) DragStampScene(PickTri, DragUv, Mouse.x, Mouse.y);
+            else if (PickTri) UpdateStampDrag(DragUv); // off-mesh: keep last spot
         }
         else FinishStampDrag();
     }
@@ -3363,7 +3942,13 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                 if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select)
                     MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
                 else if (Tool == AuthorTool::Stamp && !DigitalActive)
-                    PlaceStampAt(HitUv); // a click (not an orbit drag) drops the picked library stamp here
+                {
+                    // a click (not an orbit drag) drops the picked stamp here, projected from this view
+                    PendingAnchorTriangle = Hit->Index >= 0 && Hit->Index < int(Topology.size())
+                        ? &Topology[size_t(Hit->Index)] : nullptr;
+                    PendingAnchorCamera = true;
+                    PlaceStampAt(HitUv);
+                }
                 else if (!DigitalActive) TargetPart = Hit->Part;
             }
     }
@@ -3416,6 +4001,9 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
         const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};
         const Vec3 Right{Orbit.Right[0], Orbit.Right[1], Orbit.Right[2]};
         const Vec3 Up{Orbit.Up[0], Orbit.Up[1], Orbit.Up[2]};
+        SceneRight[0] = Right.X; SceneRight[1] = Right.Y; SceneRight[2] = Right.Z;
+        SceneUp[0] = Up.X; SceneUp[1] = Up.Y; SceneUp[2] = Up.Z;
+        SceneFrameValid = true; // camera-aligned stamp anchors read this between interaction and draw
         const float CenterX = (Region.MinimumX + Region.MaximumX) * .5f, CenterY = (Region.MinimumY + Region.MaximumY) * .5f;
         const float FocalLength = std::min(Region.Width(), Region.Height()) * .8f;
         const Vec3 Light = NormalizeV(Vec3{.4f, .8f, .5f});
@@ -3550,6 +4138,55 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             }
         }
         if (Textured) DrawList->PopTexture();
+        // 🧲 3D stamp gizmo: the focused stamp's projector quad floating a hair off the surface, with
+        // scale corners and a rotate grip - cached in screen space for next frame's hit-testing.
+        StampGizmoValid = false;
+        if (!Wire && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp || StampDrag.Active))
+        {
+            LayerState *FocusLayer = nullptr;
+            const StampPlacement *Focus = FocusedStamp(FocusLayer);
+            if (Focus && Focus->Projected && FocusLayer && EffectiveVisible(*FocusLayer))
+            {
+                const float R = Focus->WorldRadius, Lift = R * 0.02f;
+                bool Visible = true;
+                const auto GizmoPoint = [&](int Index, float Lx, float Ly)
+                {
+                    float P[3];
+                    for (int Axis = 0; Axis < 3; ++Axis)
+                        P[Axis] = Focus->Origin[Axis] + Focus->AxisRight[Axis] * Lx + Focus->AxisUp[Axis] * Ly + Focus->Normal[Axis] * Lift;
+                    ImVec2 Screen;
+                    float Depth;
+                    Project(P, Screen, Depth);
+                    StampGizmoScreen[Index][0] = Screen.x;
+                    StampGizmoScreen[Index][1] = Screen.y;
+                    if (Depth <= .05f) Visible = false;
+                    return Screen;
+                };
+                const ImVec2 Corners[4]{GizmoPoint(0, -R, -R), GizmoPoint(1, R, -R), GizmoPoint(2, R, R), GizmoPoint(3, -R, R)};
+                const ImVec2 Grip = GizmoPoint(4, 0, R * 1.35f);
+                const ImVec2 Centre = GizmoPoint(5, 0, 0);
+                const ImVec2 TopMid = ImVec2((Corners[2].x + Corners[3].x) * .5f, (Corners[2].y + Corners[3].y) * .5f);
+                if (Visible)
+                {
+                    StampGizmoValid = true;
+                    StampGizmoLayerId = FocusLayer->Id;
+                    StampGizmoIndex = size_t(Focus - FocusLayer->Stamps.data());
+                    DrawList->AddPolyline(Corners, 4, Colour32(0x000000, .55f), ImDrawFlags_Closed, 3.f * S);
+                    DrawList->AddPolyline(Corners, 4, Colour32(0xedc391, .95f), ImDrawFlags_Closed, 1.3f * S);
+                    DrawList->AddLine(TopMid, Grip, Colour32(0xedc391, .8f), 1.2f * S);
+                    DrawList->AddCircleFilled(Grip, 5.5f * S, Colour32(0x111210), 16);
+                    DrawList->AddCircle(Grip, 5.5f * S, Colour32(0xedc391, .95f), 16, 1.4f * S);
+                    for (const ImVec2 &Corner : Corners)
+                    {
+                        const float Half = 4.5f * S;
+                        DrawList->AddRectFilled(ImVec2(Corner.x - Half, Corner.y - Half), ImVec2(Corner.x + Half, Corner.y + Half), Colour32(0x111210), 1.5f * S);
+                        DrawList->AddRect(ImVec2(Corner.x - Half, Corner.y - Half), ImVec2(Corner.x + Half, Corner.y + Half), Colour32(0xedc391, .95f), 1.5f * S, 0, 1.3f * S);
+                    }
+                    DrawList->AddLine(ImVec2(Centre.x - 6 * S, Centre.y), ImVec2(Centre.x + 6 * S, Centre.y), Colour32(0xedc391, .9f), 1.2f * S);
+                    DrawList->AddLine(ImVec2(Centre.x, Centre.y - 6 * S), ImVec2(Centre.x, Centre.y + 6 * S), Colour32(0xedc391, .9f), 1.2f * S);
+                }
+            }
+        }
     }
     else Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 40 * S), "Preparing teapot…", 10 * S, 0x98998e);
     LastPickTriangles = std::move(Picks);
@@ -3598,6 +4235,15 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
     HandlePaintPointer(Hovered, true);
     const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
     const bool Painting = StrokeActive || (Hovered && ((DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed) && !UvSource);
+    // 👻 Hover ghost in UV space too: the stamp previews on the canvas under the cursor, projected
+    // onto the surface (watch it stay clean across island borders before committing with a click).
+    if (Hovered && !Painting && !UvSource)
+    {
+        float GhostPoint[2];
+        ScreenToUv(Mouse.x, Mouse.y, GhostPoint);
+        RefreshHoverStamp(HitUv(GhostPoint, true), GhostPoint, false);
+    }
+    else HoverStampActive = false;
     if (Hovered && ImGui::GetIO().MouseWheel != 0.f)
     {
         float Before[2];
@@ -3672,7 +4318,12 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
                 {
                     // Placements live in authoring-UV space, same as dabs - source-UV view is inspect-only.
                     if (UvSource) Status = "Switch from source UVs to authoring UVs to place stamps";
-                    else PlaceStampAt(Point);
+                    else
+                    {
+                        PendingAnchorTriangle = Hit; // born projected, aligned to this chart's UV tangents
+                        PendingAnchorCamera = false;
+                        PlaceStampAt(Point);
+                    }
                 }
                 else if (!DigitalActive) TargetPart = Hit->Part;
             }
@@ -4399,6 +5050,12 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                         if (AmountSlider("Size", Diameter, 2.f, 80.f, 1.f, "%")) { Placement.Radius = Diameter / 200.f; Changed = true; }
                         if (AmountSlider("Rotation", RotationDeg, -180.f, 180.f, 1.f, "deg")) { Placement.Rotation = RotationDeg / 57.29578f; Changed = true; }
                         if (AmountSlider("Stamp strength", Placement.Tint[3], 0.f, 1.f, 100.f, "%")) Changed = true;
+                        // 🎚️ This decal's own PBR behaviour (seeded from the stamp design's surface
+                        // channels on placement; document data exported with the project, like every
+                        // other channel value - the preview composite itself is colour-only).
+                        if (AmountSlider("Roughness", Placement.Roughness, 0.f, 1.f, 100.f, "%")) Changed = true;
+                        if (AmountSlider("Metalness", Placement.Metalness, 0.f, 1.f, 100.f, "%")) Changed = true;
+                        if (AmountSlider("Height", Placement.Height, 0.f, 1.f, 100.f, "%")) Changed = true;
                         ImGui::EndDisabled();
                         if (Changed) QueueHistory("Stamp transform", Layer->Name, "stamp");
                         ImGui::Dummy(ImVec2(1, 8 * S));

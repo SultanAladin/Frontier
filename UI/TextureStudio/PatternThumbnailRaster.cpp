@@ -364,7 +364,7 @@ std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document)
 
 std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Document, uint32_t Extent)
 {
-    if (!Extent || Extent > 1024) throw std::runtime_error("Stamp raster extent is unbounded.");
+    if (!Extent || Extent > 2048) throw std::runtime_error("Stamp raster extent is unbounded.");
     const std::string Svg = EncodeStampDocumentSvg(Document);
     EnsureThorVg();
     std::vector<uint8_t> Pixels(size_t(Extent) * Extent * 4, 0);

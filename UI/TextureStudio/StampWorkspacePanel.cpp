@@ -295,15 +295,27 @@ void StampWorkspacePanel::RefreshLibraryAtlas()
     for (size_t Slot = 0; Slot < Slotted; ++Slot)
     {
         const auto &Entry = Entries[Slot];
+        // 🎨 Full-fidelity tiles: builtins bake from a fresh 512px field render (not the 256px picker
+        // raster), and every tile texel is a 2x2-supersampled box of the source - cards show the
+        // stamp's real detail, never a point-sampled miniature.
+        const StampLibraryEntry *Source = &Entry;
+        StampLibraryEntry HiRes;
+        if (Entry.Builtin && StampLibrary::RenderBuiltinAt(Entry.Id, 512, HiRes)) Source = &HiRes;
         const float SourceAspect = Entry.Height > 0 ? float(Entry.Width) / float(Entry.Height) : 1.f;
         std::vector<uint8_t> Tile(size_t(LibraryAtlasTile) * LibraryAtlasTile * 4);
         for (uint32_t Y = 0; Y < LibraryAtlasTile; ++Y)
             for (uint32_t X = 0; X < LibraryAtlasTile; ++X)
             {
-                float U = (X + .5f) / LibraryAtlasTile, V = (Y + .5f) / LibraryAtlasTile;
-                if (SourceAspect > 1) U = .5f + (U - .5f) / SourceAspect;
-                else if (SourceAspect < 1) V = .5f + (V - .5f) * SourceAspect;
-                const auto Texel = StampLibrary::Sample(Entry, U, V);
+                std::array<float, 4> Texel{0, 0, 0, 0};
+                for (int Sy = 0; Sy < 2; ++Sy)
+                    for (int Sx = 0; Sx < 2; ++Sx)
+                    {
+                        float U = (X + .25f + .5f * Sx) / LibraryAtlasTile, V = (Y + .25f + .5f * Sy) / LibraryAtlasTile;
+                        if (SourceAspect > 1) U = .5f + (U - .5f) / SourceAspect;
+                        else if (SourceAspect < 1) V = .5f + (V - .5f) * SourceAspect;
+                        const auto Tap = StampLibrary::Sample(*Source, U, V);
+                        for (int Channel = 0; Channel < 4; ++Channel) Texel[size_t(Channel)] += Tap[size_t(Channel)] * .25f;
+                    }
                 const float Well = ((X < LibraryAtlasTile / 2) == (Y < LibraryAtlasTile / 2)) ? 42.f : 30.f;
                 uint8_t *Target = &Tile[(size_t(Y) * LibraryAtlasTile + X) * 4];
                 for (int Channel = 0; Channel < 3; ++Channel)
@@ -1073,7 +1085,9 @@ bool StampWorkspacePanel::PublishToLibrary(bool AsNewStamp)
     {
         // 📝 ThorVG's ABGR8888S target lands in memory as R,G,B,A bytes (little-endian word), which is
         // exactly the straight-alpha RGBA the library PNG stores - no swizzle, no unpremultiply.
-        constexpr uint32_t Extent = 512;
+        // 1024 (was 512): the stored PNG is the fallback raster and every thumbnail's source, so it
+        // should itself carry the design at full fidelity even where the vector sidecar can't follow.
+        constexpr uint32_t Extent = 1024;
         const std::vector<uint8_t> Pixels = RasterizeStampDocument(Document, Extent);
         bool AnyArt = false;
         for (size_t Pixel = 3; Pixel < Pixels.size(); Pixel += 4)
@@ -1602,7 +1616,7 @@ void StampWorkspacePanel::ConstructLibraryCard(const StampLibraryEntry &Entry, f
         Draw->AddRectFilled(ThumbMin, ThumbMax, Ink32(0x1e1e1e), 8 * Scale);
         Draw->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Ink32(0x2a2a2a), 8 * Scale);
         Draw->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ThumbMax, Ink32(0x2a2a2a), 8 * Scale);
-        constexpr int Blocks = 36;
+        constexpr int Blocks = 72;
         const float Block = Thumb / Blocks;
         for (int By = 0; By < Blocks; ++By)
             for (int Bx = 0; Bx < Blocks; ++Bx)

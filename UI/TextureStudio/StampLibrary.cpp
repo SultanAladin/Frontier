@@ -410,6 +410,55 @@ void StampLibrary::Reload(const std::filesystem::path &Directory)
             Entry.Height = Height;
             Entry.Rgba.assign(Pixels, Pixels + size_t(Width) * Height * 4);
             Entry.File = File;
+            // 🖤 Alpha-art detection: icon-style stamps keep their art in the alpha channel over a
+            // uniform near-black/near-white RGB matte - painted RGBA-straight they would always stamp
+            // that matte colour (usually solid black) no matter the colour they were placed with.
+            // They are really tintable art like the white presets: normalize RGB to white so the brush
+            // colour drives them. Vector-backed stamps (sidecar present) are exempt - their colours
+            // are exactly what was authored in the Stamp workspace.
+            const bool HasSidecar = std::filesystem::exists(
+                File.parent_path() / (File.stem().string() + ".stamp.toml"), Failure);
+            if (!HasSidecar)
+            {
+                const size_t Total = size_t(Width) * Height;
+                const size_t Stride = std::max<size_t>(1, Total / 8192);
+                double Sum[3]{0, 0, 0};
+                size_t Solid = 0;
+                for (size_t At = 0; At < Total; At += Stride)
+                {
+                    const uint8_t *Pixel = &Entry.Rgba[At * 4];
+                    if (Pixel[3] < 128) continue;
+                    ++Solid;
+                    for (int Channel = 0; Channel < 3; ++Channel) Sum[Channel] += Pixel[Channel] / 255.0;
+                }
+                if (Solid >= 64)
+                {
+                    const double Mean[3]{Sum[0] / Solid, Sum[1] / Solid, Sum[2] / Solid};
+                    const double Luma = (Mean[0] + Mean[1] + Mean[2]) / 3.0;
+                    if (Luma < 0.08 || Luma > 0.92)
+                    {
+                        size_t Within = 0;
+                        for (size_t At = 0; At < Total; At += Stride)
+                        {
+                            const uint8_t *Pixel = &Entry.Rgba[At * 4];
+                            if (Pixel[3] < 128) continue;
+                            double Worst = 0;
+                            for (int Channel = 0; Channel < 3; ++Channel)
+                                Worst = std::max(Worst, std::fabs(Pixel[Channel] / 255.0 - Mean[Channel]));
+                            if (Worst <= 0.10) ++Within;
+                        }
+                        if (double(Within) >= 0.97 * double(Solid))
+                        {
+                            Entry.Tintable = true;
+                            for (size_t At = 0; At < Total; ++At)
+                            {
+                                uint8_t *Pixel = &Entry.Rgba[At * 4];
+                                if (Pixel[3] > 0) Pixel[0] = Pixel[1] = Pixel[2] = 255;
+                            }
+                        }
+                    }
+                }
+            }
             LibraryEntries.push_back(std::move(Entry));
         }
         stbi_image_free(Pixels);
