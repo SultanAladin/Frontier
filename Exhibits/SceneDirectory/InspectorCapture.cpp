@@ -352,144 +352,6 @@ class RenderSettingsRecord final : public Frontier::RecordEntry
 // the generic vocabulary yet — see PARITY.md.
 // ---------------------------------------------------------------------------
 
-class MoonRecord final : public Frontier::RecordEntry
-{
-  public:
-    MoonRecord() : RecordEntry(Frontier::RecordClassification::Environment)
-    {
-#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
-        DeclareEditorIdentity("Environment", "Environment");
-        DeclareEditorDescription("Scene moons \xC2\xB7 body catalogue");
-        DeclareEditorCard("Moon settings", "", -1, "Moon");
-        DeclareEditorToggle("moon.visible", "Visible", "", false, [this]() { return MoonEnabled; }, [this](bool On) { MoonEnabled = On; });
-        DeclareEditorToggle("moon.follow", "Follow sky", "", false, [this]() { return MoonFollowSky; }, [this](bool On) { MoonFollowSky = On; });
-        DeclareEditorSelect("moon.instance", "Active moon instance", {"1 \xC2\xB7 Luna", "2 \xC2\xB7 Luna", "3 \xC2\xB7 Luna", "4 \xC2\xB7 Luna"},
-                            [this]() { return Instance; }, [this](size_t Index) { Instance = Index; });
-        DeclareEditorCard("Lunar phase", "", 1, "Moon");
-        DeclareEditorReadout("moon.age", "Phase age", [this]() { char B[32]; std::snprintf(B, sizeof(B), "%.1f d", MoonPhase); return std::string(B); });
-        DeclareEditorReadout("moon.phaseName", "Phase", [this]() { return std::string(MoonPhase < 1.8 ? "New moon" : MoonPhase < 5.5 ? "Waxing crescent" : MoonPhase < 9.2 ? "First quarter" : MoonPhase < 12.9 ? "Waxing gibbous" : MoonPhase < 16.6 ? "Full moon" : MoonPhase < 20.3 ? "Waning gibbous" : MoonPhase < 24.0 ? "Last quarter" : "Waning crescent"); });
-        DeclareEditorSlider("moon.phase", "Phase age", "days", 0, 29.53, 0.01, [this]() { return MoonPhase; }, [this](double V) { MoonPhase = V; }, 2);
-        DeclareEditorAction("moon.stopNew", "New", [this]() { MoonPhase = 0.0; });
-        DeclareEditorAction("moon.stopFirst", "First", [this]() { MoonPhase = 29.53 / 4; });
-        DeclareEditorAction("moon.stopFull", "Full", [this]() { MoonPhase = 29.53 / 2; });
-        DeclareEditorAction("moon.stopLast", "Last", [this]() { MoonPhase = 29.53 * 3 / 4; });
-        DeclareEditorMuted("Original textured sphere \xC2\xB7 isolated phase preview. Editing phase switches off Follow sky.");
-        DeclareEditorCard("Moonlight", "", 2, "Moon");
-        DeclareEditorMetric("moon.brightMetric", [this]() { char B[32]; std::snprintf(B, sizeof(B), "%.2f", MoonBrightness); return std::string(B); }, "\xC3\x97",
-                            []() { return std::pair<std::string, std::string>{"", ""}; });
-        DeclareEditorSlider("moon.bright", "Disc brightness", "\xC3\x97", 0, 5, 0.01, [this]() { return MoonBrightness; }, [this](double V) { MoonBrightness = V; }, 2);
-        DeclareEditorSlider("moon.glow", "Lunar glow", "\xC3\x97", 0, 3, 0.01, [this]() { return MoonGlow; }, [this](double V) { MoonGlow = V; }, 2);
-        DeclareEditorToggle("moon.light", "Illuminate scene", "", false, [this]() { return MoonLightEnabled; }, [this](bool On) { MoonLightEnabled = On; });
-        DeclareEditorSlider("moon.lightPower", "Moonlight power", "\xC3\x97", 0, 5, 0.01, [this]() { return MoonLightIntensity; }, [this](double V) { MoonLightIntensity = V; }, 2);
-        DeclareEditorMuted("Primary Moon supplies the existing directional scene light. Phase, horizon and atmosphere attenuate it; artistic size does not increase its power.");
-        DeclareEditorCard("Moon size", "", 3, "Moon");
-        DeclareEditorMetric("moon.sizeMetric", [this]() { char B[32]; std::snprintf(B, sizeof(B), "%.2f", MoonSize); return std::string(B); }, "\xC2\xB0",
-                            []() { return std::pair<std::string, std::string>{"", ""}; });
-        DeclareEditorSlider("moon.size", "Angular diameter", "\xC2\xB0", 0.1, 180, 0.01, [this]() { return MoonSize; }, [this](double V) { MoonSize = V; }, 2);
-        DeclareEditorAction("moon.earthRef", "Earth Moon reference / 0.52\xC2\xB0", [this]() { MoonSize = 0.52; });
-        DeclareEditorCard("Lunar position", "", 4, "Orbit");
-        DeclareEditorMuted("Drag the celestial globe to place this body.");
-        DeclareEditorSlider("moon.azim", "Moon azimuth", "\xC2\xB0", -180, 180, 0.1, [this]() { return MoonAzimuth; }, [this](double V) { MoonAzimuth = V; }, 1);
-        DeclareEditorSlider("moon.elev", "Moon elevation", "\xC2\xB0", -90, 90, 0.1, [this]() { return MoonElevation; }, [this](double V) { MoonElevation = V; }, 1);
-        DeclareEditorCard("Moon rotation", "", 5, "Moon");
-        DeclareEditorMuted("Surface orientation is independent of sky position.");
-        DeclareEditorSlider("moon.roll", "Surface roll", "\xC2\xB0", -180, 180, 0.1, [this]() { return MoonRoll; }, [this](double V) { MoonRoll = V; }, 1);
-        DeclareEditorSlider("moon.pitch", "Surface pitch", "\xC2\xB0", -180, 180, 0.1, [this]() { return MoonPitch; }, [this](double V) { MoonPitch = V; }, 1);
-        DeclareEditorSlider("moon.spin", "Surface spin", "\xC2\xB0", -180, 180, 0.1, [this]() { return MoonSpin; }, [this](double V) { MoonSpin = V; }, 1);
-        DeclareEditorAction("moon.resetFrame", "Reset surface frame", [this]() { MoonRoll = MoonPitch = MoonSpin = 0.0; });
-        DeclareEditorCard("Bright planets \xC2\xB7 orbital placement", "", 6, "Orbit");
-        DeclareEditorToggle("moon.planets", "Planets", "", false, [this]() { return PlanetsEnabled; }, [this](bool On) { PlanetsEnabled = On; });
-        DeclareEditorSlider("moon.planetBright", "Brightness", "\xC3\x97", 0, 5, 0.01, [this]() { return PlanetBrightness; }, [this](double V) { PlanetBrightness = V; }, 2);
-        DeclareEditorMuted("Low-precision orbital positions, not decorative Moon presets. Date and observer location are shared with the Sun. Suitable for visual placement, not navigation.");
-#endif
-    }
-    bool MoonEnabled = true, MoonFollowSky = false, MoonLightEnabled = true, PlanetsEnabled = true;
-    double MoonPhase = 14.765, MoonAzimuth = -8.0, MoonElevation = 38.0, MoonRoll = 0.0, MoonPitch = 0.0, MoonSpin = 0.0;
-    double MoonSize = 25.0, MoonBrightness = 1.0, MoonGlow = 0.2, MoonLightIntensity = 1.0, PlanetBrightness = 1.0;
-    size_t Instance = 0;
-};
-
-class FlareRecord final : public Frontier::RecordEntry
-{
-  public:
-    FlareRecord() : RecordEntry(Frontier::RecordClassification::Environment)
-    {
-#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
-        DeclareEditorIdentity("Environment", "Environment");
-        DeclareEditorDescription("Optical effect subcomponent");
-        DeclareEditorToggle("flare.enabled", "Flare", "", true, [this]() { return FlareEnabled; }, [this](bool On) { FlareEnabled = On; }, "Sparkles");
-        DeclareEditorCard("Light stack", "", 1, "Aperture");
-        DeclareEditorSelect("flare.preset", "Optical preset", {"Cinematic", "Anamorphic", "Starburst", "Halo", "Custom layers"},
-                            [this]() { return Preset; }, [this](size_t Index) { Preset = Index; });
-        DeclareEditorSlider("flare.intensity", "Intensity", "\xC3\x97", 0, 5, 0.01, [this]() { return Intensity; }, [this](double V) { Intensity = V; }, 2);
-        DeclareEditorSlider("flare.spread", "Spread", "\xC3\x97", 0.25, 2, 0.01, [this]() { return Spread; }, [this](double V) { Spread = V; }, 2);
-        DeclareEditorSlider("flare.chromatic", "Chromatic separation", "", 0, 1, 0.01, [this]() { return Chromatic; }, [this](double V) { Chromatic = V; }, 2);
-        DeclareEditorMuted("Presets retain their original renderer behaviour. Editing layer geometry or a layer switch selects Custom layers; global intensity, spread and chromatic separation do not.");
-        DeclareEditorCard("Internal reflections", "", 2, "Aperture");
-        DeclareEditorSelect("flare.shape", "Ghost shape", {"Round", "Hexagon", "Octagon"},
-                            [this]() { return GhostShape; }, [this](size_t Index) { GhostShape = Index; Preset = 4; });
-        DeclareEditorSlider("flare.ghosts", "Ghost count", "", 0, 24, 1, [this]() { return Ghosts; }, [this](double V) { Ghosts = V; }, 0);
-        DeclareEditorSlider("flare.ghostBright", "Ghost brightness", "\xC3\x97", 0, 2, 0.01, [this]() { return GhostBrightness; }, [this](double V) { GhostBrightness = V; }, 2);
-        DeclareEditorSlider("flare.ghostSpacing", "Ghost spacing", "\xC3\x97", 0, 3, 0.01, [this]() { return GhostSpacing; }, [this](double V) { GhostSpacing = V; }, 2);
-        DeclareEditorMuted("Positions follow the actual kernel's optical axis; outlines are a geometry guide, not radiance or exact ghost sizes. Off-sensor centres are omitted.");
-        DeclareEditorCard("Annular response", "", 3, "Aperture");
-        DeclareEditorSlider("flare.haloRadius", "Halo radius", "", 0.01, 0.6, 0.01, [this]() { return HaloRadius; }, [this](double V) { HaloRadius = V; }, 2);
-        DeclareEditorSlider("flare.haloWidth", "Halo width", "", 0.005, 0.2, 0.001, [this]() { return HaloWidth; }, [this](double V) { HaloWidth = V; }, 3);
-        DeclareEditorSlider("flare.haloBright", "Halo brightness", "\xC3\x97", 0, 2, 0.01, [this]() { return HaloBrightness; }, [this](double V) { HaloBrightness = V; }, 2);
-        DeclareEditorCard("Diffraction & streaks", "", 4, "Sparkles");
-        DeclareEditorToggle("flare.anamorphic", "Anamorphic", "", false, [this]() { return Anamorphic; }, [this](bool On) { Anamorphic = On; });
-        DeclareEditorToggle("flare.warm", "Warm streak", "", false, [this]() { return WarmStreak; }, [this](bool On) { WarmStreak = On; });
-        DeclareEditorToggle("flare.burst", "Starburst", "", false, [this]() { return Burst; }, [this](bool On) { Burst = On; });
-        DeclareEditorSlider("flare.rotation", "Rotation", "\xC2\xB0", 0, 360, 1, [this]() { return Rotation; }, [this](double V) { Rotation = V; }, 0);
-        DeclareEditorSlider("flare.rays", "Ray pairs", "", 2, 12, 1, [this]() { return Rays; }, [this](double V) { Rays = V; }, 0);
-        DeclareEditorSlider("flare.streak", "Streak gain", "\xC3\x97", 0, 3, 0.01, [this]() { return Streak; }, [this](double V) { Streak = V; }, 2);
-        DeclareEditorSlider("flare.aperture", "Aperture blades", "", 2, 12, 1, [this]() { return Aperture; }, [this](double V) { Aperture = V; }, 0);
-        DeclareEditorMuted("Preset starbursts use Aperture blades; Custom layers uses Ray pairs. Rotation turns the warm streak and burst, while the cool anamorphic streak stays horizontal, matching the renderer.");
-#endif
-    }
-    bool FlareEnabled = true, Anamorphic = true, WarmStreak = false, Burst = true;
-    double Intensity = 0.3, Spread = 1.0, Chromatic = 0.2, Ghosts = 6.0, GhostBrightness = 0.3, GhostSpacing = 1.0;
-    double HaloRadius = 0.22, HaloWidth = 0.025, HaloBrightness = 0.2, Rotation = 0.0, Rays = 6.0, Streak = 0.3, Aperture = 6.0;
-    size_t Preset = 0, GhostShape = 1;   // EnvironmentDefaults FlareGhostShape 6 = Hexagon
-};
-
-class WindRecord final : public Frontier::RecordEntry
-{
-  public:
-    WindRecord() : RecordEntry(Frontier::RecordClassification::Environment)
-    {
-#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
-        DeclareEditorIdentity("ForceField", "Forcefield");
-        DeclareEditorDescription("Shared weather force field");
-        DeclareEditorToggle("wind.enabled", "Wind", "", true, [this]() { return WindEnabled; }, [this](bool On) { WindEnabled = On; }, "Wind");
-        DeclareEditorCard("Direction of travel", "", 1, "Wind");
-        DeclareEditorMetric("wind.speed", [this]() { char B[32]; std::snprintf(B, sizeof(B), "%.1f", Speed); return std::string(B); }, "m/s",
-                            [this]() { char B[48]; std::snprintf(B, sizeof(B), "FROM %.0f\xC2\xB0", std::fmod(Bearing + 180.0 + 360.0, 360.0)); return std::pair<std::string, std::string>{B, WindEnabled ? "live" : ""}; });
-        DeclareEditorSlider("wind.speedS", "Base speed", "m/s", 0, 40, 0.1, [this]() { return Speed; }, [this](double V) { Speed = V; }, 1);
-        DeclareEditorSlider("wind.bearing", "Bearing from", "\xC2\xB0", 0, 360, 1, [this]() { return std::fmod(Bearing + 180.0 + 360.0, 360.0); }, [this](double V) { Bearing = std::fmod(V + 180.0 + 360.0, 360.0); }, 0);
-        DeclareEditorMuted("Meteorological bearing is where wind comes FROM; the arrows show where it travels TO. Drag the source dot radially for base speed. Base-only reference: gusts, altitude and turbulence are excluded.");
-        DeclareEditorCard("The gust envelope", "", 2, "Activity");
-        DeclareEditorSlider("wind.gust", "Gust strength", "", 0, 1, 0.01, [this]() { return Gust; }, [this](double V) { Gust = V; }, 2);
-        DeclareEditorMuted("Exact two-sine speed modulation under fixed settings, starting at phase zero. Shading is the guaranteed \xC2\xB1gust bound, not a measured history or a forecast of the running clock.");
-        DeclareEditorCard("Cross-flow perturbation", "", 3, "Activity");
-        DeclareEditorSlider("wind.turb", "Turbulence", "", 0, 1, 0.01, [this]() { return Turbulence; }, [this](double V) { Turbulence = V; }, 2);
-        DeclareEditorMuted("Normalized sea-level traces at fixed base speed; labels give velocity bounds. X/Y use the existing .31/.27 rad/s oscillations; vertical motion uses .22 rad/s at 12% amplitude. Live gusts scale the actual perturbation.");
-        DeclareEditorCard("Wind through altitude", "", 4, "Activity");
-        DeclareEditorSlider("wind.shear", "Speed gain per km", "\xC3\x97/km", 0, 2, 0.01, [this]() { return Shear; }, [this](double V) { Shear = V; }, 2);
-        DeclareEditorSlider("wind.veer", "Direction veer per km", "\xC2\xB0/km", -60, 60, 1, [this]() { return Veer; }, [this](double V) { Veer = V; }, 0);
-        DeclareEditorMuted("Steady speed = base \xC3\x97 (1 + shear \xC3\x97 altitude in km). Travel bearing turns by veer \xC3\x97 altitude in km. Negative altitude is clamped to sea level. Gusts and turbulence are excluded here; vectors are plan-view glyphs, not vertically tilted air.");
-        DeclareEditorCard("Where the field goes", "", 5, "Wind");
-        DeclareEditorToggle("wind.cloudFollow", "Clouds", "Density travel at cloud-base altitude", false, [this]() { return CloudFollow; }, [this](bool On) { CloudFollow = On; });
-        DeclareEditorToggle("wind.localCloudFollow", "Local cloud", "Placed bounds stay fixed; density travels", false, [this]() { return LocalCloudFollow; }, [this](bool On) { LocalCloudFollow = On; });
-        DeclareEditorToggle("wind.localFogFollow", "Local fog", "Unlinked uses its own authored drift", false, [this]() { return LocalFogFollow; }, [this](bool On) { LocalFogFollow = On; });
-        DeclareEditorSlider("wind.drift", "Precipitation wind drift", "", 0, 1, 0.01, [this]() { return Drift; }, [this](double V) { Drift = V; }, 2);
-        DeclareEditorMuted("Linking a receiver does not enable it. Cloud/fog follow switches affect integrated density travel, not placement. Static height fog has no advected density. Tyre smoke/fire retains its separate gas-wind controls; no fake shared-wind binding is shown.");
-#endif
-    }
-    bool WindEnabled = true, CloudFollow = true, LocalCloudFollow = true, LocalFogFollow = true;
-    double Speed = 7.0, Bearing = 90.0, Gust = 0.25, Turbulence = 0.15, Shear = 0.15, Veer = 8.0, Drift = 0.5;
-};
-
 class FieldRecord final : public Frontier::RecordEntry
 {
   public:
@@ -599,13 +461,13 @@ class FogRecord final : public Frontier::RecordEntry
         DeclareEditorDescription("Exponential vertical density");
         DeclareEditorToggle("fog.enabled", "Fog", "", true, [this]() { return FogEnabled; }, [this](bool On) { FogEnabled = On; }, "CloudFog");
         DeclareEditorCard("Height fog", "", 1, "CloudFog");
-        DeclareEditorSlider("fog.density", "Density", "", 0, 0.01, 0.0001, [this]() { return Density; }, [this](double V) { Density = V; }, 4);
-        DeclareEditorSlider("fog.height", "Height", "m", 0, 200, 1, [this]() { return Height; }, [this](double V) { Height = V; }, 0);
+        DeclareEditorSlider("fog.density", "Density", "", 0, 0.05, 0.0001, [this]() { return Density; }, [this](double V) { Density = V; }, 4);
+        DeclareEditorSlider("fog.height", "Height", "m", 1, 500, 1, [this]() { return Height; }, [this](double V) { Height = V; }, 0);
         DeclareEditorSlider("fog.scatter", "Scatter", "", 0, 1, 0.01, [this]() { return Scatter; }, [this](double V) { Scatter = V; }, 2);
         DeclareEditorCard("Atmospheric fog", "", 2, "CloudFog");
         DeclareEditorToggle("fog.aerial", "Aerial perspective", "", false, [this]() { return AerialEnabled; }, [this](bool On) { AerialEnabled = On; });
         DeclareEditorSlider("fog.aerialDensity", "Density", "", 0, 0.001, 0.00001, [this]() { return AerialDensity; }, [this](double V) { AerialDensity = V; }, 5);
-        DeclareEditorSlider("fog.aerialStart", "Start", "m", 0, 1000, 1, [this]() { return AerialStart; }, [this](double V) { AerialStart = V; }, 0);
+        DeclareEditorSlider("fog.aerialStart", "Start", "m", 0, 2000, 1, [this]() { return AerialStart; }, [this](double V) { AerialStart = V; }, 0);
         DeclareEditorSlider("fog.aerialMie", "Mie", "", 0, 1, 0.01, [this]() { return AerialMie; }, [this](double V) { AerialMie = V; }, 2);
 #endif
     }
@@ -613,6 +475,66 @@ class FogRecord final : public Frontier::RecordEntry
     double Density = 0.002, Height = 30.0, Scatter = 0.5, AerialDensity = 0.00004, AerialStart = 100.0, AerialMie = 0.5;
 };
 
+
+
+// Shared text/rect helpers for the bespoke environment dashboards below.
+struct PageInk
+{
+    ImDrawList* Ink;
+    ImFont* Font;
+    void Text(float X, float Y, float Size, ImU32 Colour, const std::string& Value) const
+    { Ink->AddText(Font, Size, ImVec2(X, Y), Colour, Value.c_str()); }
+    float Width(float Size, const std::string& Value) const
+    { return Font->CalcTextSizeA(Size, 1e9f, 0.0f, Value.c_str()).x; }
+    void TextR(float Right, float Y, float Size, ImU32 Colour, const std::string& Value) const
+    { Text(Right - Width(Size, Value), Y, Size, Colour, Value); }
+    void TextC(float Centre, float Y, float Size, ImU32 Colour, const std::string& Value) const
+    { Text(Centre - Width(Size, Value) * 0.5f, Y, Size, Colour, Value); }
+    void Rect(float X, float Y, float R, float B, ImU32 Fill, float Radius) const
+    { Ink->AddRectFilled(ImVec2(X, Y), ImVec2(R, B), Fill, Radius); }
+    void RectLine(float X, float Y, float R, float B, ImU32 Edge, float Radius) const
+    { Ink->AddRect(ImVec2(X, Y), ImVec2(R, B), Edge, Radius, 0, 1.0f); }
+    // .frontier-slider (SliderControl.css): head label + value capsule, 22 px track, 20 px thumb.
+    // Returns the Y below the control. NumberSize/UnitInk allow dashboard overrides.
+    float Slider(float L, float R, float Y, const char* Label, const std::string& Value, const char* Unit,
+                 float Fraction, float NumberSize = 11.0f, ImU32 LabelInk = IM_COL32(0xa5, 0xa5, 0xa5, 255),
+                 ImU32 FillInk = IM_COL32(0x55, 0x56, 0x50, 255), ImU32 CapsuleInk = IM_COL32(0x08, 0x08, 0x08, 255)) const
+    {
+        Text(L, Y + 4.0f, 11.0f, LabelInk, Label);
+        const float CapW = 88.0f;
+        Rect(R - CapW, Y, R, Y + 24.0f, CapsuleInk, 20.0f);
+        TextR(R - 22.0f, Y + 12.0f - NumberSize * 0.62f, NumberSize, IM_COL32(0xe0, 0xe0, 0xd8, 255), Value);
+        Text(R - 20.0f, Y + 8.0f, 10.0f, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+        Y += 24.0f + 12.0f;
+        Rect(L, Y, R, Y + 22.0f, IM_COL32(0x17, 0x18, 0x18, 255), 20.0f);
+        const float FillR = L + (R - L) * Fraction;
+        if (FillR > L + 20.0f) Rect(L, Y, FillR, Y + 22.0f, FillInk, 20.0f);
+        Ink->AddCircleFilled(ImVec2(std::max(L + 11.0f, FillR - 11.0f), Y + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+        return Y + 22.0f;
+    }
+    // .inspector-categories tablist; ActiveInk/ActiveFill per dashboard family.
+    float Tabs(float L, float R, float Y, const char* const* Labels, int Count, ImU32 ActiveFill, ImU32 ActiveInk) const
+    {
+        const float TW = (R - L - 4.0f * (Count - 1)) / Count;
+        for (int I = 0; I < Count; ++I)
+        {
+            const float X = L + I * (TW + 4.0f);
+            if (I == 0) Rect(X, Y, X + TW, Y + 33.0f, ActiveFill, 23.0f);
+            TextC(X + TW * 0.5f, Y + 11.0f, 10.0f, I == 0 ? ActiveInk : IM_COL32(0x91, 0xa0, 0xad, 255), Labels[I]);
+        }
+        return Y + 33.0f;
+    }
+    void TopBar(const char* Group) const
+    {
+        Rect(0, 0, 380, 44, IM_COL32(0x14, 0x14, 0x14, 255), 0);
+        Ink->AddRectFilled(ImVec2(0, 44), ImVec2(380, 45), IM_COL32(0x2a, 0x2a, 0x2a, 255));
+        Text(18, 16, 11, IM_COL32(0xbf, 0xbf, 0xbf, 255), "Inspector");
+        const float GX = 18 + Width(11, "Inspector") + 8;
+        Text(GX, 16, 11, IM_COL32(0x71, 0x71, 0x71, 255), ">");
+        Text(GX + Width(11, ">") + 8, 16, 11, IM_COL32(0x71, 0x71, 0x71, 255), Group);
+        TextR(362, 17, 10, IM_COL32(0x7c, 0x7c, 0x7c, 255), "Changes apply live");
+    }
+};
 
 // ---------------------------------------------------------------------------
 // The Sun inspector as the HTML actually builds it: BuildSunInspectorDashboard
@@ -813,6 +735,330 @@ void DrawSunDashboard()
 }
 
 
+// ---------------------------------------------------------------------------
+// The Moon inspector as the HTML builds it: BuildMoonInspectorInfographics in
+// the moon-cards CSS family (MoonCards.css). Header + Moon settings card +
+// InspectorCategories (Phase pane active, as the HTML opens) with the Lunar
+// phase card. The phase preview is the HTML's textured-sphere Diagram; the
+// registered moon texture is not in this harness, so the disc is shaded by
+// phase geometry instead (see PARITY.md). Defaults: EnvironmentSettings
+// (phase 14.765 d = Full stop pressed, azimuth -8, elevation 38, size 25).
+// ---------------------------------------------------------------------------
+void DrawMoonDashboard()
+{
+    PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
+    P.Rect(0, 0, 380, 5000, IM_COL32(0x19, 0x1b, 0x1e, 255), 0);
+    P.TopBar("Environment");
+    const ImU32 InkMain = IM_COL32(0xe1, 0xe5, 0xeb, 255), Muted = IM_COL32(0x97, 0xa3, 0xb3, 255);
+    const float L = 18.0f, R = 362.0f;
+    float Y = 44.0f + 22.0f;
+    // .ne-header
+    P.Text(L, Y, 9, IM_COL32(0x84, 0x90, 0xa1, 255), "Inspector / Environment");
+    Y += 13.0f + 9.0f;
+    P.Text(L, Y, 29, InkMain, "Moons");
+    Y += 34.0f + 8.0f;
+    P.Text(L, Y, 11, Muted, "Scene bodies \xC2\xB7 phase \xC2\xB7 surface light");
+    Y += 15.0f + 20.0f;
+    // Moon settings card (fixed 178 px): title, instance select (top right), tiles
+    {
+        const float CardY = Y, CardH = 178.0f;
+        P.Rect(L, CardY, R, CardY + CardH, IM_COL32(0x24, 0x27, 0x2b, 255), 22);
+        P.RectLine(L, CardY, R, CardY + CardH, IM_COL32(0xb1, 0xc7, 0xe1, 0x1b), 22);
+        P.Text(L + 18, CardY + 16, 12, InkMain, "Moon settings");
+        // .ne-select (123 px, top right)
+        const float SX = R - 18 - 123.0f;
+        P.Rect(SX, CardY + 14, R - 18, CardY + 14 + 32, IM_COL32(0x28, 0x28, 0x28, 255), 12);
+        P.RectLine(SX, CardY + 14, R - 18, CardY + 14 + 32, IM_COL32(0x3e, 0x3e, 0x3e, 255), 12);
+        P.Text(SX + 12, CardY + 14 + 10, 11, IM_COL32(0xe9, 0xe9, 0xe9, 255), "1 \xC2\xB7 Luna");
+        P.TextR(R - 18 - 10, CardY + 14 + 10, 11, IM_COL32(0x91, 0x91, 0x91, 255), "v");
+        // .ne-tiles (top 52): Visible on, Follow sky off
+        const float TW = (R - L - 36.0f - 9.0f) / 2.0f;
+        struct Tile { const char* Name; bool On; };
+        const Tile Tiles[] = {{"Visible", true}, {"Follow sky", false}};
+        for (int I = 0; I < 2; ++I)
+        {
+            const float X = L + 18 + I * (TW + 9.0f), TY = CardY + 52.0f;
+            P.Rect(X, TY, X + TW, TY + 106, IM_COL32(0x20, 0x20, 0x20, 255), 16);
+            P.RectLine(X, TY, X + TW, TY + 106, Tiles[I].On ? IM_COL32(0x32, 0x32, 0x32, 255) : IM_COL32(0x49, 0x32, 0x32, 255), 16);
+            const ImVec2 C(X + TW * 0.5f, TY + 13 + 15.5f);
+            P.Ink->AddCircleFilled(C, 15.5f, Tiles[I].On ? IM_COL32(0x69, 0xc8, 0x84, 255) : IM_COL32(0xcc, 0x76, 0x73, 255));
+            P.Ink->AddCircle(C, 5.0f, Tiles[I].On ? IM_COL32(0x16, 0x32, 0x1e, 255) : IM_COL32(0x37, 0x1d, 0x1c, 255), 16, 1.4f);
+            P.TextC(X + TW * 0.5f, TY + 58, 10, IM_COL32(0xc8, 0xc8, 0xc8, 255), Tiles[I].Name);
+            P.TextC(X + TW * 0.5f, TY + 78, 8, Tiles[I].On ? IM_COL32(0x69, 0xc8, 0x84, 255) : IM_COL32(0xcc, 0x76, 0x73, 255), Tiles[I].On ? "ON" : "OFF");
+        }
+        Y = CardY + CardH + 15.0f;
+    }
+    // InspectorCategories: Phase / Placement / Light & size / Bodies
+    {
+        const char* Tabs[] = {"Phase", "Placement", "Light & size", "Bodies"};
+        Y = P.Tabs(L, R, Y + 3.0f, Tabs, 4, IM_COL32(0x34, 0x3d, 0x46, 255), IM_COL32(0xe1, 0xea, 0xf4, 255)) + 20.0f;
+    }
+    // Lunar phase card
+    {
+        const float CardY = Y;
+        const float InnerL = L + 18.0f, InnerR = R - 18.0f;
+        float CY = CardY + 18.0f;
+        P.Rect(L, CardY, R, CardY + 470, IM_COL32(0x24, 0x27, 0x2b, 255), 22);
+        P.RectLine(L, CardY, R, CardY + 470, IM_COL32(0xb1, 0xc7, 0xe1, 0x1b), 22);
+        P.Text(InnerL, CY, 12, InkMain, "Lunar phase");
+        CY += 12.0f + 20.0f;
+        // .mc-phase-summary: age strong, phase name, lit fraction
+        P.Text(InnerL, CY, 29, InkMain, "14.8 d");
+        P.Text(InnerL + 130.0f, CY + 17, 10, IM_COL32(0xa5, 0xb6, 0xca, 255), "Full moon");
+        P.TextR(InnerR, CY + 17, 10, IM_COL32(0xd7, 0xe3, 0xf1, 255), "100.0% lit");
+        CY += 29.0f + 12.0f;
+        // Diagram 640x440: textured disc at (135,10,370,370), body name at (320,424).
+        const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 440.0f * Scale;
+        const ImVec2 C(InnerL + 320.0f * Scale, CY + 195.0f * Scale);
+        const float Rad = 185.0f * Scale;
+        P.Ink->AddCircleFilled(C, Rad + 10.0f, IM_COL32(0xa8, 0xbc, 0xd9, 0x10));
+        P.Ink->AddCircleFilled(C, Rad, IM_COL32(0xd7, 0xe3, 0xf1, 255));
+        P.Ink->AddCircle(C, Rad, IM_COL32(0xa8, 0xbc, 0xd9, 0x60), 48, 1.0f);
+        for (int I = 0; I < 7; ++I)   // crater shading stand-in for the registered texture
+        {
+            const float A = I * 2.39f, D = Rad * (0.25f + 0.11f * (I % 3));
+            P.Ink->AddCircleFilled(ImVec2(C.x + std::cos(A) * D, C.y + std::sin(A) * D * 0.8f), Rad * (0.10f + 0.03f * (I % 3)), IM_COL32(0xb9, 0xc7, 0xda, 0x50));
+        }
+        P.TextC(C.x, CY + 424.0f * Scale - 4.0f, 11, IM_COL32(0xac, 0xbd, 0xd3, 255), "Luna");
+        CY += DH + 13.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Phase age", "14.76", "days", 14.765f / 29.53f, 13.0f,
+                      IM_COL32(0x95, 0xa4, 0xb7, 255), IM_COL32(0x55, 0x56, 0x50, 255), IM_COL32(0x18, 0x1d, 0x23, 255)) + 13.0f;
+        // .mc-phase-stops (Full pressed: day == cycle/2)
+        const char* Stops[] = {"New", "First", "Full", "Last"};
+        const float BW = (InnerR - InnerL - 18.0f) / 4.0f;
+        for (int I = 0; I < 4; ++I)
+        {
+            const float X = InnerL + I * (BW + 6.0f);
+            const bool Pressed = I == 2;
+            P.Rect(X, CY, X + BW, CY + 30, Pressed ? IM_COL32(0x45, 0x56, 0x6a, 255) : IM_COL32(0x20, 0x25, 0x2b, 255), 16);
+            P.RectLine(X, CY, X + BW, CY + 30, IM_COL32(0xb5, 0xc9, 0xe3, 0x1a), 16);
+            P.TextC(X + BW * 0.5f, CY + 10, 10, Pressed ? IM_COL32(0xe2, 0xeb, 0xf7, 255) : IM_COL32(0x9d, 0xaf, 0xc7, 255), Stops[I]);
+        }
+        CY += 30.0f + 13.0f;
+        P.Text(InnerL, CY, 10, Muted, "Original textured sphere \xC2\xB7 isolated phase preview. Editing");
+        P.Text(InnerL, CY + 16, 10, Muted, "phase switches off Follow sky.");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Lens Flare inspector as the HTML builds it: BuildNativeFlare in the
+// lens-optics CSS family (LensOptics.css). Header + actions, Optical
+// composite instrument (procedural preview plate), InspectorCategories
+// (Compose pane active) with the Light stack. The composite plate here is
+// shaded from the same source position/ghost layout law; the HTML renders
+// it in a worker (see PARITY.md). Defaults: EnvironmentSettings.
+// ---------------------------------------------------------------------------
+void DrawFlareDashboard()
+{
+    PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
+    P.Rect(0, 0, 380, 5000, IM_COL32(0x16, 0x16, 0x16, 255), 0);
+    P.TopBar("Environment");
+    const ImU32 InkMain = IM_COL32(0xd6, 0xd3, 0xdb, 255), Muted = IM_COL32(0xa1, 0x9a, 0xa6, 255);
+    const float L = 18.0f, R = 362.0f;
+    float Y = 44.0f + 12.0f;
+    // .lo-header
+    P.Text(L + 2, Y, 9, IM_COL32(0x99, 0x93, 0xa2, 255), "E N V I R O N M E N T  /  C A M E R A  O P T I C S");
+    Y += 13.0f + 9.0f;
+    P.Text(L + 2, Y, 31, InkMain, "Lens flare");
+    Y += 36.0f + 9.0f;
+    P.Text(L + 2, Y, 12, Muted, "Reflections, diffraction, and light across the sensor.");
+    Y += 20.0f + 18.0f;
+    // .lo-actions: Enabled toggle, Export HDR (right)
+    {
+        const float TW = P.Width(11, "Enabled") + 40.0f;
+        P.Rect(L, Y, L + TW, Y + 32, IM_COL32(0x28, 0x28, 0x28, 255), 22);
+        P.RectLine(L, Y, L + TW, Y + 32, IM_COL32(0x3e, 0x3e, 0x3e, 255), 22);
+        P.Ink->AddCircleFilled(ImVec2(L + 16.0f, Y + 16.0f), 3.5f, InkMain);
+        P.Text(L + 26.0f, Y + 10, 11, InkMain, "Enabled");
+        const std::string Export = "Export HDR \xE2\x86\x97";
+        const float EW = P.Width(11, Export) + 28.0f;
+        P.Rect(R - EW, Y, R, Y + 32, IM_COL32(0x28, 0x28, 0x28, 255), 22);
+        P.RectLine(R - EW, Y, R, Y + 32, IM_COL32(0x3e, 0x3e, 0x3e, 255), 22);
+        P.TextC(R - EW * 0.5f, Y + 10, 11, IM_COL32(0xde, 0xce, 0xb0, 255), Export);
+        Y += 32.0f + 20.0f;
+    }
+    // Optical composite (.lo-instrument)
+    {
+        const float CardY = Y, InnerL = L + 19.0f, InnerR = R - 19.0f;
+        float CY = CardY + 19.0f;
+        P.Rect(L, CardY, R, CardY + 348, IM_COL32(0x20, 0x1f, 0x24, 255), 22);
+        P.RectLine(L, CardY, R, CardY + 348, IM_COL32(0xc5, 0xb6, 0xd2, 0x22), 22);
+        P.Text(InnerL, CY, 9, IM_COL32(0x99, 0x93, 0xa2, 255), "0 1  /  L I V E  P R O C E D U R A L  R E F E R E N C E");
+        CY += 9.0f + 9.0f;
+        P.Text(InnerL, CY, 18, InkMain, "Optical composite");
+        CY += 22.0f + 19.0f;
+        // Preview plate 640x280 at source (0.28, 0.43)
+        const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 280.0f * Scale;
+        P.Rect(InnerL, CY, InnerR, CY + DH, IM_COL32(0x08, 0x08, 0x08, 255), 14);
+        const ImVec2 Src(InnerL + 0.28f * DW, CY + 0.43f * DH);
+        const ImVec2 Centre(InnerL + DW * 0.5f, CY + DH * 0.5f);
+        P.Ink->AddCircleFilled(Src, 42.0f * Scale + 16.0f, IM_COL32(0xf3, 0xde, 0xb2, 0x18));
+        P.Ink->AddCircleFilled(Src, 20.0f * Scale + 7.0f, IM_COL32(0xf3, 0xde, 0xb2, 0x30));
+        P.Ink->AddCircleFilled(Src, 4.0f, IM_COL32(0xf3, 0xde, 0xb2, 255));
+        P.Ink->AddCircle(Centre, 34.0f, IM_COL32(0xe5, 0xd5, 0xab, 0x40), 40, 1.2f);   // halo ring guide
+        for (int I = 0; I < 6; ++I)   // ghost layout: K = 1-(.6+(i+1)/N*(1.7+spacing))
+        {
+            const float K = 1.0f - (0.6f + (I + 1) / 6.0f * (1.7f + 1.0f));
+            const ImVec2 G(Centre.x + (Src.x - Centre.x) * K, Centre.y + (Src.y - Centre.y) * K);
+            if (G.x > InnerL + 4 && G.x < InnerR - 4 && G.y > CY + 4 && G.y < CY + DH - 4)
+            {
+                const float GR = 9.0f + (I % 4) * 4.0f;
+                P.Ink->AddCircleFilled(G, GR, IM_COL32(0xc3, 0xaf, 0xd2, 0x10));
+                P.Ink->AddCircle(G, GR, IM_COL32(0xc3, 0xaf, 0xd2, 0x55), 24, 1.0f);
+            }
+        }
+        CY += DH + 10.0f;
+        // .lo-preview-footer
+        P.Text(InnerL, CY + 5, 9, IM_COL32(0xa6, 0x9d, 0xaf, 255), "S O U R C E  0 . 2 8  /  0 . 4 3");
+        const std::string Reset = "Reset source";
+        const float RW = P.Width(10, Reset) + 20.0f;
+        P.Rect(InnerR - RW, CY, InnerR, CY + 26, IM_COL32(0, 0, 0, 0), 20);
+        P.RectLine(InnerR - RW, CY, InnerR, CY + 26, IM_COL32(0x3e, 0x3e, 0x3e, 255), 20);
+        P.TextC(InnerR - RW * 0.5f, CY + 8, 10, InkMain, Reset);
+        CY += 26.0f + 15.0f;
+        P.Text(InnerL, CY, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "Drag the source. Authoring preview stays visible when scene");
+        P.Text(InnerL, CY + 19, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "flare is disabled; scene flare follows the Sun, camera");
+        P.Text(InnerL, CY + 38, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "occlusion and cabin transmission. Display-mapped");
+        P.Text(InnerL, CY + 57, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "thumbnail \xC2\xB7 export retains linear HDR.");
+        Y = CardY + 348 + 18.0f;
+    }
+    // InspectorCategories: Compose / Ghosts / Halo / Rays & streaks
+    {
+        const char* Tabs[] = {"Compose", "Ghosts", "Halo", "Rays & streaks"};
+        Y = P.Tabs(L, R, Y, Tabs, 4, IM_COL32(0x40, 0x38, 0x46, 255), IM_COL32(0xed, 0xdf, 0xeb, 255)) + 18.0f;
+    }
+    // Light stack (.lo-instrument)
+    {
+        const float CardY = Y, InnerL = L + 19.0f, InnerR = R - 19.0f;
+        float CY = CardY + 19.0f;
+        P.Rect(L, CardY, R, CardY + 440, IM_COL32(0x20, 0x1f, 0x24, 255), 22);
+        P.RectLine(L, CardY, R, CardY + 440, IM_COL32(0xc5, 0xb6, 0xd2, 0x22), 22);
+        P.Text(InnerL, CY, 9, IM_COL32(0x99, 0x93, 0xa2, 255), "0 2  /  S O U R C E  &  P R E S E T");
+        CY += 9.0f + 9.0f;
+        P.Text(InnerL, CY, 18, InkMain, "Light stack");
+        CY += 22.0f + 19.0f;
+        // .ne-select Optical preset
+        P.Text(InnerL, CY, 11, IM_COL32(0x91, 0x91, 0x91, 255), "Optical preset");
+        CY += 16.0f + 9.0f;
+        P.Rect(InnerL, CY, InnerR, CY + 32, IM_COL32(0x16, 0x16, 0x1b, 255), 18);
+        P.RectLine(InnerL, CY, InnerR, CY + 32, IM_COL32(0x3e, 0x3e, 0x3e, 255), 18);
+        P.Text(InnerL + 12, CY + 10, 11, IM_COL32(0xd8, 0xd0, 0xdf, 255), "Cinematic");
+        P.TextR(InnerR - 12, CY + 10, 11, Muted, "v");
+        CY += 32.0f + 18.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Intensity", "0.30", "\xC3\x97", 0.3f / 5.0f) + 18.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Spread", "1.00", "\xC3\x97", (1.0f - 0.25f) / 1.75f) + 18.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Chromatic separation", "0.20", "", 0.2f) + 15.0f;
+        P.Text(InnerL, CY, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "Presets retain their original renderer behaviour. Editing");
+        P.Text(InnerL, CY + 19, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "layer geometry or a layer switch selects Custom layers;");
+        P.Text(InnerL, CY + 38, 11, IM_COL32(0xa3, 0x9b, 0xa9, 255), "global intensity, spread and chromatic separation do not.");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Wind inspector as the HTML builds it: BuildWindField in the
+// wind-instruments CSS family (WindInstruments.css). Header + power toggle,
+// InspectorCategories (Flow pane active) with the Direction-of-travel card:
+// summary readout, 640x480 compass Plot (replicated from the HTML draw
+// code), ObservatorySliders and note, plus the live-vector line. Defaults:
+// CloudSettings (speed 7, bearing 90 -> FROM 270, gust .25, turbulence .15).
+// ---------------------------------------------------------------------------
+void DrawWindDashboard()
+{
+    PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
+    P.Rect(0, 0, 380, 5000, IM_COL32(0x19, 0x1c, 0x19, 255), 0);
+    P.TopBar("Environment");
+    const ImU32 InkMain = IM_COL32(0xd2, 0xdd, 0xc7, 255), Muted = IM_COL32(0x9a, 0xab, 0x90, 255);
+    const float L = 18.0f, R = 362.0f;
+    float Y = 44.0f + 27.0f;
+    // .wi-header
+    P.Text(L + 2, Y, 9, IM_COL32(0x8e, 0x9f, 0x82, 255), "F O R C E F I E L D  /  S H A R E D  W E A T H E R");
+    Y += 12.0f + 9.0f;
+    P.Text(L + 2, Y, 32, InkMain, "Wind");
+    // .wi-power (absolute right, top 40 of header)
+    {
+        const std::string Label = "On";
+        const float PW = P.Width(11, Label) + 42.0f;
+        P.Rect(R - PW, 44.0f + 45.0f, R, 44.0f + 45.0f + 30, IM_COL32(0x28, 0x28, 0x28, 255), 24);
+        P.RectLine(R - PW, 44.0f + 45.0f, R, 44.0f + 45.0f + 30, IM_COL32(0x3e, 0x3e, 0x3e, 255), 24);
+        P.Ink->AddCircleFilled(ImVec2(R - PW + 15.0f, 44.0f + 45.0f + 15.0f), 3.5f, InkMain);
+        P.Text(R - PW + 25.0f, 44.0f + 45.0f + 9, 11, InkMain, Label);
+    }
+    Y += 40.0f + 8.0f;
+    P.Text(L + 2, Y, 12, Muted, "A direction, a pulse, a changing column of air.");
+    Y += 20.0f + 22.0f;
+    // InspectorCategories: Flow / Variability / Altitude / Receivers
+    {
+        const char* Tabs[] = {"Flow", "Variability", "Altitude", "Receivers"};
+        Y = P.Tabs(L, R, Y, Tabs, 4, IM_COL32(0x3d, 0x4b, 0x34, 255), IM_COL32(0xe1, 0xea, 0xcd, 255)) + 15.0f;
+    }
+    // Direction of travel (.wi-card)
+    {
+        const float CardY = Y, InnerL = L + 20.0f, InnerR = R - 20.0f;
+        float CY = CardY + 20.0f;
+        P.Rect(L, CardY, R, CardY + 700, IM_COL32(0x21, 0x25, 0x20, 255), 24);
+        P.RectLine(L, CardY, R, CardY + 700, IM_COL32(0xb6, 0xce, 0x9b, 0x21), 24);
+        P.Text(InnerL, CY, 9, IM_COL32(0x8e, 0x9f, 0x82, 255), "0 1  /  B A S E  F L O W");
+        CY += 10.0f + 10.0f;
+        P.Text(InnerL, CY, 18, InkMain, "Direction of travel");
+        CY += 22.0f + 19.0f;
+        // .wi-summary
+        P.Text(InnerL, CY, 53, InkMain, "7.0");
+        const float UnitX = InnerL + P.Width(53, "7.0") + 10.0f;
+        P.Text(UnitX, CY + 36, 12, IM_COL32(0x9d, 0xb0, 0x8e, 255), "m/s");
+        P.TextR(InnerR, CY + 38, 10, IM_COL32(0x9d, 0xb0, 0x8e, 255), "FROM 270\xC2\xB0");
+        CY += 53.0f + 15.0f;
+        // Compass Plot 640x480 (HTML draw code, bearing 90 -> U = [1, 0])
+        const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 480.0f * Scale;
+        const float OX = InnerL + 320.0f * Scale, OY = CY + 235.0f * Scale;
+        P.Ink->AddCircle(ImVec2(OX, OY), 155.0f * Scale, IM_COL32(0xc1, 0xd6, 0xb8, 0x2d), 64, 1.0f);
+        P.Ink->AddCircle(ImVec2(OX, OY), 98.0f * Scale, IM_COL32(0xc1, 0xd6, 0xb8, 0x14), 48, 1.0f);
+        for (int I = 0; I < 24; ++I)
+        {
+            const float A = I / 24.0f * 6.2831853f;
+            P.Ink->AddLine(ImVec2(OX + std::sin(A) * 150.0f * Scale, OY - std::cos(A) * 150.0f * Scale),
+                           ImVec2(OX + std::sin(A) * 155.0f * Scale, OY - std::cos(A) * 155.0f * Scale), IM_COL32(0xbf, 0xd1, 0xb2, 0x58), 1.0f);
+        }
+        for (int J = -2; J <= 2; ++J)
+        {
+            const float Across = J * 39.0f, Len = std::sqrt(std::max(0.0f, 135.0f * 135.0f - Across * Across));
+            ImVec2 Prev; bool Have = false;
+            for (int I = 0; I <= 36; ++I)
+            {
+                const float Along = -Len + 2.0f * Len * I / 36.0f;
+                const ImVec2 Pt(OX + Along * Scale, OY + (Across + std::sin(I / 36.0f * 3.14159265f) * J * 3.0f) * Scale);
+                if (Have) P.Ink->AddLine(Prev, Pt, IM_COL32(0xb9, 0xc9, 0xa1, 0x2a), 1.2f);
+                Prev = Pt; Have = true;
+            }
+            const ImVec2 End(OX + Len * 0.48f * Scale, OY + Across * Scale);
+            const ImVec2 Back(OX + (Len * 0.48f - 12.0f) * Scale, OY + Across * Scale);
+            P.Ink->AddLine(Back, End, IM_COL32(0xc7, 0xd8, 0xac, 255), 1.6f);
+            P.Ink->AddLine(ImVec2(OX + (Len * 0.48f - 9.0f) * Scale, OY + (Across - 5.0f) * Scale), End, IM_COL32(0xc7, 0xd8, 0xac, 255), 1.6f);
+            P.Ink->AddLine(ImVec2(OX + (Len * 0.48f - 9.0f) * Scale, OY + (Across + 5.0f) * Scale), End, IM_COL32(0xc7, 0xd8, 0xac, 255), 1.6f);
+        }
+        const ImVec2 From(OX - 155.0f * 7.0f / 40.0f * Scale, OY);
+        for (float T = 0.0f; T < 1.0f; T += 0.12f)
+            P.Ink->AddLine(ImVec2(OX + (From.x - OX) * T, OY), ImVec2(OX + (From.x - OX) * (T + 0.06f), OY), IM_COL32(0xdf, 0xe4, 0xba, 0x66), 1.0f);
+        P.Ink->AddCircleFilled(From, 9.0f * Scale + 2.0f, IM_COL32(0xe1, 0xe5, 0xbc, 255));
+        P.Ink->AddCircleFilled(ImVec2(OX, OY), 4.0f * Scale + 1.0f, IM_COL32(0x94, 0xab, 0x8a, 255));
+        P.TextC(OX, CY + 40.0f * Scale, 9, IM_COL32(0xa7, 0xb6, 0x9b, 255), "N / +Y");
+        P.Text(InnerL + 516.0f * Scale, OY, 9, IM_COL32(0xa7, 0xb6, 0x9b, 255), "E");
+        P.TextC(OX, CY + 426.0f * Scale, 9, IM_COL32(0xa7, 0xb6, 0x9b, 255), "S");
+        P.TextR(InnerL + 126.0f * Scale, OY, 9, IM_COL32(0xa7, 0xb6, 0x9b, 255), "W");
+        P.TextC(OX, CY + 468.0f * Scale, 8, IM_COL32(0x91, 0xa3, 0x8c, 255), "DOT = WIND FROM / ARROWS = TRAVEL TO");
+        CY += DH + 20.0f;
+        const ImU32 WindFill = IM_COL32(0xc8, 0xd8, 0xae, 255);
+        CY = P.Slider(InnerL, InnerR, CY, "Base speed", "7.0", "m/s", 7.0f / 40.0f, 11.0f, Muted, WindFill, IM_COL32(0x14, 0x1b, 0x15, 255)) + 19.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Bearing from", "270", "\xC2\xB0", 270.0f / 360.0f, 11.0f, Muted, WindFill, IM_COL32(0x14, 0x1b, 0x15, 255)) + 18.0f;
+        P.Text(InnerL, CY, 11, IM_COL32(0x95, 0xa6, 0x8b, 255), "Meteorological bearing is where wind comes FROM; the");
+        P.Text(InnerL, CY + 19, 11, IM_COL32(0x95, 0xa6, 0x8b, 255), "arrows show where it travels TO. Drag the source dot");
+        P.Text(InnerL, CY + 38, 11, IM_COL32(0x95, 0xa6, 0x8b, 255), "radially for base speed. Base-only reference: gusts,");
+        P.Text(InnerL, CY + 57, 11, IM_COL32(0x95, 0xa6, 0x8b, 255), "altitude and turbulence are excluded.");
+        Y = CardY + 700 + 15.0f;
+    }
+    P.Text(L + 8, Y, 9, IM_COL32(0xa4, 0xb5, 0x94, 255), "LIVE BASE VECTOR \xC2\xB7 7.00 m/s \xC2\xB7 current shared gust clock");
+}
+
+
 int main(int ArgumentCount, char** Arguments)
 {
     using namespace Frontier;
@@ -833,7 +1079,7 @@ int main(int ArgumentCount, char** Arguments)
         static ImVector<ImWchar> Ranges;
         ImFontGlyphRangesBuilder Builder;
         Builder.AddRanges(Io.Fonts->GetGlyphRangesDefault());
-        static const ImWchar Extra[] = {0x2010, 0x2019, 0x201C, 0x201E, 0x2026, 0x2026, 0x2190, 0x21FF, 0x2200, 0x22FF, 0};
+        static const ImWchar Extra[] = {0x2010, 0x2019, 0x201C, 0x201E, 0x2026, 0x2026, 0x2190, 0x21FF, 0x2200, 0x22FF, 0x2500, 0x25FF, 0};
         Builder.AddRanges(Extra);
         Builder.BuildRanges(&Ranges);
         ImFontConfig Config;
@@ -857,15 +1103,12 @@ int main(int ArgumentCount, char** Arguments)
     std::unique_ptr<RecordEntry> PageRecord;
     std::string PageName = "Render settings";
     const bool SunDashboard = Page == "sun";
-    if      (Page == "moon")      { PageRecord = std::make_unique<MoonRecord>();         PageName = "Moons"; }
-    else if (Page == "moon")      { PageRecord = std::make_unique<MoonRecord>();         PageName = "Moons"; }
-    else if (Page == "flare")     { PageRecord = std::make_unique<FlareRecord>();        PageName = "Lens Flare"; }
-    else if (Page == "wind")      { PageRecord = std::make_unique<WindRecord>();         PageName = "Wind"; }
+    const bool BespokeDashboard = SunDashboard || Page == "moon" || Page == "flare" || Page == "wind";
+    if      (BespokeDashboard)   { /* bespoke dashboard draw; no generic record */ }
     else if (Page == "field")     { PageRecord = std::make_unique<FieldRecord>();        PageName = "BVH & distance field"; }
     else if (Page == "cards")     { PageRecord = std::make_unique<SurfaceCardsRecord>(); PageName = "Surface cache"; }
     else if (Page == "particles") { PageRecord = std::make_unique<ParticlesRecord>();    PageName = "Particles"; }
     else if (Page == "fog")       { PageRecord = std::make_unique<FogRecord>();          PageName = "Height Fog"; }
-    else if (SunDashboard)        { /* bespoke dashboard draw; no generic record */ }
     else                          { PageRecord = std::make_unique<RenderSettingsRecord>(); }
     SceneDirectory& Directory = SceneDirectory::Instance();
     if (PageRecord) (void)Directory.ConfigureName(PageRecord->Token(), PageName);
@@ -888,7 +1131,10 @@ int main(int ArgumentCount, char** Arguments)
         ImGui::SetNextWindowPos(ImVec2(0,0));
         ImGui::SetNextWindowSize(ImVec2((float)CaptureWidth,(float)CaptureHeight));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse|ImGuiWindowFlags_NoBackground);
-        if (SunDashboard) DrawSunDashboard();
+        if      (Page == "sun")   DrawSunDashboard();
+        else if (Page == "moon")  DrawMoonDashboard();
+        else if (Page == "flare") DrawFlareDashboard();
+        else if (Page == "wind")  DrawWindDashboard();
         else Inspector.ConstructInterface();
         ImGui::End();
         ImGui::Render();
