@@ -39,3 +39,31 @@ Or directly: `g++ -std=c++17 -Wall -Wextra -Werror -I ../../Frontier` over the
 engine `.cpp` files listed in `CMakeLists.txt` plus the validation main,
 `-pthread`. At delivery: 45 checks in Development and Editor, 17 in
 Shipping; the Shipping binary carries zero `SceneDirectory` symbols (`nm`).
+
+## Inspector (added with the per-record editor specification)
+
+- `Engine/Scene/RecordEditorSpecification` — Editor/Development-only
+  registry of each record's own Inspector construction: cards of bound
+  controls (toggle / slider / segmented / readout / action). A record
+  declares them in its constructor through `RecordEntry::DeclareEditor*`
+  inside `#if defined(FRONTIER_EDITOR_PROFILE) ||
+  defined(FRONTIER_DEVELOPMENT_PROFILE)`; its destructor unregisters them.
+  Shipping declares, links, and pays for none of it.
+- `Engine/Interface/SceneInspectorPanel` — portable view-model resolving
+  the Outliner selection to live control values; every `Apply*` writes
+  through the binding to the record itself. Native drawing
+  (`SceneInspectorPanelPresentation.cpp`) is the HTML Inspector at its CSS
+  pixel values — see `PARITY.md`. `InspectorCapture.cpp` CPU-renders the
+  production draw code: the HTML Render settings page (all eight
+  `BuildRender` cards, 53 controls) in `Capture/inspector-render.png` and
+  `Capture/inspector-render-full.png`; the generic `SceneRecord` page in
+  `Capture/inspector-vehicle.png`. The harness takes a page argument
+  (`render|sun|moon|flare|wind|field|cards|particles|fog`) and renders the
+  other HTML inspector pages the same way
+  (`Capture/inspector-<page>.png`) — see `PARITY.md` for what the generic
+  vocabulary does not yet draw (bespoke dashboard instruments).
+- The suite now covers the full loop: constructor-built specification →
+  inspector resolution → slider clamp/write, toggle, segmented, action,
+  readout refresh → destructor unregisters. At delivery: 56 checks in
+  Development and Editor, 17 in Shipping, zero `SceneInspector` /
+  `RecordEditor` symbols in the Shipping binary.

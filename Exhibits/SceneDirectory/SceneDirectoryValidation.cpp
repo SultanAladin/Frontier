@@ -9,6 +9,7 @@
 #include "Engine/Diagnostics/BuildConfiguration.h"
 #include "Engine/Diagnostics/LogStream.h"
 #include "Engine/Interface/SceneDirectoryPanel.h"
+#include "Engine/Interface/SceneInspectorPanel.h"
 #include "Engine/Scene/RecordEntry.h"
 #include "Engine/Scene/RecordStore.h"
 #include "Engine/Scene/SceneRecord.h"
@@ -48,6 +49,42 @@ class TestRecord final : public Frontier::RecordEntry
   public:
     explicit TestRecord(Frontier::RecordClassification Classification) : RecordEntry(Classification) {}
 };
+
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+// A scene object whose constructor builds its own Inspector specification (the §6 editor pattern):
+// controls bind to the record's own fields, so Inspector edits must land on the record itself.
+class EditorTestRecord final : public Frontier::RecordEntry
+{
+  public:
+    explicit EditorTestRecord(Frontier::RecordClassification Classification) : RecordEntry(Classification)
+    {
+        DeclareEditorDescription("Editor test record");
+        DeclareEditorToggle("test.headlights", "Headlights", "Front lamp pair", true,
+                            [this]() { return Headlights; }, [this](bool On) { Headlights = On; });
+        DeclareEditorCard("Powertrain", "");
+        DeclareEditorMetric("test.metric", [this]() { return std::to_string(Starts) + "B GI"; }, "",
+                            []() { return std::pair<std::string, std::string>{"RTX raytracing", "live"}; });
+        DeclareEditorMuted("Two-level BVH with multi-bounce importance sampling.");
+        DeclareEditorSlider("test.throttle", "Throttle", "%", 0.0, 100.0, 1.0,
+                            [this]() { return Throttle; }, [this](double Value) { Throttle = Value; }, 0,
+                            "1 bounce", "4 bounces");
+        DeclareEditorSegmented("test.mode", "Drive mode", {"Comfort", "Sport"},
+                               [this]() { return Mode; }, [this](size_t Index) { Mode = Index; });
+        DeclareEditorSelect("test.display", "Display", {"Final image", "Normals"},
+                            [this]() { return Display; }, [this](size_t Index) { Display = Index; });
+        DeclareEditorStats("test.stats", {{"Starts", "", [this]() { return std::to_string(Starts); }},
+                                          {"Throttle", "%", [this]() { return std::to_string(static_cast<int>(Throttle)); }}});
+        DeclareEditorReadout("test.starts", "Starts", [this]() { return std::to_string(Starts); });
+        DeclareEditorAction("test.start", "Start engine", [this]() { ++Starts; });
+    }
+
+    bool   Headlights = false;   // [-]
+    double Throttle   = 25.0;    // [%]
+    size_t Mode       = 0;       // [choice]
+    size_t Display    = 0;       // [choice]
+    int    Starts     = 0;       // [count]
+};
+#endif
 
 static_assert(!std::is_copy_constructible_v<Frontier::RecordEntry>, "records are identity objects: no copies");
 static_assert(!std::is_move_constructible_v<Frontier::RecordEntry>, "records are identity objects: no moves");
@@ -175,6 +212,52 @@ int main()
         Check(Directory.ConfigureName(Spawned.Token(), "Chase Camera") &&
                   Directory.QueryName(Spawned.Token()) == "Chase Camera",
               "host-serviced spawn appears by construction as a SceneRecord");
+    }
+
+    // Inspector: the selected record's constructor-built specification, resolved and edited live.
+    {
+        auto EditorRecord = std::make_unique<EditorTestRecord>(RecordClassification::Vehicle);
+        Check(RecordEditorRegistry::Instance().QueryRegistered(EditorRecord->Token()),
+              "editor constructor registers its Inspector specification");
+        Panel.Select(EditorRecord->Token());
+        Panel.Synchronize(Directory);
+        SceneInspectorPanel InspectorPanel;
+        InspectorPanel.Synchronize(Directory, Panel);
+        Check(InspectorPanel.QueryHasSelection() && InspectorPanel.QueryCards().size() == 2 &&
+                  InspectorPanel.QueryCards()[0].Controls.size() == 1 &&
+                  InspectorPanel.QueryCards()[1].Controls.size() == 8,
+              "inspector resolves the tile card plus the record's card and its eight controls");
+        Check(InspectorPanel.QueryCards()[1].Controls[0].ReadoutText == "0B GI" &&
+                  InspectorPanel.QueryCards()[1].Controls[0].PillText == "RTX raytracing" &&
+                  InspectorPanel.QueryCards()[1].Controls[0].PillState == "live",
+              "inspector metric and pill resolve from the record");
+        Check(InspectorPanel.QueryCards()[1].Controls[2].SliderValue == 25.0 &&
+                  InspectorPanel.QueryCards()[1].Controls[2].RangeLabelMinimum == "1 bounce",
+              "inspector slider reads the record's live throttle with its range labels");
+        Check(InspectorPanel.ApplySlider("test.throttle", 240.0) && EditorRecord->Throttle == 100.0,
+              "inspector slider clamps to its range and writes the record");
+        Check(InspectorPanel.ApplyToggle("test.headlights", true) && EditorRecord->Headlights,
+              "inspector property-switch writes the record");
+        Check(InspectorPanel.ApplySegmented("test.mode", 1) && EditorRecord->Mode == 1 &&
+                  !InspectorPanel.ApplySegmented("test.mode", 9),
+              "inspector segmented writes a valid choice and refuses an invalid one");
+        Check(InspectorPanel.ApplyAction("test.start") && EditorRecord->Starts == 1,
+              "inspector action triggers on the record");
+        InspectorPanel.Synchronize(Directory, Panel);
+        Check(InspectorPanel.QueryCards()[1].Controls[6].ReadoutText == "1" &&
+                  InspectorPanel.QueryCards()[1].Controls[5].StatCells.size() == 2 &&
+                  InspectorPanel.QueryCards()[1].Controls[5].StatCells[0].Value == "1",
+              "inspector readout and stats refresh from the record after the action");
+        const RecordToken EditorToken = EditorRecord->Token();
+        const size_t      EditorCount = RecordEditorRegistry::Instance().QueryCount();
+        EditorRecord.reset();
+        Check(!RecordEditorRegistry::Instance().QueryRegistered(EditorToken) &&
+                  RecordEditorRegistry::Instance().QueryCount() == EditorCount - 1,
+              "destructor unregisters the editor specification with its record");
+        Panel.Synchronize(Directory);
+        InspectorPanel.Synchronize(Directory, Panel);
+        Check(!InspectorPanel.QueryHasSelection() && InspectorPanel.QueryCards().empty(),
+              "destroying the inspected record empties the inspector");
     }
 
     // Destruction unregisters everywhere; children re-root; stale selection clears.

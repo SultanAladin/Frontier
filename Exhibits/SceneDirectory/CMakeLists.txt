@@ -22,8 +22,11 @@ set(SCENE_PROOF_SOURCES
 if(NOT FRONTIER_SHIPPING_PROFILE)
     list(APPEND SCENE_PROOF_SOURCES
         ${FRONTIER_ROOT}/Engine/Scene/SceneDirectory.cpp
+        ${FRONTIER_ROOT}/Engine/Scene/RecordEditorSpecification.cpp
         ${FRONTIER_ROOT}/Engine/Interface/SceneDirectoryPanel.cpp
         ${FRONTIER_ROOT}/Engine/Interface/SceneDirectoryPanelPresentation.cpp
+        ${FRONTIER_ROOT}/Engine/Interface/SceneInspectorPanel.cpp
+        ${FRONTIER_ROOT}/Engine/Interface/SceneInspectorPanelPresentation.cpp
         ${FRONTIER_ROOT}/Engine/Interface/StackRailControls.cpp)
 endif()
 

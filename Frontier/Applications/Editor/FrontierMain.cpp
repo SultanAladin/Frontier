@@ -240,6 +240,8 @@ int RunBrowserListing(const std::filesystem::path& FromExecutable)
 #include "Engine/Interface/LogStreamPanelRegistration.h"
 #include "Engine/Interface/SceneDirectoryPanel.h"
 #include "Engine/Interface/SceneDirectoryPanelRegistration.h"
+#include "Engine/Interface/SceneInspectorPanel.h"
+#include "Engine/Interface/SceneInspectorPanelRegistration.h"
 #include "Engine/Scene/SceneDirectory.h"
 #include "Engine/Scene/SceneRecord.h"
 #include "Engine/Interface/WindowsApplication.h"
@@ -272,6 +274,7 @@ struct WorkspaceSession
     PanelDockspace                     Panels;           // Viewport | (Outliner over Log Stream), columns 50/50
     LogStreamPanel                     LogPanel;
     SceneDirectoryPanel                OutlinerPanel;
+    SceneInspectorPanel                InspectorPanel;
     std::vector<std::unique_ptr<SceneRecord>> SpawnedRecords;   // Editor-spawned records live with the session
     std::string                        ProjectName;
     std::string                        ProjectLocation;  // [utf8]
@@ -384,11 +387,13 @@ int RunProjectWindow(const ProjectDescriptor& Descriptor, const std::filesystem:
         (void)Session.Panels.Register(ViewportPanel);
         (void)Session.Panels.Register(MakeLogStreamPanelSpecification(Session.LogPanel));
         (void)Session.Panels.Register(MakeSceneDirectoryPanelSpecification(Session.OutlinerPanel));
+        (void)Session.Panels.Register(MakeSceneInspectorPanelSpecification(Session.InspectorPanel));
         Session.Panels.ConfigureWorkspaceInsets(79.0f, 0.0f);   // [px] - Top band for the notch tab (TextureStudio)
         Session.Panels.ConfigureTabExtent(140.0f, 26.0f);       // [px]
-        // Outliner stacked over the Log Stream in the right column; columns stay 50/50.
+        // Outliner stacked over the Log Stream in one column; Viewport centre; Inspector in its own column
+        // (HTML shell: Outliner · Viewport · Inspector, Log Stream docked with the Outliner column).
         (void)Session.Panels.ConfigureStackedPanels("Outliner", "LogStream", 420.0f);   // [px] upper height
-        (void)Session.Panels.ConfigureColumns({{"Viewport", 0.5f}, {"LogStream", 0.5f}});   // 50/50 split
+        (void)Session.Panels.ConfigureColumns({{"Viewport", 0.4f}, {"LogStream", 0.3f}, {"Inspector", 0.3f}});
 
         std::error_code Error;
         if (std::filesystem::is_regular_file(Session.LayoutPath, Error))
@@ -428,6 +433,7 @@ int RunProjectWindow(const ProjectDescriptor& Descriptor, const std::filesystem:
             Session.SpawnedRecords.push_back(std::move(Record));
         }
         Session.OutlinerPanel.Synchronize(SceneDirectory::Instance());
+        Session.InspectorPanel.Synchronize(SceneDirectory::Instance(), Session.OutlinerPanel);
 
         Session.Centre->PrepareInterface();
         const float InterfacePercent = Session.Centre->QueryAppearance().QueryApplied().InterfaceScale;   // [%]
