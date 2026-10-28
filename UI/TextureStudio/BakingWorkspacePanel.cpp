@@ -2,6 +2,7 @@
                                                           BAKINGWORKSPACEPANEL.CPP
 ============================================================================================================================================*/
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
+#include "UI/TextureStudio/PanelChrome.h"
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
@@ -19,32 +20,13 @@
 
 namespace Frontier
 {
+// Shared panel UI primitives (PanelChrome.h) - one implementation for all five workspaces.
+using PanelChrome::Caption;
+using PanelChrome::Spectrum;
+using PanelChrome::SpectrumQuad;
+using PanelChrome::ThemeQuad;
 namespace
 {
-ImVec4 Spectrum(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return ImVec4(float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha);
-}
-// 🎨 Same hex colour, but as the ColorQuad GlyphSpace::Stroke's GlyphPlacement expects (its own hand-drawn
-// icons, e.g. the .bk-empty stage glyph, are not ImGui-styled widgets going through ConvertSpectrum).
-ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
-}
-// 🎨 Same helper as Pattern/Stamp's ThemeQuad: lets this panel's own card chrome read straight from
-// ControlKit::Palette() so it tracks the applied theme instead of a hard-coded colour set.
-ImVec4 ThemeQuad(const ColorQuad &Colour, float AlphaOverride = -1.0f) noexcept
-{
-    return {Colour.Red, Colour.Green, Colour.Blue, AlphaOverride >= 0.0f ? AlphaOverride : Colour.Alpha};
-}
-// 🎨 Absolute-position draw-list text, matching the Caption() helper duplicated in Pattern/StampWorkspacePanel.cpp -
-// lets headings/captions sit at exact pixel offsets instead of flowing through ImGui's sequential layout, which is
-// how the approved native ports reproduce the web reference's fixed typographic grid.
-void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, void *Typeface = nullptr)
-{
-    ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
-}
-
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     MESH MAP METADATA (1:1 WITH meshMaps.js)
 //------------------------------------------------------------------------------------------------------------------------
@@ -2009,24 +1991,15 @@ void BakingWorkspacePanel::ConstructInterface()
     // ImGui's own default dark-theme colours, which are a visibly blue FrameBg/CheckMark/accent - exactly the
     // "default ImGui blue" this workspace was never actually themed against before this pass.
     const auto SavedPalette = ControlKit::Palette();
-    auto Palette = SavedPalette;
-    Palette.Panel = {.0706f, .0706f, .0706f, 1};
-    Palette.Inset = {.098f, .098f, .098f, 1};
-    Palette.Raised = {.133f, .133f, .133f, 1};
-    Palette.Selected = {.20f, .208f, .173f, 1};
-    Palette.Text = {.808f, .808f, .753f, 1};
-    Palette.TextDim = {.56f, .58f, .50f, 1};
-    Palette.TextFaint = {.35f, .37f, .30f, 1};
-    Palette.Accent = {.39f, .45f, .31f, 1};
+    const auto Palette = PanelChrome::StudioPalette(SavedPalette, {.20f, .208f, .173f, 1}, {.39f, .45f, .31f, 1});
     ControlKit::ConfigurePalette(Palette);
-    const auto ToneQuad = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
     // 📝 Single shared dock-window background, pushed once before Panels.ConstructInterface() the same way
     // Pattern/StampWorkspacePanel push it before their own Panels.ConstructInterface() call - PanelDockspace
     // owns the ImGui::Begin() for every registered dock window, so a push made per-panel inside e.g.
     // ConstructAssetsDock would land after that Begin() already baked this frame's background.
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
-    ImGui::PushStyleColor(ImGuiCol_Text, ToneQuad(Palette.Text));
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ToneQuad(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_Text, ThemeQuad(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ThemeQuad(Palette.TextDim));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Spectrum(0x141412));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Spectrum(0x191916));
@@ -2044,26 +2017,12 @@ void BakingWorkspacePanel::ConstructInterface()
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
-    // 🧩 Dock chrome: the same near-black title/tab/docking-empty colours Stamp/Pattern/Material push
-    // before their PanelDockspace runs - without these, Baking's dock tabs and title strips fell back
-    // to the host theme and visibly mismatched the other studios.
-    for (ImGuiCol Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg})
-        ImGui::PushStyleColor(Slot, Spectrum(0x090909));
-    for (ImGuiCol Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
-        ImGui::PushStyleColor(Slot, Spectrum(0x101010));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * InterfaceScale);
-    // No visible scrollbars anywhere in the workspace: wheel scrolling stays live (and eased, with
-    // overscroll, via ImGui Patch H) but the bar/track chrome is gone.
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f);
-    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
-    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
+    // 🧩 Shared dock chrome (near-black title/tab colours, square windows, hidden scrollbars, no tab
+    // close buttons) - one implementation in PanelChrome for every workspace, pushed last here and
+    // popped first in the tail below.
+    const auto Chrome = PanelChrome::PushDockChrome(Spectrum(0x090909), Spectrum(0x101010), true, true, InterfaceScale);
 
     PollBake();
     ConstructHeader();
@@ -2127,10 +2086,9 @@ void BakingWorkspacePanel::ConstructInterface()
         ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
     }
-    ImGui::PopStyleVar(5);
-    ImGui::PopStyleColor(31);
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
+    PanelChrome::PopDockChrome(Chrome);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(20);
     ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier

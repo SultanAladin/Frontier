@@ -4,6 +4,7 @@
 // 🧩 Native material discovery, selection, edit/apply/revert and explicit disk operations; no simulated renderer thumbnails.
 
 #include "MaterialLibraryPanel.h"
+#include "PanelChrome.h"
 #include "Engine/ContentInterchange/MaterialRecipeProfiles.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/DropdownControls.h"
@@ -17,16 +18,14 @@
 
 namespace Frontier
 {
+// Shared panel UI primitives (PanelChrome.h) - one implementation for all five workspaces. This
+// panel's ConstructMaterialCaption/Pill stay local: their text metrics (current-font CalcTextSize,
+// baseline offset, style-alpha ink) deliberately differ from the other panels' Caption grid.
+using PanelChrome::Ink255;
+using PanelChrome::SpectrumQuad;
+using PanelChrome::ThemeQuad;
 namespace
 {
-ImU32 EncodeMaterialInk(uint32_t Rgb, unsigned Alpha = 255)
-{
-    return IM_COL32((Rgb >> 16) & 255, (Rgb >> 8) & 255, Rgb & 255, Alpha);
-}
-ColorQuad DecodeMaterialSpectrum(uint32_t Rgb)
-{
-    return {float((Rgb >> 16) & 255) / 255, float((Rgb >> 8) & 255) / 255, float(Rgb & 255) / 255, 1};
-}
 // 📝 Rounded, padded tooltip card shared by every material hover hint.
 struct MaterialTooltipScope
 {
@@ -76,7 +75,7 @@ void PresentMaterialTooltip(float Scale, const char *Title, const char *Body)
 }
 void ConstructMaterialCaption(float X, float Y, float Size, uint32_t Rgb, const char *Caption, ImFont *Typeface = nullptr)
 {
-    ImGui::GetWindowDrawList()->AddText(Typeface ? Typeface : ImGui::GetFont(), Size * 1.302f, ImVec2(X, Y - Size * .15f), EncodeMaterialInk(Rgb, unsigned(255 * ImGui::GetStyle().Alpha)), Caption);
+    ImGui::GetWindowDrawList()->AddText(Typeface ? Typeface : ImGui::GetFont(), Size * 1.302f, ImVec2(X, Y - Size * .15f), Ink255(Rgb, unsigned(255 * ImGui::GetStyle().Alpha)), Caption);
 }
 bool ConstructMaterialPill(const char *Caption, ImVec2 Position, ImVec2 Extent, bool Selected = false)
 {
@@ -84,12 +83,12 @@ bool ConstructMaterialPill(const char *Caption, ImVec2 Position, ImVec2 Extent, 
     const bool Pressed = ImGui::InvisibleButton(Caption, Extent);
     auto *Ink = ImGui::GetWindowDrawList();
     Ink->AddRectFilled(Position, ImVec2(Position.x + Extent.x, Position.y + Extent.y),
-        EncodeMaterialInk(Selected ? 0x282825 : ImGui::IsItemHovered() ? 0x2e2e2b : 0x181818), Extent.y * .5f);
-    Ink->AddRect(Position, ImVec2(Position.x + Extent.x, Position.y + Extent.y), EncodeMaterialInk(0xffffff, Selected ? 24 : 8), Extent.y * .5f);
+        Ink255(Selected ? 0x282825 : ImGui::IsItemHovered() ? 0x2e2e2b : 0x181818), Extent.y * .5f);
+    Ink->AddRect(Position, ImVec2(Position.x + Extent.x, Position.y + Extent.y), Ink255(0xffffff, Selected ? 24 : 8), Extent.y * .5f);
     const char *CaptionEnd = ImGui::FindRenderedTextEnd(Caption);
     const auto CaptionExtent = ImGui::CalcTextSize(Caption, CaptionEnd);
     Ink->AddText(ImVec2(Position.x + (Extent.x - CaptionExtent.x) * .5f, Position.y + (Extent.y - CaptionExtent.y) * .5f),
-        EncodeMaterialInk(Selected ? 0xcccdbb : 0x858577), Caption, CaptionEnd);
+        Ink255(Selected ? 0xcccdbb : 0x858577), Caption, CaptionEnd);
     return Pressed;
 }
 float *QueryPaintCoefficient(AutomotivePaint &Paint, std::string_view Key)
@@ -320,7 +319,7 @@ void MaterialLibraryPanel::ConstructCatalogue()
     }
     Y += 24 + 8;
     auto *Ink = ImGui::GetWindowDrawList();
-    Ink->AddLine(At(0, Y), At(Width / Scale, Y), EncodeMaterialInk(0xffffff, 13));
+    Ink->AddLine(At(0, Y), At(Width / Scale, Y), Ink255(0xffffff, 13));
     ConstructMaterialCaption(At(17, Y + 12).x, At(17, Y + 12).y, 8 * Scale, 0x7e7e70, "THE ESSENTIAL COLLECTION");
     std::vector<size_t> Visible;
     for (size_t Index : Library.QueryVisible())
@@ -364,7 +363,7 @@ void MaterialLibraryPanel::ConstructCatalogue()
         const PlaneExtent Card{Position.x / Scale, Position.y / Scale, (Position.x + CardWidth) / Scale, (Position.y + CardHeight) / Scale};
         (void)ControlKit::SectionCard(Surface, Card, 15);
         auto *CardInk = ImGui::GetWindowDrawList();
-        if (Hovered) CardInk->AddRect(Position, ImVec2(Position.x + CardWidth, Position.y + CardHeight), EncodeMaterialInk(0x707173), 15 * Scale);
+        if (Hovered) CardInk->AddRect(Position, ImVec2(Position.x + CardWidth, Position.y + CardHeight), Ink255(0x707173), 15 * Scale);
         const auto Image = QueryThumbnail ? QueryThumbnail(Entry.RelativePath) : MaterialPreviewImage{};
         CardInk->PushClipRect(Position, ImVec2(Position.x + CardWidth, Position.y + CardHeight), true);
         if (Image.Texture)
@@ -375,12 +374,10 @@ void MaterialLibraryPanel::ConstructCatalogue()
         ConstructMaterialCaption(Position.x + 12 * Scale, Position.y + 105 * Scale, 7 * Scale, 0x767665, Entry.Category.empty() ? "Layered material" : Entry.Category.c_str());
         if (Library.QuerySelection() == Entry.RelativePath)
         {
-            CardInk->AddCircleFilled(ImVec2(Position.x + 14 * Scale, Position.y + 14 * Scale), 6 * Scale, EncodeMaterialInk(0xa5b99c));
-            CardInk->AddLine(ImVec2(Position.x + 11 * Scale, Position.y + 14 * Scale), ImVec2(Position.x + 13 * Scale, Position.y + 16 * Scale), EncodeMaterialInk(0x2a3927));
-            CardInk->AddLine(ImVec2(Position.x + 13 * Scale, Position.y + 16 * Scale), ImVec2(Position.x + 18 * Scale, Position.y + 11 * Scale), EncodeMaterialInk(0x2a3927));
+            PanelChrome::CheckDisc(CardInk, Position, Scale);
         }
         if (Library.QueryParked(Entry.RelativePath) || (Library.QuerySelection() == Entry.RelativePath && Library.QueryModified()))
-            CardInk->AddCircleFilled(ImVec2(Position.x + CardWidth - 14 * Scale, Position.y + 14 * Scale), 5 * Scale, EncodeMaterialInk(0xd8b25c));
+            CardInk->AddCircleFilled(ImVec2(Position.x + CardWidth - 14 * Scale, Position.y + 14 * Scale), 5 * Scale, Ink255(0xd8b25c));
         CardInk->PopClipRect();
         if (Hovered) PresentMaterialTooltip(Scale, Entry.Name.c_str(), Entry.Description.c_str());
         ImGui::PopID();
@@ -388,7 +385,7 @@ void MaterialLibraryPanel::ConstructCatalogue()
     ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, GridOrigin.y + ((Visible.size() + 1) / 2) * (CardHeight + Gap)));
     ImGui::Dummy(ImVec2(1, 1));
     ImGui::EndChild();
-    Ink->AddRectFilled(ImVec2(Origin.x, FooterY), ImVec2(Origin.x + Width, Bottom), EncodeMaterialInk(0x151515));
+    Ink->AddRectFilled(ImVec2(Origin.x, FooterY), ImVec2(Origin.x + Width, Bottom), Ink255(0x151515));
     ConstructIcon(IconSymbol::Stars, Origin.x + 19 * Scale, FooterY + 20 * Scale, 19 * Scale);
     ConstructMaterialCaption(Origin.x + 51 * Scale, FooterY + 20 * Scale, 9 * Scale, 0xaeae9b, "Beautiful by calculation.");
     const auto Footer = std::to_string(Library.QueryEntries().size()) + " presets. Vector + procedural surfaces.";
@@ -440,7 +437,7 @@ void MaterialLibraryPanel::ConstructViewport()
     const auto Available = ImGui::GetContentRegionAvail();
     auto *Ink = ImGui::GetWindowDrawList();
     Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Available.x, Origin.y + Available.y),
-        EncodeMaterialInk(0x202222), EncodeMaterialInk(0x202222), EncodeMaterialInk(0x303235), EncodeMaterialInk(0x303235));
+        Ink255(0x202222), Ink255(0x202222), Ink255(0x303235), Ink255(0x303235));
     const auto Image = QueryPreview ? QueryPreview() : MaterialPreviewImage{};
     // 📝 Full-bleed cover fit between the header and footer bars; transparent margins crop invisibly.
     const float ViewTop = Origin.y + 42 * Scale, ViewBottom = Origin.y + Available.y - 45 * Scale;
@@ -464,8 +461,8 @@ void MaterialLibraryPanel::ConstructViewport()
         Ink->PopClipRect();
     }
     Ink->AddRectFilledMultiColor(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewTop + 130 * Scale),
-        EncodeMaterialInk(0x151515), EncodeMaterialInk(0x151515), EncodeMaterialInk(0x151515, 0), EncodeMaterialInk(0x151515, 0));
-    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), EncodeMaterialInk(0x151515));
+        Ink255(0x151515), Ink255(0x151515), Ink255(0x151515, 0), Ink255(0x151515, 0));
+    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), Ink255(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(4.f, Available.x - 92 * Scale), Origin.y + 7 * Scale));
     if (ImGui::Button("Fullscreen##MaterialPreview", ImVec2(84 * Scale, 27 * Scale)))
@@ -483,7 +480,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 94 * Scale, 30 * Scale, 0xdcdccd, Entry ? Entry->Name.c_str() : "Material explorer", static_cast<ImFont *>(HeadingTypeface));
     if (Entry) ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 136 * Scale, 9 * Scale, 0x7b7c6d, Entry->Description.c_str());
     const float Bottom = Origin.y + Available.y;
-    Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), EncodeMaterialInk(0x151515));
+    Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), Ink255(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "Drag orbit  /  Shift-MMB pan  /  Wheel zoom");
     if (Available.x > 500 * Scale) ConstructMaterialCaption(Origin.x + Available.x - 75 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
 
@@ -584,13 +581,13 @@ void MaterialLibraryPanel::ConstructViewport()
             if (Preview.Texture)
                 CardInk->AddImageRounded(ImTextureRef(Preview.Texture), TileMinimum, TileMaximum,
                     ImVec2(Preview.MinimumU, Preview.MinimumV), ImVec2(Preview.MaximumU, Preview.MaximumV),
-                    EncodeMaterialInk(0xffffff), 10 * Scale);
+                    Ink255(0xffffff), 10 * Scale);
             else
-                CardInk->AddRectFilled(TileMinimum, TileMaximum, EncodeMaterialInk(0x232629), 10 * Scale);
+                CardInk->AddRectFilled(TileMinimum, TileMaximum, Ink255(0x232629), 10 * Scale);
             if (uint32_t(Index) == Inspection.Environment)
-                CardInk->AddRect(TileMinimum, TileMaximum, EncodeMaterialInk(0x8fd0a8, 255), 10 * Scale, 0, 2 * Scale);
+                CardInk->AddRect(TileMinimum, TileMaximum, Ink255(0x8fd0a8, 255), 10 * Scale, 0, 2 * Scale);
             else if (ImGui::IsItemHovered())
-                CardInk->AddRect(TileMinimum, TileMaximum, EncodeMaterialInk(0xffffff, 70), 10 * Scale, 0, 1 * Scale);
+                CardInk->AddRect(TileMinimum, TileMaximum, Ink255(0xffffff, 70), 10 * Scale, 0, 1 * Scale);
             const auto &Name = EnvironmentNames[Index];
             const float CaptionWidth = ImGui::CalcTextSize(Name.c_str()).x;
             ConstructMaterialCaption(CellOrigin.x + (TileExtent - CaptionWidth) * .5f,
@@ -617,9 +614,9 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 240 * Scale) * .5f), Bottom - 196 * Scale));
     const auto ZoomOrigin = ImGui::GetCursorScreenPos();
     Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
-        EncodeMaterialInk(0x181818), 14 * Scale);
+        Ink255(0x181818), 14 * Scale);
     Ink->AddRect(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
-        EncodeMaterialInk(0xffffff, 20), 14 * Scale);
+        Ink255(0xffffff, 20), 14 * Scale);
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::BeginGroup();
     if (ImGui::Button("-##ZoomOut", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
@@ -664,7 +661,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     const ImVec2 Origin = ImGui::GetWindowPos();
     const ImVec2 Size = ImGui::GetWindowSize();
     auto *Ink = ImGui::GetWindowDrawList();
-    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), EncodeMaterialInk(0x17191a));
+    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), Ink255(0x17191a));
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 28, Origin.y + 20));
     ImGui::TextUnformatted(QuerySelectedMaterial(Library) ? QuerySelectedMaterial(Library)->Name.c_str() : "Material preview");
     ImGui::SameLine();
@@ -713,7 +710,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     if (Image.Texture)
         Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
-    else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), EncodeMaterialInk(0x202222));
+    else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), Ink255(0x202222));
     Ink->PopClipRect();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
     if (ImGui::Button("−##FullscreenZoomOut", ImVec2(42, 30))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
@@ -730,7 +727,7 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
 
 void MaterialLibraryPanel::ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb)
 {
-    if (PresentIcon) (void)PresentIcon(Symbol, {X,Y}, Size, DecodeMaterialSpectrum(Rgb));
+    if (PresentIcon) (void)PresentIcon(Symbol, {X,Y}, Size, SpectrumQuad(Rgb));
 }
 
 bool MaterialLibraryPanel::ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position,
@@ -843,7 +840,7 @@ void MaterialLibraryPanel::ConstructInspector()
     ConstructMaterialCaption(At(20, 19).x, At(20, 19).y, 18 * Scale, 0xd3d3c8, "Material inspector", static_cast<ImFont *>(HeadingTypeface));
     const auto Image = QueryThumbnail ? QueryThumbnail(Library.QuerySelection()) : MaterialPreviewImage{};
     auto *Ink = ImGui::GetWindowDrawList();
-    Ink->AddRectFilled(At(20, 65), At(69, 114), EncodeMaterialInk(0x22221d), 16 * Scale);
+    Ink->AddRectFilled(At(20, 65), At(69, 114), Ink255(0x22221d), 16 * Scale);
     if (Image.Texture) Ink->AddImage(ImTextureRef(Image.Texture), At(22, 67), At(67, 112),
         ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
     ConstructMaterialCaption(At(80, 71).x, At(80, 71).y, 18 * Scale, 0xdadacc, Entry ? Entry->Name.c_str() : "Material", static_cast<ImFont *>(HeadingTypeface));
@@ -890,7 +887,7 @@ void MaterialLibraryPanel::ConstructInspector()
             const float DescriptionSize = 9 * 1.302f * Scale;
             const float DescriptionHeight = ImGui::GetFont()->CalcTextSizeA(DescriptionSize, FLT_MAX, CardWidth - 6 * Scale, Description).y;
             ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), DescriptionSize, ImVec2(Start.x + 3 * Scale, Start.y + 67 * Scale),
-                EncodeMaterialInk(0x868676), Description, nullptr, CardWidth - 6 * Scale);
+                Ink255(0x868676), Description, nullptr, CardWidth - 6 * Scale);
             float CardY = Start.y + std::max(104.f * Scale, 82.f * Scale + DescriptionHeight);
             // 📝 Properties view (the HTML designer panel). The layer stack is what the code does; the
             // properties are the editable values projected into it, so the stratum/channel routing cards
@@ -1234,7 +1231,7 @@ void MaterialLibraryPanel::ConstructInspector()
                     ConstructMaterialCaption(Start.x + 3 * Scale + ImGui::CalcTextSize(LayerCaption.c_str()).x +
                         16 * Scale, CardY + 3 * Scale, 8 * Scale, 0x8b8d79, Subtitle);
                     ImGui::GetWindowDrawList()->AddLine(ImVec2(Start.x + 3 * Scale, CardY + 22 * Scale),
-                        ImVec2(Start.x + CardWidth - 3 * Scale, CardY + 22 * Scale), EncodeMaterialInk(0xffffff, 26));
+                        ImVec2(Start.x + CardWidth - 3 * Scale, CardY + 22 * Scale), Ink255(0xffffff, 26));
                     CardY += 30 * Scale;
                     ImGui::SetCursorScreenPos(ImVec2(Start.x, CardY));
                     ImGui::Dummy(ImVec2(CardWidth, 1));
@@ -1277,7 +1274,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, Scale);
                 const auto SavedPalette = ControlKit::Palette();
                 auto CardPalette = SavedPalette;
-                CardPalette.Inset = DecodeMaterialSpectrum(0x222222);
+                CardPalette.Inset = SpectrumQuad(0x222222);
                 ControlKit::ConfigurePalette(CardPalette);
                 (void)ControlKit::SectionCard(Surface, {Start.x / Scale, CardY / Scale, (Start.x + CardWidth) / Scale, (CardY + CardHeight) / Scale}, 23);
                 ControlKit::ConfigurePalette(SavedPalette);
@@ -1484,10 +1481,10 @@ void MaterialLibraryPanel::ConstructInspector()
                         {
                             if (Index) ImGui::SameLine(0, 4 * Scale);
                             const bool Active = Paint.Configuration[2] == Modes[Index].second;
-                            ImGui::PushStyleColor(ImGuiCol_Button, EncodeMaterialInk(Active ? 0x3a3e30 : 0x1d1d1b, 255));
-                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EncodeMaterialInk(Active ? 0x454a37 : 0x27271f, 255));
-                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, EncodeMaterialInk(Active ? 0x454a37 : 0x27271f, 255));
-                            ImGui::PushStyleColor(ImGuiCol_Text, EncodeMaterialInk(Active ? 0xd9dcc4 : 0x8d8d7f, 255));
+                            ImGui::PushStyleColor(ImGuiCol_Button, Ink255(Active ? 0x3a3e30 : 0x1d1d1b, 255));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Ink255(Active ? 0x454a37 : 0x27271f, 255));
+                            ImGui::PushStyleColor(ImGuiCol_ButtonActive, Ink255(Active ? 0x454a37 : 0x27271f, 255));
+                            ImGui::PushStyleColor(ImGuiCol_Text, Ink255(Active ? 0xd9dcc4 : 0x8d8d7f, 255));
                             if (ImGui::Button((std::string(Modes[Index].first) + "##FlakeColourMode").c_str(), ImVec2(ModeWidth, 22 * Scale)) && !Active)
                             {
                                 Paint.Configuration[2] = Modes[Index].second;
@@ -1504,7 +1501,7 @@ void MaterialLibraryPanel::ConstructInspector()
                             const ImVec2 BarOrigin = ImGui::GetCursorScreenPos();
                             const float BarWidth = CardWidth - 34 * Scale, BarHeight = 18 * Scale;
                             auto *Ink = ImGui::GetWindowDrawList();
-                            Ink->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), EncodeMaterialInk(0x101010), 4 * Scale);
+                            Ink->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), Ink255(0x101010), 4 * Scale);
                             for (uint32_t Index = 0; Index + 1 < PaletteCount; ++Index)
                             {
                                 const float X0 = BarOrigin.x + Paint.Palette[Index][3] * BarWidth, X1 = BarOrigin.x + Paint.Palette[Index + 1][3] * BarWidth;
@@ -1513,7 +1510,7 @@ void MaterialLibraryPanel::ConstructInspector()
                             }
                             if (PaletteCount == 1)
                                 Ink->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), StopInk(0), 4 * Scale);
-                            Ink->AddRect(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), EncodeMaterialInk(0xffffff, 26), 4 * Scale);
+                            Ink->AddRect(BarOrigin, ImVec2(BarOrigin.x + BarWidth, BarOrigin.y + BarHeight), Ink255(0xffffff, 26), 4 * Scale);
                             for (uint32_t Index = 0; Index < PaletteCount; ++Index)
                             {
                                 const float MarkerX = BarOrigin.x + Paint.Palette[Index][3] * BarWidth;
@@ -1525,7 +1522,7 @@ void MaterialLibraryPanel::ConstructInspector()
                                 Ink->AddTriangleFilled(ImVec2(MarkerX, BarOrigin.y + BarHeight + 2 * Scale),
                                     ImVec2(MarkerX - 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
                                     ImVec2(MarkerX + 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
-                                    EncodeMaterialInk(Selected ? 0xd9dcc4 : 0x6c6c60, 255));
+                                    Ink255(Selected ? 0xd9dcc4 : 0x6c6c60, 255));
                             }
                             ImGui::SetCursorScreenPos(ImVec2(BarOrigin.x, BarOrigin.y + BarHeight + 12 * Scale));
                         }
@@ -1543,7 +1540,7 @@ void MaterialLibraryPanel::ConstructInspector()
                             {
                                 const auto SwatchOrigin = ImGui::GetCursorScreenPos();
                                 ImGui::GetWindowDrawList()->AddRect(ImVec2(SwatchOrigin.x - 2 * Scale, SwatchOrigin.y - 2 * Scale),
-                                    ImVec2(SwatchOrigin.x + 26 * Scale, SwatchOrigin.y + 26 * Scale), EncodeMaterialInk(0xd9dcc4, 220), 3 * Scale, 0, 2 * Scale);
+                                    ImVec2(SwatchOrigin.x + 26 * Scale, SwatchOrigin.y + 26 * Scale), Ink255(0xd9dcc4, 220), 3 * Scale, 0, 2 * Scale);
                             }
                             if (ImGui::ColorEdit3("##FlakeColour", Spectrum, ImGuiColorEditFlags_NoInputs |
                                 ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip))
@@ -1559,9 +1556,9 @@ void MaterialLibraryPanel::ConstructInspector()
                             if (PaletteCount < 12)
                             {
                                 ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + AddColumn * SwatchPitch, RowOrigin.y + AddRow * SwatchPitch));
-                                ImGui::PushStyleColor(ImGuiCol_Button, EncodeMaterialInk(0x1d1d1b, 255));
-                                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EncodeMaterialInk(0x27271f, 255));
-                                ImGui::PushStyleColor(ImGuiCol_ButtonActive, EncodeMaterialInk(0x27271f, 255));
+                                ImGui::PushStyleColor(ImGuiCol_Button, Ink255(0x1d1d1b, 255));
+                                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Ink255(0x27271f, 255));
+                                ImGui::PushStyleColor(ImGuiCol_ButtonActive, Ink255(0x27271f, 255));
                                 if (ImGui::Button("+##AddFlakeColour", ImVec2(24 * Scale, 24 * Scale))) AddStop();
                                 ImGui::PopStyleColor(3);
                             }
@@ -1723,39 +1720,32 @@ void MaterialLibraryPanel::ConstructInterface()
     ImGui::SetNextWindowViewport(Viewport->ID);
     const auto SavedPalette = ControlKit::Palette();
     auto Palette = SavedPalette;
-    Palette.Panel = DecodeMaterialSpectrum(0x121212);
-    Palette.Inset = DecodeMaterialSpectrum(0x1c1c1a);
+    Palette.Panel = SpectrumQuad(0x121212);
+    Palette.Inset = SpectrumQuad(0x1c1c1a);
     Palette.Stroke = {1, 1, 1, .032f};
-    Palette.Text = DecodeMaterialSpectrum(0xdeded5);
-    Palette.TextDim = DecodeMaterialSpectrum(0x85857b);
-    Palette.TextFaint = DecodeMaterialSpectrum(0x777766);
-    Palette.SliderTrack = DecodeMaterialSpectrum(0x171717);
-    Palette.SliderFill = DecodeMaterialSpectrum(0x454545);
-    Palette.SliderThumb = DecodeMaterialSpectrum(0xd7d7ce);
+    Palette.Text = SpectrumQuad(0xdeded5);
+    Palette.TextDim = SpectrumQuad(0x85857b);
+    Palette.TextFaint = SpectrumQuad(0x777766);
+    Palette.SliderTrack = SpectrumQuad(0x171717);
+    Palette.SliderFill = SpectrumQuad(0x454545);
+    Palette.SliderThumb = SpectrumQuad(0xd7d7ce);
     ControlKit::ConfigurePalette(Palette);
-    const auto Colour = [](ColorQuad Spectrum) { return ImVec4(Spectrum.Red, Spectrum.Green, Spectrum.Blue, Spectrum.Alpha); };
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Colour(Palette.Panel));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ThemeQuad(Palette.Panel));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(.11f, .11f, .10f, 1.f));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, Colour(Palette.Panel));
-    ImGui::PushStyleColor(ImGuiCol_Text, Colour(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeQuad(Palette.Panel));
+    ImGui::PushStyleColor(ImGuiCol_Text, ThemeQuad(Palette.Text));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.133f, .133f, .133f, 1));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.18f, .18f, .17f, 1));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(.035f, .035f, .035f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Header, Colour(Palette.Selected));
-    for (const auto Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
-        ImGui::PushStyleColor(Slot, Colour(Palette.Panel));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(.035f, .035f, .035f, 1));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(.035f, .035f, .035f, 1));
+    ImGui::PushStyleColor(ImGuiCol_Header, ThemeQuad(Palette.Selected));
     const auto SavedColourButtonPosition = ImGui::GetStyle().ColorButtonPosition;
     ImGui::GetStyle().ColorButtonPosition = ImGuiDir_Left;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 999 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f); // hidden bars: eased wheel scrolling (ImGui Patch H) carries every list
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6 * Scale, 8.49f * Scale));
+    // Shared dock chrome (PanelChrome): panel-toned tabs, square windows, hidden scrollbars. This
+    // workspace historically leaves tab close buttons enabled and skips collapsed/docking-empty titles.
+    const auto Chrome = PanelChrome::PushDockChrome(ImVec4(.035f, .035f, .035f, 1), ThemeQuad(Palette.Panel), false, false, Scale);
     // 📝 STB pixel height spans ascent/descent; CSS sizes the em. DM Sans hhea spans 1302/1000 em.
     ImGui::PushFont(static_cast<ImFont *>(ReferenceTypeface), 10 * 1.302f * Scale);
     ImGui::Begin("TextureWorkspace", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
@@ -1764,8 +1754,8 @@ void MaterialLibraryPanel::ConstructInterface()
     const auto Origin = Viewport->WorkPos;
     const float Width = Viewport->WorkSize.x;
     const auto *Entry = QuerySelectedMaterial(Library);
-    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 43 * Scale), EncodeMaterialInk(0x0b0b0b));
-    Ink->AddRectFilled(ImVec2(Origin.x, Origin.y + 43 * Scale), ImVec2(Origin.x + Width, Origin.y + 79 * Scale), EncodeMaterialInk(0x111111));
+    Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 43 * Scale), Ink255(0x0b0b0b));
+    Ink->AddRectFilled(ImVec2(Origin.x, Origin.y + 43 * Scale), ImVec2(Origin.x + Width, Origin.y + 79 * Scale), Ink255(0x111111));
     ConstructMaterialCaption(Origin.x + 16 * Scale, Origin.y + 17 * Scale, 10 * Scale, 0xcecec2, Entry ? Entry->Name.c_str() : "Material explorer", static_cast<ImFont *>(HeadingTypeface));
     const float NameWidth = ImGui::GetFont()->CalcTextSizeA(10 * 1.302f * Scale, 300 * Scale, 0, Entry ? Entry->Name.c_str() : "Material explorer").x;
     ConstructMaterialCaption(Origin.x + 22 * Scale + NameWidth, Origin.y + 20 * Scale, 7 * Scale, 0x767669, ".material");
@@ -1890,8 +1880,9 @@ void MaterialLibraryPanel::ConstructInterface()
     Panels.ConstructInterface(QueryInterfaceScale());
     ConstructFullscreenPreview();
     ImGui::PopFont();
-    ImGui::PopStyleVar(6);
-    ImGui::PopStyleColor(17);
+    PanelChrome::PopDockChrome(Chrome);
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(8);
     ControlKit::ConfigurePalette(SavedPalette);
     ImGui::GetStyle().ColorButtonPosition = SavedColourButtonPosition;
 }

@@ -5,6 +5,7 @@
 //    24-layer decal stack (Shape/Text/Vector/Image components) instead of a tileable preset library.
 
 #include "StampWorkspacePanel.h"
+#include "PanelChrome.h"
 #include "StampLibrary.h"
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
@@ -28,6 +29,15 @@
 
 namespace Frontier
 {
+// Shared panel UI primitives (PanelChrome.h) - one implementation for all five workspaces.
+using PanelChrome::BareIconButton;
+using PanelChrome::Caption;
+using PanelChrome::CaptionWidth;
+using PanelChrome::DrawGlyph;
+using PanelChrome::Ink32;
+using PanelChrome::Spectrum;
+using PanelChrome::SpectrumQuad;
+using PanelChrome::ThemeQuad;
 namespace
 {
 constexpr const char *ShapeCaptions[]{"Rectangle", "Ellipse", "Diamond", "Triangle", "Polygon", "Star"};
@@ -43,64 +53,6 @@ constexpr const char *TextIconPath = "M4 5H20M12 5V20M8 20H16";
 constexpr const char *VectorIconPath = "M4 19L9 5L13 15L20 4";
 constexpr const char *ImageIconPath = "M3 5H21V19H3ZM3 15L8 10L12 14L16 10L21 15M9 9A1 1 0 1 0 9 9.01";
 
-ImVec4 Spectrum(uint32_t Colour)
-{
-    return {float((Colour >> 16) & 255) / 255, float((Colour >> 8) & 255) / 255, float(Colour & 255) / 255, 1};
-}
-
-// 🎨 The vector canvas's outer chrome (the well behind the 512×512 board, its header/ruler strips,
-// and the "VECTOR CANVAS" caption) used to hard-code its own green-tinted palette instead of
-// following the app's actual selected theme. Reading straight from ControlKit::Palette() keeps it
-// in lockstep with whatever theme is active (and any future theme switch), matching the neutral
-// dark-charcoal chrome used everywhere else (toolbars, cards, Material inspector, etc).
-ImVec4 ThemeQuad(const ColorQuad &Colour, float AlphaOverride = -1.0f)
-{
-    return {Colour.Red, Colour.Green, Colour.Blue, AlphaOverride >= 0.0f ? AlphaOverride : Colour.Alpha};
-}
-
-void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, void *Typeface = nullptr)
-{
-    ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position, ImGui::GetColorU32(Spectrum(Colour)), Text);
-}
-
-// 🎨 Texture Paint layer-stack chrome, mirrored: packed draw colour with alpha, measured caption
-// widths, bare glyphs and icon buttons (no capsule fill - hover/selected washes only).
-ImU32 Ink32(uint32_t Colour, float Alpha = 1.f)
-{
-    ImVec4 Quad = Spectrum(Colour);
-    Quad.w = Alpha;
-    return ImGui::GetColorU32(Quad);
-}
-ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
-}
-float CaptionWidth(const char *Text, float Size, void *Typeface = nullptr)
-{
-    ImFont *Font = Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont();
-    return Font->CalcTextSizeA(Size * 1.302f, 1e9f, 0.f, Text).x;
-}
-void DrawGlyph(const char *Path, ImVec2 Position, float Size, uint32_t Colour, float StrokeWidth = 1.6f)
-{
-    PixelSpace Surface;
-    (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
-    GlyphSpace::Stroke(Surface, Path, {Position.x, Position.y, Size, StrokeWidth, SpectrumQuad(Colour)});
-}
-bool BareIconButton(const char *Id, const char *Path, float Size, float Scale, bool Selected, uint32_t Colour)
-{
-    const ImVec2 Position = ImGui::GetCursorScreenPos();
-    ImGui::PushID(Id);
-    const bool Pressed = ImGui::InvisibleButton("##Icon", ImVec2(Size, Size));
-    ImGui::PopID();
-    const bool Hovered = ImGui::IsItemHovered();
-    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
-    auto *Ink = ImGui::GetWindowDrawList();
-    if (Selected || (Hovered && !Disabled))
-        Ink->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size), Ink32(Selected ? 0x2a2a27 : 0x232320, Disabled ? .4f : 1.f), 6 * Scale);
-    const float Glyph = Size * .55f;
-    DrawGlyph(Path, ImVec2(Position.x + (Size - Glyph) * .5f, Position.y + (Size - Glyph) * .5f), Glyph, Disabled ? 0x4c4c44 : Colour);
-    return Pressed && !Disabled;
-}
 constexpr const char *HiddenPath = "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20";
 
 // 🎨 The two document-space control points of a gradient-filled shape's own axis/radius handles — the
@@ -1482,36 +1434,11 @@ void StampWorkspacePanel::ConstructLayers()
     const size_t Counts[]{Visible, Snapshot.Layers.size() - Visible};
     // .tp-layer-stats treatment: Texture Paint's two 66px filter cards (Visible / Hidden).
     {
-        const ImVec2 CardOrigin = ImGui::GetCursorScreenPos();
-        const float InnerWidth = ImGui::GetContentRegionAvail().x;
-        const float CardWidth = (InnerWidth - 20 * Scale) / 2.f;
-        const struct { const char *Label; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[2]{
-            {"Visible", "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
-            {"Hidden", HiddenPath, 0x292929, 0x676760}};
-        auto *Ink = ImGui::GetWindowDrawList();
-        for (int Index = 0; Index < 2; ++Index)
-        {
-            const ImVec2 CardMin(CardOrigin.x + 6 * Scale + Index * (CardWidth + 8 * Scale), CardOrigin.y);
-            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 66 * Scale);
-            const bool Pressed = Filter == Index + 1;
-            ImGui::SetCursorScreenPos(CardMin);
-            ImGui::PushID(Index);
-            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 66 * Scale));
-            ImGui::PopID();
-            char StatLabel[32];
-            std::snprintf(StatLabel, sizeof(StatLabel), "%02zu\n%s", Counts[Index], Cards[Index].Label);
-            NoteExtent(StatLabel); // same caption the pre-restyle stat buttons registered
-            if (Clicked) Filter = Pressed ? 0 : Index + 1;
-            Ink->AddRectFilled(CardMin, CardMax, Ink32(Pressed ? 0x25221d : 0x191919), 20 * Scale);
-            Ink->AddRect(CardMin, CardMax, Ink32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 20 * Scale);
-            Ink->AddCircleFilled(ImVec2(CardMin.x + 22.5f * Scale, CardMin.y + 21.5f * Scale), 10.5f * Scale, Ink32(Cards[Index].Disc), 24);
-            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 16.5f * Scale, CardMin.y + 15.5f * Scale), 12 * Scale, Cards[Index].Glyph, 2.2f);
-            Caption(ImVec2(CardMin.x + 12 * Scale, CardMax.y - 21 * Scale), Cards[Index].Label, 9 * Scale, 0x99998f);
-            char Number[8];
-            std::snprintf(Number, sizeof(Number), "%02zu", Counts[Index]);
-            Caption(ImVec2(CardMax.x - 13 * Scale - CaptionWidth(Number, 29 * Scale, LightTypeface), CardMax.y - 40 * Scale), Number, 29 * Scale, 0xddddcf, LightTypeface);
-        }
-        ImGui::SetCursorScreenPos(ImVec2(CardOrigin.x, CardOrigin.y + 66 * Scale));
+        // Shared Visible/Hidden stat cards (PanelChrome::VisibilityStatCards).
+        int ClickedCard = -1;
+        PanelChrome::VisibilityStatCards(ImGui::GetCursorScreenPos(), (ImGui::GetContentRegionAvail().x - 20 * Scale) / 2.f, 6 * Scale, Scale,
+            Counts[0], Counts[1], Filter == 1 ? 0 : Filter == 2 ? 1 : -1, ClickedCard, LightTypeface, nullptr, NoteExtent);
+        if (ClickedCard >= 0) Filter = Filter == ClickedCard + 1 ? 0 : ClickedCard + 1;
     }
     // .tp-layer-search treatment: 36px pill, search glyph, frameless entry, clear icon.
     {
@@ -2953,21 +2880,12 @@ void StampWorkspacePanel::ConstructInterface()
     if (QueryPhase() != ActivationPhase::Active) return;
     ControlExtents.clear(); PanelExtents.clear();
     const auto SavedPalette = ControlKit::Palette();
-    auto Palette = SavedPalette;
-    Palette.Panel = {.0706f, .0706f, .0706f, 1};
-    Palette.Inset = {.098f, .098f, .098f, 1};
-    Palette.Raised = {.133f, .133f, .133f, 1};
-    Palette.Selected = {.20f, .208f, .173f, 1};
-    Palette.Text = {.808f, .808f, .753f, 1};
-    Palette.TextDim = {.56f, .58f, .50f, 1};
-    Palette.TextFaint = {.35f, .37f, .30f, 1};
-    Palette.Accent = {.39f, .45f, .31f, 1};
+    const auto Palette = PanelChrome::StudioPalette(SavedPalette, {.20f, .208f, .173f, 1}, {.39f, .45f, .31f, 1});
     ControlKit::ConfigurePalette(Palette);
     ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), 11 * 1.302f * Scale);
-    const auto Colour = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
-    ImGui::PushStyleColor(ImGuiCol_Text, Colour(Palette.Text));
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, Colour(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_Text, ThemeQuad(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ThemeQuad(Palette.TextDim));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Spectrum(0x191919));
     ImGui::PushStyleColor(ImGuiCol_Header, Spectrum(0x191919));
@@ -2975,23 +2893,14 @@ void StampWorkspacePanel::ConstructInterface()
     ImGui::PushStyleColor(ImGuiCol_Button, Spectrum(0x222222));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Spectrum(0x2e2e28));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, Spectrum(0x33352c));
-    for (auto Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg}) ImGui::PushStyleColor(Slot, Spectrum(0x090909));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, .055f));
-    for (auto Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected}) ImGui::PushStyleColor(Slot, Spectrum(0x101010));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(32, 1));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * Scale, 9 * Scale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6 * Scale, 10 * Scale));
-    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f); // hidden bars: eased wheel scrolling (ImGui Patch H) carries every list
-    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
-    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
+    // Shared dock chrome (PanelChrome) - pushed last here, popped first in the tail below.
+    const auto Chrome = PanelChrome::PushDockChrome(Spectrum(0x090909), Spectrum(0x101010), true, true, Scale);
     ConstructHeader();
     Panels.ConstructInterface(Scale);
     ConstructCloseDialogue();
@@ -3042,10 +2951,9 @@ void StampWorkspacePanel::ConstructInterface()
             if (Patch.TranslationX || Patch.TranslationY) ApplySourcePatch(Patch);
         }
     }
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
-    ImGui::PopStyleVar(8);
-    ImGui::PopStyleColor(22);
+    PanelChrome::PopDockChrome(Chrome);
+    ImGui::PopStyleVar(5);
+    ImGui::PopStyleColor(11);
     ImGui::PopFont();
     ControlKit::ConfigurePalette(SavedPalette);
 }

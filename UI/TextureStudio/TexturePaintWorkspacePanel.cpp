@@ -2,6 +2,7 @@
                                                   TEXTUREPAINTWORKSPACEPANEL.CPP
 ============================================================================================================================================*/
 #include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
+#include "UI/TextureStudio/PanelChrome.h"
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
@@ -21,35 +22,17 @@
 
 namespace Frontier
 {
+// Shared panel UI primitives (PanelChrome.h) - one implementation for all five workspaces.
+using PanelChrome::Caption;
+using PanelChrome::CaptionWidth;
+using PanelChrome::Colour32;
+using PanelChrome::DrawGlyph;
+using PanelChrome::Lowered;
+using PanelChrome::Spectrum;
+using PanelChrome::SpectrumQuad;
+using PanelChrome::ThemeQuad;
 namespace
 {
-ImVec4 Spectrum(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return ImVec4(float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha);
-}
-ColorQuad SpectrumQuad(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return ColorQuad{float((Colour >> 16) & 0xff) / 255.f, float((Colour >> 8) & 0xff) / 255.f, float(Colour & 0xff) / 255.f, Alpha};
-}
-ImU32 Colour32(uint32_t Colour, float Alpha = 1.f) noexcept
-{
-    return IM_COL32((Colour >> 16) & 0xff, (Colour >> 8) & 0xff, Colour & 0xff, uint8_t(std::clamp(Alpha, 0.f, 1.f) * 255.f));
-}
-// 🎨 Same absolute-position caption helper Baking/Pattern/Stamp use (STB pixel height vs CSS em: DM Sans 1.302).
-void Caption(ImVec2 Position, const char *Text, float Size, uint32_t Colour, void *Typeface = nullptr)
-{
-    ImGui::GetWindowDrawList()->AddText(Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont(), Size * 1.302f, Position,
-        ImGui::GetColorU32(Spectrum(Colour)), Text);
-}
-float CaptionWidth(const char *Text, float Size, void *Typeface = nullptr)
-{
-    return (Typeface ? static_cast<ImFont *>(Typeface) : ImGui::GetFont())->CalcTextSizeA(Size * 1.302f, FLT_MAX, 0.f, Text).x;
-}
-std::string Lowered(std::string Text) noexcept
-{
-    for (auto &Character : Text) Character = char(std::tolower(uint8_t(Character)));
-    return Text;
-}
 std::string Trimmed(const std::string &Text)
 {
     size_t Begin = 0, End = Text.size();
@@ -239,12 +222,6 @@ constexpr const char *LayersIconPath =
 constexpr const char *BoxIconPath =
     "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
     "M3.3 7 12 12l8.7-5M12 22V12";
-void DrawGlyph(const char *Path, ImVec2 Position, float Size, uint32_t Colour, float StrokeWidth = 1.6f)
-{
-    PixelSpace Surface;
-    (void)Surface.Begin(SurfaceLayer::Window, ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y, 1);
-    GlyphSpace::Stroke(Surface, Path, {Position.x, Position.y, Size, StrokeWidth, SpectrumQuad(Colour)});
-}
 struct Vec3 { float X = 0, Y = 0, Z = 0; };
 Vec3 Sub(Vec3 A, Vec3 B) noexcept { return {A.X - B.X, A.Y - B.Y, A.Z - B.Z}; }
 Vec3 CrossV(Vec3 A, Vec3 B) noexcept { return {A.Y * B.Z - A.Z * B.Y, A.Z * B.X - A.X * B.Z, A.X * B.Y - A.Y * B.X}; }
@@ -1956,12 +1933,7 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         Caption(ImVec2(Position.x + 12 * S, Position.y + 89 * S), Entry.Name.c_str(), 9 * S, 0xc8c8b6);
         Caption(ImVec2(Position.x + 12 * S, Position.y + 105 * S),
             Entry.Builtin ? (Entry.Tintable ? "Preset · tintable" : "Preset") : "Saved stamp", 7 * S, 0x767665);
-        if (Active)
-        {
-            Ink->AddCircleFilled(ImVec2(Position.x + 14 * S, Position.y + 14 * S), 6 * S, Colour32(0xa5b99c));
-            Ink->AddLine(ImVec2(Position.x + 11 * S, Position.y + 14 * S), ImVec2(Position.x + 13 * S, Position.y + 16 * S), Colour32(0x2a3927));
-            Ink->AddLine(ImVec2(Position.x + 13 * S, Position.y + 16 * S), ImVec2(Position.x + 18 * S, Position.y + 11 * S), Colour32(0x2a3927));
-        }
+        if (Active) PanelChrome::CheckDisc(Ink, Position, S);
         Ink->PopClipRect();
         if (Hovered) ImGui::SetTooltip("%s%s", Entry.Name.c_str(), Entry.Tintable ? " - tinted by brush colour" : "");
     }
@@ -2177,44 +2149,14 @@ void TexturePaintWorkspacePanel::DrawLayerThumbnail(float MinimumX, float Minimu
 }
 bool TexturePaintWorkspacePanel::PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath, uint32_t Accent)
 {
-    const float S = InterfaceScale;
-    const float Height = 26 * S;
-    const ImVec2 Position = ImGui::GetCursorScreenPos();
-    ImGui::PushID(Id);
-    const bool Pressed = ImGui::InvisibleButton("##Pill", ImVec2(Width, Height));
-    ImGui::PopID();
+    // Shared capsule drawing (PanelChrome::Pill); the panel only adds its extent tracking on top.
+    const bool Pressed = PanelChrome::Pill(Id, Label, ImGui::GetCursorScreenPos(), Width, 26 * InterfaceScale, Selected, InterfaceScale, IconPath, Accent);
     Track(Label);
-    const bool Hovered = ImGui::IsItemHovered();
-    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
-    auto *Ink = ImGui::GetWindowDrawList();
-    const uint32_t Background = Selected ? (Accent ? Accent : 0x2a2a28) : Hovered && !Disabled ? 0x2e2e2a : 0x1d1d1b;
-    Ink->AddRectFilled(Position, ImVec2(Position.x + Width, Position.y + Height), Colour32(Background, Disabled ? .45f : 1.f), Height * .5f);
-    Ink->AddRect(Position, ImVec2(Position.x + Width, Position.y + Height), Colour32(0xffffff, Selected ? .10f : .045f), Height * .5f);
-    float TextX = Position.x + 10 * S;
-    if (IconPath)
-    {
-        DrawGlyph(IconPath, ImVec2(Position.x + 8 * S, Position.y + (Height - 12 * S) * .5f), 12 * S, Selected ? 0xedc391 : 0xa8a89a);
-        TextX += 15 * S;
-    }
-    else TextX = Position.x + (Width - CaptionWidth(Label, 9.5f * S)) * .5f;
-    Caption(ImVec2(TextX, Position.y + (Height - 10 * S) * .42f), Label, 9.5f * S, Disabled ? 0x5c5c54 : Selected ? 0xf0e9d8 : 0xc8c8ba);
-    return Pressed && !Disabled;
+    return Pressed;
 }
 bool TexturePaintWorkspacePanel::IconButton(const char *Id, const char *IconPath, float Size, bool Selected, uint32_t Colour)
 {
-    const float S = InterfaceScale;
-    const ImVec2 Position = ImGui::GetCursorScreenPos();
-    ImGui::PushID(Id);
-    const bool Pressed = ImGui::InvisibleButton("##Icon", ImVec2(Size, Size));
-    ImGui::PopID();
-    const bool Hovered = ImGui::IsItemHovered();
-    const bool Disabled = ImGui::GetItemFlags() & ImGuiItemFlags_Disabled;
-    auto *Ink = ImGui::GetWindowDrawList();
-    if (Selected || (Hovered && !Disabled))
-        Ink->AddRectFilled(Position, ImVec2(Position.x + Size, Position.y + Size), Colour32(Selected ? 0x2a2a27 : 0x232320, Disabled ? .4f : 1.f), 6 * S);
-    const float Glyph = Size * .55f;
-    DrawGlyph(IconPath, ImVec2(Position.x + (Size - Glyph) * .5f, Position.y + (Size - Glyph) * .5f), Glyph, Disabled ? 0x4c4c44 : Colour);
-    return Pressed && !Disabled;
+    return PanelChrome::BareIconButton(Id, IconPath, Size, InterfaceScale, Selected, Colour);
 }
 const char *TexturePaintWorkspacePanel::BrushPresetName() const noexcept
 {
@@ -2393,34 +2335,15 @@ void TexturePaintWorkspacePanel::ConstructLayersDock()
         if (EffectiveVisible(Layer)) ++VisibleCount;
     const int HiddenCount = int(Layers.size()) - VisibleCount;
 
-    // .tp-layer-stats: two 66px cards (Visible / Hidden) that double as the stack filter.
+    // .tp-layer-stats: two 66px cards (Visible / Hidden) that double as the stack filter, drawn by
+    // the shared PanelChrome::VisibilityStatCards (Stamp/Pattern compose theirs from it too).
     {
-        const ImVec2 Origin = ImGui::GetCursorScreenPos();
-        const float CardWidth = (WindowWidth - 36 * S) * .5f;
-        const struct { const char *Label; int Count; LayerFilter Value; const char *Icon; uint32_t Disc; uint32_t Glyph; } Cards[2]{
-            {"Visible", VisibleCount, LayerFilter::Visible, "M20 6L9 17l-5-5", 0x58876a, 0x0b2f17},
-            {"Hidden", HiddenCount, LayerFilter::Hidden, "M2 12Q12 0 22 12Q12 24 2 12ZM12 9A3 3 0 1 0 12 15A3 3 0 1 0 12 9ZM4 4L20 20", 0x292929, 0x676760}};
-        for (int Index = 0; Index < 2; ++Index)
-        {
-            const ImVec2 CardMin(Origin.x + 14 * S + Index * (CardWidth + 8 * S), Origin.y);
-            const ImVec2 CardMax(CardMin.x + CardWidth, CardMin.y + 66 * S);
-            const bool Pressed = Filter == Cards[Index].Value;
-            ImGui::SetCursorScreenPos(CardMin);
-            ImGui::PushID(Index);
-            const bool Clicked = ImGui::InvisibleButton("##Stat", ImVec2(CardWidth, 66 * S));
-            ImGui::PopID();
-            if (Clicked) Filter = Pressed ? LayerFilter::All : Cards[Index].Value;
-            Ink->AddRectFilled(CardMin, CardMax, Colour32(Pressed ? 0x25221d : 0x191919), 20 * S);
-            Ink->AddRect(CardMin, CardMax, Colour32(Pressed ? 0x9a8564 : 0x2c2c2c, Pressed ? .34f : 1.f), 20 * S);
-            Ink->AddCircleFilled(ImVec2(CardMin.x + 22.5f * S, CardMin.y + 21.5f * S), 10.5f * S, Colour32(Cards[Index].Disc), 24);
-            DrawGlyph(Cards[Index].Icon, ImVec2(CardMin.x + 16.5f * S, CardMin.y + 15.5f * S), 12 * S, Cards[Index].Glyph, 2.2f);
-            Caption(ImVec2(CardMin.x + 12 * S, CardMax.y - 21 * S), Cards[Index].Label, 9 * S, 0x99998f);
-            char Number[8];
-            std::snprintf(Number, sizeof(Number), "%02d", Cards[Index].Count);
-            Caption(ImVec2(CardMax.x - 13 * S - CaptionWidth(Number, 29 * S, LightTypeface), CardMax.y - 40 * S), Number, 29 * S, 0xddddcf,
-                LightTypeface ? LightTypeface : RegularTypeface);
-        }
-        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 66 * S));
+        int ClickedCard = -1;
+        PanelChrome::VisibilityStatCards(ImGui::GetCursorScreenPos(), (WindowWidth - 36 * S) * .5f, 14 * S, S,
+            size_t(VisibleCount), size_t(HiddenCount),
+            Filter == LayerFilter::Visible ? 0 : Filter == LayerFilter::Hidden ? 1 : -1, ClickedCard, LightTypeface, RegularTypeface);
+        if (ClickedCard == 0) Filter = Filter == LayerFilter::Visible ? LayerFilter::All : LayerFilter::Visible;
+        else if (ClickedCard == 1) Filter = Filter == LayerFilter::Hidden ? LayerFilter::All : LayerFilter::Hidden;
     }
 
     // .tp-layer-search: 36px pill with search glyph, text entry and a clear button.
@@ -4984,22 +4907,13 @@ void TexturePaintWorkspacePanel::ConstructStatusBar()
 
 void TexturePaintWorkspacePanel::ConstructInterface()
 {
-    // 🧩 Same themed style block as BakingWorkspacePanel::ConstructInterface, warm Texture accent.
+    // 🧩 Shared studio palette, warm Texture accent (PanelChrome::StudioPalette).
     const auto SavedPalette = ControlKit::Palette();
-    auto Palette = SavedPalette;
-    Palette.Panel = {.0706f, .0706f, .0706f, 1};
-    Palette.Inset = {.098f, .098f, .098f, 1};
-    Palette.Raised = {.133f, .133f, .133f, 1};
-    Palette.Selected = {.20f, .19f, .15f, 1};
-    Palette.Text = {.808f, .808f, .753f, 1};
-    Palette.TextDim = {.56f, .58f, .50f, 1};
-    Palette.TextFaint = {.35f, .37f, .30f, 1};
-    Palette.Accent = {.85f, .70f, .51f, 1};
+    const auto Palette = PanelChrome::StudioPalette(SavedPalette, {.20f, .19f, .15f, 1}, {.85f, .70f, .51f, 1});
     ControlKit::ConfigurePalette(Palette);
-    const auto ToneQuad = [](ColorQuad Tone) { return ImVec4(Tone.Red, Tone.Green, Tone.Blue, Tone.Alpha); };
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Spectrum(0x121212));
-    ImGui::PushStyleColor(ImGuiCol_Text, ToneQuad(Palette.Text));
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ToneQuad(Palette.TextDim));
+    ImGui::PushStyleColor(ImGuiCol_Text, ThemeQuad(Palette.Text));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ThemeQuad(Palette.TextDim));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x090909));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Spectrum(0x141412));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, Spectrum(0x191916));
@@ -5017,26 +4931,12 @@ void TexturePaintWorkspacePanel::ConstructInterface()
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrab, Spectrum(0x2a2a26));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, Spectrum(0x35352f));
     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive, Spectrum(0x3c3c34));
-    // 🧩 Dock chrome: the same near-black title/tab/docking-empty colours Stamp/Pattern/Material push
-    // before their PanelDockspace runs - without these, Texture Paint's dock tabs and title strips
-    // fell back to the host theme and visibly mismatched the other studios.
-    for (ImGuiCol Slot : {ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg})
-        ImGui::PushStyleColor(Slot, Spectrum(0x090909));
-    for (ImGuiCol Slot : {ImGuiCol_Tab, ImGuiCol_TabHovered, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected})
-        ImGui::PushStyleColor(Slot, Spectrum(0x101010));
-    ImGui::PushStyleColor(ImGuiCol_TabSelectedOverline, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6 * InterfaceScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * InterfaceScale, 6 * InterfaceScale));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 2 * InterfaceScale);
-    // No visible scrollbars anywhere in the workspace: wheel scrolling stays live (and eased, with
-    // overscroll, via ImGui Patch H) but the bar/track chrome is gone.
-    ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.f);
-    const float CloseMinimumUnselected = ImGui::GetStyle().TabCloseButtonMinWidthUnselected;
-    const float CloseMinimumSelected = ImGui::GetStyle().TabCloseButtonMinWidthSelected;
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = FLT_MAX;
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = FLT_MAX;
+    // 🧩 Shared dock chrome (near-black title/tab colours, square windows, hidden scrollbars, no tab
+    // close buttons) - one implementation in PanelChrome for every workspace, pushed last here and
+    // popped first in the tail below.
+    const auto Chrome = PanelChrome::PushDockChrome(Spectrum(0x090909), Spectrum(0x101010), true, true, InterfaceScale);
 
     // ⌨️ TexturePaintStudio's shortcuts: undo/redo, duplicate, save (frame keys live with the viewports).
     if (!ImGui::GetIO().WantTextInput)
@@ -5130,10 +5030,9 @@ void TexturePaintWorkspacePanel::ConstructInterface()
     }
     else if (!Toast.empty()) Toast.clear();
 
-    ImGui::PopStyleVar(5);
-    ImGui::PopStyleColor(31);
-    ImGui::GetStyle().TabCloseButtonMinWidthUnselected = CloseMinimumUnselected;
-    ImGui::GetStyle().TabCloseButtonMinWidthSelected = CloseMinimumSelected;
+    PanelChrome::PopDockChrome(Chrome);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(20);
     ControlKit::ConfigurePalette(SavedPalette);
 }
 } // namespace Frontier

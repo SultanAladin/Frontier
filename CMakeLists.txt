@@ -82,7 +82,7 @@ target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
     UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
-    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp
+    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp UI/TextureStudio/PanelChrome.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
     Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
