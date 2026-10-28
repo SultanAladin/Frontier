@@ -199,7 +199,7 @@ int main(int ArgumentCount, char **Arguments)
         TypeNumber("Columns", "3");
         TypeNumber("Rows", "2");
         Capture();
-        ClickCaption("Add as modifier");
+        ClickCaption("Add array modifier");
         for (int Index = 0; Index < 2; ++Index) Capture();
         Require(Panel->QueryDocument().Layers.size() == 1, "Adding an Array modifier must not duplicate the authored layer.");
         Require(EvaluatedDocument().Layers.size() == 6, "The evaluated/rendered document did not expand to the 3x2 grid.");

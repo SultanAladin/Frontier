@@ -4,6 +4,7 @@
 // 🧩 Drive the real native Pattern UI with pointer/keyboard input and capture its ImGui triangles with actual Vulkan canvas pixels.
 
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
+#include "Engine/ContentInterchange/VectorAuthoringEditing.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Render/VectorAuthoringCoverageRendering.h"
 #include "Engine/Render/VectorSelectionEvaluation.h"
@@ -721,8 +722,11 @@ int main(int Count, char **Arguments)
         Confirm(Workspace.QueryDocument().Layers.size() == 1, "Native duplicate Undo failed.");
         Click("Array / pattern");
         for (int Index = 0; Index < 5; ++Index) Frame();
-        Click("Generate array");
-        Confirm(Workspace.QueryDocument().Layers.size() == 4, "Native Inspector array did not produce editable copies.");
+        Click("Add array modifier");
+        Confirm(Workspace.QueryDocument().Layers.size() == 1, "live array modifier polluted the authored layer list with baked copies.");
+        Confirm(!Workspace.QueryDocument().Layers.front().Modifiers.empty(), "Add array modifier did not attach a live stack entry.");
+        Confirm(Frontier::ConstructEvaluatedVectorAuthoringDocument(Workspace.QueryDocument()).Layers.size() == 4,
+            "Evaluated live array modifier did not expand to four procedural copies for rendering.");
         for (int Index = 0; Index < 5; ++Index) Frame();
         Capture("NativePatternArrayInspector");
         Click("Undo");

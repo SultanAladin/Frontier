@@ -791,16 +791,22 @@ void PatternWorkspacePanel::CapturePanel(const char *CaptionText)
     PanelExtents[CaptionText] = {Position.x, Position.y, Position.x + Extent.x, Position.y + Extent.y};
 }
 
-void PatternWorkspacePanel::Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens)
+void PatternWorkspacePanel::Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens, uint64_t CoalesceTag)
 {
     if (PenSource) throw std::runtime_error("Finish or cancel the pending pen path before another source edit.");
     const auto PreviousSelection = GestureSource ? GestureSelection : Selection;
-    if (History.Finalize(std::move(Document)))
+    // 📝 CoalesceTag != 0 routes through FinalizeCoalesced: outcome 2 recorded a new undo entry (so
+    // the parallel selection history advances too); outcome 1 replaced the live state mid-drag (the
+    // entry recorded at drag start already holds the pre-drag selection - only redo is invalidated).
+    const int Outcome = CoalesceTag != 0 ? History.FinalizeCoalesced(std::move(Document), CoalesceTag)
+                                         : (History.Finalize(std::move(Document)) ? 2 : 0);
+    if (Outcome == 2)
     {
         UndoSelections.push_back(PreviousSelection);
         if (UndoSelections.size() > 80) UndoSelections.erase(UndoSelections.begin());
         RedoSelections.clear();
     }
+    else if (Outcome == 1) RedoSelections.clear();
     ++GestureRevision;
     Selection = std::move(Tokens);
     std::erase_if(Selection, [&](uint32_t Token) { return std::none_of(History.QueryDocument().Layers.begin(), History.QueryDocument().Layers.end(), [Token](const auto &Layer) { return Layer.Token == Token; }); });
@@ -815,6 +821,17 @@ void PatternWorkspacePanel::EvaluateEdit(const std::function<void(VectorAuthorin
         auto Document = History.QueryDocument();
         Edit(Document);
         Finalize(std::move(Document), Selection);
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+}
+
+void PatternWorkspacePanel::EvaluateEditCoalesced(const std::function<void(VectorAuthoringDocument &)> &Edit, uint64_t CoalesceTag)
+{
+    try
+    {
+        auto Document = History.QueryDocument();
+        Edit(Document);
+        Finalize(std::move(Document), Selection, CoalesceTag);
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
 }
@@ -3138,6 +3155,12 @@ void PatternWorkspacePanel::ConstructInspector()
             if (Selection.size() == 1)
             {
                 constexpr const char *OperationNames[]{"Array", "Mirror", "Noise / jitter", "Offset / outline", "Colour"};
+                // 📝 One undo step per slider drag: the generation rotates when a mouse drag ends, so
+                // every frame of one drag shares a coalesce tag (History::FinalizeCoalesced) while
+                // separate drags and typed edits each record their own step.
+                const bool ModifierMouseDown = ImGui::GetIO().MouseDown[0];
+                if (ModifierEditMouseWasDown && !ModifierMouseDown) ++ModifierEditGeneration;
+                ModifierEditMouseWasDown = ModifierMouseDown;
                 for (size_t Index = 0; Index < First->Modifiers.size(); ++Index)
                 {
                     const auto Suffix = " (M" + std::to_string(Index + 1) + ")";
@@ -3184,25 +3207,35 @@ void PatternWorkspacePanel::ConstructInspector()
                     }
                     else if (Editable != First->Modifiers[Index])
                     {
-                        EvaluateEdit([&](auto &Document)
+                        const uint64_t Tag = (uint64_t(First->Token) + 1) * 0x9E3779B97F4A7C15ull ^
+                            (uint64_t(Index + 1) << 40) ^ ModifierEditGeneration;
+                        EvaluateEditCoalesced([&](auto &Document)
                         {
                             const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
                             if (Position != Document.Layers.end() && Index < Position->Modifiers.size()) Position->Modifiers[Index] = Editable;
-                        });
+                        }, Tag != 0 ? Tag : 1);
                     }
                     ImGui::Dummy(ImVec2(0, 4 * Scale));
                 }
             }
-            if (Controls.Array(ArraySpecification, Snapshot.Layers.size(), Selection.size(), 64, Protected))
-            {
-                try { auto Result = GenerateVectorAuthoringArray(Snapshot, Selection, ArraySpecification); Finalize(std::move(Result.Document), std::move(Result.Selection)); }
-                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-            }
             if (Selection.size() == 1)
             {
+                // 📝 Procedural-first (Blender-style): for a single layer the array exists ONLY as a
+                // live modifier - these fields seed a new stack entry, the stack cards above then edit
+                // it with sliders in realtime, and the layer list never gains baked copies. Baking is
+                // the modifier card's explicit Apply. The one-shot group generator further below
+                // remains for multi-selections, which a per-layer modifier stack cannot express.
+                ImGui::TextDisabled("New array modifier");
+                ImGui::BeginDisabled(Protected);
+                Controls.ArrayFields(ArraySpecification);
+                ImGui::EndDisabled();
+                const int SpecCategory = int(ArraySpecification.Category);
+                const auto SpecPopulation = SpecCategory == 1 ? ArraySpecification.Columns * ArraySpecification.Rows
+                                                              : ArraySpecification.Count * (SpecCategory == 3 ? ArraySpecification.Rings : 1);
+                ImGui::TextDisabled("%u copies, procedural - evaluated live, no layers added", SpecPopulation);
                 constexpr size_t ModifierStackLimit = 8;
                 ImGui::BeginDisabled(Protected || First->Modifiers.size() >= ModifierStackLimit);
-                if (Controls.Button("Add as modifier", ImGui::GetContentRegionAvail().x))
+                if (Controls.Button("Add array modifier", ImGui::GetContentRegionAvail().x))
                 {
                     const uint32_t Token = First->Token;
                     EvaluateEdit([&](auto &Document)
@@ -3218,7 +3251,7 @@ void PatternWorkspacePanel::ConstructInspector()
                     });
                 }
                 ImGui::EndDisabled();
-                Controls.Tooltip("Add as modifier", "Keeps the array as a live, editable stack entry (Blender-style) instead of baking copies now. Up to 8 per layer.");
+                Controls.Tooltip("Add array modifier", "Adds this array as a live modifier on the selected layer: fully procedural and slider-editable in realtime, adding no layers. Bake it later from the modifier card's Apply. Up to 8 modifiers per layer.");
                 ImGui::TextWrapped("Add a different modifier operation to the stack:");
                 const auto AddModifier = [&](VectorAuthoringModifierOperation Operation)
                 {
@@ -3246,6 +3279,13 @@ void PatternWorkspacePanel::ConstructInspector()
                 Controls.Tooltip("+ Noise / jitter", "Nudges position/rotation/scale by a deterministic random amount - great for breaking up repetition without touching the source.");
                 Controls.Tooltip("+ Offset / outline", "Grows or shrinks the shape's own silhouette - useful for stickers, outlines and inset/expand effects.");
                 Controls.Tooltip("+ Colour", "Paints fill and/or stroke with a gradient or a discrete per-group ramp - stack a preceding Array to band it by row/ring, or stack two Colour entries for independent fill/stroke.");
+            }
+            else if (Controls.Array(ArraySpecification, Snapshot.Layers.size(), Selection.size(), 64, Protected))
+            {
+                // 📝 Multi-selection (or none): the group bake generator - the one array form a
+                // per-layer modifier stack cannot express, kept as the explicitly destructive path.
+                try { auto Result = GenerateVectorAuthoringArray(Snapshot, Selection, ArraySpecification); Finalize(std::move(Result.Document), std::move(Result.Selection)); }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
             }
         }
         ImGui::Dummy(ImVec2(0, 0));

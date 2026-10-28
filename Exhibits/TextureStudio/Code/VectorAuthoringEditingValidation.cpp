@@ -242,6 +242,38 @@ void VerifyOrganization(bool Stamp)
     uint32_t Undos = 0;
     while (History.RestoreHistory(false)) ++Undos;
     Confirm(Undos == 80, "Native history exceeded its 80-edit budget.");
+    {
+        // 📝 Slider-drag coalescing (History::FinalizeCoalesced): a burst of same-tag live edits
+        // records exactly ONE undo entry while still advancing the revision every frame, a new tag
+        // records its own entry, and an untagged Finalize breaks the chain.
+        VectorAuthoringHistory Coalesced(Stamp);
+        auto DragBase = Document;
+        DragBase.Name = "Drag base";
+        Confirm(Coalesced.FinalizeCoalesced(DragBase, 41) == 2, "First coalesced edit did not record an undo entry.");
+        const auto BaseRevision = Coalesced.QueryRevision();
+        for (uint32_t Index = 1; Index <= 5; ++Index)
+        {
+            auto Live = DragBase;
+            Live.Name = "Drag live " + std::to_string(Index);
+            Confirm(Coalesced.FinalizeCoalesced(Live, 41) == 1, "Same-tag live edit recorded a new undo entry mid-drag.");
+        }
+        Confirm(Coalesced.QueryRevision() == BaseRevision + 5, "Coalesced live edits did not advance the revision per frame.");
+        Confirm(Coalesced.FinalizeCoalesced(Coalesced.QueryDocument(), 41) == 0, "No-op coalesced edit was not reported unchanged.");
+        auto SecondDrag = DragBase;
+        SecondDrag.Name = "Second drag";
+        Confirm(Coalesced.FinalizeCoalesced(SecondDrag, 42) == 2, "A new coalesce tag did not record its own undo entry.");
+        Confirm(Coalesced.QueryDocument().Name == "Second drag", "Second drag did not become the current document.");
+        uint32_t CoalescedUndos = 0;
+        while (Coalesced.RestoreHistory(false)) ++CoalescedUndos;
+        Confirm(CoalescedUndos == 2, "Two slider drags did not collapse into exactly two undo entries.");
+        VectorAuthoringHistory Broken(Stamp);
+        auto StepA = Document; StepA.Name = "A";
+        auto StepB = Document; StepB.Name = "B";
+        auto StepC = Document; StepC.Name = "C";
+        Confirm(Broken.FinalizeCoalesced(StepA, 7) == 2, "Chain-break fixture did not record its first entry.");
+        Confirm(Broken.Finalize(StepB), "Chain-break fixture refused its untagged edit.");
+        Confirm(Broken.FinalizeCoalesced(StepC, 7) == 2, "An untagged finalize did not break the coalesce chain.");
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------------------

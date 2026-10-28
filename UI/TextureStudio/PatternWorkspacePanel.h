@@ -194,6 +194,11 @@ private:
     CubicControl ActiveControl = CubicControl::Anchor;
     bool ConstructPointInteraction(PlaneExtent Canvas, PlaneExtent Board, bool Hovered);
     VectorAuthoringArraySpecification ArraySpecification;
+    // 📝 Live modifier-slider undo coalescing: the generation bumps once per completed mouse drag,
+    // so every frame of one drag shares a History coalesce tag (one undo step per drag) while
+    // distinct drags/typed edits stay individually undoable. See EvaluateEditCoalesced.
+    uint64_t ModifierEditGeneration = 1;
+    bool ModifierEditMouseWasDown = false;
     VectorAuthoringTool Tool = VectorAuthoringTool::Select;
     PlaneExtent BoardExtent;
     PlanePoint PointerOrigin{}, Pan{}, PanOrigin{}, SelectionPointer{};
@@ -232,8 +237,11 @@ private:
     [[nodiscard]] std::array<float, 4> CanvasInkColour() const noexcept;
     void ApplyLibraryPreset(size_t Index);
     void ApplyPresetDocument(VectorAuthoringDocument Document);
-    void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens);
+    void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens, uint64_t CoalesceTag = 0);
     void EvaluateEdit(const std::function<void(VectorAuthoringDocument &)> &Edit);
+    // EvaluateEdit through History::FinalizeCoalesced: continuous same-tag edits (a modifier slider
+    // drag) replace the current history state live instead of recording one undo entry per frame.
+    void EvaluateEditCoalesced(const std::function<void(VectorAuthoringDocument &)> &Edit, uint64_t CoalesceTag);
     void RestoreHistory(bool Redo);
     void Select(uint32_t Token, bool Extend = false);
     void CapturePanel(const char *Caption);

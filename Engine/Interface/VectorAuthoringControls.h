@@ -37,6 +37,16 @@ public:
         float      &Quantity,
         float       Minimum,
         float       Maximum);
+    // 📝 Range's sibling for live-edited fields (modifier parameters): same number box + draggable
+    // slider strip updating Quantity every frame while dragged, but Caption's registered extent stays
+    // on the NUMBER BOX (typed edits/addressing keep working exactly as with Number) and the strip is
+    // registered separately as "<Caption> slider". Range deliberately does the opposite (its drivers
+    // address the strip by caption), so the two coexist rather than one changing under the other.
+    bool Slider(
+        const char *Caption,
+        float      &Quantity,
+        float       Minimum,
+        float       Maximum);
     bool Dropdown(const char *Caption, int &Selection, std::span<const char *const> Captions);
     bool Colour(const char *Caption, std::array<float, 4> &Spectrum);
     bool RenderColourSourcePicker(std::array<float, 4> &Spectrum);
@@ -62,5 +72,6 @@ public:
     void ColourFields(VectorAuthoringColourSpecification &Specification, const std::string &Suffix = {});
 private:
     void Register(const char *Caption);
+    bool RangeCore(const char *Caption, float &Quantity, float Minimum, float Maximum, bool StripOwnsCaption);
 };
 }

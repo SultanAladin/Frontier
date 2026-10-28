@@ -40,9 +40,9 @@ struct VectorAuthoringLayer
     float TextPointSize = 64.f;
     // 📝 Blender-style modifier stack, evaluated live (never mutating this layer's own Root/Instructions)
     // by ConstructEvaluatedVectorAuthoringDocument whenever at least one entry is Enabled. Empty for every
-    // ordinary layer - only populated once a user clicks "Add as modifier" (Array, Mirror, Noise or
-    // Offset) on a layer's card. Applying an entry bakes it into real duplicate/replacement layers via
-    // the matching Generate* function and erases it from here; Deleting it just erases it.
+    // ordinary layer - only populated once a user adds a modifier (Array, Mirror, Noise, Offset, Colour)
+    // from the Inspector's Array / pattern section. Applying an entry bakes it into real
+    // duplicate/replacement layers via the matching Generate* function and erases it; Deleting just erases.
     std::vector<VectorAuthoringModifier> Modifiers;
     bool operator==(const VectorAuthoringLayer &) const = default;
 };
@@ -111,14 +111,34 @@ public:
         if (Replacement == Document) return false;
         UndoSequence.push_back(Document);
         if (UndoSequence.size() > 80) UndoSequence.erase(UndoSequence.begin());
-        RedoSequence.clear(); Document = std::move(Replacement); ++Revision; return true;
+        RedoSequence.clear(); Document = std::move(Replacement); ++Revision; LastCoalesceTag = 0; return true;
+    }
+    // 📝 Live-edit variant of Finalize for continuous controls (modifier sliders): the first call with a
+    // fresh CoalesceTag records one undo entry exactly like Finalize; subsequent calls carrying the
+    // SAME tag replace the current document in place (still ++Revision, still re-rendered) without
+    // piling an undo entry per drag frame - so one slider drag is one undo step, Blender-style.
+    // Returns 0 = unchanged, 1 = replaced live (no new undo entry), 2 = recorded (new undo entry).
+    // Any untagged Finalize/RestoreHistory/Reset breaks the chain (LastCoalesceTag reset), and the
+    // caller rotates tags between distinct drags so separate gestures stay separate undo steps.
+    int FinalizeCoalesced(VectorAuthoringDocument Replacement, uint64_t CoalesceTag)
+    {
+        if (Replacement.Stamp != Document.Stamp) throw std::runtime_error("VectorAuthoring history cannot change its workspace contract.");
+        (void)ConstructVectorAuthoringCoverage(Replacement);
+        if (Replacement == Document) return 0;
+        if (CoalesceTag != 0 && CoalesceTag == LastCoalesceTag && !UndoSequence.empty())
+        {
+            RedoSequence.clear(); Document = std::move(Replacement); ++Revision; return 1;
+        }
+        UndoSequence.push_back(Document);
+        if (UndoSequence.size() > 80) UndoSequence.erase(UndoSequence.begin());
+        RedoSequence.clear(); Document = std::move(Replacement); ++Revision; LastCoalesceTag = CoalesceTag; return 2;
     }
     bool RestoreHistory(bool Redo)
     {
         auto &Source = Redo ? RedoSequence : UndoSequence;
         auto &Destination = Redo ? UndoSequence : RedoSequence;
         if (Source.empty()) return false;
-        Destination.push_back(Document); Document = std::move(Source.back()); Source.pop_back(); ++Revision; return true;
+        Destination.push_back(Document); Document = std::move(Source.back()); Source.pop_back(); ++Revision; LastCoalesceTag = 0; return true;
     }
     void Reset(VectorAuthoringDocument Replacement)
     {
@@ -127,6 +147,7 @@ public:
         Document = std::move(Replacement);
         UndoSequence.clear();
         RedoSequence.clear();
+        LastCoalesceTag = 0;
         ++Revision;
     }
     [[nodiscard]] bool QueryUndoAvailable() const noexcept { return !UndoSequence.empty(); }
@@ -137,6 +158,7 @@ private:
     VectorAuthoringDocument Document;
     std::vector<VectorAuthoringDocument> UndoSequence, RedoSequence;
     uint64_t Revision = 0;
+    uint64_t LastCoalesceTag = 0; // tag of the latest FinalizeCoalesced record; 0 = no live chain
 };
 std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document);
 VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source);

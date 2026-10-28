@@ -1,10 +1,11 @@
 /*==========================================================================================================================================
                                              ARRAYMODIFIERSTACKEVIDENCE.CPP
 ==========================================================================================================================================*/
-// 🧩 Headless, CPU-rasterized visual proof of the new Blender-style Array MODIFIER STACK: the existing
-// "Generate array" button still bakes real duplicate layers immediately (destructive, unchanged), but the
-// Inspector now also offers "Add as modifier" - a live, editable, per-layer stack entry that never touches
-// the authored document's Layers until explicitly "Applied". This demonstrates, on the real rendered canvas:
+// 🧩 Headless, CPU-rasterized visual proof of the Blender-style Array MODIFIER STACK: for a single
+// selected layer the array exists only as a live, slider-editable, procedural stack entry ("Add array
+// modifier") that never touches the authored document's Layers until explicitly "Applied" - the old
+// destructive "Generate array" bake remains only as the multi-selection group path. This demonstrates,
+// on the real rendered canvas:
 //  1. Adding a modifier keeps the authored document at exactly 1 layer while the canvas shows the full array.
 //  2. Live-editing the modifier's own fields (ring count) re-shapes the canvas immediately - no Generate click.
 //  3. Disabling the modifier hides every copy, falling back to the single original shape; re-enabling restores it.
@@ -181,10 +182,10 @@ int main(int ArgumentCount, char **Arguments)
         std::cout << "Configured a 6-copy circular array in the shared staging fields (not generated yet).\n";
 
         // ---------------------------------------------------------------------------------------------
-        // 1) "Add as modifier" - non-destructive: the authored document stays at 1 layer, but the live
+        // 1) "Add array modifier" - non-destructive: the authored document stays at 1 layer, but the live
         //    canvas (which now evaluates every layer's modifier stack before rendering) shows all 6 copies.
         // ---------------------------------------------------------------------------------------------
-        ClickCaption("Add as modifier");
+        ClickCaption("Add array modifier");
         for (int Index = 0; Index < 3; ++Index) Capture();
         Require(Panel->QueryDocument().Layers.size() == 1, "Adding a modifier must not duplicate the authored layer.");
         Require(Panel->QueryDocument().Layers.front().Modifiers.size() == 1, "The layer did not gain exactly one modifier entry.");
@@ -219,8 +220,8 @@ int main(int ArgumentCount, char **Arguments)
         std::cout << "Re-enabled the modifier: all 10 copies reappeared instantly.\n";
 
         // ---------------------------------------------------------------------------------------------
-        // 4) Apply: bakes the live modifier into real, independent, selectable duplicate layers (matching
-        //    today's destructive "Generate array" output) and removes the modifier entry.
+        // 4) Apply: bakes the live modifier into real, independent, selectable duplicate layers and
+        //    removes the modifier entry - the explicit Blender-style bake, now the only single-layer one.
         // ---------------------------------------------------------------------------------------------
         ClickCaption("Apply modifier (M1)");
         for (int Index = 0; Index < 3; ++Index) Capture();
@@ -231,8 +232,8 @@ int main(int ArgumentCount, char **Arguments)
                 "A baked layer still carries a modifier entry after Apply.");
         }
         std::cout << "Applied the modifier: the authored document now genuinely contains 10 independent, "
-            "selectable duplicate layers, and the modifier entry itself is gone - exactly like the destructive "
-            "\"Generate array\" button, just triggered from the live stack instead.\n";
+            "selectable duplicate layers, and the modifier entry itself is gone - the explicit bake, "
+            "triggered from the live stack only when asked for.\n";
 
         // ---------------------------------------------------------------------------------------------
         // 5) Undo restores the exact pre-Apply state: 1 authored layer, modifier stack intact.
@@ -255,9 +256,9 @@ int main(int ArgumentCount, char **Arguments)
         std::cout << "Deleted the modifier: no bake, no trace - the canvas reverted to the single original Dot.\n";
 
         ImGui::DestroyContext();
-        std::cout << "PASS: the Array tool now offers a genuine Blender-style modifier stack alongside the "
-            "existing destructive \"Generate array\" duplicate button - add, live-edit, enable/disable, Apply "
-            "and Delete all verified against the actual rendered canvas, see " << Output.string() << "\n";
+        std::cout << "PASS: the Array tool is a genuine Blender-style procedural modifier stack - add, "
+            "live-edit, enable/disable, Apply and Delete all verified against the actual rendered canvas, "
+            "see " << Output.string() << "\n";
         return 0;
     }
     catch (const std::exception &Failure)

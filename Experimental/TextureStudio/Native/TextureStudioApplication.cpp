@@ -725,11 +725,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     // it didn't, CurrentPattern would never again equal SubmittedPatternDocument and
                     // this settle-detect/compile cycle would retrigger forever, hammering the GPU with
                     // a full 6-channel recompile every other frame even on a perfectly idle document.
-                    const bool PatternProgramsChanged = MaterialBridge->ConfigureDocument(CurrentPattern, Completed);
+                    // The bridge compiles the EVALUATED document (live modifier stack expanded, the
+                    // same ephemeral expansion the 2D canvas renders) so procedural arrays reach the
+                    // material maps and 3D preview without an explicit Apply; every settle/fault
+                    // comparison around it stays on the AUTHORED document, which is the stable one.
+                    const auto EvaluatedPattern = Frontier::ConstructEvaluatedVectorAuthoringDocument(CurrentPattern);
+                    const bool PatternProgramsChanged = MaterialBridge->ConfigureDocument(EvaluatedPattern, Completed);
                     SubmittedPatternDocument = CurrentPattern;
                     if (PatternProgramsChanged)
                     {
-                        AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(SubmittedPatternDocument.Layers.size()) + "; instructions=" + std::to_string(SubmittedPatternDocument.Instructions.size()) + "; cubic_segments=" + std::to_string(SubmittedPatternDocument.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
+                        AppendPatternPreviewDebug("Pattern document compiled; layers=" + std::to_string(EvaluatedPattern.Layers.size()) + "; instructions=" + std::to_string(EvaluatedPattern.Instructions.size()) + "; cubic_segments=" + std::to_string(EvaluatedPattern.Segments.size()) + "; completed_serial=" + std::to_string(Completed));
                         PatternAuthoringMaps.reset();
                         const bool AssignedSnapshotLive = AssignedWorkspaceMaps.has_value() &&
                             AssignedWorkspaceSelection == Library->QueryLibrary().QuerySelection();
@@ -800,7 +805,10 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     // settle/compile cycle retriggers every other frame forever — the "stuck baking"
                     // symptom, and a steady stream of needless 6-channel recompiles that can starve or
                     // crash the app under sustained load.
-                    const bool StampProgramsChanged = MaterialBridge->ConfigureDocument(CurrentStamp, Completed);
+                    // 📝 Evaluated submission, mirroring the Pattern branch (a no-op expansion while
+                    // the document carries no enabled modifiers, which is every Stamp-authored doc).
+                    const bool StampProgramsChanged = MaterialBridge->ConfigureDocument(
+                        Frontier::ConstructEvaluatedVectorAuthoringDocument(CurrentStamp), Completed);
                     SubmittedStampDocument = CurrentStamp;
                     if (StampProgramsChanged)
                     {

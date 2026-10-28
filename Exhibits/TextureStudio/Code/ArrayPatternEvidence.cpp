@@ -2,14 +2,16 @@
                                                    ARRAYPATTERNEVIDENCE.CPP
 ==========================================================================================================================================*/
 // 🧩 Headless, CPU-rasterized visual proof of the Pattern workspace's real "Array / pattern" Inspector card -
-// the feature already exists (Engine/ContentInterchange/VectorAuthoringArrayPlacement.*), but had never been
-// screenshotted, so this demonstrates exactly the three shapes asked about:
+// arrays are LIVE procedural modifiers (Blender-style): the authored document keeps its single source layer
+// throughout, and every screenshot/assertion below reads the evaluated expansion the canvas actually renders.
+// Demonstrates exactly the three shapes asked about:
 //  1. A plain circular array - N copies placed evenly around a single ring.
 //  2. A radial array with multiple RINGS, each ring at a larger radius than the last ("expanding outward").
 //  3. The same radial rings, but with the "Radial distance" scale profile, so each copy's own size grows
 //     the further it sits from the centre - a classic sunburst/particle-burst look, not just repeated dots.
 
 #include "UI/TextureStudio/PatternWorkspacePanel.h"
+#include "Engine/ContentInterchange/VectorAuthoringEditing.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "RasterizeLibraryEvidence.h"
@@ -96,7 +98,7 @@ int main(int ArgumentCount, char **Arguments)
         const auto Capture = [&]
         {
             IO.Fonts->GetTexDataAsRGBA32(&Pixels, &AtlasWidth, &AtlasHeight);
-            FakeTexture = RasterizePatternThumbnailSvg(Panel->QueryDocument(), FakeTextureExtent, BoardWell);
+            FakeTexture = RasterizePatternThumbnailSvg(Frontier::ConstructEvaluatedVectorAuthoringDocument(Panel->QueryDocument()), FakeTextureExtent, BoardWell);
             const std::vector<LibraryCaptureTexture> Textures{{FakeTextureToken, FakeTexture.data(), FakeTextureExtent, FakeTextureExtent}};
             char Name[64];
             std::snprintf(Name, sizeof(Name), "%02d-frame.ppm", CaptureIndex++);
@@ -184,10 +186,11 @@ int main(int ArgumentCount, char **Arguments)
             for (int Index = 0; Index < 2; ++Index) Capture();
             TypeNumber("Copies per ring", "10");
             Capture();
-            ClickCaption("Generate array");
+            ClickCaption("Add array modifier");
             for (int Index = 0; Index < 3; ++Index) Capture();
-            const auto &Generated = Panel->QueryDocument();
-            Require(Generated.Layers.size() == 10, "The circular array did not generate exactly 10 copies.");
+            Require(Panel->QueryDocument().Layers.size() == 1, "The live circular array modifier baked layers into the authored document.");
+            const auto Generated = Frontier::ConstructEvaluatedVectorAuthoringDocument(Panel->QueryDocument());
+            Require(Generated.Layers.size() == 10, "The live circular array did not evaluate to exactly 10 copies.");
             std::cout << "Captured a circular array: 10 copies of the Dot placed evenly around one ring.\n";
         }
 
@@ -208,10 +211,11 @@ int main(int ArgumentCount, char **Arguments)
             TypeNumber("Radius", "55");
             TypeNumber("Ring spacing", "55");
             Capture();
-            ClickCaption("Generate array");
+            ClickCaption("Add array modifier");
             for (int Index = 0; Index < 3; ++Index) Capture();
-            const auto &Generated = Panel->QueryDocument();
-            Require(Generated.Layers.size() == 24, "The radial-rings array did not generate exactly 24 copies (8 per ring x 3 rings).");
+            Require(Panel->QueryDocument().Layers.size() == 1, "The live radial-rings modifier baked layers into the authored document.");
+            const auto Generated = Frontier::ConstructEvaluatedVectorAuthoringDocument(Panel->QueryDocument());
+            Require(Generated.Layers.size() == 24, "The live radial-rings array did not evaluate to exactly 24 copies (8 per ring x 3 rings).");
             // Ring 0 (innermost) comes first, Ring 2 (outermost) comes last - confirm the rings really do sit
             // at increasing distance from the centre, i.e. genuinely "expanding outward".
             const auto Distance = [&](const VectorCoverageInstruction &Instruction)
@@ -240,10 +244,11 @@ int main(int ArgumentCount, char **Arguments)
             TypeNumber("Start scale %", "45");
             TypeNumber("End scale %", "220");
             Capture();
-            ClickCaption("Generate array");
+            ClickCaption("Add array modifier");
             for (int Index = 0; Index < 4; ++Index) Capture();
-            const auto &Generated = Panel->QueryDocument();
-            Require(Generated.Layers.size() == 24, "The scaled radial array did not generate exactly 24 copies.");
+            Require(Panel->QueryDocument().Layers.size() == 1, "The live scaled radial modifier baked layers into the authored document.");
+            const auto Generated = Frontier::ConstructEvaluatedVectorAuthoringDocument(Panel->QueryDocument());
+            Require(Generated.Layers.size() == 24, "The live scaled radial array did not evaluate to exactly 24 copies.");
             const float InnerWidth = Generated.Instructions[Generated.Layers[0].Root].Bounds[2];
             const float OuterWidth = Generated.Instructions[Generated.Layers[23].Root].Bounds[2];
             Require(OuterWidth > InnerWidth * 1.5f, "The outermost ring's copies are not visibly larger than the innermost ring's - the \"size changes outward\" effect is missing.");

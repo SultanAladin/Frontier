@@ -210,21 +210,24 @@ bool VectorAuthoringControlSurface::Number(
     return Changed;
 }
 
-bool VectorAuthoringControlSurface::Range(
+bool VectorAuthoringControlSurface::RangeCore(
     const char *Caption,
     float      &Quantity,
     float       Minimum,
-    float       Maximum)
+    float       Maximum,
+    bool        StripOwnsCaption)
 {
     bool Changed = Number(Caption, Quantity, Minimum, Maximum);
     ImGui::PushID(Caption);
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = std::max(48.f, ImGui::GetContentRegionAvail().x);
     ImGui::InvisibleButton("Range", ImVec2(Width, 28 * Scale));
-    // 📝 Re-registers the same caption over Number()'s own (smaller, text-box-only) extent so headless/
-    // automated drivers - and anything else keying off QueryControlExtent - can address the actual
-    // draggable slider strip, not just the typed-number field above it.
-    Register(Caption);
+    // 📝 Range re-registers the same caption over Number()'s own (smaller, text-box-only) extent so
+    // headless/automated drivers - and anything else keying off QueryControlExtent - can address the
+    // actual draggable slider strip, not just the typed-number field above it. Slider instead leaves
+    // Caption on the number box (typed edits keep addressing it) and registers the strip alongside.
+    if (StripOwnsCaption) Register(Caption);
+    else Register((std::string(Caption) + " slider").c_str());
     const auto &Input = ImGui::GetIO();
     const bool Active = ImGui::IsItemActive();
     const ControlPointer Pointer{Input.MousePos.x, Input.MousePos.y, Input.MouseDown[0], ImGui::IsItemActivated(), ImGui::IsMouseReleased(0), Active || ImGui::IsItemHovered(), Input.MouseWheel};
@@ -235,6 +238,16 @@ bool VectorAuthoringControlSurface::Range(
     if (Active && Replacement != Quantity) { Quantity = Replacement; Changed = true; }
     ImGui::PopID();
     return Changed;
+}
+
+bool VectorAuthoringControlSurface::Range(const char *Caption, float &Quantity, float Minimum, float Maximum)
+{
+    return RangeCore(Caption, Quantity, Minimum, Maximum, true);
+}
+
+bool VectorAuthoringControlSurface::Slider(const char *Caption, float &Quantity, float Minimum, float Maximum)
+{
+    return RangeCore(Caption, Quantity, Minimum, Maximum, false);
 }
 
 bool VectorAuthoringControlSurface::Dropdown(const char *Caption, int &Selection, std::span<const char *const> Captions)
@@ -393,10 +406,14 @@ void VectorAuthoringControlSurface::ArrayFields(VectorAuthoringArraySpecificatio
         Specification.Category = VectorAuthoringArrayCategory(Category);
         if (Category == 1 && Specification.StepY == 0) Specification.StepY = 80;
     }
+    // 📝 Modifier parameters are edited live (Blender-style), so every field here is a Slider - a
+    // draggable strip under the number box that updates the value (and thus the evaluated canvas)
+    // every frame of the drag - instead of a type-a-number box. Seeds keep plain Number (a 0..999999
+    // strip is useless); counts go through the same Slider and round to the nearest whole step.
     const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
     {
         float Replacement = float(Quantity);
-        if (Number(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(Replacement);
+        if (Slider(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(std::lround(Replacement));
     };
     if (Category == 1)
     {
@@ -406,43 +423,47 @@ void VectorAuthoringControlSurface::ArrayFields(VectorAuthoringArraySpecificatio
     else Integral((Category >= 2 ? "Copies per ring" : "Copies") + Suffix, Specification.Count, 2, 64);
     if (Category >= 2)
     {
-        Number(("Radius" + Suffix).c_str(), Specification.Radius, 0, 512);
+        Slider(("Radius" + Suffix).c_str(), Specification.Radius, 0, 512);
         if (Category == 3)
         {
             Integral("Rings" + Suffix, Specification.Rings, 1, 8);
-            Number(("Ring spacing" + Suffix).c_str(), Specification.RadiusStep, 1, 512);
+            Slider(("Ring spacing" + Suffix).c_str(), Specification.RadiusStep, 1, 512);
         }
-        Number(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
-        Number(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
-        Number(("Start angle" + Suffix).c_str(), Specification.StartAngle, -360, 360);
-        Number(("Arc sweep" + Suffix).c_str(), Specification.Sweep, -360, 360);
+        Slider(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
+        Slider(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
+        Slider(("Start angle" + Suffix).c_str(), Specification.StartAngle, -360, 360);
+        Slider(("Arc sweep" + Suffix).c_str(), Specification.Sweep, -360, 360);
         Toggle(("Rotate copies around centre" + Suffix).c_str(), Specification.RotateCopies);
     }
     else
     {
-        Number(("Step X" + Suffix).c_str(), Specification.StepX, -512, 512);
-        Number(("Step Y" + Suffix).c_str(), Specification.StepY, -512, 512);
+        Slider(("Step X" + Suffix).c_str(), Specification.StepX, -512, 512);
+        Slider(("Step Y" + Suffix).c_str(), Specification.StepY, -512, 512);
     }
     const char *Profiles[]{"Uniform", "Linear progression", "Circular wave", "Radial distance", "Seeded noise"};
     if (Dropdown(("Scale profile" + Suffix).c_str(), Profile, Profiles)) Specification.ScaleProfile = VectorAuthoringScaleProfile(Profile);
-    Number(("Start scale %" + Suffix).c_str(), Specification.StartScale, 1, 400);
-    if (Profile != 0) Number(("End scale %" + Suffix).c_str(), Specification.EndScale, 1, 400);
-    if (Profile == 4) Integral("Noise seed" + Suffix, Specification.Seed, 0, 999999);
+    Slider(("Start scale %" + Suffix).c_str(), Specification.StartScale, 1, 400);
+    if (Profile != 0) Slider(("End scale %" + Suffix).c_str(), Specification.EndScale, 1, 400);
+    if (Profile == 4)
+    {
+        float Seed = float(Specification.Seed);
+        if (Number(("Noise seed" + Suffix).c_str(), Seed, 0, 999999)) Specification.Seed = uint32_t(Seed);
+    }
 }
 void VectorAuthoringControlSurface::MirrorFields(VectorAuthoringMirrorSpecification &Specification, const std::string &Suffix)
 {
-    Number(("Pivot X" + Suffix).c_str(), Specification.PivotX, -512, 1024);
-    Number(("Pivot Y" + Suffix).c_str(), Specification.PivotY, -512, 1024);
-    Number(("Axis angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
+    Slider(("Pivot X" + Suffix).c_str(), Specification.PivotX, -512, 1024);
+    Slider(("Pivot Y" + Suffix).c_str(), Specification.PivotY, -512, 1024);
+    Slider(("Axis angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
     Tooltip(("Axis angle" + Suffix).c_str(), "0deg mirrors top/bottom across a horizontal axis; 90deg mirrors left/right across a vertical axis through the pivot.");
     Toggle(("Keep original" + Suffix).c_str(), Specification.KeepOriginal);
     Tooltip(("Keep original" + Suffix).c_str(), "On: the mirrored copy sits alongside the untouched source, like Blender's Mirror modifier. Off: the source itself is replaced by its mirrored placement.");
 }
 void VectorAuthoringControlSurface::NoiseFields(VectorAuthoringNoiseSpecification &Specification, const std::string &Suffix)
 {
-    Number(("Position jitter" + Suffix).c_str(), Specification.PositionJitter, 0, 256);
-    Number(("Rotation jitter" + Suffix).c_str(), Specification.RotationJitter, 0, 180);
-    Number(("Scale jitter %" + Suffix).c_str(), Specification.ScaleJitter, 0, 90);
+    Slider(("Position jitter" + Suffix).c_str(), Specification.PositionJitter, 0, 256);
+    Slider(("Rotation jitter" + Suffix).c_str(), Specification.RotationJitter, 0, 180);
+    Slider(("Scale jitter %" + Suffix).c_str(), Specification.ScaleJitter, 0, 90);
     const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
     {
         float Replacement = float(Quantity);
@@ -453,7 +474,7 @@ void VectorAuthoringControlSurface::NoiseFields(VectorAuthoringNoiseSpecificatio
 }
 void VectorAuthoringControlSurface::OffsetFields(VectorAuthoringOffsetSpecification &Specification, const std::string &Suffix)
 {
-    Number(("Offset distance" + Suffix).c_str(), Specification.Distance, -256, 256);
+    Slider(("Offset distance" + Suffix).c_str(), Specification.Distance, -256, 256);
     Tooltip(("Offset distance" + Suffix).c_str(), "Grows the shape's own bounding frame when positive, shrinks it when negative. Exact for rectangles and ellipses; an approximation (bounding-frame grow/shrink) for diamonds, triangles, polygons, stars and freeform paths.");
 }
 void VectorAuthoringControlSurface::ColourFields(VectorAuthoringColourSpecification &Specification, const std::string &Suffix)
@@ -468,20 +489,20 @@ void VectorAuthoringControlSurface::ColourFields(VectorAuthoringColourSpecificat
     Tooltip(("Paints" + Suffix).c_str(), "Stroke only shows if the shape already has a stroke width above zero. Stack two Colour entries to drive fill and stroke independently.");
     if (Generator == 0)
     {
-        Number(("Gradient angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
+        Slider(("Gradient angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
         Tooltip(("Gradient angle" + Suffix).c_str(), "0deg blends left-to-right, 90deg bottom-to-top, auto-fit across the selection's own combined bounding box - no manual pivot needed.");
     }
     else if (Generator == 1)
     {
-        Number(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
-        Number(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
-        Number(("Radius" + Suffix).c_str(), Specification.Radius, 1, 2048);
+        Slider(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
+        Slider(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
+        Slider(("Radius" + Suffix).c_str(), Specification.Radius, 1, 2048);
         Tooltip(("Radius" + Suffix).c_str(), "Distance from the centre at which the gradient reaches its last stop.");
     }
     const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
     {
         float Replacement = float(Quantity);
-        if (Number(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(Replacement);
+        if (Slider(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(std::lround(Replacement));
     };
     Integral("Stop count" + Suffix, Specification.StopCount, 2, 4);
     for (uint32_t Index = 0; Index < Specification.StopCount; ++Index)
@@ -503,7 +524,7 @@ bool VectorAuthoringControlSurface::Array(
     ImGui::BeginDisabled(Protected);
     ArrayFields(Specification);
     const int Category = int(Specification.Category);
-    ImGui::TextWrapped("Duplicates the selection into real, independent copies right now - undo restores the originals. For a live, editable stack entry instead, use \"Add as modifier\" below.");
+    ImGui::TextWrapped("Bakes the selection into real, independent copies right now (the group-array path for multi-selections) - undo restores the originals. With a single layer selected, prefer a live Array modifier instead: fully procedural, slider-editable, and it never adds layers until you Apply it.");
     const auto Population = Category == 1 ? Specification.Columns * Specification.Rows : Specification.Count * (Category == 3 ? Specification.Rings : 1);
     const auto Total = LayerCount - SelectionCount + Population * SelectionCount;
     ImGui::TextDisabled("%zu / %zu document entries after generation", Total, Limit);
