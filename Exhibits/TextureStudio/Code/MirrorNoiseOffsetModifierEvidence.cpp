@@ -162,7 +162,7 @@ int main(int ArgumentCount, char **Arguments)
         for (int Index = 0; Index < 4; ++Index) Capture();
         std::cout << "Captured a single asymmetric Arrow motif, selected via the canvas.\n";
 
-        ClickCaption("Array / pattern");
+        ClickCaption("Modifiers");
         for (int Index = 0; Index < 2; ++Index) Capture();
 
         // ---------------------------------------------------------------------------------------------

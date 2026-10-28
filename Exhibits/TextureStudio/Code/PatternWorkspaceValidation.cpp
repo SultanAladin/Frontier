@@ -720,7 +720,7 @@ int main(int Count, char **Arguments)
         Confirm(Workspace.QueryDocument().Layers.size() == 2, "Native duplicate action lost a source.");
         Click("Undo");
         Confirm(Workspace.QueryDocument().Layers.size() == 1, "Native duplicate Undo failed.");
-        Click("Array / pattern");
+        Click("Modifiers");
         for (int Index = 0; Index < 5; ++Index) Frame();
         Click("Add array modifier");
         Confirm(Workspace.QueryDocument().Layers.size() == 1, "live array modifier polluted the authored layer list with baked copies.");
@@ -1067,7 +1067,7 @@ int main(int Count, char **Arguments)
             Click("Add pattern layer"); Click("Rectangle");
             ConfirmDropdown(Workspace.QueryDocument().Layers.size() == 1, "Shared action row did not activate its native operation.");
             Click("Select:1");
-            if (Workspace.QueryControlExtent("Array layout").Width() == 0) Click("Array / pattern");
+            if (Workspace.QueryControlExtent("Array layout").Width() == 0) Click("Modifiers");
             Click("Array layout");
             InspectMenu("Array dropdown absent."); Capture("NativeDropdownArray");
             const auto BeforeDismiss = Workspace.QueryDocument();

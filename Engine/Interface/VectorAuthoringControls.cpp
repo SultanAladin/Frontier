@@ -10,6 +10,7 @@
 #include <imgui_internal.h>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 
 namespace Frontier
@@ -379,19 +380,30 @@ bool VectorAuthoringControlSurface::Colour(const char *Caption, std::array<float
 
 void VectorAuthoringControlSurface::BeginCard(const char *Caption, bool Raised, bool Subordinate)
 {
+    // 📝 Material-inspector card language (ControlKit::SectionCard): palette fill, hairline Stroke
+    // outline, 15px radius, 17px content inset and a micro-overline caption - so Pattern/Stamp (and
+    // Baking/Texture Paint) inspector cards read as the same objects as the Material workspace's
+    // instead of plain bordered ImGui children with a loose text title.
     ImGui::PushID(Caption);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14 * Scale, 14 * Scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 15 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(17 * Scale, 14 * Scale));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ConvertSpectrum(Raised ? ControlKit::Palette().Raised : Subordinate ? ControlKit::Palette().Panel : ControlKit::Palette().Inset));
+    ImGui::PushStyleColor(ImGuiCol_Border, ConvertSpectrum(ControlKit::Palette().Stroke));
     ImGui::BeginChild("Card", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::TextUnformatted(Caption);
+    std::string Overline(Caption);
+    for (char &Character : Overline) Character = char(std::toupper(static_cast<unsigned char>(Character)));
+    ImGui::PushFont(nullptr, 8.f * 1.302f * Scale);
+    ImGui::PushStyleColor(ImGuiCol_Text, ConvertSpectrum(ControlKit::Palette().TextDim));
+    ImGui::TextUnformatted(Overline.c_str());
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
     ImGui::Spacing();
 }
 
 void VectorAuthoringControlSurface::EndCard()
 {
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(2);
     ImGui::PopID();
     ImGui::Dummy(ImVec2(0, 10 * Scale));

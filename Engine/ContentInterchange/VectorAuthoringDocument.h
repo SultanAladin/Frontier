@@ -41,7 +41,7 @@ struct VectorAuthoringLayer
     // 📝 Blender-style modifier stack, evaluated live (never mutating this layer's own Root/Instructions)
     // by ConstructEvaluatedVectorAuthoringDocument whenever at least one entry is Enabled. Empty for every
     // ordinary layer - only populated once a user adds a modifier (Array, Mirror, Noise, Offset, Colour)
-    // from the Inspector's Array / pattern section. Applying an entry bakes it into real
+    // from the Inspector's Modifiers section. Applying an entry bakes it into real
     // duplicate/replacement layers via the matching Generate* function and erases it; Deleting just erases.
     std::vector<VectorAuthoringModifier> Modifiers;
     bool operator==(const VectorAuthoringLayer &) const = default;

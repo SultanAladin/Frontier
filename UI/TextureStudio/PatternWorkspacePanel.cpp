@@ -2374,10 +2374,15 @@ void PatternWorkspacePanel::ConstructCanvas()
     else if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
-    if (BakePending) { if (PendingBakeSince < 0) PendingBakeSince = ImGui::GetTime(); }
-    else PendingBakeSince = -1;
     // 📝 GPU compute for a typical edit retires within a frame or two; only show the badge once a
-    // bake has stayed pending longer than that, so routine editing stops flashing it continuously.
+    // bake has stayed pending longer than that AFTER edits stopped streaming in - every fresh
+    // edit revision restarts the clock, so a live slider drag never flashes "Baking" at all.
+    const uint64_t EditRevision = History.QueryRevision() * 1315423911ull ^ uint64_t(GestureRevision);
+    if (BakePending)
+    {
+        if (PendingBakeSince < 0 || EditRevision != PendingBakeEditRevision) { PendingBakeSince = ImGui::GetTime(); PendingBakeEditRevision = EditRevision; }
+    }
+    else PendingBakeSince = -1;
     if (BakePending && PendingBakeSince >= 0 && ImGui::GetTime() - PendingBakeSince > 0.15)
     {
         const char *Badge = "Baking pattern...";
@@ -3046,6 +3051,7 @@ void PatternWorkspacePanel::ConstructInspector()
         Controls.ControlHeight = 30;
         if (ChannelsOpen)
         {
+            Controls.BeginCard("Surface channels", false, true);
             ImGui::TextWrapped("Surface contributions are authored per selected shape and sampled by the live material preview.");
             if (Selection.size() > 1)
                 ImGui::TextDisabled("Toggling a channel applies the displayed setting to every selected shape.");
@@ -3142,151 +3148,7 @@ void PatternWorkspacePanel::ConstructInspector()
                 });
             ImGui::EndDisabled();
             Controls.Tooltip("Surface relief", "Signed height amplitude used by the Height map and its derived tangent normals.");
-        }
-        ImGui::Dummy(ImVec2(0, 0));
-        Controls.ControlHeight = 48;
-        if (Controls.Button("Array / pattern", ImGui::GetContentRegionAvail().x, ArraysOpen, {}, true)) ArraysOpen = !ArraysOpen;
-        Controls.ControlHeight = 30;
-        if (ArraysOpen)
-        {
-            // 📝 Blender-style modifier stack: every entry here is re-evaluated live every frame by
-            // ConstructEvaluatedVectorAuthoringDocument and never touches First->Root/Instructions - only
-            // offered for a single selected layer, matching how the stack belongs to one object at a time.
-            if (Selection.size() == 1)
-            {
-                constexpr const char *OperationNames[]{"Array", "Mirror", "Noise / jitter", "Offset / outline", "Colour"};
-                // 📝 One undo step per slider drag: the generation rotates when a mouse drag ends, so
-                // every frame of one drag shares a coalesce tag (History::FinalizeCoalesced) while
-                // separate drags and typed edits each record their own step.
-                const bool ModifierMouseDown = ImGui::GetIO().MouseDown[0];
-                if (ModifierEditMouseWasDown && !ModifierMouseDown) ++ModifierEditGeneration;
-                ModifierEditMouseWasDown = ModifierMouseDown;
-                for (size_t Index = 0; Index < First->Modifiers.size(); ++Index)
-                {
-                    const auto Suffix = " (M" + std::to_string(Index + 1) + ")";
-                    const auto Operation = First->Modifiers[Index].Operation;
-                    Controls.BeginCard((std::string(OperationNames[uint32_t(Operation)]) + " modifier " + std::to_string(Index + 1)).c_str(), false, true);
-                    ImGui::BeginDisabled(Protected);
-                    auto Editable = First->Modifiers[Index];
-                    Controls.Toggle(("Enabled" + Suffix).c_str(), Editable.Enabled);
-                    if (Editable.Enabled) switch (Operation)
-                    {
-                    case VectorAuthoringModifierOperation::Array:  Controls.ArrayFields(Editable.Array, Suffix); break;
-                    case VectorAuthoringModifierOperation::Mirror: Controls.MirrorFields(Editable.Mirror, Suffix); break;
-                    case VectorAuthoringModifierOperation::Noise:  Controls.NoiseFields(Editable.Noise, Suffix); break;
-                    case VectorAuthoringModifierOperation::Offset: Controls.OffsetFields(Editable.Offset, Suffix); break;
-                    case VectorAuthoringModifierOperation::Colour: Controls.ColourFields(Editable.Colour, Suffix); break;
-                    }
-                    ImGui::TextWrapped("Edits here redraw the canvas immediately and never touch the original shape. Apply bakes this entry into real duplicate/replacement layers; Delete removes it with no other change.");
-                    const bool ApplyPressed = Controls.Button(("Apply modifier" + Suffix).c_str(), ImGui::GetContentRegionAvail().x * .5f - 4 * Scale);
-                    ImGui::SameLine();
-                    const bool DeletePressed = Controls.Button(("Delete modifier" + Suffix).c_str(), ImGui::GetContentRegionAvail().x);
-                    ImGui::EndDisabled();
-                    Controls.EndCard();
-                    if (ApplyPressed)
-                    {
-                        try
-                        {
-                            auto Working = Snapshot;
-                            const auto Position = std::find_if(Working.Layers.begin(), Working.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
-                            const auto Modifier = Position->Modifiers[Index];
-                            const auto Previous = Index > 0 ? std::optional(Position->Modifiers[Index - 1]) : std::nullopt;
-                            Position->Modifiers.erase(Position->Modifiers.begin() + ptrdiff_t(Index));
-                            auto Result = ApplyVectorAuthoringModifier(Working, std::array<uint32_t, 1>{First->Token}, Modifier, Previous ? &*Previous : nullptr);
-                            Finalize(std::move(Result.Document), std::move(Result.Selection));
-                        }
-                        catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-                    }
-                    else if (DeletePressed)
-                    {
-                        EvaluateEdit([&](auto &Document)
-                        {
-                            const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
-                            if (Position != Document.Layers.end() && Index < Position->Modifiers.size()) Position->Modifiers.erase(Position->Modifiers.begin() + ptrdiff_t(Index));
-                        });
-                    }
-                    else if (Editable != First->Modifiers[Index])
-                    {
-                        const uint64_t Tag = (uint64_t(First->Token) + 1) * 0x9E3779B97F4A7C15ull ^
-                            (uint64_t(Index + 1) << 40) ^ ModifierEditGeneration;
-                        EvaluateEditCoalesced([&](auto &Document)
-                        {
-                            const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
-                            if (Position != Document.Layers.end() && Index < Position->Modifiers.size()) Position->Modifiers[Index] = Editable;
-                        }, Tag != 0 ? Tag : 1);
-                    }
-                    ImGui::Dummy(ImVec2(0, 4 * Scale));
-                }
-            }
-            if (Selection.size() == 1)
-            {
-                // 📝 Procedural-first (Blender-style): for a single layer the array exists ONLY as a
-                // live modifier - these fields seed a new stack entry, the stack cards above then edit
-                // it with sliders in realtime, and the layer list never gains baked copies. Baking is
-                // the modifier card's explicit Apply. The one-shot group generator further below
-                // remains for multi-selections, which a per-layer modifier stack cannot express.
-                ImGui::TextDisabled("New array modifier");
-                ImGui::BeginDisabled(Protected);
-                Controls.ArrayFields(ArraySpecification);
-                ImGui::EndDisabled();
-                const int SpecCategory = int(ArraySpecification.Category);
-                const auto SpecPopulation = SpecCategory == 1 ? ArraySpecification.Columns * ArraySpecification.Rows
-                                                              : ArraySpecification.Count * (SpecCategory == 3 ? ArraySpecification.Rings : 1);
-                ImGui::TextDisabled("%u copies, procedural - evaluated live, no layers added", SpecPopulation);
-                constexpr size_t ModifierStackLimit = 8;
-                ImGui::BeginDisabled(Protected || First->Modifiers.size() >= ModifierStackLimit);
-                if (Controls.Button("Add array modifier", ImGui::GetContentRegionAvail().x))
-                {
-                    const uint32_t Token = First->Token;
-                    EvaluateEdit([&](auto &Document)
-                    {
-                        const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == Token; });
-                        if (Position != Document.Layers.end())
-                        {
-                            VectorAuthoringModifier Modifier;
-                            Modifier.Operation = VectorAuthoringModifierOperation::Array;
-                            Modifier.Array = ArraySpecification;
-                            Position->Modifiers.push_back(Modifier);
-                        }
-                    });
-                }
-                ImGui::EndDisabled();
-                Controls.Tooltip("Add array modifier", "Adds this array as a live modifier on the selected layer: fully procedural and slider-editable in realtime, adding no layers. Bake it later from the modifier card's Apply. Up to 8 modifiers per layer.");
-                ImGui::TextWrapped("Add a different modifier operation to the stack:");
-                const auto AddModifier = [&](VectorAuthoringModifierOperation Operation)
-                {
-                    const uint32_t Token = First->Token;
-                    EvaluateEdit([&](auto &Document)
-                    {
-                        const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == Token; });
-                        if (Position == Document.Layers.end()) return;
-                        VectorAuthoringModifier Modifier;
-                        Modifier.Operation = Operation;
-                        Position->Modifiers.push_back(Modifier);
-                    });
-                };
-                ImGui::BeginDisabled(Protected || First->Modifiers.size() >= ModifierStackLimit);
-                const float Quarter = (ImGui::GetContentRegionAvail().x - 12 * Scale) / 4.f;
-                if (Controls.Button("+ Mirror", Quarter)) AddModifier(VectorAuthoringModifierOperation::Mirror);
-                ImGui::SameLine();
-                if (Controls.Button("+ Noise / jitter", Quarter)) AddModifier(VectorAuthoringModifierOperation::Noise);
-                ImGui::SameLine();
-                if (Controls.Button("+ Offset / outline", Quarter)) AddModifier(VectorAuthoringModifierOperation::Offset);
-                ImGui::SameLine();
-                if (Controls.Button("+ Colour", ImGui::GetContentRegionAvail().x)) AddModifier(VectorAuthoringModifierOperation::Colour);
-                ImGui::EndDisabled();
-                Controls.Tooltip("+ Mirror", "Reflects the shape across a pivot/axis you can drag in the field widgets above once added.");
-                Controls.Tooltip("+ Noise / jitter", "Nudges position/rotation/scale by a deterministic random amount - great for breaking up repetition without touching the source.");
-                Controls.Tooltip("+ Offset / outline", "Grows or shrinks the shape's own silhouette - useful for stickers, outlines and inset/expand effects.");
-                Controls.Tooltip("+ Colour", "Paints fill and/or stroke with a gradient or a discrete per-group ramp - stack a preceding Array to band it by row/ring, or stack two Colour entries for independent fill/stroke.");
-            }
-            else if (Controls.Array(ArraySpecification, Snapshot.Layers.size(), Selection.size(), 64, Protected))
-            {
-                // 📝 Multi-selection (or none): the group bake generator - the one array form a
-                // per-layer modifier stack cannot express, kept as the explicitly destructive path.
-                try { auto Result = GenerateVectorAuthoringArray(Snapshot, Selection, ArraySpecification); Finalize(std::move(Result.Document), std::move(Result.Selection)); }
-                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-            }
+            Controls.EndCard();
         }
         ImGui::Dummy(ImVec2(0, 0));
     }
@@ -3498,6 +3360,163 @@ void PatternWorkspacePanel::ConstructInspector()
     }
     ImGui::EndDisabled();
     Controls.EndCard();
+    if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+    // 📝 The modifier stack closes the inspector (Blender-style: object data first, the
+    // procedural stack last at the bottom), inside its own cards like every other group.
+    if (!MaskSelection)
+    {
+        Controls.ControlHeight = 48;
+        if (Controls.Button("Modifiers", ImGui::GetContentRegionAvail().x, ArraysOpen, {}, true)) ArraysOpen = !ArraysOpen;
+        Controls.ControlHeight = 30;
+        if (ArraysOpen)
+        {
+            // 📝 Blender-style modifier stack: every entry here is re-evaluated live every frame by
+            // ConstructEvaluatedVectorAuthoringDocument and never touches First->Root/Instructions - only
+            // offered for a single selected layer, matching how the stack belongs to one object at a time.
+            if (Selection.size() == 1)
+            {
+                constexpr const char *OperationNames[]{"Array", "Mirror", "Noise / jitter", "Offset / outline", "Colour"};
+                // 📝 One undo step per slider drag: the generation rotates when a mouse drag ends, so
+                // every frame of one drag shares a coalesce tag (History::FinalizeCoalesced) while
+                // separate drags and typed edits each record their own step.
+                const bool ModifierMouseDown = ImGui::GetIO().MouseDown[0];
+                if (ModifierEditMouseWasDown && !ModifierMouseDown) ++ModifierEditGeneration;
+                ModifierEditMouseWasDown = ModifierMouseDown;
+                for (size_t Index = 0; Index < First->Modifiers.size(); ++Index)
+                {
+                    const auto Suffix = " (M" + std::to_string(Index + 1) + ")";
+                    const auto Operation = First->Modifiers[Index].Operation;
+                    Controls.BeginCard((std::string(OperationNames[uint32_t(Operation)]) + " modifier " + std::to_string(Index + 1)).c_str(), false, true);
+                    ImGui::BeginDisabled(Protected);
+                    auto Editable = First->Modifiers[Index];
+                    Controls.Toggle(("Enabled" + Suffix).c_str(), Editable.Enabled);
+                    if (Editable.Enabled) switch (Operation)
+                    {
+                    case VectorAuthoringModifierOperation::Array:  Controls.ArrayFields(Editable.Array, Suffix); break;
+                    case VectorAuthoringModifierOperation::Mirror: Controls.MirrorFields(Editable.Mirror, Suffix); break;
+                    case VectorAuthoringModifierOperation::Noise:  Controls.NoiseFields(Editable.Noise, Suffix); break;
+                    case VectorAuthoringModifierOperation::Offset: Controls.OffsetFields(Editable.Offset, Suffix); break;
+                    case VectorAuthoringModifierOperation::Colour: Controls.ColourFields(Editable.Colour, Suffix); break;
+                    }
+                    ImGui::TextWrapped("Edits here redraw the canvas immediately and never touch the original shape. Apply bakes this entry into real duplicate/replacement layers; Delete removes it with no other change.");
+                    const bool ApplyPressed = Controls.Button(("Apply modifier" + Suffix).c_str(), ImGui::GetContentRegionAvail().x * .5f - 4 * Scale);
+                    ImGui::SameLine();
+                    const bool DeletePressed = Controls.Button(("Delete modifier" + Suffix).c_str(), ImGui::GetContentRegionAvail().x);
+                    ImGui::EndDisabled();
+                    Controls.EndCard();
+                    if (ApplyPressed)
+                    {
+                        try
+                        {
+                            auto Working = Snapshot;
+                            const auto Position = std::find_if(Working.Layers.begin(), Working.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
+                            const auto Modifier = Position->Modifiers[Index];
+                            const auto Previous = Index > 0 ? std::optional(Position->Modifiers[Index - 1]) : std::nullopt;
+                            Position->Modifiers.erase(Position->Modifiers.begin() + ptrdiff_t(Index));
+                            auto Result = ApplyVectorAuthoringModifier(Working, std::array<uint32_t, 1>{First->Token}, Modifier, Previous ? &*Previous : nullptr);
+                            Finalize(std::move(Result.Document), std::move(Result.Selection));
+                        }
+                        catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+                    }
+                    else if (DeletePressed)
+                    {
+                        EvaluateEdit([&](auto &Document)
+                        {
+                            const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
+                            if (Position != Document.Layers.end() && Index < Position->Modifiers.size()) Position->Modifiers.erase(Position->Modifiers.begin() + ptrdiff_t(Index));
+                        });
+                    }
+                    else if (Editable != First->Modifiers[Index])
+                    {
+                        const uint64_t Tag = (uint64_t(First->Token) + 1) * 0x9E3779B97F4A7C15ull ^
+                            (uint64_t(Index + 1) << 40) ^ ModifierEditGeneration;
+                        EvaluateEditCoalesced([&](auto &Document)
+                        {
+                            const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == First->Token; });
+                            if (Position != Document.Layers.end() && Index < Position->Modifiers.size()) Position->Modifiers[Index] = Editable;
+                        }, Tag != 0 ? Tag : 1);
+                    }
+                    ImGui::Dummy(ImVec2(0, 4 * Scale));
+                }
+            }
+            if (Selection.size() == 1)
+            {
+                // 📝 Procedural-first (Blender-style): for a single layer the array exists ONLY as a
+                // live modifier - these fields seed a new stack entry, the stack cards above then edit
+                // it with sliders in realtime, and the layer list never gains baked copies. Baking is
+                // the modifier card's explicit Apply. The one-shot group generator further below
+                // remains for multi-selections, which a per-layer modifier stack cannot express.
+                Controls.BeginCard("Add modifier", false, true);
+                ImGui::BeginDisabled(Protected);
+                Controls.ArrayFields(ArraySpecification);
+                ImGui::EndDisabled();
+                const int SpecCategory = int(ArraySpecification.Category);
+                const auto SpecPopulation = SpecCategory == 1 ? ArraySpecification.Columns * ArraySpecification.Rows
+                                                              : ArraySpecification.Count * (SpecCategory == 3 ? ArraySpecification.Rings : 1);
+                ImGui::TextDisabled("%u copies, procedural - evaluated live, no layers added", SpecPopulation);
+                constexpr size_t ModifierStackLimit = 8;
+                ImGui::BeginDisabled(Protected || First->Modifiers.size() >= ModifierStackLimit);
+                if (Controls.Button("Add array modifier", ImGui::GetContentRegionAvail().x))
+                {
+                    const uint32_t Token = First->Token;
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == Token; });
+                        if (Position != Document.Layers.end())
+                        {
+                            VectorAuthoringModifier Modifier;
+                            Modifier.Operation = VectorAuthoringModifierOperation::Array;
+                            Modifier.Array = ArraySpecification;
+                            Position->Modifiers.push_back(Modifier);
+                        }
+                    });
+                }
+                ImGui::EndDisabled();
+                Controls.Tooltip("Add array modifier", "Adds this array as a live modifier on the selected layer: fully procedural and slider-editable in realtime, adding no layers. Bake it later from the modifier card's Apply. Up to 8 modifiers per layer.");
+                ImGui::TextWrapped("Add a different modifier operation to the stack:");
+                const auto AddModifier = [&](VectorAuthoringModifierOperation Operation)
+                {
+                    const uint32_t Token = First->Token;
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        const auto Position = std::find_if(Document.Layers.begin(), Document.Layers.end(), [&](const auto &Layer) { return Layer.Token == Token; });
+                        if (Position == Document.Layers.end()) return;
+                        VectorAuthoringModifier Modifier;
+                        Modifier.Operation = Operation;
+                        Position->Modifiers.push_back(Modifier);
+                    });
+                };
+                ImGui::BeginDisabled(Protected || First->Modifiers.size() >= ModifierStackLimit);
+                const float Quarter = (ImGui::GetContentRegionAvail().x - 12 * Scale) / 4.f;
+                if (Controls.Button("+ Mirror", Quarter)) AddModifier(VectorAuthoringModifierOperation::Mirror);
+                ImGui::SameLine();
+                if (Controls.Button("+ Noise / jitter", Quarter)) AddModifier(VectorAuthoringModifierOperation::Noise);
+                ImGui::SameLine();
+                if (Controls.Button("+ Offset / outline", Quarter)) AddModifier(VectorAuthoringModifierOperation::Offset);
+                ImGui::SameLine();
+                if (Controls.Button("+ Colour", ImGui::GetContentRegionAvail().x)) AddModifier(VectorAuthoringModifierOperation::Colour);
+                ImGui::EndDisabled();
+                Controls.Tooltip("+ Mirror", "Reflects the shape across a pivot/axis you can drag in the field widgets above once added.");
+                Controls.Tooltip("+ Noise / jitter", "Nudges position/rotation/scale by a deterministic random amount - great for breaking up repetition without touching the source.");
+                Controls.Tooltip("+ Offset / outline", "Grows or shrinks the shape's own silhouette - useful for stickers, outlines and inset/expand effects.");
+                Controls.Tooltip("+ Colour", "Paints fill and/or stroke with a gradient or a discrete per-group ramp - stack a preceding Array to band it by row/ring, or stack two Colour entries for independent fill/stroke.");
+                Controls.EndCard();
+            }
+            else
+            {
+                Controls.BeginCard("Array (bake copies)", false, true);
+                const bool GenerateArray = Controls.Array(ArraySpecification, Snapshot.Layers.size(), Selection.size(), 64, Protected);
+                Controls.EndCard();
+                if (GenerateArray)
+                {
+                    // 📝 Multi-selection (or none): the group bake generator - the one array form a
+                    // per-layer modifier stack cannot express, kept as the explicitly destructive path.
+                    try { auto Result = GenerateVectorAuthoringArray(Snapshot, Selection, ArraySpecification); Finalize(std::move(Result.Document), std::move(Result.Selection)); }
+                    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+                }
+            }
+        }
+    }
     if (!Diagnostic.empty()) ImGui::TextWrapped("%s", Diagnostic.c_str());
     ImGui::EndChild();
 }

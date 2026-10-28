@@ -2158,7 +2158,13 @@ void StampWorkspacePanel::ConstructCanvas()
     if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
-    if (BakePending) { if (PendingBakeSince < 0) PendingBakeSince = ImGui::GetTime(); }
+    // 📝 Same rule as Pattern: every fresh edit revision restarts the pending clock, so the badge
+    // only ever means "still catching up after you stopped editing", never mid-drag noise.
+    const uint64_t EditRevision = History.QueryRevision() * 1315423911ull ^ uint64_t(GestureRevision);
+    if (BakePending)
+    {
+        if (PendingBakeSince < 0 || EditRevision != PendingBakeEditRevision) { PendingBakeSince = ImGui::GetTime(); PendingBakeEditRevision = EditRevision; }
+    }
     else PendingBakeSince = -1;
     if (BakePending && PendingBakeSince >= 0 && ImGui::GetTime() - PendingBakeSince > 0.15)
     {

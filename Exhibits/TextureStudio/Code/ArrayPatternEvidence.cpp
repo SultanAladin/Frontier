@@ -1,7 +1,7 @@
 /*==========================================================================================================================================
                                                    ARRAYPATTERNEVIDENCE.CPP
 ==========================================================================================================================================*/
-// 🧩 Headless, CPU-rasterized visual proof of the Pattern workspace's real "Array / pattern" Inspector card -
+// 🧩 Headless, CPU-rasterized visual proof of the Pattern workspace's real "Modifiers" Inspector card -
 // arrays are LIVE procedural modifiers (Blender-style): the authored document keeps its single source layer
 // throughout, and every screenshot/assertion below reads the evaluated expansion the canvas actually renders.
 // Demonstrates exactly the three shapes asked about:
@@ -111,7 +111,7 @@ int main(int ArgumentCount, char **Arguments)
         const auto Click = [&](ImVec2 Position) { MoveTo(Position); Down(); Up(); };
 
         // 📝 Scrolls the Inspector (mouse wheel, same as a real user) until the named control's own registered
-        // extent sits inside a safe visible band - the "Array / pattern" card and its own fields sit well
+        // extent sits inside a safe visible band - the "Modifiers" card and its own fields sit well
         // down the Inspector's scrollable column, below the initial viewport.
         const auto ClickCaption = [&](const char *Caption)
         {
@@ -174,9 +174,9 @@ int main(int ArgumentCount, char **Arguments)
         for (int Index = 0; Index < 4; ++Index) Capture();
         std::cout << "Captured a single Dot motif, selected via the canvas.\n";
 
-        ClickCaption("Array / pattern");
+        ClickCaption("Modifiers");
         for (int Index = 0; Index < 2; ++Index) Capture();
-        std::cout << "Opened the Inspector's real \"Array / pattern\" card.\n";
+        std::cout << "Opened the Inspector's real \"Modifiers\" card.\n";
 
         // ---------------------------------------------------------------------------------------------
         // 1) Plain circular array - 10 copies evenly spaced around one ring.

@@ -119,7 +119,11 @@ private:
     // 📝 A fresh GPU bake usually resolves within a frame or two; showing the "Baking…" badge the
     // instant a dispatch is pending made it flash on literally every single edit. Only surface it
     // once a bake has stayed pending past this debounce so it reads as a real status, not UI noise.
+    // The clock also restarts on every new edit revision, so while edits are still streaming in
+    // (a modifier slider drag) the badge never shows at all - it means "still catching up AFTER
+    // you stopped", never "baking because you are dragging".
     double PendingBakeSince = -1;
+    uint64_t PendingBakeEditRevision = 0;
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);

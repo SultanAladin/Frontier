@@ -193,7 +193,7 @@ int main(int ArgumentCount, char **Arguments)
         // =================================================================================================
         // SCENE A - "give each array row its own colour" (Array + Colour live chaining).
         // =================================================================================================
-        ClickCaption("Array / pattern");
+        ClickCaption("Modifiers");
         for (int Index = 0; Index < 2; ++Index) Capture();
         PickDropdownRow("Array layout", 1); // {"Linear","Grid","Circular / arc","Radial rings"}
         TypeNumber("Columns", "3");

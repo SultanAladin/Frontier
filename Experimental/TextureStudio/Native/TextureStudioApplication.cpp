@@ -709,7 +709,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 }
                 PatternBridgeSubmission = 0;
             }
+            // 📝 Save-gated baking: the 6-channel Float32 bake runs only once the document is saved
+            // (Ctrl+S / Save button - QueryModified() false) or an explicit Apply to material demands
+            // fresh maps. While edits are unsaved (e.g. mid modifier-slider drag) the 2D canvas still
+            // re-evaluates live every frame, but no material bake churns underneath it.
             if (PatternActive && !PatternBridgeSubmission && !StampBridgeSubmission && Pattern->QueryAuthoringSettled() &&
+                (!Pattern->QueryModified() || PatternApplyRequested) &&
                 !(PatternBridgeFaultedDocument && *PatternBridgeFaultedDocument == Pattern->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.
@@ -790,7 +795,9 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 else StampAuthoringMaps.reset();
                 StampBridgeSubmission = 0;
             }
+            // 📝 Save-gated baking, same rule as the Pattern branch above.
             if (StampActive && !StampBridgeSubmission && !PatternBridgeSubmission && Stamp->QueryAuthoringSettled() &&
+                (!Stamp->QueryModified() || StampApplyRequested) &&
                 !(StampBridgeFaultedDocument && *StampBridgeFaultedDocument == Stamp->QueryDocument()))
             {
                 // 📝 Gestures publish a fresh draft every frame; regenerate Float32 maps only after the gesture ends.

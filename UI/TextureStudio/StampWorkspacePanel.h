@@ -116,8 +116,10 @@ private:
     uint32_t GesturePrimitiveToken = 0;
     bool CachedCoverageValid = false;
     // 📝 Mirrors Pattern's own bake-badge debounce: only surface "Baking…" once a dispatch has
-    // stayed pending past this threshold, instead of flashing it on every single edit.
+    // stayed pending past this threshold, instead of flashing it on every single edit. The clock
+    // restarts on every new edit revision, so it never shows while edits are still streaming in.
     double PendingBakeSince = -1;
+    uint64_t PendingBakeEditRevision = 0;
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);
