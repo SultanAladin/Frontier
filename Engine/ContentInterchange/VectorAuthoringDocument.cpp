@@ -373,6 +373,7 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
             if (!Layer.SourceMarkup.empty()) Encoded.insert("source_markup", Layer.SourceMarkup);
             if (!Layer.EmbeddedImage.empty()) Encoded.insert("embedded_image", Layer.EmbeddedImage);
             if (Layer.ComponentKind == VectorAuthoringComponentKind::Text) Encoded.insert("text_point_size", double(Layer.TextPointSize));
+            if (Layer.ComponentKind == VectorAuthoringComponentKind::Text && !Layer.TextTypeface.empty()) Encoded.insert("text_typeface", Layer.TextTypeface);
         }
         if (!Layer.Modifiers.empty())
         {
@@ -414,7 +415,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     {
         if (!Encoded.as_table()) throw std::runtime_error("Invalid vector layer.");
         const auto &Entry = *Encoded.as_table();
-        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image", "text_point_size", "modifiers"});
+        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image", "text_point_size", "text_typeface", "modifiers"});
         VectorAuthoringLayer Layer;
         if (!Entry["token"].is_integer() || !Entry["root"].is_integer()) throw std::runtime_error("Expected integer vector layer identity.");
         const auto Token = Entry["token"].value<int64_t>(), Root = Entry["root"].value<int64_t>();
@@ -486,6 +487,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
         Layer.SourceMarkup = DecodeOptional<std::string>(Entry, "source_markup", "");
         Layer.EmbeddedImage = DecodeOptional<std::string>(Entry, "embedded_image", "");
         Layer.TextPointSize = float(DecodeOptional<double>(Entry, "text_point_size", 64));
+        Layer.TextTypeface = DecodeOptional<std::string>(Entry, "text_typeface", "");
         if (Entry.contains("modifiers"))
         {
             const auto *Modifiers = Entry["modifiers"].as_array();

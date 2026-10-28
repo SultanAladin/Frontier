@@ -9,6 +9,7 @@
 #include "StampLibrary.h"
 #include "VectorMaskControls.h"
 #include "PatternThumbnailRaster.h"
+#include "TypefaceCatalogue.h"
 #include "WorkspaceZoom.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include "Engine/Interface/ControlKit.h"
@@ -1297,27 +1298,12 @@ void StampWorkspacePanel::ConstructAddComponentMenu()
 // size, not the simple linear ratio a single probe size could extrapolate from.
 float MeasureStampTextFitSize(const std::string &Content, float BoxWidth, float BoxHeight, const std::filesystem::path &ContentRoot)
 {
-    const std::string TypefacePath = ContentRoot.empty() ? std::string("EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
-        : (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string();
-    const float Width = std::max(1.f, BoxWidth), Height = std::max(1.f, BoxHeight);
-    const auto Fits = [&](float PointSize)
-    {
-        VectorAuthoringDocument Scratch; Scratch.Stamp = true;
-        const uint32_t Root = AppendStampTextOutline(Scratch, Content, PointSize, {0, 0, 0, 1}, TypefacePath, Width);
-        const auto &Instruction = Scratch.Instructions[Root];
-        return Instruction.Bounds[2] <= Width && Instruction.Bounds[3] <= Height;
-    };
-    float Low = 4.f, High = 512.f;
-    if (!Fits(Low)) return Low; // Even the smallest permitted size cannot fit; still return something sane.
-    for (int Step = 0; Step < 28; ++Step)
-    {
-        const float Mid = (Low + High) * .5f;
-        if (Fits(Mid)) Low = Mid; else High = Mid;
-    }
-    return std::clamp(Low, 4.f, 512.f);
+    // The original DM Sans fit, now the default-face case of the shared face-aware measurement
+    // (TypefaceCatalogue) both text tools compose with.
+    return MeasureTextFitSize(Content, BoxWidth, BoxHeight, ResolveTypefacePath(ContentRoot, DefaultTypefaceId));
 }
 
-void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth)
+void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth, const std::string &TypefaceId)
 {
     if (Content.empty()) { Diagnostic = "Text content cannot be empty."; return; }
     try
@@ -1328,13 +1314,12 @@ void StampWorkspacePanel::RebakeTextLayer(uint32_t Token, const std::string &Con
             if (Existing == Document.Layers.end()) throw std::runtime_error("The edited text component no longer exists.");
             const auto OldBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
             const std::array<float, 4> Colour = Document.Instructions[Existing->Root].Colour;
-            // 📝 Resolve the glyph-outline typeface off the app's own executable-relative content
-            // root when the host configured one, instead of trusting the process's current working
-            // directory to happen to be the EngineContent-containing folder.
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, Colour, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", WrapWidth)
-                : AppendStampTextOutline(Document, Content, PointSize, Colour,
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), WrapWidth);
-            for (auto &Layer : Document.Layers) if (Layer.Token == Token) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; Layer.TextPointSize = PointSize; }
+            // 🅰 Bake in the face the caller picked, or the one the layer already carries
+            // (empty = keep); resolved against the host's content root via the shared catalogue.
+            const std::string Face = TypefaceId.empty() ? Existing->TextTypeface : TypefaceId;
+            const uint32_t NewRoot = AppendStampTextOutline(Document, Content, PointSize, Colour,
+                ResolveTypefacePath(ContentRoot, Face), WrapWidth);
+            for (auto &Layer : Document.Layers) if (Layer.Token == Token) { Layer.Root = NewRoot; Layer.SourceMarkup = Content; Layer.TextPointSize = PointSize; Layer.TextTypeface = Face; }
             ReclaimVectorAuthoringSources(Document);
             const auto NewBounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Token});
             VectorAuthoringSourcePatch Patch;
@@ -1359,14 +1344,13 @@ void StampWorkspacePanel::CommitTextComposer()
     if (Content.empty()) { Diagnostic.clear(); return; } // Nothing was written; discard the box silently.
     try
     {
-        const float PointSize = MeasureStampTextFitSize(Content, Bounds[2], Bounds[3], ContentRoot);
-        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize, Bounds[2]); return; }
+        const std::string TypefacePath = ResolveTypefacePath(ContentRoot, TextTypefaceId);
+        const float PointSize = MeasureTextFitSize(Content, Bounds[2], Bounds[3], TypefacePath);
+        if (EditToken) { RebakeTextLayer(EditToken, Content, PointSize, Bounds[2], TextTypefaceId); return; }
         EvaluateEdit([&](auto &Document)
         {
             if (Document.TokenClock == UINT32_MAX) throw std::runtime_error("VectorAuthoring identity clock exhausted.");
-            const uint32_t NewRoot = ContentRoot.empty() ? AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1}, "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", Bounds[2])
-                : AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1},
-                      (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string(), Bounds[2]);
+            const uint32_t NewRoot = AppendStampTextOutline(Document, Content, PointSize, {.08f, .08f, .08f, 1}, TypefacePath, Bounds[2]);
             VectorAuthoringLayer Layer;
             Layer.Token = ++Document.TokenClock;
             Layer.Root = NewRoot;
@@ -1374,6 +1358,7 @@ void StampWorkspacePanel::CommitTextComposer()
             Layer.ComponentKind = VectorAuthoringComponentKind::Text;
             Layer.SourceMarkup = Content;
             Layer.TextPointSize = PointSize;
+            Layer.TextTypeface = TextTypefaceId;
             if (Document.Layers.empty()) Document.Name = "Custom stamp";
             Document.Layers.push_back(Layer);
             ReclaimVectorAuthoringSources(Document);
@@ -1415,11 +1400,11 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     const std::string CurrentContent = ComponentTextBuffer.data();
     char BoxKeySuffix[64]{};
     std::snprintf(BoxKeySuffix, sizeof(BoxKeySuffix), "\x01%.3f\x01%.3f", double(TextEditBounds[2]), double(TextEditBounds[3]));
-    const std::string CacheKey = CurrentContent + BoxKeySuffix;
+    const std::string CacheKey = TextTypefaceId + "\x02" + CurrentContent + BoxKeySuffix;
     if (CacheKey != TextComposerFitCacheKey)
     {
         TextComposerFitCacheKey = CacheKey;
-        try { TextComposerFitPointSize = CurrentContent.empty() ? 0.f : MeasureStampTextFitSize(CurrentContent, TextEditBounds[2], TextEditBounds[3], ContentRoot); }
+        try { TextComposerFitPointSize = CurrentContent.empty() ? 0.f : MeasureTextFitSize(CurrentContent, TextEditBounds[2], TextEditBounds[3], ResolveTypefacePath(ContentRoot, TextTypefaceId)); }
         catch (const std::exception &) { TextComposerFitPointSize = 0.f; }
     }
     const float LivePixelSize = TextComposerFitPointSize > 0
@@ -1438,6 +1423,87 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     ImGui::PopID();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) { Gesture = 0; ComponentTextBuffer[0] = 0; ComponentEditToken = 0; Diagnostic.clear(); }
     else if (EnterCommit || Deactivated) CommitTextComposer();
+}
+
+bool StampWorkspacePanel::ConstructFontList(const std::string &CurrentId, std::string &PickedId, float Width)
+{
+    // 🅰 Every outline-capable face in EngineContent/FontArchives (the shared TypefaceCatalogue),
+    // grouped by family, each row previewed in its own glyphs. Previews build a few per frame so
+    // opening the list never hitches; a row shows its name until its preview lands.
+    const auto &Faces = QueryTypefaceChoices(ContentRoot);
+    int BuildBudget = 3;
+    for (const auto &Face : Faces)
+    {
+        if (BuildBudget <= 0) break;
+        if (!FontPreviewCache.count(Face.Id))
+        {
+            FontPreviewCache[Face.Id] = RenderTypefacePreview(Face.Path.string(), Face.DisplayName, 256);
+            --BuildBudget;
+        }
+    }
+    bool Chosen = false;
+    ImGui::BeginChild("StampTypefaceList", ImVec2(Width, 252 * Scale), ImGuiChildFlags_None);
+    ImDrawList *Draw = ImGui::GetWindowDrawList();
+    const float RowHeight = 46 * Scale;
+    std::string LastFamily;
+    for (const auto &Face : Faces)
+    {
+        if (Face.Family != LastFamily)
+        {
+            LastFamily = Face.Family;
+            ImGui::Dummy(ImVec2(1, 6 * Scale));
+            const ImVec2 At = ImGui::GetCursorScreenPos();
+            Caption(ImVec2(At.x + 4 * Scale, At.y), Face.Family.c_str(), 8 * Scale, 0x7e7e70);
+            ImGui::Dummy(ImVec2(1, 14 * Scale));
+        }
+        const ImVec2 RowMin = ImGui::GetCursorScreenPos();
+        const ImVec2 RowMax(RowMin.x + Width - 4 * Scale, RowMin.y + RowHeight);
+        ImGui::PushID(Face.Id.c_str());
+        const bool Clicked = ImGui::InvisibleButton("Typeface row", ImVec2(RowMax.x - RowMin.x, RowHeight));
+        ImGui::PopID();
+        const bool Hovered = ImGui::IsItemHovered();
+        const bool Current = Face.Id == CurrentId;
+        if (Clicked) { PickedId = Face.Id; Chosen = true; }
+        Draw->AddRectFilled(RowMin, RowMax, Ink32(Current ? 0x232720 : 0x191919), 8 * Scale);
+        const auto Preview = FontPreviewCache.find(Face.Id);
+        if (Preview != FontPreviewCache.end() && !Preview->second.empty())
+        {
+            // The preview square's middle band, block-drawn like the library thumbnails.
+            const auto &Pixels = Preview->second;
+            constexpr int Extent = 256, BlocksY = 24;
+            const float StripW = RowMax.x - RowMin.x - 24 * Scale, StripH = RowHeight - 14 * Scale;
+            const int BlocksX = std::clamp(int(BlocksY * StripW / StripH), 8, 320);
+            const float BlockW = StripW / BlocksX, BlockH = StripH / BlocksY;
+            for (int By = 0; By < BlocksY; ++By)
+                for (int Bx = 0; Bx < BlocksX; ++Bx)
+                {
+                    float Alpha = 0;
+                    for (int Sy = 0; Sy < 2; ++Sy)
+                        for (int Sx = 0; Sx < 2; ++Sx)
+                        {
+                            const int X = std::clamp(int(((Bx + .25f + .5f * Sx) / BlocksX) * Extent), 0, Extent - 1);
+                            const int Y = std::clamp(int((.36f + (By + .25f + .5f * Sy) / BlocksY * .28f) * Extent), 0, Extent - 1);
+                            Alpha += Pixels[(size_t(Y) * Extent + X) * 4 + 3] / 255.f * .25f;
+                        }
+                    if (Alpha < .04f) continue;
+                    Draw->AddRectFilled(ImVec2(RowMin.x + 12 * Scale + Bx * BlockW, RowMin.y + 7 * Scale + By * BlockH),
+                        ImVec2(RowMin.x + 12 * Scale + (Bx + 1) * BlockW + .5f, RowMin.y + 7 * Scale + (By + 1) * BlockH + .5f),
+                        PanelChrome::Colour32(0xdbdbd0, std::clamp(Alpha, 0.f, 1.f)));
+                }
+        }
+        else Caption(ImVec2(RowMin.x + 12 * Scale, RowMin.y + 16 * Scale), Face.DisplayName.c_str(), 10 * Scale, 0xc8c8b6);
+        if (Current) PanelChrome::CheckDisc(Draw, RowMin, Scale);
+        if (Hovered)
+        {
+            Draw->AddRect(RowMin, RowMax, Ink32(0x707173), 8 * Scale);
+            ImGui::SetTooltip("%s", Face.DisplayName.c_str());
+        }
+        ImGui::SetCursorScreenPos(ImVec2(RowMin.x, RowMax.y + 4 * Scale));
+    }
+    if (Faces.empty())
+        Caption(ImGui::GetCursorScreenPos(), "No outline fonts in EngineContent/FontArchives.", 9 * Scale, 0x777770);
+    ImGui::EndChild();
+    return Chosen;
 }
 
 void StampWorkspacePanel::ConstructVectorPopup()
@@ -2619,6 +2685,7 @@ void StampWorkspacePanel::ConstructCanvas()
                 {
                     TextEditBounds = QueryVectorAuthoringSelectionBounds(Source, std::array<uint32_t, 1>{*Hit});
                     ComponentEditToken = *Hit;
+                    TextTypefaceId = Position->TextTypeface.empty() ? std::string("DMSans/DMSans-Regular") : Position->TextTypeface;
                     std::snprintf(ComponentTextBuffer.data(), ComponentTextBuffer.size(), "%s", Position->SourceMarkup.c_str());
                     Selection = {*Hit};
                     Gesture = 8; TextEditFocusPending = true;
@@ -2957,6 +3024,7 @@ void StampWorkspacePanel::ConstructInspector()
             {
                 std::snprintf(InspectorTextBuffer.data(), InspectorTextBuffer.size(), "%s", First->SourceMarkup.c_str());
                 InspectorTextToken = First->Token;
+                InspectorFontListOpen = false;
             }
             ImGui::TextDisabled("Content");
             ImGui::SetNextItemWidth(-1);
@@ -2966,10 +3034,30 @@ void StampWorkspacePanel::ConstructInspector()
             Controls.Number("Font size", PointSize, 4, 512);
             const bool SizeCommit = ImGui::IsItemDeactivatedAfterEdit();
             if (ContentCommit || SizeCommit) RebakeTextLayer(First->Token, InspectorTextBuffer.data(), PointSize);
+            // 🅰 Font: every outline face in EngineContent/FontArchives, each row previewed in its
+            // own glyphs; picking one re-bakes this component's outline in it (and the next text
+            // you compose on the canvas starts in it too).
+            const std::string LayerFace = First->TextTypeface.empty() ? std::string("DMSans/DMSans-Regular") : First->TextTypeface;
+            const auto *Face = FindTypefaceChoice(ContentRoot, LayerFace);
+            ImGui::TextDisabled("Font");
+            if (Controls.Button(Face ? Face->DisplayName.c_str() : "DM Sans Regular", ImGui::GetContentRegionAvail().x, InspectorFontListOpen))
+                InspectorFontListOpen = !InspectorFontListOpen;
+            if (InspectorFontListOpen)
+            {
+                std::string Picked;
+                ImGui::Dummy(ImVec2(1, 6 * Scale));
+                if (ConstructFontList(LayerFace, Picked, ImGui::GetContentRegionAvail().x))
+                {
+                    InspectorFontListOpen = false;
+                    TextTypefaceId = Picked;
+                    RebakeTextLayer(First->Token, InspectorTextBuffer.data(), PointSize, 0.f, Picked);
+                }
+            }
             if (Controls.Button("Edit on canvas...", 160 * Scale))
             {
                 TextEditBounds = QueryVectorAuthoringSelectionBounds(Snapshot, std::array<uint32_t, 1>{First->Token});
                 ComponentEditToken = First->Token;
+                TextTypefaceId = LayerFace;
                 std::snprintf(ComponentTextBuffer.data(), ComponentTextBuffer.size(), "%s", First->SourceMarkup.c_str());
                 Gesture = 8; TextEditFocusPending = true;
             }

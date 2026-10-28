@@ -202,6 +202,13 @@ void ValidateVectorAuthoringOrganization(const VectorAuthoringDocument &Document
             throw std::runtime_error("Text, SVG and image components are a Stamp-only workspace contract.");
         if (Layer.SourceMarkup.size() > VectorAuthoringSourceMarkupLimit)
             throw std::runtime_error("Vector component source markup exceeds its authored bound.");
+        // 🅰 A typeface id becomes a path fragment under FontArchives at rebake time, so it is
+        // held to a plain "Family/FaceStem" shape: bounded, printable, no traversal.
+        if (Layer.TextTypeface.size() > 260 ||
+            Layer.TextTypeface.find("..") != std::string::npos ||
+            (!Layer.TextTypeface.empty() && (Layer.TextTypeface.front() == '/' || Layer.TextTypeface.front() == '\\')) ||
+            std::any_of(Layer.TextTypeface.begin(), Layer.TextTypeface.end(), [](unsigned char C) { return C < 0x20 || C == 0x7f; }))
+            throw std::runtime_error("Vector text typeface id exceeds its authored bound.");
         if (Layer.ComponentKind == VectorAuthoringComponentKind::ImportedImage && !EmbeddedStampImageValid(Layer.EmbeddedImage))
             throw std::runtime_error("An image component requires a valid bounded embedded PNG.");
         if (Layer.ComponentKind != VectorAuthoringComponentKind::ImportedImage && !Layer.EmbeddedImage.empty())

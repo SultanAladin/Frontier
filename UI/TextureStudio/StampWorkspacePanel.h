@@ -242,10 +242,17 @@ private:
     float TextComposerFitPointSize = 0;
     std::array<char, 2049> InspectorTextBuffer{};
     uint32_t InspectorTextToken = 0;
+    // 🅰 The face new canvas text composes in (FontArchives faces via TypefaceCatalogue); every
+    // text layer stores its own face (VectorAuthoringLayer.TextTypeface) so re-edits keep its
+    // voice, and picking a font in the Inspector re-bakes that layer in the new face.
+    std::string TextTypefaceId{"DMSans/DMSans-Regular"};
+    bool InspectorFontListOpen = false;
+    std::map<std::string, std::vector<uint8_t>> FontPreviewCache; // face id -> 256px preview square
+    bool ConstructFontList(const std::string &CurrentId, std::string &PickedId, float Width);
     void ConstructAddComponentMenu();
     void ConstructTextComposer(float BoardMinimumX, float BoardMinimumY, float BoardSize);
     void CommitTextComposer();
-    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth = 0.f);
+    void RebakeTextLayer(uint32_t Token, const std::string &Content, float PointSize, float WrapWidth = 0.f, const std::string &TypefaceId = {});
     void ConstructVectorPopup();
     void ConstructImagePopup();
     void ConstructHeader();

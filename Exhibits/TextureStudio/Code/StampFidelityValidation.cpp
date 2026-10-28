@@ -10,6 +10,7 @@
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
 #include "UI/TextureStudio/StampWorkspacePanel.h" // MeasureStampTextFitSize
+#include "UI/TextureStudio/TypefaceCatalogue.h"
 #include <cstdio>
 #include <stdexcept>
 
@@ -147,6 +148,69 @@ int main()
             const double CentroidX = SumX / Counted / 255.0, CentroidY = SumY / Counted / 255.0;
             std::printf("text256 centroid: %.3f, %.3f\n", CentroidX, CentroidY);
             Confirm(std::abs(CentroidX - .5) < .12 && std::abs(CentroidY - .5) < .16, "Text decal ink is not centred in its stamp square.");
+        }
+
+        // 🅰 Font catalogue + selectable faces (what the Text tool's right-click properties and
+        // the Stamp Inspector's font picker are built on): the shipped archives must enumerate
+        // several families, every listed face must actually bake glyph outlines (the glyf filter
+        // keeps CFF faces out), two faces must render different ink for the same copy, an unknown
+        // id must resolve to the default face, and a text layer's stored face must round-trip.
+        {
+            const auto &Faces = QueryTypefaceChoices({});
+            Confirm(!Faces.empty(), "FontArchives enumerated no bakeable faces.");
+            size_t Families = 0;
+            std::string Previous;
+            for (const auto &Face : Faces)
+                if (Face.Family != Previous) { Previous = Face.Family; ++Families; }
+            Confirm(Families >= 3, "Font catalogue covers fewer than three families.");
+            const auto *Default = FindTypefaceChoice({}, DefaultTypefaceId);
+            Confirm(Default != nullptr, "Default face missing from the catalogue.");
+            const auto Unknown = ResolveTypefacePath({}, "Missing/Nothing-Regular");
+            Confirm(Default && Unknown == Default->Path.string(), "Unknown face id did not fall back to the default face.");
+            const TypefaceChoice *Other = nullptr;
+            for (const auto &Face : Faces)
+                if (Face.Id != DefaultTypefaceId) { Other = &Face; break; }
+            Confirm(Other != nullptr, "No non-default face to compare against.");
+            if (Other && Default)
+            {
+                const auto A = RenderTypefacePreview(Default->Path.string(), "Rag 123", 256);
+                const auto B = RenderTypefacePreview(Other->Path.string(), "Rag 123", 256);
+                Confirm(A.size() == 256u * 256u * 4 && B.size() == A.size(), "Typeface preview raster size wrong.");
+                size_t InkA = 0, InkB = 0, Differ = 0;
+                for (size_t Texel = 0; Texel < A.size() / 4; ++Texel)
+                {
+                    InkA += A[Texel * 4 + 3] >= 128;
+                    InkB += B[Texel * 4 + 3] >= 128;
+                    Differ += std::abs(int(A[Texel * 4 + 3]) - int(B[Texel * 4 + 3])) > 64;
+                }
+                std::printf("typeface ink: default %zu, %s %zu, differing %zu\n", InkA, Other->Id.c_str(), InkB, Differ);
+                Confirm(InkA > 500 && InkB > 500, "A catalogue face baked no preview ink.");
+                Confirm(Differ > 200, "Two faces rendered the same ink - font selection is cosmetic.");
+                size_t Baked = 0;
+                for (const auto &Face : Faces)
+                {
+                    const auto Pixels = RenderTypefacePreview(Face.Path.string(), "Ag", 128);
+                    size_t Ink = 0;
+                    for (size_t Texel = 0; Texel < Pixels.size() / 4; ++Texel) Ink += Pixels[Texel * 4 + 3] >= 128;
+                    Baked += Ink > 100;
+                }
+                std::printf("typeface catalogue: %zu faces, %zu bake ink\n", Faces.size(), Baked);
+                Confirm(Baked == Faces.size(), "A listed face cannot bake glyph outlines (filter leaked a CFF face).");
+                VectorAuthoringDocument Faced;
+                Faced.Stamp = true;
+                const uint32_t Root = AppendStampTextOutline(Faced, "FACE", 64.f, {1.f, 1.f, 1.f, 1.f}, Other->Path.string(), 470.f);
+                VectorAuthoringLayer Layer;
+                Layer.Token = ++Faced.TokenClock;
+                Layer.Root = Root;
+                Layer.ComponentKind = VectorAuthoringComponentKind::Text;
+                Layer.SourceMarkup = "FACE";
+                Layer.TextPointSize = 64.f;
+                Layer.TextTypeface = Other->Id;
+                Faced.Layers.push_back(Layer);
+                const auto Round = DecodeVectorAuthoring(EncodeVectorAuthoring(Faced));
+                Confirm(Round.Layers.size() == 1 && Round.Layers[0].TextTypeface == Other->Id,
+                    "Text layer's typeface id did not survive the .stamp.toml round-trip.");
+            }
         }
         std::printf("StampFidelityValidation: %u checks passed\n", Checks);
         return 0;

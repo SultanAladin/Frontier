@@ -38,6 +38,11 @@ struct VectorAuthoringLayer
     // later (Inspector field or double-click-to-re-edit on canvas) can regenerate the glyph outline
     // at a known, user-adjustable size instead of guessing one back from the baked bounds.
     float TextPointSize = 64.f;
+    // 🅰 The typeface a Text component's outline was baked from, as a FontArchives face id
+    // ("DMSans/DMSans-Bold" = family folder + face stem under EngineContent/FontArchives, the
+    // shared TypefaceCatalogue's scheme). Empty = the bundled default face (DM Sans Regular),
+    // so every document authored before font selection existed keeps its voice.
+    std::string TextTypeface;
     // 📝 Blender-style modifier stack, evaluated live (never mutating this layer's own Root/Instructions)
     // by ConstructEvaluatedVectorAuthoringDocument whenever at least one entry is Enabled. Empty for every
     // ordinary layer - only populated once a user adds a modifier (Array, Mirror, Noise, Offset, Colour)

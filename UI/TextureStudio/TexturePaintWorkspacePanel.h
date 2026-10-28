@@ -26,6 +26,7 @@
 #include "Engine/Render/MaterialPreviewConfiguration.h"
 #include "UI/TextureStudio/PaintStampEngine.h"
 #include "UI/TextureStudio/StampLibrary.h"
+#include "UI/TextureStudio/TypefaceCatalogue.h"
 #include <array>
 #include <filesystem>
 #include <functional>
@@ -434,6 +435,23 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] std::string TextContent() const;
     [[nodiscard]] const StampLibraryEntry *FindStampEntry(const std::string &Id) const noexcept;
     bool SynthesizeTextEntry(const std::string &Id, int Extent, StampLibraryEntry &Out) const noexcept;
+    // 🅰 The Text tool's own properties (its right-click menu): an ink colour and a typeface,
+    // independent of the paint brush. A placed text's stamp id carries its face -
+    // "text:<face id>:<content>" (legacy "text:<content>" still parses, as the default face).
+    std::string TextFontId{"DMSans/DMSans-Regular"};
+    std::array<float, 4> TextInk{1.f, 1.f, 1.f, 1.f};
+    bool TextPropertiesPending = false; // Text-pill right-click asks the viewport scope to open the popup
+    bool TextFontListOpen = false;
+    bool InspectorFontListOpen = false;
+    std::map<std::string, std::vector<uint8_t>> FontPreviewCache; // face id -> 256px preview square
+    std::string TextPreviewKey;                                    // face + content the live preview shows
+    std::vector<uint8_t> TextPreviewPixels;
+    double TextPreviewBuiltAt = 0;
+    [[nodiscard]] bool ParseTextStampId(const std::string &Id, std::string &FontId, std::string &Content) const;
+    void ConstructTextProperties();
+    bool ConstructFontList(const std::string &CurrentId, std::string &PickedId, float Width);
+    void DrawTextPreviewStrip(const std::vector<uint8_t> &Pixels, uint32_t Extent,
+        float MinX, float MinY, float MaxX, float MaxY, const float Tint[3]);
     // 🧲 Stamp dragging (Transform tool, and grabbing an existing stamp with the Stamp tool): one
     // placement is manipulated at a time; the gesture mutates live and commits one history step on
     // release. Modes: 0 move, 1 scale (corner), 2 rotate (top handle, UV view).

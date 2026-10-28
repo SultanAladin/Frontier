@@ -1945,7 +1945,7 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ActiveStamp() const noexcep
     if (Tool == AuthorTool::Text)
     {
         const std::string Content = TextContent();
-        return Content.empty() ? nullptr : FindStampEntry("text:" + Content);
+        return Content.empty() ? nullptr : FindStampEntry("text:" + TextFontId + ":" + Content);
     }
     return StampLib.Find(ActiveStampId);
 }
@@ -1974,26 +1974,50 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::FindStampEntry(const std::s
     return &TextEntryCache.emplace(Id, std::move(Entry)).first->second;
 }
 
+bool TexturePaintWorkspacePanel::ParseTextStampId(const std::string &Id, std::string &FontId, std::string &Content) const
+{
+    // "text:<face id>:<content>", or legacy "text:<content>" written before fonts were
+    // selectable. The face segment only counts when it names a face the catalogue actually has,
+    // so legacy copy containing colons ("text:12:30 SALE") still reads as pure content.
+    FontId = std::string(DefaultTypefaceId);
+    Content.clear();
+    if (Id.rfind("text:", 0) != 0) return false;
+    const std::string Rest = Id.substr(5);
+    if (const size_t Colon = Rest.find(':'); Colon != std::string::npos)
+    {
+        const std::string Candidate = Rest.substr(0, Colon);
+        if (FindTypefaceChoice(ContentRoot, Candidate))
+        {
+            FontId = Candidate;
+            Content = Rest.substr(Colon + 1);
+            return true;
+        }
+    }
+    Content = Rest;
+    return true;
+}
+
 bool TexturePaintWorkspacePanel::SynthesizeTextEntry(const std::string &Id, int Extent, StampLibraryEntry &Out) const noexcept
 {
     // 🅰️ One text decal at one extent: fit the copy into the stamp square (word-wrapped by the
     // same fit law the Stamp canvas composes with), bake white glyph outlines into a scratch
-    // stamp document, centre them, and rasterize. White + Tintable means the brush colour (and
-    // the Inspector tint after placement) owns the ink colour, like every white preset stamp.
-    std::string Content = Id.rfind("text:", 0) == 0 ? Id.substr(5) : Id;
-    if (Content.size() > StampTextCharacterLimit) Content.resize(StampTextCharacterLimit);
+    // stamp document, centre them, and rasterize. White + Tintable means the Text tool's ink
+    // colour (and the Inspector tint after placement) owns the colour, like every white preset.
+    std::string FontId, Content;
     try
     {
+        if (!ParseTextStampId(Id, FontId, Content)) Content = Id;
+        if (Content.size() > StampTextCharacterLimit) Content.resize(StampTextCharacterLimit);
         constexpr float Box = 470.f; // of the 512-unit stamp plane - a small safety margin all round
+        const std::string TypefacePath = ResolveTypefacePath(ContentRoot, FontId);
+        const std::string FitKey = FontId + "\x01" + Content; // faces measure differently
         float PointSize;
-        if (const auto Cached = TextPointSizes.find(Content); Cached != TextPointSizes.end()) PointSize = Cached->second;
+        if (const auto Cached = TextPointSizes.find(FitKey); Cached != TextPointSizes.end()) PointSize = Cached->second;
         else
         {
-            PointSize = MeasureStampTextFitSize(Content, Box, Box, ContentRoot);
-            TextPointSizes.emplace(Content, PointSize);
+            PointSize = MeasureTextFitSize(Content, Box, Box, TypefacePath);
+            TextPointSizes.emplace(FitKey, PointSize);
         }
-        const std::string TypefacePath = ContentRoot.empty() ? std::string("EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
-            : (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string();
         VectorAuthoringDocument Document;
         Document.Stamp = true;
         const uint32_t Root = AppendStampTextOutline(Document, Content, PointSize, {1.f, 1.f, 1.f, 1.f}, TypefacePath, Box);
@@ -2004,6 +2028,7 @@ bool TexturePaintWorkspacePanel::SynthesizeTextEntry(const std::string &Id, int 
         Layer.ComponentKind = VectorAuthoringComponentKind::Text;
         Layer.SourceMarkup = Content;
         Layer.TextPointSize = PointSize;
+        Layer.TextTypeface = FontId;
         Document.Layers.push_back(Layer);
         ReclaimVectorAuthoringSources(Document);
         const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Layer.Token});
@@ -2014,7 +2039,7 @@ bool TexturePaintWorkspacePanel::SynthesizeTextEntry(const std::string &Id, int 
         auto Pixels = RasterizeStampDocument(Document, uint32_t(Extent));
         if (Pixels.size() != size_t(Extent) * size_t(Extent) * 4) return false;
         Out = {};
-        Out.Id = "text:" + Content;
+        Out.Id = "text:" + FontId + ":" + Content;
         Out.Name = Content.size() > 28 ? Content.substr(0, 28) + "..." : Content;
         Out.Builtin = false;
         Out.Tintable = true;
@@ -2049,8 +2074,9 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
     Placement.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f); // brush size drives decal size
     Placement.Rotation = 0.f;
     const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f);
-    // White preset art takes the brush colour; authored stamps keep their own colours.
-    Placement.Tint = Entry->Tintable ? std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength}
+    // White preset art takes the brush colour; text has its own ink; authored stamps keep theirs.
+    const std::array<float, 4> &Ink = Tool == AuthorTool::Text ? TextInk : Brush.Colour;
+    Placement.Tint = Entry->Tintable ? std::array<float, 4>{Ink[0], Ink[1], Ink[2], Strength}
                                      : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
     // 🎯 Born projected: the viewport handed over the surface triangle it picked, so the stamp is a
     // surface projector from the first frame - clean on the UV at any camera angle, no island smear.
@@ -2523,7 +2549,8 @@ void TexturePaintWorkspacePanel::RefreshHoverStamp(const TopologyTriangle *Hit, 
     HoverStamp.StampId = Entry->Id;
     HoverStamp.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f);
     const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f) * 0.85f;
-    HoverStamp.Tint = Entry->Tintable ? std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength}
+    const std::array<float, 4> &Ink = Tool == AuthorTool::Text ? TextInk : Brush.Colour;
+    HoverStamp.Tint = Entry->Tintable ? std::array<float, 4>{Ink[0], Ink[1], Ink[2], Strength}
                                       : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
     if (CameraAligned && SceneFrameValid) AnchorStampFromCamera(HoverStamp, *Hit, Uv);
     else AnchorStampFromUv(HoverStamp, *Hit, Uv);
@@ -2867,6 +2894,204 @@ void TexturePaintWorkspacePanel::ConstructStampCatalogue(bool Docked)
     ImGui::SetCursorScreenPos(ImVec2(Origin.x, FooterY + 60 * S));
     ImGui::Dummy(ImVec2(0, 0));
 }
+void TexturePaintWorkspacePanel::DrawTextPreviewStrip(const std::vector<uint8_t> &Pixels, uint32_t Extent,
+    float MinX, float MinY, float MaxX, float MaxY, const float Tint[3])
+{
+    // 🎞️ The middle band of a preview square (where RenderTypefacePreview centres its ink),
+    // block-drawn like the stamp thumbnails: 2x2-averaged samples of the white art, run-merged
+    // per row and tinted - the glyphs read at font-row size without any texture plumbing.
+    if (Pixels.size() != size_t(Extent) * Extent * 4 || Extent == 0) return;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const float Width = MaxX - MinX, Height = MaxY - MinY;
+    if (Width < 4 || Height < 4) return;
+    const int BlocksY = 24;
+    const int BlocksX = std::clamp(int(BlocksY * Width / Height), 8, 320);
+    const float BlockW = Width / BlocksX, BlockH = Height / BlocksY;
+    const auto Sample = [&](float U, float V) {
+        const int X = std::clamp(int(U * Extent), 0, int(Extent) - 1);
+        const int Y = std::clamp(int(V * Extent), 0, int(Extent) - 1);
+        return Pixels[(size_t(Y) * Extent + X) * 4 + 3] / 255.f; // white art: alpha IS the ink
+    };
+    const ImU32 InkColour = IM_COL32(int(std::clamp(Tint[0], 0.f, 1.f) * 255), int(std::clamp(Tint[1], 0.f, 1.f) * 255),
+        int(std::clamp(Tint[2], 0.f, 1.f) * 255), 255);
+    for (int By = 0; By < BlocksY; ++By)
+    {
+        int RunStart = -1;
+        uint32_t RunKey = 0;
+        const auto Flush = [&](int EndX) {
+            if (RunStart < 0) return;
+            Ink->AddRectFilled(ImVec2(MinX + RunStart * BlockW, MinY + By * BlockH),
+                ImVec2(MinX + EndX * BlockW + .5f, MinY + (By + 1) * BlockH + .5f),
+                (InkColour & ~IM_COL32_A_MASK) | (uint32_t(RunKey) << IM_COL32_A_SHIFT));
+            RunStart = -1;
+        };
+        for (int Bx = 0; Bx < BlocksX; ++Bx)
+        {
+            float Alpha = 0;
+            for (int Sy = 0; Sy < 2; ++Sy)
+                for (int Sx = 0; Sx < 2; ++Sx)
+                    Alpha += Sample((Bx + .25f + .5f * Sx) / BlocksX, .36f + (By + .25f + .5f * Sy) / BlocksY * .28f) * .25f;
+            const uint32_t Key = uint32_t(std::clamp(Alpha, 0.f, 1.f) * 255) & ~3u; // quantize for runs
+            if (Key < 8) { Flush(Bx); continue; }
+            if (RunStart < 0) { RunStart = Bx; RunKey = Key; }
+            else if (Key != RunKey) { Flush(Bx); RunStart = Bx; RunKey = Key; }
+        }
+        Flush(BlocksX);
+    }
+}
+
+bool TexturePaintWorkspacePanel::ConstructFontList(const std::string &CurrentId, std::string &PickedId, float Width)
+{
+    // 🅰 Every outline-capable face in EngineContent/FontArchives, grouped by family, each row
+    // previewed in its own glyphs (built a few per frame so opening the list never hitches;
+    // rows show their name in the UI face until their preview lands).
+    const float S = InterfaceScale;
+    const auto &Faces = QueryTypefaceChoices(ContentRoot);
+    int BuildBudget = 3;
+    for (const auto &Face : Faces)
+    {
+        if (BuildBudget <= 0) break;
+        if (!FontPreviewCache.count(Face.Id))
+        {
+            FontPreviewCache[Face.Id] = RenderTypefacePreview(Face.Path.string(), Face.DisplayName, 256);
+            --BuildBudget;
+        }
+    }
+    bool Chosen = false;
+    ImGui::BeginChild("TypefaceList", ImVec2(Width, 252 * S), ImGuiChildFlags_None);
+    auto *Ink = ImGui::GetWindowDrawList();
+    const float RowHeight = 46 * S;
+    const float RowTint[3]{.86f, .86f, .82f};
+    std::string LastFamily;
+    for (const auto &Face : Faces)
+    {
+        if (Face.Family != LastFamily)
+        {
+            LastFamily = Face.Family;
+            ImGui::Dummy(ImVec2(1, 6 * S));
+            const ImVec2 At = ImGui::GetCursorScreenPos();
+            Caption(ImVec2(At.x + 4 * S, At.y), Face.Family.c_str(), 8 * S, 0x7e7e70);
+            ImGui::Dummy(ImVec2(1, 14 * S));
+        }
+        const ImVec2 RowMin = ImGui::GetCursorScreenPos();
+        const ImVec2 RowMax(RowMin.x + Width - 4 * S, RowMin.y + RowHeight);
+        ImGui::PushID(Face.Id.c_str());
+        const bool Clicked = ImGui::InvisibleButton("Typeface row", ImVec2(RowMax.x - RowMin.x, RowHeight));
+        ImGui::PopID();
+        const bool Hovered = ImGui::IsItemHovered();
+        const bool Current = Face.Id == CurrentId;
+        if (Clicked) { PickedId = Face.Id; Chosen = true; }
+        Ink->AddRectFilled(RowMin, RowMax, Colour32(Current ? 0x232720 : 0x191919), 8 * S);
+        const auto Preview = FontPreviewCache.find(Face.Id);
+        if (Preview != FontPreviewCache.end() && !Preview->second.empty())
+            DrawTextPreviewStrip(Preview->second, 256, RowMin.x + 12 * S, RowMin.y + 7 * S, RowMax.x - 12 * S, RowMax.y - 7 * S, RowTint);
+        else
+            Caption(ImVec2(RowMin.x + 12 * S, RowMin.y + 16 * S), Face.DisplayName.c_str(), 10 * S, 0xc8c8b6);
+        if (Current) PanelChrome::CheckDisc(Ink, RowMin, S);
+        if (Hovered)
+        {
+            Ink->AddRect(RowMin, RowMax, Colour32(0x707173), 8 * S);
+            ImGui::SetTooltip("%s", Face.DisplayName.c_str());
+        }
+        ImGui::SetCursorScreenPos(ImVec2(RowMin.x, RowMax.y + 4 * S));
+    }
+    if (Faces.empty())
+        Caption(ImGui::GetCursorScreenPos(), "No outline fonts in EngineContent/FontArchives.", 9 * S, 0x777770);
+    ImGui::EndChild();
+    return Chosen;
+}
+
+void TexturePaintWorkspacePanel::ConstructTextProperties()
+{
+    // 🅰 The Text tool's own right-click menu (viewport right-click with Text armed, or
+    // right-clicking the Text pill): the copy, a live preview, ink colour, size/strength and
+    // the typeface - text is styled here, not through the paint brush's settings.
+    if (TextPropertiesPending)
+    {
+        TextPropertiesPending = false;
+        TextFontListOpen = false;
+        TextPreviewKey.clear();
+        ImGui::OpenPopup("TextDecalProperties");
+    }
+    if (!ImGui::BeginPopup("TextDecalProperties")) return;
+    const float S = InterfaceScale;
+    ImGui::PushID("TextDecalPropertiesBody");
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+    const float Width = 356 * S;
+    ImGui::Dummy(ImVec2(Width, 1)); // pin the popup width to the catalogue column
+    const auto *Face = FindTypefaceChoice(ContentRoot, TextFontId);
+    const std::string FaceName = Face ? Face->DisplayName : "DM Sans Regular";
+    Caption(ImVec2(Origin.x + 20 * S, Origin.y + 10 * S), "Text decal", 18 * S, 0xd3d3c8,
+        LightTypeface ? LightTypeface : RegularTypeface);
+    Caption(ImVec2(Origin.x + 26 * S + CaptionWidth("Text decal", 18 * S, LightTypeface), Origin.y + 19 * S),
+        FaceName.c_str(), 8 * S, 0x777766);
+
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, Origin.y + 42 * S));
+    ImGui::SetNextItemWidth(Width - 28 * S);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12 * S, 9 * S));
+    ImGui::InputTextWithHint("##DecalTextProperties", "Type the decal text...", TextBuffer, sizeof(TextBuffer));
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    Track("Decal text properties");
+
+    // Live preview: the copy (or the face's name) set in the chosen face and ink, rebuilt a
+    // beat after edits settle so typing never pays a fit search per keystroke.
+    const ImVec2 WellMin(Origin.x + 14 * S, Origin.y + 84 * S), WellMax(Origin.x + Width - 14 * S, Origin.y + 148 * S);
+    Ink->AddRectFilled(WellMin, WellMax, Colour32(0x191919), 10 * S);
+    Ink->AddRect(WellMin, WellMax, Colour32(0x2c2c2c), 10 * S);
+    const std::string Content = TextContent();
+    const std::string PreviewKey = TextFontId + "\x01" + Content;
+    if (PreviewKey != TextPreviewKey && ImGui::GetTime() - TextPreviewBuiltAt > .15)
+    {
+        TextPreviewKey = PreviewKey;
+        TextPreviewBuiltAt = ImGui::GetTime();
+        TextPreviewPixels = RenderTypefacePreview(ResolveTypefacePath(ContentRoot, TextFontId),
+            Content.empty() ? FaceName : Content, 256);
+    }
+    if (!TextPreviewPixels.empty())
+    {
+        const float Tint[3]{TextInk[0], TextInk[1], TextInk[2]};
+        DrawTextPreviewStrip(TextPreviewPixels, 256, WellMin.x + 10 * S, WellMin.y + 8 * S, WellMax.x - 10 * S, WellMax.y - 8 * S, Tint);
+    }
+    else Caption(ImVec2(WellMin.x + 12 * S, WellMin.y + 24 * S), FaceName.c_str(), 11 * S, 0xc8c8b6);
+
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, WellMax.y + 8 * S));
+    Controls.ControlHeight = 28;
+    (void)Controls.Colour("Ink colour", TextInk);
+    const auto QueueBrushSettings = [&] { QueueHistory("Digital brush settings", BrushPresetName(), "tool"); };
+    if (Controls.Slider("Size", Brush.Size, 4.f, 160.f)) QueueBrushSettings();
+    if (Controls.Slider("Opacity", Brush.Opacity, 0.f, 1.f)) QueueBrushSettings();
+    if (Controls.Slider("Flow", Brush.Flow, 0.f, 1.f)) QueueBrushSettings();
+    ImGui::Dummy(ImVec2(1, 4 * S));
+    ImGui::TextDisabled("Font");
+    if (PillButton("TextFontPick", FaceName.c_str(), Width - 28 * S, TextFontListOpen, "M6 9L12 15L18 9")) TextFontListOpen = !TextFontListOpen;
+    Track("Text font");
+    if (TextFontListOpen)
+    {
+        std::string Picked;
+        ImGui::Dummy(ImVec2(1, 6 * S));
+        if (ConstructFontList(TextFontId, Picked, Width - 28 * S))
+        {
+            TextFontId = Picked;
+            TextFontListOpen = false;
+        }
+    }
+    ImGui::Dummy(ImVec2(1, 8 * S));
+
+    const float FooterY = ImGui::GetCursorScreenPos().y;
+    const ImVec2 WindowPos = ImGui::GetWindowPos();
+    Ink->AddRectFilled(ImVec2(WindowPos.x, FooterY), ImVec2(WindowPos.x + ImGui::GetWindowSize().x, FooterY + 52 * S), Colour32(0x151515));
+    DrawGlyph("M5 5H19M12 5V19M9 19H15", ImVec2(Origin.x + 19 * S, FooterY + 16 * S), 17 * S, 0x9a9a8e);
+    Caption(ImVec2(Origin.x + 51 * S, FooterY + 15 * S), "Click the model to place it.", 9 * S, 0xaeae9b);
+    Caption(ImVec2(Origin.x + 51 * S, FooterY + 31 * S), "Fonts from EngineContent/FontArchives; PBR per text in the Inspector.", 7 * S, 0x6b6b60);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x, FooterY + 52 * S));
+    ImGui::Dummy(ImVec2(0, 0));
+    ImGui::PopID();
+    ImGui::EndPopup();
+}
+
 std::string TexturePaintWorkspacePanel::MaskRegionLabel() const
 {
     if (!MaskEditor.SelectedRegion) return "No surface selection";
@@ -2963,9 +3188,10 @@ void TexturePaintWorkspacePanel::HandlePaintPointer(bool Hovered, bool IsUv)
     if (!Hovered && !StrokeActive) return;
     const bool MaskBrushArmed = MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Brush && !DigitalActive;
     const bool Painting = (DigitalActive && DigitalPaintAvailable()) || MaskBrushArmed;
-    if (Hovered && !ImGui::GetIO().WantTextInput && Tool == AuthorTool::Stamp && !DigitalActive)
+    if (Hovered && !ImGui::GetIO().WantTextInput && DecalToolActive() && !DigitalActive)
     {
-        // 🖨️ Right-click (a click, not a right-drag - that still pans) opens the stamp library grid.
+        // 🖨️ Right-click (a click, not a right-drag - that still pans) opens the armed decal
+        // tool's own menu: the stamp library grid for Stamp, the text properties for Text.
         const ImVec2 Mouse = ImGui::GetIO().MousePos;
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         {
@@ -2978,8 +3204,12 @@ void TexturePaintWorkspacePanel::HandlePaintPointer(bool Hovered, bool IsUv)
             StampRightDownValid = false;
             if (std::hypot(Mouse.x - StampRightDownX, Mouse.y - StampRightDownY) < 5.f)
             {
-                EnsureStampLibrary(true); // catch stamps saved since the picker last opened
-                ImGui::OpenPopup("StampLibraryPicker");
+                if (Tool == AuthorTool::Text) { TextPreviewKey.clear(); TextFontListOpen = false; ImGui::OpenPopup("TextDecalProperties"); }
+                else
+                {
+                    EnsureStampLibrary(true); // catch stamps saved since the picker last opened
+                    ImGui::OpenPopup("StampLibraryPicker");
+                }
             }
         }
     }
@@ -3774,7 +4004,13 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             DigitalActive = false;
             TextFocusPending = true;
         }
-        Controls.Tooltip("Text decals", "Type text and stamp it onto the model: it follows the mouse as a projected preview, click drops it on its own Decal layer (drag/scale/rotate with the gizmo; PBR + retype in the Inspector). Brush size sets the size, brush colour the ink.");
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+        {
+            Tool = AuthorTool::Text;
+            DigitalActive = false;
+            TextPropertiesPending = true; // opened by ConstructTextProperties in the viewport's ID scope
+        }
+        Controls.Tooltip("Text decals", "Type text and stamp it onto the model: it follows the mouse as a projected preview, click drops it on its own Decal layer (drag/scale/rotate with the gizmo; PBR + retype in the Inspector). Brush size sets the size. Right-click (this pill, or the viewport with Text armed) opens the text properties: ink colour + font.");
         X += 70 * S;
         if (Tool == AuthorTool::Text && !DigitalActive)
         {
@@ -3970,6 +4206,7 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
     if (View == ViewMode::Uv) ConstructUvViewport(Region);
     else ConstructSceneViewport(Region);
     ConstructStampPicker(); // polls the right-click popup HandlePaintPointer opens, same ID scope
+    ConstructTextProperties(); // the Text tool's own right-click menu, same scope
 
     // Shared scene overlays (caption / zoom nav / axis / hint) sit above both viewport kinds.
     {
@@ -5259,13 +5496,17 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                         ImGui::Dummy(ImVec2(1, 10 * S));
                         if (Placement.StampId.rfind("text:", 0) == 0)
                         {
-                            // 🅰️ The decal's copy, retypable in place: the id IS the text, so an edit
-                            // re-bakes fresh glyph outlines at this placement's fidelity automatically.
+                            // 🅰️ The decal's copy and font, editable in place: the id carries both
+                            // ("text:<face>:<copy>"), so either edit re-bakes fresh glyph outlines
+                            // at this placement's fidelity automatically.
+                            std::string PlacedFont, PlacedText;
+                            ParseTextStampId(Placement.StampId, PlacedFont, PlacedText);
                             if (InspectorTextForId != Placement.StampId)
                             {
-                                std::strncpy(InspectorTextBuffer, Placement.StampId.c_str() + 5, sizeof(InspectorTextBuffer) - 1);
+                                std::strncpy(InspectorTextBuffer, PlacedText.c_str(), sizeof(InspectorTextBuffer) - 1);
                                 InspectorTextBuffer[sizeof(InspectorTextBuffer) - 1] = '\0';
                                 InspectorTextForId = Placement.StampId;
+                                InspectorFontListOpen = false;
                             }
                             ImGui::TextDisabled("Text");
                             ImGui::SetNextItemWidth(-1);
@@ -5275,14 +5516,34 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                             {
                                 std::string Edited = Trimmed(InspectorTextBuffer);
                                 if (Edited.size() > StampTextCharacterLimit) Edited.resize(StampTextCharacterLimit);
-                                if (!Edited.empty() && "text:" + Edited != Placement.StampId)
+                                if (!Edited.empty() && "text:" + PlacedFont + ":" + Edited != Placement.StampId)
                                 {
-                                    Placement.StampId = "text:" + Edited;
+                                    Placement.StampId = "text:" + PlacedFont + ":" + Edited;
                                     InspectorTextForId = Placement.StampId;
                                     CommitHistory("Edit text", Layer->Name, "stamp");
                                     MarkDirty();
                                 }
                                 else InspectorTextForId.clear(); // reseed from the placement next frame
+                            }
+                            ImGui::Dummy(ImVec2(1, 6 * S));
+                            ImGui::TextDisabled("Font");
+                            const auto *PlacedFace = FindTypefaceChoice(ContentRoot, PlacedFont);
+                            if (PillButton("PlacedTextFont", PlacedFace ? PlacedFace->DisplayName.c_str() : "DM Sans Regular",
+                                ImGui::GetContentRegionAvail().x, InspectorFontListOpen, "M6 9L12 15L18 9"))
+                                InspectorFontListOpen = !InspectorFontListOpen;
+                            Track("Placed text font");
+                            if (InspectorFontListOpen)
+                            {
+                                std::string Picked;
+                                ImGui::Dummy(ImVec2(1, 6 * S));
+                                if (ConstructFontList(PlacedFont, Picked, ImGui::GetContentRegionAvail().x))
+                                {
+                                    Placement.StampId = "text:" + Picked + ":" + PlacedText;
+                                    InspectorTextForId = Placement.StampId;
+                                    InspectorFontListOpen = false;
+                                    CommitHistory("Text font", Layer->Name, "stamp");
+                                    MarkDirty();
+                                }
                             }
                             ImGui::EndDisabled();
                             ImGui::Dummy(ImVec2(1, 10 * S));
@@ -5299,6 +5560,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                         if (AmountSlider("Size", Diameter, 2.f, 80.f, 1.f, "%")) { Placement.Radius = Diameter / 200.f; Changed = true; }
                         if (AmountSlider("Rotation", RotationDeg, -180.f, 180.f, 1.f, "deg")) { Placement.Rotation = RotationDeg / 57.29578f; Changed = true; }
                         if (AmountSlider("Stamp strength", Placement.Tint[3], 0.f, 1.f, 100.f, "%")) Changed = true;
+                        if (Controls.Colour("Tint colour", Placement.Tint)) Changed = true; // replaces ink on tintable art (text, white stamps)
                         // 🎚️ This decal's own PBR behaviour (seeded from the stamp design's surface
                         // channels on placement; document data exported with the project, like every
                         // other channel value - the preview composite itself is colour-only).
