@@ -12,9 +12,10 @@
 //    CPU draw-list rasterizer over the same built-in Teapot geometry the Baking workspace bakes (BakeMesh.h) -
 //    orbit/zoom/pick, wireframe, ground grid, part targeting, an authoring-UDIM UV view derived from the mesh's
 //    actual chart ids, and preview-only digital dabs/fills evaluated per-triangle for the on-screen composite.
-//    It is NOT Alloy's WebGL surface compositor: no GPU paint slices, no baked PBR map export, no decal/stamp
-//    projection engine and no material-snapshot shading are claimed here. Controls whose engine is not native
-//    yet (Stamp/Transform placement, project file picking) stay disabled or say so in the status line.
+//    It is NOT Alloy's WebGL surface compositor: no GPU paint slices, no baked PBR map export and no
+//    material-snapshot shading are claimed here. Stamp placement is real (each stamp lands on its own
+//    Decal layer and stays draggable via the Transform tool); controls whose engine is not native yet
+//    (project file picking) say so in the status line.
 
 #pragma once
 #include "Engine/ContentInterchange/BakeMesh.h"
@@ -363,6 +364,42 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
     void PlaceStampAt(const float Uv[2]);
     void ConstructStampPicker();
+    // 🖨️ Full-fidelity stamp rasters: the library entries hold small picker-sized rasters (256px
+    // presets / saved PNGs), but the ACTUAL stamp source is resolution-independent - builtin presets
+    // are signed-distance fields and stamps saved from the Stamp workspace keep their vector document
+    // in a .stamp.toml sidecar. Placements therefore resolve to a raster rendered at an extent matched
+    // to their footprint on the target texture (diameter on the 512px tile, 2x supersampled, bucketed
+    // to 256/512/1024/2048), cached per (stamp, extent). Raster-only stamps without a vector source
+    // fall back to their stored raster - that IS their actual stamp.
+    std::map<std::pair<std::string, int>, StampLibraryEntry> StampRasterCache;
+    std::set<std::pair<std::string, int>> StampRasterFallbacks; // (stamp, extent) already known to have no better source
+    [[nodiscard]] static int StampRasterExtentFor(float Radius) noexcept;
+    void ResolveStampRasters();
+    [[nodiscard]] const StampLibraryEntry *ResolvedStampRaster(const StampPlacement &Placement) const noexcept;
+    // 🧲 Stamp dragging (Transform tool, and grabbing an existing stamp with the Stamp tool): one
+    // placement is manipulated at a time; the gesture mutates live and commits one history step on
+    // release. Modes: 0 move, 1 scale (corner), 2 rotate (top handle, UV view).
+    struct StampDragState
+    {
+        bool Active = false;
+        int Mode = 0;
+        std::string LayerId;
+        size_t Index = 0;
+        float GrabDu = 0, GrabDv = 0; // move: placement centre minus grab point (authoring UV)
+        float GrabAngle = 0;          // rotate/scale: pointer angle/distance at grab
+        float GrabDistance = 0;
+        StampPlacement Original;
+        bool Moved = false;
+    } StampDrag;
+    std::string StampFocusLayerId; // layer + index the gizmo/inspector stamp controls act on
+    int StampFocusIndex = 0;
+    // Hit-test stamps topmost-first at an authoring UV; on success returns layer/index and the zone
+    // (0 body/move, 1 corner/scale, 2 rotate handle; HandleSlop in authoring-UV units, 0 = no handles).
+    [[nodiscard]] bool HitTestStamp(const float Uv[2], float HandleSlop, std::string &OutLayerId, size_t &OutIndex, int &OutZone) const noexcept;
+    [[nodiscard]] StampPlacement *FocusedStamp(LayerState *&OutLayer) noexcept;
+    void BeginStampDrag(const std::string &LayerId, size_t Index, int Mode, const float Uv[2]);
+    void UpdateStampDrag(const float Uv[2]);
+    void FinishStampDrag();
     // 🎨 Preview-canvas state (see QueryPaintCanvasImage above). Scratch/Owners/Pixels all share the
     // atlas-page layout (PaintCanvasExtent², tiles inset by the 1px gutter); owners map each texel
     // to the Topology triangle that owns it so region fills/masks keep their per-face identity at

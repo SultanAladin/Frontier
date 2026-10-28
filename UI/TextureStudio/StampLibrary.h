@@ -51,6 +51,10 @@ class StampLibrary
         std::string &OutId, std::string &Diagnostic);
     // 🎨 The procedural preset decals (white art at 256px, tintable): rings, stars, badges, marks and ornaments.
     [[nodiscard]] static std::vector<StampLibraryEntry> BuiltinPresets();
+    // 🖨️ Re-render one builtin preset at an arbitrary extent: the preset fields are resolution-independent
+    // signed-distance functions, so the result is the true stamp at that size, never an upscale of the 256px
+    // picker raster. Returns false when Id is not a builtin preset.
+    static bool RenderBuiltinAt(const std::string &Id, int Extent, StampLibraryEntry &Out);
     // 🔬 Bilinear sample with uv in [0,1]^2 (v downward from the image top); returns straight rgba 0..1.
     [[nodiscard]] static std::array<float, 4> Sample(const StampLibraryEntry &Entry, float U, float V) noexcept;
 
