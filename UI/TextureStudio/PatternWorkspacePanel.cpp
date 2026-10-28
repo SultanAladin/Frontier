@@ -2432,33 +2432,39 @@ void PatternWorkspacePanel::ConstructCanvas()
             for (const auto &Layer : Snapshot.Layers)
                 if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
                     (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer))) Editable = false;
-            if (Editable && Tool == VectorAuthoringTool::Select)
+            if (Editable)
             {
-                const auto RegisterGrip = [&](const char *Name, ImVec2 Point)
+                if (Tool == VectorAuthoringTool::Select)
                 {
-                    const float Radius = 6 * Scale;
-                    ControlExtents[Name] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
-                    const auto Mouse = ImGui::GetIO().MousePos;
-                    return std::abs(Mouse.x - Point.x) <= Radius && std::abs(Mouse.y - Point.y) <= Radius;
-                };
-                const ImVec2 Rotate = ScreenPoint(0, -Bounds[3] * .5f - 29 * Scale * 512 / BoardSize);
-                Ink->AddLine(ScreenPoint(0, -Bounds[3] * .5f), Rotate, IM_COL32(191, 216, 169, 255));
-                Ink->AddCircleFilled(Rotate, 4 * Scale, IM_COL32(212, 232, 192, 255));
-                Ink->AddCircle(Rotate, 4 * Scale, IM_COL32(40, 56, 43, 255));
-                HoveredRotation = RegisterGrip("Rotate selection", Rotate);
-                for (int Y = -1; Y <= 1; ++Y) for (int X = -1; X <= 1; ++X)
-                {
-                    if (!X && !Y) continue;
-                    const ImVec2 Point = ScreenPoint(float(X) * Bounds[2] * .5f, float(Y) * Bounds[3] * .5f);
-                    Ink->AddRectFilled(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(203, 225, 184, 255), Scale);
-                    Ink->AddRect(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(40, 60, 40, 255), Scale);
-                    const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
-                    if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
+                    const auto RegisterGrip = [&](const char *Name, ImVec2 Point)
+                    {
+                        const float Radius = 6 * Scale;
+                        ControlExtents[Name] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
+                        const auto Mouse = ImGui::GetIO().MousePos;
+                        return std::abs(Mouse.x - Point.x) <= Radius && std::abs(Mouse.y - Point.y) <= Radius;
+                    };
+                    const ImVec2 Rotate = ScreenPoint(0, -Bounds[3] * .5f - 29 * Scale * 512 / BoardSize);
+                    Ink->AddLine(ScreenPoint(0, -Bounds[3] * .5f), Rotate, IM_COL32(191, 216, 169, 255));
+                    Ink->AddCircleFilled(Rotate, 4 * Scale, IM_COL32(212, 232, 192, 255));
+                    Ink->AddCircle(Rotate, 4 * Scale, IM_COL32(40, 56, 43, 255));
+                    HoveredRotation = RegisterGrip("Rotate selection", Rotate);
+                    for (int Y = -1; Y <= 1; ++Y) for (int X = -1; X <= 1; ++X)
+                    {
+                        if (!X && !Y) continue;
+                        const ImVec2 Point = ScreenPoint(float(X) * Bounds[2] * .5f, float(Y) * Bounds[3] * .5f);
+                        Ink->AddRectFilled(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(203, 225, 184, 255), Scale);
+                        Ink->AddRect(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(40, 60, 40, 255), Scale);
+                        const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
+                        if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
+                    }
                 }
                 // 🎨 Interactive gradient colour-stop markers: only for a single selected shape whose fill
                 // is a gradient. Lets the ramp be edited directly on the artwork — click the axis line to
                 // drop a new stop where you clicked, drag an existing marker to retime it, click one to
                 // select it for colour-editing in the Inspector's ramp editor (kept in sync both ways).
+                // Shown under EVERY tool, not just Select (same change as StampWorkspacePanel.cpp): the
+                // natural flow is "author shape, give it a gradient, drag its points" without a tool
+                // switch first; the click dispatch already prioritises these grips over tool actions.
                 if (Selection.size() == 1)
                 {
                     const auto GradientLayer = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
@@ -2470,7 +2476,10 @@ void PatternWorkspacePanel::ConstructCanvas()
                             const auto Axis = QueryGradientAxisEndpoints(GradientSource, Bounds, Extent.Rotation);
                             const ImVec2 AxisStart = ScreenPoint(Axis[0].X - Bounds[0], Axis[0].Y - Bounds[1]);
                             const ImVec2 AxisEnd = ScreenPoint(Axis[1].X - Bounds[0], Axis[1].Y - Bounds[1]);
-                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(255, 255, 255, 205), 1.6f * Scale);
+                            // Dual-tone (dark halo under a white core) so the axis reads on the pale
+                            // board, over white gradient stops and over dark ink alike; grips below match.
+                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(30, 34, 30, 200), 3.6f * Scale);
+                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(255, 255, 255, 230), 1.6f * Scale);
                             // 🎨 Two square "axis" handles at the ramp's own A/B control points — see the
                             // matching comment in StampWorkspacePanel.cpp for the full rationale (distinct
                             // from the round colour-stop markers below, which retime a stop's Fraction along
@@ -2488,9 +2497,11 @@ void PatternWorkspacePanel::ConstructCanvas()
                             {
                                 const ImVec2 &LineEnd = End == 0 ? AxisStart : AxisEnd;
                                 const ImVec2 &Point = End == 0 ? AxisHandleA : AxisHandleB;
-                                Ink->AddLine(LineEnd, Point, IM_COL32(255, 255, 255, 130), 1.2f * Scale);
+                                Ink->AddLine(LineEnd, Point, IM_COL32(30, 34, 30, 200), 3 * Scale);
+                                Ink->AddLine(LineEnd, Point, IM_COL32(255, 255, 255, 190), 1.2f * Scale);
                                 const float HalfExtent = 5 * Scale;
-                                Ink->AddRect(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(255, 255, 255, 235), 0, 0, 2 * Scale);
+                                Ink->AddRectFilled(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(245, 248, 240, 255), 1.5f * Scale);
+                                Ink->AddRect(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(30, 34, 30, 255), 1.5f * Scale, 0, 1.8f * Scale);
                             }
                             const auto Stops = QueryVectorGradientStops(GradientSource);
                             SelectedGradientStop = std::clamp(SelectedGradientStop, 0, int(Stops.size()) - 1);
@@ -2501,6 +2512,7 @@ void PatternWorkspacePanel::ConstructCanvas()
                                 const float Radius = (IsSelected ? 7.f : 5.5f) * Scale;
                                 const auto &C = Stops[Index].Colour;
                                 const ImU32 StopColour = IM_COL32(uint8_t(std::clamp(C[0], 0.f, 1.f) * 255), uint8_t(std::clamp(C[1], 0.f, 1.f) * 255), uint8_t(std::clamp(C[2], 0.f, 1.f) * 255), 255);
+                                Ink->AddCircleFilled(Point, Radius + 1.8f * Scale, IM_COL32(30, 34, 30, 215));
                                 Ink->AddCircleFilled(Point, Radius, StopColour);
                                 Ink->AddCircle(Point, Radius, IsSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 20, 20, 220), 0, (IsSelected ? 2.4f : 1.4f) * Scale);
                                 const std::string Name = std::string("Gradient stop:") + std::to_string(Index);
@@ -2570,6 +2582,9 @@ void PatternWorkspacePanel::ConstructCanvas()
         if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         else if (HoveredResize[0] || HoveredResize[1]) ImGui::SetMouseCursor(!HoveredResize[0] ? ImGuiMouseCursor_ResizeNS : !HoveredResize[1] ? ImGuiMouseCursor_ResizeEW : HoveredResize[0] == HoveredResize[1] ? ImGuiMouseCursor_ResizeNWSE : ImGuiMouseCursor_ResizeNESW);
     }
+    // The gradient grips are live under every tool, so their hover cursor is too.
+    if (Hovered && (GradientAxisHoverEnd >= 0 || GradientHoverSlot >= 0 || GradientLineHoverT >= 0 || Gesture == 9 || Gesture == 12 || Gesture == 13))
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     const bool PenInput = ConstructPenInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     const bool PointInput = ConstructPointInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     if (!PenInput && !PointInput && Hovered && Gesture == 0 && (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(2)))

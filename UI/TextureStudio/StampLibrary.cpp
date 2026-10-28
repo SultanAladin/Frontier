@@ -386,11 +386,11 @@ void StampLibrary::Reload(const std::filesystem::path &Directory)
     }
 }
 
-bool StampLibrary::SaveRaster(const std::filesystem::path &Directory, const std::string &Name,
-    int Width, int Height, const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
+bool StampLibrary::SaveRasterToFile(const std::filesystem::path &Target, int Width, int Height,
+    const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
     std::string &OutId, std::string &Diagnostic)
 {
-    if (Directory.empty()) { Diagnostic = "No stamp library directory is configured."; return false; }
+    if (Target.empty()) { Diagnostic = "No stamp file target is configured."; return false; }
     if (Width <= 0 || Height <= 0 || Width > MaxStampExtent || Height > MaxStampExtent ||
         Rgba.size() != size_t(Width) * Height * 4)
     {
@@ -398,17 +398,8 @@ bool StampLibrary::SaveRaster(const std::filesystem::path &Directory, const std:
         return false;
     }
     std::error_code Failure;
-    std::filesystem::create_directories(Directory, Failure);
+    std::filesystem::create_directories(Target.parent_path(), Failure);
     if (Failure) { Diagnostic = "Could not create the stamp library directory."; return false; }
-    const std::string Base = Slugify(Name);
-    std::filesystem::path Target;
-    for (int Version = 1; Version <= 99; ++Version)
-    {
-        const std::string Stem = Version == 1 ? Base : Base + "-" + std::to_string(Version);
-        Target = Directory / (Stem + ".png");
-        if (!std::filesystem::exists(Target, Failure)) break;
-        if (Version == 99) { Diagnostic = "Too many stamps share this name."; return false; }
-    }
     if (!stbi_write_png(Target.string().c_str(), Width, Height, 4, Rgba.data(), Width * 4))
     {
         Diagnostic = "Could not write the stamp PNG.";
@@ -422,6 +413,24 @@ bool StampLibrary::SaveRaster(const std::filesystem::path &Directory, const std:
     }
     OutId = "disk:" + Target.filename().string();
     return true;
+}
+
+bool StampLibrary::SaveRaster(const std::filesystem::path &Directory, const std::string &Name,
+    int Width, int Height, const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
+    std::string &OutId, std::string &Diagnostic)
+{
+    if (Directory.empty()) { Diagnostic = "No stamp library directory is configured."; return false; }
+    std::error_code Failure;
+    const std::string Base = Slugify(Name);
+    std::filesystem::path Target;
+    for (int Version = 1; Version <= 99; ++Version)
+    {
+        const std::string Stem = Version == 1 ? Base : Base + "-" + std::to_string(Version);
+        Target = Directory / (Stem + ".png");
+        if (!std::filesystem::exists(Target, Failure)) break;
+        if (Version == 99) { Diagnostic = "Too many stamps share this name."; return false; }
+    }
+    return SaveRasterToFile(Target, Width, Height, Rgba, SourceToml, OutId, Diagnostic);
 }
 
 std::array<float, 4> StampLibrary::Sample(const StampLibraryEntry &Entry, float U, float V) noexcept

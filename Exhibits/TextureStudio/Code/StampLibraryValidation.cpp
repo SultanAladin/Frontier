@@ -95,6 +95,18 @@ int main()
     Check(Library.Find("builtin:star") != nullptr, "builtin findable by id");
     Check(Library.Find("disk:nope.png") == nullptr, "missing id misses cleanly");
 
+    // In-place overwrite (a bound document's Save path): same file/id, new pixels, no new entry.
+    std::vector<uint8_t> Updated = Pixels;
+    Updated[0] = 77;
+    std::string Id3;
+    Check(StampLibrary::SaveRasterToFile(Directory / "my-test-stamp.png", W, H, Updated, "# v2\n", Id3, Diagnostic) && Id3 == Id,
+        "SaveRasterToFile overwrites in place", Diagnostic);
+    StampLibrary Reloaded;
+    Reloaded.Reload(Directory);
+    const auto *Again = Reloaded.Find(Id);
+    Check(Reloaded.DiskCount() == 2 && Again && Again->Rgba == Updated, "overwrite replaces pixels without a new entry");
+    Check(std::filesystem::exists(Directory / "my-test-stamp.stamp.toml"), "overwrite refreshes the sidecar too");
+
     std::filesystem::remove_all(Directory, Failure);
     std::printf(Failures ? "VALIDATION FAILED (%d)\n" : "VALIDATION PASSED\n", Failures);
     return Failures ? 1 : 0;

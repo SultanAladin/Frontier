@@ -256,6 +256,10 @@ private:
     // 🖨️ Rasterizes the current decal (transparent surround) into the shared stamp library as a PNG
     // plus its vector source sidecar, so Texture Paint's stamp picker can place it. Diagnostic reports.
     bool SaveToLibrary();
+    // 💾 The one library-publish path behind Save and SaveToLibrary: AsNewStamp always adds a fresh
+    // (versioned) entry; otherwise a document bound to a library file overwrites that file in place,
+    // so repeated saves revise the same library card. Binds the document to the written file.
+    bool PublishToLibrary(bool AsNewStamp);
     std::filesystem::path StampLibraryDirectory;
     // 🖨️ The shared stamp library as this panel sees it (presets + disk scan of StampLibraryDirectory),
     // backing the "Stamp library" dock tab; (re)scanned on first use, on Reload, and after saving here.
@@ -264,6 +268,7 @@ private:
     uint64_t LibraryScanGeneration = 0;
     std::vector<char> LibraryEntryReopenable; // per entry: a .stamp.toml vector sidecar sits beside the PNG
     std::string LibrarySelected;              // entry Id of the last clicked card (wears the check disc)
+    std::filesystem::path LibraryFile;        // library PNG this document is bound to (opened from / last published as); empty = unbound
     int LibraryFilter = 0;                    // 0 all stamps · 1 presets · 2 my stamps
     std::array<char, 129> LibrarySearchText{};
     std::vector<uint8_t> LibraryAtlasPixels;

@@ -43,6 +43,12 @@ class StampLibrary
     static bool SaveRaster(const std::filesystem::path &Directory, const std::string &Name,
         int Width, int Height, const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
         std::string &OutId, std::string &Diagnostic);
+    // 💾 Overwrite one existing library PNG in place (plus its sidecar): the update path a bound
+    // document's Save takes, so repeated saves revise the same library card instead of piling up
+    // numeric-suffix copies. Recreates the file (and parent directory) if it vanished meanwhile.
+    static bool SaveRasterToFile(const std::filesystem::path &Target, int Width, int Height,
+        const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
+        std::string &OutId, std::string &Diagnostic);
     // 🎨 The procedural preset decals (white art at 256px, tintable): rings, stars, badges, marks and ornaments.
     [[nodiscard]] static std::vector<StampLibraryEntry> BuiltinPresets();
     // 🔬 Bilinear sample with uv in [0,1]^2 (v downward from the image top); returns straight rgba 0..1.

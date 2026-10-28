@@ -195,6 +195,7 @@ void StampWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
     UndoSelections.clear(); RedoSelections.clear();
     GestureDraft.reset(); GestureSource.reset(); Gesture = 0; GesturePrimitiveToken = 0; ++GestureRevision;
     MaskSelection = 0;
+    LibraryFile.clear(); // a freshly configured document is unbound until opened from / saved to the library
     Diagnostic.clear();
 }
 
@@ -369,6 +370,7 @@ void StampWorkspacePanel::OpenLibraryStamp(const StampLibraryEntry &Entry, bool 
         std::ostringstream Buffer;
         Buffer << Input.rdbuf();
         ConfigureDocument(DecodeVectorAuthoring(Buffer.str()));
+        LibraryFile = Entry.File; // Save now updates this very library stamp in place
         Diagnostic = "Opened '" + Entry.Name + "' from the stamp library.";
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
@@ -1033,18 +1035,36 @@ bool StampWorkspacePanel::ConstructPointInteraction(PlaneExtent Canvas, PlaneExt
 
 bool StampWorkspacePanel::Save()
 {
-    if (!SaveSource) { Diagnostic = "No document save target is configured by the host - use Save to stamp library instead."; return false; }
-    try
+    bool DocumentSaved = false;
+    if (SaveSource)
     {
-        if (!SaveSource(EncodeVectorAuthoring(QueryDocument()))) { Diagnostic = "The host refused the document source (too large or unwritable)."; return false; }
-        SavedDocument = QueryDocument();
-        Diagnostic = "Document saved. Use Save to stamp library to also make it a Texture Paint stamp.";
+        try
+        {
+            if (!SaveSource(EncodeVectorAuthoring(QueryDocument()))) { Diagnostic = "The host refused the document source (too large or unwritable)."; return false; }
+            SavedDocument = QueryDocument();
+            DocumentSaved = true;
+        }
+        catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+    }
+    // 📝 Saving in this workspace also publishes the decal into the shared stamp library - updating
+    // the library file this document is bound to, or creating its first entry - so the stamp shows
+    // in the Stamp library tab and in Texture Paint the moment it is saved, with no second command
+    // to discover. "Save to stamp library" (Document actions) remains the explicit save-a-copy path.
+    if (PublishToLibrary(false))
+    {
+        Diagnostic = "Saved '" + QueryDocument().Name + "' - it now shows in the Stamp library tab and Texture Paint's stamp tool.";
         return true;
     }
-    catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+    if (DocumentSaved)
+    {
+        // PublishToLibrary left its refusal in Diagnostic; keep it visible next to the good news.
+        Diagnostic = "Document saved; stamp library not updated - " + Diagnostic;
+        return true;
+    }
+    return false;
 }
 
-bool StampWorkspacePanel::SaveToLibrary()
+bool StampWorkspacePanel::PublishToLibrary(bool AsNewStamp)
 {
     if (StampLibraryDirectory.empty()) { Diagnostic = "No stamp library directory is configured by the host."; return false; }
     const auto &Document = QueryDocument();
@@ -1059,17 +1079,30 @@ bool StampWorkspacePanel::SaveToLibrary()
         for (size_t Pixel = 3; Pixel < Pixels.size(); Pixel += 4)
             if (Pixels[Pixel] > 0) { AnyArt = true; break; }
         if (!AnyArt) { Diagnostic = "The stamp rasterized fully transparent - check component visibility."; return false; }
+        const std::string SourceToml = EncodeVectorAuthoring(Document);
+        std::error_code PathFailure;
+        const bool Bound = !AsNewStamp && !LibraryFile.empty() &&
+            std::filesystem::equivalent(LibraryFile.parent_path(), StampLibraryDirectory, PathFailure);
         std::string Id;
-        if (!StampLibrary::SaveRaster(StampLibraryDirectory, Document.Name, int(Extent), int(Extent), Pixels,
-                EncodeVectorAuthoring(Document), Id, Diagnostic))
-            return false;
-        // The library tab rescans on its next construct so the new card appears, checked as selected.
+        const bool Written = Bound
+            ? StampLibrary::SaveRasterToFile(LibraryFile, int(Extent), int(Extent), Pixels, SourceToml, Id, Diagnostic)
+            : StampLibrary::SaveRaster(StampLibraryDirectory, Document.Name, int(Extent), int(Extent), Pixels, SourceToml, Id, Diagnostic);
+        if (!Written) return false;
+        // Bind (or re-bind) this document to the file just written, so the next Save updates the same
+        // library card instead of adding another versioned copy; the tab rescans and shows it at once.
+        LibraryFile = StampLibraryDirectory / Id.substr(5); // strip the "disk:" prefix
         LibraryScanned = false;
         LibrarySelected = Id;
-        Diagnostic = "Saved '" + Document.Name + "' to the stamp library - pick it from Texture Paint's stamp tool (right-click the viewport).";
         return true;
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); return false; }
+}
+
+bool StampWorkspacePanel::SaveToLibrary()
+{
+    if (!PublishToLibrary(true)) return false;
+    Diagnostic = "Saved '" + QueryDocument().Name + "' to the stamp library as a new stamp - pick it from the Stamp library tab or Texture Paint's stamp tool.";
+    return true;
 }
 
 bool StampWorkspacePanel::RequestClose()
@@ -1688,7 +1721,7 @@ void StampWorkspacePanel::ConstructLibrary()
     ImGui::PushTextWrapPos(GridOrigin.x + ImGui::GetContentRegionAvail().x);
     if (Matches.empty())
         ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), LibraryFilter == 2
-            ? "No saved stamps yet. Design a decal, then Document actions -> Save to stamp library."
+            ? "No saved stamps yet. Design a decal, then Save (Ctrl+S) to publish it here."
             : "No matches. Try another collection or search.");
     ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
         "Every stamp here is placeable from Texture Paint's stamp tool. Clicking one of your saved stamps reopens its editable vector design.");
@@ -2200,33 +2233,40 @@ void StampWorkspacePanel::ConstructCanvas()
             for (const auto &Layer : Snapshot.Layers)
                 if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
                     (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer))) Editable = false;
-            if (Editable && Tool == VectorAuthoringTool::Select)
+            if (Editable)
             {
-                const auto RegisterGrip = [&](const char *Name, ImVec2 Point)
+                if (Tool == VectorAuthoringTool::Select)
                 {
-                    const float Radius = 6 * Scale;
-                    ControlExtents[Name] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
-                    const auto Mouse = ImGui::GetIO().MousePos;
-                    return std::abs(Mouse.x - Point.x) <= Radius && std::abs(Mouse.y - Point.y) <= Radius;
-                };
-                const ImVec2 Rotate = ScreenPoint(0, -Bounds[3] * .5f - 29 * Scale * 512 / BoardSize);
-                Ink->AddLine(ScreenPoint(0, -Bounds[3] * .5f), Rotate, IM_COL32(191, 216, 169, 255));
-                Ink->AddCircleFilled(Rotate, 4 * Scale, IM_COL32(212, 232, 192, 255));
-                Ink->AddCircle(Rotate, 4 * Scale, IM_COL32(40, 56, 43, 255));
-                HoveredRotation = RegisterGrip("Rotate selection", Rotate);
-                for (int Y = -1; Y <= 1; ++Y) for (int X = -1; X <= 1; ++X)
-                {
-                    if (!X && !Y) continue;
-                    const ImVec2 Point = ScreenPoint(float(X) * Bounds[2] * .5f, float(Y) * Bounds[3] * .5f);
-                    Ink->AddRectFilled(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(203, 225, 184, 255), Scale);
-                    Ink->AddRect(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(40, 60, 40, 255), Scale);
-                    const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
-                    if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
+                    const auto RegisterGrip = [&](const char *Name, ImVec2 Point)
+                    {
+                        const float Radius = 6 * Scale;
+                        ControlExtents[Name] = {Point.x - Radius, Point.y - Radius, Point.x + Radius, Point.y + Radius};
+                        const auto Mouse = ImGui::GetIO().MousePos;
+                        return std::abs(Mouse.x - Point.x) <= Radius && std::abs(Mouse.y - Point.y) <= Radius;
+                    };
+                    const ImVec2 Rotate = ScreenPoint(0, -Bounds[3] * .5f - 29 * Scale * 512 / BoardSize);
+                    Ink->AddLine(ScreenPoint(0, -Bounds[3] * .5f), Rotate, IM_COL32(191, 216, 169, 255));
+                    Ink->AddCircleFilled(Rotate, 4 * Scale, IM_COL32(212, 232, 192, 255));
+                    Ink->AddCircle(Rotate, 4 * Scale, IM_COL32(40, 56, 43, 255));
+                    HoveredRotation = RegisterGrip("Rotate selection", Rotate);
+                    for (int Y = -1; Y <= 1; ++Y) for (int X = -1; X <= 1; ++X)
+                    {
+                        if (!X && !Y) continue;
+                        const ImVec2 Point = ScreenPoint(float(X) * Bounds[2] * .5f, float(Y) * Bounds[3] * .5f);
+                        Ink->AddRectFilled(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(203, 225, 184, 255), Scale);
+                        Ink->AddRect(ImVec2(Point.x - 3 * Scale, Point.y - 3 * Scale), ImVec2(Point.x + 3 * Scale, Point.y + 3 * Scale), IM_COL32(40, 60, 40, 255), Scale);
+                        const std::string Name = std::string("Resize:") + (Y < 0 ? "n" : Y > 0 ? "s" : "") + (X < 0 ? "w" : X > 0 ? "e" : "");
+                        if (RegisterGrip(Name.c_str(), Point)) HoveredResize = {X, Y};
+                    }
                 }
                 // 🎨 Interactive gradient colour-stop markers: only for a single selected shape whose fill
                 // is a gradient. Lets the ramp be edited directly on the artwork — click the axis line to
                 // drop a new stop where you clicked, drag an existing marker to retime it, click one to
                 // select it for colour-editing in the Inspector's ramp editor (kept in sync both ways).
+                // Shown under EVERY tool, not just Select: the natural flow is "make text, give it a
+                // gradient in the Inspector, drag its points" without first switching tools - gating this
+                // on Select (and drawing it plain white on the pale board) made the points undiscoverable.
+                // The click dispatch below already gives these grips priority over tool actions.
                 if (Selection.size() == 1)
                 {
                     const auto GradientLayer = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return Layer.Token == Selection[0]; });
@@ -2238,7 +2278,10 @@ void StampWorkspacePanel::ConstructCanvas()
                             const auto Axis = QueryGradientAxisEndpoints(GradientSource, Bounds, Extent.Rotation);
                             const ImVec2 AxisStart = ScreenPoint(Axis[0].X - Bounds[0], Axis[0].Y - Bounds[1]);
                             const ImVec2 AxisEnd = ScreenPoint(Axis[1].X - Bounds[0], Axis[1].Y - Bounds[1]);
-                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(255, 255, 255, 205), 1.6f * Scale);
+                            // Dual-tone (dark halo under a white core) so the axis reads on the pale
+                            // board, over white gradient stops and over dark ink alike; grips below match.
+                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(30, 34, 30, 200), 3.6f * Scale);
+                            Ink->AddLine(AxisStart, AxisEnd, IM_COL32(255, 255, 255, 230), 1.6f * Scale);
                             // 🎨 Two square "axis" handles at the ramp's own A/B control points (see GradientAxis
                             // on VectorCoverageInstruction) — distinct from the round colour-stop markers below,
                             // which sit ON this line at their own Fraction. Dragging a square repositions the
@@ -2259,9 +2302,11 @@ void StampWorkspacePanel::ConstructCanvas()
                             {
                                 const ImVec2 &LineEnd = End == 0 ? AxisStart : AxisEnd;
                                 const ImVec2 &Point = End == 0 ? AxisHandleA : AxisHandleB;
-                                Ink->AddLine(LineEnd, Point, IM_COL32(255, 255, 255, 130), 1.2f * Scale);
+                                Ink->AddLine(LineEnd, Point, IM_COL32(30, 34, 30, 200), 3 * Scale);
+                                Ink->AddLine(LineEnd, Point, IM_COL32(255, 255, 255, 190), 1.2f * Scale);
                                 const float HalfExtent = 5 * Scale;
-                                Ink->AddRect(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(255, 255, 255, 235), 0, 0, 2 * Scale);
+                                Ink->AddRectFilled(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(245, 248, 240, 255), 1.5f * Scale);
+                                Ink->AddRect(ImVec2(Point.x - HalfExtent, Point.y - HalfExtent), ImVec2(Point.x + HalfExtent, Point.y + HalfExtent), IM_COL32(30, 34, 30, 255), 1.5f * Scale, 0, 1.8f * Scale);
                             }
                             const auto Stops = QueryVectorGradientStops(GradientSource);
                             SelectedGradientStop = std::clamp(SelectedGradientStop, 0, int(Stops.size()) - 1);
@@ -2272,6 +2317,7 @@ void StampWorkspacePanel::ConstructCanvas()
                                 const float Radius = (IsSelected ? 7.f : 5.5f) * Scale;
                                 const auto &C = Stops[Index].Colour;
                                 const ImU32 StopColour = IM_COL32(uint8_t(std::clamp(C[0], 0.f, 1.f) * 255), uint8_t(std::clamp(C[1], 0.f, 1.f) * 255), uint8_t(std::clamp(C[2], 0.f, 1.f) * 255), 255);
+                                Ink->AddCircleFilled(Point, Radius + 1.8f * Scale, IM_COL32(30, 34, 30, 215));
                                 Ink->AddCircleFilled(Point, Radius, StopColour);
                                 Ink->AddCircle(Point, Radius, IsSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 20, 20, 220), 0, (IsSelected ? 2.4f : 1.4f) * Scale);
                                 const std::string Name = std::string("Gradient stop:") + std::to_string(Index);
@@ -2354,6 +2400,9 @@ void StampWorkspacePanel::ConstructCanvas()
         if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         else if (HoveredResize[0] || HoveredResize[1]) ImGui::SetMouseCursor(!HoveredResize[0] ? ImGuiMouseCursor_ResizeNS : !HoveredResize[1] ? ImGuiMouseCursor_ResizeEW : HoveredResize[0] == HoveredResize[1] ? ImGuiMouseCursor_ResizeNWSE : ImGuiMouseCursor_ResizeNESW);
     }
+    // The gradient grips are live under every tool, so their hover cursor is too.
+    if (Hovered && (GradientAxisHoverEnd >= 0 || GradientHoverSlot >= 0 || GradientLineHoverT >= 0 || Gesture == 9 || Gesture == 10 || Gesture == 11))
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     const bool PenInput = ConstructPenInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     const bool PointInput = ConstructPointInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     bool TextReEditEntered = false;
