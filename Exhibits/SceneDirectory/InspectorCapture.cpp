@@ -352,49 +352,6 @@ class RenderSettingsRecord final : public Frontier::RecordEntry
 // the generic vocabulary yet — see PARITY.md.
 // ---------------------------------------------------------------------------
 
-class SunRecord final : public Frontier::RecordEntry
-{
-  public:
-    SunRecord() : RecordEntry(Frontier::RecordClassification::Environment)
-    {
-#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
-        DeclareEditorIdentity("Directional light", "Environment");
-        DeclareEditorDescription("Light, direction & atmosphere");
-        DeclareEditorToggle("sun.shadows", "Shadows", "", true, [this]() { return DirectShadow; }, [this](bool On) { DirectShadow = On; }, "Sun");
-        DeclareEditorToggle("sun.autoExposure", "Auto exposure", "", true, [this]() { return AutoExposure; }, [this](bool On) { AutoExposure = On; }, "Aperture");
-        DeclareEditorCard("Lighting preset", "", 1, "Sun");
-        DeclareEditorSegmented("sun.preset", "", {"Noon", "Golden", "Dusk", "Night"},
-                               [this]() { return PresetIndex; },
-                               [this](size_t Index) { PresetIndex = Index; const double E[][2] = {{64,145},{10,160},{1.5,172},{-14,172}}; SunElevation = E[Index][0]; SunAzimuth = E[Index][1]; });
-        DeclareEditorMuted("Night drops the sun below the horizon: the lamps, the hangar strips and the tunnel light the course through the cards.");
-        DeclareEditorCard("Sun direction", "", 2, "Orbit");
-        DeclareEditorMetric("sun.elevation", [this]() { char B[32]; std::snprintf(B, sizeof(B), "%.1f", SunElevation); return std::string(B); }, "\xC2\xB0",
-                            [this]() { return std::pair<std::string, std::string>{SunElevation < 0 ? "below horizon" : "above horizon", SunElevation < 0 ? "warm" : "live"}; });
-        DeclareEditorSlider("sun.elev", "Elevation", "\xC2\xB0", -90, 90, 0.5, [this]() { return SunElevation; }, [this](double V) { SunElevation = V; }, 1, "Night", "Zenith");
-        DeclareEditorSlider("sun.azim", "Azimuth", "\xC2\xB0", -180, 180, 1, [this]() { return SunAzimuth; }, [this](double V) { SunAzimuth = V; }, 0);
-        DeclareEditorSlider("sun.radius", "Disc angular radius", "\xC2\xB0", 0.05, 2, 0.01, [this]() { return SunRadius; }, [this](double V) { SunRadius = V; }, 2);
-        DeclareEditorCard("Light intensity", "", 3, "Lightbulb");
-        DeclareEditorSlider("sun.temp", "Temperature", "K", 2000, 10000, 50, [this]() { return SunTemperature; }, [this](double V) { SunTemperature = V; }, 0);
-        DeclareEditorSlider("sun.solar", "Solar intensity", "", 1, 30, 0.5, [this]() { return SolarIlluminance; }, [this](double V) { SolarIlluminance = V; }, 1);
-        DeclareEditorSlider("sun.sky", "Sky intensity", "\xC3\x97", 0, 3, 0.05, [this]() { return SkyScale; }, [this](double V) { SkyScale = V; }, 2);
-        DeclareEditorSlider("sun.emission", "Emitters (lamps, flames)", "\xC3\x97", 0, 4, 0.05, [this]() { return EmissionScale; }, [this](double V) { EmissionScale = V; }, 2);
-        DeclareEditorCard("3D Clustered Lighting", "", 4, "Sparkles");
-        DeclareEditorMetric("sun.lights", []() { return std::string("0"); }, "active lights",
-                            []() { return std::pair<std::string, std::string>{"0/1024 cells", "live"}; });
-        DeclareEditorStats("sun.lightStats", {{"Point lights", "", []() { return std::string("0"); }},
-                                              {"Street lamps", "", []() { return std::string("0"); }},
-                                              {"Vehicle beams", "", []() { return std::string("0"); }}});
-        DeclareEditorMuted("16\xC3\x97" "16\xC3\x97" "4 3D spatial grid with 64-bit per-cell light bitmasks and hardware firstTrailingBit traversal alongside emissive surface cards.");
-        DeclareEditorToggle("sun.cull", "3D cluster bitmask culling", "Skip out-of-range lights per 3D cell across Direct, Card & Path passes", false,
-                            [this]() { return CullEnabled; }, [this](bool On) { CullEnabled = On; });
-#endif
-    }
-    bool DirectShadow = true, AutoExposure = true, CullEnabled = true;
-    double SunElevation = 38.0, SunAzimuth = 145.0, SunRadius = 0.27, SunTemperature = 5778.0;
-    double SolarIlluminance = 12.0, SkyScale = 1.0, EmissionScale = 1.0;
-    size_t PresetIndex = 99;   // HTML seeds LightingPreset "Custom": no preset button active
-};
-
 class MoonRecord final : public Frontier::RecordEntry
 {
   public:
@@ -657,6 +614,205 @@ class FogRecord final : public Frontier::RecordEntry
 };
 
 
+// ---------------------------------------------------------------------------
+// The Sun inspector as the HTML actually builds it: BuildSunInspectorDashboard
+// (SunInspectorDashboard.js) in the sun-observatory CSS family (SunInspector.css
+// + the shared co-* rules in CloudInspector.css, second design pass). This is
+// NOT the generic card vocabulary — it has its own header, tablist, KPI
+// readouts, canvas solar-vector instrument, ObservatorySliders and preset row.
+// Drawn here with the Overview pane active, as the HTML opens. State seeded
+// from IlluminationHost defaults (elevation 38, azimuth 145, preset "Custom").
+// ---------------------------------------------------------------------------
+void DrawSunDashboard()
+{
+    ImDrawList* Ink = ImGui::GetWindowDrawList();
+    ImFont* Font = ImGui::GetFont();
+    const float W = 380.0f;
+    auto Text = [&](float X, float Y, float Size, ImU32 Colour, const std::string& Value) {
+        Ink->AddText(Font, Size, ImVec2(X, Y), Colour, Value.c_str());
+    };
+    auto TextR = [&](float Right, float Y, float Size, ImU32 Colour, const std::string& Value) {
+        Text(Right - Font->CalcTextSizeA(Size, 1e9f, 0.0f, Value.c_str()).x, Y, Size, Colour, Value);
+    };
+    auto TextC = [&](float Centre, float Y, float Size, ImU32 Colour, const std::string& Value) {
+        Text(Centre - Font->CalcTextSizeA(Size, 1e9f, 0.0f, Value.c_str()).x * 0.5f, Y, Size, Colour, Value);
+    };
+    auto Rect = [&](float X, float Y, float R, float B, ImU32 Fill, float Radius) {
+        Ink->AddRectFilled(ImVec2(X, Y), ImVec2(R, B), Fill, Radius);
+    };
+    auto RectLine = [&](float X, float Y, float R, float B, ImU32 Edge, float Radius) {
+        Ink->AddRect(ImVec2(X, Y), ImVec2(R, B), Edge, Radius, 0, 1.0f);
+    };
+    // Shell top bar (#inspector-top of the generic shell) + observatory ground.
+    Rect(0, 0, W, 5000, IM_COL32(0x19, 0x19, 0x17, 255), 0);
+    Rect(0, 0, W, 44, IM_COL32(0x14, 0x14, 0x14, 255), 0);
+    Ink->AddRectFilled(ImVec2(0, 44), ImVec2(W, 45), IM_COL32(0x2a, 0x2a, 0x2a, 255));
+    Text(18, 16, 11, IM_COL32(0xbf, 0xbf, 0xbf, 255), "Inspector");
+    Text(18 + Font->CalcTextSizeA(11, 1e9f, 0.0f, "Inspector").x + 8, 16, 11, IM_COL32(0x71, 0x71, 0x71, 255), ">");
+    Text(18 + Font->CalcTextSizeA(11, 1e9f, 0.0f, "Inspector > ").x + 8, 16, 11, IM_COL32(0x71, 0x71, 0x71, 255), "Environment");
+    TextR(W - 18, 17, 10, IM_COL32(0x7c, 0x7c, 0x7c, 255), "Changes apply live");
+    const ImU32 InkMain = IM_COL32(0xe8, 0xe7, 0xdf, 255), Muted = IM_COL32(0xa1, 0x97, 0x86, 255);
+    const float L = 18.0f, R = W - 18.0f;
+    float Y = 44.0f + 22.0f;
+    // .co-header
+    Text(L, Y, 9, IM_COL32(0xa0, 0x96, 0x80, 255), "E N V I R O N M E N T   /   0 2");
+    Y += 17.0f + 11.0f;
+    Text(L, Y, 31, InkMain, "Sun");
+    const float ResetW = Font->CalcTextSizeA(9, 1e9f, 0.0f, "Reset \xE2\x86\x97").x + 20.0f;
+    Rect(R - ResetW, Y + 5, R, Y + 5 + 28, IM_COL32(0xe8, 0xc7, 0x8b, 0x0b), 22);
+    RectLine(R - ResetW, Y + 5, R, Y + 5 + 28, IM_COL32(0xe8, 0xc7, 0x8b, 0x22), 22);
+    TextC(R - ResetW * 0.5f, Y + 5 + 9, 9, IM_COL32(0xd5, 0xbf, 0x95, 255), "Reset \xE2\x86\x97");
+    Y += 36.0f + 9.0f;
+    Text(L, Y, 11, Muted, "Directional light / position & colour.");
+    Y += 15.0f + 20.0f;
+    // .co-tabs (Overview active)
+    {
+        const char* Tabs[] = {"Overview", "Daylight", "Light & colour", "Disc & optics"};
+        const float TW = (R - L - 9.0f) / 4.0f;
+        for (int I = 0; I < 4; ++I)
+        {
+            const float X = L + I * (TW + 3.0f);
+            if (I == 0) Rect(X, Y, X + TW, Y + 33, IM_COL32(0x34, 0x33, 0x29, 255), 24);
+            TextC(X + TW * 0.5f, Y + 11, 10, I == 0 ? IM_COL32(0xe7, 0xdf, 0xc8, 255) : IM_COL32(0x8d, 0x93, 0x86, 255), Tabs[I]);
+        }
+        Y += 33.0f + 20.0f;
+    }
+    // Card: Solar vector (01 / DIRECTION)
+    {
+        const float CardY = Y;
+        Rect(L, CardY, R, CardY + 316, IM_COL32(0x23, 0x24, 0x1e, 255), 24);
+        Text(L + 18, CardY + 16, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Solar vector");
+        TextR(R - 18, CardY + 18, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "01 / DIRECTION");
+        // Floating readout (.so-vector-top, absolute at card top + 49)
+        Text(L + 18, CardY + 49, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Elevation");
+        Text(L + 18, CardY + 62, 37, InkMain, "38.0");
+        Text(L + 18 + Font->CalcTextSizeA(37, 1e9f, 0.0f, "38.0").x + 3, CardY + 62 + 16, 17, Muted, "\xC2\xB0");
+        const float TagW = Font->CalcTextSizeA(9, 1e9f, 0.0f, "Manual \xE2\x86\x97").x + 20.0f;
+        Rect(R - 18 - TagW, CardY + 49, R - 18, CardY + 49 + 29, IM_COL32(0x30, 0x31, 0x28, 255), 20);
+        TextC(R - 18 - TagW * 0.5f, CardY + 49 + 9, 9, IM_COL32(0xe4, 0xdb, 0xbd, 255), "Manual \xE2\x86\x97");
+        // Diagram (640x420 canvas scaled to inner width)
+        const float DX = L + 18.0f, DW = R - L - 36.0f, Scale = DW / 640.0f, DY = CardY + 49 + 14.0f;
+        const ImVec2 O(DX + 320.0f * Scale, DY + 210.0f * Scale);
+        for (float Radius : {45.0f, 90.0f, 135.0f, 180.0f})
+            Ink->AddCircle(O, Radius * Scale, Radius == 90.0f ? IM_COL32(0xd9, 0xc2, 0x9b, 0x70) : IM_COL32(0xd9, 0xc2, 0x9b, 0x1c), 64, 1.0f);
+        for (int I = 0; I < 24; ++I)
+        {
+            const float A = I / 24.0f * 6.2831853f;
+            Ink->AddLine(ImVec2(O.x + std::cos(A) * 174.0f * Scale, O.y + std::sin(A) * 174.0f * Scale),
+                         ImVec2(O.x + std::cos(A) * 180.0f * Scale, O.y + std::sin(A) * 180.0f * Scale), IM_COL32(0xe8, 0xc7, 0x8b, 0x55), 1.0f);
+        }
+        for (float T = 0.0f; T < 1.0f; T += 0.06f)   // dashed cross
+        {
+            Ink->AddLine(ImVec2(DX + (120.0f + T * 400.0f) * Scale, O.y), ImVec2(DX + (120.0f + (T + 0.03f) * 400.0f) * Scale, O.y), IM_COL32(0xe8, 0xc7, 0x8b, 0x20), 1.0f);
+            Ink->AddLine(ImVec2(O.x, DY + (15.0f + T * 390.0f) * Scale), ImVec2(O.x, DY + (15.0f + (T + 0.03f) * 390.0f) * Scale), IM_COL32(0xe8, 0xc7, 0x8b, 0x20), 1.0f);
+        }
+        const float Az = 145.0f * 3.14159265f / 180.0f, Rad = (90.0f - 38.0f) * Scale;
+        const ImVec2 Q(O.x + std::cos(Az) * Rad, O.y - std::sin(Az) * Rad);
+        Ink->AddLine(O, Q, IM_COL32(0xe8, 0xc7, 0x8b, 255), 1.5f);
+        Ink->AddCircleFilled(O, 4.0f * Scale + 1.0f, IM_COL32(0xd9, 0xca, 0xb0, 255));
+        Ink->AddCircle(Q, 20.0f * Scale, IM_COL32(0xe8, 0xc7, 0x8b, 0x70), 32, 1.0f);
+        Ink->AddCircleFilled(Q, 20.0f * Scale, IM_COL32(0xe8, 0xc7, 0x8b, 0x16));
+        Ink->AddCircleFilled(Q, 6.0f * Scale + 1.5f, IM_COL32(0xf0, 0xd6, 0x9f, 255));
+        TextC(O.x, DY + 2, 8, IM_COL32(0xa4, 0x98, 0x86, 255), "+Y / N");
+        Text(DX + 532.0f * Scale, O.y + 2, 8, IM_COL32(0xa4, 0x98, 0x86, 255), "+X / E");
+        TextR(DX + 108.0f * Scale, O.y + 2, 8, IM_COL32(0xa4, 0x98, 0x86, 255), "W");
+        TextC(O.x, DY + 408.0f * Scale - 8, 8, IM_COL32(0xa4, 0x98, 0x86, 255), "S");
+        Text(DX + 419.0f * Scale, O.y - 16.0f * Scale, 7, IM_COL32(0xab, 0x9d, 0x88, 255), "0\xC2\xB0 HORIZON");
+        Text(DX + 24.0f * Scale, DY + 389.0f * Scale, 7, IM_COL32(0xab, 0x9d, 0x88, 255), "DRAG VECTOR");
+        // .co-atlas-footer
+        const float FootY = CardY + 316 - 30.0f;
+        Ink->AddRectFilled(ImVec2(L + 18, FootY), ImVec2(R - 18, FootY + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x12));
+        Text(L + 18, FootY + 11, 8, IM_COL32(0xad, 0x9f, 0x83, 255), "WORLD XYZ \xC2\xB7 Z UP");
+        TextR(R - 18, FootY + 11, 8, IM_COL32(0xad, 0x9f, 0x83, 255), "-0.65 / 0.45 / 0.62");
+        Y = CardY + 316 + 14.0f;
+    }
+    // .co-kpis
+    {
+        const float KW = (R - L - 14.0f) / 3.0f;
+        struct Kpi { const char* Label; const char* Value; const char* Unit; };
+        const Kpi Kpis[] = {{"Azimuth", "145.0", "\xC2\xB0 / +X east"}, {"Source tint", "5778 K", "source setting"}, {"Sunlight", "12.0", "\xC3\x97 multiplier"}};
+        for (int I = 0; I < 3; ++I)
+        {
+            const float X = L + I * (KW + 7.0f);
+            const bool Accent = I == 2;
+            Rect(X, Y, X + KW, Y + 66, Accent ? IM_COL32(0xd7, 0xdb, 0xb8, 255) : IM_COL32(0x26, 0x27, 0x20, 255), 17);
+            Text(X + 10, Y + 12, 8, Accent ? IM_COL32(0x62, 0x6b, 0x51, 255) : IM_COL32(0xad, 0x9f, 0x83, 255), Kpis[I].Label);
+            Text(X + 10, Y + 25, 24, Accent ? IM_COL32(0x29, 0x2e, 0x20, 255) : InkMain, Kpis[I].Value);
+            Text(X + 10, Y + 52, 8, Accent ? IM_COL32(0x62, 0x6b, 0x51, 255) : Muted, Kpis[I].Unit);
+        }
+        Y += 66.0f + 12.0f;
+    }
+    // Quick tiles (.ne-tiles) — Sunlight / Sun disc on, Day cycle off
+    {
+        const float TW = (R - L - 18.0f) / 3.0f;
+        struct Tile { const char* Name; bool On; };
+        const Tile Tiles[] = {{"Sunlight", true}, {"Sun disc", true}, {"Day cycle", false}};
+        for (int I = 0; I < 3; ++I)
+        {
+            const float X = L + I * (TW + 9.0f);
+            Rect(X, Y, X + TW, Y + 106, IM_COL32(0x20, 0x20, 0x20, 255), 16);
+            RectLine(X, Y, X + TW, Y + 106, Tiles[I].On ? IM_COL32(0x32, 0x32, 0x32, 255) : IM_COL32(0x49, 0x32, 0x32, 255), 16);
+            const ImVec2 C(X + TW * 0.5f, Y + 13 + 15.5f);
+            Ink->AddCircleFilled(C, 15.5f, Tiles[I].On ? IM_COL32(0x69, 0xc8, 0x84, 255) : IM_COL32(0xcc, 0x76, 0x73, 255));
+            Ink->AddCircle(C, 5.0f, Tiles[I].On ? IM_COL32(0x16, 0x32, 0x1e, 255) : IM_COL32(0x37, 0x1d, 0x1c, 255), 16, 1.4f);
+            for (int Ray = 0; Ray < 8; ++Ray)
+            {
+                const float A = Ray / 8.0f * 6.2831853f;
+                Ink->AddLine(ImVec2(C.x + std::cos(A) * 7.0f, C.y + std::sin(A) * 7.0f), ImVec2(C.x + std::cos(A) * 10.0f, C.y + std::sin(A) * 10.0f), Tiles[I].On ? IM_COL32(0x16, 0x32, 0x1e, 255) : IM_COL32(0x37, 0x1d, 0x1c, 255), 1.2f);
+            }
+            TextC(X + TW * 0.5f, Y + 58, 10, IM_COL32(0xc8, 0xc8, 0xc8, 255), Tiles[I].Name);
+            TextC(X + TW * 0.5f, Y + 78, 8, Tiles[I].On ? IM_COL32(0x69, 0xc8, 0x84, 255) : IM_COL32(0xcc, 0x76, 0x73, 255), Tiles[I].On ? "ON" : "OFF");
+        }
+        Y += 106.0f + 16.0f;
+    }
+    // Direction controls (02 / AIM) — transparent card, top hairline
+    {
+        Ink->AddRectFilled(ImVec2(L, Y), ImVec2(R, Y + 1), IM_COL32(0xff, 0xff, 0xff, 0x13));
+        Y += 17.0f;
+        Text(L, Y, 12, IM_COL32(0xe0, 0xe3, 0xd8, 255), "Direction controls");
+        TextR(R, Y + 2, 8, IM_COL32(0x8c, 0x94, 0x82, 255), "02 / AIM");
+        Y += 13.0f + 11.0f;
+        auto Slider = [&](const char* Label, const char* Value, const char* Unit, float Fraction) {
+            Text(L, Y + 4, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), Label);
+            const float CapW = 88.0f;
+            Rect(R - CapW, Y, R, Y + 24, IM_COL32(0x08, 0x08, 0x08, 255), 20);
+            const std::string Num = Value;
+            TextR(R - 22, Y + 5, 18, IM_COL32(0xe9, 0xe9, 0xe9, 255), Num);
+            Text(R - 20, Y + 8, 10, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+            Y += 24.0f + 12.0f;
+            Rect(L, Y, R, Y + 22, IM_COL32(0x17, 0x18, 0x18, 255), 20);
+            const float FillR = L + (R - L) * Fraction;
+            if (FillR > L + 20.0f) Rect(L, Y, FillR, Y + 22, IM_COL32(0x55, 0x56, 0x50, 255), 20);
+            Ink->AddCircleFilled(ImVec2(FillR - 11.0f, Y + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+            Y += 22.0f + 9.0f;
+        };
+        Slider("Azimuth", "145.0", "\xC2\xB0", (145.0f + 180.0f) / 360.0f);
+        Slider("Elevation", "38.0", "\xC2\xB0", (38.0f + 90.0f) / 180.0f);
+        // .co-caption (wrapped at 10 px / 1.6 in 344 px)
+        Text(L, Y, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Inner horizon ring: 0\xC2\xB0. Centre: zenith. Outer region: below horizon.");
+        Text(L, Y + 16, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Editing direction stops the day cycle and switches to manual.");
+        Y += 32.0f + 13.0f;
+    }
+    // Preset row (.so-presets)
+    {
+        const char* Names[] = {"Noon", "Golden", "Dusk", "Night"};
+        const float BW = (R - L - 18.0f) / 4.0f;
+        for (int I = 0; I < 4; ++I)
+        {
+            const float X = L + I * (BW + 6.0f);
+            Rect(X, Y, X + BW, Y + 34, IM_COL32(0x25, 0x23, 0x1c, 255), 15);
+            RectLine(X, Y, X + BW, Y + 34, IM_COL32(0xe8, 0xc7, 0x8b, 0x12), 15);
+            TextC(X + BW * 0.5f, Y + 12, 10, IM_COL32(0xbb, 0xae, 0x91, 255), Names[I]);
+        }
+        Y += 34.0f + 12.0f;
+    }
+    // .co-footer
+    Ink->AddRectFilled(ImVec2(L, Y), ImVec2(R, Y + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x10));
+    Text(L, Y + 15, 8, IM_COL32(0xa2, 0x94, 0x73, 255), "DIRECTIONAL LIGHT / Z UP");
+    TextR(R, Y + 15, 8, IM_COL32(0xa2, 0x94, 0x73, 255), "Settings apply live \xE2\x86\x97");
+}
+
+
 int main(int ArgumentCount, char** Arguments)
 {
     using namespace Frontier;
@@ -700,7 +856,8 @@ int main(int ArgumentCount, char** Arguments)
 
     std::unique_ptr<RecordEntry> PageRecord;
     std::string PageName = "Render settings";
-    if      (Page == "sun")       { PageRecord = std::make_unique<SunRecord>();          PageName = "Sun"; }
+    const bool SunDashboard = Page == "sun";
+    if      (Page == "moon")      { PageRecord = std::make_unique<MoonRecord>();         PageName = "Moons"; }
     else if (Page == "moon")      { PageRecord = std::make_unique<MoonRecord>();         PageName = "Moons"; }
     else if (Page == "flare")     { PageRecord = std::make_unique<FlareRecord>();        PageName = "Lens Flare"; }
     else if (Page == "wind")      { PageRecord = std::make_unique<WindRecord>();         PageName = "Wind"; }
@@ -708,16 +865,20 @@ int main(int ArgumentCount, char** Arguments)
     else if (Page == "cards")     { PageRecord = std::make_unique<SurfaceCardsRecord>(); PageName = "Surface cache"; }
     else if (Page == "particles") { PageRecord = std::make_unique<ParticlesRecord>();    PageName = "Particles"; }
     else if (Page == "fog")       { PageRecord = std::make_unique<FogRecord>();          PageName = "Height Fog"; }
+    else if (SunDashboard)        { /* bespoke dashboard draw; no generic record */ }
     else                          { PageRecord = std::make_unique<RenderSettingsRecord>(); }
     SceneDirectory& Directory = SceneDirectory::Instance();
-    (void)Directory.ConfigureName(PageRecord->Token(), PageName);
+    if (PageRecord) (void)Directory.ConfigureName(PageRecord->Token(), PageName);
 
     SceneDirectoryPanel Outliner;
     SceneInspectorPanel Inspector;
-    Outliner.Synchronize(Directory);
-    Outliner.Select(PageRecord->Token());
-    Outliner.Synchronize(Directory);
-    Inspector.Synchronize(Directory, Outliner);
+    if (PageRecord)
+    {
+        Outliner.Synchronize(Directory);
+        Outliner.Select(PageRecord->Token());
+        Outliner.Synchronize(Directory);
+        Inspector.Synchronize(Directory, Outliner);
+    }
 
     for (int Frame = 0; Frame < 4; ++Frame)
     {
@@ -727,7 +888,8 @@ int main(int ArgumentCount, char** Arguments)
         ImGui::SetNextWindowPos(ImVec2(0,0));
         ImGui::SetNextWindowSize(ImVec2((float)CaptureWidth,(float)CaptureHeight));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse|ImGuiWindowFlags_NoBackground);
-        Inspector.ConstructInterface();
+        if (SunDashboard) DrawSunDashboard();
+        else Inspector.ConstructInterface();
         ImGui::End();
         ImGui::Render();
         if (Frame == 3)
