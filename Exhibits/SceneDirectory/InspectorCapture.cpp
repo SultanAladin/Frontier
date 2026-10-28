@@ -762,6 +762,18 @@ struct PageInk
         }
         return Y + 33.0f;
     }
+    // Tablist with an explicit active pane (Sun/Fog/Clouds non-default panes).
+    float TabsAt(float L, float R, float Y, const char* const* Labels, int Count, int Active, ImU32 ActiveFill, ImU32 ActiveInk, ImU32 IdleInk) const
+    {
+        const float TW = (R - L - 4.0f * (Count - 1)) / Count;
+        for (int I = 0; I < Count; ++I)
+        {
+            const float X = L + I * (TW + 4.0f);
+            if (I == Active) Rect(X, Y, X + TW, Y + 33.0f, ActiveFill, 23.0f);
+            TextC(X + TW * 0.5f, Y + 11.0f, 10.0f, I == Active ? ActiveInk : IdleInk, Labels[I]);
+        }
+        return Y + 33.0f;
+    }
     void TopBar(const char* Group) const
     {
         Rect(0, 0, 380, 44, IM_COL32(0x14, 0x14, 0x14, 255), 0);
@@ -1628,62 +1640,386 @@ void DrawWindDashboard()
 
 
 // ---------------------------------------------------------------------------
-// The Height fog inspector as the HTML builds it: BuildFogInspectorDashboard
-// in the fog-dashboard CSS family (FogDashboard.css), Visibility pane active.
-// Probe seeded as the HTML (distance 200 m, height 2 m); the retained-contrast
-// readout and target fading use the HTML's own FogPathTransmission law on the
-// seeded settings (density 0.002, falloff 30 m, FogEnabled false).
+// The Clouds inspector as the HTML builds it: BuildCloudInspectorDashboard in
+// the cloud-observatory CSS family (CloudInspector.css co-* rules). Four panes
+// (Overview / Formation / Rendering / Weather), seeded from CloudDefaults:
+// coverage .55, density 1, type 2 (Cumulus), base 1500 m, thickness 1200 m,
+// ceiling 14000 m, resolution 35 %, shadows on, follow-wind on. The density
+// atlas is the worker-rendered field in HTML; here it is a seeded stand-in
+// (recorded in PARITY.md). Weather also hosts BuildLightningControls.
 // ---------------------------------------------------------------------------
-void DrawFogDashboard()
+void DrawCloudDashboard(int Pane = 0)
+{
+    PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
+    P.Rect(0, 0, 380, 5000, IM_COL32(0x11, 0x14, 0x12, 255), 0);
+    P.TopBar("Environment");
+    const ImU32 InkMain = IM_COL32(0xec, 0xee, 0xe8, 255), Muted = IM_COL32(0x8f, 0x97, 0x8c, 255),
+                Accent = IM_COL32(0xd5, 0xe6, 0xa5, 255), CardInk = IM_COL32(0xdc, 0xe1, 0xd4, 255);
+    const float L = 18.0f, R = 362.0f, InnerL = L + 18.0f, InnerR = R - 18.0f;
+    auto Wrap = [&](float X, float Y, float Size, ImU32 Colour, const std::string& Value, float MaxW) {
+        std::string Line, Word;
+        auto Flush = [&]() { if (!Line.empty()) { P.Text(X, Y, Size, Colour, Line); Y += Size + 6.0f; Line.clear(); } };
+        for (size_t I = 0; I <= Value.size(); ++I)
+        {
+            if (I == Value.size() || Value[I] == ' ') { if (!Word.empty()) { if (!Line.empty() && P.Width(Size, Line + " " + Word) > MaxW) Flush(); Line = Line.empty() ? Word : Line + " " + Word; Word.clear(); } }
+            else Word += Value[I];
+        }
+        Flush(); return Y;
+    };
+    auto CardBox = [&](float Y, float Height, const char* Title, const char* Index) {
+        P.Rect(L, Y, R, Y + Height, IM_COL32(0x21, 0x26, 0x20, 255), 23);
+        P.RectLine(L, Y, R, Y + Height, IM_COL32(0xff, 0xff, 0xff, 0x07), 23);
+        P.Text(InnerL, Y + 18.0f, 12, CardInk, Title);
+        P.TextR(InnerR, Y + 20.0f, 8, IM_COL32(0x7f, 0x8d, 0x78, 255), Index);
+        return Y + 18.0f + 14.0f + 14.0f;
+    };
+    auto ToggleRow = [&](float Y, const char* Label, bool On) {
+        P.Rect(InnerL, Y, InnerR, Y + 37.0f, IM_COL32(0x12, 0x18, 0x10, 255), 12);
+        P.RectLine(InnerL, Y, InnerR, Y + 37.0f, IM_COL32(0xff, 0xff, 0xff, 0x09), 12);
+        P.Text(InnerL + 12.0f, Y + 13.0f, 11, IM_COL32(0xab, 0xb7, 0xa0, 255), Label);
+        P.TextR(InnerR - 12.0f, Y + 13.0f, 10, On ? Accent : IM_COL32(0x8e, 0x98, 0x89, 255), On ? "On \xE2\x86\x97" : "Off");
+        return Y + 37.0f;
+    };
+    auto NextButton = [&](float Y, const char* Label) {
+        P.Rect(InnerL, Y, InnerR, Y + 42.0f, IM_COL32(0xd5, 0xe6, 0xa5, 0x0d), 18);
+        P.RectLine(InnerL, Y, InnerR, Y + 42.0f, IM_COL32(0xd5, 0xe6, 0xa5, 0x22), 18);
+        P.TextC((InnerL + InnerR) * 0.5f, Y + 16.0f, 10, IM_COL32(0xcb, 0xd8, 0xb5, 255), Label);
+        return Y + 42.0f;
+    };
+    auto SelectRow = [&](float Y, const char* Label, const char* Value) {
+        P.Text(InnerL, Y + 4.0f, 11, IM_COL32(0xa2, 0xac, 0x99, 255), Label);
+        P.Rect(InnerL, Y + 24.0f, InnerR, Y + 54.0f, IM_COL32(0x16, 0x1c, 0x14, 255), 12);
+        P.RectLine(InnerL, Y + 24.0f, InnerR, Y + 54.0f, IM_COL32(0x41, 0x4b, 0x38, 0x66), 12);
+        P.Text(InnerL + 12.0f, Y + 34.0f, 11, IM_COL32(0xd8, 0xe2, 0xcc, 255), Value);
+        P.TextR(InnerR - 12.0f, Y + 34.0f, 11, IM_COL32(0x8f, 0x97, 0x8c, 255), "v");
+        return Y + 54.0f;
+    };
+    float Y = 44.0f + 22.0f;
+    // .co-header
+    P.Text(L, Y, 9, IM_COL32(0x8e, 0x98, 0x8c, 255), "E N V I R O N M E N T   /   0 1");
+    Y += 9.0f + 24.0f;
+    P.Text(L, Y, 40, InkMain, "Clouds");
+    {
+        const std::string Label = "Live";
+        const float PW = P.Width(10, Label) + 34.0f, PY = Y + 4.0f;
+        P.Rect(R - PW, PY, R, PY + 29, IM_COL32(0xd5, 0xe6, 0xa5, 0x14), 20);
+        P.RectLine(R - PW, PY, R, PY + 29, IM_COL32(0x56, 0x62, 0x48, 0x55), 20);
+        P.Ink->AddCircleFilled(ImVec2(R - PW + 13.0f, PY + 14.5f), 3.0f, Accent);
+        P.Text(R - PW + 21.0f, PY + 10, 10, Accent, Label);
+    }
+    Y += 41.0f + 15.0f;
+    P.Text(L, Y, 10, Muted, "Density field / shape & illumination.");
+    Y += 10.0f + 24.0f;
+    {
+        const char* Tabs[] = {"Overview", "Formation", "Rendering", "Weather"};
+        P.Rect(L, Y, R, Y + 39.0f, IM_COL32(0x1c, 0x20, 0x1c, 255), 30);
+        Y = P.TabsAt(L + 4.0f, R - 4.0f, Y + 4.0f, Tabs, 4, Pane, IM_COL32(0x30, 0x38, 0x2d, 255), IM_COL32(0xe0, 0xe9, 0xcd, 255), IM_COL32(0x8f, 0x98, 0x8a, 255)) + 19.0f;
+    }
+    if (Pane == 0)
+    {
+        // Density atlas (01 / FIELD)
+        float CY = CardBox(Y, 400, "Density atlas", "01 / FIELD");
+        P.Text(InnerL, CY, 9, IM_COL32(0x92, 0x9b, 0x8b, 255), "Coverage setting");
+        CY += 5.0f;
+        P.Text(InnerL, CY, 55, InkMain, "55");
+        P.Text(InnerL + P.Width(55, "55") + 4.0f, CY + 30.0f, 17, IM_COL32(0x90, 0x99, 0x85, 255), "%");
+        {
+            const std::string Tag = "Cumulus";
+            const float TW = P.Width(9, Tag) + 20.0f;
+            P.Rect(InnerR - TW, CY + 6.0f, InnerR, CY + 30.0f, IM_COL32(0xd5, 0xe6, 0xa5, 0x0a), 20);
+            P.RectLine(InnerR - TW, CY + 6.0f, InnerR, CY + 30.0f, IM_COL32(0xd5, 0xe6, 0xa5, 0x1a), 20);
+            P.TextC(InnerR - TW * 0.5f, CY + 14.0f, 9, IM_COL32(0xcc, 0xd9, 0xb7, 255), Tag);
+        }
+        CY += 55.0f + 12.0f;
+        {
+            const float DW = InnerR - InnerL, DH = DW * 440.0f / 640.0f, S = DW / 640.0f;
+            P.Rect(InnerL, CY, InnerR, CY + DH, IM_COL32(0x18, 0x1e, 0x1b, 255), 13);
+            // Seeded stand-in for the worker density field (screen-blended in HTML).
+            unsigned Seed = 0x31a59e27u;
+            auto Rand = [&]() { Seed ^= Seed << 13; Seed ^= Seed >> 17; Seed ^= Seed << 5; return (Seed >> 8) / 16777216.0f; };
+            P.Ink->PushClipRect(ImVec2(InnerL, CY), ImVec2(InnerR, CY + DH), true);
+            for (int I = 0; I < 260; ++I)
+            {
+                const float BX = InnerL + Rand() * DW, BY = CY + Rand() * DH, BR = 6.0f + Rand() * 26.0f;
+                const int A = 10 + (int)(Rand() * 26.0f);
+                P.Ink->AddCircleFilled(ImVec2(BX, BY), BR, IM_COL32(0xc7, 0xdd, 0x96, A));
+            }
+            P.Ink->PopClipRect();
+            for (int I = 0; I < 7; ++I) P.Ink->AddLine(ImVec2(InnerL + (30 + I * 96) * S, CY + 18 * S), ImVec2(InnerL + (30 + I * 96) * S, CY + 420 * S), IM_COL32(0xbb, 0xd7, 0xc5, 0x24), 1.0f);
+            for (float GY : {80.0f, 180.0f, 280.0f, 380.0f}) P.Ink->AddLine(ImVec2(InnerL + 18 * S, CY + GY * S), ImVec2(InnerL + 622 * S, CY + GY * S), IM_COL32(0xbb, 0xd7, 0xc5, 0x24), 1.0f);
+            const float CX = InnerL + 320 * S, CCY = CY + 220 * S;
+            P.Ink->AddLine(ImVec2(CX, CY + 190 * S), ImVec2(CX, CY + 250 * S), IM_COL32(0xe4, 0xeb, 0xd7, 0xaa), 1.0f);
+            P.Ink->AddLine(ImVec2(InnerL + 290 * S, CCY), ImVec2(InnerL + 350 * S, CCY), IM_COL32(0xe4, 0xeb, 0xd7, 0xaa), 1.0f);
+            P.Ink->AddCircle(ImVec2(CX, CCY), 28 * S, IM_COL32(0xd4, 0xe6, 0xa8, 0x80), 32, 1.0f);
+            P.Ink->AddCircleFilled(ImVec2(CX, CCY), 4.0f, IM_COL32(0xdc, 0xea, 0xb4, 255));
+            P.Text(InnerL + 28 * S, CY + DH - 30 * S, 10, IM_COL32(0xd8, 0xe4, 0xdb, 255), "XY / WORLD FIELD");
+            P.TextR(InnerL + 612 * S, CY + DH - 30 * S, 10, IM_COL32(0xd8, 0xe4, 0xdb, 255), "DENSITY \xE2\x86\x92");
+            CY += DH + 14.0f;
+        }
+        P.Ink->AddLine(ImVec2(InnerL, CY), ImVec2(InnerR, CY), IM_COL32(0xff, 0xff, 0xff, 0x0b), 1.0f);
+        CY += 12.0f;
+        P.Text(InnerL, CY, 8, IM_COL32(0x8e, 0x9a, 0x8a, 255), "Density diagnostic");
+        P.TextR(InnerR, CY, 8, IM_COL32(0x8e, 0x9a, 0x8a, 255), "Not a lit sky render \xE2\x86\x97");
+        Y += 400 + 12.0f;
+        // .co-kpis
+        {
+            const float KW = (R - L - 14.0f) / 3.0f;
+            const char* Labels[] = {"Layer base", "Effective top", "GPU cloud pass"};
+            const char* Values[] = {"1.50", "2.70", "\xE2\x80\x94"};
+            const char* Units[] = {"km", "km", "ms \xC2\xB7 smoothed"};
+            for (int I = 0; I < 3; ++I)
+            {
+                const float X = L + I * (KW + 7.0f);
+                const bool Last = I == 2;
+                P.Rect(X, Y, X + KW, Y + 66, Last ? Accent : IM_COL32(0x20, 0x25, 0x1f, 255), 17);
+                P.Text(X + 10.0f, Y + 13.0f, 8, Last ? IM_COL32(0x57, 0x64, 0x43, 255) : IM_COL32(0x92, 0x9b, 0x8b, 255), Labels[I]);
+                P.Text(X + 10.0f, Y + 24.0f, 24, Last ? IM_COL32(0x22, 0x2c, 0x19, 255) : InkMain, Values[I]);
+                P.Text(X + 10.0f + P.Width(24, Values[I]) + 3.0f, Y + 40.0f, 8, Last ? IM_COL32(0x57, 0x64, 0x43, 255) : IM_COL32(0x90, 0x99, 0x85, 255), Units[I]);
+            }
+            Y += 66 + 12.0f;
+        }
+        // Shape the field (02 / MIX)
+        CY = CardBox(Y, 380, "Shape the field", "02 / MIX");
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Coverage \xC3\x97 density \xC2\xB7 drag the point or use arrow keys", InnerR - InnerL) + 0.0f;
+        {
+            const float DW = InnerR - InnerL, DH = DW * 230.0f / 640.0f, S = DW / 640.0f;
+            for (int I = 0; I < 5; ++I) P.Ink->AddLine(ImVec2(InnerL + 32 * S, CY + (30 + I * 40) * S), ImVec2(InnerL + 608 * S, CY + (30 + I * 40) * S), IM_COL32(0xaa, 0xb6, 0xa1, 0x25), 1.0f);
+            for (int I = 0; I < 7; ++I) P.Ink->AddLine(ImVec2(InnerL + (32 + I * 96) * S, CY + 30 * S), ImVec2(InnerL + (32 + I * 96) * S, CY + 190 * S), IM_COL32(0xaa, 0xb6, 0xa1, 0x17), 1.0f);
+            const float PX = InnerL + (32 + 0.55f * 576) * S, PY = CY + (190 - 1.0f / 4 * 160) * S;
+            P.Rect(InnerL + 32 * S, PY, PX, CY + 190 * S, IM_COL32(0xc7, 0xdd, 0x96, 0x20), 3);
+            P.Ink->AddLine(ImVec2(PX, CY + 190 * S), ImVec2(PX, PY), IM_COL32(0xce, 0xde, 0xaa, 0x80), 1.0f);
+            P.Ink->AddCircleFilled(ImVec2(PX, PY), 6.0f, IM_COL32(0xcc, 0xe1, 0xa2, 0x1c));
+            P.Ink->AddCircle(ImVec2(PX, PY), 6.0f, IM_COL32(0xcc, 0xe1, 0xa2, 0x8c), 24, 1.0f);
+            P.Ink->AddCircleFilled(ImVec2(PX, PY), 2.5f, IM_COL32(0xd6, 0xe7, 0xae, 255));
+            P.Text(InnerL + 32 * S, CY + DH - 12 * S, 8, IM_COL32(0x8d, 0x9a, 0x8c, 255), "CLEAR");
+            P.TextR(InnerL + 608 * S, CY + DH - 12 * S, 8, IM_COL32(0x8d, 0x9a, 0x8c, 255), "OVERCAST");
+            P.Text(InnerL + 32 * S, CY + 19 * S - 8.0f, 8, IM_COL32(0x8d, 0x9a, 0x8c, 255), "DENSER \xE2\x86\x91");
+            CY += DH + 12.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Coverage", "55", "%", 0.55f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Density multiplier", "1.00", "\xC3\x97", 0.25f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        Y += 380 + 12.0f;
+        Y = NextButton(Y, "Formation & altitude   \xE2\x86\x97") + 12.0f;
+    }
+    else if (Pane == 1)
+    {
+        // Layer anatomy (03 / PROFILE)
+        float CY = CardBox(Y, 810, "Layer anatomy", "03 / PROFILE");
+        CY = SelectRow(CY, "Formation", "Cumulus") + 12.0f;
+        {
+            const float DW = InnerR - InnerL, DH = DW * 330.0f / 640.0f, S = DW / 640.0f;
+            auto Profile = [](double H) {
+                if (H <= 0 || H >= 1) return 0.0;
+                double V = std::min(1.0, H * 8) * std::min(1.0, (1 - H) * 3);
+                return V;
+            };
+            const char* Km[] = {"2.7", "2.4", "2.1", "1.8", "1.5"};
+            for (int I = 0; I < 5; ++I)
+            {
+                const float GY = CY + (40 + I * 58) * S;
+                P.Ink->AddLine(ImVec2(InnerL + 65 * S, GY), ImVec2(InnerL + 575 * S, GY), IM_COL32(0xd3, 0xdf, 0xc2, 0x21), 1.0f);
+                P.TextR(InnerL + 49 * S, GY - 4.0f, 8, IM_COL32(0x96, 0xa1, 0x8f, 255), Km[I]);
+            }
+            ImVec2 Prev(0, 0);
+            for (int I = 0; I <= 64; ++I)
+            {
+                const ImVec2 Pt(InnerL + (100 + (float)Profile(1 - I / 64.0) * 340) * S, CY + (40 + I / 64.0f * 232) * S);
+                if (I) P.Ink->AddLine(Prev, Pt, IM_COL32(0xd4, 0xe5, 0xa8, 255), 1.5f);
+                Prev = Pt;
+            }
+            P.Ink->AddLine(ImVec2(InnerL + 100 * S, CY + 40 * S), ImVec2(InnerL + 100 * S, CY + 272 * S), IM_COL32(0xd4, 0xe5, 0xa8, 0x3c), 1.0f);
+            P.Text(InnerL + 103 * S, CY + DH - 20 * S, 8, IM_COL32(0x96, 0xa1, 0x8f, 255), "NORMALISED DENSITY PROFILE");
+            P.TextR(InnerL + 600 * S, CY + 30 * S - 8.0f, 8, Accent, "WORLD Z / km");
+            CY += DH + 12.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Base altitude", "1500", "m", 0.070f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Layer thickness", "1200", "m", 0.186f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Ceiling limit", "14000", "m", 0.625f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Feature scale", "1.00", "\xC3\x97", 0.286f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Anvil shaping", "50", "%", 0.50f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Edge erosion", "30", "%", 0.30f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 13.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Altitude is world Z, not height above terrain. Profile is a density envelope, not a lit render.", InnerR - InnerL);
+        Y += 810 + 12.0f;
+        // .co-disclosure (closed in HTML: only the summary shows)
+        P.Text(InnerL + 4.0f, Y + 12.0f, 10, IM_COL32(0xac, 0xb9, 0x9b, 255), "Layer stack editor \xE2\x86\x97");
+        Y += 36 + 12.0f;
+        // Light response (04 / SCATTER)
+        CY = CardBox(Y, 385, "Light response", "04 / SCATTER");
+        CY = P.Slider(InnerL, InnerR, CY, "Forward scattering", "0.35", "g", 0.719f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Light absorption", "15", "%", 0.15f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Powder response", "45", "%", 0.45f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Sun-shadow taps", "2", "taps", 0.50f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        Y += 385 + 12.0f;
+    }
+    else if (Pane == 2)
+    {
+        // Render footprint (05 / BUDGET)
+        float CY = CardBox(Y, 610, "Render footprint", "05 / BUDGET");
+        {
+            const float KW = (InnerR - InnerL - 12.0f) * 0.5f;
+            P.Text(InnerL, CY, 9, IM_COL32(0x92, 0x9b, 0x8b, 255), "Full-frame pixel share");
+            P.Text(InnerL + KW + 12.0f, CY, 9, IM_COL32(0x92, 0x9b, 0x8b, 255), "Complete layer ray");
+            CY += 5.0f;
+            P.Text(InnerL, CY, 36, InkMain, "12.3");
+            P.Text(InnerL + P.Width(36, "12.3") + 4.0f, CY + 18.0f, 10, IM_COL32(0x90, 0x99, 0x85, 255), "%");
+            P.Text(InnerL + KW + 12.0f, CY, 36, InkMain, "12");
+            P.Text(InnerL + KW + 12.0f + P.Width(36, "12") + 4.0f, CY + 18.0f, 10, IM_COL32(0x90, 0x99, 0x85, 255), "samples");
+            CY += 36.0f + 20.0f;
+        }
+        {
+            P.Rect(InnerL, CY, InnerR, CY + 135, IM_COL32(0x15, 0x1a, 0x13, 255), 12);
+            P.RectLine(InnerL, CY, InnerR, CY + 135, IM_COL32(0xd5, 0xe6, 0xa5, 0x22), 12);
+            for (float G = 16.0f; G < (InnerR - InnerL); G += 16.0f) P.Ink->AddLine(ImVec2(InnerL + G, CY), ImVec2(InnerL + G, CY + 135), IM_COL32(0xd5, 0xe6, 0xa5, 0x0a), 1.0f);
+            for (float G = 16.0f; G < 135.0f; G += 16.0f) P.Ink->AddLine(ImVec2(InnerL, CY + G), ImVec2(InnerR, CY + G), IM_COL32(0xd5, 0xe6, 0xa5, 0x0a), 1.0f);
+            const float IW = (InnerR - InnerL) * 0.35f, IH = 135.0f * 0.35f;
+            P.Rect(InnerL, CY + 135 - IH, InnerL + IW, CY + 135, IM_COL32(0xd5, 0xe6, 0xa5, 0x1a), 9);
+            P.RectLine(InnerL, CY + 135 - IH, InnerL + IW, CY + 135, IM_COL32(0xd5, 0xe6, 0xa5, 0x8c), 9);
+            P.TextC(InnerL + IW * 0.5f, CY + 135 - IH * 0.5f - 4.0f, 9, Accent, "35% / axis");
+            CY += 135 + 15.0f;
+        }
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "672 \xC3\x97 378 cloud target \xC2\xB7 depth-aware reconstruction. Every target pixel traces each frame.", InnerR - InnerL) + 7.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Cloud resolution", "35", "% / axis", 0.133f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Sky base samples", "12", "samples", 0.071f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Local base samples", "16", "samples", 0.143f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 13.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Thickness-aware sky rays use up to 96 samples. Pixel share is calculated from resolution, not a performance prediction. No temporal cloud history or lighting cache.", InnerR - InnerL);
+        Y += 610 + 12.0f;
+        // Ground shadow field (06 / OCCLUSION)
+        CY = CardBox(Y, 470, "Ground shadow field", "06 / OCCLUSION");
+        CY = ToggleRow(CY, "Cloud shadows", true) + 12.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Shadow strength", "65", "%", 0.65f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Shadow softness", "35", "m", 0.175f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Field span", "6000", "m", 0.333f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Shadow samples", "6", "/ medium", 0.25f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 13.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "128 \xC3\x97 128 projected field \xC2\xB7 inactive \xC2\xB7 wind updates at most 8 Hz. Direct sunlight only.", InnerR - InnerL);
+        Y += 470 + 12.0f;
+    }
+    else
+    {
+        // Connected atmosphere (07 / FORCEFIELD)
+        float CY = CardBox(Y, 270, "Connected atmosphere", "07 / FORCEFIELD");
+        CY = ToggleRow(CY, "Follow shared wind", true) + 12.0f;
+        CY = NextButton(CY, "Open Wind ForceField   \xE2\x86\x97") + 12.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Wind is shared with precipitation and local media. This layer keeps its own follow switch.", InnerR - InnerL) + 7.0f;
+        CY = NextButton(CY, "Place a local cloud   \xE2\x86\x97") + 12.0f;
+        Y += 270 + 12.0f;
+        // Lightning & thunder (BuildLightningControls, seeded at rest, both off)
+        CY = CardBox(Y, 1130, "Lightning & thunder", "");
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Opt-in weather effect \xC2\xB7 bright flashes. Cloud-spanning illumination and branching particle channels; exposure and sun settings are unchanged.", InnerR - InnerL) + 7.0f;
+        CY = ToggleRow(CY, "Lightning", false) + 12.0f;
+        CY = ToggleRow(CY, "Automatic strikes", false) + 12.0f;
+        CY = SelectRow(CY, "Discharge", "Cloud \xE2\x86\x92 ground") + 12.0f;
+        CY = SelectRow(CY, "Cloud source", "Auto \xC2\xB7 global, or local if no global") + 12.0f;
+        CY = NextButton(CY, "Strike ahead") + 12.0f;
+        CY = NextButton(CY, "Enable thunder sound") + 12.0f;
+        CY = NextButton(CY, "Author lightning in Particle Editor") + 12.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Approx. strike distance", "1800", "m", 0.294f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Minimum interval", "6.0", "s", 0.069f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Maximum interval", "14.0", "s", 0.207f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Horizontal cloud channel span", "4200", "m", 0.396f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Bolt brightness", "1.00", "", 0.333f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Cloud flash strength", "1.00", "", 0.333f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Cloud flash radius", "1800", "m", 0.276f, 11.0f, IM_COL32(0xa2, 0xac, 0x99, 255)) + 13.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "0 strikes \xC2\xB7 0 active ribbon segments \xC2\xB7 thunder \xE2\x89\x88 5.2 s at ground-level strike distance", InnerR - InnerL) + 7.0f;
+        CY = Wrap(InnerL, CY, 10, IM_COL32(0x8f, 0x9a, 0x88, 255), "Sound requires a click; distance determines delay, filtering and stereo position. In-cloud thunder uses 3D distance. No strike-impact sparks or guaranteed terrain attachment yet; ground endpoints use Z=0. Cloud scattering is a bounded approximation, not full multiple-scattering transport.", InnerR - InnerL);
+        Y += 1130 + 12.0f;
+    }
+    // .co-footer
+    P.Ink->AddLine(ImVec2(L, Y + 15.0f), ImVec2(R, Y + 15.0f), IM_COL32(0xff, 0xff, 0xff, 0x0a), 1.0f);
+    P.Text(L + 2.0f, Y + 20.0f, 8, IM_COL32(0x69, 0x77, 0x60, 255), "G P U  V O L U M E T R I C  F I E L D");
+    P.TextR(R - 2.0f, Y + 20.0f, 8, IM_COL32(0x69, 0x77, 0x60, 255), "Settings apply live \xE2\x86\x97");
+}
+
+// ---------------------------------------------------------------------------
+// The fog inspectors as the HTML builds them: BuildFogInspectorDashboard in
+// the fog-dashboard CSS family (FogDashboard.css), for both media — Height
+// fog (Visibility / Medium / Colour & sun) and Atmospheric fog (Visibility /
+// Medium / Spectrum). Seeded from EnvironmentDefaults: FogEnabled false,
+// density 0.002 /m, falloff 30 m, scatter 0.5, tint linear (0.52, 0.62, 0.69);
+// AerialEnabled true, density 4e-05 /m, clear start 100 m, Mie blend 0.5.
+// Readouts and diagrams use the HTML's own FogPathTransmission law.
+// ---------------------------------------------------------------------------
+void DrawFogDashboard(int Pane = 0, bool Aerial = false)
 {
     PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
     P.Rect(0, 0, 380, 5000, IM_COL32(0x15, 0x17, 0x15, 255), 0);
     P.TopBar("Environment");
-    const ImU32 InkMain = IM_COL32(0xc9, 0xd8, 0xcf, 255), Muted = IM_COL32(0x8c, 0x9f, 0x95, 255);
-    const float L = 18.0f, R = 362.0f;
+    const ImU32 InkMain = IM_COL32(0xc9, 0xd8, 0xcf, 255), Muted = IM_COL32(0x8c, 0x9f, 0x95, 255),
+                LabelInk = IM_COL32(0xb4, 0xc5, 0xb9, 255);
+    const float L = 18.0f, R = 362.0f, InnerL = L + 20.0f, InnerR = R - 20.0f;
+    const double Range = Aerial ? 20000.0 : 500.0, ProbeDistance = Aerial ? 8000.0 : 200.0;
+    auto Wrap = [&](float X, float Y, float Size, ImU32 Colour, const std::string& Value, float MaxW) {
+        std::string Line, Word;
+        auto Flush = [&]() { if (!Line.empty()) { P.Text(X, Y, Size, Colour, Line); Y += Size + 6.0f; Line.clear(); } };
+        for (size_t I = 0; I <= Value.size(); ++I)
+        {
+            if (I == Value.size() || Value[I] == ' ') { if (!Word.empty()) { if (!Line.empty() && P.Width(Size, Line + " " + Word) > MaxW) Flush(); Line = Line.empty() ? Word : Line + " " + Word; Word.clear(); } }
+            else Word += Value[I];
+        }
+        Flush(); return Y;
+    };
+    auto Section = [&](float Y, float Height, const char* Name, const char* Caption) {
+        P.Rect(L, Y, R, Y + Height, Aerial ? IM_COL32(0x1e, 0x24, 0x25, 255) : IM_COL32(0x1c, 0x20, 0x1e, 255), 22);
+        P.RectLine(L, Y, R, Y + Height, IM_COL32(0xaa, 0xc4, 0xb6, 0x1a), 22);
+        P.Text(InnerL, Y + 20.0f, 17, InkMain, Name);
+        P.Text(InnerL, Y + 47.0f, 9, Muted, Caption);
+        return Y + 20.0f + 20.0f + 7.0f + 9.0f + 12.0f;
+    };
+    // FogPathTransmission (neutral contrast + per-band) on the seeded settings.
+    auto BandTransmission = [&](double Distance, int Band) {
+        const double Bands[3] = {0.45, 0.70, 1.0};
+        if (!Aerial)
+        {
+            const double OD = 0.002 * Distance * std::exp(-2.0 / 30.0);
+            return std::exp(-OD * OD);
+        }
+        const double AerialOD = 0.00004 * std::max(0.0, Distance - 100.0);
+        return std::exp(-(Bands[Band] * (1 - 0.5) + 0.5) * AerialOD);
+    };
+    auto Neutral = [&](double Distance) {
+        return BandTransmission(Distance, 0) * 0.2126 + BandTransmission(Distance, 1) * 0.7152 + BandTransmission(Distance, 2) * 0.0722;
+    };
     float Y = 44.0f + 10.0f;
     // .fg-header
     P.Text(L + 4, Y, 9, Muted, "E N V I R O N M E N T  /  G E O M E T R Y  M E D I A");
     Y += 12.0f + 8.0f;
-    P.Text(L + 4, Y, 30, InkMain, "Height fog");
+    P.Text(L + 4, Y, 30, InkMain, Aerial ? "Atmospheric fog" : "Height fog");
     {
-        const std::string Label = "Off";
-        const float PW = P.Width(11, Label) + 42.0f;
-        const float PY = 44.0f + 45.0f;
+        const bool On = Aerial;
+        const std::string Label = On ? "On" : "Off";
+        const float PW = P.Width(11, Label) + 42.0f, PY = 44.0f + 45.0f;
         P.Rect(R - PW, PY, R, PY + 30, IM_COL32(0x28, 0x28, 0x28, 255), 24);
         P.RectLine(R - PW, PY, R, PY + 30, IM_COL32(0x3e, 0x3e, 0x3e, 255), 24);
-        P.Ink->AddCircle(ImVec2(R - PW + 15.0f, PY + 15.0f), 3.5f, IM_COL32(0xd4, 0xe0, 0xd4, 255), 12, 1.2f);
+        if (On) P.Ink->AddCircleFilled(ImVec2(R - PW + 15.0f, PY + 15.0f), 3.5f, IM_COL32(0xd4, 0xe0, 0xd4, 255));
+        else P.Ink->AddCircle(ImVec2(R - PW + 15.0f, PY + 15.0f), 3.5f, IM_COL32(0xd4, 0xe0, 0xd4, 255), 12, 1.2f);
         P.Text(R - PW + 25.0f, PY + 9, 11, IM_COL32(0xd4, 0xe0, 0xd4, 255), Label);
     }
     Y += 38.0f + 8.0f;
-    P.Text(L + 4, Y, 12, IM_COL32(0x91, 0xa3, 0x98, 255), "A low-lying medium. A measurable loss of contrast.");
+    P.Text(L + 4, Y, 12, IM_COL32(0x91, 0xa3, 0x98, 255), Aerial ? "Distance, a clear start, then spectral extinction." : "A low-lying medium. A measurable loss of contrast.");
     Y += 19.0f + 22.0f;
-    // InspectorCategories: Visibility / Medium / Colour & sun
     {
-        const char* Tabs[] = {"Visibility", "Medium", "Colour & sun"};
-        Y = P.Tabs(L, R, Y, Tabs, 3, IM_COL32(0x34, 0x3d, 0x46, 255), IM_COL32(0xe1, 0xea, 0xf4, 255)) + 14.0f;
+        const char* HeightTabs[] = {"Visibility", "Medium", "Colour & sun"};
+        const char* AerialTabs[] = {"Visibility", "Medium", "Spectrum"};
+        Y = P.TabsAt(L, R, Y, Aerial ? AerialTabs : HeightTabs, 3, Pane, IM_COL32(0x34, 0x3d, 0x46, 255), IM_COL32(0xe1, 0xea, 0xf4, 255), IM_COL32(0x91, 0xa0, 0xad, 255)) + 14.0f;
     }
-    // A walk into the fog (.fg-transect section)
+    if (Pane == 0)
     {
-        const float CardY = Y, InnerL = L + 20.0f, InnerR = R - 20.0f;
-        float CY = CardY + 20.0f;
-        P.Rect(L, CardY, R, CardY + 650, IM_COL32(0x1c, 0x20, 0x1e, 255), 22);
-        P.RectLine(L, CardY, R, CardY + 650, IM_COL32(0xaa, 0xc4, 0xb6, 0x1a), 22);
-        P.Text(InnerL, CY, 17, InkMain, "A walk into the fog");
-        CY += 20.0f + 7.0f;
-        P.Text(InnerL, CY, 9, Muted, "N E U T R A L  C O N T R A S T  T A R G E T S");
-        CY += 9.0f + 12.0f + 20.0f;
-        // .fg-readout (HTML law: OD = 0.002*200*exp(-2/30) = 0.374; retained = exp(-OD^2) = 86.9%)
-        P.Text(InnerL, CY, 52, InkMain, "86.9");
-        P.Text(InnerL + P.Width(52, "86.9") + 12.0f, CY + 8, 11, Muted, "% contrast");
-        P.Text(InnerL + P.Width(52, "86.9") + 12.0f, CY + 24, 11, Muted, "retained");
+        // A walk into the fog (.fg-transect)
+        float CY = Section(Y, 655, "A walk into the fog", "N E U T R A L  C O N T R A S T  T A R G E T S");
+        CY += 20.0f;
+        {
+            char Buf[16];
+            std::snprintf(Buf, sizeof(Buf), "%.1f", Neutral(ProbeDistance) * 100.0);
+            P.Text(InnerL, CY, 52, InkMain, Buf);
+            const float VX = InnerL + P.Width(52, Buf) + 12.0f;
+            P.Text(VX, CY + 8, 11, Muted, "% contrast");
+            P.Text(VX, CY + 24, 11, Muted, "retained");
+        }
         CY += 52.0f + 12.0f;
-        // Transect diagram 640x425: six neutral targets fading with distance
         {
             const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 425.0f * Scale;
-            auto Transmit = [](double Distance) {
-                const double OD = 0.002 * Distance * std::exp(-2.0 / 30.0);
-                return std::exp(-OD * OD);
+            auto Component = [&](double Linear, double Distance, int Band) {
+                const double T = BandTransmission(Distance, Band);
+                return (int)std::lround(std::pow(Linear * T + 0.16 * (1.0 - T), 1.0 / 2.2) * 255.0);
             };
             const ImVec2 A(InnerL + 45.0f * Scale, CY + 350.0f * Scale), B(InnerL + 305.0f * Scale, CY + 110.0f * Scale), Cc(InnerL + 590.0f * Scale, CY + 350.0f * Scale);
             P.Ink->AddLine(A, B, IM_COL32(0xb1, 0xc7, 0xc3, 0x28), 1.0f);
@@ -1691,39 +2027,163 @@ void DrawFogDashboard()
             P.Ink->AddLine(ImVec2(InnerL + 40.0f * Scale, CY + 350.0f * Scale), ImVec2(InnerL + 600.0f * Scale, CY + 350.0f * Scale), IM_COL32(0xb1, 0xc7, 0xc3, 0x36), 1.0f);
             for (int I = 5; I >= 0; --I)
             {
-                const double Distance = 500.0 * I / 5.0, T = Transmit(Distance);
+                const double Distance = Range * I / 5.0;
                 const float Sc = 1.0f / (1.0f + I * 0.38f), Wd = 90.0f * Sc * Scale, Ht = 145.0f * Sc * Scale;
                 const float CX = InnerL + (100.0f + I * 90.0f) * Scale, CYB = CY + (315.0f - I * 28.0f) * Scale;
-                auto Chan = [&](double Linear) {
-                    const int V = (int)std::lround(std::pow(Linear * T + 0.16 * (1.0 - T), 1.0 / 2.2) * 255.0);
-                    return IM_COL32(V, V, V, 255);
-                };
+                const ImU32 Dark = IM_COL32(Component(0.08, Distance, 0), Component(0.08, Distance, 1), Component(0.08, Distance, 2), 255);
+                const ImU32 Light = IM_COL32(Component(0.8, Distance, 0), Component(0.8, Distance, 1), Component(0.8, Distance, 2), 255);
                 P.Rect(CX - Wd / 2 - 4, CYB - Ht - 4, CX + Wd / 2 + 4, CYB + 4, IM_COL32(0x13, 0x1b, 0x1c, 255), 7);
-                P.Rect(CX - Wd / 2, CYB - Ht, CX + Wd / 2, CYB, Chan(0.08), 3);
-                P.Rect(CX - Wd / 2, CYB - Ht, CX, CYB, Chan(0.8), 3);
+                P.Rect(CX - Wd / 2, CYB - Ht, CX + Wd / 2, CYB, Dark, 3);
+                P.Rect(CX - Wd / 2, CYB - Ht, CX, CYB, Light, 3);
                 char Buf[16];
                 if (Distance >= 1000) std::snprintf(Buf, sizeof(Buf), "%.1f km", Distance / 1000);
                 else std::snprintf(Buf, sizeof(Buf), "%.0f m", Distance);
                 P.TextC(CX, CYB + 23.0f * Scale, 8, IM_COL32(0xa8, 0xbb, 0xb7, 255), Buf);
             }
-            const float PX = InnerL + (45.0f + 200.0f / 500.0f * 550.0f) * Scale;
+            const float PX = InnerL + (45.0f + ProbeDistance / Range * 550.0f) * Scale;
             P.Ink->AddLine(ImVec2(InnerL + 45.0f * Scale, CY + 390.0f * Scale), ImVec2(InnerL + 595.0f * Scale, CY + 390.0f * Scale), IM_COL32(0xb4, 0xcf, 0xca, 0x44), 2.0f);
             P.Ink->AddCircleFilled(ImVec2(PX, CY + 390.0f * Scale), 5.0f, IM_COL32(0xd5, 0xe4, 0xdc, 255));
             P.Text(InnerL + 45.0f * Scale, CY + 36.0f * Scale - 8.0f, 9, IM_COL32(0x94, 0xaa, 0xa4, 255), "NEAR / CLEAR");
             P.TextR(InnerL + 595.0f * Scale, CY + 36.0f * Scale - 8.0f, 9, IM_COL32(0x94, 0xaa, 0xa4, 255), "FAR / ATTENUATED");
             CY += DH + 20.0f;
         }
-        CY = P.Slider(InnerL, InnerR, CY, "Probe distance", "200", "m", 200.0f / 500.0f, 18.0f, IM_COL32(0xb4, 0xc5, 0xb9, 255)) + 17.0f;
-        CY = P.Slider(InnerL, InnerR, CY, "Probe height", "2", "m", 2.0f / 1000.0f, 18.0f, IM_COL32(0xb4, 0xc5, 0xb9, 255)) + 16.0f;
-        P.Text(InnerL, CY, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "Fixed neutral targets under fixed reference light, not a");
-        P.Text(InnerL, CY + 19, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "scene render. Horizontal paths use the renderer's");
-        P.Text(InnerL, CY + 38, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "extinction law at the chosen world height. Probe edits");
-        P.Text(InnerL, CY + 57, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "do not change the scene.");
-        Y = CardY + 650 + 14.0f;
+        {
+            char Buf[24];
+            std::snprintf(Buf, sizeof(Buf), "%.0f", ProbeDistance);
+            CY = P.Slider(InnerL, InnerR, CY, "Probe distance", Buf, "m", (float)(ProbeDistance / Range), 11.0f, LabelInk) + 17.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Probe height", "2", "m", 2.0f / 1000.0f, 11.0f, LabelInk) + 16.0f;
+        CY = Wrap(InnerL, CY, 11, Muted, "Fixed neutral targets under fixed reference light, not a scene render. Horizontal paths use the renderer's extinction law at the chosen world height. Probe edits do not change the scene.", InnerR - InnerL);
+        Y += 655 + 14.0f;
+        P.Text(L + 9, Y, 11, IM_COL32(0xb3, 0xc3, 0xb7, 255), Aerial ? "Scene medium enabled \xC2\xB7 affects geometry in Final image view, not the sky." : "Scene medium is off \xC2\xB7 the diagnostic still shows its configured extinction.");
     }
-    P.Text(L + 9, Y, 11, IM_COL32(0xb3, 0xc3, 0xb7, 255), "Scene medium is off \xC2\xB7 the diagnostic still shows its configured extinction.");
+    else if (Pane == 1 && !Aerial)
+    {
+        // Density terraces (.fg-terraces)
+        float CY = Section(Y, 590, "Density terraces", "W O R L D  H E I G H T  /  R E L A T I V E  D E N S I T Y");
+        {
+            const float DW = InnerR - InnerL, S = DW / 640.0f, DH = 455.0f * S;
+            const double Top = 200.0;   // max(200, falloff 30 * 6)
+            for (int I = 7; I >= 0; --I)
+            {
+                const double Z = I / 7.0 * Top, Rho = std::exp(-Z / 30.0);
+                const float TY = CY + (380 - I * 43) * S, Left = InnerL + 110 * S, Wd = (float)(310.0 * Rho) * S;
+                P.Ink->AddLine(ImVec2(Left, TY), ImVec2(Left + 310 * S, TY), IM_COL32(0xa8, 0xc8, 0xbe, 0x21), 1.0f);
+                P.Ink->AddLine(ImVec2(Left + 310 * S, TY), ImVec2(Left + 345 * S, TY - 17 * S), IM_COL32(0xa8, 0xc8, 0xbe, 0x21), 1.0f);
+                P.Ink->AddLine(ImVec2(Left + 345 * S, TY - 17 * S), ImVec2(Left + 35 * S, TY - 17 * S), IM_COL32(0xa8, 0xc8, 0xbe, 0x21), 1.0f);
+                P.Ink->AddLine(ImVec2(Left + 35 * S, TY - 17 * S), ImVec2(Left, TY), IM_COL32(0xa8, 0xc8, 0xbe, 0x21), 1.0f);
+                if (Wd > 0.2f)
+                    P.Ink->AddQuadFilled(ImVec2(Left, TY), ImVec2(Left + Wd, TY), ImVec2(Left + Wd + 35 * S, TY - 17 * S), ImVec2(Left + 35 * S, TY - 17 * S),
+                                         IM_COL32(0xa4, 0xc6, 0xb6, (int)(255 * (0.14 + Rho * 0.5))));
+                char Buf[24];
+                std::snprintf(Buf, sizeof(Buf), "%.0f m", Z);
+                P.TextR(InnerL + 78 * S, TY - 2 * S - 4.0f, 9, IM_COL32(0x92, 0xaa, 0xa0, 255), Buf);
+                std::snprintf(Buf, sizeof(Buf), "%.1f%%", Rho * 100.0);
+                P.TextR(InnerL + 590 * S, TY - 2 * S - 4.0f, 9, IM_COL32(0xbd, 0xd1, 0xc4, 255), Buf);
+            }
+            P.Text(InnerL + 110 * S, CY + DH - 20 * S, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "SEA LEVEL \xE2\x86\x92 UPPER MEDIUM");
+            CY += DH + 20.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Fog density", "0.002", "/m", 0.04f, 11.0f, LabelInk) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Falloff height", "30", "m", 29.0f / 499.0f, 11.0f, LabelInk) + 16.0f;
+        CY = Wrap(InnerL, CY, 11, Muted, "Each terrace is a world altitude. Filled width is exp(\xE2\x88\x92height / falloff height), relative to sea level. The altitude range adapts to the falloff setting; density remains the sea-level coefficient.", InnerR - InnerL);
+        Y += 590 + 14.0f;
+    }
+    else if (Pane == 1 && Aerial)
+    {
+        // The clear interval (.fg-distance-gate)
+        float CY = Section(Y, 360, "The clear interval", "D I S T A N C E  G A T E");
+        {
+            const float DW = InnerR - InnerL, S = DW / 640.0f, DH = 265.0f * S;
+            const float PX = InnerL + (48 + 100.0f / 2000 * 544) * S;
+            P.Rect(InnerL + 48 * S, CY + 40 * S, PX, CY + 185 * S, IM_COL32(0xa8, 0xc8, 0xbe, 0x0c), 8);
+            P.Ink->AddLine(ImVec2(InnerL + 48 * S, CY + 185 * S), ImVec2(InnerL + 592 * S, CY + 185 * S), IM_COL32(0xa8, 0xc8, 0xbe, 0x55), 1.0f);
+            for (float DY = CY + 30 * S; DY < CY + 195 * S; DY += 12.0f) P.Ink->AddLine(ImVec2(PX, DY), ImVec2(PX, DY + 6.0f), IM_COL32(0xd8, 0xe1, 0xbb, 255), 1.5f);
+            P.Ink->AddCircleFilled(ImVec2(PX, CY + 30 * S), 4.0f, IM_COL32(0xd8, 0xe1, 0xbb, 255));
+            ImVec2 Prev(0, 0);
+            for (int I = 0; I <= 80; ++I)
+            {
+                const double D = I / 80.0 * 2000.0;
+                const ImVec2 Pt(InnerL + (48 + I / 80.0f * 544) * S, CY + (175 - 120 * (1 - std::exp(-0.00004 * std::max(0.0, D - 100.0)))) * S);
+                if (I) P.Ink->AddLine(Prev, Pt, IM_COL32(0xb4, 0xd1, 0xcd, 255), 1.5f);
+                Prev = Pt;
+            }
+            P.Text(InnerL + 48 * S, CY + DH - 40 * S, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "0 m");
+            P.TextR(InnerL + 592 * S, CY + DH - 40 * S, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "2,000 m");
+            P.TextC(InnerL + 320 * S, CY + DH - 4 * S - 8.0f, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "NO EXTINCTION BEFORE THE START");
+            CY += DH + 20.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Aerial density", "0.00004", "/m", 0.04f, 11.0f, LabelInk) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Clear start distance", "100", "m", 0.05f, 11.0f, LabelInk) + 16.0f;
+        CY = Wrap(InnerL, CY, 11, Muted, "The clear interval is distance from the camera, not world altitude. The schematic curves grey-reference attenuation; channel-specific transmission is in Spectrum.", InnerR - InnerL);
+        Y += 360 + 14.0f;
+    }
+    else if (!Aerial)
+    {
+        // In-scattered colour (.fg-colour) + Facing the Sun (.fg-forward)
+        float CY = Section(Y, 215, "In-scattered colour", "L I N E A R  R G B  S O U R C E");
+        {
+            P.Rect(InnerL, CY + 10.0f, InnerR, CY + 60.0f, IM_COL32(0x13, 0x1b, 0x18, 255), 24);
+            P.RectLine(InnerL, CY + 10.0f, InnerR, CY + 60.0f, IM_COL32(0xa8, 0xc1, 0xb8, 0x25), 24);
+            P.Rect(InnerL + 7.0f, CY + 17.0f, InnerL + 72.0f, CY + 53.0f, IM_COL32(0xbd, 0xcd, 0xd7, 255), 20);
+            P.Text(InnerL + 84.0f, CY + 29.0f, 12, InkMain, "Fog tint");
+            P.TextR(InnerR - 17.0f, CY + 30.0f, 11, IM_COL32(0x92, 0xa5, 0x98, 255), "#BDCDD7");
+            CY += 60.0f + 16.0f;
+        }
+        CY = Wrap(InnerL, CY, 11, Muted, "Picker values are sRGB-encoded; the renderer stores linear RGB. This is the tint of in-scattered light, not a change to transmission.", InnerR - InnerL);
+        Y += 215 + 14.0f;
+        CY = Section(Y, 400, "Facing the Sun", "F O R W A R D  W E I G H T  /  c o s");
+        P.Text(InnerL + P.Width(9, "F O R W A R D  W E I G H T  /  c o s"), Y + 47.0f - 3.0f, 7, Muted, "8");
+        {
+            const float DW = InnerR - InnerL, S = DW / 640.0f, DH = 260.0f * S;
+            P.Ink->AddLine(ImVec2(InnerL + 45 * S, CY + 195 * S), ImVec2(InnerL + 595 * S, CY + 195 * S), IM_COL32(0xa8, 0xc8, 0xbe, 0x33), 1.0f);
+            for (int I = 0; I <= 60; ++I)
+            {
+                const double Angle = (-90 + I * 3) * 3.14159265 / 180.0, V = std::pow(std::max(0.0, std::cos(Angle)), 8) * 0.5;
+                if (V <= 0) continue;
+                P.Rect(InnerL + (45 + I * 9) * S, CY + (195 - (float)V * 150) * S, InnerL + (50 + I * 9) * S, CY + 195 * S, IM_COL32(0xcf, 0xda, 0xb2, 0x9c), 2);
+            }
+            P.Text(InnerL + 45 * S, CY + DH - 25 * S, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "\xE2\x88\x92" "90\xC2\xB0");
+            P.TextC(InnerL + 320 * S, CY + DH - 25 * S, 9, IM_COL32(0xb8, 0xc8, 0xad, 255), "TOWARD SUN");
+            P.TextR(InnerL + 595 * S, CY + DH - 25 * S, 9, IM_COL32(0x8b, 0xa3, 0x96, 255), "+90\xC2\xB0");
+            CY += DH + 20.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Sun scatter", "0.50", "", 0.50f, 11.0f, LabelInk) + 16.0f;
+        CY = Wrap(InnerL, CY, 11, Muted, "The exact directional weight is max(0, cos(angle))8 \xC3\x97 Sun scatter. Scene lighting multiplies this contribution; it is not a radiance measurement and does not change extinction.", InnerR - InnerL);
+        Y += 400 + 14.0f;
+    }
+    else
+    {
+        // Three spectral shutters (.fg-shutters)
+        float CY = Section(Y, 480, "Three spectral shutters", "R G B  T R A N S M I S S I O N");
+        {
+            const float DW = InnerR - InnerL, S = DW / 640.0f, DH = 340.0f * S;
+            const ImU32 Colours[3] = {IM_COL32(0xc9, 0xa3, 0x97, 255), IM_COL32(0xb9, 0xcc, 0xa1, 255), IM_COL32(0xa6, 0xc7, 0xd3, 255)};
+            const char* Names[] = {"RED", "GREEN", "BLUE"};
+            for (int I = 0; I < 3; ++I)
+            {
+                const float Left = InnerL + (65 + I * 190) * S, V = (float)BandTransmission(ProbeDistance, I);
+                P.Rect(Left, CY + 40 * S, Left + 130 * S, CY + 245 * S, IM_COL32(0x10, 0x16, 0x17, 255), 15);
+                for (int J = 0; J < 12; ++J)
+                {
+                    const float SY = CY + (48 + J * 16) * S;
+                    P.Rect(Left + 8 * S, SY, Left + 122 * S, SY + 10 * S, IM_COL32(0xff, 0xff, 0xff, 0x08), 3);
+                    const float Fill = std::min(1.0f, std::max(0.0f, V * 12 - J));
+                    if (Fill > 0) P.Rect(Left + 8 * S, SY, Left + (8 + 114 * Fill) * S, SY + 10 * S, Colours[I], 3);
+                }
+                char Buf[16];
+                std::snprintf(Buf, sizeof(Buf), "%.1f%%", V * 100.0f);
+                P.TextC(Left + 65 * S, CY + 285 * S - 12.0f, 14, Colours[I], Buf);
+                P.TextC(Left + 65 * S, CY + 325 * S - 8.0f, 9, IM_COL32(0x8f, 0xa7, 0x9d, 255), Names[I]);
+            }
+            CY += DH + 20.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Mie blend", "0.50", "", 0.50f, 11.0f, LabelInk) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Spectrum probe distance", "8000", "m", 0.40f, 11.0f, LabelInk) + 16.0f;
+        CY = Wrap(InnerL, CY, 11, Muted, "Spectral extinction blends RGB coefficients [0.45, 0.70, 1.00] toward equal grey extinction as Mie blend increases. These are the existing shader coefficients, not measured wavelengths.", InnerR - InnerL);
+        Y += 480 + 14.0f;
+    }
 }
-
 
 int main(int ArgumentCount, char** Arguments)
 {
@@ -1769,7 +2229,7 @@ int main(int ArgumentCount, char** Arguments)
     std::unique_ptr<RecordEntry> PageRecord;
     std::string PageName = "Render settings";
     const bool SunDashboard = Page == "sun";
-    const bool BespokeDashboard = SunDashboard || Page == "moon" || Page == "flare" || Page == "wind" || Page == "sun-daylight" || Page == "sun-light" || Page == "sun-disc" || Page == "fog";
+    const bool BespokeDashboard = SunDashboard || Page == "moon" || Page == "flare" || Page == "wind" || Page == "sun-daylight" || Page == "sun-light" || Page == "sun-disc" || Page == "fog" || Page == "fog-medium" || Page == "fog-colour" || Page == "aerial" || Page == "aerial-medium" || Page == "aerial-spectrum" || Page == "clouds" || Page == "clouds-shape" || Page == "clouds-render" || Page == "clouds-weather";
     if      (BespokeDashboard)   { /* bespoke dashboard draw; no generic record */ }
     else if (Page == "field")     { PageRecord = std::make_unique<FieldRecord>();        PageName = "BVH & distance field"; }
     else if (Page == "cards")     { PageRecord = std::make_unique<SurfaceCardsRecord>(); PageName = "Surface cache"; }
@@ -1811,7 +2271,16 @@ int main(int ArgumentCount, char** Arguments)
         else if (Page == "moon")  DrawMoonDashboard();
         else if (Page == "flare") DrawFlareDashboard();
         else if (Page == "wind")  DrawWindDashboard();
-        else if (Page == "fog")   DrawFogDashboard();
+        else if (Page == "fog")   DrawFogDashboard(0);
+        else if (Page == "fog-medium") DrawFogDashboard(1);
+        else if (Page == "fog-colour") DrawFogDashboard(2);
+        else if (Page == "aerial") DrawFogDashboard(0, true);
+        else if (Page == "aerial-medium") DrawFogDashboard(1, true);
+        else if (Page == "aerial-spectrum") DrawFogDashboard(2, true);
+        else if (Page == "clouds") DrawCloudDashboard(0);
+        else if (Page == "clouds-shape") DrawCloudDashboard(1);
+        else if (Page == "clouds-render") DrawCloudDashboard(2);
+        else if (Page == "clouds-weather") DrawCloudDashboard(3);
         else Inspector.ConstructInterface();
         ImGui::End();
         ImGui::Render();

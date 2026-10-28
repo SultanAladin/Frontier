@@ -58,7 +58,7 @@ Shipping; the Shipping binary carries zero `SceneDirectory` symbols (`nm`).
   `BuildRender` cards, 53 controls) in `Capture/inspector-render.png` and
   `Capture/inspector-render-full.png`; the generic `SceneRecord` page in
   `Capture/inspector-vehicle.png`. The harness takes a page argument
-  (`render|sun|moon|flare|wind|field|cards|particles|fog`) and renders the
+  (`render|sun|sun-daylight|sun-light|sun-disc|moon|flare|wind|fog|fog-medium|fog-colour|aerial|aerial-medium|aerial-spectrum|clouds|clouds-shape|clouds-render|clouds-weather|field|cards|particles|derez|fracture|training|cones|level|stress|diagnostics|clusters`) and renders the
   other HTML inspector pages the same way
   (`Capture/inspector-<page>.png`) — see `PARITY.md` for what the generic
   vocabulary does not yet draw (bespoke dashboard instruments).
