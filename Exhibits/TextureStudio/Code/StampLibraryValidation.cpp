@@ -29,7 +29,7 @@ int main()
 
     // Built-in presets: present, tintable, each with real art and real transparency.
     const auto Presets = StampLibrary::BuiltinPresets();
-    Check(Presets.size() == 15, "fifteen built-in presets", std::to_string(Presets.size()));
+    Check(Presets.size() == 24, "twenty-four built-in presets", std::to_string(Presets.size()));
     bool PresetsSane = true;
     for (const auto &Preset : Presets)
     {

@@ -124,7 +124,11 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
         // 📝 Unpainted construction contours evaluate no fill/stroke response.
         if (Instruction.Paint.w == 0 && Instruction.Transform.y <= 0) return 1e10;
         float Antialias = 512.0 / min(Projection.Width, Projection.Height);
-        float Knee = max(Instruction.Transform.y, 0) * .5 + Antialias * .5;
+        // 📝 Closed+filled contours read their independent outline width from Paint.x (mirror
+        // QueryVectorCoverageStrokeWidth in VectorCoverage.h); open lines read Transform.y. The knee
+        // must cover the wider band or cage rejects would cap Distance inside the outline's reach.
+        float StrokeWidth = Instruction.Paint.w != 0 ? Instruction.Paint.x : Instruction.Transform.y;
+        float Knee = max(StrokeWidth, 0) * .5 + Antialias * .5;
         float Winding = 0, Distance = 1e10;
         for (uint Curve = 0; Curve < Instruction.Topology.z; ++Curve)
         {
@@ -214,7 +218,10 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
             float2 Local = float2(Cosine * Translation.x + Sine * Translation.y, -Sine * Translation.x + Cosine * Translation.y);
             float Distance = ShapeDistance(Instruction, Local);
             float Fill = Instruction.Paint.w != 0 ? saturate(.5 - Distance / Antialias) : 0;
-            float Stroke = Instruction.Transform.y > 0 ? saturate(.5 - (abs(Distance) - Instruction.Transform.y * .5) / Antialias) : 0;
+            // 📝 Closed+filled cubic contours (category 6) read their independent outline width from
+            // Paint.x; everything else reads Transform.y (mirror QueryVectorCoverageStrokeWidth).
+            float StrokeWidth = (Category == 6 && Instruction.Paint.w != 0) ? Instruction.Paint.x : Instruction.Transform.y;
+            float Stroke = StrokeWidth > 0 ? saturate(.5 - (abs(Distance) - StrokeWidth * .5) / Antialias) : 0;
             // 📝 GradientAxis.xy/zw are the ramp's own two control points (see the struct field comment
             // above) in this same LocalNorm frame - linear projects LocalNorm onto that A->B segment;
             // radial reads xy as the centre and zw as a point on the circle's edge (so its distance from

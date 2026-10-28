@@ -105,6 +105,18 @@ struct VectorSelectionProgram
     // [idx] - Ordered coverage roots and authenticated source tokens, lowest to highest.
     std::vector<std::array<uint32_t, 2>> Candidates;
 };
+// 📝 The one stroke-width rule every consumer must agree on (the GPU shaders mirror it by hand in
+// VectorCoverage.slang/VectorSurface.slang): a cubic contour (category 6) that is currently
+// closed+filled reads its own independent outline width from Paint[0]; every other leaf - open
+// cubic lines included - reads Transform[1]. The two widths are authored independently so closing
+// a line into a shape (or reopening it) never inherits or overwrites the other state's thickness.
+// ⚠️ Reading Transform[1] unconditionally is what made closed-shape outlines render in CPU layer
+// thumbnails but vanish on the GPU canvas (text/pen shapes keep Transform[1] at 0).
+[[nodiscard]] inline float QueryVectorCoverageStrokeWidth(const VectorCoverageInstruction &Instruction) noexcept
+{
+    return Instruction.Topology[0] == uint32_t(VectorCoverageCategory::CubicContour) && Instruction.Paint[3] != 0
+        ? Instruction.Paint[0] : Instruction.Transform[1];
+}
 inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
 {
     if (Program.Instructions.empty() || Program.Instructions.size() > VectorCoverageInstructionCapacity || Program.Root >= Program.Instructions.size() || Program.Segments.size() > 32768)

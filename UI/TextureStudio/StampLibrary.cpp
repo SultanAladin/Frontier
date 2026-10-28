@@ -244,6 +244,93 @@ std::vector<StampLibraryEntry> StampLibrary::BuiltinPresets()
         const float Sector = std::fmod(std::atan2(Y, X) * 1.9098593f + 12.f, 2.f);
         return Disc * (Radius < 0.20f ? 1.f : (Sector < 1.f ? 1.f : 0.16f));
     })));
+    // Shield: flat top, sides sweeping to a bottom point
+    Presets.push_back(MakePreset("shield", "Shield", PolygonField({
+        {-0.55f, -0.78f}, {0.55f, -0.78f}, {0.55f, 0.0f}, {0.42f, 0.42f},
+        {0.f, 0.82f}, {-0.42f, 0.42f}, {-0.55f, 0.0f}})));
+    // Cog: eight-tooth gear (radial sector approximation) with a centre bore
+    Presets.push_back(MakePreset("cog", "Cog", EvaluateField([&](float X, float Y) {
+        const float Radius = Length2(X, Y);
+        const float Sector = std::fmod(std::atan2(Y, X) * 1.2732395f + 8.f, 1.f); // 8 teeth around 2pi
+        const float Outer = Sector < 0.5f ? 0.84f : 0.64f;
+        const float Body = Radius - Outer;
+        const float Bore = Radius - 0.26f;
+        return CoverageFromDistance(std::max(Body, -Bore) / PixelInField);
+    })));
+    // Droplet: round belly with straight tangents rising to a tip
+    {
+        std::vector<std::array<float, 2>> Drop{{0.f, -0.88f}};
+        for (int I = 0; I <= 40; ++I)
+        {
+            const float Angle = (-50.f + I * 7.f) * 0.0174533f; // -50deg .. 230deg, the long way under
+            Drop.push_back({std::cos(Angle) * 0.56f, 0.28f + std::sin(Angle) * 0.56f});
+        }
+        Presets.push_back(MakePreset("droplet", "Droplet", PolygonField(Drop)));
+    }
+    // Leaf: vesica (two-disc intersection) on the diagonal with a centre vein slit
+    Presets.push_back(MakePreset("leaf", "Leaf", EvaluateField([&](float X, float Y) {
+        const float Lens = std::max(Length2(X + 0.30f, Y + 0.30f) - 0.95f, Length2(X - 0.30f, Y - 0.30f) - 0.95f);
+        const float Vein = std::fabs(X + Y) * 0.7071068f - 0.018f;
+        return CoverageFromDistance(std::max(Lens, -Vein) / PixelInField);
+    })));
+    // Diamond: gem silhouette with a bright table, slanted crown facets and a split pavilion
+    Presets.push_back(MakePreset("diamond", "Diamond", EvaluateField([&](float X, float Y) {
+        static const std::vector<std::array<float, 2>> Gem{
+            {-0.45f, -0.55f}, {0.45f, -0.55f}, {0.80f, -0.10f}, {0.f, 0.75f}, {-0.80f, -0.10f}};
+        const float Edge = PolygonEdgeDistance(X, Y, Gem) / PixelInField;
+        const float Base = CoverageFromDistance(PointInPolygon(X, Y, Gem) ? -Edge : Edge);
+        float Facet = 1.f;
+        if (Y > -0.10f) Facet = std::fabs(X) < 0.30f * (0.75f - Y) / 0.85f ? 0.45f : 0.78f; // pavilion facets
+        else if (std::fabs(X) > 0.45f) Facet = 0.80f;                                       // crown slants
+        return Base * Facet;
+    })));
+    // Radiation trefoil: centre disc plus three 60-degree annular blades (top, lower left/right)
+    Presets.push_back(MakePreset("radiation", "Radiation", EvaluateField([&](float X, float Y) {
+        const float Radius = Length2(X, Y);
+        const float Angle = std::atan2(Y, X);
+        float Nearest = 1e9f;
+        for (float Centre : {-1.5707963f, 0.5235988f, 2.6179939f})
+        {
+            float Delta = std::fabs(Angle - Centre);
+            if (Delta > 3.1415927f) Delta = 6.2831853f - Delta;
+            Nearest = std::min(Nearest, Delta);
+        }
+        const float Band = std::max(Radius - 0.82f, 0.30f - Radius);
+        const float Blade = std::max(Band, (Nearest - 0.5235988f) * Radius);
+        return CoverageFromDistance(std::min(Radius - 0.18f, Blade) / PixelInField);
+    })));
+    // Target: alternating concentric bands around a solid bullseye
+    Presets.push_back(MakePreset("target", "Target", EvaluateField([&](float X, float Y) {
+        const float Radius = Length2(X, Y);
+        const float Disc = CoverageFromDistance((Radius - 0.82f) / PixelInField);
+        const int Band = int(Radius / 0.205f);
+        return Disc * (Band % 2 == 0 ? 1.f : 0.22f);
+    })));
+    // Chevrons: a bright rank chevron over a dimmer echo
+    {
+        auto Upper = PolygonField({{-0.72f, 0.0f}, {0.f, -0.72f}, {0.72f, 0.0f},
+            {0.72f, 0.22f}, {0.f, -0.50f}, {-0.72f, 0.22f}});
+        const auto Lower = PolygonField({{-0.72f, 0.50f}, {0.f, -0.22f}, {0.72f, 0.50f},
+            {0.72f, 0.72f}, {0.f, 0.0f}, {-0.72f, 0.72f}});
+        for (size_t I = 0; I < Upper.size(); ++I) Upper[I] = std::max(Upper[I], Lower[I] * 0.6f);
+        Presets.push_back(MakePreset("chevrons", "Chevrons", Upper));
+    }
+    // Snowflake: six-fold folded spokes with two branch pairs, joined by a centre disc
+    Presets.push_back(MakePreset("snowflake", "Snowflake", EvaluateField([&](float X, float Y) {
+        const auto Segment = [](float Px, float Py, float Ax, float Ay, float Bx, float By) {
+            const float Dx = Bx - Ax, Dy = By - Ay;
+            const float T = std::clamp(((Px - Ax) * Dx + (Py - Ay) * Dy) / (Dx * Dx + Dy * Dy), 0.f, 1.f);
+            return Length2(Px - (Ax + Dx * T), Py - (Ay + Dy * T));
+        };
+        const float Radius = Length2(X, Y);
+        const float Folded = std::fmod(std::atan2(Y, X) + 3.1415927f, 1.0471976f) - 0.5235988f;
+        const float LocalX = Radius * std::cos(Folded), LocalY = std::fabs(Radius * std::sin(Folded));
+        float Best = Segment(LocalX, LocalY, 0.06f, 0.f, 0.82f, 0.f) - 0.045f;
+        Best = std::min(Best, Segment(LocalX, LocalY, 0.44f, 0.f, 0.67f, 0.193f) - 0.035f);
+        Best = std::min(Best, Segment(LocalX, LocalY, 0.64f, 0.f, 0.78f, 0.116f) - 0.030f);
+        Best = std::min(Best, Radius - 0.11f);
+        return CoverageFromDistance(Best / PixelInField);
+    })));
     return Presets;
 }
 

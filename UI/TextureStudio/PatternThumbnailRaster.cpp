@@ -88,11 +88,9 @@ std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, flo
     }
     else
         Text += " fill=\"none\"";
-    // 📝 Only a category-6 cubic path (Pen/Polyline) can swing between an open line and a closed filled
-    // shape during its own lifetime, so only it reads Paint[0] - its own independent closed/filled outline
-    // width - while filled; every other category (and an unfilled/open path) keeps using Transform[1], the
-    // plain stroke width, exactly as before.
-    const float StrokeWidth = (Source.Topology[0] == 6 && Source.Paint[3] != 0) ? Source.Paint[0] : Source.Transform[1];
+    // 📝 Closed+filled cubic contours read their independent Paint[0] outline width - shared rule in
+    // Engine/Render/VectorCoverage.h (QueryVectorCoverageStrokeWidth), mirrored by the GPU shaders.
+    const float StrokeWidth = QueryVectorCoverageStrokeWidth(Source);
     if (StrokeWidth > 0)
     {
         const bool Explicit = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0;

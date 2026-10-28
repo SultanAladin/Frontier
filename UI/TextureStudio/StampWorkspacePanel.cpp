@@ -25,7 +25,9 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <numbers>
+#include <sstream>
 
 namespace Frontier
 {
@@ -161,9 +163,13 @@ StampWorkspacePanel::StampWorkspacePanel()
     (void)Panels.ConfigureDockspaceKey("TextureWorkspace Stamp panels");
     Panels.ConfigureWorkspaceInsets(43, 0);
     Panels.ConfigureTabExtent(130, 26);
+    Panels.Register({"stamp-library", "Stamp library", [&]() { ConstructLibrary(); }});
     Panels.Register({"stamp-layers", "Layers", [&]() { ConstructLayers(); }});
     Panels.Register({"stamp-canvas", "2D viewport", [&]() { ConstructCanvas(); }});
     Panels.Register({"stamp-inspector", "Inspector", [&]() { ConstructInspector(); }});
+    // 📝 Same left-column arrangement as Pattern: the library stacks above Layers (32% of the column),
+    // so the saved-stamp catalogue and the open decal's stack stay visible together.
+    (void)Panels.ConfigureStackedPanels("stamp-library", "stamp-layers", 32.f);
     Panels.ConfigureColumns({{"stamp-layers", 278.f / 1436}, {"stamp-canvas", 820.f / 1436},
                              {"stamp-inspector", 338.f / 1436}});
 }
@@ -195,7 +201,7 @@ void StampWorkspacePanel::ConfigureDocument(VectorAuthoringDocument Document)
 void StampWorkspacePanel::RefreshLayerAtlas()
 {
     // 📝 Mirrors Pattern's own per-document layer atlas exactly (same rasterizer, same bake-on-
-    // revision-change contract) — Stamp just never bakes a library-wide gallery atlas alongside it.
+    // revision-change contract); the library-wide gallery atlas lives in RefreshLibraryAtlas below.
     const uint64_t CurrentRevision = QueryRevision();
     if (CurrentRevision == LayerAtlasBakedRevision) return;
     LayerAtlasBakedRevision = CurrentRevision;
@@ -246,6 +252,126 @@ const std::vector<uint8_t> &StampWorkspacePanel::QueryLayerAtlasPixels()
 {
     RefreshLayerAtlas();
     return LayerAtlasPixels;
+}
+
+void StampWorkspacePanel::EnsureStampLibrary(bool ForceReload)
+{
+    if (LibraryScanned && !ForceReload) return;
+    LibraryScanned = true;
+    Library.Reload(StampLibraryDirectory);
+    ++LibraryScanGeneration;
+    // 📝 Reopenability (a .stamp.toml vector sidecar beside the PNG) is probed once per scan, never
+    // per frame per card — cards just read the cached flag for their slot.
+    LibraryEntryReopenable.clear();
+    for (const auto &Entry : Library.Entries())
+    {
+        bool Reopenable = false;
+        if (!Entry.Builtin && !Entry.File.empty())
+        {
+            std::error_code Failure;
+            Reopenable = std::filesystem::exists(
+                Entry.File.parent_path() / (Entry.File.stem().string() + ".stamp.toml"), Failure);
+        }
+        LibraryEntryReopenable.push_back(Reopenable ? 1 : 0);
+    }
+}
+
+void StampWorkspacePanel::RefreshLibraryAtlas()
+{
+    // 📝 One cover-fit tile per library entry (slot = entry index, so searches/filters only re-point
+    // card UVs), composited over the stamp picker's two-tone checker (0x1e1e1e/0x2a2a2a): white
+    // preset art and dark authored ink both stay visible, and a card here matches the same stamp's
+    // card in Texture Paint's picker. Rebakes wholesale per scan generation — tiles are bilinear
+    // downsamples of rasters the library already holds, so no Disk cache (unlike Pattern's atlas).
+    EnsureStampLibrary();
+    if (LibraryAtlasBakedGeneration == LibraryScanGeneration && !LibraryAtlasPixels.empty()) return;
+    LibraryAtlasBakedGeneration = LibraryScanGeneration;
+    constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(30) << 16 | uint32_t(30) << 8 | uint32_t(30);
+    const auto &Entries = Library.Entries();
+    const size_t Slotted = std::min(Entries.size(), LibraryAtlasCapacity);
+    std::vector<std::vector<uint8_t>> Tiles;
+    Tiles.reserve(Slotted);
+    for (size_t Slot = 0; Slot < Slotted; ++Slot)
+    {
+        const auto &Entry = Entries[Slot];
+        const float SourceAspect = Entry.Height > 0 ? float(Entry.Width) / float(Entry.Height) : 1.f;
+        std::vector<uint8_t> Tile(size_t(LibraryAtlasTile) * LibraryAtlasTile * 4);
+        for (uint32_t Y = 0; Y < LibraryAtlasTile; ++Y)
+            for (uint32_t X = 0; X < LibraryAtlasTile; ++X)
+            {
+                float U = (X + .5f) / LibraryAtlasTile, V = (Y + .5f) / LibraryAtlasTile;
+                if (SourceAspect > 1) U = .5f + (U - .5f) / SourceAspect;
+                else if (SourceAspect < 1) V = .5f + (V - .5f) * SourceAspect;
+                const auto Texel = StampLibrary::Sample(Entry, U, V);
+                const float Well = ((X < LibraryAtlasTile / 2) == (Y < LibraryAtlasTile / 2)) ? 42.f : 30.f;
+                uint8_t *Target = &Tile[(size_t(Y) * LibraryAtlasTile + X) * 4];
+                for (int Channel = 0; Channel < 3; ++Channel)
+                    Target[Channel] = uint8_t(std::clamp(Texel[size_t(Channel)] * Texel[3] +
+                        (Well / 255.f) * (1.f - Texel[3]), 0.f, 1.f) * 255.f + .5f);
+                Target[3] = 255;
+            }
+        Tiles.push_back(std::move(Tile));
+    }
+    // 📝 Same guard as the layer atlas: a blit failure must never reach the render loop uncaught;
+    // the next scan generation simply retries the bake.
+    try { LibraryAtlasPixels = BlitPatternThumbnailAtlas(Tiles, LibraryAtlasTile, LibraryAtlasColumns, CardWell); ++LibraryAtlasRevision; }
+    catch (const std::exception &Failure) { Frontier::DiagnosticJournal::Append("StampLibraryAtlasBlitError", Failure.what()); }
+}
+
+uint64_t StampWorkspacePanel::QueryLibraryAtlasRevision()
+{
+    RefreshLibraryAtlas();
+    return LibraryAtlasRevision;
+}
+
+const std::vector<uint8_t> &StampWorkspacePanel::QueryLibraryAtlasPixels()
+{
+    RefreshLibraryAtlas();
+    return LibraryAtlasPixels;
+}
+
+std::vector<size_t> StampWorkspacePanel::QueryLibraryMatches() const
+{
+    std::string Query = LibrarySearchText.data();
+    const auto Trimmed = Query.find_last_not_of(" \t\n\r");
+    Query = Trimmed == std::string::npos ? "" : Query.substr(0, Trimmed + 1);
+    Query = PanelChrome::Lowered(Query);
+    std::vector<size_t> Matches;
+    const auto &Entries = Library.Entries();
+    for (size_t Index = 0; Index < Entries.size(); ++Index)
+    {
+        const auto &Entry = Entries[Index];
+        if (LibraryFilter == 1 && !Entry.Builtin) continue;
+        if (LibraryFilter == 2 && Entry.Builtin) continue;
+        if (!Query.empty() && PanelChrome::Lowered(Entry.Name).find(Query) == std::string::npos) continue;
+        Matches.push_back(Index);
+    }
+    return Matches;
+}
+
+void StampWorkspacePanel::OpenLibraryStamp(const StampLibraryEntry &Entry, bool Reopenable)
+{
+    LibrarySelected = Entry.Id;
+    if (!Reopenable)
+    {
+        // 📝 Preset art and raster-only stamps have no vector source to author - say so plainly
+        // instead of opening the grey placeholder box an imported-image component would show.
+        Diagnostic = Entry.Builtin
+            ? "'" + Entry.Name + "' is preset art - place it from Texture Paint's stamp tool. Stamps you save from this workspace reopen here as editable vector designs."
+            : "'" + Entry.Name + "' is a raster-only stamp (no saved vector source) - place it from Texture Paint's stamp tool.";
+        return;
+    }
+    try
+    {
+        const auto Sidecar = Entry.File.parent_path() / (Entry.File.stem().string() + ".stamp.toml");
+        std::ifstream Input(Sidecar, std::ios::binary);
+        if (!Input) throw std::runtime_error("The stamp's vector source could not be read.");
+        std::ostringstream Buffer;
+        Buffer << Input.rdbuf();
+        ConfigureDocument(DecodeVectorAuthoring(Buffer.str()));
+        Diagnostic = "Opened '" + Entry.Name + "' from the stamp library.";
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
 }
 
 const VectorAuthoringDocument &StampWorkspacePanel::QueryDocument() const
@@ -937,6 +1063,9 @@ bool StampWorkspacePanel::SaveToLibrary()
         if (!StampLibrary::SaveRaster(StampLibraryDirectory, Document.Name, int(Extent), int(Extent), Pixels,
                 EncodeVectorAuthoring(Document), Id, Diagnostic))
             return false;
+        // The library tab rescans on its next construct so the new card appears, checked as selected.
+        LibraryScanned = false;
+        LibrarySelected = Id;
         Diagnostic = "Saved '" + Document.Name + "' to the stamp library - pick it from Texture Paint's stamp tool (right-click the viewport).";
         return true;
     }
@@ -1391,6 +1520,188 @@ void StampWorkspacePanel::ConstructImagePopup()
         }
         ImGui::EndPopup();
     }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     STAMP LIBRARY
+//------------------------------------------------------------------------------------------------------------------------
+
+void StampWorkspacePanel::ConstructLibraryCard(const StampLibraryEntry &Entry, float Width, bool Selected, size_t Slot, bool Reopenable)
+{
+    // Stamp card, identical to Texture Paint's stamp picker: fixed 125px box, centred 72px square
+    // thumb over a two-tone checker, 9px name + 7px provenance, green check disc when selected.
+    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+    const ImVec2 Size(Width, 125 * Scale);
+    const ImVec2 Far(Origin.x + Size.x, Origin.y + Size.y);
+    ImGui::InvisibleButton(("##StampCard-" + Entry.Id).c_str(), Size);
+    const bool Clicked = ImGui::IsItemClicked(), Hovered = ImGui::IsItemHovered();
+    ControlExtents[Entry.Name] = {Origin.x, Origin.y, Far.x, Far.y};
+    // Fully offscreen cards register their extent but skip all drawing (mirrors the Pattern card).
+    const float ClipTop = ImGui::GetWindowPos().y, ClipBottom = ClipTop + ImGui::GetWindowSize().y;
+    if (Far.y < ClipTop || Origin.y > ClipBottom)
+    {
+        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Far.y));
+        return;
+    }
+    Controls.Tooltip(Entry.Name.c_str(), Reopenable ? "Open as an editable vector stamp."
+        : (Entry.Builtin ? "Preset art for Texture Paint's stamp tool." : "Raster stamp for Texture Paint's stamp tool."));
+    ImDrawList *Draw = ImGui::GetWindowDrawList();
+    Draw->AddRectFilled(Origin, Far, Ink32(0x191919), 15 * Scale);
+    const float Thumb = 72 * Scale;
+    const ImVec2 ThumbMin(Origin.x + (Size.x - Thumb) * .5f, Origin.y + 6 * Scale);
+    const ImVec2 ThumbMax(ThumbMin.x + Thumb, ThumbMin.y + Thumb);
+    StampAtlasImage Atlas{};
+    if (QueryLibraryThumbnailAtlas) Atlas = QueryLibraryThumbnailAtlas();
+    if (Atlas.Texture != 0 && Slot < LibraryAtlasCapacity)
+    {
+        // Atlas fast path: one textured quad (checker already baked under the art); the host returns
+        // the slot-0 rectangle and each card offsets it by its stable library slot.
+        const float Step = float(LibraryAtlasTile + 2) / LibraryAtlasExtent;
+        const float Span = float(LibraryAtlasTile) / LibraryAtlasExtent;
+        const float U0 = Atlas.MinimumU + (Slot % LibraryAtlasColumns) * Step;
+        const float V0 = Atlas.MinimumV + (Slot / LibraryAtlasColumns) * Step;
+        Draw->AddImageRounded(ImTextureRef(Atlas.Texture), ThumbMin, ThumbMax, ImVec2(U0, V0),
+            ImVec2(U0 + Span, V0 + Span), IM_COL32_WHITE, 8 * Scale);
+    }
+    else
+    {
+        // CPU fallback while the host atlas is unuploaded: checker plus directly sampled blocks.
+        Draw->AddRectFilled(ThumbMin, ThumbMax, Ink32(0x1e1e1e), 8 * Scale);
+        Draw->AddRectFilled(ThumbMin, ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), Ink32(0x2a2a2a), 8 * Scale);
+        Draw->AddRectFilled(ImVec2(ThumbMin.x + Thumb * .5f, ThumbMin.y + Thumb * .5f), ThumbMax, Ink32(0x2a2a2a), 8 * Scale);
+        constexpr int Blocks = 36;
+        const float Block = Thumb / Blocks;
+        for (int By = 0; By < Blocks; ++By)
+            for (int Bx = 0; Bx < Blocks; ++Bx)
+            {
+                const auto Texel = StampLibrary::Sample(Entry, (Bx + .5f) / Blocks, (By + .5f) / Blocks);
+                if (Texel[3] < .03f) continue;
+                const uint32_t Packed = (uint32_t(std::clamp(Texel[0], 0.f, 1.f) * 255) << 16) |
+                    (uint32_t(std::clamp(Texel[1], 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(Texel[2], 0.f, 1.f) * 255);
+                Draw->AddRectFilled(ImVec2(ThumbMin.x + Bx * Block, ThumbMin.y + By * Block),
+                    ImVec2(ThumbMin.x + (Bx + 1) * Block + .5f, ThumbMin.y + (By + 1) * Block + .5f),
+                    PanelChrome::Colour32(Packed, Texel[3]));
+            }
+    }
+    Caption(ImVec2(Origin.x + 12 * Scale, Origin.y + 89 * Scale), Entry.Name.c_str(), 9 * Scale, 0xc8c8b6);
+    Caption(ImVec2(Origin.x + 12 * Scale, Origin.y + 105 * Scale),
+        Entry.Builtin ? (Entry.Tintable ? "Preset \xc2\xb7 tintable" : "Preset")
+                      : (Reopenable ? "Saved stamp \xc2\xb7 vector" : "Saved stamp"),
+        7 * Scale, 0x767665);
+    if (Selected) PanelChrome::CheckDisc(Draw, Origin, Scale);
+    if (Hovered) Draw->AddRect(Origin, Far, Ink32(0x707173), 15 * Scale);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Far.y));
+    if (Clicked) OpenLibraryStamp(Entry, Reopenable);
+}
+
+void StampWorkspacePanel::ConstructLibrary()
+{
+    // Stamp library gallery in the Material workspace's catalogue design (the same page chrome as
+    // the Pattern library): two shortcut pills, 18px heading + count, padded search, wrapping
+    // collection pills, hairline + overline, then every match as a two-column 125px card inside one
+    // scrolling grid (no paging), closing footer tag. The entries are the shared StampLibrary -
+    // presets plus everything in the library directory - exactly what Texture Paint's stamp tool
+    // places; clicking a saved stamp reopens its vector design here for editing.
+    CapturePanel("Library");
+    if (ImGui::GetContentRegionAvail().y < 35 * Scale) return;
+    EnsureStampLibrary();
+    RefreshLibraryAtlas();
+    const auto Origin = ImGui::GetCursorScreenPos();
+    const float Width = ImGui::GetContentRegionAvail().x;
+    const float Bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+    const auto At = [&](float X, float Y) { return ImVec2(Origin.x + X * Scale, Origin.y + Y * Scale); };
+    const auto SmallFont = [&](float Pixels)
+    {
+        if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), Pixels * 1.302f * Scale);
+    };
+    const auto PopSmallFont = [&]() { if (RegularTypeface) ImGui::PopFont(); };
+    // Shared capsule pill (PanelChrome::Pill) at this library's 8.5px label size, clipped to the capsule.
+    const auto Pill = [&](const char *Id, const char *Label, ImVec2 Position, float PillWidth, float PillHeight, bool Selected) {
+        return PanelChrome::Pill(Id, Label, Position, PillWidth, PillHeight, Selected, Scale, nullptr, 0, 8.5f, true);
+    };
+
+    // Top shortcut row, mirroring Material's Workspace / My collection pills.
+    const float HalfPill = (Width - 34 * Scale) * .5f;
+    if (Pill("##ShortcutPresets", "Preset stamps", At(14, 10), HalfPill, 27 * Scale, LibraryFilter == 1))
+    { LibraryFilter = 1; LibrarySearchText[0] = 0; }
+    if (Pill("##ShortcutMine", "My stamps", ImVec2(Origin.x + Width * .5f + 3 * Scale, At(0, 10).y), HalfPill, 27 * Scale, LibraryFilter == 2))
+    { LibraryFilter = 2; LibrarySearchText[0] = 0; }
+
+    Caption(At(20, 50), "Stamp library", 18 * Scale, 0xd3d3c8, LightTypeface);
+    Caption(ImVec2(Origin.x + 28 * Scale + CaptionWidth("Stamp library", 18 * Scale, LightTypeface), At(0, 59).y),
+        std::to_string(Library.Entries().size()).c_str(), 8 * Scale, 0x777766);
+
+    ImGui::SetCursorScreenPos(At(14, 82));
+    ImGui::SetNextItemWidth(Width - 28 * Scale);
+    SmallFont(11);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(35 * Scale, 11.5f * Scale));
+    ImGui::InputTextWithHint("##StampLibrarySearch", "Search rings, badges, marks\xe2\x80\xa6", LibrarySearchText.data(), LibrarySearchText.size());
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    PopSmallFont();
+    DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", At(27, 94), 15 * Scale, 0x77776f);
+
+    // Collection filter as wrapping pills instead of a dropdown, like Material's category row;
+    // Reload rides the same row as an unlatched action pill and rescans the library directory.
+    float Y = 130;
+    float PillX = 14;
+    const auto RowPill = [&](const char *Id, const char *Label, bool Selected) {
+        const float Edge = CaptionWidth(Label, 8.5f * Scale) / Scale + 18;
+        if (PillX + Edge > Width / Scale - 14) { PillX = 14; Y += 29; }
+        const bool Pressed = Pill(Id, Label, At(PillX, Y), Edge * Scale, 24 * Scale, Selected);
+        PillX += Edge + 5;
+        return Pressed;
+    };
+    if (RowPill("All stamps", "All stamps", LibraryFilter == 0)) LibraryFilter = 0;
+    if (RowPill("Presets", "Presets", LibraryFilter == 1)) LibraryFilter = 1;
+    if (RowPill("My stamps", "My stamps", LibraryFilter == 2)) LibraryFilter = 2;
+    if (RowPill("##LibraryReload", "Reload", false)) EnsureStampLibrary(true);
+    Y += 24 + 8;
+
+    const auto Matches = QueryLibraryMatches();
+    auto *Ink = ImGui::GetWindowDrawList();
+    Ink->AddLine(At(0, Y), ImVec2(Origin.x + Width, At(0, Y).y), Ink32(0xffffff, .051f));
+    Caption(At(17, Y + 12), "THE STAMP COLLECTION", 8 * Scale, 0x7e7e70);
+    const std::string MatchCount = std::to_string(Matches.size());
+    Caption(ImVec2(Origin.x + Width - 17 * Scale - CaptionWidth(MatchCount.c_str(), 8 * Scale), At(0, Y + 12).y),
+        MatchCount.c_str(), 8 * Scale, 0x7e7e70);
+
+    const float FooterY = Bottom - 71 * Scale;
+    ImGui::SetCursorScreenPos(At(16, Y + 31));
+    ImGui::BeginChild("Stamp grid", ImVec2(Width - 32 * Scale, std::max(1.f, FooterY - At(0, Y + 31).y)), ImGuiChildFlags_None);
+    const float Gap = 9 * Scale, CardHeight = 125 * Scale;
+    const float CardWidth = std::max(32.f, (ImGui::GetContentRegionAvail().x - Gap) * .5f);
+    const auto GridOrigin = ImGui::GetCursorScreenPos();
+    for (size_t Ordinal = 0; Ordinal < Matches.size(); ++Ordinal)
+    {
+        const ImVec2 Position(GridOrigin.x + (Ordinal % 2) * (CardWidth + Gap), GridOrigin.y + (Ordinal / 2) * (CardHeight + Gap));
+        ImGui::SetCursorScreenPos(Position);
+        const size_t Slot = Matches[Ordinal];
+        const bool Reopenable = Slot < LibraryEntryReopenable.size() && LibraryEntryReopenable[Slot] != 0;
+        const auto &Entry = Library.Entries()[Slot];
+        ConstructLibraryCard(Entry, CardWidth, LibrarySelected == Entry.Id, Slot, Reopenable);
+    }
+    const size_t Rows = (Matches.size() + 1) / 2;
+    ImGui::SetCursorScreenPos(ImVec2(GridOrigin.x, GridOrigin.y + float(Rows) * (CardHeight + Gap) + 2 * Scale));
+    SmallFont(10);
+    ImGui::PushTextWrapPos(GridOrigin.x + ImGui::GetContentRegionAvail().x);
+    if (Matches.empty())
+        ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1), LibraryFilter == 2
+            ? "No saved stamps yet. Design a decal, then Document actions -> Save to stamp library."
+            : "No matches. Try another collection or search.");
+    ImGui::TextColored(ImVec4(147 / 255.f, 158 / 255.f, 153 / 255.f, 1),
+        "Every stamp here is placeable from Texture Paint's stamp tool. Clicking one of your saved stamps reopens its editable vector design.");
+    ImGui::PopTextWrapPos();
+    PopSmallFont();
+    ImGui::Dummy(ImVec2(1, 1));
+    ImGui::EndChild();
+
+    Ink->AddRectFilled(ImVec2(Origin.x, FooterY), ImVec2(Origin.x + Width, Bottom), Ink32(0x151515));
+    DrawGlyph("M5 22H19M12 2V10M8 10H16L17 18H7Z", ImVec2(Origin.x + 19 * Scale, FooterY + 20 * Scale), 19 * Scale, 0x9a9a8e);
+    Caption(ImVec2(Origin.x + 51 * Scale, FooterY + 20 * Scale), "Decals for Texture Paint.", 9 * Scale, 0xaeae9b);
+    const std::string Footer = std::to_string(Library.Entries().size()) + " stamps \xc2\xb7 presets and your saved designs.";
+    Caption(ImVec2(Origin.x + 51 * Scale, FooterY + 37 * Scale), Footer.c_str(), 7 * Scale, 0x6b6b60);
 }
 
 //------------------------------------------------------------------------------------------------------------------------

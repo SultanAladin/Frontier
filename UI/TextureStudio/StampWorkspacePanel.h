@@ -10,6 +10,7 @@
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h"
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "Engine/ContentInterchange/CubicPathEditing.h"
+#include "UI/TextureStudio/StampLibrary.h"
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -42,8 +43,8 @@ public:
     void ConfigureStampLibraryDirectory(std::filesystem::path Directory) { StampLibraryDirectory = std::move(Directory); }
     void ConfigureDocument(VectorAuthoringDocument Document);
     // 📝 One small GPU atlas carries the open Stamp's own layer row-thumbnails (the Texture-workspace-style
-    // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas,
-    // Stamp just has no library-wide gallery atlas since there is no preset library to browse.
+    // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas.
+    // A second, library-wide atlas (below) carries the stamp-library card thumbnails.
     static constexpr uint32_t LayerAtlasTile = 64;
     static constexpr uint32_t LayerAtlasColumns = 12;
     static constexpr uint32_t LayerAtlasExtent = (LayerAtlasTile + 2) * LayerAtlasColumns;
@@ -57,6 +58,17 @@ public:
     [[nodiscard]] uint64_t QueryLayerAtlasRevision();
     [[nodiscard]] const std::vector<uint8_t> &QueryLayerAtlasPixels();
     [[nodiscard]] static uint32_t QueryLayerAtlasExtent() noexcept { return LayerAtlasExtent; }
+    // 📝 Library gallery atlas: one 128px cover-fit tile per stamp-library entry (slot = entry index,
+    // stable across searches/filters), rebaked whenever the library is (re)scanned — mirrors Pattern's
+    // library atlas, minus the Disk cache (stamp tiles are cheap bilinear downsamples of ready rasters).
+    static constexpr uint32_t LibraryAtlasTile = 128;
+    static constexpr uint32_t LibraryAtlasColumns = 12;
+    static constexpr uint32_t LibraryAtlasExtent = (LibraryAtlasTile + 2) * LibraryAtlasColumns;
+    static constexpr size_t LibraryAtlasCapacity = size_t(LibraryAtlasColumns) * LibraryAtlasColumns;
+    std::function<StampAtlasImage()> QueryLibraryThumbnailAtlas;
+    [[nodiscard]] uint64_t QueryLibraryAtlasRevision();
+    [[nodiscard]] const std::vector<uint8_t> &QueryLibraryAtlasPixels();
+    [[nodiscard]] static uint32_t QueryLibraryAtlasExtent() noexcept { return LibraryAtlasExtent; }
     [[nodiscard]] const VectorAuthoringDocument &QueryDocument() const;
     [[nodiscard]] const std::vector<uint32_t> &QuerySelection() const noexcept { return Selection; }
     [[nodiscard]] uint64_t QueryRevision() const noexcept { return History.QueryRevision(); }
@@ -221,6 +233,12 @@ private:
     void ConstructImagePopup();
     void ConstructHeader();
     void ConstructLayers();
+    void ConstructLibrary();
+    void ConstructLibraryCard(const StampLibraryEntry &Entry, float Width, bool Selected, size_t Slot, bool Reopenable);
+    void EnsureStampLibrary(bool ForceReload = false);
+    void RefreshLibraryAtlas();
+    void OpenLibraryStamp(const StampLibraryEntry &Entry, bool Reopenable);
+    [[nodiscard]] std::vector<size_t> QueryLibraryMatches() const;
     void ConstructCanvas();
     void ConstructInspector();
     void ConstructCloseDialogue();
@@ -239,6 +257,17 @@ private:
     // plus its vector source sidecar, so Texture Paint's stamp picker can place it. Diagnostic reports.
     bool SaveToLibrary();
     std::filesystem::path StampLibraryDirectory;
+    // 🖨️ The shared stamp library as this panel sees it (presets + disk scan of StampLibraryDirectory),
+    // backing the "Stamp library" dock tab; (re)scanned on first use, on Reload, and after saving here.
+    StampLibrary Library;
+    bool LibraryScanned = false;
+    uint64_t LibraryScanGeneration = 0;
+    std::vector<char> LibraryEntryReopenable; // per entry: a .stamp.toml vector sidecar sits beside the PNG
+    std::string LibrarySelected;              // entry Id of the last clicked card (wears the check disc)
+    int LibraryFilter = 0;                    // 0 all stamps · 1 presets · 2 my stamps
+    std::array<char, 129> LibrarySearchText{};
+    std::vector<uint8_t> LibraryAtlasPixels;
+    uint64_t LibraryAtlasRevision = 0, LibraryAtlasBakedGeneration = 0;
     void SuspendContent() noexcept override;
     void FinalizeContent() noexcept override;
 };

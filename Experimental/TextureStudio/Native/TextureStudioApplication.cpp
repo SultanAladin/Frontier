@@ -177,12 +177,16 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     VkDescriptorSet PatternLayerAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternLayerAtlasPublished = 0;
     bool PatternLayerAtlasFaulted = false;
-    // 📝 Stamp has no library-wide gallery to browse, only its own open document's layer-row
-    // thumbnails — one small atlas, mirroring PatternLayerAtlas exactly.
+    // 📝 Stamp carries two atlases: its open document's layer-row thumbnails and the stamp-library
+    // gallery cards (the "Stamp library" dock tab), each mirroring Pattern's pair of atlases.
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> StampLayerAtlas;
     VkDescriptorSet StampLayerAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t StampLayerAtlasPublished = 0;
     bool StampLayerAtlasFaulted = false;
+    std::unique_ptr<Frontier::MaterialThumbnailAtlas> StampLibraryAtlas;
+    VkDescriptorSet StampLibraryAtlasDescriptor = VK_NULL_HANDLE;
+    uint64_t StampLibraryAtlasPublished = 0;
+    bool StampLibraryAtlasFaulted = false;
     // 📝 Texture Paint's UV preview canvas (per-texel layer composite) - same one-atlas plumbing,
     // serving as the mesh texture in its 3D/2D viewports.
     std::unique_ptr<Frontier::MaterialThumbnailAtlas> PaintCanvasAtlas;
@@ -533,6 +537,10 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         StampLayerAtlas->Initialize(Display.QueryRasterAccess(), Frontier::StampWorkspacePanel::LayerAtlasTile,
             Frontier::StampWorkspacePanel::LayerAtlasColumns);
         StampLayerAtlasDescriptor = ImGui_ImplVulkan_AddTexture(StampLayerAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        StampLibraryAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
+        StampLibraryAtlas->Initialize(Display.QueryRasterAccess(), Frontier::StampWorkspacePanel::LibraryAtlasTile,
+            Frontier::StampWorkspacePanel::LibraryAtlasColumns);
+        StampLibraryAtlasDescriptor = ImGui_ImplVulkan_AddTexture(StampLibraryAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         PaintCanvasAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
         PaintCanvasAtlas->Initialize(Display.QueryRasterAccess(), Frontier::TexturePaintWorkspacePanel::PaintCanvasTile,
             Frontier::TexturePaintWorkspacePanel::PaintCanvasColumns);
@@ -617,6 +625,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         {
             const auto Uv = StampLayerAtlas ? StampLayerAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
             return Frontier::StampWorkspacePanel::StampAtlasImage{StampLayerAtlasDescriptor ? uint64_t(StampLayerAtlasDescriptor) : uint64_t(0),
+                Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
+        };
+        Stamp->QueryLibraryThumbnailAtlas = [&]()
+        {
+            const auto Uv = StampLibraryAtlas ? StampLibraryAtlas->QueryUv(0) : Frontier::ThumbnailUvRectangle{};
+            return Frontier::StampWorkspacePanel::StampAtlasImage{StampLibraryAtlasDescriptor ? uint64_t(StampLibraryAtlasDescriptor) : uint64_t(0),
                 Uv.MinimumU, Uv.MinimumV, Uv.MaximumU, Uv.MaximumV};
         };
         Texture->QueryPaintCanvasImage = [&]()
@@ -866,6 +880,19 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     StampLayerAtlasPublished = StampLayerAtlasRevision;
                 }
                 catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
+            const uint64_t StampLibraryAtlasRevision = Stamp->QueryLibraryAtlasRevision();
+            if (!StampLibraryAtlasFaulted && StampLibraryAtlas && StampLibraryAtlasRevision != StampLibraryAtlasPublished)
+                try
+                {
+                    const auto &LibraryPixels = Stamp->QueryLibraryAtlasPixels();
+                    if (!LibraryPixels.empty())
+                    {
+                        StampLibraryAtlas->StagePixels(LibraryPixels);
+                        StampLibraryAtlas->ConstructUpload(Commands);
+                    }
+                    StampLibraryAtlasPublished = StampLibraryAtlasRevision;
+                }
+                catch (const std::exception &Failure) { StampLibraryAtlasFaulted = true; JournalGpuFaultOnce("StampLibraryAtlasUpload", Failure); }
             const uint64_t PaintCanvasAtlasRevision = Texture->QueryPaintCanvasRevision();
             if (!PaintCanvasAtlasFaulted && PaintCanvasAtlas && PaintCanvasAtlasRevision != PaintCanvasAtlasPublished)
                 try

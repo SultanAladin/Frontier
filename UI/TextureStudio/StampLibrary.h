@@ -43,7 +43,7 @@ class StampLibrary
     static bool SaveRaster(const std::filesystem::path &Directory, const std::string &Name,
         int Width, int Height, const std::vector<uint8_t> &Rgba, const std::string &SourceToml,
         std::string &OutId, std::string &Diagnostic);
-    // 🎨 The six procedural presets (white art at 256px, tintable): ring, star, arrow, cross, hazard, checker disc.
+    // 🎨 The procedural preset decals (white art at 256px, tintable): rings, stars, badges, marks and ornaments.
     [[nodiscard]] static std::vector<StampLibraryEntry> BuiltinPresets();
     // 🔬 Bilinear sample with uv in [0,1]^2 (v downward from the image top); returns straight rgba 0..1.
     [[nodiscard]] static std::array<float, 4> Sample(const StampLibraryEntry &Entry, float U, float V) noexcept;
