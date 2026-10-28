@@ -451,31 +451,269 @@ class ParticlesRecord final : public Frontier::RecordEntry
     size_t CloudSource = 0;
 };
 
-class FogRecord final : public Frontier::RecordEntry
+
+// ---------------------------------------------------------------------------
+// The remaining generic-vocabulary HTML pages (InspectorPages.js BuildDerez /
+// BuildFractureGlobal / BuildTraining / BuildCones / BuildLevel / BuildStress
+// and DiagnosticsInspector.js), declared as native records with the HTML
+// defaults. ActionRow buttons render as stacked actions and drill rows /
+// link buttons as readouts + actions in the generic vocabulary (PARITY.md).
+// ---------------------------------------------------------------------------
+
+class DerezRecord final : public Frontier::RecordEntry
 {
   public:
-    FogRecord() : RecordEntry(Frontier::RecordClassification::Environment)
+    DerezRecord() : RecordEntry(Frontier::RecordClassification::Content)
     {
 #if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
-        DeclareEditorIdentity("Environment", "Environment");
-        DeclareEditorDescription("Exponential vertical density");
-        DeclareEditorToggle("fog.enabled", "Fog", "", true, [this]() { return FogEnabled; }, [this](bool On) { FogEnabled = On; }, "CloudFog");
-        DeclareEditorCard("Height fog", "", 1, "CloudFog");
-        DeclareEditorSlider("fog.density", "Density", "", 0, 0.05, 0.0001, [this]() { return Density; }, [this](double V) { Density = V; }, 4);
-        DeclareEditorSlider("fog.height", "Height", "m", 1, 500, 1, [this]() { return Height; }, [this](double V) { Height = V; }, 0);
-        DeclareEditorSlider("fog.scatter", "Scatter", "", 0, 1, 0.01, [this]() { return Scatter; }, [this](double V) { Scatter = V; }, 2);
-        DeclareEditorCard("Atmospheric fog", "", 2, "CloudFog");
-        DeclareEditorToggle("fog.aerial", "Aerial perspective", "", false, [this]() { return AerialEnabled; }, [this](bool On) { AerialEnabled = On; });
-        DeclareEditorSlider("fog.aerialDensity", "Density", "", 0, 0.001, 0.00001, [this]() { return AerialDensity; }, [this](double V) { AerialDensity = V; }, 5);
-        DeclareEditorSlider("fog.aerialStart", "Start", "m", 0, 2000, 1, [this]() { return AerialStart; }, [this](double V) { AerialStart = V; }, 0);
-        DeclareEditorSlider("fog.aerialMie", "Mie", "", 0, 1, 0.01, [this]() { return AerialMie; }, [this](double V) { AerialMie = V; }, 2);
+        DeclareEditorIdentity("Particle effect", "Effects");
+        DeclareEditorDescription("Particle Editor presets \xC2\xB7 recovery & respawn");
+        DeclareEditorToggle("derez.recovery", "Auto recovery", "", true, [this]() { return RecoveryEnabled; }, [this](bool On) { RecoveryEnabled = On; }, "Shield");
+        DeclareEditorCard("Preset", "From the Particle Editor", 1, "Sparkles");
+        DeclareEditorMuted("The car comes apart cell by cell on one release clock: the surface raster glows each cell in its own facet's colour and drops it the instant the effect raster launches its cubes \xE2\x80\x94 each cube the colour of the face it came from, glowing in it, leaving with the car's velocity at that moment (the car keeps moving while it dissolves). Rez runs the clock backwards.");
+        DeclareEditorSegmented("derez.preset", "Look", {"Derez cube", "Reverse derez", "Glitch dissolve"},
+                               [this]() { return Preset; }, [this](size_t Index) { Preset = Index; });
+        DeclareEditorAction("derez.respawn", "Derez & respawn", []() {});
+        DeclareEditorAction("derez.burst", "Burst nearest cone", []() {});
+        DeclareEditorCard("Cubes", "", 2, "Box");
+        DeclareEditorSlider("derez.hold", "Hold before the wave", "s", 0, 2, 0.05, [this]() { return Hold; }, [this](double V) { Hold = V; }, 2);
+        DeclareEditorSlider("derez.wave", "Wave spread", "s", 0.3, 4, 0.05, [this]() { return Wave; }, [this](double V) { Wave = V; }, 2, "Snap", "Slow sweep");
+        DeclareEditorSlider("derez.burst2", "Burst along the normal", "m/s", 0, 4, 0.05, [this]() { return Burst; }, [this](double V) { Burst = V; }, 2);
+        DeclareEditorSlider("derez.smin", "Slowest launch", "m/s", 0, 4, 0.05, [this]() { return SMin; }, [this](double V) { SMin = V; }, 2);
+        DeclareEditorSlider("derez.smax", "Fastest launch", "m/s", 0, 8, 0.05, [this]() { return SMax; }, [this](double V) { SMax = V; }, 2);
+        DeclareEditorSlider("derez.drag", "Drag", "/s", 0.05, 3, 0.05, [this]() { return Drag; }, [this](double V) { Drag = V; }, 2);
+        DeclareEditorSlider("derez.life", "Cube life", "s", 0.5, 6, 0.1, [this]() { return Life; }, [this](double V) { Life = V; }, 1);
+        DeclareEditorSlider("derez.size", "Cube size", "m", 0.02, 0.2, 0.005, [this]() { return Size; }, [this](double V) { Size = V; }, 3);
+        DeclareEditorSlider("derez.flight", "Rez flight", "s", 0.4, 4, 0.05, [this]() { return Flight; }, [this](double V) { Flight = V; }, 2);
+        DeclareEditorSegmented("derez.style", "Style", {"Cubes", "Glitch"}, [this]() { return Style; }, [this](size_t Index) { Style = Index; });
+        DeclareEditorCard("Glow", "", 3, "Palette");
+        DeclareEditorSegmented("derez.faces", "Cube colour", {"Car's own colours", "Palette"}, [this]() { return Faces ? size_t(0) : size_t(1); }, [this](size_t Index) { Faces = Index == 0; });
+        DeclareEditorSlider("derez.glowStrength", "Face glow", "\xC3\x97 albedo", 0, 20, 0.5, [this]() { return GlowStrength; }, [this](double V) { GlowStrength = V; }, 1);
+        DeclareEditorToggle("derez.momentum", "Keep the car's momentum", "It coasts on while it comes apart; cubes leave at its velocity", false,
+                            [this]() { return Momentum; }, [this](bool On) { Momentum = On; });
+        DeclareEditorReadout("derez.glowColour", "Glow", []() { return std::string("#35D6FF"); });
+        DeclareEditorReadout("derez.hotColour", "Hot edge", []() { return std::string("#FFFFFF"); });
+        DeclareEditorReadout("derez.glitchColour", "Glitch", []() { return std::string("#FF2D6F"); });
+        DeclareEditorSlider("derez.intensity", "Intensity", "\xC3\x97", 0, 4, 0.05, [this]() { return Intensity; }, [this](double V) { Intensity = V; }, 2);
+        DeclareEditorCard("Recovery", "Derez \xE2\x86\x92 hidden \xE2\x86\x92 move \xE2\x86\x92 rez", 4, "Shield");
+        DeclareEditorMuted("An overturned car, a car tumbling through the air, or one that has left the grounds derezzes and rezzes back \xE2\x80\x94 upright where it lay, or at the last safe spot. R and every teleport use the same sequence.");
+        DeclareEditorToggle("derez.autoRecovery", "Automatic recovery", "", false, [this]() { return RecoveryEnabled; }, [this](bool On) { RecoveryEnabled = On; });
+        DeclareEditorSlider("derez.overturn", "Overturned for", "s", 0.3, 5, 0.1, [this]() { return Overturn; }, [this](double V) { Overturn = V; }, 1);
+        DeclareEditorSlider("derez.airborne", "Airborne for", "s", 1, 6, 0.1, [this]() { return Airborne; }, [this](double V) { Airborne = V; }, 1);
+        DeclareEditorSlider("derez.tumble", "Tumbling for", "s", 0.3, 3, 0.1, [this]() { return Tumble; }, [this](double V) { Tumble = V; }, 1);
+        DeclareEditorSlider("derez.tumbleRate", "Tumble rate", "rad/s", 2, 12, 0.5, [this]() { return TumbleRate; }, [this](double V) { TumbleRate = V; }, 1);
 #endif
     }
-    bool FogEnabled = false, AerialEnabled = true;
-    double Density = 0.002, Height = 30.0, Scatter = 0.5, AerialDensity = 0.00004, AerialStart = 100.0, AerialMie = 0.5;
+    bool RecoveryEnabled = true, Faces = true, Momentum = true;
+    double Hold = 0.3, Wave = 1.0, Burst = 0.5, SMin = 0.6, SMax = 2.6, Drag = 0.4, Life = 3.5, Size = 0.075, Flight = 1.2;
+    double GlowStrength = 6.0, Intensity = 1.0, Overturn = 1.5, Airborne = 2.5, Tumble = 0.9, TumbleRate = 5.0;
+    size_t Preset = 0, Style = 0;
 };
 
+class FractureRecord final : public Frontier::RecordEntry
+{
+  public:
+    FractureRecord() : RecordEntry(Frontier::RecordClassification::Physics)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Breakable props", "Destruction");
+        DeclareEditorDescription("Energy-limited fracture \xC2\xB7 fragment bodies");
+        DeclareEditorToggle("fracture.breakable", "Breakable", "", true, [this]() { return Enabled; }, [this](bool On) { Enabled = On; }, "Hammer");
+        DeclareEditorToggle("fracture.respawn2", "Respawn", "", true, [this]() { return Respawn; }, [this](bool On) { Respawn = On; }, "RotateCcw");
+        DeclareEditorCard("Breakable props", "", 1, "Boxes");
+        DeclareEditorMetric("fracture.intact", []() { return std::string("0"); }, "/ 0 intact",
+                            []() { return std::pair<std::string, std::string>{"0 breaks", ""}; });
+        DeclareEditorMuted("Each prop is a closed convex solid with a Fracture-editor recipe. Strike one with more than its threshold energy and it fractures; below that it stops the car.");
+        DeclareEditorStats("fracture.stats", {{"Fragments", "", []() { return std::string("0"); }},
+                                              {"Asleep", "", []() { return std::string("0"); }},
+                                              {"In the field", "", []() { return std::string("0"); }}});
+        DeclareEditorAction("fracture.reassemble", "Reassemble all", []() {});
+        DeclareEditorAction("fracture.breakAll", "Break all", []() {});
+        DeclareEditorCard("Debris", "Convex rigid bodies \xC2\xB7 stays where it lands", 2, "Gem");
+        DeclareEditorMuted("Every fragment is a convex hull in the shared rigid-body world: against the course, the walls, every other fragment and cone, and the car both ways. Large fragments get a distance volume of their own the frame they are born and join the global distance field, so the debris shadows and bounces light in the GI.");
+        DeclareEditorToggle("fracture.respawn", "Reassemble after the lifetime", "Off: debris stays until reset (T)", false,
+                            [this]() { return Respawn; }, [this](bool On) { Respawn = On; });
+        DeclareEditorSlider("fracture.lifetime", "Lifetime before reassembly", "s", 3, 120, 1, [this]() { return Lifetime; }, [this](double V) { Lifetime = V; }, 0);
+        DeclareEditorSlider("fracture.separation", "Separation", "\xC3\x97", 0, 3, 0.05, [this]() { return Separation; }, [this](double V) { Separation = V; }, 2, "Crumble", "Explode");
+        DeclareEditorSlider("fracture.share", "Impact share (Dynamic)", "", 0.05, 1.0, 0.01, [this]() { return ImpactShare; }, [this](double V) { ImpactShare = V; }, 2, "Few pieces", "Many");
+        DeclareEditorSlider("fracture.bounce", "Bounce", "\xC3\x97", 0, 3, 0.05, [this]() { return Bounce; }, [this](double V) { Bounce = V; }, 2);
+        DeclareEditorSlider("fracture.friction", "Friction", "\xC3\x97", 0, 3, 0.05, [this]() { return Friction; }, [this](double V) { Friction = V; }, 2);
+        DeclareEditorSlider("fracture.fieldRadius", "Distance field from radius", "voxels", 0.25, 4, 0.05, [this]() { return FieldRadius; }, [this](double V) { FieldRadius = V; }, 2, "More pieces", "Fewer");
+        DeclareEditorToggle("fracture.carCollides", "Car collides with debris", "Both ways", false,
+                            [this]() { return CarCollides; }, [this](bool On) { CarCollides = On; });
+        DeclareEditorStats("fracture.bodyStats", {{"Bodies", "", []() { return std::string("0"); }},
+                                                  {"Awake", "", []() { return std::string("0"); }},
+                                                  {"Step", "ms", []() { return std::string("0.00"); }}});
+        DeclareEditorStats("fracture.contactStats", {{"Contacts", "", []() { return std::string("0"); }},
+                                                     {"Pool volumes", "", []() { return std::string("0"); }},
+                                                     {"Computed", "", []() { return std::string("0"); }}});
+        DeclareEditorCard("Bake \xC2\xB7 all props", "", 3, "Layers");
+        DeclareEditorMuted("Dynamic cuts fragments on the spot at the true impact point with the impact's share of energy (one per frame, ~10 ms); Baked uses the stored pattern \xE2\x80\x94 no cost at impact.");
+        DeclareEditorAction("fracture.allDynamic", "All dynamic", []() {});
+        DeclareEditorAction("fracture.allBaked", "All baked", []() {});
+#endif
+    }
+    bool Enabled = true, Respawn = false, CarCollides = true;
+    double Lifetime = 25.0, Separation = 1.0, ImpactShare = 0.35, Bounce = 1.0, Friction = 1.0, FieldRadius = 0.75;
+};
 
+class TrainingRecord final : public Frontier::RecordEntry
+{
+  public:
+    TrainingRecord() : RecordEntry(Frontier::RecordClassification::Content)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Drills", "Level");
+        DeclareEditorDescription("Timed stations \xC2\xB7 best times");
+        DeclareEditorCard("Now running", "", 1, "Timer");
+        DeclareEditorTextBlock("training.readout", []() { return std::string("No drill running."); });
+        DeclareEditorMuted("Drive into any station and its drill starts on its own; or start one here \xE2\x80\x94 the car derezzes to the start and the cones the last run knocked over rez back onto their marks. R returns to the running drill's start, T resets the whole arena.");
+        DeclareEditorAction("training.reset", "Reset arena", []() {});
+        DeclareEditorAction("training.stop", "Stop drill", []() {});
+        DeclareEditorCard("Stations", "Best times are kept in this browser", 2, "Flag");
+        DeclareEditorReadout("training.skidpad", "Skidpad \xC2\xB7 Hold the 14 m ring", []() { return std::string(""); });
+        DeclareEditorAction("training.startSkidpad", "Start Skidpad", []() {});
+        DeclareEditorReadout("training.jump", "Jump \xC2\xB7 Airtime and distance past the lip", []() { return std::string(""); });
+        DeclareEditorAction("training.startJump", "Start Jump", []() {});
+        DeclareEditorReadout("training.smash", "Smash alley \xC2\xB7 Breakable props", []() { return std::string(""); });
+        DeclareEditorAction("training.startSmash", "Start Smash alley", []() {});
+        DeclareEditorReadout("training.slalom", "Slalom \xC2\xB7 8 cones agility course", []() { return std::string(""); });
+        DeclareEditorAction("training.startSlalom", "Start Slalom", []() {});
+        DeclareEditorAction("training.clearBest", "Clear best times", []() {});
+#endif
+    }
+};
+
+class ConesRecord final : public Frontier::RecordEntry
+{
+  public:
+    ConesRecord() : RecordEntry(Frontier::RecordClassification::Physics)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Rigid bodies", "Level");
+        DeclareEditorDescription("Knockable cones \xC2\xB7 rez back on reset");
+        DeclareEditorCard("Cones", "70 cm slalom cone \xC2\xB7 3.2 kg", 1, "TrafficCone");
+        DeclareEditorMetric("cones.displaced", []() { return std::string("0"); }, "displaced",
+                            []() { return std::pair<std::string, std::string>{"0 moving", ""}; });
+        DeclareEditorMuted("A fluorescent PVC cone with two retroreflective collars on a chamfered rubber base, weighted low like a real one so it rocks before it topples. At rest each cone is a sleeping rigid body and a static occupant; a knocked cone follows its body every frame until it settles.");
+        DeclareEditorAction("cones.rez", "Rez all back", []() {});
+        DeclareEditorAction("cones.snap", "Snap back", []() {});
+#endif
+    }
+};
+
+class LevelRecord final : public Frontier::RecordEntry
+{
+  public:
+    LevelRecord() : RecordEntry(Frontier::RecordClassification::Content)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Level", "Level");
+        DeclareEditorDescription("Zones, teleports & scene budget");
+        DeclareEditorCard("Proving grounds", "Teleport the car", 1, "Map");
+        DeclareEditorMuted("A 216 \xC3\x97 120 m asphalt pad in a grass surround. West: the main straight with kerbs and a jump, a skidpad, a concrete burnout box, a smash alley of breakable props, a slatted hangar for bounce light, a container yard and a lit tunnel. East: the training arena \xE2\x80\x94 launch strip, slalom, moose test, cone bowling, spin box and a figure-8.");
+        DeclareEditorAction("level.startGrid", "Start grid \xC2\xB7 Main straight", []() {});
+        DeclareEditorAction("level.garage", "Garage \xC2\xB7 Hangar & vehicle workshop", []() {});
+        DeclareEditorAction("level.tunnel", "Tunnel \xC2\xB7 Lamps in the dark", []() {});
+        DeclareEditorAction("level.east", "East Course \xC2\xB7 Open proving grounds", []() {});
+        DeclareEditorAction("level.smash", "Smash Alley \xC2\xB7 Breakable objects", []() {});
+        DeclareEditorAction("level.skidpad", "Skidpad \xC2\xB7 14 m drift ring", []() {});
+        DeclareEditorCard("Scene budget", "", 2, "Cpu");
+        DeclareEditorStats("level.stats1", {{"Occupants", "", []() { return std::string("0"); }},
+                                            {"In the field", "", []() { return std::string("0"); }},
+                                            {"Volumes", "", []() { return std::string("0"); }}});
+        DeclareEditorStats("level.stats2", {{"Cards", "", []() { return std::string("0"); }},
+                                            {"Draw runs", "", []() { return std::string("0"); }},
+                                            {"Volume atlas", "MB", []() { return std::string("0"); }}});
+#endif
+    }
+};
+
+class StressRecord final : public Frontier::RecordEntry
+{
+  public:
+    StressRecord() : RecordEntry(Frontier::RecordClassification::Content)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Object pool", "Level");
+        DeclareEditorDescription("Pre-built pool \xC2\xB7 union, cards & draws under load");
+        DeclareEditorCard("Stress test", "", 1, "Boxes");
+        DeclareEditorMetric("stress.active", []() { return std::string("0"); }, "objects",
+                            []() { return std::pair<std::string, std::string>{"0 moving", ""}; });
+        DeclareEditorMuted("The pool is built with the scene; enabling objects lengthens the union span, grows the draw runs, joins the relighting lists and adds colliders \xE2\x80\x94 bookkeeping, not construction.");
+        DeclareEditorAction("stress.add64", "+64", []() {});
+        DeclareEditorAction("stress.add256", "+256", []() {});
+        DeclareEditorAction("stress.add1024", "+1024", []() {});
+        DeclareEditorAction("stress.fill", "Fill pool", []() {});
+        DeclareEditorAction("stress.clear", "Clear", []() {});
+        DeclareEditorSegmented("stress.motion", "Motion", {"Static", "One in ten", "All moving"},
+                               [this]() { return Motion; }, [this](size_t Index) { Motion = Index; });
+#endif
+    }
+    size_t Motion = 0;
+};
+
+class DiagnosticsRecord final : public Frontier::RecordEntry
+{
+  public:
+    DiagnosticsRecord() : RecordEntry(Frontier::RecordClassification::Interface)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Session telemetry", "Render");
+        DeclareEditorDescription("Session recording, frame charts, GPU passes and CSV export");
+        DeclareEditorCard("Session recorder", "", 1, "Activity");
+        DeclareEditorAction("diagnostics.refresh", "Pause live editor refresh (A/B)", []() {});
+        DeclareEditorMuted("A/B switch pauses live readouts, charts, outliner and gizmo redraw, not the renderer or recorder. It does not remove the DOM or all browser UI cost.");
+        DeclareEditorAction("diagnostics.record", "Record / pause", []() {});
+        DeclareEditorAction("diagnostics.clear", "Clear", []() {});
+        DeclareEditorTextBlock("diagnostics.readout", []() { return std::string("0 / 10,000 records \xC2\xB7 0s session\nGPU timestamps unavailable \xE2\x80\x94 not reported as zero"); });
+        DeclareEditorAction("diagnostics.copy", "Copy all CSV", []() {});
+        DeclareEditorAction("diagnostics.download", "Download CSV", []() {});
+        DeclareEditorAction("diagnostics.remove", "Remove recorder & discard data", []() {});
+        DeclareEditorMuted("In memory until export; reload loses the session. Storage stops at the limit, never silently overwrites. Charts show recent samples; CSV includes everything, including settings and events.");
+        DeclareEditorCard("Frame pacing", "", 2, "Activity");
+        DeclareEditorTextBlock("diagnostics.frames", []() { return std::string("Waiting for frame samples"); });
+        DeclareEditorCard("CPU attribution \xC2\xB7 latest frame", "", 3, "Activity");
+        DeclareEditorTextBlock("diagnostics.cpu", []() { return std::string("Waiting for CPU phase samples"); });
+        DeclareEditorMuted("UI subphases are nested inside CPU / hud_editor, not additional costs. Physics/effects is an aggregate; steps and GPU queue skips are also exported.");
+        DeclareEditorCard("Editor & recorder CPU", "", 3, "Monitor");
+        DeclareEditorMuted("JavaScript duration only. Inspector-build events and page long tasks are in CSV. Layout, paint, compositor work and uninstrumented input handlers are not attributed as UI time. Recorder values are partial self-timings, not its complete system overhead.");
+        DeclareEditorCard("GPU workload", "", 4, "Layers");
+        DeclareEditorSelect("diagnostics.pass", "GPU pass", {"Clouds"}, [this]() { return Pass; }, [this](size_t Index) { Pass = Index; });
+        DeclareEditorMuted("Heatmap: recent samples left to right; green \xE2\x86\x92 red relative to each pass maximum; grey = unavailable.");
+        DeclareEditorMuted("Per-pass raw available samples, not total frame GPU time. Missing samples are gaps. Cloud presentation is inside the existing display pass.");
+        DeclareEditorCard("Capture context", "", 5, "Monitor");
+        DeclareEditorTextBlock("diagnostics.context", []() { return std::string("No settings snapshot"); });
+        DeclareEditorCard("Settings & session events", "", 6, "List");
+        DeclareEditorMuted("CSV settings rows preserve all host settings, quality and actual screen/cloud dimensions. Frame/GPU rows reference their settings revision. Browser long tasks are observed where supported; editor JS timing does not include layout, paint, compositor time or all input handlers.");
+#endif
+    }
+    size_t Pass = 0;
+};
+
+class ClustersRecord final : public Frontier::RecordEntry
+{
+  public:
+    ClustersRecord() : RecordEntry(Frontier::RecordClassification::Illumination)
+    {
+#if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        DeclareEditorIdentity("Cluster diagnostics", "Render");
+        DeclareEditorDescription("Actual GPU visibility, bounds overlay and rebuild");
+        DeclareEditorCard("Geometry clusters", "", 1, "Layers");
+        DeclareEditorToggle("clusters.culling", "GPU cluster culling", "Lossless original triangles; not simplified Nanite LOD", false,
+                            [this]() { return Culling; }, [this](bool On) { Culling = On; });
+        DeclareEditorSegmented("clusters.budget", "Maximum triangles per leaf \xC2\xB7 rebuilds", {"64", "128", "256"},
+                               [this]() { return Budget; }, [this](size_t Index) { Budget = Index; });
+        DeclareEditorToggle("clusters.overlay", "Cluster bounds overlay", "Green: GPU-visible \xC2\xB7 red: GPU-culled \xC2\xB7 grey: pending", false,
+                            [this]() { return Overlay; }, [this](bool On) { Overlay = On; });
+        DeclareEditorAction("clusters.rebuild", "Rebuild clusters", []() {});
+        DeclareEditorTextBlock("clusters.readout", []() { return std::string("0 candidates \xC2\xB7 0 indices \xC2\xB7 revision 0\nEnable overlay for asynchronous GPU visibility readback\nOverlay: 0 / 0 bounds (display cap only)"); });
+        DeclareEditorMuted("Bounds are cluster AABBs, not triangle wireframes. Visibility comes from actual indirect GPU commands, sampled at most 4 Hz. Move the camera to watch culling; rebuild refreshes partitions. Hidden clusters may lie outside the viewport. Overlay/readback has an optional diagnostic cost.");
+#endif
+    }
+    bool Culling = true, Overlay = false;
+    size_t Budget = 1;
+};
 
 // Shared text/rect helpers for the bespoke environment dashboards below.
 struct PageInk
@@ -545,7 +783,7 @@ struct PageInk
 // Drawn here with the Overview pane active, as the HTML opens. State seeded
 // from IlluminationHost defaults (elevation 38, azimuth 145, preset "Custom").
 // ---------------------------------------------------------------------------
-void DrawSunDashboard()
+void DrawSunDashboard(int Pane = 0)
 {
     ImDrawList* Ink = ImGui::GetWindowDrawList();
     ImFont* Font = ImGui::GetFont();
@@ -558,6 +796,9 @@ void DrawSunDashboard()
     };
     auto TextC = [&](float Centre, float Y, float Size, ImU32 Colour, const std::string& Value) {
         Text(Centre - Font->CalcTextSizeA(Size, 1e9f, 0.0f, Value.c_str()).x * 0.5f, Y, Size, Colour, Value);
+    };
+    auto TextWidthOf = [&](ImFont* F, float Size, const std::string& Value) {
+        return F->CalcTextSizeA(Size, 1e9f, 0.0f, Value.c_str()).x;
     };
     auto Rect = [&](float X, float Y, float R, float B, ImU32 Fill, float Radius) {
         Ink->AddRectFilled(ImVec2(X, Y), ImVec2(R, B), Fill, Radius);
@@ -594,11 +835,13 @@ void DrawSunDashboard()
         for (int I = 0; I < 4; ++I)
         {
             const float X = L + I * (TW + 3.0f);
-            if (I == 0) Rect(X, Y, X + TW, Y + 33, IM_COL32(0x34, 0x33, 0x29, 255), 24);
-            TextC(X + TW * 0.5f, Y + 11, 10, I == 0 ? IM_COL32(0xe7, 0xdf, 0xc8, 255) : IM_COL32(0x8d, 0x93, 0x86, 255), Tabs[I]);
+            if (I == Pane) Rect(X, Y, X + TW, Y + 33, IM_COL32(0x34, 0x33, 0x29, 255), 24);
+            TextC(X + TW * 0.5f, Y + 11, 10, I == Pane ? IM_COL32(0xe7, 0xdf, 0xc8, 255) : IM_COL32(0x8d, 0x93, 0x86, 255), Tabs[I]);
         }
         Y += 33.0f + 20.0f;
     }
+    if (Pane == 0)
+    {
     // Card: Solar vector (01 / DIRECTION)
     {
         const float CardY = Y;
@@ -727,6 +970,331 @@ void DrawSunDashboard()
             TextC(X + BW * 0.5f, Y + 12, 10, IM_COL32(0xbb, 0xae, 0x91, 255), Names[I]);
         }
         Y += 34.0f + 12.0f;
+    }
+    }
+    else if (Pane == 1)
+    {
+        // Solar day (03 / EPHEMERIS)
+        const float CardY = Y, InnerL = L + 18.0f, InnerR = R - 18.0f;
+        float CY = CardY + 18.0f;
+        Rect(L, CardY, R, CardY + 560, IM_COL32(0x22, 0x24, 0x1f, 255), 24);
+        Text(InnerL, CY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Solar day");
+        TextR(InnerR, CY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "03 / EPHEMERIS");
+        CY += 12.0f + 14.0f;
+        Text(InnerL, CY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Local time");
+        Text(InnerL, CY + 14, 31, InkMain, "12:00");
+        {
+            const std::string Tag = "Manual direction";
+            const float TW2 = TextWidthOf(Font, 9, Tag) + 20.0f;
+            Rect(InnerR - TW2, CY + 4, InnerR, CY + 4 + 27, IM_COL32(0xe8, 0xc7, 0x8b, 0x0c), 20);
+            RectLine(InnerR - TW2, CY + 4, InnerR, CY + 4 + 27, IM_COL32(0xe8, 0xc7, 0x8b, 0x28), 20);
+            TextC(InnerR - TW2 * 0.5f, CY + 13, 9, IM_COL32(0xe8, 0xc7, 0x8b, 255), Tag);
+        }
+        CY += 31.0f + 14.0f;
+        // Day curve 640x320 (spherical model: lat -26.18, declination -10.3, date 2026-10-20)
+        {
+            const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 320.0f * Scale;
+            const double Phi = -26.18 * 3.14159265 / 180.0, Dec = -10.3 * 3.14159265 / 180.0;
+            auto Elev = [&](double Hour) {
+                const double H = (Hour - 12.0) * 15.0 * 3.14159265 / 180.0;
+                return std::asin(std::sin(Phi) * std::sin(Dec) + std::cos(Phi) * std::cos(Dec) * std::cos(H)) * 180.0 / 3.14159265;
+            };
+            auto YOf = [&](double E) { return CY + (160.0 - E / 90.0 * 110.0) * Scale; };
+            for (double E : {-60.0, 0.0, 60.0})
+            {
+                const float GY = (float)YOf(E);
+                for (float T2 = 0; T2 < 1.0f; T2 += 0.05f)
+                    Ink->AddLine(ImVec2(InnerL + (42.0f + T2 * 564.0f) * Scale, GY), ImVec2(InnerL + (42.0f + (T2 + 0.025f) * 564.0f) * Scale, GY), E == 0 ? IM_COL32(0xe3, 0xca, 0x99, 0x5c) : IM_COL32(0xe3, 0xca, 0x99, 0x1a), 1.0f);
+                char Buf[16]; std::snprintf(Buf, sizeof(Buf), "%.0f", E);
+                TextR(InnerL + 32.0f * Scale, GY - 4, 7, IM_COL32(0x9c, 0x94, 0x7f, 255), std::string(Buf) + "\xC2\xB0");
+            }
+            ImVec2 Prev; bool Have = false, HaveLit = false; ImVec2 PrevLit;
+            for (int I = 0; I <= 96; ++I)
+            {
+                const double Hour = I / 4.0, E = Elev(Hour);
+                const ImVec2 Pt(InnerL + (42.0f + Hour / 24.0 * 564.0f) * Scale, (float)YOf(E));
+                if (Have) Ink->AddLine(Prev, Pt, IM_COL32(0x9f, 0x99, 0x7a, 0x99), 1.2f);
+                if (E >= 0) { if (HaveLit) Ink->AddLine(PrevLit, Pt, IM_COL32(0xef, 0xd3, 0x97, 255), 2.0f); PrevLit = Pt; HaveLit = true; }
+                else HaveLit = false;
+                Prev = Pt; Have = true;
+            }
+            const float PX = InnerL + (42.0f + 12.0f / 24.0f * 564.0f) * Scale;
+            for (float T2 = 0; T2 < 1.0f; T2 += 0.08f)
+                Ink->AddLine(ImVec2(PX, CY + (30.0f + T2 * 250.0f) * Scale), ImVec2(PX, CY + (30.0f + (T2 + 0.04f) * 250.0f) * Scale), IM_COL32(0xe8, 0xc7, 0x8b, 0x66), 1.0f);
+            for (int Hour : {0, 6, 12, 18, 24})
+            {
+                char Buf[8]; std::snprintf(Buf, sizeof(Buf), "%02d:00", Hour);
+                TextC(InnerL + (42.0f + Hour / 24.0 * 564.0f) * Scale, CY + 304.0f * Scale - 6.0f, 7, IM_COL32(0xa3, 0x99, 0x82, 255), Buf);
+            }
+            CY += DH + 12.0f;
+            // .so-day-metrics
+            Ink->AddRectFilled(ImVec2(InnerL, CY), ImVec2(InnerR, CY + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x12));
+            CY += 13.0f;
+            const double CosH = -std::tan(Phi) * std::tan(Dec);
+            const double Hh = std::acos(std::max(-1.0, std::min(1.0, CosH))) * 180.0 / 3.14159265 / 15.0;
+            auto Clock = [](double H) { const int M = (int)std::lround(H * 60); char B[8]; std::snprintf(B, sizeof(B), "%02d:%02d", (M / 60) % 24, M % 60); return std::string(B); };
+            struct M { const char* Label; std::string Value; const char* Unit; };
+            const M Ms[] = {{"Horizon rise", Clock(12.0 - Hh), ""}, {"Horizon set", Clock(12.0 + Hh), ""}, {"Above horizon", "", "h"}};
+            const float MW = (InnerR - InnerL - 20.0f) / 3.0f;
+            for (int I = 0; I < 3; ++I)
+            {
+                const float X = InnerL + I * (MW + 10.0f);
+                Text(X, CY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), Ms[I].Label);
+                std::string V = Ms[I].Value;
+                if (I == 2) { char B[16]; std::snprintf(B, sizeof(B), "%.1f", 2 * Hh); V = B; }
+                Text(X, CY + 14, 22, InkMain, V);
+                if (Ms[I].Unit[0]) Text(X + TextWidthOf(Font, 22, V) + 4, CY + 24, 9, Muted, Ms[I].Unit);
+            }
+            CY += 14.0f + 22.0f + 13.0f;
+        }
+        Text(InnerL, CY, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Date/location solver \xC2\xB7 geometric 0\xC2\xB0 crossings, without");
+        Text(InnerL, CY + 16, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "refraction or terrain. This path is a reference while");
+        Text(InnerL, CY + 32, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "direction is manual, not recorded telemetry.");
+        CY += 32.0f + 16.0f + 11.0f;
+        auto Slider = [&](const char* Label, const char* Value, const char* Unit, float Fraction) {
+            Text(InnerL, CY + 4, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), Label);
+            Rect(InnerR - 88, CY, InnerR, CY + 24, IM_COL32(0x08, 0x08, 0x08, 255), 20);
+            TextR(InnerR - 22, CY + 5, 18, IM_COL32(0xe9, 0xe9, 0xe9, 255), Value);
+            Text(InnerR - 20, CY + 8, 10, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+            CY += 36.0f;
+            Rect(InnerL, CY, InnerR, CY + 22, IM_COL32(0x17, 0x18, 0x18, 255), 20);
+            const float FillR = InnerL + (InnerR - InnerL) * Fraction;
+            if (FillR > InnerL + 20.0f) Rect(InnerL, CY, FillR, CY + 22, IM_COL32(0x55, 0x56, 0x50, 255), 20);
+            Ink->AddCircleFilled(ImVec2(FillR - 11.0f, CY + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+            CY += 31.0f;
+        };
+        Slider("Local solar control time", "12.00", "h", 0.5f);
+        Slider("Full day duration", "6.00", "real h", 6.0f / 24.0f);
+        Y = CardY + 560 + 14.0f;
+        // Time & location (04 / COORDINATES)
+        const float Card2Y = Y;
+        float LY = Card2Y + 18.0f;
+        Rect(L, Card2Y, R, Card2Y + 330, IM_COL32(0x20, 0x22, 0x1e, 255), 24);
+        Text(InnerL, LY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Time & location");
+        TextR(InnerR, LY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "04 / COORDINATES");
+        LY += 12.0f + 14.0f;
+        Ink->AddRectFilled(ImVec2(InnerL, LY), ImVec2(InnerR, LY + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x10));
+        LY += 11.0f;
+        Text(InnerL, LY + 6, 10, IM_COL32(0xb8, 0xad, 0x96, 255), "Calendar date");
+        Rect(InnerR - 150, LY, InnerR, LY + 26, IM_COL32(0x17, 0x16, 0x10, 255), 9);
+        RectLine(InnerR - 150, LY, InnerR, LY + 26, IM_COL32(0xe8, 0xc7, 0x8b, 0x25), 9);
+        Text(InnerR - 150 + 8, LY + 7, 12, IM_COL32(0xe7, 0xd8, 0xb9, 255), "2026-10-20");
+        LY += 26.0f + 11.0f;
+        auto LocSlider = [&](const char* Label, const char* Value, const char* Unit, float Fraction) {
+            Text(InnerL, LY + 4, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), Label);
+            Rect(InnerR - 88, LY, InnerR, LY + 24, IM_COL32(0x08, 0x08, 0x08, 255), 20);
+            TextR(InnerR - 22, LY + 5, 18, IM_COL32(0xe9, 0xe9, 0xe9, 255), Value);
+            Text(InnerR - 20, LY + 8, 10, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+            LY += 36.0f;
+            Rect(InnerL, LY, InnerR, LY + 22, IM_COL32(0x17, 0x18, 0x18, 255), 20);
+            const float FillR = InnerL + (InnerR - InnerL) * Fraction;
+            if (FillR > InnerL + 20.0f) Rect(InnerL, LY, FillR, LY + 22, IM_COL32(0x55, 0x56, 0x50, 255), 20);
+            Ink->AddCircleFilled(ImVec2(std::max(InnerL + 11.0f, FillR - 11.0f), LY + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+            LY += 31.0f;
+        };
+        LocSlider("Latitude", "-26.18", "\xC2\xB0", (90.0f - 26.18f) / 180.0f);
+        LocSlider("Longitude", "28.32", "\xC2\xB0", (28.32f + 180.0f) / 360.0f);
+        LocSlider("UTC offset", "2.0", "h", (2.0f + 12.0f) / 26.0f);
+        Text(InnerL, LY + 4, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Changing time, date or location links the Sun to the");
+        Text(InnerL, LY + 20, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "existing celestial solver. The day-cycle switch stays");
+        Text(InnerL, LY + 36, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "in the Overview quick toggles.");
+        Y = Card2Y + 330 + 14.0f;
+    }
+    else if (Pane == 2)
+    {
+        // Light source (05 / RADIANCE)
+        const float CardY = Y, InnerL = L + 18.0f, InnerR = R - 18.0f;
+        float CY = CardY + 18.0f;
+        Rect(L, CardY, R, CardY + 400, IM_COL32(0x23, 0x24, 0x1e, 255), 24);
+        Text(InnerL, CY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Light source");
+        TextR(InnerR, CY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "05 / RADIANCE");
+        CY += 12.0f + 14.0f;
+        Text(InnerL, CY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Sunlight intensity");
+        Text(InnerL, CY + 14, 31, InkMain, "12.0");
+        Text(InnerL + TextWidthOf(Font, 31, "12.0") + 4, CY + 14 + 15, 10, Muted, "\xC3\x97");
+        CY += 31.0f + 14.0f + 11.0f;
+        auto Slider = [&](const char* Label, const char* Value, const char* Unit, float Fraction, float NumSize = 18.0f) {
+            Text(InnerL, CY + 4, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), Label);
+            Rect(InnerR - 88, CY, InnerR, CY + 24, IM_COL32(0x08, 0x08, 0x08, 255), 20);
+            TextR(InnerR - 22, CY + 12 - NumSize * 0.62f, NumSize, IM_COL32(0xe9, 0xe9, 0xe9, 255), Value);
+            Text(InnerR - 20, CY + 8, 10, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+            CY += 36.0f;
+            Rect(InnerL, CY, InnerR, CY + 22, IM_COL32(0x17, 0x18, 0x18, 255), 20);
+            const float FillR = InnerL + (InnerR - InnerL) * Fraction;
+            if (FillR > InnerL + 20.0f) Rect(InnerL, CY, FillR, CY + 22, IM_COL32(0x55, 0x56, 0x50, 255), 20);
+            Ink->AddCircleFilled(ImVec2(std::max(InnerL + 11.0f, FillR - 11.0f), CY + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+            CY += 31.0f;
+        };
+        Slider("Sunlight multiplier", "12.0", "\xC3\x97", 12.0f / 60.0f);
+        CY += 6.0f;
+        Text(InnerL, CY, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Exhibit intensity multiplier, not a measured lux or");
+        Text(InnerL, CY + 16, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "irradiance value. Atmospheric transmission is applied");
+        Text(InnerL, CY + 32, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "by the renderer.");
+        CY += 32.0f + 16.0f;
+        // Colour source select (.ne-select)
+        Text(InnerL, CY, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), "Colour source");
+        CY += 16.0f + 9.0f;
+        Rect(InnerL, CY, InnerR, CY + 32, IM_COL32(0x21, 0x1e, 0x17, 255), 12);
+        RectLine(InnerL, CY, InnerR, CY + 32, IM_COL32(0xe8, 0xc7, 0x8b, 0x22), 12);
+        Text(InnerL + 12, CY + 10, 11, IM_COL32(0xe9, 0xd7, 0xb6, 255), "Temperature");
+        TextR(InnerR - 12, CY + 10, 11, Muted, "v");
+        CY += 32.0f + 11.0f;
+        // Sun Tint row (.so-tint-pill)
+        Ink->AddRectFilled(ImVec2(InnerL, CY), ImVec2(InnerR, CY + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x10));
+        CY += 11.0f;
+        Text(InnerL, CY + 10, 10, IM_COL32(0xb8, 0xad, 0x96, 255), "Sun Tint");
+        const float PillW = 145.0f;
+        Rect(InnerR - PillW, CY, InnerR, CY + 34, IM_COL32(0xe8, 0xc7, 0x8b, 0x0c), 20);
+        RectLine(InnerR - PillW, CY, InnerR, CY + 34, IM_COL32(0xe8, 0xc7, 0x8b, 0x30), 20);
+        Ink->AddCircleFilled(ImVec2(InnerR - PillW + 20, CY + 17), 8.0f, IM_COL32(0xff, 0xff, 0xff, 255));
+        Text(InnerR - PillW + 36, CY + 11, 11, IM_COL32(0xe5, 0xd8, 0xba, 255), "#FFFFFF");
+        TextR(InnerR - 12, CY + 11, 11, IM_COL32(0xe5, 0xd8, 0xba, 255), "\xE2\x86\x97");
+        CY += 34.0f + 11.0f;
+        Slider("Colour temperature", "5778", "K", (5778.0f - 2000.0f) / 8000.0f);
+        Y = CardY + 400 + 14.0f;
+        // Source spectrum (06 / REFERENCE)
+        const float Card2Y = Y;
+        float SY = Card2Y + 18.0f;
+        Rect(L, Card2Y, R, Card2Y + 430, IM_COL32(0x25, 0x25, 0x1f, 255), 24);
+        Text(InnerL, SY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Source spectrum");
+        TextR(InnerR, SY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "06 / REFERENCE");
+        SY += 12.0f + 14.0f + 10.0f;
+        Text(InnerL, SY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Thermal reference");
+        Text(InnerL, SY + 14, 43, InkMain, "5778");
+        Text(InnerL + TextWidthOf(Font, 43, "5778") + 5, SY + 14 + 24, 10, Muted, "K");
+        {
+            const std::string Tag = "Temperature source";
+            const float TW2 = TextWidthOf(Font, 9, Tag) + 20.0f;
+            Rect(InnerR - TW2, SY + 10, InnerR, SY + 10 + 27, IM_COL32(0xe8, 0xc7, 0x8b, 0x0c), 20);
+            RectLine(InnerR - TW2, SY + 10, InnerR, SY + 10 + 27, IM_COL32(0xe8, 0xc7, 0x8b, 0x28), 20);
+            TextC(InnerR - TW2 * 0.5f, SY + 19, 9, IM_COL32(0xe8, 0xc7, 0x8b, 255), Tag);
+        }
+        SY += 43.0f + 14.0f + 12.0f;
+        // Spectrum diagram 640x280 (normalised Planck curve at 5778 K)
+        {
+            const float DW = InnerR - InnerL, Scale = DW / 640.0f;
+            auto Planck = [](double Nm, double T) {
+                const double Lm = Nm * 1e-9;
+                return 1.0 / (std::pow(Lm, 5.0) * std::expm1(0.01438776877 / (Lm * T)));
+            };
+            const double Peak = Planck(501.5, 5778.0);
+            for (float GY : {28.0f, 80.0f, 132.0f, 184.0f})
+            {
+                const float Y2 = SY + GY * Scale;
+                for (float T2 = 0; T2 < 1.0f; T2 += 0.05f)
+                    Ink->AddLine(ImVec2(InnerL + (32.0f + T2 * 576.0f) * Scale, Y2), ImVec2(InnerL + (32.0f + (T2 + 0.025f) * 576.0f) * Scale, Y2), IM_COL32(0xea, 0xd6, 0xad, 0x1a), 1.0f);
+            }
+            const ImU32 Stops[] = {IM_COL32(0x8f, 0x81, 0xb5, 255), IM_COL32(0x82, 0xa7, 0xd5, 255), IM_COL32(0x91, 0xbd, 0xac, 255), IM_COL32(0xd6, 0xc7, 0x7e, 255), IM_COL32(0xca, 0x8a, 0x76, 255)};
+            ImVec2 Prev; bool Have = false;
+            for (int I = 0; I <= 64; ++I)
+            {
+                const double Nm = 380.0 + I / 64.0 * 400.0;
+                const ImVec2 Pt(InnerL + (32.0f + (Nm - 380.0) / 400.0 * 576.0f) * Scale, SY + (204.0f - Planck(Nm, 5778.0) / Peak * 165.0f) * Scale);
+                if (Have)
+                {
+                    const int Seg = std::min(4, (int)(I / 64.0f * 4.99f));
+                    Ink->AddLine(Prev, Pt, Stops[Seg], 1.6f);
+                }
+                Prev = Pt; Have = true;
+            }
+            const float PeakX = InnerL + (32.0f + (501.5f - 380.0f) / 400.0 * 576.0f) * Scale;
+            for (float T2 = 0; T2 < 1.0f; T2 += 0.1f)
+                Ink->AddLine(ImVec2(PeakX, SY + (28.0f + T2 * 176.0f) * Scale), ImVec2(PeakX, SY + (28.0f + (T2 + 0.05f) * 176.0f) * Scale), IM_COL32(0xee, 0xd6, 0xa6, 0x70), 1.0f);
+            Ink->AddCircleFilled(ImVec2(PeakX, SY + 39.0f * Scale), 2.5f, IM_COL32(0xf0, 0xd4, 0x9d, 255));
+            TextC(PeakX, SY + 19.0f * Scale - 8.0f, 7, IM_COL32(0xc3, 0xb5, 0x96, 255), "MAX");
+            for (int I = 0; I < 24; ++I)   // wavelength strip
+            {
+                const int Seg = std::min(4, (int)(I / 24.0f * 4.99f));
+                Rect(InnerL + (32.0f + I / 24.0f * 576.0f) * Scale, SY + 218.0f * Scale, InnerL + (32.0f + (I + 1) / 24.0f * 576.0f) * Scale, SY + 225.0f * Scale, Stops[Seg], 0);
+            }
+            for (int Nm : {380, 480, 580, 680, 780})
+            {
+                char Buf[8]; std::snprintf(Buf, sizeof(Buf), "%d", Nm);
+                TextC(InnerL + (32.0f + (Nm - 380) / 400.0f * 576.0f) * Scale, SY + 252.0f * Scale - 6.0f, 7, IM_COL32(0xac, 0x9f, 0x86, 255), Buf);
+            }
+            TextC(InnerL + DW * 0.5f, SY + 277.0f * Scale - 6.0f, 7, IM_COL32(0x87, 0x7e, 0x6a, 255), "VISIBLE WAVELENGTH / nm");
+            SY += 280.0f * Scale + 12.0f;
+        }
+        Ink->AddRectFilled(ImVec2(InnerL, SY), ImVec2(InnerR, SY + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x19));
+        SY += 16.0f;
+        const float SW = (InnerR - InnerL - 12.0f) / 2.0f;
+        Text(InnerL, SY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Blackbody peak");
+        Text(InnerL, SY + 14, 24, InkMain, "502");
+        Text(InnerL + TextWidthOf(Font, 24, "502") + 4, SY + 28, 10, Muted, "nm");
+        Text(InnerL + SW + 12.0f, SY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Visible window");
+        Text(InnerL + SW + 12.0f, SY + 14, 24, InkMain, "380-780");
+        Text(InnerL + SW + 12.0f + TextWidthOf(Font, 24, "380-780") + 4, SY + 28, 10, Muted, "nm");
+        SY += 14.0f + 24.0f + 12.0f;
+        Text(InnerL, SY, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Normalised thermal reference, not measured radiance.");
+        Text(InnerL, SY + 16, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "The renderer uses its existing RGB approximation; RGB");
+        Text(InnerL, SY + 32, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "mode uses your custom tint. The blackbody peak may");
+        Text(InnerL, SY + 48, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "fall outside the visible window.");
+        Y = Card2Y + 430 + 14.0f;
+    }
+    else if (Pane == 3)
+    {
+        // Apparent solar disc (07 / ANGULAR SIZE)
+        const float CardY = Y, InnerL = L + 18.0f, InnerR = R - 18.0f;
+        float CY = CardY + 18.0f;
+        Rect(L, CardY, R, CardY + 400, IM_COL32(0x24, 0x25, 0x1f, 255), 24);
+        Text(InnerL, CY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Apparent solar disc");
+        TextR(InnerR, CY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "07 / ANGULAR SIZE");
+        CY += 12.0f + 14.0f;
+        Text(InnerL, CY, 9, IM_COL32(0xad, 0x9f, 0x83, 255), "Angular diameter");
+        Text(InnerL, CY + 14, 31, InkMain, "0.54");
+        Text(InnerL + TextWidthOf(Font, 31, "0.54") + 4, CY + 14 + 15, 10, Muted, "\xC2\xB0");
+        CY += 31.0f + 14.0f;
+        // Disc diagram 640x280
+        {
+            const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 280.0f * Scale;
+            const ImVec2 O(InnerL + 320.0f * Scale, CY + 130.0f * Scale);
+            for (float Radius : {45.0f, 85.0f, 118.0f})
+                Ink->AddCircle(O, Radius * Scale, IM_COL32(0xe8, 0xc7, 0x8b, 0x22), 48, 1.0f);
+            for (float T2 = 0; T2 < 1.0f; T2 += 0.06f)
+            {
+                Ink->AddLine(ImVec2(InnerL + (180.0f + T2 * 280.0f) * Scale, O.y), ImVec2(InnerL + (180.0f + (T2 + 0.03f) * 280.0f) * Scale, O.y), IM_COL32(0xe8, 0xc7, 0x8b, 0x2a), 1.0f);
+                Ink->AddLine(ImVec2(O.x, CY + (5.0f + T2 * 250.0f) * Scale), ImVec2(O.x, CY + (5.0f + (T2 + 0.03f) * 250.0f) * Scale), IM_COL32(0xe8, 0xc7, 0x8b, 0x2a), 1.0f);
+            }
+            const float Rad = (12.0f + 0.27f / 2.0f * 76.0f) * Scale;
+            Ink->AddCircleFilled(O, Rad + 20.0f * Scale, IM_COL32(0xe8, 0xc7, 0x8b, 0x12));
+            Ink->AddCircleFilled(O, Rad, IM_COL32(0xf1, 0xd7, 0xa6, 255));
+            Ink->AddLine(ImVec2(O.x - Rad, O.y), ImVec2(O.x + Rad, O.y), IM_COL32(0xff, 0xf3, 0xcf, 0x66), 1.0f);
+            Text(InnerL + 24.0f * Scale, CY + 261.0f * Scale - 6.0f, 7, IM_COL32(0xac, 0x9e, 0x83, 255), "ANGULAR SIZE / EXAGGERATED");
+            CY += DH + 12.0f;
+        }
+        auto Slider = [&](const char* Label, const char* Value, const char* Unit, float Fraction) {
+            Text(InnerL, CY + 4, 11, IM_COL32(0xb3, 0xa5, 0x8a, 255), Label);
+            Rect(InnerR - 88, CY, InnerR, CY + 24, IM_COL32(0x08, 0x08, 0x08, 255), 20);
+            TextR(InnerR - 22, CY + 5, 18, IM_COL32(0xe9, 0xe9, 0xe9, 255), Value);
+            Text(InnerR - 20, CY + 8, 10, IM_COL32(0xb2, 0xb2, 0xaa, 255), Unit);
+            CY += 36.0f;
+            Rect(InnerL, CY, InnerR, CY + 22, IM_COL32(0x17, 0x18, 0x18, 255), 20);
+            const float FillR = InnerL + (InnerR - InnerL) * Fraction;
+            if (FillR > InnerL + 20.0f) Rect(InnerL, CY, FillR, CY + 22, IM_COL32(0x55, 0x56, 0x50, 255), 20);
+            Ink->AddCircleFilled(ImVec2(std::max(InnerL + 11.0f, FillR - 11.0f), CY + 11.0f), 10.0f, IM_COL32(0xe2, 0xe4, 0xd8, 255));
+            CY += 31.0f;
+        };
+        Slider("Angular diameter", "0.54", "\xC2\xB0", (0.27f - 0.05f) / 1.95f);
+        Slider("Optical aureole", "1.00", "\xC3\x97", 1.0f / 3.0f);
+        Text(InnerL, CY + 4, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Disc diagram is exaggerated for editing; the sky uses");
+        Text(InnerL, CY + 20, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "the actual angular diameter. The Sun disc quick toggle");
+        Text(InnerL, CY + 36, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "remains in Overview.");
+        Y = CardY + 400 + 14.0f;
+        // Connected optics (08 / SUBCOMPONENT)
+        const float Card2Y = Y;
+        float OY = Card2Y + 18.0f;
+        Rect(L, Card2Y, R, Card2Y + 150, IM_COL32(0, 0, 0, 0), 18);
+        RectLine(L, Card2Y, R, Card2Y + 150, IM_COL32(0xff, 0xff, 0xff, 0x15), 18);
+        Text(InnerL, OY, 12, IM_COL32(0xe7, 0xdf, 0xcd, 255), "Connected optics");
+        TextR(InnerR, OY + 2, 8, IM_COL32(0xa0, 0x96, 0x7d, 255), "08 / SUBCOMPONENT");
+        OY += 12.0f + 14.0f;
+        Text(InnerL, OY, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "Lens flare is a separate optical subcomponent. Opening");
+        Text(InnerL, OY + 16, 10, IM_COL32(0xa3, 0x97, 0x7e, 255), "it does not change sunlight or exposure.");
+        OY += 32.0f + 13.0f;
+        Rect(InnerL, OY, InnerR, OY + 42, IM_COL32(0xe8, 0xc7, 0x8b, 0x0c), 18);
+        RectLine(InnerL, OY, InnerR, OY + 42, IM_COL32(0xe8, 0xc7, 0x8b, 0x22), 18);
+        TextC((InnerL + InnerR) * 0.5f, OY + 15, 10, IM_COL32(0xe8, 0xc7, 0x8b, 255), "Open Lens Flare   \xE2\x86\x97");
+        Y = Card2Y + 150 + 14.0f;
     }
     // .co-footer
     Ink->AddRectFilled(ImVec2(L, Y), ImVec2(R, Y + 1), IM_COL32(0xe8, 0xc7, 0x8b, 0x10));
@@ -1059,6 +1627,104 @@ void DrawWindDashboard()
 }
 
 
+// ---------------------------------------------------------------------------
+// The Height fog inspector as the HTML builds it: BuildFogInspectorDashboard
+// in the fog-dashboard CSS family (FogDashboard.css), Visibility pane active.
+// Probe seeded as the HTML (distance 200 m, height 2 m); the retained-contrast
+// readout and target fading use the HTML's own FogPathTransmission law on the
+// seeded settings (density 0.002, falloff 30 m, FogEnabled false).
+// ---------------------------------------------------------------------------
+void DrawFogDashboard()
+{
+    PageInk P{ImGui::GetWindowDrawList(), ImGui::GetFont()};
+    P.Rect(0, 0, 380, 5000, IM_COL32(0x15, 0x17, 0x15, 255), 0);
+    P.TopBar("Environment");
+    const ImU32 InkMain = IM_COL32(0xc9, 0xd8, 0xcf, 255), Muted = IM_COL32(0x8c, 0x9f, 0x95, 255);
+    const float L = 18.0f, R = 362.0f;
+    float Y = 44.0f + 10.0f;
+    // .fg-header
+    P.Text(L + 4, Y, 9, Muted, "E N V I R O N M E N T  /  G E O M E T R Y  M E D I A");
+    Y += 12.0f + 8.0f;
+    P.Text(L + 4, Y, 30, InkMain, "Height fog");
+    {
+        const std::string Label = "Off";
+        const float PW = P.Width(11, Label) + 42.0f;
+        const float PY = 44.0f + 45.0f;
+        P.Rect(R - PW, PY, R, PY + 30, IM_COL32(0x28, 0x28, 0x28, 255), 24);
+        P.RectLine(R - PW, PY, R, PY + 30, IM_COL32(0x3e, 0x3e, 0x3e, 255), 24);
+        P.Ink->AddCircle(ImVec2(R - PW + 15.0f, PY + 15.0f), 3.5f, IM_COL32(0xd4, 0xe0, 0xd4, 255), 12, 1.2f);
+        P.Text(R - PW + 25.0f, PY + 9, 11, IM_COL32(0xd4, 0xe0, 0xd4, 255), Label);
+    }
+    Y += 38.0f + 8.0f;
+    P.Text(L + 4, Y, 12, IM_COL32(0x91, 0xa3, 0x98, 255), "A low-lying medium. A measurable loss of contrast.");
+    Y += 19.0f + 22.0f;
+    // InspectorCategories: Visibility / Medium / Colour & sun
+    {
+        const char* Tabs[] = {"Visibility", "Medium", "Colour & sun"};
+        Y = P.Tabs(L, R, Y, Tabs, 3, IM_COL32(0x34, 0x3d, 0x46, 255), IM_COL32(0xe1, 0xea, 0xf4, 255)) + 14.0f;
+    }
+    // A walk into the fog (.fg-transect section)
+    {
+        const float CardY = Y, InnerL = L + 20.0f, InnerR = R - 20.0f;
+        float CY = CardY + 20.0f;
+        P.Rect(L, CardY, R, CardY + 650, IM_COL32(0x1c, 0x20, 0x1e, 255), 22);
+        P.RectLine(L, CardY, R, CardY + 650, IM_COL32(0xaa, 0xc4, 0xb6, 0x1a), 22);
+        P.Text(InnerL, CY, 17, InkMain, "A walk into the fog");
+        CY += 20.0f + 7.0f;
+        P.Text(InnerL, CY, 9, Muted, "N E U T R A L  C O N T R A S T  T A R G E T S");
+        CY += 9.0f + 12.0f + 20.0f;
+        // .fg-readout (HTML law: OD = 0.002*200*exp(-2/30) = 0.374; retained = exp(-OD^2) = 86.9%)
+        P.Text(InnerL, CY, 52, InkMain, "86.9");
+        P.Text(InnerL + P.Width(52, "86.9") + 12.0f, CY + 8, 11, Muted, "% contrast");
+        P.Text(InnerL + P.Width(52, "86.9") + 12.0f, CY + 24, 11, Muted, "retained");
+        CY += 52.0f + 12.0f;
+        // Transect diagram 640x425: six neutral targets fading with distance
+        {
+            const float DW = InnerR - InnerL, Scale = DW / 640.0f, DH = 425.0f * Scale;
+            auto Transmit = [](double Distance) {
+                const double OD = 0.002 * Distance * std::exp(-2.0 / 30.0);
+                return std::exp(-OD * OD);
+            };
+            const ImVec2 A(InnerL + 45.0f * Scale, CY + 350.0f * Scale), B(InnerL + 305.0f * Scale, CY + 110.0f * Scale), Cc(InnerL + 590.0f * Scale, CY + 350.0f * Scale);
+            P.Ink->AddLine(A, B, IM_COL32(0xb1, 0xc7, 0xc3, 0x28), 1.0f);
+            P.Ink->AddLine(B, Cc, IM_COL32(0xb1, 0xc7, 0xc3, 0x28), 1.0f);
+            P.Ink->AddLine(ImVec2(InnerL + 40.0f * Scale, CY + 350.0f * Scale), ImVec2(InnerL + 600.0f * Scale, CY + 350.0f * Scale), IM_COL32(0xb1, 0xc7, 0xc3, 0x36), 1.0f);
+            for (int I = 5; I >= 0; --I)
+            {
+                const double Distance = 500.0 * I / 5.0, T = Transmit(Distance);
+                const float Sc = 1.0f / (1.0f + I * 0.38f), Wd = 90.0f * Sc * Scale, Ht = 145.0f * Sc * Scale;
+                const float CX = InnerL + (100.0f + I * 90.0f) * Scale, CYB = CY + (315.0f - I * 28.0f) * Scale;
+                auto Chan = [&](double Linear) {
+                    const int V = (int)std::lround(std::pow(Linear * T + 0.16 * (1.0 - T), 1.0 / 2.2) * 255.0);
+                    return IM_COL32(V, V, V, 255);
+                };
+                P.Rect(CX - Wd / 2 - 4, CYB - Ht - 4, CX + Wd / 2 + 4, CYB + 4, IM_COL32(0x13, 0x1b, 0x1c, 255), 7);
+                P.Rect(CX - Wd / 2, CYB - Ht, CX + Wd / 2, CYB, Chan(0.08), 3);
+                P.Rect(CX - Wd / 2, CYB - Ht, CX, CYB, Chan(0.8), 3);
+                char Buf[16];
+                if (Distance >= 1000) std::snprintf(Buf, sizeof(Buf), "%.1f km", Distance / 1000);
+                else std::snprintf(Buf, sizeof(Buf), "%.0f m", Distance);
+                P.TextC(CX, CYB + 23.0f * Scale, 8, IM_COL32(0xa8, 0xbb, 0xb7, 255), Buf);
+            }
+            const float PX = InnerL + (45.0f + 200.0f / 500.0f * 550.0f) * Scale;
+            P.Ink->AddLine(ImVec2(InnerL + 45.0f * Scale, CY + 390.0f * Scale), ImVec2(InnerL + 595.0f * Scale, CY + 390.0f * Scale), IM_COL32(0xb4, 0xcf, 0xca, 0x44), 2.0f);
+            P.Ink->AddCircleFilled(ImVec2(PX, CY + 390.0f * Scale), 5.0f, IM_COL32(0xd5, 0xe4, 0xdc, 255));
+            P.Text(InnerL + 45.0f * Scale, CY + 36.0f * Scale - 8.0f, 9, IM_COL32(0x94, 0xaa, 0xa4, 255), "NEAR / CLEAR");
+            P.TextR(InnerL + 595.0f * Scale, CY + 36.0f * Scale - 8.0f, 9, IM_COL32(0x94, 0xaa, 0xa4, 255), "FAR / ATTENUATED");
+            CY += DH + 20.0f;
+        }
+        CY = P.Slider(InnerL, InnerR, CY, "Probe distance", "200", "m", 200.0f / 500.0f, 18.0f, IM_COL32(0xb4, 0xc5, 0xb9, 255)) + 17.0f;
+        CY = P.Slider(InnerL, InnerR, CY, "Probe height", "2", "m", 2.0f / 1000.0f, 18.0f, IM_COL32(0xb4, 0xc5, 0xb9, 255)) + 16.0f;
+        P.Text(InnerL, CY, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "Fixed neutral targets under fixed reference light, not a");
+        P.Text(InnerL, CY + 19, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "scene render. Horizontal paths use the renderer's");
+        P.Text(InnerL, CY + 38, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "extinction law at the chosen world height. Probe edits");
+        P.Text(InnerL, CY + 57, 11, IM_COL32(0x8c, 0x9f, 0x95, 255), "do not change the scene.");
+        Y = CardY + 650 + 14.0f;
+    }
+    P.Text(L + 9, Y, 11, IM_COL32(0xb3, 0xc3, 0xb7, 255), "Scene medium is off \xC2\xB7 the diagnostic still shows its configured extinction.");
+}
+
+
 int main(int ArgumentCount, char** Arguments)
 {
     using namespace Frontier;
@@ -1103,12 +1769,19 @@ int main(int ArgumentCount, char** Arguments)
     std::unique_ptr<RecordEntry> PageRecord;
     std::string PageName = "Render settings";
     const bool SunDashboard = Page == "sun";
-    const bool BespokeDashboard = SunDashboard || Page == "moon" || Page == "flare" || Page == "wind";
+    const bool BespokeDashboard = SunDashboard || Page == "moon" || Page == "flare" || Page == "wind" || Page == "sun-daylight" || Page == "sun-light" || Page == "sun-disc" || Page == "fog";
     if      (BespokeDashboard)   { /* bespoke dashboard draw; no generic record */ }
     else if (Page == "field")     { PageRecord = std::make_unique<FieldRecord>();        PageName = "BVH & distance field"; }
     else if (Page == "cards")     { PageRecord = std::make_unique<SurfaceCardsRecord>(); PageName = "Surface cache"; }
+    else if (Page == "derez")     { PageRecord = std::make_unique<DerezRecord>();        PageName = "Derez \xC2\xB7 VFX"; }
+    else if (Page == "fracture")  { PageRecord = std::make_unique<FractureRecord>();     PageName = "Fracture"; }
+    else if (Page == "training")  { PageRecord = std::make_unique<TrainingRecord>();     PageName = "Training arena"; }
+    else if (Page == "cones")     { PageRecord = std::make_unique<ConesRecord>();        PageName = "Cones"; }
+    else if (Page == "level")     { PageRecord = std::make_unique<LevelRecord>();        PageName = "Proving grounds"; }
+    else if (Page == "stress")    { PageRecord = std::make_unique<StressRecord>();       PageName = "Stress test"; }
+    else if (Page == "diagnostics") { PageRecord = std::make_unique<DiagnosticsRecord>(); PageName = "Diagnostics"; }
+    else if (Page == "clusters")  { PageRecord = std::make_unique<ClustersRecord>();     PageName = "Geometry clusters"; }
     else if (Page == "particles") { PageRecord = std::make_unique<ParticlesRecord>();    PageName = "Particles"; }
-    else if (Page == "fog")       { PageRecord = std::make_unique<FogRecord>();          PageName = "Height Fog"; }
     else                          { PageRecord = std::make_unique<RenderSettingsRecord>(); }
     SceneDirectory& Directory = SceneDirectory::Instance();
     if (PageRecord) (void)Directory.ConfigureName(PageRecord->Token(), PageName);
@@ -1131,10 +1804,14 @@ int main(int ArgumentCount, char** Arguments)
         ImGui::SetNextWindowPos(ImVec2(0,0));
         ImGui::SetNextWindowSize(ImVec2((float)CaptureWidth,(float)CaptureHeight));
         ImGui::Begin("Inspector", nullptr, ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse|ImGuiWindowFlags_NoBackground);
-        if      (Page == "sun")   DrawSunDashboard();
+        if      (Page == "sun")   DrawSunDashboard(0);
+        else if (Page == "sun-daylight") DrawSunDashboard(1);
+        else if (Page == "sun-light")    DrawSunDashboard(2);
+        else if (Page == "sun-disc")     DrawSunDashboard(3);
         else if (Page == "moon")  DrawMoonDashboard();
         else if (Page == "flare") DrawFlareDashboard();
         else if (Page == "wind")  DrawWindDashboard();
+        else if (Page == "fog")   DrawFogDashboard();
         else Inspector.ConstructInterface();
         ImGui::End();
         ImGui::Render();
