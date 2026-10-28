@@ -120,6 +120,21 @@ private:
     // restarts on every new edit revision, so it never shows while edits are still streaming in.
     double PendingBakeSince = -1;
     uint64_t PendingBakeEditRevision = 0;
+    // 💡 PBR canvas preview: the design shaded as a material (per-layer surface channels -> base
+    // colour / roughness / metalness / height maps at 256px, rebuilt on edit revisions) under a
+    // sun handled directly on the board. Preview only - the document keeps its own channel data
+    // for decal seeding and material bakes; nothing here feeds back into it.
+    static constexpr int PbrExtent = 256;
+    bool PbrPreview = false;
+    float PbrLightX = 150.f, PbrLightY = 110.f; // document-plane units; fixed height above the plane
+    bool PbrLightDrag = false;
+    std::vector<uint8_t> PbrBase;     // straight-alpha RGBA of the whole design
+    std::vector<float> PbrRoughness, PbrMetalness, PbrHeight, PbrNormalScale;
+    bool PbrMapsValid = false;
+    uint64_t PbrMapsHistoryRevision = UINT64_MAX, PbrMapsGestureRevision = UINT64_MAX;
+    double PbrMapsBuiltAt = 0;
+    void RebuildPbrMaps(const VectorAuthoringDocument &Snapshot);
+    void DrawPbrPreview(float BoardMinimumX, float BoardMinimumY, float BoardSize);
     bool ApplyToMaterialRequested = false;
     std::optional<VectorAuthoringDocument> SelectionClipboard;
     void TransferSelection(bool Remove);

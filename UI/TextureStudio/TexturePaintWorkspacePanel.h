@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -76,6 +77,11 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         StampLibraryDirectory = std::move(Directory);
         EnsureStampLibrary(true);
     }
+
+    // 🅰️ Bundled engine-content root: the Text decal tool reads its TrueType glyph outlines from
+    // <root>/EngineContent/FontArchives (same resolution the Stamp workspace uses); empty = try
+    // the working directory.
+    void ConfigureContentRoot(std::filesystem::path Root) { ContentRoot = std::move(Root); }
 
     // 🎨 UV-space preview canvas: the layer stack composited per texel (one 512² tile per UDIM part,
     // 2x2 in a MaterialThumbnailAtlas page) so the 3D/2D views texture-map the mesh per pixel like
@@ -403,6 +409,24 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     const TopologyTriangle *PendingAnchorTriangle = nullptr;
     bool PendingAnchorCamera = false;
     [[nodiscard]] const StampLibraryEntry *ResolvedStampRaster(const StampPlacement &Placement) const noexcept;
+    // 🅰️ Text decals: the Text author tool stamps typed text exactly like a library stamp (hover
+    // ghost, projector, own Decal layer, gizmo, per-decal PBR). A text placement's StampId IS its
+    // content ("text:<text>"), so its entry is synthesized on demand from real DM Sans glyph
+    // outlines - white, tintable art fitted to the stamp square, rasterized at any extent - and
+    // saved projects round-trip with no extra data. FindStampEntry is the one lookup placements,
+    // hover and the Inspector share (library first, synthesized text second).
+    std::filesystem::path ContentRoot;
+    char TextBuffer[192]{};
+    bool TextFocusPending = false; // clicking the Text pill drops the keyboard straight into the field
+    mutable std::map<std::string, StampLibraryEntry> TextEntryCache; // synthesized 256px base entries, by "text:" id
+    mutable std::map<std::string, float> TextPointSizes;              // fitted point size per content
+    mutable std::mutex TextSynthesisLock; // ResolvedStampRaster runs on composite workers; synthesis stays serialized
+    char InspectorTextBuffer[192]{};
+    std::string InspectorTextForId; // placement id the inspector text buffer was seeded from
+    [[nodiscard]] bool DecalToolActive() const noexcept { return Tool == AuthorTool::Stamp || Tool == AuthorTool::Text; }
+    [[nodiscard]] std::string TextContent() const;
+    [[nodiscard]] const StampLibraryEntry *FindStampEntry(const std::string &Id) const noexcept;
+    bool SynthesizeTextEntry(const std::string &Id, int Extent, StampLibraryEntry &Out) const noexcept;
     // 🧲 Stamp dragging (Transform tool, and grabbing an existing stamp with the Stamp tool): one
     // placement is manipulated at a time; the gesture mutates live and commits one history step on
     // release. Modes: 0 move, 1 scale (corner), 2 rotate (top handle, UV view).
@@ -488,7 +512,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     int TargetPart = -1; // -1 = All parts
     bool UvSource = false;
     bool Grid = true;
-    enum class AuthorTool { Navigate, Stamp, Transform };
+    enum class AuthorTool { Navigate, Stamp, Transform, Text };
     AuthorTool Tool = AuthorTool::Navigate;
     bool DigitalActive = false;
     bool MaskPreview = false; // authoring-bar Material/Mask preview tabs

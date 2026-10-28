@@ -456,6 +456,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (!Texture->Initialize() || !Texture->Activate()) throw std::runtime_error("Texture Paint workspace activation failed.");
         Texture->ConfigureProjectDirectory(Directory);
         Texture->ConfigureStampLibraryDirectory(Directory / "Stamps");
+        Texture->ConfigureContentRoot(ContentRoot); // Text decal tool reads DM Sans outlines from here
         Texture->ActivateMaterial = [&]() { TextureActive = false; };
         Texture->ActivatePattern = [&]() { TextureActive = false; PatternActive = true; };
         Texture->ActivateStamp = [&]() { TextureActive = false; StampActive = true; };

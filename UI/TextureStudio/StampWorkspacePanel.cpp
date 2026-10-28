@@ -2023,6 +2023,139 @@ void StampWorkspacePanel::ConstructLayers()
 //                                                     GPU CANVAS, VIEW NAVIGATION AND GESTURES
 //------------------------------------------------------------------------------------------------------------------------
 
+void StampWorkspacePanel::RebuildPbrMaps(const VectorAuthoringDocument &Snapshot)
+{
+    // 💡 Channel maps for the lit preview: the evaluated design (modifiers applied, exactly what
+    // the canvas shows) rasterized whole for base colour, then once per visible layer with only
+    // that layer showing, so each layer's surface-channel strengths land where its art actually
+    // is. Roughness/metalness/normal-scale composite source-over their defaults (an upper layer
+    // redefines the surface); height accumulates, so stacked layers emboss higher.
+    PbrMapsValid = false;
+    PbrMapsBuiltAt = ImGui::GetTime();
+    try
+    {
+        const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Snapshot);
+        auto Base = RasterizeStampDocument(Evaluated, uint32_t(PbrExtent));
+        const size_t Count = size_t(PbrExtent) * size_t(PbrExtent);
+        if (Base.size() != Count * 4) return;
+        PbrBase = std::move(Base);
+        PbrRoughness.assign(Count, .9f);
+        PbrMetalness.assign(Count, 0.f);
+        PbrHeight.assign(Count, 0.f);
+        PbrNormalScale.assign(Count, 1.f);
+        for (size_t Index = 0; Index < Evaluated.Layers.size(); ++Index)
+        {
+            const auto &Layer = Evaluated.Layers[Index];
+            if (!QueryVectorAuthoringVisibility(Evaluated, Layer)) continue;
+            const auto &Channels = Layer.SurfaceChannels;
+            const auto &Rough = Channels[size_t(VectorAuthoringSurfaceChannel::Roughness)];
+            const auto &Metal = Channels[size_t(VectorAuthoringSurfaceChannel::Metalness)];
+            const auto &HeightCh = Channels[size_t(VectorAuthoringSurfaceChannel::Height)];
+            const auto &NormalCh = Channels[size_t(VectorAuthoringSurfaceChannel::Normal)];
+            if (!Rough.Enabled && !Metal.Enabled && !HeightCh.Enabled && !NormalCh.Enabled) continue;
+            auto Solo = Evaluated;
+            for (size_t Other = 0; Other < Solo.Layers.size(); ++Other) Solo.Layers[Other].Visible = Other == Index;
+            const auto Raster = RasterizeStampDocument(Solo, uint32_t(PbrExtent));
+            if (Raster.size() != Count * 4) continue;
+            const float RoughValue = std::clamp(Rough.Strength, 0.f, 1.f);
+            const float MetalValue = std::clamp(Metal.Strength, 0.f, 1.f);
+            const float HeightValue = std::clamp(HeightCh.Strength, 0.f, 1.f);
+            const float NormalValue = std::clamp(NormalCh.Strength, 0.f, 4.f);
+            for (size_t Texel = 0; Texel < Count; ++Texel)
+            {
+                const float Alpha = Raster[Texel * 4 + 3] / 255.f;
+                if (Alpha <= .003f) continue;
+                if (Rough.Enabled) PbrRoughness[Texel] += (RoughValue - PbrRoughness[Texel]) * Alpha;
+                if (Metal.Enabled) PbrMetalness[Texel] += (MetalValue - PbrMetalness[Texel]) * Alpha;
+                if (NormalCh.Enabled) PbrNormalScale[Texel] += (NormalValue - PbrNormalScale[Texel]) * Alpha;
+                if (HeightCh.Enabled) PbrHeight[Texel] = std::min(1.f, PbrHeight[Texel] + HeightValue * Alpha);
+            }
+        }
+        PbrMapsValid = true;
+    }
+    catch (...) { PbrMapsValid = false; }
+}
+
+void StampWorkspacePanel::DrawPbrPreview(float BoardMinimumX, float BoardMinimumY, float BoardSize)
+{
+    // 💡 CPU-lit blocks over the board (the panel's thumbnail drawing style, sized to the board):
+    // every block shades its texel's material against the draggable point light - GGX-flavoured
+    // specular (F0 from metalness, width from roughness) over lambert diffuse, normals derived
+    // from the height map (Normal channel scales the relief). Display-space math, tuned for
+    // legibility rather than physical units: drag the sun and metals glint, height rakes.
+    if (!PbrMapsValid || PbrBase.size() != size_t(PbrExtent) * size_t(PbrExtent) * 4) return;
+    auto *Ink = ImGui::GetWindowDrawList();
+    const int Blocks = std::clamp(int(BoardSize / (4.f * Scale)), 64, 176);
+    const float BlockPx = BoardSize / float(Blocks);
+    const float Light[3]{PbrLightX, PbrLightY, 260.f}; // document-plane units, z toward the viewer
+    const float BoardColour[3]{.929f, .906f, .843f};   // 0xede7d7, the flat canvas ground
+    const auto HeightAt = [&](int X, int Y) {
+        return PbrHeight[size_t(std::clamp(Y, 0, PbrExtent - 1)) * size_t(PbrExtent) + size_t(std::clamp(X, 0, PbrExtent - 1))];
+    };
+    for (int By = 0; By < Blocks; ++By)
+    {
+        int RunStart = -1;
+        uint32_t RunKey = 0;
+        ImU32 RunColour = 0;
+        const auto Flush = [&](int EndX)
+        {
+            if (RunStart < 0) return;
+            Ink->AddRectFilled(ImVec2(BoardMinimumX + RunStart * BlockPx, BoardMinimumY + By * BlockPx),
+                ImVec2(BoardMinimumX + EndX * BlockPx + .5f, BoardMinimumY + (By + 1) * BlockPx + .5f), RunColour);
+            RunStart = -1;
+        };
+        for (int Bx = 0; Bx < Blocks; ++Bx)
+        {
+            const int Tx = std::min(PbrExtent - 1, int((Bx + .5f) / Blocks * PbrExtent));
+            const int Ty = std::min(PbrExtent - 1, int((By + .5f) / Blocks * PbrExtent));
+            const size_t Texel = size_t(Ty) * size_t(PbrExtent) + size_t(Tx);
+            const uint8_t *Pixel = &PbrBase[Texel * 4];
+            if (Pixel[3] < 6) { Flush(Bx); continue; }
+            float BaseC[3]{Pixel[0] / 255.f, Pixel[1] / 255.f, Pixel[2] / 255.f};
+            const float Rough = std::clamp(PbrRoughness[Texel], .08f, 1.f);
+            const float Metal = std::clamp(PbrMetalness[Texel], 0.f, 1.f);
+            const float Relief = 2.f * std::clamp(PbrNormalScale[Texel], 0.f, 2.5f);
+            float Normal[3]{-(HeightAt(Tx + 1, Ty) - HeightAt(Tx - 1, Ty)) * Relief,
+                            -(HeightAt(Tx, Ty + 1) - HeightAt(Tx, Ty - 1)) * Relief, 1.f};
+            const float NormalLength = std::sqrt(Normal[0] * Normal[0] + Normal[1] * Normal[1] + 1.f);
+            Normal[0] /= NormalLength; Normal[1] /= NormalLength; Normal[2] /= NormalLength;
+            const float Point[3]{(Bx + .5f) / Blocks * 512.f, (By + .5f) / Blocks * 512.f, 0.f};
+            float ToLight[3]{Light[0] - Point[0], Light[1] - Point[1], Light[2]};
+            const float Distance = std::sqrt(ToLight[0] * ToLight[0] + ToLight[1] * ToLight[1] + ToLight[2] * ToLight[2]);
+            ToLight[0] /= Distance; ToLight[1] /= Distance; ToLight[2] /= Distance;
+            const float Attenuation = 1.f / (1.f + (Distance / 620.f) * (Distance / 620.f));
+            const float NdL = std::max(0.f, Normal[0] * ToLight[0] + Normal[1] * ToLight[1] + Normal[2] * ToLight[2]);
+            float Half[3]{ToLight[0], ToLight[1], ToLight[2] + 1.f}; // view is straight down +z
+            const float HalfLength = std::sqrt(Half[0] * Half[0] + Half[1] * Half[1] + Half[2] * Half[2]);
+            Half[0] /= HalfLength; Half[1] /= HalfLength; Half[2] /= HalfLength;
+            const float NdH = std::max(0.f, Normal[0] * Half[0] + Normal[1] * Half[1] + Normal[2] * Half[2]);
+            const float VdH = std::clamp(Half[2], 0.f, 1.f);
+            const float A = Rough * Rough, A2 = A * A;
+            const float Denominator = NdH * NdH * (A2 - 1.f) + 1.f;
+            const float Distribution = A2 / std::max(1e-3f, Denominator * Denominator);
+            const float FresnelBase = std::pow(1.f - VdH, 5.f);
+            const float Alpha = Pixel[3] / 255.f;
+            float Lit[3];
+            for (int Channel = 0; Channel < 3; ++Channel)
+            {
+                const float F0 = .04f + (BaseC[Channel] - .04f) * Metal;
+                const float Fresnel = F0 + (1.f - F0) * FresnelBase;
+                const float Ambient = BaseC[Channel] * .18f * (.4f + .6f * Normal[2]) * (1.f - Metal * .55f);
+                const float Diffuse = BaseC[Channel] * (1.f - Metal) * NdL;
+                const float Specular = Distribution * Fresnel * NdL * .55f;
+                const float Shaded = Ambient + Attenuation * (Diffuse + Specular);
+                Lit[Channel] = std::clamp(Shaded * Alpha + BoardColour[Channel] * (1.f - Alpha), 0.f, 1.f);
+            }
+            const uint32_t Qr = uint32_t(Lit[0] * 255) >> 3, Qg = uint32_t(Lit[1] * 255) >> 3, Qb = uint32_t(Lit[2] * 255) >> 3;
+            const uint32_t Key = (Qr << 10) | (Qg << 5) | Qb;
+            const ImU32 Colour = IM_COL32(int(Qr << 3 | Qr >> 2), int(Qg << 3 | Qg >> 2), int(Qb << 3 | Qb >> 2), 255);
+            if (RunStart < 0) { RunStart = Bx; RunKey = Key; RunColour = Colour; }
+            else if (Key != RunKey) { Flush(Bx); RunStart = Bx; RunKey = Key; RunColour = Colour; }
+        }
+        Flush(Blocks);
+    }
+}
+
 void StampWorkspacePanel::ConstructCanvas()
 {
     CapturePanel("Viewport");
@@ -2105,6 +2238,13 @@ void StampWorkspacePanel::ConstructCanvas()
     Controls.ControlHeight = 24;
     Ink->AddRectFilled(At(24, 94), At(Width / Scale - 24, 132), ImGui::GetColorU32(ThemeQuad(ControlKit::Palette().Raised)));
     Caption(At(36, 109), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0x888888);
+    // 💡 Lit-material view of the same canvas: layers shaded by their PBR surface channels under a
+    // light you drag across the board (the sun handle). Pure preview; the tools keep editing.
+    ImGui::SetCursorScreenPos(At(Width / Scale - 311, 101));
+    ImGui::BeginDisabled(MaskSelection != 0);
+    if (Controls.Button("PBR preview", 84 * Scale, PbrPreview && !MaskSelection, "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 2V4M12 20V22M2 12H4M20 12H22M4.9 4.9L6.3 6.3M17.7 17.7L19.1 19.1M4.9 19.1L6.3 17.7M17.7 6.3L19.1 4.9")) PbrPreview = !PbrPreview;
+    ImGui::EndDisabled();
+    Controls.Tooltip("PBR preview", "Shade the design with its layers' PBR channels (colour / roughness / metalness / height) under a movable light: drag the sun across the canvas to rake light over the material. Set each layer's channels in the Inspector; they also seed decal PBR in Texture Paint.");
     ImGui::SetCursorScreenPos(At(Width / Scale - 219, 101));
     if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
@@ -2166,10 +2306,21 @@ void StampWorkspacePanel::ConstructCanvas()
         CachedGestureRevision = GestureRevision;
         CachedCoverageValid = true;
     }
+    // 💡 Channel maps follow the same revisions the coverage program does (throttled while a
+    // gesture streams edits, so dragging a shape never pays 25 rasterizations per pointer move).
+    const bool PbrActive = PbrPreview && !MaskSelection;
+    if (PbrActive && (!PbrMapsValid || PbrMapsHistoryRevision != HistoryRevision || PbrMapsGestureRevision != GestureRevision) &&
+        ImGui::GetTime() - PbrMapsBuiltAt > .12)
+    {
+        RebuildPbrMaps(Snapshot);
+        PbrMapsHistoryRevision = HistoryRevision;
+        PbrMapsGestureRevision = GestureRevision;
+    }
     const float DisplayPixels = BoardSize * ImGui::GetIO().DisplayFramebufferScale.x;
     const uint32_t RequestedExtent = uint32_t(std::clamp(std::ceil(DisplayPixels), 1.f, 4096.f));
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram, RequestedExtent) : 0;
-    if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
+    if (PbrActive && PbrMapsValid) DrawPbrPreview(BoardMinimum.x, BoardMinimum.y, BoardSize);
+    else if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
     // 📝 Same rule as Pattern: every fresh edit revision restarts the pending clock, so the badge
@@ -2392,6 +2543,21 @@ void StampWorkspacePanel::ConstructCanvas()
         Ink->AddRectFilled(Lower, Upper, IM_COL32(134, 164, 112, 40));
         Ink->AddRect(Lower, Upper, IM_COL32(134, 164, 112, 230));
     }
+    // 💡 The preview light itself: a sun handle floating over the board, topmost so it stays
+    // grabbable over any art. Hover registers here (like the gradient grips); the click dispatch
+    // below gives it priority over drawing tools, and dragging it just relights - no gesture,
+    // no document change, no undo entry.
+    bool PbrLightHovered = false;
+    if (PbrActive)
+    {
+        const ImVec2 Sun(BoardMinimum.x + PbrLightX / 512 * BoardSize, BoardMinimum.y + PbrLightY / 512 * BoardSize);
+        const auto MousePosition = ImGui::GetIO().MousePos;
+        PbrLightHovered = std::hypot(MousePosition.x - Sun.x, MousePosition.y - Sun.y) <= 15 * Scale;
+        Ink->AddCircleFilled(Sun, 18 * Scale, IM_COL32(255, 214, 120, (PbrLightDrag || PbrLightHovered) ? 64 : 38), 24);
+        Ink->AddCircleFilled(Sun, 9 * Scale, IM_COL32(32, 30, 24, 255), 20);
+        DrawGlyph("M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 2V4M12 20V22M2 12H4M20 12H22M4.9 4.9L6.3 6.3M17.7 17.7L19.1 19.1M4.9 19.1L6.3 17.7M17.7 6.3L19.1 4.9", Sun, 16 * Scale, 0xffd678);
+        ControlExtents["PBR light"] = {Sun.x - 15 * Scale, Sun.y - 15 * Scale, Sun.x + 15 * Scale, Sun.y + 15 * Scale};
+    }
     Ink->PopClipRect();
     ImGui::SetCursorScreenPos(Minimum);
     ImGui::InvisibleButton("Stamp canvas", ImVec2(Maximum.x - Minimum.x, Maximum.y - Minimum.y), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
@@ -2415,6 +2581,16 @@ void StampWorkspacePanel::ConstructCanvas()
         Pan.X += (Input.MousePos.x - Centre.x) * (1 - Zoom / Previous);
         Pan.Y += (Input.MousePos.y - Centre.y) * (1 - Zoom / Previous);
     }
+    if (PbrLightDrag)
+    {
+        if (ImGui::IsMouseDown(0))
+        {
+            const auto LightPoint = DocumentPoint(Input.MousePos, false);
+            PbrLightX = std::clamp(LightPoint.X, -170.f, 682.f); // a margin past the art, for raking angles
+            PbrLightY = std::clamp(LightPoint.Y, -170.f, 682.f);
+        }
+        else PbrLightDrag = false;
+    }
     if (Hovered && Tool == VectorAuthoringTool::Select)
     {
         if (HoveredRotation || Gesture == 6) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -2423,6 +2599,7 @@ void StampWorkspacePanel::ConstructCanvas()
     // The gradient grips are live under every tool, so their hover cursor is too.
     if (Hovered && (GradientAxisHoverEnd >= 0 || GradientHoverSlot >= 0 || GradientLineHoverT >= 0 || Gesture == 9 || Gesture == 10 || Gesture == 11))
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if (Hovered && (PbrLightHovered || PbrLightDrag)) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     const bool PenInput = ConstructPenInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     const bool PointInput = ConstructPointInteraction({Minimum.x, Minimum.y, Maximum.x, Maximum.y}, BoardExtent, Hovered);
     bool TextReEditEntered = false;
@@ -2457,6 +2634,7 @@ void StampWorkspacePanel::ConstructCanvas()
         PointerOrigin = DocumentPoint(Input.MousePos, false);
         if (ImGui::IsMouseClicked(2) || Tool == VectorAuthoringTool::Pan || ImGui::IsKeyDown(ImGuiKey_Space)) { Gesture = 3; PanOrigin = Pan; }
         else if (MaskSelection) { /* Mask descriptor interaction remains in the Inspector. */ }
+        else if (PbrLightHovered) { PbrLightDrag = true; } // 💡 relight the preview; no document gesture starts
         else if (GradientAxisHoverEnd >= 0)
         {
             Gesture = GradientAxisHoverEnd == 0 ? 10 : 11;

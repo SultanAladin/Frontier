@@ -4,7 +4,10 @@
 #include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
 #include "UI/TextureStudio/PanelChrome.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h" // RasterizeStampDocument - full-fidelity stamp rasters
+#include "UI/TextureStudio/StampWorkspacePanel.h" // MeasureStampTextFitSize - one fit law for canvas + decal text
+#include "Engine/ContentInterchange/StampTextOutline.h" // AppendStampTextOutline - real glyph outlines for text decals
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h" // DecodeVectorAuthoring (.stamp.toml sidecars)
+#include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h" // centring synthesized text in its stamp square
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
@@ -1926,7 +1929,89 @@ void TexturePaintWorkspacePanel::EnsureStampLibrary(bool ForceReload)
 
 const StampLibraryEntry *TexturePaintWorkspacePanel::ActiveStamp() const noexcept
 {
+    // 🅰️ With the Text tool armed, the "active stamp" is whatever is typed: synthesized from the
+    // buffer on the spot, so hover ghost, placement and PBR all ride the stamp machinery as-is.
+    if (Tool == AuthorTool::Text)
+    {
+        const std::string Content = TextContent();
+        return Content.empty() ? nullptr : FindStampEntry("text:" + Content);
+    }
     return StampLib.Find(ActiveStampId);
+}
+
+std::string TexturePaintWorkspacePanel::TextContent() const
+{
+    std::string Content = TextBuffer;
+    const auto NotSpace = [](unsigned char Character) { return !std::isspace(Character); };
+    Content.erase(Content.begin(), std::find_if(Content.begin(), Content.end(), NotSpace));
+    Content.erase(std::find_if(Content.rbegin(), Content.rend(), NotSpace).base(), Content.end());
+    if (Content.size() > StampTextCharacterLimit) Content.resize(StampTextCharacterLimit);
+    return Content;
+}
+
+const StampLibraryEntry *TexturePaintWorkspacePanel::FindStampEntry(const std::string &Id) const noexcept
+{
+    if (const auto *Found = StampLib.Find(Id)) return Found;
+    if (Id.rfind("text:", 0) != 0) return nullptr;
+    // Placements are warmed into StampRasterCache on the UI thread before compositing, so worker
+    // threads normally never reach here; the lock keeps even that path honest (one synthesis,
+    // then map hits - std::map nodes keep returned pointers stable).
+    std::scoped_lock Guard(TextSynthesisLock);
+    if (const auto Cached = TextEntryCache.find(Id); Cached != TextEntryCache.end()) return &Cached->second;
+    StampLibraryEntry Entry;
+    if (!SynthesizeTextEntry(Id, 256, Entry)) return nullptr;
+    return &TextEntryCache.emplace(Id, std::move(Entry)).first->second;
+}
+
+bool TexturePaintWorkspacePanel::SynthesizeTextEntry(const std::string &Id, int Extent, StampLibraryEntry &Out) const noexcept
+{
+    // 🅰️ One text decal at one extent: fit the copy into the stamp square (word-wrapped by the
+    // same fit law the Stamp canvas composes with), bake white glyph outlines into a scratch
+    // stamp document, centre them, and rasterize. White + Tintable means the brush colour (and
+    // the Inspector tint after placement) owns the ink colour, like every white preset stamp.
+    std::string Content = Id.rfind("text:", 0) == 0 ? Id.substr(5) : Id;
+    if (Content.size() > StampTextCharacterLimit) Content.resize(StampTextCharacterLimit);
+    try
+    {
+        constexpr float Box = 470.f; // of the 512-unit stamp plane - a small safety margin all round
+        float PointSize;
+        if (const auto Cached = TextPointSizes.find(Content); Cached != TextPointSizes.end()) PointSize = Cached->second;
+        else
+        {
+            PointSize = MeasureStampTextFitSize(Content, Box, Box, ContentRoot);
+            TextPointSizes.emplace(Content, PointSize);
+        }
+        const std::string TypefacePath = ContentRoot.empty() ? std::string("EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
+            : (ContentRoot / "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf").string();
+        VectorAuthoringDocument Document;
+        Document.Stamp = true;
+        const uint32_t Root = AppendStampTextOutline(Document, Content, PointSize, {1.f, 1.f, 1.f, 1.f}, TypefacePath, Box);
+        VectorAuthoringLayer Layer;
+        Layer.Token = ++Document.TokenClock;
+        Layer.Root = Root;
+        Layer.Name = Content.size() > 24 ? Content.substr(0, 24) + "..." : Content;
+        Layer.ComponentKind = VectorAuthoringComponentKind::Text;
+        Layer.SourceMarkup = Content;
+        Layer.TextPointSize = PointSize;
+        Document.Layers.push_back(Layer);
+        ReclaimVectorAuthoringSources(Document);
+        const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, std::array<uint32_t, 1>{Layer.Token});
+        VectorAuthoringSourcePatch Centre;
+        Centre.TranslationX = 256.f - Bounds[0];
+        Centre.TranslationY = 256.f - Bounds[1];
+        TransformVectorAuthoringSelection(Document, std::array<uint32_t, 1>{Layer.Token}, Centre);
+        auto Pixels = RasterizeStampDocument(Document, uint32_t(Extent));
+        if (Pixels.size() != size_t(Extent) * size_t(Extent) * 4) return false;
+        Out = {};
+        Out.Id = "text:" + Content;
+        Out.Name = Content.size() > 28 ? Content.substr(0, 28) + "..." : Content;
+        Out.Builtin = false;
+        Out.Tintable = true;
+        Out.Width = Out.Height = Extent;
+        Out.Rgba = std::move(Pixels);
+        return true;
+    }
+    catch (...) { return false; } // unreadable typeface / whitespace-only copy: no decal, no crash
 }
 
 void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
@@ -1935,7 +2020,8 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
     const auto *Entry = ActiveStamp();
     if (!Entry)
     {
-        Status = "No stamp picked - right-click the viewport for the stamp library";
+        Status = Tool == AuthorTool::Text ? "Type the text in the authoring bar first - it follows the mouse, click to drop it"
+                                          : "No stamp picked - right-click the viewport for the stamp library";
         return;
     }
     if (View == ViewMode::Wireframe)
@@ -2018,7 +2104,7 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
     LayerState Layer;
     Layer.Id = MakeLayerId(MetaForKind(size_t(LayerKind::Decal)).Id);
     Layer.Kind = LayerKind::Decal;
-    Layer.Name = UniqueLayerName(Entry->Name + " stamp");
+    Layer.Name = UniqueLayerName(Tool == AuthorTool::Text ? "Text · " + Entry->Name : Entry->Name + " stamp");
     Layer.Channels = {"baseColor", "roughness"};
     Layer.Stamps.push_back(Placement);
     Layer.DecalCount = 1;
@@ -2033,7 +2119,7 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
     SelectLayer(NewId);
     StampFocusLayerId = NewId;
     StampFocusIndex = 0;
-    CommitHistory("Place stamp", NewName + " · " + EntryName, "stamp");
+    CommitHistory(Tool == AuthorTool::Text ? "Place text" : "Place stamp", NewName + " · " + EntryName, "stamp");
     MarkDirty();
     Status = "Placed '" + EntryName + "' on its own stamp layer - drag it any time with the Transform tool";
 }
@@ -2088,7 +2174,11 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const Sta
     if (StampRasterFallbacks.count(Key)) return &Entry;
     StampLibraryEntry Resolved;
     bool Have = false;
-    if (Entry.Builtin)
+    if (Entry.Id.rfind("text:", 0) == 0)
+    {
+        Have = SynthesizeTextEntry(Entry.Id, Extent, Resolved); // glyph outlines are resolution-independent
+    }
+    else if (Entry.Builtin)
     {
         Have = StampLibrary::RenderBuiltinAt(Entry.Id, Extent, Resolved);
     }
@@ -2137,10 +2227,10 @@ void TexturePaintWorkspacePanel::ResolveStampRasters()
 {
     for (const auto &Layer : Layers)
         for (const auto &Placement : Layer.Stamps)
-            if (const auto *Entry = StampLib.Find(Placement.StampId))
+            if (const auto *Entry = FindStampEntry(Placement.StampId))
                 (void)ResolveStampEntry(*Entry, StampRasterExtentFor(Placement.Radius));
     if (HoverStampActive)
-        if (const auto *Entry = StampLib.Find(HoverStamp.StampId))
+        if (const auto *Entry = FindStampEntry(HoverStamp.StampId))
             (void)ResolveStampEntry(*Entry, StampRasterExtentFor(HoverStamp.Radius));
 }
 
@@ -2148,7 +2238,7 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ResolvedStampRaster(const S
 {
     const auto Found = StampRasterCache.find({Placement.StampId, StampRasterExtentFor(Placement.Radius)});
     if (Found != StampRasterCache.end()) return &Found->second;
-    return StampLib.Find(Placement.StampId);
+    return FindStampEntry(Placement.StampId);
 }
 
 bool TexturePaintWorkspacePanel::HitTestStamp(const float Uv[2], float HandleSlop, std::string &OutLayerId,
@@ -2399,7 +2489,7 @@ void TexturePaintWorkspacePanel::RefreshHoverStamp(const TopologyTriangle *Hit, 
     // precisely what will stamp, projected clean on the surface at any camera angle.
     HoverStampActive = false;
     if (!Hit || StampDrag.Active || ImGui::IsMouseDown(ImGuiMouseButton_Left)) return;
-    if (Tool != AuthorTool::Stamp || DigitalActive || MaskSelected || View == ViewMode::Wireframe) return;
+    if (!DecalToolActive() || DigitalActive || MaskSelected || View == ViewMode::Wireframe) return;
     const auto *Entry = ActiveStamp();
     if (!Entry) return;
     HoverStamp = {};
@@ -3579,6 +3669,31 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         }
         Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp on its own stamp layer, right-click the viewport for the stamp grid. Drag a stamp on the selected layer to move it. Author new stamps in the Stamp workspace (Stamp studio, right).");
         X += 82 * S;
+        // 🅰️ Text decals: the Stamp tool's whole behaviour (hover ghost, projected placement, own
+        // Decal layer, gizmo, per-decal PBR) with typed copy rendered from real glyph outlines -
+        // brush size/colour/strength drive it, like a tintable stamp.
+        ImGui::SetCursorScreenPos(ImVec2(X, Y));
+        if (PillButton("ToolText", "Text", 66 * S, Tool == AuthorTool::Text && !DigitalActive, "M5 5H19M12 5V19M9 19H15"))
+        {
+            Tool = AuthorTool::Text;
+            DigitalActive = false;
+            TextFocusPending = true;
+        }
+        Controls.Tooltip("Text decals", "Type text and stamp it onto the model: it follows the mouse as a projected preview, click drops it on its own Decal layer (drag/scale/rotate with the gizmo; PBR + retype in the Inspector). Brush size sets the size, brush colour the ink.");
+        X += 70 * S;
+        if (Tool == AuthorTool::Text && !DigitalActive)
+        {
+            ImGui::SetCursorScreenPos(ImVec2(X, Y));
+            ImGui::SetNextItemWidth(240 * S);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * S, 4.5f * S));
+            if (TextFocusPending) { ImGui::SetKeyboardFocusHere(); TextFocusPending = false; }
+            ImGui::InputTextWithHint("##DecalText", "Type text, then click the model...", TextBuffer, sizeof(TextBuffer));
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor();
+            Track("Decal text");
+            X += 248 * S;
+        }
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
         if (PillButton("ToolTransform", "Transform", 102 * S, Tool == AuthorTool::Transform && !DigitalActive, "M5 9L2 12L5 15M9 5L12 2L15 5M15 19L12 22L9 19M19 9L22 12L19 15M2 12H22M12 2V22"))
         {
@@ -3637,6 +3752,8 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         // Authoring state + Stamp studio link ride the right edge.
         const auto *CurrentStamp = ActiveStamp();
         const std::string State = MaskSelected ? "Mask mode · " + (Selected ? Selected->Name : std::string())
+            : Tool == AuthorTool::Text && !DigitalActive
+                ? "Text mode · " + (CurrentStamp ? CurrentStamp->Name : std::string("type text, then click the surface"))
             : Tool == AuthorTool::Stamp && !DigitalActive
                 ? "Stamp mode · " + (CurrentStamp ? CurrentStamp->Name : std::string("no stamp picked"))
             : Tool == AuthorTool::Transform && !DigitalActive ? "Transform mode · drag a stamp"
@@ -3872,7 +3989,7 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
         // from last frame's draw) win first - rotate grip, scale corners, body - then the surface pick
         // itself. The grab suppresses click-to-place and the orbit drag.
         bool Grabbed = false;
-        if (!DigitalActive && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp))
+        if (!DigitalActive && !MaskSelected && (Tool == AuthorTool::Transform || DecalToolActive()))
         {
             float GrabUv[2]{0, 0};
             const auto *Pick = PickScene(Mouse.x, Mouse.y, GrabUv);
@@ -3941,9 +4058,9 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             {
                 if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select)
                     MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
-                else if (Tool == AuthorTool::Stamp && !DigitalActive)
+                else if (DecalToolActive() && !DigitalActive)
                 {
-                    // a click (not an orbit drag) drops the picked stamp here, projected from this view
+                    // a click (not an orbit drag) drops the picked stamp (or typed text) here, projected from this view
                     PendingAnchorTriangle = Hit->Index >= 0 && Hit->Index < int(Topology.size())
                         ? &Topology[size_t(Hit->Index)] : nullptr;
                     PendingAnchorCamera = true;
@@ -4141,7 +4258,7 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
         // 🧲 3D stamp gizmo: the focused stamp's projector quad floating a hair off the surface, with
         // scale corners and a rotate grip - cached in screen space for next frame's hit-testing.
         StampGizmoValid = false;
-        if (!Wire && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp || StampDrag.Active))
+        if (!Wire && !MaskSelected && (Tool == AuthorTool::Transform || DecalToolActive() || StampDrag.Active))
         {
             LayerState *FocusLayer = nullptr;
             const StampPlacement *Focus = FocusedStamp(FocusLayer);
@@ -4272,7 +4389,7 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
         // 🧲 Same grab rule as the 3D view (Transform: any stamp; Stamp tool: selected layer's stamps),
         // with handle zones: body moves, a corner scales, the handle above the top edge rotates.
         bool Grabbed = false;
-        if (!UvSource && !DigitalActive && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp))
+        if (!UvSource && !DigitalActive && !MaskSelected && (Tool == AuthorTool::Transform || DecalToolActive()))
         {
             float GrabUv[2];
             ScreenToUv(Mouse.x, Mouse.y, GrabUv);
@@ -4314,7 +4431,7 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
             {
                 if (MaskSelected && MaskEditor.ActiveTool == MaskEditorState::Tool::Select && !UvSource)
                     MaskEditor.SelectedRegion = MaskEditorState::Region{MaskEditor.Scope, Hit->Part, Hit->Chart, Hit->Index};
-                else if (Tool == AuthorTool::Stamp && !DigitalActive)
+                else if (DecalToolActive() && !DigitalActive)
                 {
                     // Placements live in authoring-UV space, same as dabs - source-UV view is inspect-only.
                     if (UvSource) Status = "Switch from source UVs to authoring UVs to place stamps";
@@ -4409,7 +4526,7 @@ void TexturePaintWorkspacePanel::ConstructUvViewport(PlaneExtent Region)
             }
         }
     }
-    if (!UvSource && !MaskSelected && (Tool == AuthorTool::Transform || Tool == AuthorTool::Stamp || StampDrag.Active))
+    if (!UvSource && !MaskSelected && (Tool == AuthorTool::Transform || DecalToolActive() || StampDrag.Active))
     {
         // 🧲 Stamp gizmo: every stamp on the selected layer gets an outline; the focused stamp gets the
         // full handle set (corners scale, the stalked circle above the top edge rotates, body moves).
@@ -5020,7 +5137,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                             ImGui::Dummy(ImVec2(0, 0));
                         }
                         auto &Placement = Layer->Stamps[size_t(StampFocusIndex)];
-                        const auto *Entry = StampLib.Find(Placement.StampId);
+                        const auto *Entry = FindStampEntry(Placement.StampId);
                         const auto *Raster = ResolvedStampRaster(Placement);
                         const std::string StampName = Entry ? Entry->Name : "Missing stamp";
                         Caption(ImGui::GetCursorScreenPos(), StampName.c_str(), 11 * S, 0xd0d0c3);
@@ -5038,6 +5155,36 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                             SmallNote(Note);
                         }
                         ImGui::Dummy(ImVec2(1, 10 * S));
+                        if (Placement.StampId.rfind("text:", 0) == 0)
+                        {
+                            // 🅰️ The decal's copy, retypable in place: the id IS the text, so an edit
+                            // re-bakes fresh glyph outlines at this placement's fidelity automatically.
+                            if (InspectorTextForId != Placement.StampId)
+                            {
+                                std::strncpy(InspectorTextBuffer, Placement.StampId.c_str() + 5, sizeof(InspectorTextBuffer) - 1);
+                                InspectorTextBuffer[sizeof(InspectorTextBuffer) - 1] = '\0';
+                                InspectorTextForId = Placement.StampId;
+                            }
+                            ImGui::TextDisabled("Text");
+                            ImGui::SetNextItemWidth(-1);
+                            ImGui::BeginDisabled(Locked);
+                            ImGui::InputText("##PlacedText", InspectorTextBuffer, sizeof(InspectorTextBuffer));
+                            if (ImGui::IsItemDeactivatedAfterEdit())
+                            {
+                                std::string Edited = Trimmed(InspectorTextBuffer);
+                                if (Edited.size() > StampTextCharacterLimit) Edited.resize(StampTextCharacterLimit);
+                                if (!Edited.empty() && "text:" + Edited != Placement.StampId)
+                                {
+                                    Placement.StampId = "text:" + Edited;
+                                    InspectorTextForId = Placement.StampId;
+                                    CommitHistory("Edit text", Layer->Name, "stamp");
+                                    MarkDirty();
+                                }
+                                else InspectorTextForId.clear(); // reseed from the placement next frame
+                            }
+                            ImGui::EndDisabled();
+                            ImGui::Dummy(ImVec2(1, 10 * S));
+                        }
                         const int Tile = std::clamp(int(std::floor(Placement.U)), 0, 3);
                         float CentreX = (Placement.U - float(Tile)) * 100.f;
                         float CentreY = Placement.V * 100.f;

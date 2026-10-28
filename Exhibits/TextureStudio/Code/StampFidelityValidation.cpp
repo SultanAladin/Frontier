@@ -5,8 +5,11 @@
 //    (authored colours -> .stamp.toml round-trip -> ThorVG stamp raster) keeps red red and blue blue,
 //    at more than one extent. Regression cover for "decals stamp as a solid black silhouette".
 
+#include "Engine/ContentInterchange/StampTextOutline.h"
 #include "Engine/ContentInterchange/VectorAuthoringDocument.h"
+#include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
+#include "UI/TextureStudio/StampWorkspacePanel.h" // MeasureStampTextFitSize
 #include <cstdio>
 #include <stdexcept>
 
@@ -103,6 +106,48 @@ int main()
         const auto Large = Analyse(RasterizeStampDocument(Decoded, 1024));
         Report("roundtrip1024", Large);
         Confirm(Large.Red > 6000, "Red rect missing at 1024px (Texture Paint footprint extents).");
+
+        // 🅰️ Texture Paint's Text decal synthesis, replicated step for step from
+        // TexturePaintWorkspacePanel::SynthesizeTextEntry: fit the copy to the stamp square, bake
+        // white glyph outlines, centre them, rasterize. The ink must be white (so brush-colour
+        // tinting owns the colour), substantial and centred - never empty or a black silhouette.
+        {
+            const std::string Content = "WANTED";
+            constexpr float Box = 470.f;
+            const float PointSize = MeasureStampTextFitSize(Content, Box, Box, {});
+            VectorAuthoringDocument Text;
+            Text.Stamp = true;
+            const uint32_t Root = AppendStampTextOutline(Text, Content, PointSize, {1.f, 1.f, 1.f, 1.f},
+                "EngineContent/FontArchives/DMSans/DMSans-Regular.ttf", Box);
+            VectorAuthoringLayer Layer;
+            Layer.Token = ++Text.TokenClock;
+            Layer.Root = Root;
+            Layer.ComponentKind = VectorAuthoringComponentKind::Text;
+            Layer.SourceMarkup = Content;
+            Layer.TextPointSize = PointSize;
+            Text.Layers.push_back(Layer);
+            ReclaimVectorAuthoringSources(Text);
+            const auto Bounds = QueryVectorAuthoringSelectionBounds(Text, std::array<uint32_t, 1>{Layer.Token});
+            VectorAuthoringSourcePatch Centre;
+            Centre.TranslationX = 256.f - Bounds[0];
+            Centre.TranslationY = 256.f - Bounds[1];
+            TransformVectorAuthoringSelection(Text, std::array<uint32_t, 1>{Layer.Token}, Centre);
+            const auto Pixels = RasterizeStampDocument(Text, 256);
+            const auto Ink = Analyse(Pixels);
+            Report("text256", Ink);
+            Confirm(Ink.White > 1500, "Text decal has no white glyph ink at 256px.");
+            Confirm(Ink.Black < Ink.Opaque / 8, "Text decal rasterized toward black (tinting would crush it).");
+            Confirm(Ink.Opaque > 2000 && Ink.Opaque < 40000, "Text decal coverage is implausible for 'WANTED'.");
+            double SumX = 0, SumY = 0;
+            size_t Counted = 0;
+            for (int Y = 0; Y < 256; ++Y)
+                for (int X = 0; X < 256; ++X)
+                    if (Pixels[(size_t(Y) * 256 + X) * 4 + 3] >= 200) { SumX += X; SumY += Y; ++Counted; }
+            Confirm(Counted > 0, "Text decal raster is empty.");
+            const double CentroidX = SumX / Counted / 255.0, CentroidY = SumY / Counted / 255.0;
+            std::printf("text256 centroid: %.3f, %.3f\n", CentroidX, CentroidY);
+            Confirm(std::abs(CentroidX - .5) < .12 && std::abs(CentroidY - .5) < .16, "Text decal ink is not centred in its stamp square.");
+        }
         std::printf("StampFidelityValidation: %u checks passed\n", Checks);
         return 0;
     }
