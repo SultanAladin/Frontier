@@ -1425,6 +1425,66 @@ void StampWorkspacePanel::ConstructTextComposer(float BoardMinimumX, float Board
     else if (EnterCommit || Deactivated) CommitTextComposer();
 }
 
+namespace
+{
+// 🎞️ A font-preview square's ink fit into a rect at its TRUE aspect (measured ink box, not a
+// stretched crop), block-drawn at ~1.5px blocks with 3x3-averaged samples, run-merged per row.
+void DrawTypefaceStrip(ImDrawList *Draw, const std::vector<uint8_t> &Pixels, int Extent,
+    const ImVec2 &Minimum, const ImVec2 &Maximum)
+{
+    if (Pixels.size() != size_t(Extent) * size_t(Extent) * 4 || Extent <= 0) return;
+    if (!ImGui::IsRectVisible(Minimum, Maximum)) return; // scrolled away
+    const float Width = Maximum.x - Minimum.x, Height = Maximum.y - Minimum.y;
+    if (Width < 4 || Height < 4) return;
+    int U0 = Extent, V0 = Extent, U1 = -1, V1 = -1;
+    for (int Y = 0; Y < Extent; Y += 2)
+        for (int X = 0; X < Extent; X += 2)
+            if (Pixels[(size_t(Y) * Extent + X) * 4 + 3] >= 24)
+            {
+                U0 = std::min(U0, X); U1 = std::max(U1, X);
+                V0 = std::min(V0, Y); V1 = std::max(V1, Y);
+            }
+    if (U1 < 0) return;
+    const float Pad = Extent * .02f;
+    const float InkU0 = (U0 - Pad) / Extent, InkV0 = (V0 - Pad) / Extent;
+    const float InkW = (U1 - U0 + 2 * Pad) / Extent, InkH = (V1 - V0 + 2 * Pad) / Extent;
+    const float Fit = std::min(Width / InkW, Height / InkH);
+    const float DrawW = InkW * Fit, DrawH = InkH * Fit;
+    const float DrawX = Minimum.x + (Width - DrawW) * .5f, DrawY = Minimum.y + (Height - DrawH) * .5f;
+    const int BlocksX = std::clamp(int(DrawW / 1.5f), 4, 384);
+    const int BlocksY = std::clamp(int(DrawH / 1.5f), 4, 64);
+    const float BlockW = DrawW / BlocksX, BlockH = DrawH / BlocksY;
+    for (int By = 0; By < BlocksY; ++By)
+    {
+        int RunStart = -1;
+        uint32_t RunKey = 0;
+        const auto Flush = [&](int EndX) {
+            if (RunStart < 0) return;
+            Draw->AddRectFilled(ImVec2(DrawX + RunStart * BlockW, DrawY + By * BlockH),
+                ImVec2(DrawX + EndX * BlockW + .5f, DrawY + (By + 1) * BlockH + .5f),
+                PanelChrome::Colour32(0xdbdbd0, RunKey / 255.f));
+            RunStart = -1;
+        };
+        for (int Bx = 0; Bx < BlocksX; ++Bx)
+        {
+            float Alpha = 0;
+            for (int Sy = 0; Sy < 3; ++Sy)
+                for (int Sx = 0; Sx < 3; ++Sx)
+                {
+                    const int X = std::clamp(int((InkU0 + (Bx + .2f + .3f * Sx) / BlocksX * InkW) * Extent), 0, Extent - 1);
+                    const int Y = std::clamp(int((InkV0 + (By + .2f + .3f * Sy) / BlocksY * InkH) * Extent), 0, Extent - 1);
+                    Alpha += Pixels[(size_t(Y) * Extent + X) * 4 + 3] / 255.f / 9.f;
+                }
+            const uint32_t Key = uint32_t(std::clamp(Alpha, 0.f, 1.f) * 255) & ~3u;
+            if (Key < 8) { Flush(Bx); continue; }
+            if (RunStart < 0) { RunStart = Bx; RunKey = Key; }
+            else if (Key != RunKey) { Flush(Bx); RunStart = Bx; RunKey = Key; }
+        }
+        Flush(BlocksX);
+    }
+}
+} // namespace
+
 bool StampWorkspacePanel::ConstructFontList(const std::string &CurrentId, std::string &PickedId, float Width)
 {
     // 🅰 Every outline-capable face in EngineContent/FontArchives (the shared TypefaceCatalogue),
@@ -1467,30 +1527,8 @@ bool StampWorkspacePanel::ConstructFontList(const std::string &CurrentId, std::s
         Draw->AddRectFilled(RowMin, RowMax, Ink32(Current ? 0x232720 : 0x191919), 8 * Scale);
         const auto Preview = FontPreviewCache.find(Face.Id);
         if (Preview != FontPreviewCache.end() && !Preview->second.empty())
-        {
-            // The preview square's middle band, block-drawn like the library thumbnails.
-            const auto &Pixels = Preview->second;
-            constexpr int Extent = 256, BlocksY = 24;
-            const float StripW = RowMax.x - RowMin.x - 24 * Scale, StripH = RowHeight - 14 * Scale;
-            const int BlocksX = std::clamp(int(BlocksY * StripW / StripH), 8, 320);
-            const float BlockW = StripW / BlocksX, BlockH = StripH / BlocksY;
-            for (int By = 0; By < BlocksY; ++By)
-                for (int Bx = 0; Bx < BlocksX; ++Bx)
-                {
-                    float Alpha = 0;
-                    for (int Sy = 0; Sy < 2; ++Sy)
-                        for (int Sx = 0; Sx < 2; ++Sx)
-                        {
-                            const int X = std::clamp(int(((Bx + .25f + .5f * Sx) / BlocksX) * Extent), 0, Extent - 1);
-                            const int Y = std::clamp(int((.36f + (By + .25f + .5f * Sy) / BlocksY * .28f) * Extent), 0, Extent - 1);
-                            Alpha += Pixels[(size_t(Y) * Extent + X) * 4 + 3] / 255.f * .25f;
-                        }
-                    if (Alpha < .04f) continue;
-                    Draw->AddRectFilled(ImVec2(RowMin.x + 12 * Scale + Bx * BlockW, RowMin.y + 7 * Scale + By * BlockH),
-                        ImVec2(RowMin.x + 12 * Scale + (Bx + 1) * BlockW + .5f, RowMin.y + 7 * Scale + (By + 1) * BlockH + .5f),
-                        PanelChrome::Colour32(0xdbdbd0, std::clamp(Alpha, 0.f, 1.f)));
-                }
-        }
+            DrawTypefaceStrip(Draw, Preview->second, 256,
+                ImVec2(RowMin.x + 12 * Scale, RowMin.y + 7 * Scale), ImVec2(RowMax.x - 12 * Scale, RowMax.y - 7 * Scale));
         else Caption(ImVec2(RowMin.x + 12 * Scale, RowMin.y + 16 * Scale), Face.DisplayName.c_str(), 10 * Scale, 0xc8c8b6);
         if (Current) PanelChrome::CheckDisc(Draw, RowMin, Scale);
         if (Hovered)
@@ -1502,6 +1540,7 @@ bool StampWorkspacePanel::ConstructFontList(const std::string &CurrentId, std::s
     }
     if (Faces.empty())
         Caption(ImGui::GetCursorScreenPos(), "No outline fonts in EngineContent/FontArchives.", 9 * Scale, 0x777770);
+    ImGui::Dummy(ImVec2(1, 1)); // SetCursorScreenPos grew the parent above; an item must claim it
     ImGui::EndChild();
     return Chosen;
 }

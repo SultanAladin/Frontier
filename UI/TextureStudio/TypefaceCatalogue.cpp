@@ -135,17 +135,18 @@ std::string ResolveTypefacePath(const std::filesystem::path &ContentRoot, std::s
 }
 
 float MeasureTextFitSize(std::string_view Content, float BoxWidth, float BoxHeight,
-    const std::string &TypefacePath)
+    const std::string &TypefacePath, bool Wrap)
 {
     // Binary search over real baked outlines (the Stamp canvas's original fit law): the largest
-    // point size whose wrapped instruction bounds stay inside the box.
+    // point size whose instruction bounds stay inside the box (word-wrapped at the box width
+    // when Wrap is set, single-line otherwise - previews must never become two-line samples).
     const float Width = std::max(1.f, BoxWidth), Height = std::max(1.f, BoxHeight);
     const std::string Text(Content);
     const auto Fits = [&](float PointSize)
     {
         VectorAuthoringDocument Scratch;
         Scratch.Stamp = true;
-        const uint32_t Root = AppendStampTextOutline(Scratch, Text, PointSize, {0, 0, 0, 1}, TypefacePath, Width);
+        const uint32_t Root = AppendStampTextOutline(Scratch, Text, PointSize, {0, 0, 0, 1}, TypefacePath, Wrap ? Width : 0.f);
         const auto &Instruction = Scratch.Instructions[Root];
         return Instruction.Bounds[2] <= Width && Instruction.Bounds[3] <= Height;
     };
@@ -163,14 +164,14 @@ std::vector<uint8_t> RenderTypefacePreview(const std::string &TypefacePath, std:
 {
     try
     {
-        // Fit the sample into a wide, short box so the square raster carries one centred ink
-        // band - font pickers crop to that band when drawing their rows.
+        // Fit the sample, single-line (never wrapped), into a wide, short box so the square
+        // raster carries one centred ink band - font pickers fit that band into their rows.
         constexpr float BoxWidth = 470.f, BoxHeight = 120.f;
         const std::string Text(Sample);
-        const float PointSize = MeasureTextFitSize(Text, BoxWidth, BoxHeight, TypefacePath);
+        const float PointSize = MeasureTextFitSize(Text, BoxWidth, BoxHeight, TypefacePath, false);
         VectorAuthoringDocument Document;
         Document.Stamp = true;
-        const uint32_t Root = AppendStampTextOutline(Document, Text, PointSize, {1.f, 1.f, 1.f, 1.f}, TypefacePath, BoxWidth);
+        const uint32_t Root = AppendStampTextOutline(Document, Text, PointSize, {1.f, 1.f, 1.f, 1.f}, TypefacePath, 0.f);
         VectorAuthoringLayer Layer;
         Layer.Token = ++Document.TokenClock;
         Layer.Root = Root;

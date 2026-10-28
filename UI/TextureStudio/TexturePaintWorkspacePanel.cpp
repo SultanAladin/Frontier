@@ -2897,21 +2897,38 @@ void TexturePaintWorkspacePanel::ConstructStampCatalogue(bool Docked)
 void TexturePaintWorkspacePanel::DrawTextPreviewStrip(const std::vector<uint8_t> &Pixels, uint32_t Extent,
     float MinX, float MinY, float MaxX, float MaxY, const float Tint[3])
 {
-    // 🎞️ The middle band of a preview square (where RenderTypefacePreview centres its ink),
-    // block-drawn like the stamp thumbnails: 2x2-averaged samples of the white art, run-merged
-    // per row and tinted - the glyphs read at font-row size without any texture plumbing.
+    // 🎞️ A preview square's ink, block-drawn like the stamp thumbnails: the actual ink bounding
+    // box is measured first and fit into the target at its TRUE aspect (a fixed crop stretched
+    // glyphs wide), then 3x3-averaged samples run-merge per row at ~1.5px blocks.
     if (Pixels.size() != size_t(Extent) * Extent * 4 || Extent == 0) return;
-    auto *Ink = ImGui::GetWindowDrawList();
+    if (!ImGui::IsRectVisible(ImVec2(MinX, MinY), ImVec2(MaxX, MaxY))) return; // scrolled away
     const float Width = MaxX - MinX, Height = MaxY - MinY;
     if (Width < 4 || Height < 4) return;
-    const int BlocksY = 24;
-    const int BlocksX = std::clamp(int(BlocksY * Width / Height), 8, 320);
-    const float BlockW = Width / BlocksX, BlockH = Height / BlocksY;
+    int U0 = int(Extent), V0 = int(Extent), U1 = -1, V1 = -1;
+    for (int Y = 0; Y < int(Extent); Y += 2)
+        for (int X = 0; X < int(Extent); X += 2)
+            if (Pixels[(size_t(Y) * Extent + X) * 4 + 3] >= 24)
+            {
+                U0 = std::min(U0, X); U1 = std::max(U1, X);
+                V0 = std::min(V0, Y); V1 = std::max(V1, Y);
+            }
+    if (U1 < 0) return; // no ink
+    const float Pad = Extent * .02f;
+    const float InkU0 = (U0 - Pad) / Extent, InkV0 = (V0 - Pad) / Extent;
+    const float InkW = (U1 - U0 + 2 * Pad) / Extent, InkH = (V1 - V0 + 2 * Pad) / Extent;
+    const float Fit = std::min(Width / InkW, Height / InkH); // px per normalized unit, aspect-true
+    const float DrawW = InkW * Fit, DrawH = InkH * Fit;
+    const float DrawX = MinX + (Width - DrawW) * .5f, DrawY = MinY + (Height - DrawH) * .5f;
+    const float Block = 1.5f; // target block size in screen px
+    const int BlocksX = std::clamp(int(DrawW / Block), 4, 384);
+    const int BlocksY = std::clamp(int(DrawH / Block), 4, 64);
+    const float BlockW = DrawW / BlocksX, BlockH = DrawH / BlocksY;
     const auto Sample = [&](float U, float V) {
         const int X = std::clamp(int(U * Extent), 0, int(Extent) - 1);
         const int Y = std::clamp(int(V * Extent), 0, int(Extent) - 1);
         return Pixels[(size_t(Y) * Extent + X) * 4 + 3] / 255.f; // white art: alpha IS the ink
     };
+    auto *Ink = ImGui::GetWindowDrawList();
     const ImU32 InkColour = IM_COL32(int(std::clamp(Tint[0], 0.f, 1.f) * 255), int(std::clamp(Tint[1], 0.f, 1.f) * 255),
         int(std::clamp(Tint[2], 0.f, 1.f) * 255), 255);
     for (int By = 0; By < BlocksY; ++By)
@@ -2920,17 +2937,18 @@ void TexturePaintWorkspacePanel::DrawTextPreviewStrip(const std::vector<uint8_t>
         uint32_t RunKey = 0;
         const auto Flush = [&](int EndX) {
             if (RunStart < 0) return;
-            Ink->AddRectFilled(ImVec2(MinX + RunStart * BlockW, MinY + By * BlockH),
-                ImVec2(MinX + EndX * BlockW + .5f, MinY + (By + 1) * BlockH + .5f),
+            Ink->AddRectFilled(ImVec2(DrawX + RunStart * BlockW, DrawY + By * BlockH),
+                ImVec2(DrawX + EndX * BlockW + .5f, DrawY + (By + 1) * BlockH + .5f),
                 (InkColour & ~IM_COL32_A_MASK) | (uint32_t(RunKey) << IM_COL32_A_SHIFT));
             RunStart = -1;
         };
         for (int Bx = 0; Bx < BlocksX; ++Bx)
         {
             float Alpha = 0;
-            for (int Sy = 0; Sy < 2; ++Sy)
-                for (int Sx = 0; Sx < 2; ++Sx)
-                    Alpha += Sample((Bx + .25f + .5f * Sx) / BlocksX, .36f + (By + .25f + .5f * Sy) / BlocksY * .28f) * .25f;
+            for (int Sy = 0; Sy < 3; ++Sy)
+                for (int Sx = 0; Sx < 3; ++Sx)
+                    Alpha += Sample(InkU0 + (Bx + .2f + .3f * Sx) / BlocksX * InkW,
+                                    InkV0 + (By + .2f + .3f * Sy) / BlocksY * InkH) / 9.f;
             const uint32_t Key = uint32_t(std::clamp(Alpha, 0.f, 1.f) * 255) & ~3u; // quantize for runs
             if (Key < 8) { Flush(Bx); continue; }
             if (RunStart < 0) { RunStart = Bx; RunKey = Key; }
@@ -3013,6 +3031,9 @@ void TexturePaintWorkspacePanel::ConstructTextProperties()
         TextPreviewKey.clear();
         ImGui::OpenPopup("TextDecalProperties");
     }
+    // 📏 Width is pinned, always: the slider rows size to "content region available", which in
+    // an auto-sizing popup feeds back into the window size and grew it across the screen.
+    ImGui::SetNextWindowSize(ImVec2(384 * InterfaceScale, 0), ImGuiCond_Always);
     if (!ImGui::BeginPopup("TextDecalProperties")) return;
     const float S = InterfaceScale;
     ImGui::PushID("TextDecalPropertiesBody");

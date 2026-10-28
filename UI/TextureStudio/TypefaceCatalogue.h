@@ -38,10 +38,11 @@ inline constexpr std::string_view DefaultTypefaceId = "DMSans/DMSans-Regular";
 // face's file, so documents stay readable wherever their font is missing.
 [[nodiscard]] std::string ResolveTypefacePath(const std::filesystem::path &ContentRoot, std::string_view Id);
 
-// 📏 Largest point size whose (word-wrapped) glyph outline fits the box, for one explicit
-// typeface file - the measurement both text tools compose and (re)bake with.
+// 📏 Largest point size whose glyph outline fits the box, for one explicit typeface file -
+// the measurement both text tools compose and (re)bake with. Wrap word-wraps at the box width
+// (composed text); without it the copy must fit on one line (font previews).
 [[nodiscard]] float MeasureTextFitSize(std::string_view Content, float BoxWidth, float BoxHeight,
-    const std::string &TypefacePath);
+    const std::string &TypefacePath, bool Wrap = true);
 
 // 🎞️ Square straight-alpha RGBA preview of Sample set in the face (white ink band centred in
 // the 512 stamp square), via the same fit + outline + ThorVG chain the decals themselves use.
