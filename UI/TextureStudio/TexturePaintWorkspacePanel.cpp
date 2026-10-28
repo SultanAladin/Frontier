@@ -262,6 +262,11 @@ TexturePaintWorkspacePanel::TexturePaintWorkspacePanel()
     Panels.Register({"texture-layers", "Layer stack", [&]() { ConstructLayersDock(); }});
     Panels.Register({"texture-viewport", "Viewport Teapot", [&]() { ConstructViewportDock(); }});
     Panels.Register({"texture-inspector", "Inspector", [&]() { ConstructInspectorDock(); }});
+    Panels.Register({"texture-stamp-library", "Stamp library", [&]() { ConstructStampLibraryDock(); }});
+    // 📚 Same left-column arrangement as the Stamp workspace: the decal library stacks above the
+    // layer stack (32% of the column), so the catalogue and the document's layers stay visible
+    // together; picking a card arms the Stamp tool.
+    (void)Panels.ConfigureStackedPanels("texture-stamp-library", "texture-layers", 32.f);
     Panels.ConfigureColumns({{"texture-layers", 278.f / 1436}, {"texture-viewport", 820.f / 1436}, {"texture-inspector", 338.f / 1436}});
     ResetDocument();
 }
@@ -1639,7 +1644,10 @@ bool TexturePaintWorkspacePanel::DigitalPaintAvailable() const noexcept
     const auto *Layer = FindLayer(SelectedLayerId);
     if (!Layer) return false;
     const bool Mask = MaskSelected && Layer->Mask.Present;
-    if (!Mask && Layer->Kind == LayerKind::Folder) return false;
+    // 🖌️ Brushwork lands on Paint and Fill layers only: Decal layers hold stamps (repositioned
+    // with the gizmo, never painted over), Material/Generator/Folder take no dabs either. Mask
+    // painting is exempt - it paints the layer's mask, not the layer itself.
+    if (!Mask && Layer->Kind != LayerKind::Paint && Layer->Kind != LayerKind::Fill) return false;
     if (EffectiveLocked(*Layer) || !EffectiveVisible(*Layer)) return false;
     if (View == ViewMode::Wireframe) return false;
     if (View == ViewMode::Uv && UvSource) return false;
@@ -1658,6 +1666,9 @@ void TexturePaintWorkspacePanel::ApplyPaintAt(const float Uv[2], int Part, int C
     auto *Layer = FindLayer(StrokeTargetLayerId);
     if (!Layer) return;
     const bool Mask = StrokeTargetMask && Layer->Mask.Present;
+    // Defence in depth, mirroring DigitalPaintAvailable: no dab or fill ever lands anywhere but a
+    // Paint/Fill layer (or a mask), whatever path fed the stroke.
+    if (!Mask && Layer->Kind != LayerKind::Paint && Layer->Kind != LayerKind::Fill) return;
     auto &Dabs = Mask ? Layer->Mask.Dabs : Layer->Dabs;
     auto &Fills = Mask ? Layer->Mask.Fills : Layer->Fills;
     const float Strength = Mask && !DigitalActive ? MaskEditor.Opacity / 100.f : Brush.Opacity * Brush.Flow;
@@ -2029,14 +2040,8 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
         Status = "Stamps can't be placed in Wireframe view";
         return;
     }
-    if (Layers.size() >= 64)
-    {
-        Status = "The 64-layer limit has been reached - delete or merge layers to add another stamp";
-        return;
-    }
-    // 🖨️ Every stamp lands on its OWN stamp (Decal) layer, named after the stamp and selected at
-    // once, so it stays an independent, draggable object in the stack (the HTML workshop's model)
-    // instead of being baked into whichever paint layer happened to be selected.
+    // 🖨️ Stamps live on dedicated Decal layers (never baked into paint/fill layers): the target is
+    // chosen below once the placement is built.
     StampPlacement Placement;
     Placement.StampId = Entry->Id;
     Placement.U = Uv[0];
@@ -2100,6 +2105,28 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
             }
         }
         catch (...) { /* an unreadable sidecar leaves the neutral PBR defaults */ }
+    }
+    // 🎯 Targeting: a Decal layer holds many stamps. When the selected layer is a usable Decal
+    // layer the stamp joins it (and keeps joining until the user selects or adds another layer);
+    // from any other selection - a Fill/Paint layer, a locked or hidden Decal layer, no layers at
+    // all - a fresh dedicated Decal layer is created above the selection and selected instead.
+    if (auto *Target = FindLayer(SelectedLayerId);
+        Target && Target->Kind == LayerKind::Decal && !EffectiveLocked(*Target) && EffectiveVisible(*Target))
+    {
+        Target->Stamps.push_back(Placement);
+        Target->DecalCount = int(Target->Stamps.size());
+        StampFocusLayerId = Target->Id;
+        StampFocusIndex = int(Target->Stamps.size()) - 1;
+        const std::string LayerName = Target->Name, EntryName = Entry->Name;
+        CommitHistory(Tool == AuthorTool::Text ? "Place text" : "Place stamp", LayerName + " · " + EntryName, "stamp");
+        MarkDirty();
+        Status = "Placed '" + EntryName + "' on '" + LayerName + "' - drag it any time with the Transform tool";
+        return;
+    }
+    if (Layers.size() >= 64)
+    {
+        Status = "The 64-layer limit has been reached - select a Decal layer to stamp onto it, or delete/merge layers";
+        return;
     }
     LayerState Layer;
     Layer.Id = MakeLayerId(MetaForKind(size_t(LayerKind::Decal)).Id);
@@ -2599,41 +2626,80 @@ void TexturePaintWorkspacePanel::DragStampScene(const TopologyTriangle *Hit, con
 
 void TexturePaintWorkspacePanel::ConstructStampPicker()
 {
-    // 🧩 Material-catalogue styling (MaterialLibraryPanel::ConstructCatalogue): 18px heading + count,
-    // padded search field, wrapping filter pills, hairline + overline, two-column 125px cards (centred
-    // thumb well, name + category, green check disc on the active stamp) in a scrolling grid, footer tag.
-    const float S = InterfaceScale;
     if (!ImGui::BeginPopup("StampLibraryPicker")) return;
+    ImGui::PushID("StampPickerPopup"); // the docked library shares the body (and its widget ids)
+    ConstructStampCatalogue(false);
+    ImGui::PopID();
+    ImGui::EndPopup();
+}
+
+void TexturePaintWorkspacePanel::ConstructStampLibraryDock()
+{
+    // 📚 Docked by PanelDockspace - no Begin/End here. Stamp Studio's library page, shared body.
+    if (ImGui::GetContentRegionAvail().y < 35 * InterfaceScale) return;
+    EnsureStampLibrary();
+    ImGui::PushID("StampLibraryDock");
+    ConstructStampCatalogue(true);
+    ImGui::PopID();
+}
+
+void TexturePaintWorkspacePanel::ConstructStampCatalogue(bool Docked)
+{
+    // 🧩 Material-catalogue styling (MaterialLibraryPanel::ConstructCatalogue), identical to the
+    // Stamp workspace's library page: shortcut pills (docked), 18px heading + count, padded
+    // search field, wrapping filter pills, hairline + overline, two-column 125px cards (centred
+    // thumb well, name + provenance, green check disc on the active stamp) in a scrolling grid,
+    // footer tag. Vertical layout flows from Y so both presentations share every offset.
+    const float S = InterfaceScale;
     auto *Ink = ImGui::GetWindowDrawList();
     const ImVec2 Origin = ImGui::GetCursorScreenPos();
-    const float Width = 356 * S;
-    ImGui::Dummy(ImVec2(Width, 1)); // pin the popup width to the catalogue column
+    const float Width = Docked ? ImGui::GetContentRegionAvail().x : 356 * S;
+    if (!Docked) ImGui::Dummy(ImVec2(Width, 1)); // pin the popup width to the catalogue column
+    const float WindowBottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+    const auto At = [&](float X, float Y) { return ImVec2(Origin.x + X * S, Origin.y + Y * S); };
 
-    Caption(ImVec2(Origin.x + 20 * S, Origin.y + 10 * S), "Stamp library", 18 * S, 0xd3d3c8,
+    float Y = 10; // heading row, in unscaled units
+    if (Docked)
+    {
+        // Top shortcut row, mirroring Material's Workspace / My collection pills.
+        const float HalfPill = (Width - 34 * S) * .5f;
+        if (PanelChrome::Pill("##ShortcutPresets", "Preset stamps", At(14, Y), HalfPill, 27 * S, StampFilter == 1, S, nullptr, 0, 8.5f, true))
+        { StampFilter = 1; StampSearch[0] = 0; }
+        if (PanelChrome::Pill("##ShortcutMine", "My stamps", ImVec2(Origin.x + Width * .5f + 3 * S, At(0, Y).y), HalfPill, 27 * S, StampFilter == 2, S, nullptr, 0, 8.5f, true))
+        { StampFilter = 2; StampSearch[0] = 0; }
+        Y = 50;
+    }
+
+    Caption(At(20, Y), "Stamp library", 18 * S, 0xd3d3c8,
         LightTypeface ? LightTypeface : RegularTypeface);
     const std::string Total = std::to_string(StampLib.Entries().size());
-    Caption(ImVec2(Origin.x + 26 * S + CaptionWidth("Stamp library", 18 * S, LightTypeface), Origin.y + 19 * S),
+    Caption(ImVec2(Origin.x + 26 * S + CaptionWidth("Stamp library", 18 * S, LightTypeface), At(0, Y + 9).y),
         Total.c_str(), 8 * S, 0x777766);
 
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, Origin.y + 42 * S));
+    ImGui::SetCursorScreenPos(At(14, Y + 32));
     ImGui::SetNextItemWidth(Width - 28 * S);
     ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(35 * S, 11.5f * S));
-    ImGui::InputTextWithHint("##StampSearch", "Search stamps...", StampSearch, sizeof(StampSearch));
+    ImGui::InputTextWithHint("##StampSearch", "Search rings, badges, marks\xe2\x80\xa6", StampSearch, sizeof(StampSearch));
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
-    DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", ImVec2(Origin.x + 27 * S, Origin.y + 54 * S), 15 * S, 0x77776f);
+    DrawGlyph("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM21 21l-4.3-4.3", At(27, Y + 44), 15 * S, 0x77776f);
 
-    float PillX = 14 * S;
-    const char *Filters[]{"All stamps", "Presets", "Saved"};
-    for (int Filter = 0; Filter < 3; ++Filter)
-    {
-        const float PillWidth = CaptionWidth(Filters[Filter], 9.5f * S) + 20 * S;
-        ImGui::SetCursorScreenPos(ImVec2(Origin.x + PillX, Origin.y + 90 * S));
-        if (PillButton((std::string("StampFilter") + Filters[Filter]).c_str(), Filters[Filter], PillWidth, StampFilter == Filter))
-            StampFilter = Filter;
-        PillX += PillWidth + 5 * S;
-    }
+    // Collection filter as wrapping pills instead of a dropdown, like Material's category row;
+    // Reload rides the same row as an unlatched action pill and rescans the library directory.
+    float RowY = Y + 80, PillX = 14;
+    const auto RowPill = [&](const char *Id, const char *Label, bool Selected) {
+        const float Edge = CaptionWidth(Label, 8.5f * S) / S + 18;
+        if (PillX + Edge > Width / S - 14) { PillX = 14; RowY += 29; }
+        const bool Pressed = PanelChrome::Pill(Id, Label, At(PillX, RowY), Edge * S, 24 * S, Selected, S, nullptr, 0, 8.5f, true);
+        PillX += Edge + 5;
+        return Pressed;
+    };
+    if (RowPill("All stamps", "All stamps", StampFilter == 0)) StampFilter = 0;
+    if (RowPill("Presets", "Presets", StampFilter == 1)) StampFilter = 1;
+    if (RowPill("My stamps", "My stamps", StampFilter == 2)) StampFilter = 2;
+    if (RowPill("##LibraryReload", "Reload", false)) EnsureStampLibrary(true);
+    const float LineY = RowY + 32;
 
     const std::string Query = Lowered(StampSearch);
     std::vector<const StampLibraryEntry *> Visible;
@@ -2645,15 +2711,18 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         Visible.push_back(&Entry);
     }
 
-    Ink->AddLine(ImVec2(Origin.x, Origin.y + 126 * S), ImVec2(Origin.x + Width, Origin.y + 126 * S), Colour32(0xffffff, .051f));
-    Caption(ImVec2(Origin.x + 17 * S, Origin.y + 138 * S), "THE STAMP COLLECTION", 8 * S, 0x7e7e70);
+    Ink->AddLine(At(0, LineY), ImVec2(Origin.x + Width, At(0, LineY).y), Colour32(0xffffff, .051f));
+    Caption(At(17, LineY + 12), "THE STAMP COLLECTION", 8 * S, 0x7e7e70);
     const std::string VisibleCount = std::to_string(Visible.size());
-    Caption(ImVec2(Origin.x + Width - 17 * S - CaptionWidth(VisibleCount.c_str(), 8 * S), Origin.y + 138 * S),
+    Caption(ImVec2(Origin.x + Width - 17 * S - CaptionWidth(VisibleCount.c_str(), 8 * S), At(0, LineY + 12).y),
         VisibleCount.c_str(), 8 * S, 0x7e7e70);
 
     const size_t Rows = (Visible.size() + 1) / 2;
-    const float GridHeight = std::clamp(float(Rows) * 134 * S, 134 * S, 402 * S);
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 16 * S, Origin.y + 157 * S));
+    const float GridTop = At(0, LineY + 31).y;
+    // Popup: content-sized (capped). Docked: fill down to the footer, like the Stamp page.
+    const float GridHeight = Docked ? std::max(134 * S, (WindowBottom - 71 * S) - GridTop)
+                                     : std::clamp(float(Rows) * 134 * S, 134 * S, 402 * S);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 16 * S, GridTop));
     ImGui::BeginChild("Stamp grid", ImVec2(Width - 32 * S, GridHeight), ImGuiChildFlags_None);
     const ImVec2 GridOrigin = ImGui::GetCursorScreenPos();
     const float Gap = 9 * S, CardHeight = 125 * S;
@@ -2682,7 +2751,12 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         {
             ActiveStampId = Entry.Id;
             Status = "Stamp: " + Entry.Name + " - click the teapot to place it";
-            ImGui::CloseCurrentPopup();
+            if (Docked)
+            {
+                Tool = AuthorTool::Stamp; // picking from the library arms the Stamp tool, ready to place
+                DigitalActive = false;
+            }
+            else ImGui::CloseCurrentPopup();
         }
         Ink->AddRectFilled(Position, Far, Colour32(0x191919), 15 * S);
         if (Hovered) Ink->AddRect(Position, Far, Colour32(0x707173), 15 * S);
@@ -2739,8 +2813,14 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
             Flush(ThumbBlocks);
         }
         Caption(ImVec2(Position.x + 12 * S, Position.y + 89 * S), Entry.Name.c_str(), 9 * S, 0xc8c8b6);
+        // Same provenance line as the Stamp workspace card, incl. its "vector" mark for stamps
+        // carrying a .stamp.toml source (those re-render at full fidelity when placed).
+        const bool VectorBacked = !Entry.Builtin && !Entry.File.empty() &&
+            std::filesystem::exists(Entry.File.parent_path() / (Entry.File.stem().string() + ".stamp.toml"));
         Caption(ImVec2(Position.x + 12 * S, Position.y + 105 * S),
-            Entry.Builtin ? (Entry.Tintable ? "Preset · tintable" : "Preset") : "Saved stamp", 7 * S, 0x767665);
+            Entry.Builtin ? (Entry.Tintable ? "Preset \xc2\xb7 tintable" : "Preset")
+                          : (VectorBacked ? "Saved stamp \xc2\xb7 vector" : "Saved stamp"),
+            7 * S, 0x767665);
         if (Active) PanelChrome::CheckDisc(Ink, Position, S);
         Ink->PopClipRect();
         if (Hovered) ImGui::SetTooltip("%s%s", Entry.Name.c_str(), Entry.Tintable ? " - tinted by brush colour" : "");
@@ -2749,7 +2829,25 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
     ImGui::Dummy(ImVec2(1, 1));
     ImGui::EndChild();
 
-    const float ActionY = Origin.y + 157 * S + GridHeight + 10 * S;
+    if (Docked)
+    {
+        // Closing footer tag, pinned to the window's bottom edge like the Stamp page's: glyph,
+        // invitation, collection count - plus the Stamp studio link, since new designs are
+        // authored there and show up in this same catalogue.
+        const float FooterY = WindowBottom - 71 * S;
+        const ImVec2 WindowPos = ImGui::GetWindowPos();
+        Ink->AddRectFilled(ImVec2(WindowPos.x, FooterY), ImVec2(WindowPos.x + ImGui::GetWindowSize().x, WindowBottom), Colour32(0x151515));
+        DrawGlyph("M5 22H19M12 2V10M8 10H16L17 18H7Z", ImVec2(Origin.x + 19 * S, FooterY + 20 * S), 19 * S, 0x9a9a8e);
+        Caption(ImVec2(Origin.x + 51 * S, FooterY + 20 * S), "Click a stamp to pick it.", 9 * S, 0xaeae9b);
+        const std::string Footer = Total + " stamps \xc2\xb7 presets and your saved designs.";
+        Caption(ImVec2(Origin.x + 51 * S, FooterY + 37 * S), Footer.c_str(), 7 * S, 0x6b6b60);
+        if (ActivateStamp && PanelChrome::Pill("##LibraryStampStudio", "Stamp studio",
+                ImVec2(Origin.x + Width - 110 * S, FooterY + 22 * S), 96 * S, 27 * S, false, S, nullptr, 0, 8.5f, true))
+            ActivateStamp();
+        return;
+    }
+
+    const float ActionY = GridTop + GridHeight + 10 * S;
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * S, ActionY));
     ImGui::BeginDisabled(!ActivateStamp);
     if (PillButton("PickerOpenStampStudio", "Stamp studio", 112 * S, false) && ActivateStamp)
@@ -2758,8 +2856,6 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
         ActivateStamp();
     }
     ImGui::EndDisabled();
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 134 * S, ActionY));
-    if (PillButton("PickerReloadStamps", "Reload", 78 * S, false)) EnsureStampLibrary(true);
 
     const float FooterY = ActionY + 38 * S;
     const ImVec2 WindowPos = ImGui::GetWindowPos();
@@ -2770,7 +2866,6 @@ void TexturePaintWorkspacePanel::ConstructStampPicker()
     Caption(ImVec2(Origin.x + 51 * S, FooterY + 35 * S), FooterLine.c_str(), 7 * S, 0x6b6b60);
     ImGui::SetCursorScreenPos(ImVec2(Origin.x, FooterY + 60 * S));
     ImGui::Dummy(ImVec2(0, 0));
-    ImGui::EndPopup();
 }
 std::string TexturePaintWorkspacePanel::MaskRegionLabel() const
 {
@@ -3667,7 +3762,7 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             DigitalActive = false;
             EnsureStampLibrary(true); // presets + anything saved to the project Stamps folder
         }
-        Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp on its own stamp layer, right-click the viewport for the stamp grid. Drag a stamp on the selected layer to move it. Author new stamps in the Stamp workspace (Stamp studio, right).");
+        Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp: it joins the selected stamp (decal) layer, or starts a new one when another layer kind is selected. Pick stamps in the Stamp library dock or right-click the viewport for the stamp grid. Drag a stamp on the selected layer to move it. Author new stamps in the Stamp workspace (Stamp studio, right).");
         X += 82 * S;
         // 🅰️ Text decals: the Stamp tool's whole behaviour (hover ghost, projected placement, own
         // Decal layer, gizmo, per-decal PBR) with typed copy rendered from real glyph outlines -
@@ -3727,7 +3822,12 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             }
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s %s", Entry.Label, MaskSelected ? "mask digitally" : "layer channels");
+            {
+                if (!PaintAvailable && !MaskSelected && Selected && Selected->Kind == LayerKind::Decal)
+                    ImGui::SetTooltip("%s - decal layers hold stamps, not paint; select a Paint or Fill layer", Entry.Label);
+                else
+                    ImGui::SetTooltip("%s %s", Entry.Label, MaskSelected ? "mask digitally" : "layer channels");
+            }
             X += Width + 4 * S;
         }
         char SizeLabel[24];
@@ -3757,7 +3857,9 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             : Tool == AuthorTool::Stamp && !DigitalActive
                 ? "Stamp mode · " + (CurrentStamp ? CurrentStamp->Name : std::string("no stamp picked"))
             : Tool == AuthorTool::Transform && !DigitalActive ? "Transform mode · drag a stamp"
-            : DigitalActive ? "Paint mode · Digital " + Brush.Tool
+            : DigitalActive ? (Selected && Selected->Kind == LayerKind::Decal && !MaskSelected
+                                   ? std::string("Decal layer · stamps only - paint needs a Paint or Fill layer")
+                                   : "Paint mode · Digital " + Brush.Tool)
                             : "Paint mode · Digital tools available";
         const float LinkWidth = 104 * S;
         const float StateX = Origin.x + DockWidth - 12 * S - LinkWidth - 10 * S - CaptionWidth(State.c_str(), 9 * S);
@@ -5120,7 +5222,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     std::snprintf(Small, sizeof(Small), "%zu placed", Layer->Stamps.size());
                     AccentBar(0xc4aa7a, "Stamp placement", Layer->Stamps.empty() ? "Stamp layer" : Small);
                     if (Layer->Stamps.empty())
-                        CardNote("This stamp layer is empty - place a stamp with the Stamp tool (it gets its own layer), then drag it with Transform.");
+                        CardNote("This stamp layer is empty - keep it selected and place stamps with the Stamp tool; they land here, then drag them with Transform.");
                     else
                     {
                         if (StampFocusLayerId != Layer->Id) { StampFocusLayerId = Layer->Id; StampFocusIndex = int(Layer->Stamps.size()) - 1; }

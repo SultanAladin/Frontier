@@ -389,6 +389,13 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
     void PlaceStampAt(const float Uv[2]);
     void ConstructStampPicker();
+    // 📚 Stamp Studio's library page as a docked window here as well: ONE shared catalogue body
+    // (shortcut pills, heading + count, search, filter pills, THE STAMP COLLECTION card grid,
+    // footer) feeds both the right-click picker popup and this dock, so the decal library reads
+    // identically in both workspaces. The difference is the click: Stamp Studio opens the design
+    // for editing; here a click SELECTS the stamp and arms the Stamp tool.
+    void ConstructStampLibraryDock();
+    void ConstructStampCatalogue(bool Docked);
     // 🖨️ Full-fidelity stamp rasters: the library entries hold small picker-sized rasters (256px
     // presets / saved PNGs), but the ACTUAL stamp source is resolution-independent - builtin presets
     // are signed-distance fields and stamps saved from the Stamp workspace keep their vector document
