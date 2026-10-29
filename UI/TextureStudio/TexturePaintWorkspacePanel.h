@@ -472,6 +472,13 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     } StampDrag;
     std::string StampFocusLayerId; // layer + index the gizmo/inspector stamp controls act on
     int StampFocusIndex = 0;
+    // Decal child-row press/drag in the layer stack (a Decal layer lists its stamps beneath it):
+    // a press arms here, dragging past the threshold reorders the placements live, and the top of
+    // ConstructLayersDock resolves the release (focus on click, history when the order changed).
+    std::string DecalPressLayerId;
+    int DecalPressStamp = -1; // storage index being pressed/dragged (follows the placement as it moves)
+    float DecalPressY = 0;
+    bool DecalDragArmed = false, DecalDragMoved = false;
     // Hit-test stamps topmost-first at an authoring UV; on success returns layer/index and the zone
     // (0 body/move, 1 corner/scale, 2 rotate handle; HandleSlop in authoring-UV units, 0 = no handles).
     [[nodiscard]] bool HitTestStamp(const float Uv[2], float HandleSlop, std::string &OutLayerId, size_t &OutIndex, int &OutZone) const noexcept;

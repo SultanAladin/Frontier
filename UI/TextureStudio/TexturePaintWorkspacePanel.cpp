@@ -3015,6 +3015,7 @@ bool TexturePaintWorkspacePanel::ConstructFontList(const std::string &CurrentId,
     }
     if (Faces.empty())
         Caption(ImGui::GetCursorScreenPos(), "No outline fonts in EngineContent/FontArchives.", 9 * S, 0x777770);
+    ImGui::Dummy(ImVec2(1, 1)); // SetCursorScreenPos grew the parent above; an item must claim it
     ImGui::EndChild();
     return Chosen;
 }
@@ -3436,6 +3437,29 @@ void TexturePaintWorkspacePanel::ConstructLayersDock()
     // 📝 Docked by PanelDockspace - no SetNextWindowPos/Size or Begin/End here.
     const float S = InterfaceScale;
     Controls.Scale = S;
+
+    // Decal child-row release: click focuses the decal, a moved drag commits the new order. Also
+    // the safety net when the pressed row stopped rendering mid-drag (layer collapsed/hidden).
+    if (DecalPressStamp >= 0 && !ImGui::GetIO().MouseDown[0])
+    {
+        if (DecalDragMoved)
+        {
+            if (auto *Layer = FindLayer(DecalPressLayerId))
+            {
+                CommitHistory("Reorder decals", Layer->Name, "stamp");
+                MarkDirty();
+            }
+        }
+        else if (!DecalDragArmed && FindLayer(DecalPressLayerId))
+        {
+            SelectLayer(DecalPressLayerId);
+            StampFocusLayerId = DecalPressLayerId;
+            StampFocusIndex = DecalPressStamp;
+        }
+        DecalPressStamp = -1;
+        DecalPressLayerId.clear();
+        DecalDragArmed = DecalDragMoved = false;
+    }
     auto *Ink = ImGui::GetWindowDrawList();
     const ImVec2 WindowPosition = ImGui::GetWindowPos();
     const float WindowWidth = ImGui::GetWindowWidth();
@@ -3711,6 +3735,132 @@ void TexturePaintWorkspacePanel::ConstructLayersDock()
             ImGui::EndDisabled();
             ImGui::PopID();
             ImGui::SetCursorScreenPos(ImVec2(MaskOrigin.x, MaskOrigin.y + 48 * S));
+        }
+
+        // Decal child rows: a Decal layer lists its stamps beneath it, like the mask sub-row -
+        // topmost first (last placed composites on top, so the list reads like the stack). A
+        // click focuses a decal for the gizmo/Inspector; dragging a row rearranges that decal's
+        // order among its siblings, live. Shown when the layer is selected or expanded.
+        if (LayerSnapshot.Kind == LayerKind::Decal && !LayerSnapshot.Stamps.empty() &&
+            (SelectedLayerId == LayerId || LayerSnapshot.Expanded))
+        {
+            const int Count = int(LayerSnapshot.Stamps.size());
+            const float ChildHeight = 36 * S, ChildStride = 40 * S;
+            const ImVec2 BlockOrigin = ImGui::GetCursorScreenPos();
+            const float ChildX = BlockOrigin.x + 35 * S + Depth * 10 * S;
+            const float ChildW = ListWidth - 44 * S - Depth * 10 * S;
+            const bool ThisDrag = DecalPressStamp >= 0 && DecalPressLayerId == LayerId;
+            int FocusedIdx = -1;
+            {
+                LayerState *FocusLayer = nullptr;
+                if (const auto *FocusPlacement = FocusedStamp(FocusLayer); FocusPlacement && FocusLayer && FocusLayer->Id == LayerId)
+                    FocusedIdx = int(FocusPlacement - FocusLayer->Stamps.data());
+            }
+            for (int Display = 0; Display < Count; ++Display)
+            {
+                const int Storage = Count - 1 - Display;
+                const StampPlacement &Placement = LayerSnapshot.Stamps[size_t(Storage)];
+                const ImVec2 ChildMin(ChildX, BlockOrigin.y + Display * ChildStride);
+                const ImVec2 ChildMax(ChildX + ChildW, ChildMin.y + ChildHeight);
+                char ChildId[56];
+                std::snprintf(ChildId, sizeof(ChildId), "DecalChild%zu_%d", LayerIndex, Storage);
+                ImGui::PushID(ChildId);
+                ImGui::SetCursorScreenPos(ChildMin);
+                ImGui::InvisibleButton("##DecalRow", ImVec2(ChildW, ChildHeight));
+                const bool RowHover = ImGui::IsItemHovered();
+                const bool RowActivated = ImGui::IsItemActivated();
+                ImGui::PopID();
+                if (RowActivated && !Locked)
+                {
+                    DecalPressLayerId = LayerId;
+                    DecalPressStamp = Storage;
+                    DecalPressY = ImGui::GetIO().MousePos.y;
+                    DecalDragArmed = false;
+                    DecalDragMoved = false;
+                }
+                const bool Focused = Storage == FocusedIdx;
+                const bool DraggingThis = ThisDrag && DecalDragArmed && DecalPressStamp == Storage;
+                if (Focused || DraggingThis)
+                {
+                    RowInk->AddRectFilled(ChildMin, ChildMax, Colour32(0x262626), 8 * S);
+                    RowInk->AddRect(ChildMin, ChildMax, Colour32(0x3c3c37), 8 * S);
+                    if (Focused) RowInk->AddRectFilled(ImVec2(ChildMin.x, ChildMin.y), ImVec2(ChildMin.x + 3 * S, ChildMax.y), Colour32(0xd9b281), 3 * S);
+                    if (Focused) Track("Focused decal row");
+                }
+                else if (RowHover) RowInk->AddRectFilled(ChildMin, ChildMax, Colour32(0x1b1b1b), 8 * S);
+                // Grip dots: this list rearranges by dragging.
+                for (int DotY = 0; DotY < 3; ++DotY)
+                    for (int DotX = 0; DotX < 2; ++DotX)
+                        RowInk->AddCircleFilled(ImVec2(ChildMin.x + (7 + DotX * 4) * S, ChildMin.y + (12 + DotY * 6) * S), 1.1f * S, Colour32(0x55534a), 8);
+                // Mini art chip, tinted like the decal itself composites.
+                const ImVec2 ChipMin(ChildMin.x + 16 * S, ChildMin.y + 6 * S);
+                RowInk->AddRectFilled(ChipMin, ImVec2(ChipMin.x + 24 * S, ChipMin.y + 24 * S), Colour32(0x1e1e1e), 5 * S);
+                if (const auto *Entry = FindStampEntry(Placement.StampId); Entry && !Entry->Rgba.empty())
+                {
+                    constexpr int Blocks = 12;
+                    const float BlockPx = 24 * S / Blocks;
+                    for (int By = 0; By < Blocks; ++By)
+                        for (int Bx = 0; Bx < Blocks; ++Bx)
+                        {
+                            const auto Texel = StampLibrary::Sample(*Entry, (Bx + .5f) / Blocks, (By + .5f) / Blocks);
+                            if (Texel[3] < .05f) continue;
+                            float R = Texel[0], G = Texel[1], B = Texel[2];
+                            if (Entry->Tintable) { R *= Placement.Tint[0]; G *= Placement.Tint[1]; B *= Placement.Tint[2]; }
+                            const uint32_t Packed = (uint32_t(std::clamp(R, 0.f, 1.f) * 255) << 16) |
+                                (uint32_t(std::clamp(G, 0.f, 1.f) * 255) << 8) | uint32_t(std::clamp(B, 0.f, 1.f) * 255);
+                            RowInk->AddRectFilled(ImVec2(ChipMin.x + Bx * BlockPx, ChipMin.y + By * BlockPx),
+                                ImVec2(ChipMin.x + (Bx + 1) * BlockPx + .5f, ChipMin.y + (By + 1) * BlockPx + .5f), Colour32(Packed, Texel[3]));
+                        }
+                }
+                std::string DecalName, DecalSub;
+                {
+                    std::string FontId, Content;
+                    if (Placement.StampId.rfind("text:", 0) == 0 && ParseTextStampId(Placement.StampId, FontId, Content))
+                    {
+                        DecalName = Content.size() > 26 ? Content.substr(0, 26) + "..." : Content;
+                        const auto *Face = FindTypefaceChoice(ContentRoot, FontId);
+                        DecalSub = std::string("Text · ") + (Face ? Face->DisplayName : "DM Sans Regular");
+                    }
+                    else if (const auto *Entry = FindStampEntry(Placement.StampId)) { DecalName = Entry->Name; DecalSub = "Stamp decal"; }
+                    else { DecalName = "Stamp"; DecalSub = "Stamp decal"; }
+                }
+                Caption(ImVec2(ChipMin.x + 31 * S, ChildMin.y + 5 * S), DecalName.c_str(), 10 * S, Focused ? 0xecece2 : 0xc8c8ba);
+                Caption(ImVec2(ChipMin.x + 31 * S, ChildMin.y + 21 * S), DecalSub.c_str(), 8 * S, 0x777770);
+                char OrderBadge[12];
+                std::snprintf(OrderBadge, sizeof(OrderBadge), "#%d", Display + 1);
+                Caption(ImVec2(ChildMax.x - 10 * S - CaptionWidth(OrderBadge, 8 * S), ChildMin.y + 13 * S), OrderBadge, 8 * S, 0x55554f);
+                if (RowHover && !ThisDrag) ImGui::SetTooltip("Click to focus (Inspector edits it, gizmo moves it).\nDrag up/down to reorder within this layer.");
+            }
+            // Live reorder while dragging: the placement follows the pointer's row.
+            if (ThisDrag)
+            {
+                const float MouseY = ImGui::GetIO().MousePos.y;
+                if (!DecalDragArmed && std::abs(MouseY - DecalPressY) > 5 * S)
+                {
+                    DecalDragArmed = true;
+                    SelectLayer(LayerId);
+                    StampFocusLayerId = LayerId;
+                    StampFocusIndex = DecalPressStamp;
+                }
+                if (DecalDragArmed)
+                {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+                    const int HoverDisplay = std::clamp(int((MouseY - BlockOrigin.y) / ChildStride), 0, Count - 1);
+                    const int TargetStorage = Count - 1 - HoverDisplay;
+                    if (TargetStorage != DecalPressStamp)
+                        if (auto *Layer = FindLayer(LayerId); Layer && int(Layer->Stamps.size()) == Count)
+                        {
+                            const StampPlacement Moving = Layer->Stamps[size_t(DecalPressStamp)];
+                            Layer->Stamps.erase(Layer->Stamps.begin() + DecalPressStamp);
+                            Layer->Stamps.insert(Layer->Stamps.begin() + TargetStorage, Moving);
+                            DecalPressStamp = TargetStorage;
+                            StampFocusIndex = TargetStorage;
+                            DecalDragMoved = true;
+                            MarkDirty(); // order previews live in the composite while dragging
+                        }
+                }
+            }
+            ImGui::SetCursorScreenPos(ImVec2(BlockOrigin.x, BlockOrigin.y + Count * ChildStride + 2 * S));
         }
 
         // Expanded channel-target chips (.tp-layer-expanded).
