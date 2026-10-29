@@ -28,6 +28,7 @@ import {
   togglePaintChannel,
 } from "./paintChannelModel.js";
 import PaintToolMenu from "./PaintToolMenu.jsx";
+import "./channelPropertyPanel.css";
 import "./digitalPainting.css";
 
 const tools = [
@@ -359,37 +360,53 @@ function DigitalChannelProperties({
         },
       });
   };
+  const valueOf = (c) =>
+    c.id === "baseColor" ? brush.color : layer.channelSettings[c.id].value;
+  // 🧩 Same channel-property frame as the layer inspector: a targets card
+  // (chips + grouped checklist) over one accordion card per enabled channel.
+  // Values here are exactly what a stroke deposits (digitalChannelValues).
   return (
     <section
-      className="digital-channel-panel"
+      className="digital-channel-panel channel-property-panel"
       aria-label="Digital painting channels"
     >
-      <h2>
-        <Layers3 size={13} /> Channel targets{" "}
-        <small>{enabled.length} / 14</small>
-      </h2>
-      <p>
-        Enable the channels this brush writes. Erase only affects enabled
-        channels. Disabled values and strokes are retained.
-      </p>
-      <button
-        className="digital-clear-channels"
-        disabled={disabled || !enabled.length}
-        onClick={() => onPatch({ channels: [] })}
-      >
-        Disable all channels
-      </button>
-      {CHANNEL_GROUPS.map((group) => (
-        <div key={group} className="digital-channel-group">
-          <h3>{group}</h3>
-          {PAINT_CHANNELS.filter((c) => c.group === group).map((c) => (
-            <div
-              key={c.id}
-              className="digital-channel-target"
-              data-enabled={enabled.includes(c.id)}
-            >
-              <div className="digital-channel-target-row">
-                <label>
+      <div className="channel-target-card tp-property-card">
+        <div className="channel-target-heading">
+          <Layers3 size={14} />
+          <h2>Channel targets</h2>
+          <span className="channel-count">{enabled.length}</span>
+        </div>
+        <p className="digital-channel-intro">
+          Enable the channels this brush writes. Erase only affects enabled
+          channels. Disabled values and strokes are retained.
+        </p>
+        <div className="channel-chips">
+          {PAINT_CHANNELS.filter((c) => enabled.includes(c.id)).map((c) => (
+            <span className="channel-chip" key={c.id}>
+              <i style={{ background: c.color }} />
+              {c.label}
+              <button
+                aria-label={`Disable ${c.label} channel`}
+                disabled={disabled}
+                onClick={() => toggle(c.id, false)}
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div
+          className="channel-picker"
+          role="group"
+          aria-label="Available painting channels"
+        >
+          {CHANNEL_GROUPS.map((group) => (
+            <section key={group}>
+              <h3>{group}</h3>
+              {PAINT_CHANNELS.filter((c) => c.group === group).map((c) => (
+                <label key={c.id}>
+                  <i style={{ background: c.color }} />
+                  <span>{c.label}</span>
                   <input
                     type="checkbox"
                     aria-label={`Digital ${c.label} channel`}
@@ -397,43 +414,65 @@ function DigitalChannelProperties({
                     disabled={disabled}
                     onChange={(e) => toggle(c.id, e.target.checked)}
                   />
-                  <i style={{ background: c.color }} />
-                  {c.label}
                 </label>
-                <button
-                  aria-label={`Digital ${c.label} properties`}
-                  aria-expanded={opened === c.id}
-                  disabled={disabled || !enabled.includes(c.id)}
-                  onClick={() => setOpened(opened === c.id ? null : c.id)}
-                >
-                  <ChevronDown size={12} />
-                </button>
-              </div>
-              {enabled.includes(c.id) && opened === c.id && (
+              ))}
+            </section>
+          ))}
+        </div>
+        <button
+          className="digital-clear-channels"
+          disabled={disabled || !enabled.length}
+          onClick={() => onPatch({ channels: [] })}
+        >
+          Disable all channels
+        </button>
+        {!enabled.length && (
+          <p role="status">No channels enabled — painting is a no-op.</p>
+        )}
+      </div>
+      {PAINT_CHANNELS.filter((c) => enabled.includes(c.id)).map((c) => {
+        const isOpen = opened === c.id,
+          value = valueOf(c);
+        return (
+          <section
+            key={c.id}
+            className={`chan-panel tp-property-card ${isOpen ? "" : "collapsed"}`}
+            style={{ "--channel-tint": c.color }}
+          >
+            <button
+              className="chan-head"
+              aria-label={`Digital ${c.label} properties`}
+              aria-expanded={isOpen}
+              disabled={disabled}
+              onClick={() => setOpened(isOpen ? null : c.id)}
+            >
+              <i />
+              <span>{c.label}</span>
+              <small>{c.edit === "derived" ? "Derived" : "Value"}</small>
+              <ChevronDown size={12} />
+            </button>
+            {isOpen && (
+              <div className="chan-body">
                 <div className="digital-channel-value tp-shared-controls">
                   {c.edit === "derived" ? (
-                    <p>
+                    <p className="chan-note">
                       Derived from painted Height. Enabling Normal also enables
                       Height.
                     </p>
                   ) : c.edit === "color" ? (
                     <ColourPicker
-                      value={
-                        c.id === "baseColor"
-                          ? brush.color
-                          : layer.channelSettings[c.id].value
-                      }
+                      value={value}
                       ariaLabel={`Digital ${c.label} colour`}
                       disabled={disabled}
-                      onChange={(value) => setValue(c.id, value)}
+                      onChange={(v) => setValue(c.id, v)}
                     />
                   ) : (
                     <Slider
-                      label={c.label}
+                      label="Amount"
                       ariaLabel={`Digital ${c.label} target`}
-                      value={layer.channelSettings[c.id].value}
+                      value={value}
                       disabled={disabled}
-                      onChange={(value) => setValue(c.id, value)}
+                      onChange={(v) => setValue(c.id, v)}
                       min={c.min}
                       max={c.max}
                       step={c.max > 3 ? 1 : 0.01}
@@ -441,14 +480,28 @@ function DigitalChannelProperties({
                     />
                   )}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-      {!enabled.length && (
-        <p role="status">No channels enabled — painting is a no-op.</p>
-      )}
+                <div className="channel-value-preview">
+                  <i
+                    style={{
+                      backgroundImage: "none",
+                      backgroundColor:
+                        c.edit === "color"
+                          ? value
+                          : c.edit === "scalar"
+                            ? `rgb(${Math.round(((value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value - c.min) / (c.max - c.min)) * 255)})`
+                            : undefined,
+                    }}
+                  />
+                  <div className="channel-preview-text">
+                    <span>Stroke deposit</span>
+                    <small>{c.placement}</small>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })}
       <p className="digital-card-note">
         Base color uses the brush colour. Other targets use their saved channel
         values. Subsurface is a diffuse tint, not volumetric scattering.

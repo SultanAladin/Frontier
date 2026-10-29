@@ -16,7 +16,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { Slider } from "./MaterialControls.jsx";
-import { StampChannelControls } from "./StampStudio.jsx";
+import ChannelTargetsPanel from "./ChannelTargetsPanel.jsx";
 import "./decalStudio.css";
 export default function DecalComponentsPanel({ layer, doc, context, locked }) {
   const [open, setOpen] = useState(
@@ -175,6 +175,25 @@ export default function DecalComponentsPanel({ layer, doc, context, locked }) {
                     : "Drag the 3D handles to move, rotate or scale. Re-anchor snaps the projector to a new surface hit."
                 : "Stamp onto the teapot, or create a surface placement and adjust it with transform handles."}
           </p>
+          {!context.brush.asMask && context.preset && context.brushChannels && (
+            <ChannelTargetsPanel
+              prefix="Stamp"
+              heading="New stamp channels"
+              disabled={locked}
+              channels={context.brushChannels}
+              values={context.brushChannelValues}
+              artworkBaseColor
+              onChannels={(channels) => context.onBrush({ channels })}
+              onValue={(id, value) =>
+                context.onBrush({
+                  channelValues: {
+                    ...context.brushChannelValues,
+                    [id]: value,
+                  },
+                })
+              }
+            />
+          )}
           <div
             className="tp-decal-component-list"
             role="list"
@@ -426,13 +445,23 @@ export default function DecalComponentsPanel({ layer, doc, context, locked }) {
                   ))}
               </div>
               {!component.asMask && (
-                <StampChannelControls
+                <ChannelTargetsPanel
                   prefix="Decal"
                   disabled={readOnly}
                   channels={component.channels}
                   values={component.channelValues}
-                  onChange={(changes) =>
-                    patch(changes, changes.channelValues ? "channels" : null)
+                  artworkBaseColor
+                  onChannels={(channels) => patch({ channels })}
+                  onValue={(id, value) =>
+                    patch(
+                      {
+                        channelValues: {
+                          ...component.channelValues,
+                          [id]: value,
+                        },
+                      },
+                      "channels",
+                    )
                   }
                 />
               )}
