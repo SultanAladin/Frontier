@@ -2130,57 +2130,16 @@ bool TexturePaintWorkspacePanel::SynthesizeTextEntry(const std::string &Id, int 
     catch (...) { return false; } // unreadable typeface / whitespace-only copy: no decal, no crash
 }
 
-void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
+void TexturePaintWorkspacePanel::SeedPlacementChannels(const StampLibraryEntry &Entry, StampPlacement &Placement) const
 {
-    EnsureStampLibrary();
-    const auto *Entry = ActiveStamp();
-    if (!Entry)
-    {
-        Status = Tool == AuthorTool::Text ? "Type the text in the authoring bar first - it follows the mouse, click to drop it"
-                                          : "No stamp picked - right-click the viewport for the stamp library";
-        return;
-    }
-    if (View == ViewMode::Wireframe)
-    {
-        Status = "Stamps can't be placed in Wireframe view";
-        return;
-    }
-    // 🖨️ Stamps live on dedicated Decal layers (never baked into paint/fill layers): the target is
-    // chosen below once the placement is built.
-    StampPlacement Placement;
-    Placement.StampId = Entry->Id;
-    Placement.U = Uv[0];
-    Placement.V = Uv[1];
-    Placement.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f); // brush size drives decal size
-    Placement.Rotation = 0.f;
-    const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f);
-    // White preset art takes the brush colour; text has its own ink; authored stamps keep theirs.
-    const std::array<float, 4> &Ink = Tool == AuthorTool::Text ? TextInk : Brush.Colour;
-    Placement.Tint = Entry->Tintable ? std::array<float, 4>{Ink[0], Ink[1], Ink[2], Strength}
-                                     : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
-    // 🎯 Born projected: the viewport handed over the surface triangle it picked, so the stamp is a
-    // surface projector from the first frame - clean on the UV at any camera angle, no island smear.
-    const TopologyTriangle *Anchor = PendingAnchorTriangle;
-    PendingAnchorTriangle = nullptr;
-    if (!Anchor)
-    {
-        float Weights[3];
-        Anchor = TriangleAtAuthoringUv(Uv, Weights);
-    }
-    if (Anchor)
-    {
-        if (PendingAnchorCamera && SceneFrameValid) AnchorStampFromCamera(Placement, *Anchor, Uv);
-        else AnchorStampFromUv(Placement, *Anchor, Uv);
-    }
-    PendingAnchorCamera = false;
     // 🎚️ Per-decal channel targets, seeded from the stamp design itself when it carries a vector
     // source: the mean surface-channel strengths of its visible layers become this decal's
     // channel values, so every stamp keeps the material behaviour it was created with.
-    if (!Entry->Builtin && !Entry->File.empty())
+    if (!Entry.Builtin && !Entry.File.empty())
     {
         try
         {
-            const auto Sidecar = Entry->File.parent_path() / (Entry->File.stem().string() + ".stamp.toml");
+            const auto Sidecar = Entry.File.parent_path() / (Entry.File.stem().string() + ".stamp.toml");
             std::ifstream Input(Sidecar, std::ios::binary);
             if (Input)
             {
@@ -2232,6 +2191,66 @@ void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
             }
         }
         catch (...) { /* an unreadable sidecar leaves the neutral PBR defaults */ }
+    }
+}
+
+void TexturePaintWorkspacePanel::PlaceStampAt(const float Uv[2])
+{
+    EnsureStampLibrary();
+    const auto *Entry = ActiveStamp();
+    if (!Entry)
+    {
+        Status = Tool == AuthorTool::Text ? "Type the text in the authoring bar first - it follows the mouse, click to drop it"
+                                          : "No stamp picked - right-click the viewport for the stamp library";
+        return;
+    }
+    if (View == ViewMode::Wireframe)
+    {
+        Status = "Stamps can't be placed in Wireframe view";
+        return;
+    }
+    // 🖨️ Stamps live on dedicated Decal layers (never baked into paint/fill layers): the target is
+    // chosen below once the placement is built.
+    StampPlacement Placement;
+    Placement.StampId = Entry->Id;
+    Placement.U = Uv[0];
+    Placement.V = Uv[1];
+    Placement.Radius = std::clamp(0.09f * Brush.Size / 24.f, 0.015f, 0.3f); // brush size drives decal size
+    Placement.Rotation = 0.f;
+    const float Strength = std::clamp(Brush.Opacity * Brush.Flow, 0.05f, 1.f);
+    // White preset art takes the brush colour; text has its own ink; authored stamps keep theirs.
+    const std::array<float, 4> &Ink = Tool == AuthorTool::Text ? TextInk : Brush.Colour;
+    Placement.Tint = Entry->Tintable ? std::array<float, 4>{Ink[0], Ink[1], Ink[2], Strength}
+                                     : std::array<float, 4>{1.f, 1.f, 1.f, Strength};
+    // 🎯 Born projected: the viewport handed over the surface triangle it picked, so the stamp is a
+    // surface projector from the first frame - clean on the UV at any camera angle, no island smear.
+    const TopologyTriangle *Anchor = PendingAnchorTriangle;
+    PendingAnchorTriangle = nullptr;
+    if (!Anchor)
+    {
+        float Weights[3];
+        Anchor = TriangleAtAuthoringUv(Uv, Weights);
+    }
+    if (Anchor)
+    {
+        if (PendingAnchorCamera && SceneFrameValid) AnchorStampFromCamera(Placement, *Anchor, Uv);
+        else AnchorStampFromUv(Placement, *Anchor, Uv);
+    }
+    PendingAnchorCamera = false;
+    SeedPlacementChannels(*Entry, Placement);
+    // 🖨️ Sticky stamp-brush overrides ("New stamp channels") ride over the design's own seed:
+    // whichever aspect the author has touched replaces that aspect of the seeded targets.
+    if (StampBrushChannelsOverridden) Placement.Channels = StampBrushChannels;
+    if (StampBrushValuesOverridden)
+    {
+        Placement.ChannelValues = StampBrushValues;
+        Placement.ChannelColours = StampBrushColours;
+    }
+    if (StampBrushSourcesOverridden)
+    {
+        Placement.ChannelModes = StampBrushModes;
+        Placement.ChannelGenerators = StampBrushGenerators;
+        Placement.ChannelGeneratorParams = StampBrushGeneratorParams;
     }
     // 🎯 Targeting: a Decal layer holds many stamps. When the selected layer is a usable Decal
     // layer the stamp joins it (and keeps joining until the user selects or adds another layer);
@@ -3449,7 +3468,7 @@ void TexturePaintWorkspacePanel::SmallNoteRow(const char *Text)
     if (RegularTypeface) ImGui::PopFont();
 }
 void TexturePaintWorkspacePanel::ConstructChannelTargetsCard(const std::vector<std::string> &Channels, bool Locked, ChannelTargetStyle Style,
-    bool &PickerOpen, std::string &PendingToggle, bool &PendingClear)
+    bool &PickerOpen, std::string &PendingToggle, bool &PendingClear, const char *Heading)
 {
     const float S = InterfaceScale;
     Controls.Scale = S;
@@ -3462,11 +3481,11 @@ void TexturePaintWorkspacePanel::ConstructChannelTargetsCard(const std::vector<s
         const float Width = ImGui::GetContentRegionAvail().x;
         const float Right = Origin.x + Width;
         DrawGlyph(LayersIconPath, ImVec2(Origin.x, Origin.y + 5 * S), 14 * S, 0xaaa99b);
-        Caption(ImVec2(Origin.x + 21 * S, Origin.y + 6 * S), "Channel targets", 11 * S, 0xaaa99b);
+        Caption(ImVec2(Origin.x + 21 * S, Origin.y + 6 * S), Heading, 11 * S, 0xaaa99b);
         char Count[8];
         std::snprintf(Count, sizeof(Count), "%zu", Channels.size());
         const float BadgeX = Style == ChannelTargetStyle::Picker ? Right - 42 * S
-            : Origin.x + 29 * S + CaptionWidth("Channel targets", 11 * S) + 10 * S;
+            : Origin.x + 29 * S + CaptionWidth(Heading, 11 * S) + 10 * S;
         Ink->AddCircleFilled(ImVec2(BadgeX, Origin.y + 12.5f * S), 10 * S, Colour32(0x3b3b37), 20);
         Caption(ImVec2(BadgeX - CaptionWidth(Count, 9 * S) * .5f, Origin.y + 7.5f * S), Count, 9 * S, 0xd8d8ca);
         if (Style == ChannelTargetStyle::Picker)
@@ -6242,6 +6261,67 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     ImGui::Dummy(ImVec2(0, 0)); // anchor the card's auto-resize boundary at the reserved extent
                 }
                 Controls.EndCard();
+            }
+
+            // 🖨️ DecalComponentsPanel's stamp brush: the channel targets the NEXT stamp lands
+            // with. The armed stamp's own design seed shows through until an aspect (channels,
+            // values, sources) is edited; that aspect then sticks over every later stamp.
+            if (DecalToolActive() && Layer->Kind != LayerKind::Folder)
+            {
+                EnsureStampLibrary();
+                if (const auto *Entry = ActiveStamp())
+                {
+                    if (!StampBrushSeedValid || StampBrushSeedId != Entry->Id || StampBrushSeedGeneration != StampLibraryGeneration)
+                    {
+                        StampBrushSeed = StampPlacement{};
+                        SeedPlacementChannels(*Entry, StampBrushSeed);
+                        StampBrushSeedId = Entry->Id;
+                        StampBrushSeedGeneration = StampLibraryGeneration;
+                        StampBrushSeedValid = true;
+                    }
+                    std::vector<std::string> Channels = StampBrushChannelsOverridden ? StampBrushChannels : StampBrushSeed.Channels;
+                    std::map<std::string, float> Values = StampBrushValuesOverridden ? StampBrushValues : StampBrushSeed.ChannelValues;
+                    std::map<std::string, std::array<float, 4>> Colours = StampBrushValuesOverridden ? StampBrushColours : StampBrushSeed.ChannelColours;
+                    std::map<std::string, std::string> Modes = StampBrushSourcesOverridden ? StampBrushModes : StampBrushSeed.ChannelModes;
+                    std::map<std::string, std::string> Generators = StampBrushSourcesOverridden ? StampBrushGenerators : StampBrushSeed.ChannelGenerators;
+                    std::map<std::string, std::map<std::string, float>> GeneratorParams =
+                        StampBrushSourcesOverridden ? StampBrushGeneratorParams : StampBrushSeed.ChannelGeneratorParams;
+                    ImGui::PushID("StampBrushChannels");
+                    std::string PendingToggle;
+                    bool PendingClear = false;
+                    bool StampBrushPickerUnused = false;
+                    ConstructChannelTargetsCard(Channels, Locked, ChannelTargetStyle::Toggles, StampBrushPickerUnused, PendingToggle, PendingClear, "New stamp channels");
+                    if (!Locked && (PendingClear || !PendingToggle.empty()))
+                    {
+                        if (PendingClear) Channels.clear();
+                        else ToggleChannelList(Channels, PendingToggle);
+                        StampBrushChannels = Channels;
+                        StampBrushChannelsOverridden = true;
+                    }
+                    ChannelCardOptions Options;
+                    Options.Locked = Locked;
+                    Options.AlwaysShowValue = true;
+                    Options.ArtworkBaseColor = true;
+                    Options.FoldPrefix = "stampbrush:";
+                    Options.DerivedNote = "Derived from the stamped Height. No value to author.";
+                    Options.TextureNote = "PNG, JPEG or WebP · portable source up to 256 px. The stamp deposits the channel Value; the texture is a saved authoring target. Texture import is not native yet.";
+                    Options.GeneratorNoteSuffix = " · source configuration. The stamp deposits the channel Value.";
+                    Options.MaterialNote = "Material studio · custom source — edit it on a layer channel in the inspector.";
+                    ConstructChannelCards(Channels, Modes, Values, Colours, Generators, GeneratorParams, Options,
+                        [](const std::string &, const char *) {});
+                    ImGui::PopID();
+                    // The first edit to an aspect freezes the whole aspect (tool state, no history).
+                    StampBrushValuesOverridden = StampBrushValuesOverridden || Values != StampBrushSeed.ChannelValues || Colours != StampBrushSeed.ChannelColours;
+                    if (StampBrushValuesOverridden) { StampBrushValues = Values; StampBrushColours = Colours; }
+                    StampBrushSourcesOverridden = StampBrushSourcesOverridden || Modes != StampBrushSeed.ChannelModes ||
+                        Generators != StampBrushSeed.ChannelGenerators || GeneratorParams != StampBrushSeed.ChannelGeneratorParams;
+                    if (StampBrushSourcesOverridden)
+                    {
+                        StampBrushModes = Modes;
+                        StampBrushGenerators = Generators;
+                        StampBrushGeneratorParams = GeneratorParams;
+                    }
+                }
             }
 
             if (Layer->Kind == LayerKind::Decal || !Layer->Stamps.empty())

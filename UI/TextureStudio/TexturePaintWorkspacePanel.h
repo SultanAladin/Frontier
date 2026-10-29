@@ -386,6 +386,24 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     StampLibrary StampLib;
     std::filesystem::path StampLibraryDirectory;
     std::string ActiveStampId;
+    // 🖨️ "New stamp channels" (DecalComponentsPanel's stamp brush): the armed stamp's seeded
+    // targets, cached per stamp/library generation, under per-aspect sticky overrides - the
+    // first edit to the channels, the values or the sources freezes that whole aspect over
+    // every later stamp's own seed (Alloy's effective-snapshot brush edits). Tool state only:
+    // not in History snapshots, not serialized.
+    std::string StampBrushSeedId;
+    uint64_t StampBrushSeedGeneration = 0;
+    bool StampBrushSeedValid = false;
+    StampPlacement StampBrushSeed;
+    bool StampBrushChannelsOverridden = false;
+    std::vector<std::string> StampBrushChannels;
+    bool StampBrushValuesOverridden = false;
+    std::map<std::string, float> StampBrushValues;
+    std::map<std::string, std::array<float, 4>> StampBrushColours;
+    bool StampBrushSourcesOverridden = false;
+    std::map<std::string, std::string> StampBrushModes;
+    std::map<std::string, std::string> StampBrushGenerators;
+    std::map<std::string, std::map<std::string, float>> StampBrushGeneratorParams;
     bool StampLibraryScanned = false;
     bool StampRightDownValid = false;
     float StampRightDownX = 0, StampRightDownY = 0;
@@ -397,6 +415,9 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void EnsureStampLibrary(bool ForceReload = false);
     [[nodiscard]] const StampLibraryEntry *ActiveStamp() const noexcept;
     void PlaceStampAt(const float Uv[2]);
+    // 🎚️ A stamp design's own channel targets: seed a placement's channels/values from the
+    // entry's vector source (neutral defaults remain when it carries none).
+    void SeedPlacementChannels(const StampLibraryEntry &Entry, StampPlacement &Placement) const;
     void ConstructStampPicker();
     // 📚 Stamp Studio's library page as a docked window here as well: ONE shared catalogue body
     // (shortcut pills, heading + count, search, filter pills, THE STAMP COLLECTION card grid,
@@ -678,7 +699,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     // Targets card: heading + enable/disable affordances. Writes only PendingToggle/PendingClear;
     // the caller applies them after the card so iteration state stays valid during the render.
     void ConstructChannelTargetsCard(const std::vector<std::string> &Channels, bool Locked, ChannelTargetStyle Style,
-        bool &PickerOpen, std::string &PendingToggle, bool &PendingClear);
+        bool &PickerOpen, std::string &PendingToggle, bool &PendingClear, const char *Heading = "Channel targets");
     // One folded card per enabled channel. OnChanged fires after every mutation (queue history there);
     // ColourOf/SetColour default to the colour map - the brush studio routes Base color to Brush.Colour.
     void ConstructChannelCards(const std::vector<std::string> &Channels,
