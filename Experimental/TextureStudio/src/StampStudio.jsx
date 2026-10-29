@@ -1091,8 +1091,10 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
               channels={doc.channels}
               values={doc.channelValues}
               sources={doc.channelSources || {}}
-              artworkBaseColor={!VectorGeometryContext}
-              baseColorBody={VectorGeometryContext ? <StampVectorPaintControls key={`paint-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/> : null}
+              baseColorBody={<>
+                <ColorField label="Colour" ariaLabel="Stamp Base color" value={doc.channelValues.baseColor} onChange={(value) => commit({ ...current.current, channelValues: { ...current.current.channelValues, baseColor: value } }, "channel-values")}/>
+                {VectorGeometryContext ? <StampVectorPaintControls key={`paint-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/> : <p className="chan-note">Artwork colour comes from the component itself; Colour is the value deposited with the stamp.</p>}
+              </>}
               onChannels={(channels) => commit({ ...current.current, channels: normalizeStampChannels(channels) })}
               onValue={(id, value) => commit({ ...current.current, channelValues: { ...current.current.channelValues, [id]: value } }, "channel-values")}
               onSource={(id, sourcePatch) => commit({ ...current.current, channelSources: { ...(current.current.channelSources || {}), [id]: { ...((current.current.channelSources || {})[id] || {}), ...sourcePatch } } }, "channel-source")}

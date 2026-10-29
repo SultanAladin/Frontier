@@ -4,6 +4,7 @@ import {
   Circle,
   Image,
   Layers3,
+  Plus,
   Sparkles,
   Trash2,
   Upload,
@@ -13,6 +14,7 @@ import { Slider, ColorField } from "./MaterialControls.jsx";
 import {
   PAINT_CHANNELS,
   CHANNEL_GENERATORS,
+  CHANNEL_GROUPS,
   togglePaintChannel,
   normalizeGenerator,
 } from "./paintChannelModel.js";
@@ -27,7 +29,9 @@ const SOURCE_MODES = [
   ["generator", "Generator", Sparkles],
 ];
 // 🧩 The ChannelPropertyPanel frame for flat channel targets (decal components,
-// the stamp brush): a targets card with one toggle chip per channel, then one
+// the stamp brush): a targets card with removable chips for the enabled
+// channels and the same Add-channel grouped checklist dropdown as the layer
+// inspector (uncheck or × returns a channel to the dropdown), then one
 // card per enabled channel carrying the same Source (Value | Texture |
 // Generator) choice as the layer inspector, its Colour / Amount value and a
 // preview row. Values are a flat map (normalizeStampValues); sources are the
@@ -48,6 +52,7 @@ export default function ChannelTargetsPanel({
   // selected vector's colour-only paint (fill/stroke sources) on this card.
   baseColorBody = null,
 }) {
+  const [picker, setPicker] = useState(false);
   const [folded, setFolded] = useState(new Set()),
     [importing, setImporting] = useState(null),
     [error, setError] = useState("");
@@ -98,22 +103,65 @@ export default function ChannelTargetsPanel({
           <Layers3 size={14} />
           <h2>{heading}</h2>
           <span className="channel-count">{channels.length}</span>
+          <button
+            aria-label={`Add ${prefix} channel`}
+            aria-expanded={picker}
+            disabled={disabled}
+            onClick={() => setPicker(!picker)}
+          >
+            <Plus size={14} />
+          </button>
         </div>
-        <div className="channel-target-toggles">
-          {PAINT_CHANNELS.map((c) => (
-            <button
-              key={c.id}
-              disabled={disabled}
-              aria-label={`${prefix} ${c.label} channel`}
-              aria-pressed={channels.includes(c.id)}
-              style={{ "--channel-tint": c.color }}
-              onClick={() => toggle(c.id, !channels.includes(c.id))}
-            >
+        <div className="channel-chips">
+          {PAINT_CHANNELS.filter((c) => channels.includes(c.id)).map((c) => (
+            <span className="channel-chip" key={c.id}>
               <i style={{ background: c.color }} />
               {c.label}
-            </button>
+              <button
+                aria-label={`Disable ${prefix} ${c.label} channel`}
+                disabled={disabled}
+                onClick={() => toggle(c.id, false)}
+              >
+                <X size={10} />
+              </button>
+            </span>
           ))}
         </div>
+        {!!channels.length && (
+          <button
+            className="channel-clear"
+            disabled={disabled}
+            onClick={() => onChannels([])}
+          >
+            Clear all
+          </button>
+        )}
+        {picker && (
+          <div
+            className="channel-picker"
+            role="group"
+            aria-label={`Available ${prefix} channels`}
+          >
+            {CHANNEL_GROUPS.map((group) => (
+              <section key={group}>
+                <h3>{group}</h3>
+                {PAINT_CHANNELS.filter((c) => c.group === group).map((c) => (
+                  <label key={c.id}>
+                    <i style={{ background: c.color }} />
+                    <span>{c.label}</span>
+                    <input
+                      type="checkbox"
+                      aria-label={`${prefix} ${c.label} channel`}
+                      checked={channels.includes(c.id)}
+                      disabled={disabled}
+                      onChange={(e) => toggle(c.id, e.target.checked)}
+                    />
+                  </label>
+                ))}
+              </section>
+            ))}
+          </div>
+        )}
         {!channels.length && (
           <p className="chan-note" role="status">
             No channels enabled. Existing channel values are retained.
