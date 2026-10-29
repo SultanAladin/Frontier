@@ -162,9 +162,17 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float BaseRight[3]{}; // unrotated anchor frame (camera- or UV-tangent-aligned at placement)
         float BaseUp[3]{};
         float WorldRadius = 0; // half-size in world units
-        // 🎚️ Per-decal PBR behaviour (document data, like every other channel value here; seeded from
-        // the stamp design's surface-channel strengths when it carries a vector source).
-        float Roughness = 0.6f, Metalness = 0.f, Height = 0.5f;
+        // 🎚️ Per-decal channel targets (ChannelTargetsPanel's flat targets, stored flattened like
+        // LayerState's channelSettings): which paint channels this decal writes, each channel's
+        // deposited Value, and its saved source (mode/generator). Seeded at placement from the
+        // stamp design's surface-channel strengths when it carries a vector source; the neutral
+        // PBR defaults (roughness .6 / metalness 0 / height .5) preserve the pre-targets floats.
+        std::vector<std::string> Channels{"baseColor", "metalness", "roughness", "height"};
+        std::map<std::string, std::string> ChannelModes; // value | texture | generator
+        std::map<std::string, float> ChannelValues{{"roughness", .6f}, {"metalness", 0.f}, {"height", .5f}};
+        std::map<std::string, std::array<float, 4>> ChannelColours;
+        std::map<std::string, std::string> ChannelGenerators;
+        std::map<std::string, std::map<std::string, float>> ChannelGeneratorParams;
     };
     struct MaskState
     {
@@ -623,6 +631,8 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     bool HelpOpen = false;
     bool BrushStudioOpen = false;
     bool BrushStudioChannels = false;
+    // 📝 DigitalChannelProperties' single-open accordion (one channel card at a time).
+    std::string BrushChannelOpened = "baseColor";
     char LayerNameBuffer[96]{};
     std::string LayerNameSelectionId;
     std::string Status = "Local layer project";
@@ -643,6 +653,42 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void ConstructStatusBar();
     void DrawLayerThumbnail(float MinimumX, float MinimumY, float Size, const LayerState &Layer) const;
     void DrawMaskIcon(float MinimumX, float MinimumY, float Size, const MaskState &Mask) const;
+    // 🧩 Shared channel-property rendering (ChannelPropertyPanel / ChannelTargetsPanel /
+    // DigitalChannelProperties): the targets card and the per-channel cards over flattened
+    // channelSettings-shaped maps, so layer, decal and brush channels all edit identically.
+    bool AmountSliderRow(const char *Label, float &Value, float Minimum, float Maximum, float DisplayScale, const char *Unit);
+    void SmallNoteRow(const char *Text);
+    enum class ChannelTargetStyle { Picker, Checklist, Toggles };
+    struct ChannelCardOptions
+    {
+        bool Locked = false;
+        bool GradientMode = false;      // Gradient pill (Base color only) + placeholder body
+        bool AlwaysShowValue = false;   // keep Colour/Amount (and a value preview) under every source
+        bool ArtworkBaseColor = false;  // Base color shows the artwork note instead of a colour editor
+        bool MaterialGenerator = false; // offer Material studio; otherwise it only shows when inherited
+        bool SingleOpen = false;        // one unfolded card at a time (BrushChannelOpened)
+        const char *FoldPrefix = "";    // ChannelFolded key prefix ("" = inspector layer cards)
+        const char *PreviewCaption = nullptr; // nullptr = "{Mode} preview"
+        const char *DerivedNote = nullptr;
+        const char *TextureNote = nullptr;
+        const char *GeneratorNoteSuffix = " · source configuration.";
+        const char *MaterialNote = nullptr;
+        const char *GradientNote = nullptr; // inherited-gradient explanation when GradientMode is false
+    };
+    // Targets card: heading + enable/disable affordances. Writes only PendingToggle/PendingClear;
+    // the caller applies them after the card so iteration state stays valid during the render.
+    void ConstructChannelTargetsCard(const std::vector<std::string> &Channels, bool Locked, ChannelTargetStyle Style,
+        bool &PickerOpen, std::string &PendingToggle, bool &PendingClear);
+    // One folded card per enabled channel. OnChanged fires after every mutation (queue history there);
+    // ColourOf/SetColour default to the colour map - the brush studio routes Base color to Brush.Colour.
+    void ConstructChannelCards(const std::vector<std::string> &Channels,
+        std::map<std::string, std::string> &Modes, std::map<std::string, float> &Values,
+        std::map<std::string, std::array<float, 4>> &Colours, std::map<std::string, std::string> &Generators,
+        std::map<std::string, std::map<std::string, float>> &GeneratorParams,
+        const ChannelCardOptions &Options,
+        const std::function<void(const std::string &, const char *)> &OnChanged,
+        const std::function<std::array<float, 4>(const std::string &)> &ColourOf = {},
+        const std::function<void(const std::string &, const std::array<float, 4> &)> &SetColour = {});
     [[nodiscard]] bool PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath = nullptr, uint32_t Accent = 0);
     [[nodiscard]] bool IconButton(const char *Id, const char *IconPath, float Size, bool Selected = false, uint32_t Colour = 0x9a9a8e);
     void ApplyBrushPreset(const std::string &PresetId);
