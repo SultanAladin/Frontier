@@ -192,6 +192,18 @@ export default function DecalComponentsPanel({ layer, doc, context, locked }) {
                   },
                 })
               }
+              sources={context.brushChannelSources}
+              onSource={(id, sourcePatch) =>
+                context.onBrush({
+                  channelSources: {
+                    ...context.brushChannelSources,
+                    [id]: {
+                      ...(context.brushChannelSources[id] || {}),
+                      ...sourcePatch,
+                    },
+                  },
+                })
+              }
             />
           )}
           <div
@@ -458,6 +470,21 @@ export default function DecalComponentsPanel({ layer, doc, context, locked }) {
                         channelValues: {
                           ...component.channelValues,
                           [id]: value,
+                        },
+                      },
+                      "channels",
+                    )
+                  }
+                  sources={component.channelSources || {}}
+                  onSource={(id, sourcePatch) =>
+                    patch(
+                      {
+                        channelSources: {
+                          ...(component.channelSources || {}),
+                          [id]: {
+                            ...((component.channelSources || {})[id] || {}),
+                            ...sourcePatch,
+                          },
                         },
                       },
                       "channels",

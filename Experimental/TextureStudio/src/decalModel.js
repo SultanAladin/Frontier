@@ -5,6 +5,7 @@ import {
 } from "./textureSurfaceModel.js";
 import {
   normalizeStampChannels,
+  normalizeStampChannelSources,
   normalizeStampValues,
   normalizeStampPreset,
   stampId,
@@ -97,6 +98,9 @@ export function normalizeDecal(raw) {
     inverted: raw.inverted === true,
     channels: normalizeStampChannels(raw.channels),
     channelValues: normalizeStampValues(raw.channelValues),
+    ...(Object.keys(normalizeStampChannelSources(raw.channelSources)).length
+      ? { channelSources: normalizeStampChannelSources(raw.channelSources) }
+      : {}),
   };
 }
 export function normalizeLayerDecals(raw) {
@@ -124,7 +128,7 @@ export function normalizeDocumentStamps(raw) {
 export function createDecal(stamp, placement = {}) {
   // 📝 The stamp brush may carry its own channel targets; a null brush field
   // means "inherit the preset", never an override to the defaults.
-  const { channels, channelValues, ...rest } = placement;
+  const { channels, channelValues, channelSources, ...rest } = placement;
   return normalizeDecal({
     name: stamp.name,
     channels: Array.isArray(channels) ? channels : stamp.project.channels,
@@ -132,6 +136,10 @@ export function createDecal(stamp, placement = {}) {
       channelValues && typeof channelValues === "object"
         ? channelValues
         : stamp.project.channelValues,
+    channelSources:
+      channelSources && typeof channelSources === "object"
+        ? channelSources
+        : stamp.project.channelSources,
     ...rest,
     id: stampId(),
     stampId: stamp.id,

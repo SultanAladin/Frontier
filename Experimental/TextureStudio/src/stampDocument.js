@@ -1,7 +1,7 @@
 import { NormalizeArtworkNames } from "./ArtworkNames.js";
 import { NormalizeArtworkMask } from "./ArtworkMask.js";
 import { StampVectorGeometry } from "./VectorArtwork.js";
-import { PAINT_CHANNELS } from "./paintChannelModel.js";
+import { PAINT_CHANNELS, normalizeGenerator } from "./paintChannelModel.js";
 import { normalizeTextureSource } from "./textureSource.js";
 
 export const STAMP_SCHEMA = "alloy.stamp.v1";
@@ -51,6 +51,26 @@ export function normalizeStampValues(raw = {}) {
           : 1,
     ]),
   );
+}
+// 📝 Sparse per-channel source targets, mirroring the layer channel panel's
+// Value | Texture | Generator choice. Only non-default entries are stored; a
+// missing channel means the flat Value. Stamps deposit channelValues today —
+// Texture/Generator entries are saved authoring targets, like the layer
+// panel's generator configurations.
+export function normalizeStampChannelSources(raw = {}) {
+  raw = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const sources = {};
+  for (const c of PAINT_CHANNELS) {
+    if (c.edit === "derived") continue;
+    const r = raw[c.id] && typeof raw[c.id] === "object" ? raw[c.id] : null;
+    if (!r) continue;
+    const mode = ["texture", "generator"].includes(r.mode) ? r.mode : "value";
+    const generator = normalizeGenerator(r.generator || {});
+    const texture = normalizeTextureSource(r.texture);
+    if (mode === "value" && !generator && !texture) continue;
+    sources[c.id] = { mode, generator, texture };
+  }
+  return sources;
 }
 export function normalizeStampRun(raw = {}) {
   raw = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
@@ -241,6 +261,9 @@ export function normalizeStampDocument(input) {
     name: stampName(input.name),
     channels: normalizeStampChannels(input.channels),
     channelValues: normalizeStampValues(input.channelValues),
+    ...(Object.keys(normalizeStampChannelSources(input.channelSources)).length
+      ? { channelSources: normalizeStampChannelSources(input.channelSources) }
+      : {}),
     maskMode: input.maskMode === "luminance" ? "luminance" : "alpha",
     layers,
   };

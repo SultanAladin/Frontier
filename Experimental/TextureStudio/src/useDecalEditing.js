@@ -50,6 +50,7 @@ export default function useDecalEditing(
       asMask: false,
       channels: null,
       channelValues: null,
+      channelSources: null,
     },
     uv: {
       size: [0.18, 0.18],
@@ -59,6 +60,7 @@ export default function useDecalEditing(
       asMask: false,
       channels: null,
       channelValues: null,
+      channelSources: null,
     },
   });
   const brush = {
@@ -84,6 +86,10 @@ export default function useDecalEditing(
     ...(preset?.project.channelValues || {}),
     ...(brush.channelValues || {}),
   });
+  const brushChannelSources = {
+    ...(preset?.project.channelSources || {}),
+    ...(brush.channelSources || {}),
+  };
   const owner = doc.layers.find((l) => l.id === selection.id),
     component = owner?.decals.find((d) => d.id === componentId);
   const locked =
@@ -336,6 +342,7 @@ export default function useDecalEditing(
     brush,
     brushChannels,
     brushChannelValues,
+    brushChannelSources,
     space,
     placementAvailable,
     partLocked,
