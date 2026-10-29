@@ -108,6 +108,7 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
   useEffect(() => { try { localStorage.setItem("frontier.stamp.canvasAppearance.v1", JSON.stringify(CanvasAppearance)); } catch {} }, [CanvasAppearance]);
   const [PbrLightOn, ConfigurePbrLightOn] = useState(false);
   const [PbrLight, ConfigurePbrLight] = useState({ x: .3, y: .22 });
+  const [TextColourTarget, ConfigureTextColourTarget] = useState(null);
   const ComponentMatches = doc.layers.filter(Layer => `${Layer.name} ${Layer.kind} ${Layer.vector?.kind || ""}`.toLocaleLowerCase().includes(ComponentQuery.trim().toLocaleLowerCase()) && (ComponentFilter === "all" || (ComponentFilter === "locked" ? Layer.locked : Layer.visible === (ComponentFilter === "visible"))));
   const [VectorSelection, ConfigureVectorSelection] = useState([]);
   const VectorSelectionRef = useRef(VectorSelection);
@@ -1023,6 +1024,7 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
                 {selected.kind === "text" && (
                   <StampRichTextEditor
                     key={selected.id}
+                    ColourTarget={TextColourTarget}
                     runs={selected.runs}
                     disabled={selected.locked}
                     onChange={(runs, meta) => {
@@ -1091,17 +1093,15 @@ export default function StampStudio({ initial, onWorkspace, onClose, onUse }) {
               channels={doc.channels}
               values={doc.channelValues}
               sources={doc.channelSources || {}}
-              baseColorBody={<>
-                <ColorField label="Colour" ariaLabel="Stamp Base color" value={doc.channelValues.baseColor} onChange={(value) => commit({ ...current.current, channelValues: { ...current.current.channelValues, baseColor: value } }, "channel-values")}/>
-                {VectorGeometryContext ? <StampVectorPaintControls key={`paint-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/> : <p className="chan-note">Artwork colour comes from the component itself; Colour is the value deposited with the stamp.</p>}
-              </>}
+              artworkBaseColor={!VectorGeometryContext}
+              baseColorBody={VectorGeometryContext ? <StampVectorPaintControls key={`paint-${VectorGeometryKey}`} Geometry={VectorGeometry} Disabled={selected?.kind === "vector" && selected.locked} Drawing={!VectorGeometryLayer} OnChange={ApplyVectorPaint}/> : selected?.kind === "text" && !(VectorMode && VectorSelection.length > 1) ? <div className="stamp-basecolor-group"><span className="stamp-basecolor-caption">Text colour</span><div ref={ConfigureTextColourTarget} className="stamp-text-colour-slot"/></div> : null}
               onChannels={(channels) => commit({ ...current.current, channels: normalizeStampChannels(channels) })}
               onValue={(id, value) => commit({ ...current.current, channelValues: { ...current.current.channelValues, [id]: value } }, "channel-values")}
               onSource={(id, sourcePatch) => commit({ ...current.current, channelSources: { ...(current.current.channelSources || {}), [id]: { ...((current.current.channelSources || {})[id] || {}), ...sourcePatch } } }, "channel-source")}
             />
             <p className="stamp-note">
-              Colour comes from the artwork — the selected vector's fill and
-              stroke paint lives on the Base color card. Height/normal use its
+              Colour comes from the artwork — the selected component's colour
+              (fill/stroke paint, text colour) lives on the Base color card. Height/normal use its
               luminance. Disabled targets retain their values; no channels
               enabled means no surface decal. The canvas PBR light shades
               these values live.

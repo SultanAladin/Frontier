@@ -879,3 +879,7 @@
   opacity: 0.4;
   cursor: default;
 }
+
+.stamp-text-colour-slot {
+  min-height: 30px;
+}
