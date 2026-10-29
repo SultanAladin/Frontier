@@ -134,24 +134,25 @@ struct ChannelMeta
     float Min, Max, DefaultValue;
     uint32_t DefaultColour;
     const char *Unit;
+    const char *Placement; // paintChannelModel's atlas placement line (channel preview row)
 };
 // 📝 paintChannelModel.js PAINT_CHANNELS (id/label/short/group/colour/edit/range/defaults/unit), verbatim.
 constexpr std::array<ChannelMeta, 15> ChannelTable{{
-    {"baseColor", "Base color", "C", "Surface", 0xb87333, "color", 0, 1, 0, 0xb87333, ""},
-    {"metalness", "Metalness", "M", "Surface", 0x8b5cf6, "scalar", 0, 1, 0, 0, ""},
-    {"roughness", "Roughness", "R", "Surface", 0x3b82f6, "scalar", 0, 1, .5f, 0, ""},
-    {"height", "Height", "H", "Surface", 0x8a8a8a, "scalar", 0, 1, .5f, 0, ""},
-    {"normal", "Normal", "N", "Surface", 0x10b981, "derived", 0, 1, 0, 0, ""},
-    {"opacity", "Opacity", "A", "Surface", 0x94a3b8, "scalar", 0, 1, 1, 0, ""},
-    {"emission", "Emission", "E", "Radiance", 0xf59e0b, "color", 0, 1, 0, 0x000000, ""},
-    {"occlusion", "Ambient occlusion", "AO", "Radiance", 0x6b7280, "scalar", 0, 1, 1, 0, ""},
-    {"anisotropy", "Anisotropy", "AN", "Reflectance", 0x22d3ee, "scalar", 0, 1, 0, 0, ""},
-    {"anisotropyAngle", "Anisotropy angle", "°", "Reflectance", 0x0ea5e9, "scalar", 0, 360, 0, 0, "°"},
-    {"clearcoat", "Clearcoat", "CC", "Reflectance", 0xe2e8f0, "scalar", 0, 1, 0, 0, ""},
-    {"transmission", "Transmission", "TR", "Reflectance", 0x7dd3fc, "scalar", 0, 1, 0, 0, ""},
-    {"refractionIndex", "Refraction index", "IOR", "Reflectance", 0xa78bfa, "scalar", 1, 3, 1.5f, 0, ""},
-    {"sheen", "Sheen", "SH", "Scattering", 0xf472b6, "color", 0, 1, 0, 0x3a3a3a, ""},
-    {"subsurface", "Subsurface", "SS", "Scattering", 0xfb7185, "color", 0, 1, 0, 0xd98a72, ""},
+    {"baseColor", "Base color", "C", "Surface", 0xb87333, "color", 0, 1, 0, 0xb87333, "", "Colour atlas · RGB"},
+    {"metalness", "Metalness", "M", "Surface", 0x8b5cf6, "scalar", 0, 1, 0, 0, "", "Material atlas · R"},
+    {"roughness", "Roughness", "R", "Surface", 0x3b82f6, "scalar", 0, 1, .5f, 0, "", "Material atlas · G"},
+    {"height", "Height", "H", "Surface", 0x8a8a8a, "scalar", 0, 1, .5f, 0, "", "Material atlas · B"},
+    {"normal", "Normal", "N", "Surface", 0x10b981, "derived", 0, 1, 0, 0, "", "No storage · derived"},
+    {"opacity", "Opacity", "A", "Surface", 0x94a3b8, "scalar", 0, 1, 1, 0, "", "Material atlas · A"},
+    {"emission", "Emission", "E", "Radiance", 0xf59e0b, "color", 0, 1, 0, 0x000000, "", "Emissive atlas · RGB"},
+    {"occlusion", "Ambient occlusion", "AO", "Radiance", 0x6b7280, "scalar", 0, 1, 1, 0, "", "Emissive atlas · A"},
+    {"anisotropy", "Anisotropy", "AN", "Reflectance", 0x22d3ee, "scalar", 0, 1, 0, 0, "", "Reflect atlas · R"},
+    {"anisotropyAngle", "Anisotropy angle", "°", "Reflectance", 0x0ea5e9, "scalar", 0, 360, 0, 0, "°", "Reflect atlas · G"},
+    {"clearcoat", "Clearcoat", "CC", "Reflectance", 0xe2e8f0, "scalar", 0, 1, 0, 0, "", "Reflect atlas · B"},
+    {"transmission", "Transmission", "TR", "Reflectance", 0x7dd3fc, "scalar", 0, 1, 0, 0, "", "Scatter atlas · A"},
+    {"refractionIndex", "Refraction index", "IOR", "Reflectance", 0xa78bfa, "scalar", 1, 3, 1.5f, 0, "", "Reflect atlas · A"},
+    {"sheen", "Sheen", "SH", "Scattering", 0xf472b6, "color", 0, 1, 0, 0x3a3a3a, "", "Scatter atlas · RGB"},
+    {"subsurface", "Subsurface", "SS", "Scattering", 0xfb7185, "color", 0, 1, 0, 0xd98a72, "", "Sheen atlas · RGB"},
 }};
 struct PartMeta
 {
@@ -3263,6 +3264,22 @@ void TexturePaintWorkspacePanel::Track(const std::string &Caption)
     const ImVec2 Minimum = ImGui::GetItemRectMin(), Maximum = ImGui::GetItemRectMax();
     ControlExtents[Caption] = {Minimum.x, Minimum.y, Maximum.x, Maximum.y};
 }
+void TexturePaintWorkspacePanel::DrawMaskIcon(float MinimumX, float MinimumY, float Size, const MaskState &Mask) const
+{
+    // 🖼️ TextureLayerStack's MaskIcon, native edition: effective white/black (fill XOR inverted),
+    // gradient field, colour-kind dot - drawn at any tile size (identity 32, overlay slot 38, preview 34).
+    auto *Ink = ImGui::GetWindowDrawList();
+    const ImVec2 Minimum(MinimumX, MinimumY), Maximum(MinimumX + Size, MinimumY + Size);
+    const float Radius = Size * .1875f;
+    if (Mask.Kind == "gradient")
+        Ink->AddRectFilledMultiColor(Minimum, Maximum, Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
+    else
+        Ink->AddRectFilled(Minimum, Maximum, Colour32((Mask.Fill >= .5f) != Mask.Inverted ? 0xe6e6df : 0x090909), Radius);
+    Ink->AddRect(Minimum, Maximum, Colour32(0x595954), Radius);
+    if (Mask.Kind == "color")
+        Ink->AddCircleFilled(ImVec2(Maximum.x - Size * .1875f, Maximum.y - Size * .1875f), Size * .106f,
+            IM_COL32(uint8_t(std::clamp(Mask.Colour[0], 0.f, 1.f) * 255), uint8_t(std::clamp(Mask.Colour[1], 0.f, 1.f) * 255), uint8_t(std::clamp(Mask.Colour[2], 0.f, 1.f) * 255), 255), 12);
+}
 void TexturePaintWorkspacePanel::DrawLayerThumbnail(float MinimumX, float MinimumY, float Size, const LayerState &Layer) const
 {
     // 🖼️ TextureLayerStack's LayerThumbnail, native edition: an assigned material shows its colour swatch,
@@ -5284,19 +5301,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
             const ImVec2 Origin = ImGui::GetCursorScreenPos();
             Ink->AddRectFilled(Origin, ImVec2(Origin.x + 55 * S, Origin.y + 55 * S), Colour32(0x212121), 17 * S);
             Ink->AddRect(Origin, ImVec2(Origin.x + 55 * S, Origin.y + 55 * S), Colour32(0xffffff, .03f), 17 * S);
-            if (MaskSelected)
-            {
-                // MaskIcon at 32px: effective white/black (fill XOR inverted), gradient field, colour dot.
-                const ImVec2 IconMin(Origin.x + 11.5f * S, Origin.y + 11.5f * S), IconMax(IconMin.x + 32 * S, IconMin.y + 32 * S);
-                if (Layer->Mask.Kind == "gradient")
-                    Ink->AddRectFilledMultiColor(IconMin, IconMax, Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
-                else
-                    Ink->AddRectFilled(IconMin, IconMax, Colour32((Layer->Mask.Fill >= .5f) != Layer->Mask.Inverted ? 0xe6e6df : 0x090909), 6 * S);
-                Ink->AddRect(IconMin, IconMax, Colour32(0x595954), 6 * S);
-                if (Layer->Mask.Kind == "color")
-                    Ink->AddCircleFilled(ImVec2(IconMax.x - 6 * S, IconMax.y - 6 * S), 3.4f * S,
-                        IM_COL32(uint8_t(Layer->Mask.Colour[0] * 255), uint8_t(Layer->Mask.Colour[1] * 255), uint8_t(Layer->Mask.Colour[2] * 255), 255), 12);
-            }
+            if (MaskSelected) DrawMaskIcon(Origin.x + 11.5f * S, Origin.y + 11.5f * S, 32 * S, Layer->Mask);
             else DrawLayerThumbnail(Origin.x + 6.5f * S, Origin.y + 6.5f * S, 42 * S, *Layer);
             std::string Eyebrow = MaskSelected ? "MASK PROPERTIES" : std::string(MetaForKind(size_t(Layer->Kind)).Label) + " LAYER";
             for (auto &Character : Eyebrow) Character = char(std::toupper(uint8_t(Character)));
@@ -5348,16 +5353,28 @@ void TexturePaintWorkspacePanel::ConstructInspector()
         if (MaskSelected && Layer->Mask.Present)
         {
             SectionLabel("MASK SETTINGS", Layer->Kind == LayerKind::Folder ? "Folder & descendants" : "Layer source");
+            // 🧩 TextureMaskPropertyPanel.jsx, native edition: one collapsible Mask section - Enabled /
+            // Base mask / Invert / Strength, a rule, then the Source kind with its body, the painted
+            // overlay slot, and a preview row.
             Controls.BeginCard("", true);
             {
-                const char *Title = Layer->Mask.Kind == "gradient" ? "Gradient coverage" : Layer->Mask.Kind == "color" ? "Colour selection" : "Coverage mask";
-                const float HeadingY = ImGui::GetCursorScreenPos().y;
-                AccentBar(0x8b9b82, Title);
-                // .tp-card-reset: restore mask defaults (keeping the mask kind), clearing the paint overlay.
+                const char *KindLabel = Layer->Mask.Kind == "paint" ? "Paint" : Layer->Mask.Kind == "color" ? "Colour" : Layer->Mask.Kind == "gradient" ? "Gradient" : "Fill";
+                // .mask-section-head: chevron + status dot + "Mask" + kind, card reset at the right edge.
                 {
-                    const ImVec2 Flow = ImGui::GetCursorScreenPos();
+                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    const float Width = ImGui::GetContentRegionAvail().x;
+                    ImGui::SetCursorScreenPos(Origin);
+                    if (ImGui::InvisibleButton("##MaskSectionHead", ImVec2(std::max(Width - 30 * S, 1.f), 25 * S))) MaskCardCollapsed = !MaskCardCollapsed;
+                    Track("Mask properties");
+                    DrawGlyph(MaskCardCollapsed ? "m9 6 6 6-6 6" : "m6 9 6 6 6-6", ImVec2(Origin.x, Origin.y + 6 * S), 12 * S, 0x84847a);
+                    Ink->AddCircleFilled(ImVec2(Origin.x + 23 * S, Origin.y + 12.5f * S), (MaskCardCollapsed ? 2.2f : 3.f) * S, Colour32(0xc9d6a8, MaskCardCollapsed ? .5f : 1.f), 10);
+                    Caption(ImVec2(Origin.x + 34 * S, Origin.y + 6 * S), "Mask", 11 * S, 0xd0d0c3);
+                    std::string KindSmall = KindLabel;
+                    for (auto &Character : KindSmall) Character = char(std::toupper(uint8_t(Character)));
+                    Caption(ImVec2(Origin.x + Width - 32 * S - CaptionWidth(KindSmall.c_str(), 8 * S), Origin.y + 8 * S), KindSmall.c_str(), 8 * S, 0x858579);
+                    // .tp-card-reset: restore mask defaults (keeping the mask kind), clearing the paint overlay.
                     ImGui::BeginDisabled(Locked);
-                    ImGui::SetCursorScreenPos(ImVec2(Flow.x + ImGui::GetContentRegionAvail().x - 24 * S, HeadingY - 5 * S));
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 24 * S, Origin.y + 2 * S));
                     if (IconButton("ResetMaskProperties", "M3 12a9 9 0 1 0 3-6.7M3 4v5h5", 22 * S))
                     {
                         Layer->Mask.Enabled = true;
@@ -5374,124 +5391,161 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     }
                     ImGui::EndDisabled();
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Reset mask properties");
-                    ImGui::SetCursorScreenPos(Flow);
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 25 * S));
+                    ImGui::Dummy(ImVec2(0, 0));
                 }
-                // Mask type pills.
-                const struct { const char *Id; const char *Label; } Types[4]{{"fill", "Fill"}, {"paint", "Paint"}, {"color", "Colour"}, {"gradient", "Gradient"}};
-                float X = ImGui::GetCursorScreenPos().x;
-                const float Y = ImGui::GetCursorScreenPos().y;
-                const float PillWidth = (ImGui::GetContentRegionAvail().x - 12 * S) / 4.f;
-                for (const auto &Entry : Types)
+                if (!MaskCardCollapsed)
                 {
+                    const ImVec2 RuleOrigin = ImGui::GetCursorScreenPos();
+                    Ink->AddLine(RuleOrigin, ImVec2(RuleOrigin.x + ImGui::GetContentRegionAvail().x, RuleOrigin.y), Colour32(0xffffff, .031f));
+                    ImGui::Dummy(ImVec2(1, 12 * S));
+                    Controls.ControlHeight = 29;
                     ImGui::BeginDisabled(Locked);
-                    ImGui::SetCursorScreenPos(ImVec2(X, Y));
-                    if (PillButton((std::string("MaskType") + Entry.Id).c_str(), Entry.Label, PillWidth, Layer->Mask.Kind == Entry.Id))
+                    bool Enabled = Layer->Mask.Enabled;
+                    if (Controls.Toggle("Mask enabled", Enabled))
                     {
-                        Layer->Mask.Kind = Entry.Id;
+                        Layer->Mask.Enabled = Enabled;
                         CommitHistory("Mask properties", Layer->Name, "mask");
                         MarkDirty();
+                    }
+                    if (Layer->Mask.Kind == "fill" || Layer->Mask.Kind == "paint")
+                    {
+                        int FillIndex = Layer->Mask.Fill >= .5f ? 0 : 1;
+                        if (FieldDropdown("Base mask", FillIndex, {"White", "Black"}, std::max(ImGui::GetContentRegionAvail().x / S - 98.f, 60.f)))
+                        {
+                            Layer->Mask.Fill = FillIndex == 0 ? 1.f : 0.f;
+                            CommitHistory("Mask properties", Layer->Name, "mask");
+                            MarkDirty();
+                        }
+                    }
+                    bool Inverted = Layer->Mask.Inverted;
+                    if (Controls.Toggle("Invert mask", Inverted))
+                    {
+                        Layer->Mask.Inverted = Inverted;
+                        CommitHistory("Mask properties", Layer->Name, "mask");
+                        MarkDirty();
+                    }
+                    if (AmountSlider("Mask strength", Layer->Mask.Strength, 0.f, 100.f, 1.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
+                    ImGui::Dummy(ImVec2(1, 12 * S));
+                    {
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        Ink->AddLine(Origin, ImVec2(Origin.x + ImGui::GetContentRegionAvail().x, Origin.y), Colour32(0xffffff, .031f)); // .mask-rule
+                        ImGui::Dummy(ImVec2(1, 12 * S));
+                    }
+                    // .mask-prop-row Source: 88px label column, kind pills fill the remaining width.
+                    {
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        const float Width = ImGui::GetContentRegionAvail().x;
+                        Caption(ImVec2(Origin.x, Origin.y + 8 * S), "Source", 10 * S, 0xa6a692);
+                        const struct { const char *Id; const char *Label; } Types[4]{{"fill", "Fill"}, {"paint", "Paint"}, {"color", "Colour"}, {"gradient", "Gradient"}};
+                        const float PillWidth = (Width - 98 * S - 9 * S) / 4.f;
+                        float X = Origin.x + 98 * S;
+                        for (const auto &Entry : Types)
+                        {
+                            ImGui::SetCursorScreenPos(ImVec2(X, Origin.y));
+                            if (PillButton((std::string("MaskType") + Entry.Id).c_str(), Entry.Label, PillWidth, Layer->Mask.Kind == Entry.Id))
+                            {
+                                Layer->Mask.Kind = Entry.Id;
+                                CommitHistory("Mask properties", Layer->Name, "mask");
+                                MarkDirty();
+                            }
+                            X += PillWidth + 3 * S;
+                        }
+                        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 36 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+                    }
+                    if (Layer->Mask.Kind == "gradient")
+                    {
+                        Caption(ImGui::GetCursorScreenPos(), "Mask gradient", 9 * S, 0x909084);
+                        ImGui::Dummy(ImVec2(1, 16 * S));
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        const float Width = ImGui::GetContentRegionAvail().x;
+                        Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
+                        Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x595954), 5 * S);
+                        ImGui::Dummy(ImVec2(1, 30 * S));
+                        SmallNote("Surface-field gradient: the native preview reads a vertical falloff over each UDIM tile. Point editing is not native yet.");
+                    }
+                    else if (Layer->Mask.Kind == "color")
+                    {
+                        if (Controls.Colour("Selected colour", Layer->Mask.Colour)) QueueHistory("Mask properties", Layer->Name, "mask");
+                        if (AmountSlider("Tolerance", Layer->Mask.Tolerance, 0.f, 1.f, 100.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
+                        ImGui::Dummy(ImVec2(1, 12 * S));
+                        if (AmountSlider("Softness", Layer->Mask.Softness, 0.f, 1.f, 100.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
+                        // ColourMaskPreview, native edition: effective coverage per UDIM part under the current
+                        // colour/tolerance/softness (the same evaluation the viewport composite uses).
+                        ImGui::Dummy(ImVec2(1, 14 * S));
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        const float SwatchWidth = (ImGui::GetContentRegionAvail().x - 9 * S) / 4.f;
+                        for (int PartIndex = 0; PartIndex < 4; ++PartIndex)
+                        {
+                            TopologyTriangle Probe;
+                            Probe.Part = PartIndex;
+                            const float ProbeUv[2]{PartIndex + .5f, .5f};
+                            const float Coverage = MaskCoverageAt(*Layer, Probe, ProbeUv);
+                            const ImVec2 SwatchMin(Origin.x + PartIndex * (SwatchWidth + 3 * S), Origin.y);
+                            Ink->AddRectFilled(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(PartTable[size_t(PartIndex)].Colour), 7 * S);
+                            Ink->AddRectFilled(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(0x0b0b0b, (1.f - Coverage) * .78f), 7 * S);
+                            Ink->AddRect(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(0xffffff, .06f), 7 * S);
+                            Caption(ImVec2(SwatchMin.x + 6 * S, SwatchMin.y + 19 * S), PartTable[size_t(PartIndex)].Name, 7 * S, 0xd8d8cd);
+                        }
+                        ImGui::Dummy(ImVec2(1, 38 * S));
+                    }
+                    // .mask-slot-caption + .mask-slot: the painted overlay over this mask's source.
+                    {
+                        const size_t Records = Layer->Mask.Dabs.size() + Layer->Mask.Fills.size();
+                        ImGui::Dummy(ImVec2(1, 10 * S));
+                        Caption(ImGui::GetCursorScreenPos(), "PAINTED OVERLAY", 8 * S, 0x858579);
+                        ImGui::Dummy(ImVec2(1, 16 * S));
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        const float Width = ImGui::GetContentRegionAvail().x;
+                        Ink->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + 50 * S), Colour32(0x171717), 11 * S);
+                        Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 50 * S), Colour32(0xffffff, .047f), 11 * S);
+                        DrawMaskIcon(Origin.x + 6 * S, Origin.y + 6 * S, 38 * S, Layer->Mask);
+                        Caption(ImVec2(Origin.x + 53 * S, Origin.y + 11 * S), Records ? "Painted mask" : "No mask strokes yet", 10 * S, 0xc8c8b7);
+                        const std::string Meta = Records ? std::to_string(Records) + " records · strokes / region fills over the source" : "Paint in Lit or packed UV view";
+                        Caption(ImVec2(Origin.x + 53 * S, Origin.y + 28 * S), Meta.c_str(), 8 * S, 0x858579);
+                        ImGui::BeginDisabled(Locked || !Records);
+                        ImGui::SetCursorScreenPos(ImVec2(Origin.x + Width - 30 * S, Origin.y + 13 * S));
+                        if (IconButton("ClearMaskPaint", "M3 6H21M8 6V3H16V6M6 6L7 21H17L18 6M10 10V17M14 10V17", 24 * S))
+                        {
+                            Layer->Mask.Dabs.clear();
+                            Layer->Mask.Fills.clear();
+                            CommitHistory("Mask properties", Layer->Name, "mask");
+                            MarkDirty();
+                        }
+                        ImGui::EndDisabled();
+                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Clear painted mask overlay");
+                        ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 50 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+                        if (Records)
+                        {
+                            ImGui::Dummy(ImVec2(1, 8 * S));
+                            SmallNote("UV brush strokes / region fills over this mask's source. White includes; black excludes."); // .mask-slot-note
+                        }
                     }
                     ImGui::EndDisabled();
-                    X += PillWidth + 4 * S;
-                }
-                ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, Y + 36 * S));
-                ImGui::BeginDisabled(Locked);
-                Controls.ControlHeight = 29;
-                if (Layer->Mask.Kind == "gradient")
-                {
-                    Caption(ImGui::GetCursorScreenPos(), "Mask gradient", 9 * S, 0x909084);
-                    ImGui::Dummy(ImVec2(1, 16 * S));
-                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
-                    const float Width = ImGui::GetContentRegionAvail().x;
-                    Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
-                    Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x595954), 5 * S);
-                    ImGui::Dummy(ImVec2(1, 30 * S));
-                    SmallNote("Surface-field gradient: the native preview reads a vertical falloff over each UDIM tile. Point editing is not native yet.");
-                }
-                else if (Layer->Mask.Kind == "color")
-                {
-                    if (Controls.Colour("Selected colour", Layer->Mask.Colour)) QueueHistory("Mask properties", Layer->Name, "mask");
-                    if (AmountSlider("Tolerance", Layer->Mask.Tolerance, 0.f, 1.f, 100.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
-                    ImGui::Dummy(ImVec2(1, 12 * S));
-                    if (AmountSlider("Softness", Layer->Mask.Softness, 0.f, 1.f, 100.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
-                    // ColourMaskPreview, native edition: effective coverage per UDIM part under the current
-                    // colour/tolerance/softness (the same evaluation the viewport composite uses).
-                    ImGui::Dummy(ImVec2(1, 14 * S));
-                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
-                    const float SwatchWidth = (ImGui::GetContentRegionAvail().x - 9 * S) / 4.f;
-                    for (int PartIndex = 0; PartIndex < 4; ++PartIndex)
+                    CardNote((std::string(Layer->Kind == LayerKind::Folder ? "Saved on this folder for its descendants. " : "Saved on this layer. ") +
+                        (Layer->Mask.Kind == "color"
+                                ? "Colour matching uses normalized sRGB RGB distance; the preview evaluates source pixels only. "
+                                : "White includes and black excludes. ") +
+                        "Paint mask in Lit or packed UV space; strokes and region fills drive the native preview composite on the correct part. "
+                        "Colour previews sample the source per UDIM part, not the final shaded material. Digital Paint / Erase / Fill also edits this mask.")
+                        .c_str());
+                    // .mask-preview-row: effective coverage + strength at a glance.
                     {
-                        TopologyTriangle Probe;
-                        Probe.Part = PartIndex;
-                        const float ProbeUv[2]{PartIndex + .5f, .5f};
-                        const float Coverage = MaskCoverageAt(*Layer, Probe, ProbeUv);
-                        const ImVec2 SwatchMin(Origin.x + PartIndex * (SwatchWidth + 3 * S), Origin.y);
-                        Ink->AddRectFilled(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(PartTable[size_t(PartIndex)].Colour), 7 * S);
-                        Ink->AddRectFilled(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(0x0b0b0b, (1.f - Coverage) * .78f), 7 * S);
-                        Ink->AddRect(SwatchMin, ImVec2(SwatchMin.x + SwatchWidth, SwatchMin.y + 30 * S), Colour32(0xffffff, .06f), 7 * S);
-                        Caption(ImVec2(SwatchMin.x + 6 * S, SwatchMin.y + 19 * S), PartTable[size_t(PartIndex)].Name, 7 * S, 0xd8d8cd);
-                    }
-                    ImGui::Dummy(ImVec2(1, 38 * S));
-                }
-                else
-                {
-                    const ImVec2 Origin = ImGui::GetCursorScreenPos();
-                    Ink->AddRectFilled(Origin, ImVec2(Origin.x + 62 * S, Origin.y + 62 * S), Colour32(Layer->Mask.Fill >= .5f ? 0xe6e6df : 0x090909), 6 * S);
-                    Ink->AddRect(Origin, ImVec2(Origin.x + 62 * S, Origin.y + 62 * S), Colour32(0x595954), 6 * S);
-                    Caption(ImVec2(Origin.x + 74 * S, Origin.y + 8 * S), (Layer->Mask.Fill >= .5f) != Layer->Mask.Inverted ? "White" : "Black", 11 * S, 0xd8d8cd);
-                    Caption(ImVec2(Origin.x + 74 * S, Origin.y + 26 * S),
-                        Layer->Mask.Inverted ? "Inverted fill · mask background" : "Uniform fill · mask background", 8 * S, 0x8a8a7c);
-                    ImGui::Dummy(ImVec2(1, 70 * S));
-                    int FillIndex = Layer->Mask.Fill >= .5f ? 0 : 1;
-                    if (FieldDropdown("Fill", FillIndex, {"White", "Black"}))
-                    {
-                        Layer->Mask.Fill = FillIndex == 0 ? 1.f : 0.f;
-                        CommitHistory("Mask properties", Layer->Name, "mask");
-                        MarkDirty();
+                        ImGui::Dummy(ImVec2(1, 12 * S));
+                        const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                        const float Width = ImGui::GetContentRegionAvail().x;
+                        Ink->AddLine(Origin, ImVec2(Origin.x + Width, Origin.y), Colour32(0xffffff, .031f));
+                        DrawMaskIcon(Origin.x, Origin.y + 11 * S, 34 * S, Layer->Mask);
+                        Caption(ImVec2(Origin.x + 42 * S, Origin.y + 16 * S), "Mask preview", 9 * S, 0xa3a392);
+                        char Meta[64];
+                        std::snprintf(Meta, sizeof(Meta), "%s coverage · %d%% strength",
+                            (Layer->Mask.Fill >= .5f) != Layer->Mask.Inverted ? "White" : "Black", int(std::round(Layer->Mask.Strength)));
+                        Caption(ImVec2(Origin.x + 42 * S, Origin.y + 29 * S), Meta, 8 * S, 0x67675e);
+                        ImGui::Dummy(ImVec2(1, 45 * S));
                     }
                 }
-                // .tp-mask-record-summary (any mask kind with a painted overlay).
-                if (const size_t Records = Layer->Mask.Dabs.size() + Layer->Mask.Fills.size(); Records)
-                {
-                    const std::string Summary = "Paint overlay · " + std::to_string(Records) + " records";
-                    Caption(ImGui::GetCursorScreenPos(), Summary.c_str(), 10 * S, 0xd8d8cd);
-                    ImGui::Dummy(ImVec2(1, 16 * S));
-                    SmallNote("UV brush strokes / region fills over this mask's source. White includes; black excludes.");
-                    ImGui::Dummy(ImVec2(1, 8 * S));
-                    if (PillButton("ClearMaskPaint", "Clear painted mask overlay", 196 * S, false))
-                    {
-                        Layer->Mask.Dabs.clear();
-                        Layer->Mask.Fills.clear();
-                        CommitHistory("Mask properties", Layer->Name, "mask");
-                        MarkDirty();
-                    }
-                    ImGui::Dummy(ImVec2(1, 8 * S));
-                }
-                ImGui::EndDisabled();
-                bool Enabled = Layer->Mask.Enabled;
-                if (Controls.Toggle("Mask enabled", Enabled))
-                {
-                    Layer->Mask.Enabled = Enabled;
-                    CommitHistory("Mask properties", Layer->Name, "mask");
-                    MarkDirty();
-                }
-                bool Inverted = Layer->Mask.Inverted;
-                ImGui::BeginDisabled(Locked);
-                if (Controls.Toggle("Invert mask", Inverted))
-                {
-                    Layer->Mask.Inverted = Inverted;
-                    CommitHistory("Mask properties", Layer->Name, "mask");
-                    MarkDirty();
-                }
-                if (AmountSlider("Mask strength", Layer->Mask.Strength, 0.f, 100.f, 1.f, "%")) QueueHistory("Mask properties", Layer->Name, "mask");
-                ImGui::EndDisabled();
-                CardNote((std::string(Layer->Kind == LayerKind::Folder ? "Saved on this folder for its descendants. " : "Saved on this layer. ") +
-                    (Layer->Mask.Kind == "color"
-                            ? "Colour matching uses normalized sRGB RGB distance; the preview evaluates source pixels only. "
-                            : "White includes and black excludes. ") +
-                    "Paint mask in Lit or packed UV space; strokes and region fills drive the native preview composite on the correct part. "
-                    "Colour previews sample the source per UDIM part, not the final shaded material. Digital Paint / Erase / Fill also edits this mask.")
-                    .c_str());
             }
             Controls.EndCard();
             {
@@ -5759,7 +5813,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                 Controls.EndCard();
             }
 
-            if (Layer->Kind != LayerKind::Folder && Layer->Kind != LayerKind::Decal)
+            if (Layer->Kind != LayerKind::Folder)
             {
                 // 🧩 ChannelPropertyPanel.jsx: target card (heading + chips + picker) then one folded card
                 // per enabled channel. Source settings below are stored authoring configuration (Alloy's
@@ -5976,14 +6030,16 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                                     else if (Mode == "texture")
                                     {
                                         const ImVec2 BoxOrigin = ImGui::GetCursorScreenPos();
-                                        Ink->AddRect(BoxOrigin, ImVec2(Right, BoxOrigin.y + 66 * S), Colour32(0xffffff, .08f), 12 * S);
+                                        // .channel-texture-empty: 91px dashed well (solid #48483f edge natively).
+                                        Ink->AddRectFilled(BoxOrigin, ImVec2(Right, BoxOrigin.y + 91 * S), Colour32(0x181818), 13 * S);
+                                        Ink->AddRect(BoxOrigin, ImVec2(Right, BoxOrigin.y + 91 * S), Colour32(0x48483f), 13 * S);
                                         DrawGlyph("M3 5H21V19H3ZM3 15L8 10L12 14L16 10L21 15",
-                                            ImVec2(BoxOrigin.x + Width * .5f - 11.5f * S, BoxOrigin.y + 12 * S), 23 * S, 0x6f6f66);
+                                            ImVec2(BoxOrigin.x + Width * .5f - 11.5f * S, BoxOrigin.y + 24 * S), 23 * S, 0x6f6f66);
                                         const char *Empty = "Paint or import a texture source";
-                                        Caption(ImVec2(BoxOrigin.x + (Width - CaptionWidth(Empty, 9 * S)) * .5f, BoxOrigin.y + 42 * S), Empty, 9 * S, 0x8a8a7c);
-                                        ImGui::Dummy(ImVec2(1, 76 * S));
+                                        Caption(ImVec2(BoxOrigin.x + (Width - CaptionWidth(Empty, 9 * S)) * .5f, BoxOrigin.y + 55 * S), Empty, 9 * S, 0x8a8a7c);
+                                        ImGui::Dummy(ImVec2(1, 102 * S));
                                         ImGui::BeginDisabled(true);
-                                        PillButton("ImportChannelTexture", "Import texture", 150 * S, false, "M12 16V4M7 9l5-5 5 5M4 20h16");
+                                        PillButton("ImportChannelTexture", "Import texture", Width, false, "M12 16V4M7 9l5-5 5 5M4 20h16");
                                         ImGui::EndDisabled();
                                         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Texture import is not native yet");
                                         ImGui::Dummy(ImVec2(1, 10 * S));
@@ -5991,19 +6047,47 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                                     }
                                     else if (Mode == "generator")
                                     {
-                                        std::vector<const char *> Labels{"Choose a generator…", "Material studio · custom source"};
-                                        std::vector<std::string> Ids{"", "MaterialStudio"};
-                                        for (const auto &Generator : GeneratorTable) { Labels.push_back(Generator.Label); Ids.push_back(Generator.Id); }
+                                        // .channel-generator-label: HTML groups the catalogue under Mask / Wear /
+                                        // Procedural optgroup headings; the native combo draws the same groups
+                                        // (disabled header rows between the grouped selectables).
                                         const std::string Current = Layer->ChannelGenerators.count(Channel.Id) ? Layer->ChannelGenerators.at(Channel.Id) : "";
-                                        int GeneratorIndex = 0;
-                                        for (size_t At = 0; At < Ids.size(); ++At)
-                                            if (Ids[At] == Current) GeneratorIndex = int(At);
-                                        if (FieldDropdown("Generator", GeneratorIndex, Labels, 178.f))
+                                        std::string Chosen = Current;
                                         {
-                                            Layer->ChannelGenerators[Channel.Id] = Ids[size_t(GeneratorIndex)];
-                                            QueueHistory("Channel properties", Layer->Name + " · " + Channel.Label, "channel");
+                                            const GeneratorMeta *CurrentMeta = nullptr;
+                                            for (const auto &Generator : GeneratorTable)
+                                                if (Current == Generator.Id) CurrentMeta = &Generator;
+                                            const char *Preview = Current == "MaterialStudio" ? "Material studio · custom source"
+                                                : CurrentMeta ? CurrentMeta->Label : "Choose a generator…";
+                                            const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                                            const float RowWidth = ImGui::GetContentRegionAvail().x;
+                                            Caption(ImVec2(RowOrigin.x, RowOrigin.y + 8 * S), "Generator", 10 * S, 0xa3a395);
+                                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 178 * S, RowOrigin.y));
+                                            ImGui::SetNextItemWidth(178 * S);
+                                            bool Picked = false;
+                                            std::string PickedId = Current;
+                                            if (ImGui::BeginCombo("##ChannelGenerator", Preview))
+                                            {
+                                                if (ImGui::Selectable("Choose a generator…", Current.empty())) { PickedId = ""; Picked = true; }
+                                                if (ImGui::Selectable("Material studio · custom source", Current == "MaterialStudio")) { PickedId = "MaterialStudio"; Picked = true; }
+                                                const char *Groups[]{"Mask", "Wear", "Procedural"};
+                                                for (const char *Group : Groups)
+                                                {
+                                                    ImGui::Selectable(Group, false, ImGuiSelectableFlags_Disabled);
+                                                    for (const auto &Generator : GeneratorTable)
+                                                        if (std::string(Generator.Group) == Group && ImGui::Selectable(Generator.Label, Current == Generator.Id)) { PickedId = Generator.Id; Picked = true; }
+                                                }
+                                                ImGui::EndCombo();
+                                            }
+                                            Track("Generator");
+                                            if (Picked && PickedId != Current)
+                                            {
+                                                Layer->ChannelGenerators[Channel.Id] = PickedId;
+                                                QueueHistory("Channel properties", Layer->Name + " · " + Channel.Label, "channel");
+                                                Chosen = PickedId;
+                                            }
+                                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 20 * S));
+                                            ImGui::Dummy(ImVec2(0, 0));
                                         }
-                                        const std::string Chosen = Ids[size_t(GeneratorIndex)];
                                         if (Chosen == "MaterialStudio")
                                             SmallNote("Material studio custom sources are not native yet. The choice is stored with the layer; built-in generators keep editable parameters here.");
                                         else if (!Chosen.empty())
@@ -6040,12 +6124,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                                                 Layer->ChannelColours[Channel.Id] = ColourValue;
                                                 QueueHistory("Channel properties", Layer->Name + " · " + Channel.Label, "channel");
                                             }
-                                            const ImVec2 SwatchOrigin = ImGui::GetCursorScreenPos();
-                                            Ink->AddRectFilled(SwatchOrigin, ImVec2(SwatchOrigin.x + 22 * S, SwatchOrigin.y + 22 * S),
-                                                IM_COL32(uint8_t(ColourValue[0] * 255), uint8_t(ColourValue[1] * 255), uint8_t(ColourValue[2] * 255), 255), 6 * S);
-                                            Caption(ImVec2(SwatchOrigin.x + 30 * S, SwatchOrigin.y + 6 * S), "Value swatch", 9 * S, 0xaaa99c);
-                                            Caption(ImVec2(Right - CaptionWidth("Not composited", 8 * S), SwatchOrigin.y + 7 * S), "Not composited", 8 * S, 0x858579);
-                                            ImGui::Dummy(ImVec2(1, 28 * S));
+
                                         }
                                         else
                                         {
@@ -6056,17 +6135,57 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                                                 Layer->ChannelValues[Channel.Id] = ScalarValue;
                                                 QueueHistory("Channel properties", Layer->Name + " · " + Channel.Label, "channel");
                                             }
-                                            ImGui::Dummy(ImVec2(1, 10 * S));
-                                            const float Gray = Channel.Max > Channel.Min ? std::clamp((ScalarValue - Channel.Min) / (Channel.Max - Channel.Min), 0.f, 1.f) : 0.f;
-                                            const ImVec2 SwatchOrigin = ImGui::GetCursorScreenPos();
-                                            const uint8_t Level = uint8_t(Gray * 255);
-                                            Ink->AddRectFilled(SwatchOrigin, ImVec2(SwatchOrigin.x + 22 * S, SwatchOrigin.y + 22 * S), IM_COL32(Level, Level, Level, 255), 6 * S);
-                                            Caption(ImVec2(SwatchOrigin.x + 30 * S, SwatchOrigin.y + 6 * S), "Value swatch", 9 * S, 0xaaa99c);
-                                            Caption(ImVec2(Right - CaptionWidth("Not composited", 8 * S), SwatchOrigin.y + 7 * S), "Not composited", 8 * S, 0x858579);
-                                            ImGui::Dummy(ImVec2(1, 28 * S));
+
                                         }
                                     }
                                     ImGui::EndDisabled();
+                                }
+                                // .channel-value-preview: every channel card ends with the same preview row -
+                                // the deposited colour/gray in Value mode, the empty-source checker otherwise,
+                                // then the mode label over the channel's atlas placement.
+                                {
+                                    ImGui::Dummy(ImVec2(1, 12 * S));
+                                    const ImVec2 PreviewOrigin = ImGui::GetCursorScreenPos();
+                                    Ink->AddLine(PreviewOrigin, ImVec2(Right, PreviewOrigin.y), Colour32(0xffffff, .031f));
+                                    const ImVec2 TileMin(PreviewOrigin.x, PreviewOrigin.y + 11 * S), TileMax(TileMin.x + 34 * S, TileMin.y + 34 * S);
+                                    if (Mode == "value")
+                                    {
+                                        ImU32 Swatch;
+                                        if (std::string(Channel.Edit) == "color")
+                                        {
+                                            std::array<float, 4> ColourValue{float((Channel.DefaultColour >> 16) & 0xff) / 255.f,
+                                                float((Channel.DefaultColour >> 8) & 0xff) / 255.f, float(Channel.DefaultColour & 0xff) / 255.f, 1.f};
+                                            if (const auto Found = Layer->ChannelColours.find(Channel.Id); Found != Layer->ChannelColours.end()) ColourValue = Found->second;
+                                            Swatch = IM_COL32(uint8_t(std::clamp(ColourValue[0], 0.f, 1.f) * 255), uint8_t(std::clamp(ColourValue[1], 0.f, 1.f) * 255),
+                                                uint8_t(std::clamp(ColourValue[2], 0.f, 1.f) * 255), 255);
+                                        }
+                                        else
+                                        {
+                                            float ScalarValue = Channel.DefaultValue;
+                                            if (const auto Found = Layer->ChannelValues.find(Channel.Id); Found != Layer->ChannelValues.end()) ScalarValue = Found->second;
+                                            const float Gray = Channel.Max > Channel.Min ? std::clamp((ScalarValue - Channel.Min) / (Channel.Max - Channel.Min), 0.f, 1.f) : 0.f;
+                                            const uint8_t Level = uint8_t(Gray * 255);
+                                            Swatch = IM_COL32(Level, Level, Level, 255);
+                                        }
+                                        Ink->AddRectFilled(TileMin, TileMax, Swatch, 7 * S);
+                                    }
+                                    else
+                                    {
+                                        Ink->PushClipRect(TileMin, TileMax, true);
+                                        Ink->AddRectFilled(TileMin, TileMax, Colour32(0x0d0d0d));
+                                        const float Cell = 4 * S;
+                                        for (int CellY = 0; TileMin.y + CellY * Cell < TileMax.y; ++CellY)
+                                            for (int CellX = 0; TileMin.x + CellX * Cell < TileMax.x; ++CellX)
+                                                if ((CellX + CellY) & 1)
+                                                    Ink->AddRectFilled(ImVec2(TileMin.x + CellX * Cell, TileMin.y + CellY * Cell),
+                                                        ImVec2(TileMin.x + (CellX + 1) * Cell, TileMin.y + (CellY + 1) * Cell), Colour32(0x1c1c1c));
+                                        Ink->PopClipRect();
+                                    }
+                                    Ink->AddRect(TileMin, TileMax, Colour32(0xffffff, .086f), 7 * S);
+                                    const std::string PreviewLabel = std::string(ModeLabel) + " preview";
+                                    Caption(ImVec2(TileMin.x + 42 * S, TileMin.y + 5 * S), Mode == "derived" ? "Derived preview" : PreviewLabel.c_str(), 9 * S, 0xa3a392);
+                                    Caption(ImVec2(TileMin.x + 42 * S, TileMin.y + 18 * S), Channel.Placement, 8 * S, 0x67675e);
+                                    ImGui::Dummy(ImVec2(1, 45 * S));
                                 }
                             }
                         }

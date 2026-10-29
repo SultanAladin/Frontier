@@ -613,6 +613,8 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     // 📝 ChannelPropertyPanel's picker + per-channel fold state (Alloy starts these six channels folded).
     bool ChannelPickerOpen = false;
     std::set<std::string> ChannelFolded{"height", "normal", "occlusion", "anisotropy", "anisotropyAngle", "clearcoat"};
+    // 📝 TextureMaskPropertyPanel's collapsible Mask section head.
+    bool MaskCardCollapsed = false;
     char LayerQuery[64]{};
     enum class LayerFilter { All, Visible, Hidden };
     LayerFilter Filter = LayerFilter::All;
@@ -640,6 +642,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void ConstructBrushStudio();
     void ConstructStatusBar();
     void DrawLayerThumbnail(float MinimumX, float MinimumY, float Size, const LayerState &Layer) const;
+    void DrawMaskIcon(float MinimumX, float MinimumY, float Size, const MaskState &Mask) const;
     [[nodiscard]] bool PillButton(const char *Id, const char *Label, float Width, bool Selected, const char *IconPath = nullptr, uint32_t Accent = 0);
     [[nodiscard]] bool IconButton(const char *Id, const char *IconPath, float Size, bool Selected = false, uint32_t Colour = 0x9a9a8e);
     void ApplyBrushPreset(const std::string &PresetId);
