@@ -44,6 +44,9 @@ export default function ChannelTargetsPanel({
   onSource,
   disabled = false,
   artworkBaseColor = false,
+  // Optional replacement for the Base color editor: the stamp studio puts the
+  // selected vector's colour-only paint (fill/stroke sources) on this card.
+  baseColorBody = null,
 }) {
   const [folded, setFolded] = useState(new Set()),
     [importing, setImporting] = useState(null),
@@ -140,7 +143,9 @@ export default function ChannelTargetsPanel({
             (g) => g.id === source.generator?.id,
           );
         const valueEditor =
-          artworkBaseColor && c.id === "baseColor" ? (
+          c.id === "baseColor" && baseColorBody ? (
+            baseColorBody
+          ) : artworkBaseColor && c.id === "baseColor" ? (
             <p className="chan-note">
               Artwork colour. The stamp raster supplies Base color; disable
               the channel to stamp values only.
