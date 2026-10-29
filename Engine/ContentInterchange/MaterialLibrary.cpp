@@ -282,6 +282,7 @@ MaterialSandBed DefaultSandBed(size_t Index)
 {
     MaterialSandBed Bed;
     Bed.Id = "sand-bed-" + std::to_string(Index + 1);
+    Bed.Name = "Sand bed " + std::to_string(Index + 1);
     return Bed;
 }
 
@@ -332,6 +333,8 @@ void ParseSandBeds(const toml::node *Layers, std::vector<MaterialSandBed> &Beds)
                 ? *Id
                 : Defaults.Id;
             Bed.Enabled = (*Fields)["enabled"].value_or(true);
+            if (const auto Name = (*Fields)["name"].value<std::string>(); Name && !Name->empty())
+                Bed.Name = Name->substr(0, 60);
             const auto Color = (*Fields)["color"].value<std::string>();
             Bed.Color = CleanSandHex(Color.value_or(""), Color.has_value(), Defaults.Color);
             const auto Secondary = (*Fields)["secondaryColor"].value<std::string>();
@@ -341,15 +344,22 @@ void ParseSandBeds(const toml::node *Layers, std::vector<MaterialSandBed> &Beds)
         while (std::find(Used.begin(), Used.end(), Candidate) != Used.end()) Candidate += "-copy";
         Bed.Id = Candidate;
         Used.push_back(Bed.Id);
-        // 📝 Disabled beds ride with zero coverage/thickness so the kernel skips them like the shader.
+        Beds.push_back(Bed);
+        ++Index;
+    }
+}
+
+// 📝 Bake-ready projection: disabled beds ride with zero coverage/thickness so the kernel skips them
+// like the shader, while the authored beds keep their values for the editor round-trip.
+std::vector<MaterialSandBed> BakeReadySandBeds(std::vector<MaterialSandBed> Beds)
+{
+    for (auto &Bed : Beds)
         if (!Bed.Enabled)
         {
             Bed.Coverage = 0;
             Bed.Thickness = 0;
         }
-        Beds.push_back(Bed);
-        ++Index;
-    }
+    return Beds;
 }
 
 void SynthesizeSandBed(const MaterialRecipeParameters &Recipe, std::vector<MaterialSandBed> &Beds)
@@ -511,10 +521,15 @@ bool MaterialLibrary::Refresh()
                         // 📝 Sand beds normalize after the scalar pass: layered sand parses its bed tables,
                         // single-grain sand synthesizes its lone bed from the grain scalars.
                         const auto RecipeType = Match->Recipe.Scalars.find("type");
-                        if (RecipeType != Match->Recipe.Scalars.end() && RecipeType->second == 37)
-                            SynthesizeSandBed(Match->Recipe, Match->Recipe.SandBeds);
-                        else if (RecipeType != Match->Recipe.Scalars.end() && RecipeType->second == 38)
-                            ParseSandBeds(SandLayersNode, Match->Recipe.SandBeds);
+                        if (RecipeType != Match->Recipe.Scalars.end() &&
+                            (RecipeType->second == 37 || RecipeType->second == 38))
+                        {
+                            if (RecipeType->second == 37)
+                                SynthesizeSandBed(Match->Recipe, Match->Recipe.AuthoredSandBeds);
+                            else
+                                ParseSandBeds(SandLayersNode, Match->Recipe.AuthoredSandBeds);
+                            Match->Recipe.SandBeds = BakeReadySandBeds(Match->Recipe.AuthoredSandBeds);
+                        }
                     }
                     if (const auto *Controls = Material["Controls"].as_array())
                         for (const auto &ControlTerm : *Controls)
@@ -715,6 +730,252 @@ bool MaterialLibrary::ConfigureStratumLiteral(uint32_t Index, std::string_view N
         (void)DecodeSurfaceMaterial(Replacement);
         Source = std::move(Replacement);
         Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+namespace
+{
+// 📝 toml++ source coordinates are line/column over code points; the splice helpers need byte offsets.
+size_t MaterialSourceByteOffset(const std::string &Source, toml::source_position Position)
+{
+    size_t Cursor = 0;
+    for (uint32_t Line = 1; Line < Position.line; ++Line)
+    {
+        Cursor = Source.find('\n', Cursor);
+        if (Cursor == std::string::npos) throw std::runtime_error("Invalid material source coordinates.");
+        ++Cursor;
+    }
+    for (uint32_t Column = 1; Column < Position.column; ++Column)
+    {
+        if (Cursor >= Source.size()) throw std::runtime_error("Invalid material source column.");
+        ++Cursor;
+        while (Cursor < Source.size() && (static_cast<unsigned char>(Source[Cursor]) & 0xc0) == 0x80) ++Cursor;
+    }
+    return Cursor;
+}
+
+std::string EncodeSandNumber(double Value)
+{
+    char Number[64]{};
+    const auto Encoded = std::to_chars(Number, Number + sizeof(Number), Value);
+    if (Encoded.ec != std::errc{}) throw std::runtime_error("Sand bed number encoding failed.");
+    std::string Text(Number, Encoded.ptr);
+    if (Text.find_first_of(".eE") == std::string::npos) Text += ".0";
+    return Text;
+}
+
+std::string EncodeSandString(std::string_view Value)
+{
+    std::string Text = "\"";
+    for (const char Character : Value)
+    {
+        if (Character == '"' || Character == '\\') Text += '\\';
+        if (Character >= 0x20 || Character < 0) Text += Character;
+    }
+    return Text + "\"";
+}
+
+// 📝 Inline-table array in the Library.toml sidecar's own one-line idiom, so a bed edit stays a small diff.
+std::string SerializeSandBeds(const std::vector<MaterialSandBed> &Beds)
+{
+    std::string Text = "[";
+    bool First = true;
+    for (const auto &Bed : Beds)
+    {
+        if (!First) Text += ", ";
+        First = false;
+        Text += "{\"id\" = " + EncodeSandString(Bed.Id) + ", \"name\" = " + EncodeSandString(Bed.Name) +
+            ", \"enabled\" = " + std::string(Bed.Enabled ? "true" : "false") +
+            ", \"color\" = " + EncodeSandString(Bed.Color) +
+            ", \"secondaryColor\" = " + EncodeSandString(Bed.SecondaryColor) +
+            ", \"size\" = " + EncodeSandNumber(Bed.Size) +
+            ", \"sizeVariation\" = " + EncodeSandNumber(Bed.SizeVariation) +
+            ", \"roughness\" = " + EncodeSandNumber(Bed.Roughness) +
+            ", \"roughnessVariation\" = " + EncodeSandNumber(Bed.RoughnessVariation) +
+            ", \"specular\" = " + EncodeSandNumber(Bed.Specular) +
+            ", \"specularVariation\" = " + EncodeSandNumber(Bed.SpecularVariation) +
+            ", \"ior\" = " + EncodeSandNumber(Bed.Ior) +
+            ", \"roundness\" = " + EncodeSandNumber(Bed.Roundness) +
+            ", \"tilt\" = " + EncodeSandNumber(Bed.Tilt) +
+            ", \"relief\" = " + EncodeSandNumber(Bed.Relief) +
+            ", \"coverage\" = " + EncodeSandNumber(Bed.Coverage) +
+            ", \"thickness\" = " + EncodeSandNumber(Bed.Thickness) + "}";
+    }
+    return Text + "]";
+}
+} // namespace
+
+bool MaterialLibrary::ConfigureAuthoring(const MaterialAuthoringDocument &Document)
+{
+    DiagnosticJournal::Append("MaterialOperation", "ConfigureAuthoring " + DiagnosticJournal::EncodePath(Selection));
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        auto Normalized = Document;
+        NormalizeMaterialAuthoring(Normalized);
+        toml::table Root;
+        Root.insert_or_assign("Authoring", EncodeMaterialAuthoring(Normalized));
+        std::ostringstream Stream;
+        Stream << Root;
+        std::string Block = Stream.str();
+        auto Replacement = Source;
+        const auto Parsed = toml::parse(Source);
+        if (const auto *Existing = Parsed["Authoring"].as_table())
+        {
+            // 📝 Replace the whole authored span (header line through the last nested value) so stale
+            // sub-tables from a longer previous document never survive beside the new block.
+            const auto Region = Existing->source();
+            size_t Begin = MaterialSourceByteOffset(Source, Region.begin);
+            const size_t End = MaterialSourceByteOffset(Source, Region.end);
+            while (Begin > 0 && Source[Begin - 1] != '\n') --Begin;
+            Replacement.replace(Begin, End - Begin, Block);
+        }
+        else
+        {
+            if (!Replacement.empty() && !Replacement.ends_with("\n")) Replacement += "\n";
+            Replacement += "\n" + Block;
+        }
+        (void)DecodeSurfaceMaterial(Replacement);
+        Source = std::move(Replacement);
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::ConfigureSandBeds(const std::vector<MaterialSandBed> &Beds, std::string_view Arrangement)
+{
+    DiagnosticJournal::Append("MaterialOperation", "ConfigureSandBeds " + DiagnosticJournal::EncodePath(Selection));
+    try
+    {
+        if (Selection.empty()) throw std::runtime_error("Select a material first.");
+        if (Beds.empty() || Beds.size() > 4) throw std::runtime_error("Sand holds between one and four beds.");
+        if (Arrangement != "beds" && Arrangement != "bands") throw std::runtime_error("Unknown sand layer arrangement.");
+        std::vector<MaterialSandBed> Sanitized;
+        std::vector<std::string> Used;
+        for (size_t Index = 0; Index < Beds.size(); ++Index)
+        {
+            const MaterialSandBed Defaults = DefaultSandBed(Index);
+            MaterialSandBed Bed = Beds[Index];
+            if (!ValidSandBedId(Bed.Id) || std::find(Used.begin(), Used.end(), Bed.Id) != Used.end()) Bed.Id = Defaults.Id;
+            while (std::find(Used.begin(), Used.end(), Bed.Id) != Used.end()) Bed.Id += "-copy";
+            Used.push_back(Bed.Id);
+            if (Bed.Name.empty()) Bed.Name = Defaults.Name;
+            Bed.Name = Bed.Name.substr(0, 60);
+            Bed.Color = CleanSandHex(Bed.Color, true, Defaults.Color);
+            Bed.SecondaryColor = CleanSandHex(Bed.SecondaryColor, true, Defaults.SecondaryColor);
+            const MaterialSandBed Raw = Bed;
+            ClampSandBedNumerics(Bed,
+                [&Raw](const char *Key) -> std::optional<double>
+                {
+                    const std::string_view Field(Key);
+                    if (Field == "size") return Raw.Size;
+                    if (Field == "sizeVariation") return Raw.SizeVariation;
+                    if (Field == "roughness") return Raw.Roughness;
+                    if (Field == "roughnessVariation") return Raw.RoughnessVariation;
+                    if (Field == "specular") return Raw.Specular;
+                    if (Field == "specularVariation") return Raw.SpecularVariation;
+                    if (Field == "ior") return Raw.Ior;
+                    if (Field == "roundness") return Raw.Roundness;
+                    if (Field == "tilt") return Raw.Tilt;
+                    if (Field == "relief") return Raw.Relief;
+                    if (Field == "coverage") return Raw.Coverage;
+                    if (Field == "thickness") return Raw.Thickness;
+                    return std::nullopt;
+                },
+                Defaults);
+            Sanitized.push_back(std::move(Bed));
+        }
+        for (auto &Entry : Entries)
+            if (Entry.RelativePath == Selection)
+            {
+                Entry.Recipe.SandBeds = BakeReadySandBeds(Sanitized);
+                Entry.Recipe.Texts["sandArrangement"] = std::string(Arrangement);
+                break;
+            }
+        StagedSandBeds[Selection] = {std::move(Sanitized), std::string(Arrangement)};
+        Diagnostic.clear();
+        return true;
+    }
+    catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
+}
+
+bool MaterialLibrary::QuerySandBeds(std::vector<MaterialSandBed> &Beds, std::string &Arrangement) const
+{
+    if (const auto Staged = StagedSandBeds.find(Selection); Staged != StagedSandBeds.end())
+    {
+        Beds = Staged->second.first;
+        Arrangement = Staged->second.second;
+        return true;
+    }
+    for (const auto &Entry : Entries)
+        if (Entry.RelativePath == Selection)
+        {
+            Beds = Entry.Recipe.AuthoredSandBeds;
+            if (Beds.empty()) Beds.push_back(DefaultSandBed(0));
+            const auto Text = Entry.Recipe.Texts.find("sandArrangement");
+            Arrangement = Text != Entry.Recipe.Texts.end() && Text->second == "bands" ? "bands" : "beds";
+            return true;
+        }
+    return false;
+}
+
+bool MaterialLibrary::PersistStagedSandBeds()
+{
+    try
+    {
+        const auto Staged = StagedSandBeds.find(Selection);
+        if (Staged == StagedSandBeds.end()) return true;
+        const auto CataloguePath = Directory / "Library.toml";
+        if (!std::filesystem::is_regular_file(CataloguePath))
+            throw std::runtime_error("Sand beds need the Library.toml catalogue sidecar.");
+        std::string Text = DecodeMaterialSource(CataloguePath);
+        const auto Catalogue = toml::parse(Text);
+        const auto *Materials = Catalogue["Materials"].as_array();
+        if (!Materials) throw std::runtime_error("Library catalogue holds no materials.");
+        const std::string Serialized = SerializeSandBeds(Staged->second.first);
+        const std::string ArrangementLiteral = EncodeSandString(Staged->second.second);
+        bool Spliced = false;
+        for (const auto &MaterialTerm : *Materials)
+        {
+            const toml::node_view<const toml::node> Material(&MaterialTerm);
+            if (Material["Path"].value<std::string>() != EncodeContentPath(Selection)) continue;
+            const auto *Recipe = Material["SourceRecipe"].as_table();
+            if (!Recipe) throw std::runtime_error("Catalogue entry holds no source recipe for sand beds.");
+            // 📝 Splice from the last span backwards so earlier offsets stay valid while the text moves.
+            struct Splice { size_t Begin, End; std::string Value; };
+            std::vector<Splice> Splices;
+            if (const auto *Layers = Recipe->get("sandLayers"))
+                Splices.push_back({MaterialSourceByteOffset(Text, Layers->source().begin),
+                    MaterialSourceByteOffset(Text, Layers->source().end), Serialized});
+            else
+            {
+                const size_t Close = MaterialSourceByteOffset(Text, Recipe->source().end) - 1;
+                if (Close >= Text.size() || Text[Close] != '}')
+                    throw std::runtime_error("Catalogue source recipe is not an inline table.");
+                Splices.push_back({Close, Close, ", \"sandLayers\" = " + Serialized});
+            }
+            if (const auto *Arrangement = Recipe->get("sandArrangement"))
+                Splices.push_back({MaterialSourceByteOffset(Text, Arrangement->source().begin),
+                    MaterialSourceByteOffset(Text, Arrangement->source().end), ArrangementLiteral});
+            else
+            {
+                const size_t Close = MaterialSourceByteOffset(Text, Recipe->source().end) - 1;
+                Splices.push_back({Close, Close, ", \"sandArrangement\" = " + ArrangementLiteral});
+            }
+            std::sort(Splices.begin(), Splices.end(), [](const Splice &Left, const Splice &Right) { return Left.Begin > Right.Begin; });
+            for (const auto &Splice : Splices) Text.replace(Splice.Begin, Splice.End - Splice.Begin, Splice.Value);
+            Spliced = true;
+            break;
+        }
+        if (!Spliced) throw std::runtime_error("Material is absent from the library catalogue.");
+        (void)toml::parse(Text);
+        if (!TextFileReplacement::Finalize(CataloguePath, Text, Diagnostic)) return false;
+        for (auto &Entry : Entries)
+            if (Entry.RelativePath == Selection) Entry.Recipe.AuthoredSandBeds = Staged->second.first;
+        StagedSandBeds.erase(Staged);
         return true;
     }
     catch (const std::exception &Failure) { Diagnostic = Failure.what(); DiagnosticJournal::Append("MaterialError", Diagnostic); return false; }
@@ -1334,6 +1595,14 @@ bool MaterialLibrary::RevertSource()
     if (ApplySource())
     {
         ParkedSources.erase(Selection);
+        // 📝 Staged sand beds are drafts too: reverting restores the bake-ready beds from the authored set.
+        if (StagedSandBeds.erase(Selection))
+            for (auto &Entry : Entries)
+                if (Entry.RelativePath == Selection)
+                {
+                    Entry.Recipe.SandBeds = BakeReadySandBeds(Entry.Recipe.AuthoredSandBeds);
+                    break;
+                }
         return true;
     }
     Source = Previous;
@@ -1364,6 +1633,9 @@ bool MaterialLibrary::SaveMaterial()
             for (const auto &Entry : Stratum) Procedural = Procedural || !Entry.Op.empty();
         if (Procedural && !RebakeProcedurals(512)) return false;
         if (!ProceduralOverrides.empty() && !PersistProceduralOverrides()) return false;
+        // 📝 Sand beds ride in the catalogue sidecar; splice them before the .material write so a failed
+        // sidecar write never leaves a saved material pointing at stale beds.
+        if (StagedSandBeds.contains(Selection) && !PersistStagedSandBeds()) return false;
         if (QueryUnapplied() && !ApplySource()) return false;
         if (!TextFileReplacement::Finalize(Destination, Source, Diagnostic)) return false;
         SavedSource = Source;

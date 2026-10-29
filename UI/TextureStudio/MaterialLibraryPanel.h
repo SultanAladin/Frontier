@@ -110,6 +110,18 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;
+    // 📝 HTML inspector shell state: segmented Properties|Layers tabs over the authoring document.
+    uint32_t InspectorMode = 0; // 0 = Properties, 1 = Layers
+    std::set<std::string> OpenedInspectorDetails; // default-closed <details> (channel menus, source adjustments)
+    std::optional<MaterialAuthoringDocument> AuthoringDocument;
+    // 📝 Flat quantity mirror for Read/WriteMaterialParameter, reseeded from the live definition on
+    // selection/revert; the panel's own writes keep it current between seeds.
+    MaterialAuthoringStore AuthoringStore;
+    std::string AuthoringSelectionKey;
+    bool VariableDockOpen = true;
+    std::string EditingVariableId, RenamingVariableId, InspectorNotice;
+    std::string SelectedSandBedId;
+    uint32_t FlakePalettePreset = 0;
     float InterfaceScale = 1;
     void *ReferenceTypeface = nullptr;
     void *HeadingTypeface = nullptr;
@@ -123,12 +135,24 @@ class MaterialLibraryPanel final : public ActivationSequence
     // 📝 RowWidth defaults to the surrounding content region (correct for the free-floating popup
     // sliders), but every inspector card caller passes its own inset row width explicitly so the
     // right-aligned value readout lands inside the card border instead of the outer panel/scrollbar edge.
-    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr, float RowWidth = -1.f);
+    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr, float RowWidth = -1.f, bool RecipeForm = false);
     void ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb = 0xa3a393);
     void ConstructActions();
     std::array<char,4096> DirectoryText{}, DestinationText{};
     std::array<char,257> SearchText{}, NameText{};
     std::array<char,32> ColourText{};
+    // 📝 Single-buffer text editing: the buffer follows whichever field the Editing key names, so layer,
+    // generator, variable, bed, colour-hex and texture-path inputs share one commit-on-keystroke path.
+    std::array<char,96> InspectorNameText{};
+    std::string InspectorNameKey;
+    std::array<char,80> InspectorCategoryText{};
+    std::string InspectorCategoryKey;
+    std::array<char,32> InspectorHexText{};
+    std::string InspectorHexKey;
+    std::array<char,96> FieldNameText{};
+    std::array<char,80> FieldCategoryText{};
+    std::array<char,512> TexturePathText{};
+    std::string TexturePathKey;
     std::vector<char> SourceText;
     PlaneExtent ApplyExtent, SaveExtent, RevertExtent, FullscreenPreviewExtent;
     bool ClosingRequested = false, CloseAuthorized = false;
