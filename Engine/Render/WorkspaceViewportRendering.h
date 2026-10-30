@@ -67,6 +67,7 @@ struct WorkspaceSurfaceViewportRequest
     float Exposure = 1.f;
     std::array<float, 3> SurfaceTint{1.f, 1.f, 1.f};
     uint32_t PreviewShapeOrdinal = 0; // 0 = arbitrary mesh, 1..5 = MaterialPreviewShape + 1
+    const MaterialTexturePyramid *EnvironmentEquirectPyramid = nullptr;
 };
 
 namespace WorkspaceViewportDetail
@@ -311,6 +312,63 @@ inline std::array<float, 4> SamplePyramidBilinear(const MaterialTexturePyramid &
     for (size_t Comp = 0; Comp < 4; ++Comp)
         Result[Comp] = std::lerp(std::lerp(P00[Comp], P10[Comp], Tx), std::lerp(P01[Comp], P11[Comp], Tx), Ty);
     return Result;
+}
+
+inline void ConstructContinuousBasis3(const std::array<float, 3> &N,
+    std::array<float, 3> &Tangent, std::array<float, 3> &Bitangent) noexcept
+{
+    const float SignZ = N[2] >= 0.f ? 1.f : -1.f;
+    const float A = -1.f / (SignZ + N[2]);
+    const float B = N[0] * N[1] * A;
+    Tangent = {1.f + SignZ * N[0] * N[0] * A, SignZ * B, -SignZ * N[0]};
+    Bitangent = {B, SignZ + N[1] * N[1] * A, -N[1]};
+}
+
+inline std::array<float, 3> SampleEquirectPyramidLevel(const MaterialTexturePyramid &Pyramid,
+    const std::array<float, 3> &WorldDir, float MipLevel)
+{
+    if (Pyramid.Levels.empty()) return {0.f, 0.f, 0.f};
+    const float Azimuth = std::atan2(WorldDir[0], WorldDir[2]);
+    const float U = Azimuth * (0.5f / std::numbers::pi_v<float>) + 0.5f;
+    const float V = std::acos(std::clamp(WorldDir[1], -1.f, 1.f)) / std::numbers::pi_v<float>;
+    const float MaxMip = float(Pyramid.Levels.size() - 1);
+    const float ClampedMip = std::clamp(MipLevel, 0.f, MaxMip);
+    const size_t Level0 = size_t(std::floor(ClampedMip));
+    const size_t Level1 = std::min(Level0 + 1, Pyramid.Levels.size() - 1);
+    const float Frac = ClampedMip - float(Level0);
+
+    const auto SampleAtLevel = [&](size_t LevelIdx) -> std::array<float, 3>
+    {
+        const auto &Lv = Pyramid.Levels[LevelIdx];
+        if (Lv.Width == 0 || Lv.Height == 0) return {0.f, 0.f, 0.f};
+        const float Fx = (U - std::floor(U)) * float(Lv.Width) - .5f;
+        const float Fy = std::clamp(V, 0.f, 1.f) * float(Lv.Height) - .5f;
+        const int X0 = (int(std::floor(Fx)) % int(Lv.Width) + int(Lv.Width)) % int(Lv.Width);
+        const int X1 = (X0 + 1) % int(Lv.Width);
+        const int Y0 = std::clamp(int(std::floor(Fy)), 0, int(Lv.Height) - 1);
+        const int Y1 = std::clamp(Y0 + 1, 0, int(Lv.Height) - 1);
+        const float Tx = Fx - std::floor(Fx);
+        const float Ty = Fy - std::floor(Fy);
+        const auto FetchRgb = [&](int X, int Y) -> std::array<float, 3>
+        {
+            const size_t ByteOffset = Lv.Offset + (size_t(Y) * Lv.Width + size_t(X)) * 4;
+            if (ByteOffset + 2 >= Pyramid.Rgba.size()) return {0.f, 0.f, 0.f};
+            return {
+                DecodeSrgbByte(Pyramid.Rgba[ByteOffset + 0]),
+                DecodeSrgbByte(Pyramid.Rgba[ByteOffset + 1]),
+                DecodeSrgbByte(Pyramid.Rgba[ByteOffset + 2])};
+        };
+        const auto P00 = FetchRgb(X0, Y0), P10 = FetchRgb(X1, Y0), P01 = FetchRgb(X0, Y1), P11 = FetchRgb(X1, Y1);
+        return {
+            std::lerp(std::lerp(P00[0], P10[0], Tx), std::lerp(P01[0], P11[0], Tx), Ty),
+            std::lerp(std::lerp(P00[1], P10[1], Tx), std::lerp(P01[1], P11[1], Tx), Ty),
+            std::lerp(std::lerp(P00[2], P10[2], Tx), std::lerp(P01[2], P11[2], Tx), Ty)};
+    };
+
+    const auto C0 = SampleAtLevel(Level0);
+    if (Level0 == Level1 || Frac <= 1e-4f) return C0;
+    const auto C1 = SampleAtLevel(Level1);
+    return {std::lerp(C0[0], C1[0], Frac), std::lerp(C0[1], C1[1], Frac), std::lerp(C0[2], C1[2], Frac)};
 }
 
 // Studio environment radiance model matching MaterialLibraryRendering::SynthesizeFallbackEnvironment
@@ -745,10 +803,12 @@ inline WorkspaceViewportCpuFrame RenderWorkspaceSurfaceViewportCpu(const Workspa
                         }
                         if (Stratum.Classification[0] == 0 && (std::abs(Paint.Slope[0]) > 1e-5f || std::abs(Paint.Slope[1]) > 1e-5f))
                         {
+                            std::array<float, 3> FlakeTan{}, FlakeBitan{};
+                            ConstructContinuousBasis3(Normal, FlakeTan, FlakeBitan);
                             Normal = Normalize3({
-                                Normal[0] + Tangent[0] * Paint.Slope[0] + Bitangent[0] * Paint.Slope[1],
-                                Normal[1] + Tangent[1] * Paint.Slope[0] + Bitangent[1] * Paint.Slope[1],
-                                Normal[2] + Tangent[2] * Paint.Slope[0] + Bitangent[2] * Paint.Slope[1]});
+                                Normal[0] + FlakeTan[0] * Paint.Slope[0] + FlakeBitan[0] * Paint.Slope[1],
+                                Normal[1] + FlakeTan[1] * Paint.Slope[0] + FlakeBitan[1] * Paint.Slope[1],
+                                Normal[2] + FlakeTan[2] * Paint.Slope[0] + FlakeBitan[2] * Paint.Slope[1]});
                         }
                     }
 
@@ -914,8 +974,35 @@ inline WorkspaceViewportCpuFrame RenderWorkspaceSurfaceViewportCpu(const Workspa
                         std::lerp(ReflectDir[0], Normal[0], Broaden),
                         std::lerp(ReflectDir[1], Normal[1], Broaden),
                         std::lerp(ReflectDir[2], Normal[2], Broaden)});
-                    const auto SpecEnv = SampleStudioEnvironmentCpu(LobeDir, EnvUp, LightDir, Roughness, Request.EnvironmentStrength);
-                    const auto DiffEnv = SampleStudioEnvironmentCpu(Normal, EnvUp, LightDir, 1.f, Request.EnvironmentStrength * .85f);
+                    std::array<float, 3> SpecEnv{};
+                    std::array<float, 3> DiffEnv{};
+                    if (Request.EnvironmentEquirectPyramid && !Request.EnvironmentEquirectPyramid->Levels.empty())
+                    {
+                        const auto &Vm = Request.Camera.ViewFromSurface;
+                        const auto ViewToWorld = [&](const std::array<float, 3> &D) -> std::array<float, 3>
+                        {
+                            // ViewFromSurface is column-major 3x3 orthogonal rotation in [0..2], [4..6], [8..10];
+                            // its transpose maps view-space directions back to world space.
+                            return Normalize3({
+                                Vm[0] * D[0] + Vm[1] * D[1] + Vm[2] * D[2],
+                                Vm[4] * D[0] + Vm[5] * D[1] + Vm[6] * D[2],
+                                Vm[8] * D[0] + Vm[9] * D[1] + Vm[10] * D[2]});
+                        };
+                        const auto SpecRaw = SampleEquirectPyramidLevel(
+                            *Request.EnvironmentEquirectPyramid, ViewToWorld(LobeDir), 1.25f + Roughness * 5.25f);
+                        const auto DiffRaw = SampleEquirectPyramidLevel(
+                            *Request.EnvironmentEquirectPyramid, ViewToWorld(Normal), 5.75f);
+                        for (size_t Comp = 0; Comp < 3; ++Comp)
+                        {
+                            SpecEnv[Comp] = SpecRaw[Comp] * Request.EnvironmentStrength;
+                            DiffEnv[Comp] = DiffRaw[Comp] * Request.EnvironmentStrength;
+                        }
+                    }
+                    else
+                    {
+                        SpecEnv = SampleStudioEnvironmentCpu(LobeDir, EnvUp, LightDir, Roughness, Request.EnvironmentStrength);
+                        DiffEnv = SampleStudioEnvironmentCpu(Normal, EnvUp, LightDir, 1.f, Request.EnvironmentStrength * .85f);
+                    }
                     std::array<float, 3> EnvEval{};
                     for (size_t Comp = 0; Comp < 3; ++Comp)
                     {
@@ -931,10 +1018,19 @@ inline WorkspaceViewportCpuFrame RenderWorkspaceSurfaceViewportCpu(const Workspa
                     }
                 }
 
+                std::array<float, 3> Luminous{1.f, 1.f, 1.f};
+                if (Role == 0 && (MatScattering.TextureUse[0][0] & 8u) != 0)
+                {
+                    const auto &BaseXf = MatScattering.StratumUv[0];
+                    const float EmisU = BaseUv[0] * BaseXf[0] + BaseXf[2];
+                    const float EmisV = BaseUv[1] * BaseXf[1] + BaseXf[3];
+                    const auto EmisSample = SamplePyramidBilinear(Request.Material->Textures[3], EmisU, EmisV, 0);
+                    Luminous = std::array<float, 3>{EmisSample[0], EmisSample[1], EmisSample[2]};
+                }
                 const std::array<float, 3> Radiance{
-                    DirectAccum[0] * Request.LightIntensity + EnvAccum[0] + (Role == 0 ? MatScattering.RadianceNormal[0] : 0.f),
-                    DirectAccum[1] * Request.LightIntensity + EnvAccum[1] + (Role == 0 ? MatScattering.RadianceNormal[1] : 0.f),
-                    DirectAccum[2] * Request.LightIntensity + EnvAccum[2] + (Role == 0 ? MatScattering.RadianceNormal[2] : 0.f)};
+                    DirectAccum[0] * Request.LightIntensity + EnvAccum[0] + (Role == 0 ? MatScattering.RadianceNormal[0] * Luminous[0] : 0.f),
+                    DirectAccum[1] * Request.LightIntensity + EnvAccum[1] + (Role == 0 ? MatScattering.RadianceNormal[1] * Luminous[1] : 0.f),
+                    DirectAccum[2] * Request.LightIntensity + EnvAccum[2] + (Role == 0 ? MatScattering.RadianceNormal[2] * Luminous[2] : 0.f)};
 
                 uint8_t *Dst = &Frame.Rgba[PixelOffset * 4];
                 Dst[0] = EncodeDisplayByte(Radiance[0], Request.Exposure);

@@ -21,10 +21,13 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <functional>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
@@ -2169,30 +2172,116 @@ const std::vector<int32_t> *PreviewDabCell(const PreviewDabGrid &Grid, float U, 
     return &Grid.Cells[size_t(std::clamp(int(V * 16.f), 0, 15) * 64 + std::clamp(int(U * 16.f), 0, 63))];
 }
 
-// Row-parallel loop for the compositor's texel passes: work-stealing over rows across up to 8
-// threads, serial below 32 rows (spawn cost would dominate). RowFn must only touch its own row's
-// texels (all compositor passes do), which keeps output byte-identical to the serial order.
+class CanvasWorkerPool
+{
+  public:
+    static CanvasWorkerPool &Instance()
+    {
+        static CanvasWorkerPool Pool;
+        return Pool;
+    }
+
+    int WorkerCount() const noexcept { return int(Threads.size()) + 1; }
+
+    void Dispatch(const std::function<void()> &Task, int DesiredWorkers)
+    {
+        if (Threads.empty() || DesiredWorkers <= 1)
+        {
+            Task();
+            return;
+        }
+        const int Helpers = std::min(int(Threads.size()), DesiredWorkers - 1);
+        {
+            std::lock_guard<std::mutex> Lock(Mutex);
+            ActiveTask = &Task;
+            ActiveLimit = Helpers;
+            Remaining = Helpers;
+            ++Generation;
+        }
+        WakeSignal.notify_all();
+        Task();
+        std::unique_lock<std::mutex> Lock(Mutex);
+        DoneSignal.wait(Lock, [&] { return Remaining == 0; });
+        ActiveTask = nullptr;
+    }
+
+    ~CanvasWorkerPool()
+    {
+        {
+            std::lock_guard<std::mutex> Lock(Mutex);
+            Stopping = true;
+            ++Generation;
+        }
+        WakeSignal.notify_all();
+        for (auto &Thread : Threads)
+            if (Thread.joinable()) Thread.join();
+    }
+
+  private:
+    CanvasWorkerPool()
+    {
+        const unsigned Hardware = std::thread::hardware_concurrency();
+        const int Count = int(std::clamp(Hardware ? Hardware : 1u, 1u, 8u)) - 1;
+        Threads.reserve(size_t(std::max(0, Count)));
+        for (int Index = 0; Index < Count; ++Index)
+            Threads.emplace_back([this, Index] { WorkerLoop(Index); });
+    }
+
+    void WorkerLoop(int WorkerIndex)
+    {
+        uint64_t SeenGeneration = 0;
+        for (;;)
+        {
+            const std::function<void()> *TaskPtr = nullptr;
+            bool Participate = false;
+            {
+                std::unique_lock<std::mutex> Lock(Mutex);
+                WakeSignal.wait(Lock, [&] { return Stopping || Generation != SeenGeneration; });
+                if (Stopping) return;
+                SeenGeneration = Generation;
+                Participate = WorkerIndex < ActiveLimit && ActiveTask != nullptr;
+                TaskPtr = ActiveTask;
+            }
+            if (Participate && TaskPtr)
+            {
+                (*TaskPtr)();
+                std::lock_guard<std::mutex> Lock(Mutex);
+                if (--Remaining == 0) DoneSignal.notify_one();
+            }
+        }
+    }
+
+    std::vector<std::thread> Threads;
+    std::mutex Mutex;
+    std::condition_variable WakeSignal;
+    std::condition_variable DoneSignal;
+    const std::function<void()> *ActiveTask = nullptr;
+    int ActiveLimit = 0;
+    int Remaining = 0;
+    uint64_t Generation = 0;
+    bool Stopping = false;
+};
+
 template <typename RowFunction> void ParallelCanvasRows(int First, int Last, RowFunction &&RowFn)
 {
     const int Rows = Last - First;
-    static const unsigned Hardware = std::thread::hardware_concurrency();
-    const int Workers = int(std::clamp(Hardware ? Hardware : 1u, 1u, 8u));
+    auto &Pool = CanvasWorkerPool::Instance();
+    const int Workers = Pool.WorkerCount();
     if (Rows < 32 || Workers <= 1)
     {
         for (int Y = First; Y < Last; ++Y) RowFn(Y);
         return;
     }
     std::atomic<int> Next{First};
-    const auto Work = [&]
+    std::function<void()> Work = [&]
     {
-        for (int Y = Next.fetch_add(1, std::memory_order_relaxed); Y < Last; Y = Next.fetch_add(1, std::memory_order_relaxed))
-            RowFn(Y);
+        for (int Y = Next.fetch_add(4, std::memory_order_relaxed); Y < Last; Y = Next.fetch_add(4, std::memory_order_relaxed))
+        {
+            const int EndY = std::min(Last, Y + 4);
+            for (int Row = Y; Row < EndY; ++Row) RowFn(Row);
+        }
     };
-    std::vector<std::thread> Pool;
-    Pool.reserve(size_t(Workers - 1));
-    for (int Index = 1; Index < Workers; ++Index) Pool.emplace_back(Work);
-    Work();
-    for (auto &Thread : Pool) Thread.join();
+    Pool.Dispatch(Work, Workers);
 }
 } // namespace
 
@@ -2403,7 +2492,8 @@ void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
     const uint64_t Fingerprint = PreviewCanvasFingerprint();
     if (PaintCanvasComposited && Fingerprint == PaintCanvasFingerprintCache) return;
     const double Now = ImGui::GetTime();
-    if ((StrokeActive || StampDrag.Active || HoverStampActive) && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.033) return;
+    if ((StrokeActive || StampDrag.Active) && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.025) return;
+    if (HoverStampActive && !StrokeActive && !StampDrag.Active && PaintCanvasComposited && Now - PaintCanvasLastComposite < 0.066) return;
     CompositePreviewCanvas();
     PaintCanvasFingerprintCache = Fingerprint;
     PaintCanvasComposited = true;
@@ -2684,10 +2774,10 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
         }
     }
 
-    PaintCanvasPixels.assign(TotalTexels * 4, 255);
-    PaintOrmPixels.assign(TotalTexels * 4, 255);
-    PaintNormalPixels.assign(TotalTexels * 4, 128);
-    PaintEmissivePixels.assign(TotalTexels * 4, 0);
+    PaintCanvasPixels.resize(TotalTexels * 4);
+    PaintOrmPixels.resize(TotalTexels * 4);
+    PaintNormalPixels.resize(TotalTexels * 4);
+    PaintEmissivePixels.resize(TotalTexels * 4);
     ParallelCanvasRows(0, Extent, [&](int Y)
     {
         const int Ym = std::max(0, Y - 1), Yp = std::min(Extent - 1, Y + 1);
@@ -6395,7 +6485,7 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
     }
     // 👻 Hover ghost: while the Stamp tool is armed, the picked stamp rides the surface under the
     // cursor, projected live - position it by eye first, click only commits it.
-    if (Hovered && !Painting)
+    if (Hovered && !Painting && DecalToolActive())
     {
         float HoverUv[2]{0, 0};
         const auto *HoverPick = PickScene(Mouse.x, Mouse.y, HoverUv);
@@ -6580,43 +6670,64 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
         EnsurePreviewCanvas(); // recomposites the UDIM PBR canvases only when the document actually changed
         const bool Wire = View == ViewMode::Wireframe;
 
-        // Build screen-space pick triangles aligned to Orbit.ClipFromSurface (and wireframe edges when Wire == true).
-        Picks.reserve(Topology.size());
-        for (const auto &Triangle : Topology)
+        // Build screen-space pick triangles aligned to Orbit.ClipFromSurface only when camera/bounds/topology changed (or Wire == true).
+        uint64_t PickKey = 14695981039346656037ull;
+        const auto MixPickScalar = [&](float V)
         {
-            const auto &VA = Part.Vertices[Triangle.VertexIndex[0]];
-            const auto &VB = Part.Vertices[Triangle.VertexIndex[1]];
-            const auto &VC = Part.Vertices[Triangle.VertexIndex[2]];
-            const Vec3 FaceNormal = NormalizeV(CrossV(Sub(Vec3{VB.Position[0], VB.Position[1], VB.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]}),
-                Sub(Vec3{VC.Position[0], VC.Position[1], VC.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]})));
-            const bool Front = DotV(FaceNormal, Forward) <= -0.02f;
-            if (!Wire && !Front) continue;
-            ImVec2 Sa, Sb, Sc;
-            float Da, Db, Dc;
-            Project(VA.Position, Sa, Da); Project(VB.Position, Sb, Db); Project(VC.Position, Sc, Dc);
-            if (Da <= .05f || Db <= .05f || Dc <= .05f) continue;
-            if (Front)
+            uint32_t Bits = 0;
+            std::memcpy(&Bits, &V, sizeof(Bits));
+            PickKey = (PickKey ^ Bits) * 1099511628211ull;
+        };
+        MixPickScalar(Region.MinimumX); MixPickScalar(Region.MinimumY);
+        MixPickScalar(ViewW); MixPickScalar(ViewH);
+        MixPickScalar(SmoothedCamera.Yaw); MixPickScalar(SmoothedCamera.Pitch);
+        MixPickScalar(SmoothedCamera.Zoom); MixPickScalar(SmoothedCamera.PanX); MixPickScalar(SmoothedCamera.PanY);
+        PickKey = (PickKey ^ uint64_t(Topology.size())) * 1099511628211ull;
+        static const TexturePaintWorkspacePanel *LastPickPanel = nullptr;
+        static uint64_t LastPickKey = 0;
+        const bool NeedPickRebuild = Wire || LastPickPanel != this || LastPickKey != PickKey || LastPickTriangles.empty();
+        if (NeedPickRebuild)
+        {
+            Picks.reserve(Topology.size());
+            for (const auto &Triangle : Topology)
             {
-                PickTriangle Pick;
-                Pick.Screen[0][0] = Sa.x; Pick.Screen[0][1] = Sa.y;
-                Pick.Screen[1][0] = Sb.x; Pick.Screen[1][1] = Sb.y;
-                Pick.Screen[2][0] = Sc.x; Pick.Screen[2][1] = Sc.y;
-                for (int Corner = 0; Corner < 3; ++Corner)
+                const auto &VA = Part.Vertices[Triangle.VertexIndex[0]];
+                const auto &VB = Part.Vertices[Triangle.VertexIndex[1]];
+                const auto &VC = Part.Vertices[Triangle.VertexIndex[2]];
+                const Vec3 FaceNormal = NormalizeV(CrossV(Sub(Vec3{VB.Position[0], VB.Position[1], VB.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]}),
+                    Sub(Vec3{VC.Position[0], VC.Position[1], VC.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]})));
+                const bool Front = DotV(FaceNormal, Forward) <= -0.02f;
+                if (!Wire && !Front) continue;
+                ImVec2 Sa, Sb, Sc;
+                float Da, Db, Dc;
+                Project(VA.Position, Sa, Da); Project(VB.Position, Sb, Db); Project(VC.Position, Sc, Dc);
+                if (Da <= .05f || Db <= .05f || Dc <= .05f) continue;
+                if (Front)
                 {
-                    Pick.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
-                    Pick.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
+                    PickTriangle Pick;
+                    Pick.Screen[0][0] = Sa.x; Pick.Screen[0][1] = Sa.y;
+                    Pick.Screen[1][0] = Sb.x; Pick.Screen[1][1] = Sb.y;
+                    Pick.Screen[2][0] = Sc.x; Pick.Screen[2][1] = Sc.y;
+                    for (int Corner = 0; Corner < 3; ++Corner)
+                    {
+                        Pick.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
+                        Pick.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
+                    }
+                    Pick.Depth = (Da + Db + Dc) / 3.f;
+                    Pick.Part = Triangle.Part;
+                    Pick.Chart = Triangle.Chart;
+                    Pick.Index = Triangle.Index;
+                    Picks.push_back(Pick);
                 }
-                Pick.Depth = (Da + Db + Dc) / 3.f;
-                Pick.Part = Triangle.Part;
-                Pick.Chart = Triangle.Chart;
-                Pick.Index = Triangle.Index;
-                Picks.push_back(Pick);
+                if (Wire)
+                {
+                    const uint32_t WireColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
+                    DrawList->AddTriangle(Sa, Sb, Sc, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
+                }
             }
-            if (Wire)
-            {
-                const uint32_t WireColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
-                DrawList->AddTriangle(Sa, Sb, Sc, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
-            }
+            LastPickTriangles = std::move(Picks);
+            LastPickPanel = this;
+            LastPickKey = PickKey;
         }
 
         if (!Wire)
@@ -6698,42 +6809,55 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                             }
                     }
                 }
-                Def.Scattering.TextureUse[0][0] |= 1u;
-                Def.TextureSources[0] = "procedural/paint-albedo";
-                Def.ProceduralMaps[{0, "procedural/paint-albedo"}] = std::move(AlbedoImg);
+                const bool UseOrm = PaintOrmPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4;
+                const bool UseNormal = PaintNormalPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4;
+                const bool UseEmissive = CompositedHasEmission &&
+                    PaintEmissivePixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4;
 
-                if (PaintOrmPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
-                {
-                    Def.Scattering.TextureUse[0][0] |= 2u;
-                    Def.TextureSources[1] = "procedural/paint-orm";
-                    Def.ProceduralMaps[{1, "procedural/paint-orm"}] =
-                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintOrmPixels};
-                }
-                if (PaintNormalPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
-                {
-                    Def.Scattering.TextureUse[0][0] |= 4u;
-                    Def.TextureSources[2] = "procedural/paint-normal";
-                    Def.ProceduralMaps[{2, "procedural/paint-normal"}] =
-                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintNormalPixels};
-                }
-                if (CompositedHasEmission && PaintEmissivePixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
+                Def.Scattering.TextureUse[0][0] |= 1u;
+                if (UseOrm) Def.Scattering.TextureUse[0][0] |= 2u;
+                if (UseNormal) Def.Scattering.TextureUse[0][0] |= 4u;
+                if (UseEmissive)
                 {
                     Def.Scattering.TextureUse[0][0] |= 8u;
                     Def.Scattering.RadianceNormal = {3.2f, 3.2f, 3.2f, 1.f};
-                    Def.TextureSources[3] = "procedural/paint-emissive";
-                    Def.ProceduralMaps[{3, "procedural/paint-emissive"}] =
-                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintEmissivePixels};
                 }
 
-                CachedSceneMaterial = CompileSurfaceMaterial(Def, std::filesystem::current_path());
+                CompiledSurfaceMaterial NextMaterial{};
+                NextMaterial.Name = Def.Name;
+                NextMaterial.Scattering = Def.Scattering;
+                std::atomic<int> SlotCursor{0};
+                std::function<void()> BuildSlot = [&]
+                {
+                    for (int Slot = SlotCursor.fetch_add(1, std::memory_order_relaxed); Slot < 4;
+                         Slot = SlotCursor.fetch_add(1, std::memory_order_relaxed))
+                    {
+                        if (Slot == 0)
+                            NextMaterial.Textures[0] = ConstructMaterialPyramid(AlbedoImg, MaterialTextureCategory::Albedo);
+                        else if (Slot == 1 && UseOrm)
+                            NextMaterial.Textures[1] = ConstructMaterialPyramid(
+                                {PaintCanvasExtent, PaintCanvasExtent, PaintOrmPixels},
+                                MaterialTextureCategory::OcclusionRoughnessMetallic);
+                        else if (Slot == 2 && UseNormal)
+                            NextMaterial.Textures[2] = ConstructMaterialPyramid(
+                                {PaintCanvasExtent, PaintCanvasExtent, PaintNormalPixels},
+                                MaterialTextureCategory::TangentNormal);
+                        else if (Slot == 3 && UseEmissive)
+                            NextMaterial.Textures[3] = ConstructMaterialPyramid(
+                                {PaintCanvasExtent, PaintCanvasExtent, PaintEmissivePixels},
+                                MaterialTextureCategory::Radiance);
+                    }
+                };
+                CanvasWorkerPool::Instance().Dispatch(BuildSlot, 4);
+                CachedSceneMaterial = std::move(NextMaterial);
                 CachedSceneMaterialRevision = PaintCanvasRevision;
                 CachedSceneMaterialTargetPart = TargetPart;
                 if (ConfigureViewportMaterial) ConfigureViewportMaterial(CachedSceneMaterial);
             }
 
             const float FbScale = std::max(1.f, ImGui::GetIO().DisplayFramebufferScale.x);
-            const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
-            const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+            const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale * 1.5f) + 63u) / 64u * 64u, 256u, 2048u);
+            const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale * 1.5f) + 63u) / 64u * 64u, 256u, 2048u);
             if (ConfigureViewportExtent && (TargetW != SentSceneWidth || TargetH != SentSceneHeight))
             {
                 SentSceneWidth = TargetW;
@@ -6764,7 +6888,7 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                     ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
                     ImVec2(GpuImage.MinimumU, GpuImage.MinimumV), ImVec2(GpuImage.MaximumU, GpuImage.MaximumV));
             }
-            else if (!CachedSceneGeometry.Corners.empty() && !CachedSceneMaterial.Textures[0].Levels.empty())
+            else if (!QueryViewport && !CachedSceneGeometry.Corners.empty() && !CachedSceneMaterial.Textures[0].Levels.empty())
             {
                 const uint32_t CpuH = std::clamp(uint32_t(ViewH * .75f), 200u, 480u);
                 const uint32_t CpuW = std::clamp(uint32_t(std::lround(float(CpuH) * Aspect)), 200u, 640u);
@@ -6844,8 +6968,11 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             }
         }
     }
-    else Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 40 * S), "Preparing teapot…", 10 * S, 0x98998e);
-    LastPickTriangles = std::move(Picks);
+    else
+    {
+        LastPickTriangles.clear();
+        Caption(ImVec2(Region.MinimumX + 20 * S, Region.MinimumY + 40 * S), "Preparing teapot…", 10 * S, 0x98998e);
+    }
     if (Hovered && Painting)
     {
         const float CursorRadius = DigitalActive ? Brush.Size * S * .5f : MaskEditor.SizePercent * Region.Height() * .005f;

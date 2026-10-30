@@ -114,8 +114,20 @@ float3 DerivePaintNormal(AutomotivePaint Paint, PaintSurface Surface, float3 Nor
     Normal = DerivePaintRelief(Surface.PeelHeight * (Coating ? 1 : .2), Normal, Position);
     if (!Coating)
     {
-        float3 Tangent = normalize(cross(Normal, abs(Normal.y) < .95 ? float3(0,1,0) : float3(1,0,0)));
-        float3 Bitangent = cross(Normal, Tangent);
+        float3 Tangent;
+        float3 Bitangent;
+        if (Normal.z < -.999999)
+        {
+            Tangent = float3(0, -1, 0);
+            Bitangent = float3(-1, 0, 0);
+        }
+        else
+        {
+            float A = 1.0 / (1.0 + Normal.z);
+            float B = -Normal.x * Normal.y * A;
+            Tangent = float3(1.0 - Normal.x * Normal.x * A, B, -Normal.x);
+            Bitangent = float3(B, 1.0 - Normal.y * Normal.y * A, -Normal.y);
+        }
         float Angle = Surface.Random * 6.283;
         Normal = normalize(Normal + (Tangent * cos(Angle) + Bitangent * sin(Angle)) * Paint.Relief.x * Surface.Coverage * Surface.Resolved);
     }

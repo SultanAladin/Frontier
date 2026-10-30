@@ -1149,7 +1149,7 @@ void MaterialLibraryPanel::ConstructViewport()
         SentPreviewExtent = Snapped;
         ConfigurePreviewExtent(Snapped);
     }
-    const ImVec2 CoverMinimum(Origin.x + (ViewWidth - Edge) * .5f, ViewTop + (ViewHeight - Edge) * .5f);
+    const ImVec2 CoverMinimum(Origin.x + (ViewWidth - Edge) * .5f, ViewTop + (ViewHeight - Edge) * .5f + 22 * Scale);
     if (Image.Texture)
     {
         Ink->PushClipRect(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewBottom), true);
@@ -1157,38 +1157,41 @@ void MaterialLibraryPanel::ConstructViewport()
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
         Ink->PopClipRect();
     }
-    else if (const auto *Applied = Library.QueryApplied())
+    else if (!QueryPreview)
     {
-        static const MaterialInspectionGeometry InspectionGeo = ConstructMaterialInspectionGeometryWithRanges();
-        const uint32_t CpuExtent = std::clamp(uint32_t(Edge * .85f), 256u, 512u);
-        const uint64_t CurrentRevision = Library.QueryRevision();
-        if (CachedCpuPreviewRgba.empty() || CachedCpuPreviewRevision != CurrentRevision ||
-            CachedCpuPreviewExtent != CpuExtent || CachedCpuPreviewInspection != SmoothedInspection)
+        if (const auto *Applied = Library.QueryApplied())
         {
-            const size_t ShapeSlot = std::min<size_t>(size_t(SmoothedInspection.Shape), InspectionGeo.ShapeIndexRanges.size() - 1);
-            WorkspaceSurfaceViewportRequest Request{};
-            Request.Geometry = &InspectionGeo.Geometry;
-            Request.FirstIndex = InspectionGeo.ShapeIndexRanges[ShapeSlot][0];
-            Request.IndexCount = InspectionGeo.ShapeIndexRanges[ShapeSlot][1];
-            Request.Material = Applied;
-            Request.Camera = ConstructMaterialPreviewProjection(SmoothedInspection);
-            Request.LightDirection = ConstructMaterialPreviewLightDirection(SmoothedInspection, {.3906f, .7330f, .5569f});
-            Request.LightIntensity = 2.25f * SmoothedInspection.LightIntensity;
-            Request.EnvironmentStrength = 1.f * SmoothedInspection.LightIntensity;
-            Request.EnvironmentUp = ConstructMaterialPreviewEnvironmentUp(SmoothedInspection);
-            Request.Exposure = SmoothedInspection.Exposure;
-            Request.PreviewShapeOrdinal = uint32_t(ShapeSlot) + 1u;
-            auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuExtent, CpuExtent);
-            CachedCpuPreviewRgba = std::move(Rendered.Rgba);
-            CachedCpuPreviewRevision = CurrentRevision;
-            CachedCpuPreviewExtent = CpuExtent;
-            CachedCpuPreviewInspection = SmoothedInspection;
+            static const MaterialInspectionGeometry InspectionGeo = ConstructMaterialInspectionGeometryWithRanges();
+            const uint32_t CpuExtent = std::clamp(uint32_t(Edge * .85f), 256u, 512u);
+            const uint64_t CurrentRevision = Library.QueryRevision();
+            if (CachedCpuPreviewRgba.empty() || CachedCpuPreviewRevision != CurrentRevision ||
+                CachedCpuPreviewExtent != CpuExtent || CachedCpuPreviewInspection != SmoothedInspection)
+            {
+                const size_t ShapeSlot = std::min<size_t>(size_t(SmoothedInspection.Shape), InspectionGeo.ShapeIndexRanges.size() - 1);
+                WorkspaceSurfaceViewportRequest Request{};
+                Request.Geometry = &InspectionGeo.Geometry;
+                Request.FirstIndex = InspectionGeo.ShapeIndexRanges[ShapeSlot][0];
+                Request.IndexCount = InspectionGeo.ShapeIndexRanges[ShapeSlot][1];
+                Request.Material = Applied;
+                Request.Camera = ConstructMaterialPreviewProjection(SmoothedInspection);
+                Request.LightDirection = ConstructMaterialPreviewLightDirection(SmoothedInspection, {.3906f, .7330f, .5569f});
+                Request.LightIntensity = 2.25f * SmoothedInspection.LightIntensity;
+                Request.EnvironmentStrength = 1.f * SmoothedInspection.LightIntensity;
+                Request.EnvironmentUp = ConstructMaterialPreviewEnvironmentUp(SmoothedInspection);
+                Request.Exposure = SmoothedInspection.Exposure;
+                Request.PreviewShapeOrdinal = uint32_t(ShapeSlot) + 1u;
+                auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuExtent, CpuExtent);
+                CachedCpuPreviewRgba = std::move(Rendered.Rgba);
+                CachedCpuPreviewRevision = CurrentRevision;
+                CachedCpuPreviewExtent = CpuExtent;
+                CachedCpuPreviewInspection = SmoothedInspection;
+            }
+            BlitWorkspaceViewportCpuFrame(Ink, {CachedCpuPreviewExtent, CachedCpuPreviewExtent, CachedCpuPreviewRgba},
+                CoverMinimum, ImVec2(CoverMinimum.x + Edge, CoverMinimum.y + Edge),
+                ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewBottom));
         }
-        BlitWorkspaceViewportCpuFrame(Ink, {CachedCpuPreviewExtent, CachedCpuPreviewExtent, CachedCpuPreviewRgba},
-            CoverMinimum, ImVec2(CoverMinimum.x + Edge, CoverMinimum.y + Edge),
-            ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewBottom));
     }
-    Ink->AddRectFilledMultiColor(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewTop + 130 * Scale),
+    Ink->AddRectFilledMultiColor(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewTop + 118 * Scale),
         Ink255(0x151515), Ink255(0x151515), Ink255(0x151515, 0), Ink255(0x151515, 0));
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), Ink255(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Origin.y + 15 * Scale, 7 * Scale, 0x898a78, "LIVE PREVIEW   PBR");
@@ -1203,18 +1206,23 @@ void MaterialLibraryPanel::ConstructViewport()
     FullscreenPreviewExtent = {FullscreenMinimum.x, FullscreenMinimum.y, FullscreenMaximum.x, FullscreenMaximum.y};
     if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Fullscreen preview", "Fitted full-work-area preview. Escape to close.");
     const auto *Entry = QuerySelectedMaterial(Library);
-    ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 68 * Scale, 8 * Scale, 0x92917c,
+    const bool CompactHeight = Available.y < 700 * Scale;
+    const float HeadingSize = CompactHeight ? 24 * Scale : 28 * Scale;
+    ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 56 * Scale, 8 * Scale, 0x92917c,
         Entry && !Entry->Category.empty() ? ("01  /  " + Entry->Category + " COLLECTION").c_str() : "MATERIAL COLLECTION");
-    ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 94 * Scale, 30 * Scale, 0xdcdccd, Entry ? Entry->Name.c_str() : "Material explorer", static_cast<ImFont *>(HeadingTypeface));
+    ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 76 * Scale, HeadingSize, 0xdcdccd, Entry ? Entry->Name.c_str() : "Material explorer", static_cast<ImFont *>(HeadingTypeface));
     if (Entry)
     {
-        (void)ConstructInspectorTextBlock(ImVec2(Origin.x + 22 * Scale, Origin.y + 136 * Scale),
-            std::max(80.f, Available.x - 44 * Scale), 9, 1.55f, 0x7b7c6d, Entry->Description.c_str(), Scale);
+        (void)ConstructInspectorTextBlock(ImVec2(Origin.x + 22 * Scale, Origin.y + (CompactHeight ? 110.f : 116.f) * Scale),
+            std::max(80.f, Available.x - 44 * Scale), 9, 1.50f, 0x7b7c6d, Entry->Description.c_str(), Scale);
     }
     const float Bottom = Origin.y + Available.y;
+    const bool CompactToolbar = Available.x < 610 * Scale;
+    const float TopToolbarRowY = CompactToolbar ? (Bottom - 120 * Scale) : (Bottom - 88 * Scale);
+    const float BottomToolbarRowY = CompactToolbar ? (Bottom - 84 * Scale) : (Bottom - 88 * Scale);
     Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), Ink255(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "Drag orbit  /  Shift-MMB pan  /  Wheel zoom");
-    if (Available.x > 500 * Scale) ConstructMaterialCaption(Origin.x + Available.x - 75 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
+    if (Available.x > 420 * Scale) ConstructMaterialCaption(Origin.x + Available.x - 75 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "VULKAN");
 
     const auto ConfigureExtent = [&](size_t Index)
     {
@@ -1226,8 +1234,8 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::BeginDisabled(!ConfigurePreview);
     // 📝 One canvas owns gestures until release; widgets and popup menus cannot also drive the camera.
     InspectionExtents[7] = {};
-    const ImVec2 CanvasMinimum(Origin.x, Origin.y + 165 * Scale);
-    const ImVec2 CanvasMaximum(Origin.x + Available.x, Bottom - 205 * Scale);
+    const ImVec2 CanvasMinimum(Origin.x, Origin.y + 148 * Scale);
+    const ImVec2 CanvasMaximum(Origin.x + Available.x, TopToolbarRowY - 8 * Scale);
     if (CanvasMaximum.y > CanvasMinimum.y)
     {
         ImGui::SetCursorScreenPos(CanvasMinimum);
@@ -1268,16 +1276,22 @@ void MaterialLibraryPanel::ConstructViewport()
     }
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8 * Scale, 5 * Scale));
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, Bottom - 118 * Scale));
-    ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
+    const float ShapeWidth = CompactToolbar
+        ? std::min(148 * Scale, std::max(96 * Scale, (Available.x - 44 * Scale) * .46f))
+        : std::min(144 * Scale, Available.x * .26f);
+    const float EnvironmentButtonWidth = CompactToolbar
+        ? std::min(176 * Scale, std::max(108 * Scale, Available.x - 44 * Scale - ShapeWidth))
+        : std::min(164 * Scale, Available.x * .30f);
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + 18 * Scale, TopToolbarRowY));
+    ImGui::SetNextItemWidth(ShapeWidth);
     const char *ShapeOptions[]{"Shader ball", "Sphere", "Plane", "Cube", "Draped cloth"};
     int Shape = int(Inspection.Shape);
-    ImGui::SetNextItemWidth(std::min(148 * Scale, Available.x * .42f));
+    ImGui::SetNextItemWidth(ShapeWidth);
     if (ConstructMaterialSelection("Preview shape", ShapeOptions[Shape], ShapeOptions, 5, Shape, Scale))
         Inspection.Shape = MaterialPreviewShape(Shape);
     ConfigureExtent(3);
     if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Preview shape", "Change preview object; catalogue thumbnails remain unchanged.");
-    ImGui::SameLine();
+    ImGui::SameLine(0, 8 * Scale);
     // 📝 Environment card (Blender-style): sphere previews of every scanned studio archive over
     // exposure and light intensity, with a folder rescan for importing equirect PNGs. The old
     // standalone exposure card and the tinted analytic presets are retired.
@@ -1286,7 +1300,6 @@ void MaterialLibraryPanel::ConstructViewport()
         Inspection.Environment = std::min<uint32_t>(Inspection.Environment, uint32_t(EnvironmentNames.size() - 1));
     const std::string EnvironmentCaption = EnvironmentNames.empty() ? std::string("Environment") :
         EnvironmentNames[Inspection.Environment];
-    const float EnvironmentButtonWidth = std::min(172 * Scale, Available.x * .44f);
     if (ImGui::Button((EnvironmentCaption + "##PreviewEnvironment").c_str(), ImVec2(EnvironmentButtonWidth, 0)))
         ImGui::OpenPopup("##EnvironmentCard");
     ConfigureExtent(4);
@@ -1343,7 +1356,10 @@ void MaterialLibraryPanel::ConstructViewport()
         ImGui::TextDisabled("Drop equirect PNGs into EngineContent/EnvironmentArchives, then import.");
         DropdownControlSurface::EndMenu();
     }
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, Available.x - 256 * Scale), Bottom - 118 * Scale));
+    const float ZoomGroupX = CompactToolbar
+        ? (Origin.x + 18 * Scale)
+        : (Origin.x + std::max(18.f * Scale, Available.x - 256 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(ZoomGroupX, BottomToolbarRowY));
     const auto ZoomOrigin = ImGui::GetCursorScreenPos();
     Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
         Ink255(0x181818), 14 * Scale);

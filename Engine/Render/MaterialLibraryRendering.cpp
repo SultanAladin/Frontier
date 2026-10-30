@@ -73,7 +73,7 @@ uint64_t ComputeMaterialSourceDigest(const std::filesystem::path &Directory, con
     uint32_t Referenced = 0;
     while ((Search = Source.find("Textures/", Search)) != std::string::npos)
     {
-        const auto End = Source.find('"', Search);
+        const auto End = Source.find_first_of("\"' \r\n", Search);
         if (End == std::string::npos) return 0;
         const auto TexturePath = (Directory / RelativePath.parent_path() /
             Source.substr(Search, End - Search)).lexically_normal();
@@ -87,6 +87,79 @@ uint64_t ComputeMaterialSourceDigest(const std::filesystem::path &Directory, con
         if (++Referenced > 64) return 0;
     }
     return Digest ? Digest : 1;
+}
+// Portable timestamp-free content digest so pre-baked library atlases shipped inside ZIP packages
+// authenticate identically across any extraction timestamp, OS, or filesystem.
+uint64_t ComputePortableMaterialDigest(const std::filesystem::path &Directory, const std::filesystem::path &RelativePath)
+{
+    std::error_code Error;
+    std::ifstream Input(Directory / RelativePath, std::ios::binary | std::ios::ate);
+    const auto Bytes = Input.tellg();
+    if (!Input || Bytes <= 0 || Bytes > 1048576) return 0;
+    std::string Source(size_t(Bytes), '\0');
+    Input.seekg(0);
+    if (!Input.read(Source.data(), Bytes)) return 0;
+    uint64_t Digest = 14695981039346656037ull;
+    const auto Accumulate = [&](const void *Data, size_t Count)
+    {
+        const auto *Octets = static_cast<const unsigned char *>(Data);
+        for (size_t Index = 0; Index < Count; ++Index) { Digest ^= Octets[Index]; Digest *= 1099511628211ull; }
+    };
+    Accumulate(Source.data(), Source.size());
+    size_t Search = 0;
+    uint32_t Referenced = 0;
+    while ((Search = Source.find("Textures/", Search)) != std::string::npos)
+    {
+        const auto End = Source.find_first_of("\"' \r\n", Search);
+        if (End == std::string::npos) return 0;
+        const auto TexturePath = (Directory / RelativePath.parent_path() /
+            Source.substr(Search, End - Search)).lexically_normal();
+        const uint64_t Size = uint64_t(std::filesystem::file_size(TexturePath, Error));
+        if (Error) return 0;
+        Accumulate(&Size, sizeof(Size));
+        Search = End + 1;
+        if (++Referenced > 64) return 0;
+    }
+    return Digest ? Digest : 1;
+}
+bool LoadShippedPrebakedAtlas(const std::filesystem::path &Directory, uint32_t ExpectedExtent, uint32_t ExpectedCapacity,
+    std::vector<uint8_t> &OutRgba, std::vector<ThumbnailAtlasSlotCacheEntry> &OutSlots)
+{
+    std::ifstream Manifest(Directory / "PrebakedAtlas.txt");
+    if (!Manifest) return false;
+    std::string Magic;
+    uint32_t Extent = 0, Capacity = 0;
+    if (!(Manifest >> Magic >> Extent >> Capacity) || Magic != "FRONTIER_PREBAKED_ATLAS_V1" ||
+        Extent != ExpectedExtent || Capacity != ExpectedCapacity)
+        return false;
+
+    std::ifstream ImageStream(Directory / "PrebakedAtlas.png", std::ios::binary | std::ios::ate);
+    const auto Bytes = ImageStream.tellg();
+    if (!ImageStream || Bytes <= 0 || Bytes > 67108864) return false;
+    std::vector<uint8_t> Encoded(static_cast<size_t>(Bytes));
+    ImageStream.seekg(0);
+    if (!ImageStream.read(reinterpret_cast<char *>(Encoded.data()), Bytes)) return false;
+    int Width = 0, Height = 0, Channels = 0;
+    uint8_t *Decoded = stbi_load_from_memory(Encoded.data(), int(Encoded.size()), &Width, &Height, &Channels, 4);
+    if (!Decoded) return false;
+    if (uint32_t(Width) != ExpectedExtent || uint32_t(Height) != ExpectedExtent)
+    {
+        stbi_image_free(Decoded);
+        return false;
+    }
+    OutRgba.assign(Decoded, Decoded + size_t(ExpectedExtent) * ExpectedExtent * 4);
+    stbi_image_free(Decoded);
+
+    OutSlots.assign(ExpectedCapacity, {});
+    uint32_t SlotIndex = 0;
+    uint64_t Digest = 0;
+    std::string RelPath;
+    while (Manifest >> SlotIndex >> std::hex >> Digest >> std::dec >> RelPath)
+    {
+        if (SlotIndex < ExpectedCapacity && !RelPath.empty())
+            OutSlots[SlotIndex] = {RelPath, Digest};
+    }
+    return true;
 }
 std::string DescribeMaterialMaps(const CompiledSurfaceMaterial &Material)
 {
@@ -760,7 +833,6 @@ struct MaterialLibraryRendering::RenderingAllocation
         }
         Aux.Parameters = std::move(Replacement);
         Aux.Dirty = true;
-        Aux.Ready = false;
     }
     CompiledSurfaceMaterial DecodeLibraryMaterial(const std::filesystem::path &RelativePath)
     {
@@ -782,7 +854,8 @@ struct MaterialLibraryRendering::RenderingAllocation
 
 MaterialLibraryRendering::MaterialLibraryRendering() = default;
 MaterialLibraryRendering::~MaterialLibraryRendering() = default;
-void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory)
+void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory,
+    uint32_t TileExtent, uint32_t AtlasColumns)
 {
     if (Allocation) throw std::runtime_error("Material library rendering already initialized.");
     DiagnosticJournal::Append("MaterialGPU", "Initialize shader directory: " + DiagnosticJournal::EncodePath(ShaderDirectory));
@@ -801,14 +874,14 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
     auto Inspection = ConstructMaterialInspectionGeometryWithRanges();
     Resident->ShapeIndexRanges = Inspection.ShapeIndexRanges;
     Resident->Geometry.Initialize(Access, Inspection.Geometry);
-    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, 256, 256);
+    Resident->Tile.Initialize(Resident->Programs, Resident->Geometry, TileExtent, TileExtent);
     Resident->Preview.Initialize(Resident->Programs, Resident->Geometry, 512, 512);
     // 📝 Tiles always bake the shader ball; the preview re-selects its shape range per recording.
     Resident->Tile.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
     Resident->Preview.ConfigureIndexRange(Inspection.ShapeIndexRanges[0][0], Inspection.ShapeIndexRanges[0][1]);
     Resident->Tile.ConfigureTransparentBackground(true);
     Resident->Preview.ConfigureTransparentBackground(true);
-    Resident->Atlas.Initialize(Access, 256, 8);
+    Resident->Atlas.Initialize(Access, TileExtent, AtlasColumns);
     Resident->Slots.resize(Resident->Atlas.QueryCapacity());
     Resident->Projection.ClipFromSurface =
         ConstructMaterialPreviewProjection(MaterialPreviewConfiguration{}).ClipFromSurface;
@@ -916,15 +989,76 @@ void MaterialLibraryRendering::RequestLibrary(const std::filesystem::path &Direc
         Rendering.PendingCacheUpload = false;
         Rendering.CacheDirty = false;
         Rendering.CacheSettled = true;
+        const auto Extent = Rendering.Atlas.QueryExtent();
+        const auto Capacity = Rendering.Atlas.QueryCapacity();
+        bool LoadedUserCache = false;
         if (Rendering.CacheConfigured)
         {
             ThumbnailAtlasSlotCacheRecord Record;
-            const auto Extent = Rendering.Atlas.QueryExtent();
             if (LoadThumbnailAtlasSlotCache(Rendering.CacheFile, Rendering.CacheFormatDigest, Extent, Extent, Record))
             {
                 Rendering.PendingCacheManifest = std::move(Record.Slots);
                 Rendering.PendingCachePixels = std::move(Record.Rgba);
                 Rendering.PendingCacheUpload = true;
+                LoadedUserCache = true;
+                const size_t Count = std::min(Rendering.Slots.size(), Rendering.PendingCacheManifest.size());
+                for (size_t SlotIndex = 0; SlotIndex < Count; ++SlotIndex)
+                {
+                    const auto &Entry = Rendering.PendingCacheManifest[SlotIndex];
+                    if (Entry.RelativePath.empty()) continue;
+                    const auto Digest = ComputeMaterialSourceDigest(Canonical, Entry.RelativePath);
+                    auto &Slot = Rendering.Slots[SlotIndex];
+                    Slot.Path = Entry.RelativePath;
+                    Slot.Generation = ++Rendering.GenerationClock;
+                    Slot.Access = Rendering.Clock;
+                    if (Digest && Digest == Entry.Digest)
+                    {
+                        Slot.Ready = true;
+                        Slot.Dirty = false;
+                        Slot.SourceDigest = Digest;
+                    }
+                    else
+                    {
+                        Slot.Ready = false;
+                        Slot.Dirty = true;
+                        Slot.SourceDigest = 0;
+                    }
+                }
+            }
+        }
+        if (!LoadedUserCache)
+        {
+            std::vector<uint8_t> ShippedRgba;
+            std::vector<ThumbnailAtlasSlotCacheEntry> ShippedSlots;
+            if (LoadShippedPrebakedAtlas(Canonical, Extent, Capacity, ShippedRgba, ShippedSlots))
+            {
+                Rendering.PendingCacheManifest = std::move(ShippedSlots);
+                Rendering.PendingCachePixels = std::move(ShippedRgba);
+                Rendering.PendingCacheUpload = true;
+                const size_t Count = std::min(Rendering.Slots.size(), Rendering.PendingCacheManifest.size());
+                for (size_t SlotIndex = 0; SlotIndex < Count; ++SlotIndex)
+                {
+                    const auto &Entry = Rendering.PendingCacheManifest[SlotIndex];
+                    if (Entry.RelativePath.empty()) continue;
+                    const auto Portable = ComputePortableMaterialDigest(Canonical, Entry.RelativePath);
+                    auto &Slot = Rendering.Slots[SlotIndex];
+                    Slot.Path = Entry.RelativePath;
+                    Slot.Generation = ++Rendering.GenerationClock;
+                    Slot.Access = Rendering.Clock;
+                    if (Portable && Portable == Entry.Digest)
+                    {
+                        Slot.Ready = true;
+                        Slot.Dirty = false;
+                        Slot.SourceDigest = ComputeMaterialSourceDigest(Canonical, Entry.RelativePath);
+                    }
+                    else
+                    {
+                        Slot.Ready = false;
+                        Slot.Dirty = true;
+                        Slot.SourceDigest = 0;
+                    }
+                }
+                DiagnosticJournal::Append("MaterialAtlasPrebaked", "loaded shipped PrebakedAtlas.png slots=" + std::to_string(Count));
             }
         }
     }
@@ -1090,6 +1224,22 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     Rendering.RecordedSlot = -1;
     Rendering.RecordedPreview = false;
     Rendering.RecordedCacheUpload = false;
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        if (!Aux.Dirty || !Aux.Geometry || !Aux.Target || !Aux.Material || !Aux.Parameters) continue;
+        SurfaceNormalProjection Projection{};
+        const float Aspect = float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height));
+        const auto Camera = ConstructWorkspaceOrbitProjection(Aux.Orbit, Aspect);
+        Projection.ClipFromSurface = Camera.ClipFromSurface;
+        const auto &View = Camera.ViewFromSurface;
+        Projection.ViewNormalRow0 = {View[0], View[4], View[8], 0};
+        Projection.ViewNormalRow1 = {View[1], View[5], View[9], 0};
+        Projection.ViewNormalRow2 = {View[2], View[6], View[10], 0};
+        Projection.SurfaceTint = {1, 1, 1, 1};
+        Aux.Target->ConstructCommands(Commands, Projection, Aux.Material->Textures, *Aux.Parameters);
+        Aux.Recorded = true;
+    }
     if (Rendering.PendingCacheUpload)
     {
         // 📝 A disk-cached atlas is staged wholesale in one upload (same primitive the Pattern gallery
@@ -1124,23 +1274,6 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Rendering.RecordedPreview = true;
         // 📝 First-use geometry/texture uploads belong to one target recording until accepted submission.
         // Alternate preview work and tile work rather than recording the same pending transfers twice.
-        return;
-    }
-    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
-    {
-        auto &Aux = Rendering.Auxiliary[Slot];
-        if (!Aux.Dirty || !Aux.Geometry || !Aux.Target || !Aux.Material || !Aux.Parameters) continue;
-        SurfaceNormalProjection Projection{};
-        const float Aspect = float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height));
-        const auto Camera = ConstructWorkspaceOrbitProjection(Aux.Orbit, Aspect);
-        Projection.ClipFromSurface = Camera.ClipFromSurface;
-        const auto &View = Camera.ViewFromSurface;
-        Projection.ViewNormalRow0 = {View[0], View[4], View[8], 0};
-        Projection.ViewNormalRow1 = {View[1], View[5], View[9], 0};
-        Projection.ViewNormalRow2 = {View[2], View[6], View[10], 0};
-        Projection.SurfaceTint = {1, 1, 1, 1};
-        Aux.Target->ConstructCommands(Commands, Projection, Aux.Material->Textures, *Aux.Parameters);
-        Aux.Recorded = true;
         return;
     }
     const auto Dirty = std::find_if(Rendering.Slots.begin(), Rendering.Slots.end(), [](const auto &Slot) { return Slot.Dirty && Slot.Pinned; });

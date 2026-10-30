@@ -40,7 +40,10 @@ class MaterialLibraryRendering
     MaterialLibraryRendering &operator=(const MaterialLibraryRendering &) = delete;
     static constexpr uint32_t EnvironmentPreviewTile = 96;
     static constexpr uint32_t EnvironmentPreviewColumns = 8;
-    void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory);
+    static constexpr uint32_t ShippedAtlasTile = 160;
+    static constexpr uint32_t ShippedAtlasColumns = 14;
+    void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory,
+        uint32_t TileExtent = 256, uint32_t AtlasColumns = 8);
     // 📝 (Re)scan a directory of equirect PNG environment archives: decodes, derives each key
     // light analytically, uploads the array texture and re-renders the sphere preview atlas.
     // Safe to call again after the user drops new files into the folder (the import path).

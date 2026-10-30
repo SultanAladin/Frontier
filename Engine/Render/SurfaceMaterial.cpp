@@ -1218,7 +1218,25 @@ std::array<MaterialTexturePyramid,6> ConstructAuthoringMaterialMaps(uint32_t Wid
 MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image,MaterialTextureCategory Category)
 {
     if (!ValidateSurfaceTextureImage(Image) || uint32_t(Category) > 3) throw std::runtime_error("Invalid material texture image.");
+    struct SrgbMipTables
+    {
+        std::array<float, 256> Decode{};
+        std::array<uint8_t, 65536> Encode{};
+        SrgbMipTables()
+        {
+            for (size_t Byte = 0; Byte < 256; ++Byte) Decode[Byte] = float(DecodeSrgb(double(Byte) / 255.0));
+            for (size_t Step = 0; Step < 65536; ++Step)
+                Encode[Step] = uint8_t(std::lround(std::clamp(EncodeSrgb(double(Step) / 65535.0), 0.0, 1.0) * 255.0));
+        }
+    };
+    static const SrgbMipTables Tables;
+
+    const bool IsSrgb = Category == MaterialTextureCategory::Albedo || Category == MaterialTextureCategory::Radiance;
+    const bool IsNormal = Category == MaterialTextureCategory::TangentNormal;
     MaterialTexturePyramid Pyramid{Category,Image.Rgba,{{Image.Width,Image.Height,0}}};
+    // Reserve full mip chain capacity upfront (~4/3 * base bytes) to avoid repeated reallocations.
+    Pyramid.Rgba.reserve(Image.Rgba.size() + Image.Rgba.size() / 2 + 64);
+
     uint32_t Width = Image.Width, Height = Image.Height;
     while (Width > 1 || Height > 1)
     {
@@ -1227,41 +1245,103 @@ MaterialTexturePyramid ConstructMaterialPyramid(const SurfaceTextureImage &Image
         const size_t Start = Pyramid.Rgba.size();
         Pyramid.Levels.push_back({Columns,Rows,Start});
         Pyramid.Rgba.resize(Start+size_t(Columns)*Rows*4);
+        const uint8_t *SrcBase = Pyramid.Rgba.data() + Previous.Offset;
+        uint8_t *DstBase = Pyramid.Rgba.data() + Start;
+
+        if (Width == Columns * 2 && Height == Rows * 2)
+        {
+            // Fast exact 2x2 downsample path for even mip dimensions (1024->512->...->1).
+            for (uint32_t Row = 0; Row < Rows; ++Row)
+            {
+                const uint8_t *Row0 = SrcBase + size_t(Row * 2) * Width * 4;
+                const uint8_t *Row1 = Row0 + size_t(Width) * 4;
+                uint8_t *Out = DstBase + size_t(Row) * Columns * 4;
+                if (IsSrgb)
+                {
+                    for (uint32_t Column = 0; Column < Columns; ++Column, Row0 += 8, Row1 += 8, Out += 4)
+                    {
+                        const float R = (Tables.Decode[Row0[0]] + Tables.Decode[Row0[4]] + Tables.Decode[Row1[0]] + Tables.Decode[Row1[4]]) * .25f;
+                        const float G = (Tables.Decode[Row0[1]] + Tables.Decode[Row0[5]] + Tables.Decode[Row1[1]] + Tables.Decode[Row1[5]]) * .25f;
+                        const float B = (Tables.Decode[Row0[2]] + Tables.Decode[Row0[6]] + Tables.Decode[Row1[2]] + Tables.Decode[Row1[6]]) * .25f;
+                        Out[0] = Tables.Encode[size_t(std::clamp(R, 0.f, 1.f) * 65535.f + .5f)];
+                        Out[1] = Tables.Encode[size_t(std::clamp(G, 0.f, 1.f) * 65535.f + .5f)];
+                        Out[2] = Tables.Encode[size_t(std::clamp(B, 0.f, 1.f) * 65535.f + .5f)];
+                        Out[3] = uint8_t((uint32_t(Row0[3]) + Row0[7] + Row1[3] + Row1[7] + 2u) >> 2);
+                    }
+                }
+                else if (IsNormal)
+                {
+                    constexpr float Inv255 = 2.f / 255.f;
+                    for (uint32_t Column = 0; Column < Columns; ++Column, Row0 += 8, Row1 += 8, Out += 4)
+                    {
+                        float Nx = (float(uint32_t(Row0[0]) + Row0[4] + Row1[0] + Row1[4]) * Inv255 - 4.f) * .25f;
+                        float Ny = (float(uint32_t(Row0[1]) + Row0[5] + Row1[1] + Row1[5]) * Inv255 - 4.f) * .25f;
+                        float Nz = (float(uint32_t(Row0[2]) + Row0[6] + Row1[2] + Row1[6]) * Inv255 - 4.f) * .25f;
+                        const float LenSq = Nx * Nx + Ny * Ny + Nz * Nz;
+                        if (LenSq > 1e-16f)
+                        {
+                            const float InvLen = 1.f / std::sqrt(LenSq);
+                            Nx *= InvLen; Ny *= InvLen; Nz *= InvLen;
+                        }
+                        else { Nx = 0.f; Ny = 0.f; Nz = 1.f; }
+                        Out[0] = uint8_t(std::clamp((Nx * .5f + .5f) * 255.f + .5f, 0.f, 255.f));
+                        Out[1] = uint8_t(std::clamp((Ny * .5f + .5f) * 255.f + .5f, 0.f, 255.f));
+                        Out[2] = uint8_t(std::clamp((Nz * .5f + .5f) * 255.f + .5f, 0.f, 255.f));
+                        Out[3] = uint8_t((uint32_t(Row0[3]) + Row0[7] + Row1[3] + Row1[7] + 2u) >> 2);
+                    }
+                }
+                else
+                {
+                    for (uint32_t Column = 0; Column < Columns; ++Column, Row0 += 8, Row1 += 8, Out += 4)
+                    {
+                        Out[0] = uint8_t((uint32_t(Row0[0]) + Row0[4] + Row1[0] + Row1[4] + 2u) >> 2);
+                        Out[1] = uint8_t((uint32_t(Row0[1]) + Row0[5] + Row1[1] + Row1[5] + 2u) >> 2);
+                        Out[2] = uint8_t((uint32_t(Row0[2]) + Row0[6] + Row1[2] + Row1[6] + 2u) >> 2);
+                        Out[3] = uint8_t((uint32_t(Row0[3]) + Row0[7] + Row1[3] + Row1[7] + 2u) >> 2);
+                    }
+                }
+            }
+            Width = Columns;
+            Height = Rows;
+            continue;
+        }
+
         for (uint32_t Row = 0; Row < Rows; ++Row)
             for (uint32_t Column = 0; Column < Columns; ++Column)
             {
-                std::array<double,4> Spectrum{};
-                double Total = 0;
-                const double Left = double(Column)*Width/Columns, Right = double(Column+1)*Width/Columns;
-                const double Top = double(Row)*Height/Rows, Bottom = double(Row+1)*Height/Rows;
+                std::array<float,4> Spectrum{};
+                float Total = 0;
+                const float Left = float(Column)*Width/Columns, Right = float(Column+1)*Width/Columns;
+                const float Top = float(Row)*Height/Rows, Bottom = float(Row+1)*Height/Rows;
                 for (uint32_t Vertical = uint32_t(Top); Vertical < uint32_t(std::ceil(Bottom)); ++Vertical)
                     for (uint32_t Horizontal = uint32_t(Left); Horizontal < uint32_t(std::ceil(Right)); ++Horizontal)
                     {
-                        const double Weight = (std::min(Right,double(Horizontal+1))-std::max(Left,double(Horizontal)))*
-                                              (std::min(Bottom,double(Vertical+1))-std::max(Top,double(Vertical)));
+                        const float Weight = (std::min(Right,float(Horizontal+1))-std::max(Left,float(Horizontal)))*
+                                             (std::min(Bottom,float(Vertical+1))-std::max(Top,float(Vertical)));
+                        const uint8_t *Px = SrcBase + (size_t(Vertical)*Width+Horizontal)*4;
                         for (size_t Channel = 0; Channel < 4; ++Channel)
                         {
-                            double Coefficient = Pyramid.Rgba[Previous.Offset+(size_t(Vertical)*Width+Horizontal)*4+Channel]/255.0;
-                            if (Channel < 3 && (Category == MaterialTextureCategory::Albedo || Category == MaterialTextureCategory::Radiance))
-                                Coefficient = DecodeSrgb(Coefficient);
-                            if (Channel < 3 && Category == MaterialTextureCategory::TangentNormal) Coefficient = Coefficient*2-1;
+                            float Coefficient = Channel < 3 && IsSrgb ? Tables.Decode[Px[Channel]] : Px[Channel] * (1.f / 255.f);
+                            if (Channel < 3 && IsNormal) Coefficient = Coefficient*2.f-1.f;
                             Spectrum[Channel] += Coefficient*Weight;
                         }
                         Total += Weight;
                     }
-                for (auto &Channel : Spectrum) Channel /= Total;
-                if (Category == MaterialTextureCategory::TangentNormal)
+                const float InvTotal = 1.f / Total;
+                for (auto &Channel : Spectrum) Channel *= InvTotal;
+                if (IsNormal)
                 {
-                    const double Length = std::sqrt(Spectrum[0]*Spectrum[0]+Spectrum[1]*Spectrum[1]+Spectrum[2]*Spectrum[2]);
+                    const float Length = std::sqrt(Spectrum[0]*Spectrum[0]+Spectrum[1]*Spectrum[1]+Spectrum[2]*Spectrum[2]);
                     for (size_t Channel = 0; Channel < 3; ++Channel)
-                        Spectrum[Channel] = (Length > 1e-8 ? Spectrum[Channel]/Length : double(Channel == 2))*.5+.5;
+                        Spectrum[Channel] = (Length > 1e-8f ? Spectrum[Channel]/Length : float(Channel == 2))*.5f+.5f;
                 }
+                uint8_t *Out = DstBase + (size_t(Row)*Columns+Column)*4;
                 for (size_t Channel = 0; Channel < 4; ++Channel)
                 {
-                    double Coefficient = Spectrum[Channel];
-                    if (Channel < 3 && (Category == MaterialTextureCategory::Albedo || Category == MaterialTextureCategory::Radiance))
-                        Coefficient = EncodeSrgb(Coefficient);
-                    Pyramid.Rgba[Start+(size_t(Row)*Columns+Column)*4+Channel] = uint8_t(std::lround(std::clamp(Coefficient,0.0,1.0)*255));
+                    const float Clamped = std::clamp(Spectrum[Channel], 0.f, 1.f);
+                    Out[Channel] = (Channel < 3 && IsSrgb)
+                        ? Tables.Encode[size_t(Clamped * 65535.f + .5f)]
+                        : uint8_t(Clamped * 255.f + .5f);
                 }
             }
         Width = Columns;

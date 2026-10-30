@@ -512,10 +512,12 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     Callbacks.InitializeVulkan = [&](Frontier::VulkanPresentation &Display)
     {
         Rendering = std::make_unique<Frontier::MaterialLibraryRendering>();
-        Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory);
+        Rendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory,
+            Frontier::MaterialLibraryRendering::ShippedAtlasTile,
+            Frontier::MaterialLibraryRendering::ShippedAtlasColumns);
         // 📝 Disk-persist the baked gallery atlas so relaunching does not re-render every visible
         // material through the PBR pipeline again; best-effort and silently inert on any failure.
-        Rendering->ConfigureAtlasCache(Frontier::QueryFrontierCacheDirectory() / "MaterialAtlas.atlas", 0x4D41544C41533100ull);
+        Rendering->ConfigureAtlasCache(Frontier::QueryFrontierCacheDirectory() / "MaterialAtlas.atlas", 0x4D41544C41533200ull);
         Rendering->ConfigureEnvironments(ContentRoot / "EngineContent/EnvironmentArchives");
         EnvironmentAtlas = std::make_unique<Frontier::MaterialThumbnailAtlas>();
         EnvironmentAtlas->Initialize(Display.QueryRasterAccess(),
@@ -1164,7 +1166,6 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             }
             else
             {
-                if (Rendering) Rendering->RequestLibrary(Library->QueryLibrary().QueryDirectory(), {});
                 Library->EvaluateNavigationDelta = [&](Frontier::PlanePoint Displacement)
                 {
                     return Appearance->QueryInput().QueryApplied().EvaluatePointerDelta(Displacement);

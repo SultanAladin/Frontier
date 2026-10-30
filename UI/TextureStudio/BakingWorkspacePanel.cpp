@@ -1307,8 +1307,8 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
         const float ViewW = std::max(1.f, Region.Width());
         const float ViewH = std::max(1.f, Region.Height());
         const float FbScale = std::max(1.f, Input.DisplayFramebufferScale.x);
-        const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
-        const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+        const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale * 1.5f) + 63u) / 64u * 64u, 256u, 2048u);
+        const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale * 1.5f) + 63u) / 64u * 64u, 256u, 2048u);
         if (ConfigureViewportExtent && (TargetW != SentViewportWidth || TargetH != SentViewportHeight))
         {
             SentViewportWidth = TargetW;
@@ -1339,7 +1339,7 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
                 ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
                 ImVec2(GpuImage.MinimumU, GpuImage.MinimumV), ImVec2(GpuImage.MaximumU, GpuImage.MaximumV));
         }
-        else
+        else if (!QueryViewport)
         {
             const float Aspect = ViewW / ViewH;
             const uint32_t CpuH = std::clamp(uint32_t(ViewH * .75f), 200u, 480u);

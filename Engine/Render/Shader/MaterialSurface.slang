@@ -37,15 +37,32 @@ struct MaterialScattering
 // 📝 Baked equirect studio archives (EngineContent/EnvironmentArchives), one layer per entry in
 // scan order. Directions arrive in view space; the map lives in the fixed world (surface) frame,
 // so highlights sweep across the specimen while the camera orbits, exactly like the key light.
-float3 SampleEnvironmentMapRadiance(PreviewScattering Scattering,float3 Direction)
+float3 SampleEnvironmentMapRadianceLevel(float3 Direction,float MipLevel)
 {
     float3 World = NormalizeDirection(Direction.x*Projection.ViewNormalRow0.xyz+
         Direction.y*Projection.ViewNormalRow1.xyz+Direction.z*Projection.ViewNormalRow2.xyz);
     float2 Coordinates = float2(atan2(World.x,World.z)/(2*π)+.5,acos(clamp(World.y,-1,1))/π);
-    // 📝 Mip 2, not base level: the 8-sample MIS quadrature turns bright small panels into
-    // per-pixel fireflies at full resolution (visible stipple on the Windows build). The
-    // prefiltered level keeps panel shapes while collapsing hit/miss contrast.
-    return EnvironmentMap.SampleLevel(MaterialSampler,float3(Coordinates,Material.PreviewConfiguration.z),2).rgb;
+    return EnvironmentMap.SampleLevel(MaterialSampler,float3(Coordinates,Material.PreviewConfiguration.z),MipLevel).rgb;
+}
+float3 SampleEnvironmentMapRadiance(PreviewScattering Scattering,float3 Direction)
+{
+    return SampleEnvironmentMapRadianceLevel(Direction,2.0);
+}
+
+// Continuous Pixar orthonormal basis (Duff et al. 2017): smooth across the entire visible front
+// hemisphere and silhouette; its sole topological singularity sits at Normal.z == -1 (back-facing).
+void ConstructContinuousBasis(float3 Normal,out float3 Tangent,out float3 Bitangent)
+{
+    if (Normal.z < -.999999)
+    {
+        Tangent = float3(0,-1,0);
+        Bitangent = float3(-1,0,0);
+        return;
+    }
+    float A = 1.0/(1.0+Normal.z);
+    float B = -Normal.x*Normal.y*A;
+    Tangent = float3(1.0-Normal.x*Normal.x*A,B,-Normal.x);
+    Bitangent = float3(B,1.0-Normal.y*Normal.y*A,-Normal.y);
 }
 
 struct MaterialInput
@@ -147,12 +164,14 @@ float3 EvaluateMaterialSequence(PreviewScattering Scattering,MaterialAngularStra
 float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngularStratum Angular[8],float3 GeometricNormal,float3 View)
 {
     if (Scattering.EnvironmentHorizon.w == 0) return 0;
-    float3 Tangent = NormalizeDirection(cross(abs(GeometricNormal.z)<.999 ? float3(0,0,1) : float3(0,1,0),GeometricNormal));
-    float3 Bitangent = cross(GeometricNormal,Tangent);
+    float3 Tangent;
+    float3 Bitangent;
+    ConstructContinuousBasis(GeometricNormal,Tangent,Bitangent);
     float3 Accumulated = 0;
     uint Components = Scattering.Configuration.x+1;
-    // 📝 Environment quadrature samples the baked studio archive bound at set 0 binding 3.
-    const uint Samples = 8;
+    // 📝 Filtered MIS quadrature over the baked studio archive mip pyramid bound at set 0 binding 3.
+    const uint Samples = 16;
+    const float SolidAngleTexel = (4.0*π)/(512.0*256.0);
     for (uint Component = 0; Component < Components; ++Component)
         for (uint SampleIndex = 0; SampleIndex < Samples; ++SampleIndex)
         {
@@ -181,8 +200,10 @@ float3 IntegrateMaterialEnvironment(PreviewScattering Scattering,MaterialAngular
             }
             Density /= Components;
             if (Density <= 1e-12) continue;
+            float SolidAngleSample = 1.0/max(1e-6,float(Components*Samples)*Density);
+            float MipLevel = clamp(.5*log2(SolidAngleSample/SolidAngleTexel)+1.25,1.5,6.5);
             Accumulated += EvaluateMaterialSequence(Scattering,Angular,View,Light,true)*
-                           EvaluateEnvironmentRadiance(Scattering,Light)/Density;
+                           (SampleEnvironmentMapRadianceLevel(Light,MipLevel)*Scattering.EnvironmentHorizon.w)/Density;
         }
     Accumulated /= Components*Samples;
     return Accumulated;
