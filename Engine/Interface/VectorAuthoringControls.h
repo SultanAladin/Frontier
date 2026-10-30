@@ -71,6 +71,8 @@ public:
     void OffsetFields(VectorAuthoringOffsetSpecification &Specification, const std::string &Suffix = {});
     void ColourFields(VectorAuthoringColourSpecification &Specification, const std::string &Suffix = {});
 private:
+    int LastCardFrame = -1;
+    int CardOrdinal = 0;
     void Register(const char *Caption);
     bool RangeCore(const char *Caption, float &Quantity, float Minimum, float Maximum, bool StripOwnsCaption);
 };

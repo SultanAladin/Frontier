@@ -6,6 +6,7 @@
 #pragma once
 #include "MaterialThumbnailAtlas.h"
 #include "MaterialPreviewConfiguration.h"
+#include "WorkspaceViewportRendering.h"
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -78,6 +79,16 @@ class MaterialLibraryRendering
     [[nodiscard]] VkImageView QueryPreviewView() const noexcept;
     [[nodiscard]] bool QueryPreviewReady() const noexcept;
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept;
+
+    // Unified 3D viewport slots shared across non-specimen mesh workspaces (0 = Texture Paint, 1 = Baking).
+    static constexpr uint32_t AuxiliaryViewportCount = 2;
+    void ConfigureAuxiliaryGeometry(uint32_t Slot, const SurfaceGeometry &Mesh);
+    void ConfigureAuxiliaryMaterial(uint32_t Slot, const CompiledSurfaceMaterial &Material);
+    void ConfigureAuxiliaryCamera(uint32_t Slot, const WorkspaceViewportOrbitCamera &Camera);
+    void ConfigureAuxiliaryExtent(uint32_t Slot, uint32_t Width, uint32_t Height);
+    [[nodiscard]] VkImage QueryAuxiliaryViewportImage(uint32_t Slot) const noexcept;
+    [[nodiscard]] VkImageView QueryAuxiliaryViewportView(uint32_t Slot) const noexcept;
+    [[nodiscard]] bool QueryAuxiliaryViewportReady(uint32_t Slot) const noexcept;
 
   private:
     struct RenderingAllocation;

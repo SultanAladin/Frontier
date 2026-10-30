@@ -384,20 +384,32 @@ void VectorAuthoringControlSurface::BeginCard(const char *Caption, bool Raised, 
     // outline, 15px radius, 17px content inset and a micro-overline caption - so Pattern/Stamp (and
     // Baking/Texture Paint) inspector cards read as the same objects as the Material workspace's
     // instead of plain bordered ImGui children with a loose text title.
-    ImGui::PushID(Caption);
+    // Disambiguate empty captions per frame so multiple custom-headed cards never collide into one child window.
+    const int CurrentFrame = ImGui::GetFrameCount();
+    if (CurrentFrame != LastCardFrame)
+    {
+        LastCardFrame = CurrentFrame;
+        CardOrdinal = 0;
+    }
+    const bool HasCaption = Caption && Caption[0] != '\0';
+    if (HasCaption) ImGui::PushID(Caption);
+    else ImGui::PushID(0x5F435244 + CardOrdinal++);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 15 * Scale);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(17 * Scale, 14 * Scale));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ConvertSpectrum(Raised ? ControlKit::Palette().Raised : Subordinate ? ControlKit::Palette().Panel : ControlKit::Palette().Inset));
     ImGui::PushStyleColor(ImGuiCol_Border, ConvertSpectrum(ControlKit::Palette().Stroke));
     ImGui::BeginChild("Card", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    std::string Overline(Caption);
-    for (char &Character : Overline) Character = char(std::toupper(static_cast<unsigned char>(Character)));
-    ImGui::PushFont(nullptr, 8.f * 1.302f * Scale);
-    ImGui::PushStyleColor(ImGuiCol_Text, ConvertSpectrum(ControlKit::Palette().TextDim));
-    ImGui::TextUnformatted(Overline.c_str());
-    ImGui::PopStyleColor();
-    ImGui::PopFont();
-    ImGui::Spacing();
+    if (HasCaption)
+    {
+        std::string Overline(Caption);
+        for (char &Character : Overline) Character = char(std::toupper(static_cast<unsigned char>(Character)));
+        ImGui::PushFont(nullptr, 8.f * 1.302f * Scale);
+        ImGui::PushStyleColor(ImGuiCol_Text, ConvertSpectrum(ControlKit::Palette().TextDim));
+        ImGui::TextUnformatted(Overline.c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::Spacing();
+    }
 }
 
 void VectorAuthoringControlSurface::EndCard()

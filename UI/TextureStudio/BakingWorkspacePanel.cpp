@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 #include "UI/TextureStudio/BakingWorkspacePanel.h"
 #include "UI/TextureStudio/PanelChrome.h"
+#include "UI/TextureStudio/WorkspaceViewportDrawList.h"
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
@@ -22,6 +23,7 @@ namespace Frontier
 {
 // Shared panel UI primitives (PanelChrome.h) - one implementation for all five workspaces.
 using PanelChrome::Caption;
+using PanelChrome::CaptionWidth;
 using PanelChrome::Spectrum;
 using PanelChrome::SpectrumQuad;
 using PanelChrome::ThemeQuad;
@@ -261,7 +263,11 @@ void BakingWorkspacePanel::SelectDemo(const std::string &Shape)
     Info = "Built-in low meshes use non-overlapping UVs. Imported low meshes require their own UV layouts.";
     ResetCamera();
 }
-void BakingWorkspacePanel::ClearResults() noexcept { Results.clear(); }
+void BakingWorkspacePanel::ClearResults() noexcept
+{
+    Results.clear();
+    ++BakeResultsRevision;
+}
 
 PlaneExtent BakingWorkspacePanel::QueryControlExtent(const std::string &Caption) const
 {
@@ -441,6 +447,7 @@ void BakingWorkspacePanel::AcceptBakeResults()
     try
     {
         Results = BakeFuture.get();
+        ++BakeResultsRevision;
         uint64_t Misses = 0;
         for (const auto &Result : Results) Misses += Result.Stats.Misses;
         // 📝 The completion line names the device that actually baked and the resolution actually produced
@@ -677,12 +684,11 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
         const uint32_t Total = uint32_t(MeshMapTable().size()), Enabled = uint32_t(Settings.Channels.size());
         char Counter[32];
         std::snprintf(Counter, sizeof(Counter), "%u / %u enabled", Enabled, Total);
-        const auto Extent = ImGui::CalcTextSize(Counter);
-        Caption(ImVec2(HeadingOrigin.x + Width - Extent.x * 0.72f, HeadingOrigin.y + 2 * S), Counter, 10 * S, 0x8dbc9d);
+        Caption(ImVec2(HeadingOrigin.x + Width - CaptionWidth(Counter, 10 * S), HeadingOrigin.y + 2 * S), Counter, 10 * S, 0x8dbc9d);
     }
     ImGui::Dummy(ImVec2(1, 19 * S));
     ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + 1 * S));
-    ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width);
     ImGui::TextColored(Spectrum(0x96958b), "Click a tile to enable or disable it. Green tiles will be baked.");
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(1, 10 * S));
@@ -842,7 +848,7 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
     // matching <details> with no `open` attribute.
     if (ImGui::CollapsingHeader("Other bake families & requirements"))
     {
-        ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width - 8 * S);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width - 8 * S);
         ImGui::TextColored(Spectrum(0x96958b), "Reviewed against Substance, Toolbag and Blender. These are not geometry-only outputs and are not substituted with fake maps.");
         ImGui::PopTextWrapPos();
         ImGui::Dummy(ImVec2(1, 8 * S));
@@ -858,7 +864,7 @@ void BakingWorkspacePanel::ConstructMeshMapGrid(float Width)
         for (const auto &Family : Families)
         {
             ImGui::TextColored(Spectrum(0xd0d0bb), "%s", Family.Label);
-            ImGui::PushTextWrapPos(ImGui::GetCursorScreenPos().x + Width - 8 * S);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width - 8 * S);
             ImGui::TextColored(Spectrum(0xa8a89a), "%s", Family.Types);
             ImGui::TextColored(Spectrum(0x7d7d72), "%s", Family.Requirement);
             ImGui::PopTextWrapPos();
@@ -923,8 +929,7 @@ void BakingWorkspacePanel::ConstructAssetsDock()
             }
             Track(Index == 0 ? "Mode Mesh" : Index == 1 ? "Mode Material" : "Mode Volume");
             if (Selected) Ink->AddRectFilled(SegMin, SegMax, ImGui::GetColorU32(Spectrum(0x2a2a26)), (SegMax.y - SegMin.y) * .5f);
-            const auto Extent = ImGui::CalcTextSize(Modes[Index]);
-            Caption(ImVec2(SegMin.x + ((SegMax.x - SegMin.x) - Extent.x * 0.72f) * .5f, SegMin.y + ((SegMax.y - SegMin.y) - Extent.y * 0.72f) * .5f), Modes[Index],
+            Caption(ImVec2(SegMin.x + ((SegMax.x - SegMin.x) - CaptionWidth(Modes[Index], 9 * S)) * .5f, SegMin.y + ((SegMax.y - SegMin.y) - 9 * 1.15f * S) * .5f), Modes[Index],
                 9 * S, Selected ? 0xdddec7 : 0x8d8d7e);
             ImGui::PopID();
         }
@@ -1109,8 +1114,7 @@ void BakingWorkspacePanel::ConstructAssetsDock()
         Ink->AddCircleFilled(ImVec2(FooterMinimum.x + 16 * S, (FooterMinimum.y + FooterMaximum.y) * .5f), 2.5f * S, ImGui::GetColorU32(Spectrum(0x8aa27e)));
         Caption(ImVec2(FooterMinimum.x + 26 * S, (FooterMinimum.y + FooterMaximum.y) * .5f - 5 * S), "CPU BVH / WebGL preview", 8 * S, 0x777d66);
         char SetsLabel[32]; std::snprintf(SetsLabel, sizeof(SetsLabel), "%zu texture sets", Assets.Low.Parts.size());
-        const auto Extent = ImGui::CalcTextSize(SetsLabel);
-        Caption(ImVec2(FooterMaximum.x - 16 * S - Extent.x * 0.54f, (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), SetsLabel, 7 * S, 0x686e59);
+        Caption(ImVec2(FooterMaximum.x - 16 * S - CaptionWidth(SetsLabel, 7 * S), (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), SetsLabel, 7 * S, 0x686e59);
     }
 }
 
@@ -1148,18 +1152,28 @@ void BakingWorkspacePanel::SynchronizeCamera()
 
 void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
 {
-    ImGui::InvisibleButton("##BakeViewport", ImVec2(Region.Width(), Region.Height()));
+    ImGui::InvisibleButton("##BakeViewport", ImVec2(Region.Width(), Region.Height()),
+        ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_MouseButtonRight);
     const bool Hovered = ImGui::IsItemHovered();
-    // 📝 Same orbit gesture mapping as MaterialLibraryPanel's inspector preview (drag = yaw/pitch, wheel =
-    // Zoom, same clamp ranges ValidateMaterialPreviewConfiguration enforces) - driving the same
-    // MaterialPreviewConfiguration fields, not a separately invented drag-to-Distance scheme.
-    if (Hovered && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+    const auto &Input = ImGui::GetIO();
+    if (ImGui::IsItemActive())
     {
-        const ImVec2 Delta = ImGui::GetIO().MouseDelta;
-        Camera.Yaw = std::remainder(Camera.Yaw + Delta.x * 0.01f, 6.2831853f);
-        Camera.Pitch = std::clamp(Camera.Pitch - Delta.y * 0.01f, -1.45f, 1.45f);
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Middle) || (Input.KeyShift && ImGui::IsMouseDown(ImGuiMouseButton_Left)))
+        {
+            const float Span = std::max(64.f, std::min(Region.Width(), Region.Height()));
+            Camera.PanX = std::clamp(Camera.PanX + Input.MouseDelta.x * 2.f / Span, -2.f, 2.f);
+            Camera.PanY = std::clamp(Camera.PanY + Input.MouseDelta.y * 2.f / Span, -2.f, 2.f);
+        }
+        else if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            Camera.Zoom = std::clamp(Camera.Zoom * std::exp(-Input.MouseDelta.y * .01f), .5f, 5.f);
+        else if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            Camera.Yaw = std::remainder(Camera.Yaw - Input.MouseDelta.x * 0.01f, 6.2831853f);
+            Camera.Pitch = std::clamp(Camera.Pitch + Input.MouseDelta.y * 0.01f, -1.45f, 1.45f);
+        }
     }
-    if (Hovered) Camera.Zoom = std::clamp(Camera.Zoom + ImGui::GetIO().MouseWheel * 0.1f, .5f, 5.f);
+    if (Hovered && Input.MouseWheel != 0.f)
+        Camera.Zoom = std::clamp(Camera.Zoom + Input.MouseWheel * 0.1f, .5f, 5.f);
     SynchronizeCamera();
 
     const BakePart *Part = nullptr;
@@ -1169,156 +1183,224 @@ void BakingWorkspacePanel::ConstructViewport3D(PlaneExtent Region)
 
     auto *DrawList = ImGui::GetWindowDrawList();
     DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
-    DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), ImGui::GetColorU32(Spectrum(0x111010)));
+    DrawList->AddRectFilledMultiColor(
+        ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+        ImGui::GetColorU32(Spectrum(0x18191a)), ImGui::GetColorU32(Spectrum(0x18191a)),
+        ImGui::GetColorU32(Spectrum(0x27292b)), ImGui::GetColorU32(Spectrum(0x27292b)));
+
     if (Part && !Part->Indices.empty())
     {
-        // 📝 Live-measured bounding sphere of the actual demo mesh (Material's five preview shapes instead use
-        // a fixed per-shape constant table, since their geometry never changes) - the one per-subject input
-        // ConstructOrbitProjection/ConstructOrbitProjection needs that Material's catalogue hardcodes.
-        float BoundsMinimum[3]{FLT_MAX, FLT_MAX, FLT_MAX}, BoundsMaximum[3]{-FLT_MAX, -FLT_MAX, -FLT_MAX};
-        for (const auto &Vertex : Part->Vertices)
-            for (int Axis = 0; Axis < 3; ++Axis)
+        const std::string MeshKey = DemoShape + "|" + Part->Name + "|" +
+            std::to_string(Part->Vertices.size()) + "|" + std::to_string(Part->Indices.size());
+        if (MeshKey != CachedViewportMeshKey)
+        {
+            SurfaceGeometry Converted;
+            Converted.Corners.reserve(Part->Vertices.size());
+            float BoundsMin[3]{FLT_MAX, FLT_MAX, FLT_MAX}, BoundsMax[3]{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+            for (const auto &Vtx : Part->Vertices)
             {
-                BoundsMinimum[Axis] = std::min(BoundsMinimum[Axis], Vertex.Position[Axis]);
-                BoundsMaximum[Axis] = std::max(BoundsMaximum[Axis], Vertex.Position[Axis]);
+                SurfaceCorner Corner{};
+                Corner.Position = {Vtx.Position[0], Vtx.Position[1], Vtx.Position[2]};
+                Corner.Normal = {Vtx.Normal[0], Vtx.Normal[1], Vtx.Normal[2]};
+                Corner.Coordinates = {Vtx.Uv[0], Vtx.Uv[1]};
+                Corner.Tangent = {0.f, 0.f, 0.f, 1.f};
+                Converted.Corners.push_back(Corner);
+                for (int Axis = 0; Axis < 3; ++Axis)
+                {
+                    BoundsMin[Axis] = std::min(BoundsMin[Axis], Vtx.Position[Axis]);
+                    BoundsMax[Axis] = std::max(BoundsMax[Axis], Vtx.Position[Axis]);
+                }
             }
-        float Pivot[3]{(BoundsMinimum[0] + BoundsMaximum[0]) * .5f, (BoundsMinimum[1] + BoundsMaximum[1]) * .5f,
-            (BoundsMinimum[2] + BoundsMaximum[2]) * .5f};
-        const float Extent[3]{BoundsMaximum[0] - Pivot[0], BoundsMaximum[1] - Pivot[1], BoundsMaximum[2] - Pivot[2]};
-        const float Radius = std::max(.05f, std::sqrt(Extent[0] * Extent[0] + Extent[1] * Extent[1] + Extent[2] * Extent[2]));
-        // 📝 Same 5.8/1.35 Alloy capture-rig frame ratio Material's own preview uses (see
-        // ConstructMaterialPreviewProjection) - this orbit is the same camera, just framing Baking's live
-        // demo-mesh bounds instead of Material's five fixed catalogue shapes.
-        const auto Orbit = ConstructOrbitProjection(SmoothedCamera.Yaw, SmoothedCamera.Pitch, SmoothedCamera.Zoom, SmoothedCamera.PanX, SmoothedCamera.PanY,
-            Radius, Pivot, 5.8f / 1.35f);
-        const Vec3 Eye{Orbit.Eye[0], Orbit.Eye[1], Orbit.Eye[2]};
-        const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};
-        const Vec3 Right{Orbit.Right[0], Orbit.Right[1], Orbit.Right[2]};
-        const Vec3 Up{Orbit.Up[0], Orbit.Up[1], Orbit.Up[2]};
-        const float CenterX = (Region.MinimumX + Region.MaximumX) * 0.5f, CenterY = (Region.MinimumY + Region.MaximumY) * 0.5f;
-        const float FocalLength = std::min(Region.Width(), Region.Height()) * 0.8f;
-        const Vec3 Light = NormalizeV(Vec3{0.4f, 0.8f, 0.5f});
-
-        const auto Project = [&](const float P[3], ImVec2 &Screen, float &Depth) noexcept
-        {
-            const Vec3 World = Sub(Vec3{P[0], P[1], P[2]}, Eye);
-            const float Cx = DotV(World, Right), Cy = DotV(World, Up), Cz = DotV(World, Forward);
-            Depth = Cz;
-            const float Z = std::max(Cz, 0.05f);
-            Screen = ImVec2(CenterX + Cx * FocalLength / Z, CenterY - Cy * FocalLength / Z);
-        };
-
-        // 📝 When a baked map is picked for 3D preview, paint the model with its real texels instead of the
-        // flat demo colour - same "genuine CPU representation, no GPU texture upload" philosophy as
-        // ConstructMapPreview's 2D block raster. Looks up the actual BakeMapImage for Part/Preview3DMapKey and,
-        // if present, subdivides each source triangle into a small barycentric lattice so the baked bitmap is
-        // sampled (bilinear) at several points across each face instead of just its three corners.
-        const BakeMapImage *TextureImage = nullptr;
-        uint32_t TextureResolution = 0;
-        if (!Preview3DMapKey.empty())
-            for (const auto &Result : Results)
-                if (Result.Name == Part->Name)
-                {
-                    TextureResolution = Result.Resolution;
-                    for (const auto &Map : Result.Maps)
-                        if (Map.Key == Preview3DMapKey) TextureImage = &Map;
-                    break;
-                }
-        const auto SampleTexel = [&](float U, float V) -> ImU32
-        {
-            // 📝 Inverse of RunMeshBake's own texel->UV mapping ("texture v grows upward"): row 0 is the top of
-            // the stored RGBA buffer but corresponds to V close to 1, not 0.
-            const float Tx = U * float(TextureResolution) - 0.5f, Ty = (1.f - V) * float(TextureResolution) - 0.5f;
-            const int X0 = int(std::floor(Tx)), Y0 = int(std::floor(Ty));
-            const float Fx = Tx - float(X0), Fy = Ty - float(Y0);
-            const auto ClampCoord = [&](int Value) { return std::clamp(Value, 0, int(TextureResolution) - 1); };
-            float Out[4]{0, 0, 0, 0};
-            for (int Dy = 0; Dy < 2; ++Dy)
-                for (int Dx = 0; Dx < 2; ++Dx)
-                {
-                    const size_t Offset = (size_t(ClampCoord(Y0 + Dy)) * TextureResolution + size_t(ClampCoord(X0 + Dx))) * 4;
-                    const float Weight = (Dx ? Fx : 1 - Fx) * (Dy ? Fy : 1 - Fy);
-                    for (int Channel = 0; Channel < 4; ++Channel) Out[Channel] += TextureImage->Rgba[Offset + Channel] * Weight;
-                }
-            return IM_COL32(uint8_t(Out[0]), uint8_t(Out[1]), uint8_t(Out[2]), 255);
-        };
-
-        struct DrawTriangle { ImVec2 A, B, C; ImU32 ColourA, ColourB, ColourC; float Depth; };
-        std::vector<DrawTriangle> Triangles;
-        constexpr int Subdivisions = 3; // only subdivide while actually sampling a baked bitmap
-        Triangles.reserve(Part->Indices.size() / 3 * (TextureImage ? size_t(Subdivisions * Subdivisions) : 1));
-        const ImU32 BaseColour = ImGui::GetColorU32(Spectrum(0x8f8fe0));
-        for (size_t Index = 0; Index + 2 < Part->Indices.size(); Index += 3)
-        {
-            const auto &VA = Part->Vertices[Part->Indices[Index + 0]];
-            const auto &VB = Part->Vertices[Part->Indices[Index + 1]];
-            const auto &VC = Part->Vertices[Part->Indices[Index + 2]];
-            const Vec3 FaceNormal = NormalizeV(CrossV(Sub(Vec3{VB.Position[0], VB.Position[1], VB.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]}),
-                Sub(Vec3{VC.Position[0], VC.Position[1], VC.Position[2]}, Vec3{VA.Position[0], VA.Position[1], VA.Position[2]})));
-            if (DotV(FaceNormal, Forward) > -0.02f) continue; // backface cull (camera looks along +Forward into the scene)
-            const float Shade = std::clamp(0.25f + 0.75f * std::max(0.f, DotV(FaceNormal, Light)), 0.f, 1.f);
-            const uint8_t Level = uint8_t(Shade * 255.f);
-            const auto Tint = [&](ImU32 Source) -> ImU32
-            {
-                return IM_COL32(uint8_t(((Source & 0xff) * Level) / 255), uint8_t((((Source >> 8) & 0xff) * Level) / 255),
-                    uint8_t((((Source >> 16) & 0xff) * Level) / 255), 255);
-            };
-            const auto EmitSubTriangle = [&](std::array<float, 3> Wa, std::array<float, 3> Wb, std::array<float, 3> Wc)
-            {
-                const auto LerpPosition = [&](std::array<float, 3> W, float Out[3])
-                { for (int Axis = 0; Axis < 3; ++Axis) Out[Axis] = VA.Position[Axis] * W[0] + VB.Position[Axis] * W[1] + VC.Position[Axis] * W[2]; };
-                float Pa[3], Pb[3], Pc[3];
-                LerpPosition(Wa, Pa); LerpPosition(Wb, Pb); LerpPosition(Wc, Pc);
-                ImVec2 Sa, Sb, Sc; float Da, Db, Dc;
-                Project(Pa, Sa, Da); Project(Pb, Sb, Db); Project(Pc, Sc, Dc);
-                if (Da <= 0.05f || Db <= 0.05f || Dc <= 0.05f) return;
-                ImU32 ColourA = Tint(BaseColour), ColourB = Tint(BaseColour), ColourC = Tint(BaseColour);
-                if (TextureImage)
-                {
-                    const auto LerpUv = [&](std::array<float, 3> W) { return ImVec2(VA.Uv[0] * W[0] + VB.Uv[0] * W[1] + VC.Uv[0] * W[2], VA.Uv[1] * W[0] + VB.Uv[1] * W[1] + VC.Uv[1] * W[2]); };
-                    const ImVec2 Uva = LerpUv(Wa), Uvb = LerpUv(Wb), Uvc = LerpUv(Wc);
-                    ColourA = Tint(SampleTexel(Uva.x, Uva.y));
-                    ColourB = Tint(SampleTexel(Uvb.x, Uvb.y));
-                    ColourC = Tint(SampleTexel(Uvc.x, Uvc.y));
-                }
-                Triangles.push_back({Sa, Sb, Sc, ColourA, ColourB, ColourC, (Da + Db + Dc) / 3.f});
-            };
-            if (!TextureImage) EmitSubTriangle({1, 0, 0}, {0, 1, 0}, {0, 0, 1});
-            else
-                for (int I = 0; I < Subdivisions; ++I)
-                    for (int J = 0; I + J < Subdivisions; ++J)
-                    {
-                        const auto Weight = [&](int Si, int Sj) { return std::array<float, 3>{float(Subdivisions - Si - Sj) / Subdivisions, float(Si) / Subdivisions, float(Sj) / Subdivisions}; };
-                        EmitSubTriangle(Weight(I, J), Weight(I + 1, J), Weight(I, J + 1));
-                        if (I + J + 1 < Subdivisions) EmitSubTriangle(Weight(I + 1, J), Weight(I + 1, J + 1), Weight(I, J + 1));
-                    }
+            Converted.TriangleCorners.assign(Part->Indices.begin(), Part->Indices.end());
+            CachedViewportGeometry = SanitizeMaterialSurfaceGeometry(std::move(Converted));
+            CachedViewportPivot = {
+                (BoundsMin[0] + BoundsMax[0]) * .5f,
+                (BoundsMin[1] + BoundsMax[1]) * .5f,
+                (BoundsMin[2] + BoundsMax[2]) * .5f};
+            const float ExtX = BoundsMax[0] - CachedViewportPivot[0];
+            const float ExtY = BoundsMax[1] - CachedViewportPivot[1];
+            const float ExtZ = BoundsMax[2] - CachedViewportPivot[2];
+            CachedViewportRadius = std::max(.05f, std::sqrt(ExtX * ExtX + ExtY * ExtY + ExtZ * ExtZ));
+            CachedViewportMeshKey = MeshKey;
+            if (ConfigureViewportGeometry) ConfigureViewportGeometry(CachedViewportGeometry);
         }
-        std::sort(Triangles.begin(), Triangles.end(), [](const DrawTriangle &A, const DrawTriangle &B) { return A.Depth > B.Depth; });
-        for (const auto &Triangle_ : Triangles)
+
+        const std::string MaterialKey = MeshKey + "|" + Preview3DMapKey + "|" + std::to_string(BakeResultsRevision);
+        if (MaterialKey != CachedViewportMaterialKey)
         {
-            // 📝 One self-contained PrimReserve per triangle (not a single bulk reservation for the whole
-            // batch): the optional AddTriangle() wireframe overlay right below does its own PrimReserve calls,
-            // and a bulk up-front reservation would leave its line geometry appended past the end of this
-            // batch's block instead of between triangles, corrupting draw order/vertex bounds.
-            DrawList->PrimReserve(3, 3);
-            ImDrawVert *Vertex = DrawList->_VtxWritePtr;
-            ImDrawIdx *IndexCursor = DrawList->_IdxWritePtr;
-            ImDrawIdx Base = DrawList->_VtxCurrentIdx;
-            for (const auto &Corner : {std::pair{Triangle_.A, Triangle_.ColourA}, std::pair{Triangle_.B, Triangle_.ColourB}, std::pair{Triangle_.C, Triangle_.ColourC}})
+            const BakePartResult *PartResult = nullptr;
+            for (const auto &Res : Results)
+                if (Res.Name == Part->Name) { PartResult = &Res; break; }
+
+            const auto FlipBakeRows = [](const BakeMapImage &Map, uint32_t Res) -> SurfaceTextureImage
             {
-                Vertex->pos = Corner.first;
-                Vertex->uv = DrawList->_Data->TexUvWhitePixel;
-                Vertex->col = Corner.second;
-                ++Vertex;
-                *IndexCursor++ = Base++;
+                SurfaceTextureImage Img{Res, Res, std::vector<uint8_t>(size_t(Res) * Res * 4, 255)};
+                if (Res == 0 || Map.Rgba.size() < size_t(Res) * Res * 4) return Img;
+                for (uint32_t Row = 0; Row < Res; ++Row)
+                    std::memcpy(&Img.Rgba[size_t(Row) * Res * 4],
+                        &Map.Rgba[size_t(Res - 1 - Row) * Res * 4], size_t(Res) * 4);
+                return Img;
+            };
+
+            MaterialDefinition Def;
+            Def.Name = "Baking Preview";
+            Def.Scattering.Illumination.Configuration = {2, 0, 1, 0};
+            auto &Base = Def.Scattering.Illumination.Strata[0];
+            Base.Classification[0] = 0;
+            Base.AlbedoRoughness = {.42f, .44f, .48f, .34f};
+            Base.Optics = {.08f, 1.52f, 1.f, 0.f};
+            auto &Coat = Def.Scattering.Illumination.Strata[1];
+            Coat.Classification[0] = 1;
+            Coat.AlbedoRoughness = {1.f, 1.f, 1.f, .14f};
+            Coat.Optics = {0.f, 1.5f, .18f, 0.f};
+
+            const BakeMapImage *SelectedMap = nullptr;
+            const BakeMapImage *BakedNormalMap = nullptr;
+            const BakeMapImage *BakedAoMap = nullptr;
+            if (PartResult && PartResult->Resolution > 0)
+            {
+                for (const auto &Map : PartResult->Maps)
+                {
+                    if (!Preview3DMapKey.empty() && Map.Key == Preview3DMapKey) SelectedMap = &Map;
+                    if (Map.Key == "normal") BakedNormalMap = &Map;
+                    if (Map.Key == "ao") BakedAoMap = &Map;
+                }
             }
-            DrawList->_VtxWritePtr = Vertex;
-            DrawList->_IdxWritePtr = IndexCursor;
-            DrawList->_VtxCurrentIdx = Base;
-            if (Wireframe) DrawList->AddTriangle(Triangle_.A, Triangle_.B, Triangle_.C, IM_COL32(20, 20, 20, 160), 1.f);
+            if (SelectedMap && PartResult)
+            {
+                Base.AlbedoRoughness = {1.f, 1.f, 1.f, .55f};
+                Base.Optics = {0.f, 1.5f, 1.f, 0.f};
+                Def.Scattering.DirectionalOptics[0][3] = .35f;
+                Coat.Optics[2] = 0.f;
+                Def.Scattering.Illumination.Configuration[0] = 1;
+                Def.Scattering.TextureUse[0][0] |= 1u;
+                Def.TextureSources[0] = "procedural/bake-preview-albedo";
+                Def.ProceduralMaps[{0, "procedural/bake-preview-albedo"}] = FlipBakeRows(*SelectedMap, PartResult->Resolution);
+            }
+            else if (PartResult && (BakedNormalMap || BakedAoMap))
+            {
+                if (BakedNormalMap)
+                {
+                    Def.Scattering.TextureUse[0][0] |= 4u;
+                    Def.TextureSources[2] = "procedural/bake-preview-normal";
+                    Def.ProceduralMaps[{2, "procedural/bake-preview-normal"}] = FlipBakeRows(*BakedNormalMap, PartResult->Resolution);
+                }
+                if (BakedAoMap)
+                {
+                    auto AoFlipped = FlipBakeRows(*BakedAoMap, PartResult->Resolution);
+                    for (size_t Px = 0; Px + 3 < AoFlipped.Rgba.size(); Px += 4)
+                    {
+                        AoFlipped.Rgba[Px + 1] = 255; // neutral roughness multiplier
+                        AoFlipped.Rgba[Px + 2] = 255; // neutral metallic multiplier
+                    }
+                    Def.Scattering.TextureUse[0][0] |= 2u;
+                    Def.TextureSources[1] = "procedural/bake-preview-orm";
+                    Def.ProceduralMaps[{1, "procedural/bake-preview-orm"}] = std::move(AoFlipped);
+                }
+            }
+
+            CachedViewportMaterial = CompileSurfaceMaterial(Def, std::filesystem::current_path());
+            CachedViewportMaterialKey = MaterialKey;
+            if (ConfigureViewportMaterial) ConfigureViewportMaterial(CachedViewportMaterial);
+        }
+
+        const float ViewW = std::max(1.f, Region.Width());
+        const float ViewH = std::max(1.f, Region.Height());
+        const float FbScale = std::max(1.f, Input.DisplayFramebufferScale.x);
+        const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+        const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+        if (ConfigureViewportExtent && (TargetW != SentViewportWidth || TargetH != SentViewportHeight))
+        {
+            SentViewportWidth = TargetW;
+            SentViewportHeight = TargetH;
+            ConfigureViewportExtent(TargetW, TargetH);
+        }
+
+        WorkspaceViewportOrbitCamera Orbit{};
+        Orbit.Pivot = CachedViewportPivot;
+        Orbit.Radius = CachedViewportRadius;
+        Orbit.FrameRatio = 5.8f / 1.35f;
+        Orbit.Yaw = SmoothedCamera.Yaw;
+        Orbit.Pitch = SmoothedCamera.Pitch;
+        Orbit.Zoom = SmoothedCamera.Zoom;
+        Orbit.PanX = SmoothedCamera.PanX;
+        Orbit.PanY = SmoothedCamera.PanY;
+        if (!SentViewportCameraReady || SentViewportCamera != Orbit)
+        {
+            SentViewportCamera = Orbit;
+            SentViewportCameraReady = true;
+            if (ConfigureViewportCamera) ConfigureViewportCamera(Orbit);
+        }
+
+        const WorkspaceViewportImage GpuImage = QueryViewport ? QueryViewport() : WorkspaceViewportImage{};
+        if (GpuImage.Texture)
+        {
+            DrawList->AddImage(ImTextureRef(GpuImage.Texture),
+                ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+                ImVec2(GpuImage.MinimumU, GpuImage.MinimumV), ImVec2(GpuImage.MaximumU, GpuImage.MaximumV));
+        }
+        else
+        {
+            const float Aspect = ViewW / ViewH;
+            const uint32_t CpuH = std::clamp(uint32_t(ViewH * .75f), 200u, 480u);
+            const uint32_t CpuW = std::clamp(uint32_t(std::lround(float(CpuH) * Aspect)), 200u, 640u);
+            if (CachedCpuRgba.empty() || CachedCpuStateKey != CachedViewportMaterialKey ||
+                CachedCpuOrbit != Orbit || CachedCpuWidth != CpuW || CachedCpuHeight != CpuH)
+            {
+                WorkspaceSurfaceViewportRequest Request{};
+                Request.Geometry = &CachedViewportGeometry;
+                Request.Material = &CachedViewportMaterial;
+                Request.Camera = ConstructWorkspaceOrbitProjection(Orbit, Aspect);
+                Request.LightDirection = ConstructWorkspaceOrbitLightDirection(Orbit);
+                Request.LightIntensity = 2.25f;
+                Request.EnvironmentStrength = 1.f;
+                Request.EnvironmentUp = ConstructWorkspaceOrbitEnvironmentUp(Orbit);
+                Request.Exposure = 1.f;
+                auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuW, CpuH);
+                CachedCpuRgba = std::move(Rendered.Rgba);
+                CachedCpuStateKey = CachedViewportMaterialKey;
+                CachedCpuOrbit = Orbit;
+                CachedCpuWidth = CpuW;
+                CachedCpuHeight = CpuH;
+            }
+            BlitWorkspaceViewportCpuFrame(DrawList, {CachedCpuWidth, CachedCpuHeight, CachedCpuRgba},
+                ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+                ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY));
+        }
+
+        if (Wireframe)
+        {
+            const auto Proj = ConstructWorkspaceOrbitProjection(Orbit, ViewW / ViewH);
+            const auto &Clip = Proj.ClipFromSurface;
+            const auto ProjectVert = [&](const std::array<float, 3> &Pos, ImVec2 &OutScreen) -> bool
+            {
+                const float Cx = Clip[0] * Pos[0] + Clip[4] * Pos[1] + Clip[8] * Pos[2] + Clip[12];
+                const float Cy = Clip[1] * Pos[0] + Clip[5] * Pos[1] + Clip[9] * Pos[2] + Clip[13];
+                const float Cz = Clip[2] * Pos[0] + Clip[6] * Pos[1] + Clip[10] * Pos[2] + Clip[14];
+                const float Cw = Clip[3] * Pos[0] + Clip[7] * Pos[1] + Clip[11] * Pos[2] + Clip[15];
+                if (Cw <= 1e-4f) return false;
+                const float InvW = 1.f / Cw;
+                if (Cz * InvW < -.2f || Cz * InvW > 1.2f) return false;
+                OutScreen = ImVec2(
+                    Region.MinimumX + (Cx * InvW * .5f + .5f) * ViewW,
+                    Region.MinimumY + (Cy * InvW * .5f + .5f) * ViewH);
+                return true;
+            };
+            for (size_t Tri = 0; Tri + 2 < CachedViewportGeometry.TriangleCorners.size(); Tri += 3)
+            {
+                const auto &A = CachedViewportGeometry.Corners[CachedViewportGeometry.TriangleCorners[Tri + 0]].Position;
+                const auto &B = CachedViewportGeometry.Corners[CachedViewportGeometry.TriangleCorners[Tri + 1]].Position;
+                const auto &C = CachedViewportGeometry.Corners[CachedViewportGeometry.TriangleCorners[Tri + 2]].Position;
+                ImVec2 Sa, Sb, Sc;
+                if (ProjectVert(A, Sa) && ProjectVert(B, Sb) && ProjectVert(C, Sc))
+                {
+                    const float SignedArea = (Sb.x - Sa.x) * (Sc.y - Sa.y) - (Sb.y - Sa.y) * (Sc.x - Sa.x);
+                    if (SignedArea < 0.f) DrawList->AddTriangle(Sa, Sb, Sc, IM_COL32(220, 226, 214, 72), 1.f);
+                }
+            }
         }
     }
-    else ImGui::GetWindowDrawList()->AddText(ImVec2(Region.MinimumX + 12, Region.MinimumY + 12), ImGui::GetColorU32(Spectrum(0x716f62)), "No mesh selected");
+    else DrawList->AddText(ImVec2(Region.MinimumX + 12, Region.MinimumY + 12), ImGui::GetColorU32(Spectrum(0x716f62)), "No mesh selected");
     DrawList->PopClipRect();
 }
 
@@ -1433,8 +1515,7 @@ void BakingWorkspacePanel::ConstructPreviewDock()
             if (ImGui::IsItemClicked()) View = Index == 0 ? ViewMode::Preview3D : ViewMode::Maps2D;
             Track(Index == 0 ? "View3D" : "View2D");
             if (Selected) Ink->AddRectFilled(TabMinimum, TabMaximum, ImGui::GetColorU32(Spectrum(0x2c3025)), (TabMaximum.y - TabMinimum.y) * .5f);
-            const auto Extent = ImGui::CalcTextSize(Tabs[Index]);
-            Caption(ImVec2(TabMinimum.x + ((TabMaximum.x - TabMinimum.x) - Extent.x * 0.69f) * .5f, TabMinimum.y + ((TabMaximum.y - TabMinimum.y) - Extent.y * 0.69f) * .5f), Tabs[Index],
+            Caption(ImVec2(TabMinimum.x + ((TabMaximum.x - TabMinimum.x) - CaptionWidth(Tabs[Index], 9 * S)) * .5f, TabMinimum.y + ((TabMaximum.y - TabMinimum.y) - 9 * 1.15f * S) * .5f), Tabs[Index],
                 9 * S, Selected ? 0xdce4c9 : 0x8c907b);
             ImGui::PopID();
         }
@@ -1451,9 +1532,8 @@ void BakingWorkspacePanel::ConstructPreviewDock()
         float CursorX = Origin.x + 18 * S;
         const auto ToolbarButton = [&](const char *Label, bool Active, bool Toggle, const char *IconPath = nullptr) -> bool
         {
-            const auto Extent = ImGui::CalcTextSize(Label);
             const float IconGutter = IconPath ? 15 * S : 0.f;
-            const float ButtonWidth = Extent.x * 0.72f + 18 * S + IconGutter, ButtonHeight = 24 * S;
+            const float ButtonWidth = CaptionWidth(Label, 8 * S) + 18 * S + IconGutter, ButtonHeight = 24 * S;
             const ImVec2 Minimum(CursorX, Origin.y + (RowHeight - ButtonHeight) * .5f), Maximum(Minimum.x + ButtonWidth, Minimum.y + ButtonHeight);
             ImGui::SetCursorScreenPos(Minimum);
             ImGui::PushID(Label);
@@ -1513,8 +1593,9 @@ void BakingWorkspacePanel::ConstructPreviewDock()
             CursorX += 142 * S + 6 * S;
         }
         const char *Hint = "Orbit · scroll to zoom";
-        const auto HintExtent = ImGui::CalcTextSize(Hint);
-        Caption(ImVec2(Origin.x + RowWidth - 18 * S - HintExtent.x * 0.54f, Origin.y + (RowHeight - 7 * S) * .5f), Hint, 7 * S, 0x697459);
+        const float HintWidth = CaptionWidth(Hint, 7 * S);
+        if (Origin.x + RowWidth - 18 * S - HintWidth > CursorX + 8 * S)
+            Caption(ImVec2(Origin.x + RowWidth - 18 * S - HintWidth, Origin.y + (RowHeight - 7 * S) * .5f), Hint, 7 * S, 0x697459);
         ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + RowHeight));
 
         const ImVec2 CursorScreen = ImGui::GetCursorScreenPos();
@@ -1631,8 +1712,7 @@ void BakingWorkspacePanel::ConstructPreviewDock()
             const char *ColourSpace = ActiveMapKey == "base-color" ? "sRGB" : "linear";
             char CaptionLine[160];
             std::snprintf(CaptionLine, sizeof(CaptionLine), "%u × %u · %s · %s", CurrentResolution, CurrentResolution, ColourSpace, Stale ? "previous recipe" : "current bake");
-            const auto LineExtent = ImGui::CalcTextSize(CaptionLine);
-            Caption(ImVec2(CursorScreen.x + (Available.x - LineExtent.x * 0.69f) * .5f, ImageOrigin.y + ImageSize + 12 * S), CaptionLine, 9 * S, 0x7c8a6a);
+            Caption(ImVec2(CursorScreen.x + (Available.x - CaptionWidth(CaptionLine, 9 * S)) * .5f, ImageOrigin.y + ImageSize + 12 * S), CaptionLine, 9 * S, 0x7c8a6a);
             ImGui::Dummy(ImVec2(Available.x, ImageSize + 17 * S + 26 * S));
         }
         else
@@ -1647,8 +1727,8 @@ void BakingWorkspacePanel::ConstructPreviewDock()
             GlyphSpace::Stroke(IconSurface, "M12 2L2 7L12 12L22 7ZM2 17L12 22L22 17M2 12L12 17L22 12",
                 {StageCentre.x - 15 * S, StageCentre.y - 58 * S, 30 * S, 1.6f, SpectrumQuad(0x748463)});
             const char *Heading = "No baked maps yet";
-            const auto HeadingExtent = ImGui::CalcTextSize(Heading);
-            Caption(ImVec2(StageCentre.x - HeadingExtent.x * 0.64f, StageCentre.y - 16 * S), Heading, 16 * S, 0xbdcba9, LightTypeface ? LightTypeface : RegularTypeface);
+            auto *HeadingFont = LightTypeface ? LightTypeface : RegularTypeface;
+            Caption(ImVec2(StageCentre.x - CaptionWidth(Heading, 16 * S, HeadingFont) * .5f, StageCentre.y - 16 * S), Heading, 16 * S, 0xbdcba9, HeadingFont);
             ImGui::SetCursorScreenPos(ImVec2(StageCentre.x - 190 * S, StageCentre.y + 10 * S));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380 * S);
             ImGui::PushStyleColor(ImGuiCol_Text, Spectrum(0x748463));
@@ -1815,8 +1895,7 @@ void BakingWorkspacePanel::ConstructInspector()
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
         Caption(Origin, "OUTPUT", 8 * S, 0x8e8e7b);
         const char *Sub = "8-bit PNG + manifest";
-        const auto Extent = ImGui::CalcTextSize(Sub);
-        Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - Extent.x * 0.56f, Origin.y + 0.5f * S), Sub, 7 * S, 0x666657);
+        Caption(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - 19 * S - CaptionWidth(Sub, 7 * S), Origin.y + 0.5f * S), Sub, 7 * S, 0x666657);
         ImGui::Dummy(ImVec2(1, 19 * S));
     }
 
@@ -1959,6 +2038,7 @@ void BakingWorkspacePanel::ConstructInspector()
         ImGui::PopTextWrapPos();
     }
     Controls.EndCard();
+    ImGui::Dummy(ImVec2(1, 14 * S));
     ImGui::Unindent(19 * S);
     CoalesceSettingsUndo();
     ImGui::EndChild();
@@ -1974,8 +2054,7 @@ void BakingWorkspacePanel::ConstructInspector()
         Ink->AddLine(FooterMinimum, ImVec2(FooterMaximum.x, FooterMinimum.y), ImGui::GetColorU32(Spectrum(0xffffff, 0.02f)));
         Caption(ImVec2(FooterMinimum.x + 19 * S, (FooterMinimum.y + FooterMaximum.y) * .5f - 5 * S), "Settings + selected maps", 8 * S, 0x777d66);
         const char *Sub = "Source meshes: session only";
-        const auto Extent = ImGui::CalcTextSize(Sub);
-        Caption(ImVec2(FooterMaximum.x - 19 * S - Extent.x * 0.54f, (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), Sub, 7 * S, 0x686e59);
+        Caption(ImVec2(FooterMaximum.x - 19 * S - CaptionWidth(Sub, 7 * S), (FooterMinimum.y + FooterMaximum.y) * .5f - 4 * S), Sub, 7 * S, 0x686e59);
     }
 }
 

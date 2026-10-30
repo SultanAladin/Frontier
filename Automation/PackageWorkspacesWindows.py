@@ -86,8 +86,8 @@ def Main():
         for Typeface in Catalogue['faces']:
             if Digest(Installation / 'EngineContent/FontArchives' / Typeface['file']) != Typeface['sha256']:
                 raise RuntimeError('Packaged font differs: ' + Typeface['file'])
-        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 131:
-            raise RuntimeError('Expected complete 131-material catalogue')
+        if len(list((Installation / 'EngineContent/MaterialArchives/TextureStudio').glob('*.material'))) != 142:
+            raise RuntimeError('Expected complete 142-material catalogue')
         Notices = Installation / 'Notices'
         Notices.mkdir()
         for Package, Filename in [('imgui', 'LICENSE.txt'), ('glfw', 'LICENSE.md'), ('tomlpp', 'LICENSE'),

@@ -118,7 +118,7 @@ class MaterialLibraryPanel final : public ActivationSequence
     // selection/revert; the panel's own writes keep it current between seeds.
     MaterialAuthoringStore AuthoringStore;
     std::string AuthoringSelectionKey;
-    bool VariableDockOpen = true;
+    bool VariableDockOpen = false;
     std::string EditingVariableId, RenamingVariableId, InspectorNotice;
     std::string SelectedSandBedId;
     uint32_t FlakePalettePreset = 0;
@@ -158,6 +158,10 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool ClosingRequested = false, CloseAuthorized = false;
     bool Creating = false;
     bool Duplicating = false;
+    uint64_t CachedCpuPreviewRevision = 0;
+    uint32_t CachedCpuPreviewExtent = 0;
+    MaterialPreviewConfiguration CachedCpuPreviewInspection{};
+    std::vector<uint8_t> CachedCpuPreviewRgba;
     void SynchronizeSource();
     void ConstructCatalogue();
     void ConstructSourceEditor();

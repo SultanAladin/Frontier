@@ -541,6 +541,7 @@ std::array<float, 3> EnvironmentKeyInDefaultView(const EnvironmentArchiveEntry &
 
 struct MaterialLibraryRendering::RenderingAllocation
 {
+    VulkanRasterAccess Access{};
     SurfaceRasterPrograms Programs;
     SurfaceGeometryResidence Geometry;
     SurfaceRasterization Tile, Preview;
@@ -553,6 +554,31 @@ struct MaterialLibraryRendering::RenderingAllocation
         // layer selection clamps to it so a rescan can never address a missing layer.
         uint32_t EnvironmentLayers = 1;
     };
+    struct RetiredGeometryResidence
+    {
+        uint64_t Serial = 0;
+        std::unique_ptr<SurfaceGeometryResidence> Geometry;
+    };
+    struct AuxiliaryViewport
+    {
+        std::unique_ptr<SurfaceGeometryResidence> Geometry;
+        std::unique_ptr<SurfaceRasterization> Target;
+        std::shared_ptr<MaterialGpuResidence> Material;
+        MaterialScattering BaseScattering{};
+        std::shared_ptr<SurfaceScatteringResidence> Parameters;
+        std::shared_ptr<SurfaceScatteringResidence> SpareParameters;
+        uint64_t SpareSerial = 0;
+        WorkspaceViewportOrbitCamera Orbit{};
+        uint32_t Width = 512;
+        uint32_t Height = 512;
+        uint32_t PendingWidth = 0;
+        uint32_t PendingHeight = 0;
+        bool Dirty = false;
+        bool Ready = false;
+        bool Recorded = false;
+    };
+    std::array<AuxiliaryViewport, MaterialLibraryRendering::AuxiliaryViewportCount> Auxiliary{};
+    std::vector<RetiredGeometryResidence> RetiredGeometries;
     struct ThumbnailSlot
     {
         std::filesystem::path Path;
@@ -692,6 +718,50 @@ struct MaterialLibraryRendering::RenderingAllocation
         PreviewDirty = true;
         PreviewReady = false;
     }
+    void ReconfigureAuxiliary(uint32_t Slot)
+    {
+        if (Slot >= Auxiliary.size()) return;
+        auto &Aux = Auxiliary[Slot];
+        if (!Aux.Material) return;
+        auto Scattering = Aux.BaseScattering;
+        const uint32_t CatalogueLayers = uint32_t(std::max<size_t>(Environments.size(), 1));
+        const uint32_t ResidentLayers = std::max(Aux.Material->EnvironmentLayers, 1u);
+        const uint32_t EnvironmentIndex = std::min({Aux.Orbit.Environment, CatalogueLayers - 1, ResidentLayers - 1});
+        const auto &Environment = EnvironmentAt(EnvironmentIndex);
+        Scattering.PreviewConfiguration = {0, 0, EnvironmentIndex, 0};
+        Scattering.Illumination.ViewFromSurface = ConstructWorkspaceOrbitProjection(
+            Aux.Orbit, float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height))).ViewFromSurface;
+        Scattering.Illumination.Configuration[2] = 1;
+        Scattering.Illumination.LightColourExposure = {1, 1, 1, Aux.Orbit.Exposure};
+        Scattering.Illumination.EnvironmentHorizon = {0, 0, 0, Environment.Strength * Aux.Orbit.LightIntensity};
+        Scattering.Illumination.EnvironmentZenith = {0, 0, 0, 0};
+        const auto LightDir = ConstructWorkspaceOrbitLightDirection(Aux.Orbit, Environment.KeyDirection);
+        Scattering.Illumination.LightDirectionIntensity = {
+            LightDir[0], LightDir[1], LightDir[2], Environment.KeyIntensity * Aux.Orbit.LightIntensity};
+        const auto EnvUp = ConstructWorkspaceOrbitEnvironmentUp(Aux.Orbit);
+        Scattering.Illumination.EnvironmentUp = {EnvUp[0], EnvUp[1], EnvUp[2], 0};
+
+        std::shared_ptr<SurfaceScatteringResidence> Replacement;
+        if (Aux.SpareParameters && Aux.SpareSerial <= CompletedSerial)
+        {
+            Replacement = std::move(Aux.SpareParameters);
+            Replacement->Finalize();
+        }
+        else Replacement = std::make_shared<SurfaceScatteringResidence>();
+        Replacement->Initialize(Programs, Scattering);
+        if (Aux.Parameters)
+        {
+            if (!Aux.SpareParameters)
+            {
+                Aux.SpareParameters = std::move(Aux.Parameters);
+                Aux.SpareSerial = SubmittedSerial;
+            }
+            else PreviewRetirements.push_back({SubmittedSerial, std::move(Aux.Parameters)});
+        }
+        Aux.Parameters = std::move(Replacement);
+        Aux.Dirty = true;
+        Aux.Ready = false;
+    }
     CompiledSurfaceMaterial DecodeLibraryMaterial(const std::filesystem::path &RelativePath)
     {
         const auto Path = std::filesystem::canonical(Directory / RelativePath);
@@ -717,6 +787,7 @@ void MaterialLibraryRendering::Initialize(const VulkanRasterAccess &Access, cons
     if (Allocation) throw std::runtime_error("Material library rendering already initialized.");
     DiagnosticJournal::Append("MaterialGPU", "Initialize shader directory: " + DiagnosticJournal::EncodePath(ShaderDirectory));
     auto Resident = std::make_unique<RenderingAllocation>();
+    Resident->Access = Access;
     const std::array<const char *, 10> Names{"CadSurfaceVertex", "CadSurfaceFragment", "CadEdgeVertex", "CadEdgeFragment",
         "MatCapSurfaceVertex", "MatCapSurfaceFragment", "PreviewPbrSurfaceVertex", "PreviewPbrSurfaceFragment", "MaterialSurfaceVertex", "MaterialSurfaceFragment"};
     std::array<std::vector<uint32_t>, 10> Words;
@@ -805,6 +876,8 @@ void MaterialLibraryRendering::ConfigureEnvironments(const std::filesystem::path
     for (auto &Slot : Rendering.Slots) if (!Slot.Path.empty()) { Slot.Dirty = true; Slot.SourceDigest = 0; }
     Rendering.ReconfigurePreview();
     Rendering.PreviewDirty = true;
+    for (uint32_t AuxSlot = 0; AuxSlot < AuxiliaryViewportCount; ++AuxSlot)
+        if (Rendering.Auxiliary[AuxSlot].Material) Rendering.ReconfigureAuxiliary(AuxSlot);
     DiagnosticJournal::Append("EnvironmentArchive", "catalogue=" + std::to_string(Rendering.Environments.size()) +
         " generation=" + std::to_string(Rendering.EnvironmentGeneration));
 }
@@ -978,6 +1051,7 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
     std::erase_if(Rendering.PreviewRetirements, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.InFlight, [&](const auto &Residence) { return Residence.Serial <= CompletedSerial; });
     std::erase_if(Rendering.RetiredPreviews, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
+    std::erase_if(Rendering.RetiredGeometries, [&](const auto &Retired) { return Retired.Serial <= CompletedSerial; });
     if (Rendering.PendingPreviewExtent && Rendering.PendingPreviewExtent != Rendering.Preview.QueryExtent().width)
     {
         auto Retired = std::make_unique<SurfaceRasterization>(std::move(Rendering.Preview));
@@ -991,6 +1065,26 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Rendering.PendingPreviewExtent = 0;
         Rendering.PreviewDirty = true;
         Rendering.PreviewReady = false;
+    }
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        Aux.Recorded = false;
+        if (Aux.Geometry && Aux.PendingWidth && Aux.PendingHeight &&
+            (!Aux.Target || Aux.PendingWidth != Aux.Width || Aux.PendingHeight != Aux.Height))
+        {
+            if (Aux.Target) Rendering.RetiredPreviews.push_back({SubmissionSerial, std::move(Aux.Target)});
+            Aux.Width = Aux.PendingWidth;
+            Aux.Height = Aux.PendingHeight;
+            Aux.PendingWidth = 0;
+            Aux.PendingHeight = 0;
+            Aux.Target = std::make_unique<SurfaceRasterization>();
+            Aux.Target->Initialize(Rendering.Programs, *Aux.Geometry, Aux.Width, Aux.Height);
+            Aux.Target->ConfigureTransparentBackground(true);
+            Rendering.ReconfigureAuxiliary(Slot);
+            Aux.Dirty = true;
+            Aux.Ready = false;
+        }
     }
     Rendering.SubmittedSerial = SubmissionSerial;
     Rendering.RecordedSlot = -1;
@@ -1030,6 +1124,23 @@ void MaterialLibraryRendering::ConstructCommands(VkCommandBuffer Commands, uint6
         Rendering.RecordedPreview = true;
         // 📝 First-use geometry/texture uploads belong to one target recording until accepted submission.
         // Alternate preview work and tile work rather than recording the same pending transfers twice.
+        return;
+    }
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        if (!Aux.Dirty || !Aux.Geometry || !Aux.Target || !Aux.Material || !Aux.Parameters) continue;
+        SurfaceNormalProjection Projection{};
+        const float Aspect = float(std::max(1u, Aux.Width)) / float(std::max(1u, Aux.Height));
+        const auto Camera = ConstructWorkspaceOrbitProjection(Aux.Orbit, Aspect);
+        Projection.ClipFromSurface = Camera.ClipFromSurface;
+        const auto &View = Camera.ViewFromSurface;
+        Projection.ViewNormalRow0 = {View[0], View[4], View[8], 0};
+        Projection.ViewNormalRow1 = {View[1], View[5], View[9], 0};
+        Projection.ViewNormalRow2 = {View[2], View[6], View[10], 0};
+        Projection.SurfaceTint = {1, 1, 1, 1};
+        Aux.Target->ConstructCommands(Commands, Projection, Aux.Material->Textures, *Aux.Parameters);
+        Aux.Recorded = true;
         return;
     }
     const auto Dirty = std::find_if(Rendering.Slots.begin(), Rendering.Slots.end(), [](const auto &Slot) { return Slot.Dirty && Slot.Pinned; });
@@ -1103,6 +1214,17 @@ void MaterialLibraryRendering::ConfirmSubmission() noexcept
         Rendering.PreviewReady = true;
         Rendering.PreviewDirty = false;
     }
+    for (uint32_t Slot = 0; Slot < AuxiliaryViewportCount; ++Slot)
+    {
+        auto &Aux = Rendering.Auxiliary[Slot];
+        if (Aux.Recorded && Aux.Target)
+        {
+            Aux.Target->ConfirmSubmission();
+            Aux.Ready = true;
+            Aux.Dirty = false;
+            Aux.Recorded = false;
+        }
+    }
     if (Rendering.RecordedSlot >= 0)
     {
         Rendering.Tile.ConfirmSubmission();
@@ -1163,5 +1285,78 @@ const std::string &MaterialLibraryRendering::QueryDiagnostic() const noexcept
 {
     static const std::string Empty;
     return Allocation ? Allocation->Diagnostic : Empty;
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryGeometry(uint32_t Slot, const SurfaceGeometry &Mesh)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    if (Mesh.Corners.empty() || Mesh.TriangleCorners.size() < 3) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    auto Sanitized = SanitizeMaterialSurfaceGeometry(Mesh);
+    auto ReplacementGeo = std::make_unique<SurfaceGeometryResidence>();
+    ReplacementGeo->Initialize(Rendering.Access, Sanitized);
+    auto ReplacementTarget = std::make_unique<SurfaceRasterization>();
+    ReplacementTarget->Initialize(Rendering.Programs, *ReplacementGeo, std::max(256u, Aux.Width), std::max(256u, Aux.Height));
+    ReplacementTarget->ConfigureTransparentBackground(true);
+    if (Aux.Target) Rendering.RetiredPreviews.push_back({Rendering.SubmittedSerial, std::move(Aux.Target)});
+    if (Aux.Geometry) Rendering.RetiredGeometries.push_back({Rendering.SubmittedSerial, std::move(Aux.Geometry)});
+    Aux.Geometry = std::move(ReplacementGeo);
+    Aux.Target = std::move(ReplacementTarget);
+    if (Aux.Material) Rendering.ReconfigureAuxiliary(Slot);
+    Aux.Dirty = true;
+    Aux.Ready = false;
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryMaterial(uint32_t Slot, const CompiledSurfaceMaterial &Material)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    auto Residence = Rendering.CompileResidence(Material);
+    if (Aux.Material) Rendering.InFlight.push_back({Rendering.SubmittedSerial, std::move(Aux.Material)});
+    Aux.Material = std::move(Residence);
+    Aux.BaseScattering = Material.Scattering;
+    Rendering.ReconfigureAuxiliary(Slot);
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryCamera(uint32_t Slot, const WorkspaceViewportOrbitCamera &Camera)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Rendering = *Allocation;
+    auto &Aux = Rendering.Auxiliary[Slot];
+    if (Aux.Orbit == Camera) return;
+    Aux.Orbit = Camera;
+    Rendering.ReconfigureAuxiliary(Slot);
+}
+
+void MaterialLibraryRendering::ConfigureAuxiliaryExtent(uint32_t Slot, uint32_t Width, uint32_t Height)
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount) return;
+    auto &Aux = Allocation->Auxiliary[Slot];
+    const uint32_t ClampedW = std::clamp((Width + 63u) / 64u * 64u, 256u, 2048u);
+    const uint32_t ClampedH = std::clamp((Height + 63u) / 64u * 64u, 256u, 2048u);
+    if (ClampedW != Aux.Width || ClampedH != Aux.Height)
+    {
+        Aux.PendingWidth = ClampedW;
+        Aux.PendingHeight = ClampedH;
+    }
+}
+
+VkImage MaterialLibraryRendering::QueryAuxiliaryViewportImage(uint32_t Slot) const noexcept
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount || !Allocation->Auxiliary[Slot].Target) return VK_NULL_HANDLE;
+    return Allocation->Auxiliary[Slot].Target->QueryImage();
+}
+
+VkImageView MaterialLibraryRendering::QueryAuxiliaryViewportView(uint32_t Slot) const noexcept
+{
+    if (!Allocation || Slot >= AuxiliaryViewportCount || !Allocation->Auxiliary[Slot].Target) return VK_NULL_HANDLE;
+    return Allocation->Auxiliary[Slot].Target->QueryImageView();
+}
+
+bool MaterialLibraryRendering::QueryAuxiliaryViewportReady(uint32_t Slot) const noexcept
+{
+    return Allocation && Slot < AuxiliaryViewportCount && Allocation->Auxiliary[Slot].Ready;
 }
 } // namespace Frontier

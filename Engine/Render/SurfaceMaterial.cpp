@@ -76,6 +76,763 @@ double EncodeSrgb(double Linear)
 {
     return Linear <= .0031308 ? Linear*12.92 : 1.055*std::pow(Linear,1/2.4)-.055;
 }
+
+std::string EncodeHexFromLinearRgb(const float Linear[3])
+{
+    char Buffer[8];
+    const auto Byte = [](float Channel) {
+        return unsigned(std::lround(std::clamp(EncodeSrgb(std::clamp(double(Channel), 0., 1.)), 0., 1.) * 255.));
+    };
+    std::snprintf(Buffer, sizeof(Buffer), "#%02x%02x%02x", Byte(Linear[0]), Byte(Linear[1]), Byte(Linear[2]));
+    return Buffer;
+}
+
+std::vector<uint8_t> DecodeBase64DataUrl(std::string_view DataUrl)
+{
+    const size_t Comma = DataUrl.find(',');
+    const std::string_view Payload = Comma == std::string_view::npos ? DataUrl : DataUrl.substr(Comma + 1);
+    std::vector<uint8_t> Bytes;
+    Bytes.reserve(Payload.size() * 3 / 4);
+    uint32_t Accumulator = 0;
+    int Bits = -8;
+    for (unsigned char Character : Payload)
+    {
+        int Digit = -1;
+        if (Character >= 'A' && Character <= 'Z') Digit = Character - 'A';
+        else if (Character >= 'a' && Character <= 'z') Digit = Character - 'a' + 26;
+        else if (Character >= '0' && Character <= '9') Digit = Character - '0' + 52;
+        else if (Character == '+') Digit = 62;
+        else if (Character == '/') Digit = 63;
+        else if (Character == '=') break;
+        else continue;
+        Accumulator = (Accumulator << 6) | uint32_t(Digit);
+        Bits += 6;
+        if (Bits >= 0)
+        {
+            Bytes.push_back(uint8_t((Accumulator >> Bits) & 0xffu));
+            Bits -= 8;
+        }
+    }
+    return Bytes;
+}
+
+void EvaluateAuthoringLayerStack(const MaterialDefinition &Material, const MaterialAuthoringDocument &Document,
+    CompiledSurfaceMaterial &Compiled)
+{
+    MaterialAuthoringStore Store;
+    auto &Illumination = Compiled.Scattering.Illumination;
+    auto &Paint = Compiled.Scattering.Paint;
+    if (Illumination.Configuration[0] > 0)
+    {
+        const auto &Base = Illumination.Strata[0];
+        Store["color"] = EncodeHexFromLinearRgb(Base.AlbedoRoughness.data());
+        Store["roughness"] = double(Base.AlbedoRoughness[3]);
+        Store["metalness"] = double(Base.Optics[0]);
+        Store["ior"] = double(Base.Optics[1]);
+        Store["specular"] = double(Compiled.Scattering.DirectionalOptics[0][3]);
+        Store["anisotropy"] = double(Compiled.Scattering.DirectionalOptics[0][0]);
+        Store["sheen"] = double(Base.Sheen[3]);
+        Store["sheenColor"] = EncodeHexFromLinearRgb(Base.Sheen.data());
+        Store["sheenRoughness"] = double(Base.SheenFinish[0]);
+        Store["heightStrength"] = double(Compiled.Scattering.StratumNormal[0][1]);
+        Store["normalStrength"] = double(Compiled.Scattering.RadianceNormal[3]);
+    }
+    if (Illumination.Configuration[0] > 1 && Illumination.Strata[1].Classification[0] == 1)
+    {
+        Store["coat"] = double(Illumination.Strata[1].Optics[2]);
+        Store["coatRoughness"] = double(Illumination.Strata[1].AlbedoRoughness[3]);
+        Store["coatIor"] = double(Illumination.Strata[1].Optics[1]);
+    }
+    else
+    {
+        Store["coat"] = 0.;
+        Store["coatRoughness"] = .1;
+        Store["coatIor"] = 1.5;
+    }
+    Store["flakeLayers"] = double(Paint.Configuration[1]);
+    Store["flakes"] = double(Paint.Distribution[0]);
+    Store["flakeSize"] = double(Paint.Distribution[1]);
+    Store["flakeScale"] = double(Paint.Distribution[2]);
+    Store["depth"] = double(Paint.Distribution[3]);
+    Store["flakeRoughness"] = double(Paint.Finish[0]);
+    Store["flakeRoughnessMin"] = double(Paint.Finish[0]);
+    Store["flakeRoughnessMax"] = double(Paint.Finish[1]);
+    Store["flakeMetalnessMin"] = double(Paint.Finish[2]);
+    Store["flakeMetalnessMax"] = double(Paint.Finish[3]);
+    Store["flakeTilt"] = double(Paint.Relief[0]);
+    Store["flakeLayerDepth"] = double(Paint.Relief[1]);
+    Store["orangePeel"] = double(Paint.Relief[2]);
+    Store["orangePeelScale"] = double(Paint.Relief[3]);
+    Store["flakeTint"] = EncodeHexFromLinearRgb(Paint.Palette[0].data());
+
+    const auto ReadQuantity = [&](const std::string &Address) -> std::optional<MaterialAuthoringQuantity>
+    {
+        try { return ReadMaterialParameter(Document, Store, Address); }
+        catch (const std::exception &) { return std::nullopt; }
+    };
+    const auto ReadScalar = [&](const std::string &Address, double Fallback) -> double
+    {
+        const auto Quantity = ReadQuantity(Address);
+        return Quantity && std::holds_alternative<double>(*Quantity) && std::isfinite(std::get<double>(*Quantity)) ?
+            std::get<double>(*Quantity) : Fallback;
+    };
+    const auto HasExplicit = [&](const std::string &Address) -> bool
+    {
+        std::string Root = Address;
+        try { Root = ResolveMaterialAddress(Document, Address); } catch (const std::exception &) {}
+        return Document.Inputs.contains(Address) || Document.Inputs.contains(Root) || Document.Links.contains(Address);
+    };
+    const auto HasChannel = [](const MaterialAuthoringLayer &Layer, std::string_view Channel) -> bool
+    {
+        return std::find(Layer.Channels.begin(), Layer.Channels.end(), Channel) != Layer.Channels.end();
+    };
+
+    // Pass 1: Structural layer state and flat scalar/colour overrides (surface, flakes, coat).
+    for (const auto &Layer : Document.Layers)
+    {
+        if (Layer.Model == "surface" && Illumination.Configuration[0] > 0)
+        {
+            auto &Base = Illumination.Strata[0];
+            if (!Layer.Enabled)
+            {
+                Base.AlbedoRoughness = {.5f, .5f, .5f, .5f};
+                Base.Optics = {0.f, 1.5f, 1.f, 0.f};
+                Base.Sheen = {0.f, 0.f, 0.f, 0.f};
+                Compiled.Scattering.TextureUse[0][0] = 0;
+            }
+            else
+            {
+                if (HasExplicit("color"))
+                    if (const auto Quantity = ReadQuantity("color"); Quantity && std::holds_alternative<std::string>(*Quantity))
+                    {
+                        float Linear[3]{};
+                        if (DecodeHexLinearRgb(std::get<std::string>(*Quantity), Linear))
+                        {
+                            Base.AlbedoRoughness[0] = Linear[0];
+                            Base.AlbedoRoughness[1] = Linear[1];
+                            Base.AlbedoRoughness[2] = Linear[2];
+                        }
+                    }
+                if (HasExplicit("roughness")) Base.AlbedoRoughness[3] = float(std::clamp(ReadScalar("roughness", Base.AlbedoRoughness[3]), .045, 1.));
+                if (!HasChannel(Layer, "metallic")) Base.Optics[0] = 0.f;
+                else if (HasExplicit("metalness")) Base.Optics[0] = float(std::clamp(ReadScalar("metalness", Base.Optics[0]), 0., 1.));
+                if (HasExplicit("ior")) Base.Optics[1] = float(std::clamp(ReadScalar("ior", Base.Optics[1]), 1.01, 3.));
+                if (HasExplicit("specular")) Compiled.Scattering.DirectionalOptics[0][3] = float(std::clamp(ReadScalar("specular", Compiled.Scattering.DirectionalOptics[0][3]), 0., 1.));
+                if (!HasChannel(Layer, "anisotropy")) Compiled.Scattering.DirectionalOptics[0][0] = 0.f;
+                else if (HasExplicit("anisotropy")) Compiled.Scattering.DirectionalOptics[0][0] = float(std::clamp(ReadScalar("anisotropy", 0.), -1., 1.));
+                if (!HasChannel(Layer, "sheen")) Base.Sheen[3] = 0.f;
+                else
+                {
+                    if (HasExplicit("sheen")) Base.Sheen[3] = float(std::clamp(ReadScalar("sheen", Base.Sheen[3]), 0., 1.));
+                    if (HasExplicit("sheenRoughness")) Base.SheenFinish[0] = float(std::clamp(ReadScalar("sheenRoughness", Base.SheenFinish[0]), .045, 1.));
+                    if (HasExplicit("sheenColor"))
+                        if (const auto Quantity = ReadQuantity("sheenColor"); Quantity && std::holds_alternative<std::string>(*Quantity))
+                        {
+                            float Linear[3]{};
+                            if (DecodeHexLinearRgb(std::get<std::string>(*Quantity), Linear))
+                                std::copy(std::begin(Linear), std::end(Linear), Base.Sheen.begin());
+                        }
+                }
+                if (!HasChannel(Layer, "normal")) Compiled.Scattering.TextureUse[0][0] &= ~4u;
+            }
+        }
+        else if (Layer.Model == "flakes")
+        {
+            const MaterialAuthoringField *Generator = nullptr;
+            for (const auto &Candidate : Document.Generators)
+                if (Candidate.Identity == Layer.Generator || (Layer.Generator.empty() && Candidate.Procedure == "flakes"))
+                    Generator = &Candidate;
+            if (!Layer.Enabled || (Generator && !Generator->Enabled) || !HasChannel(Layer, "coverage"))
+            {
+                Paint.Configuration[0] = 0;
+            }
+            else
+            {
+                if (Paint.Configuration[3] == 0)
+                {
+                    Paint.Configuration = {1, 2, 2, 1};
+                    Paint.Distribution = {.38f, 180.f, 1.f, .42f};
+                    Paint.Finish = {.14f, .28f, .85f, 1.f};
+                    Paint.Relief = {.2f, .5f, 0.f, 24.f};
+                    Paint.Palette[0] = {.92f, .90f, .86f, 0.f};
+                }
+                else Paint.Configuration[0] = 1;
+                if (HasExplicit("flakeLayers"))
+                    Paint.Configuration[1] = uint32_t(std::clamp(std::lround(ReadScalar("flakeLayers", Paint.Configuration[1])), 1l, 4l));
+                if (HasExplicit("flakes")) Paint.Distribution[0] = float(std::clamp(ReadScalar("flakes", Paint.Distribution[0]), 0., 1.));
+                if (HasExplicit("flakeSize")) Paint.Distribution[1] = float(std::clamp(ReadScalar("flakeSize", Paint.Distribution[1]), .001, 1000000.));
+                if (HasExplicit("flakeScale")) Paint.Distribution[2] = float(std::clamp(ReadScalar("flakeScale", Paint.Distribution[2]), .001, 1000.));
+                if (HasExplicit("depth")) Paint.Distribution[3] = float(std::clamp(ReadScalar("depth", Paint.Distribution[3]), 0., 4.));
+                if (HasExplicit("flakeRoughnessMin")) Paint.Finish[0] = float(std::clamp(ReadScalar("flakeRoughnessMin", Paint.Finish[0]), 0., 1.));
+                if (HasExplicit("flakeRoughnessMax")) Paint.Finish[1] = float(std::clamp(ReadScalar("flakeRoughnessMax", Paint.Finish[1]), 0., 1.));
+                if (HasExplicit("flakeRoughness"))
+                {
+                    const float Rough = float(std::clamp(ReadScalar("flakeRoughness", Paint.Finish[0]), 0., 1.));
+                    Paint.Finish[0] = Rough;
+                    Paint.Finish[1] = std::max(Rough, Paint.Finish[1]);
+                }
+                if (HasExplicit("flakeMetalnessMin")) Paint.Finish[2] = float(std::clamp(ReadScalar("flakeMetalnessMin", Paint.Finish[2]), 0., 1.));
+                if (HasExplicit("flakeMetalnessMax")) Paint.Finish[3] = float(std::clamp(ReadScalar("flakeMetalnessMax", Paint.Finish[3]), 0., 1.));
+                if (HasExplicit("flakeTilt")) Paint.Relief[0] = float(std::clamp(ReadScalar("flakeTilt", Paint.Relief[0]), 0., 1.));
+                if (HasExplicit("flakeLayerDepth")) Paint.Relief[1] = float(std::clamp(ReadScalar("flakeLayerDepth", Paint.Relief[1]), 0., 1.));
+                if (HasExplicit("orangePeel")) Paint.Relief[2] = float(std::clamp(ReadScalar("orangePeel", Paint.Relief[2]), 0., 1.));
+                if (HasExplicit("orangePeelScale")) Paint.Relief[3] = float(std::clamp(ReadScalar("orangePeelScale", Paint.Relief[3]), 0., 10000.));
+                const std::string CoverageAddr = MaterialChannelAddress(Layer, "coverage");
+                if (HasExplicit(CoverageAddr))
+                    Paint.Distribution[0] = float(std::clamp(Paint.Distribution[0] * ReadScalar(CoverageAddr, 1.), 0., 1.));
+                const std::string ColourAddr = MaterialChannelAddress(Layer, "colour");
+                if (HasExplicit(ColourAddr) || HasExplicit("flakeTint"))
+                {
+                    const auto Quantity = HasExplicit(ColourAddr) ? ReadQuantity(ColourAddr) : ReadQuantity("flakeTint");
+                    if (Quantity && std::holds_alternative<std::string>(*Quantity))
+                    {
+                        float Linear[3]{};
+                        if (DecodeHexLinearRgb(std::get<std::string>(*Quantity), Linear))
+                        {
+                            Paint.Configuration[2] = 2;
+                            Paint.Configuration[3] = std::max(1u, Paint.Configuration[3]);
+                            for (size_t Index = 0; Index < 3; ++Index) Paint.Palette[0][Index] = Linear[Index];
+                        }
+                    }
+                }
+                const std::string RoughAddr = MaterialChannelAddress(Layer, "roughness");
+                if (HasExplicit(RoughAddr))
+                {
+                    const float Rough = float(std::clamp(ReadScalar(RoughAddr, Paint.Finish[0]), 0., 1.));
+                    Paint.Finish[0] = Rough;
+                    Paint.Finish[1] = Rough;
+                }
+                const std::string MetalAddr = MaterialChannelAddress(Layer, "metallic");
+                if (!HasChannel(Layer, "metallic"))
+                {
+                    Paint.Finish[2] = 0.f;
+                    Paint.Finish[3] = 0.f;
+                }
+                else if (HasExplicit(MetalAddr))
+                {
+                    const float Metal = float(std::clamp(ReadScalar(MetalAddr, Paint.Finish[2]), 0., 1.));
+                    Paint.Finish[2] = Metal;
+                    Paint.Finish[3] = Metal;
+                }
+                Paint.Finish[1] = std::max(Paint.Finish[0], Paint.Finish[1]);
+                Paint.Finish[3] = std::max(Paint.Finish[2], Paint.Finish[3]);
+                if (!HasChannel(Layer, "normal")) Paint.Relief[0] = 0.f;
+            }
+        }
+        else if (Layer.Model == "coat")
+        {
+            const bool HasCoatStratum = Illumination.Configuration[0] > 1 && Illumination.Strata[1].Classification[0] == 1;
+            if (!Layer.Enabled || !HasChannel(Layer, "coverage"))
+            {
+                if (HasCoatStratum) Illumination.Strata[1].Optics[2] = 0.f;
+            }
+            else
+            {
+                const double Coverage = std::clamp(ReadScalar("coat", HasCoatStratum ? Illumination.Strata[1].Optics[2] : .85), 0., 1.);
+                const double Roughness = std::clamp(ReadScalar("coatRoughness", HasCoatStratum ? Illumination.Strata[1].AlbedoRoughness[3] : .08), .045, 1.);
+                const double Ior = std::clamp(ReadScalar("coatIor", HasCoatStratum ? Illumination.Strata[1].Optics[1] : 1.5), 1.01, 3.);
+                if (!HasCoatStratum && Illumination.Configuration[0] == 1 && Coverage > 0. && HasExplicit("coat"))
+                {
+                    Illumination.Configuration[0] = 2;
+                    auto &Coat = Illumination.Strata[1];
+                    Coat = {};
+                    Coat.Classification[0] = 1;
+                    Coat.AlbedoRoughness = {1.f, 1.f, 1.f, float(Roughness)};
+                    Coat.Optics = {0.f, float(Ior), float(Coverage), 0.f};
+                    Compiled.Scattering.DirectionalOptics[1] = {0.f, 0.f, 0.f, .5f};
+                }
+                else if (HasCoatStratum && (HasExplicit("coat") || HasExplicit("coatRoughness") || HasExplicit("coatIor")))
+                {
+                    Illumination.Strata[1].Optics[2] = float(Coverage);
+                    Illumination.Strata[1].AlbedoRoughness[3] = float(Roughness);
+                    Illumination.Strata[1].Optics[1] = float(Ior);
+                }
+            }
+        }
+    }
+
+    // Pass 2: Bottom-to-top PBR channel compositing for Fill ("detail") layers and spatial sources.
+    struct DecodedInlineRaster
+    {
+        uint32_t Width = 0, Height = 0;
+        std::vector<uint8_t> Rgba;
+    };
+    struct EvaluatedChannelSpec
+    {
+        std::string Channel;
+        std::string Address;
+        const MaterialPbrChannel *Specification = nullptr;
+        double DomainMin = 0., DomainMax = 1.;
+        MaterialAuthoringSource Source;
+        std::optional<MaterialAuthoringQuantity> Constant;
+        const MaterialAuthoringField *Generator = nullptr;
+        CodedFieldParameters FieldParams{};
+        double FieldAngle = 0., FieldAmount = 1.;
+        std::vector<std::array<float, 3>> CamouflagePaletteLinear;
+        std::vector<std::array<float, 3>> StopsLinear;
+        std::optional<DecodedInlineRaster> Raster;
+        bool Spatial = false;
+    };
+
+    const auto BuildChannelSpec = [&](const MaterialAuthoringLayer &Layer, const std::string &ChannelName) -> std::optional<EvaluatedChannelSpec>
+    {
+        const auto *Spec = QueryMaterialPbrChannel(ChannelName);
+        if (!Spec) return std::nullopt;
+        EvaluatedChannelSpec Entry;
+        Entry.Channel = ChannelName;
+        const std::string RawAddress = MaterialChannelAddress(Layer, ChannelName);
+        Entry.Address = RawAddress;
+        try { Entry.Address = ResolveMaterialAddress(Document, RawAddress); } catch (const std::exception &) {}
+        Entry.Specification = Spec;
+        Entry.DomainMin = Spec->Minimum;
+        Entry.DomainMax = Spec->Maximum;
+        if (const auto LinkFound = Document.Links.find(RawAddress); LinkFound != Document.Links.end())
+            for (const auto &Variable : Document.Variables)
+                if (Variable.Identity == LinkFound->second)
+                {
+                    Entry.DomainMin = Variable.Minimum;
+                    Entry.DomainMax = Variable.Maximum;
+                    break;
+                }
+        Entry.Source.Mode = "value";
+        Entry.Source.Stops = {"#000000", "#ffffff"};
+        if (const auto Found = Document.Sources.find(Entry.Address); Found != Document.Sources.end()) Entry.Source = Found->second;
+        if (Entry.Source.Stops.size() < 2) Entry.Source.Stops = {"#000000", "#ffffff"};
+        for (const auto &Hex : Entry.Source.Stops)
+        {
+            std::array<float, 3> Linear{1.f, 1.f, 1.f};
+            (void)DecodeHexLinearRgb(Hex, Linear.data());
+            Entry.StopsLinear.push_back(Linear);
+        }
+        Entry.Constant = ReadQuantity(Entry.Address);
+        if (!Entry.Source.Generator.empty())
+            for (const auto &Candidate : Document.Generators)
+                if (Candidate.Identity == Entry.Source.Generator) Entry.Generator = &Candidate;
+        if (Entry.Generator && Entry.Generator->Coded)
+        {
+            std::vector<std::pair<int, std::array<float, 3>>> IndexedColours;
+            for (const auto &Input : Entry.Generator->Inputs)
+            {
+                const size_t Colon = Input.rfind(':');
+                const std::string Suffix = Colon == std::string::npos ? Input : Input.substr(Colon + 1);
+                if (Suffix == "scale") Entry.FieldParams.Scale = ReadScalar(Input, 8.);
+                else if (Suffix == "seed") Entry.FieldParams.Seed = ReadScalar(Input, 12.);
+                else if (Suffix == "softness") Entry.FieldParams.Softness = ReadScalar(Input, .012);
+                else if (Suffix == "pixelSize") Entry.FieldParams.PixelSize = ReadScalar(Input, 4.);
+                else if (Suffix == "angle") Entry.FieldAngle = ReadScalar(Input, 0.);
+                else if (Suffix == "amount") Entry.FieldAmount = ReadScalar(Input, 1.);
+                else if (Suffix.rfind("colour", 0) == 0 && Suffix.size() > 6)
+                {
+                    int SlotIndex = 0;
+                    try { SlotIndex = std::stoi(Suffix.substr(6)); } catch (const std::exception &) { continue; }
+                    if (const auto Quantity = ReadQuantity(Input); Quantity && std::holds_alternative<std::string>(*Quantity))
+                    {
+                        std::array<float, 3> Linear{.5f, .5f, .5f};
+                        if (DecodeHexLinearRgb(std::get<std::string>(*Quantity), Linear.data()))
+                            IndexedColours.push_back({SlotIndex, Linear});
+                    }
+                }
+            }
+            std::sort(IndexedColours.begin(), IndexedColours.end(),
+                [](const auto &Left, const auto &Right) { return Left.first < Right.first; });
+            for (const auto &[SlotIndex, Colour] : IndexedColours)
+            {
+                (void)SlotIndex;
+                Entry.CamouflagePaletteLinear.push_back(Colour);
+            }
+            if (Entry.CamouflagePaletteLinear.size() < 2)
+            {
+                constexpr std::array<const char *, 4> DefaultCamo{"#6b7456", "#3d4633", "#7d6b52", "#232921"};
+                Entry.CamouflagePaletteLinear.clear();
+                for (const char *Hex : DefaultCamo)
+                {
+                    std::array<float, 3> Linear{};
+                    (void)DecodeHexLinearRgb(Hex, Linear.data());
+                    Entry.CamouflagePaletteLinear.push_back(Linear);
+                }
+            }
+            Entry.FieldParams.ColourCount = uint32_t(Entry.CamouflagePaletteLinear.size());
+        }
+        if (Entry.Source.Mode == "texture" && Entry.Source.Texture && !Entry.Source.Texture->DataUrl.empty())
+        {
+            const auto Encoded = DecodeBase64DataUrl(Entry.Source.Texture->DataUrl);
+            int Width = 0, Height = 0, Channels = 0;
+            if (!Encoded.empty())
+            {
+                std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> Pixels(
+                    stbi_load_from_memory(Encoded.data(), int(Encoded.size()), &Width, &Height, &Channels, 4), stbi_image_free);
+                if (Pixels && Width >= 1 && Height >= 1 && Width <= 1024 && Height <= 1024)
+                    Entry.Raster = DecodedInlineRaster{uint32_t(Width), uint32_t(Height),
+                        std::vector<uint8_t>(Pixels.get(), Pixels.get() + size_t(Width) * Height * 4)};
+            }
+        }
+        Entry.Spatial = Entry.Source.Mode != "value" && Entry.Source.Mode != "solid";
+        return Entry;
+    };
+
+    const auto AlreadyBakedDirectlyInSurface = [&](const EvaluatedChannelSpec &Spec) -> bool
+    {
+        if (Spec.Source.Direct != std::optional<bool>(true) || Spec.Source.Mode != "field" || !Spec.Generator) return false;
+        const std::string ExpectedSlot = Spec.Channel == "colour" ? "Albedo" :
+            (Spec.Channel == "roughness" || Spec.Channel == "metallic") ? "Orm" :
+            (Spec.Channel == "normal" || Spec.Channel == "microNormal") ? "Normal" : "";
+        if (ExpectedSlot.empty()) return false;
+        for (const auto &Baked : Material.StratumChannels[0])
+        {
+            if (Baked.Name != ExpectedSlot || Baked.Op != Spec.Generator->Procedure) continue;
+            for (const auto &Input : Spec.Generator->Inputs)
+            {
+                const size_t Colon = Input.rfind(':');
+                const std::string Key = Colon == std::string::npos ? Input : Input.substr(Colon + 1);
+                const auto Quantity = ReadQuantity(Input);
+                if (!Quantity) continue;
+                if (const auto *Scalar = std::get_if<double>(&*Quantity))
+                {
+                    const auto Found = Baked.Params.find(Key);
+                    if (Found != Baked.Params.end() && std::abs(Found->second - *Scalar) > 1e-5) return false;
+                }
+                else if (const auto *Text = std::get_if<std::string>(&*Quantity))
+                {
+                    const auto Found = Baked.Texts.find(Key);
+                    if (Found != Baked.Texts.end() && Found->second != *Text) return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    };
+
+    struct LayerEvaluationPlan
+    {
+        std::string Model;
+        std::optional<EvaluatedChannelSpec> Coverage;
+        std::vector<EvaluatedChannelSpec> Channels;
+    };
+
+    std::vector<LayerEvaluationPlan> Plans;
+    bool AnySpatial = false;
+    for (auto Iterator = Document.Layers.rbegin(); Iterator != Document.Layers.rend(); ++Iterator)
+    {
+        const auto &Layer = *Iterator;
+        if (!Layer.Enabled || (Layer.Model != "detail" && Layer.Model != "surface")) continue;
+        LayerEvaluationPlan Plan;
+        Plan.Model = Layer.Model;
+        if (HasChannel(Layer, "coverage"))
+        {
+            Plan.Coverage = BuildChannelSpec(Layer, "coverage");
+            if (Plan.Coverage && Plan.Coverage->Spatial) AnySpatial = true;
+        }
+        else if (Layer.Model == "detail") continue; // Fill layer without coverage channel has 0 coverage (Alloy parity).
+
+        for (const auto &ChannelName : Layer.Channels)
+        {
+            if (ChannelName == "coverage") continue;
+            auto Spec = BuildChannelSpec(Layer, ChannelName);
+            if (!Spec) continue;
+            if (Layer.Model == "surface")
+            {
+                if (!Spec->Spatial) continue;
+                if (AlreadyBakedDirectlyInSurface(*Spec)) continue;
+            }
+            if (Spec->Spatial) AnySpatial = true;
+            Plan.Channels.push_back(std::move(*Spec));
+        }
+        if (!Plan.Channels.empty()) Plans.push_back(std::move(Plan));
+    }
+
+    if (Plans.empty()) return;
+
+    const auto SampleRawScalarOrColour = [&](const EvaluatedChannelSpec &Spec, double U, double V,
+        std::array<float, 3> &OutComponents, float &OutAlpha, bool ForceScalarGradient) -> bool
+    {
+        OutAlpha = 1.f;
+        const std::string_view Category = ForceScalarGradient ? std::string_view("scalar") : std::string_view(Spec.Specification->Category);
+        if (Spec.Source.Mode == "value" || Spec.Source.Mode == "solid")
+        {
+            if (Category == "vector")
+            {
+                OutComponents = {0.f, 0.f, 1.f};
+                if (Spec.Constant && std::holds_alternative<std::array<double, 3>>(*Spec.Constant))
+                {
+                    const auto &Vector = std::get<std::array<double, 3>>(*Spec.Constant);
+                    OutComponents = {float(Vector[0]), float(Vector[1]), float(Vector[2])};
+                }
+            }
+            else if (Category == "colour")
+            {
+                OutComponents = {1.f, 1.f, 1.f};
+                if (Spec.Constant && std::holds_alternative<std::string>(*Spec.Constant))
+                    (void)DecodeHexLinearRgb(std::get<std::string>(*Spec.Constant), OutComponents.data());
+            }
+            else
+            {
+                const double Fallback = Spec.Channel == "roughness" || Spec.Channel == "sheenRoughness" ? .5 :
+                    Spec.Channel == "ior" ? 1.5 :
+                    (Spec.Channel == "specular" || Spec.Channel == "coverage") ? 1. : Spec.DomainMin;
+                const double Value = Spec.Constant && std::holds_alternative<double>(*Spec.Constant) ?
+                    std::get<double>(*Spec.Constant) : Fallback;
+                OutComponents = {float(Value), float(Value), float(Value)};
+            }
+            return true;
+        }
+        if (Spec.Source.Mode == "texture")
+        {
+            if (!Spec.Raster || Spec.Raster->Rgba.empty()) { OutAlpha = 0.f; return false; }
+            const uint32_t X = std::min(Spec.Raster->Width - 1, uint32_t(std::clamp(U, 0., .999999) * Spec.Raster->Width));
+            const uint32_t Y = std::min(Spec.Raster->Height - 1, uint32_t(std::clamp(V, 0., .999999) * Spec.Raster->Height));
+            const size_t Offset = (size_t(Y) * Spec.Raster->Width + X) * 4;
+            for (size_t Index = 0; Index < 3; ++Index)
+            {
+                const double Raw = Spec.Raster->Rgba[Offset + Index] / 255.;
+                OutComponents[Index] = float(Category == "colour" ? DecodeSrgb(Raw) : Raw);
+            }
+            OutAlpha = Spec.Raster->Rgba[Offset + 3] / 255.f;
+        }
+        else
+        {
+            double Position = U;
+            if (Spec.Source.Mode == "field")
+            {
+                if (!Spec.Generator || !Spec.Generator->Enabled || !Spec.Generator->Coded) { OutAlpha = 0.f; return false; }
+                Position = EvaluateCodedFieldPosition(Spec.Generator->Procedure, Spec.FieldParams,
+                    U, V, Spec.FieldAngle, Spec.FieldAmount);
+            }
+            else if (Spec.Source.Mode == "radial")
+                Position = std::clamp(std::hypot(U - .5, V - .5) * 2., 0., 1.);
+            else if (Spec.Source.Mode == "conic")
+            {
+                const double Turns = std::atan2(V - .5, U - .5) / (2. * 3.14159265358979323846) + 1.;
+                Position = Turns - std::floor(Turns);
+            }
+            else Position = std::clamp(U, 0., 1.);
+
+            const double Clamped = std::clamp(Position, 0., 1.);
+            if (Spec.Source.Mode == "field" && Spec.Generator && Spec.Generator->Procedure.rfind("camouflage", 0) == 0 && !ForceScalarGradient)
+            {
+                const auto &Palette = Spec.CamouflagePaletteLinear;
+                const double Scaled = Clamped * double(Palette.size() - 1);
+                if (Spec.Generator->Procedure == "camouflage-smooth")
+                {
+                    const size_t First = std::min(Palette.size() - 2, size_t(std::floor(Scaled)));
+                    const float Blend = float(Scaled - double(First));
+                    for (size_t Index = 0; Index < 3; ++Index)
+                        OutComponents[Index] = std::lerp(Palette[First][Index], Palette[First + 1][Index], Blend);
+                }
+                else
+                {
+                    const size_t Slot = std::min(Palette.size() - 1, size_t(std::lround(Scaled)));
+                    OutComponents = Palette[Slot];
+                }
+            }
+            else
+            {
+                const auto &Stops = Spec.StopsLinear;
+                const double Segment = Clamped * double(Stops.size() - 1);
+                const size_t First = std::min(Stops.size() - 2, size_t(std::floor(Segment)));
+                const float Blend = float(Segment - double(First));
+                for (size_t Index = 0; Index < 3; ++Index)
+                    OutComponents[Index] = std::lerp(Stops[First][Index], Stops[First + 1][Index], Blend);
+            }
+        }
+        if (Category == "scalar")
+        {
+            const double Maximum = (Spec.Source.Direct != std::optional<bool>(true) &&
+                Spec.Constant && std::holds_alternative<double>(*Spec.Constant) && std::isfinite(std::get<double>(*Spec.Constant))) ?
+                std::clamp(std::get<double>(*Spec.Constant), Spec.DomainMin, Spec.DomainMax) : Spec.DomainMax;
+            const double Luminance = .2126 * OutComponents[0] + .7152 * OutComponents[1] + .0722 * OutComponents[2];
+            const float Quantity = float(Spec.DomainMin + (ForceScalarGradient ? Luminance : Luminance * (Maximum - Spec.DomainMin)));
+            OutComponents = {Quantity, Quantity, Quantity};
+        }
+        else if (Category == "colour" && Spec.Source.Direct != std::optional<bool>(true) &&
+                 Spec.Constant && std::holds_alternative<std::string>(*Spec.Constant))
+        {
+            float Tint[3]{1.f, 1.f, 1.f};
+            if (DecodeHexLinearRgb(std::get<std::string>(*Spec.Constant), Tint))
+                for (size_t Index = 0; Index < 3; ++Index) OutComponents[Index] *= Tint[Index];
+        }
+        return true;
+    };
+
+    const auto SampleChannel = [&](const EvaluatedChannelSpec &Spec, double U, double V,
+        std::array<float, 3> &OutComponents, float &OutAlpha) -> bool
+    {
+        if (std::string_view(Spec.Specification->Category) != "vector" ||
+            Spec.Source.Mode == "value" || Spec.Source.Mode == "solid")
+            return SampleRawScalarOrColour(Spec, U, V, OutComponents, OutAlpha, false);
+        if (Spec.Source.Mode == "texture")
+        {
+            if (!SampleRawScalarOrColour(Spec, U, V, OutComponents, OutAlpha, false)) return false;
+            for (float &Component : OutComponents) Component = Component * 2.f - 1.f;
+        }
+        else
+        {
+            constexpr double Step = 1. / 256.;
+            std::array<float, 3> Centre{}, Right{}, Down{};
+            float AlphaC = 0.f, AlphaR = 0.f, AlphaD = 0.f;
+            if (!SampleRawScalarOrColour(Spec, U, V, Centre, AlphaC, true)) { OutAlpha = 0.f; return false; }
+            double WrapU = U + Step; WrapU -= std::floor(WrapU);
+            double WrapV = V + Step; WrapV -= std::floor(WrapV);
+            (void)SampleRawScalarOrColour(Spec, WrapU, V, Right, AlphaR, true);
+            (void)SampleRawScalarOrColour(Spec, U, WrapV, Down, AlphaD, true);
+            const float SlopeX = float((Right[0] - Centre[0]) / Step);
+            const float SlopeY = float((Down[0] - Centre[0]) / Step);
+            OutComponents = {-SlopeX * .03f, SlopeY * .03f, 1.f};
+            OutAlpha = AlphaC;
+        }
+        if (Spec.Source.Direct != std::optional<bool>(true) &&
+            Spec.Constant && std::holds_alternative<std::array<double, 3>>(*Spec.Constant))
+        {
+            const auto &ConstantVec = std::get<std::array<double, 3>>(*Spec.Constant);
+            OutComponents[0] += float(ConstantVec[0]);
+            OutComponents[1] += float(ConstantVec[1]);
+            OutComponents[2] += float(ConstantVec[2]) - 1.f;
+        }
+        const float Length = std::sqrt(OutComponents[0] * OutComponents[0] +
+            OutComponents[1] * OutComponents[1] + OutComponents[2] * OutComponents[2]);
+        if (Length > 1e-6f) for (float &Component : OutComponents) Component /= Length;
+        else OutComponents = {0.f, 0.f, 1.f};
+        return true;
+    };
+
+    const uint32_t Extent = AnySpatial ? 256u : 1u;
+    const size_t Texels = size_t(Extent) * Extent;
+    // Slots: 0=Colour, 1=Normal, 2=Height, 3=Roughness, 4=Metalness, 5=Occlusion
+    std::array<std::vector<float>, 6> Premultiplied;
+    std::array<std::vector<float>, 6> Alphas;
+    std::array<bool, 6> SlotTouched{};
+    for (size_t Slot = 0; Slot < 6; ++Slot)
+    {
+        Premultiplied[Slot].assign(Texels * 3, 0.f);
+        Alphas[Slot].assign(Texels, 0.f);
+    }
+
+    double DetailIorSum = 0., DetailIorWeight = 0.;
+    double DetailSpecularSum = 0., DetailSpecularWeight = 0.;
+    double DetailSheenSum = 0., DetailSheenWeight = 0.;
+    double DetailAnisoSum = 0., DetailAnisoWeight = 0.;
+
+    for (const auto &Plan : Plans)
+    {
+        for (uint32_t Y = 0; Y < Extent; ++Y)
+        {
+            const double V = Extent == 1 ? .5 : (double(Y) + .5) / double(Extent);
+            for (uint32_t X = 0; X < Extent; ++X)
+            {
+                const double U = Extent == 1 ? .5 : (double(X) + .5) / double(Extent);
+                const size_t Pixel = size_t(Y) * Extent + X;
+                float LayerCoverage = 1.f;
+                if (Plan.Coverage)
+                {
+                    std::array<float, 3> CovSample{1.f, 1.f, 1.f};
+                    float CovAlpha = 1.f;
+                    if (!SampleChannel(*Plan.Coverage, U, V, CovSample, CovAlpha)) continue;
+                    LayerCoverage = std::clamp(CovSample[0] * CovAlpha, 0.f, 1.f);
+                }
+                if (LayerCoverage <= 1e-6f) continue;
+
+                for (const auto &Spec : Plan.Channels)
+                {
+                    std::array<float, 3> Value{};
+                    float SampleAlpha = 1.f;
+                    if (!SampleChannel(Spec, U, V, Value, SampleAlpha)) continue;
+                    const float Weight = std::clamp(LayerCoverage * SampleAlpha, 0.f, 1.f);
+                    if (Weight <= 1e-6f) continue;
+
+                    int TargetSlot = -1;
+                    if (Spec.Channel == "colour") TargetSlot = 0;
+                    else if (Spec.Channel == "normal" || Spec.Channel == "microNormal") TargetSlot = 1;
+                    else if (Spec.Channel == "roughness") TargetSlot = 3;
+                    else if (Spec.Channel == "metallic") TargetSlot = 4;
+
+                    if (TargetSlot >= 0)
+                    {
+                        SlotTouched[size_t(TargetSlot)] = true;
+                        float *Dst = &Premultiplied[size_t(TargetSlot)][Pixel * 3];
+                        float &DstA = Alphas[size_t(TargetSlot)][Pixel];
+                        for (size_t Comp = 0; Comp < 3; ++Comp)
+                            Dst[Comp] = Value[Comp] * Weight + Dst[Comp] * (1.f - Weight);
+                        DstA = Weight + DstA * (1.f - Weight);
+                    }
+                    else if (Plan.Model == "detail")
+                    {
+                        if (Spec.Channel == "ior") { DetailIorSum += Value[0] * Weight; DetailIorWeight += Weight; }
+                        else if (Spec.Channel == "specular") { DetailSpecularSum += Value[0] * Weight; DetailSpecularWeight += Weight; }
+                        else if (Spec.Channel == "sheen") { DetailSheenSum += Value[0] * Weight; DetailSheenWeight += Weight; }
+                        else if (Spec.Channel == "anisotropy") { DetailAnisoSum += Value[0] * Weight; DetailAnisoWeight += Weight; }
+                    }
+                }
+            }
+        }
+    }
+
+    if (Illumination.Configuration[0] > 0)
+    {
+        auto &Base = Illumination.Strata[0];
+        if (DetailIorWeight > 0.)
+        {
+            const float AvgWeight = float(std::clamp(DetailIorWeight / double(Texels), 0., 1.));
+            Base.Optics[1] = std::lerp(Base.Optics[1], float(DetailIorSum / DetailIorWeight), AvgWeight);
+        }
+        if (DetailSpecularWeight > 0.)
+        {
+            const float AvgWeight = float(std::clamp(DetailSpecularWeight / double(Texels), 0., 1.));
+            Compiled.Scattering.DirectionalOptics[0][3] = std::lerp(
+                Compiled.Scattering.DirectionalOptics[0][3], float(DetailSpecularSum / DetailSpecularWeight), AvgWeight);
+        }
+        if (DetailSheenWeight > 0.)
+        {
+            const float AvgWeight = float(std::clamp(DetailSheenWeight / double(Texels), 0., 1.));
+            Base.Sheen[3] = std::lerp(Base.Sheen[3], float(DetailSheenSum / DetailSheenWeight), AvgWeight);
+        }
+        if (DetailAnisoWeight > 0.)
+        {
+            const float AvgWeight = float(std::clamp(DetailAnisoWeight / double(Texels), 0., 1.));
+            Compiled.Scattering.DirectionalOptics[0][0] = std::lerp(
+                Compiled.Scattering.DirectionalOptics[0][0], float(DetailAnisoSum / DetailAnisoWeight), AvgWeight);
+        }
+    }
+
+    constexpr std::array<MaterialTextureCategory, 6> Categories{
+        MaterialTextureCategory::Albedo, MaterialTextureCategory::TangentNormal,
+        MaterialTextureCategory::OcclusionRoughnessMetallic, MaterialTextureCategory::OcclusionRoughnessMetallic,
+        MaterialTextureCategory::OcclusionRoughnessMetallic, MaterialTextureCategory::OcclusionRoughnessMetallic};
+    for (size_t Slot = 0; Slot < 6; ++Slot)
+    {
+        if (!SlotTouched[Slot]) continue;
+        std::vector<float> StraightRgba(Texels * 4, 0.f);
+        for (size_t Pixel = 0; Pixel < Texels; ++Pixel)
+        {
+            const float Alpha = std::clamp(Alphas[Slot][Pixel], 0.f, 1.f);
+            float *Out = &StraightRgba[Pixel * 4];
+            if (Alpha > 1e-6f)
+            {
+                const float InvAlpha = 1.f / Alpha;
+                if (Slot == 1)
+                {
+                    float Nx = Premultiplied[Slot][Pixel * 3 + 0] * InvAlpha;
+                    float Ny = Premultiplied[Slot][Pixel * 3 + 1] * InvAlpha;
+                    float Nz = Premultiplied[Slot][Pixel * 3 + 2] * InvAlpha;
+                    const float Len = std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
+                    if (Len > 1e-6f) { Nx /= Len; Ny /= Len; Nz /= Len; }
+                    else { Nx = 0.f; Ny = 0.f; Nz = 1.f; }
+                    Out[0] = Nx * .5f + .5f;
+                    Out[1] = Ny * .5f + .5f;
+                    Out[2] = Nz * .5f + .5f;
+                }
+                else
+                {
+                    Out[0] = std::clamp(Premultiplied[Slot][Pixel * 3 + 0] * InvAlpha, 0.f, 1.f);
+                    Out[1] = std::clamp(Premultiplied[Slot][Pixel * 3 + 1] * InvAlpha, 0.f, 1.f);
+                    Out[2] = std::clamp(Premultiplied[Slot][Pixel * 3 + 2] * InvAlpha, 0.f, 1.f);
+                }
+                Out[3] = Alpha;
+            }
+            else if (Slot == 1) { Out[0] = .5f; Out[1] = .5f; Out[2] = 1.f; Out[3] = 0.f; }
+            else { Out[0] = (Slot == 4 ? 0.f : 1.f); Out[1] = 0.f; Out[2] = 0.f; Out[3] = 0.f; }
+        }
+        Compiled.AuthoringMaps[Slot] = ConstructFloatMaterialPyramid(Extent, Extent, Categories[Slot], StraightRgba);
+    }
+}
 } // namespace
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -561,6 +1318,7 @@ CompiledSurfaceMaterial CompileSurfaceMaterial(const MaterialDefinition &Materia
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralRoughness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralMetalness),
         ConstructFloatMaterialPyramid(1,1,MaterialTextureCategory::OcclusionRoughnessMetallic,NeutralOcclusion)};
+    if (Material.Authoring) EvaluateAuthoringLayerStack(Material, *Material.Authoring, Compiled);
     Paint.AverageTint = {};
     if (Paint.Configuration[0])
         for (uint32_t Sample = 0; Sample < 48; ++Sample)

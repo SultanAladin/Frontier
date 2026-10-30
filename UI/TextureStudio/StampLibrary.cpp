@@ -533,4 +533,48 @@ std::array<float, 4> StampLibrary::Sample(const StampLibraryEntry &Entry, float 
     }
     return Result;
 }
+
+StampPbrSample StampLibrary::SamplePbr(const StampLibraryEntry &Entry, float U, float V) noexcept
+{
+    StampPbrSample Out{};
+    const int Extent = Entry.PbrExtent;
+    const size_t Count = Extent > 0 ? size_t(Extent) * size_t(Extent) : 0;
+    if (!Entry.HasPbrMaps || Extent <= 0 || Entry.Coverage.size() != Count) return Out;
+    const float X = std::clamp(U, 0.f, 1.f) * float(Extent - 1);
+    const float Y = std::clamp(V, 0.f, 1.f) * float(Extent - 1);
+    const int X0 = int(std::floor(X)), Y0 = int(std::floor(Y));
+    const int X1 = std::min(Extent - 1, X0 + 1), Y1 = std::min(Extent - 1, Y0 + 1);
+    const float Fx = X - float(X0), Fy = Y - float(Y0);
+    const size_t I00 = size_t(Y0) * size_t(Extent) + size_t(X0);
+    const size_t I10 = size_t(Y0) * size_t(Extent) + size_t(X1);
+    const size_t I01 = size_t(Y1) * size_t(Extent) + size_t(X0);
+    const size_t I11 = size_t(Y1) * size_t(Extent) + size_t(X1);
+    const auto Bilerp = [&](const std::vector<float> &Field, float Fallback) noexcept {
+        if (Field.size() != Count) return Fallback;
+        const float Top = Field[I00] + (Field[I10] - Field[I00]) * Fx;
+        const float Bottom = Field[I01] + (Field[I11] - Field[I01]) * Fx;
+        return Top + (Bottom - Top) * Fy;
+    };
+    Out.Coverage = Bilerp(Entry.Coverage, 0.f);
+    Out.Height = Bilerp(Entry.HeightMap, 0.f);
+    Out.HeightMask = Bilerp(Entry.HeightMask, 0.f);
+    Out.NormalX = Bilerp(Entry.NormalX, 0.f);
+    Out.NormalY = Bilerp(Entry.NormalY, 0.f);
+    Out.NormalZ = Bilerp(Entry.NormalZ, 1.f);
+    const float NLen = std::sqrt(Out.NormalX * Out.NormalX + Out.NormalY * Out.NormalY + Out.NormalZ * Out.NormalZ);
+    if (NLen > 1e-5f) { Out.NormalX /= NLen; Out.NormalY /= NLen; Out.NormalZ /= NLen; }
+    Out.NormalMask = Bilerp(Entry.NormalMask, 0.f);
+    Out.Roughness = Bilerp(Entry.Roughness, .7f);
+    Out.RoughnessMask = Bilerp(Entry.RoughnessMask, 0.f);
+    Out.Metalness = Bilerp(Entry.Metalness, 0.f);
+    Out.MetalnessMask = Bilerp(Entry.MetalnessMask, 0.f);
+    Out.Opacity = Bilerp(Entry.Opacity, 0.f);
+    Out.Occlusion = Bilerp(Entry.Occlusion, 1.f);
+    Out.OcclusionMask = Bilerp(Entry.OcclusionMask, 0.f);
+    Out.Transmission = Bilerp(Entry.Transmission, 0.f);
+    Out.TransmissionMask = Bilerp(Entry.TransmissionMask, 0.f);
+    Out.Clearcoat = Bilerp(Entry.Clearcoat, 0.f);
+    Out.ClearcoatMask = Bilerp(Entry.ClearcoatMask, 0.f);
+    return Out;
+}
 } // namespace Frontier

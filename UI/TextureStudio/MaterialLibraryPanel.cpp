@@ -5,6 +5,7 @@
 
 #include "MaterialLibraryPanel.h"
 #include "PanelChrome.h"
+#include "WorkspaceViewportDrawList.h"
 #include "Engine/ContentInterchange/MaterialRecipeProfiles.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/DropdownControls.h"
@@ -139,6 +140,11 @@ std::optional<float> QueryRecipeCoefficient(MaterialDefinition &Definition, std:
     {
         if (Key == "flakeLayers") return float(Definition.Scattering.Paint.Configuration[1]);
         if (const auto *Coefficient = QueryPaintCoefficient(Definition.Scattering.Paint, Key)) return *Coefficient;
+    }
+    else if (Key == "depth" && Definition.Scattering.Illumination.Configuration[0] > 1 &&
+             Definition.Scattering.Illumination.Strata[1].Classification[0] == 1)
+    {
+        return Definition.Scattering.Illumination.Strata[1].AbsorptionThickness[3];
     }
     // 📝 Emission strength is the peak of the authored Radiance spectrum (LED recipes).
     if (Key == "emissionStrength")
@@ -426,7 +432,7 @@ void DrawInspectorGradient(ImVec2 Minimum, ImVec2 Maximum, const std::vector<uin
         return;
     }
     constexpr int Bands = 32;
-    Ink->PushClipRect(Minimum, Maximum, false);
+    Ink->PushClipRect(Minimum, Maximum, true);
     for (int Band = 0; Band < Bands; ++Band)
     {
         const float T = (float(Band) + .5f) / float(Bands);
@@ -442,7 +448,6 @@ void DrawInspectorGradient(ImVec2 Minimum, ImVec2 Maximum, const std::vector<uin
         const float X1 = Minimum.x + (Maximum.x - Minimum.x) * float(Band + 1) / float(Bands) + 1;
         Ink->AddRectFilled(ImVec2(X0, Minimum.y), ImVec2(X1, Maximum.y), IM_COL32(Mix(16), Mix(8), Mix(0), Faded));
     }
-    Ink->PopClipRect();
     if (Radius > 0)
     {
         // 📝 Round the silhouette by redrawing the corner outsides in the caller's backdrop tone.
@@ -465,6 +470,7 @@ void DrawInspectorGradient(ImVec2 Minimum, ImVec2 Maximum, const std::vector<uin
         Punch(Maximum, ImVec2(Maximum.x - R, Maximum.y - R), 0.f, 1.57079633f,
             ImVec2(Maximum.x, Maximum.y - R));
     }
+    Ink->PopClipRect();
 }
 void DrawInspectorCheckerboard(ImVec2 Minimum, ImVec2 Maximum, float Cell, uint32_t A, uint32_t B, float Scale)
 {
@@ -979,7 +985,12 @@ void MaterialLibraryPanel::ConstructCatalogue()
     if (ConstructMaterialPill(CollectionCaption.c_str(), ImVec2(Origin.x + Width * .5f + 3 * Scale, Origin.y + 10 * Scale),
         ImVec2((Width - 34 * Scale) * .5f, 27 * Scale), CollectionVisible)) CollectionVisible = true;
     ConstructMaterialCaption(At(20, 56).x, At(20, 56).y, 18 * Scale, 0xd3d3c8, "Material library", static_cast<ImFont *>(HeadingTypeface));
-    ConstructMaterialCaption(At(155, 61).x, At(155, 61).y, 8 * Scale, 0x777766, std::to_string(Library.QueryEntries().size()).c_str());
+    {
+        auto *TitleFont = static_cast<ImFont *>(HeadingTypeface) ? static_cast<ImFont *>(HeadingTypeface) : ImGui::GetFont();
+        const float TitleWidth = TitleFont->CalcTextSizeA(18 * 1.302f * Scale, FLT_MAX, 0, "Material library").x;
+        ConstructMaterialCaption(At(20, 56).x + TitleWidth + 9 * Scale, At(0, 61).y, 8 * Scale, 0x777766,
+            std::to_string(Library.QueryEntries().size()).c_str());
+    }
     if (ConstructMaterialPill("##New material", ImVec2(Origin.x + Width - 40 * Scale, At(0, 52).y), ImVec2(24 * Scale, 24 * Scale))) Creating = true;
     ConstructIcon(IconSymbol::EditorAdd, Origin.x + Width - 35 * Scale, At(0, 57).y, 14 * Scale);
     ImGui::SetCursorScreenPos(At(14, 96));
@@ -1146,6 +1157,37 @@ void MaterialLibraryPanel::ConstructViewport()
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
         Ink->PopClipRect();
     }
+    else if (const auto *Applied = Library.QueryApplied())
+    {
+        static const MaterialInspectionGeometry InspectionGeo = ConstructMaterialInspectionGeometryWithRanges();
+        const uint32_t CpuExtent = std::clamp(uint32_t(Edge * .85f), 256u, 512u);
+        const uint64_t CurrentRevision = Library.QueryRevision();
+        if (CachedCpuPreviewRgba.empty() || CachedCpuPreviewRevision != CurrentRevision ||
+            CachedCpuPreviewExtent != CpuExtent || CachedCpuPreviewInspection != SmoothedInspection)
+        {
+            const size_t ShapeSlot = std::min<size_t>(size_t(SmoothedInspection.Shape), InspectionGeo.ShapeIndexRanges.size() - 1);
+            WorkspaceSurfaceViewportRequest Request{};
+            Request.Geometry = &InspectionGeo.Geometry;
+            Request.FirstIndex = InspectionGeo.ShapeIndexRanges[ShapeSlot][0];
+            Request.IndexCount = InspectionGeo.ShapeIndexRanges[ShapeSlot][1];
+            Request.Material = Applied;
+            Request.Camera = ConstructMaterialPreviewProjection(SmoothedInspection);
+            Request.LightDirection = ConstructMaterialPreviewLightDirection(SmoothedInspection, {.3906f, .7330f, .5569f});
+            Request.LightIntensity = 2.25f * SmoothedInspection.LightIntensity;
+            Request.EnvironmentStrength = 1.f * SmoothedInspection.LightIntensity;
+            Request.EnvironmentUp = ConstructMaterialPreviewEnvironmentUp(SmoothedInspection);
+            Request.Exposure = SmoothedInspection.Exposure;
+            Request.PreviewShapeOrdinal = uint32_t(ShapeSlot) + 1u;
+            auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuExtent, CpuExtent);
+            CachedCpuPreviewRgba = std::move(Rendered.Rgba);
+            CachedCpuPreviewRevision = CurrentRevision;
+            CachedCpuPreviewExtent = CpuExtent;
+            CachedCpuPreviewInspection = SmoothedInspection;
+        }
+        BlitWorkspaceViewportCpuFrame(Ink, {CachedCpuPreviewExtent, CachedCpuPreviewExtent, CachedCpuPreviewRgba},
+            CoverMinimum, ImVec2(CoverMinimum.x + Edge, CoverMinimum.y + Edge),
+            ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewBottom));
+    }
     Ink->AddRectFilledMultiColor(ImVec2(Origin.x, ViewTop), ImVec2(Origin.x + ViewWidth, ViewTop + 130 * Scale),
         Ink255(0x151515), Ink255(0x151515), Ink255(0x151515, 0), Ink255(0x151515, 0));
     Ink->AddRectFilled(Origin, ImVec2(Origin.x + Available.x, Origin.y + 42 * Scale), Ink255(0x151515));
@@ -1164,7 +1206,11 @@ void MaterialLibraryPanel::ConstructViewport()
     ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 68 * Scale, 8 * Scale, 0x92917c,
         Entry && !Entry->Category.empty() ? ("01  /  " + Entry->Category + " COLLECTION").c_str() : "MATERIAL COLLECTION");
     ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 94 * Scale, 30 * Scale, 0xdcdccd, Entry ? Entry->Name.c_str() : "Material explorer", static_cast<ImFont *>(HeadingTypeface));
-    if (Entry) ConstructMaterialCaption(Origin.x + 22 * Scale, Origin.y + 136 * Scale, 9 * Scale, 0x7b7c6d, Entry->Description.c_str());
+    if (Entry)
+    {
+        (void)ConstructInspectorTextBlock(ImVec2(Origin.x + 22 * Scale, Origin.y + 136 * Scale),
+            std::max(80.f, Available.x - 44 * Scale), 9, 1.55f, 0x7b7c6d, Entry->Description.c_str(), Scale);
+    }
     const float Bottom = Origin.y + Available.y;
     Ink->AddRectFilled(ImVec2(Origin.x, Bottom - 45 * Scale), ImVec2(Origin.x + Available.x, Bottom), Ink255(0x151515));
     ConstructMaterialCaption(Origin.x + 18 * Scale, Bottom - 27 * Scale, 7 * Scale, 0x7e7e70, "Drag orbit  /  Shift-MMB pan  /  Wheel zoom");
@@ -1297,12 +1343,16 @@ void MaterialLibraryPanel::ConstructViewport()
         ImGui::TextDisabled("Drop equirect PNGs into EngineContent/EnvironmentArchives, then import.");
         DropdownControlSurface::EndMenu();
     }
-    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, (Available.x - 240 * Scale) * .5f), Bottom - 196 * Scale));
+    ImGui::SetCursorScreenPos(ImVec2(Origin.x + std::max(8.f, Available.x - 256 * Scale), Bottom - 118 * Scale));
     const auto ZoomOrigin = ImGui::GetCursorScreenPos();
     Ink->AddRectFilled(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
         Ink255(0x181818), 14 * Scale);
     Ink->AddRect(ZoomOrigin, ImVec2(ZoomOrigin.x + 140 * Scale, ZoomOrigin.y + 28 * Scale),
         Ink255(0xffffff, 20), 14 * Scale);
+    const ImVec2 ResetPillMin(ZoomOrigin.x + 148 * Scale, ZoomOrigin.y);
+    const ImVec2 ResetPillMax(ResetPillMin.x + 90 * Scale, ResetPillMin.y + 28 * Scale);
+    Ink->AddRectFilled(ResetPillMin, ResetPillMax, Ink255(0x181818), 14 * Scale);
+    Ink->AddRect(ResetPillMin, ResetPillMax, Ink255(0xffffff, 20), 14 * Scale);
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::BeginGroup();
     if (ImGui::Button("-##ZoomOut", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::max(.5f, Inspection.Zoom - .1f);
@@ -1315,7 +1365,7 @@ void MaterialLibraryPanel::ConstructViewport()
     ImGui::SameLine(0, 0);
     if (ImGui::Button("+##ZoomIn", ImVec2(32 * Scale, 28 * Scale))) Inspection.Zoom = std::min(5.f, Inspection.Zoom + .1f);
     ConfigureExtent(2);
-    ImGui::SameLine();
+    ImGui::SameLine(0, 8 * Scale);
     if (ImGui::Button("Reset view", ImVec2(90 * Scale, 28 * Scale))) ResetMaterialPreviewView(Inspection);
     ConfigureExtent(6);
     if (ImGui::IsItemHovered()) PresentMaterialTooltip(Scale, "Reset view", "Centre / fit and reset orbit. F or Home over preview.");
@@ -1396,6 +1446,38 @@ void MaterialLibraryPanel::ConstructFullscreenPreview()
     if (Image.Texture)
         Ink->AddImage(ImTextureRef(Image.Texture), ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
             ImVec2(Image.MinimumU, Image.MinimumV), ImVec2(Image.MaximumU, Image.MaximumV));
+    else if (const auto *Applied = Library.QueryApplied())
+    {
+        Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), Ink255(0x202222));
+        static const MaterialInspectionGeometry InspectionGeo = ConstructMaterialInspectionGeometryWithRanges();
+        const uint32_t CpuExtent = std::clamp(uint32_t(Edge * .85f), 256u, 512u);
+        const uint64_t CurrentRevision = Library.QueryRevision();
+        if (CachedCpuPreviewRgba.empty() || CachedCpuPreviewRevision != CurrentRevision ||
+            CachedCpuPreviewExtent != CpuExtent || CachedCpuPreviewInspection != SmoothedInspection)
+        {
+            const size_t ShapeSlot = std::min<size_t>(size_t(SmoothedInspection.Shape), InspectionGeo.ShapeIndexRanges.size() - 1);
+            WorkspaceSurfaceViewportRequest Request{};
+            Request.Geometry = &InspectionGeo.Geometry;
+            Request.FirstIndex = InspectionGeo.ShapeIndexRanges[ShapeSlot][0];
+            Request.IndexCount = InspectionGeo.ShapeIndexRanges[ShapeSlot][1];
+            Request.Material = Applied;
+            Request.Camera = ConstructMaterialPreviewProjection(SmoothedInspection);
+            Request.LightDirection = ConstructMaterialPreviewLightDirection(SmoothedInspection, {.3906f, .7330f, .5569f});
+            Request.LightIntensity = 2.25f * SmoothedInspection.LightIntensity;
+            Request.EnvironmentStrength = 1.f * SmoothedInspection.LightIntensity;
+            Request.EnvironmentUp = ConstructMaterialPreviewEnvironmentUp(SmoothedInspection);
+            Request.Exposure = SmoothedInspection.Exposure;
+            Request.PreviewShapeOrdinal = uint32_t(ShapeSlot) + 1u;
+            auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuExtent, CpuExtent);
+            CachedCpuPreviewRgba = std::move(Rendered.Rgba);
+            CachedCpuPreviewRevision = CurrentRevision;
+            CachedCpuPreviewExtent = CpuExtent;
+            CachedCpuPreviewInspection = SmoothedInspection;
+        }
+        BlitWorkspaceViewportCpuFrame(Ink, {CachedCpuPreviewExtent, CachedCpuPreviewExtent, CachedCpuPreviewRgba},
+            ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge),
+            ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge));
+    }
     else Ink->AddRectFilled(ImagePosition, ImVec2(ImagePosition.x + Edge, ImagePosition.y + Edge), Ink255(0x202222));
     Ink->PopClipRect();
     ImGui::SetCursorScreenPos(ImVec2(Origin.x + (Size.x - 300) * .5f, Origin.y + Size.y - 58));
@@ -1635,6 +1717,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 Declaration.Translucency = QueryRecipeCoefficient(Definition, "translucency").value_or(0.f);
                 Declaration.MetalScratches = Profile && Profile->SupportsMetalScratches;
                 Declaration.Woven = Profile && Profile->Woven;
+                Declaration.Flakes = Definition.Scattering.Paint.Configuration[3] > 0;
                 Declaration.RecipeIdentity = Entry->Recipe.RecipeId;
                 Declaration.RecipeCaption = Profile ? Profile->Caption : Entry->RecipeCaption;
                 for (const auto &Control : Controls)
@@ -1657,6 +1740,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 AuthoringDocument = MaterialAuthoringDocument{};
             }
         }
+        VariableDockOpen = AuthoringDocument && !AuthoringDocument->Variables.empty();
     }
     if (!LoadFailure.empty()) AuthoringDocument.reset();
     if (!AuthoringDocument) AuthoringDocument = MaterialAuthoringDocument{};
@@ -1689,8 +1773,19 @@ void MaterialLibraryPanel::ConstructInspector()
         const uint32_t StratumTotal = Definition.Scattering.Illumination.Configuration[0];
         if (StratumTotal > 0)
         {
-            Next["color"] = LinearToHex(Definition.Scattering.Illumination.Strata[0].AlbedoRoughness.data());
+            if (const auto SandBase = Library.QuerySandColour("color")) Next["color"] = *SandBase;
+            else Next["color"] = LinearToHex(Definition.Scattering.Illumination.Strata[0].AlbedoRoughness.data());
+            if (const auto SandPale = Library.QuerySandColour("secondaryColor")) Next["secondaryColor"] = *SandPale;
             Next["sheenColor"] = LinearToHex(Definition.Scattering.Illumination.Strata[0].Sheen.data());
+        }
+        {
+            const auto &Rad = Definition.Scattering.RadianceNormal;
+            const float Peak = std::max({Rad[0], Rad[1], Rad[2]});
+            if (Peak > 0.f)
+            {
+                const float Norm[3]{Rad[0] / Peak, Rad[1] / Peak, Rad[2] / Peak};
+                Next["emissionColor"] = LinearToHex(Norm);
+            }
         }
         // 📝 Procedural text colours (LED/fruit tints, sheet colour) read back from their
         // owning channel's Texts so shared reads agree with the finish swatches.
@@ -1734,7 +1829,13 @@ void MaterialLibraryPanel::ConstructInspector()
             Ink->AddCircle(At(44.5f, 89.5f), 12 * Scale, IM_COL32(unsigned(Srgb[0] * 255), unsigned(Srgb[1] * 255), unsigned(Srgb[2] * 255), 255), 32, 1.5f * Scale);
         }
         Ink->AddRect(At(20, 65), At(69, 114), Ink255(0xffffff, 8), 16 * Scale);
-        ConstructMaterialCaption(At(80, 71).x, At(80, 71).y, 18 * Scale, 0xdadacc, Entry ? Entry->Name.c_str() : "Material", static_cast<ImFont *>(HeadingTypeface));
+        {
+            const char *TitleText = Entry ? Entry->Name.c_str() : "Material";
+            const float TitleSize = (Entry && Entry->Name.size() > 22 ? 15.f : 18.f) * Scale;
+            Ink->PushClipRect(At(80, 65), ImVec2(Origin.x + Width - 46 * Scale, At(0, 102).y), true);
+            ConstructMaterialCaption(At(80, 71).x, At(80, 71).y, TitleSize, 0xdadacc, TitleText, static_cast<ImFont *>(HeadingTypeface));
+            Ink->PopClipRect();
+        }
         Ink->AddCircleFilled(At(81.5f, 102.5f), 1.5f * Scale, Ink255(0x8fad99));
         ConstructMaterialCaption(At(88, 100).x, At(88, 100).y, 7 * Scale, 0x777766, Entry ? Entry->Label.c_str() : "LAYERED MATERIAL");
         ImGui::PushFont(nullptr, 11 * 1.302f * Scale);
@@ -1814,8 +1915,8 @@ void MaterialLibraryPanel::ConstructInspector()
             Content += 12 * Scale;
         }
         const float PanelHeight = Bottom - Origin.y;
-        DockHeight = std::min(std::max(44 * Scale + Content, 65 * Scale), PanelHeight * .45f);
-        DockHeight = std::min(DockHeight, std::max(PanelHeight - 177 * Scale - FooterHeight - 120 * Scale, 0.f));
+        DockHeight = VariableDockOpen ? std::min(std::max(44 * Scale + Content, 65 * Scale), PanelHeight * .42f) : 44 * Scale;
+        DockHeight = std::min(DockHeight, std::max(PanelHeight - 177 * Scale - FooterHeight - 120 * Scale, 44 * Scale));
     }
     if (!LoadFailure.empty()) DockHeight = 0;
     const bool ShowActions = Library.QueryModified() || !Library.QueryDiagnostic().empty();
@@ -1834,9 +1935,11 @@ void MaterialLibraryPanel::ConstructInspector()
 
     // ── Scrolling body ─────────────────────────────────────────────────────────────────────────
     ImGui::SetCursorScreenPos(ImVec2(Origin.x, ScrollTop));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(15 * Scale, 15 * Scale));
     ImGui::BeginChild("Material properties", ImVec2(Width, ScrollHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
     ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
     bool Changed = false, PaintChanged = false, ChildOpen = true;
     std::function<void()> ConstructDockRows;
     const float StartX = ImGui::GetCursorScreenPos().x;
@@ -1855,7 +1958,7 @@ void MaterialLibraryPanel::ConstructInspector()
             Ink->AddRectFilled(ImVec2(Origin.x, ActionsTop), ImVec2(Origin.x + Width, ActionsTop + ActionsHeight), Ink255(0x161616));
             Ink->AddLine(ImVec2(Origin.x, ActionsTop), ImVec2(Origin.x + Width, ActionsTop), Ink255(0xffffff, 10));
             ImGui::SetCursorScreenPos(ImVec2(Origin.x + 17 * Scale, ActionsTop + 10 * Scale));
-            ImGui::PushTextWrapPos(Origin.x + Width - 17 * Scale);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width - 34 * Scale);
             ConstructActions();
             ImGui::PopTextWrapPos();
         }
@@ -1907,6 +2010,12 @@ void MaterialLibraryPanel::ConstructInspector()
         // 📝 The recipe coefficient write path, salvaged verbatim from the previous inspector:
         // emission, the paint block, shared procedural pools (with the ORM ceiling lift and the
         // live sheen mirror), then stratum scalars. Sets Changed/ProceduralDirty like before.
+        const auto QueryLiveCoefficient = [&](std::string_view Key) -> std::optional<float>
+        {
+            if (const auto Coeff = QueryRecipeCoefficient(Definition, Key)) return Coeff;
+            if (const auto Sand = Library.QuerySandParameter(Key)) return float(*Sand);
+            return std::nullopt;
+        };
         const auto ApplyCoefficient = [&](const std::string &Key, float Coefficient)
         {
             if (Key == "emissionStrength")
@@ -1926,6 +2035,15 @@ void MaterialLibraryPanel::ConstructInspector()
                 PaintChanged = true;
                 return;
             }
+            if (Library.QuerySandParameter(Key))
+            {
+                if (Library.ConfigureSandParameter(Key, Coefficient))
+                {
+                    Changed = true;
+                    ProceduralDirty = true;
+                }
+                return;
+            }
             if (const auto Pool = QueryRecipePoolLocation(Definition, Key))
             {
                 Changed = Library.ConfigureProceduralParam(Pool->Stratum, Pool->Channel, Key, Coefficient) || Changed;
@@ -1943,6 +2061,12 @@ void MaterialLibraryPanel::ConstructInspector()
                 ProceduralDirty = true;
                 return;
             }
+            if (Key == "depth" && Definition.Scattering.Illumination.Configuration[0] > 1 &&
+                Definition.Scattering.Illumination.Strata[1].Classification[0] == 1)
+            {
+                Changed = Library.ConfigureStratumCoefficient(1, "Thickness", std::clamp(Coefficient, 0.f, 1.f)) || Changed;
+                return;
+            }
             const uint32_t Index = Key.starts_with("coat") ? 1 : 0;
             const char *Field = Key == "roughness" || Key == "coatRoughness" ? "Roughness" :
                 Key == "metalness" ? "Metallic" : Key == "ior" || Key == "coatIor" ? "Ior" :
@@ -1952,23 +2076,46 @@ void MaterialLibraryPanel::ConstructInspector()
             Changed = Library.ConfigureStratumCoefficient(Index, Field,
                 std::string_view(Field) == "Roughness" ? std::max(.045f, Coefficient) : Coefficient) || Changed;
         };
-        // 📝 Colour homes, also salvaged: live sheen tint, a procedural text that owns the key,
-        // and the stratum albedo for everything else. Hex in, hex out (sRGB face).
-        const auto FindTextOwner = [&](const std::string &Key) -> const MaterialProceduralChannel *
+        // 📝 Colour homes, also salvaged: live sheen tint, emission radiance, sand colours, a
+        // procedural text that owns the key, and the stratum albedo for everything else.
+        const auto ResolveTextKey = [&](const std::string &Key) -> std::string
         {
             for (const auto &StratumChannels : Definition.StratumChannels)
                 for (const auto &Channel : StratumChannels)
-                    if (!Channel.Op.empty() && Channel.Texts.contains(Key)) return &Channel;
+                    if (!Channel.Op.empty() && Channel.Texts.contains(Key)) return Key;
+            const std::string Alias = Key == "warpColor" ? "colour0" : Key == "weftColor" ? "colour1" : "";
+            if (!Alias.empty())
+                for (const auto &StratumChannels : Definition.StratumChannels)
+                    for (const auto &Channel : StratumChannels)
+                        if (!Channel.Op.empty() && Channel.Texts.contains(Alias)) return Alias;
+            return Key;
+        };
+        const auto FindTextOwner = [&](const std::string &Key) -> const MaterialProceduralChannel *
+        {
+            const std::string Target = ResolveTextKey(Key);
+            for (const auto &StratumChannels : Definition.StratumChannels)
+                for (const auto &Channel : StratumChannels)
+                    if (!Channel.Op.empty() && Channel.Texts.contains(Target)) return &Channel;
             return nullptr;
         };
         const auto ReadColourHome = [&](const std::string &Key) -> std::string
         {
+            if (Key == "emissionColor")
+            {
+                const auto &Rad = Definition.Scattering.RadianceNormal;
+                const float Peak = std::max({Rad[0], Rad[1], Rad[2]});
+                if (Peak > 0.f)
+                    return EncodeHexColour({LinearToSrgbChannel(Rad[0] / Peak), LinearToSrgbChannel(Rad[1] / Peak), LinearToSrgbChannel(Rad[2] / Peak)});
+                return "#ffffff";
+            }
+            if (const auto SandHex = Library.QuerySandColour(Key)) return *SandHex;
             if (Key == "sheenColor" && Definition.Scattering.Illumination.Configuration[0] > 0)
             {
                 const auto &Sheen = Definition.Scattering.Illumination.Strata[std::min(InspectorLayerContext, Definition.Scattering.Illumination.Configuration[0] - 1)].Sheen;
                 return EncodeHexColour({LinearToSrgbChannel(Sheen[0]), LinearToSrgbChannel(Sheen[1]), LinearToSrgbChannel(Sheen[2])});
             }
-            if (const auto *Owner = FindTextOwner(Key)) return Owner->Texts.at(Key);
+            const std::string Target = ResolveTextKey(Key);
+            if (const auto *Owner = FindTextOwner(Key)) return Owner->Texts.at(Target);
             if (Definition.Scattering.Illumination.Configuration[0] > 0)
             {
                 const auto &Albedo = Definition.Scattering.Illumination.Strata[0].AlbedoRoughness;
@@ -1983,13 +2130,20 @@ void MaterialLibraryPanel::ConstructInspector()
             std::array<float, 3> Linear{};
             for (size_t Channel = 0; Channel < 3; ++Channel) Linear[Channel] = SrgbToLinearChannel(Srgb[Channel]);
             bool Written = false;
-            if (Key == "sheenColor") Written = Library.ConfigureStratumColour(InspectorLayerContext, Linear, "SheenColor");
+            const std::string Target = ResolveTextKey(Key);
+            if (Key == "emissionColor") Written = Library.ConfigureEmissionColour(Linear);
+            else if (Library.QuerySandColour(Key))
+            {
+                Written = Library.ConfigureSandColour(Key, Hex);
+                if (Written) ProceduralDirty = true;
+            }
+            else if (Key == "sheenColor") Written = Library.ConfigureStratumColour(InspectorLayerContext, Linear, "SheenColor");
             else if (FindTextOwner(Key))
             {
                 for (uint32_t Stratum = 0; Stratum < Definition.Scattering.Illumination.Configuration[0] && !Written; ++Stratum)
                     for (const auto &Channel : Definition.StratumChannels[Stratum])
-                        if (!Channel.Op.empty() && Channel.Texts.contains(Key))
-                            Written = Library.ConfigureProceduralText(Stratum, Channel.Name, Key, Hex);
+                        if (!Channel.Op.empty() && Channel.Texts.contains(Target))
+                            Written = Library.ConfigureProceduralText(Stratum, Channel.Name, Target, Hex);
                 if (Written) ProceduralDirty = true;
             }
             else Written = Library.ConfigureStratumColour(0, Linear);
@@ -2010,12 +2164,12 @@ void MaterialLibraryPanel::ConstructInspector()
                 if (!Quantity) return;
                 if (const auto *Scalar = std::get_if<double>(&*Quantity))
                 {
-                    if (QueryRecipeCoefficient(Definition, Address)) ApplyCoefficient(Address, float(*Scalar));
+                    if (QueryLiveCoefficient(Address)) ApplyCoefficient(Address, float(*Scalar));
                 }
                 else if (const auto *Text = std::get_if<std::string>(&*Quantity))
                 {
                     if (Text->size() == 7 && (*Text)[0] == '#' &&
-                        (Address == "color" || Address == "sheenColor" || FindTextOwner(Address)))
+                        (Address == "color" || Address == "sheenColor" || Address == "emissionColor" || Library.QuerySandColour(Address) || FindTextOwner(Address)))
                         WriteColourHome(Address, *Text);
                 }
             };
@@ -2062,14 +2216,15 @@ void MaterialLibraryPanel::ConstructInspector()
             }
             if (const auto *Scalar = std::get_if<double>(&Quantity))
             {
-                if (QueryRecipeCoefficient(Definition, Address)) ApplyCoefficient(Address, float(*Scalar));
+                if (QueryLiveCoefficient(Address)) ApplyCoefficient(Address, float(*Scalar));
                 AuthoringStore[Address] = Quantity;
             }
             else if (const auto *Text = std::get_if<std::string>(&Quantity))
             {
                 if (Text->size() == 7 && (*Text)[0] == '#')
                 {
-                    bool ColourKey = Address == "color" || Address == "sheenColor" || FindTextOwner(Address) != nullptr;
+                    bool ColourKey = Address == "color" || Address == "sheenColor" || Address == "emissionColor" ||
+                        Library.QuerySandColour(Address).has_value() || FindTextOwner(Address) != nullptr;
                     if (!ColourKey && Profile)
                         for (const auto &[Key, Label] : Profile->Colours) ColourKey = ColourKey || Key == Address;
                     if (ColourKey) WriteColourHome(Address, *Text);
@@ -2299,27 +2454,27 @@ void MaterialLibraryPanel::ConstructInspector()
             InspectorLayerContext = Stratum;
             float Position = Control.Position;
             bool Supported = Control.Direct
-                ? QueryRecipeCoefficient(Definition, Control.Key).has_value()
-                : !Control.Targets.empty() || QueryRecipeCoefficient(Definition, Control.Key).has_value();
-            for (const auto &Target : Control.Targets) Supported = QueryRecipeCoefficient(Definition, Target.Key).has_value() && Supported;
+                ? QueryLiveCoefficient(Control.Key).has_value()
+                : !Control.Targets.empty() || QueryLiveCoefficient(Control.Key).has_value();
+            for (const auto &Target : Control.Targets) Supported = QueryLiveCoefficient(Target.Key).has_value() && Supported;
             // 📝 A linked address stays editable even without a coefficient home: the value
             // lives at the variable's address in the store.
             if (!Supported && !Control.Key.empty() && ReadQuantity(Control.Key)) Supported = true;
             if (Supported && Control.Direct)
-                Position = QueryRecipeCoefficient(Definition, Control.Key).value_or(
+                Position = QueryLiveCoefficient(Control.Key).value_or(
                     [&]() { const auto Q = ReadQuantity(Control.Key); return Q && std::holds_alternative<double>(*Q) ? float(std::get<double>(*Q)) : Control.Position; }());
             else if (Supported && !Control.Targets.empty())
             {
                 const auto &Target = Control.Targets.front();
-                const float Coefficient = *QueryRecipeCoefficient(Definition, Target.Key);
+                const float Coefficient = *QueryLiveCoefficient(Target.Key);
                 Position = std::abs(Target.Maximum - Target.Minimum) > .000001f ?
                     std::clamp((Coefficient - Target.Minimum) / (Target.Maximum - Target.Minimum), 0.f, 1.f) : Control.Position;
             }
-            else if (Control.Direct) Position = QueryRecipeCoefficient(Definition, Control.Key).value_or(Control.Position);
+            else if (Control.Direct) Position = QueryLiveCoefficient(Control.Key).value_or(Control.Position);
             float NativeMinimum = Control.Minimum, NativeMaximum = Control.Maximum;
             if (Control.Extend)
             {
-                const float Held = QueryRecipeCoefficient(Definition, Control.Key).value_or(Control.Minimum);
+                const float Held = QueryLiveCoefficient(Control.Key).value_or(Control.Minimum);
                 NativeMaximum = std::max(NativeMaximum, Held);
                 if (Held > 0) NativeMinimum = std::min(NativeMinimum, Held);
             }
@@ -3134,7 +3289,7 @@ void MaterialLibraryPanel::ConstructInspector()
                             InspectorNotice = Library.QueryDiagnostic().empty() ? std::string("Those sand bed values are not supported.") : Library.QueryDiagnostic();
                             (void)Library.QuerySandBeds(SandBeds, SandArrangement);
                         }
-                        else { InspectorNotice.clear(); Changed = true; }
+                        else { InspectorNotice.clear(); Changed = true; ProceduralDirty = true; }
                     };
                     AnchorX(FieldX);
                     const float LabelY = ImGui::GetCursorScreenPos().y;
@@ -3305,24 +3460,68 @@ void MaterialLibraryPanel::ConstructInspector()
                 EndSection(Top);
             }
             // ── Flakes ─────────────────────────────────────────────────────────────────────────
-            if (Profile && Profile->Type == 0)
+            const bool HasFlakeModel = (Profile && Profile->Type == 0) || Definition.Scattering.Paint.Configuration[3] > 0;
+            if (HasFlakeModel)
             {
+                const bool AutomotiveRecipe = Profile && Profile->Type == 0;
                 bool Closed = false;
-                const float Top = BeginSection("flakes", IconSymbol::Stars, "Flake character", "CELLULAR", Closed);
+                const float Top = BeginSection("flakes", IconSymbol::Stars,
+                    AutomotiveRecipe ? "Flake character" : "Mineral & crystal flakes", "CELLULAR", Closed);
                 if (!Closed)
                 {
-                    const bool DrewPaint = RenderGroup("paint");
-                    if (DrewPaint && HasGroup("flakes")) Gap(21 * Scale);
-                    RenderGroup("flakes");
+                    if (AutomotiveRecipe || HasGroup("flakes") || HasGroup("paint"))
+                    {
+                        const bool DrewPaint = RenderGroup("paint");
+                        if (DrewPaint && HasGroup("flakes")) Gap(21 * Scale);
+                        RenderGroup("flakes");
+                    }
+                    else
+                    {
+                        auto &Paint = Definition.Scattering.Paint;
+                        const auto FlakeSlider = [&](const char *Label, float &Target, float MinV, float MaxV,
+                            const char *Unit = "", bool Log = false, float StepV = .01f)
+                        {
+                            AnchorX(FieldX);
+                            float Val = Target;
+                            if (ConstructProperty(Label, MinV, MaxV, Val, Unit, Log, StepV, nullptr, FieldW, true))
+                            {
+                                Target = Val;
+                                Paint.Finish[1] = std::max(Paint.Finish[0], Paint.Finish[1]);
+                                Paint.Finish[3] = std::max(Paint.Finish[2], Paint.Finish[3]);
+                                Changed = Library.ConfigurePaint(Paint) || Changed;
+                            }
+                            Gap(18 * Scale);
+                        };
+                        FlakeSlider("Flake coverage", Paint.Distribution[0], 0.f, 1.f, "%");
+                        FlakeSlider("Crystal / grain size", Paint.Distribution[1], 40.f, 2400.f, "um", true, 1.f);
+                        FlakeSlider("Flake frequency", Paint.Distribution[2], .2f, 4.f, "x");
+                        FlakeSlider("Facet tilt", Paint.Relief[0], 0.f, 1.f, "%");
+                        FlakeSlider("Burial depth", Paint.Relief[1], 0.f, 1.f, "%");
+                        FlakeSlider("Facet roughness min", Paint.Finish[0], .045f, 1.f, "%");
+                        FlakeSlider("Facet roughness max", Paint.Finish[1], .045f, 1.f, "%");
+                        FlakeSlider("Facet luster min", Paint.Finish[2], 0.f, 1.f, "%");
+                        FlakeSlider("Facet luster max", Paint.Finish[3], 0.f, 1.f, "%");
+                        AnchorX(FieldX);
+                        float LayersVal = float(Paint.Configuration[1]);
+                        if (ConstructProperty("Flake strata", 1.f, 4.f, LayersVal, "", false, 1.f, nullptr, FieldW, true))
+                        {
+                            Paint.Configuration[1] = uint32_t(std::clamp(std::lround(LayersVal), 1l, 4l));
+                            Changed = Library.ConfigurePaint(Paint) || Changed;
+                        }
+                    }
                     Gap(14 * Scale);
-                    HelpText("Sparkle tunes micro-roughness and orientation; reflectivity independently bounds the metallic response. Cellular particles remain layered beneath the coat.", FieldX, FieldW);
+                    HelpText(AutomotiveRecipe ?
+                        "Sparkle tunes micro-roughness and orientation; reflectivity independently bounds the metallic response. Cellular particles remain layered beneath the coat." :
+                        "Object-space 3D Voronoi mineral facets (quartz, mica, feldspar, olivine) glint with viewing angle over the surface substrate.",
+                        FieldX, FieldW);
                 }
                 EndSection(Top);
             }
-            if (Profile && Profile->Type == 0)
+            if (HasFlakeModel)
             {
                 bool Closed = false;
-                const float Top = BeginSection("colors", IconSymbol::EditorLayers, "Flake colors", "", Closed);
+                const float Top = BeginSection("colors", IconSymbol::EditorLayers,
+                    (Profile && Profile->Type == 0) ? "Flake colors" : "Mineral flake palette", "", Closed);
                 if (!Closed) RenderFlakeRamp(FieldX, FieldW, true);
                 EndSection(Top);
             }
@@ -4149,7 +4348,7 @@ void MaterialLibraryPanel::ConstructInspector()
                                 {
                                     if (!FoldedInspectorCards.erase(ChannelFold)) FoldedInspectorCards.insert(ChannelFold);
                                 }
-                                DrawInspectorChevronGlyph(ImVec2(ChannelX + 6 * Scale, ChannelY + 7.5f * Scale), 12, 0xdcdcd2, Scale, true);
+                                DrawInspectorChevronGlyph(ImVec2(ChannelX + 6 * Scale, ChannelY + 7.5f * Scale), 12, 0xdcdcd2, Scale, !FoldedInspectorCards.contains(ChannelFold));
                                 ConstructMaterialCaption(ChannelX + 18 * Scale, ChannelY + 3 * Scale, 11 * Scale, 0xdcdcd2, Specification->Caption);
                                 if (!Address.starts_with("flake-output:") || Channel == "coverage")
                                 {
@@ -4236,9 +4435,90 @@ void MaterialLibraryPanel::ConstructInspector()
                     Layer.Name = "PBR detail layer";
                     Layer.Model = "detail";
                     Layer.Enabled = true;
-                    Layer.Channels = {"coverage"};
+                    Layer.Channels = {"colour", "roughness", "coverage"};
+                    Doc.Inputs[MaterialChannelAddress(Layer, "colour")] = std::string("#b8ae9e");
+                    Doc.Inputs[MaterialChannelAddress(Layer, "roughness")] = .42;
+                    Doc.Inputs[MaterialChannelAddress(Layer, "coverage")] = .65;
                     Doc.Layers.insert(Doc.Layers.begin() + std::ptrdiff_t(Position), std::move(Layer));
                 });
+            }
+            const bool HasFlakeLayer = std::any_of(Document.Layers.begin(), Document.Layers.end(),
+                [](const MaterialAuthoringLayer &Candidate) { return Candidate.Model == "flakes"; });
+            const bool HasCoatLayer = std::any_of(Document.Layers.begin(), Document.Layers.end(),
+                [](const MaterialAuthoringLayer &Candidate) { return Candidate.Model == "coat"; });
+            if (!HasFlakeLayer || !HasCoatLayer)
+            {
+                Gap(8 * Scale);
+                AnchorX(StartX);
+                const float RowY = ImGui::GetCursorScreenPos().y;
+                const float HalfW = (!HasFlakeLayer && !HasCoatLayer) ? (ContentW - 8 * Scale) * .5f : ContentW;
+                float CurX = StartX;
+                if (!HasFlakeLayer)
+                {
+                    if (ConstructInspectorButton("+ Add Flakes layer##AddFlakeLayer", ImVec2(CurX, RowY), ImVec2(HalfW, 28 * Scale), Scale, 9))
+                    {
+                        if (Definition.Scattering.Paint.Configuration[3] == 0)
+                        {
+                            Definition.Scattering.Paint.Configuration = {1, 2, 0, 2};
+                            Definition.Scattering.Paint.Distribution = {.48f, 220.f, 1.f, .35f};
+                            Definition.Scattering.Paint.Finish = {.12f, .28f, .15f, .65f};
+                            Definition.Scattering.Paint.Relief = {.24f, .45f, 0.f, 24.f};
+                            Definition.Scattering.Paint.Palette[0] = {.92f, .90f, .86f, 0.f};
+                            Definition.Scattering.Paint.Palette[1] = {.68f, .64f, .58f, 1.f};
+                            Changed = Library.ConfigurePaint(Definition.Scattering.Paint) || Changed;
+                        }
+                        EditAuthoring([](MaterialAuthoringDocument &Doc)
+                        {
+                            if (Doc.Layers.size() >= 16) throw std::runtime_error("Maximum 16 layers.");
+                            std::string GenId;
+                            for (const auto &Field : Doc.Generators)
+                                if (Field.Procedure == "flakes") GenId = Field.Identity;
+                            if (GenId.empty())
+                            {
+                                MaterialAuthoringField Flakes;
+                                Flakes.Identity = IssueMaterialAuthoringIdentity();
+                                Flakes.Name = "Mineral flake distribution";
+                                Flakes.Category = "Particle fields";
+                                Flakes.Procedure = "flakes";
+                                Flakes.Inputs = {"flakes", "flakeSize", "flakeScale", "flakeLayers", "flakeLayerDepth", "flakeTilt",
+                                    "flakeRoughnessMin", "flakeRoughnessMax", "flakeMetalnessMin", "flakeMetalnessMax"};
+                                Flakes.Outputs = {"colour", "roughness", "metallic", "normal", "coverage"};
+                                GenId = Flakes.Identity;
+                                Doc.Generators.push_back(std::move(Flakes));
+                            }
+                            const size_t Position = !Doc.Layers.empty() && Doc.Layers[0].Model == "coat" ? 1 : 0;
+                            MaterialAuthoringLayer Layer;
+                            Layer.Identity = IssueMaterialAuthoringIdentity();
+                            Layer.Name = "Mineral flakes";
+                            Layer.Model = "flakes";
+                            Layer.Generator = GenId;
+                            Layer.Enabled = true;
+                            Layer.Channels = {"colour", "roughness", "metallic", "normal", "coverage"};
+                            Doc.Layers.insert(Doc.Layers.begin() + std::ptrdiff_t(Position), std::move(Layer));
+                        });
+                    }
+                    CurX += HalfW + 8 * Scale;
+                }
+                if (!HasCoatLayer)
+                {
+                    if (ConstructInspectorButton("+ Add Clearcoat layer##AddCoatLayer", ImVec2(CurX, RowY), ImVec2(HalfW, 28 * Scale), Scale, 9))
+                    {
+                        if (Definition.Scattering.Illumination.Configuration[0] == 1)
+                            Changed = Library.InsertStratum(1) || Changed;
+                        EditAuthoring([](MaterialAuthoringDocument &Doc)
+                        {
+                            if (Doc.Layers.size() >= 16) throw std::runtime_error("Maximum 16 layers.");
+                            MaterialAuthoringLayer Coat;
+                            Coat.Identity = IssueMaterialAuthoringIdentity();
+                            Coat.Name = "Clearcoat";
+                            Coat.Model = "coat";
+                            Coat.Enabled = true;
+                            Coat.Channels = {"coverage", "roughness", "ior"};
+                            Doc.Layers.insert(Doc.Layers.begin(), std::move(Coat));
+                        });
+                    }
+                }
+                ImGui::SetCursorScreenPos(ImVec2(StartX, RowY + 28 * Scale));
             }
             Gap(30 * Scale);
         }
@@ -4254,7 +4534,7 @@ void MaterialLibraryPanel::ConstructInspector()
             Ink->AddRectFilled(ImVec2(Origin.x, ActionsTop), ImVec2(Origin.x + Width, ActionsTop + ActionsHeight), Ink255(0x161616));
             Ink->AddLine(ImVec2(Origin.x, ActionsTop), ImVec2(Origin.x + Width, ActionsTop), Ink255(0xffffff, 10));
             ImGui::SetCursorScreenPos(ImVec2(Origin.x + 17 * Scale, ActionsTop + 10 * Scale));
-            ImGui::PushTextWrapPos(Origin.x + Width - 17 * Scale);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width - 34 * Scale);
             ConstructActions();
             ImGui::SameLine();
             if (ImGui::Button("Source")) SourceVisible = true;
@@ -4282,6 +4562,7 @@ void MaterialLibraryPanel::ConstructInspector()
             if (VariableDockOpen && DockHeight > 48 * Scale)
             {
                 ImGui::SetCursorScreenPos(ImVec2(Origin.x + 14 * Scale, DockTop + 44 * Scale));
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
                 if (ImGui::BeginChild("##VariableList", ImVec2(Width - 28 * Scale, DockHeight - 44 * Scale)))
                 {
@@ -4292,6 +4573,7 @@ void MaterialLibraryPanel::ConstructInspector()
                 ImGui::EndChild();
                 ChildOpen = false;
                 ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
             }
         }
 
@@ -4537,18 +4819,18 @@ void MaterialLibraryPanel::ConstructInterface()
     const float NameWidth = ImGui::GetFont()->CalcTextSizeA(10 * 1.302f * Scale, 300 * Scale, 0, Entry ? Entry->Name.c_str() : "Material explorer").x;
     ConstructMaterialCaption(Origin.x + 22 * Scale + NameWidth, Origin.y + 20 * Scale, 7 * Scale, 0x767669, ".material");
     ImGui::PushFont(nullptr, 10 * 1.302f * Scale);
-    if (ConstructMaterialPill("Material", ImVec2(Origin.x + Width - 300 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale), true)) SourceVisible = false;
+    if (ConstructMaterialPill("Material", ImVec2(Origin.x + Width - 596 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale), true)) SourceVisible = false;
     ImGui::BeginDisabled(!ActivatePattern);
-    if (ConstructMaterialPill("Pattern", ImVec2(Origin.x + Width - 374 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivatePattern) ActivatePattern();
+    if (ConstructMaterialPill("Pattern", ImVec2(Origin.x + Width - 522 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivatePattern) ActivatePattern();
     ImGui::EndDisabled();
     ImGui::BeginDisabled(!ActivateTexture);
     if (ConstructMaterialPill("Texture", ImVec2(Origin.x + Width - 448 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateTexture) ActivateTexture();
     ImGui::EndDisabled();
     ImGui::BeginDisabled(!ActivateStamp);
-    if (ConstructMaterialPill("Stamp", ImVec2(Origin.x + Width - 522 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateStamp) ActivateStamp();
+    if (ConstructMaterialPill("Stamp", ImVec2(Origin.x + Width - 374 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateStamp) ActivateStamp();
     ImGui::EndDisabled();
     ImGui::BeginDisabled(!ActivateBaking);
-    if (ConstructMaterialPill("Baking", ImVec2(Origin.x + Width - 596 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateBaking) ActivateBaking();
+    if (ConstructMaterialPill("Baking", ImVec2(Origin.x + Width - 300 * Scale, Origin.y + 8 * Scale), ImVec2(64 * Scale, 27 * Scale)) && ActivateBaking) ActivateBaking();
     ImGui::EndDisabled();
     if (ConstructMaterialPill("Open Library", ImVec2(Origin.x + Width - 225 * Scale, Origin.y + 8 * Scale), ImVec2(94 * Scale, 27 * Scale))) DirectoryRequested = true;
     if (ConstructMaterialPill("Refresh", ImVec2(Origin.x + Width - 120 * Scale, Origin.y + 8 * Scale), ImVec2(100 * Scale, 27 * Scale)))

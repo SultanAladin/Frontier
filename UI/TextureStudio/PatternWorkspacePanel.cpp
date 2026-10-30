@@ -14,6 +14,7 @@
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/ThumbnailAtlasCache.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
+#include "UI/TextureStudio/WorkspaceViewportDrawList.h"
 #include "PatternWorkspacePanel.h"
 #include "VectorMaskControls.h"
 #include "WorkspaceZoom.h"
@@ -1681,16 +1682,18 @@ void PatternWorkspacePanel::ConstructLayers()
             Caption(ImVec2(Origin.x + X, FooterOrigin.y + 9 * Scale), Label, 7 * Scale, 0x5f5f58);
             Caption(ImVec2(Origin.x + X, FooterOrigin.y + 23 * Scale), Value.c_str(), 9 * Scale, ValueColour);
         };
-        Stat(12 * Scale, "MOTIFS", std::to_string(Snapshot.Layers.size()), 0x8eb896);
-        Stat(72 * Scale, "VISIBLE", std::to_string(Visible), 0xa6a699);
-        Stat(122 * Scale, "SELECTED", std::to_string(Selection.size()), 0xa6a699);
+        const float StatsAvailable = std::max(96.f * Scale, Width - 122.f * Scale);
+        const bool CompactFooter = StatsAvailable < 155.f * Scale;
+        Stat(10 * Scale, "MOTIFS", std::to_string(Snapshot.Layers.size()), 0x8eb896);
+        Stat(10 * Scale + StatsAvailable * (CompactFooter ? 0.36f : 0.40f), CompactFooter ? "VIS" : "VISIBLE", std::to_string(Visible), 0xa6a699);
+        Stat(10 * Scale + StatsAvailable * (CompactFooter ? 0.68f : 0.72f), CompactFooter ? "SEL" : "SELECTED", std::to_string(Selection.size()), 0xa6a699);
         const bool FooterEditable = !Selection.empty() && !MaskSelection && !PenSource && Gesture == 0 &&
             std::none_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer)
             {
                 return std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
                     (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer));
             });
-        float ButtonX = Origin.x + Width - 112 * Scale;
+        float ButtonX = Origin.x + Width - 108 * Scale;
         const float ButtonY = FooterOrigin.y + 11.5f * Scale;
         ImGui::BeginDisabled(!FooterEditable);
         ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
@@ -2372,7 +2375,21 @@ void PatternWorkspacePanel::ConstructCanvas()
                 Ink->AddImage(ImTextureRef(Texture), ImVec2(X, Y), ImVec2(X + BoardSize, Y + BoardSize));
     }
     else if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
-    else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
+    else if (!Snapshot.Layers.empty())
+    {
+        const uint64_t CpuKey = HistoryRevision * 1315423911ull ^ uint64_t(GestureRevision) ^ Snapshot.Layers.size();
+        static uint64_t CachedCpuKey = UINT64_MAX;
+        static std::vector<uint8_t> CachedCpuRgba;
+        if (CachedCpuKey != CpuKey || CachedCpuRgba.size() != 256u * 256u * 4u)
+        {
+            constexpr uint32_t BoardAbgr = uint32_t(255) << 24 | uint32_t(215) << 16 | uint32_t(231) << 8 | uint32_t(237);
+            CachedCpuRgba = RasterizePatternThumbnailSvg(ConstructEvaluatedVectorAuthoringDocument(Snapshot), 256u, BoardAbgr);
+            CachedCpuKey = CpuKey;
+        }
+        if (CachedCpuRgba.size() == 256u * 256u * 4u)
+            BlitWorkspaceViewportCpuFrame(Ink, {256u, 256u, CachedCpuRgba}, BoardMinimum, BoardMaximum, Minimum, Maximum);
+    }
+    else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "Empty pattern canvas", 11 * Scale, 0x68695a);
     const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
     // 📝 GPU compute for a typical edit retires within a frame or two; only show the badge once a
     // bake has stayed pending longer than that AFTER edits stopped streaming in - every fresh
@@ -3200,10 +3217,13 @@ void PatternWorkspacePanel::ConstructInspector()
         {
         ImGui::TableSetupColumn("Horizontal", ImGuiTableColumnFlags_WidthStretch, 1);
         ImGui::TableSetupColumn("Vertical", ImGuiTableColumnFlags_WidthStretch, 1);
+        float RowCursorY = 0.f;
         for (size_t Index = 0; Index < 4; ++Index)
         {
-            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 80 * Scale);
+            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 60 * Scale);
             ImGui::TableNextColumn();
+            if (Index % 2 == 0) RowCursorY = ImGui::GetCursorPosY();
+            else ImGui::SetCursorPosY(RowCursorY);
             float Quantity = Bounds[Index];
             const char *Captions[]{"X", "Y", "Width", "Height"};
             if (Controls.Number(Captions[Index], Quantity, Index < 2 ? -512.f : 1.f, 1024))

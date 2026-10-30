@@ -218,6 +218,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
     std::optional<Frontier::VectorAuthoringDocument> PatternBridgeFaultedDocument;
     std::string MaterialRenderingFaultKey;
     VkImageView LastPreviewView = VK_NULL_HANDLE;
+    std::array<VkDescriptorSet, 2> AuxiliaryDescriptors{VK_NULL_HANDLE, VK_NULL_HANDLE};
+    std::array<VkImageView, 2> LastAuxiliaryViews{VK_NULL_HANDLE, VK_NULL_HANDLE};
     VkDescriptorSet PatternAtlasDescriptor = VK_NULL_HANDLE;
     uint64_t PatternAtlasPublished = 0;
     // 📝 Environment sphere-preview atlas: CPU pixels staged once per catalogue generation.
@@ -1031,6 +1033,55 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
             catch (const std::exception &Failure) { JournalGpuFaultOnce("PreviewTexture", Failure); }
             return Frontier::MaterialPreviewImage{Rendering->QueryPreviewReady() ? (uint64_t)PreviewDescriptor : 0};
         };
+        const auto BindAuxiliaryViewport = [&](uint32_t Slot, auto &Panel)
+        {
+            Panel.ConfigureViewportGeometry = [&, Slot](const Frontier::SurfaceGeometry &Mesh)
+            {
+                try { Rendering->ConfigureAuxiliaryGeometry(Slot, Mesh); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportGeometry", Failure); }
+            };
+            Panel.ConfigureViewportMaterial = [&, Slot](const Frontier::CompiledSurfaceMaterial &Material)
+            {
+                try { Rendering->ConfigureAuxiliaryMaterial(Slot, Material); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportMaterial", Failure); }
+            };
+            Panel.ConfigureViewportCamera = [&, Slot](const Frontier::WorkspaceViewportOrbitCamera &Camera)
+            {
+                try { Rendering->ConfigureAuxiliaryCamera(Slot, Camera); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportCamera", Failure); }
+            };
+            Panel.ConfigureViewportExtent = [&, Slot](uint32_t Width, uint32_t Height)
+            {
+                try { Rendering->ConfigureAuxiliaryExtent(Slot, Width, Height); }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportExtent", Failure); }
+            };
+            Panel.QueryViewport = [&, Slot]()
+            {
+                while (!RetiredPreviewDescriptors.empty() && RetiredPreviewDescriptors.front().second + 4 <= InterfaceFrame)
+                {
+                    if (RetiredPreviewDescriptors.front().first)
+                        ImGui_ImplVulkan_RemoveTexture(RetiredPreviewDescriptors.front().first);
+                    RetiredPreviewDescriptors.pop_front();
+                }
+                const VkImageView CurrentView = Rendering->QueryAuxiliaryViewportView(Slot);
+                try
+                {
+                    if (CurrentView && CurrentView != LastAuxiliaryViews[Slot])
+                    {
+                        LastAuxiliaryViews[Slot] = CurrentView;
+                        if (AuxiliaryDescriptors[Slot])
+                            RetiredPreviewDescriptors.emplace_back(AuxiliaryDescriptors[Slot], InterfaceFrame);
+                        AuxiliaryDescriptors[Slot] = ImGui_ImplVulkan_AddTexture(
+                            CurrentView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    }
+                }
+                catch (const std::exception &Failure) { JournalGpuFaultOnce("AuxViewportTexture", Failure); }
+                return Frontier::WorkspaceViewportImage{
+                    Rendering->QueryAuxiliaryViewportReady(Slot) ? uint64_t(AuxiliaryDescriptors[Slot]) : 0ull};
+            };
+        };
+        BindAuxiliaryViewport(0, *Texture);
+        BindAuxiliaryViewport(1, *Baking);
     };
     Callbacks.ConfigurePlatform = [&]()
     {
@@ -1149,6 +1200,11 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         // 📝 The shared application loop has retired all GPU work before this callback.
         if (AtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(AtlasDescriptor);
         if (PreviewDescriptor) ImGui_ImplVulkan_RemoveTexture(PreviewDescriptor);
+        for (VkDescriptorSet &AuxDesc : AuxiliaryDescriptors)
+        {
+            if (AuxDesc) ImGui_ImplVulkan_RemoveTexture(AuxDesc);
+            AuxDesc = VK_NULL_HANDLE;
+        }
         for (const auto &Retired : RetiredPreviewDescriptors)
             if (Retired.first) ImGui_ImplVulkan_RemoveTexture(Retired.first);
         RetiredPreviewDescriptors.clear();

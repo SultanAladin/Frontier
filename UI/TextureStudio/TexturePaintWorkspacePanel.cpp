@@ -3,6 +3,7 @@
 ============================================================================================================================================*/
 #include "UI/TextureStudio/TexturePaintWorkspacePanel.h"
 #include "UI/TextureStudio/PanelChrome.h"
+#include "UI/TextureStudio/WorkspaceViewportDrawList.h"
 #include "UI/TextureStudio/PatternThumbnailRaster.h" // RasterizeStampDocument - full-fidelity stamp rasters
 #include "UI/TextureStudio/StampWorkspacePanel.h" // MeasureStampTextFitSize - one fit law for canvas + decal text
 #include "Engine/ContentInterchange/StampTextOutline.h" // AppendStampTextOutline - real glyph outlines for text decals
@@ -11,6 +12,7 @@
 #include "Engine/Interface/ControlKit.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Interface/GlyphSpace.h"
+#include <stb_image.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
@@ -25,6 +27,7 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 
 namespace Frontier
 {
@@ -1005,6 +1008,295 @@ void TexturePaintWorkspacePanel::BuildTopology()
         }
         Topology.push_back(Triangle);
     }
+
+    // Precompute welded 1-ring mesh curvature, cavity ambient occlusion, wall thickness, and world bounds
+    // once at topology build time so all mesh-aware generators evaluate in O(1) per texel.
+    const size_t VertCount = Part.Vertices.size();
+    VertexCurvature.assign(VertCount, .5f);
+    VertexOcclusion.assign(VertCount, 1.f);
+    VertexThickness.assign(VertCount, .6f);
+    if (!VertCount) return;
+
+    MeshBoundsMin[0] = MeshBoundsMin[1] = MeshBoundsMin[2] = FLT_MAX;
+    MeshBoundsMax[0] = MeshBoundsMax[1] = MeshBoundsMax[2] = -FLT_MAX;
+    struct QuantizedKey
+    {
+        int32_t X = 0, Y = 0, Z = 0;
+        bool operator==(const QuantizedKey &Other) const noexcept { return X == Other.X && Y == Other.Y && Z == Other.Z; }
+    };
+    struct QuantizedHash
+    {
+        size_t operator()(const QuantizedKey &K) const noexcept
+        {
+            return (size_t(uint32_t(K.X)) * 73856093u) ^ (size_t(uint32_t(K.Y)) * 19349663u) ^ (size_t(uint32_t(K.Z)) * 83492791u);
+        }
+    };
+    std::unordered_map<QuantizedKey, uint32_t, QuantizedHash> WeldedMap;
+    std::vector<uint32_t> VertexToWelded(VertCount, 0);
+    struct WeldedVertex
+    {
+        Vec3 Pos{0, 0, 0};
+        Vec3 Norm{0, 0, 0};
+        std::vector<uint32_t> Neighbours;
+    };
+    std::vector<WeldedVertex> Welded;
+    Welded.reserve(VertCount);
+    for (size_t Vi = 0; Vi < VertCount; ++Vi)
+    {
+        const auto &V = Part.Vertices[Vi];
+        for (int Axis = 0; Axis < 3; ++Axis)
+        {
+            MeshBoundsMin[Axis] = std::min(MeshBoundsMin[Axis], V.Position[Axis]);
+            MeshBoundsMax[Axis] = std::max(MeshBoundsMax[Axis], V.Position[Axis]);
+        }
+        const QuantizedKey Key{int32_t(std::lround(V.Position[0] * 5000.f)),
+            int32_t(std::lround(V.Position[1] * 5000.f)), int32_t(std::lround(V.Position[2] * 5000.f))};
+        auto [It, Inserted] = WeldedMap.emplace(Key, uint32_t(Welded.size()));
+        if (Inserted) Welded.push_back({{V.Position[0], V.Position[1], V.Position[2]}, {0, 0, 0}, {}});
+        VertexToWelded[Vi] = It->second;
+        Welded[It->second].Norm.X += V.Normal[0];
+        Welded[It->second].Norm.Y += V.Normal[1];
+        Welded[It->second].Norm.Z += V.Normal[2];
+    }
+    for (auto &Wv : Welded) Wv.Norm = NormalizeV(Wv.Norm);
+    const auto LinkWelded = [&](uint32_t A, uint32_t B)
+    {
+        if (A == B) return;
+        auto &List = Welded[A].Neighbours;
+        if (std::find(List.begin(), List.end(), B) == List.end()) List.push_back(B);
+    };
+    for (const auto &Tri : Topology)
+    {
+        const uint32_t W0 = VertexToWelded[Tri.VertexIndex[0]];
+        const uint32_t W1 = VertexToWelded[Tri.VertexIndex[1]];
+        const uint32_t W2 = VertexToWelded[Tri.VertexIndex[2]];
+        LinkWelded(W0, W1); LinkWelded(W1, W0);
+        LinkWelded(W1, W2); LinkWelded(W2, W1);
+        LinkWelded(W2, W0); LinkWelded(W0, W2);
+    }
+    const float Diag = std::max(1e-3f, std::sqrt(
+        (MeshBoundsMax[0] - MeshBoundsMin[0]) * (MeshBoundsMax[0] - MeshBoundsMin[0]) +
+        (MeshBoundsMax[1] - MeshBoundsMin[1]) * (MeshBoundsMax[1] - MeshBoundsMin[1]) +
+        (MeshBoundsMax[2] - MeshBoundsMin[2]) * (MeshBoundsMax[2] - MeshBoundsMin[2])));
+    std::vector<float> WeldedCurv(Welded.size(), .5f);
+    std::vector<float> WeldedAo(Welded.size(), 1.f);
+    std::vector<float> WeldedThick(Welded.size(), .65f);
+    const size_t Stride = std::max<size_t>(1, Welded.size() / 160);
+    for (size_t Wi = 0; Wi < Welded.size(); ++Wi)
+    {
+        const auto &Self = Welded[Wi];
+        if (!Self.Neighbours.empty())
+        {
+            float SignedSum = 0.f;
+            for (const uint32_t NbIdx : Self.Neighbours)
+            {
+                const auto &Nb = Welded[NbIdx];
+                const Vec3 Edge = Sub(Nb.Pos, Self.Pos);
+                const float Len = std::sqrt(DotV(Edge, Edge));
+                if (Len <= 1e-6f) continue;
+                const Vec3 Dir{Edge.X / Len, Edge.Y / Len, Edge.Z / Len};
+                SignedSum += DotV(Sub(Nb.Norm, Self.Norm), Dir);
+            }
+            const float MeanCurv = SignedSum / float(Self.Neighbours.size());
+            WeldedCurv[Wi] = std::clamp(.5f + MeanCurv * .65f, 0.f, 1.f);
+        }
+        float OcclAccum = 0.f;
+        float BestOppDist = Diag * .45f;
+        size_t Probes = 0;
+        for (size_t OtherIdx = 0; OtherIdx < Welded.size(); OtherIdx += Stride)
+        {
+            if (OtherIdx == Wi) continue;
+            const auto &Other = Welded[OtherIdx];
+            const Vec3 Delta = Sub(Other.Pos, Self.Pos);
+            const float DistSq = DotV(Delta, Delta);
+            if (DistSq <= 1e-7f) continue;
+            const float Dist = std::sqrt(DistSq);
+            const Vec3 Dir{Delta.X / Dist, Delta.Y / Dist, Delta.Z / Dist};
+            const float CosN = DotV(Self.Norm, Dir);
+            if (CosN > .12f && Dist < Diag * .32f)
+            {
+                const float Facing = std::max(0.f, -DotV(Other.Norm, Dir));
+                OcclAccum += CosN * (.35f + .65f * Facing) / (1.f + (Dist / (Diag * .08f)) * (Dist / (Diag * .08f)));
+                ++Probes;
+            }
+            if (CosN < -.35f && DotV(Self.Norm, Other.Norm) < -.2f)
+                BestOppDist = std::min(BestOppDist, Dist);
+        }
+        const float GroundBounce = .86f + .14f * std::clamp(Self.Norm.Y * .5f + .5f, 0.f, 1.f);
+        const float Cavity = std::clamp(1.f - (Probes ? OcclAccum / float(Probes) * 2.4f : 0.f), .18f, 1.f);
+        const float ConcaveBias = std::clamp(1.f - std::max(0.f, .5f - WeldedCurv[Wi]) * .9f, .35f, 1.f);
+        WeldedAo[Wi] = std::clamp(Cavity * ConcaveBias * GroundBounce, 0.f, 1.f);
+        WeldedThick[Wi] = std::clamp(BestOppDist / (Diag * .38f), .05f, 1.f);
+    }
+    // 1-pass Laplacian smooth on curvature so facet tessellation reads smoothly across curved patches.
+    std::vector<float> SmoothedCurv = WeldedCurv;
+    for (size_t Wi = 0; Wi < Welded.size(); ++Wi)
+    {
+        if (Welded[Wi].Neighbours.empty()) continue;
+        float Sum = WeldedCurv[Wi] * 2.f;
+        for (const uint32_t Nb : Welded[Wi].Neighbours) Sum += WeldedCurv[Nb];
+        SmoothedCurv[Wi] = Sum / float(Welded[Wi].Neighbours.size() + 2);
+    }
+    for (size_t Vi = 0; Vi < VertCount; ++Vi)
+    {
+        const uint32_t Wi = VertexToWelded[Vi];
+        VertexCurvature[Vi] = SmoothedCurv[Wi];
+        VertexOcclusion[Vi] = WeldedAo[Wi];
+        VertexThickness[Vi] = WeldedThick[Wi];
+    }
+}
+
+void TexturePaintWorkspacePanel::EnsureArchiveCatalogue() const
+{
+    if (ArchiveCatalogueScanned) return;
+    ArchiveCatalogueScanned = true;
+    std::error_code Failure;
+    std::filesystem::path Base = ContentRoot.empty() ? std::filesystem::current_path(Failure) : ContentRoot;
+    std::filesystem::path ArchiveDir = Base / "EngineContent" / "MaterialArchives" / "TextureStudio";
+    if (!std::filesystem::exists(ArchiveDir, Failure) && !ProjectDirectory.empty() && std::filesystem::exists(ProjectDirectory, Failure))
+        ArchiveDir = ProjectDirectory;
+    if (!std::filesystem::exists(ArchiveDir, Failure)) return;
+
+    std::vector<std::filesystem::path> MaterialFiles;
+    for (const auto &Entry : std::filesystem::directory_iterator(ArchiveDir, Failure))
+        if (Entry.is_regular_file(Failure) && Entry.path().extension() == ".material")
+            MaterialFiles.push_back(Entry.path());
+    std::sort(MaterialFiles.begin(), MaterialFiles.end());
+    for (const auto &Path : MaterialFiles)
+    {
+        std::ifstream Input(Path);
+        if (!Input) continue;
+        PaintLoadedMaterial Item;
+        const std::string Stem = Path.stem().string();
+        Item.Id = Stem + "|lazy";
+        Item.Name = Stem;
+        std::string Line;
+        for (int LineNo = 0; LineNo < 12 && std::getline(Input, Line); ++LineNo)
+        {
+            if (Line.rfind("Name", 0) != 0) continue;
+            const size_t Eq = Line.find('=');
+            if (Eq == std::string::npos) continue;
+            size_t Q0 = Line.find_first_of("'\"", Eq + 1);
+            if (Q0 == std::string::npos) continue;
+            const char Quote = Line[Q0];
+            size_t Q1 = Line.find(Quote, Q0 + 1);
+            if (Q1 != std::string::npos && Q1 > Q0 + 1) Item.Name = Line.substr(Q0 + 1, Q1 - Q0 - 1);
+            break;
+        }
+        LoadedMaterials.push_back(std::move(Item));
+    }
+
+    const auto TexDir = ArchiveDir / "Textures";
+    if (std::filesystem::exists(TexDir, Failure))
+    {
+        for (const auto &Entry : std::filesystem::directory_iterator(TexDir, Failure))
+            if (Entry.is_regular_file(Failure) && Entry.path().extension() == ".png")
+                AvailableTextureNames.push_back(Entry.path().filename().string());
+        std::sort(AvailableTextureNames.begin(), AvailableTextureNames.end());
+    }
+}
+
+const TexturePaintWorkspacePanel::PaintLoadedMaterial *TexturePaintWorkspacePanel::FindLoadedMaterial(const std::string &NameOrId) const
+{
+    if (NameOrId.empty()) return nullptr;
+    EnsureArchiveCatalogue();
+    auto Lower = [](std::string Text) {
+        for (char &Ch : Text) Ch = char(std::tolower(uint8_t(Ch)));
+        return Text;
+    };
+    const auto LinearToSrgb = [](float Linear) noexcept {
+        Linear = std::clamp(Linear, 0.f, 1.f);
+        return Linear <= .0031308f ? Linear * 12.92f : 1.055f * std::pow(Linear, 1.f / 2.4f) - .055f;
+    };
+    const std::string Target = Lower(NameOrId);
+    for (auto &Item : LoadedMaterials)
+    {
+        const size_t Sep0 = Item.Id.find('|');
+        const std::string PureId = Sep0 == std::string::npos ? Item.Id : Item.Id.substr(0, Sep0);
+        if (Lower(PureId) != Target && Lower(Item.Name) != Target) continue;
+        if (Sep0 != std::string::npos)
+        {
+            Item.Id = PureId;
+            std::error_code Failure;
+            std::filesystem::path Base = ContentRoot.empty() ? std::filesystem::current_path(Failure) : ContentRoot;
+            std::filesystem::path ArchiveDir = Base / "EngineContent" / "MaterialArchives" / "TextureStudio";
+            if (!std::filesystem::exists(ArchiveDir, Failure) && !ProjectDirectory.empty()) ArchiveDir = ProjectDirectory;
+            try
+            {
+                std::ifstream Input(ArchiveDir / (PureId + ".material"), std::ios::binary);
+                if (Input)
+                {
+                    std::ostringstream Stream;
+                    Stream << Input.rdbuf();
+                    const auto Def = DecodeSurfaceMaterial(Stream.str());
+                    if (!Def.Name.empty()) Item.Name = Def.Name;
+                    const auto &Stratum = Def.Scattering.Illumination.Strata[0];
+                    Item.BaseAlbedo = std::array<float, 3>{LinearToSrgb(Stratum.AlbedoRoughness[0]), LinearToSrgb(Stratum.AlbedoRoughness[1]), LinearToSrgb(Stratum.AlbedoRoughness[2])};
+                    Item.BaseRoughness = std::clamp(Stratum.AlbedoRoughness[3], .04f, 1.f);
+                    Item.BaseMetallic = Stratum.Classification[0] == 0 ? std::clamp(Stratum.Optics[0], 0.f, 1.f) : 0.f;
+                    Item.BaseIor = std::clamp(Stratum.Optics[1], 1.f, 3.f);
+                    if (Def.Scattering.Illumination.Configuration[0] >= 2 && Def.Scattering.Illumination.Strata[1].Classification[0] == 1)
+                        Item.BaseCoat = std::clamp(Def.Scattering.Illumination.Strata[1].Optics[2], 0.f, 1.f);
+                    Item.Flakes = Def.Scattering.Paint;
+                    const auto ResolveTexSlot = [&](size_t Slot) -> const std::string & {
+                        return !Def.StratumTextureSources[0][Slot].empty() ? Def.StratumTextureSources[0][Slot] : Def.TextureSources[Slot];
+                    };
+                    const auto LoadSlot = [&](const std::string &RelPath, PaintLoadedTexture &OutTex)
+                    {
+                        if (RelPath.empty()) return;
+                        std::ifstream FileStream(ArchiveDir / RelPath, std::ios::binary);
+                        if (!FileStream) return;
+                        std::vector<uint8_t> Bytes((std::istreambuf_iterator<char>(FileStream)), std::istreambuf_iterator<char>());
+                        if (Bytes.empty()) return;
+                        int W = 0, H = 0, Comp = 0;
+                        if (stbi_uc *Pixels = stbi_load_from_memory(Bytes.data(), int(Bytes.size()), &W, &H, &Comp, 4))
+                        {
+                            OutTex.Width = W;
+                            OutTex.Height = H;
+                            OutTex.Rgba.assign(Pixels, Pixels + size_t(W) * size_t(H) * 4);
+                            stbi_image_free(Pixels);
+                        }
+                    };
+                    LoadSlot(ResolveTexSlot(0), Item.AlbedoMap);
+                    LoadSlot(ResolveTexSlot(1), Item.OrmMap);
+                    LoadSlot(ResolveTexSlot(2), Item.NormalMap);
+                }
+            }
+            catch (...) {}
+        }
+        return &Item;
+    }
+    return nullptr;
+}
+
+const TexturePaintWorkspacePanel::PaintLoadedTexture *TexturePaintWorkspacePanel::FindLoadedChannelTexture(const std::string &TextureName) const
+{
+    if (TextureName.empty()) return nullptr;
+    if (const auto Found = LoadedChannelTextures.find(TextureName); Found != LoadedChannelTextures.end())
+        return Found->second.Width > 0 ? &Found->second : nullptr;
+    EnsureArchiveCatalogue();
+    std::error_code Failure;
+    std::filesystem::path Base = ContentRoot.empty() ? std::filesystem::current_path(Failure) : ContentRoot;
+    std::filesystem::path TexPath = Base / "EngineContent" / "MaterialArchives" / "TextureStudio" / "Textures" / TextureName;
+    if (!std::filesystem::exists(TexPath, Failure) && !ProjectDirectory.empty())
+        TexPath = ProjectDirectory / "Textures" / TextureName;
+    PaintLoadedTexture Loaded;
+    std::ifstream FileStream(TexPath, std::ios::binary);
+    if (FileStream)
+    {
+        std::vector<uint8_t> Bytes((std::istreambuf_iterator<char>(FileStream)), std::istreambuf_iterator<char>());
+        int W = 0, H = 0, Comp = 0;
+        if (!Bytes.empty())
+            if (stbi_uc *Pixels = stbi_load_from_memory(Bytes.data(), int(Bytes.size()), &W, &H, &Comp, 4))
+            {
+                Loaded.Width = W;
+                Loaded.Height = H;
+                Loaded.Rgba.assign(Pixels, Pixels + size_t(W) * size_t(H) * 4);
+                stbi_image_free(Pixels);
+            }
+    }
+    const auto [It, _] = LoadedChannelTextures.emplace(TextureName, std::move(Loaded));
+    return It->second.Width > 0 ? &It->second : nullptr;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1061,7 +1353,33 @@ float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const 
     }
     else if (Mask.Kind == "gradient")
     {
-        Value = std::clamp(Uv[1], 0.f, 1.f); // simple vertical field stand-in for the point-gradient editor
+        float Weights[3]{1.f / 3.f, 1.f / 3.f, 1.f / 3.f};
+        (void)BarycentricWeights(Triangle, Uv, Weights);
+        const float WorldX = Weights[0] * Triangle.Position[0][0] + Weights[1] * Triangle.Position[1][0] + Weights[2] * Triangle.Position[2][0];
+        const float WorldY = Weights[0] * Triangle.Position[0][1] + Weights[1] * Triangle.Position[1][1] + Weights[2] * Triangle.Position[2][1];
+        const float WorldZ = Weights[0] * Triangle.Position[0][2] + Weights[1] * Triangle.Position[1][2] + Weights[2] * Triangle.Position[2][2];
+        const float LocalU = Uv[0] - std::floor(Uv[0]);
+        const float LocalV = Uv[1];
+        // Mask.Colour[3] stores AxisMode (0 = UV Vertical, 1 = World Y, 2 = UV Radial, 3 = World X, 4 = World Z, 5 = Angled UV),
+        // Mask.Tolerance stores Balance (default .5 if untouched .1 -> map cleanly), Mask.Softness stores Falloff, Mask.Colour[0] Angle.
+        const int AxisMode = int(std::lround(std::clamp(Mask.Colour[3] - 1.f, 0.f, 5.f)));
+        float RawT = LocalV;
+        if (AxisMode == 1)
+            RawT = (WorldY - MeshBoundsMin[1]) / std::max(1e-4f, MeshBoundsMax[1] - MeshBoundsMin[1]);
+        else if (AxisMode == 2)
+            RawT = 1.f - std::clamp(std::hypot(LocalU - .5f, LocalV - .5f) * 1.4142f, 0.f, 1.f);
+        else if (AxisMode == 3)
+            RawT = (WorldX - MeshBoundsMin[0]) / std::max(1e-4f, MeshBoundsMax[0] - MeshBoundsMin[0]);
+        else if (AxisMode == 4)
+            RawT = (WorldZ - MeshBoundsMin[2]) / std::max(1e-4f, MeshBoundsMax[2] - MeshBoundsMin[2]);
+        else if (AxisMode == 5)
+        {
+            const float Angle = (Mask.Colour[1] - .45f) * 6.2831853f;
+            RawT = .5f + ((LocalU - .5f) * std::cos(Angle) + (LocalV - .5f) * std::sin(Angle));
+        }
+        const float Balance = Mask.Colour[3] > 1.05f ? std::clamp(Mask.Tolerance, .02f, .98f) : .5f;
+        const float Falloff = Mask.Colour[3] > 1.05f ? std::max(.02f, Mask.Softness) : .5f;
+        Value = std::clamp((RawT - Balance) / Falloff + .5f, 0.f, 1.f);
     }
     for (const auto &Fill : Mask.Fills)
         if (FillMatches(Fill, Triangle)) Value += (Fill.Colour[0] - Value) * std::clamp(Fill.Colour[3], 0.f, 1.f);
@@ -1084,10 +1402,113 @@ float TexturePaintWorkspacePanel::MaskCoverageAt(const LayerState &Layer, const 
     return std::clamp(Value * Mask.Strength / 100.f + (1.f - Mask.Strength / 100.f), 0.f, 1.f);
 }
 
+namespace
+{
+float HashPaintCoord3(int X, int Y, int Z) noexcept
+{
+    uint32_t H = uint32_t(X) * 374761393u + uint32_t(Y) * 668265263u + uint32_t(Z) * 2147483647u;
+    H = (H ^ (H >> 13u)) * 1274126177u;
+    return float((H ^ (H >> 16u)) & 0xffffffu) / float(0xffffffu);
+}
+
+float ValueNoise3D(float X, float Y, float Z) noexcept
+{
+    const int Ix = int(std::floor(X)), Iy = int(std::floor(Y)), Iz = int(std::floor(Z));
+    const float Fx = X - float(Ix), Fy = Y - float(Iy), Fz = Z - float(Iz);
+    const float Ux = Fx * Fx * (3.f - 2.f * Fx);
+    const float Uy = Fy * Fy * (3.f - 2.f * Fy);
+    const float Uz = Fz * Fz * (3.f - 2.f * Fz);
+    const auto LerpF = [](float A, float B, float T) noexcept { return A + (B - A) * T; };
+    const float C00 = LerpF(HashPaintCoord3(Ix, Iy, Iz), HashPaintCoord3(Ix + 1, Iy, Iz), Ux);
+    const float C10 = LerpF(HashPaintCoord3(Ix, Iy + 1, Iz), HashPaintCoord3(Ix + 1, Iy + 1, Iz), Ux);
+    const float C01 = LerpF(HashPaintCoord3(Ix, Iy, Iz + 1), HashPaintCoord3(Ix + 1, Iy, Iz + 1), Ux);
+    const float C11 = LerpF(HashPaintCoord3(Ix, Iy + 1, Iz + 1), HashPaintCoord3(Ix + 1, Iy + 1, Iz + 1), Ux);
+    return LerpF(LerpF(C00, C10, Uy), LerpF(C01, C11, Uy), Uz);
+}
+
+float FbmNoise3D(float X, float Y, float Z, int Octaves) noexcept
+{
+    float Sum = 0.f, Amp = .5f, Norm = 0.f;
+    for (int Oct = 0; Oct < Octaves; ++Oct)
+    {
+        Sum += Amp * ValueNoise3D(X, Y, Z);
+        Norm += Amp;
+        X = X * 2.03f + 13.7f;
+        Y = Y * 2.03f + 29.1f;
+        Z = Z * 2.03f + 7.3f;
+        Amp *= .5f;
+    }
+    return Norm > 0.f ? Sum / Norm : .5f;
+}
+
+float WorleyNoise3D(float X, float Y, float Z, float Jitter) noexcept
+{
+    const int Cx = int(std::floor(X)), Cy = int(std::floor(Y)), Cz = int(std::floor(Z));
+    float Best1 = 1e9f, Best2 = 1e9f;
+    for (int Dz = -1; Dz <= 1; ++Dz)
+        for (int Dy = -1; Dy <= 1; ++Dy)
+            for (int Dx = -1; Dx <= 1; ++Dx)
+            {
+                const int Nx = Cx + Dx, Ny = Cy + Dy, Nz = Cz + Dz;
+                const float Px = float(Nx) + .5f + (HashPaintCoord3(Nx, Ny, Nz) - .5f) * Jitter;
+                const float Py = float(Ny) + .5f + (HashPaintCoord3(Nx + 31, Ny + 17, Nz + 5) - .5f) * Jitter;
+                const float Pz = float(Nz) + .5f + (HashPaintCoord3(Nx + 7, Ny + 53, Nz + 89) - .5f) * Jitter;
+                const float D2 = (Px - X) * (Px - X) + (Py - Y) * (Py - Y) + (Pz - Z) * (Pz - Z);
+                if (D2 < Best1) { Best2 = Best1; Best1 = D2; }
+                else if (D2 < Best2) Best2 = D2;
+            }
+    return std::clamp(std::sqrt(Best2) - std::sqrt(Best1), 0.f, 1.f);
+}
+
+template <typename DabType> float EvaluateDabFalloff(const DabType &Dab, float U, float V) noexcept
+{
+    const float Du = U - Dab.U, Dv = V - Dab.V;
+    const float Radius = std::max(Dab.Radius, 1e-4f);
+    if (std::fabs(Du) > Radius * 1.45f || std::fabs(Dv) > Radius * 1.45f) return 0.f;
+    const float CosA = std::cos(Dab.Angle), SinA = std::sin(Dab.Angle);
+    const float LocalX = Du * CosA + Dv * SinA;
+    const float LocalY = (-Du * SinA + Dv * CosA) / std::max(.08f, Dab.Roundness);
+    const float DistNorm = (Dab.Square ? std::max(std::fabs(LocalX), std::fabs(LocalY)) : std::hypot(LocalX, LocalY)) / Radius;
+    if (DistNorm >= 1.f) return 0.f;
+    const float Inner = std::clamp(Dab.Hardness * .9f, 0.f, .96f);
+    float T = DistNorm <= Inner ? 1.f : 1.f - (DistNorm - Inner) / std::max(1e-4f, 1.f - Inner);
+    T = T * T * (3.f - 2.f * T);
+    if (Dab.GrainMode != 0 && Dab.GrainAmount > 1e-3f)
+    {
+        const float Gx = U * Dab.GrainScale * 28.f, Gy = V * Dab.GrainScale * 28.f;
+        float Grain = 1.f;
+        if (Dab.GrainMode == 1) Grain = ValueNoise3D(Gx, Gy, 3.1f);
+        else if (Dab.GrainMode == 2) Grain = .5f + .5f * std::sin((Gx * CosA + Gy * SinA) * 3.14159265f);
+        else if (Dab.GrainMode == 3) Grain = ((int(std::floor(Gx)) + int(std::floor(Gy))) & 1) ? 1.f : .15f;
+        T *= std::clamp(1.f - Dab.GrainAmount * (1.f - Grain), 0.f, 1.f);
+    }
+    return std::clamp(T, 0.f, 1.f);
+}
+
+template <typename TexType> std::array<float, 4> SamplePaintTexture(const TexType &Tex, float U, float V) noexcept
+{
+    if (Tex.Width <= 0 || Tex.Height <= 0 || Tex.Rgba.size() != size_t(Tex.Width) * size_t(Tex.Height) * 4)
+        return {.5f, .5f, .5f, 1.f};
+    const float Wu = U - std::floor(U), Wv = V - std::floor(V);
+    const float X = Wu * float(Tex.Width - 1), Y = Wv * float(Tex.Height - 1);
+    const int X0 = int(std::floor(X)), Y0 = int(std::floor(Y));
+    const int X1 = (X0 + 1) % Tex.Width, Y1 = (Y0 + 1) % Tex.Height;
+    const float Fx = X - float(X0), Fy = Y - float(Y0);
+    std::array<float, 4> Out{};
+    for (int Ch = 0; Ch < 4; ++Ch)
+    {
+        const float P00 = Tex.Rgba[(size_t(Y0) * size_t(Tex.Width) + size_t(X0)) * 4 + size_t(Ch)] / 255.f;
+        const float P10 = Tex.Rgba[(size_t(Y0) * size_t(Tex.Width) + size_t(X1)) * 4 + size_t(Ch)] / 255.f;
+        const float P01 = Tex.Rgba[(size_t(Y1) * size_t(Tex.Width) + size_t(X0)) * 4 + size_t(Ch)] / 255.f;
+        const float P11 = Tex.Rgba[(size_t(Y1) * size_t(Tex.Width) + size_t(X1)) * 4 + size_t(Ch)] / 255.f;
+        Out[size_t(Ch)] = (P00 + (P10 - P00) * Fx) * (1.f - Fy) + (P01 + (P11 - P01) * Fx) * Fy;
+    }
+    return Out;
+}
+} // namespace
+
 std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const TopologyTriangle &Triangle) const noexcept
 {
-    // 🎨 Layer 0: the locked white mesh-base fallback Alloy composites under everything.
-    std::array<float, 3> Base{0.92f, 0.91f, 0.88f};
     const float *Uv = Triangle.CentroidUv;
     if (MaskPreview)
     {
@@ -1097,83 +1518,504 @@ std::array<float, 3> TexturePaintWorkspacePanel::EvaluatePreviewColour(const Top
             return {Coverage, Coverage, Coverage};
         }
     }
-    // 📝 Bottom-to-top (vector order is topmost-first), honoring visibility/opacity/blend/masks - the same
-    // evaluation order Alloy's stack uses. This centroid form backs the fallback (untextured) preview;
-    // the UV canvas compositor below drives the same per-layer block per texel.
+    PaintPbrTexel Pbr{};
     for (auto Iterator = Layers.rbegin(); Iterator != Layers.rend(); ++Iterator)
-        ApplyPreviewLayer(Base, *Iterator, Triangle, Uv, nullptr, nullptr);
-    return Base;
+        ApplyPreviewPbrLayer(Pbr, *Iterator, Triangle, Uv, nullptr, nullptr);
+    return Pbr.BaseColor;
 }
 
 void TexturePaintWorkspacePanel::ApplyPreviewLayer(std::array<float, 3> &Base, const LayerState &Layer,
     const TopologyTriangle &Triangle, const float Uv[2], const std::vector<int32_t> *DabCandidates,
     const std::vector<int32_t> *MaskDabCandidates, bool VisibilityPrechecked) const noexcept
 {
+    PaintPbrTexel Pbr{};
+    Pbr.BaseColor = Base;
+    ApplyPreviewPbrLayer(Pbr, Layer, Triangle, Uv, DabCandidates, MaskDabCandidates, VisibilityPrechecked);
+    Base = Pbr.BaseColor;
+}
+
+void TexturePaintWorkspacePanel::ApplyPreviewPbrLayer(PaintPbrTexel &Texel, const LayerState &Layer,
+    const TopologyTriangle &Triangle, const float Uv[2], const std::vector<int32_t> *DabCandidates,
+    const std::vector<int32_t> *MaskDabCandidates, bool VisibilityPrechecked) const noexcept
+{
     if (Layer.Kind == LayerKind::Folder || Layer.Opacity <= 0.f) return;
     if (!VisibilityPrechecked && !EffectiveVisible(Layer)) return;
-    const float Coverage = MaskCoverageAt(Layer, Triangle, Uv, MaskDabCandidates);
-    const float Alpha = Layer.Opacity / 100.f * Coverage;
+
+    float Coverage = MaskCoverageAt(Layer, Triangle, Uv, MaskDabCandidates);
+    float FolderAlpha = 1.f;
+    {
+        std::string AncestorId = Layer.ParentId;
+        int Guard = 0;
+        while (!AncestorId.empty() && Guard++ < 16)
+        {
+            const auto *Folder = FindLayer(AncestorId);
+            if (!Folder) break;
+            FolderAlpha *= std::clamp(Folder->Opacity / 100.f, 0.f, 1.f) * MaskCoverageAt(*Folder, Triangle, Uv, nullptr);
+            AncestorId = Folder->ParentId;
+        }
+    }
+    const float Alpha = std::clamp(Layer.Opacity / 100.f * Coverage * FolderAlpha, 0.f, 1.f);
     if (Alpha <= 0.f) return;
-    if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f)
-        BlendOver(Base, Layer.SourceColour, Alpha, Layer.Blend);
+
+    const auto HasChannel = [](const std::vector<std::string> &List, const char *Id) noexcept {
+        return std::find(List.begin(), List.end(), Id) != List.end();
+    };
+    const auto LookupScalar = [](const std::map<std::string, float> &Values, const char *Id, float Fallback) noexcept {
+        const auto Found = Values.find(Id);
+        return Found != Values.end() ? Found->second : Fallback;
+    };
+    const auto LookupColour = [](const std::map<std::string, std::array<float, 4>> &Colours, const char *Id, uint32_t Hex) noexcept -> std::array<float, 4> {
+        const auto Found = Colours.find(Id);
+        if (Found != Colours.end()) return Found->second;
+        return {float((Hex >> 16) & 0xff) / 255.f, float((Hex >> 8) & 0xff) / 255.f, float(Hex & 0xff) / 255.f, 1.f};
+    };
+
+    bool SurfaceInterpolated = false;
+    float Weights[3]{1.f / 3.f, 1.f / 3.f, 1.f / 3.f};
+    Vec3 World{0, 0, 0};
+    float Curvature = .5f, MeshAo = 1.f, MeshThick = .6f;
+    const auto EnsureSurfacePoint = [&]() noexcept
+    {
+        if (SurfaceInterpolated) return;
+        SurfaceInterpolated = true;
+        (void)BarycentricWeights(Triangle, Uv, Weights);
+        World = {
+            Weights[0] * Triangle.Position[0][0] + Weights[1] * Triangle.Position[1][0] + Weights[2] * Triangle.Position[2][0],
+            Weights[0] * Triangle.Position[0][1] + Weights[1] * Triangle.Position[1][1] + Weights[2] * Triangle.Position[2][1],
+            Weights[0] * Triangle.Position[0][2] + Weights[1] * Triangle.Position[1][2] + Weights[2] * Triangle.Position[2][2]};
+        if (!VertexCurvature.empty())
+        {
+            const uint32_t V0 = Triangle.VertexIndex[0], V1 = Triangle.VertexIndex[1], V2 = Triangle.VertexIndex[2];
+            if (V0 < VertexCurvature.size() && V1 < VertexCurvature.size() && V2 < VertexCurvature.size())
+            {
+                Curvature = Weights[0] * VertexCurvature[V0] + Weights[1] * VertexCurvature[V1] + Weights[2] * VertexCurvature[V2];
+                MeshAo = Weights[0] * VertexOcclusion[V0] + Weights[1] * VertexOcclusion[V1] + Weights[2] * VertexOcclusion[V2];
+                MeshThick = Weights[0] * VertexThickness[V0] + Weights[1] * VertexThickness[V1] + Weights[2] * VertexThickness[V2];
+            }
+        }
+    };
+
+    const auto EvaluateGeneratorScalar = [&](const std::string &GenId, const std::map<std::string, float> *Params) noexcept -> float {
+        EnsureSurfacePoint();
+        const auto Param = [&](const char *Key, float DefVal) noexcept {
+            if (!Params) return DefVal;
+            const auto It = Params->find(Key);
+            return It != Params->end() ? It->second : DefVal;
+        };
+        const float SpanX = std::max(1e-4f, MeshBoundsMax[0] - MeshBoundsMin[0]);
+        const float SpanY = std::max(1e-4f, MeshBoundsMax[1] - MeshBoundsMin[1]);
+        const float SpanZ = std::max(1e-4f, MeshBoundsMax[2] - MeshBoundsMin[2]);
+        const float Nx = (World.X - MeshBoundsMin[0]) / SpanX;
+        const float Ny = (World.Y - MeshBoundsMin[1]) / SpanY;
+        const float Nz = (World.Z - MeshBoundsMin[2]) / SpanZ;
+        if (GenId == "CurvatureEdges")
+        {
+            const float Balance = Param("Balance", .5f), Contrast = Param("Contrast", .7f), Radius = Param("Radius", .25f);
+            const float Micro = (ValueNoise3D(Nx * (8.f + Radius * 28.f), Ny * (8.f + Radius * 28.f), Nz * (8.f + Radius * 28.f)) - .5f) * Radius * .35f;
+            const float Raw = Curvature + Micro - (1.f - Balance) + .5f;
+            return std::clamp(.5f + (Raw - .5f) * (1.f + Contrast * 4.5f), 0.f, 1.f);
+        }
+        if (GenId == "AmbientOcclusion")
+        {
+            const float Spread = Param("Spread", .4f), Contrast = Param("Contrast", .6f);
+            const float Shaped = std::pow(std::clamp(MeshAo, 0.f, 1.f), .5f + Spread * 1.8f);
+            return std::clamp(.5f + (Shaped - .5f) * (1.f + Contrast * 2.5f), 0.f, 1.f);
+        }
+        if (GenId == "Thickness")
+        {
+            const float Depth = Param("Depth", .5f), Contrast = Param("Contrast", .5f);
+            const float Raw = std::clamp(MeshThick + (Depth - .5f) * .8f, 0.f, 1.f);
+            return std::clamp(.5f + (Raw - .5f) * (1.f + Contrast * 2.8f), 0.f, 1.f);
+        }
+        if (GenId == "PositionGradient")
+        {
+            const float Origin = Param("Origin", .5f), Falloff = std::max(.03f, Param("Falloff", .35f));
+            return std::clamp((Ny - Origin) / Falloff + .5f, 0.f, 1.f);
+        }
+        if (GenId == "MetalEdgeWear")
+        {
+            const float Intensity = Param("Intensity", .6f), Softness = Param("Softness", .3f), Grain = Param("Roughness", .45f);
+            const float Edge = std::max(0.f, (Curvature - (.53f - Intensity * .22f)) * 4.2f);
+            const float Grunge = FbmNoise3D(Nx * (10.f + Grain * 24.f), Ny * (10.f + Grain * 24.f), Nz * (10.f + Grain * 24.f), 4);
+            const float Wear = Edge * (.45f + .95f * Grunge);
+            return std::clamp(Wear / std::max(.12f, .25f + Softness * .85f), 0.f, 1.f);
+        }
+        if (GenId == "DirtAccumulation")
+        {
+            const float Amount = Param("Amount", .5f), Scale = Param("Scale", .3f);
+            const float Cavity = 1.f - MeshAo;
+            const float Upward = std::clamp(Triangle.Normal[1] * .5f + .5f, 0.f, 1.f);
+            const float Freq = 5.f + Scale * 28.f;
+            const float Grunge = FbmNoise3D(Nx * Freq + 4.2f, Ny * Freq + 9.1f, Nz * Freq + 2.7f, 4);
+            return std::clamp((Cavity * 1.45f + Upward * .32f) * (.35f + Grunge) * (.4f + Amount * 1.5f), 0.f, 1.f);
+        }
+        if (GenId == "WaterRunoff")
+        {
+            const float Length = Param("Length", .55f), Density = Param("Density", .4f), Gravity = Param("Gravity", .8f);
+            const float FreqX = 6.f + Density * 26.f;
+            const float FreqY = std::max(.8f, (4.f - Length * 3.1f));
+            const float Streak = FbmNoise3D(Nx * FreqX, Ny * FreqY + Gravity * 3.f, Nz * FreqX, 4);
+            const float TopMask = std::clamp(.35f + .65f * (1.f - Ny * Gravity), 0.f, 1.f);
+            return std::clamp((Streak - .38f) * 2.4f * TopMask, 0.f, 1.f);
+        }
+        if (GenId == "PerlinNoise")
+        {
+            const float Scale = Param("Scale", .4f), OctavesF = Param("Octaves", .5f), Contrast = Param("Contrast", .5f);
+            const float Freq = 2.f + Scale * 30.f;
+            const int Octs = std::clamp(1 + int(std::lround(OctavesF * 5.f)), 1, 6);
+            const float Val = FbmNoise3D(Nx * Freq, Ny * Freq, Nz * Freq, Octs);
+            return std::clamp(.5f + (Val - .5f) * (.6f + Contrast * 3.2f), 0.f, 1.f);
+        }
+        if (GenId == "VoronoiCells")
+        {
+            const float Density = Param("Density", .35f), Jitter = Param("Jitter", .7f);
+            const float Freq = 3.f + Density * 24.f;
+            return WorleyNoise3D(Nx * Freq, Ny * Freq, Nz * Freq, std::clamp(Jitter, .05f, 1.f));
+        }
+        if (GenId == "BrushedAnisotropy")
+        {
+            const float Angle = Param("Direction", 0.f) * 3.14159265f;
+            const float Grain = Param("Grain", .6f);
+            const float LocalU = Uv[0] - std::floor(Uv[0]), LocalV = Uv[1];
+            const float Ru = LocalU * std::cos(Angle) + LocalV * std::sin(Angle);
+            const float Rv = -LocalU * std::sin(Angle) + LocalV * std::cos(Angle);
+            const float Fine = FbmNoise3D(Ru * 6.f, Rv * (48.f + Grain * 140.f), float(Triangle.Part) * 3.7f, 3);
+            return std::clamp(.2f + Fine * (.5f + Grain * .7f), 0.f, 1.f);
+        }
+        return .5f;
+    };
+
+    const auto ApplyScalarChannel = [&](const std::string &ChannelId, float Val, float Weight) noexcept
+    {
+        Weight = std::clamp(Weight, 0.f, 1.f);
+        if (Weight <= 0.f) return;
+        if (ChannelId == "roughness") Texel.Roughness += (std::clamp(Val, .04f, 1.f) - Texel.Roughness) * Weight;
+        else if (ChannelId == "metalness") Texel.Metalness += (std::clamp(Val, 0.f, 1.f) - Texel.Metalness) * Weight;
+        else if (ChannelId == "height") Texel.Height = std::clamp(Texel.Height + (Val - .5f) * 2.f * Weight, -1.f, 1.f);
+        else if (ChannelId == "occlusion") Texel.Occlusion += (std::clamp(Val, 0.f, 1.f) - Texel.Occlusion) * Weight;
+        else if (ChannelId == "opacity") Texel.Opacity += (std::clamp(Val, 0.f, 1.f) - Texel.Opacity) * Weight;
+        else if (ChannelId == "anisotropy") Texel.Anisotropy += (std::clamp(Val, 0.f, 1.f) - Texel.Anisotropy) * Weight;
+        else if (ChannelId == "anisotropyAngle") Texel.AnisotropyAngle += (std::clamp(Val, 0.f, 360.f) - Texel.AnisotropyAngle) * Weight;
+        else if (ChannelId == "clearcoat") Texel.Clearcoat += (std::clamp(Val, 0.f, 1.f) - Texel.Clearcoat) * Weight;
+        else if (ChannelId == "transmission") Texel.Transmission += (std::clamp(Val, 0.f, 1.f) - Texel.Transmission) * Weight;
+        else if (ChannelId == "refractionIndex") Texel.RefractionIndex += (std::clamp(Val, 1.f, 3.f) - Texel.RefractionIndex) * Weight;
+    };
+    const auto ApplyColourChannel = [&](const std::string &ChannelId, const std::array<float, 4> &Col, float Weight, const std::string &BlendMode) noexcept
+    {
+        Weight = std::clamp(Weight, 0.f, 1.f);
+        if (Weight <= 0.f) return;
+        if (ChannelId == "baseColor") BlendOver(Texel.BaseColor, Col, Weight, BlendMode);
+        else if (ChannelId == "emission") BlendOver(Texel.Emission, Col, Weight, "Add");
+        else if (ChannelId == "sheen") BlendOver(Texel.Sheen, Col, Weight, "Normal");
+        else if (ChannelId == "subsurface") BlendOver(Texel.Subsurface, Col, Weight, "Normal");
+    };
+
+    // 1. Material layer source evaluation (real preset PBR textures + mineral/automotive flakes).
+    if (Layer.Kind == LayerKind::Material)
+    {
+        const PaintLoadedMaterial *Preset = !Layer.SourceAsset.empty() ? FindLoadedMaterial(Layer.SourceAsset) : nullptr;
+        if (Preset)
+        {
+            float UvScale = 1.f, UvOffX = 0.f, UvOffY = 0.f, UvRotDeg = 0.f, NormStrength = 1.f, FlakeScale = 1.f;
+            if (const auto MatIt = Layer.ChannelGeneratorParams.find("__material"); MatIt != Layer.ChannelGeneratorParams.end())
+            {
+                const auto GetP = [&](const char *K, float Def) {
+                    const auto F = MatIt->second.find(K);
+                    return F != MatIt->second.end() ? F->second : Def;
+                };
+                UvScale = std::max(.1f, GetP("uvScale", 1.f));
+                UvOffX = GetP("uvOffsetX", 0.f);
+                UvOffY = GetP("uvOffsetY", 0.f);
+                UvRotDeg = GetP("uvRotDeg", 0.f);
+                NormStrength = GetP("normalScale", 1.f);
+                FlakeScale = std::max(.1f, GetP("flakeScale", 1.f));
+            }
+            const float LocalU = (Uv[0] - std::floor(Uv[0])) - .5f;
+            const float LocalV = Uv[1] - .5f;
+            const float Rad = UvRotDeg * (3.14159265f / 180.f);
+            const float CosR = std::cos(Rad), SinR = std::sin(Rad);
+            const float Su = (LocalU * CosR - LocalV * SinR) * UvScale + .5f + UvOffX;
+            const float Sv = (LocalU * SinR + LocalV * CosR) * UvScale + .5f + UvOffY;
+
+            std::array<float, 3> Albedo = Preset->BaseAlbedo;
+            if (Preset->AlbedoMap.Width > 0)
+            {
+                const auto Sampled = SamplePaintTexture(Preset->AlbedoMap, Su, Sv);
+                for (int Ch = 0; Ch < 3; ++Ch) Albedo[size_t(Ch)] *= Sampled[size_t(Ch)];
+            }
+            float Rough = Preset->BaseRoughness;
+            float Metal = Preset->BaseMetallic;
+            float Ao = 1.f;
+            if (Preset->OrmMap.Width > 0)
+            {
+                const auto Orm = SamplePaintTexture(Preset->OrmMap, Su, Sv);
+                Ao = Orm[0];
+                Rough = std::clamp(Rough * Orm[1], .04f, 1.f);
+                Metal = std::clamp(Metal * Orm[2], 0.f, 1.f);
+            }
+            if (Preset->Flakes.Configuration[0] != 0)
+            {
+                EnsureSurfacePoint();
+                auto ScaledFlakes = Preset->Flakes;
+                ScaledFlakes.Distribution[1] = std::clamp(ScaledFlakes.Distribution[1] * FlakeScale, .001f, 1000000.f);
+                const auto SrgbToLin = [](float C) noexcept {
+                    C = std::clamp(C, 0.f, 1.f);
+                    return C <= .04045f ? C / 12.92f : std::pow((C + .055f) / 1.055f, 2.4f);
+                };
+                const auto LinToSrgb = [](float L) noexcept {
+                    L = std::clamp(L, 0.f, 1.f);
+                    return L <= .0031308f ? L * 12.92f : 1.055f * std::pow(L, 1.f / 2.4f) - .055f;
+                };
+                const auto FlakeSurf = WorkspaceViewportDetail::EvaluatePaintSurfaceCpu(ScaledFlakes, {World.X, World.Y, World.Z},
+                    {SrgbToLin(Albedo[0]), SrgbToLin(Albedo[1]), SrgbToLin(Albedo[2])}, Rough, Metal, .15f);
+                Albedo = std::array<float, 3>{LinToSrgb(FlakeSurf.Albedo[0]), LinToSrgb(FlakeSurf.Albedo[1]), LinToSrgb(FlakeSurf.Albedo[2])};
+                Rough = FlakeSurf.Roughness;
+                Metal = FlakeSurf.Metallic;
+                if (HasChannel(Layer.Channels, "normal"))
+                {
+                    Texel.ExplicitNormalX += FlakeSurf.Slope[0] * Alpha * NormStrength;
+                    Texel.ExplicitNormalY += FlakeSurf.Slope[1] * Alpha * NormStrength;
+                }
+            }
+            if (Preset->NormalMap.Width > 0 && HasChannel(Layer.Channels, "normal"))
+            {
+                const auto Nrm = SamplePaintTexture(Preset->NormalMap, Su, Sv);
+                Texel.ExplicitNormalX += ((Nrm[0] * 2.f - 1.f) * NormStrength - Texel.ExplicitNormalX) * Alpha;
+                Texel.ExplicitNormalY += ((Nrm[1] * 2.f - 1.f) * NormStrength - Texel.ExplicitNormalY) * Alpha;
+            }
+            if (HasChannel(Layer.Channels, "baseColor")) BlendOver(Texel.BaseColor, {Albedo[0], Albedo[1], Albedo[2], 1.f}, Alpha, Layer.Blend);
+            if (HasChannel(Layer.Channels, "roughness")) ApplyScalarChannel("roughness", Rough, Alpha);
+            if (HasChannel(Layer.Channels, "metalness")) ApplyScalarChannel("metalness", Metal, Alpha);
+            if (HasChannel(Layer.Channels, "occlusion")) ApplyScalarChannel("occlusion", Ao, Alpha);
+            if (HasChannel(Layer.Channels, "clearcoat") || Preset->BaseCoat > .02f) ApplyScalarChannel("clearcoat", Preset->BaseCoat, Alpha);
+            if (HasChannel(Layer.Channels, "refractionIndex")) ApplyScalarChannel("refractionIndex", Preset->BaseIor, Alpha);
+        }
+        else if (Layer.SourceColour[3] > 0.f && HasChannel(Layer.Channels, "baseColor"))
+        {
+            BlendOver(Texel.BaseColor, Layer.SourceColour, Alpha, Layer.Blend);
+        }
+    }
+
+    // 2. Full-surface channel evaluation for Fill/Generator layers, or any channel using gradient/texture/generator mode.
+    const bool FullSurfaceValueLayer = (Layer.Kind == LayerKind::Fill || Layer.Kind == LayerKind::Generator) &&
+        (!Layer.ChannelModes.empty() || !Layer.ChannelColours.empty() || !Layer.ChannelValues.empty() || !Layer.ChannelGenerators.empty());
+    for (const auto &Meta : ChannelTable)
+    {
+        if (!HasChannel(Layer.Channels, Meta.Id)) continue;
+        if (std::string(Meta.Id) == "normal")
+        {
+            if (const auto Found = Layer.ChannelValues.find("normal"); Found != Layer.ChannelValues.end())
+                Texel.NormalScale += (std::clamp(Found->second, 0.f, 4.f) - Texel.NormalScale) * Alpha;
+            continue;
+        }
+        const auto ModeIt = Layer.ChannelModes.find(Meta.Id);
+        const std::string Mode = ModeIt != Layer.ChannelModes.end() ? ModeIt->second
+            : (Layer.Kind == LayerKind::Generator && Layer.ChannelGenerators.count(Meta.Id) ? "generator" : "value");
+        const bool IsColor = std::string(Meta.Edit) == "color";
+        if (Mode == "value" && !FullSurfaceValueLayer) continue;
+
+        if (Mode == "gradient")
+        {
+            EnsureSurfacePoint();
+            const auto ParamIt = Layer.ChannelGeneratorParams.find(std::string("__gradient:") + Meta.Id);
+            const auto GetG = [&](const char *K, float Def) {
+                if (ParamIt == Layer.ChannelGeneratorParams.end()) return Def;
+                const auto F = ParamIt->second.find(K);
+                return F != ParamIt->second.end() ? F->second : Def;
+            };
+            const int AxisMode = int(std::lround(GetG("axis", 0.f)));
+            const float Angle = GetG("angle", 0.f) * (3.14159265f / 180.f);
+            const float Mid = std::clamp(GetG("midpoint", .5f), .05f, .95f);
+            const float Contrast = GetG("contrast", .5f);
+            const float LocalU = Uv[0] - std::floor(Uv[0]), LocalV = Uv[1];
+            float T = LocalV;
+            if (AxisMode == 0) T = .5f + ((LocalU - .5f) * std::cos(Angle) + (LocalV - .5f) * std::sin(Angle));
+            else if (AxisMode == 1) T = std::clamp(std::hypot(LocalU - .5f, LocalV - .5f) * 1.4142f, 0.f, 1.f);
+            else if (AxisMode == 2) T = (World.Y - MeshBoundsMin[1]) / std::max(1e-4f, MeshBoundsMax[1] - MeshBoundsMin[1]);
+            else if (AxisMode == 3) T = (World.X - MeshBoundsMin[0]) / std::max(1e-4f, MeshBoundsMax[0] - MeshBoundsMin[0]);
+            else if (AxisMode == 4) T = (World.Z - MeshBoundsMin[2]) / std::max(1e-4f, MeshBoundsMax[2] - MeshBoundsMin[2]);
+            T = std::clamp(T, 0.f, 1.f);
+            T = T < Mid ? .5f * (T / Mid) : .5f + .5f * ((T - Mid) / (1.f - Mid));
+            T = std::clamp(.5f + (T - .5f) * (.5f + Contrast * 2.5f), 0.f, 1.f);
+            const auto StartCol = LookupColour(Layer.ChannelColours, Meta.Id, Meta.DefaultColour);
+            const auto EndCol = LookupColour(Layer.ChannelColours, (std::string(Meta.Id) + ":end").c_str(), 0xe6e6df);
+            const std::array<float, 4> GradCol{
+                StartCol[0] + (EndCol[0] - StartCol[0]) * T,
+                StartCol[1] + (EndCol[1] - StartCol[1]) * T,
+                StartCol[2] + (EndCol[2] - StartCol[2]) * T,
+                StartCol[3] + (EndCol[3] - StartCol[3]) * T};
+            if (IsColor) ApplyColourChannel(Meta.Id, GradCol, Alpha, Layer.Blend);
+            else ApplyScalarChannel(Meta.Id, Meta.Min + T * (Meta.Max - Meta.Min), Alpha);
+        }
+        else if (Mode == "texture")
+        {
+            const std::string TexKey = std::string("__texture:") + Meta.Id;
+            const auto GenIt = Layer.ChannelGenerators.find(TexKey);
+            const std::string TexName = GenIt != Layer.ChannelGenerators.end() ? GenIt->second : "";
+            const auto *Tex = FindLoadedChannelTexture(TexName);
+            if (Tex)
+            {
+                const auto ParamIt = Layer.ChannelGeneratorParams.find(TexKey);
+                const auto GetT = [&](const char *K, float Def) {
+                    if (ParamIt == Layer.ChannelGeneratorParams.end()) return Def;
+                    const auto F = ParamIt->second.find(K);
+                    return F != ParamIt->second.end() ? F->second : Def;
+                };
+                const float Scale = std::max(.1f, GetT("scale", 1.f));
+                const float OffX = GetT("offsetX", 0.f), OffY = GetT("offsetY", 0.f);
+                const bool Invert = GetT("invert", 0.f) > .5f;
+                auto Sampled = SamplePaintTexture(*Tex, (Uv[0] - std::floor(Uv[0])) * Scale + OffX, Uv[1] * Scale + OffY);
+                if (Invert) for (int Ch = 0; Ch < 3; ++Ch) Sampled[size_t(Ch)] = 1.f - Sampled[size_t(Ch)];
+                if (IsColor) ApplyColourChannel(Meta.Id, Sampled, Alpha, Layer.Blend);
+                else ApplyScalarChannel(Meta.Id, Meta.Min + Sampled[0] * (Meta.Max - Meta.Min), Alpha * Sampled[3]);
+            }
+        }
+        else if (Mode == "generator")
+        {
+            const auto GenIt = Layer.ChannelGenerators.find(Meta.Id);
+            const std::string GenId = GenIt != Layer.ChannelGenerators.end() ? GenIt->second : "";
+            if (GenId == "MaterialStudio")
+            {
+                const auto SubIt = Layer.ChannelGenerators.find(std::string("__matstudio:") + Meta.Id);
+                const std::string MatName = SubIt != Layer.ChannelGenerators.end() ? SubIt->second : Layer.SourceAsset;
+                if (const auto *Preset = FindLoadedMaterial(MatName))
+                {
+                    const float Su = Uv[0] - std::floor(Uv[0]), Sv = Uv[1];
+                    if (IsColor)
+                    {
+                        auto Col = Preset->BaseAlbedo;
+                        if (Preset->AlbedoMap.Width > 0)
+                        {
+                            const auto S = SamplePaintTexture(Preset->AlbedoMap, Su, Sv);
+                            for (int Ch = 0; Ch < 3; ++Ch) Col[size_t(Ch)] *= S[size_t(Ch)];
+                        }
+                        ApplyColourChannel(Meta.Id, {Col[0], Col[1], Col[2], 1.f}, Alpha, Layer.Blend);
+                    }
+                    else
+                    {
+                        float Val = Preset->BaseRoughness;
+                        if (Preset->OrmMap.Width > 0)
+                        {
+                            const auto Orm = SamplePaintTexture(Preset->OrmMap, Su, Sv);
+                            if (std::string(Meta.Id) == "occlusion") Val = Orm[0];
+                            else if (std::string(Meta.Id) == "metalness") Val = Preset->BaseMetallic * Orm[2];
+                            else Val = Preset->BaseRoughness * Orm[1];
+                        }
+                        else if (std::string(Meta.Id) == "metalness") Val = Preset->BaseMetallic;
+                        ApplyScalarChannel(Meta.Id, Val, Alpha);
+                    }
+                }
+            }
+            else if (!GenId.empty())
+            {
+                const auto ParamIt = Layer.ChannelGeneratorParams.find(Meta.Id);
+                const float MaskVal = EvaluateGeneratorScalar(GenId, ParamIt != Layer.ChannelGeneratorParams.end() ? &ParamIt->second : nullptr);
+                if (IsColor)
+                {
+                    const auto Col = LookupColour(Layer.ChannelColours, Meta.Id, Meta.DefaultColour);
+                    ApplyColourChannel(Meta.Id, {Col[0], Col[1], Col[2], Col[3] * MaskVal}, Alpha, Layer.Blend);
+                }
+                else
+                {
+                    const float Target = LookupScalar(Layer.ChannelValues, Meta.Id, Meta.DefaultValue);
+                    ApplyScalarChannel(Meta.Id, Target, Alpha * MaskVal);
+                }
+            }
+        }
+        else if (Mode == "value" && FullSurfaceValueLayer)
+        {
+            if (IsColor)
+            {
+                if (Layer.ChannelColours.count(Meta.Id))
+                    ApplyColourChannel(Meta.Id, LookupColour(Layer.ChannelColours, Meta.Id, Meta.DefaultColour), Alpha, Layer.Blend);
+            }
+            else if (Layer.ChannelValues.count(Meta.Id))
+            {
+                ApplyScalarChannel(Meta.Id, LookupScalar(Layer.ChannelValues, Meta.Id, Meta.DefaultValue), Alpha);
+            }
+        }
+    }
+
+    // 3. Region fills + Digital/Physical brush strokes across all enabled layer channels.
+    const auto DepositLayerSecondaryChannels = [&](float Weight, float ExtraHeight) noexcept
+    {
+        for (const auto &Meta : ChannelTable)
+        {
+            if (std::string(Meta.Id) == "baseColor" || std::string(Meta.Id) == "normal") continue;
+            if (!HasChannel(Layer.Channels, Meta.Id)) continue;
+            if (std::string(Meta.Edit) == "color")
+                ApplyColourChannel(Meta.Id, LookupColour(Layer.ChannelColours, Meta.Id, Meta.DefaultColour), Weight, "Normal");
+            else if (std::string(Meta.Id) == "height")
+            {
+                const float Authored = LookupScalar(Layer.ChannelValues, "height", .5f);
+                Texel.Height = std::clamp(Texel.Height + ((Authored - .5f) * 2.f + ExtraHeight) * Weight, -1.f, 1.f);
+            }
+            else ApplyScalarChannel(Meta.Id, LookupScalar(Layer.ChannelValues, Meta.Id, Meta.DefaultValue), Weight);
+        }
+    };
+
     for (const auto &Fill : Layer.Fills)
-        if (FillMatches(Fill, Triangle)) BlendOver(Base, Fill.Colour, Alpha, Layer.Blend);
+    {
+        if (!FillMatches(Fill, Triangle)) continue;
+        const float W = Alpha * std::clamp(Fill.Colour[3], 0.f, 1.f);
+        if (HasChannel(Layer.Channels, "baseColor")) BlendOver(Texel.BaseColor, Fill.Colour, Alpha, Layer.Blend);
+        DepositLayerSecondaryChannels(W, 0.f);
+    }
+
     if (StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId)
     {
-        // 🖌️ This layer owns the PaintWorkshop stamp canvas: its paint is the raster (colour + coverage);
-        // the dab records stay the document/undo truth.
         const auto Sample = StampEngine.SampleCanvas(Uv[0], Uv[1]);
-        if (Sample[3] > 0.001f)
-            BlendOver(Base, {Sample[0], Sample[1], Sample[2], 1.f}, Alpha * Sample[3], Layer.Blend);
+        const float FilmHeight = StampEngine.SampleHeight(Uv[0], Uv[1]);
+        const float Wet = StampEngine.WetAt(Uv[0], Uv[1]);
+        if (Sample[3] > 0.001f || FilmHeight > 0.002f)
+        {
+            const float W = Alpha * Sample[3];
+            if (HasChannel(Layer.Channels, "baseColor") && Sample[3] > 0.001f)
+                BlendOver(Texel.BaseColor, {Sample[0], Sample[1], Sample[2], 1.f}, W, Layer.Blend);
+            DepositLayerSecondaryChannels(W, FilmHeight * .85f);
+            if (FilmHeight > 0.002f && !HasChannel(Layer.Channels, "height"))
+                Texel.Height = std::clamp(Texel.Height + FilmHeight * .65f * Alpha, -1.f, 1.f);
+            if (Wet > 0.01f)
+                Texel.Roughness += (.08f - Texel.Roughness) * std::clamp(Wet * W, 0.f, 1.f);
+        }
     }
     else
     {
-        const auto ApplyDab = [&](const auto &Dab)
+        const auto ApplyDab = [&](const PaintDab &Dab)
         {
             if (Dab.Part != Triangle.Part) return;
-            const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
-            const float Distance = std::sqrt(Du * Du + Dv * Dv);
-            if (Distance < Dab.Radius)
-                BlendOver(Base, Dab.Colour, Alpha * std::clamp(1.f - Distance / Dab.Radius, 0.f, 1.f), Layer.Blend);
+            const float Falloff = EvaluateDabFalloff(Dab, Uv[0], Uv[1]);
+            if (Falloff <= 0.f) return;
+            const float W = Alpha * Falloff * std::clamp(Dab.Colour[3], 0.f, 1.f);
+            if (HasChannel(Layer.Channels, "baseColor"))
+                BlendOver(Texel.BaseColor, Dab.Colour, Alpha * Falloff, Layer.Blend);
+            DepositLayerSecondaryChannels(W, Dab.HeightStrength * .45f);
         };
         if (DabCandidates)
             for (const int32_t Index : *DabCandidates) ApplyDab(Layer.Dabs[size_t(Index)]);
         else
             for (const auto &Dab : Layer.Dabs) ApplyDab(Dab);
     }
-    // 🖨️ Decals ride over the layer's paint. PROJECTED stamps evaluate in world space: the texel's
-    // 3D point goes through the projector frame (in-box test + facing fade), so the art lands only
-    // on the surface it was aimed at - no copies on other UV islands, no mirror on the back side,
-    // no grazing-angle smear. Legacy placements keep the UV-planar quad. Either way the sample
-    // comes from the footprint-matched raster (ResolveStampRasters), placement tint applied.
-    bool WorldReady = false;
-    Vec3 World{0, 0, 0};
+
+    // 4. Placed Stamps (spatial .stamp.toml 9-channel PBR maps + per-decal ChannelTargets overrides).
     for (const auto &Placement : Layer.Stamps)
     {
-        float SampleU, SampleV, Fade = 1.f;
+        float SampleU = 0.f, SampleV = 0.f, Fade = 1.f;
         if (Placement.Projected)
         {
             if (Placement.WorldRadius <= 0.f) continue;
-            if (!WorldReady)
-            {
-                float Weights[3];
-                BarycentricWeights(Triangle, Uv, Weights);
-                World = {Weights[0] * Triangle.Position[0][0] + Weights[1] * Triangle.Position[1][0] + Weights[2] * Triangle.Position[2][0],
-                    Weights[0] * Triangle.Position[0][1] + Weights[1] * Triangle.Position[1][1] + Weights[2] * Triangle.Position[2][1],
-                    Weights[0] * Triangle.Position[0][2] + Weights[1] * Triangle.Position[1][2] + Weights[2] * Triangle.Position[2][2]};
-                WorldReady = true;
-            }
+            EnsureSurfacePoint();
             const Vec3 D{World.X - Placement.Origin[0], World.Y - Placement.Origin[1], World.Z - Placement.Origin[2]};
             const float R = Placement.WorldRadius;
-            if (DotV(D, D) > (R * 1.95f) * (R * 1.95f)) continue; // outside the projector's reach entirely
+            if (DotV(D, D) > (R * 1.95f) * (R * 1.95f)) continue;
             const float Depth = DotV(D, Vec3{Placement.Normal[0], Placement.Normal[1], Placement.Normal[2]});
-            if (Depth < -R * 1.25f || Depth > R * 0.75f) continue; // projector box: wrap curve behind, limited lift in front
+            if (Depth < -R * 1.25f || Depth > R * 0.75f) continue;
             const float LocalX = DotV(D, Vec3{Placement.AxisRight[0], Placement.AxisRight[1], Placement.AxisRight[2]});
             const float LocalY = DotV(D, Vec3{Placement.AxisUp[0], Placement.AxisUp[1], Placement.AxisUp[2]});
             if (std::fabs(LocalX) > R || std::fabs(LocalY) > R) continue;
             const float Facing = Triangle.Normal[0] * Placement.Normal[0] +
                 Triangle.Normal[1] * Placement.Normal[1] + Triangle.Normal[2] * Placement.Normal[2];
-            if (Facing < 0.02f) continue; // back-facing or edge-on to the projector: no decal, no smear
+            if (Facing < 0.02f) continue;
             Fade = std::clamp((Facing - 0.02f) / 0.33f, 0.f, 1.f);
             SampleU = LocalX / (2.f * R) + 0.5f;
             SampleV = 0.5f - LocalY / (2.f * R);
@@ -1190,11 +2032,96 @@ void TexturePaintWorkspacePanel::ApplyPreviewLayer(std::array<float, 3> &Base, c
         }
         const auto *Entry = ResolvedStampRaster(Placement);
         if (!Entry) continue;
-        const auto Texel = StampLibrary::Sample(*Entry, SampleU, SampleV);
-        if (Texel[3] <= 0.003f) continue;
-        BlendOver(Base,
-            {Texel[0] * Placement.Tint[0], Texel[1] * Placement.Tint[1], Texel[2] * Placement.Tint[2], Texel[3] * Placement.Tint[3] * Fade},
-            Alpha, Layer.Blend);
+        const auto Rgba = StampLibrary::Sample(*Entry, SampleU, SampleV);
+        const bool HasSpatialPbr = Entry->HasPbrMaps;
+        const StampPbrSample Spatial = HasSpatialPbr ? StampLibrary::SamplePbr(*Entry, SampleU, SampleV) : StampPbrSample{};
+        const float FootprintAlpha = HasSpatialPbr ? std::max(Rgba[3], Spatial.Coverage) : Rgba[3];
+        if (FootprintAlpha <= 0.003f) continue;
+
+        float OpacityScale = Placement.Tint[3] * Fade * Alpha;
+        if (HasChannel(Placement.Channels, "opacity"))
+            OpacityScale *= std::clamp(LookupScalar(Placement.ChannelValues, "opacity", 1.f), 0.f, 1.f);
+        const float StampWeight = std::clamp(FootprintAlpha * OpacityScale, 0.f, 1.f);
+        if (StampWeight <= 0.001f) continue;
+
+        if (HasChannel(Placement.Channels, "baseColor") && Rgba[3] > 0.003f)
+        {
+            BlendOver(Texel.BaseColor,
+                {Rgba[0] * Placement.Tint[0], Rgba[1] * Placement.Tint[1], Rgba[2] * Placement.Tint[2],
+                    Rgba[3] * OpacityScale},
+                1.f, Layer.Blend);
+        }
+        if (HasChannel(Placement.Channels, "roughness"))
+        {
+            const float Target = (HasSpatialPbr && Spatial.RoughnessMask > .01f)
+                ? Spatial.Roughness
+                : LookupScalar(Placement.ChannelValues, "roughness", .6f);
+            const float W = HasSpatialPbr ? Spatial.RoughnessMask * OpacityScale : StampWeight;
+            ApplyScalarChannel("roughness", Target, W);
+        }
+        if (HasChannel(Placement.Channels, "metalness"))
+        {
+            const float Target = (HasSpatialPbr && Spatial.MetalnessMask > .01f)
+                ? Spatial.Metalness
+                : LookupScalar(Placement.ChannelValues, "metalness", 0.f);
+            const float W = HasSpatialPbr ? Spatial.MetalnessMask * OpacityScale : StampWeight;
+            ApplyScalarChannel("metalness", Target, W);
+        }
+        if (HasChannel(Placement.Channels, "height"))
+        {
+            if (HasSpatialPbr && Spatial.HeightMask > .01f)
+                Texel.Height = std::clamp(Texel.Height + Spatial.Height * Spatial.HeightMask * OpacityScale, -1.f, 1.f);
+            else
+            {
+                const float ScalarH = LookupScalar(Placement.ChannelValues, "height", .5f);
+                Texel.Height = std::clamp(Texel.Height + (ScalarH - .5f) * 2.f * StampWeight, -1.f, 1.f);
+            }
+        }
+        if (HasChannel(Placement.Channels, "normal") && HasSpatialPbr && Spatial.NormalMask > .01f)
+        {
+            const float CosR = std::cos(Placement.Rotation), SinR = std::sin(Placement.Rotation);
+            const float RotNx = Spatial.NormalX * CosR - Spatial.NormalY * SinR;
+            const float RotNy = Spatial.NormalX * SinR + Spatial.NormalY * CosR;
+            const float W = Spatial.NormalMask * OpacityScale;
+            Texel.ExplicitNormalX += RotNx * W;
+            Texel.ExplicitNormalY += RotNy * W;
+        }
+        if (HasChannel(Placement.Channels, "occlusion"))
+        {
+            const float Target = (HasSpatialPbr && Spatial.OcclusionMask > .01f)
+                ? Spatial.Occlusion
+                : LookupScalar(Placement.ChannelValues, "occlusion", 1.f);
+            const float W = HasSpatialPbr ? Spatial.OcclusionMask * OpacityScale : StampWeight;
+            ApplyScalarChannel("occlusion", Target, W);
+        }
+        if (HasChannel(Placement.Channels, "clearcoat"))
+        {
+            const float Target = (HasSpatialPbr && Spatial.ClearcoatMask > .01f)
+                ? Spatial.Clearcoat
+                : LookupScalar(Placement.ChannelValues, "clearcoat", 0.f);
+            const float W = HasSpatialPbr ? Spatial.ClearcoatMask * OpacityScale : StampWeight;
+            ApplyScalarChannel("clearcoat", Target, W);
+        }
+        if (HasChannel(Placement.Channels, "transmission"))
+        {
+            const float Target = (HasSpatialPbr && Spatial.TransmissionMask > .01f)
+                ? Spatial.Transmission
+                : LookupScalar(Placement.ChannelValues, "transmission", 0.f);
+            const float W = HasSpatialPbr ? Spatial.TransmissionMask * OpacityScale : StampWeight;
+            ApplyScalarChannel("transmission", Target, W);
+        }
+        if (HasChannel(Placement.Channels, "emission"))
+            ApplyColourChannel("emission", LookupColour(Placement.ChannelColours, "emission", 0x000000), StampWeight, "Add");
+        if (HasChannel(Placement.Channels, "anisotropy"))
+            ApplyScalarChannel("anisotropy", LookupScalar(Placement.ChannelValues, "anisotropy", 0.f), StampWeight);
+        if (HasChannel(Placement.Channels, "anisotropyAngle"))
+            ApplyScalarChannel("anisotropyAngle", LookupScalar(Placement.ChannelValues, "anisotropyAngle", 0.f), StampWeight);
+        if (HasChannel(Placement.Channels, "refractionIndex"))
+            ApplyScalarChannel("refractionIndex", LookupScalar(Placement.ChannelValues, "refractionIndex", 1.5f), StampWeight);
+        if (HasChannel(Placement.Channels, "sheen"))
+            ApplyColourChannel("sheen", LookupColour(Placement.ChannelColours, "sheen", 0x3a3a3a), StampWeight, "Normal");
+        if (HasChannel(Placement.Channels, "subsurface"))
+            ApplyColourChannel("subsurface", LookupColour(Placement.ChannelColours, "subsurface", 0xd98a72), StampWeight, "Normal");
     }
 }
 
@@ -1353,8 +2280,32 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
         Mix(Layer.Visible ? 1 : 0);
         MixFloat(Layer.Opacity);
         MixText(Layer.Blend);
+        MixText(Layer.SourceAsset);
         for (const float Channel : Layer.SourceColour) MixFloat(Channel);
+        Mix(Layer.Channels.size());
+        for (const auto &Ch : Layer.Channels) MixText(Ch);
+        Mix(Layer.ChannelModes.size());
+        for (const auto &[K, V] : Layer.ChannelModes) { MixText(K); MixText(V); }
+        Mix(Layer.ChannelValues.size());
+        for (const auto &[K, V] : Layer.ChannelValues) { MixText(K); MixFloat(V); }
+        Mix(Layer.ChannelColours.size());
+        for (const auto &[K, V] : Layer.ChannelColours) { MixText(K); for (const float C : V) MixFloat(C); }
+        Mix(Layer.ChannelGenerators.size());
+        for (const auto &[K, V] : Layer.ChannelGenerators) { MixText(K); MixText(V); }
+        Mix(Layer.ChannelGeneratorParams.size());
+        for (const auto &[K, Map] : Layer.ChannelGeneratorParams)
+        {
+            MixText(K);
+            Mix(Map.size());
+            for (const auto &[Pk, Pv] : Map) { MixText(Pk); MixFloat(Pv); }
+        }
         Mix(Layer.Dabs.size());
+        if (!Layer.Dabs.empty())
+        {
+            const auto &Back = Layer.Dabs.back();
+            MixFloat(Back.U); MixFloat(Back.V); MixFloat(Back.Radius);
+            MixFloat(Back.Hardness); MixFloat(Back.HeightStrength);
+        }
         Mix(Layer.Fills.size());
         for (const auto &Fill : Layer.Fills)
         {
@@ -1373,6 +2324,16 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
             MixFloat(Placement.Radius);
             MixFloat(Placement.Rotation);
             for (const float Channel : Placement.Tint) MixFloat(Channel);
+            Mix(Placement.Channels.size());
+            for (const auto &Ch : Placement.Channels) MixText(Ch);
+            Mix(Placement.ChannelModes.size());
+            for (const auto &[K, V] : Placement.ChannelModes) { MixText(K); MixText(V); }
+            Mix(Placement.ChannelValues.size());
+            for (const auto &[K, V] : Placement.ChannelValues) { MixText(K); MixFloat(V); }
+            Mix(Placement.ChannelColours.size());
+            for (const auto &[K, V] : Placement.ChannelColours) { MixText(K); for (const float C : V) MixFloat(C); }
+            Mix(Placement.ChannelGenerators.size());
+            for (const auto &[K, V] : Placement.ChannelGenerators) { MixText(K); MixText(V); }
             Mix(Placement.Projected ? 1 : 0);
             if (Placement.Projected)
             {
@@ -1417,13 +2378,14 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
     }
     if (StampCanvasConfigured)
     {
-        // The physics canvas keeps evolving (drying/flow) without touching the document; probe it on
-        // a coarse lattice so the preview recomposites while it visibly settles, then goes quiet.
         for (int Y = 0; Y < 8; ++Y)
             for (int X = 0; X < 32; ++X)
             {
-                const auto Sample = StampEngine.SampleCanvas((X + .5f) / 32.f * 4.f, (Y + .5f) / 8.f);
+                const float U = (X + .5f) / 32.f * 4.f, V = (Y + .5f) / 8.f;
+                const auto Sample = StampEngine.SampleCanvas(U, V);
                 for (const float Channel : Sample) Mix(uint32_t(std::clamp(Channel, 0.f, 1.f) * 255.f));
+                Mix(uint32_t(std::clamp(StampEngine.SampleHeight(U, V), 0.f, 1.f) * 255.f));
+                Mix(uint32_t(std::clamp(StampEngine.WetAt(U, V), 0.f, 1.f) * 255.f));
             }
     }
     return Hash;
@@ -1431,7 +2393,6 @@ uint64_t TexturePaintWorkspacePanel::PreviewCanvasFingerprint() const noexcept
 
 void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
 {
-    if (!QueryPaintCanvasImage || QueryPaintCanvasImage().Texture == 0) return; // no GPU canvas in this host
     if (Topology.empty()) return;
     if (!PaintCanvasOwnersBuilt || PaintCanvasOwnersTopology != Topology.size())
     {
@@ -1453,10 +2414,28 @@ void TexturePaintWorkspacePanel::EnsurePreviewCanvas()
 void TexturePaintWorkspacePanel::CompositePreviewCanvas()
 {
     const int Extent = int(PaintCanvasExtent), Tile = int(PaintCanvasTile);
-    if (PaintCanvasScratch.size() != size_t(Extent) * Extent) PaintCanvasScratch.assign(size_t(Extent) * Extent, {});
+    const size_t TotalTexels = size_t(Extent) * size_t(Extent);
+
+    // Pre-warm lazy material & texture caches on the main thread before spawning worker rows.
+    for (const auto &Layer : Layers)
+    {
+        if (!Layer.SourceAsset.empty()) (void)FindLoadedMaterial(Layer.SourceAsset);
+        for (const auto &[Key, Val] : Layer.ChannelGenerators)
+        {
+            if (Key.rfind("__texture:", 0) == 0) (void)FindLoadedChannelTexture(Val);
+            else if (Key.rfind("__matstudio:", 0) == 0) (void)FindLoadedMaterial(Val);
+        }
+    }
+
+    if (PaintCanvasScratch.size() != TotalTexels) PaintCanvasScratch.assign(TotalTexels, {});
+    if (PaintPbrScratch.size() != TotalTexels) PaintPbrScratch.assign(TotalTexels, {});
     ParallelCanvasRows(0, Extent, [&](int Y)
     {
-        for (int X = 0; X < Extent; ++X) PaintCanvasScratch[size_t(Y) * Extent + X] = {0.92f, 0.91f, 0.88f};
+        for (int X = 0; X < Extent; ++X)
+        {
+            PaintPbrScratch[size_t(Y) * Extent + X] = PaintPbrTexel{};
+            PaintCanvasScratch[size_t(Y) * Extent + X] = {0.92f, 0.91f, 0.88f};
+        }
     });
     const auto TileOriginX = [&](int Part) { return (Part % 2) * (Tile + 2) + 1; };
     const auto TileOriginY = [&](int Part) { return (Part / 2) * (Tile + 2) + 1; };
@@ -1479,7 +2458,8 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         if (Owner < 0) continue;
                         const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
                         const float Coverage = MaskCoverageAt(*Selected, Topology[size_t(Owner)], Uv, PreviewDabCell(MaskGrid, Uv[0], Uv[1]));
-                        PaintCanvasScratch[At] = {Coverage, Coverage, Coverage};
+                        PaintPbrScratch[At].BaseColor = {Coverage, Coverage, Coverage};
+                        PaintPbrScratch[At].Roughness = .85f;
                     }
                 });
             }
@@ -1527,7 +2507,16 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                     if (U1 >= float(Part) && U0 <= float(Part) + 1.f) AddTileBox(Part, U0, V0, U1, V1);
             };
             const bool EngineLayer = StampCanvasConfigured && !StampCanvasLayerId.empty() && Layer.Id == StampCanvasLayerId;
-            if (Layer.Kind == LayerKind::Material && Layer.SourceColour[3] > 0.f) AddUvBox(0.f, 0.f, 4.f, 1.f);
+            bool HasFullSurfaceChannel = false;
+            if (Layer.Kind == LayerKind::Material && (!Layer.SourceAsset.empty() || Layer.SourceColour[3] > 0.f))
+                HasFullSurfaceChannel = true;
+            if ((Layer.Kind == LayerKind::Fill || Layer.Kind == LayerKind::Generator) &&
+                (!Layer.ChannelModes.empty() || !Layer.ChannelColours.empty() || !Layer.ChannelValues.empty() || !Layer.ChannelGenerators.empty()))
+                HasFullSurfaceChannel = true;
+            for (const auto &[_, Mode] : Layer.ChannelModes)
+                if (Mode != "value") { HasFullSurfaceChannel = true; break; }
+            if (HasFullSurfaceChannel) AddUvBox(0.f, 0.f, 4.f, 1.f);
+
             for (const auto &Fill : Layer.Fills)
             {
                 int Part = Fill.Part;
@@ -1539,7 +2528,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                 else AddUvBox(0.f, 0.f, 4.f, 1.f);
             }
             if (EngineLayer && Layer.Dabs.empty()) AddUvBox(0.f, 0.f, 4.f, 1.f);
-            const float DabPad = EngineLayer ? 2.f : 1.f; // engine deposits spread past the dab record radius
+            const float DabPad = EngineLayer ? 2.f : 1.5f;
             for (const auto &Dab : Layer.Dabs)
                 AddUvBox(Dab.U - Dab.Radius * DabPad, Dab.V - Dab.Radius * DabPad, Dab.U + Dab.Radius * DabPad, Dab.V + Dab.Radius * DabPad);
             for (const auto &Placement : Layer.Stamps)
@@ -1550,8 +2539,6 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         Placement.U + Placement.Radius * 1.42f, Placement.V + Placement.Radius * 1.42f);
                     continue;
                 }
-                // 🎯 A projector's UV footprint is wherever the surface inside its reach lives in UV:
-                // bound it by the UV AABBs of the triangles whose world bounds meet the projector sphere.
                 const float Reach = Placement.WorldRadius * 1.95f;
                 for (const auto &Candidate : Topology)
                 {
@@ -1584,7 +2571,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         const int32_t Owner = PaintCanvasOwners[At];
                         if (Owner < 0) continue;
                         const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
-                        ApplyPreviewLayer(PaintCanvasScratch[At], Layer, Topology[size_t(Owner)], Uv,
+                        ApplyPreviewPbrLayer(PaintPbrScratch[At], Layer, Topology[size_t(Owner)], Uv,
                             PreviewDabCell(DabGrids[size_t(LayerIndex)], Uv[0], Uv[1]),
                             PreviewDabCell(MaskGrids[size_t(LayerIndex)], Uv[0], Uv[1]), true);
                     }
@@ -1594,9 +2581,6 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
     }
     if (HoverStampActive && !MaskPreviewDone)
     {
-        // 👻 The hover ghost composites on top of the stack through the very same per-texel stamp
-        // evaluation (projector included), over the same topology-scanned bounds - what you see
-        // trailing the cursor is pixel-for-pixel what a click will drop.
         LayerState Ghost;
         Ghost.Visible = true;
         Ghost.Opacity = 100.f;
@@ -1646,14 +2630,14 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                     const int32_t Owner = PaintCanvasOwners[At];
                     if (Owner < 0) continue;
                     const float Uv[2]{float(Part) + (Px + .5f) / Tile, 1.f - (Py + .5f) / Tile};
-                    ApplyPreviewLayer(PaintCanvasScratch[At], Ghost, Topology[size_t(Owner)], Uv, nullptr, nullptr, true);
+                    ApplyPreviewPbrLayer(PaintPbrScratch[At], Ghost, Topology[size_t(Owner)], Uv, nullptr, nullptr, true);
                 }
             });
         }
     }
-    // Dilation: bleed island-edge colours a couple of texels into the chart gutters so linear
-    // filtering across seams does not drag the unpainted base onto the model.
-    if (PaintCanvasFilled.size() != size_t(Extent) * Extent) PaintCanvasFilled.assign(size_t(Extent) * Extent, 0);
+
+    // Dilation across all PBR channels so linear filtering & height finite differences have zero island-edge artifacts.
+    if (PaintCanvasFilled.size() != TotalTexels) PaintCanvasFilled.assign(TotalTexels, 0);
     for (size_t At = 0; At < PaintCanvasOwners.size(); ++At) PaintCanvasFilled[At] = PaintCanvasOwners[At] >= 0 ? 1 : 0;
     for (int Pass = 0; Pass < 2; ++Pass)
     {
@@ -1675,7 +2659,7 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
                         const size_t Near = size_t(Oy + Ny) * Extent + (Ox + Nx);
                         if (PaintCanvasFilled[Near])
                         {
-                            PaintCanvasScratch[At] = PaintCanvasScratch[Near];
+                            PaintPbrScratch[At] = PaintPbrScratch[Near];
                             Next[At] = 1;
                             break;
                         }
@@ -1685,33 +2669,104 @@ void TexturePaintWorkspacePanel::CompositePreviewCanvas()
         }
         PaintCanvasFilled = std::move(Next);
     }
-    // Gutter replication: tile edge texels copied 1px outward so atlas tile borders filter cleanly.
     for (int Part = 0; Part < 4; ++Part)
     {
         const int Ox = TileOriginX(Part), Oy = TileOriginY(Part);
         for (int Px = 0; Px < Tile; ++Px)
         {
-            PaintCanvasScratch[size_t(Oy - 1) * Extent + (Ox + Px)] = PaintCanvasScratch[size_t(Oy) * Extent + (Ox + Px)];
-            PaintCanvasScratch[size_t(Oy + Tile) * Extent + (Ox + Px)] = PaintCanvasScratch[size_t(Oy + Tile - 1) * Extent + (Ox + Px)];
+            PaintPbrScratch[size_t(Oy - 1) * Extent + (Ox + Px)] = PaintPbrScratch[size_t(Oy) * Extent + (Ox + Px)];
+            PaintPbrScratch[size_t(Oy + Tile) * Extent + (Ox + Px)] = PaintPbrScratch[size_t(Oy + Tile - 1) * Extent + (Ox + Px)];
         }
         for (int Py = -1; Py <= Tile; ++Py)
         {
-            PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox - 1)] = PaintCanvasScratch[size_t(Oy + Py) * Extent + Ox];
-            PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox + Tile)] = PaintCanvasScratch[size_t(Oy + Py) * Extent + (Ox + Tile - 1)];
+            PaintPbrScratch[size_t(Oy + Py) * Extent + (Ox - 1)] = PaintPbrScratch[size_t(Oy + Py) * Extent + Ox];
+            PaintPbrScratch[size_t(Oy + Py) * Extent + (Ox + Tile)] = PaintPbrScratch[size_t(Oy + Py) * Extent + (Ox + Tile - 1)];
         }
     }
-    PaintCanvasPixels.assign(size_t(Extent) * Extent * 4, 255);
+
+    PaintCanvasPixels.assign(TotalTexels * 4, 255);
+    PaintOrmPixels.assign(TotalTexels * 4, 255);
+    PaintNormalPixels.assign(TotalTexels * 4, 128);
+    PaintEmissivePixels.assign(TotalTexels * 4, 0);
     ParallelCanvasRows(0, Extent, [&](int Y)
     {
+        const int Ym = std::max(0, Y - 1), Yp = std::min(Extent - 1, Y + 1);
         for (int X = 0; X < Extent; ++X)
         {
+            const int Xm = std::max(0, X - 1), Xp = std::min(Extent - 1, X + 1);
             const size_t At = size_t(Y) * Extent + X;
-            const auto &Texel = PaintCanvasScratch[At];
-            PaintCanvasPixels[At * 4 + 0] = uint8_t(std::clamp(Texel[0], 0.f, 1.f) * 255.f);
-            PaintCanvasPixels[At * 4 + 1] = uint8_t(std::clamp(Texel[1], 0.f, 1.f) * 255.f);
-            PaintCanvasPixels[At * 4 + 2] = uint8_t(std::clamp(Texel[2], 0.f, 1.f) * 255.f);
+            const auto &Pbr = PaintPbrScratch[At];
+            PaintCanvasScratch[At] = Pbr.BaseColor;
+
+            // Albedo + subtle subsurface warmth & sheen lift.
+            const float AlbR = std::clamp(Pbr.BaseColor[0] + Pbr.Subsurface[0] * .06f + Pbr.Sheen[0] * .05f, 0.f, 1.f);
+            const float AlbG = std::clamp(Pbr.BaseColor[1] + Pbr.Subsurface[1] * .06f + Pbr.Sheen[1] * .05f, 0.f, 1.f);
+            const float AlbB = std::clamp(Pbr.BaseColor[2] + Pbr.Subsurface[2] * .06f + Pbr.Sheen[2] * .05f, 0.f, 1.f);
+            PaintCanvasPixels[At * 4 + 0] = uint8_t(AlbR * 255.f + .5f);
+            PaintCanvasPixels[At * 4 + 1] = uint8_t(AlbG * 255.f + .5f);
+            PaintCanvasPixels[At * 4 + 2] = uint8_t(AlbB * 255.f + .5f);
+            PaintCanvasPixels[At * 4 + 3] = uint8_t(std::clamp(Pbr.Opacity, 0.f, 1.f) * 255.f + .5f);
+
+            // ORM: R = Occlusion, G = Roughness, B = Metalness.
+            PaintOrmPixels[At * 4 + 0] = uint8_t(std::clamp(Pbr.Occlusion, 0.f, 1.f) * 255.f + .5f);
+            PaintOrmPixels[At * 4 + 1] = uint8_t(std::clamp(Pbr.Roughness, .04f, 1.f) * 255.f + .5f);
+            PaintOrmPixels[At * 4 + 2] = uint8_t(std::clamp(Pbr.Metalness, 0.f, 1.f) * 255.f + .5f);
+            PaintOrmPixels[At * 4 + 3] = 255;
+
+            // Tangent-space Normal: central-difference height slope + explicit material/decal normal.
+            const float Hl = PaintPbrScratch[size_t(Y) * Extent + Xm].Height * PaintPbrScratch[size_t(Y) * Extent + Xm].NormalScale;
+            const float Hr = PaintPbrScratch[size_t(Y) * Extent + Xp].Height * PaintPbrScratch[size_t(Y) * Extent + Xp].NormalScale;
+            const float Hu = PaintPbrScratch[size_t(Ym) * Extent + X].Height * PaintPbrScratch[size_t(Ym) * Extent + X].NormalScale;
+            const float Hd = PaintPbrScratch[size_t(Yp) * Extent + X].Height * PaintPbrScratch[size_t(Yp) * Extent + X].NormalScale;
+            const float Nx = -(Hr - Hl) * 3.2f + Pbr.ExplicitNormalX;
+            const float Ny = (Hd - Hu) * 3.2f + Pbr.ExplicitNormalY;
+            const float InvLen = 1.f / std::sqrt(Nx * Nx + Ny * Ny + 1.f);
+            PaintNormalPixels[At * 4 + 0] = uint8_t(std::clamp(Nx * InvLen * .5f + .5f, 0.f, 1.f) * 255.f + .5f);
+            PaintNormalPixels[At * 4 + 1] = uint8_t(std::clamp(Ny * InvLen * .5f + .5f, 0.f, 1.f) * 255.f + .5f);
+            PaintNormalPixels[At * 4 + 2] = uint8_t(std::clamp(InvLen * .5f + .5f, 0.f, 1.f) * 255.f + .5f);
+            PaintNormalPixels[At * 4 + 3] = 255;
+
+            // Emissive map.
+            PaintEmissivePixels[At * 4 + 0] = uint8_t(std::clamp(Pbr.Emission[0], 0.f, 1.f) * 255.f + .5f);
+            PaintEmissivePixels[At * 4 + 1] = uint8_t(std::clamp(Pbr.Emission[1], 0.f, 1.f) * 255.f + .5f);
+            PaintEmissivePixels[At * 4 + 2] = uint8_t(std::clamp(Pbr.Emission[2], 0.f, 1.f) * 255.f + .5f);
+            PaintEmissivePixels[At * 4 + 3] = 255;
         }
     });
+
+    // Reduce scalar BSDF strata parameters (Clearcoat, IOR, Anisotropy, Transmission, Emission) across owned texels.
+    double CoatSum = 0.0, IorSum = 0.0, AnisoSum = 0.0, AngleSum = 0.0;
+    float MaxTrans = 0.f;
+    bool AnyEmissive = false;
+    size_t OwnedCount = 0;
+    for (size_t At = 0; At < TotalTexels; At += 4)
+    {
+        if (PaintCanvasOwners[At] < 0) continue;
+        const auto &Pbr = PaintPbrScratch[At];
+        CoatSum += Pbr.Clearcoat;
+        IorSum += Pbr.RefractionIndex;
+        AnisoSum += Pbr.Anisotropy;
+        AngleSum += Pbr.AnisotropyAngle;
+        MaxTrans = std::max(MaxTrans, Pbr.Transmission);
+        if (Pbr.Emission[0] > .005f || Pbr.Emission[1] > .005f || Pbr.Emission[2] > .005f) AnyEmissive = true;
+        ++OwnedCount;
+    }
+    if (OwnedCount > 0)
+    {
+        CompositedAvgClearcoat = float(CoatSum / double(OwnedCount));
+        CompositedAvgIor = float(IorSum / double(OwnedCount));
+        CompositedAvgAnisotropy = float(AnisoSum / double(OwnedCount));
+        CompositedAvgAnisotropyAngle = float(AngleSum / double(OwnedCount));
+    }
+    else
+    {
+        CompositedAvgClearcoat = 0.f;
+        CompositedAvgIor = 1.5f;
+        CompositedAvgAnisotropy = 0.f;
+        CompositedAvgAnisotropyAngle = 0.f;
+    }
+    CompositedMaxTransmission = MaxTrans;
+    CompositedHasEmission = AnyEmissive;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -1767,43 +2822,78 @@ void TexturePaintWorkspacePanel::ApplyPaintAt(const float Uv[2], int Part, int C
         return;
     }
     const bool Erasing = DigitalActive && Brush.Tool == "erase";
+    float TargetUv[2]{Uv[0], Uv[1]};
+    if (LastDabValid && Brush.Stabilization > .01f && int(std::floor(LastDabUv[0])) == Part)
+    {
+        const float Keep = std::clamp(Brush.Stabilization * .82f, 0.f, .88f);
+        TargetUv[0] = StabilizedUv[0] * Keep + Uv[0] * (1.f - Keep);
+        TargetUv[1] = StabilizedUv[1] * Keep + Uv[1] * (1.f - Keep);
+    }
+    StabilizedUv[0] = TargetUv[0];
+    StabilizedUv[1] = TargetUv[1];
+
     // 🖌️ Physical PaintWorkshop stamps run on their own interpolation, so feed the engine before the dab
     // spacing early-return below can skip a slow drag. Mask painting stays dab-only (coverage, not pigment).
-    if (DigitalActive && !Mask) FeedStampEngine(*Layer, Uv, Triangle, RadiusUv, Erasing);
+    if (DigitalActive && !Mask) FeedStampEngine(*Layer, TargetUv, Triangle, RadiusUv, Erasing);
     if (Erasing)
     {
         const size_t Before = Dabs.size();
         Dabs.erase(std::remove_if(Dabs.begin(), Dabs.end(),
                        [&](const PaintDab &Dab)
                        {
-                           const float Du = Uv[0] - Dab.U, Dv = Uv[1] - Dab.V;
+                           const float Du = TargetUv[0] - Dab.U, Dv = TargetUv[1] - Dab.V;
                            return Dab.Part == Part && (Du * Du + Dv * Dv) < RadiusUv * RadiusUv;
                        }),
             Dabs.end());
         if (Dabs.size() != Before) StrokeChanged = true;
         return;
     }
+    float StrokeAngle = 0.f;
     if (LastDabValid)
     {
-        const float Du = Uv[0] - LastDabUv[0], Dv = Uv[1] - LastDabUv[1];
+        const float Du = TargetUv[0] - LastDabUv[0], Dv = TargetUv[1] - LastDabUv[1];
         const float Spacing = std::max(RadiusUv * Brush.Spacing * 2.f, 0.002f);
         if ((Du * Du + Dv * Dv) < Spacing * Spacing) return;
+        if (Brush.Follow && (Du * Du + Dv * Dv) > 1e-8f) StrokeAngle = std::atan2(Dv, Du);
     }
     if (Dabs.size() >= 2048)
     {
         Status = "Preview paint on this layer reached its 2048-dab session limit; clear paint or use Fill.";
         return;
     }
+    auto HashUnit = [](uint32_t Seed) noexcept {
+        Seed = (Seed ^ 61u) ^ (Seed >> 16u);
+        Seed *= 9u;
+        Seed = Seed ^ (Seed >> 4u);
+        Seed *= 0x27d4eb2du;
+        Seed = Seed ^ (Seed >> 15u);
+        return float(Seed & 0xffffffu) / float(0xffffffu);
+    };
+    const uint32_t BaseSeed = uint32_t(Dabs.size()) * 747796405u + uint32_t(Part + 1) * 2891336453u;
+    const float ScatterAngle = HashUnit(BaseSeed + 1u) * 6.2831853f;
+    const float ScatterMag = HashUnit(BaseSeed + 2u) * Brush.Scatter * RadiusUv * 1.6f;
+    const float SizeScale = std::max(.15f, 1.f - Brush.SizeJitter * HashUnit(BaseSeed + 3u));
+    const float AlphaScale = std::max(.08f, 1.f - Brush.OpacityJitter * HashUnit(BaseSeed + 4u));
+
     PaintDab Dab;
-    Dab.U = Uv[0];
-    Dab.V = Uv[1];
-    Dab.Radius = std::clamp(RadiusUv, 0.004f, 0.4f);
+    Dab.U = std::clamp(TargetUv[0] + std::cos(ScatterAngle) * ScatterMag, float(Part) + .001f, float(Part) + .999f);
+    Dab.V = std::clamp(TargetUv[1] + std::sin(ScatterAngle) * ScatterMag, .001f, .999f);
+    Dab.Radius = std::clamp(RadiusUv * SizeScale, 0.004f, 0.4f);
     Dab.Part = Part;
-    Dab.Colour = Mask ? std::array<float, 4>{MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, Strength}
-                      : std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], Strength};
+    Dab.Hardness = Mask ? MaskEditor.Hardness / 100.f : Brush.Hardness;
+    Dab.Roundness = std::clamp(Brush.Roundness, .1f, 1.f);
+    Dab.Angle = Brush.Rotation * (3.14159265f / 180.f) + StrokeAngle;
+    Dab.Square = Brush.Shape == "square";
+    Dab.GrainMode = Brush.Grain == "noise" ? uint8_t(1) : (Brush.Grain == "lines" ? uint8_t(2) : (Brush.Grain == "checker" ? uint8_t(3) : uint8_t(0)));
+    Dab.GrainAmount = Brush.GrainAmount;
+    Dab.GrainScale = Brush.GrainScale;
+    Dab.HeightStrength = Mask ? 0.f : Brush.HeightStrength;
+    const float FinalAlpha = std::clamp(Strength * AlphaScale, 0.f, 1.f);
+    Dab.Colour = Mask ? std::array<float, 4>{MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, MaskEditor.InkWhite ? 1.f : 0.f, FinalAlpha}
+                      : std::array<float, 4>{Brush.Colour[0], Brush.Colour[1], Brush.Colour[2], FinalAlpha};
     Dabs.push_back(Dab);
-    LastDabUv[0] = Uv[0];
-    LastDabUv[1] = Uv[1];
+    LastDabUv[0] = TargetUv[0];
+    LastDabUv[1] = TargetUv[1];
     LastDabValid = true;
     StrokeChanged = true;
 }
@@ -2308,40 +3398,13 @@ int TexturePaintWorkspacePanel::StampRasterExtentFor(float Radius) noexcept
     return 2048;
 }
 
-namespace
-{
-// 🔎 Coarse art fingerprint (48x48 probes): solid-texel coverage + mean colour. Two renders of the
-// same stamp agree closely; a stale sidecar describing different art does not.
-bool StampArtStats(const StampLibraryEntry &Entry, float &Coverage, float Mean[3]) noexcept
-{
-    Coverage = 0;
-    Mean[0] = Mean[1] = Mean[2] = 0;
-    if (Entry.Width <= 0 || Entry.Height <= 0) return false;
-    size_t Solid = 0;
-    for (int By = 0; By < 48; ++By)
-        for (int Bx = 0; Bx < 48; ++Bx)
-        {
-            const auto Texel = StampLibrary::Sample(Entry, (Bx + .5f) / 48, (By + .5f) / 48);
-            if (Texel[3] <= .5f) continue;
-            ++Solid;
-            for (int Channel = 0; Channel < 3; ++Channel) Mean[Channel] += Texel[size_t(Channel)];
-        }
-    if (!Solid) return false;
-    Coverage = float(Solid) / (48.f * 48.f);
-    for (int Channel = 0; Channel < 3; ++Channel) Mean[Channel] /= float(Solid);
-    return true;
-}
-} // namespace
-
 const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const StampLibraryEntry &Entry, int Extent)
 {
     // 🎨 The ACTUAL stamp at the needed size: builtin presets re-render their signed-distance fields;
-    // stamps saved from the Stamp workspace re-rasterize their vector document (.stamp.toml sidecar);
-    // raster-only stamps keep their stored pixels (their real ceiling). A sidecar re-render must
-    // still LOOK like the stamp the library shows - if it disagrees with the stored raster (stale
-    // sidecar from an older design, an imported-image component the SVG encoder can't reproduce),
-    // the stored raster wins: the decal takes the colour it was created with, never a surrogate.
-    if (std::max(Entry.Width, Entry.Height) >= Extent) return &Entry;
+    // stamps saved from the Stamp workspace evaluate their full 9-channel PBR maps (.stamp.toml sidecar);
+    // raster-only stamps keep their stored pixels.
+    if (std::max(Entry.Width, Entry.Height) >= Extent && (Entry.HasPbrMaps || Entry.Builtin || Entry.File.empty()))
+        return &Entry;
     const auto Key = std::pair<std::string, int>{Entry.Id, Extent};
     if (const auto Found = StampRasterCache.find(Key); Found != StampRasterCache.end()) return &Found->second;
     if (StampRasterFallbacks.count(Key)) return &Entry;
@@ -2349,7 +3412,7 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const Sta
     bool Have = false;
     if (Entry.Id.rfind("text:", 0) == 0)
     {
-        Have = SynthesizeTextEntry(Entry.Id, Extent, Resolved); // glyph outlines are resolution-independent
+        Have = SynthesizeTextEntry(Entry.Id, Extent, Resolved);
     }
     else if (Entry.Builtin)
     {
@@ -2365,23 +3428,38 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const Sta
             {
                 std::ostringstream Buffer;
                 Buffer << Input.rdbuf();
-                auto Pixels = RasterizeStampDocument(DecodeVectorAuthoring(Buffer.str()), uint32_t(Extent));
-                if (Pixels.size() == size_t(Extent) * Extent * 4)
+                const auto Doc = DecodeVectorAuthoring(Buffer.str());
+                auto Maps = EvaluateStampSurfaceMaps(Doc, uint32_t(Extent));
+                if (Maps.ColourRgba.size() == size_t(Extent) * size_t(Extent) * 4)
                 {
                     Resolved = Entry;
                     Resolved.Width = Resolved.Height = Extent;
-                    Resolved.Rgba = std::move(Pixels);
-                    float StoredCoverage = 0, StoredMean[3], FreshCoverage = 0, FreshMean[3];
-                    if (StampArtStats(Entry, StoredCoverage, StoredMean) && StoredCoverage > 0.01f &&
-                        StampArtStats(Resolved, FreshCoverage, FreshMean))
-                    {
-                        const float Ratio = FreshCoverage / std::max(StoredCoverage, 1e-4f);
-                        float WorstDelta = 0;
-                        for (int Channel = 0; Channel < 3; ++Channel)
-                            WorstDelta = std::max(WorstDelta, std::fabs(FreshMean[Channel] - StoredMean[Channel]));
-                        Have = Ratio > 0.55f && Ratio < 1.8f && WorstDelta <= 0.20f;
-                    }
-                    else Have = true; // nothing meaningful stored to disagree with
+                    Resolved.Rgba = std::move(Maps.ColourRgba);
+                    Resolved.HasPbrMaps = true;
+                    Resolved.PbrExtent = Extent;
+                    Resolved.Coverage = std::move(Maps.Coverage);
+                    Resolved.HeightMap = std::move(Maps.Height);
+                    Resolved.HeightMask = std::move(Maps.HeightMask);
+                    Resolved.Roughness = std::move(Maps.Roughness);
+                    Resolved.RoughnessMask = std::move(Maps.RoughnessMask);
+                    Resolved.Metalness = std::move(Maps.Metalness);
+                    Resolved.MetalnessMask = std::move(Maps.MetalnessMask);
+                    Resolved.Opacity = std::move(Maps.Opacity);
+                    Resolved.Occlusion = std::move(Maps.Occlusion);
+                    Resolved.OcclusionMask = std::move(Maps.OcclusionMask);
+                    Resolved.Clearcoat = std::move(Maps.Clearcoat);
+                    Resolved.ClearcoatMask = std::move(Maps.ClearcoatMask);
+                    Resolved.Transmission = std::move(Maps.Transmission);
+                    Resolved.TransmissionMask = std::move(Maps.TransmissionMask);
+                    Resolved.NormalX = std::move(Maps.NormalX);
+                    Resolved.NormalY = std::move(Maps.NormalY);
+                    Resolved.NormalZ = std::move(Maps.NormalZ);
+                    Resolved.NormalMask = std::move(Maps.NormalMask);
+
+                    bool AnyCoverage = false;
+                    for (const float C : Resolved.Coverage)
+                        if (C > .01f) { AnyCoverage = true; break; }
+                    if (AnyCoverage) Have = true;
                 }
             }
         }
@@ -2392,7 +3470,7 @@ const StampLibraryEntry *TexturePaintWorkspacePanel::ResolveStampEntry(const Sta
         const auto Inserted = StampRasterCache.emplace(Key, std::move(Resolved));
         return &Inserted.first->second;
     }
-    StampRasterFallbacks.insert(Key); // remembered so the attempt doesn't repeat every frame
+    StampRasterFallbacks.insert(Key);
     return &Entry;
 }
 
@@ -2622,7 +3700,7 @@ void TexturePaintWorkspacePanel::AnchorProjector(StampPlacement &Placement, cons
     const float Uv[2], const float RightDirection[3]) const noexcept
 {
     float Weights[3];
-    BarycentricWeights(Triangle, Uv, Weights);
+    (void)BarycentricWeights(Triangle, Uv, Weights);
     for (int Axis = 0; Axis < 3; ++Axis)
     {
         Placement.Origin[Axis] = Weights[0] * Triangle.Position[0][Axis] +
@@ -2702,7 +3780,7 @@ void TexturePaintWorkspacePanel::BeginStampDragScene(const std::string &LayerId,
     if (Hit && Placement.Projected)
     {
         float Weights[3];
-        BarycentricWeights(*Hit, Uv, Weights);
+        (void)BarycentricWeights(*Hit, Uv, Weights);
         float Point[3]{};
         for (int Axis = 0; Axis < 3; ++Axis)
             Point[Axis] = Weights[0] * Hit->Position[0][Axis] + Weights[1] * Hit->Position[1][Axis] + Weights[2] * Hit->Position[2][Axis];
@@ -2735,7 +3813,7 @@ void TexturePaintWorkspacePanel::DragStampScene(const TopologyTriangle *Hit, con
     {
         if (!Hit) return; // off-mesh: hold position, the surface slide resumes when the pick returns
         float Weights[3];
-        BarycentricWeights(*Hit, Uv, Weights);
+        (void)BarycentricWeights(*Hit, Uv, Weights);
         float Point[3]{};
         for (int Axis = 0; Axis < 3; ++Axis)
             Point[Axis] = Weights[0] * Hit->Position[0][Axis] + Weights[1] * Hit->Position[1][Axis] + Weights[2] * Hit->Position[2][Axis];
@@ -3694,28 +4772,42 @@ void TexturePaintWorkspacePanel::ConstructChannelCards(const std::vector<std::st
                 ImGui::Dummy(ImVec2(1, 12 * S));
                 if (Mode == "derived")
                 {
+                    ImGui::BeginDisabled(Locked);
+                    float BumpScale = Values.count("normal") ? Values.at("normal") : 1.f;
+                    if (AmountSliderRow("Bump strength", BumpScale, 0.f, 4.f, 1.f, "x"))
+                    {
+                        Values["normal"] = BumpScale;
+                        OnChanged(Channel.Id, Channel.Label);
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::Dummy(ImVec2(1, 8 * S));
                     if (Options.DerivedNote) SmallNoteRow(Options.DerivedNote);
                 }
                 else
                 {
-                    // .channel-mode source pills (the Gradient pill is the layer inspector's, Base color only).
+                    // .channel-mode source pills (2x2 grid when 4 modes are shown so labels never clip).
                     const struct { const char *Id; const char *Label; const char *Icon; } ModeEntries[4]{
                         {"value", "Value", "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18Z"},
                         {"texture", "Texture", "M3 5H21V19H3ZM3 15L8 10L12 14L16 10L21 15"},
                         {"generator", "Generator", "M12 3L13.8 8.2L19 10L13.8 11.8L12 17L10.2 11.8L5 10L10.2 8.2Z"},
                         {"gradient", "Gradient", "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18Z"}};
                     const auto PillShown = [&](const char *Id) {
-                        return std::string(Id) != "gradient" || (Options.GradientMode && std::string(Channel.Id) == "baseColor");
+                        return std::string(Id) != "gradient" || Options.GradientMode;
                     };
                     int ModeCount = 0;
                     for (const auto &Entry : ModeEntries)
                         if (PillShown(Entry.Id)) ++ModeCount;
-                    const float PillW = (Width - (ModeCount - 1) * 4 * S) / ModeCount;
-                    float PillX = Origin.x;
-                    const float PillY = ImGui::GetCursorScreenPos().y;
+                    const bool TwoRowModes = ModeCount == 4 && Width < 360 * S;
+                    const int Columns = TwoRowModes ? 2 : std::max(1, ModeCount);
+                    const float PillW = (Width - float(Columns - 1) * 4 * S) / float(Columns);
+                    const float PillStartY = ImGui::GetCursorScreenPos().y;
+                    int Placed = 0;
                     for (const auto &Entry : ModeEntries)
                     {
                         if (!PillShown(Entry.Id)) continue;
+                        const int Col = Placed % Columns, Row = Placed / Columns;
+                        const float PillX = Origin.x + float(Col) * (PillW + 4 * S);
+                        const float PillY = PillStartY + float(Row) * 34 * S;
                         ImGui::BeginDisabled(Locked);
                         ImGui::SetCursorScreenPos(ImVec2(PillX, PillY));
                         if (PillButton((std::string("ChanMode") + Entry.Id).c_str(), Entry.Label, PillW, Mode == Entry.Id, Entry.Icon))
@@ -3724,56 +4816,143 @@ void TexturePaintWorkspacePanel::ConstructChannelCards(const std::vector<std::st
                             OnChanged(Channel.Id, Channel.Label);
                         }
                         ImGui::EndDisabled();
-                        PillX += PillW + 4 * S;
+                        ++Placed;
                     }
-                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, PillY + 43 * S));
+                    const int ModeRows = (Placed + Columns - 1) / Columns;
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, PillStartY + float(ModeRows) * 34 * S + 9 * S));
                     ImGui::Dummy(ImVec2(0, 0));
                     ImGui::BeginDisabled(Locked);
                     if (Mode == "gradient")
                     {
                         if (Options.GradientMode)
                         {
-                            const std::string Label = std::string(Channel.Label) + " gradient";
-                            Caption(ImGui::GetCursorScreenPos(), Label.c_str(), 9 * S, 0x909084);
-                            ImGui::Dummy(ImVec2(1, 16 * S));
+                            const std::string GradKey = std::string("__gradient:") + Channel.Id;
+                            auto &GParams = GeneratorParams[GradKey];
+                            const bool IsColorChan = std::string(Channel.Edit) == "color";
+                            std::array<float, 4> StartCol = EffectiveColour(Channel);
+                            const std::string EndColourKey = std::string(Channel.Id) + ":end";
+                            std::array<float, 4> EndCol = Colours.count(EndColourKey) ? Colours.at(EndColourKey) : std::array<float, 4>{.9f, .9f, .87f, 1.f};
+                            const ImU32 C0 = IsColorChan
+                                ? IM_COL32(int(StartCol[0] * 255.f), int(StartCol[1] * 255.f), int(StartCol[2] * 255.f), 255)
+                                : Colour32(0x141414);
+                            const ImU32 C1 = IsColorChan
+                                ? IM_COL32(int(EndCol[0] * 255.f), int(EndCol[1] * 255.f), int(EndCol[2] * 255.f), 255)
+                                : Colour32(0xeaeae2);
                             const ImVec2 BarOrigin = ImGui::GetCursorScreenPos();
-                            Ink->AddRectFilledMultiColor(BarOrigin, ImVec2(Right, BarOrigin.y + 22 * S), Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
+                            Ink->AddRectFilledMultiColor(BarOrigin, ImVec2(Right, BarOrigin.y + 22 * S), C0, C1, C1, C0);
                             Ink->AddRect(BarOrigin, ImVec2(Right, BarOrigin.y + 22 * S), Colour32(0x595954), 5 * S);
                             ImGui::Dummy(ImVec2(1, 30 * S));
-                            SmallNoteRow("Gradient point editing is not native yet.");
+                            const char *Axes[]{"UV Angled", "UV Radial", "World Height Y", "World X", "World Z"};
+                            int AxisIdx = std::clamp(int(std::lround(GParams.count("axis") ? GParams["axis"] : 0.f)), 0, 4);
+                            if (Controls.Dropdown("Gradient axis", AxisIdx, Axes))
+                            {
+                                GParams["axis"] = float(AxisIdx);
+                                OnChanged(Channel.Id, Channel.Label);
+                            }
+                            if (IsColorChan)
+                            {
+                                if (Controls.Colour("Start colour", StartCol))
+                                {
+                                    if (SetColour) SetColour(Channel.Id, StartCol);
+                                    else Colours[Channel.Id] = StartCol;
+                                    OnChanged(Channel.Id, Channel.Label);
+                                }
+                                if (Controls.Colour("End colour", EndCol))
+                                {
+                                    Colours[EndColourKey] = EndCol;
+                                    OnChanged(Channel.Id, Channel.Label);
+                                }
+                            }
+                            float Angle = GParams.count("angle") ? GParams["angle"] : 90.f;
+                            if (AxisIdx == 0 && AmountSliderRow("Angle", Angle, 0.f, 360.f, 1.f, "°"))
+                            {
+                                GParams["angle"] = Angle;
+                                OnChanged(Channel.Id, Channel.Label);
+                            }
+                            ImGui::Dummy(ImVec2(1, 8 * S));
+                            float Mid = GParams.count("midpoint") ? GParams["midpoint"] : .5f;
+                            if (AmountSliderRow("Midpoint", Mid, .05f, .95f, 100.f, "%"))
+                            {
+                                GParams["midpoint"] = Mid;
+                                OnChanged(Channel.Id, Channel.Label);
+                            }
+                            ImGui::Dummy(ImVec2(1, 8 * S));
+                            float Contrast = GParams.count("contrast") ? GParams["contrast"] : .5f;
+                            if (AmountSliderRow("Contrast", Contrast, 0.f, 1.f, 100.f, "%"))
+                            {
+                                GParams["contrast"] = Contrast;
+                                OnChanged(Channel.Id, Channel.Label);
+                            }
                         }
                         else if (Options.GradientNote) SmallNoteRow(Options.GradientNote);
                     }
                     else if (Mode == "texture")
                     {
-                        const ImVec2 BoxOrigin = ImGui::GetCursorScreenPos();
-                        // .channel-texture-empty: 91px dashed well (solid #48483f edge natively).
-                        Ink->AddRectFilled(BoxOrigin, ImVec2(Right, BoxOrigin.y + 91 * S), Colour32(0x181818), 13 * S);
-                        Ink->AddRect(BoxOrigin, ImVec2(Right, BoxOrigin.y + 91 * S), Colour32(0x48483f), 13 * S);
-                        DrawGlyph("M3 5H21V19H3ZM3 15L8 10L12 14L16 10L21 15",
-                            ImVec2(BoxOrigin.x + Width * .5f - 11.5f * S, BoxOrigin.y + 24 * S), 23 * S, 0x6f6f66);
-                        const char *Empty = Options.AlwaysShowValue ? "Import a texture source" : "Paint or import a texture source";
-                        Caption(ImVec2(BoxOrigin.x + (Width - CaptionWidth(Empty, 9 * S)) * .5f, BoxOrigin.y + 55 * S), Empty, 9 * S, 0x8a8a7c);
-                        ImGui::Dummy(ImVec2(1, 102 * S));
-                        ImGui::BeginDisabled(true);
-                        PillButton("ImportChannelTexture", "Import texture", Width, false, "M12 16V4M7 9l5-5 5 5M4 20h16");
-                        ImGui::EndDisabled();
-                        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Texture import is not native yet");
-                        ImGui::Dummy(ImVec2(1, 10 * S));
-                        if (Options.TextureNote) SmallNoteRow(Options.TextureNote);
+                        EnsureArchiveCatalogue();
+                        const std::string TexKey = std::string("__texture:") + Channel.Id;
+                        const std::string CurrentTex = Generators.count(TexKey) ? Generators.at(TexKey) : "";
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        const float RowWidth = ImGui::GetContentRegionAvail().x;
+                        Caption(ImVec2(RowOrigin.x, RowOrigin.y + 8 * S), "Texture map", 10 * S, 0xa3a395);
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 180 * S, RowOrigin.y));
+                        ImGui::SetNextItemWidth(180 * S);
+                        if (ImGui::BeginCombo("##ChannelTexSource", CurrentTex.empty() ? "Choose texture map…" : CurrentTex.c_str()))
+                        {
+                            if (ImGui::Selectable("None", CurrentTex.empty()))
+                            {
+                                Generators[TexKey].clear();
+                                OnChanged(Channel.Id, Channel.Label);
+                            }
+                            for (const auto &TexName : AvailableTextureNames)
+                                if (ImGui::Selectable(TexName.c_str(), TexName == CurrentTex))
+                                {
+                                    Generators[TexKey] = TexName;
+                                    OnChanged(Channel.Id, Channel.Label);
+                                }
+                            ImGui::EndCombo();
+                        }
+                        Track("Channel texture map");
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 12 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+                        auto &TParams = GeneratorParams[TexKey];
+                        float Scale = TParams.count("scale") ? TParams["scale"] : 1.f;
+                        if (AmountSliderRow("UV scale", Scale, .1f, 16.f, 1.f, "x"))
+                        {
+                            TParams["scale"] = Scale;
+                            OnChanged(Channel.Id, Channel.Label);
+                        }
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                        float OffX = TParams.count("offsetX") ? TParams["offsetX"] : 0.f;
+                        if (AmountSliderRow("Offset U", OffX, -1.f, 1.f, 1.f, ""))
+                        {
+                            TParams["offsetX"] = OffX;
+                            OnChanged(Channel.Id, Channel.Label);
+                        }
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                        float OffY = TParams.count("offsetY") ? TParams["offsetY"] : 0.f;
+                        if (AmountSliderRow("Offset V", OffY, -1.f, 1.f, 1.f, ""))
+                        {
+                            TParams["offsetY"] = OffY;
+                            OnChanged(Channel.Id, Channel.Label);
+                        }
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                        bool Invert = (TParams.count("invert") ? TParams["invert"] : 0.f) > .5f;
+                        if (Controls.Toggle("Invert map", Invert))
+                        {
+                            TParams["invert"] = Invert ? 1.f : 0.f;
+                            OnChanged(Channel.Id, Channel.Label);
+                        }
+                        if (Options.TextureNote) { ImGui::Dummy(ImVec2(1, 6 * S)); SmallNoteRow(Options.TextureNote); }
                     }
                     else if (Mode == "generator")
                     {
-                        // .channel-generator-label: HTML groups the catalogue under Mask / Wear /
-                        // Procedural optgroup headings; the native combo draws the same groups
-                        // (disabled header rows between the grouped selectables).
                         const std::string Current = Generators.count(Channel.Id) ? Generators.at(Channel.Id) : "";
                         std::string Chosen = Current;
                         {
                             const GeneratorMeta *CurrentMeta = nullptr;
                             for (const auto &Generator : GeneratorTable)
                                 if (Current == Generator.Id) CurrentMeta = &Generator;
-                            const char *Preview = Current == "MaterialStudio" ? "Material studio · custom source"
+                            const char *Preview = Current == "MaterialStudio" ? "Material studio · preset source"
                                 : CurrentMeta ? CurrentMeta->Label : "Choose a generator…";
                             const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
                             const float RowWidth = ImGui::GetContentRegionAvail().x;
@@ -3787,9 +4966,9 @@ void TexturePaintWorkspacePanel::ConstructChannelCards(const std::vector<std::st
                                 if (ImGui::Selectable("Choose a generator…", Current.empty())) { PickedId = ""; Picked = true; }
                                 if (Options.MaterialGenerator)
                                 {
-                                    if (ImGui::Selectable("Material studio · custom source", Current == "MaterialStudio")) { PickedId = "MaterialStudio"; Picked = true; }
+                                    if (ImGui::Selectable("Material studio · preset source", Current == "MaterialStudio")) { PickedId = "MaterialStudio"; Picked = true; }
                                 }
-                                else if (Current == "MaterialStudio") ImGui::Selectable("Material studio · custom source", true, ImGuiSelectableFlags_Disabled);
+                                else if (Current == "MaterialStudio") ImGui::Selectable("Material studio · preset source", true, ImGuiSelectableFlags_Disabled);
                                 const char *Groups[] = {"Mask", "Wear", "Procedural"};
                                 for (const char *Group : Groups)
                                 {
@@ -3806,11 +4985,36 @@ void TexturePaintWorkspacePanel::ConstructChannelCards(const std::vector<std::st
                                 OnChanged(Channel.Id, Channel.Label);
                                 Chosen = PickedId;
                             }
-                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 20 * S));
+                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 14 * S));
                             ImGui::Dummy(ImVec2(0, 0));
                         }
                         if (Chosen == "MaterialStudio")
                         {
+                            EnsureArchiveCatalogue();
+                            const std::string MatKey = std::string("__matstudio:") + Channel.Id;
+                            const std::string CurrentMat = Generators.count(MatKey) ? Generators.at(MatKey) : "";
+                            const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                            const float RowWidth = ImGui::GetContentRegionAvail().x;
+                            Caption(ImVec2(RowOrigin.x, RowOrigin.y + 8 * S), "Material preset", 10 * S, 0xa3a395);
+                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowWidth - 178 * S, RowOrigin.y));
+                            ImGui::SetNextItemWidth(178 * S);
+                            if (ImGui::BeginCombo("##ChannelMatPreset", CurrentMat.empty() ? "Select material…" : CurrentMat.c_str()))
+                            {
+                                for (const auto &Mat : LoadedMaterials)
+                                {
+                                    const size_t Sep = Mat.Id.find('|');
+                                    const std::string PureId = Sep == std::string::npos ? Mat.Id : Mat.Id.substr(0, Sep);
+                                    if (ImGui::Selectable(Mat.Name.c_str(), CurrentMat == Mat.Name || CurrentMat == PureId))
+                                    {
+                                        Generators[MatKey] = Mat.Name;
+                                        OnChanged(Channel.Id, Channel.Label);
+                                    }
+                                }
+                                ImGui::EndCombo();
+                            }
+                            Track("Channel material preset");
+                            ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 12 * S));
+                            ImGui::Dummy(ImVec2(0, 0));
                             if (Options.MaterialNote) SmallNoteRow(Options.MaterialNote);
                         }
                         else if (!Chosen.empty())
@@ -3835,9 +5039,10 @@ void TexturePaintWorkspacePanel::ConstructChannelCards(const std::vector<std::st
                             }
                         }
                     }
-                    // The deposited value: the layer inspector shows it only in Value mode; the brush
-                    // and decal cards keep it under every source (their strokes/stamps deposit it).
-                    if (Options.AlwaysShowValue || Mode == "value")
+                    // The deposited value: shown in Value mode, AlwaysShowValue mode, and under non-MaterialStudio Generator masks.
+                    const bool GeneratorUsesTarget = Mode == "generator" && Generators.count(Channel.Id) &&
+                        !Generators.at(Channel.Id).empty() && Generators.at(Channel.Id) != "MaterialStudio";
+                    if (Options.AlwaysShowValue || Mode == "value" || GeneratorUsesTarget)
                     {
                         if (Options.ArtworkBaseColor && std::string(Channel.Id) == "baseColor")
                             SmallNoteRow("Artwork colour. The stamp raster supplies Base color; disable the channel to stamp values only.");
@@ -4640,7 +5845,7 @@ void TexturePaintWorkspacePanel::ConstructLayersDock()
             Ink->AddRectFilled(ImVec2(InfoOrigin.x + 9 * S, InfoOrigin.y), ImVec2(InfoOrigin.x + WindowWidth - 9 * S, InfoOrigin.y + 162 * S), Colour32(0x252722), 13 * S);
             Ink->AddRect(ImVec2(InfoOrigin.x + 9 * S, InfoOrigin.y), ImVec2(InfoOrigin.x + WindowWidth - 9 * S, InfoOrigin.y + 162 * S), Colour32(0xffffff, .10f), 13 * S);
             ImGui::SetCursorScreenPos(ImVec2(InfoOrigin.x + 23 * S, InfoOrigin.y + 12 * S));
-            ImGui::PushTextWrapPos(InfoOrigin.x + WindowWidth - 23 * S);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(40.f, WindowWidth - 46 * S));
             ImGui::TextColored(Spectrum(0xdeded0), "Locked · hidden from editable stack");
             ImGui::TextWrapped("%s", Replaced ? "White fallback automatically replaced by opaque materials. Masks, hidden layers or zero opacity restore it where needed."
                                               : "White fallback for Body, Lid, Handle, Spout. Masks, hidden layers or zero opacity restore it where needed.");
@@ -4707,6 +5912,7 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
     {
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
         const float Height = 48 * S;
+        const bool CompactHeader = DockWidth < 760 * S;
         Ink->AddRectFilled(Origin, ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0x151515));
         Ink->AddLine(ImVec2(Origin.x, Origin.y + Height), ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0xffffff, .02f));
         Ink->AddRectFilled(ImVec2(Origin.x + 14 * S, Origin.y + 9 * S), ImVec2(Origin.x + 44 * S, Origin.y + 39 * S), Colour32(0x222222), 9 * S);
@@ -4714,52 +5920,62 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         DrawGlyph(BoxIconPath, ImVec2(Origin.x + 20.5f * S, Origin.y + 15.5f * S), 17 * S, 0xaaaa9c);
         Caption(ImVec2(Origin.x + 54 * S, Origin.y + 16 * S), "Teapot", 14 * S, 0xd8d8cd, LightTypeface ? LightTypeface : RegularTypeface);
         const float BadgeX = Origin.x + 62 * S + CaptionWidth("Teapot", 14 * S, LightTypeface);
-        Ink->AddRect(ImVec2(BadgeX, Origin.y + 17 * S), ImVec2(BadgeX + 46 * S, Origin.y + 31 * S), Colour32(0xffffff, .05f), 6 * S);
-        Caption(ImVec2(BadgeX + 6 * S, Origin.y + 20.5f * S), "PREVIEW", 6 * S, 0x8c8776);
-        float X = BadgeX + 60 * S;
+        float X = BadgeX + 8 * S;
+        if (!CompactHeader)
+        {
+            Ink->AddRect(ImVec2(BadgeX, Origin.y + 17 * S), ImVec2(BadgeX + 46 * S, Origin.y + 31 * S), Colour32(0xffffff, .05f), 6 * S);
+            Caption(ImVec2(BadgeX + 6 * S, Origin.y + 20.5f * S), "PREVIEW", 6 * S, 0x8c8776);
+            X = BadgeX + 60 * S;
+        }
         const float FieldY = Origin.y + 10 * S;
         const auto HeaderField = [&](const char *Label, float LabelWidth)
         {
-            Caption(ImVec2(X, FieldY + 7 * S), Label, 8 * S, 0x747467);
-            X += LabelWidth;
+            if (!CompactHeader)
+            {
+                Caption(ImVec2(X, FieldY + 7 * S), Label, 8 * S, 0x747467);
+                X += LabelWidth;
+            }
             ImGui::SetCursorScreenPos(ImVec2(X, FieldY));
         };
         HeaderField("SHADING", 52 * S);
         {
             const char *Labels[]{"Lit", "Wireframe", "UV / Texture"};
             const int Current = int(View);
-            if (const int Chosen = CompactDropdown("##ViewportShading", Labels[Current], 118 * S, {"Lit", "Wireframe", "UV / Texture"}, Current); Chosen >= 0)
+            const float ShadingWidth = (CompactHeader ? 98.f : 118.f) * S;
+            if (const int Chosen = CompactDropdown("##ViewportShading", Labels[Current], ShadingWidth, {"Lit", "Wireframe", "UV / Texture"}, Current); Chosen >= 0)
             {
                 View = ViewMode(Chosen);
                 if (View == ViewMode::Uv) UvFrameRequested = true;
                 if (View == ViewMode::Wireframe) DigitalActive = false;
             }
             Track("Viewport shading");
-            X += 128 * S;
+            X += ShadingWidth + (CompactHeader ? 6.f : 10.f) * S;
         }
         HeaderField("TARGET", 46 * S);
         {
             std::vector<std::string> Options{"All parts"};
             for (const auto &Part : PartTable) Options.push_back(Part.Name);
             const int Current = TargetPart + 1;
-            if (const int Chosen = CompactDropdown("##TextureMeshParts", Options[size_t(Current)].c_str(), 104 * S, Options, Current); Chosen >= 0)
+            const float PartsWidth = (CompactHeader ? 94.f : 104.f) * S;
+            if (const int Chosen = CompactDropdown("##TextureMeshParts", Options[size_t(Current)].c_str(), PartsWidth, Options, Current); Chosen >= 0)
                 TargetPart = Chosen - 1;
             Track("Texture mesh parts");
-            X += 114 * S;
+            X += PartsWidth + (CompactHeader ? 6.f : 10.f) * S;
         }
         if (View == ViewMode::Uv)
         {
             HeaderField("UV SET", 46 * S);
             const int Current = UvSource ? 1 : 0;
             const char *Labels[]{"Authoring UDIMs · 1001–1004", "Source UV0 · overlapping"};
-            if (const int Chosen = CompactDropdown("##UvCoordinateSet", Labels[Current], 196 * S, {Labels[0], Labels[1]}, Current); Chosen >= 0)
+            const float UvSetWidth = std::clamp(Origin.x + DockWidth - 180 * S - X, 110 * S, 196 * S);
+            if (const int Chosen = CompactDropdown("##UvCoordinateSet", Labels[Current], UvSetWidth, {Labels[0], Labels[1]}, Current); Chosen >= 0)
             {
                 UvSource = Chosen == 1;
                 UvFrameRequested = true;
                 if (UvSource) DigitalActive = false;
             }
             Track("UV coordinate set");
-            X += 206 * S;
+            X += UvSetWidth + 10 * S;
         }
         // .tp-viewport-end: Frame (F), grid toggle, reset (R).
         float RightX = Origin.x + DockWidth - 14 * S - 30 * S;
@@ -4774,9 +5990,10 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         if (IconButton("ToggleGrid", "M3 3H10V10H3ZM14 3H21V10H14ZM3 14H10V21H3ZM14 14H21V21H14Z", 30 * S, Grid)) Grid = !Grid;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ground grid");
         Track("Toggle viewport grid");
-        RightX -= 96 * S;
+        const float FrameButtonWidth = (CompactHeader ? 76.f : 92.f) * S;
+        RightX -= FrameButtonWidth + 4 * S;
         ImGui::SetCursorScreenPos(ImVec2(RightX, Origin.y + 10 * S));
-        if (PillButton("FrameView", "Frame F", 92 * S, false, "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
+        if (PillButton("FrameView", CompactHeader ? "Frame" : "Frame F", FrameButtonWidth, false, "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"))
         {
             if (View == ViewMode::Uv) UvFrameRequested = true; else FrameCamera();
         }
@@ -4788,15 +6005,20 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
     // .tp-authoring-bar
     {
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
-        const float Height = 38 * S;
+        const bool TextInputOpen = Tool == AuthorTool::Text && !DigitalActive;
+        const bool TwoRowBar = DockWidth < (TextInputOpen ? 1220.f : 980.f) * S;
+        const float RowHeight = 36 * S;
+        const float Height = TwoRowBar ? (RowHeight * 2 + 2 * S) : (38 * S);
         Ink->AddRectFilled(Origin, ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0x151515));
         Ink->AddLine(ImVec2(Origin.x, Origin.y + Height), ImVec2(Origin.x + DockWidth, Origin.y + Height), Colour32(0xffffff, .03f));
+        if (TwoRowBar)
+            Ink->AddLine(ImVec2(Origin.x + 12 * S, Origin.y + RowHeight + 1 * S), ImVec2(Origin.x + DockWidth - 12 * S, Origin.y + RowHeight + 1 * S), Colour32(0xffffff, .02f));
         float X = Origin.x + 12 * S;
-        const float Y = Origin.y + 6 * S;
+        const float Y = Origin.y + (TwoRowBar ? 5.f : 6.f) * S;
         const auto *Selected = SelectedLayer();
         const bool LockedSel = !Selected || EffectiveLocked(*Selected);
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("ToolNavigate", "Navigate", 92 * S, Tool == AuthorTool::Navigate && !DigitalActive && MaskEditor.ActiveTool != MaskEditorState::Tool::Brush,
+        if (PillButton("ToolNavigate", "Navigate", 88 * S, Tool == AuthorTool::Navigate && !DigitalActive && MaskEditor.ActiveTool != MaskEditorState::Tool::Brush,
                 "M4 3L11 21L14 14L21 11Z"))
         {
             Tool = AuthorTool::Navigate;
@@ -4804,23 +6026,23 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             MaskEditor.ActiveTool = MaskEditorState::Tool::Navigate;
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Navigate teapot");
-        X += 96 * S;
+        X += 92 * S;
         // 🖨️ The stamp tool is always selectable: with no suitable layer, the first placed stamp
         // creates (and selects) the first paint layer instead of refusing (see PlaceStampAt).
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("ToolStamp", "Stamp", 78 * S, Tool == AuthorTool::Stamp && !DigitalActive, "M5 22H19M12 2V10M8 10H16L17 18H7Z"))
+        if (PillButton("ToolStamp", "Stamp", 74 * S, Tool == AuthorTool::Stamp && !DigitalActive, "M5 22H19M12 2V10M8 10H16L17 18H7Z"))
         {
             Tool = AuthorTool::Stamp;
             DigitalActive = false;
             EnsureStampLibrary(true); // presets + anything saved to the project Stamps folder
         }
         Controls.Tooltip("Viewport stamp brush", "Place stamp decals from the library - click the surface to place the picked stamp: it joins the selected stamp (decal) layer, or starts a new one when another layer kind is selected. Pick stamps in the Stamp library dock or right-click the viewport for the stamp grid. Drag a stamp on the selected layer to move it. Author new stamps in the Stamp workspace (Stamp studio, right).");
-        X += 82 * S;
+        X += 78 * S;
         // 🅰️ Text decals: the Stamp tool's whole behaviour (hover ghost, projected placement, own
         // Decal layer, gizmo, per-decal PBR) with typed copy rendered from real glyph outlines -
         // brush size/colour/strength drive it, like a tintable stamp.
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("ToolText", "Text", 66 * S, Tool == AuthorTool::Text && !DigitalActive, "M5 5H19M12 5V19M9 19H15"))
+        if (PillButton("ToolText", "Text", 62 * S, Tool == AuthorTool::Text && !DigitalActive, "M5 5H19M12 5V19M9 19H15"))
         {
             Tool = AuthorTool::Text;
             DigitalActive = false;
@@ -4833,11 +6055,11 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             TextPropertiesPending = true; // opened by ConstructTextProperties in the viewport's ID scope
         }
         Controls.Tooltip("Text decals", "Type text and stamp it onto the model: it follows the mouse as a projected preview, click drops it on its own Decal layer (drag/scale/rotate with the gizmo; PBR + retype in the Inspector). Brush size sets the size. Right-click (this pill, or the viewport with Text armed) opens the text properties: ink colour + font.");
-        X += 70 * S;
-        if (Tool == AuthorTool::Text && !DigitalActive)
+        X += 66 * S;
+        if (TextInputOpen && !TwoRowBar)
         {
             ImGui::SetCursorScreenPos(ImVec2(X, Y));
-            ImGui::SetNextItemWidth(240 * S);
+            ImGui::SetNextItemWidth(200 * S);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * S, 4.5f * S));
             if (TextFocusPending) { ImGui::SetKeyboardFocusHere(); TextFocusPending = false; }
@@ -4845,19 +6067,27 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
             ImGui::PopStyleVar();
             ImGui::PopStyleColor();
             Track("Decal text");
-            X += 248 * S;
+            X += 206 * S;
         }
         ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("ToolTransform", "Transform", 102 * S, Tool == AuthorTool::Transform && !DigitalActive, "M5 9L2 12L5 15M9 5L12 2L15 5M15 19L12 22L9 19M19 9L22 12L19 15M2 12H22M12 2V22"))
+        if (PillButton("ToolTransform", "Transform", 96 * S, Tool == AuthorTool::Transform && !DigitalActive, "M5 9L2 12L5 15M9 5L12 2L15 5M15 19L12 22L9 19M19 9L22 12L19 15M2 12H22M12 2V22"))
         {
             Tool = AuthorTool::Transform;
             DigitalActive = false;
         }
         Controls.Tooltip("Transform stamps", "Drag a placed stamp to move it - in the 3D view it slides over the surface; in UV view drag a corner to scale and the top handle to rotate. Clicking a stamp selects its layer; the Inspector has numeric controls.");
-        X += 114 * S;
-        Ink->AddLine(ImVec2(X, Y + 5 * S), ImVec2(X, Y + 19 * S), Colour32(0x33332c));
-        X += 9 * S;
+        X += 104 * S;
         // DigitalPaintToolbar: Paint / Erase / Fill + the "{size} px" brush-settings button.
+        float Row2X = Origin.x + 12 * S;
+        const float Row2Y = TwoRowBar ? (Origin.y + RowHeight + 5 * S) : Y;
+        const bool DigitalWraps = TwoRowBar && (X + 310 * S > Origin.x + DockWidth - 8 * S);
+        float DigitalX = DigitalWraps ? Row2X : X;
+        const float DigitalY = DigitalWraps ? Row2Y : Y;
+        if (!DigitalWraps)
+        {
+            Ink->AddLine(ImVec2(DigitalX, DigitalY + 5 * S), ImVec2(DigitalX, DigitalY + 19 * S), Colour32(0x33332c));
+            DigitalX += 8 * S;
+        }
         const bool PaintAvailable = DigitalPaintAvailable();
         const struct { const char *Id; const char *Label; const char *Icon; } DigitalTools[3]{
             {"paint", "Paint", "M4 20L8 19L20 7L17 4L5 16ZM14 3L21 10"},
@@ -4866,8 +6096,8 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
         for (const auto &Entry : DigitalTools)
         {
             ImGui::BeginDisabled(!PaintAvailable);
-            ImGui::SetCursorScreenPos(ImVec2(X, Y));
-            const float Width = (Entry.Label[0] == 'P' ? 76 : Entry.Label[0] == 'E' ? 76 : 64) * S;
+            ImGui::SetCursorScreenPos(ImVec2(DigitalX, DigitalY));
+            const float Width = (Entry.Label[0] == 'P' ? 72 : Entry.Label[0] == 'E' ? 72 : 60) * S;
             if (PillButton((std::string("Digital") + Entry.Id).c_str(), Entry.Label, Width, DigitalActive && Brush.Tool == Entry.Id, Entry.Icon))
             {
                 if (Brush.Tool != Entry.Id)
@@ -4886,27 +6116,47 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
                 else
                     ImGui::SetTooltip("%s %s", Entry.Label, MaskSelected ? "mask digitally" : "layer channels");
             }
-            X += Width + 4 * S;
+            DigitalX += Width + 4 * S;
         }
         char SizeLabel[24];
         std::snprintf(SizeLabel, sizeof(SizeLabel), "%d px", int(std::round(Brush.Size)));
-        ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("DigitalBrushSettings", SizeLabel, 78 * S, BrushStudioOpen, "M4 8H20M4 16H20M8 5V11M16 13V19")) BrushStudioOpen = !BrushStudioOpen;
+        ImGui::SetCursorScreenPos(ImVec2(DigitalX, DigitalY));
+        if (PillButton("DigitalBrushSettings", SizeLabel, 72 * S, BrushStudioOpen, "M4 8H20M4 16H20M8 5V11M16 13V19")) BrushStudioOpen = !BrushStudioOpen;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Digital brush settings");
         Track("Digital brush settings");
-        X += 92 * S;
-        Ink->AddLine(ImVec2(X, Y + 5 * S), ImVec2(X, Y + 19 * S), Colour32(0x33332c));
-        X += 9 * S;
+        DigitalX += 78 * S;
+
+        float SecondaryX = TwoRowBar ? (DigitalWraps ? DigitalX + 6 * S : Row2X) : DigitalX;
+        const float SecondaryY = TwoRowBar ? Row2Y : Y;
+        if (!TwoRowBar || DigitalWraps)
+        {
+            Ink->AddLine(ImVec2(SecondaryX, SecondaryY + 5 * S), ImVec2(SecondaryX, SecondaryY + 19 * S), Colour32(0x33332c));
+            SecondaryX += 8 * S;
+        }
+        if (TextInputOpen && TwoRowBar)
+        {
+            const float FieldW = std::clamp((Origin.x + DockWidth - 280 * S) - SecondaryX, 120 * S, 220 * S);
+            ImGui::SetCursorScreenPos(ImVec2(SecondaryX, SecondaryY));
+            ImGui::SetNextItemWidth(FieldW);
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, Spectrum(0x191919));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10 * S, 4.5f * S));
+            if (TextFocusPending) { ImGui::SetKeyboardFocusHere(); TextFocusPending = false; }
+            ImGui::InputTextWithHint("##DecalText", "Type text, then click the model...", TextBuffer, sizeof(TextBuffer));
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor();
+            Track("Decal text");
+            SecondaryX += FieldW + 8 * S;
+        }
         // Material / Mask preview tabs.
-        ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("PreviewMaterial", "Material", 76 * S, !MaskPreview, nullptr, 0x5a4531)) MaskPreview = false;
-        X += 80 * S;
+        ImGui::SetCursorScreenPos(ImVec2(SecondaryX, SecondaryY));
+        if (PillButton("PreviewMaterial", "Material", 74 * S, !MaskPreview, nullptr, 0x5a4531)) MaskPreview = false;
+        SecondaryX += 78 * S;
         const bool MaskTabAvailable = (MaskSelected && Selected && Selected->Mask.Present) && !(View == ViewMode::Uv && UvSource);
         ImGui::BeginDisabled(!MaskTabAvailable);
-        ImGui::SetCursorScreenPos(ImVec2(X, Y));
-        if (PillButton("PreviewMask", "Mask", 64 * S, MaskPreview, nullptr, 0x5a4531)) MaskPreview = true;
+        ImGui::SetCursorScreenPos(ImVec2(SecondaryX, SecondaryY));
+        if (PillButton("PreviewMask", "Mask", 60 * S, MaskPreview, nullptr, 0x5a4531)) MaskPreview = true;
         ImGui::EndDisabled();
-        X += 76 * S;
+        SecondaryX += 68 * S;
         // Authoring state + Stamp studio link ride the right edge.
         const auto *CurrentStamp = ActiveStamp();
         const std::string State = MaskSelected ? "Mask mode · " + (Selected ? Selected->Name : std::string())
@@ -4919,11 +6169,21 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
                                    ? std::string("Decal layer · stamps only - paint needs a Paint or Fill layer")
                                    : "Paint mode · Digital " + Brush.Tool)
                             : "Paint mode · Digital tools available";
-        const float LinkWidth = 104 * S;
-        const float StateX = Origin.x + DockWidth - 12 * S - LinkWidth - 10 * S - CaptionWidth(State.c_str(), 9 * S);
-        Caption(ImVec2(std::max(X, StateX), Y + 7 * S), State.c_str(), 9 * S, 0x9a9a8c);
+        const float LinkWidth = 100 * S;
+        const float LinkX = Origin.x + DockWidth - 12 * S - LinkWidth;
+        const float StateMaxRight = LinkX - 10 * S;
+        const float StateWidth = CaptionWidth(State.c_str(), 9 * S);
+        const float StateX = std::max(SecondaryX, StateMaxRight - StateWidth);
+        if (StateMaxRight > SecondaryX + 24 * S)
+        {
+            Ink->PushClipRect(ImVec2(SecondaryX, SecondaryY), ImVec2(StateMaxRight, SecondaryY + 26 * S), true);
+            Caption(ImVec2(StateX, SecondaryY + 7 * S), State.c_str(), 9 * S, 0x9a9a8c);
+            Ink->PopClipRect();
+        }
+        ImGui::SetCursorScreenPos(ImVec2(StateX, SecondaryY + 5 * S));
+        ImGui::Dummy(ImVec2(std::max(8.f, std::min(StateWidth, StateMaxRight - StateX)), 14 * S));
         Track("Texture editing mode");
-        ImGui::SetCursorScreenPos(ImVec2(Origin.x + DockWidth - 12 * S - LinkWidth, Y));
+        ImGui::SetCursorScreenPos(ImVec2(LinkX, SecondaryY));
         ImGui::BeginDisabled(!ActivateStamp);
         if (PillButton("OpenStampStudio", "Stamp studio", LinkWidth, false) && ActivateStamp) ActivateStamp();
         ImGui::EndDisabled();
@@ -5095,17 +6355,17 @@ void TexturePaintWorkspacePanel::ConstructViewportDock()
     {
         const ImVec2 Origin = ImGui::GetCursorScreenPos();
         Ink->AddCircleFilled(ImVec2(Origin.x + 21.5f * S, Origin.y + 22 * S), 2.5f * S, Colour32(0x8aa27e), 10);
-        Caption(ImVec2(Origin.x + 28 * S, Origin.y + 18 * S), "Three.js · WebGL", 8 * S, 0x77786d);
+        Caption(ImVec2(Origin.x + 28 * S, Origin.y + 18 * S), "Unified PBR · MaterialSurface", 8 * S, 0x77786d);
         bool LiveStack = false, AnyDecals = false;
         for (const auto &Layer : Layers)
         {
             if (Layer.SourceColour[3] > 0.f || Layer.StrokeCount > 0) LiveStack = true;
             if (Layer.DecalCount > 0) AnyDecals = true;
         }
-        const char *Scope = View == ViewMode::Uv ? "Ordered lit UV appearance · not exported PBR maps"
-            : LiveStack ? "Layer stack live · top layers cover lower decals"
+        const char *Scope = View == ViewMode::Uv ? "Ordered lit UV appearance · UDIM 2x2 atlas"
+            : LiveStack ? "Layer stack live · PBR channels active"
             : AnyDecals ? "Layer stack live · decals follow layer order"
-                        : "Layer 0 · white fallback · digital tools available";
+                        : "Layer 0 · studio clay · digital tools available";
         Caption(ImVec2(Origin.x + DockWidth - 19 * S - CaptionWidth(Scope, 8 * S), Origin.y + 18 * S), Scope, 8 * S, 0x908c7d);
         ImGui::Dummy(ImVec2(0, 0));
     }
@@ -5253,8 +6513,9 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
 
     auto *DrawList = ImGui::GetWindowDrawList();
     DrawList->PushClipRect(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), true);
-    // 🎨 Clear flat viewport field (no decorative rings - the teapot and grid carry the stage).
-    DrawList->AddRectFilled(ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY), Colour32(0x111212));
+    DrawList->AddRectFilledMultiColor(
+        ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+        Colour32(0x161819), Colour32(0x161819), Colour32(0x25282a), Colour32(0x25282a));
 
     std::vector<PickTriangle> Picks;
     if (!Assets.Low.Parts.empty() && !Topology.empty())
@@ -5271,31 +6532,38 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             (BoundsMinimum[2] + BoundsMaximum[2]) * .5f};
         const float Extent[3]{BoundsMaximum[0] - Pivot[0], BoundsMaximum[1] - Pivot[1], BoundsMaximum[2] - Pivot[2]};
         const float Radius = std::max(.05f, std::sqrt(Extent[0] * Extent[0] + Extent[1] * Extent[1] + Extent[2] * Extent[2]));
-        // 📝 Alloy's Texture scene frames the teapot closer than the material capture rig Baking uses
-        // (5.8/1.35): at 3.1x the bounding sphere the pot fills roughly half the viewport height.
+        const float ViewW = std::max(1.f, Region.Width());
+        const float ViewH = std::max(1.f, Region.Height());
+        const float Aspect = ViewW / ViewH;
         const auto Orbit = ConstructOrbitProjection(SmoothedCamera.Yaw, SmoothedCamera.Pitch, SmoothedCamera.Zoom, SmoothedCamera.PanX,
-            SmoothedCamera.PanY, Radius, Pivot, 3.1f);
-        const Vec3 Eye{Orbit.Eye[0], Orbit.Eye[1], Orbit.Eye[2]};
+            SmoothedCamera.PanY, Radius, Pivot, 3.1f, Aspect);
         const Vec3 Forward{Orbit.Forward[0], Orbit.Forward[1], Orbit.Forward[2]};
         const Vec3 Right{Orbit.Right[0], Orbit.Right[1], Orbit.Right[2]};
         const Vec3 Up{Orbit.Up[0], Orbit.Up[1], Orbit.Up[2]};
         SceneRight[0] = Right.X; SceneRight[1] = Right.Y; SceneRight[2] = Right.Z;
         SceneUp[0] = Up.X; SceneUp[1] = Up.Y; SceneUp[2] = Up.Z;
         SceneFrameValid = true; // camera-aligned stamp anchors read this between interaction and draw
-        const float CenterX = (Region.MinimumX + Region.MaximumX) * .5f, CenterY = (Region.MinimumY + Region.MaximumY) * .5f;
-        const float FocalLength = std::min(Region.Width(), Region.Height()) * .8f;
-        const Vec3 Light = NormalizeV(Vec3{.4f, .8f, .5f});
+        const auto &Clip = Orbit.ClipFromSurface;
         const auto Project = [&](const float P[3], ImVec2 &Screen, float &Depth) noexcept
         {
-            const Vec3 World = Sub(Vec3{P[0], P[1], P[2]}, Eye);
-            const float Cx = DotV(World, Right), Cy = DotV(World, Up), Cz = DotV(World, Forward);
-            Depth = Cz;
-            const float Z = std::max(Cz, .05f);
-            Screen = ImVec2(CenterX + Cx * FocalLength / Z, CenterY - Cy * FocalLength / Z);
+            const float Cx = Clip[0] * P[0] + Clip[4] * P[1] + Clip[8] * P[2] + Clip[12];
+            const float Cy = Clip[1] * P[0] + Clip[5] * P[1] + Clip[9] * P[2] + Clip[13];
+            const float Cz = Clip[2] * P[0] + Clip[6] * P[1] + Clip[10] * P[2] + Clip[14];
+            const float Cw = Clip[3] * P[0] + Clip[7] * P[1] + Clip[11] * P[2] + Clip[15];
+            Depth = Cw;
+            if (Cw <= 1e-4f)
+            {
+                Screen = ImVec2(-10000.f, -10000.f);
+                return;
+            }
+            const float InvW = 1.f / Cw;
+            Screen = ImVec2(
+                Region.MinimumX + (Cx * InvW * .5f + .5f) * ViewW,
+                Region.MinimumY + (Cy * InvW * .5f + .5f) * ViewH);
         };
         if (Grid)
         {
-            // 🌐 Ground grid at the mesh's base plane (Alloy's gridVisible), projected through the same camera.
+            // 🌐 Ground grid at the mesh's base plane (Alloy's gridVisible), projected through the unified clip matrix.
             const float GroundY = BoundsMinimum[1];
             const float Half = Radius * 1.7f, Step = Radius * .425f;
             for (float At = -Half; At <= Half + 1e-4f; At += Step)
@@ -5305,16 +6573,14 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
                 ImVec2 Sa, Sb, Sc, Sd;
                 float Da, Db, Dc, Dd;
                 Project(A, Sa, Da); Project(B, Sb, Db); Project(C, Sc, Dc); Project(D, Sd, Dd);
-                if (Da > .05f && Db > .05f) DrawList->AddLine(Sa, Sb, Colour32(0xffffff, .045f), 1.f);
-                if (Dc > .05f && Dd > .05f) DrawList->AddLine(Sc, Sd, Colour32(0xffffff, .045f), 1.f);
+                if (Da > .05f && Db > .05f) DrawList->AddLine(Sa, Sb, Colour32(0xffffff, .055f), 1.f);
+                if (Dc > .05f && Dd > .05f) DrawList->AddLine(Sc, Sd, Colour32(0xffffff, .055f), 1.f);
             }
         }
-        EnsurePreviewCanvas(); // recomposites the UV canvas only when the document actually changed
+        EnsurePreviewCanvas(); // recomposites the UDIM PBR canvases only when the document actually changed
         const bool Wire = View == ViewMode::Wireframe;
-        const bool Textured = !Wire && PreviewCanvasTextured();
-        struct DrawTriangle { ImVec2 A, B, C; ImU32 Colour; float Depth; int Part; float Uv[3][2]; };
-        std::vector<DrawTriangle> Triangles;
-        Triangles.reserve(Topology.size());
+
+        // Build screen-space pick triangles aligned to Orbit.ClipFromSurface (and wireframe edges when Wire == true).
         Picks.reserve(Topology.size());
         for (const auto &Triangle : Topology)
         {
@@ -5329,93 +6595,205 @@ void TexturePaintWorkspacePanel::ConstructSceneViewport(PlaneExtent Region)
             float Da, Db, Dc;
             Project(VA.Position, Sa, Da); Project(VB.Position, Sb, Db); Project(VC.Position, Sc, Dc);
             if (Da <= .05f || Db <= .05f || Dc <= .05f) continue;
-            PickTriangle Pick;
-            Pick.Screen[0][0] = Sa.x; Pick.Screen[0][1] = Sa.y;
-            Pick.Screen[1][0] = Sb.x; Pick.Screen[1][1] = Sb.y;
-            Pick.Screen[2][0] = Sc.x; Pick.Screen[2][1] = Sc.y;
-            for (int Corner = 0; Corner < 3; ++Corner)
+            if (Front)
             {
-                Pick.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
-                Pick.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
-            }
-            Pick.Depth = (Da + Db + Dc) / 3.f;
-            Pick.Part = Triangle.Part;
-            Pick.Chart = Triangle.Chart;
-            Pick.Index = Triangle.Index;
-            if (Front) Picks.push_back(Pick);
-            // 🎨 Flat Lambert shade over the preview composite (same look family as Baking's CPU viewport).
-            // Textured path: the UV canvas carries the composite per texel, so the vertex colour is
-            // only the shade multiplier (the shader multiplies texture x vertex colour) and no
-            // per-triangle evaluation runs. Fallback keeps the centroid composite.
-            const float Shade = std::clamp(.30f + .70f * std::max(0.f, DotV(FaceNormal, Light)), 0.f, 1.f);
-            ImU32 Packed;
-            if (Textured)
-            {
-                float Dim = Shade;
-                if (TargetPart >= 0 && Triangle.Part != TargetPart) Dim *= .82f;
-                const uint8_t Grey = uint8_t(std::clamp(Dim, 0.f, 1.f) * 255.f);
-                Packed = IM_COL32(Grey, Grey, Grey, 255);
-            }
-            else
-            {
-                std::array<float, 3> Colour = EvaluatePreviewColour(Triangle);
-                if (TargetPart >= 0)
-                {
-                    if (Triangle.Part == TargetPart)
-                    {
-                        const uint32_t Tint = PartTable[size_t(Triangle.Part)].Colour;
-                        Colour[0] += (float((Tint >> 16) & 0xff) / 255.f - Colour[0]) * .22f;
-                        Colour[1] += (float((Tint >> 8) & 0xff) / 255.f - Colour[1]) * .22f;
-                        Colour[2] += (float(Tint & 0xff) / 255.f - Colour[2]) * .22f;
-                    }
-                    else for (float &Channel : Colour) Channel *= .82f;
-                }
-                Packed = IM_COL32(uint8_t(std::clamp(Colour[0] * Shade, 0.f, 1.f) * 255.f),
-                    uint8_t(std::clamp(Colour[1] * Shade, 0.f, 1.f) * 255.f), uint8_t(std::clamp(Colour[2] * Shade, 0.f, 1.f) * 255.f), 255);
-            }
-            DrawTriangle Drawn{Sa, Sb, Sc, Packed, Pick.Depth, Triangle.Part, {}};
-            for (int Corner = 0; Corner < 3; ++Corner)
-            {
-                Drawn.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
-                Drawn.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
-            }
-            Triangles.push_back(Drawn);
-        }
-        std::sort(Triangles.begin(), Triangles.end(), [](const DrawTriangle &A, const DrawTriangle &B) { return A.Depth > B.Depth; });
-        if (Textured) DrawList->PushTexture(ImTextureRef(ImTextureID(QueryPaintCanvasImage().Texture)));
-        for (const auto &Triangle : Triangles)
-        {
-            if (!Wire)
-            {
-                DrawList->PrimReserve(3, 3);
-                ImDrawVert *Vertex = DrawList->_VtxWritePtr;
-                ImDrawIdx *IndexCursor = DrawList->_IdxWritePtr;
-                ImDrawIdx Base = DrawList->_VtxCurrentIdx;
-                const ImVec2 Corners[3]{Triangle.A, Triangle.B, Triangle.C};
+                PickTriangle Pick;
+                Pick.Screen[0][0] = Sa.x; Pick.Screen[0][1] = Sa.y;
+                Pick.Screen[1][0] = Sb.x; Pick.Screen[1][1] = Sb.y;
+                Pick.Screen[2][0] = Sc.x; Pick.Screen[2][1] = Sc.y;
                 for (int Corner = 0; Corner < 3; ++Corner)
                 {
-                    Vertex->pos = Corners[Corner];
-                    if (Textured)
-                    {
-                        const auto Cuv = PreviewCanvasUv(Triangle.Part, Triangle.Uv[Corner][0], Triangle.Uv[Corner][1]);
-                        Vertex->uv = ImVec2(Cuv[0], Cuv[1]);
-                    }
-                    else Vertex->uv = DrawList->_Data->TexUvWhitePixel;
-                    Vertex->col = Triangle.Colour;
-                    ++Vertex;
-                    *IndexCursor++ = Base++;
+                    Pick.Uv[Corner][0] = Triangle.AuthoringUv[Corner][0];
+                    Pick.Uv[Corner][1] = Triangle.AuthoringUv[Corner][1];
                 }
-                DrawList->_VtxWritePtr = Vertex;
-                DrawList->_IdxWritePtr = IndexCursor;
-                DrawList->_VtxCurrentIdx = Base;
+                Pick.Depth = (Da + Db + Dc) / 3.f;
+                Pick.Part = Triangle.Part;
+                Pick.Chart = Triangle.Chart;
+                Pick.Index = Triangle.Index;
+                Picks.push_back(Pick);
             }
-            else
+            if (Wire)
             {
                 const uint32_t WireColour = PartTable[size_t(std::clamp(Triangle.Part, 0, 3))].Colour;
-                DrawList->AddTriangle(Triangle.A, Triangle.B, Triangle.C, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
+                DrawList->AddTriangle(Sa, Sb, Sc, Colour32(WireColour, TargetPart == Triangle.Part ? .85f : .4f), 1.f);
             }
         }
-        if (Textured) DrawList->PopTexture();
+
+        if (!Wire)
+        {
+            if (CachedSceneTopologySize != Topology.size())
+            {
+                SurfaceGeometry Unrolled;
+                Unrolled.Corners.reserve(Topology.size() * 3);
+                Unrolled.TriangleCorners.reserve(Topology.size() * 3);
+                for (const auto &Triangle : Topology)
+                {
+                    for (int CornerIdx = 0; CornerIdx < 3; ++CornerIdx)
+                    {
+                        const auto &Vtx = Part.Vertices[Triangle.VertexIndex[CornerIdx]];
+                        SurfaceCorner Out{};
+                        Out.Position = {Vtx.Position[0], Vtx.Position[1], Vtx.Position[2]};
+                        Out.Normal = {Vtx.Normal[0], Vtx.Normal[1], Vtx.Normal[2]};
+                        Out.Coordinates = PreviewCanvasUv(Triangle.Part, Triangle.AuthoringUv[CornerIdx][0], Triangle.AuthoringUv[CornerIdx][1]);
+                        Out.Tangent = {0.f, 0.f, 0.f, 1.f};
+                        Unrolled.TriangleCorners.push_back(uint32_t(Unrolled.Corners.size()));
+                        Unrolled.Corners.push_back(Out);
+                    }
+                }
+                CachedSceneGeometry = SanitizeMaterialSurfaceGeometry(std::move(Unrolled));
+                CachedSceneTopologySize = Topology.size();
+                if (ConfigureViewportGeometry) ConfigureViewportGeometry(CachedSceneGeometry);
+            }
+
+            if ((CachedSceneMaterialRevision != PaintCanvasRevision || CachedSceneMaterialTargetPart != TargetPart) &&
+                !PaintCanvasPixels.empty())
+            {
+                MaterialDefinition Def;
+                Def.Name = "Texture Paint Composite";
+                Def.Scattering.Illumination.Configuration = {2, 0, 1, 0};
+                auto &Base = Def.Scattering.Illumination.Strata[0];
+                const bool Transmissive = CompositedMaxTransmission > .15f;
+                Base.Classification[0] = Transmissive ? 2u : 0u;
+                Base.AlbedoRoughness = {1.f, 1.f, 1.f, !PaintOrmPixels.empty() ? 1.f : .38f};
+                Base.Optics = {!PaintOrmPixels.empty() ? 1.f : .04f,
+                    std::clamp(CompositedAvgIor, 1.f, 3.f),
+                    Transmissive ? std::clamp(CompositedMaxTransmission, .15f, 1.f) : 1.f,
+                    0.f};
+                if (Transmissive) Base.AbsorptionThickness = {.12f, .08f, .06f, .01f};
+                Def.Scattering.DirectionalOptics[0] = {
+                    std::clamp(CompositedAvgAnisotropy, 0.f, .9f),
+                    CompositedAvgAnisotropyAngle * (3.14159265f / 180.f),
+                    0.f,
+                    .5f};
+                auto &Coat = Def.Scattering.Illumination.Strata[1];
+                Coat.Classification[0] = 1;
+                Coat.AlbedoRoughness = {1.f, 1.f, 1.f, .10f};
+                Coat.Optics = {0.f, 1.5f, std::clamp(std::max(.08f, CompositedAvgClearcoat), 0.f, 1.f), 0.f};
+
+                SurfaceTextureImage AlbedoImg{PaintCanvasExtent, PaintCanvasExtent, PaintCanvasPixels};
+                if (TargetPart >= 0 && TargetPart < 4)
+                {
+                    for (int TileP = 0; TileP < 4; ++TileP)
+                    {
+                        const int Ox = (TileP % 2) * int(PaintCanvasTile + 2) + 1;
+                        const int Oy = (TileP / 2) * int(PaintCanvasTile + 2) + 1;
+                        const uint32_t TintHex = PartTable[size_t(TileP)].Colour;
+                        const float Tr = float((TintHex >> 16) & 0xff), Tg = float((TintHex >> 8) & 0xff), Tb = float(TintHex & 0xff);
+                        for (int Py = 0; Py < int(PaintCanvasTile); ++Py)
+                            for (int Px = 0; Px < int(PaintCanvasTile); ++Px)
+                            {
+                                uint8_t *Pix = &AlbedoImg.Rgba[(size_t(Oy + Py) * PaintCanvasExtent + size_t(Ox + Px)) * 4];
+                                if (TileP == TargetPart)
+                                {
+                                    Pix[0] = uint8_t(std::clamp(Pix[0] * .82f + Tr * .18f, 0.f, 255.f));
+                                    Pix[1] = uint8_t(std::clamp(Pix[1] * .82f + Tg * .18f, 0.f, 255.f));
+                                    Pix[2] = uint8_t(std::clamp(Pix[2] * .82f + Tb * .18f, 0.f, 255.f));
+                                }
+                                else
+                                {
+                                    Pix[0] = uint8_t(Pix[0] * .76f);
+                                    Pix[1] = uint8_t(Pix[1] * .76f);
+                                    Pix[2] = uint8_t(Pix[2] * .76f);
+                                }
+                            }
+                    }
+                }
+                Def.Scattering.TextureUse[0][0] |= 1u;
+                Def.TextureSources[0] = "procedural/paint-albedo";
+                Def.ProceduralMaps[{0, "procedural/paint-albedo"}] = std::move(AlbedoImg);
+
+                if (PaintOrmPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
+                {
+                    Def.Scattering.TextureUse[0][0] |= 2u;
+                    Def.TextureSources[1] = "procedural/paint-orm";
+                    Def.ProceduralMaps[{1, "procedural/paint-orm"}] =
+                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintOrmPixels};
+                }
+                if (PaintNormalPixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
+                {
+                    Def.Scattering.TextureUse[0][0] |= 4u;
+                    Def.TextureSources[2] = "procedural/paint-normal";
+                    Def.ProceduralMaps[{2, "procedural/paint-normal"}] =
+                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintNormalPixels};
+                }
+                if (CompositedHasEmission && PaintEmissivePixels.size() == size_t(PaintCanvasExtent) * PaintCanvasExtent * 4)
+                {
+                    Def.Scattering.TextureUse[0][0] |= 8u;
+                    Def.Scattering.RadianceNormal = {3.2f, 3.2f, 3.2f, 1.f};
+                    Def.TextureSources[3] = "procedural/paint-emissive";
+                    Def.ProceduralMaps[{3, "procedural/paint-emissive"}] =
+                        SurfaceTextureImage{PaintCanvasExtent, PaintCanvasExtent, PaintEmissivePixels};
+                }
+
+                CachedSceneMaterial = CompileSurfaceMaterial(Def, std::filesystem::current_path());
+                CachedSceneMaterialRevision = PaintCanvasRevision;
+                CachedSceneMaterialTargetPart = TargetPart;
+                if (ConfigureViewportMaterial) ConfigureViewportMaterial(CachedSceneMaterial);
+            }
+
+            const float FbScale = std::max(1.f, ImGui::GetIO().DisplayFramebufferScale.x);
+            const uint32_t TargetW = std::clamp((uint32_t(ViewW * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+            const uint32_t TargetH = std::clamp((uint32_t(ViewH * FbScale) + 63u) / 64u * 64u, 256u, 2048u);
+            if (ConfigureViewportExtent && (TargetW != SentSceneWidth || TargetH != SentSceneHeight))
+            {
+                SentSceneWidth = TargetW;
+                SentSceneHeight = TargetH;
+                ConfigureViewportExtent(TargetW, TargetH);
+            }
+
+            WorkspaceViewportOrbitCamera OrbitCam{};
+            OrbitCam.Pivot = {Pivot[0], Pivot[1], Pivot[2]};
+            OrbitCam.Radius = Radius;
+            OrbitCam.FrameRatio = 3.1f;
+            OrbitCam.Yaw = SmoothedCamera.Yaw;
+            OrbitCam.Pitch = SmoothedCamera.Pitch;
+            OrbitCam.Zoom = SmoothedCamera.Zoom;
+            OrbitCam.PanX = SmoothedCamera.PanX;
+            OrbitCam.PanY = SmoothedCamera.PanY;
+            if (!SentSceneCameraReady || SentSceneCamera != OrbitCam)
+            {
+                SentSceneCamera = OrbitCam;
+                SentSceneCameraReady = true;
+                if (ConfigureViewportCamera) ConfigureViewportCamera(OrbitCam);
+            }
+
+            const WorkspaceViewportImage GpuImage = QueryViewport ? QueryViewport() : WorkspaceViewportImage{};
+            if (GpuImage.Texture)
+            {
+                DrawList->AddImage(ImTextureRef(GpuImage.Texture),
+                    ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+                    ImVec2(GpuImage.MinimumU, GpuImage.MinimumV), ImVec2(GpuImage.MaximumU, GpuImage.MaximumV));
+            }
+            else if (!CachedSceneGeometry.Corners.empty() && !CachedSceneMaterial.Textures[0].Levels.empty())
+            {
+                const uint32_t CpuH = std::clamp(uint32_t(ViewH * .75f), 200u, 480u);
+                const uint32_t CpuW = std::clamp(uint32_t(std::lround(float(CpuH) * Aspect)), 200u, 640u);
+                if (CachedSceneCpuRgba.empty() || CachedSceneCpuRevision != CachedSceneMaterialRevision ||
+                    CachedSceneCpuTargetPart != TargetPart || CachedSceneCpuOrbit != OrbitCam ||
+                    CachedSceneCpuWidth != CpuW || CachedSceneCpuHeight != CpuH)
+                {
+                    WorkspaceSurfaceViewportRequest Request{};
+                    Request.Geometry = &CachedSceneGeometry;
+                    Request.Material = &CachedSceneMaterial;
+                    Request.Camera = Orbit;
+                    Request.LightDirection = ConstructWorkspaceOrbitLightDirection(OrbitCam);
+                    Request.LightIntensity = 2.25f;
+                    Request.EnvironmentStrength = 1.f;
+                    Request.EnvironmentUp = ConstructWorkspaceOrbitEnvironmentUp(OrbitCam);
+                    Request.Exposure = 1.f;
+                    auto Rendered = RenderWorkspaceSurfaceViewportCpu(Request, CpuW, CpuH);
+                    CachedSceneCpuRgba = std::move(Rendered.Rgba);
+                    CachedSceneCpuRevision = CachedSceneMaterialRevision;
+                    CachedSceneCpuTargetPart = TargetPart;
+                    CachedSceneCpuOrbit = OrbitCam;
+                    CachedSceneCpuWidth = CpuW;
+                    CachedSceneCpuHeight = CpuH;
+                }
+                BlitWorkspaceViewportCpuFrame(DrawList, {CachedSceneCpuWidth, CachedSceneCpuHeight, CachedSceneCpuRgba},
+                    ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY),
+                    ImVec2(Region.MinimumX, Region.MinimumY), ImVec2(Region.MaximumX, Region.MaximumY));
+            }
+        }
         // 🧲 3D stamp gizmo: the focused stamp's projector quad floating a hair off the surface, with
         // scale corners and a rotate grip - cached in screen space for next frame's hit-testing.
         StampGizmoValid = false;
@@ -6052,7 +7430,38 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                         Ink->AddRectFilledMultiColor(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x090909), Colour32(0xe6e6df), Colour32(0xe6e6df), Colour32(0x090909));
                         Ink->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + 22 * S), Colour32(0x595954), 5 * S);
                         ImGui::Dummy(ImVec2(1, 30 * S));
-                        SmallNote("Surface-field gradient: the native preview reads a vertical falloff over each UDIM tile. Point editing is not native yet.");
+                        int AxisMode = Layer->Mask.Colour[3] > 1.05f ? int(std::lround(std::clamp(Layer->Mask.Colour[3] - 1.f, 0.f, 5.f))) : 0;
+                        if (FieldDropdown("Gradient axis", AxisMode, {"UV Vertical", "World Height Y", "UV Radial", "World X", "World Z", "UV Angled"}))
+                        {
+                            if (Layer->Mask.Colour[3] <= 1.05f) { Layer->Mask.Tolerance = .5f; Layer->Mask.Softness = .5f; }
+                            Layer->Mask.Colour[3] = 1.f + float(AxisMode);
+                            QueueHistory("Mask gradient", Layer->Name, "mask");
+                        }
+                        float Balance = Layer->Mask.Colour[3] > 1.05f ? Layer->Mask.Tolerance : .5f;
+                        if (AmountSlider("Midpoint", Balance, .05f, .95f, 100.f, "%"))
+                        {
+                            if (Layer->Mask.Colour[3] <= 1.05f) { Layer->Mask.Colour[3] = 1.f; Layer->Mask.Softness = .5f; }
+                            Layer->Mask.Tolerance = Balance;
+                            QueueHistory("Mask gradient", Layer->Name, "mask");
+                        }
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                        float Falloff = Layer->Mask.Colour[3] > 1.05f ? Layer->Mask.Softness : .5f;
+                        if (AmountSlider("Falloff", Falloff, .05f, 1.f, 100.f, "%"))
+                        {
+                            if (Layer->Mask.Colour[3] <= 1.05f) { Layer->Mask.Colour[3] = 1.f; Layer->Mask.Tolerance = .5f; }
+                            Layer->Mask.Softness = Falloff;
+                            QueueHistory("Mask gradient", Layer->Name, "mask");
+                        }
+                        if (AxisMode == 5)
+                        {
+                            ImGui::Dummy(ImVec2(1, 8 * S));
+                            float AngleDeg = (Layer->Mask.Colour[1] - .45f) * 360.f;
+                            if (AmountSlider("Angle", AngleDeg, -180.f, 180.f, 1.f, "°"))
+                            {
+                                Layer->Mask.Colour[1] = .45f + AngleDeg / 360.f;
+                                QueueHistory("Mask gradient", Layer->Name, "mask");
+                            }
+                        }
                     }
                     else if (Layer->Mask.Kind == "color")
                     {
@@ -6247,8 +7656,56 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     char Small[40];
                     std::snprintf(Small, sizeof(Small), "%d segments / fills", Layer->StrokeCount);
                     AccentBar(0xa79171, "Digital painting", Small);
-                    CardNote("Paint or erase enabled channels in Lit or packed UV view. Fill a real mesh component, island or face. Digital strokes are portable and undoable.");
-                    ImGui::Dummy(ImVec2(1, 12 * S));
+                    if (Layer->Kind == LayerKind::Paint || Layer->Kind == LayerKind::Fill)
+                    {
+                        const ImVec2 ToolOrigin = ImGui::GetCursorScreenPos();
+                        const float ToolAvail = ImGui::GetContentRegionAvail().x;
+                        const float Third = (ToolAvail - 8 * S) / 3.f;
+                        const struct { const char *Id; const char *Label; } QuickTools[3]{{"paint", "Paint"}, {"erase", "Erase"}, {"fill", "Fill"}};
+                        for (int Ti = 0; Ti < 3; ++Ti)
+                        {
+                            ImGui::SetCursorScreenPos(ImVec2(ToolOrigin.x + float(Ti) * (Third + 4 * S), ToolOrigin.y));
+                            if (PillButton((std::string("InspQuickTool") + QuickTools[Ti].Id).c_str(), QuickTools[Ti].Label, Third, DigitalActive && Brush.Tool == QuickTools[Ti].Id))
+                            {
+                                Brush.Tool = QuickTools[Ti].Id;
+                                DigitalActive = true;
+                                CommitHistory("Digital tool", BrushPresetName(), "tool");
+                                MarkDirty();
+                            }
+                        }
+                        ImGui::SetCursorScreenPos(ImVec2(ToolOrigin.x, ToolOrigin.y + 34 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+
+                        const char *Instruments[]{"Digital", "PaintBrush", "Spray", "Dry", "Pencil", "Marker", "Sand", "Splat", "Dust", "Soot", "Eraser"};
+                        const char *InstrumentLabels[]{"Digital dab", "Paint brush", "Spray", "Dry media", "Pencil", "Marker", "Sand", "Splat", "Dust", "Soot", "Eraser"};
+                        int InstIdx = 0;
+                        for (int Ii = 0; Ii < 11; ++Ii)
+                            if (Brush.PhysicalTool == Instruments[Ii]) InstIdx = Ii;
+                        if (FieldDropdown("Instrument", InstIdx, std::vector<const char *>(std::begin(InstrumentLabels), std::end(InstrumentLabels))))
+                        {
+                            Brush.PhysicalTool = Instruments[InstIdx];
+                            DigitalActive = true;
+                            if (Brush.Tool == "fill") Brush.Tool = "paint";
+                            CommitHistory("PaintWorkshop instrument", InstrumentLabels[InstIdx], "tool");
+                            MarkDirty();
+                        }
+                        if (Controls.Colour("Brush colour", Brush.Colour)) QueueHistory("Brush colour", BrushPresetName(), "tool");
+                        if (AmountSlider("Brush size", Brush.Size, 1.f, 128.f, 1.f, "px")) QueueHistory("Brush size", BrushPresetName(), "tool");
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        if (AmountSlider("Opacity", Brush.Opacity, 0.f, 1.f, 100.f, "%")) QueueHistory("Brush opacity", BrushPresetName(), "tool");
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        if (AmountSlider("Hardness", Brush.Hardness, 0.f, 1.f, 100.f, "%")) QueueHistory("Brush hardness", BrushPresetName(), "tool");
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        if (AmountSlider("Flow", Brush.Flow, .02f, 1.f, 100.f, "%")) QueueHistory("Brush flow", BrushPresetName(), "tool");
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        if (AmountSlider("Height relief", Brush.HeightStrength, -1.f, 1.f, 100.f, "%")) QueueHistory("Brush height relief", BrushPresetName(), "tool");
+                        ImGui::Dummy(ImVec2(1, 10 * S));
+                    }
+                    else
+                    {
+                        CardNote("Select a Paint or Fill layer to brush directly onto the surface, or open Brush studio to configure tip & stroke dynamics.");
+                        ImGui::Dummy(ImVec2(1, 10 * S));
+                    }
                     const ImVec2 Origin = ImGui::GetCursorScreenPos();
                     const float Half = (ImGui::GetContentRegionAvail().x - 8 * S) * .5f;
                     ImGui::SetCursorScreenPos(Origin);
@@ -6258,7 +7715,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     if (PillButton("ClearLayerPaint", "Clear paint", Half, false, "M3 12a9 9 0 1 0 3-6.7M3 4v5h5")) ClearSelectedPaint();
                     ImGui::EndDisabled();
                     ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 32 * S));
-                    ImGui::Dummy(ImVec2(0, 0)); // anchor the card's auto-resize boundary at the reserved extent
+                    ImGui::Dummy(ImVec2(0, 0));
                 }
                 Controls.EndCard();
             }
@@ -6375,7 +7832,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                             // ("text:<face>:<copy>"), so either edit re-bakes fresh glyph outlines
                             // at this placement's fidelity automatically.
                             std::string PlacedFont, PlacedText;
-                            ParseTextStampId(Placement.StampId, PlacedFont, PlacedText);
+                            (void)ParseTextStampId(Placement.StampId, PlacedFont, PlacedText);
                             if (InspectorTextForId != Placement.StampId)
                             {
                                 std::strncpy(InspectorTextBuffer, PlacedText.c_str(), sizeof(InspectorTextBuffer) - 1);
@@ -6525,9 +7982,9 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                     Options.Locked = Locked;
                     Options.GradientMode = true;
                     Options.MaterialGenerator = true;
-                    Options.DerivedNote = "Normal follows the Height target. The native preview does not derive a normal map from Height.";
-                    Options.TextureNote = "PNG, JPEG or WebP · portable source up to 256 px. Texture import and the source canvas are not native yet; this target stores configuration only.";
-                    Options.MaterialNote = "Material studio custom sources are not native yet. The choice is stored with the layer; built-in generators keep editable parameters here.";
+                    Options.DerivedNote = "Tangent-space Normal is derived live from composited Height relief + material/stamp normal maps.";
+                    Options.TextureNote = "Samples bundled PBR texture maps with live UV scale, offset, and inversion.";
+                    Options.MaterialNote = "Samples the selected Material Studio preset's PBR maps into this channel.";
                     const std::string LayerName = Layer->Name;
                     ConstructChannelCards(Layer->Channels, Layer->ChannelModes, Layer->ChannelValues, Layer->ChannelColours,
                         Layer->ChannelGenerators, Layer->ChannelGeneratorParams, Options,
@@ -6541,15 +7998,114 @@ void TexturePaintWorkspacePanel::ConstructInspector()
                 {
                     AccentBar(0xa79171, Layer->Kind == LayerKind::Folder ? "Folder coverage" : "Layer source", "Source setup");
                     const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                    const float CardAvailWidth = ImGui::GetContentRegionAvail().x;
                     DrawLayerThumbnail(Origin.x, Origin.y, 36 * S, *Layer);
                     Caption(ImVec2(Origin.x + 46 * S, Origin.y + 2 * S), MetaForKind(size_t(Layer->Kind)).Label, 11 * S, 0xd8d8cd);
                     ImGui::SetCursorScreenPos(ImVec2(Origin.x + 46 * S, Origin.y + 18 * S));
-                    ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x + 46 * S);
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(40.f, CardAvailWidth - 46 * S));
                     if (!Layer->SourceAsset.empty())
                         ImGui::TextColored(Spectrum(0x93938d), "Assigned %s: %s", Layer->SourceAssetType.c_str(), Layer->SourceAsset.c_str());
                     else ImGui::TextColored(Spectrum(0x93938d), "%s", MetaForKind(size_t(Layer->Kind)).Description);
                     ImGui::PopTextWrapPos();
-                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 52 * S));
+                    ImGui::SetCursorScreenPos(ImVec2(Origin.x, std::max(Origin.y + 44 * S, ImGui::GetCursorScreenPos().y + 4 * S)));
+
+                    ImGui::BeginDisabled(Locked);
+                    if (Layer->Kind == LayerKind::Material)
+                    {
+                        EnsureArchiveCatalogue();
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        const float RowW = ImGui::GetContentRegionAvail().x;
+                        Caption(ImVec2(RowOrigin.x, RowOrigin.y + 8 * S), "Material preset", 10 * S, 0xa3a395);
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowW - 184 * S, RowOrigin.y));
+                        ImGui::SetNextItemWidth(184 * S);
+                        const char *PreviewMat = Layer->SourceAsset.empty() ? "Choose material…" : Layer->SourceAsset.c_str();
+                        if (ImGui::BeginCombo("##LayerMatPreset", PreviewMat))
+                        {
+                            for (const auto &Mat : LoadedMaterials)
+                            {
+                                const size_t Sep = Mat.Id.find('|');
+                                const std::string PureId = Sep == std::string::npos ? Mat.Id : Mat.Id.substr(0, Sep);
+                                if (ImGui::Selectable(Mat.Name.c_str(), Layer->SourceAsset == Mat.Name || Layer->SourceAsset == PureId))
+                                {
+                                    Layer->SourceAsset = Mat.Name;
+                                    Layer->SourceAssetType = "material";
+                                    if (const auto *Loaded = FindLoadedMaterial(Mat.Name))
+                                        Layer->SourceColour = {Loaded->BaseAlbedo[0], Loaded->BaseAlbedo[1], Loaded->BaseAlbedo[2], 1.f};
+                                    CommitHistory("Assign material", Layer->Name + " · " + Mat.Name, "layer");
+                                    MarkDirty();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        Track("Layer material preset");
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 10 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+
+                        auto &MParams = Layer->ChannelGeneratorParams["__material"];
+                        float UvScale = MParams.count("uvScale") ? MParams["uvScale"] : 1.f;
+                        if (AmountSlider("UV scale", UvScale, .1f, 16.f, 1.f, "x")) { MParams["uvScale"] = UvScale; QueueHistory("Material UV", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        float UvRot = MParams.count("uvRotDeg") ? MParams["uvRotDeg"] : 0.f;
+                        if (AmountSlider("UV rotation", UvRot, -180.f, 180.f, 1.f, "°")) { MParams["uvRotDeg"] = UvRot; QueueHistory("Material UV", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        float OffX = MParams.count("uvOffsetX") ? MParams["uvOffsetX"] : 0.f;
+                        if (AmountSlider("Offset U", OffX, -1.f, 1.f, 1.f, "")) { MParams["uvOffsetX"] = OffX; QueueHistory("Material UV", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        float OffY = MParams.count("uvOffsetY") ? MParams["uvOffsetY"] : 0.f;
+                        if (AmountSlider("Offset V", OffY, -1.f, 1.f, 1.f, "")) { MParams["uvOffsetY"] = OffY; QueueHistory("Material UV", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        float NormStr = MParams.count("normalScale") ? MParams["normalScale"] : 1.f;
+                        if (AmountSlider("Normal strength", NormStr, 0.f, 3.f, 1.f, "x")) { MParams["normalScale"] = NormStr; QueueHistory("Material normal", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 6 * S));
+                        float FlakeSc = MParams.count("flakeScale") ? MParams["flakeScale"] : 1.f;
+                        if (AmountSlider("Flake scale", FlakeSc, .2f, 4.f, 1.f, "x")) { MParams["flakeScale"] = FlakeSc; QueueHistory("Material flake scale", Layer->Name, "layer"); }
+                        ImGui::Dummy(ImVec2(1, 10 * S));
+                    }
+                    else if (Layer->Kind == LayerKind::Generator)
+                    {
+                        const std::string CurGen = Layer->SourceAsset;
+                        const GeneratorMeta *CurMeta = nullptr;
+                        for (const auto &G : GeneratorTable) if (G.Id == CurGen) CurMeta = &G;
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        const float RowW = ImGui::GetContentRegionAvail().x;
+                        Caption(ImVec2(RowOrigin.x, RowOrigin.y + 8 * S), "Layer generator", 10 * S, 0xa3a395);
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x + RowW - 184 * S, RowOrigin.y));
+                        ImGui::SetNextItemWidth(184 * S);
+                        if (ImGui::BeginCombo("##LayerGenPreset", CurMeta ? CurMeta->Label : "Choose generator…"))
+                        {
+                            for (const auto &Gen : GeneratorTable)
+                                if (ImGui::Selectable(Gen.Label, CurGen == Gen.Id))
+                                {
+                                    Layer->SourceAsset = Gen.Id;
+                                    Layer->SourceAssetType = "generator";
+                                    for (const auto &Ch : Layer->Channels)
+                                    {
+                                        if (Ch == "normal") continue;
+                                        Layer->ChannelModes[Ch] = "generator";
+                                        Layer->ChannelGenerators[Ch] = Gen.Id;
+                                    }
+                                    CommitHistory("Assign layer generator", Layer->Name + " · " + Gen.Label, "layer");
+                                    MarkDirty();
+                                }
+                            ImGui::EndCombo();
+                        }
+                        Track("Layer generator");
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + ImGui::GetItemRectSize().y + 10 * S));
+                        ImGui::Dummy(ImVec2(0, 0));
+                    }
+                    else if (Layer->Kind == LayerKind::Fill)
+                    {
+                        if (PillButton("FillWholeLayer", "Fill entire surface with channel values", ImGui::GetContentRegionAvail().x, false))
+                        {
+                            if (!Layer->ChannelModes.count("baseColor")) Layer->ChannelModes["baseColor"] = "value";
+                            if (!Layer->ChannelColours.count("baseColor")) Layer->ChannelColours["baseColor"] = Brush.Colour;
+                            CommitHistory("Fill surface", Layer->Name, "layer");
+                            MarkDirty();
+                        }
+                        ImGui::Dummy(ImVec2(1, 8 * S));
+                    }
+                    ImGui::EndDisabled();
+
                     if (Layer->Mask.Present)
                     {
                         if (PillButton("InspectLayerMask", "Inspect layer mask", 170 * S, false)) SelectLayer(Layer->Id, true);
@@ -6575,7 +8131,7 @@ void TexturePaintWorkspacePanel::ConstructInspector()
             DrawGlyph("M12 3A9 9 0 1 0 12 21A9 9 0 1 0 12 3ZM12 11V16M12 8V8.01", ImVec2(Origin.x, Origin.y + 2 * S), 13 * S, 0x8a8a7c);
             ImGui::SetCursorScreenPos(ImVec2(Origin.x + 21 * S, Origin.y));
             if (RegularTypeface) ImGui::PushFont(static_cast<ImFont *>(RegularTypeface), 8 * 1.302f * S);
-            ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
             ImGui::TextColored(Spectrum(0x86867b), "%s",
                 "Materials and decals evaluate bottom to top. Locked Layer 0 supplies white fallback and baked AO / normal support. "
                 "Preview paint is evaluated per-triangle on screen; this live surface stack is not a baked UV atlas.");
@@ -6901,6 +8457,7 @@ void TexturePaintWorkspacePanel::ConstructBrushStudio()
             if (Controls.Range("Flow", Brush.Flow, 0.f, 1.f)) QueueBrush();
             if (Controls.Range("Spacing", Brush.Spacing, .05f, 2.f)) QueueBrush();
             if (Controls.Range("Stabilization", Brush.Stabilization, 0.f, 1.f)) QueueBrush();
+            if (Controls.Range("Height relief", Brush.HeightStrength, -1.f, 1.f)) QueueBrush();
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 4 * S);
             ImGui::TextColored(Spectrum(0x93938d), "%s", "Size is the diameter in screen pixels. Zero size or opacity paints nothing.");
             ImGui::PopTextWrapPos();
@@ -7173,7 +8730,7 @@ void TexturePaintWorkspacePanel::ConstructInterface()
         ImGui::SetCursorScreenPos(ImVec2(Origin.x + ImGui::GetContentRegionAvail().x - 26 * S, Origin.y - 3 * S));
         if (IconButton("CloseHelp", "M6 6L18 18M6 18L18 6", 26 * S)) HelpOpen = false;
         ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 26 * S));
-        ImGui::PushTextWrapPos(Origin.x + ImGui::GetContentRegionAvail().x);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
         ImGui::TextColored(Spectrum(0xb8b8ac), "%s",
             "Part-targeted material snapshots are saved with the project but are not shade-evaluated in this native build yet.");
         ImGui::Spacing();
@@ -7236,5 +8793,124 @@ void TexturePaintWorkspacePanel::ConstructInterface()
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(20);
     ControlKit::ConfigurePalette(SavedPalette);
+}
+
+void TexturePaintWorkspacePanel::ForceCompositePreview()
+{
+    if (Topology.empty()) BuildTopology();
+    if (!PaintCanvasOwnersBuilt || PaintCanvasOwnersTopology != Topology.size()) BuildPreviewCanvasOwners();
+    ResolveStampRasters();
+    CompositePreviewCanvas();
+    PaintCanvasFingerprintCache = PreviewCanvasFingerprint();
+    PaintCanvasComposited = true;
+    ++PaintCanvasRevision;
+}
+
+void TexturePaintWorkspacePanel::AuthorAddMaterialLayer(const std::string &MaterialNameOrId)
+{
+    EnsureArchiveCatalogue();
+    AddLayer(LayerKind::Material);
+    if (auto *Layer = SelectedLayer())
+    {
+        const auto *Loaded = FindLoadedMaterial(MaterialNameOrId);
+        Layer->SourceAsset = Loaded ? Loaded->Name : MaterialNameOrId;
+        Layer->SourceAssetType = "material";
+        Layer->Name = UniqueLayerName(Layer->SourceAsset);
+        Layer->Channels = {"baseColor", "roughness", "metalness", "normal", "occlusion", "clearcoat", "refractionIndex"};
+        if (Loaded) Layer->SourceColour = {Loaded->BaseAlbedo[0], Loaded->BaseAlbedo[1], Loaded->BaseAlbedo[2], 1.f};
+        MarkDirty();
+    }
+}
+
+void TexturePaintWorkspacePanel::AuthorAddGeneratorLayer(const std::string &ChannelId, const std::string &GeneratorId,
+    const std::array<float, 4> &Colour, float ScalarAmount)
+{
+    AddLayer(LayerKind::Generator);
+    if (auto *Layer = SelectedLayer())
+    {
+        Layer->SourceAsset = GeneratorId;
+        Layer->SourceAssetType = "generator";
+        Layer->Name = UniqueLayerName(GeneratorId + " mask");
+        Layer->Channels = {ChannelId};
+        Layer->ChannelModes[ChannelId] = "generator";
+        Layer->ChannelGenerators[ChannelId] = GeneratorId;
+        Layer->ChannelColours[ChannelId] = Colour;
+        Layer->ChannelValues[ChannelId] = ScalarAmount;
+        MarkDirty();
+    }
+}
+
+void TexturePaintWorkspacePanel::AuthorAddGradientFillLayer(const std::array<float, 4> &StartColour,
+    const std::array<float, 4> &EndColour, float AngleDegrees, int AxisMode)
+{
+    AddLayer(LayerKind::Fill);
+    if (auto *Layer = SelectedLayer())
+    {
+        Layer->Name = UniqueLayerName("Gradient fill");
+        Layer->Channels = {"baseColor", "roughness"};
+        Layer->ChannelModes["baseColor"] = "gradient";
+        Layer->ChannelColours["baseColor"] = StartColour;
+        Layer->ChannelColours["baseColor:end"] = EndColour;
+        Layer->ChannelGeneratorParams["__gradient:baseColor"]["axis"] = float(AxisMode);
+        Layer->ChannelGeneratorParams["__gradient:baseColor"]["angle"] = AngleDegrees;
+        Layer->ChannelValues["roughness"] = .32f;
+        MarkDirty();
+    }
+}
+
+void TexturePaintWorkspacePanel::AuthorPlaceStampAtUv(const std::string &StampId, float U, float V, float Radius)
+{
+    EnsureStampLibrary(true);
+    ActiveStampId = StampId;
+    Tool = AuthorTool::Stamp;
+    DigitalActive = false;
+    Brush.Size = std::clamp(Radius * 192.f, 4.f, 128.f);
+    Brush.Opacity = 1.f;
+    Brush.Flow = 1.f;
+    Brush.Colour = {1.f, 1.f, 1.f, 1.f};
+    PendingAnchorCamera = false;
+    PendingAnchorTriangle = nullptr;
+    const float Uv[2]{U, V};
+    PlaceStampAt(Uv);
+}
+
+void TexturePaintWorkspacePanel::AuthorPaintDabStroke(float U0, float V0, float U1, float V1,
+    const std::array<float, 4> &Colour, float RadiusUv, float Roughness, float Metalness, float HeightDeposit)
+{
+    AddLayer(LayerKind::Paint);
+    auto *Layer = SelectedLayer();
+    if (!Layer) return;
+    Layer->Name = UniqueLayerName("Painted stroke");
+    Layer->Channels = {"baseColor", "roughness", "metalness", "height", "normal"};
+    Layer->ChannelValues["roughness"] = Roughness;
+    Layer->ChannelValues["metalness"] = Metalness;
+    Layer->ChannelValues["height"] = .5f;
+    Layer->ChannelValues["normal"] = 1.6f;
+
+    Brush.Tool = "paint";
+    Brush.PhysicalTool = "Digital";
+    Brush.Colour = Colour;
+    Brush.Opacity = Colour[3];
+    Brush.Flow = 1.f;
+    Brush.Hardness = .72f;
+    Brush.Spacing = .18f;
+    Brush.HeightStrength = HeightDeposit;
+    DigitalActive = true;
+    StrokeActive = true;
+    StrokeTargetLayerId = Layer->Id;
+    StrokeTargetMask = false;
+    LastDabValid = false;
+
+    const int Steps = 24;
+    for (int Step = 0; Step <= Steps; ++Step)
+    {
+        const float T = float(Step) / float(Steps);
+        const float Uv[2]{U0 + (U1 - U0) * T, V0 + (V1 - V0) * T};
+        float Weights[3];
+        const auto *Tri = TriangleAtAuthoringUv(Uv, Weights);
+        const int Part = std::clamp(int(std::floor(Uv[0])), 0, 3);
+        ApplyPaintAt(Uv, Part, Tri ? Tri->Chart : 0, Tri ? Tri->Index : 0, RadiusUv);
+    }
+    FinishStroke();
 }
 } // namespace Frontier

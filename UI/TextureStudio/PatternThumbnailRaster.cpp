@@ -6,6 +6,7 @@
 // fill remains; primitive half-extents match the coverage shader (Bounds.zw * .5).
 
 #include "UI/TextureStudio/PatternThumbnailRaster.h"
+#include "Engine/ContentInterchange/VectorAuthoringEditing.h"
 #include "Engine/ContentInterchange/VectorGradientStops.h"
 #include <algorithm>
 #include <array>
@@ -374,13 +375,14 @@ std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document)
 {
     // 🖨️ EncodePatternThumbnailSvg minus the opaque background rect: stamp artwork must keep a
     // transparent surround so Texture Paint can composite it as a decal.
+    const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Document);
     std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">";
     std::string Defs, Body;
-    for (const auto &Layer : Document.Layers)
+    for (const auto &Layer : Evaluated.Layers)
     {
-        if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
+        if (!QueryVectorAuthoringVisibility(Evaluated, Layer)) continue;
         Body += "<g opacity=\"" + Number(Layer.ExpressionOpacity) + "\">";
-        EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
+        EmitPatternInstruction(Evaluated, Layer.Root, 0, Body, Defs);
         Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
@@ -411,5 +413,221 @@ std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Docum
     if (Ok) Ok = Canvas->sync() == tvg::Result::Success;
     if (!Ok) throw std::runtime_error("ThorVG could not rasterize the stamp document SVG.");
     return Pixels;
+}
+
+StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Document, uint32_t Extent)
+{
+    if (!Extent || Extent > 2048) throw std::runtime_error("Stamp surface map extent is unbounded.");
+    const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Document);
+    const size_t Count = size_t(Extent) * size_t(Extent);
+
+    StampSurfaceMaps Maps;
+    Maps.Extent = Extent;
+    Maps.ColourRgba.assign(Count * 4, 0);
+    Maps.Coverage.assign(Count, 0.f);
+    Maps.Height.assign(Count, 0.f);
+    Maps.NormalScale.assign(Count, 1.f);
+    Maps.NormalX.assign(Count, 0.f);
+    Maps.NormalY.assign(Count, 0.f);
+    Maps.NormalZ.assign(Count, 1.f);
+    Maps.Roughness.assign(Count, .7f);
+    Maps.Metalness.assign(Count, 0.f);
+    Maps.Opacity.assign(Count, 0.f);
+    Maps.Occlusion.assign(Count, 1.f);
+    Maps.Transmission.assign(Count, 0.f);
+    Maps.Clearcoat.assign(Count, 0.f);
+    Maps.RoughnessMask.assign(Count, 0.f);
+    Maps.MetalnessMask.assign(Count, 0.f);
+    Maps.HeightMask.assign(Count, 0.f);
+    Maps.NormalMask.assign(Count, 0.f);
+    Maps.OcclusionMask.assign(Count, 0.f);
+    Maps.TransmissionMask.assign(Count, 0.f);
+    Maps.ClearcoatMask.assign(Count, 0.f);
+
+    std::vector<std::array<float, 4>> ColourAccum(Count, {0.f, 0.f, 0.f, 0.f});
+    for (size_t Index = 0; Index < Evaluated.Layers.size(); ++Index)
+    {
+        const auto &Layer = Evaluated.Layers[Index];
+        if (!QueryVectorAuthoringVisibility(Evaluated, Layer)) continue;
+        const auto &Channels = Layer.SurfaceChannels;
+        bool AnyChannel = false;
+        for (const auto &Entry : Channels)
+            if (Entry.Enabled) AnyChannel = true;
+        if (!AnyChannel) continue;
+
+        VectorAuthoringDocument Solo;
+        Solo.Stamp = Evaluated.Stamp;
+        Solo.Instructions = Evaluated.Instructions;
+        Solo.Segments = Evaluated.Segments;
+        Solo.TokenClock = Evaluated.TokenClock;
+        auto SoloLayer = Layer;
+        SoloLayer.Visible = true;
+        SoloLayer.EnclosureToken = 0;
+        Solo.Layers.push_back(std::move(SoloLayer));
+
+        const auto Raster = RasterizeStampDocument(Solo, Extent);
+        if (Raster.size() != Count * 4) continue;
+
+        std::vector<uint8_t> MaskRaster;
+        if (Layer.Mask && Layer.MaskEnabled)
+        {
+            VectorAuthoringDocument MaskDoc;
+            MaskDoc.Stamp = Evaluated.Stamp;
+            MaskDoc.Instructions = Evaluated.Instructions;
+            MaskDoc.Segments = Evaluated.Segments;
+            const uint32_t MaskRoot = uint32_t(MaskDoc.Instructions.size());
+            MaskDoc.Instructions.push_back(*Layer.Mask);
+            VectorAuthoringLayer MaskLayer;
+            MaskLayer.Token = 1;
+            MaskLayer.Root = MaskRoot;
+            MaskLayer.Visible = true;
+            MaskDoc.TokenClock = 1;
+            MaskDoc.Layers.push_back(std::move(MaskLayer));
+            MaskRaster = RasterizeStampDocument(MaskDoc, Extent);
+        }
+
+        const auto &ColourCh = Channels[size_t(VectorAuthoringSurfaceChannel::Colour)];
+        const auto &HeightCh = Channels[size_t(VectorAuthoringSurfaceChannel::Height)];
+        const auto &NormalCh = Channels[size_t(VectorAuthoringSurfaceChannel::Normal)];
+        const auto &RoughCh = Channels[size_t(VectorAuthoringSurfaceChannel::Roughness)];
+        const auto &MetalCh = Channels[size_t(VectorAuthoringSurfaceChannel::Metalness)];
+        const auto &OpacityCh = Channels[size_t(VectorAuthoringSurfaceChannel::Opacity)];
+        const auto &OcclusionCh = Channels[size_t(VectorAuthoringSurfaceChannel::Occlusion)];
+        const auto &TransmissionCh = Channels[size_t(VectorAuthoringSurfaceChannel::Transmission)];
+        const auto &ClearcoatCh = Channels[size_t(VectorAuthoringSurfaceChannel::Clearcoat)];
+
+        const float ColourStrength = std::clamp(ColourCh.Strength, 0.f, 1.f);
+        const float SignedHeight = std::clamp(Layer.SurfaceRelief * std::clamp(HeightCh.Strength, 0.f, 1.f), -1.f, 1.f);
+        const float NormalStrength = std::clamp(NormalCh.Strength, 0.f, 4.f);
+        const float RoughStrength = std::clamp(RoughCh.Strength, 0.f, 1.f);
+        const float MetalStrength = std::clamp(MetalCh.Strength, 0.f, 1.f);
+        const float OpacityScale = OpacityCh.Enabled ? std::clamp(OpacityCh.Strength, 0.f, 1.f) : 1.f;
+        const float AoTarget = 1.f - std::clamp(OcclusionCh.Strength, 0.f, 1.f);
+        const float TransmissionStrength = std::clamp(TransmissionCh.Strength, 0.f, 1.f);
+        const float ClearcoatStrength = std::clamp(ClearcoatCh.Strength, 0.f, 1.f);
+
+        for (size_t Texel = 0; Texel < Count; ++Texel)
+        {
+            float RawAlpha = Raster[Texel * 4 + 3] / 255.f;
+            if (MaskRaster.size() == Count * 4)
+            {
+                float MaskFactor = MaskRaster[Texel * 4 + 3] / 255.f;
+                if (Layer.MaskLuminance)
+                {
+                    const float Lum = (.2126f * MaskRaster[Texel * 4 + 0] + .7152f * MaskRaster[Texel * 4 + 1] + .0722f * MaskRaster[Texel * 4 + 2]) / 255.f;
+                    MaskFactor *= Lum;
+                }
+                if (Layer.MaskInverted) MaskFactor = 1.f - MaskFactor;
+                RawAlpha *= std::clamp(MaskFactor, 0.f, 1.f);
+            }
+            const float Alpha = RawAlpha * OpacityScale;
+            if (Alpha <= .002f) continue;
+
+            Maps.Coverage[Texel] = Alpha + Maps.Coverage[Texel] * (1.f - Alpha);
+            if (OpacityCh.Enabled)
+                Maps.Opacity[Texel] = Alpha + Maps.Opacity[Texel] * (1.f - Alpha);
+
+            if (ColourCh.Enabled)
+            {
+                const float ColourAlpha = Alpha * ColourStrength;
+                if (ColourAlpha > .001f)
+                {
+                    auto &Dst = ColourAccum[Texel];
+                    const float SrcR = Raster[Texel * 4 + 0] / 255.f;
+                    const float SrcG = Raster[Texel * 4 + 1] / 255.f;
+                    const float SrcB = Raster[Texel * 4 + 2] / 255.f;
+                    const float OutA = ColourAlpha + Dst[3] * (1.f - ColourAlpha);
+                    if (OutA > 1e-5f)
+                    {
+                        Dst[0] = (SrcR * ColourAlpha + Dst[0] * Dst[3] * (1.f - ColourAlpha)) / OutA;
+                        Dst[1] = (SrcG * ColourAlpha + Dst[1] * Dst[3] * (1.f - ColourAlpha)) / OutA;
+                        Dst[2] = (SrcB * ColourAlpha + Dst[2] * Dst[3] * (1.f - ColourAlpha)) / OutA;
+                        Dst[3] = OutA;
+                    }
+                }
+            }
+            if (HeightCh.Enabled)
+            {
+                Maps.Height[Texel] = std::clamp(Maps.Height[Texel] + SignedHeight * Alpha, -1.f, 1.f);
+                Maps.HeightMask[Texel] = Alpha + Maps.HeightMask[Texel] * (1.f - Alpha);
+            }
+            if (NormalCh.Enabled)
+            {
+                Maps.NormalScale[Texel] += (NormalStrength - Maps.NormalScale[Texel]) * Alpha;
+                Maps.NormalMask[Texel] = Alpha + Maps.NormalMask[Texel] * (1.f - Alpha);
+            }
+            else if (HeightCh.Enabled && Maps.NormalMask[Texel] <= 1e-4f)
+            {
+                Maps.NormalScale[Texel] = 0.f;
+            }
+            if (RoughCh.Enabled)
+            {
+                const float OutMask = Alpha + Maps.RoughnessMask[Texel] * (1.f - Alpha);
+                Maps.Roughness[Texel] = Maps.RoughnessMask[Texel] > 1e-5f
+                    ? (RoughStrength * Alpha + Maps.Roughness[Texel] * Maps.RoughnessMask[Texel] * (1.f - Alpha)) / OutMask
+                    : RoughStrength;
+                Maps.RoughnessMask[Texel] = OutMask;
+            }
+            if (MetalCh.Enabled)
+            {
+                const float OutMask = Alpha + Maps.MetalnessMask[Texel] * (1.f - Alpha);
+                Maps.Metalness[Texel] = Maps.MetalnessMask[Texel] > 1e-5f
+                    ? (MetalStrength * Alpha + Maps.Metalness[Texel] * Maps.MetalnessMask[Texel] * (1.f - Alpha)) / OutMask
+                    : MetalStrength;
+                Maps.MetalnessMask[Texel] = OutMask;
+            }
+            if (OcclusionCh.Enabled)
+            {
+                const float OutMask = Alpha + Maps.OcclusionMask[Texel] * (1.f - Alpha);
+                Maps.Occlusion[Texel] = Maps.OcclusionMask[Texel] > 1e-5f
+                    ? (AoTarget * Alpha + Maps.Occlusion[Texel] * Maps.OcclusionMask[Texel] * (1.f - Alpha)) / OutMask
+                    : AoTarget;
+                Maps.OcclusionMask[Texel] = OutMask;
+            }
+            if (TransmissionCh.Enabled)
+            {
+                const float OutMask = Alpha + Maps.TransmissionMask[Texel] * (1.f - Alpha);
+                Maps.Transmission[Texel] = Maps.TransmissionMask[Texel] > 1e-5f
+                    ? (TransmissionStrength * Alpha + Maps.Transmission[Texel] * Maps.TransmissionMask[Texel] * (1.f - Alpha)) / OutMask
+                    : TransmissionStrength;
+                Maps.TransmissionMask[Texel] = OutMask;
+            }
+            if (ClearcoatCh.Enabled)
+            {
+                const float OutMask = Alpha + Maps.ClearcoatMask[Texel] * (1.f - Alpha);
+                Maps.Clearcoat[Texel] = Maps.ClearcoatMask[Texel] > 1e-5f
+                    ? (ClearcoatStrength * Alpha + Maps.Clearcoat[Texel] * Maps.ClearcoatMask[Texel] * (1.f - Alpha)) / OutMask
+                    : ClearcoatStrength;
+                Maps.ClearcoatMask[Texel] = OutMask;
+            }
+        }
+    }
+
+    const int Span = int(Extent);
+    const auto HeightAt = [&](int X, int Y) {
+        return Maps.Height[size_t(std::clamp(Y, 0, Span - 1)) * size_t(Extent) + size_t(std::clamp(X, 0, Span - 1))];
+    };
+    const float ReliefResolution = float(Extent) / 128.f;
+    for (int Y = 0; Y < Span; ++Y)
+    {
+        for (int X = 0; X < Span; ++X)
+        {
+            const size_t Texel = size_t(Y) * size_t(Extent) + size_t(X);
+            const auto &Col = ColourAccum[Texel];
+            Maps.ColourRgba[Texel * 4 + 0] = uint8_t(std::round(std::clamp(Col[0], 0.f, 1.f) * 255.f));
+            Maps.ColourRgba[Texel * 4 + 1] = uint8_t(std::round(std::clamp(Col[1], 0.f, 1.f) * 255.f));
+            Maps.ColourRgba[Texel * 4 + 2] = uint8_t(std::round(std::clamp(Col[2], 0.f, 1.f) * 255.f));
+            Maps.ColourRgba[Texel * 4 + 3] = uint8_t(std::round(std::clamp(Col[3], 0.f, 1.f) * 255.f));
+            const float SlopeScale = 2.f * std::clamp(Maps.NormalScale[Texel], 0.f, 4.f) * ReliefResolution;
+            float Nx = -(HeightAt(X + 1, Y) - HeightAt(X - 1, Y)) * SlopeScale;
+            float Ny = -(HeightAt(X, Y + 1) - HeightAt(X, Y - 1)) * SlopeScale;
+            float Nz = 1.f;
+            const float InvLen = 1.f / std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
+            Maps.NormalX[Texel] = Nx * InvLen;
+            Maps.NormalY[Texel] = Ny * InvLen;
+            Maps.NormalZ[Texel] = Nz * InvLen;
+        }
+    }
+    return Maps;
 }
 } // namespace Frontier

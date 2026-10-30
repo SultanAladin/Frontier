@@ -15,6 +15,19 @@
 
 namespace Frontier
 {
+struct StampPbrSample
+{
+    float Coverage = 0.f;
+    float Height = 0.f, HeightMask = 0.f;
+    float NormalX = 0.f, NormalY = 0.f, NormalZ = 1.f, NormalMask = 0.f;
+    float Roughness = .7f, RoughnessMask = 0.f;
+    float Metalness = 0.f, MetalnessMask = 0.f;
+    float Opacity = 0.f;
+    float Occlusion = 1.f, OcclusionMask = 0.f;
+    float Transmission = 0.f, TransmissionMask = 0.f;
+    float Clearcoat = 0.f, ClearcoatMask = 0.f;
+};
+
 // 📝 One decal: straight-alpha RGBA pixels, row-major from the top-left (image v grows downward).
 struct StampLibraryEntry
 {
@@ -25,6 +38,11 @@ struct StampLibraryEntry
     int Width = 0, Height = 0;
     std::vector<uint8_t> Rgba;
     std::filesystem::path File; // PNG path for Disk entries, empty for built-ins
+    bool HasPbrMaps = false;
+    int PbrExtent = 0;
+    std::vector<float> Coverage, HeightMap, NormalX, NormalY, NormalZ;
+    std::vector<float> Roughness, Metalness, Opacity, Occlusion, Transmission, Clearcoat;
+    std::vector<float> RoughnessMask, MetalnessMask, HeightMask, NormalMask, OcclusionMask, TransmissionMask, ClearcoatMask;
 };
 
 class StampLibrary
@@ -57,6 +75,7 @@ class StampLibrary
     static bool RenderBuiltinAt(const std::string &Id, int Extent, StampLibraryEntry &Out);
     // 🔬 Bilinear sample with uv in [0,1]^2 (v downward from the image top); returns straight rgba 0..1.
     [[nodiscard]] static std::array<float, 4> Sample(const StampLibraryEntry &Entry, float U, float V) noexcept;
+    [[nodiscard]] static StampPbrSample SamplePbr(const StampLibraryEntry &Entry, float U, float V) noexcept;
 
   private:
     std::filesystem::path LibraryDirectory;

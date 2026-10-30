@@ -271,7 +271,7 @@ void VectorCoverageRasterization::ConfigureRetiredSurface(const VectorSurfacePro
         const auto &Contribution = Program.Contributions[Index];
         auto &Instruction = Upload[VectorCoverageInstructionCapacity + Index];
         uint32_t Enabled = 0;
-        std::array<float, 7> Strengths{};
+        std::array<float, 9> Strengths{};
         for (size_t ChannelIndex = 0; ChannelIndex < Strengths.size(); ++ChannelIndex)
         {
             const auto &Channel = Contribution.Channels[ChannelIndex];
@@ -281,6 +281,7 @@ void VectorCoverageRasterization::ConfigureRetiredSurface(const VectorSurfacePro
         Instruction.Topology = {Contribution.Root, Contribution.Token, Enabled, 0};
         Instruction.Bounds = {Strengths[0], Strengths[1], Strengths[2], Strengths[3]};
         Instruction.Transform = {Strengths[4], Strengths[5], Strengths[6], Contribution.SurfaceRelief};
+        Instruction.Colour = {Strengths[7], Strengths[8], 0.f, 0.f};
     }
     Resident.Upload(Resident.InstructionMemory, Upload.data(), sizeof(Upload));
     Resident.Upload(Resident.SegmentMemory, Program.Coverage.Segments.data(),

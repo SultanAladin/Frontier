@@ -226,6 +226,63 @@ int main()
                     "Text layer's typeface id did not survive the .stamp.toml round-trip.");
             }
         }
+        {
+            // Verify 9-channel PBR stamp surface map evaluation (signed relief, blind emboss, AO, clearcoat, transmission).
+            VectorAuthoringDocument PbrDoc;
+            PbrDoc.Stamp = true;
+            VectorCoverageInstruction BaseDisc{};
+            BaseDisc.Topology = {1, 0, 0, 0};
+            BaseDisc.Bounds = {256.f, 256.f, 340.f, 340.f};
+            BaseDisc.Transform = {0.f, 0.f, 1.f, 0.f};
+            BaseDisc.Colour = BaseDisc.ColourEnd = {.82f, .64f, .22f, 1.f};
+            BaseDisc.Paint = {0.f, .45f, 6.f, 1.f};
+            PbrDoc.Instructions.push_back(BaseDisc);
+            VectorAuthoringLayer Brass;
+            Brass.Token = ++PbrDoc.TokenClock;
+            Brass.Root = 0;
+            Brass.SurfaceRelief = 1.f;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength = .6f;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Roughness)].Strength = .22f;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Metalness)].Strength = .95f;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Occlusion)].Enabled = true;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Occlusion)].Strength = .4f;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Clearcoat)].Enabled = true;
+            Brass.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Clearcoat)].Strength = .85f;
+            PbrDoc.Layers.push_back(Brass);
+
+            VectorCoverageInstruction DebossBar{};
+            DebossBar.Topology = {0, 0, 0, 0};
+            DebossBar.Bounds = {256.f, 256.f, 140.f, 140.f};
+            DebossBar.Transform = {0.f, 0.f, 1.f, 0.f};
+            DebossBar.Colour = DebossBar.ColourEnd = {1.f, 1.f, 1.f, 1.f};
+            DebossBar.Paint = {0.f, .45f, 6.f, 1.f};
+            PbrDoc.Instructions.push_back(DebossBar);
+            VectorAuthoringLayer BlindDeboss;
+            BlindDeboss.Token = ++PbrDoc.TokenClock;
+            BlindDeboss.Root = 1;
+            BlindDeboss.SurfaceRelief = -1.f;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Colour)].Enabled = false;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Roughness)].Enabled = false;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Metalness)].Enabled = false;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Height)].Strength = .9f;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Transmission)].Enabled = true;
+            BlindDeboss.SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Transmission)].Strength = .5f;
+            PbrDoc.Layers.push_back(BlindDeboss);
+
+            const auto Maps = EvaluateStampSurfaceMaps(PbrDoc, 128);
+            const size_t Centre = 64 * 128 + 64;
+            const size_t Rim = 64 * 128 + 30;
+            Confirm(Maps.Coverage[Centre] > .98f && Maps.Coverage[Rim] > .98f, "Stamp PBR coverage missed disc or deboss.");
+            Confirm(Maps.Height[Rim] > .5f && Maps.Height[Centre] < -.2f,
+                "Signed SurfaceRelief did not emboss rim (+0.6) and deboss centre (-0.3).");
+            Confirm(Maps.ColourRgba[Centre * 4 + 0] > 180 && Maps.ColourRgba[Centre * 4 + 2] < 90,
+                "Blind-deboss layer with Colour.Enabled=false overwrote underlying brass colour.");
+            Confirm(std::abs(Maps.Roughness[Rim] - .22f) < .02f && std::abs(Maps.Metalness[Rim] - .95f) < .02f,
+                "Stamp PBR Roughness/Metalness maps did not evaluate layer strengths.");
+            Confirm(std::abs(Maps.Occlusion[Rim] - .6f) < .02f && std::abs(Maps.Clearcoat[Rim] - .85f) < .02f &&
+                std::abs(Maps.Transmission[Centre] - .5f) < .02f,
+                "Stamp PBR Occlusion/Clearcoat/Transmission maps did not evaluate layer strengths.");
+        }
         std::printf("StampFidelityValidation: %u checks passed\n", Checks);
         return 0;
     }

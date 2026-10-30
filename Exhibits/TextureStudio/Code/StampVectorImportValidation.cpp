@@ -95,10 +95,33 @@ int main()
             Gradient.Stamp = true;
             const char *GradientSvg =
                 "<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50' viewBox='0 0 50 50'>"
-                "<defs><linearGradient id='g'><stop offset='0' stop-color='#fff'/><stop offset='1' stop-color='#000'/></linearGradient></defs>"
+                "<defs><linearGradient id='g' x1='0' y1='0' x2='50' y2='0'><stop offset='0' stop-color='#fff'/><stop offset='1' stop-color='#000'/></linearGradient></defs>"
                 "<rect x='0' y='0' width='50' height='50' fill='url(#g)'/></svg>";
             const uint32_t GradientShape = AppendStampVectorImport(Gradient, GradientSvg);
-            Require(Gradient.Instructions[GradientShape].Topology[0] == 6, "A gradient-filled shape must still import with a fallback colour, not be dropped.");
+            Require(Gradient.Instructions[GradientShape].Topology[0] == 6, "A gradient-filled shape must import as a CubicContour.");
+            Require(Gradient.Instructions[GradientShape].Transform[3] == 1.f &&
+                Gradient.Instructions[GradientShape].Colour[0] > .95f &&
+                Gradient.Instructions[GradientShape].ColourEnd[0] < .05f,
+                "Linear SVG gradient stops and category did not propagate into the imported instruction.");
+            Gradient.Layers.push_back({1, GradientShape});
+            Gradient.TokenClock = 1;
+            (void)ConstructVectorAuthoringCoverage(Gradient);
+        }
+        {
+            VectorAuthoringDocument Stroked;
+            Stroked.Stamp = true;
+            const char *StrokedSvg =
+                "<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'>"
+                "<g opacity='0.5'><path d='M 15 25 L 85 75' fill='none' stroke='#ff5500' stroke-width='6'/></g></svg>";
+            const uint32_t StrokedShape = AppendStampVectorImport(Stroked, StrokedSvg);
+            const auto &Inst = Stroked.Instructions[StrokedShape];
+            Require(Inst.Topology[0] == 6 && Inst.Paint[3] == 0.f && Inst.Transform[1] > 5.5f,
+                "Stroke-only open SVG path was dropped or force-filled.");
+            Require(std::abs(Inst.Transform[2] - (128.f / 255.f)) < .02f && Inst.StrokeColour[0] > .95f,
+                "Group opacity or stroke colour did not propagate onto stroked SVG import.");
+            Stroked.Layers.push_back({1, StrokedShape});
+            Stroked.TokenClock = 1;
+            (void)ConstructVectorAuthoringCoverage(Stroked);
         }
 
         RequireThrows([] { VectorAuthoringDocument Empty; (void)AppendStampVectorImport(Empty, ""); }, "Empty SVG markup must be refused.");

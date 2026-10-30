@@ -90,6 +90,7 @@ class MaterialLibrary
     // 📝 Scales the authored Radiance spectrum so its peak component equals Strength (the Alloy
     // emissionStrength convention: emission colour is peak-normalized, strength is the peak).
     bool ConfigureEmissionStrength(float Strength);
+    bool ConfigureEmissionColour(const std::array<float, 3> &Spectrum);
     bool ConfigureStratumColour(uint32_t Index, const std::array<float, 3> &Spectrum, std::string_view Field = "Albedo");
     bool InsertStratum(uint32_t Index);
     bool RemoveStratum(uint32_t Index);
@@ -105,6 +106,10 @@ class MaterialLibrary
     // update immediately for the baker) and SaveMaterial splices the sidecar; RevertSource drops them.
     bool ConfigureSandBeds(const std::vector<MaterialSandBed> &Beds, std::string_view Arrangement);
     [[nodiscard]] bool QuerySandBeds(std::vector<MaterialSandBed> &Beds, std::string &Arrangement) const;
+    bool ConfigureSandParameter(std::string_view Key, double Value);
+    bool ConfigureSandColour(std::string_view Key, std::string_view Hex);
+    [[nodiscard]] std::optional<double> QuerySandParameter(std::string_view Key) const;
+    [[nodiscard]] std::optional<std::string> QuerySandColour(std::string_view Key) const;
     bool RebakeProcedurals(uint32_t Extent = 512);
     [[nodiscard]] size_t QueryProceduralOverrideCount() const noexcept { return ProceduralOverrides.size(); }
     bool RevertSource();
@@ -119,7 +124,7 @@ class MaterialLibrary
     [[nodiscard]] const std::string &QuerySource() const noexcept { return Source; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
     [[nodiscard]] const CompiledSurfaceMaterial *QueryApplied() const noexcept { return Applied.get(); }
-    [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource || !StagedSandBeds.empty(); }
+    [[nodiscard]] bool QueryModified() const noexcept { return Source != SavedSource || !StagedSandBeds.empty() || !StagedSandParameters.empty(); }
     [[nodiscard]] bool QueryUnapplied() const noexcept { return Source != AppliedSource; }
     [[nodiscard]] bool QueryParked(const std::filesystem::path &RelativePath) const;
     [[nodiscard]] size_t QueryParkedCount() const noexcept { return ParkedSources.size(); }
@@ -135,6 +140,8 @@ class MaterialLibrary
     std::map<std::filesystem::path, std::string> ParkedSources;
     // 📝 Authored (raw) sand beds per material awaiting SaveMaterial's sidecar splice, keyed like parked drafts.
     std::map<std::filesystem::path, std::pair<std::vector<MaterialSandBed>, std::string>> StagedSandBeds;
+    std::map<std::filesystem::path, std::pair<std::map<std::string, double>, std::map<std::string, std::string>>> StagedSandParameters;
+    std::map<std::filesystem::path, MaterialRecipeParameters> OriginalSandRecipes;
     std::map<std::pair<size_t, std::string>, SurfaceTextureImage> ProceduralOverrides;
     std::unique_ptr<CompiledSurfaceMaterial> Applied;
     uint64_t Revision = 0;

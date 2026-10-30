@@ -24,6 +24,7 @@
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include "Engine/Render/MaterialPreviewConfiguration.h"
+#include "Engine/Render/WorkspaceViewportRendering.h"
 #include "UI/TextureStudio/PaintStampEngine.h"
 #include "UI/TextureStudio/StampLibrary.h"
 #include "UI/TextureStudio/TypefaceCatalogue.h"
@@ -101,7 +102,28 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     std::function<PaintCanvasImage()> QueryPaintCanvasImage;
     [[nodiscard]] uint64_t QueryPaintCanvasRevision();
     [[nodiscard]] const std::vector<uint8_t> &QueryPaintCanvasPixels();
+    [[nodiscard]] const std::vector<uint8_t> &QueryPaintOrmPixels() const noexcept { return PaintOrmPixels; }
+    [[nodiscard]] const std::vector<uint8_t> &QueryPaintNormalPixels() const noexcept { return PaintNormalPixels; }
+    [[nodiscard]] const std::vector<uint8_t> &QueryPaintEmissivePixels() const noexcept { return PaintEmissivePixels; }
     [[nodiscard]] static uint32_t QueryPaintCanvasExtent() noexcept { return PaintCanvasExtent; }
+
+    // Headless / programmatic authoring hooks for validation & evidence capture.
+    void ForceCompositePreview();
+    void AuthorAddMaterialLayer(const std::string &MaterialNameOrId);
+    void AuthorAddGeneratorLayer(const std::string &ChannelId, const std::string &GeneratorId,
+        const std::array<float, 4> &Colour, float ScalarAmount);
+    void AuthorAddGradientFillLayer(const std::array<float, 4> &StartColour, const std::array<float, 4> &EndColour,
+        float AngleDegrees, int AxisMode);
+    void AuthorPlaceStampAtUv(const std::string &StampId, float U, float V, float Radius);
+    void AuthorPaintDabStroke(float U0, float V0, float U1, float V1, const std::array<float, 4> &Colour,
+        float RadiusUv, float Roughness, float Metalness, float HeightDeposit);
+
+    // Unified 3D PBR viewport hooks shared with Material and Baking via MaterialLibraryRendering.
+    std::function<void(const SurfaceGeometry &)> ConfigureViewportGeometry;
+    std::function<void(const CompiledSurfaceMaterial &)> ConfigureViewportMaterial;
+    std::function<void(const WorkspaceViewportOrbitCamera &)> ConfigureViewportCamera;
+    std::function<void(uint32_t, uint32_t)> ConfigureViewportExtent;
+    std::function<WorkspaceViewportImage()> QueryViewport;
 
     // 📝 Read-only document facts for headless construction validation (mirrors Baking's QuerySettings).
     [[nodiscard]] const std::string &QueryDocumentName() const noexcept { return DocumentName; }
@@ -132,6 +154,14 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float Radius = 0.03f;    // in UV units of one tile
         std::array<float, 4> Colour{1, 1, 1, 1}; // rgb + dab strength
         int Part = -1;
+        float Hardness = .92f;
+        float Roundness = 1.f;
+        float Angle = 0.f;
+        bool Square = false;
+        uint8_t GrainMode = 0; // 0 = none, 1 = noise, 2 = lines, 3 = checker
+        float GrainAmount = 0.f;
+        float GrainScale = 4.f;
+        float HeightStrength = .4f;
     };
     struct PaintFill
     {
@@ -341,6 +371,11 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
         float BoundsRadius = 0;    // world bounding-sphere radius about CentroidWorld
     };
     std::vector<TopologyTriangle> Topology;
+    std::vector<float> VertexCurvature;
+    std::vector<float> VertexOcclusion;
+    std::vector<float> VertexThickness;
+    float MeshBoundsMin[3]{-.5f, -.5f, -.5f};
+    float MeshBoundsMax[3]{.5f, .5f, .5f};
     void BuildTopology();
     [[nodiscard]] static int PartForPatch(int Patch) noexcept;
     void AuthoringUvFor(const BakeVertex &Vertex, float Out[2]) const noexcept;
@@ -357,6 +392,28 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     // EvaluatePreviewColour, shared with the texel compositor). Candidate lists optionally restrict
     // the dab loops to one spatial-grid cell - same result, dabs outside the cell cannot reach here.
     void ApplyPreviewLayer(std::array<float, 3> &Base, const LayerState &Layer, const TopologyTriangle &Triangle,
+        const float Uv[2], const std::vector<int32_t> *DabCandidates, const std::vector<int32_t> *MaskDabCandidates,
+        bool VisibilityPrechecked = false) const noexcept;
+    struct PaintPbrTexel
+    {
+        std::array<float, 3> BaseColor{.92f, .91f, .88f};
+        float Roughness = .38f;
+        float Metalness = 0.f;
+        float Height = 0.f;
+        float NormalScale = 1.f;
+        float ExplicitNormalX = 0.f, ExplicitNormalY = 0.f;
+        float Occlusion = 1.f;
+        float Opacity = 1.f;
+        std::array<float, 3> Emission{0.f, 0.f, 0.f};
+        float Anisotropy = 0.f;
+        float AnisotropyAngle = 0.f;
+        float Clearcoat = .12f;
+        float Transmission = 0.f;
+        float RefractionIndex = 1.5f;
+        std::array<float, 3> Sheen{0.f, 0.f, 0.f};
+        std::array<float, 3> Subsurface{0.f, 0.f, 0.f};
+    };
+    void ApplyPreviewPbrLayer(PaintPbrTexel &Texel, const LayerState &Layer, const TopologyTriangle &Triangle,
         const float Uv[2], const std::vector<int32_t> *DabCandidates, const std::vector<int32_t> *MaskDabCandidates,
         bool VisibilityPrechecked = false) const noexcept;
     void EnsurePreviewCanvas();
@@ -547,8 +604,42 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     // atlas-page layout (PaintCanvasExtent², tiles inset by the 1px gutter); owners map each texel
     // to the Topology triangle that owns it so region fills/masks keep their per-face identity at
     // texel fidelity. Recomposited only when the content fingerprint moves.
+    struct PaintLoadedTexture
+    {
+        int Width = 0, Height = 0;
+        std::vector<uint8_t> Rgba;
+    };
+    struct PaintLoadedMaterial
+    {
+        std::string Id;
+        std::string Name;
+        std::string Category;
+        std::array<float, 3> BaseAlbedo{.8f, .8f, .8f};
+        float BaseRoughness = .5f;
+        float BaseMetallic = 0.f;
+        float BaseCoat = .12f;
+        float BaseIor = 1.5f;
+        AutomotivePaint Flakes{};
+        PaintLoadedTexture AlbedoMap, OrmMap, NormalMap;
+    };
+    mutable std::vector<PaintLoadedMaterial> LoadedMaterials;
+    mutable std::map<std::string, PaintLoadedTexture> LoadedChannelTextures;
+    mutable std::vector<std::string> AvailableTextureNames;
+    mutable bool ArchiveCatalogueScanned = false;
+    void EnsureArchiveCatalogue() const;
+    [[nodiscard]] const PaintLoadedMaterial *FindLoadedMaterial(const std::string &NameOrId) const;
+    [[nodiscard]] const PaintLoadedTexture *FindLoadedChannelTexture(const std::string &TextureName) const;
+
     std::vector<uint8_t> PaintCanvasPixels;
     std::vector<std::array<float, 3>> PaintCanvasScratch;
+    std::vector<PaintPbrTexel> PaintPbrScratch;
+    std::vector<uint8_t> PaintEmissivePixels;
+    float CompositedAvgClearcoat = .12f;
+    float CompositedAvgIor = 1.5f;
+    float CompositedAvgAnisotropy = 0.f;
+    float CompositedAvgAnisotropyAngle = 0.f;
+    float CompositedMaxTransmission = 0.f;
+    bool CompositedHasEmission = false;
     std::vector<int32_t> PaintCanvasOwners;
     std::vector<uint8_t> PaintCanvasFilled;
     uint64_t PaintCanvasRevision = 0;
@@ -563,6 +654,7 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     bool StrokeTargetMask = false;
     std::string StrokeTargetLayerId;
     float LastDabUv[2]{0, 0};
+    float StabilizedUv[2]{0, 0};
     bool LastDabValid = false;
 
     //--------------------------------------------------------------------------------------------------------------
@@ -720,5 +812,22 @@ class TexturePaintWorkspacePanel final : public ActivationSequence
     void Track(const std::string &Caption);
     VectorAuthoringControlSurface Controls;
     void *RegularTypeface = nullptr, *LightTypeface = nullptr;
+
+    size_t CachedSceneTopologySize = 0;
+    int CachedSceneTargetPart = -2;
+    SurfaceGeometry CachedSceneGeometry;
+    uint64_t CachedSceneMaterialRevision = 0;
+    int CachedSceneMaterialTargetPart = -2;
+    CompiledSurfaceMaterial CachedSceneMaterial;
+    WorkspaceViewportOrbitCamera SentSceneCamera{};
+    bool SentSceneCameraReady = false;
+    uint32_t SentSceneWidth = 0, SentSceneHeight = 0;
+    WorkspaceViewportOrbitCamera CachedSceneCpuOrbit{};
+    uint64_t CachedSceneCpuRevision = 0;
+    int CachedSceneCpuTargetPart = -2;
+    uint32_t CachedSceneCpuWidth = 0, CachedSceneCpuHeight = 0;
+    std::vector<uint8_t> CachedSceneCpuRgba;
+    std::vector<uint8_t> PaintOrmPixels;
+    std::vector<uint8_t> PaintNormalPixels;
 };
 } // namespace Frontier

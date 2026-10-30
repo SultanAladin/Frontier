@@ -137,7 +137,7 @@ struct MaterialAuthoringDeclaration
 {
     int64_t Type = 0;
     double Coat = 0, Sheen = 0, Anisotropy = 0, Translucency = 0;
-    bool MetalScratches = false, Woven = false;
+    bool MetalScratches = false, Woven = false, Flakes = false;
     std::string RecipeIdentity, RecipeCaption;
     std::vector<MaterialAuthoringControl> Controls;
 };

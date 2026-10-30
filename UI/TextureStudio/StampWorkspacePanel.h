@@ -126,10 +126,13 @@ private:
     // for decal seeding and material bakes; nothing here feeds back into it.
     static constexpr int PbrExtent = 256;
     bool PbrPreview = false;
+    int PbrViewChannel = 0; // 0 = Lit, 1..9 = Colour/Height/Normal/Roughness/Metalness/Opacity/AO/Clearcoat/Transmission
     float PbrLightX = 150.f, PbrLightY = 110.f; // document-plane units; fixed height above the plane
     bool PbrLightDrag = false;
-    std::vector<uint8_t> PbrBase;     // straight-alpha RGBA of the whole design
-    std::vector<float> PbrRoughness, PbrMetalness, PbrHeight, PbrNormalScale;
+    std::vector<uint8_t> PbrBase;     // straight-alpha RGBA of enabled Colour channels
+    std::vector<float> PbrCoverage, PbrRoughness, PbrMetalness, PbrHeight, PbrNormalScale;
+    std::vector<float> PbrNormalX, PbrNormalY, PbrNormalZ;
+    std::vector<float> PbrOpacity, PbrOcclusion, PbrTransmission, PbrClearcoat;
     bool PbrMapsValid = false;
     uint64_t PbrMapsHistoryRevision = UINT64_MAX, PbrMapsGestureRevision = UINT64_MAX;
     double PbrMapsBuiltAt = 0;

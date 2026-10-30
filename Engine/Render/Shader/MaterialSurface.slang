@@ -211,10 +211,8 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
             Scattering.Strata[1].AbsorptionThickness = 0;
         }
     }
-    PaintSurface Paint;
     bool PaintEnabled = Material.Paint.Configuration.x != 0 && Pixel.SubjectRole == 0;
-    if (PaintEnabled) Paint = EvaluatePaintSurface(Material.Paint, Pixel.MaterialPosition,
-        Scattering.Strata[0].AlbedoRoughness.rgb, Scattering.Strata[0].AlbedoRoughness.w, Scattering.Strata[0].Optics.x);
+    PaintSurface Paint;
     MaterialAngularStratum Angular[8];
     float3 GeometricNormal = NormalizeDirection(Pixel.ViewNormal);
     float3 Tangent = NormalizeDirection(Pixel.ViewTangent.xyz-GeometricNormal*dot(GeometricNormal,Pixel.ViewTangent.xyz));
@@ -228,39 +226,42 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
         float2 Coordinates = Pixel.Coordinates*Material.StratumUv[Index].xy+Material.StratumUv[Index].zw;
         float4 Albedo = MaterialTextures[0].Sample(MaterialSampler,float3(Coordinates,TextureSelection.y));
         float3 Orm = MaterialTextures[1].Sample(MaterialSampler,float3(Coordinates,TextureSelection.z)).rgb;
-        float3 TangentNormal = MaterialTextures[2].Sample(MaterialSampler,float3(Coordinates,TextureSelection.w)).rgb*2-1;
+        float3 TangentNormal = (Mask & 4) != 0 ?
+            (MaterialTextures[2].Sample(MaterialSampler,float3(Coordinates,TextureSelection.w)).rgb*2-1) : float3(0,0,1);
         float4 AuthoredColour = AuthoringMaps[0].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredNormal = AuthoringMaps[1].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredHeight = AuthoringMaps[2].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredRoughness = AuthoringMaps[3].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredMetalness = AuthoringMaps[4].Sample(MaterialSampler,float3(Coordinates,0));
         float4 AuthoredOcclusion = AuthoringMaps[5].Sample(MaterialSampler,float3(Coordinates,0));
-        float AuthoringEnabled = Pixel.SubjectRole == 0 ? 1 : 0;
+        float AuthoringEnabled = (Pixel.SubjectRole == 0 && Scattering.Strata[Index].Classification.x == 0) ? 1 : 0;
         if ((Mask & 1) != 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Albedo.rgb;
         if (Index == 0 && Pixel.SubjectRole == 0) Scattering.Strata[Index].AlbedoRoughness.rgb *= Projection.SurfaceTint.rgb;
-        Scattering.Strata[Index].AlbedoRoughness.rgb = lerp(Scattering.Strata[Index].AlbedoRoughness.rgb,
-            AuthoredColour.rgb,saturate(AuthoredColour.a)*AuthoringEnabled);
         if ((Mask & 2) != 0)
         {
             Scattering.Strata[Index].AlbedoRoughness.w = clamp(Scattering.Strata[Index].AlbedoRoughness.w*Orm.g,.045,1);
             if (Scattering.Strata[Index].Classification.x == 0) Scattering.Strata[Index].Optics.x *= Orm.b;
         }
-        Scattering.Strata[Index].AlbedoRoughness.w = clamp(lerp(Scattering.Strata[Index].AlbedoRoughness.w,
-            AuthoredRoughness.r,saturate(AuthoredRoughness.a)*AuthoringEnabled),.045,1);
-        if (Scattering.Strata[Index].Classification.x == 0)
-            Scattering.Strata[Index].Optics.x = lerp(Scattering.Strata[Index].Optics.x,
-                AuthoredMetalness.r,saturate(AuthoredMetalness.a)*AuthoringEnabled);
         float3 Normal = GeometricNormal;
         if (PaintEnabled)
         {
             if (Index == 0)
             {
-                Scattering.Strata[0].AlbedoRoughness.rgb = Paint.Albedo * Projection.SurfaceTint.rgb;
+                Paint = EvaluatePaintSurface(Material.Paint, Pixel.MaterialPosition,
+                    Scattering.Strata[0].AlbedoRoughness.rgb, Scattering.Strata[0].AlbedoRoughness.w, Scattering.Strata[0].Optics.x);
+                Scattering.Strata[0].AlbedoRoughness.rgb = Paint.Albedo;
                 Scattering.Strata[0].AlbedoRoughness.w = Paint.Roughness;
                 Scattering.Strata[0].Optics.x = Paint.Metallic;
             }
             Normal = DerivePaintNormal(Material.Paint, Paint, Normal, Pixel.ViewPosition, Scattering.Strata[Index].Classification.x != 0);
         }
+        Scattering.Strata[Index].AlbedoRoughness.rgb = lerp(Scattering.Strata[Index].AlbedoRoughness.rgb,
+            AuthoredColour.rgb,saturate(AuthoredColour.a)*AuthoringEnabled);
+        Scattering.Strata[Index].AlbedoRoughness.w = clamp(lerp(Scattering.Strata[Index].AlbedoRoughness.w,
+            AuthoredRoughness.r,saturate(AuthoredRoughness.a)*AuthoringEnabled),.045,1);
+        if (Scattering.Strata[Index].Classification.x == 0)
+            Scattering.Strata[Index].Optics.x = lerp(Scattering.Strata[Index].Optics.x,
+                AuthoredMetalness.r,saturate(AuthoredMetalness.a)*AuthoringEnabled);
         // 📝 Evaluate derivatives before the channel-coverage branch so all fragments share a valid quad footprint.
         float2 CoordinateX = ddx(Coordinates);
         float2 CoordinateY = ddy(Coordinates);
@@ -286,7 +287,12 @@ float4 MaterialSurfaceFragment(MaterialPixel Pixel) : SV_Target
             TangentNormal.xy *= Material.RadianceNormal.w*Material.StratumNormal[Index].x*
                                 float2(Scale.x < 0 ? -1 : 1,Scale.y < 0 ? -1 : 1);
             TangentNormal = NormalizeDirection(TangentNormal);
-            Normal = NormalizeDirection(Tangent*TangentNormal.x+Bitangent*TangentNormal.y+Normal*TangentNormal.z);
+            // Suppress base substrate normal inside opaque smooth metallic/mineral flakes while letting AuthoredNormal/Height ride on top.
+            if (PaintEnabled && Index == 0 && AuthoredNormal.a <= 0 && AuthoredHeight.a <= 0)
+                TangentNormal = NormalizeDirection(lerp(TangentNormal,float3(0,0,1),saturate(Paint.Coverage*.85)));
+            float3 FrameTangent = NormalizeDirection(Tangent-Normal*dot(Normal,Tangent));
+            float3 FrameBitangent = cross(Normal,FrameTangent)*(Pixel.ViewTangent.w < 0 ? -1 : 1);
+            Normal = NormalizeDirection(FrameTangent*TangentNormal.x+FrameBitangent*TangentNormal.y+Normal*TangentNormal.z);
         }
         float3 LocalTangent = NormalizeDirection(Tangent-Normal*dot(Normal,Tangent));
         float3 LocalBitangent = cross(Normal,LocalTangent)*(Pixel.ViewTangent.w < 0 ? -1 : 1);

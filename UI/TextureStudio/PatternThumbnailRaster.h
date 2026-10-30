@@ -21,6 +21,19 @@ namespace Frontier
 // outside the artwork stays transparent and the decal can composite over a painted surface.
 [[nodiscard]] std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document);
 [[nodiscard]] std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Document, uint32_t Extent);
+
+struct StampSurfaceMaps
+{
+    uint32_t Extent = 0;
+    std::vector<uint8_t> ColourRgba;
+    std::vector<float> Coverage;
+    std::vector<float> Height;
+    std::vector<float> NormalScale;
+    std::vector<float> NormalX, NormalY, NormalZ;
+    std::vector<float> Roughness, Metalness, Opacity, Occlusion, Transmission, Clearcoat;
+    std::vector<float> RoughnessMask, MetalnessMask, HeightMask, NormalMask, OcclusionMask, TransmissionMask, ClearcoatMask;
+};
+[[nodiscard]] StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Document, uint32_t Extent);
 // 📝 Encodes just one layer, cropped to its own tight extent (never the full tile) — the layer-row
 // preview thumbnail asked of the Pattern workspace, mirroring the selection hitbox's own bounds.
 [[nodiscard]] std::string EncodePatternLayerThumbnailSvg(

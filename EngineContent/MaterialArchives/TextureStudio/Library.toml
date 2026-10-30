@@ -13393,3 +13393,1384 @@ Unit = "°"
 Key = "sandBandAngle"
 Minimum = -180
 Maximum = 180
+
+[[Materials]]
+Path = "sahara-erg-sand.material"
+Name = "Sahara Erg Dune Sand"
+Category = "Nature"
+Label = "AEOLIAN QUARTZ \u00b7 FLAKES"
+Description = "Wind-sorted Saharan erg quartz grains coated in warm iron oxide with 3D Voronoi silica and amber mineral sparkle."
+Ordinal = 131
+RecipeTitle = "Mineral sand grains"
+RecipeCaption = "Every seeded grain has a size, facet direction, roughness and dielectric reflection. Use Macro to inspect the grains. No automotive metalness or clearcoat."
+Color = "#d8843f"
+SourceRecipe = {"color" = "#d8843f", "type" = 37, "roughness" = 0.88, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.5, "depth" = 0.5, "flakes" = 0.62, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.48, "grainSizeVariation" = 0.34, "grainRoughness" = 0.5, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.86, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.78, "grainTilt" = 0.28, "grainRelief" = 0.76, "sandCoverage" = 1, "sandScale" = 1.25, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 108, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#f4c48a", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "sand", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#c9aa79", "weftColor" = "#c9aa79", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.544, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 380, "flakeScale" = 1, "flakeRoughnessMin" = 0.14, "flakeRoughnessMax" = 0.44, "flakeMetalnessMin" = 0, "flakeMetalnessMax" = 0.08, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 180, "weaveAngle" = 90, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#c9aa79", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.2, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "previewShape" = "Panel", "id" = "sahara-erg-sand", "name" = "Sahara Erg Dune Sand", "category" = "Nature", "label" = "AEOLIAN QUARTZ \u00b7 FLAKES", "colors" = ["#d8843f", "#f4c48a"], "description" = "Wind-sorted Saharan erg quartz grains coated in warm iron oxide with 3D Voronoi silica and amber mineral sparkle.", "colorStops" = [0, 1], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6, "sandArrangement" = "beds"}
+
+[[Materials.Controls]]
+Id = "grainSize"
+Caption = "Grain size"
+Group = "grains"
+Position = 0.48
+Minimum = 0.0625
+Maximum = 2
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "mm"
+
+[[Materials.Controls.Targets]]
+Key = "grainSize"
+Minimum = 0.0625
+Maximum = 2
+
+[[Materials.Controls]]
+Id = "grainSizeVariation"
+Caption = "Size variation"
+Group = "grains"
+Position = 0.34
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSizeVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughness"
+Caption = "Grain roughness"
+Group = "finish"
+Position = 0.5
+Minimum = 0.04
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughness"
+Minimum = 0.04
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughnessVariation"
+Caption = "Roughness variation"
+Group = "finish"
+Position = 0.3
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughnessVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecular"
+Caption = "Grain specular"
+Group = "finish"
+Position = 0.86
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecular"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecularVariation"
+Caption = "Specular variation"
+Group = "finish"
+Position = 0.35
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecularVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainIOR"
+Caption = "Mineral IOR"
+Group = "finish"
+Position = 1.544
+Minimum = 1.3
+Maximum = 2.2
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainIOR"
+Minimum = 1.3
+Maximum = 2.2
+
+[[Materials.Controls]]
+Id = "grainRoundness"
+Caption = "Grain roundness"
+Group = "grains"
+Position = 0.78
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoundness"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainTilt"
+Caption = "Facet tilt"
+Group = "grains"
+Position = 0.28
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainTilt"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRelief"
+Caption = "Grain relief"
+Group = "grains"
+Position = 0.76
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRelief"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandCoverage"
+Caption = "Grain coverage"
+Group = "grains"
+Position = 1
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "sandCoverage"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandScale"
+Caption = "Grain repetition"
+Group = "detail"
+Position = 1.25
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandScale"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "surfaceSeed"
+Caption = "Grain seed"
+Group = "detail"
+Position = 108
+Minimum = 0
+Maximum = 100000
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "surfaceSeed"
+Minimum = 0
+Maximum = 100000
+
+[[Materials]]
+Path = "icelandic-black-sand.material"
+Name = "Icelandic Volcanic Black Sand"
+Category = "Nature"
+Label = "BASALTIC GLASS \u00b7 FLAKES"
+Description = "Reynisfjara angular basaltic tachylite sand with glinting magnetite, obsidian shards and green olivine phenocrysts."
+Ordinal = 132
+RecipeTitle = "Mineral sand grains"
+RecipeCaption = "Every seeded grain has a size, facet direction, roughness and dielectric reflection. Use Macro to inspect the grains. No automotive metalness or clearcoat."
+Color = "#23262b"
+SourceRecipe = {"color" = "#23262b", "type" = 37, "roughness" = 0.88, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.5, "depth" = 0.5, "flakes" = 0.68, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.88, "grainSizeVariation" = 0.62, "grainRoughness" = 0.38, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.92, "grainSpecularVariation" = 0.35, "grainIOR" = 1.62, "grainRoundness" = 0.22, "grainTilt" = 0.44, "grainRelief" = 0.92, "sandCoverage" = 1, "sandScale" = 1.1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 219, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#434952", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "sand", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#c9aa79", "weftColor" = "#c9aa79", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.544, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 310, "flakeScale" = 1, "flakeRoughnessMin" = 0.07, "flakeRoughnessMax" = 0.26, "flakeMetalnessMin" = 0.3, "flakeMetalnessMax" = 0.82, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 180, "weaveAngle" = 90, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#c9aa79", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.2, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "previewShape" = "Panel", "id" = "icelandic-black-sand", "name" = "Icelandic Volcanic Black Sand", "category" = "Nature", "label" = "BASALTIC GLASS \u00b7 FLAKES", "colors" = ["#23262b", "#434952"], "description" = "Reynisfjara angular basaltic tachylite sand with glinting magnetite, obsidian shards and green olivine phenocrysts.", "colorStops" = [0, 1], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6, "sandArrangement" = "beds"}
+
+[[Materials.Controls]]
+Id = "grainSize"
+Caption = "Grain size"
+Group = "grains"
+Position = 0.88
+Minimum = 0.0625
+Maximum = 2
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "mm"
+
+[[Materials.Controls.Targets]]
+Key = "grainSize"
+Minimum = 0.0625
+Maximum = 2
+
+[[Materials.Controls]]
+Id = "grainSizeVariation"
+Caption = "Size variation"
+Group = "grains"
+Position = 0.62
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSizeVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughness"
+Caption = "Grain roughness"
+Group = "finish"
+Position = 0.38
+Minimum = 0.04
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughness"
+Minimum = 0.04
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughnessVariation"
+Caption = "Roughness variation"
+Group = "finish"
+Position = 0.3
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughnessVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecular"
+Caption = "Grain specular"
+Group = "finish"
+Position = 0.92
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecular"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecularVariation"
+Caption = "Specular variation"
+Group = "finish"
+Position = 0.35
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecularVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainIOR"
+Caption = "Mineral IOR"
+Group = "finish"
+Position = 1.62
+Minimum = 1.3
+Maximum = 2.2
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainIOR"
+Minimum = 1.3
+Maximum = 2.2
+
+[[Materials.Controls]]
+Id = "grainRoundness"
+Caption = "Grain roundness"
+Group = "grains"
+Position = 0.22
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoundness"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainTilt"
+Caption = "Facet tilt"
+Group = "grains"
+Position = 0.44
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainTilt"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRelief"
+Caption = "Grain relief"
+Group = "grains"
+Position = 0.92
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRelief"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandCoverage"
+Caption = "Grain coverage"
+Group = "grains"
+Position = 1
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "sandCoverage"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandScale"
+Caption = "Grain repetition"
+Group = "detail"
+Position = 1.1
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandScale"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "surfaceSeed"
+Caption = "Grain seed"
+Group = "detail"
+Position = 219
+Minimum = 0
+Maximum = 100000
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "surfaceSeed"
+Minimum = 0
+Maximum = 100000
+
+[[Materials]]
+Path = "coral-atoll-white-sand.material"
+Name = "Coral Atoll White Sand"
+Category = "Nature"
+Label = "BIOGENIC ARAGONITE \u00b7 FLAKES"
+Description = "Tropical reef sand blending fine white aragonite ooids, foraminifera tests and rosy crushed coral shell beds with pearlescent mineral glints."
+Ordinal = 133
+RecipeTitle = "Layered mineral sand"
+RecipeCaption = "Independent grain beds, composited top-to-bottom or exposed as sediment bands. Each bed owns its size, roughness, specular and relief; grains remain non-metallic."
+Color = "#ede6d8"
+SourceRecipe = {"color" = "#ede6d8", "type" = 38, "roughness" = 0.88, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.5, "depth" = 0.5, "flakes" = 0.56, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1.35, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.22, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 307, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#fffcf6", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "layeredSand", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#a98759", "weftColor" = "#a98759", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.544, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 180, "weaveAngle" = 90, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#a98759", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.2, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "previewShape" = "Panel", "id" = "coral-atoll-white-sand", "name" = "Coral Atoll White Sand", "category" = "Nature", "label" = "BIOGENIC ARAGONITE \u00b7 FLAKES", "colors" = ["#f2ece0", "#e9beb2", "#dfd5c3"], "sandArrangement" = "beds", "sandLayers" = [{"id" = "sand-bed-1", "name" = "Aragonite ooid crest", "enabled" = true, "color" = "#f2ece0", "secondaryColor" = "#ffffff", "size" = 0.42, "sizeVariation" = 0.38, "roughness" = 0.44, "roughnessVariation" = 0.25, "specular" = 0.92, "specularVariation" = 0.3, "ior" = 1.68, "roundness" = 0.72, "tilt" = 0.26, "relief" = 0.74, "coverage" = 0.82, "thickness" = 1}, {"id" = "sand-bed-2", "name" = "Pink coral shell hash", "enabled" = true, "color" = "#e9beb2", "secondaryColor" = "#f7dfd8", "size" = 0.78, "sizeVariation" = 0.58, "roughness" = 0.36, "roughnessVariation" = 0.28, "specular" = 0.95, "specularVariation" = 0.35, "ior" = 1.66, "roundness" = 0.35, "tilt" = 0.38, "relief" = 0.88, "coverage" = 0.55, "thickness" = 0.85}, {"id" = "sand-bed-3", "name" = "Calcareous silt base", "enabled" = true, "color" = "#dfd5c3", "secondaryColor" = "#f4efe4", "size" = 0.24, "sizeVariation" = 0.42, "roughness" = 0.68, "roughnessVariation" = 0.22, "specular" = 0.65, "specularVariation" = 0.25, "ior" = 1.58, "roundness" = 0.64, "tilt" = 0.2, "relief" = 0.62, "coverage" = 1, "thickness" = 1.15}], "description" = "Tropical reef sand blending fine white aragonite ooids, foraminifera tests and rosy crushed coral shell beds with pearlescent mineral glints.", "colorStops" = [0, 0.5, 1], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "sandScale"
+Caption = "Grain repetition"
+Group = "detail"
+Position = 1.35
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandScale"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "surfaceSeed"
+Caption = "Grain seed"
+Group = "detail"
+Position = 307
+Minimum = 0
+Maximum = 100000
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "surfaceSeed"
+Minimum = 0
+Maximum = 100000
+
+[[Materials.Controls]]
+Id = "sandBandFrequency"
+Caption = "Band repetition"
+Group = "strata"
+Position = 1.5
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandBandFrequency"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "sandBandWarp"
+Caption = "Band waviness"
+Group = "strata"
+Position = 0.22
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "sandBandWarp"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandBandAngle"
+Caption = "Band direction"
+Group = "strata"
+Position = 0
+Minimum = -180
+Maximum = 180
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = "°"
+
+[[Materials.Controls.Targets]]
+Key = "sandBandAngle"
+Minimum = -180
+Maximum = 180
+
+[[Materials]]
+Path = "wadi-red-desert-sand.material"
+Name = "Wadi Rum Red Sand"
+Category = "Nature"
+Label = "BANDED DESERT STRATA \u00b7 FLAKES"
+Description = "Cross-bedded iron-rich desert wadi sediment bands alternating terracotta hematite sand, ochre quartz and desert-rose gypsum sparkles."
+Ordinal = 134
+RecipeTitle = "Layered mineral sand"
+RecipeCaption = "Independent grain beds, composited top-to-bottom or exposed as sediment bands. Each bed owns its size, roughness, specular and relief; grains remain non-metallic."
+Color = "#a8492c"
+SourceRecipe = {"color" = "#a8492c", "type" = 38, "roughness" = 0.88, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.5, "depth" = 0.5, "flakes" = 0.58, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1.15, "sandBandFrequency" = 2.4, "sandBandWarp" = 0.34, "sandBandAngle" = 18, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 412, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#d98d5c", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "layeredSand", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#a98759", "weftColor" = "#a98759", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.544, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 180, "weaveAngle" = 90, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#a98759", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.2, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "previewShape" = "Panel", "id" = "wadi-red-desert-sand", "name" = "Wadi Rum Red Sand", "category" = "Nature", "label" = "BANDED DESERT STRATA \u00b7 FLAKES", "colors" = ["#a8492c", "#cf7440", "#dfc099"], "sandArrangement" = "bands", "sandLayers" = [{"id" = "sand-bed-1", "name" = "Hematite red drift", "enabled" = true, "color" = "#a8492c", "secondaryColor" = "#cf6b49", "size" = 0.62, "sizeVariation" = 0.48, "roughness" = 0.56, "roughnessVariation" = 0.3, "specular" = 0.82, "specularVariation" = 0.32, "ior" = 1.58, "roundness" = 0.52, "tilt" = 0.34, "relief" = 0.84, "coverage" = 0.9, "thickness" = 1.1}, {"id" = "sand-bed-2", "name" = "Ochre feldspar lamina", "enabled" = true, "color" = "#cf7440", "secondaryColor" = "#ebb07d", "size" = 0.44, "sizeVariation" = 0.4, "roughness" = 0.48, "roughnessVariation" = 0.28, "specular" = 0.88, "specularVariation" = 0.3, "ior" = 1.544, "roundness" = 0.62, "tilt" = 0.28, "relief" = 0.78, "coverage" = 0.88, "thickness" = 0.9}, {"id" = "sand-bed-3", "name" = "Buff sandstone grit", "enabled" = true, "color" = "#dfc099", "secondaryColor" = "#f5e3c8", "size" = 0.86, "sizeVariation" = 0.55, "roughness" = 0.64, "roughnessVariation" = 0.32, "specular" = 0.76, "specularVariation" = 0.35, "ior" = 1.544, "roundness" = 0.4, "tilt" = 0.36, "relief" = 0.9, "coverage" = 1, "thickness" = 1}], "description" = "Cross-bedded iron-rich desert wadi sediment bands alternating terracotta hematite sand, ochre quartz and desert-rose gypsum sparkles.", "colorStops" = [0, 0.5, 1], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "sandScale"
+Caption = "Grain repetition"
+Group = "detail"
+Position = 1.15
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandScale"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "surfaceSeed"
+Caption = "Grain seed"
+Group = "detail"
+Position = 412
+Minimum = 0
+Maximum = 100000
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "surfaceSeed"
+Minimum = 0
+Maximum = 100000
+
+[[Materials.Controls]]
+Id = "sandBandFrequency"
+Caption = "Band repetition"
+Group = "strata"
+Position = 2.4
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandBandFrequency"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "sandBandWarp"
+Caption = "Band waviness"
+Group = "strata"
+Position = 0.34
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "sandBandWarp"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandBandAngle"
+Caption = "Band direction"
+Group = "strata"
+Position = 18
+Minimum = -180
+Maximum = 180
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = "°"
+
+[[Materials.Controls.Targets]]
+Key = "sandBandAngle"
+Minimum = -180
+Maximum = 180
+
+[[Materials]]
+Path = "wet-tidal-beach-sand.material"
+Name = "Wet Tidal Rippled Sand"
+Category = "Nature"
+Label = "INTERTIDAL WATER FILM \u00b7 FLAKES"
+Description = "Darkened water-saturated intertidal beach sand under a thin IOR 1.333 meniscus film with submerged muscovite mica and shell glints."
+Ordinal = 135
+RecipeTitle = "Mineral sand grains"
+RecipeCaption = "Every seeded grain has a size, facet direction, roughness and dielectric reflection. Use Macro to inspect the grains. No automotive metalness or clearcoat."
+Color = "#75644c"
+SourceRecipe = {"color" = "#75644c", "type" = 37, "roughness" = 0.88, "metalness" = 0, "coat" = 0.78, "coatRoughness" = 0.055, "depth" = 0.5, "flakes" = 0.54, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.58, "grainSizeVariation" = 0.5, "grainRoughness" = 0.34, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.9, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.56, "grainTilt" = 0.24, "grainRelief" = 0.68, "sandCoverage" = 1, "sandScale" = 1.2, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 523, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#9d8a6e", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "sand", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#c9aa79", "weftColor" = "#c9aa79", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.544, "coatIor" = 1.333, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 180, "weaveAngle" = 90, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#c9aa79", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.2, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "previewShape" = "Panel", "id" = "wet-tidal-beach-sand", "name" = "Wet Tidal Rippled Sand", "category" = "Nature", "label" = "INTERTIDAL WATER FILM \u00b7 FLAKES", "colors" = ["#75644c", "#9d8a6e"], "description" = "Darkened water-saturated intertidal beach sand under a thin IOR 1.333 meniscus film with submerged muscovite mica and shell glints.", "colorStops" = [0, 1], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6, "sandArrangement" = "beds"}
+
+[[Materials.Controls]]
+Id = "grainSize"
+Caption = "Grain size"
+Group = "grains"
+Position = 0.58
+Minimum = 0.0625
+Maximum = 2
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "mm"
+
+[[Materials.Controls.Targets]]
+Key = "grainSize"
+Minimum = 0.0625
+Maximum = 2
+
+[[Materials.Controls]]
+Id = "grainSizeVariation"
+Caption = "Size variation"
+Group = "grains"
+Position = 0.5
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSizeVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughness"
+Caption = "Grain roughness"
+Group = "finish"
+Position = 0.34
+Minimum = 0.04
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughness"
+Minimum = 0.04
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRoughnessVariation"
+Caption = "Roughness variation"
+Group = "finish"
+Position = 0.3
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoughnessVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecular"
+Caption = "Grain specular"
+Group = "finish"
+Position = 0.9
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecular"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainSpecularVariation"
+Caption = "Specular variation"
+Group = "finish"
+Position = 0.35
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainSpecularVariation"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainIOR"
+Caption = "Mineral IOR"
+Group = "finish"
+Position = 1.544
+Minimum = 1.3
+Maximum = 2.2
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainIOR"
+Minimum = 1.3
+Maximum = 2.2
+
+[[Materials.Controls]]
+Id = "grainRoundness"
+Caption = "Grain roundness"
+Group = "grains"
+Position = 0.56
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRoundness"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainTilt"
+Caption = "Facet tilt"
+Group = "grains"
+Position = 0.24
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainTilt"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grainRelief"
+Caption = "Grain relief"
+Group = "grains"
+Position = 0.68
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grainRelief"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandCoverage"
+Caption = "Grain coverage"
+Group = "grains"
+Position = 1
+Minimum = 0
+Maximum = 1
+Direct = true
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "sandCoverage"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "sandScale"
+Caption = "Grain repetition"
+Group = "detail"
+Position = 1.2
+Minimum = 0.1
+Maximum = 10
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "sandScale"
+Minimum = 0.1
+Maximum = 10
+
+[[Materials.Controls]]
+Id = "surfaceSeed"
+Caption = "Grain seed"
+Group = "detail"
+Position = 523
+Minimum = 0
+Maximum = 100000
+Direct = true
+Logarithmic = false
+Step = 1
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "surfaceSeed"
+Minimum = 0
+Maximum = 100000
+
+[[Materials]]
+Path = "alpine-mica-schist.material"
+Name = "Alpine Mica Schist & Lichen"
+Category = "Stone"
+Label = "LAYERED ROCK \u00b7 MICA FLAKES"
+Description = "Foliated high-altitude metamorphic schist combining platy muscovite/biotite flakes with layered quartz veins and yellow-green Rhizocarpon lichen."
+Ordinal = 136
+RecipeTitle = "Granite"
+RecipeCaption = "Irregular quartz, feldspar and mica grains. A representative stone, not a scanned slab."
+Color = "#596068"
+SourceRecipe = {"color" = "#596068", "type" = 23, "roughness" = 0.52, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.12, "depth" = 0.4, "flakes" = 0.72, "tertiaryColor" = "#252930", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 611, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#9aa3ad", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "granite", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#b07e6e", "weftColor" = "#b07e6e", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.52, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 28, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#b07e6e", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.72, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "alpine-mica-schist", "name" = "Alpine Mica Schist & Lichen", "category" = "Stone", "colors" = ["#596068", "#9aa3ad", "#77853c"], "label" = "LAYERED ROCK \u00b7 MICA FLAKES", "description" = "Foliated high-altitude metamorphic schist combining platy muscovite/biotite flakes with layered quartz veins and yellow-green Rhizocarpon lichen.", "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Stone Roughness"
+Group = "finish"
+Position = 0.588235
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.12
+Maximum = 0.8
+
+[[Materials.Controls]]
+Id = "gloss"
+Caption = "Stone polish"
+Group = "finish"
+Position = 0
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "coat"
+Minimum = 0
+Maximum = 0.5
+
+[[Materials.Controls.Targets]]
+Key = "coatRoughness"
+Minimum = 0.22
+Maximum = 0.055
+
+[[Materials.Controls]]
+Id = "grain"
+Caption = "Crystal relief"
+Group = "detail"
+Position = 0.705263
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grain"
+Minimum = 0.05
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Mineral scale"
+Group = "detail"
+Position = 28
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000
+
+[[Materials]]
+Path = "columnar-olivine-basalt.material"
+Name = "Columnar Olivine Basalt"
+Category = "Stone"
+Label = "VOLCANIC ROCK \u00b7 OLIVINE FLAKES"
+Description = "Dense aphanitic volcanic basalt studded with green peridot-olivine and magnetite phenocryst flakes, layered with cooling fractures and tephra ash."
+Ordinal = 137
+RecipeTitle = "Concrete"
+RecipeCaption = "Cement, aggregate and sunken air voids. Board-form presets retain their construction marks."
+Color = "#2a2d32"
+SourceRecipe = {"color" = "#2a2d32", "type" = 25, "roughness" = 0.68, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.12, "depth" = 0.4, "flakes" = 0.56, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.62, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 709, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#454950", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "concrete", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#aaa79c", "weftColor" = "#aaa79c", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.5, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 18, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#aaa79c", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.66, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "columnar-olivine-basalt", "name" = "Columnar Olivine Basalt", "category" = "Stone", "colors" = ["#2a2d32", "#587235", "#514b45"], "label" = "VOLCANIC ROCK \u00b7 OLIVINE FLAKES", "description" = "Dense aphanitic volcanic basalt studded with green peridot-olivine and magnetite phenocryst flakes, layered with cooling fractures and tephra ash.", "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Concrete Roughness"
+Group = "finish"
+Position = 0.696969696969697
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.65
+Maximum = 0.98
+
+[[Materials.Controls]]
+Id = "pores"
+Caption = "Air voids"
+Group = "finish"
+Position = 0.65
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "poreDensity"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "grain"
+Caption = "Aggregate relief"
+Group = "finish"
+Position = 0.3928571428571429
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grain"
+Minimum = 0.1
+Maximum = 1.5
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Aggregate scale"
+Group = "detail"
+Position = 40
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000
+
+[[Materials]]
+Path = "canyon-banded-sandstone.material"
+Name = "Canyon Stratified Sandstone"
+Category = "Stone"
+Label = "SEDIMENTARY \u00b7 QUARTZ FLAKES"
+Description = "Cross-bedded Colorado Plateau sandstone with frosted quartz grain sparkle, layered Navajo Liesegang iron-oxide bands and manganese desert varnish."
+Ordinal = 138
+RecipeTitle = "Lime / mineral stucco"
+RecipeCaption = "Dry plaster with raised, multiscale grain. Surface relief is generated, not sampled."
+Color = "#c66b3d"
+SourceRecipe = {"color" = "#c66b3d", "type" = 26, "roughness" = 0.78, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.12, "depth" = 0.4, "flakes" = 0.52, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 817, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#e3a877", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "stucco", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#d5cbb4", "weftColor" = "#d5cbb4", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.5, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 16, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#d5cbb4", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.68, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "canyon-banded-sandstone", "name" = "Canyon Stratified Sandstone", "category" = "Stone", "colors" = ["#c66b3d", "#e3a877", "#36241e"], "label" = "SEDIMENTARY \u00b7 QUARTZ FLAKES", "description" = "Cross-bedded Colorado Plateau sandstone with frosted quartz grain sparkle, layered Navajo Liesegang iron-oxide bands and manganese desert varnish.", "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Stucco Roughness"
+Group = "finish"
+Position = 0.7916666666666665
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.75
+Maximum = 0.99
+
+[[Materials.Controls]]
+Id = "grain"
+Caption = "Plaster relief"
+Group = "finish"
+Position = 0.5357142857142857
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grain"
+Minimum = 0.1
+Maximum = 1.5
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Grain scale"
+Group = "detail"
+Position = 48
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000
+
+[[Materials]]
+Path = "weathered-karst-limestone.material"
+Name = "Weathered Karst Limestone"
+Category = "Stone"
+Label = "CARBONATE KARST \u00b7 CALCITE FLAKES"
+Description = "Marine oolitic karst limestone with cleaved sparry calcite crystal glints, layered rillenkarren dissolution crevices and highland bryophyte moss."
+Ordinal = 139
+RecipeTitle = "Marble"
+RecipeCaption = "Warped multiscale mineral veins in a polished stone matrix."
+Color = "#c8c2b4"
+SourceRecipe = {"color" = "#c8c2b4", "type" = 24, "roughness" = 0.66, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.12, "depth" = 0.4, "flakes" = 0.48, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.055, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 923, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#8d8678", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "marble", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#dddcd3", "weftColor" = "#dddcd3", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.5, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 14, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#dddcd3", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.58, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "weathered-karst-limestone", "name" = "Weathered Karst Limestone", "category" = "Stone", "colors" = ["#c8c2b4", "#8d8678", "#4a5f32"], "label" = "CARBONATE KARST \u00b7 CALCITE FLAKES", "description" = "Marine oolitic karst limestone with cleaved sparry calcite crystal glints, layered rillenkarren dissolution crevices and highland bryophyte moss.", "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Stone Roughness"
+Group = "finish"
+Position = 0.16129032258064516
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.08
+Maximum = 0.7
+
+[[Materials.Controls]]
+Id = "veins"
+Caption = "Vein width"
+Group = "finish"
+Position = 0.25438596491228077
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "veinWidth"
+Minimum = 0.006
+Maximum = 0.12
+
+[[Materials.Controls]]
+Id = "gloss"
+Caption = "Stone polish"
+Group = "finish"
+Position = 0.6666666666666667
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "coat"
+Minimum = 0
+Maximum = 0.6
+
+[[Materials.Controls.Targets]]
+Key = "coatRoughness"
+Minimum = 0.2
+Maximum = 0.045
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Vein scale"
+Group = "detail"
+Position = 2.8
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000
+
+[[Materials]]
+Path = "obsidian-rhyolite-scree.material"
+Name = "Glacial Obsidian & Rhyolite"
+Category = "Stone"
+Label = "FELSIC LAVA \u00b7 OBSIDIAN FLAKES"
+Description = "Conchoidal volcanic obsidian and flow-banded rhyolite scree with iridescent cristobalite micro-facets, layered ash swirls and glacial rock-flour frost."
+Ordinal = 140
+RecipeTitle = "Granite"
+RecipeCaption = "Irregular quartz, feldspar and mica grains. A representative stone, not a scanned slab."
+Color = "#232026"
+SourceRecipe = {"color" = "#232026", "type" = 23, "roughness" = 0.22, "metalness" = 0, "coat" = 0.46, "coatRoughness" = 0.075, "depth" = 0.4, "flakes" = 0.6, "tertiaryColor" = "#111015", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 1031, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#8c7268", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "granite", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#b07e6e", "weftColor" = "#b07e6e", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.52, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 20, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#b07e6e", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.44, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "obsidian-rhyolite-scree", "name" = "Glacial Obsidian & Rhyolite", "category" = "Stone", "colors" = ["#232026", "#b59a8c", "#cfd8de"], "label" = "FELSIC LAVA \u00b7 OBSIDIAN FLAKES", "description" = "Conchoidal volcanic obsidian and flow-banded rhyolite scree with iridescent cristobalite micro-facets, layered ash swirls and glacial rock-flour frost.", "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Stone Roughness"
+Group = "finish"
+Position = 0.147059
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.12
+Maximum = 0.8
+
+[[Materials.Controls]]
+Id = "gloss"
+Caption = "Stone polish"
+Group = "finish"
+Position = 0.92
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "coat"
+Minimum = 0
+Maximum = 0.5
+
+[[Materials.Controls.Targets]]
+Key = "coatRoughness"
+Minimum = 0.22
+Maximum = 0.055
+
+[[Materials.Controls]]
+Id = "grain"
+Caption = "Crystal relief"
+Group = "detail"
+Position = 0.410526
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grain"
+Minimum = 0.05
+Maximum = 1
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Mineral scale"
+Group = "detail"
+Position = 20
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000
+
+[[Materials]]
+Path = "badlands-laterite-outcrop.material"
+Name = "Badlands Laterite & Shale"
+Category = "Stone"
+Label = "ARID OUTCROP \u00b7 HEMATITE FLAKES"
+Description = "Iron-rich badlands laterite regolith with specular hematite and quartz grit flakes, layered fissile grey shale laminae and pale caliche evaporite crust."
+Ordinal = 141
+RecipeTitle = "Clay"
+RecipeCaption = "Aggregate and wetness. A procedural surface approximation, not a volume simulation."
+Color = "#8f3f29"
+SourceRecipe = {"color" = "#8f3f29", "type" = 12, "roughness" = 0.82, "metalness" = 0, "coat" = 0, "coatRoughness" = 0.15, "depth" = 0.5, "flakes" = 0.5, "tertiaryColor" = "#282b30", "ribDepth" = 0.018, "ribProfile" = 0, "sheetFinish" = 0, "sheetOxidation" = 0, "sheetSpangle" = 0, "grainSize" = 0.65, "grainSizeVariation" = 0.5, "grainRoughness" = 0.6, "grainRoughnessVariation" = 0.3, "grainSpecular" = 0.8, "grainSpecularVariation" = 0.35, "grainIOR" = 1.544, "grainRoundness" = 0.45, "grainTilt" = 0.32, "grainRelief" = 0.85, "sandCoverage" = 1, "sandScale" = 1, "sandBandFrequency" = 1.5, "sandBandWarp" = 0.2, "sandBandAngle" = 0, "groutWidth" = 0.045, "tileVariation" = 0.1, "tileStagger" = 0, "veinWidth" = 0.035, "poreDensity" = 0.5, "wallMode" = 0, "leafAspect" = 0.4, "bladeWidth" = 0.13, "bladeLean" = 0.4, "surfaceSeed" = 1147, "metalScratches" = false, "scratchAngle" = 25, "scratchDensity" = 0.6, "scratchLength" = 1.15, "scratchWidth" = 0.012, "scratchDepth" = 0.0018, "scratchSpread" = 0.8, "scratchBend" = 0.04, "cellLobing" = 0.65, "stomataDensity" = 0.22, "veinRelief" = 0.65, "cellScale" = 120, "cellRelief" = 0.5, "colorGradient" = 0.65, "spotDensity" = 0.4, "skinMode" = 0, "plantRibs" = 10, "lensDome" = 0.7, "packageDepth" = 0.6, "secondaryColor" = "#b86443", "emissionColor" = "#ffffff", "emissionStrength" = 0, "pixelFill" = 0.65, "moisture" = 0.1, "scattering" = 0, "translucency" = 0, "freckles" = 0, "paperRibs" = 0, "fiberContrast" = 0.3, "oxidation" = 0, "panelMode" = 0, "busbarWidth" = 0.016, "dimpleDepth" = 0.012, "denimFade" = 0.12, "slub" = 0.3, "opticalGrade" = false, "polymerIOR" = 1.5, "bakeMode" = 0, "bakeHeightRange" = 0.02, "recipeId" = "clay", "tuning" = {}, "weavePattern" = "twill", "warpColor" = "#777569", "weftColor" = "#777569", "paintEffect" = "standard", "iridescence" = 0, "iridescenceIOR" = 1.35, "filmThickness" = 380, "filmVariation" = 45, "ior" = 1.5, "coatIor" = 1.5, "specular" = 1, "specularColor" = "#ffffff", "flakeSize" = 450, "flakeScale" = 1, "flakeRoughnessMin" = 0.12, "flakeRoughnessMax" = 0.3, "flakeMetalnessMin" = 0.85, "flakeMetalnessMax" = 1, "flakeTilt" = 0.2, "flakeLayers" = 3, "flakeLayerDepth" = 0.55, "colorMode" = "palette", "orangePeel" = 0, "orangePeelScale" = 24, "detailScale" = 15, "weaveAngle" = 45, "weaveRelief" = 0.65, "fiberDetail" = 12, "anisotropy" = 0, "sheen" = 0, "sheenColor" = "#777569", "sheenRoughness" = 0.55, "fuzz" = 0, "fuzzLength" = 0.7, "fabricMode" = 0, "grain" = 0.64, "wear" = 0, "scratchScale" = 32, "wearSoftness" = 0.65, "wornRoughness" = 0.24, "clothMapping" = false, "id" = "badlands-laterite-outcrop", "name" = "Badlands Laterite & Shale", "category" = "Stone", "label" = "ARID OUTCROP \u00b7 HEMATITE FLAKES", "description" = "Iron-rich badlands laterite regolith with specular hematite and quartz grit flakes, layered fissile grey shale laminae and pale caliche evaporite crust.", "colors" = ["#8f3f29", "#4f545b", "#ddd4c3"], "colorStops" = [0], "hideVariant" = 1, "hideVariation" = 0.65, "materialVersion" = 6}
+
+[[Materials.Controls]]
+Id = "roughness"
+Caption = "Clay Roughness"
+Group = "finish"
+Position = 0.6764705882352942
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "roughness"
+Minimum = 0.3
+Maximum = 0.98
+
+[[Materials.Controls]]
+Id = "wetness"
+Caption = "Clay wetness"
+Group = "finish"
+Position = 0.1
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "moisture"
+Minimum = 0
+Maximum = 1
+
+[[Materials.Controls.Targets]]
+Key = "coat"
+Minimum = 0
+Maximum = 0.45
+
+[[Materials.Controls.Targets]]
+Key = "coatRoughness"
+Minimum = 0.25
+Maximum = 0.08
+
+[[Materials.Controls]]
+Id = "grain"
+Caption = "Aggregate"
+Group = "finish"
+Position = 0.47826086956521735
+Minimum = 0
+Maximum = 1
+Direct = false
+Logarithmic = false
+Step = 0.01
+Unit = ""
+
+[[Materials.Controls.Targets]]
+Key = "grain"
+Minimum = 0.05
+Maximum = 1.2
+
+[[Materials.Controls]]
+Id = "detailScale"
+Caption = "Aggregate scale"
+Group = "detail"
+Position = 24
+Minimum = 0.01
+Maximum = 1000
+Direct = true
+Logarithmic = true
+Step = 0.01
+Unit = "×"
+
+[[Materials.Controls.Targets]]
+Key = "detailScale"
+Minimum = 0.01
+Maximum = 1000

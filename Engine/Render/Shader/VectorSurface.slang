@@ -317,9 +317,10 @@ void VectorSurfaceCompute(uint3 Pixel : SV_DispatchThreadID)
         VectorCoverageInstruction Contribution = Instructions[InstructionCapacity + Index];
         if ((Contribution.Topology.z & (1u << Projection.Channel)) == 0) continue;
         float4 LayerColour = Evaluations[Contribution.Topology.x];
-        float OutputAlpha = LayerColour.a + ChannelAlpha * (1 - LayerColour.a);
+        float LayerAlpha = LayerColour.a * (Projection.Channel == 0 ? saturate(Contribution.Bounds.x) : 1.0);
+        float OutputAlpha = LayerAlpha + ChannelAlpha * (1 - LayerAlpha);
         Colour.rgb = OutputAlpha > 0
-            ? (LayerColour.rgb * LayerColour.a + Colour.rgb * ChannelAlpha * (1 - LayerColour.a)) / OutputAlpha
+            ? (LayerColour.rgb * LayerAlpha + Colour.rgb * ChannelAlpha * (1 - LayerAlpha)) / OutputAlpha
             : 0;
         ChannelAlpha = OutputAlpha;
     }
@@ -360,7 +361,7 @@ void VectorSurfaceCompute(uint3 Pixel : SV_DispatchThreadID)
             float CoverageAlpha = Evaluations[Contribution.Topology.x].a;
             uint Channel = Projection.Channel;
             if ((Contribution.Topology.z & (1u << Channel)) == 0) continue;
-            float Strength = Channel < 4 ? Contribution.Bounds[Channel] : Contribution.Transform[Channel - 4];
+            float Strength = Channel < 4 ? Contribution.Bounds[Channel] : Channel < 7 ? Contribution.Transform[Channel - 4] : Contribution.Colour[Channel - 7];
             float Target = Channel == 6 ? 1 - Strength : Strength;
             if (Channel == 5) Surface = float3(ChannelAlpha);
             else Surface = lerp(Surface, float3(Target), saturate(CoverageAlpha));

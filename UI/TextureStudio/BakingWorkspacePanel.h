@@ -14,6 +14,7 @@
 #include "Engine/Interface/VectorAuthoringControls.h"
 #include "Engine/Lifecycle/ActivationSequence.h"
 #include "Engine/Render/MaterialPreviewConfiguration.h"
+#include "Engine/Render/WorkspaceViewportRendering.h"
 #include <atomic>
 #include <filesystem>
 #include <functional>
@@ -51,6 +52,13 @@ class BakingWorkspacePanel final : public ActivationSequence
     std::function<std::string()> QueryGpuBakeDevice;
     std::function<bool(std::shared_ptr<const BakeFieldRequest>)> SubmitGpuBake;
     std::function<BakeGpuOutcome()> PollGpuBake;
+
+    // Unified 3D PBR viewport hooks shared with Material and Texture Paint via MaterialLibraryRendering.
+    std::function<void(const SurfaceGeometry &)> ConfigureViewportGeometry;
+    std::function<void(const CompiledSurfaceMaterial &)> ConfigureViewportMaterial;
+    std::function<void(const WorkspaceViewportOrbitCamera &)> ConfigureViewportCamera;
+    std::function<void(uint32_t, uint32_t)> ConfigureViewportExtent;
+    std::function<WorkspaceViewportImage()> QueryViewport;
 
     // 📝 Where ConstructInterface last wrote exported PNG/manifest files (QueryExportDirectory to configure it);
     // empty until a bake has been exported at least once this session.
@@ -182,6 +190,20 @@ class BakingWorkspacePanel final : public ActivationSequence
     bool SmoothedCameraReady = false;
     void SynchronizeCamera();
     bool Overlay = false, Wireframe = false;
+    std::string CachedViewportMeshKey;
+    SurfaceGeometry CachedViewportGeometry;
+    std::array<float, 3> CachedViewportPivot{0.f, 0.f, 0.f};
+    float CachedViewportRadius = .85f;
+    uint64_t BakeResultsRevision = 1;
+    std::string CachedViewportMaterialKey;
+    CompiledSurfaceMaterial CachedViewportMaterial;
+    WorkspaceViewportOrbitCamera SentViewportCamera{};
+    bool SentViewportCameraReady = false;
+    uint32_t SentViewportWidth = 0, SentViewportHeight = 0;
+    WorkspaceViewportOrbitCamera CachedCpuOrbit{};
+    std::string CachedCpuStateKey;
+    uint32_t CachedCpuWidth = 0, CachedCpuHeight = 0;
+    std::vector<uint8_t> CachedCpuRgba;
     void ConstructViewport3D(PlaneExtent Region);
     void ResetCamera() noexcept { ResetMaterialPreviewView(Camera); }
 

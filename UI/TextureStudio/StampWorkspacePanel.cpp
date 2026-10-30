@@ -2084,16 +2084,18 @@ void StampWorkspacePanel::ConstructLayers()
             Caption(ImVec2(Origin.x + X, FooterOrigin.y + 9 * Scale), Label, 7 * Scale, 0x5f5f58);
             Caption(ImVec2(Origin.x + X, FooterOrigin.y + 23 * Scale), Value.c_str(), 9 * Scale, ValueColour);
         };
-        Stat(12 * Scale, "COMPONENTS", std::to_string(Snapshot.Layers.size()), 0x8eb896);
-        Stat(72 * Scale, "VISIBLE", std::to_string(Visible), 0xa6a699);
-        Stat(122 * Scale, "SELECTED", std::to_string(Selection.size()), 0xa6a699);
+        const float StatsAvailable = std::max(96.f * Scale, Width - 122.f * Scale);
+        const bool CompactFooter = StatsAvailable < 155.f * Scale;
+        Stat(10 * Scale, CompactFooter ? "COMP" : "COMPONENTS", std::to_string(Snapshot.Layers.size()), 0x8eb896);
+        Stat(10 * Scale + StatsAvailable * (CompactFooter ? 0.36f : 0.40f), CompactFooter ? "VIS" : "VISIBLE", std::to_string(Visible), 0xa6a699);
+        Stat(10 * Scale + StatsAvailable * (CompactFooter ? 0.68f : 0.72f), CompactFooter ? "SEL" : "SELECTED", std::to_string(Selection.size()), 0xa6a699);
         const bool FooterEditable = !Selection.empty() && !MaskSelection && !PenSource && Gesture == 0 &&
             std::none_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer)
             {
                 return std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end() &&
                     (QueryVectorAuthoringProtection(Snapshot, Layer) || !QueryVectorAuthoringVisibility(Snapshot, Layer));
             });
-        float ButtonX = Origin.x + Width - 112 * Scale;
+        float ButtonX = Origin.x + Width - 108 * Scale;
         const float ButtonY = FooterOrigin.y + 11.5f * Scale;
         ImGui::BeginDisabled(!FooterEditable);
         ImGui::SetCursorScreenPos(ImVec2(ButtonX, ButtonY));
@@ -2130,52 +2132,26 @@ void StampWorkspacePanel::ConstructLayers()
 
 void StampWorkspacePanel::RebuildPbrMaps(const VectorAuthoringDocument &Snapshot)
 {
-    // 💡 Channel maps for the lit preview: the evaluated design (modifiers applied, exactly what
-    // the canvas shows) rasterized whole for base colour, then once per visible layer with only
-    // that layer showing, so each layer's surface-channel strengths land where its art actually
-    // is. Roughness/metalness/normal-scale composite source-over their defaults (an upper layer
-    // redefines the surface); height accumulates, so stacked layers emboss higher.
     PbrMapsValid = false;
     PbrMapsBuiltAt = ImGui::GetTime();
     try
     {
-        const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Snapshot);
-        auto Base = RasterizeStampDocument(Evaluated, uint32_t(PbrExtent));
+        auto Maps = EvaluateStampSurfaceMaps(Snapshot, uint32_t(PbrExtent));
         const size_t Count = size_t(PbrExtent) * size_t(PbrExtent);
-        if (Base.size() != Count * 4) return;
-        PbrBase = std::move(Base);
-        PbrRoughness.assign(Count, .9f);
-        PbrMetalness.assign(Count, 0.f);
-        PbrHeight.assign(Count, 0.f);
-        PbrNormalScale.assign(Count, 1.f);
-        for (size_t Index = 0; Index < Evaluated.Layers.size(); ++Index)
-        {
-            const auto &Layer = Evaluated.Layers[Index];
-            if (!QueryVectorAuthoringVisibility(Evaluated, Layer)) continue;
-            const auto &Channels = Layer.SurfaceChannels;
-            const auto &Rough = Channels[size_t(VectorAuthoringSurfaceChannel::Roughness)];
-            const auto &Metal = Channels[size_t(VectorAuthoringSurfaceChannel::Metalness)];
-            const auto &HeightCh = Channels[size_t(VectorAuthoringSurfaceChannel::Height)];
-            const auto &NormalCh = Channels[size_t(VectorAuthoringSurfaceChannel::Normal)];
-            if (!Rough.Enabled && !Metal.Enabled && !HeightCh.Enabled && !NormalCh.Enabled) continue;
-            auto Solo = Evaluated;
-            for (size_t Other = 0; Other < Solo.Layers.size(); ++Other) Solo.Layers[Other].Visible = Other == Index;
-            const auto Raster = RasterizeStampDocument(Solo, uint32_t(PbrExtent));
-            if (Raster.size() != Count * 4) continue;
-            const float RoughValue = std::clamp(Rough.Strength, 0.f, 1.f);
-            const float MetalValue = std::clamp(Metal.Strength, 0.f, 1.f);
-            const float HeightValue = std::clamp(HeightCh.Strength, 0.f, 1.f);
-            const float NormalValue = std::clamp(NormalCh.Strength, 0.f, 4.f);
-            for (size_t Texel = 0; Texel < Count; ++Texel)
-            {
-                const float Alpha = Raster[Texel * 4 + 3] / 255.f;
-                if (Alpha <= .003f) continue;
-                if (Rough.Enabled) PbrRoughness[Texel] += (RoughValue - PbrRoughness[Texel]) * Alpha;
-                if (Metal.Enabled) PbrMetalness[Texel] += (MetalValue - PbrMetalness[Texel]) * Alpha;
-                if (NormalCh.Enabled) PbrNormalScale[Texel] += (NormalValue - PbrNormalScale[Texel]) * Alpha;
-                if (HeightCh.Enabled) PbrHeight[Texel] = std::min(1.f, PbrHeight[Texel] + HeightValue * Alpha);
-            }
-        }
+        if (Maps.ColourRgba.size() != Count * 4 || Maps.Coverage.size() != Count) return;
+        PbrBase = std::move(Maps.ColourRgba);
+        PbrCoverage = std::move(Maps.Coverage);
+        PbrRoughness = std::move(Maps.Roughness);
+        PbrMetalness = std::move(Maps.Metalness);
+        PbrHeight = std::move(Maps.Height);
+        PbrNormalScale = std::move(Maps.NormalScale);
+        PbrNormalX = std::move(Maps.NormalX);
+        PbrNormalY = std::move(Maps.NormalY);
+        PbrNormalZ = std::move(Maps.NormalZ);
+        PbrOpacity = std::move(Maps.Opacity);
+        PbrOcclusion = std::move(Maps.Occlusion);
+        PbrTransmission = std::move(Maps.Transmission);
+        PbrClearcoat = std::move(Maps.Clearcoat);
         PbrMapsValid = true;
     }
     catch (...) { PbrMapsValid = false; }
@@ -2183,20 +2159,13 @@ void StampWorkspacePanel::RebuildPbrMaps(const VectorAuthoringDocument &Snapshot
 
 void StampWorkspacePanel::DrawPbrPreview(float BoardMinimumX, float BoardMinimumY, float BoardSize)
 {
-    // 💡 CPU-lit blocks over the board (the panel's thumbnail drawing style, sized to the board):
-    // every block shades its texel's material against the draggable point light - GGX-flavoured
-    // specular (F0 from metalness, width from roughness) over lambert diffuse, normals derived
-    // from the height map (Normal channel scales the relief). Display-space math, tuned for
-    // legibility rather than physical units: drag the sun and metals glint, height rakes.
-    if (!PbrMapsValid || PbrBase.size() != size_t(PbrExtent) * size_t(PbrExtent) * 4) return;
+    const size_t Count = size_t(PbrExtent) * size_t(PbrExtent);
+    if (!PbrMapsValid || PbrBase.size() != Count * 4 || PbrCoverage.size() != Count) return;
     auto *Ink = ImGui::GetWindowDrawList();
     const int Blocks = std::clamp(int(BoardSize / (4.f * Scale)), 64, 176);
     const float BlockPx = BoardSize / float(Blocks);
     const float Light[3]{PbrLightX, PbrLightY, 260.f}; // document-plane units, z toward the viewer
     const float BoardColour[3]{.929f, .906f, .843f};   // 0xede7d7, the flat canvas ground
-    const auto HeightAt = [&](int X, int Y) {
-        return PbrHeight[size_t(std::clamp(Y, 0, PbrExtent - 1)) * size_t(PbrExtent) + size_t(std::clamp(X, 0, PbrExtent - 1))];
-    };
     for (int By = 0; By < Blocks; ++By)
     {
         int RunStart = -1;
@@ -2215,41 +2184,91 @@ void StampWorkspacePanel::DrawPbrPreview(float BoardMinimumX, float BoardMinimum
             const int Ty = std::min(PbrExtent - 1, int((By + .5f) / Blocks * PbrExtent));
             const size_t Texel = size_t(Ty) * size_t(PbrExtent) + size_t(Tx);
             const uint8_t *Pixel = &PbrBase[Texel * 4];
-            if (Pixel[3] < 6) { Flush(Bx); continue; }
-            float BaseC[3]{Pixel[0] / 255.f, Pixel[1] / 255.f, Pixel[2] / 255.f};
-            const float Rough = std::clamp(PbrRoughness[Texel], .08f, 1.f);
-            const float Metal = std::clamp(PbrMetalness[Texel], 0.f, 1.f);
-            const float Relief = 2.f * std::clamp(PbrNormalScale[Texel], 0.f, 2.5f);
-            float Normal[3]{-(HeightAt(Tx + 1, Ty) - HeightAt(Tx - 1, Ty)) * Relief,
-                            -(HeightAt(Tx, Ty + 1) - HeightAt(Tx, Ty - 1)) * Relief, 1.f};
-            const float NormalLength = std::sqrt(Normal[0] * Normal[0] + Normal[1] * Normal[1] + 1.f);
-            Normal[0] /= NormalLength; Normal[1] /= NormalLength; Normal[2] /= NormalLength;
-            const float Point[3]{(Bx + .5f) / Blocks * 512.f, (By + .5f) / Blocks * 512.f, 0.f};
-            float ToLight[3]{Light[0] - Point[0], Light[1] - Point[1], Light[2]};
-            const float Distance = std::sqrt(ToLight[0] * ToLight[0] + ToLight[1] * ToLight[1] + ToLight[2] * ToLight[2]);
-            ToLight[0] /= Distance; ToLight[1] /= Distance; ToLight[2] /= Distance;
-            const float Attenuation = 1.f / (1.f + (Distance / 620.f) * (Distance / 620.f));
-            const float NdL = std::max(0.f, Normal[0] * ToLight[0] + Normal[1] * ToLight[1] + Normal[2] * ToLight[2]);
-            float Half[3]{ToLight[0], ToLight[1], ToLight[2] + 1.f}; // view is straight down +z
-            const float HalfLength = std::sqrt(Half[0] * Half[0] + Half[1] * Half[1] + Half[2] * Half[2]);
-            Half[0] /= HalfLength; Half[1] /= HalfLength; Half[2] /= HalfLength;
-            const float NdH = std::max(0.f, Normal[0] * Half[0] + Normal[1] * Half[1] + Normal[2] * Half[2]);
-            const float VdH = std::clamp(Half[2], 0.f, 1.f);
-            const float A = Rough * Rough, A2 = A * A;
-            const float Denominator = NdH * NdH * (A2 - 1.f) + 1.f;
-            const float Distribution = A2 / std::max(1e-3f, Denominator * Denominator);
-            const float FresnelBase = std::pow(1.f - VdH, 5.f);
-            const float Alpha = Pixel[3] / 255.f;
-            float Lit[3];
-            for (int Channel = 0; Channel < 3; ++Channel)
+            const float Coverage = PbrCoverage[Texel];
+            const float ColourAlpha = Pixel[3] / 255.f;
+            if (PbrViewChannel == 0 && Coverage < .015f && ColourAlpha < .015f) { Flush(Bx); continue; }
+            float Lit[3]{BoardColour[0], BoardColour[1], BoardColour[2]};
+            if (PbrViewChannel != 0)
             {
-                const float F0 = .04f + (BaseC[Channel] - .04f) * Metal;
-                const float Fresnel = F0 + (1.f - F0) * FresnelBase;
-                const float Ambient = BaseC[Channel] * .18f * (.4f + .6f * Normal[2]) * (1.f - Metal * .55f);
-                const float Diffuse = BaseC[Channel] * (1.f - Metal) * NdL;
-                const float Specular = Distribution * Fresnel * NdL * .55f;
-                const float Shaded = Ambient + Attenuation * (Diffuse + Specular);
-                Lit[Channel] = std::clamp(Shaded * Alpha + BoardColour[Channel] * (1.f - Alpha), 0.f, 1.f);
+                if (PbrViewChannel == 1)
+                {
+                    for (int Ch = 0; Ch < 3; ++Ch)
+                        Lit[Ch] = (Pixel[Ch] / 255.f) * ColourAlpha + BoardColour[Ch] * (1.f - ColourAlpha);
+                }
+                else if (PbrViewChannel == 2)
+                {
+                    const float H = std::clamp(PbrHeight[Texel] * .5f + .5f, 0.f, 1.f);
+                    Lit[0] = Lit[1] = Lit[2] = H;
+                }
+                else if (PbrViewChannel == 3)
+                {
+                    Lit[0] = std::clamp(PbrNormalX[Texel] * .5f + .5f, 0.f, 1.f);
+                    Lit[1] = std::clamp(PbrNormalY[Texel] * .5f + .5f, 0.f, 1.f);
+                    Lit[2] = std::clamp(PbrNormalZ[Texel] * .5f + .5f, 0.f, 1.f);
+                }
+                else
+                {
+                    float Scalar = 0.f;
+                    if (PbrViewChannel == 4) Scalar = PbrRoughness[Texel];
+                    else if (PbrViewChannel == 5) Scalar = PbrMetalness[Texel];
+                    else if (PbrViewChannel == 6) Scalar = PbrOpacity[Texel];
+                    else if (PbrViewChannel == 7) Scalar = PbrOcclusion[Texel];
+                    else if (PbrViewChannel == 8) Scalar = PbrClearcoat[Texel];
+                    else if (PbrViewChannel == 9) Scalar = PbrTransmission[Texel];
+                    Scalar = std::clamp(Scalar, 0.f, 1.f);
+                    Lit[0] = Lit[1] = Lit[2] = Scalar;
+                }
+            }
+            else
+            {
+                const float Rough = std::clamp(PbrRoughness[Texel], .06f, 1.f);
+                const float Metal = std::clamp(PbrMetalness[Texel], 0.f, 1.f);
+                const float Ao = std::clamp(PbrOcclusion[Texel], 0.f, 1.f);
+                const float Trans = std::clamp(PbrTransmission[Texel], 0.f, 1.f);
+                const float Coat = std::clamp(PbrClearcoat[Texel], 0.f, 1.f);
+                const float Normal[3]{PbrNormalX[Texel], PbrNormalY[Texel], PbrNormalZ[Texel]};
+
+                float BaseC[3];
+                const float PigmentMix = ColourAlpha * (1.f - Trans * .78f);
+                for (int Ch = 0; Ch < 3; ++Ch)
+                    BaseC[Ch] = (Pixel[Ch] / 255.f) * PigmentMix + BoardColour[Ch] * (1.f - PigmentMix);
+
+                const float Point[3]{(Bx + .5f) / Blocks * 512.f, (By + .5f) / Blocks * 512.f, 0.f};
+                float ToLight[3]{Light[0] - Point[0], Light[1] - Point[1], Light[2]};
+                const float Distance = std::sqrt(ToLight[0] * ToLight[0] + ToLight[1] * ToLight[1] + ToLight[2] * ToLight[2]);
+                ToLight[0] /= Distance; ToLight[1] /= Distance; ToLight[2] /= Distance;
+                const float Attenuation = 1.f / (1.f + (Distance / 620.f) * (Distance / 620.f));
+                const float NdL = std::max(0.f, Normal[0] * ToLight[0] + Normal[1] * ToLight[1] + Normal[2] * ToLight[2]);
+                float Half[3]{ToLight[0], ToLight[1], ToLight[2] + 1.f};
+                const float HalfLength = std::sqrt(Half[0] * Half[0] + Half[1] * Half[1] + Half[2] * Half[2]);
+                Half[0] /= HalfLength; Half[1] /= HalfLength; Half[2] /= HalfLength;
+                const float NdH = std::max(0.f, Normal[0] * Half[0] + Normal[1] * Half[1] + Normal[2] * Half[2]);
+                const float VdH = std::clamp(Half[2], 0.f, 1.f);
+                const float A = Rough * Rough, A2 = A * A;
+                const float Denominator = NdH * NdH * (A2 - 1.f) + 1.f;
+                const float Distribution = A2 / std::max(1e-3f, Denominator * Denominator);
+                const float FresnelBase = std::pow(1.f - VdH, 5.f);
+
+                const float CoatAlpha = .06f * .06f, CoatA2 = CoatAlpha * CoatAlpha;
+                const float CoatDenom = NdH * NdH * (CoatA2 - 1.f) + 1.f;
+                const float CoatDist = CoatA2 / std::max(1e-4f, CoatDenom * CoatDenom);
+                const float CoatFresnel = .04f + .96f * FresnelBase;
+                const float CoatSpec = Coat * CoatDist * CoatFresnel * NdL * .42f;
+                const float UnderAtten = 1.f - Coat * CoatFresnel;
+
+                const float BlendAlpha = std::clamp(std::max(Coverage, ColourAlpha), 0.f, 1.f);
+                for (int Ch = 0; Ch < 3; ++Ch)
+                {
+                    const float F0 = .04f + (BaseC[Ch] - .04f) * Metal;
+                    const float Fresnel = F0 + (1.f - F0) * FresnelBase;
+                    const float Ambient = BaseC[Ch] * .18f * Ao * (.4f + .6f * Normal[2]) * (1.f - Metal * .55f);
+                    const float Diffuse = BaseC[Ch] * (1.f - Metal) * (1.f - Trans * .75f) * NdL;
+                    const float Specular = Distribution * Fresnel * NdL * .55f;
+                    const float Refracted = Trans * BoardColour[Ch] * (.68f + .32f * NdL) * Ao;
+                    const float CoatAmbient = Coat * .035f * Ao * (.5f + .5f * Normal[2]);
+                    const float Shaded = UnderAtten * (Ambient + Refracted + Attenuation * (Diffuse + Specular)) + CoatAmbient + Attenuation * CoatSpec;
+                    Lit[Ch] = std::clamp(Shaded * BlendAlpha + BoardColour[Ch] * (1.f - BlendAlpha), 0.f, 1.f);
+                }
             }
             const uint32_t Qr = uint32_t(Lit[0] * 255) >> 3, Qg = uint32_t(Lit[1] * 255) >> 3, Qb = uint32_t(Lit[2] * 255) >> 3;
             const uint32_t Key = (Qr << 10) | (Qg << 5) | Qb;
@@ -2345,11 +2364,30 @@ void StampWorkspacePanel::ConstructCanvas()
     Caption(At(36, 109), "VECTOR CANVAS    512 \u00d7 512", 8 * Scale, 0x888888);
     // 💡 Lit-material view of the same canvas: layers shaded by their PBR surface channels under a
     // light you drag across the board (the sun handle). Pure preview; the tools keep editing.
+    if (PbrPreview && !MaskSelection && Width / Scale >= 590.f)
+    {
+        static constexpr const char *ChannelModes[]{
+            "Lit", "Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "AO", "Clearcoat", "Transmission"};
+        ImGui::SetCursorScreenPos(At(Width / Scale - 421, 101));
+        std::string ModeCaption = std::string("View: ") + ChannelModes[std::clamp(PbrViewChannel, 0, 9)];
+        if (Controls.Button(ModeCaption.c_str(), 104 * Scale, false, {}, true))
+            ImGui::OpenPopup("Stamp PBR view");
+        if (DropdownControlSurface::BeginMenu("Stamp PBR view", Scale))
+        {
+            for (int Mode = 0; Mode < 10; ++Mode)
+                if (DropdownControlSurface::Option(ChannelModes[Mode], PbrViewChannel == Mode, Scale))
+                {
+                    PbrViewChannel = Mode;
+                    ImGui::CloseCurrentPopup();
+                }
+            DropdownControlSurface::EndMenu();
+        }
+    }
     ImGui::SetCursorScreenPos(At(Width / Scale - 311, 101));
     ImGui::BeginDisabled(MaskSelection != 0);
     if (Controls.Button("PBR preview", 84 * Scale, PbrPreview && !MaskSelection, "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 2V4M12 20V22M2 12H4M20 12H22M4.9 4.9L6.3 6.3M17.7 17.7L19.1 19.1M4.9 19.1L6.3 17.7M17.7 6.3L19.1 4.9")) PbrPreview = !PbrPreview;
     ImGui::EndDisabled();
-    Controls.Tooltip("PBR preview", "Shade the design with its layers' PBR channels (colour / roughness / metalness / height) under a movable light: drag the sun across the canvas to rake light over the material. Set each layer's channels in the Inspector; they also seed decal PBR in Texture Paint.");
+    Controls.Tooltip("PBR preview", "Shade the design with all 9 PBR surface channels (colour, signed height, derived normal, roughness, metalness, opacity, AO, clearcoat, transmission) under a movable light, or inspect each channel output individually.");
     ImGui::SetCursorScreenPos(At(Width / Scale - 219, 101));
     if (Controls.Button("Zoom out", 26 * Scale, false, "M5 12H19")) Zoom = ApplyWorkspaceZoomStep(Zoom, 1.f / 1.25f);
     ImGui::SameLine(0, 4 * Scale);
@@ -2414,8 +2452,9 @@ void StampWorkspacePanel::ConstructCanvas()
     // 💡 Channel maps follow the same revisions the coverage program does (throttled while a
     // gesture streams edits, so dragging a shape never pays 25 rasterizations per pointer move).
     const bool PbrActive = PbrPreview && !MaskSelection;
-    if (PbrActive && (!PbrMapsValid || PbrMapsHistoryRevision != HistoryRevision || PbrMapsGestureRevision != GestureRevision) &&
-        ImGui::GetTime() - PbrMapsBuiltAt > .12)
+    if ((PbrActive || (!QueryCoverage && !Snapshot.Layers.empty())) &&
+        (!PbrMapsValid || PbrMapsHistoryRevision != HistoryRevision || PbrMapsGestureRevision != GestureRevision) &&
+        (!PbrMapsValid || ImGui::GetTime() - PbrMapsBuiltAt > .12))
     {
         RebuildPbrMaps(Snapshot);
         PbrMapsHistoryRevision = HistoryRevision;
@@ -2424,8 +2463,9 @@ void StampWorkspacePanel::ConstructCanvas()
     const float DisplayPixels = BoardSize * ImGui::GetIO().DisplayFramebufferScale.x;
     const uint32_t RequestedExtent = uint32_t(std::clamp(std::ceil(DisplayPixels), 1.f, 4096.f));
     const auto Texture = QueryCoverage ? QueryCoverage(CachedCoverageProgram, RequestedExtent) : 0;
-    if (PbrActive && PbrMapsValid) DrawPbrPreview(BoardMinimum.x, BoardMinimum.y, BoardSize);
+    if ((PbrActive || (!Texture && !Snapshot.Layers.empty())) && PbrMapsValid) DrawPbrPreview(BoardMinimum.x, BoardMinimum.y, BoardSize);
     else if (Texture) Ink->AddImage(ImTextureRef(Texture), BoardMinimum, BoardMaximum);
+    else if (Snapshot.Layers.empty()) Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "Empty decal canvas", 11 * Scale, 0x68695a);
     else Caption(ImVec2(BoardMinimum.x + 12 * Scale, BoardMinimum.y + 12 * Scale), "GPU coverage unavailable", 11 * Scale, 0x68695a);
     const bool BakePending = Texture && QueryCoverageReady && !QueryCoverageReady();
     // 📝 Same rule as Pattern: every fresh edit revision restarts the pending clock, so the badge
@@ -3089,10 +3129,13 @@ void StampWorkspacePanel::ConstructInspector()
         {
         ImGui::TableSetupColumn("Horizontal", ImGuiTableColumnFlags_WidthStretch, 1);
         ImGui::TableSetupColumn("Vertical", ImGuiTableColumnFlags_WidthStretch, 1);
+        float RowCursorY = 0.f;
         for (size_t Index = 0; Index < 4; ++Index)
         {
-            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 80 * Scale);
+            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 60 * Scale);
             ImGui::TableNextColumn();
+            if (Index % 2 == 0) RowCursorY = ImGui::GetCursorPosY();
+            else ImGui::SetCursorPosY(RowCursorY);
             float Quantity = Bounds[Index];
             const char *Captions[]{"X", "Y", "Width", "Height"};
             if (Controls.Number(Captions[Index], Quantity, Index < 2 ? -512.f : 1.f, 1024))
@@ -3242,7 +3285,7 @@ void StampWorkspacePanel::ConstructInspector()
                 ComponentSvgBuffer = First->SourceMarkup;
                 ImGui::OpenPopup("Add stamp vector");
             }
-            ImGui::TextWrapped("Gradients fall back to a neutral grey; clip-paths and masks are not ported.");
+            ImGui::TextWrapped("Linear and radial SVG gradients, strokes, and group opacity are imported natively; clip-paths and masks are skipped.");
         }
         else
         {
@@ -3488,8 +3531,10 @@ void StampWorkspacePanel::ConstructInspector()
             }
         }
         Controls.EndCard();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(80.f, ImGui::GetContentRegionAvail().x - 14.f * Scale));
         ImGui::TextWrapped("For a plastic/film sticker over a decal: enable Transmission + Clearcoat + Roughness on the "
             "film layer, and Height/Normal on the decal layer beneath it for embossed text or bump.");
+        ImGui::PopTextWrapPos();
         if (Selection.size() > 1)
             ImGui::TextDisabled("Toggling a channel applies the displayed setting to every selected component.");
         for (const auto &Channel : StampChannels)
