@@ -3048,6 +3048,114 @@ void StampWorkspacePanel::ConstructInspector()
         ImGui::EndChild();
         return;
     }
+    if (!MaskSelection)
+    {
+        Controls.BeginCard(Selection.size() == 1 ? "Selected component" : "Selected components");
+        ImGui::BeginDisabled(Protected);
+        if (Selection.size() >= 2)
+        {
+            bool Eligible = !Protected && std::all_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return !Selected(Layer) || !Layer.Mask; });
+            if (const auto Operation = ConstructVectorBooleanControls(Eligible))
+            {
+                try { auto Document = Snapshot; const auto Token = IntegrateVectorAuthoringBoolean(Document, Selection, VectorCoverageCategory(*Operation)); Finalize(std::move(Document), {Token}); }
+                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
+            }
+        }
+        ImGui::Spacing();
+        if (Controls.Button("Duplicate selection", 30 * Scale, false, CopyPath)) ReplicateSelection();
+        Controls.Tooltip("Duplicate", "Retain editable source, mask and channel settings in an independent copy.");
+        ImGui::SameLine(0, 6 * Scale);
+        if (Controls.Button("Delete selection", 30 * Scale, false, TrashPath)) EvaluateEdit([&](auto &Document) { PartitionVectorAuthoringSelection(Document, Selection); });
+        ImGui::EndDisabled();
+        Controls.EndCard();
+        if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
+        // 🧭 Transform: identity, position/alignment/size — everything not related to PBR, in
+        // its own card above the surface channels (the Alloy inspector separation).
+        Controls.BeginCard("Transform", true);
+        {
+            bool Locked = First->Locked;
+            if (Controls.Toggle("Locked", Locked)) EvaluateEdit([&](auto &Document)
+            {
+                for (auto &Layer : Document.Layers)
+                    if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end()) Layer.Locked = Locked;
+            });
+        }
+        ImGui::BeginDisabled(Protected);
+        char LayerName[81]; std::snprintf(LayerName, sizeof(LayerName), "%s", First->Name.c_str());
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##Layer name", LayerName, sizeof(LayerName))) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Name = LayerName; });
+        const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
+        if (ImGui::BeginTable("Transform fields", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings))
+        {
+        ImGui::TableSetupColumn("Horizontal", ImGuiTableColumnFlags_WidthStretch, 1);
+        ImGui::TableSetupColumn("Vertical", ImGuiTableColumnFlags_WidthStretch, 1);
+        for (size_t Index = 0; Index < 4; ++Index)
+        {
+            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 80 * Scale);
+            ImGui::TableNextColumn();
+            float Quantity = Bounds[Index];
+            const char *Captions[]{"X", "Y", "Width", "Height"};
+            if (Controls.Number(Captions[Index], Quantity, Index < 2 ? -512.f : 1.f, 1024))
+            {
+                VectorAuthoringSourcePatch Patch;
+                if (Index == 0) Patch.TranslationX = Quantity - Bounds[0];
+                if (Index == 1) Patch.TranslationY = Quantity - Bounds[1];
+                if (Index == 2) Patch.ScaleX = Quantity / std::max(.01f, Bounds[2]);
+                if (Index == 3) Patch.ScaleY = Quantity / std::max(.01f, Bounds[3]);
+                ApplySourcePatch(Patch);
+            }
+        }
+        ImGui::EndTable();
+        }
+        const auto &Source = Snapshot.Instructions[First->Root];
+        float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
+        if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
+        ImGui::TextUnformatted(Selection.size() == 1 ? "Align to canvas" : "Align selection");
+        for (int Axis = 0; Axis < 2; ++Axis)
+        {
+            for (int Boundary = 0; Boundary < 3; ++Boundary)
+            {
+                if (Boundary) ImGui::SameLine(0, 6 * Scale);
+                const char *Captions[]{"Align left", "Centre horizontally", "Align right", "Align top", "Centre vertically", "Align bottom"};
+                if (Controls.Button(Captions[Axis * 3 + Boundary], 30 * Scale, false, Axis == 0 ? "M3 3V21M7 7H16V17H7Z" : "M3 3H21M7 7H17V16H7Z"))
+                {
+                    const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
+                    const float Centre = Axis ? Bounds[1] : Bounds[0], Extent = Axis ? Bounds[3] : Bounds[2];
+                    const float Destination = Boundary == 0 ? Extent * .5f : Boundary == 1 ? 256 : 512 - Extent * .5f;
+                    VectorAuthoringSourcePatch Patch; if (Axis) Patch.TranslationY = Destination - Centre; else Patch.TranslationX = Destination - Centre;
+                    ApplySourcePatch(Patch);
+                }
+            }
+        }
+        ImGui::EndDisabled();
+        Controls.EndCard();
+        if (Source.Topology[0] == 4 || Source.Topology[0] == 5)
+        {
+            Controls.BeginCard("Shape geometry", false, true);
+            ImGui::BeginDisabled(Protected);
+        // 📝 Polygon/Star stay this parametric corner-count category only until a corner is first dragged
+        // with the Points tool - that one-time edit bakes it into a plain cubic path (see CubicPathEditing's
+        // ReplaceCubicPath), after which it is an ordinary freeform shape and this field naturally disappears,
+        // exactly like "outlining" a parametric shape in other vector editors.
+        if (Source.Topology[0] == 4 || Source.Topology[0] == 5)
+        {
+            float Sides = std::clamp(Source.Paint[2], 3.f, 35.f);
+            if (Controls.Range(Source.Topology[0] == 4 ? "Sides" : "Points", Sides, 3, 35))
+            {
+                VectorAuthoringSourcePatch Patch; Patch.PolygonSides = uint32_t(std::lround(Sides)); ApplySourcePatch(Patch);
+            }
+        }
+        if (Source.Topology[0] == 5)
+        {
+            float InnerRadius = std::clamp(Source.Paint[1], .05f, .95f) * 100;
+            if (Controls.Range("Inner radius %", InnerRadius, 5, 95))
+            {
+                VectorAuthoringSourcePatch Patch; Patch.StarInnerRadius = std::clamp(InnerRadius / 100.f, .05f, .95f); ApplySourcePatch(Patch);
+            }
+        }
+            ImGui::EndDisabled();
+            Controls.EndCard();
+        }
     if (!MaskSelection && Selection.size() == 1 && First->ComponentKind != VectorAuthoringComponentKind::Freeform)
     {
         const bool IsText = First->ComponentKind == VectorAuthoringComponentKind::Text;
@@ -3128,91 +3236,6 @@ void StampWorkspacePanel::ConstructInspector()
         ConstructVectorPopup();
         ConstructImagePopup();
         if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
-    }
-    if (!MaskSelection)
-    {
-        Controls.BeginCard(Selection.size() == 1 ? "Selected component" : "Selected components");
-        ImGui::BeginDisabled(Protected);
-        ImGui::TextUnformatted(Selection.size() == 1 ? "Align to canvas" : "Align selection");
-        for (int Axis = 0; Axis < 2; ++Axis)
-        {
-            for (int Boundary = 0; Boundary < 3; ++Boundary)
-            {
-                if (Boundary) ImGui::SameLine(0, 6 * Scale);
-                const char *Captions[]{"Align left", "Centre horizontally", "Align right", "Align top", "Centre vertically", "Align bottom"};
-                if (Controls.Button(Captions[Axis * 3 + Boundary], 30 * Scale, false, Axis == 0 ? "M3 3V21M7 7H16V17H7Z" : "M3 3H21M7 7H17V16H7Z"))
-                {
-                    const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
-                    const float Centre = Axis ? Bounds[1] : Bounds[0], Extent = Axis ? Bounds[3] : Bounds[2];
-                    const float Destination = Boundary == 0 ? Extent * .5f : Boundary == 1 ? 256 : 512 - Extent * .5f;
-                    VectorAuthoringSourcePatch Patch; if (Axis) Patch.TranslationY = Destination - Centre; else Patch.TranslationX = Destination - Centre;
-                    ApplySourcePatch(Patch);
-                }
-            }
-        }
-        if (Selection.size() >= 2)
-        {
-            bool Eligible = !Protected && std::all_of(Snapshot.Layers.begin(), Snapshot.Layers.end(), [&](const auto &Layer) { return !Selected(Layer) || !Layer.Mask; });
-            if (const auto Operation = ConstructVectorBooleanControls(Eligible))
-            {
-                try { auto Document = Snapshot; const auto Token = IntegrateVectorAuthoringBoolean(Document, Selection, VectorCoverageCategory(*Operation)); Finalize(std::move(Document), {Token}); }
-                catch (const std::exception &Failure) { Diagnostic = Failure.what(); }
-            }
-        }
-        ImGui::Spacing();
-        if (Controls.Button("Duplicate selection", 30 * Scale, false, CopyPath)) ReplicateSelection();
-        Controls.Tooltip("Duplicate", "Retain editable source, mask and channel settings in an independent copy.");
-        ImGui::SameLine(0, 6 * Scale);
-        if (Controls.Button("Delete selection", 30 * Scale, false, TrashPath)) EvaluateEdit([&](auto &Document) { PartitionVectorAuthoringSelection(Document, Selection); });
-        ImGui::EndDisabled();
-        Controls.EndCard();
-        if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
-        Controls.ControlHeight = 48;
-        if (Controls.Button(("Surface channels · " + std::to_string(Selection.size()) + " selected").c_str(), ImGui::GetContentRegionAvail().x, ChannelsOpen, {}, true)) ChannelsOpen = !ChannelsOpen;
-        Controls.ControlHeight = 30;
-        if (ChannelsOpen)
-        {
-            ImGui::TextWrapped("For a plastic/film sticker over a decal: enable Transmission + Clearcoat + Roughness on the "
-                "film layer, and Height/Normal on the decal layer beneath it for embossed text or bump.");
-            if (Selection.size() > 1)
-                ImGui::TextDisabled("Toggling a channel applies the displayed setting to every selected component.");
-            const char *Channels[]{"Colour", "Height", "Normal", "Roughness", "Metalness", "Opacity", "Ambient occlusion", "Transmission", "Clearcoat"};
-            ImGui::BeginDisabled(Protected);
-            for (size_t Index = 0; Index < std::size(Channels); ++Index)
-            {
-                bool Enabled = First->SurfaceChannels[Index].Enabled;
-                if (Controls.Toggle(Channels[Index], Enabled))
-                    EvaluateEdit([&](auto &Document)
-                    {
-                        for (auto &Layer : Document.Layers)
-                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
-                                Layer.SurfaceChannels[Index].Enabled = Enabled;
-                    });
-                float Strength = First->SurfaceChannels[Index].Strength;
-                const std::string StrengthCaption = std::string(Channels[Index]) + " strength";
-                const float Maximum = Index == size_t(VectorAuthoringSurfaceChannel::Normal) ? 4.f : 1.f;
-                if (Controls.Range(StrengthCaption.c_str(), Strength, 0.f, Maximum))
-                    EvaluateEdit([&](auto &Document)
-                    {
-                        for (auto &Layer : Document.Layers)
-                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
-                                Layer.SurfaceChannels[Index].Strength = Strength;
-                    });
-            }
-            ImGui::EndDisabled();
-            float SurfaceRelief = First->SurfaceRelief;
-            ImGui::BeginDisabled(Protected);
-            if (Controls.Range("Surface relief", SurfaceRelief, -1.f, 1.f))
-                EvaluateEdit([&](auto &Document)
-                {
-                    for (auto &Layer : Document.Layers)
-                        if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
-                            Layer.SurfaceRelief = SurfaceRelief;
-                });
-            ImGui::EndDisabled();
-            Controls.Tooltip("Surface relief", "Signed height amplitude used by the Height map and its derived tangent normals.");
-        }
-        ImGui::Dummy(ImVec2(0, 0));
     }
     if (!MaskSelection && Selection.size() == 1 && Tool == VectorAuthoringTool::Points)
     {
@@ -3301,96 +3324,158 @@ void StampWorkspacePanel::ConstructInspector()
         if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
     }
     if (Selection != SelectedTokens) { ImGui::EndChild(); return; }
-    Controls.BeginCard(MaskSelection ? "Vector mask" : "Selected component", true);
-    ImGui::BeginDisabled(Protected);
-    Controls.BeginCard("Mask", false, true);
-    auto EditedLayer = *First;
-    if (!EditedLayer.Mask)
-    {
-        if (Controls.Button("Add mask")) EvaluateEdit([&](auto &Document)
+        // 🎛️ Surface channels, in the frame the Texture Paint channel targets card uses:
+        // removable chips for the enabled channels and a grouped checklist behind the +
+        // toggle — unchecking (or a chip's ×) returns a channel to the dropdown — then one
+        // card per enabled channel. The component's colour-only paint (fill/stroke sources,
+        // gradients included) lives on the Base color card. Display state comes from the
+        // first selected component; edits apply to every selected component, exactly as
+        // the old Surface channels expander behaved.
+        struct StampChannelMeta { size_t Index; const char *Label; const char *StrengthCaption; const char *Group; uint32_t Colour; float Maximum; };
+        static constexpr StampChannelMeta StampChannels[]{
+            {size_t(VectorAuthoringSurfaceChannel::Colour), "Base color", "Colour strength", "Surface", 0xb87333, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Metalness), "Metalness", "Metalness strength", "Surface", 0x8b5cf6, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Roughness), "Roughness", "Roughness strength", "Surface", 0x3b82f6, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Height), "Height", "Height strength", "Surface", 0x8a8a8a, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Normal), "Normal", "Normal strength", "Surface", 0x10b981, 4.f},
+            {size_t(VectorAuthoringSurfaceChannel::Opacity), "Opacity", "Opacity strength", "Surface", 0x94a3b8, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Occlusion), "Ambient occlusion", "Ambient occlusion strength", "Radiance", 0x6b7280, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Clearcoat), "Clearcoat", "Clearcoat strength", "Reflectance", 0xe2e8f0, 1.f},
+            {size_t(VectorAuthoringSurfaceChannel::Transmission), "Transmission", "Transmission strength", "Reflectance", 0x7dd3fc, 1.f},
+        };
+        const auto SetChannelEnabled = [&](size_t Index, bool Enabled)
         {
-            for (auto &Layer : Document.Layers) if (Layer.Token == First->Token)
+            EvaluateEdit([&](auto &Document)
             {
-                auto Mask = Snapshot.Instructions[First->Root];
-                if (Mask.Topology[0] > 6) { Mask = VectorCoverageInstruction{}; Mask.Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection); }
-                Mask.Colour = Mask.ColourEnd = {1, 1, 1, 1}; Layer.Mask = Mask;
+                for (auto &Layer : Document.Layers)
+                    if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                        Layer.SurfaceChannels[Index].Enabled = Enabled;
+            });
+        };
+        size_t EnabledChannelCount = 0;
+        for (const auto &Channel : StampChannels) EnabledChannelCount += First->SurfaceChannels[Channel.Index].Enabled ? 1 : 0;
+        Controls.BeginCard("", false);
+        {
+            const float S = Scale;
+            auto *Ink = ImGui::GetWindowDrawList();
+            const ImVec2 Origin = ImGui::GetCursorScreenPos();
+            const float Width = ImGui::GetContentRegionAvail().x;
+            const float Right = Origin.x + Width;
+            DrawGlyph("M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12 M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17", ImVec2(Origin.x, Origin.y + 5 * S), 14 * S, 0xaaa99b);
+            Caption(ImVec2(Origin.x + 21 * S, Origin.y + 6 * S), "Channel targets", 11 * S, 0xaaa99b);
+            char Count[8];
+            std::snprintf(Count, sizeof(Count), "%zu", EnabledChannelCount);
+            const float BadgeX = Right - 42 * S;
+            Ink->AddCircleFilled(ImVec2(BadgeX, Origin.y + 12.5f * S), 10 * S, PanelChrome::Colour32(0x3b3b37), 20);
+            Caption(ImVec2(BadgeX - CaptionWidth(Count, 9 * S) * .5f, Origin.y + 7.5f * S), Count, 9 * S, 0xd8d8ca);
+            ImGui::BeginDisabled(Protected);
+            ImGui::SetCursorScreenPos(ImVec2(Right - 25 * S, Origin.y));
+            if (BareIconButton("StampChannelPickerToggle", "M12 5v14M5 12h14", 25 * S, S, ChannelsOpen, 0x9a9a8e)) ChannelsOpen = !ChannelsOpen;
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Add surface channel");
+            ImGui::SetCursorScreenPos(ImVec2(Origin.x, Origin.y + 38 * S));
+            ImGui::Dummy(ImVec2(0, 0));
+            const ImVec2 ChipsOrigin = ImGui::GetCursorScreenPos();
+            float ChipX = ChipsOrigin.x, ChipY = ChipsOrigin.y;
+            bool AnyChip = false;
+            for (const auto &Channel : StampChannels)
+            {
+                if (!First->SurfaceChannels[Channel.Index].Enabled) continue;
+                AnyChip = true;
+                const float ChipWidth = 41 * S + CaptionWidth(Channel.Label, 9 * S);
+                if (ChipX + ChipWidth > Right && ChipX > ChipsOrigin.x) { ChipX = ChipsOrigin.x; ChipY += 30 * S; }
+                Ink->AddRectFilled(ImVec2(ChipX, ChipY), ImVec2(ChipX + ChipWidth, ChipY + 25 * S), PanelChrome::Colour32(0x171717), 12.5f * S);
+                Ink->AddRect(ImVec2(ChipX, ChipY), ImVec2(ChipX + ChipWidth, ChipY + 25 * S), PanelChrome::Colour32(0xffffff, .047f), 12.5f * S);
+                Ink->AddCircleFilled(ImVec2(ChipX + 11 * S, ChipY + 12.5f * S), 3 * S, PanelChrome::Colour32(Channel.Colour), 10);
+                Caption(ImVec2(ChipX + 19 * S, ChipY + 7.5f * S), Channel.Label, 9 * S, 0xb8b8aa);
+                ImGui::BeginDisabled(Protected);
+                ImGui::SetCursorScreenPos(ImVec2(ChipX + ChipWidth - 22 * S, ChipY + 4 * S));
+                ImGui::PushID(int(Channel.Index) + 800);
+                if (ImGui::InvisibleButton("##StampChipRemove", ImVec2(17 * S, 17 * S))) SetChannelEnabled(Channel.Index, false);
+                ImGui::PopID();
+                ImGui::EndDisabled();
+                DrawGlyph("M6 6L18 18M6 18L18 6", ImVec2(ChipX + ChipWidth - 18.5f * S, ChipY + 7.5f * S), 10 * S, 0x86867d);
+                ChipX += ChipWidth + 5 * S;
             }
-        });
-    }
-    else
-    {
-        if (Controls.Button("Edit mask")) MaskSelection = First->Token;
-        bool Changed = Controls.Toggle("Enable vector mask", EditedLayer.MaskEnabled);
-        Changed |= Controls.Toggle("Invert vector mask", EditedLayer.MaskInverted);
-        Changed |= Controls.Toggle("Luminance mask", EditedLayer.MaskLuminance);
-        int Category = EditedLayer.Mask->Topology[0] == 1 ? 1 : 0;
-        const char *Categories[]{"Rectangle", "Ellipse"};
-        if (EditedLayer.Mask->Topology[0] <= 1 && Controls.Dropdown("Mask shape", Category, Categories)) { EditedLayer.Mask->Topology[0] = uint32_t(Category); Changed = true; }
-        Changed |= Controls.Number("Mask opacity", EditedLayer.Mask->Transform[2], 0, 1);
-        Changed |= Controls.Number("Mask X", EditedLayer.Mask->Bounds[0], -512, 1024);
-        Changed |= Controls.Number("Mask Y", EditedLayer.Mask->Bounds[1], -512, 1024);
-        Changed |= Controls.Number("Mask width", EditedLayer.Mask->Bounds[2], 1, 1024);
-        Changed |= Controls.Number("Mask height", EditedLayer.Mask->Bounds[3], 1, 1024);
-        if (Changed) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer = EditedLayer; });
-        if (Controls.Button("Remove mask")) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Mask.reset(); });
-        if (MaskSelection && Controls.Button("Done editing mask")) MaskSelection = 0;
-        ImGui::TextDisabled("Paint/image mask authoring is not ported yet.");
-    }
-    Controls.EndCard();
-    if (!MaskSelection)
-    {
-        Controls.BeginCard("Transform", false, true);
-        char LayerName[81]; std::snprintf(LayerName, sizeof(LayerName), "%s", First->Name.c_str());
-        ImGui::SetNextItemWidth(-1);
-        if (ImGui::InputText("##Layer name", LayerName, sizeof(LayerName))) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Name = LayerName; });
-        const auto Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection);
-        if (ImGui::BeginTable("Transform fields", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings))
-        {
-        ImGui::TableSetupColumn("Horizontal", ImGuiTableColumnFlags_WidthStretch, 1);
-        ImGui::TableSetupColumn("Vertical", ImGuiTableColumnFlags_WidthStretch, 1);
-        for (size_t Index = 0; Index < 4; ++Index)
-        {
-            if (Index % 2 == 0) ImGui::TableNextRow(ImGuiTableRowFlags_None, 80 * Scale);
-            ImGui::TableNextColumn();
-            float Quantity = Bounds[Index];
-            const char *Captions[]{"X", "Y", "Width", "Height"};
-            if (Controls.Number(Captions[Index], Quantity, Index < 2 ? -512.f : 1.f, 1024))
+            ImGui::SetCursorScreenPos(ImVec2(ChipsOrigin.x, AnyChip ? ChipY + 25 * S : ChipsOrigin.y));
+            ImGui::Dummy(ImVec2(0, 0));
+            if (EnabledChannelCount)
             {
-                VectorAuthoringSourcePatch Patch;
-                if (Index == 0) Patch.TranslationX = Quantity - Bounds[0];
-                if (Index == 1) Patch.TranslationY = Quantity - Bounds[1];
-                if (Index == 2) Patch.ScaleX = Quantity / std::max(.01f, Bounds[2]);
-                if (Index == 3) Patch.ScaleY = Quantity / std::max(.01f, Bounds[3]);
-                ApplySourcePatch(Patch);
+                const float ClearWidth = CaptionWidth("Clear all", 8 * S) + 14 * S;
+                const ImVec2 ClearOrigin(Right - ClearWidth, ImGui::GetCursorScreenPos().y + 10 * S);
+                ImGui::BeginDisabled(Protected);
+                ImGui::SetCursorScreenPos(ClearOrigin);
+                if (ImGui::InvisibleButton("##StampChannelClearAll", ImVec2(ClearWidth, 20 * S)))
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        for (auto &Layer : Document.Layers)
+                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                                for (auto &Contribution : Layer.SurfaceChannels) Contribution.Enabled = false;
+                    });
+                ImGui::EndDisabled();
+                Caption(ImVec2(ClearOrigin.x + 7 * S, ClearOrigin.y + 5 * S), "Clear all", 8 * S, 0x828277);
+                ImGui::SetCursorScreenPos(ImVec2(Origin.x, ClearOrigin.y + 20 * S));
+                ImGui::Dummy(ImVec2(0, 0));
             }
-        }
-        ImGui::EndTable();
-        }
-        const auto &Source = Snapshot.Instructions[First->Root];
-        float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
-        if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
-        // 📝 Polygon/Star stay this parametric corner-count category only until a corner is first dragged
-        // with the Points tool - that one-time edit bakes it into a plain cubic path (see CubicPathEditing's
-        // ReplaceCubicPath), after which it is an ordinary freeform shape and this field naturally disappears,
-        // exactly like "outlining" a parametric shape in other vector editors.
-        if (Source.Topology[0] == 4 || Source.Topology[0] == 5)
-        {
-            float Sides = std::clamp(Source.Paint[2], 3.f, 35.f);
-            if (Controls.Range(Source.Topology[0] == 4 ? "Sides" : "Points", Sides, 3, 35))
+            if (ChannelsOpen)
             {
-                VectorAuthoringSourcePatch Patch; Patch.PolygonSides = uint32_t(std::lround(Sides)); ApplySourcePatch(Patch);
+                ImGui::Dummy(ImVec2(1, 14 * S));
+                const ImVec2 RuleOrigin = ImGui::GetCursorScreenPos();
+                Ink->AddLine(RuleOrigin, ImVec2(Right, RuleOrigin.y), PanelChrome::Colour32(0xffffff, .051f));
+                ImGui::Dummy(ImVec2(1, 11 * S));
+                const char *Groups[] = {"Surface", "Radiance", "Reflectance"};
+                bool FirstGroup = true;
+                for (const char *Group : Groups)
+                {
+                    if (!FirstGroup) ImGui::Dummy(ImVec2(1, 12 * S));
+                    FirstGroup = false;
+                    std::string Heading = Group;
+                    for (auto &Character : Heading) Character = char(std::toupper(uint8_t(Character)));
+                    Caption(ImVec2(ImGui::GetCursorScreenPos().x + 3 * S, ImGui::GetCursorScreenPos().y), Heading.c_str(), 8 * S, 0x8b8b7f);
+                    ImGui::Dummy(ImVec2(1, 16 * S));
+                    for (const auto &Channel : StampChannels)
+                    {
+                        if (std::string(Channel.Group) != Group) continue;
+                        const bool On = First->SurfaceChannels[Channel.Index].Enabled;
+                        const ImVec2 RowOrigin = ImGui::GetCursorScreenPos();
+                        ImGui::BeginDisabled(Protected);
+                        ImGui::PushID(int(Channel.Index) + 900);
+                        const bool Clicked = ImGui::InvisibleButton("##StampPickerRow", ImVec2(Width, 25 * S));
+                        ImGui::PopID();
+                        ImGui::EndDisabled();
+                        if (Clicked && !Protected) SetChannelEnabled(Channel.Index, !On);
+                        if (On) Ink->AddRectFilled(RowOrigin, ImVec2(Right, RowOrigin.y + 25 * S), PanelChrome::Colour32(0x31392b), 8 * S);
+                        else if (ImGui::IsItemHovered()) Ink->AddRectFilled(RowOrigin, ImVec2(Right, RowOrigin.y + 25 * S), PanelChrome::Colour32(0xffffff, .031f), 8 * S);
+                        Ink->AddCircleFilled(ImVec2(RowOrigin.x + 10 * S, RowOrigin.y + 12.5f * S), 3 * S, PanelChrome::Colour32(Channel.Colour), 10);
+                        Caption(ImVec2(RowOrigin.x + 20 * S, RowOrigin.y + 7 * S), Channel.Label, 10 * S, On ? 0xd9e6d7 : 0xaaa99c);
+                        const ImVec2 BoxMin(Right - 20 * S, RowOrigin.y + 6 * S), BoxMax(BoxMin.x + 13 * S, BoxMin.y + 13 * S);
+                        if (On) Ink->AddRectFilled(BoxMin, BoxMax, PanelChrome::Colour32(0xbfc8a8), 3 * S);
+                        Ink->AddRect(BoxMin, BoxMax, PanelChrome::Colour32(0xffffff, .25f), 3 * S);
+                        if (On) DrawGlyph("M20 6L9 17l-5-5", ImVec2(BoxMin.x + 2 * S, BoxMin.y + 2 * S), 9 * S, 0x23281f, 2.4f);
+                        ImGui::SetCursorScreenPos(ImVec2(RowOrigin.x, RowOrigin.y + 25 * S));
+                    }
+                }
+                ImGui::Dummy(ImVec2(0, 0));
             }
-        }
-        if (Source.Topology[0] == 5)
-        {
-            float InnerRadius = std::clamp(Source.Paint[1], .05f, .95f) * 100;
-            if (Controls.Range("Inner radius %", InnerRadius, 5, 95))
+            if (!EnabledChannelCount)
             {
-                VectorAuthoringSourcePatch Patch; Patch.StarInnerRadius = std::clamp(InnerRadius / 100.f, .05f, .95f); ApplySourcePatch(Patch);
+                ImGui::Dummy(ImVec2(1, 10 * S));
+                ImGui::TextDisabled("No channels enabled. Existing channel values are retained.");
             }
         }
         Controls.EndCard();
-        Controls.BeginCard("Fill", false, true);
+        ImGui::TextWrapped("For a plastic/film sticker over a decal: enable Transmission + Clearcoat + Roughness on the "
+            "film layer, and Height/Normal on the decal layer beneath it for embossed text or bump.");
+        if (Selection.size() > 1)
+            ImGui::TextDisabled("Toggling a channel applies the displayed setting to every selected component.");
+        for (const auto &Channel : StampChannels)
+        {
+            if (!First->SurfaceChannels[Channel.Index].Enabled) continue;
+            Controls.BeginCard(Channel.Label, false, true);
+            ImGui::BeginDisabled(Protected);
+            if (Channel.Index == size_t(VectorAuthoringSurfaceChannel::Colour))
+            {
+                ImGui::TextDisabled("Fill");
         int Category = int(Source.Transform[3]);
         const char *Sources[]{"Solid colour", "Linear gradient", "Radial gradient"};
         if (Controls.Dropdown("Component fill source", Category, Sources))
@@ -3489,8 +3574,7 @@ void StampWorkspacePanel::ConstructInspector()
         }
         bool Filled = Source.Paint[3] != 0;
         if (Controls.Toggle("Fill enabled", Filled)) { VectorAuthoringSourcePatch Patch; Patch.FillEnabled = Filled; ApplySourcePatch(Patch); }
-        Controls.EndCard();
-        Controls.BeginCard("Stroke", false, true);
+                ImGui::TextDisabled("Stroke");
         // 📝 A category-6 cubic path (Pen/Polyline) alone can swing between an open line and a closed
         // filled shape during its own lifetime, so while it is closed+filled this edits its own independent
         // outline width (Paint[0]) rather than Transform[1] (the open line's own thickness) - closing a line
@@ -3508,10 +3592,75 @@ void StampWorkspacePanel::ConstructInspector()
         ImGui::TextWrapped(ClosedFilledPath
             ? "This outline width is independent of the same path's thickness while it was (or becomes) an open line."
             : "Fill and stroke colours are independent. Stroke image sources remain deferred.");
-        Controls.EndCard();
+            }
+            if (Channel.Index == size_t(VectorAuthoringSurfaceChannel::Normal))
+                ImGui::TextWrapped("Derived from the stamped Height. Amount scales the relief.");
+            float Strength = First->SurfaceChannels[Channel.Index].Strength;
+            if (Controls.Range(Channel.StrengthCaption, Strength, 0.f, Channel.Maximum))
+                EvaluateEdit([&](auto &Document)
+                {
+                    for (auto &Layer : Document.Layers)
+                        if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                            Layer.SurfaceChannels[Channel.Index].Strength = Strength;
+                });
+            if (Channel.Index == size_t(VectorAuthoringSurfaceChannel::Height))
+            {
+                float SurfaceRelief = First->SurfaceRelief;
+                if (Controls.Range("Surface relief", SurfaceRelief, -1.f, 1.f))
+                    EvaluateEdit([&](auto &Document)
+                    {
+                        for (auto &Layer : Document.Layers)
+                            if (std::find(Selection.begin(), Selection.end(), Layer.Token) != Selection.end())
+                                Layer.SurfaceRelief = SurfaceRelief;
+                    });
+                Controls.Tooltip("Surface relief", "Signed height amplitude used by the Height map and its derived tangent normals.");
+            }
+            ImGui::EndDisabled();
+            Controls.EndCard();
+        }
+    }
+    // 🎭 Mask property card — the Texture Studio mask frame (enabled / invert / strength,
+    // then the source shape and its geometry) over the vector-shape mask.
+    Controls.BeginCard(MaskSelection ? "Vector mask" : "Mask", true);
+    ImGui::BeginDisabled(Protected);
+    {
+        auto EditedLayer = *First;
+        if (!EditedLayer.Mask)
+        {
+            ImGui::TextWrapped("No mask on this component. A mask limits where the component shows; white includes and black excludes. Masks ignore the surface channel targets.");
+        if (Controls.Button("Add mask")) EvaluateEdit([&](auto &Document)
+        {
+            for (auto &Layer : Document.Layers) if (Layer.Token == First->Token)
+            {
+                auto Mask = Snapshot.Instructions[First->Root];
+                if (Mask.Topology[0] > 6) { Mask = VectorCoverageInstruction{}; Mask.Bounds = QueryVectorAuthoringSelectionBounds(Snapshot, Selection); }
+                Mask.Colour = Mask.ColourEnd = {1, 1, 1, 1}; Layer.Mask = Mask;
+            }
+        });
+        }
+        else
+        {
+            bool Changed = Controls.Toggle("Enable vector mask", EditedLayer.MaskEnabled);
+            Changed |= Controls.Toggle("Invert vector mask", EditedLayer.MaskInverted);
+            Changed |= Controls.Number("Mask opacity", EditedLayer.Mask->Transform[2], 0, 1);
+            int Category = EditedLayer.Mask->Topology[0] == 1 ? 1 : 0;
+            const char *Categories[]{"Rectangle", "Ellipse"};
+            if (EditedLayer.Mask->Topology[0] <= 1 && Controls.Dropdown("Mask shape", Category, Categories)) { EditedLayer.Mask->Topology[0] = uint32_t(Category); Changed = true; }
+            Changed |= Controls.Toggle("Luminance mask", EditedLayer.MaskLuminance);
+            Changed |= Controls.Number("Mask X", EditedLayer.Mask->Bounds[0], -512, 1024);
+            Changed |= Controls.Number("Mask Y", EditedLayer.Mask->Bounds[1], -512, 1024);
+            Changed |= Controls.Number("Mask width", EditedLayer.Mask->Bounds[2], 1, 1024);
+            Changed |= Controls.Number("Mask height", EditedLayer.Mask->Bounds[3], 1, 1024);
+            if (Changed) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer = EditedLayer; });
+            if (Controls.Button("Edit mask")) MaskSelection = First->Token;
+            if (Controls.Button("Remove mask")) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Mask.reset(); });
+            if (MaskSelection && Controls.Button("Done editing mask")) MaskSelection = 0;
+            ImGui::TextDisabled("Paint/image mask authoring is not ported yet.");
+        }
     }
     ImGui::EndDisabled();
     Controls.EndCard();
+
     if (!Diagnostic.empty()) ImGui::TextWrapped("%s", Diagnostic.c_str());
     ImGui::EndChild();
 }
