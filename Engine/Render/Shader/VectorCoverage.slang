@@ -22,6 +22,7 @@ struct VectorCoverageInstruction
     // 🧩 (AxisStartX, AxisStartY, AxisEndX, AxisEndY) in the shape's local, unrotated, bounds-normalized
     // frame - see the field comment on Engine/Render/VectorCoverage.h's VectorCoverageInstruction.
     float4 GradientAxis;
+    float4 ShapeParameters;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
 // 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
@@ -115,8 +116,9 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
     float2 HalfExtent = Instruction.Bounds.zw * .5;
     if (Category == 0)
     {
-        float2 Outside = abs(Local) - HalfExtent;
-        return length(max(Outside, 0)) + min(max(Outside.x, Outside.y), 0);
+        float Radius = min(Instruction.ShapeParameters.x, min(HalfExtent.x, HalfExtent.y));
+        float2 Outside = abs(Local) - HalfExtent + Radius;
+        return length(max(Outside, 0)) + min(max(Outside.x, Outside.y), 0) - Radius;
     }
     if (Category == 1) return (length(Local / HalfExtent) - 1) * min(HalfExtent.x, HalfExtent.y);
     if (Category == 6)

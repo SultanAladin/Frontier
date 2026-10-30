@@ -91,6 +91,7 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
     if (Patch.FillEnabled) Source.Paint[3] = *Patch.FillEnabled ? 1.f : 0.f;
     if (Patch.PolygonSides) Source.Paint[2] = float(*Patch.PolygonSides);
     if (Patch.StarInnerRadius) Source.Paint[1] = *Patch.StarInnerRadius;
+    if (Patch.CornerRadius && Source.Topology[0] == 0) Source.ShapeParameters[0] = *Patch.CornerRadius;
     if (Patch.ClosedOutlineWidth) Source.Paint[0] = *Patch.ClosedOutlineWidth;
 }
 }
@@ -371,14 +372,14 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
     if (Patch.TranslationX == 0 && Patch.TranslationY == 0 && Patch.ScaleX == 1 && Patch.ScaleY == 1 && Patch.Rotation == 0 &&
         !Patch.Colour && !Patch.ColourEnd && !Patch.GradientStopPositions && !Patch.GradientStopColour2 && !Patch.GradientStopColour3 &&
         !Patch.GradientAxis && !Patch.StrokeColour && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
-        !Patch.PolygonSides && !Patch.StarInnerRadius && !Patch.ClosedOutlineWidth) return;
+        !Patch.PolygonSides && !Patch.StarInnerRadius && !Patch.CornerRadius && !Patch.ClosedOutlineWidth) return;
     const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, Selection);
     auto Replacement = Document;
     VectorAuthoringSourcePatch Geometry = Patch;
     Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.GradientStopPositions.reset();
     Geometry.GradientStopColour2.reset(); Geometry.GradientStopColour3.reset(); Geometry.GradientAxis.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
     Geometry.StrokeWidth.reset(); Geometry.PaintCategory.reset(); Geometry.FillEnabled.reset();
-    Geometry.PolygonSides.reset(); Geometry.StarInnerRadius.reset(); Geometry.ClosedOutlineWidth.reset();
+    Geometry.PolygonSides.reset(); Geometry.StarInnerRadius.reset(); Geometry.CornerRadius.reset(); Geometry.ClosedOutlineWidth.reset();
     std::unordered_map<uint64_t, uint32_t> Remapping;
     std::function<uint32_t(uint32_t, bool)> Clone = [&](uint32_t Root, bool MaskOnly)
     {

@@ -33,6 +33,7 @@ struct VectorAuthoringSourcePatch
     // and these no longer apply.
     std::optional<uint32_t> PolygonSides;
     std::optional<float> StarInnerRadius;
+    std::optional<float> CornerRadius;
     // 📝 Category 6 (cubic path, Pen/Polyline) alone can swing between an open line and a closed filled
     // shape during its own lifetime - this stores the filled/closed state's own outline-stroke width
     // (Paint[0]) completely independently of StrokeWidth (Transform[1], the open line's own thickness),

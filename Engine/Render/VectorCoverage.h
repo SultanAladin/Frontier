@@ -83,6 +83,8 @@ struct alignas(16) VectorCoverageInstruction
     // "Component/Motif fill source" dropdown handler) since a plain centre-to-edge default would misplace a
     // freshly chosen radial gradient. Mirror this exactly in VectorCoverage.slang/VectorSurface.slang.
     std::array<float, 4> GradientAxis{-.5f, 0.f, .5f, 0.f};
+    // Rectangle corner radius in document units; remaining slots reserved.
+    std::array<float, 4> ShapeParameters{};
     bool operator==(const VectorCoverageInstruction &) const = default;
 };
 struct alignas(16) VectorCubicSegment
@@ -91,7 +93,7 @@ struct alignas(16) VectorCubicSegment
     std::array<float, 4> ControlEnd{};
     bool operator==(const VectorCubicSegment &) const = default;
 };
-static_assert(sizeof(VectorCoverageInstruction) == 176 && sizeof(VectorCubicSegment) == 32);
+static_assert(sizeof(VectorCoverageInstruction) == 192 && sizeof(VectorCubicSegment) == 32);
 struct VectorCoverageProgram
 {
     std::vector<VectorCoverageInstruction> Instructions;
@@ -125,7 +127,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
     {
         const auto &Instruction = Program.Instructions[Index];
         for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint,
-            Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis})
+            Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis, Instruction.ShapeParameters})
             for (float Coordinate : Coordinates) if (!std::isfinite(Coordinate)) throw std::runtime_error("Non-finite vector coverage descriptor.");
         const auto Category = Instruction.Topology[0];
         if (Category <= 6)
@@ -155,6 +157,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
                 if (!Coincident(PreviousEnd, ContourStart)) throw std::runtime_error("GPU fill contour is open.");
             }
             if ((Category == 4 || Category == 5) && (Instruction.Paint[2] < 3 || Instruction.Paint[2] > 32 || std::floor(Instruction.Paint[2]) != Instruction.Paint[2])) throw std::runtime_error("Polygon corner count must be 3–32.");
+            if (Category == 0 && (Instruction.ShapeParameters[0] < 0 || Instruction.ShapeParameters[0] > 50)) throw std::runtime_error("Rectangle corner radius is invalid.");
             if (Category == 5 && (Instruction.Paint[1] < .05f || Instruction.Paint[1] > .95f)) throw std::runtime_error("Star inner radius is invalid.");
         }
         else if ((Category >= 16 && Category <= 19) || Category == 24 || Category == 25 || Category == 28)

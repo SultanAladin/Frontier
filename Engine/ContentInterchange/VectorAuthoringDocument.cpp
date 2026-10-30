@@ -77,6 +77,8 @@ toml::table EncodeInstruction(const VectorCoverageInstruction &Instruction)
         Result.insert("gradient_stop_colour3", EncodeCoordinates(Instruction.GradientStopColour3));
         Result.insert("gradient_axis", EncodeCoordinates(Instruction.GradientAxis));
     }
+    if (Instruction.Topology[0] == 0 && Instruction.ShapeParameters[0] != 0)
+        Result.insert("shape_parameters", EncodeCoordinates(Instruction.ShapeParameters));
     return Result;
 }
 std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &Field)
@@ -311,7 +313,7 @@ VectorAuthoringModifier DecodeArrayModifier(const toml::table &Source)
 VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
 {
     ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint",
-        "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis"});
+        "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis", "shape_parameters"});
     VectorCoverageInstruction Result;
     const auto *Topology = Source["topology"].as_array(); if (!Topology || Topology->size() != 4) throw std::runtime_error("Expected four vector topology tokens.");
     for (size_t Index = 0; Index < 4; ++Index)
@@ -339,6 +341,7 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
     Result.GradientStopColour2 = Source.contains("gradient_stop_colour2") ? DecodeCoordinates(Source["gradient_stop_colour2"]) : std::array<float, 4>{1, 1, 1, 1};
     Result.GradientStopColour3 = Source.contains("gradient_stop_colour3") ? DecodeCoordinates(Source["gradient_stop_colour3"]) : std::array<float, 4>{1, 1, 1, 1};
     Result.GradientAxis = Source.contains("gradient_axis") ? DecodeCoordinates(Source["gradient_axis"]) : (Radial ? std::array<float, 4>{0.f, 0.f, .5f, 0.f} : std::array<float, 4>{-.5f, 0.f, .5f, 0.f});
+    if (Source.contains("shape_parameters")) Result.ShapeParameters = DecodeCoordinates(Source["shape_parameters"]);
     return Result;
 }
 }

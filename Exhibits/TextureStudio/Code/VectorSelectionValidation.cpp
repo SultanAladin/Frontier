@@ -88,6 +88,19 @@ int main()
                 }
             }
         }
+        {
+            VectorAuthoringDocument Rounded;
+            Rounded.Stamp = true;
+            VectorCoverageInstruction Rectangle;
+            const auto Token = ConstructVectorAuthoringPrimitive(Rounded, Rectangle, "Rounded rectangle");
+            const std::array<uint32_t, 1> Selection{Token};
+            Rounded.Layers[0].Mask = Rectangle;
+            VectorAuthoringSourcePatch Radius; Radius.CornerRadius = 12.5f;
+            TransformVectorAuthoringSelection(Rounded, Selection, Radius);
+            Confirm(Near(Rounded.Instructions[Rounded.Layers[0].Root].ShapeParameters[0], 12.5f), "Corner radius edit was lost.");
+            Confirm(Rounded.Layers[0].Mask->ShapeParameters[0] == 0, "Corner radius edit changed the owned mask.");
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Rounded)) == Rounded, "Corner radius did not round trip.");
+        }
         VectorAuthoringDocument Group;
         VectorCoverageInstruction Source;
         Source.Bounds = {180, 256, 120, 80}; Source.Transform[0] = .43f;

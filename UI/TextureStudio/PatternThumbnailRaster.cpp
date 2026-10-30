@@ -135,7 +135,7 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     {
         return std::array<float, 2>{Source.Bounds[0] + LocalX, Source.Bounds[1] + LocalY};
     };
-    const std::function<std::array<float, 2>(float, float)> GradientPlace = Category == 1 ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
+    const std::function<std::array<float, 2>(float, float)> GradientPlace = (Category == 1 || Category == 0) ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
     const std::string GradientFill = EmitPatternGradientDef(Source, Root, Opacity, GradientPlace, Defs);
     const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill);
     // 📝 Bounds.zw are full extents; the coverage shader halves them, and so does this encoding.
@@ -149,7 +149,11 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     };
     if (Category == 0)
     {
-        Svg += Points({Place(-HalfX, -HalfY), Place(HalfX, -HalfY), Place(HalfX, HalfY), Place(-HalfX, HalfY)});
+        const float Radius = std::min(Source.ShapeParameters[0], std::min(HalfX, HalfY));
+        Svg += "<rect x=\"" + Number(Source.Bounds[0] - HalfX) + "\" y=\"" + Number(Source.Bounds[1] - HalfY) +
+            "\" width=\"" + Number(Source.Bounds[2]) + "\" height=\"" + Number(Source.Bounds[3]) +
+            "\" rx=\"" + Number(Radius) + "\" transform=\"rotate(" + Number(Rotation * 57.2957795131f) + " " +
+            Number(Source.Bounds[0]) + " " + Number(Source.Bounds[1]) + ")\"" + Paint + "/>";
         return;
     }
     if (Category == 1)

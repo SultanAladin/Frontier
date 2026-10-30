@@ -3142,10 +3142,16 @@ void StampWorkspacePanel::ConstructInspector()
         }
         ImGui::EndDisabled();
         Controls.EndCard();
-        if (Source.Topology[0] == 4 || Source.Topology[0] == 5)
+        if (Source.Topology[0] == 0 || Source.Topology[0] == 4 || Source.Topology[0] == 5)
         {
             Controls.BeginCard("Shape geometry", false, true);
             ImGui::BeginDisabled(Protected);
+        if (Source.Topology[0] == 0)
+        {
+            float Radius = Source.ShapeParameters[0];
+            if (Controls.Number("Corner radius", Radius, 0, 50))
+            { VectorAuthoringSourcePatch Patch; Patch.CornerRadius = Radius; ApplySourcePatch(Patch); }
+        }
         // 📝 Polygon/Star stay this parametric corner-count category only until a corner is first dragged
         // with the Points tool - that one-time edit bakes it into a plain cubic path (see CubicPathEditing's
         // ReplaceCubicPath), after which it is an ordinary freeform shape and this field naturally disappears,
