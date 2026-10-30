@@ -3110,6 +3110,19 @@ void StampWorkspacePanel::ConstructInspector()
         const auto &Source = Snapshot.Instructions[First->Root];
         float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
         if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
+        // Primitive opacity is stored on the source instruction. Expression roots cannot
+        // represent layer-wide opacity, so do not silently apply it to their children.
+        const bool SupportsOpacity = std::all_of(Selection.begin(), Selection.end(), [&](uint32_t Token)
+        {
+            const auto Layer = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [Token](const auto &Candidate) { return Candidate.Token == Token; });
+            return Layer != Snapshot.Layers.end() && Layer->Root < Snapshot.Instructions.size() && Snapshot.Instructions[Layer->Root].Topology[0] <= 6;
+        });
+        if (SupportsOpacity)
+        {
+            float Opacity = Source.Transform[2];
+            if (Controls.Number("Opacity", Opacity, 0, 1)) { VectorAuthoringSourcePatch Patch; Patch.Opacity = Opacity; ApplySourcePatch(Patch); }
+        }
+        else ImGui::TextWrapped("Opacity is unavailable for combined components.");
         ImGui::TextUnformatted(Selection.size() == 1 ? "Align to canvas" : "Align selection");
         for (int Axis = 0; Axis < 2; ++Axis)
         {
