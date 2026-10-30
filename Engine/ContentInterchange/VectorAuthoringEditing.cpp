@@ -158,6 +158,17 @@ void ReflectPrimitive(VectorCoverageInstruction &Instruction, float PivotX, floa
         Instruction.GradientAxis[1] = -Instruction.GradientAxis[1];
         Instruction.GradientAxis[3] = -Instruction.GradientAxis[3];
     }
+    if (Instruction.Transform[3] == 3)
+    {
+        Instruction.FreeformPointPositions01[1] = -Instruction.FreeformPointPositions01[1];
+        Instruction.FreeformPointPositions01[3] = -Instruction.FreeformPointPositions01[3];
+        Instruction.FreeformPointPositions23[1] = -Instruction.FreeformPointPositions23[1];
+        Instruction.FreeformPointPositions23[3] = -Instruction.FreeformPointPositions23[3];
+        Instruction.FreeformPointPositions45[1] = -Instruction.FreeformPointPositions45[1];
+        Instruction.FreeformPointPositions45[3] = -Instruction.FreeformPointPositions45[3];
+        Instruction.FreeformPointPositions67[1] = -Instruction.FreeformPointPositions67[1];
+        Instruction.FreeformPointPositions67[3] = -Instruction.FreeformPointPositions67[3];
+    }
 }
 }
 

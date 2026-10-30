@@ -92,6 +92,28 @@ toml::table EncodeInstruction(const VectorCoverageInstruction &Instruction)
         Result.insert("stroke_gradient_stop_colour3", EncodeCoordinates(Instruction.StrokeGradientStopColour3));
         Result.insert("stroke_gradient_axis", EncodeCoordinates(Instruction.StrokeGradientAxis));
     }
+    const VectorCoverageInstruction DefaultInstruction{};
+    if (Instruction.Topology[0] <= 6 && (Instruction.Transform[3] == 3 ||
+        Instruction.FreeformPointPositions01 != DefaultInstruction.FreeformPointPositions01 ||
+        Instruction.FreeformPointPositions23 != DefaultInstruction.FreeformPointPositions23 ||
+        Instruction.FreeformPointPositions45 != DefaultInstruction.FreeformPointPositions45 ||
+        Instruction.FreeformPointPositions67 != DefaultInstruction.FreeformPointPositions67 ||
+        Instruction.FreeformPointColour4 != DefaultInstruction.FreeformPointColour4 ||
+        Instruction.FreeformPointColour5 != DefaultInstruction.FreeformPointColour5 ||
+        Instruction.FreeformPointColour6 != DefaultInstruction.FreeformPointColour6 ||
+        Instruction.FreeformPointColour7 != DefaultInstruction.FreeformPointColour7 ||
+        Instruction.FreeformParameters != DefaultInstruction.FreeformParameters))
+    {
+        Result.insert("freeform_point_positions_01", EncodeCoordinates(Instruction.FreeformPointPositions01));
+        Result.insert("freeform_point_positions_23", EncodeCoordinates(Instruction.FreeformPointPositions23));
+        Result.insert("freeform_point_positions_45", EncodeCoordinates(Instruction.FreeformPointPositions45));
+        Result.insert("freeform_point_positions_67", EncodeCoordinates(Instruction.FreeformPointPositions67));
+        Result.insert("freeform_point_colour4", EncodeCoordinates(Instruction.FreeformPointColour4));
+        Result.insert("freeform_point_colour5", EncodeCoordinates(Instruction.FreeformPointColour5));
+        Result.insert("freeform_point_colour6", EncodeCoordinates(Instruction.FreeformPointColour6));
+        Result.insert("freeform_point_colour7", EncodeCoordinates(Instruction.FreeformPointColour7));
+        Result.insert("freeform_parameters", EncodeCoordinates(Instruction.FreeformParameters));
+    }
     return Result;
 }
 std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &Field)
@@ -327,7 +349,9 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
 {
     ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint",
         "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis", "shape_parameters",
-        "stroke_colour_end", "stroke_gradient_stop_positions", "stroke_gradient_stop_colour2", "stroke_gradient_stop_colour3", "stroke_gradient_axis"});
+        "stroke_colour_end", "stroke_gradient_stop_positions", "stroke_gradient_stop_colour2", "stroke_gradient_stop_colour3", "stroke_gradient_axis",
+        "freeform_point_positions_01", "freeform_point_positions_23", "freeform_point_positions_45", "freeform_point_positions_67",
+        "freeform_point_colour4", "freeform_point_colour5", "freeform_point_colour6", "freeform_point_colour7", "freeform_parameters"});
     VectorCoverageInstruction Result;
     const auto *Topology = Source["topology"].as_array(); if (!Topology || Topology->size() != 4) throw std::runtime_error("Expected four vector topology tokens.");
     for (size_t Index = 0; Index < 4; ++Index)
@@ -361,6 +385,15 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
     if (Source.contains("stroke_gradient_stop_colour2")) Result.StrokeGradientStopColour2 = DecodeCoordinates(Source["stroke_gradient_stop_colour2"]);
     if (Source.contains("stroke_gradient_stop_colour3")) Result.StrokeGradientStopColour3 = DecodeCoordinates(Source["stroke_gradient_stop_colour3"]);
     if (Source.contains("stroke_gradient_axis")) Result.StrokeGradientAxis = DecodeCoordinates(Source["stroke_gradient_axis"]);
+    if (Source.contains("freeform_point_positions_01")) Result.FreeformPointPositions01 = DecodeCoordinates(Source["freeform_point_positions_01"]);
+    if (Source.contains("freeform_point_positions_23")) Result.FreeformPointPositions23 = DecodeCoordinates(Source["freeform_point_positions_23"]);
+    if (Source.contains("freeform_point_positions_45")) Result.FreeformPointPositions45 = DecodeCoordinates(Source["freeform_point_positions_45"]);
+    if (Source.contains("freeform_point_positions_67")) Result.FreeformPointPositions67 = DecodeCoordinates(Source["freeform_point_positions_67"]);
+    if (Source.contains("freeform_point_colour4")) Result.FreeformPointColour4 = DecodeCoordinates(Source["freeform_point_colour4"]);
+    if (Source.contains("freeform_point_colour5")) Result.FreeformPointColour5 = DecodeCoordinates(Source["freeform_point_colour5"]);
+    if (Source.contains("freeform_point_colour6")) Result.FreeformPointColour6 = DecodeCoordinates(Source["freeform_point_colour6"]);
+    if (Source.contains("freeform_point_colour7")) Result.FreeformPointColour7 = DecodeCoordinates(Source["freeform_point_colour7"]);
+    if (Source.contains("freeform_parameters")) Result.FreeformParameters = DecodeCoordinates(Source["freeform_parameters"]);
     return Result;
 }
 }
@@ -409,6 +442,7 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
     for (const auto &Entry : Document.Enclosures)
         Enclosures.push_back(toml::table{{"token", int64_t(Entry.Token)}, {"enclosure_token", int64_t(Entry.EnclosureToken)}, {"name", Entry.Name}, {"folder_enabled", Entry.FolderEnabled}, {"visible", Entry.VisibilityEnabled}, {"locked", Entry.LockEnabled}, {"group_wide_editing", Entry.GroupWideEditingEnabled}});
     toml::table Encoded{{"format", "frontier.vector_artwork"}, {"version", 1}, {"name", Document.Name}, {"stamp", Document.Stamp}, {"token_clock", int64_t(Document.TokenClock)}, {"instructions", std::move(Instructions)}, {"segments", std::move(Segments)}, {"layers", std::move(Layers)}, {"enclosures", std::move(Enclosures)}};
+    if (Document.CanvasExtent != 512.f) Encoded.insert("canvas_extent", double(Document.CanvasExtent));
     std::ostringstream Output; Output << Encoded;
     if (Output.str().size() > 4000000) throw std::runtime_error("Native vector authoring source exceeds 4 MB.");
     return Output.str();
@@ -419,10 +453,11 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     const auto Table = toml::parse(Source);
     if (!Table["format"].is_string() || !Table["version"].is_integer()) throw std::runtime_error("Expected typed native vector format and version.");
     if (Table["format"].value_or("") != std::string("frontier.vector_artwork") || Table["version"].value_or(0) != 1) throw std::runtime_error("Unsupported native vector format.");
-    ValidateFields(Table, {"format", "version", "name", "stamp", "token_clock", "instructions", "segments", "layers", "enclosures"});
+    ValidateFields(Table, {"format", "version", "name", "stamp", "canvas_extent", "token_clock", "instructions", "segments", "layers", "enclosures"});
     VectorAuthoringDocument Document;
     Document.Name = DecodeOptional<std::string>(Table, "name", "Untitled vector");
     Document.Stamp = DecodeOptional<bool>(Table, "stamp", false);
+    Document.CanvasExtent = float(DecodeOptional<double>(Table, "canvas_extent", 512.0));
     const auto Clock = Table["token_clock"].is_integer() ? Table["token_clock"].value<int64_t>() : std::nullopt; if (!Clock || *Clock < 0 || *Clock > UINT32_MAX) throw std::runtime_error("Invalid vector identity clock."); Document.TokenClock = uint32_t(*Clock);
     const auto *Instructions = Table["instructions"].as_array(), *Segments = Table["segments"].as_array(), *Layers = Table["layers"].as_array();
     if (!Instructions || !Segments || !Layers || Instructions->size() > 128 || Segments->size() > 32768 || Layers->size() > 64) throw std::runtime_error("Invalid vector sequence bounds.");

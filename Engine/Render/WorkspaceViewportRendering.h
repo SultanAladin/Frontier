@@ -721,8 +721,6 @@ inline WorkspaceViewportCpuFrame RenderWorkspaceSurfaceViewportCpu(const Workspa
                     InterpTanRaw[1] - GeometricNormal[1] * NdotT,
                     InterpTanRaw[2] - GeometricNormal[2] * NdotT});
                 const float TanSign = V0.ViewTangent[3] < 0.f ? -1.f : 1.f;
-                const auto RawBitan = Cross3(GeometricNormal, Tangent);
-                const std::array<float, 3> Bitangent{RawBitan[0] * TanSign, RawBitan[1] * TanSign, RawBitan[2] * TanSign};
 
                 const std::array<float, 2> BaseUv{
                     B0 * V0.Uv[0] + B1 * V1.Uv[0] + B2 * V2.Uv[0],

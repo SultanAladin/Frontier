@@ -25,6 +25,11 @@ struct VectorAuthoringSourcePatch
     std::optional<std::array<float, 4>> StrokeColour;
     std::optional<std::array<float, 4>> StrokeColourEnd, StrokeGradientStopPositions, StrokeGradientStopColour2, StrokeGradientStopColour3, StrokeGradientAxis;
     std::optional<uint32_t> StrokePaintCategory;
+    std::optional<uint32_t> GradientInterpolation;
+    std::optional<uint32_t> StrokeGradientInterpolation;
+    std::optional<std::array<float, 4>> FreeformPointPositions01, FreeformPointPositions23, FreeformPointPositions45, FreeformPointPositions67;
+    std::optional<std::array<float, 4>> FreeformPointColour4, FreeformPointColour5, FreeformPointColour6, FreeformPointColour7;
+    std::optional<std::array<float, 4>> FreeformParameters;
     std::optional<float> Opacity;
     std::optional<float> StrokeWidth;
     std::optional<uint32_t> PaintCategory;

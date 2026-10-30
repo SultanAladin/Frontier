@@ -552,6 +552,13 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         PaintCanvasAtlasDescriptor = ImGui_ImplVulkan_AddTexture(PaintCanvasAtlas->QueryImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         CoverageRendering = std::make_unique<Frontier::VectorAuthoringCoverageRendering>();
         CoverageRendering->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorCoverageCompute.spv");
+        {
+            Frontier::VectorCoverageInstruction WarmInstruction{};
+            WarmInstruction.Transform[2] = 0.f;
+            const Frontier::VectorCoverageProgram WarmProgram{{WarmInstruction}, {}, 0};
+            try { (void)CoverageRendering->SelectProgram(WarmProgram, 512); }
+            catch (...) {}
+        }
         SelectionEvaluation = std::make_unique<Frontier::VectorSelectionEvaluation>();
         SelectionEvaluation->Initialize(Display.QueryRasterAccess(), ShaderDirectory / "VectorSelectionCompute.spv");
         Pattern->QueryCoverage = [&](const Frontier::VectorCoverageProgram &Program, uint32_t DisplayExtent) -> uint64_t
@@ -583,7 +590,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Pattern->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Pattern->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
-            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+            const float Ratio = 512.f / std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X * Ratio, Point.Y * Ratio});
         };
         Pattern->QueryPatternAtlas = [&]()
         {
@@ -624,7 +632,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         Stamp->QueryCoverageReady = [&]() { return CoverageRendering ? CoverageRendering->QuerySelectedReady() : true; };
         Stamp->QuerySelectionToken = [&](const Frontier::VectorAuthoringDocument &Document, Frontier::PlanePoint Point)
         {
-            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X, Point.Y});
+            const float Ratio = 512.f / std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+            return SelectionEvaluation->QueryToken(Frontier::ConstructVectorSelectionProgram(Document), {Point.X * Ratio, Point.Y * Ratio});
         };
         Stamp->QueryLayerThumbnailAtlas = [&]()
         {
@@ -865,67 +874,76 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                     EnvironmentAtlasPublished = EnvironmentPreviews.Generation;
                 }
                 catch (const std::exception &Failure) { EnvironmentAtlasFaulted = true; JournalGpuFaultOnce("EnvironmentAtlasUpload", Failure); }
-            const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
-            if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
-                try
-                {
-                    PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
-                    PatternAtlas->ConstructUpload(Commands);
-                    PatternAtlasPublished = PatternAtlasRevision;
-                }
-                catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
-            const uint64_t PatternLayerAtlasRevision = Pattern->QueryLayerAtlasRevision();
-            if (!PatternLayerAtlasFaulted && PatternLayerAtlas && PatternLayerAtlasRevision != PatternLayerAtlasPublished)
-                try
-                {
-                    const auto &LayerPixels = Pattern->QueryLayerAtlasPixels();
-                    if (!LayerPixels.empty())
+            if (PatternActive || PatternAtlasPublished == 0)
+            {
+                const uint64_t PatternAtlasRevision = Pattern->QueryPatternAtlasRevision();
+                if (!PatternAtlasFaulted && PatternAtlas && PatternAtlasRevision != PatternAtlasPublished)
+                    try
                     {
-                        PatternLayerAtlas->StagePixels(LayerPixels);
-                        PatternLayerAtlas->ConstructUpload(Commands);
+                        PatternAtlas->StagePixels(Pattern->QueryPatternAtlasPixels());
+                        PatternAtlas->ConstructUpload(Commands);
+                        PatternAtlasPublished = PatternAtlasRevision;
                     }
-                    PatternLayerAtlasPublished = PatternLayerAtlasRevision;
-                }
-                catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
-            const uint64_t StampLayerAtlasRevision = Stamp->QueryLayerAtlasRevision();
-            if (!StampLayerAtlasFaulted && StampLayerAtlas && StampLayerAtlasRevision != StampLayerAtlasPublished)
-                try
-                {
-                    const auto &LayerPixels = Stamp->QueryLayerAtlasPixels();
-                    if (!LayerPixels.empty())
+                    catch (const std::exception &Failure) { PatternAtlasFaulted = true; JournalGpuFaultOnce("PatternAtlasUpload", Failure); }
+                const uint64_t PatternLayerAtlasRevision = Pattern->QueryLayerAtlasRevision();
+                if (!PatternLayerAtlasFaulted && PatternLayerAtlas && PatternLayerAtlasRevision != PatternLayerAtlasPublished)
+                    try
                     {
-                        StampLayerAtlas->StagePixels(LayerPixels);
-                        StampLayerAtlas->ConstructUpload(Commands);
+                        const auto &LayerPixels = Pattern->QueryLayerAtlasPixels();
+                        if (!LayerPixels.empty())
+                        {
+                            PatternLayerAtlas->StagePixels(LayerPixels);
+                            PatternLayerAtlas->ConstructUpload(Commands);
+                        }
+                        PatternLayerAtlasPublished = PatternLayerAtlasRevision;
                     }
-                    StampLayerAtlasPublished = StampLayerAtlasRevision;
-                }
-                catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
-            const uint64_t StampLibraryAtlasRevision = Stamp->QueryLibraryAtlasRevision();
-            if (!StampLibraryAtlasFaulted && StampLibraryAtlas && StampLibraryAtlasRevision != StampLibraryAtlasPublished)
-                try
-                {
-                    const auto &LibraryPixels = Stamp->QueryLibraryAtlasPixels();
-                    if (!LibraryPixels.empty())
+                    catch (const std::exception &Failure) { PatternLayerAtlasFaulted = true; JournalGpuFaultOnce("PatternLayerAtlasUpload", Failure); }
+            }
+            if (StampActive || StampLayerAtlasPublished == 0 || StampLibraryAtlasPublished == 0)
+            {
+                const uint64_t StampLayerAtlasRevision = Stamp->QueryLayerAtlasRevision();
+                if (!StampLayerAtlasFaulted && StampLayerAtlas && StampLayerAtlasRevision != StampLayerAtlasPublished)
+                    try
                     {
-                        StampLibraryAtlas->StagePixels(LibraryPixels);
-                        StampLibraryAtlas->ConstructUpload(Commands);
+                        const auto &LayerPixels = Stamp->QueryLayerAtlasPixels();
+                        if (!LayerPixels.empty())
+                        {
+                            StampLayerAtlas->StagePixels(LayerPixels);
+                            StampLayerAtlas->ConstructUpload(Commands);
+                        }
+                        StampLayerAtlasPublished = StampLayerAtlasRevision;
                     }
-                    StampLibraryAtlasPublished = StampLibraryAtlasRevision;
-                }
-                catch (const std::exception &Failure) { StampLibraryAtlasFaulted = true; JournalGpuFaultOnce("StampLibraryAtlasUpload", Failure); }
-            const uint64_t PaintCanvasAtlasRevision = Texture->QueryPaintCanvasRevision();
-            if (!PaintCanvasAtlasFaulted && PaintCanvasAtlas && PaintCanvasAtlasRevision != PaintCanvasAtlasPublished)
-                try
-                {
-                    const auto &CanvasPixels = Texture->QueryPaintCanvasPixels();
-                    if (!CanvasPixels.empty())
+                    catch (const std::exception &Failure) { StampLayerAtlasFaulted = true; JournalGpuFaultOnce("StampLayerAtlasUpload", Failure); }
+                const uint64_t StampLibraryAtlasRevision = Stamp->QueryLibraryAtlasRevision();
+                if (!StampLibraryAtlasFaulted && StampLibraryAtlas && StampLibraryAtlasRevision != StampLibraryAtlasPublished)
+                    try
                     {
-                        PaintCanvasAtlas->StagePixels(CanvasPixels);
-                        PaintCanvasAtlas->ConstructUpload(Commands);
+                        const auto &LibraryPixels = Stamp->QueryLibraryAtlasPixels();
+                        if (!LibraryPixels.empty())
+                        {
+                            StampLibraryAtlas->StagePixels(LibraryPixels);
+                            StampLibraryAtlas->ConstructUpload(Commands);
+                        }
+                        StampLibraryAtlasPublished = StampLibraryAtlasRevision;
                     }
-                    PaintCanvasAtlasPublished = PaintCanvasAtlasRevision;
-                }
-                catch (const std::exception &Failure) { PaintCanvasAtlasFaulted = true; JournalGpuFaultOnce("PaintCanvasAtlasUpload", Failure); }
+                    catch (const std::exception &Failure) { StampLibraryAtlasFaulted = true; JournalGpuFaultOnce("StampLibraryAtlasUpload", Failure); }
+            }
+            if (TextureActive || PaintCanvasAtlasPublished == 0)
+            {
+                const uint64_t PaintCanvasAtlasRevision = Texture->QueryPaintCanvasRevision();
+                if (!PaintCanvasAtlasFaulted && PaintCanvasAtlas && PaintCanvasAtlasRevision != PaintCanvasAtlasPublished)
+                    try
+                    {
+                        const auto &CanvasPixels = Texture->QueryPaintCanvasPixels();
+                        if (!CanvasPixels.empty())
+                        {
+                            PaintCanvasAtlas->StagePixels(CanvasPixels);
+                            PaintCanvasAtlas->ConstructUpload(Commands);
+                        }
+                        PaintCanvasAtlasPublished = PaintCanvasAtlasRevision;
+                    }
+                    catch (const std::exception &Failure) { PaintCanvasAtlasFaulted = true; JournalGpuFaultOnce("PaintCanvasAtlasUpload", Failure); }
+            }
             {
                 // 📝 Material rendering faults latch against the current catalogue revision + preview
                 // configuration; any new edit re-arms evaluation. A partially recorded tile/preview
@@ -952,6 +970,7 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
                 if (PatternAtlas) PatternAtlas->ConfirmSubmission();
                 if (PatternLayerAtlas) PatternLayerAtlas->ConfirmSubmission();
                 if (StampLayerAtlas) StampLayerAtlas->ConfirmSubmission();
+                if (StampLibraryAtlas) StampLibraryAtlas->ConfirmSubmission();
                 if (PaintCanvasAtlas) PaintCanvasAtlas->ConfirmSubmission();
                 if (EnvironmentAtlas) EnvironmentAtlas->ConfirmSubmission();
                 if (PatternBridgeRecorded || StampBridgeRecorded)
@@ -1212,6 +1231,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (PatternAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternAtlasDescriptor);
         if (PatternLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PatternLayerAtlasDescriptor);
         if (StampLayerAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(StampLayerAtlasDescriptor);
+        if (StampLibraryAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(StampLibraryAtlasDescriptor);
+        if (PaintCanvasAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(PaintCanvasAtlasDescriptor);
         if (EnvironmentAtlasDescriptor) ImGui_ImplVulkan_RemoveTexture(EnvironmentAtlasDescriptor);
         for (const auto &Entry : CoverageDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
@@ -1222,6 +1243,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         if (PatternAtlas) PatternAtlas->Finalize();
         if (PatternLayerAtlas) PatternLayerAtlas->Finalize();
         if (StampLayerAtlas) StampLayerAtlas->Finalize();
+        if (StampLibraryAtlas) StampLibraryAtlas->Finalize();
+        if (PaintCanvasAtlas) PaintCanvasAtlas->Finalize();
         if (EnvironmentAtlas) EnvironmentAtlas->Finalize();
         SelectionEvaluation.reset();
         MaterialBridge.reset();
@@ -1229,6 +1252,8 @@ int RunTextureWorkspace(int ArgumentCount, char **Arguments)
         PatternAtlas.reset();
         PatternLayerAtlas.reset();
         StampLayerAtlas.reset();
+        StampLibraryAtlas.reset();
+        PaintCanvasAtlas.reset();
         EnvironmentAtlas.reset();
         Rendering.reset();
         if (Library && Appearance && !LayoutBlocked)

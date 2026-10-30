@@ -529,15 +529,30 @@ void PatternWorkspacePanel::RefreshPatternAtlas()
     }
     if (!BakedNew) return;
     constexpr uint32_t CardWell = uint32_t(255) << 24 | uint32_t(24) << 16 | uint32_t(23) << 8 | uint32_t(20);
-    const std::vector<uint8_t> Blank = RasterizePatternThumbnailSvg(VectorAuthoringDocument{}, PatternAtlasTile, CardWell);
+    std::vector<uint8_t> Blank;
+    const auto EnsureBlank = [&]() -> const std::vector<uint8_t> &
+    {
+        if (Blank.empty())
+        {
+            Blank.resize(size_t(PatternAtlasTile) * size_t(PatternAtlasTile) * 4u);
+            for (size_t Pixel = 0; Pixel < Blank.size(); Pixel += 4u)
+            {
+                Blank[Pixel] = uint8_t(CardWell & 255u);
+                Blank[Pixel + 1u] = uint8_t((CardWell >> 8) & 255u);
+                Blank[Pixel + 2u] = uint8_t((CardWell >> 16) & 255u);
+                Blank[Pixel + 3u] = 255u;
+            }
+        }
+        return Blank;
+    };
     std::vector<std::vector<uint8_t>> Tiles;
     const size_t Slotted = std::min(LibraryFamilies.size(), PatternAtlasCapacity);
     Tiles.reserve(Slotted);
     for (size_t Family = 0; Family < Slotted; ++Family)
     {
-        if (!PatternAtlasBaked[Family]) { Tiles.push_back(Blank); continue; }
+        if (!PatternAtlasBaked[Family]) { Tiles.push_back(EnsureBlank()); continue; }
         const auto &Entry = QueryPresetEntry(LibraryFamilies[Family]);
-        Tiles.push_back(!Entry.Failed && !Entry.Shapes.empty() ? QueryPatternRaster(LibraryFamilies[Family], Entry) : Blank);
+        Tiles.push_back(!Entry.Failed && !Entry.Shapes.empty() ? QueryPatternRaster(LibraryFamilies[Family], Entry) : EnsureBlank());
     }
     // 📝 A blit failure (bounded-grid rejection, or genuine allocation exhaustion under memory
     // pressure) must never propagate into the render loop uncaught — that previously surfaced as a

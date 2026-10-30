@@ -46,7 +46,7 @@ public:
     // preview inside each layer row), rebaked whenever the document edits — mirrors Pattern's layer atlas.
     // A second, library-wide atlas (below) carries the stamp-library card thumbnails.
     static constexpr uint32_t LayerAtlasTile = 64;
-    static constexpr uint32_t LayerAtlasColumns = 12;
+    static constexpr uint32_t LayerAtlasColumns = 5;
     static constexpr uint32_t LayerAtlasExtent = (LayerAtlasTile + 2) * LayerAtlasColumns;
     static constexpr size_t LayerAtlasCapacity = size_t(LayerAtlasColumns) * LayerAtlasColumns;
     struct StampAtlasImage
@@ -79,6 +79,11 @@ public:
     [[nodiscard]] bool QueryModified() const { return QueryDocument() != SavedDocument; }
     [[nodiscard]] bool QueryAuthoringSettled() const noexcept { return Gesture == 0 && !PenSource; }
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept { return Diagnostic; }
+    [[nodiscard]] float QueryCanvasExtent() const noexcept;
+    void ApplyCanvasExtent(float NewExtent);
+    void ConfigureCanvasGroundColour(std::array<float, 4> Colour) noexcept { CanvasGroundColour = Colour; }
+    [[nodiscard]] std::array<float, 4> QueryCanvasGroundColour() const noexcept { return CanvasGroundColour; }
+    [[nodiscard]] std::array<float, 4> OppositeCanvasColour() const noexcept;
     bool RequestClose();
     bool ConsumeMaterialApplyRequest() noexcept;
     // 📝 Second argument is the device-pixel edge the returned image will actually be displayed at
@@ -207,10 +212,26 @@ private:
     int GradientDragSlot = -1;
     int SelectedGradientStop = 0;
     int SelectedStrokeGradientStop = 0;
+    int FreeformDragPoint = -1;
+    int SelectedFreeformPoint = 0;
+    bool FreeformPlacePointOnCanvas = false;
     bool MarqueeAdditive = false, SelectionExtend = false;
     uint32_t MaskSelection = 0;
-    bool ChannelsOpen = false, CloseRequested = false;
+    bool ChannelsOpen = false, CloseRequested = false, ExportDialogRequested = false;
     bool TransparentCanvas = false, GridEnabled = false, SnappingEnabled = false;
+    bool ScaleComponentsOnCanvasResize = false;
+    std::array<float, 4> CanvasGroundColour{.9294f, .9059f, .8431f, 1.f};
+    uint32_t LayerAtlasBakedGroundAbgr = 0;
+    int ExportFormat = 0;
+    int ExportResolution = 0;
+    int ExportBitDepth = 0;
+    int ExportBackground = 0;
+    float ExportPaddingPixels = 8.f;
+    bool ExportFlipNormalY = false;
+    bool ExportCompositeDecal = true;
+    std::array<bool, 9> ExportChannelSelection{true, true, true, true, false, true, false, false, false};
+    std::array<char, 81> ExportPrefixText{};
+    bool ExportPrefixSeeded = false;
     void *RegularTypeface = nullptr, *LightTypeface = nullptr;
     std::array<char, 81> NameText{};
     std::array<char, 129> SearchText{};
@@ -272,9 +293,11 @@ private:
     void ConstructCanvas();
     void ConstructInspector();
     void ConstructCloseDialogue();
+    void ConstructExportDialogue();
     void ConstructPrimitive(uint32_t Category, const char *Caption);
-    // Contrast ink for newly drawn vectors: white on a transparent/dark board, black on a light
-    // one, so a fresh polyline/shape outline never vanishes against the canvas while drawing.
+    [[nodiscard]] uint32_t QueryCanvasGroundAbgr() const noexcept;
+    // Contrast ink for newly drawn vectors: opposite/complementary colour of the canvas board,
+    // so newly added shapes, strokes, text and placeholders always stand out clearly.
     [[nodiscard]] std::array<float, 4> CanvasInkColour() const noexcept;
     void Finalize(VectorAuthoringDocument Document, std::vector<uint32_t> Tokens);
     void EvaluateEdit(const std::function<void(VectorAuthoringDocument &)> &Edit);

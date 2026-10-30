@@ -58,6 +58,7 @@ struct VectorAuthoringDocument
 {
     std::string Name = "Untitled vector";
     bool Stamp = false;
+    float CanvasExtent = 512.f;
     std::vector<VectorCoverageInstruction> Instructions;
     std::vector<VectorCubicSegment> Segments;
     std::vector<VectorAuthoringLayer> Layers;
@@ -69,11 +70,26 @@ void ValidateVectorAuthoringOrganization(const VectorAuthoringDocument &Document
 bool QueryVectorAuthoringVisibility(const VectorAuthoringDocument &Document, const VectorAuthoringLayer &Layer);
 bool QueryVectorAuthoringProtection(const VectorAuthoringDocument &Document, const VectorAuthoringLayer &Layer);
 
+[[nodiscard]] inline VectorCoverageInstruction NormalizeVectorInstructionForGpu(VectorCoverageInstruction Source, float CanvasExtent) noexcept
+{
+    if (CanvasExtent == 512.f || Source.Topology[0] > 6) return Source;
+    const float Ratio = 512.f / CanvasExtent;
+    for (int Axis = 0; Axis < 4; ++Axis) Source.Bounds[Axis] *= Ratio;
+    Source.Transform[1] = std::clamp(Source.Transform[1] * Ratio, 0.f, 100.f);
+    if (Source.Topology[0] == 6 && Source.Paint[3] != 0) Source.Paint[0] *= Ratio;
+    if (Source.Topology[0] == 0) Source.ShapeParameters[0] = std::clamp(Source.ShapeParameters[0] * Ratio, 0.f, 50.f);
+    return Source;
+}
+
 inline VectorCoverageProgram ConstructVectorAuthoringCoverage(const VectorAuthoringDocument &Document)
 {
     if (Document.Layers.size() > (Document.Stamp ? 24u : 64u) || Document.Name.size() > 80) throw std::runtime_error("VectorAuthoring exceeds workspace limits.");
+    if (!std::isfinite(Document.CanvasExtent) || Document.CanvasExtent < 64.f || Document.CanvasExtent > 4096.f)
+        throw std::runtime_error("VectorAuthoring canvas extent must lie within 64–4096 units.");
     ValidateVectorAuthoringOrganization(Document);
     VectorCoverageProgram Program{Document.Instructions, Document.Segments, 0};
+    if (Document.CanvasExtent != 512.f)
+        for (auto &Instruction : Program.Instructions) Instruction = NormalizeVectorInstructionForGpu(Instruction, Document.CanvasExtent);
     std::vector<uint32_t> Tokens;
     std::optional<uint32_t> Output;
     for (const auto &Layer : Document.Layers)
@@ -82,13 +98,13 @@ inline VectorCoverageProgram ConstructVectorAuthoringCoverage(const VectorAuthor
         if (Layer.Token > Document.TokenClock) throw std::runtime_error("VectorAuthoring identity clock precedes a layer token.");
         Tokens.push_back(Layer.Token);
         if (!std::isfinite(Layer.ExpressionOpacity) || Layer.ExpressionOpacity < 0 || Layer.ExpressionOpacity > 1) throw std::runtime_error("Invalid expression opacity.");
-        if (Layer.Mask) ValidateVectorCoverage(VectorCoverageProgram{{*Layer.Mask}, Document.Segments, 0});
+        if (Layer.Mask) ValidateVectorCoverage(VectorCoverageProgram{{NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent)}, Document.Segments, 0});
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
         uint32_t Root = Layer.Root;
         if (Layer.Mask && Layer.MaskEnabled)
         {
             const uint32_t Mask = uint32_t(Program.Instructions.size());
-            Program.Instructions.push_back(*Layer.Mask);
+            Program.Instructions.push_back(NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent));
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
             Root = uint32_t(Program.Instructions.size()); Program.Instructions.push_back(Operation);

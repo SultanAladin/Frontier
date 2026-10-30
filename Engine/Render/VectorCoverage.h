@@ -83,13 +83,28 @@ struct alignas(16) VectorCoverageInstruction
     // "Component/Motif fill source" dropdown handler) since a plain centre-to-edge default would misplace a
     // freshly chosen radial gradient. Mirror this exactly in VectorCoverage.slang/VectorSurface.slang.
     std::array<float, 4> GradientAxis{-.5f, 0.f, .5f, 0.f};
-    // x: rectangle corner radius in document units; y: stroke source (0 solid, 1 linear, 2 radial).
+    // x: rectangle corner radius in document units; y: stroke source (0 solid, 1 linear, 2 radial);
+    // z: fill gradient interpolation (0 linear, 1 hermite, 2 catmull-rom, 3 b-spline, 4 step);
+    // w: stroke gradient interpolation (0..4).
     std::array<float, 4> ShapeParameters{};
     std::array<float, 4> StrokeColourEnd{1, 1, 1, 1};
     std::array<float, 4> StrokeGradientStopPositions{0, 1, -1, -1};
     std::array<float, 4> StrokeGradientStopColour2{1, 1, 1, 1};
     std::array<float, 4> StrokeGradientStopColour3{1, 1, 1, 1};
     std::array<float, 4> StrokeGradientAxis{-.5f, 0, .5f, 0};
+    // 🧩 Multi-point freeform 2D gradient (Transform[3] == 3): up to 8 arbitrary 2D control points in
+    // the shape's bounds-normalized LocalNorm frame (Local / Bounds.zw). Points 0..3 read Colour,
+    // ColourEnd, GradientStopColour2 and GradientStopColour3; points 4..7 read FreeformPointColour4..7.
+    // FreeformParameters stores {PointCount (2..8), FalloffSharpness (0.5..6), 0, 0}.
+    std::array<float, 4> FreeformPointPositions01{-.3f, -.3f, .3f, -.3f};
+    std::array<float, 4> FreeformPointPositions23{-.3f, .3f, .3f, .3f};
+    std::array<float, 4> FreeformPointPositions45{0.f, -.35f, .35f, 0.f};
+    std::array<float, 4> FreeformPointPositions67{0.f, .35f, -.35f, 0.f};
+    std::array<float, 4> FreeformPointColour4{1, 1, 1, 1};
+    std::array<float, 4> FreeformPointColour5{1, 1, 1, 1};
+    std::array<float, 4> FreeformPointColour6{1, 1, 1, 1};
+    std::array<float, 4> FreeformPointColour7{1, 1, 1, 1};
+    std::array<float, 4> FreeformParameters{4.f, 2.f, 0.f, 0.f};
     bool operator==(const VectorCoverageInstruction &) const = default;
 };
 struct alignas(16) VectorCubicSegment
@@ -98,7 +113,7 @@ struct alignas(16) VectorCubicSegment
     std::array<float, 4> ControlEnd{};
     bool operator==(const VectorCubicSegment &) const = default;
 };
-static_assert(sizeof(VectorCoverageInstruction) == 272 && sizeof(VectorCubicSegment) == 32);
+static_assert(sizeof(VectorCoverageInstruction) == 416 && sizeof(VectorCubicSegment) == 32);
 struct VectorCoverageProgram
 {
     std::vector<VectorCoverageInstruction> Instructions;
@@ -133,7 +148,9 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
         const auto &Instruction = Program.Instructions[Index];
         for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint,
             Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis, Instruction.ShapeParameters,
-            Instruction.StrokeColourEnd, Instruction.StrokeGradientStopPositions, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3, Instruction.StrokeGradientAxis})
+            Instruction.StrokeColourEnd, Instruction.StrokeGradientStopPositions, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3, Instruction.StrokeGradientAxis,
+            Instruction.FreeformPointPositions01, Instruction.FreeformPointPositions23, Instruction.FreeformPointPositions45, Instruction.FreeformPointPositions67,
+            Instruction.FreeformPointColour4, Instruction.FreeformPointColour5, Instruction.FreeformPointColour6, Instruction.FreeformPointColour7, Instruction.FreeformParameters})
             for (float Coordinate : Coordinates) if (!std::isfinite(Coordinate)) throw std::runtime_error("Non-finite vector coverage descriptor.");
         const auto Category = Instruction.Topology[0];
         if (Category <= 6)
@@ -172,10 +189,19 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
             if ((Category == 24 || Category == 25) && Instruction.Topology[3] > 1) throw std::runtime_error("Mask inversion must be zero or one.");
         }
         else throw std::runtime_error("Unsupported GPU vector coverage operation.");
-        if (Instruction.Transform[1] < 0 || Instruction.Transform[1] > 100 || Instruction.Transform[2] < 0 || Instruction.Transform[2] > 1 || Instruction.Transform[3] < 0 || Instruction.Transform[3] > 2 || std::floor(Instruction.Transform[3]) != Instruction.Transform[3] || std::abs(Instruction.Transform[0]) > 1e6f || std::abs(Instruction.Paint[0]) > 1e6f || (Instruction.Paint[3] != 0 && Instruction.Paint[3] != 1))
+        if (Instruction.Transform[1] < 0 || Instruction.Transform[1] > 100 || Instruction.Transform[2] < 0 || Instruction.Transform[2] > 1 || Instruction.Transform[3] < 0 || Instruction.Transform[3] > 3 || std::floor(Instruction.Transform[3]) != Instruction.Transform[3] || std::abs(Instruction.Transform[0]) > 1e6f || std::abs(Instruction.Paint[0]) > 1e6f || (Instruction.Paint[3] != 0 && Instruction.Paint[3] != 1))
             throw std::runtime_error("Vector stroke, opacity or paint category is invalid.");
         if (Instruction.ShapeParameters[1] < 0 || Instruction.ShapeParameters[1] > 2 || std::floor(Instruction.ShapeParameters[1]) != Instruction.ShapeParameters[1]) throw std::runtime_error("Invalid stroke paint category.");
-        for (const auto &Colours : {Instruction.StrokeColourEnd, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3})
+        if (Instruction.ShapeParameters[2] < 0 || Instruction.ShapeParameters[2] > 4 || std::floor(Instruction.ShapeParameters[2]) != Instruction.ShapeParameters[2] ||
+            Instruction.ShapeParameters[3] < 0 || Instruction.ShapeParameters[3] > 4 || std::floor(Instruction.ShapeParameters[3]) != Instruction.ShapeParameters[3])
+            throw std::runtime_error("Invalid vector gradient interpolation category.");
+        if (Instruction.FreeformParameters[0] < 2.f || Instruction.FreeformParameters[0] > 8.f || std::floor(Instruction.FreeformParameters[0]) != Instruction.FreeformParameters[0] ||
+            Instruction.FreeformParameters[1] < .25f || Instruction.FreeformParameters[1] > 8.f)
+            throw std::runtime_error("Invalid vector freeform gradient parameters.");
+        for (const auto &Coordinates : {Instruction.FreeformPointPositions01, Instruction.FreeformPointPositions23, Instruction.FreeformPointPositions45, Instruction.FreeformPointPositions67})
+            for (float Coordinate : Coordinates) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector freeform gradient point extends absurdly far past the shape's bounds.");
+        for (const auto &Colours : {Instruction.StrokeColourEnd, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3,
+            Instruction.FreeformPointColour4, Instruction.FreeformPointColour5, Instruction.FreeformPointColour6, Instruction.FreeformPointColour7})
             for (float Channel : Colours) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector stroke gradient colour must be normalized.");
         for (float Coordinate : Instruction.StrokeGradientAxis) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector stroke gradient axis is invalid.");
         for (float Coordinate : Instruction.GradientAxis) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector gradient axis extends absurdly far past the shape's own bounds.");

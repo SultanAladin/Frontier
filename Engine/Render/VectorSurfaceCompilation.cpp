@@ -30,6 +30,8 @@ VectorSurfaceProgram CompileVectorSurface(const VectorAuthoringDocument &Documen
     VectorSurfaceProgram Program;
     Program.Channel = Channel;
     Program.Coverage = {Document.Instructions, Document.Segments, 0};
+    if (Document.CanvasExtent != 512.f)
+        for (auto &Instruction : Program.Coverage.Instructions) Instruction = NormalizeVectorInstructionForGpu(Instruction, Document.CanvasExtent);
     (void)ConstructVectorAuthoringCoverage(Document);
     std::optional<uint32_t> Output;
     for (const auto &Layer : Document.Layers)
@@ -39,7 +41,7 @@ VectorSurfaceProgram CompileVectorSurface(const VectorAuthoringDocument &Documen
         if (Layer.Mask && Layer.MaskEnabled)
         {
             const uint32_t Mask = uint32_t(Program.Coverage.Instructions.size());
-            Program.Coverage.Instructions.push_back(*Layer.Mask);
+            Program.Coverage.Instructions.push_back(NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent));
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
             Root = uint32_t(Program.Coverage.Instructions.size());

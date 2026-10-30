@@ -100,6 +100,7 @@ void ControlCentrePanel::FinalizeContent() noexcept
     AlertVisibleCount = 0;
     AlertPressToken = AlertDismissToken = AlertHoverToken = 0;
     AlertContact                                          = false;
+    DrawerWasInteractive                                  = false;
     if (TypefaceRegistry::QueryCurrent() == &Typefaces)
         TypefaceRegistry::Install(nullptr);
 }
@@ -651,11 +652,15 @@ void ControlCentrePanel::ConstructDrawerLayout() noexcept
     const auto  Origin  = ImGui::GetMainViewport()->Pos;
     const float Scale   = Appearance.QueryApplied().InterfaceScale / 100.0f;
     Expansion.ConfigureExtent(Display.x, Display.y, Scale);
-    const bool Visible = Expansion.QueryHeight() > 0.5f || Expansion.QueryOpen();
-    auto       Options = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
-    if (!Visible)
+    const bool Interactive = Expansion.QueryOpen() || Expansion.QueryDragging();
+    const bool Visible     = Expansion.QueryHeight() > 0.5f || Interactive;
+    auto       Options     = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
+    if (!Interactive)
         Options |= ImGuiWindowFlags_NoInputs;
+    if (Interactive && !DrawerWasInteractive)
+        ImGui::SetNextWindowFocus();
+    DrawerWasInteractive = Interactive;
     ImGui::SetNextWindowPos(Origin);
     ImGui::SetNextWindowSize(Display);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -724,13 +729,15 @@ void ControlCentrePanel::ConstructDrawerLayout() noexcept
             !NotchBounds.Encloses(Mouse.x - Origin.x, Mouse.y - Origin.y))
             Expansion.ConfigureOpen(false);
     }
+    const bool UnderlyingItemEngaged = !Interactive && (ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive());
+    const bool AllowNotchPointer     = !AlertContact && !UnderlyingItemEngaged;
     Expansion.IntegratePointer(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y,
-                               !AlertContact && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
-                               !AlertContact && ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                               AllowNotchPointer && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                               AllowNotchPointer && ImGui::IsMouseDown(ImGuiMouseButton_Left),
                                !AlertContact && ImGui::IsMouseReleased(ImGuiMouseButton_Left), IO.DeltaTime,
                                CardContact);
-    if (Expansion.QueryDragging() || Visible ||
-        Expansion.QueryTabExtent().Encloses(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y))
+    if (Interactive ||
+        (!UnderlyingItemEngaged && Expansion.QueryTabExtent().Encloses(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y)))
         ImGui::SetNextFrameWantCaptureMouse(true);
     ImGui::End();
     ImGui::PopStyleVar();

@@ -74,7 +74,12 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
         Source.Bounds[3] *= Orthogonal ? Patch.ScaleX : Patch.ScaleY;
         Source.Transform[0] += Patch.Rotation;
     }
-    if (Patch.Colour) Source.Colour = *Patch.Colour;
+    if (Patch.Colour)
+    {
+        Source.Colour = *Patch.Colour;
+        if (!Patch.StrokeColour && !(Source.Topology[3] & VectorCoverageStrokeColourExplicit))
+            Source.StrokeColour = *Patch.Colour;
+    }
     if (Patch.ColourEnd) Source.ColourEnd = *Patch.ColourEnd;
     if (Patch.GradientStopPositions) Source.GradientStopPositions = *Patch.GradientStopPositions;
     if (Patch.GradientStopColour2) Source.GradientStopColour2 = *Patch.GradientStopColour2;
@@ -91,6 +96,17 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
     if (Patch.StrokeGradientStopColour3) Source.StrokeGradientStopColour3 = *Patch.StrokeGradientStopColour3;
     if (Patch.StrokeGradientAxis) Source.StrokeGradientAxis = *Patch.StrokeGradientAxis;
     if (Patch.StrokePaintCategory) Source.ShapeParameters[1] = float(*Patch.StrokePaintCategory);
+    if (Patch.GradientInterpolation) Source.ShapeParameters[2] = float(*Patch.GradientInterpolation);
+    if (Patch.StrokeGradientInterpolation) Source.ShapeParameters[3] = float(*Patch.StrokeGradientInterpolation);
+    if (Patch.FreeformPointPositions01) Source.FreeformPointPositions01 = *Patch.FreeformPointPositions01;
+    if (Patch.FreeformPointPositions23) Source.FreeformPointPositions23 = *Patch.FreeformPointPositions23;
+    if (Patch.FreeformPointPositions45) Source.FreeformPointPositions45 = *Patch.FreeformPointPositions45;
+    if (Patch.FreeformPointPositions67) Source.FreeformPointPositions67 = *Patch.FreeformPointPositions67;
+    if (Patch.FreeformPointColour4) Source.FreeformPointColour4 = *Patch.FreeformPointColour4;
+    if (Patch.FreeformPointColour5) Source.FreeformPointColour5 = *Patch.FreeformPointColour5;
+    if (Patch.FreeformPointColour6) Source.FreeformPointColour6 = *Patch.FreeformPointColour6;
+    if (Patch.FreeformPointColour7) Source.FreeformPointColour7 = *Patch.FreeformPointColour7;
+    if (Patch.FreeformParameters) Source.FreeformParameters = *Patch.FreeformParameters;
     if (Patch.Opacity) Source.Transform[2] = *Patch.Opacity;
     if (Patch.StrokeWidth) Source.Transform[1] = *Patch.StrokeWidth;
     if (Patch.PaintCategory) Source.Transform[3] = float(*Patch.PaintCategory);
@@ -169,8 +185,9 @@ std::array<float, 4> QueryVectorAuthoringSelectionBounds(const VectorAuthoringDo
     if (!Found) throw std::runtime_error("VectorAuthoring bounds need an authenticated selection.");
     // 📝 Tile-wrapped library layers repeat their motifs off-canvas; the gesture frame hugs the visible artwork
     // so handles stay on the board. Fully off-canvas selections keep their true union so they stay editable.
-    const float VisibleMinimumX = std::max(MinimumX, 0.f), VisibleMaximumX = std::min(MaximumX, 512.f);
-    const float VisibleMinimumY = std::max(MinimumY, 0.f), VisibleMaximumY = std::min(MaximumY, 512.f);
+    const float CanvasMax = std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+    const float VisibleMinimumX = std::max(MinimumX, 0.f), VisibleMaximumX = std::min(MaximumX, CanvasMax);
+    const float VisibleMinimumY = std::max(MinimumY, 0.f), VisibleMaximumY = std::min(MaximumY, CanvasMax);
     if (VisibleMinimumX <= VisibleMaximumX && VisibleMinimumY <= VisibleMaximumY)
         return {(VisibleMinimumX + VisibleMaximumX) * .5f, (VisibleMinimumY + VisibleMaximumY) * .5f,
             VisibleMaximumX - VisibleMinimumX, VisibleMaximumY - VisibleMinimumY};
@@ -185,6 +202,8 @@ VectorSelectionProgram ConstructVectorSelectionProgram(const VectorAuthoringDocu
 {
     (void)ConstructVectorAuthoringCoverage(Document);
     VectorSelectionProgram Selection{{Document.Instructions, Document.Segments, 0}, {}};
+    if (Document.CanvasExtent != 512.f)
+        for (auto &Instruction : Selection.Coverage.Instructions) Instruction = NormalizeVectorInstructionForGpu(Instruction, Document.CanvasExtent);
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer)) continue;
@@ -192,7 +211,7 @@ VectorSelectionProgram ConstructVectorSelectionProgram(const VectorAuthoringDocu
         if (Layer.Mask && Layer.MaskEnabled)
         {
             const uint32_t Mask = uint32_t(Selection.Coverage.Instructions.size());
-            Selection.Coverage.Instructions.push_back(*Layer.Mask);
+            Selection.Coverage.Instructions.push_back(NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent));
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
             Root = uint32_t(Selection.Coverage.Instructions.size());
@@ -383,7 +402,11 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
     if (Patch.ScaleX <= 0 || Patch.ScaleY <= 0) throw std::runtime_error("VectorAuthoring scale must be positive.");
     if (Patch.TranslationX == 0 && Patch.TranslationY == 0 && Patch.ScaleX == 1 && Patch.ScaleY == 1 && Patch.Rotation == 0 &&
         !Patch.Colour && !Patch.ColourEnd && !Patch.GradientStopPositions && !Patch.GradientStopColour2 && !Patch.GradientStopColour3 &&
-        !Patch.GradientAxis && !Patch.StrokeColour && !Patch.StrokeColourEnd && !Patch.StrokeGradientStopPositions && !Patch.StrokeGradientStopColour2 && !Patch.StrokeGradientStopColour3 && !Patch.StrokeGradientAxis && !Patch.StrokePaintCategory && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
+        !Patch.GradientAxis && !Patch.StrokeColour && !Patch.StrokeColourEnd && !Patch.StrokeGradientStopPositions && !Patch.StrokeGradientStopColour2 && !Patch.StrokeGradientStopColour3 && !Patch.StrokeGradientAxis && !Patch.StrokePaintCategory &&
+        !Patch.GradientInterpolation && !Patch.StrokeGradientInterpolation &&
+        !Patch.FreeformPointPositions01 && !Patch.FreeformPointPositions23 && !Patch.FreeformPointPositions45 && !Patch.FreeformPointPositions67 &&
+        !Patch.FreeformPointColour4 && !Patch.FreeformPointColour5 && !Patch.FreeformPointColour6 && !Patch.FreeformPointColour7 && !Patch.FreeformParameters &&
+        !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
         !Patch.PolygonSides && !Patch.StarInnerRadius && !Patch.CornerRadius && !Patch.ClosedOutlineWidth) return;
     const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, Selection);
     auto Replacement = Document;
@@ -392,6 +415,9 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
     Geometry.GradientStopColour2.reset(); Geometry.GradientStopColour3.reset(); Geometry.GradientAxis.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
     Geometry.StrokeColourEnd.reset(); Geometry.StrokeGradientStopPositions.reset(); Geometry.StrokeGradientStopColour2.reset();
     Geometry.StrokeGradientStopColour3.reset(); Geometry.StrokeGradientAxis.reset(); Geometry.StrokePaintCategory.reset();
+    Geometry.GradientInterpolation.reset(); Geometry.StrokeGradientInterpolation.reset();
+    Geometry.FreeformPointPositions01.reset(); Geometry.FreeformPointPositions23.reset(); Geometry.FreeformPointPositions45.reset(); Geometry.FreeformPointPositions67.reset();
+    Geometry.FreeformPointColour4.reset(); Geometry.FreeformPointColour5.reset(); Geometry.FreeformPointColour6.reset(); Geometry.FreeformPointColour7.reset(); Geometry.FreeformParameters.reset();
     Geometry.StrokeWidth.reset(); Geometry.PaintCategory.reset(); Geometry.FillEnabled.reset();
     Geometry.PolygonSides.reset(); Geometry.StarInnerRadius.reset(); Geometry.CornerRadius.reset(); Geometry.ClosedOutlineWidth.reset();
     std::unordered_map<uint64_t, uint32_t> Remapping;

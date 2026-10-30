@@ -14,7 +14,11 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <list>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <thorvg.h>
 
 namespace Frontier
@@ -53,7 +57,7 @@ std::string ColourLiteral(const std::array<float, 4> &Colour)
 // the same rotate-then-translate placement as every other primitive below - so what the gallery thumbnail
 // shows is the exact axis the user dragged, not a fixed corner-to-corner guess. Returns the "url(#id)"
 // reference to use as fill, or an empty string if this instruction isn't a gradient fill.
-std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint32_t Root, float Opacity,
+std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint32_t &DefSerial, float Opacity,
     const std::function<std::array<float, 2>(float, float)> &Place, std::string &Defs, bool Stroke = false)
 {
     const uint32_t Category = uint32_t(Source.Transform[3]);
@@ -64,7 +68,7 @@ std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint
     const auto X = Place(Source.Bounds[2], 0), Y = Place(0, Source.Bounds[3]);
     const std::string Matrix = "matrix(" + Number(X[0] - Origin[0]) + " " + Number(X[1] - Origin[1]) + " " +
         Number(Y[0] - Origin[0]) + " " + Number(Y[1] - Origin[1]) + " " + Number(Origin[0]) + " " + Number(Origin[1]) + ")";
-    const std::string Id = (Stroke ? "pattern-stroke-gradient-" : "pattern-gradient-") + std::to_string(Root);
+    const std::string Id = (Stroke ? "pattern-stroke-gradient-" : "pattern-gradient-") + std::to_string(DefSerial++);
     const auto &Axis = Source.GradientAxis;
     std::string Def;
     if (Category == 1)
@@ -76,18 +80,35 @@ std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint
         Def = "<radialGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" gradientTransform=\"" + Matrix +
               "\" cx=\"" + Number(Axis[0]) + "\" cy=\"" + Number(Axis[1]) + "\" r=\"" + Number(Radius) + "\">";
     }
-    for (const auto &Stop : QueryVectorGradientStops(Source))
-        Def += "<stop offset=\"" + Number(std::clamp(Stop.Position, 0.f, 1.f) * 100.f) + "%\" stop-color=\"" +
-               ColourLiteral(Stop.Colour) + "\" stop-opacity=\"" + Number(std::clamp(Stop.Colour[3] * Opacity, 0.f, 1.f)) + "\"/>";
+    const auto Stops = QueryVectorGradientStops(Source);
+    const uint32_t Mode = uint32_t(std::clamp(std::lround(Source.ShapeParameters[2]), 0l, 4l));
+    if (Mode == 0)
+    {
+        for (const auto &Stop : Stops)
+            Def += "<stop offset=\"" + Number(std::clamp(Stop.Position, 0.f, 1.f) * 100.f) + "%\" stop-color=\"" +
+                   ColourLiteral(Stop.Colour) + "\" stop-opacity=\"" + Number(std::clamp(Stop.Colour[3] * Opacity, 0.f, 1.f)) + "\"/>";
+    }
+    else
+    {
+        constexpr int SampleCount = 24;
+        for (int Step = 0; Step <= SampleCount; ++Step)
+        {
+            const float Fraction = float(Step) / float(SampleCount);
+            const auto Sampled = EvaluateVectorGradientColour(Stops, Fraction, Mode);
+            Def += "<stop offset=\"" + Number(Fraction * 100.f) + "%\" stop-color=\"" + ColourLiteral(Sampled) +
+                   "\" stop-opacity=\"" + Number(std::clamp(Sampled[3] * Opacity, 0.f, 1.f)) + "\"/>";
+        }
+    }
     Def += Category == 1 ? "</linearGradient>" : "</radialGradient>";
     Defs += Def;
     return "url(#" + Id + ")";
 }
 
-std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity, const std::string &GradientFill, const std::string &GradientStroke)
+std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity, const std::string &GradientFill,
+    const std::string &GradientStroke, bool ForceNoFill = false, bool SuppressStroke = false)
 {
     std::string Text;
-    if (Source.Paint[3] != 0)
+    if (Source.Paint[3] != 0 && !ForceNoFill)
     {
         if (!GradientFill.empty()) Text += " fill=\"" + GradientFill + "\"";
         else Text += " fill=\"" + ColourLiteral(Source.Colour) + "\" fill-opacity=\"" + Number(std::clamp(Source.Colour[3] * Opacity, 0.f, 1.f)) + "\"";
@@ -96,7 +117,7 @@ std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, flo
         Text += " fill=\"none\"";
     // 📝 Closed+filled cubic contours read their independent Paint[0] outline width - shared rule in
     // Engine/Render/VectorCoverage.h (QueryVectorCoverageStrokeWidth), mirrored by the GPU shaders.
-    const float StrokeWidth = QueryVectorCoverageStrokeWidth(Source);
+    const float StrokeWidth = SuppressStroke ? 0.f : QueryVectorCoverageStrokeWidth(Source);
     if (StrokeWidth > 0)
     {
         const bool Explicit = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0;
@@ -109,31 +130,9 @@ std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, flo
     return Text;
 }
 
-// 📝 Shared recursive emitter: appends one instruction (and, for Boolean/composite roots, both
-// children) to Svg in absolute tile-space coordinates. Used both for the whole-document gallery
-// encoding and the single-layer row-thumbnail encoding below, so the two never drift apart.
-void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Root, uint32_t Depth, std::string &Svg, std::string &Defs)
+std::string EncodeLeafShapeElement(const VectorAuthoringDocument &Document, const VectorCoverageInstruction &Source, const std::string &Paint)
 {
-    if (Root >= Document.Instructions.size() || Depth > 16) return;
-    const auto &Source = Document.Instructions[Root];
     const uint32_t Category = Source.Topology[0];
-    if (Category > 6)
-    {
-        if (Category == 29)
-        {
-            Svg += "<g opacity=\"" + Number(Source.Transform[2]) + "\">";
-            EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs);
-            Svg += "</g>";
-            return;
-        }
-        // 📝 Boolean/composite roots emit both children in order, matching card paint order.
-        EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs);
-        if (Source.Topology[0] != 17 && Source.Topology[0] != 24 && Source.Topology[0] != 25)
-            EmitPatternInstruction(Document, Source.Topology[2], Depth + 1, Svg, Defs);
-        return;
-    }
-    const float Opacity = Source.Transform[2];
-    if (!(Opacity > 0) || !std::isfinite(Opacity)) return;
     const float Rotation = Source.Transform[0];
     const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
     const auto Place = [&](float LocalX, float LocalY)
@@ -141,61 +140,39 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
         return std::array<float, 2>{Source.Bounds[0] + Cosine * LocalX - Sine * LocalY,
             Source.Bounds[1] + Sine * LocalX + Cosine * LocalY};
     };
-    // 📝 The ellipse branch below bakes its own rotation into a separate SVG transform="rotate(...)"
-    // attribute instead of pre-rotating its points like every other category does via Place - so its
-    // gradient (which SVG resolves in the coordinate system already carrying that transform) must be
-    // defined in the SAME unrotated frame, or the rotation would apply to it twice.
-    const auto PlaceUnrotated = [&](float LocalX, float LocalY)
-    {
-        return std::array<float, 2>{Source.Bounds[0] + LocalX, Source.Bounds[1] + LocalY};
-    };
-    const std::function<std::array<float, 2>(float, float)> GradientPlace = (Category == 1 || Category == 0) ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
-    const std::string GradientFill = EmitPatternGradientDef(Source, Root, Opacity, GradientPlace, Defs);
-    const std::string GradientStroke = EmitPatternGradientDef(QueryVectorStrokeGradientSource(Source), Root, Opacity, GradientPlace, Defs, true);
-    const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill, GradientStroke);
-    // 📝 Bounds.zw are full extents; the coverage shader halves them, and so does this encoding.
     const float HalfX = Source.Bounds[2] * .5f, HalfY = Source.Bounds[3] * .5f;
-    const auto Points = [&](const std::vector<std::array<float, 2>> &Loop)
-    {
-        std::string Text = "<polygon points=\"";
-        for (const auto &Point : Loop) Text += Number(Point[0]) + "," + Number(Point[1]) + " ";
-        Text += "\"" + Paint + "/>";
-        return Text;
-    };
     if (Category == 0)
     {
         const float Radius = std::min(Source.ShapeParameters[0], std::min(HalfX, HalfY));
-        Svg += "<rect x=\"" + Number(Source.Bounds[0] - HalfX) + "\" y=\"" + Number(Source.Bounds[1] - HalfY) +
+        return "<rect x=\"" + Number(Source.Bounds[0] - HalfX) + "\" y=\"" + Number(Source.Bounds[1] - HalfY) +
             "\" width=\"" + Number(Source.Bounds[2]) + "\" height=\"" + Number(Source.Bounds[3]) +
             "\" rx=\"" + Number(Radius) + "\" transform=\"rotate(" + Number(Rotation * 57.2957795131f) + " " +
             Number(Source.Bounds[0]) + " " + Number(Source.Bounds[1]) + ")\"" + Paint + "/>";
-        return;
     }
     if (Category == 1)
     {
-        Svg += "<ellipse cx=\"" + Number(Source.Bounds[0]) + "\" cy=\"" + Number(Source.Bounds[1]) + "\" rx=\"" +
+        return "<ellipse cx=\"" + Number(Source.Bounds[0]) + "\" cy=\"" + Number(Source.Bounds[1]) + "\" rx=\"" +
                Number(HalfX) + "\" ry=\"" + Number(HalfY) + "\" transform=\"rotate(" +
                Number(Rotation * 57.2957795131f) + " " + Number(Source.Bounds[0]) + " " +
                Number(Source.Bounds[1]) + ")\"" + Paint + "/>";
-        return;
     }
     if (Category <= 5)
     {
         uint32_t Count = Category == 2 ? 4 : Category == 3 ? 3 : uint32_t(std::max(Source.Paint[2], 3.f));
         if (Category == 5) Count *= 2;
-        std::vector<std::array<float, 2>> Loop;
+        std::string Text = "<polygon points=\"";
         for (uint32_t Corner = 0; Corner < Count; ++Corner)
         {
             const float Angle = -1.57079632679f + 6.28318530718f * float(Corner) / float(Count);
-            const float Radius = Category == 5 && Corner % 2 == 1 ? Source.Paint[1] : 1;
-            Loop.push_back(Place(std::cos(Angle) * HalfX * Radius, std::sin(Angle) * HalfY * Radius));
+            const float Radius = Category == 5 && Corner % 2 == 1 ? Source.Paint[1] : 1.f;
+            const auto Point = Place(std::cos(Angle) * HalfX * Radius, std::sin(Angle) * HalfY * Radius);
+            Text += Number(Point[0]) + "," + Number(Point[1]) + " ";
         }
-        Svg += Points(Loop);
-        return;
+        Text += "\"" + Paint + "/>";
+        return Text;
     }
     const uint32_t Start = Source.Topology[1], Count = Source.Topology[2];
-    if (Count == 0 || uint64_t(Start) + Count > Document.Segments.size()) return;
-    // 📝 Segments live in unit-cage space scaled by the full Bounds, exactly as the shader scales them.
+    if (Count == 0 || uint64_t(Start) + Count > Document.Segments.size()) return {};
     const auto Cage = [&](float X, float Y) { return Place(X * Source.Bounds[2], Y * Source.Bounds[3]); };
     std::string Path = "<path d=\"";
     bool Pen = false;
@@ -219,25 +196,109 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     }
     if (Pen && std::hypot(Last[0] - First[0], Last[1] - First[1]) <= 1.5f) Path += "Z";
     Path += "\"" + Paint + "/>";
-    Svg += Path;
+    return Path;
+}
+
+// 📝 Shared recursive emitter: appends one instruction (and, for Boolean/composite roots, both
+// children) to Svg in absolute tile-space coordinates. Used both for the whole-document gallery
+// encoding and the single-layer row-thumbnail encoding below, so the two never drift apart.
+void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Root, uint32_t Depth, std::string &Svg, std::string &Defs, uint32_t &DefSerial)
+{
+    if (Root >= Document.Instructions.size() || Depth > 16) return;
+    const auto &Source = Document.Instructions[Root];
+    const uint32_t Category = Source.Topology[0];
+    if (Category > 6)
+    {
+        if (Category == 29)
+        {
+            Svg += "<g opacity=\"" + Number(Source.Transform[2]) + "\">";
+            EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs, DefSerial);
+            Svg += "</g>";
+            return;
+        }
+        // 📝 Boolean/composite roots emit both children in order, matching card paint order.
+        EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs, DefSerial);
+        if (Source.Topology[0] != 17 && Source.Topology[0] != 24 && Source.Topology[0] != 25)
+            EmitPatternInstruction(Document, Source.Topology[2], Depth + 1, Svg, Defs, DefSerial);
+        return;
+    }
+    const float Opacity = Source.Transform[2];
+    if (!(Opacity > 0) || !std::isfinite(Opacity)) return;
+    const float Rotation = Source.Transform[0];
+    const float Sine = std::sin(Rotation), Cosine = std::cos(Rotation);
+    const auto Place = [&](float LocalX, float LocalY)
+    {
+        return std::array<float, 2>{Source.Bounds[0] + Cosine * LocalX - Sine * LocalY,
+            Source.Bounds[1] + Sine * LocalX + Cosine * LocalY};
+    };
+    const auto PlaceUnrotated = [&](float LocalX, float LocalY)
+    {
+        return std::array<float, 2>{Source.Bounds[0] + LocalX, Source.Bounds[1] + LocalY};
+    };
+    const std::function<std::array<float, 2>(float, float)> GradientPlace = (Category == 1 || Category == 0) ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
+    const std::string GradientStroke = EmitPatternGradientDef(QueryVectorStrokeGradientSource(Source), DefSerial, Opacity, GradientPlace, Defs, true);
+    if (uint32_t(Source.Transform[3]) == 3 && Source.Paint[3] != 0)
+    {
+        const std::string ClipShape = EncodeLeafShapeElement(Document, Source, "");
+        if (!ClipShape.empty())
+        {
+            const std::string ClipId = "pattern-clip-" + std::to_string(DefSerial++);
+            Defs += "<clipPath id=\"" + ClipId + "\">" + ClipShape + "</clipPath>";
+            const auto FreeformPoints = QueryVectorFreeformPoints(Source);
+            const float Sharpness = Source.FreeformParameters[1];
+            const uint32_t FillMode = uint32_t(std::clamp(std::lround(Source.ShapeParameters[2]), 0l, 4l));
+            constexpr int Subdivisions = 20;
+            const float HalfX = Source.Bounds[2] * .5f, HalfY = Source.Bounds[3] * .5f;
+            const float CellW = Source.Bounds[2] / float(Subdivisions), CellH = Source.Bounds[3] / float(Subdivisions);
+            const float OverlapW = CellW * 1.18f, OverlapH = CellH * 1.18f;
+            Svg += "<g clip-path=\"url(#" + ClipId + ")\"><g transform=\"translate(" + Number(Source.Bounds[0]) + " " +
+                   Number(Source.Bounds[1]) + ") rotate(" + Number(Rotation * 57.2957795131f) + ")\">";
+            for (int Row = 0; Row < Subdivisions; ++Row)
+            {
+                const float NormY = -.5f + (float(Row) + .5f) / float(Subdivisions);
+                const float TopY = -HalfY + float(Row) * CellH - (OverlapH - CellH) * .5f;
+                for (int Column = 0; Column < Subdivisions; ++Column)
+                {
+                    const float NormX = -.5f + (float(Column) + .5f) / float(Subdivisions);
+                    const float LeftX = -HalfX + float(Column) * CellW - (OverlapW - CellW) * .5f;
+                    const auto CellColour = EvaluateVectorFreeformGradient2D(FreeformPoints, {NormX, NormY}, Sharpness, FillMode);
+                    Svg += "<rect x=\"" + Number(LeftX) + "\" y=\"" + Number(TopY) + "\" width=\"" + Number(OverlapW) +
+                           "\" height=\"" + Number(OverlapH) + "\" fill=\"" + ColourLiteral(CellColour) +
+                           "\" fill-opacity=\"" + Number(std::clamp(CellColour[3] * Opacity, 0.f, 1.f)) + "\"/>";
+                }
+            }
+            Svg += "</g></g>";
+        }
+        if (QueryVectorCoverageStrokeWidth(Source) > 0.f)
+        {
+            const std::string StrokeOnly = PatternInstructionStyle(Source, Opacity, {}, GradientStroke, true, false);
+            Svg += EncodeLeafShapeElement(Document, Source, StrokeOnly);
+        }
+        return;
+    }
+    const std::string GradientFill = EmitPatternGradientDef(Source, DefSerial, Opacity, GradientPlace, Defs);
+    const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill, GradientStroke);
+    Svg += EncodeLeafShapeElement(Document, Source, Paint);
 }
 } // namespace
 
 std::string EncodePatternThumbnailSvg(const VectorAuthoringDocument &Document, uint32_t BackgroundAbgr)
 {
-    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">";
+    const float Extent = std::clamp(Document.CanvasExtent, 64.f, 4096.f);
+    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + Number(Extent) + " " + Number(Extent) + "\">";
     {
-        char Buffer[96]{};
-        std::snprintf(Buffer, sizeof(Buffer), "<rect width=\"512\" height=\"512\" fill=\"rgb(%u,%u,%u)\"/>",
-            BackgroundAbgr & 255, (BackgroundAbgr >> 8) & 255, (BackgroundAbgr >> 16) & 255);
+        char Buffer[128]{};
+        std::snprintf(Buffer, sizeof(Buffer), "<rect width=\"%.3f\" height=\"%.3f\" fill=\"rgb(%u,%u,%u)\"/>",
+            double(Extent), double(Extent), BackgroundAbgr & 255, (BackgroundAbgr >> 8) & 255, (BackgroundAbgr >> 16) & 255);
         Svg += Buffer;
     }
     std::string Defs, Body;
+    uint32_t DefSerial = 0;
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
         Body += "<g opacity=\"" + Number(Layer.ExpressionOpacity) + "\">";
-        EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
+        EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs, DefSerial);
         Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
@@ -268,10 +329,11 @@ std::string EncodePatternLayerThumbnailSvg(const VectorAuthoringDocument &Docume
         Svg += Buffer;
     }
     std::string Defs, Body;
+    uint32_t DefSerial = 0;
     if (QueryVectorAuthoringVisibility(Document, *Position))
     {
         Body += "<g opacity=\"" + Number(Position->ExpressionOpacity) + "\">";
-        EmitPatternInstruction(Document, Position->Root, 0, Body, Defs);
+        EmitPatternInstruction(Document, Position->Root, 0, Body, Defs, DefSerial);
         Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
@@ -376,13 +438,15 @@ std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document)
     // 🖨️ EncodePatternThumbnailSvg minus the opaque background rect: stamp artwork must keep a
     // transparent surround so Texture Paint can composite it as a decal.
     const auto Evaluated = ConstructEvaluatedVectorAuthoringDocument(Document);
-    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\">";
+    const float Extent = std::clamp(Evaluated.CanvasExtent, 64.f, 4096.f);
+    std::string Svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " + Number(Extent) + " " + Number(Extent) + "\">";
     std::string Defs, Body;
+    uint32_t DefSerial = 0;
     for (const auto &Layer : Evaluated.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Evaluated, Layer)) continue;
         Body += "<g opacity=\"" + Number(Layer.ExpressionOpacity) + "\">";
-        EmitPatternInstruction(Evaluated, Layer.Root, 0, Body, Defs);
+        EmitPatternInstruction(Evaluated, Layer.Root, 0, Body, Defs, DefSerial);
         Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
@@ -414,6 +478,78 @@ std::vector<uint8_t> RasterizeStampDocument(const VectorAuthoringDocument &Docum
     if (!Ok) throw std::runtime_error("ThorVG could not rasterize the stamp document SVG.");
     return Pixels;
 }
+
+namespace
+{
+struct CachedStampLayerRaster
+{
+    uint32_t Extent = 0;
+    std::string Svg;
+    std::vector<uint8_t> Pixels;
+    uint32_t FirstRow = 0;
+    uint32_t EndRow = 0;
+};
+
+std::shared_ptr<const CachedStampLayerRaster> RasterizeCachedStampSvg(const std::string &Svg, uint32_t Extent)
+{
+    static std::mutex CacheMutex;
+    static std::list<std::shared_ptr<CachedStampLayerRaster>> CacheEntries;
+    {
+        std::scoped_lock Lock(CacheMutex);
+        for (auto Iterator = CacheEntries.begin(); Iterator != CacheEntries.end(); ++Iterator)
+        {
+            if ((*Iterator)->Extent == Extent && (*Iterator)->Svg == Svg)
+            {
+                CacheEntries.splice(CacheEntries.begin(), CacheEntries, Iterator);
+                return *Iterator;
+            }
+        }
+    }
+    EnsureThorVg();
+    auto Entry = std::make_shared<CachedStampLayerRaster>();
+    Entry->Extent = Extent;
+    Entry->Svg = Svg;
+    Entry->Pixels.assign(size_t(Extent) * size_t(Extent) * 4u, 0);
+    std::unique_ptr<tvg::SwCanvas> Canvas(tvg::SwCanvas::gen());
+    std::unique_ptr<tvg::Picture, ReleasePaint> Picture(tvg::Picture::gen());
+    if (!Canvas || !Picture) throw std::runtime_error("ThorVG stamp canvas allocation failed.");
+    bool Ok = Picture->load(Svg.data(), uint32_t(Svg.size()), "svg", nullptr, true) == tvg::Result::Success;
+    if (Ok) Ok = Picture->size(float(Extent), float(Extent)) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->target(reinterpret_cast<uint32_t *>(Entry->Pixels.data()), Extent, Extent, Extent,
+                     tvg::ColorSpace::ABGR8888S) == tvg::Result::Success;
+    if (Ok)
+    {
+        Ok = Canvas->add(Picture.get()) == tvg::Result::Success;
+        if (Ok) Picture.release();
+    }
+    if (Ok) Ok = Canvas->draw(true) == tvg::Result::Success;
+    if (Ok) Ok = Canvas->sync() == tvg::Result::Success;
+    if (!Ok) throw std::runtime_error("ThorVG could not rasterize the stamp document SVG.");
+
+    uint32_t FirstRow = Extent, EndRow = 0;
+    for (uint32_t Row = 0; Row < Extent; ++Row)
+    {
+        const uint8_t *RowPtr = Entry->Pixels.data() + size_t(Row) * size_t(Extent) * 4u;
+        bool NonEmpty = false;
+        for (uint32_t Column = 0; Column < Extent; ++Column)
+            if (RowPtr[size_t(Column) * 4u + 3u] != 0) { NonEmpty = true; break; }
+        if (NonEmpty)
+        {
+            FirstRow = std::min(FirstRow, Row);
+            EndRow = Row + 1u;
+        }
+    }
+    Entry->FirstRow = FirstRow < EndRow ? FirstRow : 0u;
+    Entry->EndRow = FirstRow < EndRow ? EndRow : 0u;
+
+    {
+        std::scoped_lock Lock(CacheMutex);
+        CacheEntries.push_front(Entry);
+        while (CacheEntries.size() > 64u) CacheEntries.pop_back();
+    }
+    return Entry;
+}
+} // namespace
 
 StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Document, uint32_t Extent)
 {
@@ -457,6 +593,7 @@ StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Documen
 
         VectorAuthoringDocument Solo;
         Solo.Stamp = Evaluated.Stamp;
+        Solo.CanvasExtent = Evaluated.CanvasExtent;
         Solo.Instructions = Evaluated.Instructions;
         Solo.Segments = Evaluated.Segments;
         Solo.TokenClock = Evaluated.TokenClock;
@@ -465,14 +602,16 @@ StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Documen
         SoloLayer.EnclosureToken = 0;
         Solo.Layers.push_back(std::move(SoloLayer));
 
-        const auto Raster = RasterizeStampDocument(Solo, Extent);
-        if (Raster.size() != Count * 4) continue;
+        const auto CachedSolo = RasterizeCachedStampSvg(EncodeStampDocumentSvg(Solo), Extent);
+        const auto &Raster = CachedSolo->Pixels;
+        if (Raster.size() != Count * 4 || CachedSolo->FirstRow >= CachedSolo->EndRow) continue;
 
-        std::vector<uint8_t> MaskRaster;
+        std::shared_ptr<const CachedStampLayerRaster> CachedMask;
         if (Layer.Mask && Layer.MaskEnabled)
         {
             VectorAuthoringDocument MaskDoc;
             MaskDoc.Stamp = Evaluated.Stamp;
+            MaskDoc.CanvasExtent = Evaluated.CanvasExtent;
             MaskDoc.Instructions = Evaluated.Instructions;
             MaskDoc.Segments = Evaluated.Segments;
             const uint32_t MaskRoot = uint32_t(MaskDoc.Instructions.size());
@@ -483,8 +622,9 @@ StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Documen
             MaskLayer.Visible = true;
             MaskDoc.TokenClock = 1;
             MaskDoc.Layers.push_back(std::move(MaskLayer));
-            MaskRaster = RasterizeStampDocument(MaskDoc, Extent);
+            CachedMask = RasterizeCachedStampSvg(EncodeStampDocumentSvg(MaskDoc), Extent);
         }
+        const uint8_t *MaskData = (CachedMask && CachedMask->Pixels.size() == Count * 4) ? CachedMask->Pixels.data() : nullptr;
 
         const auto &ColourCh = Channels[size_t(VectorAuthoringSurfaceChannel::Colour)];
         const auto &HeightCh = Channels[size_t(VectorAuthoringSurfaceChannel::Height)];
@@ -506,15 +646,18 @@ StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Documen
         const float TransmissionStrength = std::clamp(TransmissionCh.Strength, 0.f, 1.f);
         const float ClearcoatStrength = std::clamp(ClearcoatCh.Strength, 0.f, 1.f);
 
-        for (size_t Texel = 0; Texel < Count; ++Texel)
+        const size_t StartTexel = size_t(CachedSolo->FirstRow) * size_t(Extent);
+        const size_t EndTexel = size_t(CachedSolo->EndRow) * size_t(Extent);
+        for (size_t Texel = StartTexel; Texel < EndTexel; ++Texel)
         {
             float RawAlpha = Raster[Texel * 4 + 3] / 255.f;
-            if (MaskRaster.size() == Count * 4)
+            if (RawAlpha <= 0.f) continue;
+            if (MaskData)
             {
-                float MaskFactor = MaskRaster[Texel * 4 + 3] / 255.f;
+                float MaskFactor = MaskData[Texel * 4 + 3] / 255.f;
                 if (Layer.MaskLuminance)
                 {
-                    const float Lum = (.2126f * MaskRaster[Texel * 4 + 0] + .7152f * MaskRaster[Texel * 4 + 1] + .0722f * MaskRaster[Texel * 4 + 2]) / 255.f;
+                    const float Lum = (.2126f * MaskData[Texel * 4 + 0] + .7152f * MaskData[Texel * 4 + 1] + .0722f * MaskData[Texel * 4 + 2]) / 255.f;
                     MaskFactor *= Lum;
                 }
                 if (Layer.MaskInverted) MaskFactor = 1.f - MaskFactor;
@@ -608,25 +751,44 @@ StampSurfaceMaps EvaluateStampSurfaceMaps(const VectorAuthoringDocument &Documen
         return Maps.Height[size_t(std::clamp(Y, 0, Span - 1)) * size_t(Extent) + size_t(std::clamp(X, 0, Span - 1))];
     };
     const float ReliefResolution = float(Extent) / 128.f;
-    for (int Y = 0; Y < Span; ++Y)
+    const auto ProcessRowRange = [&](int RowBegin, int RowEnd)
     {
-        for (int X = 0; X < Span; ++X)
+        for (int Y = RowBegin; Y < RowEnd; ++Y)
         {
-            const size_t Texel = size_t(Y) * size_t(Extent) + size_t(X);
-            const auto &Col = ColourAccum[Texel];
-            Maps.ColourRgba[Texel * 4 + 0] = uint8_t(std::round(std::clamp(Col[0], 0.f, 1.f) * 255.f));
-            Maps.ColourRgba[Texel * 4 + 1] = uint8_t(std::round(std::clamp(Col[1], 0.f, 1.f) * 255.f));
-            Maps.ColourRgba[Texel * 4 + 2] = uint8_t(std::round(std::clamp(Col[2], 0.f, 1.f) * 255.f));
-            Maps.ColourRgba[Texel * 4 + 3] = uint8_t(std::round(std::clamp(Col[3], 0.f, 1.f) * 255.f));
-            const float SlopeScale = 2.f * std::clamp(Maps.NormalScale[Texel], 0.f, 4.f) * ReliefResolution;
-            float Nx = -(HeightAt(X + 1, Y) - HeightAt(X - 1, Y)) * SlopeScale;
-            float Ny = -(HeightAt(X, Y + 1) - HeightAt(X, Y - 1)) * SlopeScale;
-            float Nz = 1.f;
-            const float InvLen = 1.f / std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
-            Maps.NormalX[Texel] = Nx * InvLen;
-            Maps.NormalY[Texel] = Ny * InvLen;
-            Maps.NormalZ[Texel] = Nz * InvLen;
+            for (int X = 0; X < Span; ++X)
+            {
+                const size_t Texel = size_t(Y) * size_t(Extent) + size_t(X);
+                const auto &Col = ColourAccum[Texel];
+                Maps.ColourRgba[Texel * 4 + 0] = uint8_t(std::round(std::clamp(Col[0], 0.f, 1.f) * 255.f));
+                Maps.ColourRgba[Texel * 4 + 1] = uint8_t(std::round(std::clamp(Col[1], 0.f, 1.f) * 255.f));
+                Maps.ColourRgba[Texel * 4 + 2] = uint8_t(std::round(std::clamp(Col[2], 0.f, 1.f) * 255.f));
+                Maps.ColourRgba[Texel * 4 + 3] = uint8_t(std::round(std::clamp(Col[3], 0.f, 1.f) * 255.f));
+                const float SlopeScale = 2.f * std::clamp(Maps.NormalScale[Texel], 0.f, 4.f) * ReliefResolution;
+                float Nx = -(HeightAt(X + 1, Y) - HeightAt(X - 1, Y)) * SlopeScale;
+                float Ny = -(HeightAt(X, Y + 1) - HeightAt(X, Y - 1)) * SlopeScale;
+                float Nz = 1.f;
+                const float InvLen = 1.f / std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
+                Maps.NormalX[Texel] = Nx * InvLen;
+                Maps.NormalY[Texel] = Ny * InvLen;
+                Maps.NormalZ[Texel] = Nz * InvLen;
+            }
         }
+    };
+    const unsigned WorkerCount = Extent >= 256u ? std::clamp(std::thread::hardware_concurrency(), 1u, 8u) : 1u;
+    if (WorkerCount <= 1u)
+        ProcessRowRange(0, Span);
+    else
+    {
+        std::vector<std::thread> Workers;
+        Workers.reserve(WorkerCount - 1u);
+        for (unsigned Worker = 0; Worker < WorkerCount; ++Worker)
+        {
+            const int RowBegin = int((uint64_t(Span) * Worker) / WorkerCount);
+            const int RowEnd = int((uint64_t(Span) * (Worker + 1u)) / WorkerCount);
+            if (Worker + 1u == WorkerCount) ProcessRowRange(RowBegin, RowEnd);
+            else Workers.emplace_back(ProcessRowRange, RowBegin, RowEnd);
+        }
+        for (auto &Worker : Workers) Worker.join();
     }
     return Maps;
 }

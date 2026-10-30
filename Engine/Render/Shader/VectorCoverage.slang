@@ -28,6 +28,15 @@ struct VectorCoverageInstruction
     float4 StrokeGradientStopColour2;
     float4 StrokeGradientStopColour3;
     float4 StrokeGradientAxis;
+    float4 FreeformPointPositions01;
+    float4 FreeformPointPositions23;
+    float4 FreeformPointPositions45;
+    float4 FreeformPointPositions67;
+    float4 FreeformPointColour4;
+    float4 FreeformPointColour5;
+    float4 FreeformPointColour6;
+    float4 FreeformPointColour7;
+    float4 FreeformParameters;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
 // 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
@@ -195,21 +204,112 @@ float ShapeDistance(VectorCoverageInstruction Instruction, float2 Local)
 // contract documented on VectorCoverageInstruction/GradientStopPositions in Engine/Render/VectorCoverage.h
 // exactly (ascending positions, contiguous from slot 0, -1 sentinel ends the active run) — a plain 2-stop
 // gradient (GradientStopPositions = {0,1,-1,-1}) collapses straight back to the original single lerp.
-float4 EvaluateGradientColour(VectorCoverageInstruction Instruction, float Fraction)
+float4 InterpolateSplineSegment(float4 C0, float4 C1, float4 C2, float4 C3, float Local, uint Mode)
+{
+    if (Mode == 4) return Local < 0.5 ? C1 : C2;
+    if (Mode == 1) return lerp(C1, C2, Local * Local * (3.0 - 2.0 * Local));
+    if (Mode == 2)
+    {
+        float Local2 = Local * Local, Local3 = Local2 * Local;
+        return clamp(0.5 * ((2.0 * C1) + (-C0 + C2) * Local + (2.0 * C0 - 5.0 * C1 + 4.0 * C2 - C3) * Local2 +
+            (-C0 + 3.0 * C1 - 3.0 * C2 + C3) * Local3), 0.0, 1.0);
+    }
+    if (Mode == 3)
+    {
+        float Inv = 1.0 - Local, Local2 = Local * Local, Local3 = Local2 * Local;
+        return clamp(((Inv * Inv * Inv) * C0 + (3.0 * Local3 - 6.0 * Local2 + 4.0) * C1 +
+            (-3.0 * Local3 + 3.0 * Local2 + 3.0 * Local + 1.0) * C2 + Local3 * C3) / 6.0, 0.0, 1.0);
+    }
+    return lerp(C1, C2, Local);
+}
+float4 EvaluateGradientColour(VectorCoverageInstruction Instruction, float Fraction, uint Mode)
 {
     float4 Colours[4] = {Instruction.Colour, Instruction.ColourEnd, Instruction.GradientStopColour2, Instruction.GradientStopColour3};
     float Positions[4] = {Instruction.GradientStopPositions.x, Instruction.GradientStopPositions.y, Instruction.GradientStopPositions.z, Instruction.GradientStopPositions.w};
     uint Count = Positions[1] < 0 ? 1 : Positions[2] < 0 ? 2 : Positions[3] < 0 ? 3 : 4;
-    if (Count <= 1 || Fraction <= Positions[0]) return Colours[0];
-    if (Fraction >= Positions[Count - 1]) return Colours[Count - 1];
+    if (Count <= 1) return Colours[0];
+    if (Fraction <= Positions[0])
+        return Mode == 3 ? InterpolateSplineSegment(Colours[0], Colours[0], Colours[1], Colours[min(2u, Count - 1)], 0.0, 3) : Colours[0];
+    if (Fraction >= Positions[Count - 1])
+    {
+        uint Last = Count - 2;
+        return Mode == 3 ? InterpolateSplineSegment(Colours[Last > 0 ? Last - 1 : 0], Colours[Last], Colours[Last + 1], Colours[Last + 1], 1.0, 3) : Colours[Count - 1];
+    }
     for (uint Stop = 0; Stop < Count - 1; ++Stop)
     {
         if (Fraction > Positions[Stop + 1]) continue;
         float Span = max(Positions[Stop + 1] - Positions[Stop], 1e-5);
         float Local = saturate((Fraction - Positions[Stop]) / Span);
-        return lerp(Colours[Stop], Colours[Stop + 1], Local);
+        float4 C0 = Colours[Stop > 0 ? Stop - 1 : 0];
+        float4 C1 = Colours[Stop];
+        float4 C2 = Colours[Stop + 1];
+        float4 C3 = Colours[Stop + 2 < Count ? Stop + 2 : Count - 1];
+        return InterpolateSplineSegment(C0, C1, C2, C3, Local, Mode);
     }
     return Colours[Count - 1];
+}
+float4 EvaluateFreeformGradient2D(VectorCoverageInstruction Instruction, float2 LocalNorm, uint Mode)
+{
+    uint PointCount = clamp(uint(Instruction.FreeformParameters.x + 0.5), 2u, 8u);
+    float Sharpness = clamp(Instruction.FreeformParameters.y, 0.25, 8.0);
+    float2 Points[8] = {
+        Instruction.FreeformPointPositions01.xy, Instruction.FreeformPointPositions01.zw,
+        Instruction.FreeformPointPositions23.xy, Instruction.FreeformPointPositions23.zw,
+        Instruction.FreeformPointPositions45.xy, Instruction.FreeformPointPositions45.zw,
+        Instruction.FreeformPointPositions67.xy, Instruction.FreeformPointPositions67.zw};
+    float4 Colours[8] = {
+        Instruction.Colour, Instruction.ColourEnd, Instruction.GradientStopColour2, Instruction.GradientStopColour3,
+        Instruction.FreeformPointColour4, Instruction.FreeformPointColour5, Instruction.FreeformPointColour6, Instruction.FreeformPointColour7};
+    if (Mode == 4)
+    {
+        uint Nearest = 0;
+        float BestDistance = 1e20;
+        for (uint Index = 0; Index < PointCount; ++Index)
+        {
+            float Distance = length(LocalNorm - Points[Index]);
+            if (Distance < BestDistance) { BestDistance = Distance; Nearest = Index; }
+        }
+        return Colours[Nearest];
+    }
+    float Weights[8];
+    float WeightSum = 0.0;
+    for (uint Index = 0; Index < PointCount; ++Index)
+    {
+        float Distance = length(LocalNorm - Points[Index]);
+        if (Mode != 3 && Distance < 1e-4) return Colours[Index];
+        float Weight = 0.0;
+        if (Mode == 3)
+        {
+            float Regularized = sqrt(Distance * Distance + 0.04 * 0.04);
+            Weight = 1.0 / pow(Regularized, max(Sharpness * 0.85, 0.35));
+        }
+        else if (Mode == 0)
+            Weight = 1.0 / pow(max(Distance, 1e-4), max(Sharpness * 0.65, 0.35));
+        else if (Mode == 2)
+            Weight = 1.0 / pow(max(Distance, 1e-4), max(Sharpness * 1.25, 0.5));
+        else
+            Weight = 1.0 / pow(max(Distance, 1e-4), Sharpness);
+        Weights[Index] = Weight;
+        WeightSum += Weight;
+    }
+    if (WeightSum <= 1e-12) return Colours[0];
+    float4 Accum = 0.0;
+    float ShapedSum = 0.0;
+    for (uint Index = 0; Index < PointCount; ++Index)
+    {
+        float Normalized = Weights[Index] / WeightSum;
+        float Shaped = Normalized;
+        if (Mode == 1) Shaped = Normalized * Normalized * (3.0 - 2.0 * Normalized);
+        else if (Mode == 2) Shaped = clamp(Normalized * (0.35 + Normalized * (1.95 - 1.3 * Normalized)), 0.0, 1.0);
+        else if (Mode == 3)
+        {
+            float Inv = 1.0 - Normalized;
+            Shaped = ((1.0 - Inv * Inv * Inv) + Normalized * Normalized * (3.0 - 2.0 * Normalized)) * 0.5;
+        }
+        Accum += Colours[Index] * Shaped;
+        ShapedSum += Shaped;
+    }
+    return ShapedSum > 1e-12 ? clamp(Accum / ShapedSum, 0.0, 1.0) : Colours[0];
 }
 void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[InstructionCapacity])
 {
@@ -234,11 +334,18 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
             // radial reads xy as the centre and zw as a point on the circle's edge (so its distance from
             // the centre doubles as the radius). Replaces the old fixed-angle, bounds-cornered formula.
             float2 LocalNorm = Local / Instruction.Bounds.zw;
-            float2 AxisStart = Instruction.GradientAxis.xy, AxisEnd = Instruction.GradientAxis.zw;
-            float2 AxisVector = AxisEnd - AxisStart;
-            float Fraction = Instruction.Transform.w == 1 ? saturate(dot(LocalNorm - AxisStart, AxisVector) / max(dot(AxisVector, AxisVector), 1e-6))
-                : Instruction.Transform.w == 2 ? saturate(length(LocalNorm - AxisStart) / max(length(AxisVector), 1e-4)) : 0;
-            float4 FillColour = EvaluateGradientColour(Instruction, Fraction);
+            uint FillMode = uint(clamp(Instruction.ShapeParameters.z + 0.5, 0.0, 4.0));
+            float4 FillColour = Instruction.Colour;
+            if (Instruction.Transform.w == 3)
+                FillColour = EvaluateFreeformGradient2D(Instruction, LocalNorm, FillMode);
+            else if (Instruction.Transform.w != 0)
+            {
+                float2 AxisStart = Instruction.GradientAxis.xy, AxisEnd = Instruction.GradientAxis.zw;
+                float2 AxisVector = AxisEnd - AxisStart;
+                float Fraction = Instruction.Transform.w == 1 ? saturate(dot(LocalNorm - AxisStart, AxisVector) / max(dot(AxisVector, AxisVector), 1e-6))
+                    : saturate(length(LocalNorm - AxisStart) / max(length(AxisVector), 1e-4));
+                FillColour = EvaluateGradientColour(Instruction, Fraction, FillMode);
+            }
             float4 StrokeColour = (Instruction.Topology.w & 0x80000000) != 0 ? Instruction.StrokeColour : Instruction.Colour;
             if (Instruction.ShapeParameters.y != 0)
             {
@@ -253,7 +360,8 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
                 StrokePaint.GradientStopPositions = Instruction.StrokeGradientStopPositions;
                 StrokePaint.GradientStopColour2 = Instruction.StrokeGradientStopColour2;
                 StrokePaint.GradientStopColour3 = Instruction.StrokeGradientStopColour3;
-                StrokeColour = EvaluateGradientColour(StrokePaint, StrokeFraction);
+                uint StrokeMode = uint(clamp(Instruction.ShapeParameters.w + 0.5, 0.0, 4.0));
+                StrokeColour = EvaluateGradientColour(StrokePaint, StrokeFraction, StrokeMode);
             }
             float FillAlpha = Fill * FillColour.a * Instruction.Transform.z;
             float StrokeAlpha = Stroke * StrokeColour.a * Instruction.Transform.z;
