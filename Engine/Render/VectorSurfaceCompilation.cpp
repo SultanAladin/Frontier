@@ -45,6 +45,12 @@ VectorSurfaceProgram CompileVectorSurface(const VectorAuthoringDocument &Documen
             Root = uint32_t(Program.Coverage.Instructions.size());
             Program.Coverage.Instructions.push_back(Operation);
         }
+        if (Layer.ExpressionOpacity != 1.f)
+        {
+            VectorCoverageInstruction Operation; Operation.Topology = {29, Root, Root, 0};
+            Operation.Transform[2] = Layer.ExpressionOpacity;
+            Root = uint32_t(Program.Coverage.Instructions.size()); Program.Coverage.Instructions.push_back(Operation);
+        }
         Program.Contributions.push_back({Root, Layer.Token, Layer.SurfaceChannels, Layer.SurfaceRelief});
         if (Output)
         {

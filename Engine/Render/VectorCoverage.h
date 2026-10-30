@@ -49,7 +49,7 @@ enum class VectorCoverageCategory : uint32_t
 {
     Rectangle, Ellipse, Diamond, Triangle, Polygon, Star, CubicContour,
     Union = 16, Difference, Intersection, Exclude,
-    AlphaMask = 24, LuminanceMask, Over = 28
+    AlphaMask = 24, LuminanceMask, Over = 28, Opacity = 29
 };
 struct alignas(16) VectorCoverageInstruction
 {
@@ -160,7 +160,7 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
             if (Category == 0 && (Instruction.ShapeParameters[0] < 0 || Instruction.ShapeParameters[0] > 50)) throw std::runtime_error("Rectangle corner radius is invalid.");
             if (Category == 5 && (Instruction.Paint[1] < .05f || Instruction.Paint[1] > .95f)) throw std::runtime_error("Star inner radius is invalid.");
         }
-        else if ((Category >= 16 && Category <= 19) || Category == 24 || Category == 25 || Category == 28)
+        else if ((Category >= 16 && Category <= 19) || Category == 24 || Category == 25 || Category == 28 || Category == 29)
         {
             if (Instruction.Topology[1] >= Index || Instruction.Topology[2] >= Index) throw std::runtime_error("Vector coverage operands must precede their operation; cycles are forbidden.");
             if ((Category == 24 || Category == 25) && Instruction.Topology[3] > 1) throw std::runtime_error("Mask inversion must be zero or one.");

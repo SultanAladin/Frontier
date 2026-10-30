@@ -356,6 +356,7 @@ std::string EncodeVectorAuthoring(const VectorAuthoringDocument &Document)
         toml::table Encoded{{"token", int64_t(Layer.Token)}, {"root", int64_t(Layer.Root)}, {"name", Layer.Name}, {"visible", Layer.Visible}, {"locked", Layer.Locked}, {"mask_enabled", Layer.MaskEnabled}, {"mask_inverted", Layer.MaskInverted}, {"mask_luminance", Layer.MaskLuminance}};
         Encoded.insert("enclosure_token", int64_t(Layer.EnclosureToken));
         Encoded.insert("surface_relief", double(Layer.SurfaceRelief));
+        if (Layer.ExpressionOpacity != 1.f) Encoded.insert("expression_opacity", double(Layer.ExpressionOpacity));
         const char *Structure = Layer.SurfaceStructure == VectorAuthoringSurfaceStructure::Stitch ? "stitch" : Layer.SurfaceStructure == VectorAuthoringSurfaceStructure::Weave ? "weave" : "freeform";
         Encoded.insert("surface_structure", Structure);
         constexpr const char *TextileGeometryNames[]{"unclassified", "needle_entry", "stitch_thread", "upper_thread_pass", "weave_yarn"};
@@ -418,7 +419,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
     {
         if (!Encoded.as_table()) throw std::runtime_error("Invalid vector layer.");
         const auto &Entry = *Encoded.as_table();
-        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "component_kind", "source_markup", "embedded_image", "text_point_size", "text_typeface", "modifiers"});
+        ValidateFields(Entry, {"token", "root", "name", "visible", "locked", "mask_enabled", "mask_inverted", "mask_luminance", "mask", "enclosure_token", "surface_channels", "surface_structure", "textile_geometry", "stitch_role", "weave_role", "surface_relief", "expression_opacity", "component_kind", "source_markup", "embedded_image", "text_point_size", "text_typeface", "modifiers"});
         VectorAuthoringLayer Layer;
         if (!Entry["token"].is_integer() || !Entry["root"].is_integer()) throw std::runtime_error("Expected integer vector layer identity.");
         const auto Token = Entry["token"].value<int64_t>(), Root = Entry["root"].value<int64_t>();
@@ -430,6 +431,7 @@ VectorAuthoringDocument DecodeVectorAuthoring(std::string_view Source)
         Layer.MaskLuminance = DecodeOptional<bool>(Entry, "mask_luminance", false);
         Layer.EnclosureToken = DecodeEnclosureToken(Entry);
         Layer.SurfaceRelief = float(DecodeOptional<double>(Entry, "surface_relief", 1));
+        Layer.ExpressionOpacity = float(DecodeOptional<double>(Entry, "expression_opacity", 1));
         const auto Structure = DecodeOptional<std::string>(Entry, "surface_structure", "freeform");
         if (Structure == "stitch") Layer.SurfaceStructure = VectorAuthoringSurfaceStructure::Stitch;
         else if (Structure == "weave") Layer.SurfaceStructure = VectorAuthoringSurfaceStructure::Weave;

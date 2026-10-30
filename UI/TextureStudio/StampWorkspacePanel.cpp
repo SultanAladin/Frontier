@@ -3110,19 +3110,24 @@ void StampWorkspacePanel::ConstructInspector()
         const auto &Source = Snapshot.Instructions[First->Root];
         float Rotation = Source.Topology[0] <= 6 ? Source.Transform[0] * 180 / std::numbers::pi_v<float> : 0;
         if (Controls.Number("Rotation", Rotation, -360, 360)) { VectorAuthoringSourcePatch Patch; Patch.Rotation = Rotation * std::numbers::pi_v<float> / 180 - Source.Transform[0]; ApplySourcePatch(Patch); }
-        // Primitive opacity is stored on the source instruction. Expression roots cannot
-        // represent layer-wide opacity, so do not silently apply it to their children.
-        const bool SupportsOpacity = std::all_of(Selection.begin(), Selection.end(), [&](uint32_t Token)
+        // Primitive opacity remains on the source for compatibility. Combined components
+        // need a post-expression multiplier so overlaps and Boolean edges stay correct.
+        float Opacity = Source.Topology[0] <= 6 ? Source.Transform[2] : First->ExpressionOpacity;
+        if (Controls.Number("Opacity", Opacity, 0, 1)) EvaluateEdit([&](auto &Document)
         {
-            const auto Layer = std::find_if(Snapshot.Layers.begin(), Snapshot.Layers.end(), [Token](const auto &Candidate) { return Candidate.Token == Token; });
-            return Layer != Snapshot.Layers.end() && Layer->Root < Snapshot.Instructions.size() && Snapshot.Instructions[Layer->Root].Topology[0] <= 6;
+            std::vector<uint32_t> Primitives;
+            for (auto &Layer : Document.Layers)
+            {
+                if (std::find(Selection.begin(), Selection.end(), Layer.Token) == Selection.end()) continue;
+                if (Document.Instructions[Layer.Root].Topology[0] <= 6) Primitives.push_back(Layer.Token);
+                else Layer.ExpressionOpacity = Opacity;
+            }
+            if (!Primitives.empty())
+            {
+                VectorAuthoringSourcePatch Patch; Patch.Opacity = Opacity;
+                TransformVectorAuthoringSelection(Document, Primitives, Patch);
+            }
         });
-        if (SupportsOpacity)
-        {
-            float Opacity = Source.Transform[2];
-            if (Controls.Number("Opacity", Opacity, 0, 1)) { VectorAuthoringSourcePatch Patch; Patch.Opacity = Opacity; ApplySourcePatch(Patch); }
-        }
-        else ImGui::TextWrapped("Opacity is unavailable for combined components.");
         ImGui::TextUnformatted(Selection.size() == 1 ? "Align to canvas" : "Align selection");
         for (int Axis = 0; Axis < 2; ++Axis)
         {
@@ -3671,6 +3676,43 @@ void StampWorkspacePanel::ConstructInspector()
             Changed |= Controls.Number("Mask width", EditedLayer.Mask->Bounds[2], 1, 1024);
             Changed |= Controls.Number("Mask height", EditedLayer.Mask->Bounds[3], 1, 1024);
             if (Changed) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer = EditedLayer; });
+            // Rasterize the actual retained mask geometry, including paths and gradient paint,
+            // only when it changes. Display the resulting effective alpha/luminance over the
+            // full 512-unit canvas, with the same inversion and enable rules as the shader.
+            try
+            {
+                constexpr uint32_t PreviewExtent = 48;
+                VectorAuthoringDocument MaskDocument;
+                MaskDocument.Stamp = true; MaskDocument.TokenClock = 1;
+                MaskDocument.Instructions = {*EditedLayer.Mask};
+                MaskDocument.Segments = Snapshot.Segments;
+                VectorAuthoringLayer PreviewLayer; PreviewLayer.Token = 1; PreviewLayer.Root = 0; PreviewLayer.Name = "Mask preview";
+                MaskDocument.Layers.push_back(PreviewLayer);
+                const auto Key = EncodeStampDocumentSvg(MaskDocument);
+                if (Key != MaskPreviewCacheKey || MaskPreviewPixels.empty())
+                {
+                    auto Pixels = RasterizeStampDocument(MaskDocument, PreviewExtent);
+                    MaskPreviewPixels = std::move(Pixels); MaskPreviewCacheKey = Key;
+                }
+                ImGui::TextUnformatted("Mask preview");
+                const ImVec2 Origin = ImGui::GetCursorScreenPos();
+                const float Size = 96 * Scale, Cell = Size / float(PreviewExtent);
+                ImDrawList *Draw = ImGui::GetWindowDrawList();
+                for (uint32_t Y = 0; Y < PreviewExtent; ++Y) for (uint32_t X = 0; X < PreviewExtent; ++X)
+                {
+                    const size_t Index = (size_t(Y) * PreviewExtent + X) * 4;
+                    float Value = float(MaskPreviewPixels[Index + 3]) / 255.f;
+                    if (EditedLayer.MaskLuminance)
+                        Value *= (.2126f * MaskPreviewPixels[Index] + .7152f * MaskPreviewPixels[Index + 1] + .0722f * MaskPreviewPixels[Index + 2]) / 255.f;
+                    if (EditedLayer.MaskInverted) Value = 1.f - Value;
+                    if (!EditedLayer.MaskEnabled) Value = 1.f;
+                    const int Grey = int(std::clamp(Value, 0.f, 1.f) * 255.f + .5f);
+                    Draw->AddRectFilled(ImVec2(Origin.x + X * Cell, Origin.y + Y * Cell),
+                        ImVec2(Origin.x + (X + 1) * Cell, Origin.y + (Y + 1) * Cell), IM_COL32(Grey, Grey, Grey, 255));
+                }
+                ImGui::Dummy(ImVec2(Size, Size));
+            }
+            catch (const std::exception &) { ImGui::TextDisabled("Mask preview unavailable."); }
             if (Controls.Button("Edit mask")) MaskSelection = First->Token;
             if (Controls.Button("Remove mask")) EvaluateEdit([&](auto &Document) { for (auto &Layer : Document.Layers) if (Layer.Token == First->Token) Layer.Mask.reset(); });
             if (MaskSelection && Controls.Button("Done editing mask")) MaskSelection = 0;

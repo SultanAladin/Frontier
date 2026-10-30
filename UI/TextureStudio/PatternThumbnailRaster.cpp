@@ -221,7 +221,9 @@ std::string EncodePatternThumbnailSvg(const VectorAuthoringDocument &Document, u
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
+        Body += "<g opacity=\"" + Number(Layer.ExpressionOpacity) + "\">";
         EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
+        Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
     Svg += Body;
@@ -251,7 +253,12 @@ std::string EncodePatternLayerThumbnailSvg(const VectorAuthoringDocument &Docume
         Svg += Buffer;
     }
     std::string Defs, Body;
-    if (QueryVectorAuthoringVisibility(Document, *Position)) EmitPatternInstruction(Document, Position->Root, 0, Body, Defs);
+    if (QueryVectorAuthoringVisibility(Document, *Position))
+    {
+        Body += "<g opacity=\"" + Number(Position->ExpressionOpacity) + "\">";
+        EmitPatternInstruction(Document, Position->Root, 0, Body, Defs);
+        Body += "</g>";
+    }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
     Svg += Body;
     Svg += "</svg>";
@@ -358,7 +365,9 @@ std::string EncodeStampDocumentSvg(const VectorAuthoringDocument &Document)
     for (const auto &Layer : Document.Layers)
     {
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
+        Body += "<g opacity=\"" + Number(Layer.ExpressionOpacity) + "\">";
         EmitPatternInstruction(Document, Layer.Root, 0, Body, Defs);
+        Body += "</g>";
     }
     if (!Defs.empty()) Svg += "<defs>" + Defs + "</defs>";
     Svg += Body;

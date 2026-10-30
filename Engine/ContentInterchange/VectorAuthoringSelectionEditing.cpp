@@ -192,6 +192,12 @@ VectorSelectionProgram ConstructVectorSelectionProgram(const VectorAuthoringDocu
             Root = uint32_t(Selection.Coverage.Instructions.size());
             Selection.Coverage.Instructions.push_back(Operation);
         }
+        if (Layer.ExpressionOpacity != 1.f)
+        {
+            VectorCoverageInstruction Operation; Operation.Topology = {29, Root, Root, 0};
+            Operation.Transform[2] = Layer.ExpressionOpacity;
+            Root = uint32_t(Selection.Coverage.Instructions.size()); Selection.Coverage.Instructions.push_back(Operation);
+        }
         Selection.Candidates.push_back({Root, Layer.Token});
     }
     if (Selection.Coverage.Instructions.empty())

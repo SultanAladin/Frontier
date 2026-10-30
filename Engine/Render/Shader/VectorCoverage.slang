@@ -256,6 +256,7 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
                 if (Instruction.Topology.w != 0) Mask = 1 - Mask;
                 Result.a = Lower.a * Mask * Instruction.Transform.z;
             }
+            if (Category == 29) Result.a = Lower.a * Instruction.Transform.z;
             if (Category == 28)
             {
                 Result.a = Upper.a + Lower.a * (1 - Upper.a);

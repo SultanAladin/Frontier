@@ -5,6 +5,7 @@
 
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "Engine/ContentInterchange/CubicPathEditing.h"
+#include "Engine/Render/VectorSurfaceCompilation.h"
 #include <iostream>
 #include <limits>
 #include <numbers>
@@ -100,6 +101,26 @@ int main()
             Confirm(Near(Rounded.Instructions[Rounded.Layers[0].Root].ShapeParameters[0], 12.5f), "Corner radius edit was lost.");
             Confirm(Rounded.Layers[0].Mask->ShapeParameters[0] == 0, "Corner radius edit changed the owned mask.");
             Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Rounded)) == Rounded, "Corner radius did not round trip.");
+        }
+        {
+            VectorAuthoringDocument Combined;
+            Combined.Stamp = true;
+            VectorCoverageInstruction Rectangle, Union;
+            Union.Topology = {16, 0, 1, 0};
+            Combined.Instructions = {Rectangle, Rectangle, Union};
+            VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 2; Layer.Name = "Combined";
+            Layer.Mask = Rectangle; Layer.ExpressionOpacity = .35f;
+            Combined.Layers = {Layer}; Combined.TokenClock = 1;
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Combined)) == Combined, "Combined opacity did not round trip.");
+            const auto Coverage = ConstructVectorAuthoringCoverage(Combined);
+            Confirm(Coverage.Instructions[Coverage.Root].Topology[0] == 29 && Near(Coverage.Instructions[Coverage.Root].Transform[2], .35f), "Coverage lost post-mask opacity.");
+            const auto Selected = ConstructVectorSelectionProgram(Combined);
+            Confirm(Selected.Coverage.Instructions[Selected.Candidates[0][0]].Topology[0] == 29, "Selection lost combined opacity.");
+            const auto Surface = CompileVectorSurface(Combined, VectorAuthoringSurfaceChannel::Colour);
+            Confirm(Surface.Coverage.Instructions[Surface.Contributions[0].Root].Topology[0] == 29, "Surface lost combined opacity.");
+            Combined.Layers[0].ExpressionOpacity = 1.5f;
+            bool Refused = false; try { (void)ConstructVectorAuthoringCoverage(Combined); } catch (const std::runtime_error &) { Refused = true; }
+            Confirm(Refused, "Invalid combined opacity was accepted.");
         }
         VectorAuthoringDocument Group;
         VectorCoverageInstruction Source;

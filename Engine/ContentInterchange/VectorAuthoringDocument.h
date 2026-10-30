@@ -29,6 +29,8 @@ struct VectorAuthoringLayer
     VectorAuthoringSurfaceStructure SurfaceStructure = VectorAuthoringSurfaceStructure::Freeform;
     VectorAuthoringTextileGeometry TextileGeometry = VectorAuthoringTextileGeometry::Unclassified;
     float SurfaceRelief = 1.f;
+    // Opacity applied after evaluating the complete expression (including its mask).
+    float ExpressionOpacity = 1.f;
     // 📝 Stamp-only provenance: ComponentKind stays Freeform (and SourceMarkup/EmbeddedImage stay
     // empty) for every ordinary Pattern layer, so this adds no footprint outside Stamp documents.
     VectorAuthoringComponentKind ComponentKind = VectorAuthoringComponentKind::Freeform;
@@ -79,6 +81,7 @@ inline VectorCoverageProgram ConstructVectorAuthoringCoverage(const VectorAuthor
         if (!Layer.Token || Layer.Name.size() > 80 || Layer.Root >= Document.Instructions.size() || std::find(Tokens.begin(), Tokens.end(), Layer.Token) != Tokens.end()) throw std::runtime_error("Invalid vector layer identity or source.");
         if (Layer.Token > Document.TokenClock) throw std::runtime_error("VectorAuthoring identity clock precedes a layer token.");
         Tokens.push_back(Layer.Token);
+        if (!std::isfinite(Layer.ExpressionOpacity) || Layer.ExpressionOpacity < 0 || Layer.ExpressionOpacity > 1) throw std::runtime_error("Invalid expression opacity.");
         if (Layer.Mask) ValidateVectorCoverage(VectorCoverageProgram{{*Layer.Mask}, Document.Segments, 0});
         if (!QueryVectorAuthoringVisibility(Document, Layer)) continue;
         uint32_t Root = Layer.Root;
@@ -88,6 +91,12 @@ inline VectorCoverageProgram ConstructVectorAuthoringCoverage(const VectorAuthor
             Program.Instructions.push_back(*Layer.Mask);
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
+            Root = uint32_t(Program.Instructions.size()); Program.Instructions.push_back(Operation);
+        }
+        if (Layer.ExpressionOpacity != 1.f)
+        {
+            VectorCoverageInstruction Operation; Operation.Topology = {29, Root, Root, 0};
+            Operation.Transform[2] = Layer.ExpressionOpacity;
             Root = uint32_t(Program.Instructions.size()); Program.Instructions.push_back(Operation);
         }
         if (Output)

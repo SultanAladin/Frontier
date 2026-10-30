@@ -154,6 +154,8 @@ private:
     // whenever its own cropped SVG text is unchanged, so one edited component does not force a
     // ThorVG parse+raster pass over every other component in the decal on the UI thread.
     std::map<uint32_t, std::pair<std::string, std::vector<uint8_t>>> LayerThumbnailCache;
+    std::string MaskPreviewCacheKey;
+    std::vector<uint8_t> MaskPreviewPixels;
     std::filesystem::path ContentRoot;
     void RefreshLayerAtlas();
     std::optional<VectorAuthoringDocument> GestureSource, GestureDraft;
