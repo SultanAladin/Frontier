@@ -90,6 +90,20 @@ int main()
     try
     {
         const auto Document = ConstructColouredStamp();
+        {
+            VectorAuthoringDocument Stroke; Stroke.Stamp = true; Stroke.TokenClock = 1;
+            VectorCoverageInstruction Rectangle;
+            Rectangle.Bounds = {256, 256, 256, 256}; Rectangle.Transform[1] = 24;
+            Rectangle.Paint[3] = 0; Rectangle.ShapeParameters[1] = 1;
+            Rectangle.Topology[3] |= VectorCoverageStrokeColourExplicit;
+            Rectangle.StrokeColour = {1, 0, 0, 1}; Rectangle.StrokeColourEnd = {0, 0, 1, 1};
+            Stroke.Instructions.push_back(Rectangle);
+            VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 0; Layer.Name = "Stroke";
+            Stroke.Layers.push_back(Layer);
+            const auto Pixels = RasterizeStampDocument(DecodeVectorAuthoring(EncodeVectorAuthoring(Stroke)), 256);
+            const size_t Left = (size_t(64) * 256 + 80) * 4, Right = (size_t(64) * 256 + 176) * 4;
+            Confirm(Pixels[Left] > Pixels[Left + 2] && Pixels[Right + 2] > Pixels[Right], "Exported stroke gradient did not vary across the ramp.");
+        }
         const auto Direct = Analyse(RasterizeStampDocument(Document, 256));
         Report("direct256", Direct);
         Confirm(Direct.Red > 400, "Red rect missing from the direct stamp raster.");

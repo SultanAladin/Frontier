@@ -301,7 +301,7 @@ uint32_t IntegrateCubicPaths(
     if (FirstSource.Colour != SecondSource.Colour || FirstSource.ColourEnd != SecondSource.ColourEnd || FirstSource.StrokeColour != SecondSource.StrokeColour
         || FirstSource.Paint != SecondSource.Paint || FirstSource.Transform[1] != SecondSource.Transform[1])
         throw std::runtime_error("Joined paths must use matching paint and stroke parameters.");
-    if (FirstSource.Transform[3] != 0 || SecondSource.Transform[3] != 0 || FirstSource.Transform[2] != 1
+    if (FirstSource.Transform[3] != 0 || SecondSource.Transform[3] != 0 || FirstSource.ShapeParameters[1] != 0 || SecondSource.ShapeParameters[1] != 0 || FirstSource.Transform[2] != 1
         || SecondSource.Transform[2] != 1 || FirstSource.Colour[3] != 1 || SecondSource.Colour[3] != 1)
         throw std::runtime_error("Joining currently requires opaque solid paint; gradients and transparency remain unchanged.");
     auto First = DecodeCubicPath(Document, RetainedToken), Second = DecodeCubicPath(Document, ConsumedToken);

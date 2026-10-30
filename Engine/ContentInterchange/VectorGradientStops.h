@@ -56,6 +56,32 @@ inline void ApplyVectorGradientStops(VectorAuthoringSourcePatch &Patch, const st
     Patch.GradientStopColour3 = Colours[3];
 }
 
+// The stroke ramp has independent slots but uses the same editor and interpolation rules.
+inline VectorCoverageInstruction QueryVectorStrokeGradientSource(const VectorCoverageInstruction &Source)
+{
+    auto Ramp = Source;
+    Ramp.Colour = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) ? Source.StrokeColour : Source.Colour;
+    Ramp.ColourEnd = Source.StrokeColourEnd;
+    Ramp.GradientStopPositions = Source.StrokeGradientStopPositions;
+    Ramp.GradientStopColour2 = Source.StrokeGradientStopColour2;
+    Ramp.GradientStopColour3 = Source.StrokeGradientStopColour3;
+    Ramp.GradientAxis = Source.StrokeGradientAxis;
+    Ramp.Transform[3] = Source.ShapeParameters[1];
+    return Ramp;
+}
+inline std::vector<VectorGradientStop> QueryVectorStrokeGradientStops(const VectorCoverageInstruction &Source)
+{
+    return QueryVectorGradientStops(QueryVectorStrokeGradientSource(Source));
+}
+inline void ApplyVectorStrokeGradientStops(VectorAuthoringSourcePatch &Patch, const std::vector<VectorGradientStop> &Stops)
+{
+    VectorAuthoringSourcePatch Ramp;
+    ApplyVectorGradientStops(Ramp, Stops);
+    Patch.StrokeColour = Ramp.Colour; Patch.StrokeColourEnd = Ramp.ColourEnd;
+    Patch.StrokeGradientStopPositions = Ramp.GradientStopPositions;
+    Patch.StrokeGradientStopColour2 = Ramp.GradientStopColour2; Patch.StrokeGradientStopColour3 = Ramp.GradientStopColour3;
+}
+
 // 📝 Linear interpolation across whatever stops bracket Fraction — a CPU mirror of the GPU shader's
 // EvaluateGradientColour, used so the Inspector's ramp preview bar matches the baked render exactly.
 inline std::array<float, 4> EvaluateVectorGradientColour(const std::vector<VectorGradientStop> &Stops, float Fraction)

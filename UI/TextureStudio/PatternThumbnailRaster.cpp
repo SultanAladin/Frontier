@@ -53,22 +53,27 @@ std::string ColourLiteral(const std::array<float, 4> &Colour)
 // shows is the exact axis the user dragged, not a fixed corner-to-corner guess. Returns the "url(#id)"
 // reference to use as fill, or an empty string if this instruction isn't a gradient fill.
 std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint32_t Root, float Opacity,
-    const std::function<std::array<float, 2>(float, float)> &Place, std::string &Defs)
+    const std::function<std::array<float, 2>(float, float)> &Place, std::string &Defs, bool Stroke = false)
 {
     const uint32_t Category = uint32_t(Source.Transform[3]);
     if (Category != 1 && Category != 2) return {};
-    const auto A = Place(Source.GradientAxis[0] * Source.Bounds[2], Source.GradientAxis[1] * Source.Bounds[3]);
-    const auto B = Place(Source.GradientAxis[2] * Source.Bounds[2], Source.GradientAxis[3] * Source.Bounds[3]);
-    const std::string Id = "pattern-gradient-" + std::to_string(Root);
+    // The shader measures gradients in bounds-normalized coordinates. Transform that
+    // coordinate system to tile space for SVG too, including non-square and rotated shapes.
+    const auto Origin = Place(0, 0);
+    const auto X = Place(Source.Bounds[2], 0), Y = Place(0, Source.Bounds[3]);
+    const std::string Matrix = "matrix(" + Number(X[0] - Origin[0]) + " " + Number(X[1] - Origin[1]) + " " +
+        Number(Y[0] - Origin[0]) + " " + Number(Y[1] - Origin[1]) + " " + Number(Origin[0]) + " " + Number(Origin[1]) + ")";
+    const std::string Id = (Stroke ? "pattern-stroke-gradient-" : "pattern-gradient-") + std::to_string(Root);
+    const auto &Axis = Source.GradientAxis;
     std::string Def;
     if (Category == 1)
-        Def = "<linearGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" x1=\"" + Number(A[0]) + "\" y1=\"" +
-              Number(A[1]) + "\" x2=\"" + Number(B[0]) + "\" y2=\"" + Number(B[1]) + "\">";
+        Def = "<linearGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" gradientTransform=\"" + Matrix +
+              "\" x1=\"" + Number(Axis[0]) + "\" y1=\"" + Number(Axis[1]) + "\" x2=\"" + Number(Axis[2]) + "\" y2=\"" + Number(Axis[3]) + "\">";
     else
     {
-        const float Radius = std::max(std::hypot(B[0] - A[0], B[1] - A[1]), .01f);
-        Def = "<radialGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" cx=\"" + Number(A[0]) + "\" cy=\"" +
-              Number(A[1]) + "\" r=\"" + Number(Radius) + "\">";
+        const float Radius = std::max(std::hypot(Axis[2] - Axis[0], Axis[3] - Axis[1]), .0001f);
+        Def = "<radialGradient id=\"" + Id + "\" gradientUnits=\"userSpaceOnUse\" gradientTransform=\"" + Matrix +
+              "\" cx=\"" + Number(Axis[0]) + "\" cy=\"" + Number(Axis[1]) + "\" r=\"" + Number(Radius) + "\">";
     }
     for (const auto &Stop : QueryVectorGradientStops(Source))
         Def += "<stop offset=\"" + Number(std::clamp(Stop.Position, 0.f, 1.f) * 100.f) + "%\" stop-color=\"" +
@@ -78,7 +83,7 @@ std::string EmitPatternGradientDef(const VectorCoverageInstruction &Source, uint
     return "url(#" + Id + ")";
 }
 
-std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity, const std::string &GradientFill)
+std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, float Opacity, const std::string &GradientFill, const std::string &GradientStroke)
 {
     std::string Text;
     if (Source.Paint[3] != 0)
@@ -95,8 +100,9 @@ std::string PatternInstructionStyle(const VectorCoverageInstruction &Source, flo
     {
         const bool Explicit = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) != 0;
         const auto &Line = Explicit ? Source.StrokeColour : Source.Colour;
-        Text += " stroke=\"" + ColourLiteral(Line) + "\" stroke-opacity=\"" +
-                Number(std::clamp(Line[3] * Opacity, 0.f, 1.f)) + "\" stroke-width=\"" + Number(StrokeWidth) +
+        if (!GradientStroke.empty()) Text += " stroke=\"" + GradientStroke + "\"";
+        else Text += " stroke=\"" + ColourLiteral(Line) + "\" stroke-opacity=\"" + Number(std::clamp(Line[3] * Opacity, 0.f, 1.f)) + "\"";
+        Text += " stroke-width=\"" + Number(StrokeWidth) +
                 "\" stroke-linejoin=\"round\" stroke-linecap=\"round\"";
     }
     return Text;
@@ -112,6 +118,13 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     const uint32_t Category = Source.Topology[0];
     if (Category > 6)
     {
+        if (Category == 29)
+        {
+            Svg += "<g opacity=\"" + Number(Source.Transform[2]) + "\">";
+            EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs);
+            Svg += "</g>";
+            return;
+        }
         // 📝 Boolean/composite roots emit both children in order, matching card paint order.
         EmitPatternInstruction(Document, Source.Topology[1], Depth + 1, Svg, Defs);
         if (Source.Topology[0] != 17 && Source.Topology[0] != 24 && Source.Topology[0] != 25)
@@ -137,7 +150,8 @@ void EmitPatternInstruction(const VectorAuthoringDocument &Document, uint32_t Ro
     };
     const std::function<std::array<float, 2>(float, float)> GradientPlace = (Category == 1 || Category == 0) ? std::function<std::array<float, 2>(float, float)>(PlaceUnrotated) : std::function<std::array<float, 2>(float, float)>(Place);
     const std::string GradientFill = EmitPatternGradientDef(Source, Root, Opacity, GradientPlace, Defs);
-    const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill);
+    const std::string GradientStroke = EmitPatternGradientDef(QueryVectorStrokeGradientSource(Source), Root, Opacity, GradientPlace, Defs, true);
+    const std::string Paint = PatternInstructionStyle(Source, Opacity, GradientFill, GradientStroke);
     // 📝 Bounds.zw are full extents; the coverage shader halves them, and so does this encoding.
     const float HalfX = Source.Bounds[2] * .5f, HalfY = Source.Bounds[3] * .5f;
     const auto Points = [&](const std::vector<std::array<float, 2>> &Loop)

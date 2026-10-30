@@ -77,8 +77,21 @@ toml::table EncodeInstruction(const VectorCoverageInstruction &Instruction)
         Result.insert("gradient_stop_colour3", EncodeCoordinates(Instruction.GradientStopColour3));
         Result.insert("gradient_axis", EncodeCoordinates(Instruction.GradientAxis));
     }
-    if (Instruction.Topology[0] == 0 && Instruction.ShapeParameters[0] != 0)
+    if (Instruction.Topology[0] <= 6 && Instruction.ShapeParameters != std::array<float, 4>{})
         Result.insert("shape_parameters", EncodeCoordinates(Instruction.ShapeParameters));
+    if (Instruction.Topology[0] <= 6 && (Instruction.ShapeParameters[1] != 0 ||
+        Instruction.StrokeColourEnd != std::array<float, 4>{1, 1, 1, 1} ||
+        Instruction.StrokeGradientStopPositions != std::array<float, 4>{0, 1, -1, -1} ||
+        Instruction.StrokeGradientStopColour2 != std::array<float, 4>{1, 1, 1, 1} ||
+        Instruction.StrokeGradientStopColour3 != std::array<float, 4>{1, 1, 1, 1} ||
+        Instruction.StrokeGradientAxis != std::array<float, 4>{-.5f, 0, .5f, 0}))
+    {
+        Result.insert("stroke_colour_end", EncodeCoordinates(Instruction.StrokeColourEnd));
+        Result.insert("stroke_gradient_stop_positions", EncodeCoordinates(Instruction.StrokeGradientStopPositions));
+        Result.insert("stroke_gradient_stop_colour2", EncodeCoordinates(Instruction.StrokeGradientStopColour2));
+        Result.insert("stroke_gradient_stop_colour3", EncodeCoordinates(Instruction.StrokeGradientStopColour3));
+        Result.insert("stroke_gradient_axis", EncodeCoordinates(Instruction.StrokeGradientAxis));
+    }
     return Result;
 }
 std::array<float, 4> DecodeCoordinates(const toml::node_view<const toml::node> &Field)
@@ -313,7 +326,8 @@ VectorAuthoringModifier DecodeArrayModifier(const toml::table &Source)
 VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
 {
     ValidateFields(Source, {"topology", "bounds", "transform", "colour", "colour_end", "stroke_colour", "paint",
-        "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis", "shape_parameters"});
+        "gradient_stop_positions", "gradient_stop_colour2", "gradient_stop_colour3", "gradient_axis", "shape_parameters",
+        "stroke_colour_end", "stroke_gradient_stop_positions", "stroke_gradient_stop_colour2", "stroke_gradient_stop_colour3", "stroke_gradient_axis"});
     VectorCoverageInstruction Result;
     const auto *Topology = Source["topology"].as_array(); if (!Topology || Topology->size() != 4) throw std::runtime_error("Expected four vector topology tokens.");
     for (size_t Index = 0; Index < 4; ++Index)
@@ -342,6 +356,11 @@ VectorCoverageInstruction DecodeInstruction(const toml::table &Source)
     Result.GradientStopColour3 = Source.contains("gradient_stop_colour3") ? DecodeCoordinates(Source["gradient_stop_colour3"]) : std::array<float, 4>{1, 1, 1, 1};
     Result.GradientAxis = Source.contains("gradient_axis") ? DecodeCoordinates(Source["gradient_axis"]) : (Radial ? std::array<float, 4>{0.f, 0.f, .5f, 0.f} : std::array<float, 4>{-.5f, 0.f, .5f, 0.f});
     if (Source.contains("shape_parameters")) Result.ShapeParameters = DecodeCoordinates(Source["shape_parameters"]);
+    if (Source.contains("stroke_colour_end")) Result.StrokeColourEnd = DecodeCoordinates(Source["stroke_colour_end"]);
+    if (Source.contains("stroke_gradient_stop_positions")) Result.StrokeGradientStopPositions = DecodeCoordinates(Source["stroke_gradient_stop_positions"]);
+    if (Source.contains("stroke_gradient_stop_colour2")) Result.StrokeGradientStopColour2 = DecodeCoordinates(Source["stroke_gradient_stop_colour2"]);
+    if (Source.contains("stroke_gradient_stop_colour3")) Result.StrokeGradientStopColour3 = DecodeCoordinates(Source["stroke_gradient_stop_colour3"]);
+    if (Source.contains("stroke_gradient_axis")) Result.StrokeGradientAxis = DecodeCoordinates(Source["stroke_gradient_axis"]);
     return Result;
 }
 }

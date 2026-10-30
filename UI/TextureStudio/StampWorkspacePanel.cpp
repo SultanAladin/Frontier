@@ -3611,11 +3611,100 @@ void StampWorkspacePanel::ConstructInspector()
             if (ClosedFilledPath) Patch.ClosedOutlineWidth = Stroke; else Patch.StrokeWidth = Stroke;
             ApplySourcePatch(Patch);
         }
-        auto StrokeColour = Source.StrokeColour;
-        if (Controls.Colour(ClosedFilledPath ? "Outline colour" : "Stroke colour", StrokeColour)) { VectorAuthoringSourcePatch Patch; Patch.StrokeColour = StrokeColour; ApplySourcePatch(Patch); }
-        ImGui::TextWrapped(ClosedFilledPath
-            ? "This outline width is independent of the same path's thickness while it was (or becomes) an open line."
-            : "Fill and stroke colours are independent. Stroke image sources remain deferred.");
+        int StrokeCategory = int(Source.ShapeParameters[1]);
+        if (Controls.Dropdown("Component stroke source", StrokeCategory, Sources))
+        {
+            VectorAuthoringSourcePatch Patch; Patch.StrokePaintCategory = uint32_t(StrokeCategory);
+            Patch.StrokeGradientAxis = StrokeCategory == 2 ? std::array<float, 4>{0.f, 0.f, .5f, 0.f} : std::array<float, 4>{-.5f, 0.f, .5f, 0.f};
+            if (!(Source.Topology[3] & VectorCoverageStrokeColourExplicit)) Patch.StrokeColour = Source.Colour;
+            ApplySourcePatch(Patch);
+        }
+        if (!StrokeCategory)
+        {
+            auto StrokeColour = (Source.Topology[3] & VectorCoverageStrokeColourExplicit) ? Source.StrokeColour : Source.Colour;
+            if (Controls.Colour(ClosedFilledPath ? "Outline colour" : "Stroke colour", StrokeColour)) { VectorAuthoringSourcePatch Patch; Patch.StrokeColour = StrokeColour; ApplySourcePatch(Patch); }
+        }
+        else
+        {
+            ImGui::PushID("StrokeGradient");
+            auto Stops = QueryVectorStrokeGradientStops(Source);
+            SelectedStrokeGradientStop = std::clamp(SelectedStrokeGradientStop, 0, int(Stops.size()) - 1);
+            const float CardWidth = ImGui::GetContentRegionAvail().x;
+            const ImVec2 BarOrigin = ImGui::GetCursorScreenPos();
+            const float BarHeight = 18 * Scale;
+            auto *RampInk = ImGui::GetWindowDrawList();
+            const auto RampColour = [](const std::array<float, 4> &C) { return ImGui::GetColorU32(ImVec4(C[0], C[1], C[2], 1)); };
+            RampInk->AddRectFilled(BarOrigin, ImVec2(BarOrigin.x + CardWidth, BarOrigin.y + BarHeight), IM_COL32(16, 16, 16, 255), 4 * Scale);
+            for (size_t Index = 0; Index + 1 < Stops.size(); ++Index)
+            {
+                const float X0 = BarOrigin.x + Stops[Index].Position * CardWidth, X1 = BarOrigin.x + Stops[Index + 1].Position * CardWidth;
+                RampInk->AddRectFilledMultiColor(ImVec2(X0, BarOrigin.y), ImVec2(X1, BarOrigin.y + BarHeight),
+                    RampColour(Stops[Index].Colour), RampColour(Stops[Index + 1].Colour), RampColour(Stops[Index + 1].Colour), RampColour(Stops[Index].Colour));
+            }
+            RampInk->AddRect(BarOrigin, ImVec2(BarOrigin.x + CardWidth, BarOrigin.y + BarHeight), IM_COL32(255, 255, 255, 26), 4 * Scale);
+            for (size_t Index = 0; Index < Stops.size(); ++Index)
+            {
+                const float MarkerX = BarOrigin.x + Stops[Index].Position * CardWidth;
+                ImGui::SetCursorScreenPos(ImVec2(MarkerX - 6 * Scale, BarOrigin.y + BarHeight + 2 * Scale));
+                ImGui::PushID(int(Index) + 500);
+                if (ImGui::InvisibleButton("##GradientStop", ImVec2(12 * Scale, 8 * Scale))) SelectedStrokeGradientStop = int(Index);
+                ImGui::PopID();
+                const bool IsSelected = int(Index) == SelectedStrokeGradientStop;
+                RampInk->AddTriangleFilled(ImVec2(MarkerX, BarOrigin.y + BarHeight + 2 * Scale),
+                    ImVec2(MarkerX - 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale), ImVec2(MarkerX + 5 * Scale, BarOrigin.y + BarHeight + 9 * Scale),
+                    IsSelected ? IM_COL32(255, 255, 255, 255) : RampColour(Stops[Index].Colour));
+            }
+            ImGui::SetCursorScreenPos(ImVec2(BarOrigin.x, BarOrigin.y + BarHeight + 18 * Scale));
+            auto SelectedColour = Stops[SelectedStrokeGradientStop].Colour;
+            char StopLabel[24]; std::snprintf(StopLabel, sizeof(StopLabel), "Stroke stop %d colour", SelectedStrokeGradientStop + 1);
+            if (Controls.Colour(StopLabel, SelectedColour))
+            {
+                Stops[SelectedStrokeGradientStop].Colour = SelectedColour;
+                VectorAuthoringSourcePatch Patch; ApplyVectorStrokeGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            float StopPosition = Stops[SelectedStrokeGradientStop].Position * 100;
+            const float LowerBound = SelectedStrokeGradientStop > 0 ? Stops[SelectedStrokeGradientStop - 1].Position * 100 + 1 : 0.f;
+            const float UpperBound = SelectedStrokeGradientStop + 1 < int(Stops.size()) ? Stops[SelectedStrokeGradientStop + 1].Position * 100 - 1 : 100.f;
+            if (Controls.Number("Stroke stop position %", StopPosition, LowerBound, UpperBound))
+            {
+                Stops[SelectedStrokeGradientStop].Position = std::clamp(StopPosition / 100.f, 0.f, 1.f);
+                VectorAuthoringSourcePatch Patch; ApplyVectorStrokeGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::BeginDisabled(Stops.size() >= size_t(VectorGradientStopCapacity));
+            if (Controls.Button("Add stroke stop", (CardWidth - 8 * Scale) * .5f))
+            {
+                float Previous = 0.f, BestGap = 0.f, BestPosition = .5f;
+                for (size_t Index = 0; Index <= Stops.size(); ++Index)
+                {
+                    const float Current = Index < Stops.size() ? Stops[Index].Position : 1.f;
+                    if (Current - Previous > BestGap) { BestGap = Current - Previous; BestPosition = (Current + Previous) * .5f; }
+                    Previous = Current;
+                }
+                const auto NewColour = EvaluateVectorGradientColour(Stops, BestPosition);
+                Stops.push_back({BestPosition, NewColour});
+                std::sort(Stops.begin(), Stops.end(), [](const auto &A, const auto &B) { return A.Position < B.Position; });
+                const auto Inserted = std::find_if(Stops.begin(), Stops.end(), [&](const auto &Stop) { return Stop.Position == BestPosition; });
+                SelectedStrokeGradientStop = int(Inserted - Stops.begin());
+                VectorAuthoringSourcePatch Patch; ApplyVectorStrokeGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0, 8 * Scale);
+            ImGui::BeginDisabled(Stops.size() <= 2);
+            if (Controls.Button("Remove stroke stop", (CardWidth - 8 * Scale) * .5f))
+            {
+                Stops.erase(Stops.begin() + SelectedStrokeGradientStop);
+                SelectedStrokeGradientStop = std::clamp(SelectedStrokeGradientStop, 0, int(Stops.size()) - 1);
+                VectorAuthoringSourcePatch Patch; ApplyVectorStrokeGradientStops(Patch, Stops); ApplySourcePatch(Patch);
+            }
+            ImGui::EndDisabled();
+            auto Axis = Source.StrokeGradientAxis;
+            const char *AxisCaptions[]{"Stroke gradient start X", "Stroke gradient start Y", "Stroke gradient end X", "Stroke gradient end Y"};
+            for (size_t Index = 0; Index < Axis.size(); ++Index)
+                if (Controls.Number(AxisCaptions[Index], Axis[Index], -2, 2))
+                { VectorAuthoringSourcePatch Patch; Patch.StrokeGradientAxis = Axis; ApplySourcePatch(Patch); }
+            ImGui::PopID();
+        }
+        if (ClosedFilledPath) ImGui::TextWrapped("This outline width is independent of the same path's open-line thickness.");
             }
             if (Channel.Index == size_t(VectorAuthoringSurfaceChannel::Normal))
                 ImGui::TextWrapped("Derived from the stamped Height. Amount scales the relief.");

@@ -203,6 +203,7 @@ private:
     // stay in sync (selecting a marker on the canvas selects it in the Inspector and vice versa).
     int GradientDragSlot = -1;
     int SelectedGradientStop = 0;
+    int SelectedStrokeGradientStop = 0;
     bool MarqueeAdditive = false, SelectionExtend = false;
     uint32_t MaskSelection = 0;
     bool ChannelsOpen = false, CloseRequested = false;

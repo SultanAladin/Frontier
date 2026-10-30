@@ -83,8 +83,13 @@ struct alignas(16) VectorCoverageInstruction
     // "Component/Motif fill source" dropdown handler) since a plain centre-to-edge default would misplace a
     // freshly chosen radial gradient. Mirror this exactly in VectorCoverage.slang/VectorSurface.slang.
     std::array<float, 4> GradientAxis{-.5f, 0.f, .5f, 0.f};
-    // Rectangle corner radius in document units; remaining slots reserved.
+    // x: rectangle corner radius in document units; y: stroke source (0 solid, 1 linear, 2 radial).
     std::array<float, 4> ShapeParameters{};
+    std::array<float, 4> StrokeColourEnd{1, 1, 1, 1};
+    std::array<float, 4> StrokeGradientStopPositions{0, 1, -1, -1};
+    std::array<float, 4> StrokeGradientStopColour2{1, 1, 1, 1};
+    std::array<float, 4> StrokeGradientStopColour3{1, 1, 1, 1};
+    std::array<float, 4> StrokeGradientAxis{-.5f, 0, .5f, 0};
     bool operator==(const VectorCoverageInstruction &) const = default;
 };
 struct alignas(16) VectorCubicSegment
@@ -93,7 +98,7 @@ struct alignas(16) VectorCubicSegment
     std::array<float, 4> ControlEnd{};
     bool operator==(const VectorCubicSegment &) const = default;
 };
-static_assert(sizeof(VectorCoverageInstruction) == 192 && sizeof(VectorCubicSegment) == 32);
+static_assert(sizeof(VectorCoverageInstruction) == 272 && sizeof(VectorCubicSegment) == 32);
 struct VectorCoverageProgram
 {
     std::vector<VectorCoverageInstruction> Instructions;
@@ -127,7 +132,8 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
     {
         const auto &Instruction = Program.Instructions[Index];
         for (const auto &Coordinates : {Instruction.Bounds, Instruction.Transform, Instruction.Colour, Instruction.ColourEnd, Instruction.StrokeColour, Instruction.Paint,
-            Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis, Instruction.ShapeParameters})
+            Instruction.GradientStopPositions, Instruction.GradientStopColour2, Instruction.GradientStopColour3, Instruction.GradientAxis, Instruction.ShapeParameters,
+            Instruction.StrokeColourEnd, Instruction.StrokeGradientStopPositions, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3, Instruction.StrokeGradientAxis})
             for (float Coordinate : Coordinates) if (!std::isfinite(Coordinate)) throw std::runtime_error("Non-finite vector coverage descriptor.");
         const auto Category = Instruction.Topology[0];
         if (Category <= 6)
@@ -168,6 +174,10 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
         else throw std::runtime_error("Unsupported GPU vector coverage operation.");
         if (Instruction.Transform[1] < 0 || Instruction.Transform[1] > 100 || Instruction.Transform[2] < 0 || Instruction.Transform[2] > 1 || Instruction.Transform[3] < 0 || Instruction.Transform[3] > 2 || std::floor(Instruction.Transform[3]) != Instruction.Transform[3] || std::abs(Instruction.Transform[0]) > 1e6f || std::abs(Instruction.Paint[0]) > 1e6f || (Instruction.Paint[3] != 0 && Instruction.Paint[3] != 1))
             throw std::runtime_error("Vector stroke, opacity or paint category is invalid.");
+        if (Instruction.ShapeParameters[1] < 0 || Instruction.ShapeParameters[1] > 2 || std::floor(Instruction.ShapeParameters[1]) != Instruction.ShapeParameters[1]) throw std::runtime_error("Invalid stroke paint category.");
+        for (const auto &Colours : {Instruction.StrokeColourEnd, Instruction.StrokeGradientStopColour2, Instruction.StrokeGradientStopColour3})
+            for (float Channel : Colours) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector stroke gradient colour must be normalized.");
+        for (float Coordinate : Instruction.StrokeGradientAxis) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector stroke gradient axis is invalid.");
         for (float Coordinate : Instruction.GradientAxis) if (std::abs(Coordinate) > 64.f) throw std::runtime_error("Vector gradient axis extends absurdly far past the shape's own bounds.");
         for (float Channel : Instruction.Colour) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector colour must be normalized.");
         for (float Channel : Instruction.ColourEnd) if (Channel < 0 || Channel > 1) throw std::runtime_error("Vector gradient colour must be normalized.");
@@ -178,10 +188,12 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
         // starting at slot 0 (a bare -1 everywhere past the active run) so both the CPU authoring tools and
         // the GPU shader's piecewise lerp can walk it without ever needing to re-sort at draw time.
         {
+            for (const auto &Positions : {Instruction.GradientStopPositions, Instruction.StrokeGradientStopPositions})
+            {
             float Previous = -1.f; bool Closed = false;
             for (int Stop = 0; Stop < 4; ++Stop)
             {
-                const float StopPosition = Instruction.GradientStopPositions[Stop];
+                const float StopPosition = Positions[Stop];
                 if (StopPosition < 0.f)
                 {
                     if (StopPosition != -1.f) throw std::runtime_error("Vector gradient stop position must be 0..1, or exactly -1 for an unused stop.");
@@ -192,8 +204,9 @@ inline void ValidateVectorCoverage(const VectorCoverageProgram &Program)
                 if (Stop > 0 && StopPosition <= Previous) throw std::runtime_error("Vector gradient stops must be strictly ascending.");
                 Previous = StopPosition;
             }
-            if (Instruction.GradientStopPositions[0] < 0.f || Instruction.GradientStopPositions[1] < 0.f)
+            if (Positions[0] < 0.f || Positions[1] < 0.f)
                 throw std::runtime_error("Vector gradient requires at least two active stops.");
+            }
         }
     }
     for (const auto &Segment : Program.Segments)

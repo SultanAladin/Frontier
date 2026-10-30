@@ -85,6 +85,12 @@ void TransformSource(VectorCoverageInstruction &Source, const VectorAuthoringSou
         Source.StrokeColour = *Patch.StrokeColour;
         Source.Topology[3] |= VectorCoverageStrokeColourExplicit;
     }
+    if (Patch.StrokeColourEnd) Source.StrokeColourEnd = *Patch.StrokeColourEnd;
+    if (Patch.StrokeGradientStopPositions) Source.StrokeGradientStopPositions = *Patch.StrokeGradientStopPositions;
+    if (Patch.StrokeGradientStopColour2) Source.StrokeGradientStopColour2 = *Patch.StrokeGradientStopColour2;
+    if (Patch.StrokeGradientStopColour3) Source.StrokeGradientStopColour3 = *Patch.StrokeGradientStopColour3;
+    if (Patch.StrokeGradientAxis) Source.StrokeGradientAxis = *Patch.StrokeGradientAxis;
+    if (Patch.StrokePaintCategory) Source.ShapeParameters[1] = float(*Patch.StrokePaintCategory);
     if (Patch.Opacity) Source.Transform[2] = *Patch.Opacity;
     if (Patch.StrokeWidth) Source.Transform[1] = *Patch.StrokeWidth;
     if (Patch.PaintCategory) Source.Transform[3] = float(*Patch.PaintCategory);
@@ -377,13 +383,15 @@ void TransformVectorAuthoringSelection(VectorAuthoringDocument &Document, std::s
     if (Patch.ScaleX <= 0 || Patch.ScaleY <= 0) throw std::runtime_error("VectorAuthoring scale must be positive.");
     if (Patch.TranslationX == 0 && Patch.TranslationY == 0 && Patch.ScaleX == 1 && Patch.ScaleY == 1 && Patch.Rotation == 0 &&
         !Patch.Colour && !Patch.ColourEnd && !Patch.GradientStopPositions && !Patch.GradientStopColour2 && !Patch.GradientStopColour3 &&
-        !Patch.GradientAxis && !Patch.StrokeColour && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
+        !Patch.GradientAxis && !Patch.StrokeColour && !Patch.StrokeColourEnd && !Patch.StrokeGradientStopPositions && !Patch.StrokeGradientStopColour2 && !Patch.StrokeGradientStopColour3 && !Patch.StrokeGradientAxis && !Patch.StrokePaintCategory && !Patch.Opacity && !Patch.StrokeWidth && !Patch.PaintCategory && !Patch.FillEnabled &&
         !Patch.PolygonSides && !Patch.StarInnerRadius && !Patch.CornerRadius && !Patch.ClosedOutlineWidth) return;
     const auto Bounds = QueryVectorAuthoringSelectionBounds(Document, Selection);
     auto Replacement = Document;
     VectorAuthoringSourcePatch Geometry = Patch;
     Geometry.Colour.reset(); Geometry.ColourEnd.reset(); Geometry.GradientStopPositions.reset();
     Geometry.GradientStopColour2.reset(); Geometry.GradientStopColour3.reset(); Geometry.GradientAxis.reset(); Geometry.StrokeColour.reset(); Geometry.Opacity.reset();
+    Geometry.StrokeColourEnd.reset(); Geometry.StrokeGradientStopPositions.reset(); Geometry.StrokeGradientStopColour2.reset();
+    Geometry.StrokeGradientStopColour3.reset(); Geometry.StrokeGradientAxis.reset(); Geometry.StrokePaintCategory.reset();
     Geometry.StrokeWidth.reset(); Geometry.PaintCategory.reset(); Geometry.FillEnabled.reset();
     Geometry.PolygonSides.reset(); Geometry.StarInnerRadius.reset(); Geometry.CornerRadius.reset(); Geometry.ClosedOutlineWidth.reset();
     std::unordered_map<uint64_t, uint32_t> Remapping;
@@ -616,6 +624,18 @@ uint32_t IntegrateVectorAuthoringBoolean(VectorAuthoringDocument &Document, std:
     {
         if (!Tokens.contains(Replacement.Layers[Index].Token)) continue;
         if (Replacement.Layers[Index].Mask) throw std::runtime_error("Retain masks separately before combining native expressions.");
+        // Preserve an existing layer-wide opacity as a retained unary expression when
+        // that layer becomes an operand of another Boolean operation.
+        if (Replacement.Layers[Index].ExpressionOpacity != 1.f)
+        {
+            auto &Layer = Replacement.Layers[Index];
+            VectorCoverageInstruction Opacity;
+            Opacity.Topology = {29, Layer.Root, Layer.Root, 0};
+            Opacity.Transform[2] = Layer.ExpressionOpacity;
+            Layer.Root = uint32_t(Replacement.Instructions.size());
+            Replacement.Instructions.push_back(Opacity);
+            Layer.ExpressionOpacity = 1.f;
+        }
         if (!Destination) { Destination = Index; continue; }
         VectorCoverageInstruction Operation;
         Operation.Topology = {uint32_t(Category), Replacement.Layers[*Destination].Root, Replacement.Layers[Index].Root, 0};

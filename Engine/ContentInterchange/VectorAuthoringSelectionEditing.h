@@ -23,6 +23,8 @@ struct VectorAuthoringSourcePatch
     std::optional<std::array<float, 4>> GradientStopColour3;
     std::optional<std::array<float, 4>> GradientAxis;
     std::optional<std::array<float, 4>> StrokeColour;
+    std::optional<std::array<float, 4>> StrokeColourEnd, StrokeGradientStopPositions, StrokeGradientStopColour2, StrokeGradientStopColour3, StrokeGradientAxis;
+    std::optional<uint32_t> StrokePaintCategory;
     std::optional<float> Opacity;
     std::optional<float> StrokeWidth;
     std::optional<uint32_t> PaintCategory;

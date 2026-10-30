@@ -23,6 +23,11 @@ struct VectorCoverageInstruction
     // frame - see the field comment on Engine/Render/VectorCoverage.h's VectorCoverageInstruction.
     float4 GradientAxis;
     float4 ShapeParameters;
+    float4 StrokeColourEnd;
+    float4 StrokeGradientStopPositions;
+    float4 StrokeGradientStopColour2;
+    float4 StrokeGradientStopColour3;
+    float4 StrokeGradientAxis;
 };
 struct VectorCubicSegment { float4 StartControl; float4 ControlEnd; };
 // 📝 Mirror VectorCoverageInstructionCapacity/VectorCoverageExtensionCapacity in VectorCoverage.h exactly
@@ -233,6 +238,21 @@ void EvaluateVectorPoint(float2 Point, float Antialias, out float4 Evaluations[I
                 : Instruction.Transform.w == 2 ? saturate(length(LocalNorm - AxisStart) / max(length(AxisVector), 1e-4)) : 0;
             float4 FillColour = EvaluateGradientColour(Instruction, Fraction);
             float4 StrokeColour = (Instruction.Topology.w & 0x80000000) != 0 ? Instruction.StrokeColour : Instruction.Colour;
+            if (Instruction.ShapeParameters.y != 0)
+            {
+                float2 StrokeStart = Instruction.StrokeGradientAxis.xy;
+                float2 StrokeVector = Instruction.StrokeGradientAxis.zw - StrokeStart;
+                float StrokeFraction = Instruction.ShapeParameters.y == 1
+                    ? saturate(dot(LocalNorm - StrokeStart, StrokeVector) / max(dot(StrokeVector, StrokeVector), 1e-6))
+                    : saturate(length(LocalNorm - StrokeStart) / max(length(StrokeVector), 1e-4));
+                VectorCoverageInstruction StrokePaint = Instruction;
+                StrokePaint.Colour = StrokeColour;
+                StrokePaint.ColourEnd = Instruction.StrokeColourEnd;
+                StrokePaint.GradientStopPositions = Instruction.StrokeGradientStopPositions;
+                StrokePaint.GradientStopColour2 = Instruction.StrokeGradientStopColour2;
+                StrokePaint.GradientStopColour3 = Instruction.StrokeGradientStopColour3;
+                StrokeColour = EvaluateGradientColour(StrokePaint, StrokeFraction);
+            }
             float FillAlpha = Fill * FillColour.a * Instruction.Transform.z;
             float StrokeAlpha = Stroke * StrokeColour.a * Instruction.Transform.z;
             Result.a = StrokeAlpha + FillAlpha * (1 - StrokeAlpha);
