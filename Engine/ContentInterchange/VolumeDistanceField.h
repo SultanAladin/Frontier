@@ -22,6 +22,7 @@ struct VolumeDistanceField
     float MinimumDistance = 0;
     float MaximumDistance = 0;
     bool ClosedManifold = false;
+    bool Signed = true;
 };
 
 void ExportVolumeDistanceFieldNrrd(const VolumeDistanceField &Field, const std::filesystem::path &Path);

@@ -9,7 +9,7 @@
 #pragma once
 #include "Engine/ContentInterchange/BakeField.h"
 #include "Engine/ContentInterchange/BakeMesh.h"
-#include "Engine/ContentInterchange/VolumeDistanceField.h"
+#include "Engine/ContentInterchange/VolumePreview.h"
 #include "Engine/Interface/PanelDockspace.h"
 #include "Engine/Interface/PixelSpace.h"
 #include "Engine/Interface/VectorAuthoringControls.h"
@@ -105,6 +105,9 @@ class BakingWorkspacePanel final : public ActivationSequence
     bool VolumeSigned = true;
     int VolumeAxis = 2;
     float VolumeSlice = .5f;
+    int VolumePreviewStyle = 0, VolumePalette = 0;
+    VolumePreviewOptions CachedVolumePreviewOptions;
+    std::vector<uint8_t> CachedVolumePreview;
     VolumeDistanceField Volume;
     std::future<VolumeDistanceField> VolumeFuture;
     bool VolumeRunning = false;

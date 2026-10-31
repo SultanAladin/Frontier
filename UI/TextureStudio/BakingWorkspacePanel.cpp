@@ -329,6 +329,7 @@ void BakingWorkspacePanel::ClearResults() noexcept
 {
     Results.clear();
     Volume = {};
+    CachedVolumePreview.clear();
     ++BakeResultsRevision;
 }
 
@@ -401,6 +402,7 @@ void BakingWorkspacePanel::PollVolumeBake()
     try
     {
         Volume = VolumeFuture.get();
+        CachedVolumePreview.clear();
         View = ViewMode::Maps2D;
         Info = Volume.ClosedManifold ? "Volume SDF ready (closed surface)." : "Volume SDF ready; sign is approximate for an open surface.";
         Succeeded = true;
@@ -1769,6 +1771,8 @@ void BakingWorkspacePanel::ConstructVolumePreview(PlaneExtent Region, bool Spati
         Camera.Yaw += ImGui::GetIO().MouseDelta.x * .01f;
         Camera.Pitch = std::clamp(Camera.Pitch + ImGui::GetIO().MouseDelta.y * .01f, -1.2f, 1.2f);
     }
+    if (Spatial && ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.f)
+        Camera.Zoom = std::clamp(Camera.Zoom + ImGui::GetIO().MouseWheel * .1f, .5f, 5.f);
     auto *Ink = ImGui::GetWindowDrawList();
     Ink->AddRectFilled(Origin, ImVec2(Region.MaximumX, Region.MaximumY), ImGui::GetColorU32(Spectrum(0x171a1c)));
     if (Volume.Distances.empty())
@@ -1778,57 +1782,38 @@ void BakingWorkspacePanel::ConstructVolumePreview(PlaneExtent Region, bool Spati
     }
     if (Spatial)
     {
-        // 🧩 Orthographic ray-cast of the zero-distance surface, rather than a tilted flat slice.
-        const auto D = Volume.Dimensions;
-        const float CY = std::cos(Camera.Yaw), SY = std::sin(Camera.Yaw);
-        const float CP = std::cos(Camera.Pitch), SP = std::sin(Camera.Pitch);
-        const std::array<float, 3> Right{CY, 0.f, -SY};
-        const std::array<float, 3> Up{SY*SP, CP, CY*SP};
-        const std::array<float, 3> Forward{SY*CP, -SP, CY*CP};
-        const auto Sample = [&](float X, float Y, float Z)
+        // 🧩 Cache the composited raster until the baked field, camera or display controls change.
+        VolumePreviewOptions Options;
+        Options.Mode=static_cast<VolumePreviewMode>(VolumePreviewStyle);
+        Options.Palette=static_cast<VolumePreviewPalette>(VolumePalette);
+        Options.Axis=uint32_t(VolumeAxis); Options.Slice=VolumeSlice;
+        Options.Yaw=Camera.Yaw; Options.Pitch=Camera.Pitch; Options.Zoom=Camera.Zoom;
+        const auto &Previous=CachedVolumePreviewOptions;
+        if (CachedVolumePreview.empty() || Options.Mode!=Previous.Mode || Options.Palette!=Previous.Palette ||
+            Options.Axis!=Previous.Axis || Options.Slice!=Previous.Slice || Options.Yaw!=Previous.Yaw ||
+            Options.Pitch!=Previous.Pitch || Options.Zoom!=Previous.Zoom)
         {
-            const uint32_t A = std::min(D[0]-1, uint32_t(std::clamp(X + .5f, 0.f, .999999f) * D[0]));
-            const uint32_t B = std::min(D[1]-1, uint32_t(std::clamp(Y + .5f, 0.f, .999999f) * D[1]));
-            const uint32_t C = std::min(D[2]-1, uint32_t(std::clamp(Z + .5f, 0.f, .999999f) * D[2]));
-            return Volume.Distances[(size_t(C)*D[1]+B)*D[0]+A];
-        };
-        const float LargestExtent = std::max({Volume.Maximum[0]-Volume.Minimum[0], Volume.Maximum[1]-Volume.Minimum[1], Volume.Maximum[2]-Volume.Minimum[2]});
+            CachedVolumePreview=RenderVolumePreview(Volume,Options);
+            CachedVolumePreviewOptions=Options;
+        }
+        const float CY=std::cos(Camera.Yaw), SY=std::sin(Camera.Yaw);
+        const float CP=std::cos(Camera.Pitch), SP=std::sin(Camera.Pitch);
+        const std::array<float,3> Right{CY,0.f,-SY}, Up{SY*SP,CP,CY*SP};
+        const float LargestExtent=std::max({Volume.Maximum[0]-Volume.Minimum[0], Volume.Maximum[1]-Volume.Minimum[1], Volume.Maximum[2]-Volume.Minimum[2]});
         const float Extent[3]{(Volume.Maximum[0]-Volume.Minimum[0])/LargestExtent,
             (Volume.Maximum[1]-Volume.Minimum[1])/LargestExtent, (Volume.Maximum[2]-Volume.Minimum[2])/LargestExtent};
-        constexpr int Pixels = 72, Steps = 180;
-        const float Side = std::min(Region.Width(), Region.Height())*.82f;
-        const ImVec2 Centre(Origin.x+Region.Width()*.5f, Origin.y+Region.Height()*.5f);
-        const float Cell = Side/Pixels;
-        const float Threshold = std::min(.8f * std::sqrt(Volume.Step[0]*Volume.Step[0] + Volume.Step[1]*Volume.Step[1] + Volume.Step[2]*Volume.Step[2]),
-            .8f * std::max(std::abs(Volume.MinimumDistance), std::abs(Volume.MaximumDistance)));
-        Ink->PushClipRect(Origin, ImVec2(Region.MaximumX, Region.MaximumY), true);
-        for (int Y = 0; Y < Pixels; ++Y) for (int X = 0; X < Pixels; ++X)
+        const float Side=std::min(Region.Width(),Region.Height())*.82f;
+        const ImVec2 Centre(Origin.x+Region.Width()*.5f,Origin.y+Region.Height()*.5f);
+        const float Cell=Side/Options.Resolution;
+        Ink->PushClipRect(Origin,ImVec2(Region.MaximumX,Region.MaximumY),true);
+        for(uint32_t Y=0;Y<Options.Resolution;++Y) for(uint32_t X=0;X<Options.Resolution;++X)
         {
-            float U = ((X+.5f)/Pixels-.5f)*1.75f, V = (.5f-(Y+.5f)/Pixels)*1.75f;
-            for (int Step = 0; Step < Steps; ++Step)
-            {
-                float T = 1.5f - 3.f*Step/(Steps-1);
-                float P[3]; for (int A=0; A<3; ++A) P[A]=U*Right[A]+V*Up[A]+T*Forward[A];
-                if (std::abs(P[0])>Extent[0]*.5f || std::abs(P[1])>Extent[1]*.5f || std::abs(P[2])>Extent[2]*.5f) continue;
-                for (int A=0; A<3; ++A) P[A] /= Extent[A];
-                if (std::abs(Sample(P[0],P[1],P[2])) > Threshold) continue;
-                float N[3];
-                for (int A=0; A<3; ++A)
-                {
-                    float Q[3]{P[0],P[1],P[2]}, E=1.f/float(D[A]);
-                    Q[A]+=E; float Plus=Sample(Q[0],Q[1],Q[2]); Q[A]-=2*E; float Minus=Sample(Q[0],Q[1],Q[2]);
-                    N[A]=(Plus-Minus)/std::max(Volume.Step[A],1e-9f);
-                }
-                float Length=std::sqrt(N[0]*N[0]+N[1]*N[1]+N[2]*N[2]);
-                float Light=Length>1e-9f ? std::abs((N[0]*.3f+N[1]*.7f+N[2]*.65f)/Length) : .5f;
-                float Shade=.3f+.7f*Light;
-                Ink->AddRectFilled(ImVec2(Centre.x-Side*.5f+X*Cell,Centre.y-Side*.5f+Y*Cell),
-                    ImVec2(Centre.x-Side*.5f+(X+1)*Cell+.5f,Centre.y-Side*.5f+(Y+1)*Cell+.5f),
-                    IM_COL32(int(102*Shade),int(203*Shade),int(167*Shade),255));
-                break;
-            }
+            const size_t P=(size_t(Y)*Options.Resolution+X)*4;
+            Ink->AddRectFilled(ImVec2(Centre.x-Side*.5f+X*Cell,Centre.y-Side*.5f+Y*Cell),
+                ImVec2(Centre.x-Side*.5f+(X+1)*Cell+.5f,Centre.y-Side*.5f+(Y+1)*Cell+.5f),
+                IM_COL32(CachedVolumePreview[P],CachedVolumePreview[P+1],CachedVolumePreview[P+2],255));
         }
-        const auto Project = [&](float X, float Y, float Z) { return ImVec2(Centre.x+Side/1.75f*(X*Right[0]+Y*Right[1]+Z*Right[2]), Centre.y-Side/1.75f*(X*Up[0]+Y*Up[1]+Z*Up[2])); };
+        const auto Project = [&](float X, float Y, float Z) { return ImVec2(Centre.x+Side*Camera.Zoom/1.75f*(X*Right[0]+Y*Right[1]+Z*Right[2]), Centre.y-Side*Camera.Zoom/1.75f*(X*Up[0]+Y*Up[1]+Z*Up[2])); };
         for (int Axis=0; Axis<3; ++Axis) for (int A=0; A<2; ++A) for (int B=0; B<2; ++B)
         {
             float P[3]{}, Q[3]{}; P[Axis]=-.5f*Extent[Axis]; Q[Axis]=.5f*Extent[Axis]; P[(Axis+1)%3]=Q[(Axis+1)%3]=(A-.5f)*Extent[(Axis+1)%3]; P[(Axis+2)%3]=Q[(Axis+2)%3]=(B-.5f)*Extent[(Axis+2)%3];
@@ -1852,17 +1837,15 @@ void BakingWorkspacePanel::ConstructVolumePreview(PlaneExtent Region, bool Spati
         return ImVec2(Centre.x + X*std::cos(Angle) - Y*std::sin(Angle),
             Centre.y + (X*std::sin(Angle) + Y*std::cos(Angle))*Tilt);
     };
-    const float Maximum = std::max({std::abs(Volume.MinimumDistance), std::abs(Volume.MaximumDistance), 1e-6f});
     Ink->PushClipRect(Origin, ImVec2(Region.MaximumX, Region.MaximumY), true);
     for (uint32_t Y=0; Y<Rows; ++Y) for (uint32_t X=0; X<Columns; ++X)
     {
         uint32_t C[3]{}; C[VolumeAxis]=Slice;
         C[UAxis]=std::min(Dims[UAxis]-1, uint32_t((X+.5f)*Dims[UAxis]/Columns));
-        C[VAxis]=std::min(Dims[VAxis]-1, uint32_t((Y+.5f)*Dims[VAxis]/Rows));
-        float Distance=Volume.Distances[(size_t(C[2])*Dims[1]+C[1])*Dims[0]+C[0]];
-        float T=std::clamp(std::abs(Distance)/Maximum,0.f,1.f);
-        ImU32 Colour=Distance < 0 ? IM_COL32(int(65-40*T),int(200-105*T),int(165-60*T),255)
-                                  : IM_COL32(int(80-65*T),int(90-73*T),int(100-80*T),255);
+        C[VAxis]=std::min(Dims[VAxis]-1, uint32_t((Rows-Y-.5f)*Dims[VAxis]/Rows));
+        const size_t Index=(size_t(C[2])*Dims[1]+C[1])*Dims[0]+C[0];
+        const auto Pixel=VolumePreviewColour(Volume,Index,static_cast<VolumePreviewPalette>(VolumePalette));
+        const ImU32 Colour=IM_COL32(Pixel[0],Pixel[1],Pixel[2],255);
         float U0=float(X)/Columns, U1=float(X+1)/Columns, V0=float(Y)/Rows, V1=float(Y+1)/Rows;
         Ink->AddQuadFilled(Project(U0,V0),Project(U1,V0),Project(U1,V1),Project(U0,V1),Colour);
     }
@@ -2423,6 +2406,10 @@ void BakingWorkspacePanel::ConstructInspector()
                 Controls.Slider("Volume padding", VolumePadding, .02f, .5f);
                 Controls.Slider("Narrow band (0 = full)", VolumeBand, 0.f, 10.f);
                 Controls.Toggle("Signed distance", VolumeSigned);
+                const char *PreviewModes[]{"Iso + Cut", "Triplane", "Stack"};
+                const char *Palettes[]{"Bands", "Contours", "Inside / outside", "Normalized", "Confidence"};
+                Controls.Dropdown("3D display", VolumePreviewStyle, PreviewModes);
+                Controls.Dropdown("Slice palette", VolumePalette, Palettes);
                 Controls.Dropdown("Slice axis", VolumeAxis, Axes);
                 Controls.Slider("Slice position", VolumeSlice, 0.f, 1.f);
                 ImGui::TextWrapped("Queue the volume tile to include it in a batch; volume runs before 2D maps.");

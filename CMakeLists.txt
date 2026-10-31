@@ -84,7 +84,7 @@ add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel
     UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
     UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp UI/TextureStudio/PanelChrome.cpp
     UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/TypefaceCatalogue.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
-    Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/ContentInterchange/VolumeDistanceField.cpp Engine/ContentInterchange/BakeSurfaceImport.cpp Engine/ContentInterchange/BakeTiledOutput.cpp
+    Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/ContentInterchange/VolumeDistanceField.cpp Engine/ContentInterchange/VolumePreview.cpp Engine/ContentInterchange/BakeSurfaceImport.cpp Engine/ContentInterchange/BakeTiledOutput.cpp
     Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
@@ -318,6 +318,9 @@ if(BUILD_TESTING)
     target_link_libraries(BakeSurfaceImportValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME BakeSurfaceImportValidation COMMAND BakeSurfaceImportValidation)
 
+    add_executable(VolumePreviewValidation Exhibits/TextureStudio/Code/VolumePreviewValidation.cpp)
+    target_link_libraries(VolumePreviewValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME VolumePreviewValidation COMMAND VolumePreviewValidation)
     add_executable(VolumeDistanceFieldValidation Exhibits/TextureStudio/Code/VolumeDistanceFieldValidation.cpp)
     target_link_libraries(VolumeDistanceFieldValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME VolumeDistanceFieldValidation COMMAND VolumeDistanceFieldValidation)

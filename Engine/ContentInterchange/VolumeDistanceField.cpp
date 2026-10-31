@@ -168,7 +168,7 @@ VolumeDistanceField BakeVolumeDistanceField(const BakeMeshSet &Surface, std::arr
     float Padding, bool Signed, float NarrowBand)
 {
     for (auto &Dimension : Dimensions) Dimension=std::clamp(Dimension,8u,256u);
-    VolumeDistanceField Field; Field.Dimensions=Dimensions;
+    VolumeDistanceField Field; Field.Dimensions=Dimensions; Field.Signed=Signed;
     std::vector<Triangle> Triangles;
     Point Minimum{1e30,1e30,1e30}, Maximum{-1e30,-1e30,-1e30};
     using VertexKey = std::tuple<long long,long long,long long>;
