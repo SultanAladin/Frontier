@@ -2477,6 +2477,11 @@ void BakingWorkspacePanel::ConstructInspector()
             if (InspectMapKey == "convexity" || InspectMapKey == "cavity" || InspectMapKey == "dirt" || InspectMapKey == "edge-wear")
                 Controls.Slider("Mask strength", MapSpecific.MaskStrength, 0.f, 16.f);
             if (!(MapSpecific == OriginalMapSpecific)) Settings.MapOverrides[InspectMapKey] = MapSpecific;
+            if (InspectMapKey != "volume-sdf" && (Settings.MapOverrides.count(InspectMapKey) || Settings.MapOutput.count(InspectMapKey)))
+            {
+                if (Controls.Button("Reset this map", ImGui::GetContentRegionAvail().x))
+                { Settings.MapOverrides.erase(InspectMapKey); Settings.MapOutput.erase(InspectMapKey); }
+            }
             ImGui::EndDisabled();
         }
     }
