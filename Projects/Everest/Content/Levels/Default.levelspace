@@ -1,0 +1,279 @@
+[level]
+format_version = 1
+name = "Everest — Default Scene"
+
+[[records]]
+identity = "rec_diagnostics"
+type = "Diagnostics"
+name = "Frame Diagnostics"
+[records.configuration]
+timing_overlay = true
+memory_overlay = false
+
+[[records]]
+identity = "rec_pipeline"
+type = "RenderPipeline"
+name = "Render Pipeline"
+[records.configuration]
+enabled = true
+hardware_ray_query = true
+quality_tier = 2
+inspection_mode = 0
+exposure_ev = 0.12
+bloom_intensity = 0.26
+global_illumination = true
+temporal_aa = true
+
+[[records]]
+identity = "rec_sdf"
+type = "DistanceField"
+name = "4-Cascade SDF Clipmap"
+parent = "rec_pipeline"
+[records.configuration]
+enabled = true
+cascade0_m = 16.0
+cascade1_m = 48.0
+cascade2_m = 128.0
+cascade3_m = 320.0
+max_cone_steps = 48
+
+[[records]]
+identity = "rec_cards"
+type = "SurfaceCards"
+name = "Surface Card Atlas"
+parent = "rec_pipeline"
+[records.configuration]
+enabled = true
+atlas_px = 1024
+bounce_gain = 1.15
+cards_per_object = 6
+
+[[records]]
+identity = "rec_clusters"
+type = "PolygonClusters"
+name = "Polygon Cluster Hierarchy"
+parent = "rec_pipeline"
+[records.configuration]
+enabled = true
+hierarchy_depth = 6
+max_cluster_triangles = 128
+hiz_culling = true
+
+[[records]]
+identity = "rec_solar"
+type = "Solar"
+name = "Primary Directional Sun"
+[records.configuration]
+enabled = true
+elevation_deg = 38.0
+azimuth_deg = 132.0
+illuminance_klx = 98.0
+kelvin = 5778.0
+
+[[records]]
+identity = "rec_flare"
+type = "OpticalFlare"
+name = "Aperture Optical Flare"
+parent = "rec_solar"
+[records.configuration]
+enabled = true
+intensity = 0.62
+aperture_blades = 7
+
+[[records]]
+identity = "rec_atmosphere"
+type = "Atmosphere"
+name = "Sky Atmosphere"
+[records.configuration]
+enabled = true
+rayleigh = 1.0
+mie_turbidity = 2.3
+ozone = 1.0
+
+[[records]]
+identity = "rec_clouds"
+type = "Clouds"
+name = "Volumetric Cloud Layer"
+parent = "rec_atmosphere"
+[records.configuration]
+enabled = true
+local_volume = false
+coverage = 0.42
+base_altitude_m = 1750.0
+thickness_m = 1350.0
+
+[[records]]
+identity = "rec_stars"
+type = "Stars"
+name = "Hipparcos Starfield"
+parent = "rec_atmosphere"
+[records.configuration]
+enabled = true
+hipparcos_count = 5000
+magnitude_gain = 1.15
+
+[[records]]
+identity = "rec_moons"
+type = "Moons"
+name = "Orbital Satellites"
+parent = "rec_atmosphere"
+[records.configuration]
+enabled = true
+primary_phase = 0.68
+secondary_enabled = true
+
+[[records]]
+identity = "rec_fog"
+type = "Fog"
+name = "Froxel Scattering Fog"
+parent = "rec_atmosphere"
+[records.configuration]
+enabled = true
+local_volume = false
+base_density = 0.012
+height_falloff = 0.14
+
+[[records]]
+identity = "rec_lightning"
+type = "Lightning"
+name = "Dielectric Discharge"
+parent = "rec_atmosphere"
+[records.configuration]
+enabled = true
+strikes_per_minute = 4.0
+auto_discharge = false
+
+[[records]]
+identity = "rec_wind"
+type = "Wind"
+name = "Curl-Noise Wind Field"
+[records.configuration]
+enabled = true
+direction_deg = 45.0
+speed_mps = 6.5
+turbulence = 0.45
+
+[[records]]
+identity = "rec_origin"
+type = "SpatialNode"
+name = "Simulation Origin"
+[records.configuration]
+position_m = [0.0, 0.0, 0.0]
+orientation_deg = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[records]]
+identity = "rec_slab"
+type = "RigidBody"
+name = "Reference Ground Slab"
+parent = "rec_origin"
+[records.configuration]
+position_m = [0.0, 0.0, 0.0]
+orientation_deg = [0.0, 0.0, 0.0]
+scale = [60.0, 0.5, 60.0]
+physics_enabled = true
+mass_kg = 3200.0
+density_kg_m3 = 2400.0
+volume_m3 = 1.3333
+dynamic_body = false
+gravity_coupled = false
+optics_enabled = true
+albedo_rgb = [0.70, 0.73, 0.76]
+roughness = 0.52
+metallic = 0.02
+
+[[records]]
+identity = "rec_thermal_block"
+type = "ThermalBody"
+name = "Conductive Test Block"
+parent = "rec_origin"
+[records.configuration]
+position_m = [-3.0, 1.0, 0.0]
+orientation_deg = [0.0, 15.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+physics_enabled = true
+mass_kg = 18.0
+density_kg_m3 = 2700.0
+volume_m3 = 0.0067
+dynamic_body = true
+gravity_coupled = true
+thermal_enabled = true
+temperature_k = 640.0
+specific_heat_j_kg_k = 897.0
+conductivity_w_m_k = 205.0
+emissivity = 0.85
+optics_enabled = true
+albedo_rgb = [0.82, 0.68, 0.54]
+roughness = 0.34
+metallic = 0.65
+
+[[records]]
+identity = "rec_vessel"
+type = "ChemicalVessel"
+name = "Kinetics Reaction Cell"
+parent = "rec_origin"
+[records.configuration]
+position_m = [3.0, 1.2, 0.0]
+orientation_deg = [0.0, 0.0, 0.0]
+scale = [0.8, 1.2, 0.8]
+thermal_enabled = true
+temperature_k = 365.0
+specific_heat_j_kg_k = 4184.0
+conductivity_w_m_k = 0.60
+emissivity = 0.92
+chemical_enabled = true
+molar_mass_g_mol = 46.07
+amount_mol = 4.5
+concentration_mol_l = 1.5
+activation_energy_kj_mol = 52.0
+enthalpy_delta_kj_mol = -68.4
+matter_phase = 1
+reversible = true
+catalyzed = false
+
+[[records]]
+identity = "rec_plume"
+type = "FluidPlume"
+name = "Eulerian Fluid Plume"
+parent = "rec_origin"
+[records.configuration]
+enabled = true
+buoyancy_lift = 2.15
+vorticity = 1.85
+blackbody_k = 1850.0
+
+[[records]]
+identity = "rec_fracture"
+type = "Fracture"
+name = "Voronoi Fracture Specimen"
+parent = "rec_origin"
+[records.configuration]
+enabled = true
+voronoi_cells = 36
+impulse_threshold_ns = 40.0
+
+[[records]]
+identity = "rec_particles"
+type = "Particles"
+name = "Ballistic Particle Emitter"
+parent = "rec_origin"
+[records.configuration]
+enabled = true
+spark_rate = 260.0
+rain_density = 0.0
+snow_density = 0.0
+
+[[records]]
+identity = "rec_oscillator"
+type = "HarmonicOscillator"
+name = "Damped Harmonic Oscillator"
+parent = "rec_origin"
+[records.configuration]
+position_m = [0.0, 1.8, -2.5]
+mass_kg = 4.5
+density_kg_m3 = 7850.0
+volume_m3 = 0.00057
+stiffness_n_m = 180.0
+damping_ratio = 0.14
+initial_displacement_m = 0.65
+drive_frequency_hz = 1.0

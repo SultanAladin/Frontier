@@ -4,6 +4,7 @@
 // 🧩 1:1 native port of the Project browser HTML prototype (Experimental/Project browser/).
 
 #include "ProjectBrowserPanel.h"
+#include "Engine/ContentInterchange/ProjectGenerator.h"
 #include "Engine/Interface/DropdownControls.h"
 #include "Engine/Diagnostics/DiagnosticJournal.h"
 #include <algorithm>
@@ -620,6 +621,7 @@ bool ProjectBrowserPanel::CreateProject(const std::filesystem::path &Destination
 {
     const auto Template = ResolveContentDirectory("EngineContent/Defaults") / "BlankProject/Blank.projectspace";
     if (!ProjectSpaceCodec::CreateBlank(Template, Destination, Name, Diagnostic)) return false;
+    if (!ProjectGenerator::GenerateProjectScaffolding(Destination, Name, Diagnostic)) return false;
     const auto Folder = Destination.has_parent_path() ? Destination.parent_path() : std::filesystem::path(".");
     (void)ConfigureDirectory(Folder);
     return SelectProject(Destination);

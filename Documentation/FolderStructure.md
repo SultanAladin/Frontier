@@ -24,6 +24,8 @@ Frontier/
 │   └── Render/                # Blank; Git retention marker only
 ├── UI/
 │   └── Editor/                # Lifecycle-owned production editor UI
+├── Projects/
+│   └── <ProjectName>/         # Independent game/application projects (e.g. Projects/Everest/)
 ├── EngineContent/             # Shared content archives (icons, fonts, materials, environments)
 ├── Exhibits/
 │   ├── <ValidationName>/

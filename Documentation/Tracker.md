@@ -560,5 +560,23 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Verified in this sandbox: `TextureStudio` + TexturePaint/Baking/Stamp construction validations build
   and pass. Windows visual re-check pending (user).
 
+## Phase 1: ProjectGenerator, .levelspace, Composable Simulation Inspectors, DiagramControls, and Projects/Everest (2026-10-31, branch arena/5f492703-frontier)
 
-
+- Updated `CLAUDE.md`, `EngineDocs/AgenticInstuctions/SKILL-Naming.md`, `Documentation/FolderStructure.md`, and
+  `Documentation/Plans/Ongoing/ProjectEverestMasterPlan.md` with mandatory banned vocabulary, `*space` container
+  extensions (`.projectspace`, `.levelspace`, `.worldspace`), and strict Engine/Project separation.
+- Implemented `Engine/ContentInterchange/ProjectGenerator.{h,cpp}` and integrated into `ProjectBrowserPanel::CreateProject`
+  so creating any project via the Project Browser auto-generates `Source/<Identifier>Application.{h,cpp}`,
+  `Source/Main.cpp`, `CMakeLists.txt`, and `Content/Levels/Default.levelspace`.
+- Built composable simulation configurations in `Frontier/Engine/Scene/EngineConfigurations.h` (`SpatialConfiguration`,
+  `PhysicsConfiguration` with `MassConfiguration` + mass/kinetic/momentum helpers, `ThermalConfiguration` with
+  Stefan-Boltzmann radiative flux + sensible heat helpers, `ChemicalConfiguration` with Arrhenius reaction kinetics,
+  `SurfaceOpticsConfiguration`) and dynamic `.levelspace` scene world (`Frontier/Engine/Scene/SceneWorld.{h,cpp}`).
+- Upgraded `InspectorRuntime` for multi-inspector composition (`BindInspector` + `AttachInspector`), implemented
+  reusable domain-agnostic `DiagramControls`, standalone `<Domain>Editor` classes (`FractureEditor`, `FluidPlumeEditor`,
+  `ParticleEditor`, `PolygonClusterEditor`), and modular `NativeInspectors` (`VehicleInspector` deferred to Phase 4).
+- Built generic `Projects/Everest/` (`Everest.projectspace`, `Content/Levels/Default.levelspace`,
+  `Source/EverestApplication.{h,cpp}`, `Source/EverestSimulationRecords.{h,cpp}`, `Source/EverestWorkspace.{h,cpp}`).
+- Verified 58/58 root CTests (including `ProjectBrowserValidation`, `EverestShippingValidation` with `FRONTIER_EDITOR=0`,
+  and `EverestInterfaceValidation` with 6 visually inspected 1920x1080 PNG exhibits) plus standalone
+  `SceneDirectoryValidation`.

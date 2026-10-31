@@ -101,13 +101,74 @@ add_library(FrontierInterface STATIC
     Engine/Interface/ConfigurationStructure.cpp Engine/Interface/InputPreferencesCodec.cpp
     Engine/Interface/MonitorPlacement.cpp Engine/Interface/PanelDockspaceMonitor.cpp
     Engine/Interface/PanelDockspace.cpp Engine/Interface/PanelDockspaceLayout.cpp Engine/Interface/NotificationSequence.cpp Engine/Interface/ConfirmationDialogue.cpp
-    Engine/ContentInterchange/ProjectSpaceCodec.cpp)
+    Engine/ContentInterchange/ProjectSpaceCodec.cpp
+    Engine/ContentInterchange/ProjectGenerator.cpp)
 target_include_directories(FrontierInterface PUBLIC "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_link_libraries(FrontierInterface PUBLIC FrontierImGui thorvg_static FrontierTextFiles FrontierThumbnailAtlasCache)
 add_library(FrontierEditorUI STATIC UI/Editor/ProjectBrowserPanel.cpp UI/Editor/FoundationPanel.cpp UI/Editor/EditorWorkspace.cpp UI/Editor/ControlCentrePanel.cpp UI/Editor/ContentBrowserPanel.cpp)
 target_link_libraries(FrontierEditorUI PUBLIC FrontierInterface)
 target_compile_definitions(FrontierEditorUI PUBLIC FRONTIER_EDITOR=1)
+find_package(Threads REQUIRED)
+add_library(FrontierSceneEditorUI STATIC
+    Frontier/Engine/Scene/RecordStore.cpp
+    Frontier/Engine/Scene/RecordEntry.cpp
+    Frontier/Engine/Scene/SceneDirectory.cpp
+    Frontier/Engine/Scene/SceneWorld.cpp
+    Frontier/Engine/Diagnostics/LogCategories.cpp
+    Frontier/Engine/Diagnostics/LogRingStore.cpp
+    Frontier/Engine/Diagnostics/LogStream.cpp
+    Frontier/Engine/Interface/ProjectContent.cpp
+    Frontier/Engine/Interface/ProjectDescriptor.cpp
+    Frontier/Engine/Interface/StackRailControls.cpp
+    Frontier/Engine/Interface/LogStreamPanel.cpp
+    Frontier/Engine/Interface/LogStreamPanelPresentation.cpp
+    Frontier/Engine/Interface/SceneDirectoryPanel.cpp
+    Frontier/Engine/Interface/SceneDirectoryPanelPresentation.cpp
+    Frontier/Engine/Interface/InspectorRuntime.cpp
+    Frontier/Engine/Interface/InspectorControls.cpp
+    Frontier/Engine/Interface/DiagramControls.cpp
+    Frontier/Engine/Interface/FractureEditor.cpp
+    Frontier/Engine/Interface/FluidPlumeEditor.cpp
+    Frontier/Engine/Interface/ParticleEditor.cpp
+    Frontier/Engine/Interface/PolygonClusterEditor.cpp
+    Frontier/Engine/Interface/NativeInspectors.cpp
+    Frontier/Engine/Interface/SceneInspectorPanel.cpp)
+target_include_directories(FrontierSceneEditorUI PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier")
+target_compile_definitions(FrontierSceneEditorUI PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
+target_link_libraries(FrontierSceneEditorUI PUBLIC FrontierEditorUI Threads::Threads)
+
+add_library(EverestProjectEditor STATIC
+    Projects/Everest/Source/EverestApplication.cpp
+    Projects/Everest/Source/EverestSimulationRecords.cpp
+    Projects/Everest/Source/EverestWorkspace.cpp)
+target_include_directories(EverestProjectEditor PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Source")
+target_compile_definitions(EverestProjectEditor PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
+target_link_libraries(EverestProjectEditor PUBLIC FrontierSceneEditorUI)
+
+add_library(EverestProjectRuntime STATIC
+    Frontier/Engine/Scene/RecordStore.cpp
+    Frontier/Engine/Scene/RecordEntry.cpp
+    Frontier/Engine/Scene/SceneDirectory.cpp
+    Frontier/Engine/Scene/SceneWorld.cpp
+    Frontier/Engine/Diagnostics/LogCategories.cpp
+    Frontier/Engine/Diagnostics/LogRingStore.cpp
+    Frontier/Engine/Diagnostics/LogStream.cpp
+    Projects/Everest/Source/EverestApplication.cpp
+    Projects/Everest/Source/EverestSimulationRecords.cpp
+    Projects/Everest/Source/EverestWorkspace.cpp)
+target_include_directories(EverestProjectRuntime PUBLIC
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Source"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
+target_compile_definitions(EverestProjectRuntime PUBLIC FRONTIER_SHIPPING_PROFILE=1 FRONTIER_EDITOR=0)
+target_link_libraries(EverestProjectRuntime PUBLIC Threads::Threads)
 
 # GLFW owns windows/input on every platform; DX11 is only the legacy Windows-only exhibit's display
 # adapter, not the primary renderer, and never needs GLFW built differently per platform.
@@ -176,7 +237,7 @@ if(WIN32)
         "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
     target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
         FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
-    target_link_libraries(Frontier PRIVATE FrontierEditorUI FrontierSurfaceRasterization glfw ole32)
+    target_link_libraries(Frontier PRIVATE FrontierEditorUI EverestProjectEditor FrontierSurfaceRasterization glfw ole32)
     if(MSVC)
         enable_language(RC)
         foreach(WORKSPACE_TARGET Frontier TextureStudio)
@@ -493,4 +554,20 @@ if(BUILD_TESTING)
     target_link_libraries(InterfaceValidation PRIVATE FrontierEditorUI)
     add_test(NAME InterfaceValidation COMMAND InterfaceValidation
         "${CMAKE_SOURCE_DIR}/EngineContent/Icons" "${CMAKE_BINARY_DIR}/evidence")
+
+    add_executable(EverestInterfaceValidation
+        Exhibits/EverestInterface/Code/EverestInterfaceValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(EverestInterfaceValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(EverestInterfaceValidation PRIVATE EverestProjectEditor)
+    add_test(NAME EverestInterfaceValidation COMMAND EverestInterfaceValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent"
+        "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "${CMAKE_BINARY_DIR}/everest-interface-exhibits")
+
+    add_executable(EverestShippingValidation
+        Exhibits/EverestInterface/Code/EverestShippingValidation.cpp)
+    target_link_libraries(EverestShippingValidation PRIVATE EverestProjectRuntime)
+    add_test(NAME EverestShippingValidation COMMAND EverestShippingValidation
+        "${CMAKE_SOURCE_DIR}/Projects/Everest")
 endif()

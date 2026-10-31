@@ -170,6 +170,49 @@ std::optional<RecordClassification> SceneDirectoryPanel::TakeSpawnRequest()
     return Request;
 }
 
+void SceneDirectoryPanel::ConfigureConstructibleTypes(std::vector<std::pair<std::string, std::string>> TypeEntries)
+{
+    ConstructibleTypes = std::move(TypeEntries);
+}
+
+void SceneDirectoryPanel::RequestConstructRecord(std::string TypeIdentifier)
+{
+    if (!TypeIdentifier.empty())
+    {
+        PendingConstructTypes.push_back(std::move(TypeIdentifier));
+    }
+}
+
+std::optional<std::string> SceneDirectoryPanel::ConsumeConstructRequest()
+{
+    if (PendingConstructTypes.empty())
+    {
+        return std::nullopt;
+    }
+    std::string Request = std::move(PendingConstructTypes.front());
+    PendingConstructTypes.erase(PendingConstructTypes.begin());
+    return Request;
+}
+
+void SceneDirectoryPanel::RequestDeleteRecord(RecordToken Token)
+{
+    if (Token.IsValid())
+    {
+        PendingDeleteTokens.push_back(Token);
+    }
+}
+
+std::optional<RecordToken> SceneDirectoryPanel::ConsumeDeleteRequest()
+{
+    if (PendingDeleteTokens.empty())
+    {
+        return std::nullopt;
+    }
+    const RecordToken Request = PendingDeleteTokens.front();
+    PendingDeleteTokens.erase(PendingDeleteTokens.begin());
+    return Request;
+}
+
 void SceneDirectoryPanel::Select(RecordToken Token)
 {
     Selected = Token;

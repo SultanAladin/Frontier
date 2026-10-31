@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Frontier
@@ -88,6 +89,17 @@ class SceneDirectoryPanel
     void RequestSpawn(RecordClassification Classification);
     [[nodiscard]] std::optional<RecordClassification> TakeSpawnRequest();
 
+    // Dynamic Game Engine Editor construction / deletion catalogue (populated by SceneWorld).
+    void ConfigureConstructibleTypes(std::vector<std::pair<std::string, std::string>> TypeEntries);
+    [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& QueryConstructibleTypes() const noexcept
+    {
+        return ConstructibleTypes;
+    }
+    void RequestConstructRecord(std::string TypeIdentifier);
+    [[nodiscard]] std::optional<std::string> ConsumeConstructRequest();
+    void RequestDeleteRecord(RecordToken Token);
+    [[nodiscard]] std::optional<RecordToken> ConsumeDeleteRequest();
+
     // Native drawing (interface-SDK builds; an empty stub without the SDK, so portable builds keep linking).
     // The host calls Synchronize() each frame first, then services TakeSpawnRequest().
     void ConstructInterface();
@@ -106,8 +118,11 @@ class SceneDirectoryPanel
     std::optional<RecordClassification> ClassificationFilter;
     std::string                         TextFilter;            // [text] - Lower-cased on configure
     std::unordered_set<uint64_t>        CollapsedTokens;       // [-] - Panel-side fold state
-    std::optional<RecordClassification> PendingSpawn;
-    RecordToken                         Selected;
+    std::optional<RecordClassification>              PendingSpawn;
+    std::vector<std::pair<std::string, std::string>> ConstructibleTypes;
+    std::vector<std::string>                         PendingConstructTypes;
+    std::vector<RecordToken>                         PendingDeleteTokens;
+    RecordToken                                      Selected;
     SceneInspectorSummary               Inspector;
 };
 

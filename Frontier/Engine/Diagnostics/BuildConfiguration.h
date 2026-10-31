@@ -13,9 +13,24 @@
 //------------------------------------------------------------------------------------------------------------------------
 
 // 📝 Profile macros keep the upstream build spelling (FRONTIER_DEVELOPMENT_PROFILE / FRONTIER_SHIPPING_PROFILE are
-//    what the Windows Build.bat files pass to cl). A binary that defines none of them defaults to Development.
+//    what the Windows Build.bat files pass to cl). When FRONTIER_EDITOR is explicitly provided by CMake, align the
+//    profile default accordingly.
 #if !defined(FRONTIER_EDITOR_PROFILE) && !defined(FRONTIER_DEVELOPMENT_PROFILE) && !defined(FRONTIER_SHIPPING_PROFILE)
-    #define FRONTIER_DEVELOPMENT_PROFILE 1
+    #if defined(FRONTIER_EDITOR) && FRONTIER_EDITOR
+        #define FRONTIER_EDITOR_PROFILE 1
+    #elif defined(FRONTIER_EDITOR) && !FRONTIER_EDITOR
+        #define FRONTIER_SHIPPING_PROFILE 1
+    #else
+        #define FRONTIER_DEVELOPMENT_PROFILE 1
+    #endif
+#endif
+
+#ifndef FRONTIER_EDITOR
+    #if defined(FRONTIER_EDITOR_PROFILE) || defined(FRONTIER_DEVELOPMENT_PROFILE)
+        #define FRONTIER_EDITOR 1
+    #else
+        #define FRONTIER_EDITOR 0
+    #endif
 #endif
 
 #ifdef FRONTIER_EDITOR_PROFILE

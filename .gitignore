@@ -3,6 +3,7 @@ ExternalPackages/
 
 # Build outputs and intermediates.
 Build/
+build/
 Binaries/
 
 # Sample meshes / textures / assets — tracked separately.

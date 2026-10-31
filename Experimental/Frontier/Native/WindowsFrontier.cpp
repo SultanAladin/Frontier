@@ -18,6 +18,7 @@
 #include "UI/Editor/ControlCentrePanel.h"
 #include "UI/Editor/EditorWorkspace.h"
 #include "UI/Editor/ProjectBrowserPanel.h"
+#include "EverestWorkspace.h"
 #include <windows.h>
 #include <commdlg.h>
 #include <shlobj.h>
@@ -60,7 +61,7 @@ std::vector<std::filesystem::path> ChooseImportFiles(GLFWwindow *Window)
     OPENFILENAMEW Selection{};
     Selection.lStructSize  = sizeof(Selection);
     Selection.hwndOwner    = glfwGetWin32Window(Window);
-    Selection.lpstrFilter  = L"Supported files (*.png;*.jpg;*.jpeg;*.webp;*.md)\0*.png;*.jpg;*.jpeg;*.webp;*.md\0\0";
+    Selection.lpstrFilter  = L"Supported files (*.projectspace;*.png;*.jpg;*.jpeg;*.webp;*.md)\0*.projectspace;*.png;*.jpg;*.jpeg;*.webp;*.md\0\0";
     Selection.lpstrFile    = Filenames.data();
     Selection.nMaxFile     = DWORD(Filenames.size());
     Selection.Flags        = OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_ALLOWMULTISELECT |
@@ -106,6 +107,7 @@ int main()
     Frontier::ControlCentrePanel *Appearance = nullptr;
     std::unique_ptr<Frontier::ProjectBrowserPanel> Browser;
     std::unique_ptr<Frontier::EditorWorkspace> Workspace;
+    std::unique_ptr<Everest::EverestWorkspace> EverestSpace;
     std::unique_ptr<Frontier::BrowserPreviewRendering> PreviewRendering;
     std::vector<Frontier::BrowserCatalogueEntry> PreviewCatalogue;
     std::map<VkImageView, VkDescriptorSet> PreviewDescriptors;
@@ -149,6 +151,15 @@ int main()
         PreviewCatalogue = Frontier::ConstructBrowserCatalogue();
         Browser->PickImportFiles = [&]() { return ChooseImportFiles(Window); };
         Browser->PickImportFolder = [&]() { return ChooseImportFolder(Window); };
+        std::filesystem::path EverestProjectPath = "Projects/Everest/Everest.projectspace";
+        if (!std::filesystem::exists(EverestProjectPath))
+        {
+            wchar_t Executable[MAX_PATH] = {};
+            if (GetModuleFileNameW(nullptr, Executable, MAX_PATH))
+                EverestProjectPath = std::filesystem::path(Executable).parent_path() / EverestProjectPath;
+        }
+        if (std::filesystem::exists(EverestProjectPath))
+            Browser->AttachPaths({EverestProjectPath}, false);
         Frontier::DiagnosticJournal::Append("Startup", "Project Browser initialized");
     };
     Callbacks.InitializeVulkan = [&](Frontier::VulkanPresentation &Display)
@@ -262,11 +273,11 @@ int main()
         if (!Frontier::ProjectSpaceCodec::Decode(Requested, Document, Diagnostic))
             throw std::runtime_error("Project activation failed: " + Diagnostic);
         Workspace.reset();
+        EverestSpace.reset();
         AppearanceOwnership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences, Requested));
         Appearance = static_cast<Frontier::ControlCentrePanel *>(AppearanceOwnership.get());
         if (!Appearance->Initialize() || !Appearance->Activate())
             throw std::runtime_error("Project activation failed: " + Appearance->QueryDiagnostic());
-        Workspace = std::make_unique<Frontier::EditorWorkspace>(*Appearance);
         Frontier::EditorProjectSummary Summary;
         Summary.Name = Document.Sections["project"]["name"].value_or(std::string("Project"));
         Summary.Location = Frontier::DiagnosticJournal::EncodePath(Requested);
@@ -275,21 +286,36 @@ int main()
         if (const auto *Roots = Document.Sections["content_roots"].as_array()) Summary.Roots = Roots->size();
         if (const auto *Catalogue = Document.Sections["catalogue"].as_array()) Summary.Catalogue = Catalogue->size();
         Summary.StartupLevel = Document.Sections["engine"]["startup_level"].value_or(std::string{});
-        Workspace->ConfigureProject(std::move(Summary));
-        Workspace->EvaluateReturnToBrowser = [&]() { ReturnRequested = true; };
-        glfwSetWindowTitle(Window, ("Frontier - " + Workspace->QueryProject().Name).c_str());
+        const std::string WindowLabel = Summary.Name;
+        if (Summary.Identity == "project-everest-v1" || Summary.Name == "Everest" || Summary.Name == "Project Everest")
+        {
+            EverestSpace = std::make_unique<Everest::EverestWorkspace>(*Appearance, Requested.parent_path());
+            EverestSpace->EvaluateReturnToBrowser = [&]() { ReturnRequested = true; };
+        }
+        else
+        {
+            Workspace = std::make_unique<Frontier::EditorWorkspace>(*Appearance);
+            Workspace->ConfigureProject(std::move(Summary));
+            Workspace->EvaluateReturnToBrowser = [&]() { ReturnRequested = true; };
+        }
+        glfwSetWindowTitle(Window, ("Frontier - " + WindowLabel).c_str());
         Frontier::DiagnosticJournal::Append("ProjectSelection", Frontier::DiagnosticJournal::EncodePath(Requested));
     };
     Callbacks.PrepareInterface = [&]() { Appearance->PrepareInterface(); };
-    Callbacks.RecoverWindows = [&]() { if (Workspace) Workspace->QueryPanels().RecoverPlatformWindows(); };
+    Callbacks.RecoverWindows = [&]()
+    {
+        if (EverestSpace) EverestSpace->QueryDockspace().RecoverPlatformWindows();
+        if (Workspace) Workspace->QueryPanels().RecoverPlatformWindows();
+    };
     Callbacks.ConfigurePlatform = [&]()
     {
         const auto Requested = Browser->ConsumeLaunchPath();
         if (!Requested.empty()) ActivateProject(Requested);
-        if (ReturnRequested && Workspace)
+        if (ReturnRequested && (Workspace || EverestSpace))
         {
             ReturnRequested = false;
             Workspace.reset();
+            EverestSpace.reset();
             AppearanceOwnership.reset(new Frontier::ControlCentrePanel("EngineContent/FontArchives", Preferences));
             Appearance = static_cast<Frontier::ControlCentrePanel *>(AppearanceOwnership.get());
             if (!Appearance->Initialize() || !Appearance->Activate())
@@ -298,11 +324,18 @@ int main()
             glfwSetWindowTitle(Window, Callbacks.Title.c_str());
             Frontier::DiagnosticJournal::Append("ProjectSelection", "Returned to the Project Browser");
         }
+        if (EverestSpace) (void)EverestSpace->ConfigurePlatform();
         if (Workspace) (void)Workspace->ConfigurePlatform();
     };
     Callbacks.ConstructInterface = [&](bool MainVisible)
     {
-        if (Workspace)
+        if (EverestSpace)
+        {
+            (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
+            EverestSpace->ConstructInterface(ImGui::GetIO().DeltaTime);
+            if (MainVisible) Appearance->ConstructInterface();
+        }
+        else if (Workspace)
         {
             (void)Appearance->Integrate(ImGui::GetIO().DeltaTime);
             Workspace->ConstructInterface();
@@ -314,7 +347,10 @@ int main()
             Browser->ConstructInterface();
         }
     };
-    Callbacks.AfterRender = [&]() { if (Workspace) Workspace->IntegrateLayoutPersistence(ImGui::GetIO().DeltaTime); };
+    Callbacks.AfterRender = [&]()
+    {
+        if (Workspace) Workspace->IntegrateLayoutPersistence(ImGui::GetIO().DeltaTime);
+    };
     Callbacks.Finalize = [&]()
     {
         // 📝 The shared application loop has retired all GPU work before this callback.
@@ -323,6 +359,7 @@ int main()
         PreviewDescriptors.clear();
         if (PreviewRendering) PreviewRendering->Finalize();
         PreviewRendering.reset();
+        EverestSpace.reset();
         Workspace.reset();
         Browser.reset();
         AppearanceOwnership.reset();

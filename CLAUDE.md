@@ -152,3 +152,59 @@ to the native Pattern panel, persists vector TOML, and submits GPU coverage/sele
 the recorded evidence explicitly does not represent a Windows desktop session. Pattern Float32 outputs remain
 unconnected to the PBR material renderer; native 3D application, physical height calibration, user-document export and
 Pattern 1:1 parity remain open. GIF previews are 8-bit evidence, not precision checks. Scope remains approximately 68%.
+
+### Project Everest — Branch Topology, Independent Project Ownership, and InspectorRuntime
+
+Project Everest lives independently in `Projects/Everest/` (never inside `Engine/`). `Everest` is purely a generic
+project codename — never introduce mountain, alpine, terrain, or weather-station gimmicks. Zero `Everest` identifiers
+or project-specific types belong in `Engine/` or `UI/Editor/`.
+
+- **Banned words (2026-10-31):** `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`,
+  `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`, and `Beacon` are barred across new code,
+  file names, folders, and comments (recorded in `EngineDocs/AgenticInstuctions/SKILL-Naming.md`).
+- **Container file extensions (`*space` family):** Use `.projectspace`, `.levelspace`, and `.worldspace` for project,
+  level, and world containers — never compound `.toml` suffixes such as `.level.toml` even when serialized as TOML.
+- **Project creation auto-scaffolding (`ProjectGenerator`):** Creating a new project via `ProjectBrowserPanel`
+  auto-generates C++ source scaffolding (`Source/<Identifier>Application.{h,cpp}` with main loop and `SceneWorld`
+  integration), a buildable `CMakeLists.txt`, and a default scene (`Content/Levels/Default.levelspace`).
+- **Main branch & post-commit sync rule:** Base all work on
+  `https://github.com/SultanAladin/Frontier/tree/arena/11f31835-frontier` (reusing its `CLAUDE.md`, `PanelDockspace`,
+  `ControlCentrePanel`, `ProjectBrowserPanel`, `LogStreamPanel`, `SceneDirectoryPanel`, and `FrontierInterface`), and
+  sync with `SultanAladin/Frontier` `arena/11f31835-frontier` immediately after every commit.
+- **Reference branches (selective synthesis, never blind merge):**
+  - `https://github.com/streamlinkinbox/Frontier/tree/arena/08e7de48-frontier` — `FacetCdfProfile` +
+    `FacetCdfSubmission` emissive triangle CDF sampling (`25.65M -> 466` evaluations) and emissive vehicle lighting
+    study (deferred until Environment + Render Engines are complete).
+  - `https://github.com/streamlinkinbox/Frontier/tree/arena/5ec53579-frontier` — `PathReplayRayQuery`
+    (`VK_KHR_ray_query` / `spvRayQueryKHR`), 16-bin SAH-2 ordered software BVH (`-96.88%` ray-triangle tests),
+    thin-glass/lobe PDF fixes, and `PathReplayVarianceFilter` SVGF denoiser.
+  - `https://github.com/egoistm1inbox/Frontier/tree/arena/9ce908bc-frontier` — `ProductionReSTIR` Slang resampling
+    modules, Jolt physics mechanics, and Inspector/Diagram/Editor UX patterns (excluding its CPU `SceneRenderer.cpp`
+    and stub `VulkanShaderCompiler.cpp`).
+- **Editor compile-time boundary (`#ifdef FRONTIER_EDITOR`):** Guard all Editor mode / Editor UI (`SceneDirectory` UI,
+  `InspectorRuntime`, `*Inspector` classes, `DiagramControls`, `FractureEditor`, `FluidPlumeEditor`, `ParticleEditor`,
+  `PolygonClusterEditor`) behind `#ifdef FRONTIER_EDITOR`. Runtime/Shipping builds compile only pure scene records and
+  their `*Configuration` structures.
+- **Composable Property Configurations, Generic `DiagramControls`, and `InspectorRuntime`:**
+  - Never use Unreal's monolithic `Actor`: scene entries are `RecordEntry` instances that attach only the modular
+    property configurations they require — `SpatialConfiguration`, `PhysicsConfiguration` (with nested
+    `MassConfiguration` and mass/density/kinetic helpers), `ThermalConfiguration` (Kelvin/Celsius, specific heat,
+    conductivity, Stefan-Boltzmann flux), `ChemicalConfiguration` (molar mass, moles, Arrhenius kinetics, phase), and
+    `SurfaceOpticsConfiguration` — so the general-purpose engine supports rendering, physics, and chemical simulations.
+  - Plotting/diagram controls live in generic `DiagramControls` (`ConstructArcPlot`, `ConstructStrataPlot`,
+    `ConstructPolarDial`, `ConstructCurvePlot`, `ConstructSpectrumBar`, `ConstructPolygonDiagram`, `ConstructDiscRow`,
+    `ConstructTimeSeriesPlot`) — never domain-locked functions such as `ConstructLunarPhaseStrip`.
+  - Scene records load from `.levelspace` files and can be dynamically added or deleted in the Editor at runtime.
+  - `InspectorRuntime` supports attaching one or multiple modular `RecordInspector` instances (`SpatialInspector`,
+    `PhysicsInspector`, `ThermalInspector`, `ChemicalInspector`, `SurfaceOpticsInspector`, `SolarInspector`,
+    `AtmosphereInspector`, `CloudInspector`, `StarInspector`, `MoonInspector`, `FogInspector`, `LightningInspector`,
+    `WindInspector`, `RenderPipelineInspector`, `DistanceFieldInspector`, `SurfaceCardInspector`,
+    `PolygonClusterInspector`, `DiagnosticsInspector`, `FluidPlumeInspector`, `FractureInspector`,
+    `ParticleInspector`) to any `RecordToken`.
+  - Standalone authoring editors are individual `<Domain>Editor` classes (`FractureEditor`, `FluidPlumeEditor`,
+    `ParticleEditor`, `PolygonClusterEditor`) invoked directly via `RecordInspector` virtual hooks.
+  - Project-specific records and user-authored `*Inspector` classes live in `Projects/<Project>/` and register into
+    `SceneWorld` and `InspectorRuntime` without modifying `Engine/`.
+  - **Sequencing rule:** Leave `VehicleInspector` and vehicle systems deferred until Environment and Render Engines
+    (RTX `VK_KHR_ray_query` + ReSTIR GI and GTX 4-cascade SDF + Surface Cards + SAH-2 BVH) are complete.
+
