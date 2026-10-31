@@ -116,6 +116,23 @@ void ValidateSections(const toml::table &Document)
             Located = Located || (*Level.as_table())["identity"].value<std::string>() == Startup;
         Require(Located, "Startup level is not in the project level directory");
     }
+    if (Engine.contains("content_imports"))
+    {
+        const auto *Imports = Engine["content_imports"].as_table();
+        Require(Imports != nullptr, "Mistyped engine content_imports table");
+        if (Imports->contains("entries"))
+        {
+            const auto *Entries = (*Imports)["entries"].as_array();
+            Require(Entries && Entries->size() <= 512, "Mistyped or excessive engine content_imports entries");
+            std::set<std::string> UniqueImports;
+            for (const auto &Node : *Entries)
+            {
+                const auto Locator = Node.value<std::string>();
+                Require(Locator && RelativeLocator(*Locator) && UniqueImports.insert(*Locator).second,
+                        "Invalid or duplicate engine content_imports entry");
+            }
+        }
+    }
     const auto *Workspace = Document["workspace"].as_table();
     Require(Workspace != nullptr, "Missing workspace section");
     for (const auto *Key : {"appearance", "input", "notifications", "hosting"})
@@ -363,5 +380,26 @@ bool ProjectSpaceCodec::CreateBlank(const std::filesystem::path &Template, const
         Diagnostic = Failure.what();
         return false;
     }
+}
+
+std::vector<std::string> ProjectSpaceCodec::QueryEngineContentImports(const ProjectSpaceDocument &Document)
+{
+    std::vector<std::string> Results;
+    const auto              *Engine = Document.Sections["engine"].as_table();
+    if (!Engine)
+        return Results;
+    const auto *Imports = (*Engine)["content_imports"].as_table();
+    if (!Imports)
+        return Results;
+    const auto *Entries = (*Imports)["entries"].as_array();
+    if (!Entries)
+        return Results;
+    Results.reserve(Entries->size());
+    for (const auto &Node : *Entries)
+    {
+        if (const auto Locator = Node.value<std::string>(); Locator && RelativeLocator(*Locator))
+            Results.push_back(*Locator);
+    }
+    return Results;
 }
 } // namespace Frontier

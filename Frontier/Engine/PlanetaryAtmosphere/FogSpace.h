@@ -11,7 +11,7 @@
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
 #include "Engine/PlanetaryAtmosphere/AtmosphereScattering.h"
 #include "Engine/PlanetaryAtmosphere/CloudSpace.h"
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 #include "Engine/PlanetaryAtmosphere/VolumetricClouds.h"
 #include "Engine/Rendering/ClusterNesting.h"
 
@@ -178,7 +178,7 @@ class FogSpace
 
     bool Execute(VulkanComputeExchange&      Exchange,
                  const DeviceMemorySpan&     EnsembleSpan,
-                 const SkyProjection&        SkyLuts,
+                 const AtmosphereProjection& AtmosphereLuts,
                  const VolumetricClouds&     Clouds,
                  const DeviceImageArraySlot& VisibilityImage,
                  DeviceImageArraySlot&       HdrFrameTarget,

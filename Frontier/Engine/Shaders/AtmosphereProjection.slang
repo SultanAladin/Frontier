@@ -1,7 +1,7 @@
 //==========================================================================================================================================
-//                                                     SKY PROJECTION SLANG
+//                                                 ATMOSPHERE PROJECTION SLANG
 //==========================================================================================================================================
-// Per-realm 192x108 RGBA16F Sky-View LUT bake with horizon-concentrated elevation warp and descriptive solar azimuth frame.
+// Per-realm 192x108 RGBA16F Atmosphere Projection LUT bake with horizon-concentrated elevation warp and descriptive solar azimuth frame.
 
 #include "AtmosphereScattering.slang"
 
@@ -10,11 +10,11 @@
 [[vk::binding(0, 0)]] StructuredBuffer<float4>                     Ensemble;
 [[vk::binding(1, 0)]] Sampler2DArray<float4>                       SampledTransLut;
 [[vk::binding(2, 0)]] Sampler2DArray<float4>                       SampledMultiLut;
-[[vk::binding(3, 0)]] [format("rgba16f")] RWTexture2DArray<float4> OutputSkyViewLut;
+[[vk::binding(3, 0)]] [format("rgba16f")] RWTexture2DArray<float4> OutputAtmosphereProjectionLut;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void BakeSkyViewLutMain(uint3 Tid : SV_DispatchThreadID)
+void BakeAtmosphereProjectionLutMain(uint3 Tid : SV_DispatchThreadID)
 {
     if (Tid.x >= Push.Counts.x || Tid.y >= Push.Counts.y)
     {
@@ -60,6 +60,6 @@ void BakeSkyViewLutMain(uint3 Tid : SV_DispatchThreadID)
     float2 HorizontalDirection = AzimuthForwardAxis * cos(ϕAzimuth) + AzimuthRightAxis * sin(ϕAzimuth);
     float3 ViewDirection       = SafeNormalize(float3(HorizontalDirection.x * cosθ, sin(θElevation), HorizontalDirection.y * cosθ));
 
-    float3 SkyRadiance = EvaluateCoupledSolarSky6Pt(Ensemble, SampledTransLut, SampledMultiLut, RealmId, ViewDirection, 0.0f);
-    OutputSkyViewLut[uint3(Tid.xy, RealmId)] = float4(SkyRadiance, 1.0f);
+    float3 AtmosphereRadiance = EvaluateCoupledSolarSky6Pt(Ensemble, SampledTransLut, SampledMultiLut, RealmId, ViewDirection, 0.0f);
+    OutputAtmosphereProjectionLut[uint3(Tid.xy, RealmId)] = float4(AtmosphereRadiance, 1.0f);
 }

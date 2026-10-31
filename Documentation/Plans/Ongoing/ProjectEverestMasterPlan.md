@@ -64,13 +64,20 @@ When a user creates a new project via `ProjectBrowserPanel::CreateProject`:
    (`FRONTIER_EDITOR=0`) + Editor (`FRONTIER_EDITOR=1`) CTests, and 1920x1080 CPU-rasterized PNG Exhibits.
 2. **Phase 2 & Phase 2.1 (Completed):** Unified Multi-Instance & Portal-Routed Vulkan 1.3 PlanetaryAtmosphere &
    Celestial Rendering Stack across `Frontier/Engine/{DeviceExchange,GeometricRaster,PlanetaryAtmosphere,Shaders}/` —
-   `SkyProjection` + `AtmosphereScattering` (`2.80153% < 2.85%` vs FP64 oracle), `PlanetaryProjection` +
+   `AtmosphereProjection` + `AtmosphereScattering` (`2.80153% < 2.85%` vs FP64 oracle), `PlanetaryProjection` +
    `AstronomicalEphemeris` with all **6 real 2K moon maps** (`Luna`, `Ember`, `Glacier`, `Sulfur`, `Shroud`, `Shard`),
    41,359 Hipparcos stars, ringed planets, and multi-sun discs, non-tiled 3D `CloudSpace` + `VolumetricClouds` +
    `CloudShadowProjection` + analytic foreground cloud shadows, `OpticalLensFlare` GPU `1x1` visibility + chromatic
    aperture optics, and coupled `FogSpace` across arbitrary realms & `PortalAperture` transitions (UI Editor untouched).
-3. **Phase 3 (Next):** Dual-tier Vulkan C++ Surface & Global Illumination GPU Renderer — RTX tier (`VK_KHR_ray_query` +
-   ReSTIR GI + variance denoiser) and mandatory GTX fallback tier (4-cascade clipmap SDF + Surface Cards + 16-bin SAH-2
-   software BVH reflections).
-4. **Phase 4:** Physical, Thermal, Chemical, Weather, Fluid Plume, Fracture, Particle, and Mechanical Simulation Systems
-   (deferring `VehicleInspector` until Environment and Render Engines are verified on GPU).
+3. **Phase 3A (Completed):** `AtmosphereProjection` rename + physical lunar atmospheric limb/corona haze, unified 3D
+   `ForceFieldSpace` (`Frontier/Engine/PhysicalDynamics/ForceField.{h,cpp}` + `ForceField.slang`) with triggerable
+   Burgers-Rott tornado vortex funnels, bow-echo gust fronts, radial microbursts, and multi-medium coupling (clouds,
+   ground dust/sand/debris, precipitation & lofted grain ballistic integration), compile-time declarative
+   `[engine.content_imports]` staging (`Automation/StageProjectContent.{py,cmake}`), glass-aware QEM `ClusterHierarchy`
+   (`64 KB` pages, two-phase Hi-Z, 3-tier Material LOD virtualization, `ControlVehicle{Body,Rim,Tyre}.facet`),
+   theme-bound `Experimental/AtmosphereEditor/` + `ThemeCardPalette.h`, and Editor/Development-only `DiagnosticRaster`
+   strictly excluded from Shipping builds (`61/61` CTests passing).
+4. **Phase 3B (Next):** GTX-first compute/raster ReSTIR + SDF + software CWBVH raytracing renderer (zero hardware RTX
+   raytracing cores required) coupled with `TextureBake` / `TextureWorkspace` material evaluation.
+5. **Phase 4:** Physical, Thermal, Chemical, Weather, Fluid Plume, Fracture, Particle, and Mechanical Simulation Systems
+   (including `VehicleInspector` once the GTX ReSTIR + SDF + software BVH renderer is verified on GPU).

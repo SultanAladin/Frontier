@@ -62,13 +62,13 @@ bool VisibilityProjection::EnsureDimensions(VulkanComputeExchange& Exchange,
     return Exchange.AllocateRgba16fArray(W, H, 4u, VisibilityArray_);
 }
 
-bool VisibilityProjection::Execute(VulkanComputeExchange&  Exchange,
-                                   const DeviceMemorySpan& EnsembleSpan,
-                                   const SkyProjection&    SkyLuts,
-                                   const VolumetricClouds& Clouds,
-                                   uint32_t                ViewportWidth,
-                                   uint32_t                ViewportHeight,
-                                   uint32_t                FrameIndex)
+bool VisibilityProjection::Execute(VulkanComputeExchange&      Exchange,
+                                   const DeviceMemorySpan&     EnsembleSpan,
+                                   const AtmosphereProjection& AtmosphereLuts,
+                                   const VolumetricClouds&     Clouds,
+                                   uint32_t                    ViewportWidth,
+                                   uint32_t                    ViewportHeight,
+                                   uint32_t                    FrameIndex)
 {
     const uint32_t W = std::max(1u, ViewportWidth);
     const uint32_t H = std::max(1u, ViewportHeight);
@@ -80,7 +80,7 @@ bool VisibilityProjection::Execute(VulkanComputeExchange&  Exchange,
     const PushHeader Push{{W, H, FrameIndex, 0u}, {0.0f, 0.0f, 0.0f, 0.0f}};
     const std::array<ComputeDescriptorArgument, 4> Args{{
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &EnsembleSpan, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.TransmittanceArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.TransmittanceArray()},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &Clouds.CloudShadowArray()},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &VisibilityArray_},
     }};

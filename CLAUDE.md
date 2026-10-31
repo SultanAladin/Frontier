@@ -176,16 +176,22 @@ or project-specific types belong in `Engine/` or `UI/Editor/`.
   `https://github.com/SultanAladin/Frontier/tree/arena/11f31835-frontier` (reusing its `CLAUDE.md`, `PanelDockspace`,
   `ControlCentrePanel`, `ProjectBrowserPanel`, `LogStreamPanel`, `SceneDirectoryPanel`, and `FrontierInterface`), and
   sync with `SultanAladin/Frontier` `arena/11f31835-frontier` immediately after every commit.
-- **Reference branches (selective synthesis, never blind merge):**
-  - `https://github.com/streamlinkinbox/Frontier/tree/arena/08e7de48-frontier` — `FacetCdfProfile` +
-    `FacetCdfSubmission` emissive triangle CDF sampling (`25.65M -> 466` evaluations) and emissive vehicle lighting
-    study (deferred until Environment + Render Engines are complete).
-  - `https://github.com/streamlinkinbox/Frontier/tree/arena/5ec53579-frontier` — `PathReplayRayQuery`
-    (`VK_KHR_ray_query` / `spvRayQueryKHR`), 16-bin SAH-2 ordered software BVH (`-96.88%` ray-triangle tests),
-    thin-glass/lobe PDF fixes, and `PathReplayVarianceFilter` SVGF denoiser.
-  - `https://github.com/egoistm1inbox/Frontier/tree/arena/9ce908bc-frontier` — `ProductionReSTIR` Slang resampling
-    modules, Jolt physics mechanics, and Inspector/Diagram/Editor UX patterns (excluding its CPU `SceneRenderer.cpp`
-    and stub `VulkanShaderCompiler.cpp`).
+- **Permanent Reference Repositories, Branches & Commits (selective synthesis — never blind merge; user may refer to these simply as "other repo references"):**
+  1. **Reference Branch 1 — `streamlinkinbox/Frontier` (`arena/08e7de48-frontier`)**
+     - URL: `https://github.com/streamlinkinbox/Frontier/tree/arena/08e7de48-frontier` (inspected tip `7bc60250e153a9b7d70c9740744723fde19fae22`)
+     - Key contents: `FacetCdfProfile` + `FacetCdfSubmission` emissive triangle CDF sampling (`25.65M -> 466` evaluations), `FacetAreaReservoir` solid-angle area-light RIS, `DielectricRefraction.slang` + `PaneThickness.h` closed-glass optics, `Exhibits/LightCompute/`, and `Frontier/Engine/Physics/ProjectDrive/VehicleGeometry.h` socket coordinates.
+  2. **Reference Branch 2 — `streamlinkinbox/Frontier` (`arena/5ec53579-frontier`)**
+     - URL: `https://github.com/streamlinkinbox/Frontier/tree/arena/5ec53579-frontier` (inspected tip `56059b393f2d1a6f4ecf73c0f7661aa74f2de442`)
+     - Key contents: Decomposed Vulkan Slang `PathReplay*` passes (`PathReplayVulkan`, `PathReplayReservoir.slang`, `PathReplaySampleHistory.slang`, `PathReplayReconstruction.slang`, `PathReplayVarianceFilter.slang`, `PathReplayRayQuery`), 16-bin SAH-2 ordered software BVH (`-96.88%` ray-triangle tests), multi-stratum `MaterialScattering` PBR lobe mixture sampling, `Docs/VehicleHmiEnginePlan.md`, and `Frontier/Projects/Project-VehicleHmiDemo/Contract/` (`DebugViews.md`, `ShaderContract.tsv`, 80-shader inventory).
+  3. **Reference Branch 3 — `egoistm1inbox/Frontier` (`arena/9ce908bc-frontier`)**
+     - URL: `https://github.com/egoistm1inbox/Frontier/tree/arena/9ce908bc-frontier` (inspected tip `4be51f2e4958701802c94e87344c95472e58e4bf`)
+     - Key contents: Glass-aware Nanite-style `GeometryProcessing/` (`FacetTierBuild`, Garland-Heckbert locked-border `QuadricTierBuild`, `ClusterHierarchy` with IOR optical error boost + two-phase Hi-Z + two-layer glass peel + `64 KB` LRU page budget, GPU `ClusterCull.slang`), `ControlVehicle{Body,Rim,Tyre}.facet` binary `FCT1` meshes (`Frontier/Projects/Project-Drive/Content/Geometry/`), `VehicleHmiScene`, `BlinnRenderer` (CPU reference only — upgrade to GPU Vulkan), Jolt physics mechanics, and fluid/fracture/particle solvers (do NOT copy its CPU `SceneRenderer.cpp` or `O(N)` `SdfRestirPortalMirror.slang` loop).
+  4. **Architecture & Naming Reference — `SultanAladin/Frontier-`**
+     - URL: `https://github.com/SultanAladin/Frontier-` (inspected tip `28ec0657a23ed6bbf680f17cc06b464a53639dae`)
+     - Key contents: Idiomatic domain folder taxonomy (`DeviceExchange/`, `GeometricRaster/`, `DisplayPresentation/`, `ContentInterchange/`, `PhysicalDynamics/`, `SpatialInterface/`, `Shaders/`), GPU `VisibilityRaster` (`R32_UINT` cluster/primitive ID + `RG16F` motion + reversed-Z), 8-wide compressed BVH (`TraversalCWBVH.slang` + two-level `TLAS`/`BLAS` `TraversalIndex`), OpenPBR channel-gated `MaterialEvaluation.slang`, `Docs/ClusterLodLab.md`, `Docs/ReSTIRPipelineInvestigation.md` (GTX 1650 SUPER cold-compile findings), and `Docs/V8DenoiserReview.md`.
+  5. **Experimental Cards & Visual Controls Reference — `SultanAladin/Frontier` commit `6a83f8e`**
+     - URL: `https://github.com/SultanAladin/Frontier/commit/6a83f8e` (`6a83f8e2beac6605449496e4edbeca36d132a2bc`)
+     - Key contents: `Experimental/AtmosphereEditor/` (`GeometryDetail.js`, `VisualControls.js`, `AtmosphereEditor.css`, `index.html`) and `Experimental/EnvironmentInspectors/` — interactive Geometry Detail & Atmosphere cards (distance-response curve instrument, visual sliders, shaded/topology toggle). When adapting these cards, replace all hardcoded mint/emerald green colors with `ThemeStructure` (`ThemePalette` + `QueryAccentColor()`).
 - **Editor compile-time boundary (`#ifdef FRONTIER_EDITOR`):** Guard all Editor mode / Editor UI (`SceneDirectory` UI,
   `InspectorRuntime`, `*Inspector` classes, `DiagramControls`, `FractureEditor`, `FluidPlumeEditor`, `ParticleEditor`,
   `PolygonClusterEditor`) behind `#ifdef FRONTIER_EDITOR`. Runtime/Shipping builds compile only pure scene records and

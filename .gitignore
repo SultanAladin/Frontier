@@ -38,6 +38,15 @@ __pycache__/
 # Downloaded open fonts and generated catalogue; recover with Automation/PrepareFonts.py.
 EngineContent/FontArchives/
 
+# Compile-time automatically staged EngineContent imports inside <Project>/Content/.
+Projects/*/Content/FontArchives/
+Projects/*/Content/Icons/
+Projects/*/Content/Defaults/
+Projects/*/Content/EnvironmentArchives/
+Projects/*/Content/MaterialArchives/
+Projects/*/Content/PatternArchives/
+Projects/*/Content/.staged_manifest.json
+
 # Overlay (Frontier/ portable engine) outputs and local state.
 _AgentScratch/
 **/Build/Output/

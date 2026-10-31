@@ -23,7 +23,7 @@
 namespace Frontier
 {
 
-class SkyProjection;
+class AtmosphereProjection;
 
 struct Vec3
 {
@@ -58,7 +58,12 @@ struct LunarBodyDescriptor
     float           RollAngleRad          = 0.0f;
     float           EarthshineStrength    = 0.0022f;
     float           SurfaceBrightness     = 1.0f;
+    float           AtmosphereHaze        = -1.0f;              // < 0 selects preset lunar exosphere/haze; [0..1] overrides
+    Vec3            AtmosphereTintRgb     = {0.0f, 0.0f, 0.0f}; // {0,0,0} selects preset lunar atmosphere tint
 };
+
+[[nodiscard]] float ResolveLunarAtmosphereHaze(const LunarBodyDescriptor& Moon) noexcept;
+[[nodiscard]] Vec3  ResolveLunarAtmosphereTint(const LunarBodyDescriptor& Moon) noexcept;
 
 class LunarSixBodyAtlas
 {
@@ -259,13 +264,13 @@ class PlanetarySkyRasterization
                     std::string*           OutDiagnostic = nullptr);
     void Shutdown(VulkanComputeExchange& Exchange) noexcept;
 
-    bool Execute(VulkanComputeExchange&     Exchange,
-                 const DeviceMemorySpan&    EnsembleSpan,
-                 const SkyProjection&       SkyLuts,
+    bool Execute(VulkanComputeExchange&      Exchange,
+                 const DeviceMemorySpan&     EnsembleSpan,
+                 const AtmosphereProjection& AtmosphereLuts,
                  const DeviceImageArraySlot& VisibilityImage,
-                 DeviceImageArraySlot&      HdrFrameTarget,
-                 uint32_t                   ViewportWidth,
-                 uint32_t                   ViewportHeight);
+                 DeviceImageArraySlot&       HdrFrameTarget,
+                 uint32_t                    ViewportWidth,
+                 uint32_t                    ViewportHeight);
 
     [[nodiscard]] uint32_t                       IndexedStarCount() const noexcept { return IndexedStarCount_; }
     [[nodiscard]] const PlanetaryDomeProjection& HostDome() const noexcept { return HostDome_; }

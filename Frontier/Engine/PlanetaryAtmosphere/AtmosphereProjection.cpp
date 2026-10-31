@@ -1,9 +1,9 @@
 /*==========================================================================================================================================
-                                                 SKY PROJECTION DEFINITION
+                                             ATMOSPHERE PROJECTION DEFINITION
 ==========================================================================================================================================*/
-// 🧩 Dirty-gated per-realm RGBA16F Transmittance, Multi-Scattering, and Sky-View 2D-Array compute bakes.
+// 🧩 Dirty-gated per-realm RGBA16F Transmittance, Multi-Scattering, and Atmosphere Sky-View 2D-Array compute bakes.
 
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 
 #include <algorithm>
 #include <array>
@@ -19,9 +19,9 @@ struct PushHeader
 };
 } // namespace
 
-bool SkyProjection::Initialize(VulkanComputeExchange& Exchange,
-                               const std::string&     ShaderBinaryDirectory,
-                               std::string*           OutDiagnostic)
+bool AtmosphereProjection::Initialize(VulkanComputeExchange& Exchange,
+                                      const std::string&     ShaderBinaryDirectory,
+                                      std::string*           OutDiagnostic)
 {
     const std::array<VkDescriptorType, 4> Bindings{{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -48,8 +48,8 @@ bool SkyProjection::Initialize(VulkanComputeExchange& Exchange,
     {
         return false;
     }
-    if (!Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/BakeSkyViewLut.spv",
-                                     "BakeSkyViewLutMain",
+    if (!Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/BakeAtmosphereProjectionLut.spv",
+                                     "BakeAtmosphereProjectionLutMain",
                                      Bindings,
                                      sizeof(PushHeader),
                                      SkyViewProgram_,
@@ -60,7 +60,7 @@ bool SkyProjection::Initialize(VulkanComputeExchange& Exchange,
     return true;
 }
 
-void SkyProjection::Shutdown(VulkanComputeExchange& Exchange) noexcept
+void AtmosphereProjection::Shutdown(VulkanComputeExchange& Exchange) noexcept
 {
     Exchange.ReleaseImage(SkyViewArray_);
     Exchange.ReleaseImage(MultiScatteringArray_);
@@ -72,9 +72,9 @@ void SkyProjection::Shutdown(VulkanComputeExchange& Exchange) noexcept
     BakedSkyViewRevisions_.clear();
 }
 
-bool SkyProjection::Execute(VulkanComputeExchange&            Exchange,
-                            const DeviceMemorySpan&           EnsembleSpan,
-                            std::span<const SkyRealmRevision> RealmRevisions)
+bool AtmosphereProjection::Execute(VulkanComputeExchange&                   Exchange,
+                                   const DeviceMemorySpan&                  EnsembleSpan,
+                                   std::span<const AtmosphereRealmRevision> RealmRevisions)
 {
     const uint32_t RealmCount = std::max<uint32_t>(1u, static_cast<uint32_t>(RealmRevisions.size()));
     if (TransmittanceArray_.ArrayLayers < RealmCount)
@@ -94,9 +94,9 @@ bool SkyProjection::Execute(VulkanComputeExchange&            Exchange,
 
     for (size_t RealmIdx = 0u; RealmIdx < RealmRevisions.size(); ++RealmIdx)
     {
-        const SkyRealmRevision& Revision  = RealmRevisions[RealmIdx];
-        const bool              AtmoDirty = (BakedAtmosphereRevisions_[RealmIdx] != Revision.AtmosphereRevision);
-        const bool              SkyDirty  = AtmoDirty || (BakedSkyViewRevisions_[RealmIdx] != Revision.SkyViewRevision);
+        const AtmosphereRealmRevision& Revision  = RealmRevisions[RealmIdx];
+        const bool                     AtmoDirty = (BakedAtmosphereRevisions_[RealmIdx] != Revision.AtmosphereRevision);
+        const bool                     SkyDirty  = AtmoDirty || (BakedSkyViewRevisions_[RealmIdx] != Revision.SkyViewRevision);
 
         if (AtmoDirty)
         {
@@ -171,23 +171,23 @@ bool SkyProjection::Execute(VulkanComputeExchange&            Exchange,
     return true;
 }
 
-bool SkyProjection::ReadbackTransmittanceLayer(VulkanComputeExchange& Exchange,
-                                               uint32_t               RealmIndex,
-                                               std::vector<float>&    OutRgba)
+bool AtmosphereProjection::ReadbackTransmittanceLayer(VulkanComputeExchange& Exchange,
+                                                      uint32_t               RealmIndex,
+                                                      std::vector<float>&    OutRgba)
 {
     return Exchange.DownloadRgba16fLayer(TransmittanceArray_, RealmIndex, OutRgba);
 }
 
-bool SkyProjection::ReadbackMultiScatteringLayer(VulkanComputeExchange& Exchange,
-                                                 uint32_t               RealmIndex,
-                                                 std::vector<float>&    OutRgba)
+bool AtmosphereProjection::ReadbackMultiScatteringLayer(VulkanComputeExchange& Exchange,
+                                                        uint32_t               RealmIndex,
+                                                        std::vector<float>&    OutRgba)
 {
     return Exchange.DownloadRgba16fLayer(MultiScatteringArray_, RealmIndex, OutRgba);
 }
 
-bool SkyProjection::ReadbackSkyViewLayer(VulkanComputeExchange& Exchange,
-                                         uint32_t               RealmIndex,
-                                         std::vector<float>&    OutRgba)
+bool AtmosphereProjection::ReadbackSkyViewLayer(VulkanComputeExchange& Exchange,
+                                                uint32_t               RealmIndex,
+                                                std::vector<float>&    OutRgba)
 {
     return Exchange.DownloadRgba16fLayer(SkyViewArray_, RealmIndex, OutRgba);
 }

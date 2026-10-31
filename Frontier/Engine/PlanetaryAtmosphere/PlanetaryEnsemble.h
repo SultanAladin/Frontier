@@ -11,13 +11,14 @@
 
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
 #include "Engine/GeometricRaster/VisibilityProjection.h"
+#include "Engine/PhysicalDynamics/ForceField.h"
 #include "Engine/PlanetaryAtmosphere/AstronomicalEphemeris.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 #include "Engine/PlanetaryAtmosphere/AtmosphereScattering.h"
 #include "Engine/PlanetaryAtmosphere/CloudSpace.h"
 #include "Engine/PlanetaryAtmosphere/FogSpace.h"
 #include "Engine/PlanetaryAtmosphere/OpticalLensFlare.h"
 #include "Engine/PlanetaryAtmosphere/PlanetaryProjection.h"
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
 #include "Engine/PlanetaryAtmosphere/VolumetricClouds.h"
 
 #include <array>
@@ -29,10 +30,10 @@
 namespace Frontier
 {
 
-inline constexpr uint32_t kEnsembleHeaderFloat4Count   = 10u;
-inline constexpr uint32_t kRealmRecordFloat4Stride     = 16u;
-inline constexpr uint32_t kSunRecordFloat4Stride       = 6u;
-inline constexpr uint32_t kMoonRecordFloat4Stride      = 4u;
+inline constexpr uint32_t kEnsembleHeaderFloat4Count    = 10u;
+inline constexpr uint32_t kRealmRecordFloat4Stride      = 18u;
+inline constexpr uint32_t kSunRecordFloat4Stride        = 6u;
+inline constexpr uint32_t kMoonRecordFloat4Stride       = 5u;
 inline constexpr uint32_t kPlanetRecordFloat4Stride    = 6u;
 inline constexpr uint32_t kCloudRecordFloat4Stride     = 5u;
 inline constexpr uint32_t kFogBoxRecordFloat4Stride    = 3u;
@@ -117,6 +118,7 @@ struct PlanetaryRealm
     bool                        EnableAerialPerspective = true;
     float                       CloudShadowHalfSpanM    = 1200.0f;
     float                       CloudWindSeconds        = 0.0f;
+    ForceFieldSpace             ForceField{};
 
     std::vector<RealmSolarSource>        Suns{};
     std::vector<LunarBodyDescriptor>     Moons{};
@@ -214,24 +216,24 @@ class PlanetarySubmissionSequence
     bool ReadbackHdrFrame(VulkanComputeExchange& Exchange, std::vector<float>& OutLinearRgbaFloats);
     bool ReadbackVisibilityLayer(VulkanComputeExchange& Exchange, uint32_t LayerIndex, std::vector<float>& OutRgbaFloats);
 
-    [[nodiscard]] SkyProjection&                  SkyLuts() noexcept { return SkyLuts_; }
-    [[nodiscard]] const SkyProjection&            SkyLuts() const noexcept { return SkyLuts_; }
-    [[nodiscard]] VisibilityProjection&           Visibility() noexcept { return Visibility_; }
-    [[nodiscard]] const VisibilityProjection&     Visibility() const noexcept { return Visibility_; }
-    [[nodiscard]] PlanetarySkyRasterization&      PlanetaryDome() noexcept { return PlanetaryDome_; }
+    [[nodiscard]] AtmosphereProjection&            AtmosphereLuts() noexcept { return AtmosphereLuts_; }
+    [[nodiscard]] const AtmosphereProjection&      AtmosphereLuts() const noexcept { return AtmosphereLuts_; }
+    [[nodiscard]] VisibilityProjection&            Visibility() noexcept { return Visibility_; }
+    [[nodiscard]] const VisibilityProjection&      Visibility() const noexcept { return Visibility_; }
+    [[nodiscard]] PlanetarySkyRasterization&       PlanetaryDome() noexcept { return PlanetaryDome_; }
     [[nodiscard]] const PlanetarySkyRasterization& PlanetaryDome() const noexcept { return PlanetaryDome_; }
-    [[nodiscard]] VolumetricClouds&               Clouds() noexcept { return Clouds_; }
-    [[nodiscard]] const VolumetricClouds&         Clouds() const noexcept { return Clouds_; }
-    [[nodiscard]] FogSpace&                       Fog() noexcept { return Fog_; }
-    [[nodiscard]] const FogSpace&                 Fog() const noexcept { return Fog_; }
-    [[nodiscard]] OpticalLensFlare&               LensFlare() noexcept { return LensFlare_; }
-    [[nodiscard]] const OpticalLensFlare&         LensFlare() const noexcept { return LensFlare_; }
-    [[nodiscard]] const PackedEnsemblePayload&    LastPackedPayload() const noexcept { return LastPayload_; }
+    [[nodiscard]] VolumetricClouds&                Clouds() noexcept { return Clouds_; }
+    [[nodiscard]] const VolumetricClouds&          Clouds() const noexcept { return Clouds_; }
+    [[nodiscard]] FogSpace&                        Fog() noexcept { return Fog_; }
+    [[nodiscard]] const FogSpace&                  Fog() const noexcept { return Fog_; }
+    [[nodiscard]] OpticalLensFlare&                LensFlare() noexcept { return LensFlare_; }
+    [[nodiscard]] const OpticalLensFlare&          LensFlare() const noexcept { return LensFlare_; }
+    [[nodiscard]] const PackedEnsemblePayload&     LastPackedPayload() const noexcept { return LastPayload_; }
 
   private:
     DeviceMemorySpan          EnsembleSpan_{};
     DeviceImageArraySlot      HdrFrameTarget_{};
-    SkyProjection             SkyLuts_{};
+    AtmosphereProjection      AtmosphereLuts_{};
     VisibilityProjection      Visibility_{};
     PlanetarySkyRasterization PlanetaryDome_{};
     VolumetricClouds          Clouds_{};

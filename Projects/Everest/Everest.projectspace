@@ -18,6 +18,20 @@ template_revision = 1
 configuration_version = 1
 startup_level = "default-level"
 
+[engine.content_imports]
+entries = [
+    "FontArchives/FontCatalogue.json",
+    "FontArchives/Inter",
+    "FontArchives/Archivo",
+    "FontArchives/SpaceGrotesk",
+    "FontArchives/DMSans",
+    "FontArchives/JetBrainsMono",
+    "Icons",
+    "EnvironmentArchives/CelestialMaps",
+    "EnvironmentArchives/ControlVehicle",
+    "MaterialArchives/TextureStudio",
+]
+
 [workspace.appearance]
 format = 1
 theme = 1

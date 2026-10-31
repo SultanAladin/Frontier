@@ -52,12 +52,21 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
     float  Transmittance = 1.0f;
     float3 InScatter     = float3(0.0f);
 
-    // March near bounded local 3D cloud boxes first (pass 0), then distant planetary cloud slabs (pass 1)
-    for (int DomainOrder = 0; DomainOrder < 2; ++DomainOrder)
+    float VortexNearT = 1.0e30f;
+    float VortexFarT  = 0.0f;
+    bool  HitVortex   = IntersectActiveVortexColumns(
+        Ensemble, RealmId, RayOrigin, RayDir, MaxDistM, VortexNearT, VortexFarT);
+
+    // March active tornado vortex column (-1) at tight sub-core step spacing, near bounded 3D cloud boxes (0), then planetary slabs (1)
+    for (int DomainOrder = HitVortex ? -1 : 0; DomainOrder < 2; ++DomainOrder)
     {
         for (uint CloudIdx = 0u; CloudIdx < CloudCount; ++CloudIdx)
         {
             if (Transmittance < 0.01f)
+            {
+                break;
+            }
+            if (DomainOrder == -1 && CloudIdx > 0u)
             {
                 break;
             }
@@ -68,14 +77,40 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
             float4 C3          = Ensemble[CloudOffset + 3u];
             float4 C4          = Ensemble[CloudOffset + 4u];
             bool   IsLocalBox  = (C2.w > 0.5f);
-            if ((DomainOrder == 0) != IsLocalBox)
+            if (DomainOrder >= 0 && ((DomainOrder == 0) != IsLocalBox))
             {
                 continue;
             }
 
             float NearT = 1.0e30f;
             float FarT  = 0.0f;
-            if (IsLocalBox)
+            bool  MarchingVortexFunnel = false;
+            if (DomainOrder == -1)
+            {
+                // Sub-cloud interval only (Pos.y <= C0.x) so DomainOrder == 1 marches the upper slab without any seam
+                float SubCloudMinT = 0.0f;
+                float SubCloudMaxT = MaxDistM;
+                if (abs(RayDir.y) > 1.0e-4f)
+                {
+                    float TCloudBase = (C0.x - RayOrigin.y) / RayDir.y;
+                    if (RayDir.y > 0.0f)
+                    {
+                        SubCloudMaxT = min(SubCloudMaxT, max(0.0f, TCloudBase));
+                    }
+                    else
+                    {
+                        SubCloudMinT = max(0.0f, TCloudBase);
+                    }
+                }
+                else if (RayOrigin.y >= C0.x)
+                {
+                    SubCloudMaxT = 0.0f;
+                }
+                NearT                = max(VortexNearT, SubCloudMinT);
+                FarT                 = min(min(MaxDistM, VortexFarT), SubCloudMaxT);
+                MarchingVortexFunnel = true;
+            }
+            else if (IsLocalBox)
             {
                 float3 InvDir = 1.0f / select(abs(RayDir) > 1.0e-6f, RayDir, float3(1.0e-6f));
                 float3 T0v    = (C3.xyz - C4.xyz - RayOrigin) * InvDir;
@@ -91,9 +126,12 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
                 {
                     float Ta = (C0.x - RayOrigin.y) / RayDir.y;
                     float Tb = (C0.x + C0.y - RayOrigin.y) / RayDir.y;
-                    NearT    = max(0.0f, min(Ta, Tb));
-                    FarT     = min(min(MaxDistM, 18000.0f), max(Ta, Tb));
-                    FarT     = min(FarT, NearT + 5500.0f);
+                    if (max(Ta, Tb) > 0.0f)
+                    {
+                        NearT = max(0.0f, min(Ta, Tb));
+                        FarT  = min(min(MaxDistM, 18000.0f), max(Ta, Tb));
+                        FarT  = min(FarT, NearT + 5500.0f);
+                    }
                 }
                 else if (RayOrigin.y >= C0.x && RayOrigin.y <= C0.x + C0.y)
                 {
@@ -107,9 +145,9 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
                 continue;
             }
 
-            int   MarchSteps    = IsLocalBox ? 14 : 22;
+            int   MarchSteps    = IsLocalBox ? 14 : (MarchingVortexFunnel ? 24 : 22);
             float Δs            = (FarT - NearT) / float(MarchSteps);
-            float ShadowStepRef = IsLocalBox ? 3.5f : 48.0f;
+            float ShadowStepRef = IsLocalBox ? 3.5f : (MarchingVortexFunnel ? 8.0f : 48.0f);
             float DistanceFade  = IsLocalBox ? 1.0f : saturate(1.0f - NearT / 18000.0f);
 
             for (int Step = 0; Step < MarchSteps; ++Step)
@@ -119,7 +157,7 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
                     break;
                 }
                 float3 SamplePos   = RayOrigin + RayDir * (NearT + (float(Step) + Jitter) * Δs);
-                float  σExtinction = EvaluateCloudExtinctionAtPoint(Ensemble, CloudOffset, SamplePos) * DistanceFade;
+                float  σExtinction = EvaluateCloudExtinctionAtPoint(Ensemble, RealmId, CloudOffset, SamplePos) * DistanceFade;
                 if (σExtinction <= 1.0e-6f)
                 {
                     continue;
@@ -147,7 +185,7 @@ void TraceVolumetricCloudsMain(uint3 Tid : SV_DispatchThreadID)
                     {
                         float  StepLength = ShadowStepRef * float(1 << Sub);
                         float3 ShadowPos  = SamplePos + SolarDirection * StepLength;
-                        τSolar           += EvaluateCloudExtinctionAtPoint(Ensemble, CloudOffset, ShadowPos) * StepLength;
+                        τSolar           += EvaluateCloudExtinctionAtPoint(Ensemble, RealmId, CloudOffset, ShadowPos) * StepLength;
                     }
 
                     float  cosθ   = dot(RayDir, SolarDirection);

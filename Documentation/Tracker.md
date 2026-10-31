@@ -617,3 +617,40 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   moon maps verified by `PrepareMoonAlbedo.py`, and **7** visually inspected Vulkan 1.3 PNG exhibits in
   `Exhibits/EnvironmentRealm/Images/` (`Exhibits/EnvironmentRealm/README.md`).
 
+## Phase 3A: AtmosphereProjection, Lunar Haze, ForceField Vortex/Gust/Dust Coupling, Compile-Time Project Content Staging, Cluster-DAG & Editor-Only DiagnosticRaster (2026-10-31, branch arena/5f492703-frontier)
+
+- **AtmosphereProjection & Lunar Atmospheric Haze:**
+  - Renamed `SkyProjection` to `AtmosphereProjection` (`AtmosphereProjection.{h,cpp}` + `AtmosphereProjection.slang`,
+    `BakeAtmosphereProjectionLut.spv`).
+  - Added physical optical-chord lunar limb & external atmospheric corona haze (`M4` packing in `PlanetaryEnsemble.cpp` +
+    `PlanetaryProjection.{cpp,slang}`) across atmospheric moons (`Ember`, `Glacier`, `Sulfur`, `Shroud`) while keeping
+    airless bodies (`Luna`, `Shard`) crisp.
+- **Unified 3D `ForceFieldSpace` (`Frontier/Engine/PhysicalDynamics/ForceField.{h,cpp}` + `ForceField.slang`):**
+  - Upgraded `WindField` into triggerable `ForceFieldSpace` supporting curved-spine Burgers-Rott tornado vortices
+    (`TriggerTornado`), bow-echo gust fronts (`TriggerGustFront`), and radial microbursts (`TriggerMicroburst`).
+  - Coupled GPU force sources (`R16`, `R17`, and `kForceSourceStride = 4` records) across `CloudSynthesis.slang`,
+    `VolumetricClouds.slang` (tight sub-cloud tornado funnel ray-march + rotating mesocyclone wall cloud), and
+    `FogSpace.slang` (jittered froxel integration of swirling ochre tornado debris skirts & haboob outflow dust surges),
+    plus CPU semi-implicit Euler + quadratic drag ballistic solver for `Rain`, `Snow`, `Hail`, `FineDust`, and
+    `CoarseSand` (`StepBallisticParticle`).
+- **Declarative Compile-Time `EngineContent/` -> `<Project>/Content/` Staging:**
+  - Added `[engine.content_imports].entries` parsing & security validation (`ProjectSpaceCodec.{h,cpp}`),
+    `Automation/StageProjectContent.{py,cmake}` (`frontier_stage_project_content`), and standalone `<Project>/Content/`
+    runtime discovery (`ContentDirectory.cpp`, `ProjectContent.{h,cpp}`, `PlanetaryProjection.cpp`, `ProjectGenerator.cpp`).
+  - Verified standalone execution in `/tmp` with zero `EngineContent/` present via `ProjectContentStagingValidation`.
+- **Glass-Aware QEM `ClusterHierarchy`, 3-Tier Material Virtualization, `ControlVehicle` & Editor-Only `DiagnosticRaster`:**
+  - Implemented `ProceduralShapes`, binary `FCT1` `.facet` loader (`ControlVehicle{Body,Rim,Tyre}.facet`, `25,128`
+    triangles), crack-free locked-border QEM `FacetTierBuild` + `QuadricTierBuild`, dual-interface Snell + curvature
+    optical error magnification (`3.78299x` on curved automotive glazing), `64 KB` page residency budgets, two-phase
+    Hi-Z with interior survival behind glass (`OpaqueBehindGlassSurvived = 66`), and 3-tier Material LOD virtualization
+    (`FullStrata = 64 B`, `FilteredToksvig = 24 B`, `CompactProxy = 16 B`).
+  - Re-skinned `Experimental/AtmosphereEditor/` (`6a83f8e`) and added `ThemeCardPalette.h` bound strictly to
+    `ThemeStructure` tokens (`QueryAccentColor()`) with zero hardcoded green.
+  - Built `DiagnosticRaster.{h,cpp,slang}` (`9` inspection modes with procedural sky/ground dome, anti-aliased
+    barycentric wireframe, and 2-layer glass peel) strictly guarded under Editor/Development profiles and verified
+    symbol-free in Shipping (`DiagnosticShippingExclusionCheck` + `EverestShippingValidation`).
+- **Verified:** **61/61** CTests passing 100% (`ProjectContentStagingValidation`, `ClusterDiagnosticValidation` + 4
+  `ControlVehicle` PNG exhibits, and `EnvironmentRealmValidation` + 8 showcase PNGs including
+  `TornadoSupercellAndDustVortex.png`). Phase 3B (GTX-first ReSTIR + SDF + software CWBVH renderer) queued next.
+
+

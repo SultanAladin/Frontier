@@ -434,31 +434,57 @@ void RasterizePlanetaryProjectionMain(uint3 Tid : SV_DispatchThreadID)
         float4 M1            = Ensemble[MoonOffset + 1u];
         float4 M2            = Ensemble[MoonOffset + 2u];
         float4 M3            = Ensemble[MoonOffset + 3u];
+        float4 M4            = Ensemble[MoonOffset + 4u]; // AtmosphereTintRgb.xyz, AtmosphereHaze
         float3 MoonDirection = M0.xyz;
         float  θMoonRadius   = max(M0.w, 1.0e-5f);
+        float  Haze          = saturate(M4.w);
+        float3 HazeTint      = M4.xyz;
 
         float θSeparation = atan2(length(cross(ViewDirection, MoonDirection)), dot(ViewDirection, MoonDirection));
 
-        // Subtle atmospheric moonlit aureole around the lunar limb
+        // Atmospheric moonlit aureole + sunlit exospheric rim corona around hazy moons
         if (θSeparation < θMoonRadius * 3.8f)
         {
             float AureoleDist = max(0.0f, θSeparation - θMoonRadius) / max(θMoonRadius, 1.0e-4f);
-            float Aureole     = 0.014f * M3.y * exp(-AureoleDist * 2.1f);
-            ExoRadiance      += float3(0.76f, 0.84f, 1.00f) * Aureole;
+            float Aureole     = (0.012f + 0.022f * Haze) * M3.y * exp(-AureoleDist * (2.1f - 0.7f * Haze));
+            ExoRadiance      += lerp(float3(0.76f, 0.84f, 1.00f), HazeTint, Haze) * Aureole;
         }
 
-        float Coverage = smoothstep(θMoonRadius + 0.55f * PixelSpanRad, max(0.0f, θMoonRadius - 0.55f * PixelSpanRad), θSeparation);
+        float OuterLimb = θMoonRadius * (1.0f + 0.14f * max(Haze, 0.08f)) + 0.55f * PixelSpanRad;
+        if (Haze > 1.0e-3f && θSeparation < OuterLimb)
+        {
+            float  RimRise   = smoothstep(θMoonRadius * 0.78f, θMoonRadius, θSeparation);
+            float  RimDecay  = 1.0f - smoothstep(θMoonRadius, OuterLimb, θSeparation);
+            float  RimMask   = RimRise * RimDecay * Haze;
+            float3 TangDir   = SafeNormalize(ViewDirection - MoonDirection * dot(ViewDirection, MoonDirection));
+            float3 ShellNorm = SafeNormalize(TangDir * 0.94f - MoonDirection * 0.34f);
+            for (uint SunIdx = 0u; SunIdx < SunCount; ++SunIdx)
+            {
+                uint   SunOffset       = SunSlotOffset(Ensemble, SunFirst + SunIdx);
+                float3 SolarDirection  = Ensemble[SunOffset + 0u].xyz;
+                float3 SolarIrradiance = Ensemble[SunOffset + 1u].xyz;
+                float  ShellLit        = smoothstep(-0.28f, 0.45f, dot(ShellNorm, SolarDirection));
+                ExoRadiance           += HazeTint * SolarIrradiance * (0.14f * M3.y * (0.18f + 0.82f * ShellLit) * RimMask);
+            }
+        }
+
+        float EdgeInner = θMoonRadius * (0.985f - 0.105f * Haze) - 0.55f * PixelSpanRad;
+        float EdgeOuter = θMoonRadius * (1.0f + 0.065f * Haze) + 0.55f * PixelSpanRad;
+        float Coverage  = smoothstep(EdgeOuter, max(0.0f, EdgeInner), θSeparation);
         if (Coverage <= 0.0f)
         {
             continue;
         }
 
-        float  Distance = 1.0f / sin(min(θMoonRadius, 1.2f));
-        float3 MoonPos  = MoonDirection * Distance;
-        float3 OffsetC  = -MoonPos;
-        float  HalfB    = dot(OffsetC, ViewDirection);
-        float  Disc     = max(0.0f, HalfB * HalfB - (dot(OffsetC, OffsetC) - 1.0f));
-        float3 Normal   = SafeNormalize(ViewDirection * (-HalfB - sqrt(Disc)) - MoonPos);
+        float  ClampedSep = min(θSeparation, θMoonRadius * 0.9995f);
+        float3 RadDir     = SafeNormalize(ViewDirection - MoonDirection * dot(ViewDirection, MoonDirection));
+        float3 ClampedRay = SafeNormalize(MoonDirection * cos(ClampedSep) + RadDir * sin(ClampedSep));
+        float  Distance   = 1.0f / sin(min(θMoonRadius, 1.2f));
+        float3 MoonPos    = MoonDirection * Distance;
+        float3 OffsetC    = -MoonPos;
+        float  HalfB      = dot(OffsetC, ClampedRay);
+        float  Disc       = max(0.0f, HalfB * HalfB - (dot(OffsetC, OffsetC) - 1.0f));
+        float3 Normal     = SafeNormalize(ClampedRay * (-HalfB - sqrt(Disc)) - MoonPos);
 
         float3 UpRef         = (abs(MoonDirection.y) < 0.94f) ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
         float3 UnrolledRight = SafeNormalize(cross(UpRef, MoonDirection));
@@ -478,24 +504,32 @@ void RasterizePlanetaryProjectionMain(uint3 Tid : SV_DispatchThreadID)
         float  λLon    = M2.z + atan2(DiscX, DiscZ * cosφ₀ - DiscY * sinφ₀);
         float2 AtlasUv = float2(frac(λLon / kTwoπ + 0.5f), saturate(0.5f - φLat / π));
 
-        uint   AtlasLayer = min(uint(M3.x + 0.5f), 5u);
-        float3 Albedo     = LunarAtlas.SampleLevel(float3(AtlasUv, float(AtlasLayer)), 0.0f).rgb * M1.xyz;
-        float  μ          = max(1.0e-3f, dot(Normal, -ViewDirection));
-        float3 LitSurface = float3(0.0f);
+        uint   AtlasLayer   = min(uint(M3.x + 0.5f), 5u);
+        float3 Albedo       = LunarAtlas.SampleLevel(float3(AtlasUv, float(AtlasLayer)), 0.0f).rgb * M1.xyz;
+        float  μ            = max(1.0e-3f, dot(Normal, -ClampedRay));
+        float  LimbOptical  = (1.0f - μ) * (1.0f - μ) * Haze;
+        float  SurfaceAtten = 1.0f - 0.52f * LimbOptical;
+        float  Wrap         = 0.30f * Haze;
+        float3 LitSurface   = float3(0.0f);
 
         for (uint SunIdx = 0u; SunIdx < SunCount; ++SunIdx)
         {
             uint   SunOffset       = SunSlotOffset(Ensemble, SunFirst + SunIdx);
             float3 SolarDirection  = Ensemble[SunOffset + 0u].xyz;
             float3 SolarIrradiance = Ensemble[SunOffset + 1u].xyz;
-            float  μ₀              = max(0.0f, dot(Normal, SolarDirection));
+            float  μ₀              = max(0.0f, (dot(Normal, SolarDirection) + Wrap) / (1.0f + Wrap));
             if (μ₀ > 0.0f)
             {
                 float LommelSeeliger  = (2.0f * μ₀) / (μ₀ + μ);
                 float ψPhase          = acos(clamp(dot(SolarDirection, -ViewDirection), -1.0f, 1.0f));
                 float OppositionSurge = 1.0f + 0.42f * exp(-ψPhase / 0.14f);
                 float PhaseCurve      = exp(-0.95f * ψPhase) * OppositionSurge;
-                LitSurface           += Albedo * SolarIrradiance * (M1.w * 1.45f * LommelSeeliger * (0.38f + 0.62f * PhaseCurve));
+                LitSurface           += Albedo * SolarIrradiance *
+                                        (M1.w * 1.45f * SurfaceAtten * LommelSeeliger * (0.38f + 0.62f * PhaseCurve));
+                if (Haze > 1.0e-3f)
+                {
+                    LitSurface += HazeTint * SolarIrradiance * (0.16f * M3.y * LimbOptical * (0.25f + 0.75f * μ₀));
+                }
             }
         }
         // Earthshine on the unlit hemisphere

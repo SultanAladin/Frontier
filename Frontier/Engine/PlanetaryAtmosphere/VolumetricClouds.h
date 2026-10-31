@@ -9,7 +9,7 @@
 #pragma once
 
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 
 #include <cstdint>
 #include <string>
@@ -31,14 +31,14 @@ class VolumetricClouds
     // Step 1: Projects 256x256xR orthographic optical-depth & transmittance map before surface lighting & fog.
     bool ExecuteShadowProjections(VulkanComputeExchange&      Exchange,
                                   const DeviceMemorySpan&     EnsembleSpan,
-                                  const SkyProjection&        SkyLuts,
+                                  const AtmosphereProjection& AtmosphereLuts,
                                   uint32_t                    RealmCount,
                                   const DeviceImageArraySlot& PlaceholderVisibility);
 
     // Step 2: Ray-marches global slabs + bounded local 3D cloud boxes and applies temporal bilateral reconstruction.
     bool ExecuteTraceAndReconstruct(VulkanComputeExchange&      Exchange,
                                     const DeviceMemorySpan&     EnsembleSpan,
-                                    const SkyProjection&        SkyLuts,
+                                    const AtmosphereProjection& AtmosphereLuts,
                                     const DeviceImageArraySlot& VisibilityImage,
                                     DeviceImageArraySlot&       HdrFrameTarget,
                                     uint32_t                    ViewportWidth,

@@ -140,6 +140,8 @@ target_include_directories(FrontierSceneEditorUI PUBLIC
 target_compile_definitions(FrontierSceneEditorUI PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
 target_link_libraries(FrontierSceneEditorUI PUBLIC FrontierEditorUI Threads::Threads)
 
+include(Automation/StageProjectContent.cmake)
+
 add_library(EverestProjectEditor STATIC
     Projects/Everest/Source/EverestApplication.cpp
     Projects/Everest/Source/EverestSimulationRecords.cpp
@@ -150,6 +152,10 @@ target_include_directories(EverestProjectEditor PUBLIC
     "${CMAKE_SOURCE_DIR}/Projects/Everest/Source")
 target_compile_definitions(EverestProjectEditor PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
 target_link_libraries(EverestProjectEditor PUBLIC FrontierSceneEditorUI)
+frontier_stage_project_content(EverestProjectEditor
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
+    "${CMAKE_SOURCE_DIR}/EngineContent"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Content")
 
 add_library(EverestProjectRuntime STATIC
     Frontier/Engine/Scene/RecordStore.cpp
@@ -169,6 +175,10 @@ target_include_directories(EverestProjectRuntime PUBLIC
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_compile_definitions(EverestProjectRuntime PUBLIC FRONTIER_SHIPPING_PROFILE=1 FRONTIER_EDITOR=0)
 target_link_libraries(EverestProjectRuntime PUBLIC Threads::Threads)
+frontier_stage_project_content(EverestProjectRuntime
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
+    "${CMAKE_SOURCE_DIR}/EngineContent"
+    "${CMAKE_SOURCE_DIR}/Projects/Everest/Content")
 
 # GLFW owns windows/input on every platform; DX11 is only the legacy Windows-only exhibit's display
 # adapter, not the primary renderer, and never needs GLFW built differently per platform.

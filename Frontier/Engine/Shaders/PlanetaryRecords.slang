@@ -7,9 +7,9 @@ static const float π      = 3.14159265358979323846f;
 static const float kTwoπ  = 6.28318530717958647692f;
 static const float kInv4π = 0.07957747154594766788f;
 
-static const uint kRealmStride       = 16u;
+static const uint kRealmStride       = 18u;
 static const uint kSunStride         = 6u;
-static const uint kMoonStride        = 4u;
+static const uint kMoonStride        = 5u;
 static const uint kPlanetStride      = 6u;
 static const uint kCloudStride       = 5u;
 static const uint kFogBoxStride      = 3u;

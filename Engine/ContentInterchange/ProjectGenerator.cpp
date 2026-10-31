@@ -181,18 +181,25 @@ std::string BuildMainEntryContents(const std::string& Identifier, const std::str
     return Stream.str();
 }
 
-std::string BuildCMakeListsContents(const std::string& Identifier)
+std::string BuildCMakeListsContents(const std::string& Identifier, const std::string& ProjectFileName)
 {
     std::ostringstream Stream;
     Stream << "# Auto-generated CMake build configuration for " << Identifier << "\n"
            << "cmake_minimum_required(VERSION 3.24)\n\n"
+           << "include(\"${CMAKE_SOURCE_DIR}/Automation/StageProjectContent.cmake\")\n\n"
            << "add_library(" << Identifier << "Runtime STATIC\n"
            << "    Source/" << Identifier << "Application.cpp\n"
            << ")\n"
            << "target_include_directories(" << Identifier << "Runtime PUBLIC\n"
            << "    ${CMAKE_CURRENT_SOURCE_DIR}/Source\n"
            << ")\n"
-           << "target_link_libraries(" << Identifier << "Runtime PUBLIC FrontierEngine)\n";
+           << "target_link_libraries(" << Identifier << "Runtime PUBLIC FrontierEngine)\n\n"
+           << "frontier_stage_project_content(\n"
+           << "    " << Identifier << "Runtime\n"
+           << "    \"${CMAKE_CURRENT_SOURCE_DIR}/" << ProjectFileName << "\"\n"
+           << "    \"${CMAKE_SOURCE_DIR}/EngineContent\"\n"
+           << "    \"${CMAKE_CURRENT_SOURCE_DIR}/Content\"\n"
+           << ")\n";
     return Stream.str();
 }
 
@@ -356,7 +363,7 @@ bool ProjectGenerator::GenerateProjectScaffolding(const std::filesystem::path& P
         {
             return false;
         }
-        if (!WriteTextFileIfAbsent(Layout.CMakeListsPath, BuildCMakeListsContents(Identifier), Diagnostic))
+        if (!WriteTextFileIfAbsent(Layout.CMakeListsPath, BuildCMakeListsContents(Identifier, FileName), Diagnostic))
         {
             return false;
         }

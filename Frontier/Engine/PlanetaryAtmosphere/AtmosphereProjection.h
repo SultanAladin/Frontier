@@ -1,10 +1,10 @@
 /*==========================================================================================================================================
-                                                     SKY PROJECTION
+                                                 ATMOSPHERE PROJECTION
                                      ------------------------------------------------------------------
              Dirty-gated per-realm RGBA16F 2D-Array compute bakes: Transmittance (256x64xR),
-                         Multi-Scattering (32x32xR), and Sky-View (192x108xR).
+                      Multi-Scattering (32x32xR), and Atmosphere Sky-View (192x108xR).
 ==========================================================================================================================================*/
-// 🧩 Physical atmosphere & twilight GPU LUT projection across all active realms.
+// 🧩 Physical planetary atmosphere & twilight GPU LUT projection across all active realms.
 
 #pragma once
 
@@ -19,13 +19,13 @@
 namespace Frontier
 {
 
-struct SkyRealmRevision
+struct AtmosphereRealmRevision
 {
     uint64_t AtmosphereRevision = 1u;
     uint64_t SkyViewRevision    = 1u;
 };
 
-class SkyProjection
+class AtmosphereProjection
 {
   public:
     bool Initialize(VulkanComputeExchange& Exchange,
@@ -33,9 +33,9 @@ class SkyProjection
                     std::string*           OutDiagnostic = nullptr);
     void Shutdown(VulkanComputeExchange& Exchange) noexcept;
 
-    bool Execute(VulkanComputeExchange&              Exchange,
-                 const DeviceMemorySpan&             EnsembleSpan,
-                 std::span<const SkyRealmRevision>   RealmRevisions);
+    bool Execute(VulkanComputeExchange&                   Exchange,
+                 const DeviceMemorySpan&                  EnsembleSpan,
+                 std::span<const AtmosphereRealmRevision> RealmRevisions);
 
     [[nodiscard]] const DeviceImageArraySlot& TransmittanceArray() const noexcept { return TransmittanceArray_; }
     [[nodiscard]] const DeviceImageArraySlot& MultiScatteringArray() const noexcept { return MultiScatteringArray_; }

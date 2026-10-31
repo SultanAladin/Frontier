@@ -1,10 +1,12 @@
 //==========================================================================================================================================
 //                                                    CLOUD SYNTHESIS SLANG
 //==========================================================================================================================================
-// Non-tiled 3D world-space procedural cloud extinction (6 tropospheric height profiles, rotated 3D octaves, Worley erosion)
+// Non-tiled 3D world-space procedural cloud extinction (6 tropospheric height profiles, rotated 3D octaves, Worley erosion),
+// ForceField coupling (Ekman wind turning/shear + curved-spine Burgers-Rott tornado condensation funnel & swirling wall cloud),
 // and hybrid orthographic + analytic receiver-to-sun cloud shadow transmittance.
 
 #include "AtmosphereScattering.slang"
+#include "ForceField.slang"
 
 float EvaluateTroposphericEnvelope(uint ProfileId, float HeightFraction)
 {
@@ -33,7 +35,10 @@ float EvaluateTroposphericEnvelope(uint ProfileId, float HeightFraction)
     return smoothstep(0.0f, 0.13f, H) * smoothstep(1.0f, 0.68f, H);
 }
 
-float EvaluateCloudExtinctionAtPoint(StructuredBuffer<float4> Ensemble, uint CloudOffset, float3 PointMeters)
+float EvaluateCloudExtinctionAtPoint(StructuredBuffer<float4> Ensemble,
+                                     uint                     RealmId,
+                                     uint                     CloudOffset,
+                                     float3                   PointMeters)
 {
     float4 C0 = Ensemble[CloudOffset + 0u]; // LowerAltM, ThicknessM, Coverage, DensityScale
     float4 C1 = Ensemble[CloudOffset + 1u]; // DetailErosion, ExtinctionPerM, ScatterAlbedo, ForwardG
@@ -41,8 +46,18 @@ float EvaluateCloudExtinctionAtPoint(StructuredBuffer<float4> Ensemble, uint Clo
     float4 C3 = Ensemble[CloudOffset + 3u]; // BoxCenterXYZ, EdgeSoftnessM
     float4 C4 = Ensemble[CloudOffset + 4u]; // BoxHalfXYZ, WindOffsetX
 
+    float3 AdvectedMeters     = PointMeters + float3(C4.w, 0.0f, 0.38f * C4.w);
+    float  FunnelCondensation = 0.0f;
+    float  WallCollarBoost    = 0.0f;
+    if (C2.w <= 0.5f)
+    {
+        EvaluateForceFieldCloudDomain(
+            Ensemble, RealmId, PointMeters, AdvectedMeters, FunnelCondensation, WallCollarBoost);
+    }
+
     float HeightFraction = 0.0f;
     float BoxEnvelope    = 1.0f;
+    bool  InsideMainSlab = false;
 
     if (C2.w > 0.5f)
     {
@@ -60,42 +75,60 @@ float EvaluateCloudExtinctionAtPoint(StructuredBuffer<float4> Ensemble, uint Clo
                          MaskY * MaskY * (3.0f - 2.0f * MaskY) *
                          MaskZ * MaskZ * (3.0f - 2.0f * MaskZ);
         HeightFraction = saturate((LocalPos.y + HalfSpan.y) / (2.0f * HalfSpan.y));
+        InsideMainSlab = true;
     }
-    else
+    else if (C0.y > 0.0f && PointMeters.y >= C0.x && PointMeters.y <= C0.x + C0.y)
     {
-        if (C0.y <= 0.0f || PointMeters.y < C0.x || PointMeters.y > C0.x + C0.y)
-        {
-            return 0.0f;
-        }
         HeightFraction = saturate((PointMeters.y - C0.x) / C0.y);
+        InsideMainSlab = true;
     }
 
-    uint  ProfileId = uint(max(0.0f, C2.y) + 0.5f);
-    float Envelope  = EvaluateTroposphericEnvelope(ProfileId, HeightFraction);
-    if (Envelope <= 1.0e-5f || BoxEnvelope <= 1.0e-5f)
+    float SlabDensity = 0.0f;
+    if (InsideMainSlab)
+    {
+        uint  ProfileId = uint(max(0.0f, C2.y) + 0.5f);
+        float Envelope  = EvaluateTroposphericEnvelope(ProfileId, HeightFraction);
+        if (WallCollarBoost > 0.0f)
+        {
+            Envelope = max(Envelope, saturate(WallCollarBoost * (1.0f - 0.65f * HeightFraction)));
+        }
+        if (Envelope > 1.0e-5f && BoxEnvelope > 1.0e-5f)
+        {
+            float  SpatialFreq = (C2.w > 0.5f) ? (1.8f / max(max(C4.x, C4.z), 4.0f)) : 1.15e-3f;
+            float3 SampleCoord = AdvectedMeters * float3(SpatialFreq, SpatialFreq * 1.45f, SpatialFreq);
+
+            float MacroFbm    = FbmRotated3D(SampleCoord, 4, 17u);
+            float MacroWorley = WorleyInverted3D(RotateOctave3D(SampleCoord) * 1.85f, 53u);
+            float MacroShape  = 0.60f * MacroFbm + 0.40f * MacroWorley;
+            float EffCoverage = saturate(C0.z + 0.35f * WallCollarBoost);
+            float Threshold   = 1.0f - EffCoverage;
+            float Remapped    = saturate((MacroShape - Threshold) / max(1.0f - Threshold, 1.0e-3f)) * Envelope * BoxEnvelope;
+            if (Remapped > 1.0e-5f)
+            {
+                float3 DetailCoord = RotateOctave3D(SampleCoord * 5.2f);
+                float  DetailField = 0.65f * WorleyInverted3D(DetailCoord, 131u) +
+                                     0.35f * FbmRotated3D(DetailCoord * 2.1f, 3, 257u);
+                SlabDensity = saturate((Remapped - C1.x * (1.0f - DetailField) * (1.0f - 0.50f * HeightFraction)) /
+                                       max(1.0f - 0.5f * C1.x, 0.15f));
+            }
+        }
+    }
+
+    float ErodedFunnel = 0.0f;
+    if (FunnelCondensation > 1.0e-4f)
+    {
+        float3 SwirlCoord  = AdvectedMeters * float3(0.038f, 0.026f, 0.038f);
+        float  FunnelMacro = 0.58f * WorleyInverted3D(SwirlCoord, 311u) +
+                             0.42f * FbmRotated3D(SwirlCoord * 1.85f, 3, 613u);
+        ErodedFunnel       = saturate((FunnelCondensation * (0.62f + 0.72f * FunnelMacro) - 0.10f) / 0.90f) * 2.25f;
+    }
+
+    float CombinedDensity = max(SlabDensity, ErodedFunnel);
+    if (CombinedDensity <= 1.0e-5f)
     {
         return 0.0f;
     }
-
-    float3 AdvectedMeters = PointMeters + float3(C4.w, 0.0f, 0.38f * C4.w);
-    float  SpatialFreq    = (C2.w > 0.5f) ? (1.8f / max(max(C4.x, C4.z), 4.0f)) : 1.15e-3f;
-    float3 SampleCoord    = AdvectedMeters * float3(SpatialFreq, SpatialFreq * 1.45f, SpatialFreq);
-
-    float MacroFbm     = FbmRotated3D(SampleCoord, 4, 17u);
-    float MacroWorley  = WorleyInverted3D(RotateOctave3D(SampleCoord) * 1.85f, 53u);
-    float MacroShape   = 0.60f * MacroFbm + 0.40f * MacroWorley;
-    float Threshold    = 1.0f - saturate(C0.z);
-    float Remapped     = saturate((MacroShape - Threshold) / max(1.0f - Threshold, 1.0e-3f)) * Envelope * BoxEnvelope;
-    if (Remapped <= 1.0e-5f)
-    {
-        return 0.0f;
-    }
-
-    float3 DetailCoord = RotateOctave3D(SampleCoord * 5.2f);
-    float  DetailField = 0.65f * WorleyInverted3D(DetailCoord, 131u) + 0.35f * FbmRotated3D(DetailCoord * 2.1f, 3, 257u);
-    float  Eroded      = saturate((Remapped - C1.x * (1.0f - DetailField) * (1.0f - 0.50f * HeightFraction)) /
-                                  max(1.0f - 0.5f * C1.x, 0.15f));
-    return Eroded * max(0.0f, C0.w) * max(0.0f, C1.y);
+    return CombinedDensity * max(0.0f, C0.w) * max(0.0f, C1.y);
 }
 
 // Analytic receiver-to-sun cloud transmittance through all active cloud volumes in RealmId.
@@ -117,6 +150,11 @@ float EvaluateCloudSolarTransmittance(StructuredBuffer<float4> Ensemble,
     {
         return 1.0f;
     }
+
+    float VortexNearT = 1.0e30f;
+    float VortexFarT  = 0.0f;
+    bool  HitVortex   = IntersectActiveVortexColumns(
+        Ensemble, RealmId, ReceiverMeters, SolarDirection, 18000.0f, VortexNearT, VortexFarT);
 
     float τAccum = 0.0f;
     for (uint Idx = 0u; Idx < CloudCount; ++Idx)
@@ -143,6 +181,11 @@ float EvaluateCloudSolarTransmittance(StructuredBuffer<float4> Ensemble,
         {
             NearT = max(0.0f, (C0.x - ReceiverMeters.y) / SolarDirection.y);
             FarT  = max(NearT, (C0.x + C0.y - ReceiverMeters.y) / SolarDirection.y);
+            if (HitVortex && Idx == 0u)
+            {
+                NearT = min(NearT, VortexNearT);
+                FarT  = max(FarT, VortexFarT);
+            }
         }
         if (FarT <= NearT)
         {
@@ -155,7 +198,7 @@ float EvaluateCloudSolarTransmittance(StructuredBuffer<float4> Ensemble,
         for (int Step = 0; Step < kShadowSteps; ++Step)
         {
             float3 SamplePos = ReceiverMeters + SolarDirection * (NearT + (float(Step) + 0.5f) * Δs);
-            τAccum += EvaluateCloudExtinctionAtPoint(Ensemble, CloudOffset, SamplePos) * Δs;
+            τAccum += EvaluateCloudExtinctionAtPoint(Ensemble, RealmId, CloudOffset, SamplePos) * Δs;
         }
     }
     return clamp(0.94f * exp(-τAccum) + 0.06f * exp(-0.25f * τAccum), 0.0f, 1.0f);
@@ -201,7 +244,7 @@ float EvaluateLocalBoxCloudTransmittance(StructuredBuffer<float4> Ensemble,
         for (int Step = 0; Step < kSteps; ++Step)
         {
             float3 SamplePos = ReceiverMeters + SolarDirection * (NearT + (float(Step) + 0.5f) * Δs);
-            τLocal += EvaluateCloudExtinctionAtPoint(Ensemble, CloudOffset, SamplePos) * Δs;
+            τLocal += EvaluateCloudExtinctionAtPoint(Ensemble, RealmId, CloudOffset, SamplePos) * Δs;
         }
     }
     return (τLocal > 0.0f) ? clamp(0.94f * exp(-τLocal) + 0.06f * exp(-0.25f * τLocal), 0.0f, 1.0f) : 1.0f;
@@ -272,11 +315,11 @@ float SampleFogCloudTransmittance(StructuredBuffer<float4> Ensemble,
     {
         return 1.0f;
     }
-    float  GroundPlaneY       = Ensemble[RealmOffset + 4u].y;
-    float  HalfSpanM          = max(Ensemble[RealmOffset + 13u].z, 1.0f);
-    float  RayToGroundScale   = (ReceiverMeters.y - GroundPlaneY) / max(SolarDirection.y, 0.05f);
-    float2 GroundInterceptXZ  = ReceiverMeters.xz - SolarDirection.xz * RayToGroundScale;
-    float  Chebyshev          = max(abs(GroundInterceptXZ.x), abs(GroundInterceptXZ.y)) / HalfSpanM;
+    float  GroundPlaneY      = Ensemble[RealmOffset + 4u].y;
+    float  HalfSpanM         = max(Ensemble[RealmOffset + 13u].z, 1.0f);
+    float  RayToGroundScale  = (ReceiverMeters.y - GroundPlaneY) / max(SolarDirection.y, 0.05f);
+    float2 GroundInterceptXZ = ReceiverMeters.xz - SolarDirection.xz * RayToGroundScale;
+    float  Chebyshev         = max(abs(GroundInterceptXZ.x), abs(GroundInterceptXZ.y)) / HalfSpanM;
     if (Chebyshev >= 1.0f)
     {
         return 1.0f;

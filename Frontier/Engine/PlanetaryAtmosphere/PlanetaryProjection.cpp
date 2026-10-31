@@ -6,7 +6,7 @@
 
 #include "Engine/PlanetaryAtmosphere/PlanetaryProjection.h"
 
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 
 #include <algorithm>
 #include <array>
@@ -318,6 +318,54 @@ bool IntersectRayUnitSphere(Vec3 Origin, Vec3 Direction, float Radius, float& Ou
 //                                1. 6-BODY LUNAR ATLAS IMPLEMENTATION
 //------------------------------------------------------------------------------------------------------------------------
 
+float ResolveLunarAtmosphereHaze(const LunarBodyDescriptor& Moon) noexcept
+{
+    if (Moon.AtmosphereHaze >= 0.0f)
+    {
+        return std::clamp(Moon.AtmosphereHaze, 0.0f, 1.0f);
+    }
+    switch (Moon.Preset)
+    {
+        case LunarBodyPreset::Luna:
+            return 0.04f; // Tenuous lunar exospheric dust corona
+        case LunarBodyPreset::Ember:
+            return 0.36f; // Volcanic ash & thermal plume haze
+        case LunarBodyPreset::Glacier:
+            return 0.34f; // Sublimating icy cryosphere & water-vapour plume haze
+        case LunarBodyPreset::Sulfur:
+            return 0.42f; // Dense volcanic sulfur-dioxide haze
+        case LunarBodyPreset::Shroud:
+            return 0.68f; // Thick Titan-class photochemical amber/cyan haze shell
+        case LunarBodyPreset::Shard:
+            return 0.07f; // Faint silicate regolith veil
+    }
+    return 0.05f;
+}
+
+Vec3 ResolveLunarAtmosphereTint(const LunarBodyDescriptor& Moon) noexcept
+{
+    if (Moon.AtmosphereTintRgb.X > 1.0e-4f || Moon.AtmosphereTintRgb.Y > 1.0e-4f || Moon.AtmosphereTintRgb.Z > 1.0e-4f)
+    {
+        return Moon.AtmosphereTintRgb;
+    }
+    switch (Moon.Preset)
+    {
+        case LunarBodyPreset::Luna:
+            return {0.76f, 0.84f, 1.00f};
+        case LunarBodyPreset::Ember:
+            return {1.00f, 0.56f, 0.32f};
+        case LunarBodyPreset::Glacier:
+            return {0.60f, 0.86f, 1.00f};
+        case LunarBodyPreset::Sulfur:
+            return {1.00f, 0.84f, 0.38f};
+        case LunarBodyPreset::Shroud:
+            return {0.96f, 0.74f, 0.44f};
+        case LunarBodyPreset::Shard:
+            return {0.74f, 0.80f, 0.92f};
+    }
+    return {0.76f, 0.84f, 1.00f};
+}
+
 bool DecodeSrgbImageRgb8(const std::string&    FilePath,
                          uint32_t&             OutWidth,
                          uint32_t&             OutHeight,
@@ -367,6 +415,58 @@ bool DecodeSrgbImageRgb8(const std::string&    FilePath,
     return true;
 }
 
+namespace
+{
+
+std::filesystem::path ResolveCelestialAssetPath(const std::string& RequestedPath, const char* RelativeFilename)
+{
+    std::error_code       Ec;
+    std::filesystem::path Direct(RequestedPath);
+    if (!RequestedPath.empty() && std::filesystem::is_regular_file(Direct, Ec))
+    {
+        return Direct;
+    }
+
+    const std::filesystem::path RelSubpath =
+        std::filesystem::path("EnvironmentArchives") / "CelestialMaps" / RelativeFilename;
+
+    if (!RequestedPath.empty())
+    {
+        if (std::filesystem::is_directory(Direct, Ec))
+        {
+            const std::filesystem::path ProjCand = Direct / "Content" / RelSubpath;
+            if (std::filesystem::is_regular_file(ProjCand, Ec)) return ProjCand;
+            const std::filesystem::path DirectSub = Direct / RelSubpath;
+            if (std::filesystem::is_regular_file(DirectSub, Ec)) return DirectSub;
+            const std::filesystem::path EngCand = Direct / "EngineContent" / RelSubpath;
+            if (std::filesystem::is_regular_file(EngCand, Ec)) return EngCand;
+        }
+        // Handle EngineContent/... paths redirected to staged <Project>/Content/... when EngineContent is absent
+        const std::string Generic = Direct.generic_string();
+        const auto        EngPos  = Generic.find("EngineContent/");
+        if (EngPos != std::string::npos)
+        {
+            const std::filesystem::path Prefix  = Direct.generic_string().substr(0u, EngPos);
+            const std::filesystem::path SubTail = Direct.generic_string().substr(EngPos + 14u);
+            const std::filesystem::path Staged  = Prefix / "Content" / SubTail;
+            if (std::filesystem::is_regular_file(Staged, Ec)) return Staged;
+        }
+    }
+
+    if (const char* EnvContent = std::getenv("FRONTIER_PROJECT_CONTENT_DIR"); EnvContent && *EnvContent)
+    {
+        const std::filesystem::path EnvCand = std::filesystem::path(EnvContent) / RelSubpath;
+        if (std::filesystem::is_regular_file(EnvCand, Ec)) return EnvCand;
+    }
+    const std::filesystem::path LocalContent = std::filesystem::path("Content") / RelSubpath;
+    if (std::filesystem::is_regular_file(LocalContent, Ec)) return LocalContent;
+    const std::filesystem::path LocalEngine = std::filesystem::path("EngineContent") / RelSubpath;
+    if (std::filesystem::is_regular_file(LocalEngine, Ec)) return LocalEngine;
+    return Direct;
+}
+
+} // namespace
+
 bool LunarSixBodyAtlas::BuildFromLunaSource(const std::string& LunaJpegOrPpmPath,
                                             uint32_t           TargetWidth,
                                             uint32_t           TargetHeight)
@@ -379,8 +479,10 @@ bool LunarSixBodyAtlas::BuildFromLunaSource(const std::string& LunaJpegOrPpmPath
     Height_ = TargetHeight;
     Rgba8Srgb_.assign(TotalByteSize(), 255u);
 
+    const std::filesystem::path ResolvedLuna =
+        ResolveCelestialAssetPath(LunaJpegOrPpmPath, "MoonAlbedoSource2048.jpg");
     const std::filesystem::path ParentDir =
-        LunaJpegOrPpmPath.empty() ? std::filesystem::path{} : std::filesystem::path(LunaJpegOrPpmPath).parent_path();
+        ResolvedLuna.empty() ? std::filesystem::path{} : ResolvedLuna.parent_path();
 
     static constexpr std::array<const char*, LunarAtlasLayerCount> kSiblingFilenames{{
         "MoonAlbedoSource2048.jpg",
@@ -395,13 +497,17 @@ bool LunarSixBodyAtlas::BuildFromLunaSource(const std::string& LunaJpegOrPpmPath
     for (uint32_t Layer = 0u; Layer < LunarAtlasLayerCount; ++Layer)
     {
         std::string CandidatePath;
-        if (Layer == 0u && !LunaJpegOrPpmPath.empty())
+        if (Layer == 0u && !ResolvedLuna.empty())
         {
-            CandidatePath = LunaJpegOrPpmPath;
+            CandidatePath = ResolvedLuna.string();
         }
         else if (!ParentDir.empty())
         {
             CandidatePath = (ParentDir / kSiblingFilenames[Layer]).string();
+        }
+        else
+        {
+            CandidatePath = ResolveCelestialAssetPath(LunaJpegOrPpmPath, kSiblingFilenames[Layer]).string();
         }
 
         uint32_t             SrcW = 0u;
@@ -566,7 +672,8 @@ bool PlanetaryDomeProjection::LoadHipparcosCatalogueCsv(const std::string& CsvPa
                                                         double             LatitudeDeg,
                                                         double             LongitudeDeg)
 {
-    std::ifstream Stream(CsvPath);
+    const std::filesystem::path ResolvedCsv = ResolveCelestialAssetPath(CsvPath, "Hipparcos8.csv");
+    std::ifstream Stream(ResolvedCsv);
     if (!Stream)
     {
         return false;
@@ -865,19 +972,16 @@ Vec3 PlanetaryDomeProjection::EvaluateLunarBody(const LunarBodyDescriptor& Moon,
     {
         return {};
     }
-    const Vec3  ViewDir = Normalize3(ViewDirectionUnit);
-    const Vec3  MoonDir = Normalize3(Moon.DirectionUnit);
-    const Vec3  SunDir  = Normalize3(SunDirectionUnit);
-    const float cosθ    = std::clamp(Dot3(ViewDir, MoonDir), -1.0f, 1.0f);
-    const float θRad    = std::acos(cosθ);
-    const float HalfAa  = std::max(0.55f * PixelAngularSizeRad, 1e-5f);
-    if (θRad > Moon.AngularRadiusRad + HalfAa)
-    {
-        return {};
-    }
-
-    OutCoverage = Smoothstep(Moon.AngularRadiusRad + HalfAa, std::max(0.0f, Moon.AngularRadiusRad - HalfAa), θRad);
-    if (OutCoverage <= 0.0f)
+    const Vec3  ViewDir  = Normalize3(ViewDirectionUnit);
+    const Vec3  MoonDir  = Normalize3(Moon.DirectionUnit);
+    const Vec3  SunDir   = Normalize3(SunDirectionUnit);
+    const float cosθ     = std::clamp(Dot3(ViewDir, MoonDir), -1.0f, 1.0f);
+    const float θRad     = std::acos(cosθ);
+    const float HalfAa   = std::max(0.55f * PixelAngularSizeRad, 1e-5f);
+    const float Haze     = ResolveLunarAtmosphereHaze(Moon);
+    const Vec3  HazeTint = ResolveLunarAtmosphereTint(Moon);
+    const float OuterLimb = Moon.AngularRadiusRad * (1.0f + 0.14f * std::max(Haze, 0.08f)) + HalfAa;
+    if (θRad > OuterLimb)
     {
         return {};
     }
@@ -890,6 +994,32 @@ Vec3 PlanetaryDomeProjection::EvaluateLunarBody(const LunarBodyDescriptor& Moon,
     const float sinRoll     = std::sin(Moon.RollAngleRad);
     const Vec3  East        = Add3(Mul3(UnrolledE, cosRoll), Mul3(UnrolledN, sinRoll));
     const Vec3  North       = Sub3(Mul3(UnrolledN, cosRoll), Mul3(UnrolledE, sinRoll));
+
+    const float EdgeInner = Moon.AngularRadiusRad * (0.985f - 0.105f * Haze) - HalfAa;
+    const float EdgeOuter = Moon.AngularRadiusRad * (1.0f + 0.065f * Haze) + HalfAa;
+    OutCoverage           = Smoothstep(EdgeOuter, std::max(0.0f, EdgeInner), θRad);
+
+    // Outer sunlit atmospheric shell halo extending smoothly past the solid lunar limb
+    Vec3 RimShellRadiance{};
+    if (Haze > 1.0e-3f)
+    {
+        const float RimRise  = Smoothstep(Moon.AngularRadiusRad * 0.78f, Moon.AngularRadiusRad, θRad);
+        const float RimDecay = 1.0f - Smoothstep(Moon.AngularRadiusRad, OuterLimb, θRad);
+        const float RimMask  = RimRise * RimDecay * Haze;
+        if (RimMask > 1.0e-5f)
+        {
+            const Vec3  TangDir   = Normalize3(Sub3(ViewDir, Mul3(MoonDir, cosθ)));
+            const Vec3  ShellNorm = Normalize3(Add3(Mul3(TangDir, 0.94f), Mul3(ObserverDir, 0.34f)));
+            const float ShellLit  = Smoothstep(-0.28f, 0.45f, Dot3(ShellNorm, SunDir));
+            const float RimScale  = (0.042f * Moon.SurfaceBrightness / π) * (0.18f + 0.82f * ShellLit) * RimMask;
+            RimShellRadiance      = Mul3Comp(HazeTint, Mul3(SolarIrradianceRgb, RimScale));
+        }
+    }
+
+    if (OutCoverage <= 0.0f)
+    {
+        return RimShellRadiance;
+    }
 
     const float SinRadius = std::max(std::sin(Moon.AngularRadiusRad), 1e-6f);
     const Vec3  Offset    = Sub3(ViewDir, Mul3(MoonDir, cosθ));
@@ -908,16 +1038,26 @@ Vec3 PlanetaryDomeProjection::EvaluateLunarBody(const LunarBodyDescriptor& Moon,
                             ? LunarAtlas_.SampleLinearAlbedo(Moon.Preset, λLon, φLat)
                             : Vec3{0.12f, 0.118f, 0.112f};
 
-    const float μ₀             = std::max(0.0f, Dot3(Normal, SunDir));
-    const float PhaseAngle     = std::acos(std::clamp(Dot3(ObserverDir, SunDir), -1.0f, 1.0f));
-    const float LommelSeeliger = μ₀ > 0.0f ? (2.0f * μ₀ / (μ₀ + μ)) : 0.0f;
+    const float RawDotSun       = Dot3(Normal, SunDir);
+    const float Wrap            = 0.30f * Haze;
+    const float μ₀              = std::max(0.0f, (RawDotSun + Wrap) / (1.0f + Wrap));
+    const float PhaseAngle      = std::acos(std::clamp(Dot3(ObserverDir, SunDir), -1.0f, 1.0f));
+    const float LommelSeeliger  = μ₀ > 0.0f ? (2.0f * μ₀ / (μ₀ + μ)) : 0.0f;
     const float OppositionSurge = 1.0f + 0.38f * std::exp(-PhaseAngle / 0.18f);
-    const float PhaseCurve     = std::exp(-0.95f * PhaseAngle) * OppositionSurge;
-    const float LitFactor      = (LommelSeeliger * PhaseCurve / π) * Moon.SurfaceBrightness;
+    const float PhaseCurve      = std::exp(-0.95f * PhaseAngle) * OppositionSurge;
+    const float LimbOptical     = (1.0f - μ) * (1.0f - μ) * Haze;
+    const float SurfaceAtten    = 1.0f - 0.52f * LimbOptical;
+    const float LitFactor       = (LommelSeeliger * PhaseCurve / π) * Moon.SurfaceBrightness * SurfaceAtten;
 
-    const Vec3 DirectLit  = Mul3(SolarIrradianceRgb, LitFactor);
-    const Vec3 Earthshine = {Moon.EarthshineStrength * 0.58f, Moon.EarthshineStrength * 0.72f, Moon.EarthshineStrength * 1.00f};
-    return Mul3(Mul3Comp(Albedo, Add3(DirectLit, Earthshine)), OutCoverage);
+    const Vec3  DirectLit  = Mul3(SolarIrradianceRgb, LitFactor);
+    const Vec3  Earthshine = {Moon.EarthshineStrength * 0.58f, Moon.EarthshineStrength * 0.72f, Moon.EarthshineStrength * 1.00f};
+    Vec3        OnDisc     = Mul3Comp(Albedo, Add3(DirectLit, Earthshine));
+    if (Haze > 1.0e-3f && μ₀ > 0.0f)
+    {
+        const float AtmoInScatter = (0.048f * Moon.SurfaceBrightness / π) * LimbOptical * (0.25f + 0.75f * μ₀);
+        OnDisc = Add3(OnDisc, Mul3Comp(HazeTint, Mul3(SolarIrradianceRgb, AtmoInScatter)));
+    }
+    return Add3(Mul3(OnDisc, OutCoverage), RimShellRadiance);
 }
 
 Vec3 PlanetaryDomeProjection::EvaluateCustomStar(const CustomStarDescriptor& Star,
@@ -1159,7 +1299,7 @@ void PlanetarySkyRasterization::Shutdown(VulkanComputeExchange& Exchange) noexce
 
 bool PlanetarySkyRasterization::Execute(VulkanComputeExchange&      Exchange,
                                         const DeviceMemorySpan&     EnsembleSpan,
-                                        const SkyProjection&        SkyLuts,
+                                        const AtmosphereProjection& AtmosphereLuts,
                                         const DeviceImageArraySlot& VisibilityImage,
                                         DeviceImageArraySlot&       HdrFrameTarget,
                                         uint32_t                    ViewportWidth,
@@ -1170,9 +1310,9 @@ bool PlanetarySkyRasterization::Execute(VulkanComputeExchange&      Exchange,
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &EnsembleSpan, nullptr},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &StarCellSpan_, nullptr},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &StarRecordSpan_, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.TransmittanceArray()},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.MultiScatteringArray()},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.SkyViewArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.TransmittanceArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.MultiScatteringArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.SkyViewArray()},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &LunarAtlasImage_},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &VisibilityImage},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HdrFrameTarget},

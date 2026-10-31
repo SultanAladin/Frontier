@@ -255,6 +255,7 @@ PackedEnsemblePayload PackEnsemblePayload(const PlanetaryRealmEnsemble& Ensemble
     std::vector<std::array<float, 4>> PortalSlots;
     std::vector<std::array<float, 4>> FlareSourceSlots;
     std::vector<std::array<float, 4>> CustomStarSlots;
+    std::vector<std::array<float, 4>> ForceSourceSlots;
     std::vector<std::array<float, 4>> RealmSlots;
     RealmSlots.reserve(RealmCount * kRealmRecordFloat4Stride);
 
@@ -295,14 +296,17 @@ PackedEnsemblePayload PackEnsemblePayload(const PlanetaryRealmEnsemble& Ensemble
         const uint32_t MoonFirst = static_cast<uint32_t>(MoonSlots.size() / kMoonRecordFloat4Stride);
         for (const LunarBodyDescriptor& Moon : Realm.Moons)
         {
-            const auto Dir = Normalize3(FromVec3(Moon.DirectionUnit));
+            const auto  Dir      = Normalize3(FromVec3(Moon.DirectionUnit));
+            const float Haze     = ResolveLunarAtmosphereHaze(Moon);
+            const Vec3  HazeTint = ResolveLunarAtmosphereTint(Moon);
             MoonSlots.push_back({Dir[0], Dir[1], Dir[2], Moon.AngularRadiusRad});
             MoonSlots.push_back({1.0f, 1.0f, 1.0f, 0.28f * Moon.SurfaceBrightness});
             MoonSlots.push_back({Moon.EarthshineStrength, 0.8f, Moon.SpinLongitudeRad, Moon.LibrationLatitudeRad});
             MoonSlots.push_back({static_cast<float>(static_cast<uint32_t>(Moon.Preset)),
                                  Moon.SurfaceBrightness,
                                  Moon.RollAngleRad,
-                                 0.0f});
+                                 Haze});
+            MoonSlots.push_back({HazeTint.X, HazeTint.Y, HazeTint.Z, Haze});
         }
 
         const uint32_t PlanetFirst = static_cast<uint32_t>(PlanetSlots.size() / kPlanetRecordFloat4Stride);
@@ -531,8 +535,27 @@ PackedEnsemblePayload PackEnsemblePayload(const PlanetaryRealmEnsemble& Ensemble
                               static_cast<float>(Realm.CustomStars.size()),
                               Realm.CloudShadowHalfSpanM,
                               Realm.CloudWindSeconds});
+        const uint32_t ForceFirst = static_cast<uint32_t>(ForceSourceSlots.size() / kForceSourceFloat4Stride);
+        const uint32_t ForceCount = Realm.ForceField.AppendGpuForceRecords(ForceSourceSlots);
+        const auto&    WindProf   = Realm.ForceField.WindProfile();
+        const float    HasSources = (ForceCount > 0u) ? 1.0f : 0.0f;
+        const float    EffWindSpd = (Realm.ForceField.ElapsedSeconds() > 0.0 || HasSources > 0.0f)
+                                        ? static_cast<float>(WindProf.SpeedMetersPerSecond)
+                                        : 0.0f;
+        const float    EffWindSec = (Realm.ForceField.ElapsedSeconds() > 0.0)
+                                        ? static_cast<float>(Realm.ForceField.ElapsedSeconds())
+                                        : Realm.CloudWindSeconds;
+
         RealmSlots.push_back({Realm.StarBasisRow0[0], Realm.StarBasisRow0[1], Realm.StarBasisRow0[2], Realm.TwilightStrength});
         RealmSlots.push_back({Realm.StarBasisRow1[0], Realm.StarBasisRow1[1], Realm.StarBasisRow1[2], Realm.StarLimitingMagnitude});
+        RealmSlots.push_back({static_cast<float>(WindProf.BearingRadians),
+                              EffWindSpd,
+                              static_cast<float>(WindProf.ShearPerKilometer),
+                              static_cast<float>(WindProf.VeerRadiansPerKilometer)});
+        RealmSlots.push_back({static_cast<float>(ForceFirst),
+                              static_cast<float>(ForceCount),
+                              static_cast<float>(WindProf.GustAmplitude),
+                              EffWindSec});
     }
 
     for (const PortalAperture& Portal : Ensemble.Portals)
@@ -649,6 +672,7 @@ PackedEnsemblePayload PackEnsemblePayload(const PlanetaryRealmEnsemble& Ensemble
     const uint32_t PortalOffset      = AppendTable(PortalSlots);
     const uint32_t FlareSourceOffset = AppendTable(FlareSourceSlots);
     const uint32_t CustomStarOffset  = AppendTable(CustomStarSlots);
+    const uint32_t ForceSourceOffset = AppendTable(ForceSourceSlots);
 
     const float TanHalfY = std::tan(0.5f * View.VerticalFovRad);
     const float Aspect   = static_cast<float>(std::max(1u, View.ViewportWidth)) /
@@ -680,8 +704,8 @@ PackedEnsemblePayload PackEnsemblePayload(const PlanetaryRealmEnsemble& Ensemble
                 static_cast<float>(View.FrameIndex)};
     Slots[9] = {static_cast<float>(View.ViewportWidth),
                 static_cast<float>(View.ViewportHeight),
-                0.0f,
-                0.0f};
+                static_cast<float>(ForceSourceOffset),
+                static_cast<float>(ForceSourceSlots.size() / kForceSourceFloat4Stride)};
 
     return Out;
 }
@@ -697,7 +721,7 @@ bool PlanetarySubmissionSequence::Initialize(VulkanComputeExchange& Exchange,
                                              std::string*           OutDiagnostic)
 {
     if (!Visibility_.Initialize(Exchange, ShaderBinaryDirectory, OutDiagnostic) ||
-        !SkyLuts_.Initialize(Exchange, ShaderBinaryDirectory, OutDiagnostic) ||
+        !AtmosphereLuts_.Initialize(Exchange, ShaderBinaryDirectory, OutDiagnostic) ||
         !PlanetaryDome_.Initialize(Exchange, ShaderBinaryDirectory, LunaSourceJpgPath, HipparcosCsvPath, OutDiagnostic) ||
         !Clouds_.Initialize(Exchange, ShaderBinaryDirectory, OutDiagnostic) ||
         !Fog_.Initialize(Exchange, ShaderBinaryDirectory, OutDiagnostic) ||
@@ -715,7 +739,7 @@ void PlanetarySubmissionSequence::Shutdown(VulkanComputeExchange& Exchange) noex
     Fog_.Shutdown(Exchange);
     Clouds_.Shutdown(Exchange);
     PlanetaryDome_.Shutdown(Exchange);
-    SkyLuts_.Shutdown(Exchange);
+    AtmosphereLuts_.Shutdown(Exchange);
     Visibility_.Shutdown(Exchange);
     Exchange.ReleaseImage(HdrFrameTarget_);
     Exchange.ReleaseMemorySpan(EnsembleSpan_);
@@ -749,49 +773,49 @@ bool PlanetarySubmissionSequence::ExecuteFrame(VulkanComputeExchange&        Exc
         return false;
     }
 
-    std::vector<SkyRealmRevision> Revisions;
+    std::vector<AtmosphereRealmRevision> Revisions;
     Revisions.reserve(Ensemble.Realms.size());
     for (const PlanetaryRealm& Realm : Ensemble.Realms)
     {
         Revisions.push_back({Realm.AtmosphereRevision, Realm.SkyViewRevision});
     }
 
-    // 1. Dirty-gated per-realm Transmittance (256x64xR), Multi-Scattering (32x32xR), and Sky-View (192x108xR) LUTs
-    if (!SkyLuts_.Execute(Exchange, EnsembleSpan_, Revisions))
+    // 1. Dirty-gated per-realm Transmittance (256x64xR), Multi-Scattering (32x32xR), and AtmosphereProjection (192x108xR) LUTs
+    if (!AtmosphereLuts_.Execute(Exchange, EnsembleSpan_, Revisions))
     {
         return false;
     }
 
     // 2. Orthographic 256x256xR CloudShadowProjection per realm (sampled by VisibilityProjection + FogSpace)
     if (!Clouds_.ExecuteShadowProjections(
-            Exchange, EnsembleSpan_, SkyLuts_, static_cast<uint32_t>(Ensemble.Realms.size()), Visibility_.VisibilityArray()))
+            Exchange, EnsembleSpan_, AtmosphereLuts_, static_cast<uint32_t>(Ensemble.Realms.size()), Visibility_.VisibilityArray()))
     {
         return false;
     }
 
     // 3. Multi-realm & cross-portal VisibilityProjection (reversed-Z depth + cloud-shadowed + moonlit opaque surfaces + glass)
-    if (!Visibility_.Execute(Exchange, EnsembleSpan_, SkyLuts_, Clouds_, W, H, CameraView.FrameIndex))
+    if (!Visibility_.Execute(Exchange, EnsembleSpan_, AtmosphereLuts_, Clouds_, W, H, CameraView.FrameIndex))
     {
         return false;
     }
 
-    // 4. Planetary Dome (sky + twilight + Hipparcos twinkling stars + 2K 6-body lunar atlas + ringed planets + suns)
+    // 4. Planetary Dome (atmosphere + twilight + Hipparcos twinkling stars + 2K 6-body hazy lunar atlas + ringed planets + suns)
     if (!PlanetaryDome_.Execute(
-            Exchange, EnsembleSpan_, SkyLuts_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H))
+            Exchange, EnsembleSpan_, AtmosphereLuts_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H))
     {
         return false;
     }
 
-    // 5. Volumetric Clouds (non-tiled 3D procedural global slabs + bounded local boxes + realm/depth bilateral temporal filter)
+    // 5. Volumetric Clouds (non-tiled 3D procedural global slabs + ForceField tornado funnel + bounded local boxes + temporal filter)
     if (!Clouds_.ExecuteTraceAndReconstruct(
-            Exchange, EnsembleSpan_, SkyLuts_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H, CameraView.FrameIndex))
+            Exchange, EnsembleSpan_, AtmosphereLuts_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H, CameraView.FrameIndex))
     {
         return false;
     }
 
-    // 6. FogSpace (analytic height fog + planet-curved aerial perspective + 3D froxel fog + cloud-shadowed sun shafts + IES + lightning + fire)
+    // 6. FogSpace (analytic height fog + planet-curved aerial perspective + 3D froxel fog + ForceField dust/debris + emitters)
     if (!Fog_.Execute(
-            Exchange, EnsembleSpan_, SkyLuts_, Clouds_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H))
+            Exchange, EnsembleSpan_, AtmosphereLuts_, Clouds_, Visibility_.VisibilityArray(), HdrFrameTarget_, W, H))
     {
         return false;
     }

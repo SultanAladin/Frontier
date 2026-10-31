@@ -69,7 +69,7 @@ void VolumetricClouds::Shutdown(VulkanComputeExchange& Exchange) noexcept
 
 bool VolumetricClouds::ExecuteShadowProjections(VulkanComputeExchange&      Exchange,
                                                 const DeviceMemorySpan&     EnsembleSpan,
-                                                const SkyProjection&        SkyLuts,
+                                                const AtmosphereProjection& AtmosphereLuts,
                                                 uint32_t                    RealmCount,
                                                 const DeviceImageArraySlot& PlaceholderVisibility)
 {
@@ -88,7 +88,7 @@ bool VolumetricClouds::ExecuteShadowProjections(VulkanComputeExchange&      Exch
                               {0.0f, 0.0f, 0.0f, 0.0f}};
         const std::array<ComputeDescriptorArgument, 5> Args{{
             {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &EnsembleSpan, nullptr},
-            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.TransmittanceArray()},
+            {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.TransmittanceArray()},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &PlaceholderVisibility},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &CloudShadowArray_},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &CloudWorkArray_},
@@ -109,7 +109,7 @@ bool VolumetricClouds::ExecuteShadowProjections(VulkanComputeExchange&      Exch
 
 bool VolumetricClouds::ExecuteTraceAndReconstruct(VulkanComputeExchange&      Exchange,
                                                   const DeviceMemorySpan&     EnsembleSpan,
-                                                  const SkyProjection&        SkyLuts,
+                                                  const AtmosphereProjection& AtmosphereLuts,
                                                   const DeviceImageArraySlot& VisibilityImage,
                                                   DeviceImageArraySlot&       HdrFrameTarget,
                                                   uint32_t                    ViewportWidth,
@@ -129,7 +129,7 @@ bool VolumetricClouds::ExecuteTraceAndReconstruct(VulkanComputeExchange&      Ex
     const PushHeader TracePush{{ViewportWidth, ViewportHeight, FrameIndex, 0u}, {0.0f, 0.0f, 0.0f, 0.0f}};
     const std::array<ComputeDescriptorArgument, 5> Args{{
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &EnsembleSpan, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.TransmittanceArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.TransmittanceArray()},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &VisibilityImage},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &CloudWorkArray_},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HdrFrameTarget},

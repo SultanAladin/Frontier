@@ -51,6 +51,11 @@ void ProjectCloudShadowMain(uint3 Tid : SV_DispatchThreadID)
                                 Ensemble[RealmOffset + 4u].y,
                                 (Uv.y * 2.0f - 1.0f) * HalfSpanM);
 
+    float VortexNearT = 1.0e30f;
+    float VortexFarT  = 0.0f;
+    bool  HitVortex   = IntersectActiveVortexColumns(
+        Ensemble, RealmId, GroundPoint, PrimarySunDirection, 18000.0f, VortexNearT, VortexFarT);
+
     float τAccum         = 0.0f;
     float WeightedHeight = 0.0f;
     for (uint CloudIdx = 0u; CloudIdx < CloudCount; ++CloudIdx)
@@ -65,6 +70,11 @@ void ProjectCloudShadowMain(uint3 Tid : SV_DispatchThreadID)
         float UpperY = (C2.w > 0.5f) ? (C3.y + C4.y) : (C0.x + C0.y);
         float NearT  = max(0.0f, (LowerY - GroundPoint.y) / PrimarySunDirection.y);
         float FarT   = max(NearT, (UpperY - GroundPoint.y) / PrimarySunDirection.y);
+        if (C2.w <= 0.5f && HitVortex && CloudIdx == 0u)
+        {
+            NearT = min(NearT, VortexNearT);
+            FarT  = max(FarT, VortexFarT);
+        }
         if (FarT <= NearT)
         {
             continue;
@@ -74,7 +84,7 @@ void ProjectCloudShadowMain(uint3 Tid : SV_DispatchThreadID)
         for (int Step = 0; Step < kSteps; ++Step)
         {
             float3 SamplePos   = GroundPoint + PrimarySunDirection * (NearT + (float(Step) + 0.5f) * Δs);
-            float  σExtinction = EvaluateCloudExtinctionAtPoint(Ensemble, CloudOffset, SamplePos);
+            float  σExtinction = EvaluateCloudExtinctionAtPoint(Ensemble, RealmId, CloudOffset, SamplePos);
             if (σExtinction > 0.0f)
             {
                 float Δτ = σExtinction * Δs;

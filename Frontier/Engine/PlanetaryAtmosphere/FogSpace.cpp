@@ -575,7 +575,7 @@ void FogSpace::Shutdown(VulkanComputeExchange& Exchange) noexcept
 
 bool FogSpace::Execute(VulkanComputeExchange&      Exchange,
                        const DeviceMemorySpan&     EnsembleSpan,
-                       const SkyProjection&        SkyLuts,
+                       const AtmosphereProjection& AtmosphereLuts,
                        const VolumetricClouds&     Clouds,
                        const DeviceImageArraySlot& VisibilityImage,
                        DeviceImageArraySlot&       HdrFrameTarget,
@@ -585,8 +585,8 @@ bool FogSpace::Execute(VulkanComputeExchange&      Exchange,
     const PushHeader Push{{ViewportWidth, ViewportHeight, 0u, 0u}, {0.0f, 0.0f, 0.0f, 0.0f}};
     const std::array<ComputeDescriptorArgument, 6> Args{{
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &EnsembleSpan, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.TransmittanceArray()},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &SkyLuts.MultiScatteringArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.TransmittanceArray()},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &AtmosphereLuts.MultiScatteringArray()},
         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &Clouds.CloudShadowArray()},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &VisibilityImage},
         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HdrFrameTarget},

@@ -6,14 +6,15 @@
 
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
 #include "Engine/GeometricRaster/VisibilityProjection.h"
+#include "Engine/PhysicalDynamics/ForceField.h"
 #include "Engine/PlanetaryAtmosphere/AstronomicalEphemeris.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereProjection.h"
 #include "Engine/PlanetaryAtmosphere/AtmosphereScattering.h"
 #include "Engine/PlanetaryAtmosphere/CloudSpace.h"
 #include "Engine/PlanetaryAtmosphere/FogSpace.h"
 #include "Engine/PlanetaryAtmosphere/OpticalLensFlare.h"
 #include "Engine/PlanetaryAtmosphere/PlanetaryEnsemble.h"
 #include "Engine/PlanetaryAtmosphere/PlanetaryProjection.h"
-#include "Engine/PlanetaryAtmosphere/SkyProjection.h"
 #include "Engine/PlanetaryAtmosphere/VolumetricClouds.h"
 
 #include <stb_image_write.h>
@@ -229,6 +230,98 @@ void VerifyPhysicalOracles(const std::filesystem::path& RepoRoot)
         const Vec3 NewRad     = Dome.EvaluateLunarBody(Moon, ProbeView, NormVec3(0.0f, 0.8f, 0.6f), {18.0f, 18.0f, 18.0f}, 0.001f, NewCov);
         REQUIRE_ENV(FullCov > 0.99f && FullRad.Y > QuarterRad.Y && QuarterRad.Y > NewRad.Y && NewRad.Z > 0.0f,
                     "Lunar Lommel-Seeliger phase curve and earthshine must satisfy Full > Quarter > New > 0");
+
+        // Verify Hazy Lunar Atmospheres (limb optical depth + off-limb atmospheric corona scattering)
+        LunarBodyDescriptor ShroudMoon{};
+        ShroudMoon.Preset           = LunarBodyPreset::Shroud;
+        ShroudMoon.DirectionUnit    = NormVec3(0.0f, 1.0f, 0.0f);
+        ShroudMoon.AngularRadiusRad = 0.05f;
+
+        LunarBodyDescriptor AirlessLuna = ShroudMoon;
+        AirlessLuna.Preset              = LunarBodyPreset::Luna;
+
+        REQUIRE_ENV(ResolveLunarAtmosphereHaze(ShroudMoon) > 0.60f &&
+                        ResolveLunarAtmosphereHaze(AirlessLuna) < 0.08f,
+                    "Shroud must resolve dense atmospheric haze (>0.60) while Luna remains near-vacuum (<0.08)");
+
+        float      ShroudOffLimbCov = 0.0f, LunaOffLimbCov = 0.0f;
+        const Vec3 OffLimbDir = NormVec3(0.0535f, 1.0f, 0.0f); // 1.07x AngularRadius (outside solid disc, inside atmospheric shell)
+        const Vec3 ShroudHalo = Dome.EvaluateLunarBody(ShroudMoon, OffLimbDir, NormVec3(0.2f, -0.8f, -0.5f), {18.0f, 18.0f, 18.0f}, 0.001f, ShroudOffLimbCov);
+        const Vec3 LunaHalo   = Dome.EvaluateLunarBody(AirlessLuna, OffLimbDir, NormVec3(0.2f, -0.8f, -0.5f), {18.0f, 18.0f, 18.0f}, 0.001f, LunaOffLimbCov);
+        REQUIRE_ENV(ShroudOffLimbCov == 0.0f && LunaOffLimbCov == 0.0f &&
+                        (ShroudHalo.X + ShroudHalo.Y + ShroudHalo.Z) > (LunaHalo.X + LunaHalo.Y + LunaHalo.Z) * 8.0f,
+                    "Hazy moon (Shroud) must emit glowing off-limb atmospheric corona without occluding background stars");
+
+        // Verify Unified 3D ForceField: Beaufort classification, Ekman shear, Tornado Vortex trigger, Gust Front, & Particle Solver
+        REQUIRE_ENV(ClassifyBeaufortWind(0.1).ForceNumber == 0u &&
+                        ClassifyBeaufortWind(12.0).ForceNumber == 6u &&
+                        ClassifyBeaufortWind(35.0).ForceNumber == 12u,
+                    "Beaufort wind scale must classify calm (0), strong breeze (6), and hurricane/tornado-inflow (12)");
+
+        ForceFieldSpace      ForceTest{};
+        PlanetaryWindProfile WindProf{};
+        WindProf.SpeedMetersPerSecond = 9.5;
+        WindProf.BearingRadians       = 0.35;
+        WindProf.GustAmplitude        = 0.0; // Fast-path zero-gust check
+        WindProf.ShearPerKilometer    = 0.45;
+        ForceTest.SetWindProfile(WindProf);
+
+        const SpatialVector ZeroGustLow  = ForceTest.SampleStep({10.0, 10.0, 0.0});
+        const SpatialVector ZeroGustHigh = ForceTest.SampleStep({10.0, 800.0, 0.0});
+        REQUIRE_ENV(std::hypot(ZeroGustHigh.X, ZeroGustHigh.Z) > std::hypot(ZeroGustLow.X, ZeroGustLow.Z),
+                    "Ekman vertical wind profile must shear/accelerate with altitude");
+
+        VortexColumnParameters TornadoSpec{};
+        TornadoSpec.GroundAnchorMeters      = {0.0, 0.0, 0.0};
+        TornadoSpec.TranslationVelocityMps  = {0.0, 0.0, 0.0};
+        TornadoSpec.ColumnHeightMeters      = 1100.0;
+        TornadoSpec.GroundCoreRadiusMeters  = 24.0;
+        TornadoSpec.CollarCoreRadiusMeters  = 88.0;
+        TornadoSpec.TangentialPeakSpeedMps  = 72.0;
+        TornadoSpec.RadialInflowSpeedMps    = 26.0;
+        TornadoSpec.AxialUpdraftSpeedMps    = 40.0;
+        TornadoSpec.SpineLeanXMeters        = 28.0;
+        TornadoSpec.SpineLeanZMeters        = 0.0;
+        TornadoSpec.CondensationStrength    = 0.94;
+        TornadoSpec.DebrisSkirtHeightMeters = 96.0;
+        TornadoSpec.DebrisExtinctionPerM    = 0.095;
+
+        const ForceSourceHandle VortexHandle = ForceTest.TriggerTornado(TornadoSpec, {0.5, 45.0, 2.0});
+        const ForceSourceHandle GustHandle   = ForceTest.TriggerGustFront(GustFrontParameters{}, {0.5, 30.0, 1.5});
+        const ForceSourceHandle BurstHandle  = ForceTest.TriggerMicroburst(MicroburstParameters{}, {0.5, 18.0, 1.5});
+        ForceTest.Step(2.0); // Advance past RampInSeconds so ActivationEnvelope == 1.0
+        REQUIRE_ENV(VortexHandle != 0u && GustHandle != 0u && BurstHandle != 0u && ForceTest.ActiveSources().size() == 3u,
+                    "ForceFieldSpace must register tornado vortex, traveling gust front, and radial microburst triggers");
+
+        const ForceFieldSample CoreWall  = ForceTest.EvaluateStepSample({34.0, 140.0, 0.0}, false);
+        const ForceFieldSample CoreAxis  = ForceTest.EvaluateStepSample({6.0, 180.0, 0.0}, false);
+        const ForceFieldSample CoreBase  = ForceTest.EvaluateStepSample({26.0, 18.0, 0.0}, false);
+        const SpatialVector    SwirlEddy = ForceTest.SampleSwirl({18.0, 90.0, 12.0});
+        REQUIRE_ENV(std::hypot(CoreWall.AirVelocityMps.X, CoreWall.AirVelocityMps.Z) > 36.0 &&
+                        CoreAxis.AirVelocityMps.Y > 18.0 &&
+                        CoreAxis.PressureDeficitPascals > 1800.0 &&
+                        CoreAxis.FunnelCondensationDensity > 0.35 &&
+                        CoreBase.ParticulateExtinctionPerM > 0.02 &&
+                        (std::abs(SwirlEddy.X) + std::abs(SwirlEddy.Y) + std::abs(SwirlEddy.Z)) > 0.05,
+                    "Triggered Burgers-Rott tornado must produce strong tangential swirl, central updraft, cyclostrophic Δp funnel, curl swirl, and ground debris skirt");
+
+        std::array<AerodynamicParticle, 6> Particles{{
+            {{280.0, 45.0, 0.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::RainDrop,   0.0024f, 0.0f, 0x11u, false},
+            {{280.0, 45.0, 4.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::SnowFlake,  0.0040f, 0.0f, 0x22u, false},
+            {{280.0, 45.0, 8.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::HailStone,  0.0120f, 0.0f, 0x33u, false},
+            {{16.0,  1.2,  0.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::FineDust,   0.00004f, 0.0f, 0x44u, false},
+            {{22.0,  0.0,  0.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::QuartzSand, 0.00028f, 0.0f, 0x55u, true},
+            {{20.0,  2.0,  0.0}, {0.0, 0.0, 0.0}, AerodynamicParticleSpecies::LoftedDebris, 0.035f, 0.0f, 0x66u, false},
+        }};
+        for (int Step = 0; Step < 30; ++Step)
+        {
+            ForceTest.StepParticles(Particles, 0.04);
+        }
+        REQUIRE_ENV(Particles[3].PositionMeters.Y > 6.0 &&
+                        Particles[4].PositionMeters.Y > 0.05 &&
+                        std::hypot(Particles[5].VelocityMps.X, Particles[5].VelocityMps.Z) > 10.0 &&
+                        Particles[2].PositionMeters.Y < Particles[1].PositionMeters.Y,
+                    "Aerodynamic + Bagnold saltation solver must loft dust/sand/debris in vortex inflow and separate hail vs snowflake terminal fall");
 
         PlanetaryBodyDescriptor Giant{};
         Giant.Archetype              = PlanetarySurfaceArchetype::BandedGasGiant;
@@ -643,30 +736,30 @@ void VerifyGpuPipelineAndRenderExhibits(const std::filesystem::path& RepoRoot,
               << " cell-indexed Hipparcos stars\n";
     REQUIRE_ENV(Sequence.PlanetaryDome().IndexedStarCount() > 30000u, "Hipparcos8.csv must index > 30,000 stars on GPU");
 
-    // 3A. Verify Multi-Realm Dirty-Gated SkyProjection Bakes + Numerical Readback
+    // 3A. Verify Multi-Realm Dirty-Gated AtmosphereProjection Bakes + Numerical Readback
     PlanetaryRealmEnsemble World    = BuildThreeRealmPortalWorld();
     PlanetaryCameraView    ProbeCam = MakeLookAtCamera(0u, {0.0f, 2.2f, 0.0f}, {0.0f, 2.5f, 10.0f}, 320u, 180u);
 
     REQUIRE_ENV(Sequence.ExecuteFrame(Exchange, World, ProbeCam), "Initial 3-realm GPU frame failed");
-    REQUIRE_ENV(Sequence.SkyLuts().LastAtmosphereBakedCount() == 3u &&
-                    Sequence.SkyLuts().LastSkyViewBakedCount() == 3u,
+    REQUIRE_ENV(Sequence.AtmosphereLuts().LastAtmosphereBakedCount() == 3u &&
+                    Sequence.AtmosphereLuts().LastSkyViewBakedCount() == 3u,
                 "First frame must bake all 3 realm LUT slices");
 
     ProbeCam.FrameIndex = 1u;
     REQUIRE_ENV(Sequence.ExecuteFrame(Exchange, World, ProbeCam), "Steady GPU frame failed");
-    REQUIRE_ENV(Sequence.SkyLuts().LastAtmosphereBakedCount() == 0u &&
-                    Sequence.SkyLuts().LastSkyViewBakedCount() == 0u,
-                "Unchanged revisions must trigger zero SkyProjection dispatches");
+    REQUIRE_ENV(Sequence.AtmosphereLuts().LastAtmosphereBakedCount() == 0u &&
+                    Sequence.AtmosphereLuts().LastSkyViewBakedCount() == 0u,
+                "Unchanged revisions must trigger zero AtmosphereProjection dispatches");
 
     World.Realms[0].SkyViewRevision++;
     ProbeCam.FrameIndex = 2u;
     REQUIRE_ENV(Sequence.ExecuteFrame(Exchange, World, ProbeCam), "SkyView-dirty GPU frame failed");
-    REQUIRE_ENV(Sequence.SkyLuts().LastAtmosphereBakedCount() == 0u &&
-                    Sequence.SkyLuts().LastSkyViewBakedCount() == 1u,
+    REQUIRE_ENV(Sequence.AtmosphereLuts().LastAtmosphereBakedCount() == 0u &&
+                    Sequence.AtmosphereLuts().LastSkyViewBakedCount() == 1u,
                 "Per-realm SkyView dirty gate must rebake only the single modified realm slice");
 
     std::vector<float> GpuTrans0;
-    REQUIRE_ENV(Sequence.SkyLuts().ReadbackTransmittanceLayer(Exchange, 0u, GpuTrans0),
+    REQUIRE_ENV(Sequence.AtmosphereLuts().ReadbackTransmittanceLayer(Exchange, 0u, GpuTrans0),
                 "GPU Transmittance LUT readback failed");
     const size_t ZenithIdx = (2u * kTransmittanceLutWidth + 12u) * 4u;
     const size_t LimbIdx   = (2u * kTransmittanceLutWidth + 240u) * 4u;
@@ -991,6 +1084,97 @@ void VerifyGpuPipelineAndRenderExhibits(const std::filesystem::path& RepoRoot,
 
         const auto Cam = MakeLookAtCamera(0u, {0.0f, 2.2f, 0.0f}, {0.0f, 3.3f, 14.0f}, kExhibitW, kExhibitH, 68.0f, 2.35f);
         (void)SaveExhibit("LunarSixBodyRoster.png", Cam, RosterWorld);
+    }
+
+    // Exhibit 8: Triggered Tornado Supercell Vortex + Rotating Wall Cloud + Lofted Dust/Debris Skirt (ForceField GPU Coupling)
+    {
+        PlanetaryRealmEnsemble StormWorld{};
+        StormWorld.Realms.resize(1u);
+        PlanetaryRealm& R        = StormWorld.Realms[0];
+        R.Atmosphere             = MakeEarthAtmosphere();
+        R.Atmosphere.MieScattering *= 1.55;
+        R.ObserverAltitudeKm     = 0.014f;
+        R.GroundPlaneY           = 0.0f;
+        R.GroundAlbedoRgb        = {0.28f, 0.25f, 0.20f};
+        R.CloudShadowHalfSpanM   = 1800.0f;
+        R.AtmosphereRevision     = 601u;
+        R.SkyViewRevision        = 701u;
+
+        // Low dramatic side-oblique sun illuminating the funnel cylinder, rotating wall cloud, and ochre dust collar
+        RealmSolarSource StormSun{};
+        StormSun.DirectionUnit   = Norm3(-0.76f, 0.32f, -0.56f);
+        StormSun.DiscIrradiance  = {1.48f, 1.34f, 1.18f};
+        StormSun.EnableLensFlare = false;
+        R.Suns.push_back(StormSun);
+
+        // Supercell tropospheric cloud deck: the triggered ForceField vortex twists the wall cloud AND
+        // condenses the curved-spine tornado funnel all the way from cloud base (340 m) down to ground touchdown!
+        CloudVolumeProfile SupercellDeck{};
+        SupercellDeck.Domain              = CloudVolumeDomain::PlanetarySlab;
+        SupercellDeck.Slab.LowerHeightM   = 340.0;
+        SupercellDeck.Slab.TopHeightM     = 1350.0;
+        SupercellDeck.Slab.Coverage       = 0.66;
+        SupercellDeck.Slab.DensityScale   = 1.85;
+        SupercellDeck.Slab.ExtinctionPerM = 0.072;
+        R.CloudVolumes.push_back(SupercellDeck);
+
+        // Configure ambient sheared storm inflow + trigger Burgers-Rott Tornado Vortex + Haboob Gust Front
+        PlanetaryWindProfile StormWind{};
+        StormWind.SpeedMetersPerSecond = 16.5;
+        StormWind.BearingRadians       = 0.42;
+        StormWind.ShearPerKilometer    = 0.38;
+        StormWind.GustAmplitude        = 0.28;
+        R.ForceField.SetWindProfile(StormWind);
+
+        VortexColumnParameters Funnel{};
+        Funnel.GroundAnchorMeters      = {8.0, 0.0, 320.0};
+        Funnel.TranslationVelocityMps  = {0.0, 0.0, 0.0};
+        Funnel.SpineLeanXMeters        = 46.0;
+        Funnel.SpineLeanZMeters        = -18.0;
+        Funnel.ColumnHeightMeters      = 420.0;
+        Funnel.GroundCoreRadiusMeters  = 16.0;
+        Funnel.CollarCoreRadiusMeters  = 78.0;
+        Funnel.TangentialPeakSpeedMps  = 78.0;
+        Funnel.RadialInflowSpeedMps    = 28.0;
+        Funnel.AxialUpdraftSpeedMps    = 42.0;
+        Funnel.CondensationStrength    = 0.98;
+        Funnel.DebrisSkirtHeightMeters = 92.0;
+        Funnel.DebrisExtinctionPerM    = 0.048;
+        Funnel.DebrisAlbedoRgb         = {0.68, 0.50, 0.32};
+        (void)R.ForceField.TriggerTornado(Funnel, {0.5, 60.0, 2.0});
+
+        GustFrontParameters OutflowGust{};
+        OutflowGust.OriginMeters           = {-145.0, 0.0, 360.0};
+        OutflowGust.PropagationDirectionXZ = {0.95, 0.0, 0.31};
+        OutflowGust.FrontSpeedMps          = 0.0;
+        OutflowGust.PeakGustSpeedMps       = 26.0;
+        OutflowGust.CrestDepthMeters       = 95.0;
+        OutflowGust.VerticalExtentMeters   = 96.0;
+        OutflowGust.LoftedDustExtinctionM  = 0.022;
+        OutflowGust.DustAlbedoRgb          = {0.72, 0.55, 0.36};
+        (void)R.ForceField.TriggerGustFront(OutflowGust, {0.5, 60.0, 2.0});
+        R.ForceField.Step(4.5); // Fully ramped tornado + gust swirl!
+
+        R.HeightFog.ReferenceDensity = 0.00028;
+        R.HeightFog.FalloffHeightM   = 55.0;
+
+        const auto StormCam = MakeLookAtCamera(0u, {0.0f, 11.0f, -55.0f}, {16.0f, 128.0f, 320.0f}, kExhibitW, kExhibitH, 58.0f, 1.48f);
+        const auto StormHdr = SaveExhibit("TornadoSupercellAndDustVortex.png", StormCam, StormWorld);
+
+        // Verify funnel column + dust collar produce strong horizontal HDR contrast against surrounding storm sky
+        const auto HdrLumAt = [&](uint32_t Px, uint32_t Py) -> float {
+            const size_t Off = (static_cast<size_t>(Py) * kExhibitW + Px) * 4u;
+            return 0.2126f * StormHdr[Off + 0u] + 0.7152f * StormHdr[Off + 1u] + 0.0722f * StormHdr[Off + 2u];
+        };
+        float MinMidRowLum = 1.0e9f, MaxMidRowLum = 0.0f;
+        for (uint32_t X = kExhibitW / 5u; X < (kExhibitW * 4u) / 5u; X += 4u)
+        {
+            const float L = HdrLumAt(X, (kExhibitH * 56u) / 100u);
+            MinMidRowLum  = std::min(MinMidRowLum, L);
+            MaxMidRowLum  = std::max(MaxMidRowLum, L);
+        }
+        REQUIRE_ENV(MaxMidRowLum > MinMidRowLum * 1.35f,
+                    "Triggered tornado condensation funnel and dust skirt must create clear horizontal storm contrast on GPU");
     }
 
     Sequence.Shutdown(Exchange);

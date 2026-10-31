@@ -127,6 +127,7 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
     uint FacetTable  = uint(Ensemble[7].x + 0.5f);
     uint FacetFirst  = uint(R12.z + 0.5f);
     uint FacetCount  = uint(R12.w + 0.5f);
+    uint ForceCount  = uint(Ensemble[RealmOffset + 17u].y + 0.5f);
 
     float3 SurfaceHdr = HdrFrame[uint3(Tid.xy, 0u)].rgb;
 
@@ -142,15 +143,17 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
         SurfaceHdr         = SurfaceHdr * AerialTrans + AerialIn * GlassTint;
     }
 
-    float MaxMarchM = IsSky ? 64.0f : min(HitDistM, 120.0f);
-    if (Hf0.x <= 0.0f && FogBoxCount == 0u)
+    float DefaultSpan = (ForceCount > 0u) ? 520.0f : 120.0f;
+    float MaxMarchM   = IsSky ? ((ForceCount > 0u) ? 520.0f : 64.0f) : min(HitDistM, DefaultSpan);
+    if (Hf0.x <= 0.0f && FogBoxCount == 0u && ForceCount == 0u)
     {
         HdrFrame[uint3(Tid.xy, 0u)] = float4(SurfaceHdr, 1.0f);
         return;
     }
 
-    // 2. Quadratic froxel volumetric fog integration (height fog + local 3D fog boxes + sun shafts + IES + lightning + fire)
+    // 2. Quadratic froxel volumetric fog integration (height fog + local 3D fog boxes + ForceField dust/debris + shafts + emitters)
     const int kSlices       = 36;
+    float     Jitter        = frac(52.9829189f * frac(0.06711056f * float(Tid.x) + 0.00583715f * float(Tid.y)));
     float     Transmittance = 1.0f;
     float3    InScatter     = float3(0.0f);
 
@@ -165,13 +168,15 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
         {
             continue;
         }
-        float  TMid      = 0.5f * (T0 + T1);
+        float  UMid      = (float(Slice) + Jitter) / float(kSlices);
+        float  TMid      = MaxMarchM * (UMid * UMid);
         float3 SamplePos = RayOrigin + RayDir * TMid;
 
-        float σHeight   = (TMid >= Hf1.x) ? FogHeightDensityAtY(Hf0, SamplePos.y) : 0.0f;
-        float σExt      = σHeight;
-        float σScatter  = σHeight * Hf1.z;
-        float Weighted𝑔 = σScatter * Hf1.y;
+        float  σHeight     = (TMid >= Hf1.x) ? FogHeightDensityAtY(Hf0, SamplePos.y) : 0.0f;
+        float  σExt        = σHeight;
+        float3 σScatterRgb = float3(σHeight * Hf1.z);
+        float  σScatterSum = σHeight * Hf1.z;
+        float  Weighted𝑔   = σScatterSum * Hf1.y;
 
         for (uint FIdx = 0u; FIdx < FogBoxCount; ++FIdx)
         {
@@ -180,20 +185,38 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
                 Ensemble, FogBoxTable + (FogBoxFirst + FIdx) * kFogBoxStride, SamplePos, TimeSeconds, BoxAlbedo, Box𝑔);
             if (σBox > 0.0f)
             {
-                σExt      += σBox;
-                σScatter  += σBox * BoxAlbedo;
-                Weighted𝑔 += σBox * BoxAlbedo * Box𝑔;
+                σExt        += σBox;
+                σScatterRgb += float3(σBox * BoxAlbedo);
+                σScatterSum += σBox * BoxAlbedo;
+                Weighted𝑔   += σBox * BoxAlbedo * Box𝑔;
+            }
+        }
+        float  DustFraction = 0.0f;
+        if (ForceCount > 0u)
+        {
+            float3 DustAlbedo;
+            float  Dust𝑔;
+            float  σDust = EvaluateForceFieldParticulateExtinction(
+                Ensemble, RealmId, SamplePos, TimeSeconds, DustAlbedo, Dust𝑔);
+            if (σDust > 0.0f)
+            {
+                float MeanDustAlb = (DustAlbedo.x + DustAlbedo.y + DustAlbedo.z) * (1.0f / 3.0f);
+                σExt        += σDust;
+                σScatterRgb += σDust * DustAlbedo;
+                σScatterSum += σDust * MeanDustAlb;
+                Weighted𝑔   += σDust * MeanDustAlb * Dust𝑔;
+                DustFraction = saturate(σDust / max(σExt, 1.0e-6f));
             }
         }
         if (σExt <= 1.0e-7f)
         {
             continue;
         }
-        float 𝑔Mean = (σScatter > 1.0e-7f) ? (Weighted𝑔 / σScatter) : 0.0f;
+        float 𝑔Mean = (σScatterSum > 1.0e-7f) ? (Weighted𝑔 / σScatterSum) : 0.0f;
 
         float3 Luminance = float3(0.012f, 0.016f, 0.024f);
 
-        // Solar crepuscular shafts modulated by 3D-aligned CloudShadow + sphere shadow rays
+        // Solar crepuscular shafts + diffuse multi-scattered skylight for lofted sand/dust/debris particulates
         for (uint SunIdx = 0u; SunIdx < SunCount; ++SunIdx)
         {
             uint   SunOffset       = SunSlotOffset(Ensemble, SunFirst + SunIdx);
@@ -226,6 +249,13 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
                 TransLut, RealmId, R0.x, R0.y, R0.x + max(R0.z, 1.0e-3f), SolarDirection.y);
             float  Phase   = HenyeyGreensteinValue(dot(RayDir, SolarDirection), 𝑔Mean);
             Luminance     += SolarIrradiance * AtmoTr * (CloudTr * Phase);
+            if (DustFraction > 0.0f)
+            {
+                // Multi-scattered overcast storm skylight + warm ground bounce illuminating lofted ochre dust/debris
+                float2 MultiUv  = saturate(float2(0.5f + 0.5f * SolarDirection.y, max(R0.z, 1.0e-3f) / max(R0.y - R0.x, 1.0e-3f)));
+                float3 ΨMulti   = MultiLut.SampleLevel(float3(MultiUv, float(RealmId)), 0.0f).rgb;
+                Luminance      += DustFraction * SolarIrradiance * (ΨMulti * 0.95f + AtmoTr * 0.085f);
+            }
         }
 
         // Clustered IES / spot luminaires
@@ -282,8 +312,8 @@ void IntegrateFogSpaceMain(uint3 Tid : SV_DispatchThreadID)
             }
         }
 
-        float StepTr = exp(-σExt * Δs);
-        float IntW   = (σScatter / σExt) * (1.0f - StepTr);
+        float  StepTr = exp(-σExt * Δs);
+        float3 IntW   = (σScatterRgb / σExt) * (1.0f - StepTr);
         InScatter     += Transmittance * Luminance * IntW;
         Transmittance *= StepTr;
     }

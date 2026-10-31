@@ -1,14 +1,20 @@
 #============================================================================================================================================
 #                                                     ENVIRONMENTRENDERING.CMAKE
 #============================================================================================================================================
-# 🧩 Multi-instance, portal-ready PlanetaryAtmosphere + GeometricRaster + DeviceExchange C++20 archive, Slang SPIR-V shaders, and CTest suite.
+# 🧩 Multi-instance PlanetaryAtmosphere + ForceField + GeometricRaster Cluster-DAG + (#if FRONTIER_EDITOR) DiagnosticRaster + Slang SPIR-V.
 
 add_library(FrontierEnvironmentRendering STATIC
     Frontier/Engine/DeviceExchange/VulkanComputeExchange.cpp
     Frontier/Engine/GeometricRaster/VisibilityProjection.cpp
+    Frontier/Engine/GeometricRaster/FacetTierBuild.cpp
+    Frontier/Engine/GeometricRaster/QuadricTierBuild.cpp
+    Frontier/Engine/GeometricRaster/ProceduralShapes.cpp
+    Frontier/Engine/GeometricRaster/ClusterHierarchy.cpp
+    Frontier/Engine/GeometricRaster/DiagnosticRaster.cpp
+    Frontier/Engine/PhysicalDynamics/ForceField.cpp
     Frontier/Engine/PlanetaryAtmosphere/AtmosphereScattering.cpp
     Frontier/Engine/PlanetaryAtmosphere/AstronomicalEphemeris.cpp
-    Frontier/Engine/PlanetaryAtmosphere/SkyProjection.cpp
+    Frontier/Engine/PlanetaryAtmosphere/AtmosphereProjection.cpp
     Frontier/Engine/PlanetaryAtmosphere/PlanetaryProjection.cpp
     Frontier/Engine/PlanetaryAtmosphere/CloudSpace.cpp
     Frontier/Engine/PlanetaryAtmosphere/VolumetricClouds.cpp
@@ -24,11 +30,27 @@ add_library(FrontierEnvironmentRendering STATIC
 target_include_directories(FrontierEnvironmentRendering PUBLIC
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Engine/Interface"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
 target_include_directories(FrontierEnvironmentRendering PRIVATE
     "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_compile_definitions(FrontierEnvironmentRendering PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(FrontierEnvironmentRendering PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
+
+# Shipping-profile compile-time verification target: compiles DiagnosticRaster.cpp + DiagnosticShippingExclusionCheck.cpp
+# strictly under FRONTIER_SHIPPING_PROFILE=1 / FRONTIER_EDITOR=0 so Shipping builds never include debug/preview rasterizers.
+add_library(FrontierDiagnosticShippingCheck STATIC
+    Frontier/Engine/GeometricRaster/DiagnosticRaster.cpp
+    Exhibits/ClusterDiagnostic/Code/DiagnosticShippingExclusionCheck.cpp)
+target_include_directories(FrontierDiagnosticShippingCheck PRIVATE
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/Frontier"
+    "${CMAKE_SOURCE_DIR}/Engine/Interface"
+    "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+target_compile_definitions(FrontierDiagnosticShippingCheck PRIVATE
+    VK_NO_PROTOTYPES
+    FRONTIER_SHIPPING_PROFILE=1
+    FRONTIER_EDITOR=0)
 
 find_program(FRONTIER_ENV_SLANGC
     NAMES slangc
@@ -38,6 +60,7 @@ set(FRONTIER_ENV_SHADER_SRC "${CMAKE_SOURCE_DIR}/Frontier/Engine/Shaders")
 set(FRONTIER_ENV_SHADER_OUT "${CMAKE_BINARY_DIR}/ShaderArchives/Environment")
 set(FRONTIER_ENV_COMMON_SLANG
     "${FRONTIER_ENV_SHADER_SRC}/PlanetaryRecords.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/ForceField.slang"
     "${FRONTIER_ENV_SHADER_SRC}/AtmosphereScattering.slang"
     "${FRONTIER_ENV_SHADER_SRC}/CloudSynthesis.slang")
 
@@ -45,7 +68,7 @@ set(FRONTIER_ENV_COMMON_SLANG
 set(FRONTIER_ENV_SHADER_SPECS
     "AtmosphereScattering:BakeTransmittanceLutMain:BakeTransmittanceLut:-DATMOSPHERE_LUT_KERNEL=1"
     "AtmosphereScattering:BakeMultiScatterLutMain:BakeMultiScatterLut:-DATMOSPHERE_LUT_KERNEL=1"
-    "SkyProjection:BakeSkyViewLutMain:BakeSkyViewLut:"
+    "AtmosphereProjection:BakeAtmosphereProjectionLutMain:BakeAtmosphereProjectionLut:"
     "VisibilityProjection:RasterizeVisibilityProjectionMain:RasterizeVisibilityProjection:"
     "PlanetaryProjection:RasterizePlanetaryProjectionMain:RasterizePlanetaryProjection:"
     "CloudShadowProjection:ProjectCloudShadowMain:ProjectCloudShadow:"
@@ -53,7 +76,9 @@ set(FRONTIER_ENV_SHADER_SPECS
     "VolumetricClouds:ReconstructVolumetricCloudsMain:ReconstructVolumetricClouds:"
     "FogSpace:IntegrateFogSpaceMain:IntegrateFogSpace:"
     "OpticalLensFlare:EvaluateFlareVisibilityMain:EvaluateFlareVisibility:"
-    "OpticalLensFlare:CompositeFlareApertureMain:CompositeFlareAperture:")
+    "OpticalLensFlare:CompositeFlareApertureMain:CompositeFlareAperture:"
+    "DiagnosticRaster:BinDiagnosticTilesMain:BinDiagnosticTiles:"
+    "DiagnosticRaster:ResolveDiagnosticViewMain:ResolveDiagnosticView:")
 
 set(FRONTIER_ENV_SPV_OUTPUTS)
 if(FRONTIER_ENV_SLANGC)
@@ -105,4 +130,34 @@ if(BUILD_TESTING)
         "${FRONTIER_ENV_SHADER_OUT}"
         "${CMAKE_BINARY_DIR}/environment-realm-exhibits")
     set_tests_properties(EnvironmentRealmValidation PROPERTIES RUN_SERIAL TRUE)
+
+    add_executable(ClusterDiagnosticValidation
+        Exhibits/ClusterDiagnostic/Code/ClusterDiagnosticValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(ClusterDiagnosticValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_compile_definitions(ClusterDiagnosticValidation PRIVATE FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
+    target_link_libraries(ClusterDiagnosticValidation PRIVATE
+        FrontierEnvironmentRendering
+        FrontierDiagnosticShippingCheck
+        FrontierInterface)
+    if(TARGET FrontierEnvironmentShaders)
+        add_dependencies(ClusterDiagnosticValidation FrontierEnvironmentShaders)
+    endif()
+    add_test(NAME ClusterDiagnosticValidation COMMAND ClusterDiagnosticValidation
+        "${CMAKE_SOURCE_DIR}"
+        "${FRONTIER_ENV_SHADER_OUT}"
+        "${CMAKE_BINARY_DIR}/cluster-diagnostic-exhibits")
+    set_tests_properties(ClusterDiagnosticValidation PROPERTIES RUN_SERIAL TRUE)
+
+    add_executable(ProjectContentStagingValidation
+        Exhibits/ProjectSpace/Code/ProjectContentStagingValidation.cpp)
+    target_link_libraries(ProjectContentStagingValidation PRIVATE
+        FrontierEnvironmentRendering
+        FrontierSceneEditorUI)
+    if(TARGET StageContent_Everest)
+        add_dependencies(ProjectContentStagingValidation StageContent_Everest)
+    endif()
+    add_test(NAME ProjectContentStagingValidation COMMAND ProjectContentStagingValidation
+        "${CMAKE_SOURCE_DIR}/Projects/Everest"
+        "/tmp/frontier-standalone-everest-sandbox")
 endif()
