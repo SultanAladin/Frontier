@@ -159,9 +159,14 @@ Project Everest lives independently in `Projects/Everest/` (never inside `Engine
 project codename — never introduce mountain, alpine, terrain, or weather-station gimmicks. Zero `Everest` identifiers
 or project-specific types belong in `Engine/` or `UI/Editor/`.
 
-- **Banned words (2026-10-31):** `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`,
+- **Banned words (2026-10-31):** `Model`, `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`,
   `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`, and `Beacon` are barred across new code,
-  file names, folders, and comments (recorded in `EngineDocs/AgenticInstuctions/SKILL-Naming.md`).
+  file names, folders, and comments, and `Buffer` (`Gbuffer`, `*Buffer`) is avoided unless strictly mandated by raw
+  Vulkan/Slang keywords (`VkBuffer`, `StructuredBuffer`) — recorded in `EngineDocs/AgenticInstuctions/SKILL-Naming.md`.
+- **Mathematical symbols & `SultanAladin/Frontier-` folder taxonomy:** Use real Unicode Greek/math scalar identifiers
+  (`μ`, `θ`, `σ*`, `τ`, `Δτ`, `Δs`, `𝑔`, `ρ`, `λ`, `Φ` per `SKILL-formatting.md` §4) across C++20 and `.slang` shaders
+  with full geometric PascalCase vector names, and organize engine rendering domains following `SultanAladin/Frontier-`
+  (`DeviceExchange/`, `GeometricRaster/`, `PlanetaryAtmosphere/`, `Shaders/`).
 - **Container file extensions (`*space` family):** Use `.projectspace`, `.levelspace`, and `.worldspace` for project,
   level, and world containers — never compound `.toml` suffixes such as `.level.toml` even when serialized as TOML.
 - **Project creation auto-scaffolding (`ProjectGenerator`):** Creating a new project via `ProjectBrowserPanel`

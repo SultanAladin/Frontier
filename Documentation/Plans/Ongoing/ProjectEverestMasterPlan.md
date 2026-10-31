@@ -13,8 +13,8 @@
   only when `FRONTIER_EDITOR` is enabled. Shipping/Runtime builds (`FRONTIER_EDITOR == 0`) compile only runtime
   `RecordEntry` types, `RecordStore`, `SceneWorld`, and pure C++ `*Configuration` structures.
 - **Banned Vocabulary Compliance:** Enforce `EngineDocs/AgenticInstuctions/SKILL-Naming.md` including `2026-10-31`
-  additions (`Cache`, `Widget`, `Kit`, `Footprint`, `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`,
-  `Actor`, `Beacon`).
+  additions (`Model`, `Cache`, `Widget`, `Kit`, `Footprint`, `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`,
+  `Actor`, `Beacon`, and avoiding `Buffer` unless strictly required by Vulkan/Slang API).
 
 ## 2. Project Creation C++ Auto-Generation (`ProjectGenerator`)
 
@@ -62,11 +62,13 @@ When a user creates a new project via `ProjectBrowserPanel::CreateProject`:
    generic `DiagramControls`, composable Physics/Thermal/Chemical/Spatial/Optics + Environment + Render `*Inspector`s
    under `InspectorRuntime`, standalone `<Domain>Editor` modals, independent `Projects/Everest/`, Shipping
    (`FRONTIER_EDITOR=0`) + Editor (`FRONTIER_EDITOR=1`) CTests, and 1920x1080 CPU-rasterized PNG Exhibits.
-2. **Phase 2 (Completed):** Unified Multi-Instance & Portal-Routed Vulkan 1.3 Environment & Celestial Rendering Stack
-   (`AtmosphereLutSubmission`, `SolarSkyEnvironment` `< 2.85%` vs FP64 oracle, `CelestialDomeRasterization` with 2K
-   6-body lunar atlas + 41,359 Hipparcos stars + ringed planets + multi-sun discs, `VolumetricCloudSequence` +
-   `CloudShadowProjection`, `OpticalLensFlareSequence` GPU `1x1` visibility + chromatic aperture optics, and coupled
-   `VolumetricFogSubmission` across arbitrary realms & `PortalAperture` transitions; UI Editor frozen).
+2. **Phase 2 & Phase 2.1 (Completed):** Unified Multi-Instance & Portal-Routed Vulkan 1.3 PlanetaryAtmosphere &
+   Celestial Rendering Stack across `Frontier/Engine/{DeviceExchange,GeometricRaster,PlanetaryAtmosphere,Shaders}/` —
+   `SkyProjection` + `AtmosphereScattering` (`2.80153% < 2.85%` vs FP64 oracle), `PlanetaryProjection` +
+   `AstronomicalEphemeris` with all **6 real 2K moon maps** (`Luna`, `Ember`, `Glacier`, `Sulfur`, `Shroud`, `Shard`),
+   41,359 Hipparcos stars, ringed planets, and multi-sun discs, non-tiled 3D `CloudSpace` + `VolumetricClouds` +
+   `CloudShadowProjection` + analytic foreground cloud shadows, `OpticalLensFlare` GPU `1x1` visibility + chromatic
+   aperture optics, and coupled `FogSpace` across arbitrary realms & `PortalAperture` transitions (UI Editor untouched).
 3. **Phase 3 (Next):** Dual-tier Vulkan C++ Surface & Global Illumination GPU Renderer — RTX tier (`VK_KHR_ray_query` +
    ReSTIR GI + variance denoiser) and mandatory GTX fallback tier (4-cascade clipmap SDF + Surface Cards + 16-bin SAH-2
    software BVH reflections).

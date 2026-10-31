@@ -62,7 +62,7 @@ EnvironmentFrameDeclaration DeclareEnvironmentFrame(uint32_t Width, uint32_t Hei
             {},
         },
         SubmissionUnitDeclaration{
-            "FogMediumSubmission",
+            "FogSpaceSubmission",
             {ReadDepth, TargetTouch{"EnvironmentRadiance", TargetUsage::StorageReadWrite}},
             {},
         },

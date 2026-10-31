@@ -18,10 +18,18 @@ Frontier/
 │       ├── Ongoing/
 │       ├── Completed/
 │       └── References/        # Retained reference documents (InheritedEngine/)
-├── Engine/                    # Shared production code
+├── Engine/                    # Production code
 │   ├── Interface/             # Selectively ported UI foundations
-│   ├── Lifecycle/             # Shared activation sequence
+│   ├── Lifecycle/             # Activation sequence
 │   └── Render/                # Blank; Git retention marker only
+├── Frontier/
+│   └── Engine/                # Multi-realm PlanetaryAtmosphere, GeometricRaster, DeviceExchange, Rendering & Shaders
+│       ├── DeviceExchange/    # VulkanComputeExchange, DeviceMemorySpan, DeviceImageArraySlot
+│       ├── GeometricRaster/   # VisibilityProjection (cross-portal ray routing & reversed-Z visibility)
+│       ├── PlanetaryAtmosphere/ # AtmosphereScattering, AstronomicalEphemeris, SkyProjection, PlanetaryProjection,
+│       │                        # CloudSpace, VolumetricClouds, FogSpace, OpticalLensFlare, PlanetaryEnsemble, WeatherEffects
+│       ├── Rendering/         # Core frame graph, GI, surface cards, and reference renderer units
+│       └── Shaders/           # Slang 2026 SPIR-V 1.3 compute & raster shaders
 ├── UI/
 │   └── Editor/                # Lifecycle-owned production editor UI
 ├── Projects/
@@ -75,7 +83,7 @@ EngineContent/
 ├── Icons/                     # Tracked original/compatibility SVGs
 ├── MaterialArchives/          # Tracked Texture Studio material library (.material + baked maps)
 ├── PatternArchives/           # Tracked Texture Studio pattern presets
-├── EnvironmentArchives/       # Tracked studio environments + CelestialMaps (Luna 2K source, Hipparcos8.csv)
+├── EnvironmentArchives/       # Studio environments + CelestialMaps (6 real 2K moon maps + Hipparcos8.csv)
 ├── Defaults/                  # Tracked blank project space
 └── FontArchives/<font name>/  # Ignored font downloads, OFL notices, TOML descriptors
 ExternalPackages/

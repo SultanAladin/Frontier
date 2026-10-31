@@ -9,20 +9,20 @@
 // 🧩 Reference renderer: "get something rendering" — every proven portable core wired into one frame.
 //
 // Each stage calls the same engine code the suites proved (ClusterNesting/VisibilityCull,
-// ReservoirSampling, DistanceField, SurfaceCards, VarianceFiltering, AtmosphereModel/CloudField/
-// FogMedium), in the order CompleteFrameUnits declares. It is deliberately a *reference*: double
+// ReservoirSampling, DistanceField, SurfaceCards, VarianceFiltering, AtmosphereScattering/CloudSpace/
+// FogSpace), in the order CompleteFrameUnits declares. It is deliberately a *reference*: double
 // precision, brute-force shadow rays over the visible triangle set, small images. Its jobs are
 // (1) a runnable end-to-end frame before any GPU exists, (2) the numerical oracle the Slang/Vulkan
 // port is held to at the SDK phase, (3) owner-visible renders of test scenes today.
-// World frame: X east, Y north, Z up, metres — shared by every core it calls.
+// World frame: X east, Y north, Z up, metres — common across every core it calls.
 
 #pragma once
 
-#include "AtmosphereModel.h"
-#include "CloudField.h"
 #include "ClusterNesting.h"
 #include "DistanceField.h"
-#include "FogMedium.h"
+#include "Engine/PlanetaryAtmosphere/AtmosphereScattering.h"
+#include "Engine/PlanetaryAtmosphere/CloudSpace.h"
+#include "Engine/PlanetaryAtmosphere/FogSpace.h"
 #include "SurfaceCards.h"
 #include "VisibilityCull.h"
 

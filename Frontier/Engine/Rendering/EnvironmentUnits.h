@@ -9,11 +9,11 @@
 //
 //   AtmosphereTransmittance (LUT bake) → AtmosphereMultiple (LUT) → CelestialSky → NightStars
 //     → CloudRecords → CloudShadowProject → CloudTrace → CloudPresent
-//     → FogMedium → Precipitation → FlareVisibility → FlareImage
+//     → FogSpace → Precipitation → FlareVisibility → FlareImage
 //
 // The declaration marks LUTs persistent and imports surface depth. CompleteFrameUnits combines
 // these target touches with illumination declarations; it does not execute them or present an editor frame.
-// The portable layer derives ordering/aliasing/barriers, and Exhibits/EnvironmentPipeline tests selected models.
+// The portable layer derives ordering/aliasing/barriers, and Exhibits/EnvironmentPipeline tests each domain unit.
 
 #pragma once
 

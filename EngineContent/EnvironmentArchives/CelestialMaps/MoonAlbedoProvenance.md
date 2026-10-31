@@ -1,24 +1,25 @@
-# VehicleHMI lunar texture
+# Six-Body Lunar & Planetary Satellite Atlas Provenance
 
-`MoonAlbedoSource2048.jpg` is a byte-identical copy of the **actual demo's** `luna_2k.jpg`, not a generated substitute.
+`EngineContent/EnvironmentArchives/CelestialMaps/` contains the six real `2048 × 1024` equirectangular sRGB moon maps
+inherited from `SultanAladin/Frontier` (`arena/e9bd7db5-frontier`) and `SultanAladin/Frontier-`
+(`EngineContent/CelestialTextures/`):
 
-| Property | Source |
-|---|---|
-| Repository | `SultanAladin/Frontier` |
-| Revision | `6afb6f00b5f25c45f7cda92c7da65b64845768f3` (`arena/e9bd7db5-frontier`, inspected 2026-10-27) |
-| Path | `Experimental/VehicleHmiPrototype/Assets/Celestial/luna_2k.jpg` |
-| Git blob SHA-1 | `96996f2b89e1f0164b051bd2c1bd3f53516c169b` |
-| Dimensions | 2048 × 1024, equirectangular, sRGB |
-| Runtime conversion | `python Automation/PrepareMoonAlbedo.py` (Pillow required) |
-| Runtime output | `MoonAlbedo2048.ppm`, generated/ignored, RGB bytes remain sRGB |
-| Decode | `LunarAlbedoMap::LoadPpm` performs IEC sRGB decoding **before** bilinear filtering |
+| Atlas Layer | Roster Body | Source File | Upstream Path (`SultanAladin/Frontier-`) | Dimensions |
+|---|---|---|---|---|
+| `0` | `Luna` | `MoonAlbedoSource2048.jpg` | `EngineContent/CelestialTextures/luna_2k.jpg` | `2048 × 1024` sRGB |
+| `1` | `Ember` | `Ember2048.jpg` | `EngineContent/CelestialTextures/ember_2k.jpg` | `2048 × 1024` sRGB |
+| `2` | `Glacier` | `Glacier2048.jpg` | `EngineContent/CelestialTextures/glacier_2k.jpg` | `2048 × 1024` sRGB |
+| `3` | `Sulfur` | `Sulfur2048.jpg` | `EngineContent/CelestialTextures/sulfur_2k.jpg` | `2048 × 1024` sRGB |
+| `4` | `Shroud` | `Shroud2048.jpg` | `EngineContent/CelestialTextures/shroud_2k.jpg` | `2048 × 1024` sRGB |
+| `5` | `Shard` | `Shard2048.jpg` | `EngineContent/CelestialTextures/shard_2k.jpg` | `2048 × 1024` sRGB |
 
-The source demo's `CelestialAtlas.js` declares `rgba8unorm-srgb` and puts Luna first in its six-body atlas.
-The native port uses the Luna JPEG also consumed by the demo's `NativeMoonPreview.js`; other five bodies are not ported.
-Orientation follows the demo: longitude zero at U=0.5, north at V=0. The exhibit checks Tycho, Plato and Mare Crisium.
-
-The earlier branch referenced a missing, ignored 1024-pixel image and provenance file. Neither survived the checkout.
-The new source image and this note are explicitly retained by `.gitignore`; the runner regenerates PPM before testing.
-
-This is a source-parity claim, not independently calibrated lunar reflectance or a verified third-party licence grant.
-Upstream distribution rights/attribution still require confirmation before commercial redistribution.
+- `MoonAlbedoSource2048.jpg` (`96996f2b89e1f0164b051bd2c1bd3f53516c169b`) is byte-identical to `luna_2k.jpg`
+  (`Experimental/VehicleHmiPrototype/Assets/Celestial/luna_2k.jpg`).
+- `Ember2048.jpg`, `Glacier2048.jpg`, `Sulfur2048.jpg`, `Shroud2048.jpg`, and `Shard2048.jpg` are byte-identical to
+  `SultanAladin/Frontier-` commit `f6c99702c769ef9fd44c39ac8819e0ebeae35b9b` (`EngineContent/CelestialTextures/*_2k.jpg`).
+- `PlanetaryProjection::LoadLunarAlbedoAtlas` decodes all six `2048 × 1024` JPEGs directly into linear-radiance
+  `RGBA16F` slices (applying exact IEC 61966-2-1 sRGB EOTF prior to GPU filtering); `Automation/PrepareMoonAlbedo.py`
+  remains available to emit uncompressed `MoonAlbedo2048.ppm` (git-ignored) for legacy PPM tests (`LunarAlbedoMap::LoadPpm`).
+- Orientation follows the upstream atlas convention: prime meridian at `U = 0.5`, north pole at `V = 0.0`.
+- Per `SultanAladin/Frontier-`'s `NOTICE.md`, runtime celestial texture provenance is inherited from the upstream
+  consolidation without inventing new third-party ownership or commercial redistribution claims.

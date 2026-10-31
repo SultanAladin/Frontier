@@ -581,35 +581,39 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   and `EverestInterfaceValidation` with 6 visually inspected 1920x1080 PNG exhibits) plus standalone
   `SceneDirectoryValidation`.
 
-## Phase 2: Unified Multi-Realm Environment & Celestial Vulkan 1.3 Rendering Stack (2026-10-31, branch arena/5f492703-frontier)
+## Phase 2 & Phase 2.1: PlanetaryAtmosphere, Non-Tiled 3D Cloud Shadows & 6-Body 2K Lunar Vulkan 1.3 Stack (2026-10-31, branch arena/5f492703-frontier)
 
-- Synthesized and extended all 5 environment and celestial rendering systems together in `Frontier/Engine/Rendering/` +
-  `Frontier/Engine/Rendering/Shaders/` (8 Slang modules -> 11 SPIR-V 1.3 compute programs) with zero singleton
-  assumptions, zero UI Editor modifications, and zero banned-vocabulary occurrences:
-  1. **Physical Atmosphere & Twilight (`AtmosphereLutSubmission` + `SolarSkyEnvironment`)**: Dirty-gated `RGBA16F`
-     2D-array LUT bakes (`256x64xR` transmittance, `32x32xR` multi-scattering, `192x108xR` sky-view) plus 6-point
-     Gauss-Legendre coupled sun/sky/twilight evaluator (`2.8015%` max relative error vs FP64 continuum oracle, `< 2.85%`
-     target).
-  2. **Celestial Dome (`CelestialDomeModel` + `CelestialDomeRasterization`)**: Meeus Ch. 47 lunar/solar ephemeris,
-     finite-pixel limb-darkened multi-sun discs (`SolarDiscPixelFilter`), `2048x1024x6` sRGB 6-body lunar sphere atlas
-     (`MoonAlbedoSource2048.jpg` + procedural icy/volcanic/rusty/cratered worlds) with phase/earthshine/libration,
-     ringed and atmospheric 3D planetary bodies, and 41,359 octahedral cell-indexed Hipparcos stars (`Hipparcos8.csv`)
-     with Kolmogorov scintillation and Milky Way band.
-  3. **Volumetric Clouds & Ortho Shadows (`CloudField` + `VolumetricCloudSequence`)**: Dual-domain 3D Perlin-Worley
-     ray-march across planetary slabs and bounded local 3D cloud boxes with 2-octave Beers-Powder silver lining,
-     realm/depth-aware bilateral temporal reconstruction, and `256x256xR` orthographic `CloudShadowProjection` sampled by
-     direct surfaces and volumetric fog.
-  4. **Optical Lens Flare (`LensFlareModel` + `OpticalLensFlareSequence`)**: `1x1`-per-source GPU
-     `EvaluateFlareVisibility` integrating 64 limb-darkened solar disc rays against reversed-Z depth, portal aperture
-     bounds, volumetric cloud transmittance, and dielectric glass tint — driving 8-element polygonal chromatic ghosts,
-     antipode spectral halo, warm + blue anamorphic streaks, and N-blade diffraction starburst.
-  5. **Coupled Volumetric Fog (`FogMedium` + `VolumetricFogSubmission`)**: Analytic closed-form exponential height fog +
-     planet-curved surface-distance aerial perspective + 3D noise-modulated froxel fog boxes scattering sun shafts,
-     photometric IES luminaires, lightning channels, and thermal radiant facets.
-- **Multi-Realm & Portal Routing (`EnvironmentRealmEnsemble` + `EnvironmentSubmissionSequence`)**: Arbitrary simultaneous
-  realms, planets, suns, moons, cloud layers, and fog volumes with `PortalAperture` cross-realm ray routing (e.g. sunny
-  daytime on one side of a portal and starry ringed-planet night on the other in a single Vulkan frame).
+- Reorganized and refined all 5 environment and celestial rendering systems across `Frontier/Engine/DeviceExchange/`,
+  `Frontier/Engine/GeometricRaster/`, `Frontier/Engine/PlanetaryAtmosphere/`, and `Frontier/Engine/Shaders/` (12 Slang
+  files -> 11 SPIR-V 1.3 compute programs) aligned with `SultanAladin/Frontier-` domain naming, UTF-8 mathematical
+  symbols (`SKILL-formatting.md` §4), zero UI Editor modifications, and zero banned-vocabulary occurrences (`Model`,
+  `Cache`, `Widget`, `Kit`, `Footprint`, `Shared`, `DedicatedStudio`, `Specialty`, `Actor`, `Beacon`, and no gratuitous
+  `Buffer` identifiers):
+  1. **Physical Atmosphere & Twilight (`AtmosphereScattering` + `SkyProjection`)**: Dirty-gated `RGBA16F` 2D-array LUT
+     bakes (`256x64xR` transmittance, `32x32xR` multi-scattering, `192x108xR` sky-view) plus 6-point Gauss-Legendre
+     coupled sun/sky/twilight evaluator (`2.80153%` max relative error vs FP64 continuum oracle, `< 2.85%` target).
+  2. **Celestial Ephemeris & 6-Body Real 2K Lunar Dome (`AstronomicalEphemeris` + `PlanetaryProjection`)**: Meeus Ch. 47
+     lunar/solar ephemeris, finite-pixel limb-darkened multi-sun discs, all **6 real `2048x1024` sRGB lunar surface maps**
+     (`Luna`, `Ember`, `Glacier`, `Sulfur`, `Shroud`, `Shard` in `EngineContent/EnvironmentArchives/CelestialMaps/`)
+     with Lommel-Seeliger phase, limb darkening, atmospheric glow, and earthshine, ringed and atmospheric 3D planets,
+     and 41,359 octahedral cell-indexed Hipparcos stars (`Hipparcos8.csv`) with Kolmogorov scintillation and Milky Way.
+  3. **Non-Tiled 3D Volumetric Clouds & Cloud Shadows (`CloudSpace` + `VolumetricClouds` + `CloudShadowProjection`)**:
+     Magnitude-invariant `uint32` bit-mix 3D value + Worley synthesis with C² quintic fade (`6t^5 - 15t^4 + 10t^3`),
+     per-octave 3D rotation matrices (`CloudOctaveRotation1`, `CloudOctaveRotation2`) eliminating grid periodicity,
+     6 tropospheric height profiles (`Stratus`, `Stratocumulus`, `Cumulus`, `Cumulonimbus`, `Altostratus`, `Cirrus`),
+     in-cloud Beers-Powder solar shadow marching, `256x256xR` `CloudShadowProjection` LUTs, and crisp analytic foreground
+     receiver cloud shadows across ground, surfaces, and volumetric fog.
+  4. **Optical Lens Flare (`OpticalLensFlare`)**: `1x1`-per-source GPU `EvaluateFlareVisibility` integrating 64
+     limb-darkened solar disc rays against reversed-Z depth (`VisibilityProjection`), portal aperture bounds, volumetric
+     cloud transmittance, and dielectric glass tint — driving 8-element polygonal chromatic ghosts, antipode spectral
+     halo, warm + blue anamorphic streaks, and N-blade diffraction starburst.
+  5. **Coupled Volumetric Fog (`FogSpace`)**: Analytic closed-form exponential height fog + planet-curved aerial
+     perspective + 3D noise-modulated froxel fog boxes scattering cloud-shadowed sun shafts, photometric IES luminaires,
+     lightning channels, and thermal radiant facets.
+- **Multi-Realm & Portal Routing (`PlanetaryRealmEnsemble` + `PlanetarySubmissionSequence`)**: Arbitrary simultaneous
+  realms, planets, suns, moons, cloud layers, and fog volumes with `PortalAperture` cross-realm ray routing.
 - **Verified:** **59/59** root CTests passing (including `EnvironmentRealmValidation` on SwiftShader Vulkan 1.3),
-  standalone `EnvironmentPipelineValidation` (`1/1`) and `CompleteRendererValidation` (`1/1`) passing, and 6 visually
-  inspected Vulkan 1.3 PNG exhibits in `Exhibits/EnvironmentRealm/Images/` (`Exhibits/EnvironmentRealm/README.md`).
+  standalone `EnvironmentPipelineValidation` (`73/73`) and `CompleteRendererValidation` (`18/18`) passing, `6/6` real 2K
+  moon maps verified by `PrepareMoonAlbedo.py`, and **7** visually inspected Vulkan 1.3 PNG exhibits in
+  `Exhibits/EnvironmentRealm/Images/` (`Exhibits/EnvironmentRealm/README.md`).
 

@@ -72,9 +72,21 @@ Semantic voids that hide what code does. NOT exhaustive — apply the §0 gates 
   now barred outright) → a GPU render unit that composites onto an existing target takes `…Rasterization`
   (it still rasterizes ribbon / glyph / decal geometry into the target). New code never uses
   `Inscription`; existing `…Inscription` files are deferred renames (see §2).
-- **2026-10-31:** `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`, `Shared`,
+- **2026-10-31:** `Model`, `Cache` (`Cache`, `Caches`, `Cached`, `Caching`), `Widget`, `Kit`, `Footprint`, `Shared`,
   `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`, `Beacon` — all barred outright in new code,
-  file names, folders, and comments:
+  file names, folders, and comments; avoid `Buffer` (`Gbuffer`, `*Buffer`) across engine types, filenames, and
+  variables unless strictly mandated by an external Vulkan/Slang keyword (`VkBuffer`, `VkCommandBuffer`,
+  `StructuredBuffer`):
+  - Never use `Model` (`AtmosphereModel`, `CelestialModel`, `LensFlareModel`): name the physical mechanism or optical
+    projection (`AtmosphereScattering`, `AstronomicalEphemeris`, `SkyProjection`, `PlanetaryProjection`,
+    `OpticalLensFlare`, `VolumetricClouds`, `CloudSpace`, `FogSpace`).
+  - Avoid `Buffer` / `Gbuffer` in engine types, files, and identifiers: use `VisibilityProjection` / `VisibilityAtlas`
+    instead of `Gbuffer`, and `DeviceMemorySpan` / `UploadMemorySpan` / `DownloadMemorySpan` (under `DeviceExchange/`)
+    instead of `*Buffer`.
+  - Use real Unicode Greek/math symbols (`μ`, `θ`, `γ`, `σRayleigh`, `σMie`, `σExtinction`, `τ`, `Δτ`, `Δs`, `𝑔`, `ρ`,
+    `λ`, `Φ` per `SKILL-formatting.md` §4) in both C++20 and `.slang` for mathematical scalars, paired with full
+    geometric PascalCase vector nouns (`SolarTangential`, `AzimuthForward`, `AzimuthLateral` — never cryptic 2-letter
+    ASCII temps like `Ls`, `BasisF`, `BasisR`, `SunHoriz`).
   - Use `Atlas`, `Store`, `Table`, `History`, `Retained`, `Resident`, or `Lut` instead of `Cache`/`Cached`
     (legacy pre-existing `ThumbnailAtlasCache` is deferred).
   - Use `Controls` / generic mechanism nouns (`Slider`, `Button`, `Switch`, `ArcPlot`, `PolarDial`,
