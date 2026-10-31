@@ -10,6 +10,7 @@
 #include <imgui_internal.h>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 
 namespace Frontier
@@ -210,17 +211,24 @@ bool VectorAuthoringControlSurface::Number(
     return Changed;
 }
 
-bool VectorAuthoringControlSurface::Range(
+bool VectorAuthoringControlSurface::RangeCore(
     const char *Caption,
     float      &Quantity,
     float       Minimum,
-    float       Maximum)
+    float       Maximum,
+    bool        StripOwnsCaption)
 {
     bool Changed = Number(Caption, Quantity, Minimum, Maximum);
     ImGui::PushID(Caption);
     const auto Origin = ImGui::GetCursorScreenPos();
     const float Width = std::max(48.f, ImGui::GetContentRegionAvail().x);
     ImGui::InvisibleButton("Range", ImVec2(Width, 28 * Scale));
+    // 📝 Range re-registers the same caption over Number()'s own (smaller, text-box-only) extent so
+    // headless/automated drivers - and anything else keying off QueryControlExtent - can address the
+    // actual draggable slider strip, not just the typed-number field above it. Slider instead leaves
+    // Caption on the number box (typed edits keep addressing it) and registers the strip alongside.
+    if (StripOwnsCaption) Register(Caption);
+    else Register((std::string(Caption) + " slider").c_str());
     const auto &Input = ImGui::GetIO();
     const bool Active = ImGui::IsItemActive();
     const ControlPointer Pointer{Input.MousePos.x, Input.MousePos.y, Input.MouseDown[0], ImGui::IsItemActivated(), ImGui::IsMouseReleased(0), Active || ImGui::IsItemHovered(), Input.MouseWheel};
@@ -231,6 +239,16 @@ bool VectorAuthoringControlSurface::Range(
     if (Active && Replacement != Quantity) { Quantity = Replacement; Changed = true; }
     ImGui::PopID();
     return Changed;
+}
+
+bool VectorAuthoringControlSurface::Range(const char *Caption, float &Quantity, float Minimum, float Maximum)
+{
+    return RangeCore(Caption, Quantity, Minimum, Maximum, true);
+}
+
+bool VectorAuthoringControlSurface::Slider(const char *Caption, float &Quantity, float Minimum, float Maximum)
+{
+    return RangeCore(Caption, Quantity, Minimum, Maximum, false);
 }
 
 bool VectorAuthoringControlSurface::Dropdown(const char *Caption, int &Selection, std::span<const char *const> Captions)
@@ -362,24 +380,164 @@ bool VectorAuthoringControlSurface::Colour(const char *Caption, std::array<float
 
 void VectorAuthoringControlSurface::BeginCard(const char *Caption, bool Raised, bool Subordinate)
 {
-    ImGui::PushID(Caption);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8 * Scale);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14 * Scale, 14 * Scale));
+    // 📝 Material-inspector card language (ControlKit::SectionCard): palette fill, hairline Stroke
+    // outline, 15px radius, 17px content inset and a micro-overline caption - so Pattern/Stamp (and
+    // Baking/Texture Paint) inspector cards read as the same objects as the Material workspace's
+    // instead of plain bordered ImGui children with a loose text title.
+    // Disambiguate empty captions per frame so multiple custom-headed cards never collide into one child window.
+    const int CurrentFrame = ImGui::GetFrameCount();
+    if (CurrentFrame != LastCardFrame)
+    {
+        LastCardFrame = CurrentFrame;
+        CardOrdinal = 0;
+    }
+    const bool HasCaption = Caption && Caption[0] != '\0';
+    if (HasCaption) ImGui::PushID(Caption);
+    else ImGui::PushID(0x5F435244 + CardOrdinal++);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 15 * Scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(17 * Scale, 14 * Scale));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ConvertSpectrum(Raised ? ControlKit::Palette().Raised : Subordinate ? ControlKit::Palette().Panel : ControlKit::Palette().Inset));
+    ImGui::PushStyleColor(ImGuiCol_Border, ConvertSpectrum(ControlKit::Palette().Stroke));
     ImGui::BeginChild("Card", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::TextUnformatted(Caption);
-    ImGui::Spacing();
+    if (HasCaption)
+    {
+        std::string Overline(Caption);
+        for (char &Character : Overline) Character = char(std::toupper(static_cast<unsigned char>(Character)));
+        ImGui::PushFont(nullptr, 8.f * 1.302f * Scale);
+        ImGui::PushStyleColor(ImGuiCol_Text, ConvertSpectrum(ControlKit::Palette().TextDim));
+        ImGui::TextUnformatted(Overline.c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+        ImGui::Spacing();
+    }
 }
 
 void VectorAuthoringControlSurface::EndCard()
 {
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(2);
     ImGui::PopID();
     ImGui::Dummy(ImVec2(0, 10 * Scale));
 }
 
+void VectorAuthoringControlSurface::ArrayFields(VectorAuthoringArraySpecification &Specification, const std::string &Suffix)
+{
+    int Category = int(Specification.Category), Profile = int(Specification.ScaleProfile);
+    const char *Layouts[]{"Linear", "Grid", "Circular / arc", "Radial rings"};
+    if (Dropdown(("Array layout" + Suffix).c_str(), Category, Layouts))
+    {
+        Specification.Category = VectorAuthoringArrayCategory(Category);
+        if (Category == 1 && Specification.StepY == 0) Specification.StepY = 80;
+    }
+    // 📝 Modifier parameters are edited live (Blender-style), so every field here is a Slider - a
+    // draggable strip under the number box that updates the value (and thus the evaluated canvas)
+    // every frame of the drag - instead of a type-a-number box. Seeds keep plain Number (a 0..999999
+    // strip is useless); counts go through the same Slider and round to the nearest whole step.
+    const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
+    {
+        float Replacement = float(Quantity);
+        if (Slider(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(std::lround(Replacement));
+    };
+    if (Category == 1)
+    {
+        Integral("Columns" + Suffix, Specification.Columns, 1, 8);
+        Integral("Rows" + Suffix, Specification.Rows, 1, 8);
+    }
+    else Integral((Category >= 2 ? "Copies per ring" : "Copies") + Suffix, Specification.Count, 2, 64);
+    if (Category >= 2)
+    {
+        Slider(("Radius" + Suffix).c_str(), Specification.Radius, 0, 512);
+        if (Category == 3)
+        {
+            Integral("Rings" + Suffix, Specification.Rings, 1, 8);
+            Slider(("Ring spacing" + Suffix).c_str(), Specification.RadiusStep, 1, 512);
+        }
+        Slider(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
+        Slider(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
+        Slider(("Start angle" + Suffix).c_str(), Specification.StartAngle, -360, 360);
+        Slider(("Arc sweep" + Suffix).c_str(), Specification.Sweep, -360, 360);
+        Toggle(("Rotate copies around centre" + Suffix).c_str(), Specification.RotateCopies);
+    }
+    else
+    {
+        Slider(("Step X" + Suffix).c_str(), Specification.StepX, -512, 512);
+        Slider(("Step Y" + Suffix).c_str(), Specification.StepY, -512, 512);
+    }
+    const char *Profiles[]{"Uniform", "Linear progression", "Circular wave", "Radial distance", "Seeded noise"};
+    if (Dropdown(("Scale profile" + Suffix).c_str(), Profile, Profiles)) Specification.ScaleProfile = VectorAuthoringScaleProfile(Profile);
+    Slider(("Start scale %" + Suffix).c_str(), Specification.StartScale, 1, 400);
+    if (Profile != 0) Slider(("End scale %" + Suffix).c_str(), Specification.EndScale, 1, 400);
+    if (Profile == 4)
+    {
+        float Seed = float(Specification.Seed);
+        if (Number(("Noise seed" + Suffix).c_str(), Seed, 0, 999999)) Specification.Seed = uint32_t(Seed);
+    }
+}
+void VectorAuthoringControlSurface::MirrorFields(VectorAuthoringMirrorSpecification &Specification, const std::string &Suffix)
+{
+    Slider(("Pivot X" + Suffix).c_str(), Specification.PivotX, -512, 1024);
+    Slider(("Pivot Y" + Suffix).c_str(), Specification.PivotY, -512, 1024);
+    Slider(("Axis angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
+    Tooltip(("Axis angle" + Suffix).c_str(), "0deg mirrors top/bottom across a horizontal axis; 90deg mirrors left/right across a vertical axis through the pivot.");
+    Toggle(("Keep original" + Suffix).c_str(), Specification.KeepOriginal);
+    Tooltip(("Keep original" + Suffix).c_str(), "On: the mirrored copy sits alongside the untouched source, like Blender's Mirror modifier. Off: the source itself is replaced by its mirrored placement.");
+}
+void VectorAuthoringControlSurface::NoiseFields(VectorAuthoringNoiseSpecification &Specification, const std::string &Suffix)
+{
+    Slider(("Position jitter" + Suffix).c_str(), Specification.PositionJitter, 0, 256);
+    Slider(("Rotation jitter" + Suffix).c_str(), Specification.RotationJitter, 0, 180);
+    Slider(("Scale jitter %" + Suffix).c_str(), Specification.ScaleJitter, 0, 90);
+    const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
+    {
+        float Replacement = float(Quantity);
+        if (Number(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(Replacement);
+    };
+    Integral("Jitter seed" + Suffix, Specification.Seed, 0, 999999);
+    Tooltip(("Jitter seed" + Suffix).c_str(), "Deterministic - the same seed always nudges the selection by the same amount, so re-opening the document never reshuffles it.");
+}
+void VectorAuthoringControlSurface::OffsetFields(VectorAuthoringOffsetSpecification &Specification, const std::string &Suffix)
+{
+    Slider(("Offset distance" + Suffix).c_str(), Specification.Distance, -256, 256);
+    Tooltip(("Offset distance" + Suffix).c_str(), "Grows the shape's own bounding frame when positive, shrinks it when negative. Exact for rectangles and ellipses; an approximation (bounding-frame grow/shrink) for diamonds, triangles, polygons, stars and freeform paths.");
+}
+void VectorAuthoringControlSurface::ColourFields(VectorAuthoringColourSpecification &Specification, const std::string &Suffix)
+{
+    int Generator = int(Specification.Generator);
+    const char *Generators[]{"Linear gradient", "Radial gradient", "Colour ramp (grouped)"};
+    if (Dropdown(("Colour generator" + Suffix).c_str(), Generator, Generators)) Specification.Generator = VectorAuthoringColourGenerator(Generator);
+    Tooltip(("Colour generator" + Suffix).c_str(), "Linear/Radial blend smoothly across the selection's own positions. Ramp instead cycles discretely through the stops by group - pick it to give each array row/ring its own flat colour.");
+    int Target = int(Specification.Target);
+    const char *Targets[]{"Fill", "Stroke / outline", "Fill + stroke"};
+    if (Dropdown(("Paints" + Suffix).c_str(), Target, Targets)) Specification.Target = VectorAuthoringColourTarget(Target);
+    Tooltip(("Paints" + Suffix).c_str(), "Stroke only shows if the shape already has a stroke width above zero. Stack two Colour entries to drive fill and stroke independently.");
+    if (Generator == 0)
+    {
+        Slider(("Gradient angle" + Suffix).c_str(), Specification.AxisAngle, -360, 360);
+        Tooltip(("Gradient angle" + Suffix).c_str(), "0deg blends left-to-right, 90deg bottom-to-top, auto-fit across the selection's own combined bounding box - no manual pivot needed.");
+    }
+    else if (Generator == 1)
+    {
+        Slider(("Centre X" + Suffix).c_str(), Specification.CentreX, -512, 1024);
+        Slider(("Centre Y" + Suffix).c_str(), Specification.CentreY, -512, 1024);
+        Slider(("Radius" + Suffix).c_str(), Specification.Radius, 1, 2048);
+        Tooltip(("Radius" + Suffix).c_str(), "Distance from the centre at which the gradient reaches its last stop.");
+    }
+    const auto Integral = [&](const std::string &Caption, uint32_t &Quantity, float Minimum, float Maximum)
+    {
+        float Replacement = float(Quantity);
+        if (Slider(Caption.c_str(), Replacement, Minimum, Maximum)) Quantity = uint32_t(std::lround(Replacement));
+    };
+    Integral("Stop count" + Suffix, Specification.StopCount, 2, 4);
+    for (uint32_t Index = 0; Index < Specification.StopCount; ++Index)
+        Colour(("Stop " + std::to_string(Index + 1) + Suffix).c_str(), Specification.Stops[Index]);
+    if (Generator == 2)
+    {
+        Toggle(("Auto group from array" + Suffix).c_str(), Specification.AutoGroup);
+        Tooltip(("Auto group from array" + Suffix).c_str(), "On: bands follow the preceding Array modifier's own rows/rings (a Grid gets one colour per row, a Radial array one per ring). Off: pick the group size yourself below. With no preceding Array, every element gets its own colour either way.");
+        if (!Specification.AutoGroup) Integral("Group size" + Suffix, Specification.GroupSize, 1, 64);
+    }
+}
 bool VectorAuthoringControlSurface::Array(
     VectorAuthoringArraySpecification &Specification,
     size_t                     LayerCount,
@@ -388,49 +546,9 @@ bool VectorAuthoringControlSurface::Array(
     bool                       Protected)
 {
     ImGui::BeginDisabled(Protected);
-    int Category = int(Specification.Category), Profile = int(Specification.ScaleProfile);
-    const char *Layouts[]{"Linear", "Grid", "Circular / arc", "Radial rings"};
-    if (Dropdown("Array layout", Category, Layouts))
-    {
-        Specification.Category = VectorAuthoringArrayCategory(Category);
-        if (Category == 1 && Specification.StepY == 0) Specification.StepY = 80;
-    }
-    const auto Integral = [&](const char *Caption, uint32_t &Quantity, float Minimum, float Maximum)
-    {
-        float Replacement = float(Quantity);
-        if (Number(Caption, Replacement, Minimum, Maximum)) Quantity = uint32_t(Replacement);
-    };
-    if (Category == 1)
-    {
-        Integral("Columns", Specification.Columns, 1, 8);
-        Integral("Rows", Specification.Rows, 1, 8);
-    }
-    else Integral(Category >= 2 ? "Copies per ring" : "Copies", Specification.Count, 2, 64);
-    if (Category >= 2)
-    {
-        Number("Radius", Specification.Radius, 0, 512);
-        if (Category == 3)
-        {
-            Integral("Rings", Specification.Rings, 1, 8);
-            Number("Ring spacing", Specification.RadiusStep, 1, 512);
-        }
-        Number("Centre X", Specification.CentreX, -512, 1024);
-        Number("Centre Y", Specification.CentreY, -512, 1024);
-        Number("Start angle", Specification.StartAngle, -360, 360);
-        Number("Arc sweep", Specification.Sweep, -360, 360);
-        Toggle("Rotate copies around centre", Specification.RotateCopies);
-    }
-    else
-    {
-        Number("Step X", Specification.StepX, -512, 512);
-        Number("Step Y", Specification.StepY, -512, 512);
-    }
-    const char *Profiles[]{"Uniform", "Linear progression", "Circular wave", "Radial distance", "Seeded noise"};
-    if (Dropdown("Scale profile", Profile, Profiles)) Specification.ScaleProfile = VectorAuthoringScaleProfile(Profile);
-    Number("Start scale %", Specification.StartScale, 1, 400);
-    if (Profile != 0) Number("End scale %", Specification.EndScale, 1, 400);
-    if (Profile == 4) Integral("Noise seed", Specification.Seed, 0, 999999);
-    ImGui::TextWrapped("Replaces the selection with editable copies, not a live modifier. Undo restores originals.");
+    ArrayFields(Specification);
+    const int Category = int(Specification.Category);
+    ImGui::TextWrapped("Bakes the selection into real, independent copies right now (the group-array path for multi-selections) - undo restores the originals. With a single layer selected, prefer a live Array modifier instead: fully procedural, slider-editable, and it never adds layers until you Apply it.");
     const auto Population = Category == 1 ? Specification.Columns * Specification.Rows : Specification.Count * (Category == 3 ? Specification.Rings : 1);
     const auto Total = LayerCount - SelectionCount + Population * SelectionCount;
     ImGui::TextDisabled("%zu / %zu document entries after generation", Total, Limit);

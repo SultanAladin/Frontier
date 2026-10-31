@@ -337,6 +337,7 @@ class ControlCentrePanel final : public ActivationSequence
     uint64_t                                                       AlertPressToken   = 0;
     uint64_t                                                       AlertDismissToken = 0;
     bool                                                           AlertContact      = false;
+    bool                                                           DrawerWasInteractive = false;
     PlaneExtent                SettingsExtent, BackExtent, ApplyExtent, DefaultsExtent, FooterExtent;
     std::array<PlaneExtent, 4> CategoryExtents{};
     std::array<PlaneExtent, 2> TileExtents{};

@@ -28,6 +28,7 @@ Declared = [
     {'Name': 'PatchE-NoTabScrollButtons.patch', 'Sentinel': 'FRONTIER PATCH E', 'Witness': 'imgui.cpp'},
     {'Name': 'PatchF-TabContentInsets.patch', 'Sentinel': 'FRONTIER PATCH F', 'Witness': 'imgui_widgets.cpp'},
     {'Name': 'PatchG-AdjacentTabAddButton.patch', 'Sentinel': 'FRONTIER PATCH G', 'Witness': 'imgui_widgets.cpp'},
+    {'Name': 'PatchH-SmoothOverscroll.patch',     'Sentinel': 'FRONTIER PATCH H', 'Witness': 'imgui.cpp'},
 ]
 
 # 🔴 The commit these patches were written against. `git apply` would fail loudly on a different tree, but it

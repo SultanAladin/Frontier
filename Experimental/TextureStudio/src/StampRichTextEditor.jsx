@@ -1,5 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { Bold } from "lucide-react";
+import { createPortal } from "react-dom";
 import ColourPicker from "./ColourPicker.jsx";
 import {
   STAMP_FONTS,
@@ -41,6 +42,11 @@ export default function StampRichTextEditor({
   runs,
   onChange,
   disabled = false,
+  // When provided, the text Colour picker renders into this node instead of
+  // inline: the stamp studio mounts it on the Base color channel card, so
+  // the component's colour is authored where Base color lives. Formatting
+  // still uses the saved selection range (no selection formats all).
+  ColourTarget = undefined,
 }) {
   const host = useRef(null),
     saved = useRef({ start: 0, end: 0 }),
@@ -287,12 +293,21 @@ export default function StampRichTextEditor({
           insert(e.clipboardData.getData("text/plain"));
         }}
       />
-      <ColourPicker
-        ariaLabel="Stamp text colour"
-        value={active.color}
-        disabled={disabled}
-        onChange={(color) => format({ color })}
-      />
+{(() => {
+        const picker = (
+          <ColourPicker
+            ariaLabel="Stamp text colour"
+            value={active.color}
+            disabled={disabled}
+            onChange={(color) => format({ color })}
+          />
+        );
+        return ColourTarget === undefined
+          ? picker
+          : ColourTarget
+            ? createPortal(picker, ColourTarget)
+            : null;
+      })()}
       {error && (
         <p className="stamp-error" role="alert">
           {error}

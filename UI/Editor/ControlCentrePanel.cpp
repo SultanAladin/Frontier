@@ -100,6 +100,7 @@ void ControlCentrePanel::FinalizeContent() noexcept
     AlertVisibleCount = 0;
     AlertPressToken = AlertDismissToken = AlertHoverToken = 0;
     AlertContact                                          = false;
+    DrawerWasInteractive                                  = false;
     if (TypefaceRegistry::QueryCurrent() == &Typefaces)
         TypefaceRegistry::Install(nullptr);
 }
@@ -651,11 +652,15 @@ void ControlCentrePanel::ConstructDrawerLayout() noexcept
     const auto  Origin  = ImGui::GetMainViewport()->Pos;
     const float Scale   = Appearance.QueryApplied().InterfaceScale / 100.0f;
     Expansion.ConfigureExtent(Display.x, Display.y, Scale);
-    const bool Visible = Expansion.QueryHeight() > 0.5f || Expansion.QueryOpen();
-    auto       Options = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
-    if (!Visible)
+    const bool Interactive = Expansion.QueryOpen() || Expansion.QueryDragging();
+    const bool Visible     = Expansion.QueryHeight() > 0.5f || Interactive;
+    auto       Options     = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
+    if (!Interactive)
         Options |= ImGuiWindowFlags_NoInputs;
+    if (Interactive && !DrawerWasInteractive)
+        ImGui::SetNextWindowFocus();
+    DrawerWasInteractive = Interactive;
     ImGui::SetNextWindowPos(Origin);
     ImGui::SetNextWindowSize(Display);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -724,13 +729,15 @@ void ControlCentrePanel::ConstructDrawerLayout() noexcept
             !NotchBounds.Encloses(Mouse.x - Origin.x, Mouse.y - Origin.y))
             Expansion.ConfigureOpen(false);
     }
+    const bool UnderlyingItemEngaged = !Interactive && (ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive());
+    const bool AllowNotchPointer     = !AlertContact && !UnderlyingItemEngaged;
     Expansion.IntegratePointer(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y,
-                               !AlertContact && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
-                               !AlertContact && ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                               AllowNotchPointer && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                               AllowNotchPointer && ImGui::IsMouseDown(ImGuiMouseButton_Left),
                                !AlertContact && ImGui::IsMouseReleased(ImGuiMouseButton_Left), IO.DeltaTime,
                                CardContact);
-    if (Expansion.QueryDragging() || Visible ||
-        Expansion.QueryTabExtent().Encloses(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y))
+    if (Interactive ||
+        (!UnderlyingItemEngaged && Expansion.QueryTabExtent().Encloses(IO.MousePos.x - Origin.x, IO.MousePos.y - Origin.y)))
         ImGui::SetNextFrameWantCaptureMouse(true);
     ImGui::End();
     ImGui::PopStyleVar();
@@ -866,15 +873,21 @@ void ControlCentrePanel::ConstructInterface() noexcept
     }
     if (Notifications.QueryApplied().ShowFrameRateOverlay)
     {
-        ImGui::SetNextWindowPos(ImVec2(ImGui::GetMainViewport()->Pos.x + ImGui::GetIO().DisplaySize.x - 12,
-                                       (AlertVisibleCount ? AlertExtents[AlertVisibleCount - 1].MaximumY * Scale + 12
-                                                          : ImGui::GetMainViewport()->Pos.y + 12)),
-                                ImGuiCond_Always, ImVec2(1, 0));
-        ImGui::Begin("Frame-rate overlay", nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs);
-        ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-        ImGui::End();
+        char FpsLabel[32];
+        std::snprintf(FpsLabel, sizeof(FpsLabel), "%.1f FPS", ImGui::GetIO().Framerate);
+        const ImVec2 TextSize = ImGui::CalcTextSize(FpsLabel);
+        const float PadX = 8.f * Scale, PadY = 4.f * Scale;
+        const float HeaderClearance = 46.f * Scale;
+        const float RightX = ImGui::GetMainViewport()->Pos.x + ImGui::GetIO().DisplaySize.x - 12.f * Scale;
+        const float TopY = AlertVisibleCount
+            ? AlertExtents[AlertVisibleCount - 1].MaximumY * Scale + 12.f * Scale
+            : ImGui::GetMainViewport()->Pos.y + HeaderClearance;
+        const ImVec2 BadgeMin(RightX - TextSize.x - PadX * 2.f, TopY);
+        const ImVec2 BadgeMax(RightX, TopY + TextSize.y + PadY * 2.f);
+        auto *Fg = ImGui::GetForegroundDrawList();
+        Fg->AddRectFilled(BadgeMin, BadgeMax, IM_COL32(18, 20, 22, 210), 6.f * Scale);
+        Fg->AddRect(BadgeMin, BadgeMax, IM_COL32(255, 255, 255, 28), 6.f * Scale);
+        Fg->AddText(ImVec2(BadgeMin.x + PadX, BadgeMin.y + PadY), IM_COL32(226, 228, 218, 255), FpsLabel);
     }
     ConstructNotificationStack(true);
     const auto Response = Confirmation.Construct(Scale);

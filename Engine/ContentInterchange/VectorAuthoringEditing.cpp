@@ -139,6 +139,37 @@ void TransformPrimitive(
     Instruction.Transform[0] += θ;
     Instruction.Transform[1] *= κ;
 }
+// 📝 Reflects a leaf instruction's own external placement (centre + own-rotation) across a line through
+// (PivotX,PivotY) at angle α (radians): NewCentre = Pivot + M(α)·(OldCentre−Pivot), NewAngle = 2α−OldAngle,
+// where M(α) = R(2α)·Fy (Fy negates local Y). This two-step update is exact and sufficient on its own for
+// every procedurally-regular category (Rectangle..Star, Topology[0] 0..5 - none has inherent chirality).
+// A gradient axis is stored in the SAME local, bounds-normalized frame as Category-6 path control points
+// (see CubicPathEditing.cpp's ProjectCoordinate), so its local-Y also flips here regardless of category -
+// otherwise a reflected gradient would merely rotate instead of mirroring left/right like the shape itself.
+void ReflectPrimitive(VectorCoverageInstruction &Instruction, float PivotX, float PivotY, float α)
+{
+    const float Δx = Instruction.Bounds[0] - PivotX, Δy = Instruction.Bounds[1] - PivotY;
+    const float Cos2α = std::cos(2 * α), Sin2α = std::sin(2 * α);
+    Instruction.Bounds[0] = PivotX + Δx * Cos2α + Δy * Sin2α;
+    Instruction.Bounds[1] = PivotY + Δx * Sin2α - Δy * Cos2α;
+    Instruction.Transform[0] = 2 * α - Instruction.Transform[0];
+    if (Instruction.Transform[3] != 0)
+    {
+        Instruction.GradientAxis[1] = -Instruction.GradientAxis[1];
+        Instruction.GradientAxis[3] = -Instruction.GradientAxis[3];
+    }
+    if (Instruction.Transform[3] == 3)
+    {
+        Instruction.FreeformPointPositions01[1] = -Instruction.FreeformPointPositions01[1];
+        Instruction.FreeformPointPositions01[3] = -Instruction.FreeformPointPositions01[3];
+        Instruction.FreeformPointPositions23[1] = -Instruction.FreeformPointPositions23[1];
+        Instruction.FreeformPointPositions23[3] = -Instruction.FreeformPointPositions23[3];
+        Instruction.FreeformPointPositions45[1] = -Instruction.FreeformPointPositions45[1];
+        Instruction.FreeformPointPositions45[3] = -Instruction.FreeformPointPositions45[3];
+        Instruction.FreeformPointPositions67[1] = -Instruction.FreeformPointPositions67[1];
+        Instruction.FreeformPointPositions67[3] = -Instruction.FreeformPointPositions67[3];
+    }
+}
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -182,6 +213,13 @@ void ValidateVectorAuthoringOrganization(const VectorAuthoringDocument &Document
             throw std::runtime_error("Text, SVG and image components are a Stamp-only workspace contract.");
         if (Layer.SourceMarkup.size() > VectorAuthoringSourceMarkupLimit)
             throw std::runtime_error("Vector component source markup exceeds its authored bound.");
+        // 🅰 A typeface id becomes a path fragment under FontArchives at rebake time, so it is
+        // held to a plain "Family/FaceStem" shape: bounded, printable, no traversal.
+        if (Layer.TextTypeface.size() > 260 ||
+            Layer.TextTypeface.find("..") != std::string::npos ||
+            (!Layer.TextTypeface.empty() && (Layer.TextTypeface.front() == '/' || Layer.TextTypeface.front() == '\\')) ||
+            std::any_of(Layer.TextTypeface.begin(), Layer.TextTypeface.end(), [](unsigned char C) { return C < 0x20 || C == 0x7f; }))
+            throw std::runtime_error("Vector text typeface id exceeds its authored bound.");
         if (Layer.ComponentKind == VectorAuthoringComponentKind::ImportedImage && !EmbeddedStampImageValid(Layer.EmbeddedImage))
             throw std::runtime_error("An image component requires a valid bounded embedded PNG.");
         if (Layer.ComponentKind != VectorAuthoringComponentKind::ImportedImage && !Layer.EmbeddedImage.empty())
@@ -401,5 +439,466 @@ VectorAuthoringArrayResult GenerateVectorAuthoringArray(const VectorAuthoringDoc
     NormalizeVectorAuthoringCaptions(Replacement);
     (void)ConstructVectorAuthoringCoverage(Replacement);
     return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SOURCE-ONLY MIRROR CONSTRUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+VectorAuthoringArrayResult GenerateVectorAuthoringMirror(const VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, const VectorAuthoringMirrorSpecification &Specification)
+{
+    (void)ConstructVectorAuthoringCoverage(Document);
+    if (!std::isfinite(Specification.PivotX) || !std::isfinite(Specification.PivotY) || std::abs(Specification.PivotX) > 1024 || std::abs(Specification.PivotY) > 1024)
+        throw std::runtime_error("Mirror pivot exceeds its finite authoring interval.");
+    if (!std::isfinite(Specification.AxisAngle) || std::abs(Specification.AxisAngle) > 360)
+        throw std::runtime_error("Mirror axis angle exceeds its finite authoring interval.");
+    const auto Indices = ResolveSelection(Document, Selection);
+    std::unordered_set<uint32_t> EnclosureTokens;
+    for (const auto Index : Indices)
+    {
+        const auto &Layer = Document.Layers[Index];
+        if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer))
+            throw std::runtime_error("Mirror requires visible, unlocked vector.");
+        for (const auto *Entry : EnumerateEnclosures(Document, Layer.EnclosureToken)) EnclosureTokens.insert(Entry->Token);
+    }
+    (void)EnclosureTokens;
+    if (Document.Layers.size() + (Specification.KeepOriginal ? Indices.size() : 0) > (Document.Stamp ? 24u : 64u))
+        throw std::runtime_error("Mirror copies exceed the document layer budget.");
+    const float α = Specification.AxisAngle * std::numbers::pi_v<float> / 180;
+    VectorAuthoringArrayResult Result{Document, {}};
+    auto &Replacement = Result.Document;
+    // 📝 Unlike Array, Mirror never needs to touch unselected layers or re-clone shared instructions: every
+    // original instruction/segment is kept exactly as-is (Replacement starts as a full copy of Document),
+    // and only the selected subtree's reflected clone is ever appended - a genuine geometry edit for
+    // Category-6 paths (their local-Y must flip, so they get a brand NEW Segments range, never shared
+    // with the untouched source range the way Array's rigid-body copies share it).
+    std::unordered_map<uint32_t, uint32_t> Remapping;
+    const auto Reflect = [&](auto &&Self, uint32_t Root) -> uint32_t
+    {
+        if (const auto Position = Remapping.find(Root); Position != Remapping.end()) return Position->second;
+        auto Instruction = Document.Instructions[Root];
+        if (Instruction.Topology[0] > 6)
+        {
+            Instruction.Topology[1] = Self(Self, Instruction.Topology[1]);
+            Instruction.Topology[2] = Self(Self, Instruction.Topology[2]);
+        }
+        else
+        {
+            ReflectPrimitive(Instruction, Specification.PivotX, Specification.PivotY, α);
+            if (Instruction.Topology[0] == 6)
+            {
+                const auto SegmentOffset = uint32_t(Replacement.Segments.size());
+                if (SegmentOffset + Instruction.Topology[2] > 4096) throw std::runtime_error("Mirror exceeds the vector segment budget.");
+                for (uint32_t Curve = 0; Curve < Instruction.Topology[2]; ++Curve)
+                {
+                    auto Segment = Document.Segments[Instruction.Topology[1] + Curve];
+                    Segment.StartControl[1] = -Segment.StartControl[1];
+                    Segment.StartControl[3] = -Segment.StartControl[3];
+                    Segment.ControlEnd[1]   = -Segment.ControlEnd[1];
+                    Segment.ControlEnd[3]   = -Segment.ControlEnd[3];
+                    Replacement.Segments.push_back(Segment);
+                }
+                Instruction.Topology[1] = SegmentOffset;
+            }
+        }
+        if (Replacement.Instructions.size() == 128) throw std::runtime_error("Mirror exceeds the 128-instruction GPU coverage budget.");
+        const auto Token = uint32_t(Replacement.Instructions.size());
+        Replacement.Instructions.push_back(Instruction);
+        Remapping.emplace(Root, Token);
+        return Token;
+    };
+    for (const auto Index : Indices)
+    {
+        auto &Layer = Replacement.Layers[Index];
+        const auto ReflectedRoot = Reflect(Reflect, Layer.Root);
+        std::optional<VectorCoverageInstruction> ReflectedMask;
+        if (Layer.Mask)
+        {
+            auto Mask = *Layer.Mask;
+            ReflectPrimitive(Mask, Specification.PivotX, Specification.PivotY, α);
+            if (Mask.Topology[0] == 6)
+            {
+                const auto SegmentOffset = uint32_t(Replacement.Segments.size());
+                if (SegmentOffset + Mask.Topology[2] > 4096) throw std::runtime_error("Mirror exceeds the vector segment budget.");
+                for (uint32_t Curve = 0; Curve < Mask.Topology[2]; ++Curve)
+                {
+                    auto Segment = Document.Segments[Mask.Topology[1] + Curve];
+                    Segment.StartControl[1] = -Segment.StartControl[1];
+                    Segment.StartControl[3] = -Segment.StartControl[3];
+                    Segment.ControlEnd[1]   = -Segment.ControlEnd[1];
+                    Segment.ControlEnd[3]   = -Segment.ControlEnd[3];
+                    Replacement.Segments.push_back(Segment);
+                }
+                Mask.Topology[1] = SegmentOffset;
+            }
+            ReflectedMask = Mask;
+        }
+        if (Specification.KeepOriginal)
+        {
+            auto Copy = Layer;
+            Copy.Name = ExtractCaptionStem(Layer.Name, 44) + " · mirror";
+            Copy.Token = IssueVectorAuthoringToken(Replacement);
+            Copy.Root = ReflectedRoot;
+            if (ReflectedMask) Copy.Mask = ReflectedMask;
+            Result.Selection.push_back(Layer.Token);
+            Result.Selection.push_back(Copy.Token);
+            Replacement.Layers.push_back(std::move(Copy));
+        }
+        else
+        {
+            Layer.Root = ReflectedRoot;
+            if (ReflectedMask) Layer.Mask = ReflectedMask;
+            Result.Selection.push_back(Layer.Token);
+        }
+    }
+    NormalizeVectorAuthoringCaptions(Replacement);
+    (void)ConstructVectorAuthoringCoverage(Replacement);
+    return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SOURCE-ONLY NOISE/JITTER CONSTRUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 A tiny deterministic integer hash, matching Array's own Noise scale profile (VectorAuthoringArrayPlacement.cpp)
+// so the same "reproducible, no <random> dependency" convention is used everywhere a seeded nudge is needed.
+float HashUnitInterval(uint32_t Seed, uint32_t Index)
+{
+    uint32_t Hash = (Seed ^ (Index + 1)) * 0x45d9f3bu;
+    Hash = (Hash ^ (Hash >> 16)) * 0x45d9f3bu;
+    return float(double(Hash ^ (Hash >> 16)) / 4294967295.0);
+}
+
+VectorAuthoringArrayResult GenerateVectorAuthoringNoise(const VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, const VectorAuthoringNoiseSpecification &Specification)
+{
+    (void)ConstructVectorAuthoringCoverage(Document);
+    if (!std::isfinite(Specification.PositionJitter) || Specification.PositionJitter < 0 || Specification.PositionJitter > 256)
+        throw std::runtime_error("Jitter position amplitude exceeds its finite authoring interval.");
+    if (!std::isfinite(Specification.RotationJitter) || Specification.RotationJitter < 0 || Specification.RotationJitter > 180)
+        throw std::runtime_error("Jitter rotation amplitude exceeds its finite authoring interval.");
+    if (!std::isfinite(Specification.ScaleJitter) || Specification.ScaleJitter < 0 || Specification.ScaleJitter > 90)
+        throw std::runtime_error("Jitter scale amplitude exceeds its finite authoring interval.");
+    if (Specification.Seed > 999999) throw std::runtime_error("Jitter seed exceeds 999999.");
+    const auto Indices = ResolveSelection(Document, Selection);
+    float MinimumX = std::numeric_limits<float>::max(), MinimumY = MinimumX;
+    float MaximumX = -MinimumX, MaximumY = MaximumX;
+    std::unordered_set<uint32_t> Visited;
+    std::function<void(uint32_t)> AccumulateBounds = [&](uint32_t Root)
+    {
+        if (!Visited.insert(Root).second) return;
+        const auto &Instruction = Document.Instructions[Root];
+        if (Instruction.Topology[0] > 6)
+        {
+            AccumulateBounds(Instruction.Topology[1]);
+            AccumulateBounds(Instruction.Topology[2]);
+            return;
+        }
+        const float θ = Instruction.Transform[0];
+        const float Horizontal = (std::abs(std::cos(θ)) * Instruction.Bounds[2] + std::abs(std::sin(θ)) * Instruction.Bounds[3]) * .5f;
+        const float Vertical   = (std::abs(std::sin(θ)) * Instruction.Bounds[2] + std::abs(std::cos(θ)) * Instruction.Bounds[3]) * .5f;
+        MinimumX = std::min(MinimumX, Instruction.Bounds[0] - Horizontal);
+        MaximumX = std::max(MaximumX, Instruction.Bounds[0] + Horizontal);
+        MinimumY = std::min(MinimumY, Instruction.Bounds[1] - Vertical);
+        MaximumY = std::max(MaximumY, Instruction.Bounds[1] + Vertical);
+    };
+    for (const auto Index : Indices)
+    {
+        const auto &Layer = Document.Layers[Index];
+        if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer))
+            throw std::runtime_error("Jitter requires visible, unlocked vector.");
+        AccumulateBounds(Layer.Root);
+    }
+    const float OriginX = (MinimumX + MaximumX) * .5f, OriginY = (MinimumY + MaximumY) * .5f;
+    // 📝 One seeded nudge for the WHOLE selection, applied as a single rigid-body group - exactly like
+    // Array treats a multi-layer selection as one orbiting unit. Each of the four quantities draws from
+    // an independent salted hash stream of the same Seed so they don't visibly correlate with each other.
+    const float ΔX     = (HashUnitInterval(Specification.Seed, 0) * 2 - 1) * Specification.PositionJitter;
+    const float ΔY     = (HashUnitInterval(Specification.Seed, 1) * 2 - 1) * Specification.PositionJitter;
+    const float ΔAngle = (HashUnitInterval(Specification.Seed, 2) * 2 - 1) * Specification.RotationJitter;
+    const float κ      = 1 + (HashUnitInterval(Specification.Seed, 3) * 2 - 1) * Specification.ScaleJitter / 100;
+    const VectorAuthoringArrayPlacement Location{OriginX + ΔX, OriginY + ΔY, ΔAngle, 0};
+    VectorAuthoringArrayResult Result{Document, {}};
+    auto &Replacement = Result.Document;
+    Replacement.Layers.clear();
+    Replacement.Instructions.clear();
+    std::unordered_set<size_t> Selected(Indices.begin(), Indices.end());
+    std::unordered_map<uint32_t, uint32_t> RetainedSources, SourceTokens;
+    const auto Clone = [&](auto &&Self, uint32_t Root, auto &Remapping, const VectorAuthoringArrayPlacement &Placement, float Scale, bool RotationEnabled) -> uint32_t
+    {
+        if (const auto Position = Remapping.find(Root); Position != Remapping.end()) return Position->second;
+        auto Instruction = Document.Instructions[Root];
+        if (Instruction.Topology[0] > 6)
+        {
+            Instruction.Topology[1] = Self(Self, Instruction.Topology[1], Remapping, Placement, Scale, RotationEnabled);
+            Instruction.Topology[2] = Self(Self, Instruction.Topology[2], Remapping, Placement, Scale, RotationEnabled);
+        }
+        else TransformPrimitive(Instruction, Placement, OriginX, OriginY, Scale, RotationEnabled);
+        if (Replacement.Instructions.size() == 128) throw std::runtime_error("Jitter exceeds the 128-instruction GPU coverage budget.");
+        const auto Token = uint32_t(Replacement.Instructions.size());
+        Replacement.Instructions.push_back(Instruction);
+        Remapping.emplace(Root, Token);
+        return Token;
+    };
+    const VectorAuthoringArrayPlacement Identity{OriginX, OriginY, 0, 0};
+    for (size_t Index = 0; Index < Document.Layers.size(); ++Index)
+    {
+        auto Layer = Document.Layers[Index];
+        if (Selected.contains(Index))
+        {
+            Layer.Root = Clone(Clone, Layer.Root, SourceTokens, Location, κ, true);
+            if (Layer.Mask) TransformPrimitive(*Layer.Mask, Location, OriginX, OriginY, κ, true);
+            Result.Selection.push_back(Layer.Token);
+        }
+        else Layer.Root = Clone(Clone, Layer.Root, RetainedSources, Identity, 1, false);
+        Replacement.Layers.push_back(std::move(Layer));
+    }
+    (void)ConstructVectorAuthoringCoverage(Replacement);
+    return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SOURCE-ONLY OFFSET/OUTLINE CONSTRUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+// 📝 Grows (Distance>0) or shrinks (Distance<0) a leaf's own bounding frame on every side. Exact for
+// Rectangle/Ellipse; an explicitly-disclosed bounding-frame approximation for Diamond/Triangle/Polygon/
+// Star/CubicContour (true per-edge Minkowski polygon or path offsetting is out of scope for this tool).
+void OffsetPrimitive(VectorCoverageInstruction &Instruction, float Distance)
+{
+    Instruction.Bounds[2] = std::max(.02f, Instruction.Bounds[2] + 2 * Distance);
+    Instruction.Bounds[3] = std::max(.02f, Instruction.Bounds[3] + 2 * Distance);
+}
+
+VectorAuthoringArrayResult GenerateVectorAuthoringOffset(const VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, const VectorAuthoringOffsetSpecification &Specification)
+{
+    (void)ConstructVectorAuthoringCoverage(Document);
+    if (!std::isfinite(Specification.Distance) || std::abs(Specification.Distance) > 256)
+        throw std::runtime_error("Offset distance exceeds its finite authoring interval.");
+    const auto Indices = ResolveSelection(Document, Selection);
+    VectorAuthoringArrayResult Result{Document, {}};
+    auto &Replacement = Result.Document;
+    // 📝 Every existing instruction/segment is kept exactly as-is; only the selected subtree's
+    // own offset-adjusted clone is ever appended, shared across every selected layer that
+    // happens to reference the same original instruction.
+    std::unordered_map<uint32_t, uint32_t> Remapping;
+    const auto Clone = [&](auto &&Self, uint32_t Root) -> uint32_t
+    {
+        if (const auto Position = Remapping.find(Root); Position != Remapping.end()) return Position->second;
+        auto Instruction = Document.Instructions[Root];
+        if (Instruction.Topology[0] > 6)
+        {
+            Instruction.Topology[1] = Self(Self, Instruction.Topology[1]);
+            Instruction.Topology[2] = Self(Self, Instruction.Topology[2]);
+        }
+        else OffsetPrimitive(Instruction, Specification.Distance);
+        if (Replacement.Instructions.size() == 128) throw std::runtime_error("Offset exceeds the 128-instruction GPU coverage budget.");
+        const auto Token = uint32_t(Replacement.Instructions.size());
+        Replacement.Instructions.push_back(Instruction);
+        Remapping.emplace(Root, Token);
+        return Token;
+    };
+    for (const auto Index : Indices)
+    {
+        auto &Layer = Replacement.Layers[Index];
+        if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer))
+            throw std::runtime_error("Offset requires visible, unlocked vector.");
+        Layer.Root = Clone(Clone, Layer.Root);
+        Result.Selection.push_back(Layer.Token);
+    }
+    (void)ConstructVectorAuthoringCoverage(Replacement);
+    return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     SOURCE-ONLY COLOUR CONSTRUCTION
+//------------------------------------------------------------------------------------------------------------------------
+
+void ValidateVectorAuthoringColourSpecification(const VectorAuthoringColourSpecification &Specification)
+{
+    if (uint32_t(Specification.Generator) > 2 || uint32_t(Specification.Target) > 2) throw std::runtime_error("Unsupported vector colour classification.");
+    if (Specification.StopCount < 2 || Specification.StopCount > 4) throw std::runtime_error("Colour modifier must declare 2-4 stops.");
+    for (const auto &Stop : Specification.Stops)
+        for (float Channel : Stop) if (!std::isfinite(Channel) || Channel < 0 || Channel > 1) throw std::runtime_error("Colour modifier stop channel must be normalized.");
+    if (!std::isfinite(Specification.AxisAngle) || std::abs(Specification.AxisAngle) > 360) throw std::runtime_error("Colour modifier axis angle exceeds its finite authoring interval.");
+    if (!std::isfinite(Specification.CentreX) || !std::isfinite(Specification.CentreY) || std::abs(Specification.CentreX) > 1024 || std::abs(Specification.CentreY) > 1024)
+        throw std::runtime_error("Colour modifier centre exceeds its finite authoring interval.");
+    if (!std::isfinite(Specification.Radius) || Specification.Radius <= 0 || Specification.Radius > 2048) throw std::runtime_error("Colour modifier radius exceeds its finite authoring interval.");
+    if (!Specification.GroupSize || Specification.GroupSize > 64) throw std::runtime_error("Colour modifier group size exceeds its finite authoring interval.");
+}
+// 📝 Linear/Radial blend continuously between the active Stops; Ramp (handled separately, by group index)
+// never calls this - it hard-cycles instead. T is clamped so callers never need to pre-sanitize it.
+std::array<float, 4> SampleColourRamp(const VectorAuthoringColourSpecification &Specification, float T)
+{
+    const uint32_t Count = Specification.StopCount;
+    if (Count <= 1) return Specification.Stops[0];
+    const float Scaled = std::clamp(T, 0.f, 1.f) * float(Count - 1);
+    const uint32_t Lower = std::min(uint32_t(Scaled), Count - 2);
+    const float Fraction = Scaled - float(Lower);
+    std::array<float, 4> Blend{};
+    for (size_t Channel = 0; Channel < 4; ++Channel)
+        Blend[Channel] = Specification.Stops[Lower][Channel] * (1 - Fraction) + Specification.Stops[Lower + 1][Channel] * Fraction;
+    return Blend;
+}
+void PaintPrimitive(VectorCoverageInstruction &Instruction, const std::array<float, 4> &Colour, VectorAuthoringColourTarget Target)
+{
+    if (Target != VectorAuthoringColourTarget::Stroke) Instruction.Colour = Colour;
+    if (Target != VectorAuthoringColourTarget::Fill)
+    {
+        Instruction.StrokeColour = Colour;
+        Instruction.Topology[3] |= VectorCoverageStrokeColourExplicit;
+    }
+}
+VectorAuthoringColourSpecification ResolveVectorAuthoringColourGrouping(VectorAuthoringColourSpecification Specification, const VectorAuthoringModifier *Previous)
+{
+    if (!Specification.AutoGroup) return Specification;
+    uint32_t Resolved = 1;
+    if (Previous && Previous->Enabled && Previous->Operation == VectorAuthoringModifierOperation::Array)
+        Resolved = Previous->Array.Category == VectorAuthoringArrayCategory::Grid ? Previous->Array.Columns : Previous->Array.Count;
+    Specification.GroupSize = std::clamp(Resolved, 1u, 64u);
+    return Specification;
+}
+VectorAuthoringArrayResult GenerateVectorAuthoringColour(const VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, const VectorAuthoringColourSpecification &Specification)
+{
+    (void)ConstructVectorAuthoringCoverage(Document);
+    ValidateVectorAuthoringColourSpecification(Specification);
+    const auto Indices = ResolveSelection(Document, Selection);
+    for (const auto Index : Indices)
+    {
+        const auto &Layer = Document.Layers[Index];
+        if (!QueryVectorAuthoringVisibility(Document, Layer) || QueryVectorAuthoringProtection(Document, Layer))
+            throw std::runtime_error("Colour requires visible, unlocked vector.");
+    }
+    // 📝 Each selected layer's own centre, needed only by the spatial Linear/Radial generators - Ramp
+    // never looks at geometry at all, only at the element's position within the selection's own order.
+    std::vector<std::array<float, 2>> Centres(Indices.size());
+    if (Specification.Generator != VectorAuthoringColourGenerator::Ramp)
+        for (size_t Order = 0; Order < Indices.size(); ++Order)
+        {
+            float MinimumX = std::numeric_limits<float>::max(), MinimumY = MinimumX, MaximumX = -MinimumX, MaximumY = MaximumX;
+            std::unordered_set<uint32_t> Visited;
+            const std::function<void(uint32_t)> Accumulate = [&](uint32_t Root)
+            {
+                if (!Visited.insert(Root).second) return;
+                const auto &Instruction = Document.Instructions[Root];
+                if (Instruction.Topology[0] > 6) { Accumulate(Instruction.Topology[1]); Accumulate(Instruction.Topology[2]); return; }
+                MinimumX = std::min(MinimumX, Instruction.Bounds[0]); MaximumX = std::max(MaximumX, Instruction.Bounds[0]);
+                MinimumY = std::min(MinimumY, Instruction.Bounds[1]); MaximumY = std::max(MaximumY, Instruction.Bounds[1]);
+            };
+            Accumulate(Document.Layers[Indices[Order]].Root);
+            Centres[Order] = {(MinimumX + MaximumX) * .5f, (MinimumY + MaximumY) * .5f};
+        }
+    std::vector<float> Progress(Indices.size(), .5f);
+    if (Specification.Generator == VectorAuthoringColourGenerator::Linear)
+    {
+        const float θ = Specification.AxisAngle * std::numbers::pi_v<float> / 180;
+        const float DirectionX = std::cos(θ), DirectionY = std::sin(θ);
+        float Minimum = std::numeric_limits<float>::max(), Maximum = -Minimum;
+        std::vector<float> Projection(Indices.size());
+        for (size_t Order = 0; Order < Indices.size(); ++Order)
+        {
+            Projection[Order] = Centres[Order][0] * DirectionX + Centres[Order][1] * DirectionY;
+            Minimum = std::min(Minimum, Projection[Order]);
+            Maximum = std::max(Maximum, Projection[Order]);
+        }
+        for (size_t Order = 0; Order < Indices.size(); ++Order)
+            Progress[Order] = Maximum > Minimum ? (Projection[Order] - Minimum) / (Maximum - Minimum) : .5f;
+    }
+    else if (Specification.Generator == VectorAuthoringColourGenerator::Radial)
+        for (size_t Order = 0; Order < Indices.size(); ++Order)
+            Progress[Order] = std::hypot(Centres[Order][0] - Specification.CentreX, Centres[Order][1] - Specification.CentreY) / Specification.Radius;
+    VectorAuthoringArrayResult Result{Document, {}};
+    auto &Replacement = Result.Document;
+    for (size_t Order = 0; Order < Indices.size(); ++Order)
+    {
+        const std::array<float, 4> Colour = Specification.Generator == VectorAuthoringColourGenerator::Ramp
+            ? Specification.Stops[(uint32_t(Order) / Specification.GroupSize) % Specification.StopCount]
+            : SampleColourRamp(Specification, Progress[Order]);
+        // 📝 A fresh remapping per selected layer (never shared across layers) - two layers that happen to
+        // reference the same original instruction must still be free to land on two different colours.
+        std::unordered_map<uint32_t, uint32_t> SourceTokens;
+        const auto Clone = [&](auto &&Self, uint32_t Root) -> uint32_t
+        {
+            if (const auto Position = SourceTokens.find(Root); Position != SourceTokens.end()) return Position->second;
+            auto Instruction = Document.Instructions[Root];
+            if (Instruction.Topology[0] > 6)
+            {
+                Instruction.Topology[1] = Self(Self, Instruction.Topology[1]);
+                Instruction.Topology[2] = Self(Self, Instruction.Topology[2]);
+            }
+            else PaintPrimitive(Instruction, Colour, Specification.Target);
+            if (Replacement.Instructions.size() == 128) throw std::runtime_error("Colour exceeds the 128-instruction GPU coverage budget.");
+            const auto Token = uint32_t(Replacement.Instructions.size());
+            Replacement.Instructions.push_back(Instruction);
+            SourceTokens.emplace(Root, Token);
+            return Token;
+        };
+        auto &Layer = Replacement.Layers[Indices[Order]];
+        Layer.Root = Clone(Clone, Layer.Root);
+        Result.Selection.push_back(Layer.Token);
+    }
+    (void)ConstructVectorAuthoringCoverage(Replacement);
+    return Result;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                                                     MODIFIER STACK DISPATCH
+//------------------------------------------------------------------------------------------------------------------------
+
+VectorAuthoringArrayResult ApplyVectorAuthoringModifier(const VectorAuthoringDocument &Document, std::span<const uint32_t> Selection, const VectorAuthoringModifier &Modifier, const VectorAuthoringModifier *Previous)
+{
+    switch (Modifier.Operation)
+    {
+    case VectorAuthoringModifierOperation::Array:  return GenerateVectorAuthoringArray(Document, Selection, Modifier.Array);
+    case VectorAuthoringModifierOperation::Mirror: return GenerateVectorAuthoringMirror(Document, Selection, Modifier.Mirror);
+    case VectorAuthoringModifierOperation::Noise:  return GenerateVectorAuthoringNoise(Document, Selection, Modifier.Noise);
+    case VectorAuthoringModifierOperation::Offset: return GenerateVectorAuthoringOffset(Document, Selection, Modifier.Offset);
+    case VectorAuthoringModifierOperation::Colour: return GenerateVectorAuthoringColour(Document, Selection, ResolveVectorAuthoringColourGrouping(Modifier.Colour, Previous));
+    }
+    throw std::runtime_error("Unsupported vector modifier operation.");
+}
+
+VectorAuthoringDocument ConstructEvaluatedVectorAuthoringDocument(const VectorAuthoringDocument &Document)
+{
+    const bool AnyEnabled = std::any_of(Document.Layers.begin(), Document.Layers.end(), [](const VectorAuthoringLayer &Layer)
+    {
+        return std::any_of(Layer.Modifiers.begin(), Layer.Modifiers.end(), [](const VectorAuthoringModifier &Modifier) { return Modifier.Enabled; });
+    });
+    if (!AnyEnabled) return Document; // 📝 Zero-cost common case - the authored document has no live modifiers to expand.
+    // 📝 Record every layer's ORDERED list of Enabled modifiers (Array, Mirror, Noise or Offset - see
+    // ApplyVectorAuthoringModifier) before anything is cloned, then wipe every layer's Modifiers field
+    // from the working copy - this evaluated document is ephemeral/render-only and must never carry
+    // residual modifier metadata forward (no recursive re-evaluation, ever).
+    struct PendingLayerModifiers { uint32_t Token; std::vector<VectorAuthoringModifier> Modifiers; };
+    std::vector<PendingLayerModifiers> Queue;
+    for (const auto &Layer : Document.Layers)
+    {
+        std::vector<VectorAuthoringModifier> Modifiers;
+        for (const auto &Modifier : Layer.Modifiers) if (Modifier.Enabled) Modifiers.push_back(Modifier);
+        if (!Modifiers.empty()) Queue.push_back({Layer.Token, std::move(Modifiers)});
+    }
+    VectorAuthoringDocument Working = Document;
+    for (auto &Layer : Working.Layers) Layer.Modifiers.clear();
+    for (const auto &Entry : Queue)
+    {
+        // 📝 A layer with several stacked, Enabled modifiers compounds them exactly like Blender's
+        // modifier stack: the second modifier acts on the WHOLE result of the first (e.g. an Array
+        // followed by a Mirror mirrors every arrayed copy as one group), by re-selecting every token
+        // the previous pass produced before generating the next one.
+        std::vector<uint32_t> CurrentSelection{Entry.Token};
+        for (size_t Index = 0; Index < Entry.Modifiers.size(); ++Index)
+        {
+            try
+            {
+                const VectorAuthoringModifier *Previous = Index > 0 ? &Entry.Modifiers[Index - 1] : nullptr;
+                auto Result = ApplyVectorAuthoringModifier(Working, CurrentSelection, Entry.Modifiers[Index], Previous);
+                Working = std::move(Result.Document);
+                CurrentSelection = std::move(Result.Selection);
+            }
+            // 📝 A budget/visibility/lock failure mid-stack leaves whatever this layer already baked in
+            // place rather than discarding the whole canvas render over one offending modifier entry.
+            catch (const std::exception &) { break; }
+        }
+    }
+    return Working;
 }
 }

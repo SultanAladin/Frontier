@@ -727,3 +727,159 @@
     flex: 1;
   }
 }
+
+/* Separated stamp inspector: Transform/content above, channel cards below,
+   plus the movable canvas PBR light. */
+.stamp-transform-card .stamp-property-heading,
+.stamp-content-card .stamp-property-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 10px;
+}
+.stamp-transform-card .stamp-property-heading h2,
+.stamp-content-card .stamp-property-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #d0d0c3;
+}
+.stamp-transform-card .stamp-shared-controls {
+  margin: 10px 0 2px;
+}
+.stamp-align-row {
+  margin-top: 10px;
+}
+.stamp-align-row h3 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #a8a894;
+}
+.stamp-basecolor-paint {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.stamp-basecolor-caption {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a8a894;
+}
+.stamp-basecolor-group > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: #b9b9a4;
+}
+.stamp-basecolor-paint .stamp-vector-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+.stamp-canvas .stamp-pbr-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.stamp-pbr-light-handle {
+  position: absolute;
+  z-index: 40;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #3a2a12;
+  background: radial-gradient(circle at 38% 35%, #ffe9a8, #f6b93b 62%, #d98a1f);
+  border: 1px solid #00000055;
+  box-shadow: 0 0 0 4px #f6b93b2e, 0 4px 14px #0009;
+  cursor: grab;
+  touch-action: none;
+}
+.stamp-pbr-light-handle:active {
+  cursor: grabbing;
+}
+.stamp-pbr-light-handle:focus-visible {
+  outline: 2px solid #ffd873;
+  outline-offset: 2px;
+}
+/* The mask fieldset keeps the stamp-vector-properties class (mask-editing
+   visibility contract); restore the Mask card's own row layout inside it. */
+.stamp-vector-properties .mask-property-card label {
+  margin: 0;
+}
+.stamp-vector-properties .mask-property-card .tp-toggle-row {
+  display: flex;
+  flex-direction: row;
+}
+.stamp-vector-properties .mask-property-card .mask-prop-row {
+  display: grid;
+}
+.mask-property-card .mask-prop-row > input {
+  width: 100%;
+  min-width: 0;
+}
+.mask-property-card .mask-slot-thumb img,
+.mask-property-card .mask-preview-tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.stamp-mask-add {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px dashed #ffffff2b;
+  background: #ffffff08;
+  color: #d8d8c8;
+  font-size: 11px;
+  cursor: pointer;
+}
+.stamp-mask-add:hover:not(:disabled) {
+  background: #ffffff12;
+}
+.stamp-mask-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.stamp-mask-remove {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid #bd76663b;
+  background: transparent;
+  color: #e3a68f;
+  font-size: 11px;
+  cursor: pointer;
+}
+.stamp-mask-remove:hover:not(:disabled) {
+  background: #3a2721;
+}
+.stamp-mask-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.stamp-text-colour-slot {
+  min-height: 30px;
+}

@@ -5,6 +5,8 @@
 
 #include "Engine/ContentInterchange/VectorAuthoringSelectionEditing.h"
 #include "Engine/ContentInterchange/CubicPathEditing.h"
+#include "Engine/ContentInterchange/VectorGradientStops.h"
+#include "Engine/Render/VectorSurfaceCompilation.h"
 #include <iostream>
 #include <limits>
 #include <numbers>
@@ -87,6 +89,68 @@ int main()
                     Confirm(History.RestoreHistory(true) && History.QueryDocument() == Document, "Resize history did not preserve its result.");
                 }
             }
+        }
+        {
+            VectorAuthoringDocument Rounded;
+            Rounded.Stamp = true;
+            VectorCoverageInstruction Rectangle;
+            const auto Token = ConstructVectorAuthoringPrimitive(Rounded, Rectangle, "Rounded rectangle");
+            const std::array<uint32_t, 1> Selection{Token};
+            Rounded.Layers[0].Mask = Rectangle;
+            VectorAuthoringSourcePatch Radius; Radius.CornerRadius = 12.5f;
+            TransformVectorAuthoringSelection(Rounded, Selection, Radius);
+            Confirm(Near(Rounded.Instructions[Rounded.Layers[0].Root].ShapeParameters[0], 12.5f), "Corner radius edit was lost.");
+            Confirm(Rounded.Layers[0].Mask->ShapeParameters[0] == 0, "Corner radius edit changed the owned mask.");
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Rounded)) == Rounded, "Corner radius did not round trip.");
+        }
+        {
+            VectorAuthoringDocument Combined;
+            Combined.Stamp = true;
+            VectorCoverageInstruction Rectangle, Union;
+            Union.Topology = {16, 0, 1, 0};
+            Combined.Instructions = {Rectangle, Rectangle, Union};
+            VectorAuthoringLayer Layer; Layer.Token = 1; Layer.Root = 2; Layer.Name = "Combined";
+            Layer.Mask = Rectangle; Layer.ExpressionOpacity = .35f;
+            Combined.Layers = {Layer}; Combined.TokenClock = 1;
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Combined)) == Combined, "Combined opacity did not round trip.");
+            const auto Coverage = ConstructVectorAuthoringCoverage(Combined);
+            Confirm(Coverage.Instructions[Coverage.Root].Topology[0] == 29 && Near(Coverage.Instructions[Coverage.Root].Transform[2], .35f), "Coverage lost post-mask opacity.");
+            const auto Selected = ConstructVectorSelectionProgram(Combined);
+            Confirm(Selected.Coverage.Instructions[Selected.Candidates[0][0]].Topology[0] == 29, "Selection lost combined opacity.");
+            const auto Surface = CompileVectorSurface(Combined, VectorAuthoringSurfaceChannel::Colour);
+            Confirm(Surface.Coverage.Instructions[Surface.Contributions[0].Root].Topology[0] == 29, "Surface lost combined opacity.");
+            auto Recombined = Combined; Recombined.Layers[0].Mask.reset();
+            const auto Other = ConstructVectorAuthoringPrimitive(Recombined, Rectangle, "Other");
+            const std::array<uint32_t, 2> Both{1, Other};
+            IntegrateVectorAuthoringBoolean(Recombined, Both, VectorCoverageCategory::Union);
+            const auto &Root = Recombined.Instructions[Recombined.Layers[0].Root];
+            const auto &Operand = Recombined.Instructions[Root.Topology[1]];
+            Confirm(Operand.Topology[0] == 29 && Near(Operand.Transform[2], .35f) && Recombined.Layers[0].ExpressionOpacity == 1, "Recombining lost operand opacity.");
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Recombined)) == Recombined, "Retained opacity expression did not round trip.");
+            Combined.Layers[0].ExpressionOpacity = 1.5f;
+            bool Refused = false; try { (void)ConstructVectorAuthoringCoverage(Combined); } catch (const std::runtime_error &) { Refused = true; }
+            Confirm(Refused, "Invalid combined opacity was accepted.");
+        }
+        {
+            VectorAuthoringDocument Artwork; Artwork.Stamp = true;
+            VectorCoverageInstruction Rectangle;
+            Rectangle.Colour = {.1f, .2f, .3f, 1};
+            Rectangle.StrokeColour = Rectangle.Colour;
+            const auto Token = ConstructVectorAuthoringPrimitive(Artwork, Rectangle, "Gradient stroke");
+            const std::array<uint32_t, 1> Selection{Token};
+            Artwork.Layers[0].Mask = Rectangle;
+            std::vector<VectorGradientStop> Stops{{0, {1, 0, 0, 1}}, {.4f, {0, 1, 0, .5f}}, {1, {0, 0, 1, 1}}};
+            VectorAuthoringSourcePatch Patch; Patch.StrokePaintCategory = 1;
+            ApplyVectorStrokeGradientStops(Patch, Stops);
+            TransformVectorAuthoringSelection(Artwork, Selection, Patch);
+            const auto &Edited = Artwork.Instructions[Artwork.Layers[0].Root];
+            const auto Actual = QueryVectorStrokeGradientStops(Edited);
+            Confirm(Edited.ShapeParameters[1] == 1 && Actual.size() == 3 && Near(Actual[1].Position, .4f), "Stroke ramp edit was lost.");
+            Confirm(Edited.Colour == Rectangle.Colour && Artwork.Layers[0].Mask->StrokeGradientStopPositions[2] == -1, "Stroke gradient edit changed fill or mask.");
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Artwork)) == Artwork, "Stroke gradient did not round trip.");
+            Patch = {}; Patch.StrokePaintCategory = 0;
+            TransformVectorAuthoringSelection(Artwork, Selection, Patch);
+            Confirm(DecodeVectorAuthoring(EncodeVectorAuthoring(Artwork)) == Artwork, "Solid stroke lost its retained gradient.");
         }
         VectorAuthoringDocument Group;
         VectorCoverageInstruction Source;

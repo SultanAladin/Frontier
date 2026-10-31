@@ -89,6 +89,21 @@ int main(int Count, char **Arguments)
         Program.Instructions[0].Transform[3] = 1; Program.Instructions[0].Colour = {1, 0, 0, 1}; Program.Instructions[0].ColourEnd = {0, 0, 1, 1};
         Pixels = Evaluate(Program);
         Confirm(Pixels[(128 * 256 + 70) * 4] > Pixels[(128 * 256 + 185) * 4], "GPU gradient does not vary spatially.");
+        {
+            VectorCoverageProgram StrokeProgram;
+            auto Stroke = Rectangle; Stroke.Paint[3] = 0; Stroke.Transform[1] = 24;
+            Stroke.Topology[3] |= VectorCoverageStrokeColourExplicit;
+            Stroke.ShapeParameters[1] = 1;
+            Stroke.StrokeColour = {1, 0, 0, 1}; Stroke.StrokeColourEnd = {0, 0, 1, 1};
+            StrokeProgram.Instructions = {Stroke}; StrokeProgram.Root = 0;
+            const auto StrokePixels = Evaluate(StrokeProgram);
+            const size_t Left = (size_t(53) * 256 + 75) * 4, Right = (size_t(53) * 256 + 180) * 4;
+            Confirm(StrokePixels[Left] > StrokePixels[Left + 2] && StrokePixels[Right + 2] > StrokePixels[Right], "GPU stroke gradient does not vary spatially.");
+            VectorCoverageInstruction Fade; Fade.Topology = {29, 0, 0, 0}; Fade.Transform[2] = .4f;
+            StrokeProgram.Instructions.push_back(Fade); StrokeProgram.Root = 1;
+            const auto Faded = Evaluate(StrokeProgram);
+            Confirm(Alpha(Faded, 75, 53) >= 100 && Alpha(Faded, 75, 53) <= 105, "GPU expression opacity is incorrect.");
+        }
         Program.Instructions[0].Topology = {6, 0, 4, 0};
         const std::array<std::array<float, 2>, 4> Corners{{{-.5f, -.5f}, {.5f, -.5f}, {.5f, .5f}, {-.5f, .5f}}};
         for (size_t Index = 0; Index < 4; ++Index)

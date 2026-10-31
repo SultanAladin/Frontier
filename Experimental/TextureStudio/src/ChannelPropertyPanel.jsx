@@ -520,20 +520,29 @@ export default function ChannelPropertyPanel({
                     )}
                   </>
                 )}
-                {value.mode === "value" && (
-                  <div className="channel-value-preview">
-                    <i
-                      style={{
-                        background:
-                          c.edit === "color"
-                            ? value.value
-                            : `rgb(${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)})`,
-                      }}
-                    />
-                    <span>Value swatch</span>
-                    <small>Not composited</small>
+                <div className="channel-value-preview">
+                  <i
+                    style={
+                      value.mode === "value"
+                        ? {
+                            backgroundImage: "none",
+                            backgroundColor:
+                              c.edit === "color"
+                                ? value.value
+                                : `rgb(${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value.value - c.min) / (c.max - c.min)) * 255)})`,
+                          }
+                        : undefined
+                    }
+                  />
+                  <div className="channel-preview-text">
+                    <span>
+                      {value.mode === "derived"
+                        ? "Derived preview"
+                        : `${SOURCE_MODES.find((m) => m[0] === value.mode)?.[1]} preview`}
+                    </span>
+                    <small>{c.placement}</small>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </section>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   createStampDocument,
   normalizeStampPreset,
+  normalizeStampValues,
   readStampPresets,
 } from "./stampDocument.js";
 import { renderStamp } from "./stampRaster.js";
@@ -38,6 +39,8 @@ export default function useDecalEditing(
       mode: "brush",
       gizmo: "translate",
     });
+  // 📝 channels/channelValues stay null until the artist retargets the brush;
+  // null inherits the selected preset's targets at placement time.
   const [brushes, setBrushes] = useState({
     "object-sphere": {
       size: [0.75, 0.75],
@@ -45,8 +48,20 @@ export default function useDecalEditing(
       opacity: 1,
       roll: 0,
       asMask: false,
+      channels: null,
+      channelValues: null,
+      channelSources: null,
     },
-    uv: { size: [0.18, 0.18], depth: 0.35, opacity: 1, roll: 0, asMask: false },
+    uv: {
+      size: [0.18, 0.18],
+      depth: 0.35,
+      opacity: 1,
+      roll: 0,
+      asMask: false,
+      channels: null,
+      channelValues: null,
+      channelSources: null,
+    },
   });
   const brush = {
     ...brushes[space],
@@ -66,6 +81,15 @@ export default function useDecalEditing(
     available.find((s) => s.id === presetId) ||
     available[0] ||
     incoming.current;
+  const brushChannels = brush.channels ?? preset?.project.channels ?? ["baseColor"];
+  const brushChannelValues = normalizeStampValues({
+    ...(preset?.project.channelValues || {}),
+    ...(brush.channelValues || {}),
+  });
+  const brushChannelSources = {
+    ...(preset?.project.channelSources || {}),
+    ...(brush.channelSources || {}),
+  };
   const owner = doc.layers.find((l) => l.id === selection.id),
     component = owner?.decals.find((d) => d.id === componentId);
   const locked =
@@ -234,7 +258,7 @@ export default function useDecalEditing(
       )
         setOperation((old) => ({ ...old, mode: "transform" }));
     } else {
-      if (!brush.asMask && !preset.project.channels.length) {
+      if (!brush.asMask && !(brush.channels ?? preset.project.channels).length) {
         history.setError(
           "Enable at least one stamp channel, or use the stamp as a mask.",
         );
@@ -281,7 +305,7 @@ export default function useDecalEditing(
       );
       return false;
     }
-    if (!brush.asMask && !source.project.channels.length) {
+    if (!brush.asMask && !(brush.channels ?? source.project.channels).length) {
       history.setError("Enable a stamp channel, or use the stamp as a mask.");
       return false;
     }
@@ -316,6 +340,9 @@ export default function useDecalEditing(
     mode: operation.mode,
     gizmo: operation.gizmo,
     brush,
+    brushChannels,
+    brushChannelValues,
+    brushChannelSources,
     space,
     placementAvailable,
     partLocked,

@@ -6,6 +6,7 @@
 #pragma once
 #include "MaterialThumbnailAtlas.h"
 #include "MaterialPreviewConfiguration.h"
+#include "WorkspaceViewportRendering.h"
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -39,7 +40,10 @@ class MaterialLibraryRendering
     MaterialLibraryRendering &operator=(const MaterialLibraryRendering &) = delete;
     static constexpr uint32_t EnvironmentPreviewTile = 96;
     static constexpr uint32_t EnvironmentPreviewColumns = 8;
-    void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory);
+    static constexpr uint32_t ShippedAtlasTile = 160;
+    static constexpr uint32_t ShippedAtlasColumns = 14;
+    void Initialize(const VulkanRasterAccess &Access, const std::filesystem::path &ShaderDirectory,
+        uint32_t TileExtent = 256, uint32_t AtlasColumns = 8);
     // 📝 (Re)scan a directory of equirect PNG environment archives: decodes, derives each key
     // light analytically, uploads the array texture and re-renders the sphere preview atlas.
     // Safe to call again after the user drops new files into the folder (the import path).
@@ -78,6 +82,16 @@ class MaterialLibraryRendering
     [[nodiscard]] VkImageView QueryPreviewView() const noexcept;
     [[nodiscard]] bool QueryPreviewReady() const noexcept;
     [[nodiscard]] const std::string &QueryDiagnostic() const noexcept;
+
+    // Unified 3D viewport slots shared across non-specimen mesh workspaces (0 = Texture Paint, 1 = Baking).
+    static constexpr uint32_t AuxiliaryViewportCount = 2;
+    void ConfigureAuxiliaryGeometry(uint32_t Slot, const SurfaceGeometry &Mesh);
+    void ConfigureAuxiliaryMaterial(uint32_t Slot, const CompiledSurfaceMaterial &Material);
+    void ConfigureAuxiliaryCamera(uint32_t Slot, const WorkspaceViewportOrbitCamera &Camera);
+    void ConfigureAuxiliaryExtent(uint32_t Slot, uint32_t Width, uint32_t Height);
+    [[nodiscard]] VkImage QueryAuxiliaryViewportImage(uint32_t Slot) const noexcept;
+    [[nodiscard]] VkImageView QueryAuxiliaryViewportView(uint32_t Slot) const noexcept;
+    [[nodiscard]] bool QueryAuxiliaryViewportReady(uint32_t Slot) const noexcept;
 
   private:
     struct RenderingAllocation;

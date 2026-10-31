@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(FrontierUIFoundation LANGUAGES C CXX)
 
+# 📝 Defines/caches BUILD_TESTING (default ON) via the standard CTest module. This must run before any
+# `if(BUILD_TESTING)` guard below - on a from-scratch configure (no existing CMakeCache.txt) the variable
+# is otherwise unset at that point, so a guard checked earlier in the file would silently evaluate false
+# on a brand-new checkout even though CTest ends up enabled later in the same configure pass. The
+# TextureStudio RUNTIME_OUTPUT_DIRECTORY guard a little further down (keeping its bundled EngineContent
+# copy out of the flat host-verification ctest binary directory) depends on this ordering.
+include(CTest)
+
 find_package(Git QUIET)
 set(FRONTIER_BUILD_COMMIT "local")
 if(GIT_FOUND)
@@ -73,10 +81,14 @@ target_include_directories(FrontierVectorAuthoring PUBLIC "${CMAKE_SOURCE_DIR}"
 target_include_directories(FrontierVectorAuthoring PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 target_link_libraries(FrontierVectorAuthoring PUBLIC thorvg_static)
 add_library(FrontierTextureStudioUI STATIC UI/TextureStudio/MaterialLibraryPanel.cpp UI/TextureStudio/PatternWorkspacePanel.cpp
-    UI/TextureStudio/StampWorkspacePanel.cpp
-    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp)
+    UI/TextureStudio/StampWorkspacePanel.cpp UI/TextureStudio/BakingWorkspacePanel.cpp UI/TextureStudio/TexturePaintWorkspacePanel.cpp
+    UI/TextureStudio/PaintStampEngine.cpp UI/TextureStudio/PaintStampTools.cpp UI/TextureStudio/StampLibrary.cpp UI/TextureStudio/PanelChrome.cpp
+    UI/TextureStudio/PatternThumbnailRaster.cpp UI/TextureStudio/TypefaceCatalogue.cpp UI/TextureStudio/VectorMaskControls.cpp Engine/Interface/VectorAuthoringControls.cpp
+    Engine/ContentInterchange/BakeMesh.cpp Engine/ContentInterchange/BakeField.cpp Engine/ContentInterchange/VolumeDistanceField.cpp Engine/ContentInterchange/BakeSurfaceImport.cpp Engine/ContentInterchange/BakeTiledOutput.cpp
+    Engine/Render/StbImageWriteImplementation.cpp)
 target_link_libraries(FrontierTextureStudioUI PUBLIC FrontierMaterialLibrary FrontierInterface FrontierVectorAuthoring)
 target_compile_definitions(FrontierTextureStudioUI PUBLIC FRONTIER_EDITOR=1)
+target_include_directories(FrontierTextureStudioUI PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
 add_library(FrontierInterface STATIC
     Engine/Interface/IconArt.cpp Engine/Interface/IconPresentation.cpp
     Engine/Interface/PixelSpace.cpp Engine/Interface/GlyphSpace.cpp
@@ -201,9 +213,9 @@ if(WIN32)
     install(TARGETS FrontierUI FrontierUIDX11 Frontier RUNTIME DESTINATION .)
 endif()
 
-include(CTest)
 include(Automation/SurfaceRasterization.cmake)
 include(Automation/VectorCoverage.cmake)
+include(Automation/BakeRasterization.cmake)
 if(BUILD_TESTING)
     find_program(FRONTIER_PATTERN_IMPORT_NODE NAMES node)
     if(FRONTIER_PATTERN_IMPORT_NODE)
@@ -263,6 +275,16 @@ if(BUILD_TESTING)
     target_link_libraries(VectorSelectionValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME VectorSelectionValidation COMMAND VectorSelectionValidation)
     set_tests_properties(VectorSelectionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(VectorAuthoringEditingValidation Exhibits/TextureStudio/Code/VectorAuthoringEditingValidation.cpp)
+    target_link_libraries(VectorAuthoringEditingValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME VectorAuthoringEditingValidation COMMAND VectorAuthoringEditingValidation)
+    set_tests_properties(VectorAuthoringEditingValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(LayerDragReorderValidation Exhibits/TextureStudio/Code/LayerDragReorderValidation.cpp)
+    target_link_libraries(LayerDragReorderValidation PRIVATE FrontierVectorAuthoring)
+    add_test(NAME LayerDragReorderValidation COMMAND LayerDragReorderValidation)
+    set_tests_properties(LayerDragReorderValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(LayerDragReorderEvidence Exhibits/TextureStudio/Code/LayerDragReorderEvidence.cpp)
+    target_link_libraries(LayerDragReorderEvidence PRIVATE FrontierVectorAuthoring FrontierImGui)
     add_executable(StampTextOutlineValidation Exhibits/TextureStudio/Code/StampTextOutlineValidation.cpp)
     target_link_libraries(StampTextOutlineValidation PRIVATE FrontierVectorAuthoring)
     add_test(NAME StampTextOutlineValidation COMMAND StampTextOutlineValidation)
@@ -275,6 +297,51 @@ if(BUILD_TESTING)
     target_link_libraries(StampWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME StampWorkspacePanelConstructionValidation COMMAND StampWorkspacePanelConstructionValidation)
     set_tests_properties(StampWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampFidelityValidation Exhibits/TextureStudio/Code/StampFidelityValidation.cpp)
+    target_link_libraries(StampFidelityValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampFidelityValidation COMMAND StampFidelityValidation)
+    set_tests_properties(StampFidelityValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+    add_executable(Bake16kStress EXCLUDE_FROM_ALL Exhibits/TextureStudio/Code/Bake16kStress.cpp)
+    target_link_libraries(Bake16kStress PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakeFieldTilingValidation Exhibits/TextureStudio/Code/BakeFieldTilingValidation.cpp)
+    target_link_libraries(BakeFieldTilingValidation PRIVATE FrontierTextureStudioUI)
+    target_include_directories(BakeFieldTilingValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    add_test(NAME BakeFieldTilingValidation COMMAND BakeFieldTilingValidation)
+
+    add_executable(BakingMatchingValidation Exhibits/TextureStudio/Code/BakingMatchingValidation.cpp)
+    target_link_libraries(BakingMatchingValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakingMatchingValidation COMMAND BakingMatchingValidation)
+
+    add_executable(BakeSurfaceImportValidation Exhibits/TextureStudio/Code/BakeSurfaceImportValidation.cpp)
+    target_link_libraries(BakeSurfaceImportValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakeSurfaceImportValidation COMMAND BakeSurfaceImportValidation)
+
+    add_executable(VolumeDistanceFieldValidation Exhibits/TextureStudio/Code/VolumeDistanceFieldValidation.cpp)
+    target_link_libraries(VolumeDistanceFieldValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME VolumeDistanceFieldValidation COMMAND VolumeDistanceFieldValidation)
+    add_executable(BakingWorkspacePanelConstructionValidation Exhibits/TextureStudio/Code/BakingWorkspacePanelConstructionValidation.cpp)
+    target_link_libraries(BakingWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME BakingWorkspacePanelConstructionValidation COMMAND BakingWorkspacePanelConstructionValidation)
+    set_tests_properties(BakingWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(TexturePaintWorkspacePanelConstructionValidation Exhibits/TextureStudio/Code/TexturePaintWorkspacePanelConstructionValidation.cpp)
+    target_link_libraries(TexturePaintWorkspacePanelConstructionValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME TexturePaintWorkspacePanelConstructionValidation COMMAND TexturePaintWorkspacePanelConstructionValidation)
+    set_tests_properties(TexturePaintWorkspacePanelConstructionValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(PaintStampEngineValidation Exhibits/TextureStudio/Code/PaintStampEngineValidation.cpp)
+    target_link_libraries(PaintStampEngineValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME PaintStampEngineValidation COMMAND PaintStampEngineValidation)
+    set_tests_properties(PaintStampEngineValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampLibraryValidation Exhibits/TextureStudio/Code/StampLibraryValidation.cpp)
+    target_link_libraries(StampLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampLibraryValidation COMMAND StampLibraryValidation)
+    set_tests_properties(StampLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextGestureValidation Exhibits/TextureStudio/Code/StampTextGestureValidation.cpp)
+    target_link_libraries(StampTextGestureValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextGestureValidation COMMAND StampTextGestureValidation
+        "${CMAKE_SOURCE_DIR}/EngineContent/FontArchives/DMSans/DMSans-Regular.ttf")
+    set_tests_properties(StampTextGestureValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(PatternLibraryGalleryValidation Exhibits/TextureStudio/Code/PatternLibraryGalleryValidation.cpp)
     target_link_libraries(PatternLibraryGalleryValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternLibraryGalleryValidation COMMAND PatternLibraryGalleryValidation)
@@ -287,8 +354,60 @@ if(BUILD_TESTING)
     target_link_libraries(PatternAtlasDiskCacheValidation PRIVATE FrontierTextureStudioUI)
     add_test(NAME PatternAtlasDiskCacheValidation COMMAND PatternAtlasDiskCacheValidation "${CMAKE_BINARY_DIR}/pattern-atlas-cache-evidence")
     set_tests_properties(PatternAtlasDiskCacheValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextThumbnailContrastValidation Exhibits/TextureStudio/Code/StampTextThumbnailContrastValidation.cpp)
+    target_link_libraries(StampTextThumbnailContrastValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextThumbnailContrastValidation COMMAND StampTextThumbnailContrastValidation)
+    set_tests_properties(StampTextThumbnailContrastValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(StampTextLiveFitValidation Exhibits/TextureStudio/Code/StampTextLiveFitValidation.cpp)
+    target_link_libraries(StampTextLiveFitValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME StampTextLiveFitValidation COMMAND StampTextLiveFitValidation)
+    set_tests_properties(StampTextLiveFitValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    add_executable(WorkspaceZoomValidation Exhibits/TextureStudio/Code/WorkspaceZoomValidation.cpp)
+    target_link_libraries(WorkspaceZoomValidation PRIVATE FrontierTextureStudioUI)
+    add_test(NAME WorkspaceZoomValidation COMMAND WorkspaceZoomValidation)
+    set_tests_properties(WorkspaceZoomValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_executable(MaterialLibraryValidation Exhibits/TextureStudio/Code/MaterialLibraryValidation.cpp)
     target_link_libraries(MaterialLibraryValidation PRIVATE FrontierTextureStudioUI)
+    add_executable(SliderPaddingEvidence Exhibits/TextureStudio/Code/SliderPaddingEvidence.cpp)
+    target_link_libraries(SliderPaddingEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(StampCanvasGridEvidence Exhibits/TextureStudio/Code/StampCanvasGridEvidence.cpp)
+    target_link_libraries(StampCanvasGridEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PatternCanvasRepeatEvidence Exhibits/TextureStudio/Code/PatternCanvasRepeatEvidence.cpp)
+    target_link_libraries(PatternCanvasRepeatEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(StampGradientStopEvidence Exhibits/TextureStudio/Code/StampGradientStopEvidence.cpp)
+    target_link_libraries(StampGradientStopEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PatternGradientStopEvidence Exhibits/TextureStudio/Code/PatternGradientStopEvidence.cpp)
+    target_link_libraries(PatternGradientStopEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(GradientAxisFreeformEvidence Exhibits/TextureStudio/Code/GradientAxisFreeformEvidence.cpp)
+    target_link_libraries(GradientAxisFreeformEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(PolygonPenPolylineEvidence Exhibits/TextureStudio/Code/PolygonPenPolylineEvidence.cpp)
+    target_link_libraries(PolygonPenPolylineEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ArrayPatternEvidence Exhibits/TextureStudio/Code/ArrayPatternEvidence.cpp)
+    target_link_libraries(ArrayPatternEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ArrayModifierStackEvidence Exhibits/TextureStudio/Code/ArrayModifierStackEvidence.cpp)
+    target_link_libraries(ArrayModifierStackEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakingWorkspaceEvidence Exhibits/TextureStudio/Code/BakingWorkspaceEvidence.cpp)
+    target_link_libraries(BakingWorkspaceEvidence PRIVATE FrontierTextureStudioUI)
+    add_executable(BakingLayoutEvidence Exhibits/TextureStudio/Code/BakingLayoutEvidence.cpp)
+    target_link_libraries(BakingLayoutEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(BakingMeshMapCompletionEvidence Exhibits/TextureStudio/Code/BakingMeshMapCompletionEvidence.cpp)
+    target_link_libraries(BakingMeshMapCompletionEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(MirrorNoiseOffsetModifierEvidence Exhibits/TextureStudio/Code/MirrorNoiseOffsetModifierEvidence.cpp)
+    target_link_libraries(MirrorNoiseOffsetModifierEvidence PRIVATE FrontierTextureStudioUI)
+
+    add_executable(ColourModifierEvidence Exhibits/TextureStudio/Code/ColourModifierEvidence.cpp)
+    target_link_libraries(ColourModifierEvidence PRIVATE FrontierTextureStudioUI)
     add_test(NAME MaterialLibraryValidation COMMAND MaterialLibraryValidation
         "${CMAKE_SOURCE_DIR}/Exhibits/Renderer/Materials" "${CMAKE_BINARY_DIR}/MaterialLibraryEvidence")
     set_tests_properties(MaterialLibraryValidation PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -353,6 +472,12 @@ if(BUILD_TESTING)
     target_link_libraries(DockingValidation PRIVATE FrontierEditorUI)
     add_test(NAME DockingValidation COMMAND DockingValidation
         "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/docking-evidence")
+    add_executable(DockCycleRecoveryValidation Exhibits/Docking/Code/DockCycleRecoveryValidation.cpp)
+    target_link_libraries(DockCycleRecoveryValidation PRIVATE FrontierInterface)
+    add_test(NAME DockCycleRecoveryValidation COMMAND DockCycleRecoveryValidation)
+    add_executable(FrameFaultRecoveryValidation Exhibits/Docking/Code/FrameFaultRecoveryValidation.cpp)
+    target_link_libraries(FrameFaultRecoveryValidation PRIVATE FrontierInterface)
+    add_test(NAME FrameFaultRecoveryValidation COMMAND FrameFaultRecoveryValidation)
     add_executable(NotificationValidation Exhibits/Notifications/Code/NotificationValidation.cpp)
     target_link_libraries(NotificationValidation PRIVATE FrontierEditorUI)
     add_test(NAME NotificationValidation COMMAND NotificationValidation

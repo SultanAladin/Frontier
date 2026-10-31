@@ -11,7 +11,7 @@ namespace Frontier
 void ValidateVectorSurface(const VectorSurfaceProgram &Program)
 {
     ValidateVectorCoverage(Program.Coverage);
-    if (uint32_t(Program.Channel) > 6 || Program.Contributions.size() > VectorCoverageExtensionCapacity)
+    if (uint32_t(Program.Channel) > 8 || Program.Contributions.size() > VectorCoverageExtensionCapacity)
         throw std::runtime_error("Vector surface channel or contribution population is invalid.");
     std::unordered_set<uint32_t> Tokens;
     for (const auto &Contribution : Program.Contributions)
@@ -30,6 +30,8 @@ VectorSurfaceProgram CompileVectorSurface(const VectorAuthoringDocument &Documen
     VectorSurfaceProgram Program;
     Program.Channel = Channel;
     Program.Coverage = {Document.Instructions, Document.Segments, 0};
+    if (Document.CanvasExtent != 512.f)
+        for (auto &Instruction : Program.Coverage.Instructions) Instruction = NormalizeVectorInstructionForGpu(Instruction, Document.CanvasExtent);
     (void)ConstructVectorAuthoringCoverage(Document);
     std::optional<uint32_t> Output;
     for (const auto &Layer : Document.Layers)
@@ -39,11 +41,17 @@ VectorSurfaceProgram CompileVectorSurface(const VectorAuthoringDocument &Documen
         if (Layer.Mask && Layer.MaskEnabled)
         {
             const uint32_t Mask = uint32_t(Program.Coverage.Instructions.size());
-            Program.Coverage.Instructions.push_back(*Layer.Mask);
+            Program.Coverage.Instructions.push_back(NormalizeVectorInstructionForGpu(*Layer.Mask, Document.CanvasExtent));
             VectorCoverageInstruction Operation;
             Operation.Topology = {Layer.MaskLuminance ? 25u : 24u, Root, Mask, Layer.MaskInverted ? 1u : 0u};
             Root = uint32_t(Program.Coverage.Instructions.size());
             Program.Coverage.Instructions.push_back(Operation);
+        }
+        if (Layer.ExpressionOpacity != 1.f)
+        {
+            VectorCoverageInstruction Operation; Operation.Topology = {29, Root, Root, 0};
+            Operation.Transform[2] = Layer.ExpressionOpacity;
+            Root = uint32_t(Program.Coverage.Instructions.size()); Program.Coverage.Instructions.push_back(Operation);
         }
         Program.Contributions.push_back({Root, Layer.Token, Layer.SurfaceChannels, Layer.SurfaceRelief});
         if (Output)

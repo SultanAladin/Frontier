@@ -527,6 +527,54 @@ int main(int ArgumentCount, char **Arguments)
         const auto NarrowRange = Panel->QueryInput().QuerySensitivitySliderExtent();
         Require(NarrowRange.Width() > 0 && NarrowRange.MinimumX >= 0 && NarrowRange.MaximumX * 1.25f <= 375,
                 "Narrow scaled sensitivity slider has invalid bounds");
+
+        // Regression proof: opening Control Centre, starting to close it, and immediately clicking a
+        // workspace-switcher button while the closing spring is still mid-flight (QueryHeight() > 10)
+        // must NOT swallow the click or block workspace switching.
+        IO.DisplaySize = ImVec2(1280, 800);
+        Panel->ResetPreferences();
+        (void)Panel->FinalizePreferences();
+        Panel->ActivateSettingsPage(ControlCentrePageCategory::QuickControls);
+        Settle();
+        Require(Panel->QueryQuickOpen() && Panel->QueryExpansionTab().QueryHeight() > 100.0f,
+                "Control Centre failed to open before workspace-switch regression check");
+        bool WorkspaceSwitchedDuringClose = false;
+        auto StepWithWorkspaceHeader = [&]()
+        {
+            Panel->PrepareInterface();
+            ImGui::NewFrame();
+            (void)Panel->Integrate(1.0 / 60);
+            ImGui::SetNextWindowPos(ImVec2(0, 0));
+            ImGui::SetNextWindowSize(ImVec2(1280, 44));
+            ImGui::Begin("Workspace switch probe header", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+            ImGui::SetCursorScreenPos(ImVec2(820, 8));
+            if (ImGui::Button("StampWorkspaceTab", ImVec2(96, 26)))
+                WorkspaceSwitchedDuringClose = true;
+            ImGui::End();
+            Panel->ConstructInterface();
+            ImGui::Render();
+            FrontierExhibit::AcknowledgeTextures();
+        };
+        // Close Control Centre by clicking outside its card; on the VERY NEXT frame the closing spring
+        // is still near full height (> 100 px), yet the underlying workspace tab must already be clickable.
+        IO.AddMousePosEvent(40, 760);
+        StepWithWorkspaceHeader();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        StepWithWorkspaceHeader();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        StepWithWorkspaceHeader();
+        Require(!Panel->QueryQuickOpen() && Panel->QueryExpansionTab().QueryHeight() > 50.0f,
+                "Expected closing spring to still be in flight for immediate workspace-switch check");
+        IO.AddMousePosEvent(868, 21);
+        StepWithWorkspaceHeader();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+        StepWithWorkspaceHeader();
+        IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+        StepWithWorkspaceHeader();
+        Require(WorkspaceSwitchedDuringClose,
+                "Control Centre overlay blocked workspace-switch click while closing");
+
         Ownership.reset();
         ImGui::DestroyContext();
         std::cout << "PASS: 4 families / 30 faces, discovery, removal, native "

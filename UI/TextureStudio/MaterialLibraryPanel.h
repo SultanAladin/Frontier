@@ -66,6 +66,8 @@ class MaterialLibraryPanel final : public ActivationSequence
     std::function<void(const std::filesystem::path &)> InvalidateThumbnail;
     std::function<void()> ActivatePattern;
     std::function<void()> ActivateStamp;
+    std::function<void()> ActivateBaking;
+    std::function<void()> ActivateTexture;
     std::function<void(const std::vector<std::filesystem::path> &)> RequestThumbnails;
     bool RequestClose() noexcept;
     bool ConsumeClose() noexcept;
@@ -100,10 +102,26 @@ class MaterialLibraryPanel final : public ActivationSequence
     bool PendingLivePreviewApply = false, ProceduralDirty = false, RoughnessRecorded = false;
     bool CoatRoughnessRecorded = false;
     uint32_t InspectorLayerContext = 0;
+    // 📝 Which Palette[] slot the flake colour ramp editor is currently showing in its selected-stop
+    // (hex + remove) row; clamped to the live palette count every frame, so a stale index from a
+    // previously open material (or one invalidated by a remove) never reads/writes out of bounds.
+    uint32_t FlakeColourSelection = 0;
     uint32_t SentPreviewExtent = 0;
     std::string CategoryFilter = "All materials";
     std::set<std::string> Favourites;
     std::set<std::string> FoldedInspectorCards;
+    // 📝 HTML inspector shell state: segmented Properties|Layers tabs over the authoring document.
+    uint32_t InspectorMode = 0; // 0 = Properties, 1 = Layers
+    std::set<std::string> OpenedInspectorDetails; // default-closed <details> (channel menus, source adjustments)
+    std::optional<MaterialAuthoringDocument> AuthoringDocument;
+    // 📝 Flat quantity mirror for Read/WriteMaterialParameter, reseeded from the live definition on
+    // selection/revert; the panel's own writes keep it current between seeds.
+    MaterialAuthoringStore AuthoringStore;
+    std::string AuthoringSelectionKey;
+    bool VariableDockOpen = false;
+    std::string EditingVariableId, RenamingVariableId, InspectorNotice;
+    std::string SelectedSandBedId;
+    uint32_t FlakePalettePreset = 0;
     float InterfaceScale = 1;
     void *ReferenceTypeface = nullptr;
     void *HeadingTypeface = nullptr;
@@ -114,17 +132,36 @@ class MaterialLibraryPanel final : public ActivationSequence
     void ConstructInspector();
     void ConstructViewport();
     void ConstructFullscreenPreview();
-    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr);
+    // 📝 RowWidth defaults to the surrounding content region (correct for the free-floating popup
+    // sliders), but every inspector card caller passes its own inset row width explicitly so the
+    // right-aligned value readout lands inside the card border instead of the outer panel/scrollbar edge.
+    bool ConstructProperty(const char *Caption, float Minimum, float Maximum, float &Position, const char *Unit = "%", bool Logarithmic = false, float Step = 0, const char *Unavailable = nullptr, float RowWidth = -1.f, bool RecipeForm = false);
     void ConstructIcon(IconSymbol Symbol, float X, float Y, float Size, uint32_t Rgb = 0xa3a393);
     void ConstructActions();
     std::array<char,4096> DirectoryText{}, DestinationText{};
     std::array<char,257> SearchText{}, NameText{};
     std::array<char,32> ColourText{};
+    // 📝 Single-buffer text editing: the buffer follows whichever field the Editing key names, so layer,
+    // generator, variable, bed, colour-hex and texture-path inputs share one commit-on-keystroke path.
+    std::array<char,96> InspectorNameText{};
+    std::string InspectorNameKey;
+    std::array<char,80> InspectorCategoryText{};
+    std::string InspectorCategoryKey;
+    std::array<char,32> InspectorHexText{};
+    std::string InspectorHexKey;
+    std::array<char,96> FieldNameText{};
+    std::array<char,80> FieldCategoryText{};
+    std::array<char,512> TexturePathText{};
+    std::string TexturePathKey;
     std::vector<char> SourceText;
     PlaneExtent ApplyExtent, SaveExtent, RevertExtent, FullscreenPreviewExtent;
     bool ClosingRequested = false, CloseAuthorized = false;
     bool Creating = false;
     bool Duplicating = false;
+    uint64_t CachedCpuPreviewRevision = 0;
+    uint32_t CachedCpuPreviewExtent = 0;
+    MaterialPreviewConfiguration CachedCpuPreviewInspection{};
+    std::vector<uint8_t> CachedCpuPreviewRgba;
     void SynchronizeSource();
     void ConstructCatalogue();
     void ConstructSourceEditor();

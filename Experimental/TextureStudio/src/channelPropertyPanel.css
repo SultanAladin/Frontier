@@ -356,7 +356,7 @@
 :is(.channel-property-panel, .tp-shared-controls) .channel-value-preview {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   border-top: 1px solid #ffffff08;
   padding-top: 11px;
   margin-top: 12px;
@@ -364,18 +364,36 @@
   color: #8b8b7d;
 }
 :is(.channel-property-panel, .tp-shared-controls) .channel-value-preview > i {
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
   flex: none;
   border: 1px solid #ffffff16;
+  background-color: #0d0d0d;
+  background-image:
+    linear-gradient(45deg, #1c1c1c 25%, transparent 25%, transparent 75%, #1c1c1c 75%),
+    linear-gradient(45deg, #1c1c1c 25%, transparent 25%, transparent 75%, #1c1c1c 75%);
+  background-size: 8px 8px;
+  background-position:
+    0 0,
+    4px 4px;
+}
+:is(.channel-property-panel, .tp-shared-controls) .channel-preview-text {
+  min-width: 0;
+}
+:is(.channel-property-panel, .tp-shared-controls) .channel-preview-text > span {
+  display: block;
+  font-size: 9px;
+  color: #a3a392;
 }
 :is(.channel-property-panel, .tp-shared-controls)
-  .channel-value-preview
+  .channel-preview-text
   > small {
-  margin-left: auto;
-  font-size: 7px;
+  display: block;
+  margin-top: 2px;
+  font-size: 8px;
   color: #67675e;
+  font-variant-numeric: tabular-nums;
 }
 :is(.channel-property-panel, .tp-shared-controls) .channel-texture-empty {
   display: flex;

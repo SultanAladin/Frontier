@@ -11,6 +11,11 @@ import {
   ChevronDown,
   Check,
   ArrowRight,
+  Circle,
+  Image,
+  Sparkles,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import useDialogFocus from "./useDialogFocus.js";
 import { Slider } from "./MaterialControls.jsx";
@@ -25,15 +30,26 @@ import {
 import {
   PAINT_CHANNELS,
   CHANNEL_GROUPS,
+  CHANNEL_GENERATORS,
   togglePaintChannel,
+  normalizeChannelSettings,
+  normalizeGenerator,
 } from "./paintChannelModel.js";
+import { MATERIAL_GENERATOR_ID } from "./materialGeneratorModel.js";
+import { importTextureSource } from "./textureSource.js";
 import PaintToolMenu from "./PaintToolMenu.jsx";
+import "./channelPropertyPanel.css";
 import "./digitalPainting.css";
 
 const tools = [
   ["paint", "Paint", Brush],
   ["erase", "Erase", Eraser],
   ["fill", "Fill", PaintBucket],
+];
+const SOURCE_MODES = [
+  ["value", "Value", Circle],
+  ["texture", "Texture", Image],
+  ["generator", "Generator", Sparkles],
 ];
 export function DigitalStrokePreview({ brush, mask = false, ink = 1 }) {
   const ref = useRef(null),
@@ -303,7 +319,20 @@ function DigitalChannelProperties({
   onPatch,
   disabled,
 }) {
-  const [opened, setOpened] = useState("baseColor");
+  const [opened, setOpened] = useState("baseColor"),
+    [importing, setImporting] = useState(null),
+    [error, setError] = useState("");
+  const file = useRef(null),
+    importChannel = useRef(null),
+    alive = useRef(true),
+    current = useRef({ layer, disabled, onPatch });
+  current.current = { layer, disabled, onPatch };
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   if (!layer)
     return (
       <div className="digital-target-empty">
@@ -346,50 +375,113 @@ function DigitalChannelProperties({
         </p>
       </section>
     );
-  const enabled = layer.channels;
+  const enabled = layer.channels,
+    settings = normalizeChannelSettings(layer.channelSettings);
   const toggle = (id, on) =>
     onPatch({ channels: togglePaintChannel(enabled, id, on) });
+  // 📝 Same channelSettings writes as the layer inspector's ChannelPropertyPanel:
+  // source mode, texture and generator are the layer's own authoring targets.
+  const change = (id, patch, field) =>
+    onPatch(
+      { channelSettings: { ...settings, [id]: { ...settings[id], ...patch } } },
+      {
+        discrete: !field,
+        key: field ? `channel-${layer.id}-${id}-${field}` : undefined,
+      },
+    );
   const setValue = (id, value) => {
     if (id === "baseColor") onChange({ ...brush, color: value });
-    else
-      onPatch({
-        channelSettings: {
-          ...layer.channelSettings,
-          [id]: { ...layer.channelSettings[id], value },
-        },
-      });
+    else change(id, { value }, "value");
   };
+  const valueOf = (c) =>
+    c.id === "baseColor" ? brush.color : settings[c.id].value;
+  async function readTexture(e) {
+    const input = e.target.files[0],
+      id = importChannel.current;
+    e.target.value = "";
+    if (!input || !id || disabled) return;
+    setImporting(id);
+    setError("");
+    try {
+      const texture = await importTextureSource(input);
+      if (!alive.current || current.current.disabled) return;
+      const latest = normalizeChannelSettings(
+        current.current.layer.channelSettings,
+      );
+      if (
+        latest[id].mode !== "texture" ||
+        !current.current.layer.channels.includes(id)
+      )
+        return;
+      current.current.onPatch(
+        {
+          channelSettings: {
+            ...latest,
+            [id]: { ...latest[id], mode: "texture", texture },
+          },
+        },
+        { discrete: true },
+      );
+    } catch (err) {
+      if (alive.current) setError(err.message);
+    } finally {
+      if (alive.current) setImporting(null);
+    }
+  }
+  // 🧩 Same channel-property frame as the layer inspector: a targets card
+  // (chips + grouped checklist) over one accordion card per enabled channel,
+  // each with its Source (Value | Texture | Generator) and the value a stroke
+  // deposits (digitalChannelValues).
   return (
     <section
-      className="digital-channel-panel"
+      className="digital-channel-panel channel-property-panel"
       aria-label="Digital painting channels"
     >
-      <h2>
-        <Layers3 size={13} /> Channel targets{" "}
-        <small>{enabled.length} / 14</small>
-      </h2>
-      <p>
-        Enable the channels this brush writes. Erase only affects enabled
-        channels. Disabled values and strokes are retained.
-      </p>
-      <button
-        className="digital-clear-channels"
-        disabled={disabled || !enabled.length}
-        onClick={() => onPatch({ channels: [] })}
-      >
-        Disable all channels
-      </button>
-      {CHANNEL_GROUPS.map((group) => (
-        <div key={group} className="digital-channel-group">
-          <h3>{group}</h3>
-          {PAINT_CHANNELS.filter((c) => c.group === group).map((c) => (
-            <div
-              key={c.id}
-              className="digital-channel-target"
-              data-enabled={enabled.includes(c.id)}
-            >
-              <div className="digital-channel-target-row">
-                <label>
+      <input
+        ref={file}
+        type="file"
+        hidden
+        accept="image/png,image/jpeg,image/webp"
+        aria-label="Import digital channel texture file"
+        onChange={readTexture}
+      />
+      <div className="channel-target-card tp-property-card">
+        <div className="channel-target-heading">
+          <Layers3 size={14} />
+          <h2>Channel targets</h2>
+          <span className="channel-count">{enabled.length}</span>
+        </div>
+        <p className="digital-channel-intro">
+          Enable the channels this brush writes. Erase only affects enabled
+          channels. Disabled values and strokes are retained.
+        </p>
+        <div className="channel-chips">
+          {PAINT_CHANNELS.filter((c) => enabled.includes(c.id)).map((c) => (
+            <span className="channel-chip" key={c.id}>
+              <i style={{ background: c.color }} />
+              {c.label}
+              <button
+                aria-label={`Disable ${c.label} channel`}
+                disabled={disabled}
+                onClick={() => toggle(c.id, false)}
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div
+          className="channel-picker"
+          role="group"
+          aria-label="Available painting channels"
+        >
+          {CHANNEL_GROUPS.map((group) => (
+            <section key={group}>
+              <h3>{group}</h3>
+              {PAINT_CHANNELS.filter((c) => c.group === group).map((c) => (
+                <label key={c.id}>
+                  <i style={{ background: c.color }} />
+                  <span>{c.label}</span>
                   <input
                     type="checkbox"
                     aria-label={`Digital ${c.label} channel`}
@@ -397,58 +489,272 @@ function DigitalChannelProperties({
                     disabled={disabled}
                     onChange={(e) => toggle(c.id, e.target.checked)}
                   />
-                  <i style={{ background: c.color }} />
-                  {c.label}
                 </label>
-                <button
-                  aria-label={`Digital ${c.label} properties`}
-                  aria-expanded={opened === c.id}
-                  disabled={disabled || !enabled.includes(c.id)}
-                  onClick={() => setOpened(opened === c.id ? null : c.id)}
-                >
-                  <ChevronDown size={12} />
-                </button>
-              </div>
-              {enabled.includes(c.id) && opened === c.id && (
-                <div className="digital-channel-value tp-shared-controls">
-                  {c.edit === "derived" ? (
-                    <p>
-                      Derived from painted Height. Enabling Normal also enables
-                      Height.
-                    </p>
-                  ) : c.edit === "color" ? (
-                    <ColourPicker
-                      value={
-                        c.id === "baseColor"
-                          ? brush.color
-                          : layer.channelSettings[c.id].value
-                      }
-                      ariaLabel={`Digital ${c.label} colour`}
-                      disabled={disabled}
-                      onChange={(value) => setValue(c.id, value)}
-                    />
-                  ) : (
-                    <Slider
-                      label={c.label}
-                      ariaLabel={`Digital ${c.label} target`}
-                      value={layer.channelSettings[c.id].value}
-                      disabled={disabled}
-                      onChange={(value) => setValue(c.id, value)}
-                      min={c.min}
-                      max={c.max}
-                      step={c.max > 3 ? 1 : 0.01}
-                      unit={c.unit || ""}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
+              ))}
+            </section>
           ))}
         </div>
-      ))}
-      {!enabled.length && (
-        <p role="status">No channels enabled — painting is a no-op.</p>
+        <button
+          className="digital-clear-channels"
+          disabled={disabled || !enabled.length}
+          onClick={() => onPatch({ channels: [] })}
+        >
+          Disable all channels
+        </button>
+        {!enabled.length && (
+          <p role="status">No channels enabled — painting is a no-op.</p>
+        )}
+      </div>
+      {error && (
+        <p className="channel-import-error" role="alert">
+          {error}
+          <button
+            aria-label="Dismiss texture import error"
+            onClick={() => setError("")}
+          >
+            <X size={12} />
+          </button>
+        </p>
       )}
+      {PAINT_CHANNELS.filter((c) => enabled.includes(c.id)).map((c) => {
+        const isOpen = opened === c.id,
+          setting = settings[c.id],
+          value = valueOf(c),
+          generator = CHANNEL_GENERATORS.find(
+            (g) => g.id === setting.generator?.id,
+          );
+        return (
+          <section
+            key={c.id}
+            className={`chan-panel tp-property-card ${isOpen ? "" : "collapsed"}`}
+            style={{ "--channel-tint": c.color }}
+          >
+            <button
+              className="chan-head"
+              aria-label={`Digital ${c.label} properties`}
+              aria-expanded={isOpen}
+              disabled={disabled}
+              onClick={() => setOpened(isOpen ? null : c.id)}
+            >
+              <i />
+              <span>{c.label}</span>
+              <small>
+                {setting.mode === "derived"
+                  ? "Height-derived"
+                  : setting.mode === "gradient"
+                    ? "Gradient"
+                    : SOURCE_MODES.find((m) => m[0] === setting.mode)?.[1]}
+              </small>
+              <ChevronDown size={12} />
+            </button>
+            {isOpen && (
+              <div className="chan-body">
+                {c.edit === "derived" ? (
+                  <p className="chan-note">
+                    Derived from painted Height. Enabling Normal also enables
+                    Height.
+                  </p>
+                ) : (
+                  <>
+                    <div
+                      className="channel-mode"
+                      role="group"
+                      aria-label={`Digital ${c.label} source`}
+                    >
+                      {SOURCE_MODES.map(([mode, label, Icon]) => (
+                        <button
+                          key={mode}
+                          disabled={disabled}
+                          aria-pressed={setting.mode === mode}
+                          onClick={() => change(c.id, { mode })}
+                        >
+                          <Icon size={11} />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {setting.mode === "gradient" ? (
+                      <p className="chan-note">
+                        Gradient source — edit its points in the layer
+                        inspector. Strokes deposit the channel Value below.
+                      </p>
+                    ) : setting.mode === "texture" ? (
+                      <div className="channel-texture-source">
+                        {setting.texture ? (
+                          <>
+                            <div className="channel-source-preview">
+                              <img
+                                src={setting.texture.dataUrl}
+                                alt={`${c.label} imported texture`}
+                              />
+                              <div>
+                                <strong>{setting.texture.name}</strong>
+                                <small>
+                                  {setting.texture.width} ×{" "}
+                                  {setting.texture.height} · stored source
+                                </small>
+                              </div>
+                            </div>
+                            <button
+                              className="channel-source-remove"
+                              disabled={disabled}
+                              onClick={() => change(c.id, { texture: null })}
+                            >
+                              <Trash2 size={12} />
+                              Remove texture
+                            </button>
+                          </>
+                        ) : (
+                          <div className="channel-texture-empty">
+                            <Image size={23} />
+                            <span>Import a texture source</span>
+                          </div>
+                        )}
+                        <button
+                          className="channel-import-button"
+                          disabled={disabled || !!importing}
+                          onClick={() => {
+                            importChannel.current = c.id;
+                            file.current.click();
+                          }}
+                        >
+                          <Upload size={12} />
+                          {importing === c.id
+                            ? "Importing…"
+                            : setting.texture
+                              ? "Replace texture"
+                              : "Import texture"}
+                        </button>
+                        <p className="chan-note">
+                          PNG, JPEG or WebP · portable source up to 256 px.
+                          Strokes deposit the channel Value below.
+                        </p>
+                      </div>
+                    ) : setting.mode === "generator" ? (
+                      <>
+                        <label className="channel-generator-label">
+                          <span>Generator</span>
+                          <select
+                            aria-label={`Digital ${c.label} generator`}
+                            value={setting.generator?.id || ""}
+                            disabled={disabled}
+                            onChange={(e) =>
+                              change(c.id, {
+                                generator: normalizeGenerator({
+                                  id: e.target.value,
+                                }),
+                              })
+                            }
+                          >
+                            <option value="">Choose a generator…</option>
+                            {setting.generator?.id ===
+                              MATERIAL_GENERATOR_ID && (
+                              <option value={MATERIAL_GENERATOR_ID} disabled>
+                                Material studio · custom source
+                              </option>
+                            )}
+                            {["Mask", "Wear", "Procedural"].map((group) => (
+                              <optgroup label={group} key={group}>
+                                {CHANNEL_GENERATORS.filter(
+                                  (g) => g.group === group,
+                                ).map((g) => (
+                                  <option key={g.id} value={g.id}>
+                                    {g.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                        </label>
+                        {generator ? (
+                          <>
+                            <p className="chan-note">
+                              {generator.note} · source configuration. Strokes
+                              deposit the channel Value below.
+                            </p>
+                            {generator.parameters.map((p) => (
+                              <Slider
+                                key={p.key}
+                                label={p.label}
+                                ariaLabel={`Digital ${c.label} ${generator.label} ${p.label}`}
+                                value={setting.generator.parameters[p.key]}
+                                disabled={disabled}
+                                onChange={(v) =>
+                                  change(
+                                    c.id,
+                                    {
+                                      generator: {
+                                        ...setting.generator,
+                                        parameters: {
+                                          ...setting.generator.parameters,
+                                          [p.key]: v,
+                                        },
+                                      },
+                                    },
+                                    `generator-${generator.id}-${p.key}`,
+                                  )
+                                }
+                              />
+                            ))}
+                          </>
+                        ) : (
+                          setting.generator?.id ===
+                            MATERIAL_GENERATOR_ID && (
+                            <p className="chan-note">
+                              Material studio · custom source — edit it in the
+                              layer inspector. Strokes deposit the channel
+                              Value below.
+                            </p>
+                          )
+                        )}
+                      </>
+                    ) : null}
+                    <div className="digital-channel-value tp-shared-controls">
+                      {c.edit === "color" ? (
+                        <ColourPicker
+                          value={value}
+                          ariaLabel={`Digital ${c.label} colour`}
+                          disabled={disabled}
+                          onChange={(v) => setValue(c.id, v)}
+                        />
+                      ) : (
+                        <Slider
+                          label="Amount"
+                          ariaLabel={`Digital ${c.label} target`}
+                          value={value}
+                          disabled={disabled}
+                          onChange={(v) => setValue(c.id, v)}
+                          min={c.min}
+                          max={c.max}
+                          step={c.max > 3 ? 1 : 0.01}
+                          unit={c.unit || ""}
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
+                <div className="channel-value-preview">
+                  <i
+                    style={{
+                      backgroundImage: "none",
+                      backgroundColor:
+                        c.edit === "color"
+                          ? value
+                          : c.edit === "scalar"
+                            ? `rgb(${Math.round(((value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value - c.min) / (c.max - c.min)) * 255)},${Math.round(((value - c.min) / (c.max - c.min)) * 255)})`
+                            : undefined,
+                    }}
+                  />
+                  <div className="channel-preview-text">
+                    <span>Stroke deposit</span>
+                    <small>{c.placement}</small>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })}
       <p className="digital-card-note">
         Base color uses the brush colour. Other targets use their saved channel
         values. Subsurface is a diffuse tint, not volumetric scattering.

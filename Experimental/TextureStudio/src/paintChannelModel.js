@@ -12,6 +12,7 @@ import { normalizeTextureSource } from "./textureSource.js";
 export const PAINT_CHANNELS = [
   {
     id: "baseColor",
+    placement: "Colour atlas · RGB",
     label: "Base color",
     referenceLabel: "Base Colour",
     group: "Surface",
@@ -22,6 +23,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "metalness",
+    placement: "Material atlas · R",
     label: "Metalness",
     referenceLabel: "Metallic",
     group: "Surface",
@@ -34,6 +36,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "roughness",
+    placement: "Material atlas · G",
     label: "Roughness",
     group: "Surface",
     color: "#3b82f6",
@@ -45,6 +48,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "height",
+    placement: "Material atlas · B",
     label: "Height",
     group: "Surface",
     color: "#8a8a8a",
@@ -56,6 +60,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "normal",
+    placement: "No storage · derived",
     label: "Normal",
     group: "Surface",
     color: "#10b981",
@@ -65,6 +70,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "opacity",
+    placement: "Material atlas · A",
     label: "Opacity",
     group: "Surface",
     color: "#94a3b8",
@@ -76,6 +82,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "emission",
+    placement: "Emissive atlas · RGB",
     label: "Emission",
     referenceLabel: "Emissive",
     group: "Radiance",
@@ -86,6 +93,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "occlusion",
+    placement: "Emissive atlas · A",
     label: "Ambient occlusion",
     group: "Radiance",
     color: "#6b7280",
@@ -97,6 +105,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "anisotropy",
+    placement: "Reflect atlas · R",
     label: "Anisotropy",
     group: "Reflectance",
     color: "#22d3ee",
@@ -108,6 +117,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "anisotropyAngle",
+    placement: "Reflect atlas · G",
     label: "Anisotropy angle",
     group: "Reflectance",
     color: "#0ea5e9",
@@ -120,6 +130,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "clearcoat",
+    placement: "Reflect atlas · B",
     label: "Clearcoat",
     group: "Reflectance",
     color: "#e2e8f0",
@@ -131,6 +142,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "transmission",
+    placement: "Scatter atlas · A",
     label: "Transmission",
     group: "Reflectance",
     color: "#7dd3fc",
@@ -142,6 +154,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "refractionIndex",
+    placement: "Reflect atlas · A",
     label: "Refraction index",
     group: "Reflectance",
     color: "#a78bfa",
@@ -153,6 +166,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "sheen",
+    placement: "Scatter atlas · RGB",
     label: "Sheen",
     group: "Scattering",
     color: "#f472b6",
@@ -162,6 +176,7 @@ export const PAINT_CHANNELS = [
   },
   {
     id: "subsurface",
+    placement: "Sheen atlas · RGB",
     label: "Subsurface",
     group: "Scattering",
     color: "#fb7185",

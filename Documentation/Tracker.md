@@ -434,3 +434,131 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+## GPU mesh baking (Vulkan compute, GTX + RTX) (2026-10-26, branch arena/4014756b-frontier)
+
+- The Baking Workspace's 27 mesh maps (previously CPU-only in `Engine/ContentInterchange/BakeMesh.cpp`)
+  now have a GPU route behind an inspector "Bake device" choice (CPU default; GPU appears when the
+  host supplies a device name and also unlocks 2048/4096 resolutions). One Vulkan compute path serves
+  GTX and RTX — GTX has no RT cores/`VK_KHR_ray_query`, and the bake needs closest-point bevel queries
+  that are compute work anyway; CUDA/OptiX and an RTX ray-query fast path were considered and deferred.
+- New `Engine/ContentInterchange/BakeField.h/.cpp` flattens a bake request (std430 triangle/BVH slots,
+  pre-interpolated per-texel surfaces, a field-need mask) and re-implements the per-texel evaluation
+  statement-for-statement as the CPU reference twin. `BakeFieldValidation` compares it against
+  `RunMeshBake` over all 27 maps × 4 scenarios (Teapot/Cube 256², two-part DirectX/dust 128²,
+  query-free 128²): **bit-exact — 100% identical texels, 0 LSB worst channel difference**, with
+  guards (≤2 LSB, ≥99.99% within 1) for cross-platform float noise. Evidence retained in
+  `Exhibits/TextureStudio/Results/GpuBakeField/` (checks JSON + Teapot legacy/field/difference
+  PNGs; difference frames are black). The field route is also faster on CPU (Teapot 256² ≈2.9s → ≈2.0s)
+  thanks to index-order bbox UV coverage instead of a per-texel full-triangle scan.
+- `Engine/Render/Shader/BakeFieldEvaluation.slang` mirrors the twin in compute (64-wide workgroups,
+  manual normalize, identical tolerances/traversal order); compiled to `BakeFieldCompute.spv` via
+  slangc or the pinned Slang WASM route (`Automation/CompileBakeField.mjs`, which asserts the
+  48-byte push-constant ABI from reflection) and installed beside the other surface archives
+  (`Automation/BakeRasterization.cmake`). `Engine/Render/BakeRasterization.h/.cpp` is the
+  borrowed-device host in the `VectorCoverageRasterization` idiom: staged device-local BVH,
+  262,144-texel banded submission (TDR budget), serial field harvest, and refusal-as-data — any
+  failure becomes a `BakeGpuOutcome` the panel turns into a same-settings CPU re-bake, named in the
+  completion line. The panel (`UI/TextureStudio/BakingWorkspacePanel.*`) gained device hooks only —
+  no Vulkan in the panel; `TextureStudioApplication.cpp` owns the unit behind a fault latch.
+- Verified in this sandbox (host-verification CMake/Ninja, null GLFW backends): `BakeFieldValidation`
+  and the full `TextureStudio` (`TextureWorkspace`) targets build and link, the shader compiles, and
+  the CTest passes. Windows CI gained the `BakeFieldValidation` target/test; it only triggers on
+  push to `Eksa`/`arena/db2f9953-frontier`, so this branch has no CI run.
+- **Not yet proven:** any GTX/RTX execution — the sandbox has no GPU or Vulkan ICD, so the shader has
+  been compiled but never run. First hardware run needs the user's Windows machine: pick "GPU" in
+  the Baking inspector; GPU fields may differ from CPU by a few LSB (FMA/libm), which the validation
+  thresholds anticipate. Also noted while packaging: `Automation/BuildTextureStudioWindows.py`'s
+  hardcoded shader count was already stale (10 surface → now 14) and its render source list predates
+  the vector-coverage units; the count is corrected to 18 and `BakeRasterization` added, but that
+  zig cross-build remains unexercised here. An RTX ray-query fast path can layer on the same field
+  layout later without changing the panel or encoder.
+
+## Baking Workspace UI parity pass against Alloy Studio (2026-10-26, branch arena/4014756b-frontier)
+
+- Audited `UI/TextureStudio/BakingWorkspacePanel.cpp` section-by-section against the Alloy original
+  (`Experimental/TextureStudio/src/BakingStudio.jsx`, `baking/MeshMapGrid.jsx`, `studioTheme.css`) using
+  Material/Pattern/Stamp as the native reference ports, and fixed the concrete divergences found (UI only):
+  dock columns now use the reference 278/820/338-of-1436 grid and a 32px status inset; the assets dock
+  gained its missing `.bk-asset-scroll` region so the 27-tile grid scrolls instead of running under the
+  pinned footer; pane/section headings and card object-counts are right-aligned on their baselines as the
+  CSS flex rows specify; mesh stats regained the Box glyph and locale-grouped counts; import buttons carry
+  the Upload glyph; target rows show the bare grouped triangle count at the right edge.
+- Restored behaviour the port had dropped: after a bake, tiles show the active set's real map thumbnails
+  (`object-fit: contain` on `#080a08`, culled to visible rows) instead of permanent gradient swatches; the
+  Map inspector card regained its per-map parameter fields (bevel radius/strength/samples, dust axis/falloff,
+  wireframe line width, mask strength — now also covered by settings undo/stale detection and recipe save);
+  the 2D preview selectors are fed by baked results only, disabled when empty, and fall back to the active
+  set's first map like the web original; the 2D stage respects texel alpha over its checkerboard.
+- Locked the workspace like the original while a bake runs (`locked = busy`): recipe actions, mode switch
+  (which also forces the 3D view for Material patch/Volume SDF again), presets/tiles, every inspector
+  field, and settings undo/redo. The Bake action now only appears in Mesh-maps mode and reads
+  "Baking mesh maps…" while busy; no Cancel button was faked (there is no native cancellation channel yet).
+  The stale Bake-contract paragraph (it claimed only six maps were implemented) now matches the original's
+  copy, the status bar is the 32px dot/ellipsis strip, and errors surface as the top-centre amber toast.
+- Verified in this sandbox: `TextureStudio` and `BakingWorkspacePanelConstructionValidation` rebuild and
+  link, and the construction validation passes. Still open (unchanged, not UI): mesh import, recipe loading
+  (no native file picker), Material patch / Volume SDF native panels, bake cancellation, and any
+  GTX/RTX or Windows visual confirmation.
+
+## Texture Paint Workspace native port (2026-10-27, branch arena/4014756b-frontier)
+
+- New `UI/TextureStudio/TexturePaintWorkspacePanel.h/.cpp`: the Alloy `TexturePaintStudio.jsx` composition
+  copied 1:1 onto the shared native surfaces (PanelDockspace, VectorAuthoringControlSurface, GlyphSpace,
+  the Material/Baking orbit camera) — 43px header with the five-workspace switcher, Layers dock (LEFT,
+  278/1436), Teapot viewport dock (CENTER), Inspector/History dock (RIGHT, 338/1436), content-browser
+  strip and 31px status bar. The long-disabled "Texture" pills in Material/Pattern/Stamp/Baking are now
+  live (`ActivateTexture` wired both ways in `TextureStudioApplication.cpp`, layout persisted as
+  `texture_studio_texture_layout`, project JSON/draft in the library directory).
+- The layer document is real local state, modelled on `textureDocument.js`/`useTextureDocument.js`:
+  Alloy's default three layers (Surface detail/Surface finish/Base material), max 64, add/duplicate/
+  delete/reorder/folder-assignment/ungroup, masks (fill/paint/colour/gradient), the 15 canonical channel
+  targets (Height auto-enabled by Normal), inherited visibility/locking, collapsed-folder hiding,
+  81-entry snapshot history (80 undo steps, delayed commits) and `alloy.texture.v1` JSON save/autosave.
+- The viewport reuses the Baking workspace's CPU rasterizer pattern over the same built-in Teapot
+  (`BakeMesh.h`): smoothed orbit/pan/zoom, Lit/Wireframe, ground grid, UDIM part targeting (Body/Lid/
+  Handle/Spout → 1001–1004 derived from real chart ids), an authoring-UDIM UV view plus read-only Source
+  UV0, and digital Paint/Erase/Fill + mask region editing evaluated per-triangle as a preview composite.
+- Scope stated plainly (also in the panel header): this is NOT Alloy's WebGL surface compositor. No GPU
+  paint slices, no baked/exported PBR maps, no decal/stamp projection engine, no material-snapshot
+  shading; content-browser assignment stores an asset link (Alloy's own behaviour), channel sources are
+  configuration only, and unported actions (Stamp/Transform placement, project file picker) stay disabled
+  or say so in the status line instead of faking results.
+- Verified in this sandbox: `TextureStudio` and `TexturePaintWorkspacePanelConstructionValidation` build
+  and link; the new validation (default document/history/topology) passes, as do the Baking/Stamp
+  construction validations. Full CTest: 46/48 — the two failures are the pre-existing
+  `DockCycleRecoveryValidation`/`FrameFaultRecoveryValidation` ImGui fault-injection exhibits
+  (FrontierInterface-only, untouched here, aborting on ImGui asserts in this sandbox build config).
+  Sandbox has no GPU/display: Windows visual confirmation still pending.
+
+## Texture Paint fixes from first Windows test (2026-10-27, branch arena/4014756b-frontier)
+
+- User-tested `8c01cf4` on Windows: workspace runs, three issue classes fixed here.
+  (1) Dear ImGui "SetCursorScreenPos() to extend window/parent boundaries" errors (Layer stack window +
+  list child, Inspector card): every terminal cursor jump in the docks now submits a zero-size Dummy
+  anchor (layer list, pane footer, Digital-painting card, history rows, browser grid, viewport footer,
+  and all new channel-panel rows), so scroll/auto-resize boundaries include the reserved extents.
+  (2) Viewport: removed the two radial-gradient discs (clear flat field, as requested) and framed the
+  teapot closer (3.1x bounding sphere vs the material capture rig's 5.8/1.35, matching Alloy's Texture
+  scene; Baking keeps its own framing).
+  (3) Inspector parity audit against `TextureLayerInspector.jsx` / `ChannelPropertyPanel.jsx` /
+  `textureStudio.css` / `paintChannelModel.js`: field rows are now label-left + 128px select-right
+  (`.tp-field-row`), sliders are Alloy's label+value-capsule row over a 24px pill track (`.tp-amount`),
+  card notes are 8px with the top rule (`.tp-card-note`), warm accent corrected to `#a79171`, mask card
+  gained its reset button, Alloy's White/Black + "Uniform/Inverted fill" preview wording, the
+  "Paint overlay · n records / Clear painted mask overlay" block, "Selected colour" + per-UDIM-part
+  effective-coverage swatches (native `ColourMaskPreview`), and "Remove layer mask". Layer thumbnails
+  now follow `LayerThumbnail` (material swatch / paint checker + recorded dabs / kind icon) in rows,
+  identity and source summary; mask identity icon is 32px with effective fill + colour dot.
+- Channel targets rebuilt as Alloy's `ChannelPropertyPanel`: heading with count badge + picker toggle,
+  removable channel chips, Clear all, grouped picker rows, then one folded card per enabled channel
+  (Alloy's six default-folded channels) with source-mode pills (Value/Texture/Generator/Gradient —
+  Gradient Base-color-only), per-channel value/colour defaults and ranges from `paintChannelModel.js`,
+  generator choice + its real parameter sliders, "Value swatch · Not composited", and the Normal
+  Height-derived note. Settings persist in the document/history/JSON as sparse `channelSettings`.
+  Honest scope unchanged: these are stored authoring targets — texture import, source canvas, material-
+  studio generator and gradient point editing say "not native yet"; nothing composites PBR maps.
+- Verified in this sandbox: `TextureStudio` + TexturePaint/Baking/Stamp construction validations build
+  and pass. Windows visual re-check pending (user).
+
+
+

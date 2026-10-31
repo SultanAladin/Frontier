@@ -399,18 +399,24 @@ test("stamp masks actually change surface pixels; inversion, exact zero opacity,
   await page
     .getByRole("checkbox", { name: "Use decal as mask", exact: true })
     .uncheck();
+  await page
+    .getByRole("button", { name: "Add Decal channel", exact: true })
+    .click();
   for (const channel of PAINT_CHANNELS) {
-    const btn = page.getByRole("button", {
+    const box = page.getByRole("checkbox", {
       name: `Decal ${channel.label} channel`,
       exact: true,
     });
-    if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
+    if (!(await box.isChecked())) await box.check();
   }
   let saved = await project(page);
   expect(components(saved)[0].channels).toHaveLength(14);
   await page.getByLabel("Decal Roughness value", { exact: true }).fill("0");
   await page
-    .getByRole("button", { name: "Decal Base color channel", exact: true })
+    .getByRole("button", {
+      name: "Disable Decal Base color channel",
+      exact: true,
+    })
     .click();
   await page
     .getByRole("button", { name: "Navigate teapot", exact: true })

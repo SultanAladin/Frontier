@@ -28,7 +28,7 @@ Results/fingerprints: `Results/PatternChannelsGroupChecks.json`. Native C++ rema
 
 ## Previous HTML review: editable arrays and unique outliner captions
 
-Pattern and Stamp share **Inspector → Array / pattern**: linear, grid, circular/arc and radial-ring layouts.
+Pattern and Stamp share **Inspector → Modifiers**: linear, grid, circular/arc and radial-ring layouts.
 Scale profiles are uniform, linear progression, circular wave, radial distance and deterministic seeded noise.
 Sources become editable copies in one undoable edit, not a live array modifier. Group offsets scale/rotate together;
 original native Stamp text runs and SVG artwork remain intact. Document limits remain Pattern 64 / Stamp 24 entries.

@@ -251,6 +251,29 @@ int main(int Count, char **Arguments)
             "Cached Float32 surface path failed to preserve gold/fabric material separation.");
         AssertRasterCondition(CoverageRendering.SelectSurfaceProgram(CachedProgram) == CachedSlot,
             "Equivalent Float32 authoring edits did not reuse their selected cache slot.");
+        auto ExtendedChannelsDoc = Document;
+        ExtendedChannelsDoc.Layers[1].SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Transmission)].Enabled = true;
+        ExtendedChannelsDoc.Layers[1].SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Transmission)].Strength = .45f;
+        ExtendedChannelsDoc.Layers[1].SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Clearcoat)].Enabled = true;
+        ExtendedChannelsDoc.Layers[1].SurfaceChannels[size_t(VectorAuthoringSurfaceChannel::Clearcoat)].Strength = .88f;
+        for (const auto &[ExtChannel, ExtExpected] : std::array<std::pair<VectorAuthoringSurfaceChannel, float>, 2>{{
+            {VectorAuthoringSurfaceChannel::Transmission, .45f},
+            {VectorAuthoringSurfaceChannel::Clearcoat, .88f}}})
+        {
+            const auto ExtProgram = CompileVectorSurface(ExtendedChannelsDoc, ExtChannel);
+            Raster.ConfigureRetiredSurface(ExtProgram, Serial);
+            const auto ExtPixels = Device.CaptureSurface(Raster.QueryImage(), Raster.QueryExtent(), [&](VkCommandBuffer Commands)
+            {
+                AssertRasterCondition(Raster.ConstructCommands(Commands, Serial, Serial + 1), "Extended surface channel failed to dispatch.");
+            }, [&]()
+            {
+                Raster.ConfirmSubmission(Serial + 1);
+                ++Serial;
+            });
+            const size_t Centre = (16 * 32 + 16) * 4;
+            AssertRasterCondition(std::abs(ExtPixels[Centre] - ExtExpected) <= .002f,
+                "GPU Float32 Transmission/Clearcoat channel differed from authored strength.");
+        }
         CoverageRendering.Finalize();
 
         std::ofstream Report(Destination / "VectorSurfaceChecks.json");
