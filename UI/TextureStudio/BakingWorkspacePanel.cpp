@@ -265,10 +265,11 @@ void BakingWorkspacePanel::FinalizeContent() noexcept
         try { GpuRequestFuture.wait(); } catch (...) {}
     }
     if (VolumeFuture.valid()) { try { VolumeFuture.wait(); } catch (...) {} }
+    if (ExportFuture.valid()) { try { ExportFuture.wait(); } catch (...) {} }
     GpuRequest.reset();
     ControlExtents.clear();
 }
-void BakingWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept { SettingsCoalesceClockSeconds += DeltaSeconds; PollBake(); PollVolumeBake(); }
+void BakingWorkspacePanel::IntegrateContent(double DeltaSeconds) noexcept { SettingsCoalesceClockSeconds += DeltaSeconds; PollBake(); PollVolumeBake(); PollExport(); }
 
 //------------------------------------------------------------------------------------------------------------------------
 //                                                     DOCUMENT / BAKE OPERATIONS
@@ -695,13 +696,36 @@ void BakingWorkspacePanel::AcceptBakeResults()
     ActiveBakeStep = BakeStep::Idle;
     BakeRunning.store(false);
 }
+void BakingWorkspacePanel::PollExport()
+{
+    if (!ExportFuture.valid() || ExportFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    try { Info = ExportFuture.get(); LastExportDirectory = PendingExportDirectory; }
+    catch (const std::exception &Failure) { Error = std::string("PNG export failed: ") + Failure.what(); }
+    PendingExportDirectory.clear();
+}
 void BakingWorkspacePanel::ExportResults()
 {
     if (Results.empty()) { Error = "Bake mesh maps before exporting."; return; }
+    if (ExportFuture.valid()) { Error = "A PNG export is already running."; return; }
     try
     {
         std::filesystem::path Directory = ExportDirectory.empty() ? std::filesystem::temp_directory_path() / "FrontierBakeExport" : ExportDirectory;
         std::filesystem::create_directories(Directory);
+        const bool DiskBacked = std::all_of(Results.begin(), Results.end(), [](const BakePartResult &Result)
+        { return std::all_of(Result.Maps.begin(), Result.Maps.end(), [](const BakeMapImage &Map) { return bool(Map.Storage); }); });
+        if (DiskBacked)
+        {
+            auto Snapshot = Results;
+            PendingExportDirectory = Directory.string(); Error.clear(); Info = "Exporting PNG maps in the background…";
+            ExportFuture = std::async(std::launch::async, [Snapshot=std::move(Snapshot), Directory]()
+            {
+                uint32_t Written=0;
+                for (const auto &Result : Snapshot) for (const auto &Map : Result.Maps)
+                { WriteBakeMapPng(Map,Result.Resolution,Directory / (BakeFileStem(Result.Name)+"-"+Map.Key+".png")); ++Written; }
+                return std::to_string(Written) + " map PNGs written to " + Directory.string();
+            });
+            return;
+        }
         uint32_t Written = 0;
         for (const auto &Result : Results)
             for (const auto &Map : Result.Maps)
@@ -2063,9 +2087,17 @@ void BakingWorkspacePanel::ConstructPreviewDock()
                     std::filesystem::path Directory = ExportDirectory.empty() ? std::filesystem::temp_directory_path() / "FrontierBakeExport" : ExportDirectory;
                     std::filesystem::create_directories(Directory);
                     const auto Path = Directory / (BakeFileStem(ActiveResult ? ActiveResult->Name : PreviewSetName) + "-" + ActiveMapKey + ".png");
-                    WriteBakeMapPng(*CurrentImage, CurrentResolution, Path);
-                    LastExportDirectory = Directory.string();
-                    Info = "Map PNG written to " + Path.string();
+                    if (ExportFuture.valid()) throw std::runtime_error("A PNG export is already running.");
+                    Error.clear();
+                    if (CurrentImage->Storage)
+                    {
+                        BakeMapImage Snapshot=*CurrentImage; const uint32_t Size=CurrentResolution;
+                        PendingExportDirectory = Directory.string();
+                        Info = "Exporting PNG map in the background…";
+                        ExportFuture = std::async(std::launch::async, [Snapshot=std::move(Snapshot),Size,Path]()
+                        { WriteBakeMapPng(Snapshot,Size,Path); return "Map PNG written to " + Path.string(); });
+                    }
+                    else { WriteBakeMapPng(*CurrentImage, CurrentResolution, Path); LastExportDirectory=Directory.string(); Info = "Map PNG written to " + Path.string(); }
                 }
                 catch (const std::exception &Failure) { Error = std::string("PNG export failed: ") + Failure.what(); }
             }

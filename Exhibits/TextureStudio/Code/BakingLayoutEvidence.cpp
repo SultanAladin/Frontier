@@ -128,7 +128,9 @@ int main(int ArgumentCount, char **Arguments)
         }
         Require(Finished, "Selected map bake did not complete.");
         Click(Panel->QueryControlExtent("Export"));
-        Require(!Panel->QueryLastExportDirectory().empty(), "Export did not run.");
+        for (int Guard=0; Guard<4000 && Panel->QueryLastExportDirectory().empty(); ++Guard)
+        { Frame(); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+        Require(!Panel->QueryLastExportDirectory().empty(), "Export did not complete.");
         size_t Count = 0;
         for (const auto &Entry : std::filesystem::directory_iterator(Panel->QueryLastExportDirectory()))
             if (Entry.path().extension() == ".png") ++Count;

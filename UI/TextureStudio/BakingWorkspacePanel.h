@@ -197,6 +197,9 @@ class BakingWorkspacePanel final : public ActivationSequence
     bool ConstructMapPreview(PlaneExtent Region);
     std::filesystem::path ExportDirectory;
     std::string LastExportDirectory;
+    std::future<std::string> ExportFuture;
+    std::string PendingExportDirectory;
+    void PollExport();
     void ExportResults();
 
     //--------------------------------------------------------------------------------------------------------------
