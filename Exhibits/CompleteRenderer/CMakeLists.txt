@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(FrontierCompleteRendererExhibit CXX)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(FRONTIER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../Frontier" ABSOLUTE)
 set(RENDERING ${FRONTIER_ROOT}/Engine/Rendering)
@@ -17,6 +17,7 @@ set(REFERENCE_SOURCES
     ${RENDERING}/DistanceField.cpp
     ${RENDERING}/SurfaceCards.cpp
     ${RENDERING}/AtmosphereModel.cpp
+    ${RENDERING}/SolarSkyEnvironment.cpp
     ${RENDERING}/CloudField.cpp
     ${RENDERING}/FogMedium.cpp
     ${RENDERING}/ReferenceRenderer.cpp)

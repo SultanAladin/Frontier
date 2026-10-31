@@ -571,3 +571,5 @@ if(BUILD_TESTING)
     add_test(NAME EverestShippingValidation COMMAND EverestShippingValidation
         "${CMAKE_SOURCE_DIR}/Projects/Everest")
 endif()
+
+include(Automation/EnvironmentRendering.cmake)

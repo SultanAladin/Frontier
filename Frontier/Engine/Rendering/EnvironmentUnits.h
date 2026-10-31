@@ -11,10 +11,9 @@
 //     → CloudRecords → CloudShadowProject → CloudTrace → CloudPresent
 //     → FogMedium → Precipitation → FlareVisibility → FlareImage
 //
-// LUTs are Persistent (baked once, re-baked on parameter change — never atlas-aliased); the
-// surface depth is an imported read from the surface phase. The SDK phase merges this with the
-// illumination declaration into one frame; today the portable layer orders it, aliases its
-// transients and derives its barriers, and Exhibits/EnvironmentPipeline proves the models.
+// The declaration marks LUTs persistent and imports surface depth. CompleteFrameUnits combines
+// these target touches with illumination declarations; it does not execute them or present an editor frame.
+// The portable layer derives ordering/aliasing/barriers, and Exhibits/EnvironmentPipeline tests selected models.
 
 #pragma once
 

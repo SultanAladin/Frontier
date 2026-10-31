@@ -75,7 +75,7 @@ EngineContent/
 ├── Icons/                     # Tracked original/compatibility SVGs
 ├── MaterialArchives/          # Tracked Texture Studio material library (.material + baked maps)
 ├── PatternArchives/           # Tracked Texture Studio pattern presets
-├── EnvironmentArchives/       # Tracked baked equirect studio environments (+ user imports)
+├── EnvironmentArchives/       # Tracked studio environments + CelestialMaps (Luna 2K source, Hipparcos8.csv)
 ├── Defaults/                  # Tracked blank project space
 └── FontArchives/<font name>/  # Ignored font downloads, OFL notices, TOML descriptors
 ExternalPackages/

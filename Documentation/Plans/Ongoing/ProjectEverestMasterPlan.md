@@ -13,8 +13,8 @@
   only when `FRONTIER_EDITOR` is enabled. Shipping/Runtime builds (`FRONTIER_EDITOR == 0`) compile only runtime
   `RecordEntry` types, `RecordStore`, `SceneWorld`, and pure C++ `*Configuration` structures.
 - **Banned Vocabulary Compliance:** Enforce `EngineDocs/AgenticInstuctions/SKILL-Naming.md` including `2026-10-31`
-  additions (`Widget`, `Kit`, `Footprint`, `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`, `Actor`,
-  `Beacon`).
+  additions (`Cache`, `Widget`, `Kit`, `Footprint`, `Shared`, `DedicatedStudio`, `SpecialtyEditor`, `Specialty`,
+  `Actor`, `Beacon`).
 
 ## 2. Project Creation C++ Auto-Generation (`ProjectGenerator`)
 
@@ -58,13 +58,17 @@ When a user creates a new project via `ProjectBrowserPanel::CreateProject`:
 
 ## 4. Phased Delivery Roadmap
 
-1. **Phase 1 (Current):** Project C++ auto-scaffolding (`ProjectGenerator`), `.levelspace` dynamic scene lifecycle,
+1. **Phase 1 (Completed):** Project C++ auto-scaffolding (`ProjectGenerator`), `.levelspace` dynamic scene lifecycle,
    generic `DiagramControls`, composable Physics/Thermal/Chemical/Spatial/Optics + Environment + Render `*Inspector`s
    under `InspectorRuntime`, standalone `<Domain>Editor` modals, independent `Projects/Everest/`, Shipping
    (`FRONTIER_EDITOR=0`) + Editor (`FRONTIER_EDITOR=1`) CTests, and 1920x1080 CPU-rasterized PNG Exhibits.
-2. **Phase 2:** Dual-tier Vulkan C++ GPU Renderer — RTX tier (`VK_KHR_ray_query` + ReSTIR GI + SVGF) and mandatory GTX
-   fallback tier (4-cascade clipmap SDF + Surface Cards + 16-bin SAH-2 software BVH reflections).
-3. **Phase 3:** GPU Environment & World Systems (Sun, Sky LUTs, Stars, Moons, Volumetric Clouds, Froxel Fog, Storm &
-   Lightning, Wind Field, Fluid Plume, Voronoi Fracture, GPU Particles).
-4. **Phase 4:** Physical, Thermal, Chemical, and Mechanical Simulation Systems (deferring `VehicleInspector` until
-   Environment and Render Engines are verified on GPU).
+2. **Phase 2 (Completed):** Unified Multi-Instance & Portal-Routed Vulkan 1.3 Environment & Celestial Rendering Stack
+   (`AtmosphereLutSubmission`, `SolarSkyEnvironment` `< 2.85%` vs FP64 oracle, `CelestialDomeRasterization` with 2K
+   6-body lunar atlas + 41,359 Hipparcos stars + ringed planets + multi-sun discs, `VolumetricCloudSequence` +
+   `CloudShadowProjection`, `OpticalLensFlareSequence` GPU `1x1` visibility + chromatic aperture optics, and coupled
+   `VolumetricFogSubmission` across arbitrary realms & `PortalAperture` transitions; UI Editor frozen).
+3. **Phase 3 (Next):** Dual-tier Vulkan C++ Surface & Global Illumination GPU Renderer — RTX tier (`VK_KHR_ray_query` +
+   ReSTIR GI + variance denoiser) and mandatory GTX fallback tier (4-cascade clipmap SDF + Surface Cards + 16-bin SAH-2
+   software BVH reflections).
+4. **Phase 4:** Physical, Thermal, Chemical, Weather, Fluid Plume, Fracture, Particle, and Mechanical Simulation Systems
+   (deferring `VehicleInspector` until Environment and Render Engines are verified on GPU).
