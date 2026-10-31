@@ -1,19 +1,20 @@
 /*==========================================================================================================================================
-                                         CLUSTER DIAGNOSTIC & VEHICLE VALIDATION
+                                      CLUSTER REFINEMENT & PREVIEW RASTER VALIDATION
 ==========================================================================================================================================*/
 // End-to-end validation of:
-//  1. 9 watertight ProceduralShapes generators + binary FCT1 ControlVehicle{Body,Rim,Tyre}.facet assembly
-//  2. Locked-border Garland-Heckbert QEM ClusterHierarchy DAG, curved-glass IOR boost, & Karis group-atomic cut
+//  1. 9 watertight PrimitiveGeometryGenerator shapes + binary FCT1 ControlVehicle{Body,Rim,Tyre}.facet assembly
+//  2. Locked-border Garland-Heckbert QEM ScreenSpaceClusterRefinement DAG, curved-glass IOR boost, & Karis group-atomic cut
 //  3. Two-phase opaque-only Hi-Z culling (cabin interior behind curved Class-7 glass survives)
 //  4. 3-tier virtualized materials (FullStrata 64B / FilteredToksvig 24B / CompactProxy 16B) & 64 KB RAM/VRAM page telemetry
 //  5. ThemeCardPalette 1:1 ThemeStructure binding (zero hardcoded green)
-//  6. Editor/Development ONLY (#if FRONTIER_EDITOR) Vulkan 1.3 DiagnosticRaster + Shipping exclusion proof
+//  6. Editor/Development ONLY (#if FRONTIER_EDITOR) Vulkan 1.3 PreviewRaster + ALL 5 modular PreviewShadowModes + Shipping exclusion proof
 
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
-#include "Engine/GeometricRaster/ClusterHierarchy.h"
-#include "Engine/GeometricRaster/DiagnosticRaster.h"
-#include "Engine/GeometricRaster/ProceduralShapes.h"
+#include "Engine/GeometricRaster/PreviewRaster.h"
 #include "Engine/GeometricRaster/ThemeCardPalette.h"
+#include "Engine/Geometry/GeometryProcessing/ScreenSpaceClusterRefinement.h"
+#include "Engine/Geometry/GeometryProcessing/VolumeDistanceArchive.h"
+#include "Engine/Geometry/PrimitiveGeometryGenerator.h"
 
 #include <stb_image_write.h>
 
@@ -26,7 +27,7 @@
 
 namespace Frontier
 {
-bool VerifyDiagnosticRasterExcludedInShipping() noexcept;
+bool VerifyPreviewRasterExcludedInShipping() noexcept;
 }
 
 namespace
@@ -64,12 +65,12 @@ int main(int Argc, char** Argv)
     }
 
     // 1. Shipping Exclusion Proof
-    std::cout << "[1/5] Verifying Shipping Build Exclusion (FRONTIER_EDITOR == 0 TU)...\n";
-    REQUIRE_CD(VerifyDiagnosticRasterExcludedInShipping(),
+    std::cout << "[1/6] Verifying Shipping Build Exclusion (FRONTIER_EDITOR == 0 TU)...\n";
+    REQUIRE_CD(VerifyPreviewRasterExcludedInShipping(),
                "Shipping profile translation unit must compile with FRONTIER_EDITOR == 0");
 
-    // 2. Procedural 3D Shape Generators + Binary FCT1 ControlVehicle Assembly
-    std::cout << "[2/5] Verifying 9 Watertight Procedural Shapes & Binary FCT1 ControlVehicle Assembly...\n";
+    // 2. PrimitiveGeometryGenerator 3D Shapes + Binary FCT1 ControlVehicle Assembly
+    std::cout << "[2/6] Verifying 9 Watertight PrimitiveGeometryGenerator Builders & ControlVehicle Assembly...\n";
     {
         FacetField BoxF{}, SphF{}, GeoF{}, CylF{}, CapF{}, TorF{}, ConF{}, TunF{}, GrdF{};
         AppendProceduralBox(BoxF, {0.5, 0.5, 0.5});
@@ -85,7 +86,7 @@ int main(int Argc, char** Argv)
         REQUIRE_CD(BoxF.Classification.size() == 12u && SphF.Classification.size() > 400u && GeoF.Classification.size() == 320u &&
                        CylF.Classification.size() == 96u && CapF.Classification.size() > 400u && TorF.Classification.size() == 768u &&
                        ConF.Classification.size() == 48u && TunF.Classification.size() > 100u && GrdF.Classification.size() == 128u,
-                   "All 9 procedural 3D shape builders must emit valid triangulated facet fields");
+                   "All 9 procedural 3D primitive builders must emit valid triangulated facet fields");
     }
 
     std::string             Diag;
@@ -104,30 +105,31 @@ int main(int Argc, char** Argv)
                "ControlVehicle must assemble body + 4x rims + 4x tyres + interior cabin (>14,000 triangles)");
 
     // Add proving-grounds asphalt plinth beneath tyres (ClassificationId = 0)
-    ShapePlacement PlinthPlace{};
+    PrimitivePlacement PlinthPlace{};
     PlinthPlace.TranslationMeters = {0.0, 0.0, 0.0};
     PlinthPlace.ClassificationId  = 0u;
     PlinthPlace.UvScale           = 0.35;
     AppendProceduralGroundGrid(VehicleScene, 9.5, 9.5, 12u, 12u, PlinthPlace);
 
-    // 3. Build Locked-Border QEM ClusterHierarchy + Verify Curved-Glass IOR Boost, Cut, Two-Phase Hi-Z, & 3-Tier Materials
-    std::cout << "[3/5] Building QEM ClusterHierarchy DAG, 64 KB Pages, & Virtualized Material Tiers...\n";
-    ClusterHierarchy Hierarchy{};
-    Hierarchy.RegisterControlVehicleMaterials();
+    // 3. Build Locked-Border QEM ScreenSpaceClusterRefinement + Verify Curved-Glass IOR Boost, Cut, Two-Phase Hi-Z, & 3-Tier Materials
+    std::cout << "[3/6] Building QEM ScreenSpaceClusterRefinement DAG, 64 KB Pages, & Virtualized Material Tiers...\n";
+    ScreenSpaceClusterRefinement Refinement{};
+    Refinement.RegisterControlVehicleMaterials();
     TierBuildSpecification BuildSpec{};
     BuildSpec.TriangleLimit      = 96u;
     BuildSpec.CoarseningFraction = 0.52;
     BuildSpec.MaximumTiers       = 5u;
-    REQUIRE_CD(Hierarchy.BuildFromFacetField(VehicleScene, BuildSpec), "ClusterHierarchy::BuildFromFacetField failed");
+    REQUIRE_CD(Refinement.BuildFromFacetField(VehicleScene, BuildSpec),
+               "ScreenSpaceClusterRefinement::BuildFromFacetField failed");
 
-    std::cout << "      Built " << Hierarchy.TierSequence().Tiers.size() << " LOD tiers, "
-              << Hierarchy.ClusterRecords().size() << " total clusters across "
-              << Hierarchy.StreamingPages().size() << " x 64 KB pages\n";
-    REQUIRE_CD(Hierarchy.TierSequence().Tiers.size() >= 3u && Hierarchy.StreamingPages().size() >= 2u,
-               "ClusterHierarchy must construct multi-tier QEM DAG packed into 64 KB pages");
+    std::cout << "      Built " << Refinement.TierSequence().Tiers.size() << " LOD tiers, "
+              << Refinement.ClusterRecords().size() << " total clusters across "
+              << Refinement.StreamingPages().size() << " x 64 KB pages\n";
+    REQUIRE_CD(Refinement.TierSequence().Tiers.size() >= 3u && Refinement.StreamingPages().size() >= 2u,
+               "ScreenSpaceClusterRefinement must construct multi-tier QEM DAG packed into 64 KB pages");
 
     float MaxGlassBoost = 1.0f;
-    for (const auto& Rec : Hierarchy.ClusterRecords())
+    for (const auto& Rec : Refinement.ClusterRecords())
     {
         if (Rec.TransmissiveGlass)
         {
@@ -138,7 +140,6 @@ int main(int Argc, char** Argv)
     REQUIRE_CD(MaxGlassBoost > 1.65f,
                "Curved automotive laminated glazing (Class 7/12, IOR 1.52/1.58) must receive refractive optical error boost");
 
-    // Verify Karis DAG cut monotonic reduction with camera distance + Two-Phase Hi-Z cabin survival behind glass
     ClusterCameraView NearCam{};
     NearCam.CameraOrigin     = {3.20f, 1.48f, 4.20f};
     NearCam.CameraTarget     = {-0.10f, 0.72f, 0.05f};
@@ -150,9 +151,9 @@ int main(int Argc, char** Argv)
     ClusterCameraView FarCam  = NearCam;
     FarCam.CameraOrigin       = {68.0f, 26.0f, 88.0f};
 
-    const ClusterRuntimeFrameReport NearCut = Hierarchy.ExecuteCutAndTwoPhaseHiZ(NearCam);
-    const ClusterRuntimeFrameReport MidCut  = Hierarchy.ExecuteCutAndTwoPhaseHiZ(MidCam);
-    const ClusterRuntimeFrameReport FarCut  = Hierarchy.ExecuteCutAndTwoPhaseHiZ(FarCam);
+    const ClusterRuntimeFrameReport NearCut = Refinement.ExecuteCutAndTwoPhaseHiZ(NearCam);
+    const ClusterRuntimeFrameReport MidCut  = Refinement.ExecuteCutAndTwoPhaseHiZ(MidCam);
+    const ClusterRuntimeFrameReport FarCut  = Refinement.ExecuteCutAndTwoPhaseHiZ(FarCam);
 
     std::cout << "      DAG Cut Active Triangles: Near(4.2m)=" << NearCut.ActiveTrianglesAfterCull
               << " -> Mid(20m)=" << MidCut.ActiveTrianglesAfterCull
@@ -168,21 +169,19 @@ int main(int Argc, char** Argv)
                    (FarCut.MaterialTierClusterCounts[1] + FarCut.MaterialTierClusterCounts[2]) > 0u,
                "3-tier material virtualization must select FullStrata (64B) near and Toksvig/CompactProxy far");
 
-    // Verify 64 KB Page Budget & RAM/VRAM Telemetry
-    const ClusterMemoryTelemetry UnconstrainedMem = Hierarchy.QueryMemoryTelemetry(NearCut, 64u * 1024u * 1024u);
-    Hierarchy.EnforcePageResidencyBudget(128u * 1024u, FarCam, 2u); // Tight 2-page budget
-    const ClusterMemoryTelemetry TightMem         = Hierarchy.QueryMemoryTelemetry(NearCut, 128u * 1024u);
+    const ClusterMemoryTelemetry UnconstrainedMem = Refinement.QueryMemoryTelemetry(NearCut, 64u * 1024u * 1024u);
+    Refinement.EnforcePageResidencyBudget(128u * 1024u, FarCam, 2u);
+    const ClusterMemoryTelemetry TightMem         = Refinement.QueryMemoryTelemetry(NearCut, 128u * 1024u);
     REQUIRE_CD(UnconstrainedMem.TotalHostRamBytes > 128u * 1024u &&
                    TightMem.PinnedRootPages >= 1u &&
                    TightMem.ResidentVramBytes <= UnconstrainedMem.TotalPagedVramBytes,
                "ClusterMemoryTelemetry must track RAM/VRAM 64 KB page bytes while keeping root tier pinned");
-    // Restore full residency for GPU diagnostic renders
-    Hierarchy.EnforcePageResidencyBudget(64u * 1024u * 1024u, NearCam, 3u);
+    Refinement.EnforcePageResidencyBudget(64u * 1024u * 1024u, NearCam, 3u);
 
     // 4. Verify ThemeCardPalette 1:1 ThemeStructure Binding (Zero Hardcoded Green)
-    std::cout << "[4/5] Verifying ThemeCardPalette 1:1 ThemeStructure Binding (Zero Hardcoded Green)...\n";
+    std::cout << "[4/6] Verifying ThemeCardPalette 1:1 ThemeStructure Binding (Zero Hardcoded Green)...\n";
     {
-        ThemeStructure         Theme{}; // Default: OLED + Blue (#3B82F6) + GeneralSans
+        ThemeStructure         Theme{};
         const ThemeCardPalette DefaultCard = ResolveThemeCardPalette(Theme);
         REQUIRE_CD(DefaultCard.WorkspaceBackground.Red == 0.0f &&
                        DefaultCard.WorkspaceBackground.Green == 0.0f &&
@@ -201,19 +200,26 @@ int main(int Argc, char** Argv)
                    "Reconfiguring ThemeStructure must dynamically update card background, foreground, accent, and font");
     }
 
-    // 5. Execute Editor/Development Vulkan 1.3 DiagnosticRaster & Export 4 Showcase PNGs
-    std::cout << "[5/5] Executing Vulkan 1.3 DiagnosticRaster (ShadedPreview / ClusterID / Wireframe / GlassPeel)...\n";
+    // 5. Execute Editor/Development Vulkan 1.3 PreviewRaster + Attach Pre-Baked .sdfspace Distance Volume
+    std::cout << "[5/6] Initializing Vulkan 1.3 PreviewRaster & Composing Pre-Baked .sdfspace Vehicle SDF...\n";
     VulkanComputeExchange Exchange{};
     REQUIRE_CD(Exchange.Initialize("", &Diag), ("VulkanComputeExchange::Initialize failed: " + Diag).c_str());
 
-    DiagnosticRaster Raster{};
+    PreviewRaster Raster{};
     REQUIRE_CD(Raster.Initialize(Exchange, ShaderDir.string(), &Diag),
-               ("DiagnosticRaster::Initialize failed: " + Diag).c_str());
+               ("PreviewRaster::Initialize failed: " + Diag).c_str());
 
-    DiagnosticAtmosphereBackdrop Sky{};
-    Sky.SolarDirectionUnit = {-0.52f, 0.68f, 0.51f};
+    VolumeDistanceField VehicleSdf{};
+    REQUIRE_CD(ComposeControlVehicleDistanceVolume(VehicleSdf, Placement, {64u, 36u, 88u}, false, &Diag),
+               ("ComposeControlVehicleDistanceVolume failed: " + Diag).c_str());
+    REQUIRE_CD(Raster.AttachDistanceVolume(Exchange, &VehicleSdf),
+               "PreviewRaster::AttachDistanceVolume failed");
+
+    PreviewAtmosphereBackdrop Sky{};
+    Sky.SolarDirectionUnit = {-0.54f, 0.62f, 0.57f};
     Sky.ZenithSkyRgb       = {0.11f, 0.25f, 0.58f};
     Sky.HorizonSkyRgb      = {0.54f, 0.66f, 0.82f};
+    Sky.ShadowMode         = PreviewShadowMode::OrthoClusterDepth;
     Sky.ExposureScale      = 1.08f;
 
     std::filesystem::create_directories(OutputDir);
@@ -223,13 +229,15 @@ int main(int Argc, char** Argv)
         std::filesystem::create_directories(ShowcaseDir);
     }
 
-    const auto RenderAndSave = [&](DiagnosticViewMode Mode, const char* FileName) {
-        DiagnosticFrameExecution Exec{};
-        REQUIRE_CD(Raster.RenderView(Exchange, Hierarchy, NearCam, Mode, Sky, &Exec),
-                   "DiagnosticRaster::RenderView failed");
+    const auto RenderAndSave = [&](PreviewViewMode Mode, PreviewShadowMode Shadow, const char* FileName, bool MirrorToShowcase, uint64_t* OutSumLum = nullptr) {
+        PreviewAtmosphereBackdrop LocalSky = Sky;
+        LocalSky.ShadowMode                = Shadow;
+        PreviewFrameExecution Exec{};
+        REQUIRE_CD(Raster.RenderView(Exchange, Refinement, NearCam, Mode, LocalSky, &Exec),
+                   "PreviewRaster::RenderView failed");
         std::vector<uint8_t> SrgbBytes;
-        REQUIRE_CD(Raster.ReadbackTonemappedSrgb8(Exchange, Sky.ExposureScale, SrgbBytes),
-                   "DiagnosticRaster::ReadbackTonemappedSrgb8 failed");
+        REQUIRE_CD(Raster.ReadbackTonemappedSrgb8(Exchange, LocalSky.ExposureScale, SrgbBytes),
+                   "PreviewRaster::ReadbackTonemappedSrgb8 failed");
 
         uint64_t SumLum        = 0u;
         uint32_t NonZeroPixels = 0u;
@@ -240,7 +248,8 @@ int main(int Argc, char** Argv)
             if (L > 18u) ++NonZeroPixels;
         }
         REQUIRE_CD(NonZeroPixels > (NearCam.ViewportWidthPx * NearCam.ViewportHeightPx) / 2u && SumLum > 1000000u,
-                   "Rendered DiagnosticRaster view must produce valid lit/diagnostic pixels");
+                   "Rendered PreviewRaster view must produce valid lit/inspection pixels");
+        if (OutSumLum) *OutSumLum = SumLum;
 
         const auto OutFile = OutputDir / FileName;
         REQUIRE_CD(stbi_write_png(OutFile.string().c_str(),
@@ -250,7 +259,7 @@ int main(int Argc, char** Argv)
                                   SrgbBytes.data(),
                                   static_cast<int>(NearCam.ViewportWidthPx * 4u)) != 0,
                    "Failed writing PNG exhibit");
-        if (MirrorShowcase)
+        if (MirrorShowcase && MirrorToShowcase)
         {
             (void)stbi_write_png((ShowcaseDir / FileName).string().c_str(),
                                  static_cast<int>(NearCam.ViewportWidthPx),
@@ -259,18 +268,35 @@ int main(int Argc, char** Argv)
                                  SrgbBytes.data(),
                                  static_cast<int>(NearCam.ViewportWidthPx * 4u));
         }
-        std::cout << "      Saved " << FileName << " (ActiveClusters=" << Exec.UploadedClusterCount
+        std::cout << "      Saved " << FileName << " (ShadowMode=" << static_cast<uint32_t>(Exec.ActiveShadowMode)
+                  << ", ActiveClusters=" << Exec.UploadedClusterCount
                   << ", ActiveTris=" << Exec.UploadedTriangleCount << ")\n";
     };
 
-    RenderAndSave(DiagnosticViewMode::ShadedPreview,   "ControlVehicleShadedPreview.png");
-    RenderAndSave(DiagnosticViewMode::ClusterIdentity, "ControlVehicleClusterIdentity.png");
-    RenderAndSave(DiagnosticViewMode::ShadedWireframe, "ControlVehicleHierarchyAndWireframe.png");
-    RenderAndSave(DiagnosticViewMode::GlassLayerPeel,  "ControlVehicleGlassLayerPeel.png");
+    // 6. Verify ALL 5 Modular PreviewShadowModes + Core Inspection Views
+    std::cout << "[6/6] Rendering Modular PreviewShadowModes (None / Contact / OrthoDepth / SdfCone / Hybrid) & Inspection Views...\n";
+    uint64_t LumNoShadow     = 0u;
+    uint64_t LumContact      = 0u;
+    uint64_t LumOrthoDepth   = 0u;
+    uint64_t LumSdfCone      = 0u;
+    uint64_t LumHybrid       = 0u;
+
+    RenderAndSave(PreviewViewMode::ShadedPreview, PreviewShadowMode::None,                   "PreviewShadow0_None.png", false, &LumNoShadow);
+    RenderAndSave(PreviewViewMode::ShadedPreview, PreviewShadowMode::ContactEllipsoid,       "PreviewShadow1_ContactEllipsoid.png", false, &LumContact);
+    RenderAndSave(PreviewViewMode::ShadedPreview, PreviewShadowMode::OrthoClusterDepth,      "ControlVehicleShadedPreview.png", true, &LumOrthoDepth);
+    RenderAndSave(PreviewViewMode::ShadedPreview, PreviewShadowMode::SignedDistanceCone,     "ControlVehicleSdfConePreviewShadow.png", true, &LumSdfCone);
+    RenderAndSave(PreviewViewMode::ShadedPreview, PreviewShadowMode::HybridOrthoAndDistance, "ControlVehicleHybridPreviewShadow.png", true, &LumHybrid);
+
+    REQUIRE_CD(LumNoShadow > LumOrthoDepth && LumNoShadow > LumSdfCone && LumNoShadow > LumHybrid && LumOrthoDepth != LumSdfCone,
+               "All modular directional PreviewShadowModes (OrthoClusterDepth, SignedDistanceCone, HybridOrthoAndDistance) must cast measurable directional shadows relative to PreviewShadowMode::None");
+
+    RenderAndSave(PreviewViewMode::ClusterIdentity, PreviewShadowMode::None, "ControlVehicleClusterIdentity.png", true);
+    RenderAndSave(PreviewViewMode::ShadedWireframe, PreviewShadowMode::None, "ControlVehicleRefinementAndWireframe.png", true);
+    RenderAndSave(PreviewViewMode::GlassLayerPeel,  PreviewShadowMode::None, "ControlVehicleGlassLayerPeel.png", true);
 
     Raster.Shutdown(Exchange);
     Exchange.Shutdown();
 
-    std::cout << "[ClusterDiagnosticValidation] ALL CLUSTER-DAG, MATERIAL TIER, THEME CARD & GPU DIAGNOSTIC CHECKS PASSED.\n";
+    std::cout << "[ClusterDiagnosticValidation] ALL REFINEMENT-DAG, MODULAR PREVIEW SHADOWS, THEME CARD & SHIPPING EXCLUSION CHECKS PASSED.\n";
     return 0;
 }

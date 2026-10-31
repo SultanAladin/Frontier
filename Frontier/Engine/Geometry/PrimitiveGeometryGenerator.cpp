@@ -1,9 +1,9 @@
 /*==========================================================================================================================================
-                                               PROCEDURAL SHAPES DEFINITION
+                                               PRIMITIVE GEOMETRY GENERATOR DEFINITION
 ==========================================================================================================================================*/
-// 🧩 Binary FCT1 archive decoder, ControlVehicle multi-part assembly, and watertight analytic 3D shape builders.
+// 🧩 Binary FCT1 archive decoder, ControlVehicle multi-part assembly, and watertight analytic 3D primitive geometry builders.
 
-#include "Engine/GeometricRaster/ProceduralShapes.h"
+#include "Engine/Geometry/PrimitiveGeometryGenerator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +20,7 @@ namespace
 constexpr double π    = 3.14159265358979323846;
 constexpr double Twoπ = 6.28318530717958647692;
 
-FacetPoint3D TransformLocalPoint(FacetPoint3D Local, const ShapePlacement& Placement) noexcept
+FacetPoint3D TransformLocalPoint(FacetPoint3D Local, const PrimitivePlacement& Placement) noexcept
 {
     const double ScaledX = Local.X * Placement.UniformScale;
     const double ScaledY = Local.Y * Placement.UniformScale;
@@ -41,7 +41,7 @@ void EmitTriangle(FacetField&           Out,
                   std::array<double, 2> Uv0,
                   std::array<double, 2> Uv1,
                   std::array<double, 2> Uv2,
-                  const ShapePlacement& Placement,
+                  const PrimitivePlacement& Placement,
                   uint8_t               SharpBits = 0u)
 {
     if (!Out.Corners.empty() && Out.CornerUVs.size() < Out.Corners.size())
@@ -67,7 +67,7 @@ void EmitQuad(FacetField&           Out,
               std::array<double, 2> Uv10,
               std::array<double, 2> Uv11,
               std::array<double, 2> Uv01,
-              const ShapePlacement& Placement)
+              const PrimitivePlacement& Placement)
 {
     EmitTriangle(Out, P00, P10, P11, Uv00, Uv10, Uv11, Placement);
     EmitTriangle(Out, P00, P11, P01, Uv00, Uv11, Uv01, Placement);
@@ -151,7 +151,7 @@ float ReadFloat32Le(const uint8_t* Ptr) noexcept
 
 bool LoadFacetStreamFromMemory(std::span<const uint8_t> Bytes,
                                FacetField&              OutFacets,
-                               const ShapePlacement&    Placement,
+                               const PrimitivePlacement&    Placement,
                                bool                     ConvertBlenderZToY,
                                int32_t                  OverrideClassId)
 {
@@ -245,7 +245,7 @@ bool LoadFacetStreamFromMemory(std::span<const uint8_t> Bytes,
             return {Pt.X * Placement.UvScale, Pt.Y * Placement.UvScale};
         };
 
-        ShapePlacement TriPlace   = Placement;
+        PrimitivePlacement TriPlace   = Placement;
         TriPlace.ClassificationId = FinalCls;
         TriPlace.UvScale          = 1.0;
         EmitTriangle(OutFacets,
@@ -263,7 +263,7 @@ bool LoadFacetStreamFromMemory(std::span<const uint8_t> Bytes,
 
 bool LoadFacetStreamFromFile(const std::string&    PathOrContentRel,
                              FacetField&           OutFacets,
-                             const ShapePlacement& Placement,
+                             const PrimitivePlacement& Placement,
                              bool                  ConvertBlenderZToY,
                              int32_t               OverrideClassId)
 {
@@ -310,7 +310,7 @@ bool AssembleControlVehicle(FacetField&                    OutFacets,
     const std::string RimPath  = Placement.ArchiveDirectory + "/ControlVehicleRim.facet";
     const std::string TyrePath = Placement.ArchiveDirectory + "/ControlVehicleTyre.facet";
 
-    ShapePlacement BodyPlace{};
+    PrimitivePlacement BodyPlace{};
     BodyPlace.TranslationMeters = LocalToWorld(0.0, kTyreOuterRadiusM, 0.0);
     BodyPlace.YawRadians        = Placement.HeadingYawRadians;
     BodyPlace.UniformScale      = 1.0;
@@ -341,7 +341,7 @@ bool AssembleControlVehicle(FacetField&                    OutFacets,
 
     for (const WheelMount& Wheel : Wheels)
     {
-        ShapePlacement WheelPlace{};
+        PrimitivePlacement WheelPlace{};
         WheelPlace.TranslationMeters = LocalToWorld(Wheel.LateralXMeters, kTyreOuterRadiusM, Wheel.AxleZMeters);
         WheelPlace.YawRadians        = Placement.HeadingYawRadians +
                                        (Wheel.FrontSteered ? Placement.FrontSteerRadians : 0.0) +
@@ -373,14 +373,14 @@ bool AssembleControlVehicle(FacetField&                    OutFacets,
     {
         for (double SeatX : {-0.42, 0.42})
         {
-            ShapePlacement SeatBack{};
+            PrimitivePlacement SeatBack{};
             SeatBack.TranslationMeters = LocalToWorld(SeatX, kTyreOuterRadiusM + 0.78, -0.08);
             SeatBack.YawRadians        = Placement.HeadingYawRadians;
             SeatBack.ClassificationId  = 16u;
             SeatBack.UvScale           = 4.0;
             AppendProceduralBox(OutFacets, {0.24, 0.34, 0.09}, SeatBack);
 
-            ShapePlacement Headrest{};
+            PrimitivePlacement Headrest{};
             Headrest.TranslationMeters = LocalToWorld(SeatX, kTyreOuterRadiusM + 1.16, -0.10);
             Headrest.YawRadians        = Placement.HeadingYawRadians;
             Headrest.ClassificationId  = 16u;
@@ -388,7 +388,7 @@ bool AssembleControlVehicle(FacetField&                    OutFacets,
             AppendProceduralBox(OutFacets, {0.13, 0.10, 0.07}, Headrest);
         }
 
-        ShapePlacement DashConsole{};
+        PrimitivePlacement DashConsole{};
         DashConsole.TranslationMeters = LocalToWorld(0.0, kTyreOuterRadiusM + 0.74, 0.72);
         DashConsole.YawRadians        = Placement.HeadingYawRadians;
         DashConsole.ClassificationId  = 16u;
@@ -400,10 +400,10 @@ bool AssembleControlVehicle(FacetField&                    OutFacets,
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                  2. CORE WATERTIGHT PROCEDURAL SHAPE GENERATORS
+//                                  2. CORE WATERTIGHT PROCEDURAL PRIMITIVE GEOMETRY GENERATORS
 //------------------------------------------------------------------------------------------------------------------------
 
-void AppendProceduralBox(FacetField& InOutFacets, FacetPoint3D Half, const ShapePlacement& Placement)
+void AppendProceduralBox(FacetField& InOutFacets, FacetPoint3D Half, const PrimitivePlacement& Placement)
 {
     const double Hx = std::max(1.0e-4, Half.X);
     const double Hy = std::max(1.0e-4, Half.Y);
@@ -428,7 +428,7 @@ void AppendProceduralUvSphere(FacetField&           InOutFacets,
                               double                RadiusMeters,
                               uint32_t              LongitudeSegments,
                               uint32_t              LatitudeRings,
-                              const ShapePlacement& Placement)
+                              const PrimitivePlacement& Placement)
 {
     const double   R     = std::max(1.0e-4, RadiusMeters);
     const uint32_t Segs  = std::max(6u, LongitudeSegments);
@@ -480,7 +480,7 @@ void AppendProceduralUvSphere(FacetField&           InOutFacets,
 void AppendProceduralGeodesicSphere(FacetField&           InOutFacets,
                                     double                RadiusMeters,
                                     uint32_t              Subdivisions,
-                                    const ShapePlacement& Placement)
+                                    const PrimitivePlacement& Placement)
 {
     const double R   = std::max(1.0e-4, RadiusMeters);
     const double Phi = 0.5 * (1.0 + std::sqrt(5.0));
@@ -560,7 +560,7 @@ void AppendProceduralCylinder(FacetField&           InOutFacets,
                               double                RadiusMeters,
                               double                HeightMeters,
                               uint32_t              RadialSegments,
-                              const ShapePlacement& Placement)
+                              const PrimitivePlacement& Placement)
 {
     const double   R    = std::max(1.0e-4, RadiusMeters);
     const double   Half = 0.5 * std::max(1.0e-4, HeightMeters);
@@ -591,7 +591,7 @@ void AppendProceduralCapsule(FacetField&           InOutFacets,
                              double                CylinderSpanMeters,
                              uint32_t              RadialSegments,
                              uint32_t              CapRings,
-                             const ShapePlacement& Placement)
+                             const PrimitivePlacement& Placement)
 {
     const double   R     = std::max(1.0e-4, RadiusMeters);
     const double   HalfH = 0.5 * std::max(0.0, CylinderSpanMeters);
@@ -655,7 +655,7 @@ void AppendProceduralTorus(FacetField&           InOutFacets,
                            double                MinorRadiusMeters,
                            uint32_t              MajorSegments,
                            uint32_t              MinorSegments,
-                           const ShapePlacement& Placement)
+                           const PrimitivePlacement& Placement)
 {
     const double   MajR = std::max(1.0e-3, MajorRadiusMeters);
     const double   MinR = std::max(1.0e-4, MinorRadiusMeters);
@@ -695,7 +695,7 @@ void AppendProceduralCone(FacetField&           InOutFacets,
                           double                BaseRadiusMeters,
                           double                HeightMeters,
                           uint32_t              RadialSegments,
-                          const ShapePlacement& Placement)
+                          const PrimitivePlacement& Placement)
 {
     const double   R    = std::max(1.0e-4, BaseRadiusMeters);
     const double   H    = std::max(1.0e-4, HeightMeters);
@@ -723,7 +723,7 @@ void AppendProceduralArchTunnel(FacetField&           InOutFacets,
                                 double                WallThicknessMeters,
                                 double                LengthMeters,
                                 uint32_t              ArcSegments,
-                                const ShapePlacement& Placement)
+                                const PrimitivePlacement& Placement)
 {
     const double   Ri    = std::max(0.2, InnerRadiusMeters);
     const double   Ro    = Ri + std::max(0.05, WallThicknessMeters);
@@ -763,7 +763,7 @@ void AppendProceduralGroundGrid(FacetField&           InOutFacets,
                                 double                HalfExtentZMeters,
                                 uint32_t              SubdivisionsX,
                                 uint32_t              SubdivisionsZ,
-                                const ShapePlacement& Placement)
+                                const PrimitivePlacement& Placement)
 {
     const double   Hx = std::max(0.5, HalfExtentXMeters);
     const double   Hz = std::max(0.5, HalfExtentZMeters);

@@ -212,6 +212,66 @@ ForceSourceHandle ForceFieldSpace::TriggerMicroburst(const MicroburstParameters&
     return Entry.Handle;
 }
 
+ForceSourceHandle ForceFieldSpace::TriggerGustPuff(const GustPuffParameters& Parameters, TriggerEnvelopeTiming Timing)
+{
+    ActiveForceSource Entry{};
+    Entry.Handle             = NextHandle_++;
+    Entry.Kind               = ForceSourceKind::LocalizedGustPuff;
+    Entry.Timing             = Timing;
+    Entry.GustPuff           = Parameters;
+    Entry.ActivationEnvelope = (Timing.RampInSeconds <= 1.0e-4) ? 1.0 : 0.0;
+    Sources_.push_back(Entry);
+    return Entry.Handle;
+}
+
+ForceSourceHandle ForceFieldSpace::TriggerAerodynamicWake(const AerodynamicWakeParameters& Parameters, TriggerEnvelopeTiming Timing)
+{
+    ActiveForceSource Entry{};
+    Entry.Handle             = NextHandle_++;
+    Entry.Kind               = ForceSourceKind::AerodynamicWake;
+    Entry.Timing             = Timing;
+    Entry.Wake               = Parameters;
+    Entry.ActivationEnvelope = (Timing.RampInSeconds <= 1.0e-4) ? 1.0 : 0.0;
+    Sources_.push_back(Entry);
+    return Entry.Handle;
+}
+
+ForceSourceHandle ForceFieldSpace::TriggerThermalUpdraft(const ThermalUpdraftParameters& Parameters, TriggerEnvelopeTiming Timing)
+{
+    ActiveForceSource Entry{};
+    Entry.Handle             = NextHandle_++;
+    Entry.Kind               = ForceSourceKind::ThermalUpdraftPlume;
+    Entry.Timing             = Timing;
+    Entry.Thermal            = Parameters;
+    Entry.ActivationEnvelope = (Timing.RampInSeconds <= 1.0e-4) ? 1.0 : 0.0;
+    Sources_.push_back(Entry);
+    return Entry.Handle;
+}
+
+ForceSourceHandle ForceFieldSpace::TriggerDirectionalJet(const DirectionalJetParameters& Parameters, TriggerEnvelopeTiming Timing)
+{
+    ActiveForceSource Entry{};
+    Entry.Handle             = NextHandle_++;
+    Entry.Kind               = ForceSourceKind::DirectionalJetCorridor;
+    Entry.Timing             = Timing;
+    Entry.Jet                = Parameters;
+    Entry.ActivationEnvelope = (Timing.RampInSeconds <= 1.0e-4) ? 1.0 : 0.0;
+    Sources_.push_back(Entry);
+    return Entry.Handle;
+}
+
+ForceSourceHandle ForceFieldSpace::TriggerSphericalImpulse(const SphericalImpulseParameters& Parameters, TriggerEnvelopeTiming Timing)
+{
+    ActiveForceSource Entry{};
+    Entry.Handle             = NextHandle_++;
+    Entry.Kind               = ForceSourceKind::SphericalImpulseShell;
+    Entry.Timing             = Timing;
+    Entry.Impulse            = Parameters;
+    Entry.ActivationEnvelope = (Timing.RampInSeconds <= 1.0e-4) ? 1.0 : 0.0;
+    Sources_.push_back(Entry);
+    return Entry.Handle;
+}
+
 bool ForceFieldSpace::ReleaseTrigger(ForceSourceHandle Handle) noexcept
 {
     for (ActiveForceSource& Source : Sources_)
@@ -245,6 +305,22 @@ void ForceFieldSpace::Step(double DeltaSeconds) noexcept
             const double CoreRef = std::max(2.0, Source.Vortex.GroundCoreRadiusMeters);
             const double ωCore   = (Source.Vortex.TangentialPeakSpeedMps * Source.ActivationEnvelope) / CoreRef;
             Source.SwirlPhaseRadians += ωCore * Dt;
+        }
+        else if (Source.Kind == ForceSourceKind::LocalizedGustPuff)
+        {
+            // Localized wind packets automatically drift downstream with the global Ekman wind at their altitude
+            const double AltKm     = std::max(0.0, Source.GustPuff.CenterMeters.Y - GroundPlaneYMeters_) * 1.0e-3;
+            const double Bearing   = Wind_.BearingRadians + Wind_.VeerRadiansPerKilometer * AltKm;
+            const double ShearGain = std::max(0.15, 1.0 + Wind_.ShearPerKilometer * std::min(AltKm, 12.0));
+            const double DriftSpd  = Wind_.SpeedMetersPerSecond * ShearGain * Source.GustPuff.GlobalWindDriftCoupling;
+            Source.GustPuff.CenterMeters.X += std::cos(Bearing) * DriftSpd * Dt;
+            Source.GustPuff.CenterMeters.Z += std::sin(Bearing) * DriftSpd * Dt;
+        }
+        else if (Source.Kind == ForceSourceKind::AerodynamicWake)
+        {
+            Source.Wake.EmitterOriginMeters.X += Source.Wake.EmitterVelocityMps.X * Dt;
+            Source.Wake.EmitterOriginMeters.Y += Source.Wake.EmitterVelocityMps.Y * Dt;
+            Source.Wake.EmitterOriginMeters.Z += Source.Wake.EmitterVelocityMps.Z * Dt;
         }
 
         const bool ExpiredFromRelease =
@@ -483,6 +559,186 @@ ForceFieldSample ForceFieldSpace::EvaluateStepSample(SpatialVector WorldPointMet
                 WeightAlbedoSum += σDust;
             }
         }
+        else if (Source.Kind == ForceSourceKind::LocalizedGustPuff)
+        {
+            const GustPuffParameters& P    = Source.GustPuff;
+            const double              Rxz  = std::max(1.5, P.RadiusXZMeters);
+            const double              Ry   = std::max(1.0, P.RadiusYMeters);
+            const double              Dx   = (WorldPointMeters.X - P.CenterMeters.X) / Rxz;
+            const double              Dy   = (WorldPointMeters.Y - P.CenterMeters.Y) / Ry;
+            const double              Dz   = (WorldPointMeters.Z - P.CenterMeters.Z) / Rxz;
+            const double              Dist2 = Dx * Dx + Dy * Dy + Dz * Dz;
+            if (Dist2 < 9.0)
+            {
+                const double Gauss = Env * std::exp(-0.5 * Dist2);
+                Out.AirVelocityMps.X += P.SurgeVelocityMps.X * Gauss;
+                Out.AirVelocityMps.Y += P.SurgeVelocityMps.Y * Gauss;
+                Out.AirVelocityMps.Z += P.SurgeVelocityMps.Z * Gauss;
+
+                const double σDust = Gauss * P.WispDustExtinctionM;
+                Out.ParticulateExtinctionPerM += σDust;
+                WeightedAlbedo.R += σDust * P.DustAlbedoRgb.R;
+                WeightedAlbedo.G += σDust * P.DustAlbedoRgb.G;
+                WeightedAlbedo.B += σDust * P.DustAlbedoRgb.B;
+                WeightAlbedoSum += σDust;
+            }
+        }
+        else if (Source.Kind == ForceSourceKind::AerodynamicWake)
+        {
+            const AerodynamicWakeParameters& W      = Source.Wake;
+            const double                     SpdXZ  = std::hypot(W.EmitterVelocityMps.X, W.EmitterVelocityMps.Z);
+            const double                     FwdX   = (SpdXZ > 1.0e-5) ? (W.EmitterVelocityMps.X / SpdXZ) : 0.0;
+            const double                     FwdZ   = (SpdXZ > 1.0e-5) ? (W.EmitterVelocityMps.Z / SpdXZ) : 1.0;
+            const double                     RightX = FwdZ;
+            const double                     RightZ = -FwdX;
+            const double                     RelX   = WorldPointMeters.X - W.EmitterOriginMeters.X;
+            const double                     RelY   = WorldPointMeters.Y - GroundPlaneYMeters_;
+            const double                     RelZ   = WorldPointMeters.Z - W.EmitterOriginMeters.Z;
+            // TrailDist > 0 downstream behind the moving vehicle/obstacle
+            const double                     TrailDist   = -(RelX * FwdX + RelZ * FwdZ);
+            const double                     LateralDist = RelX * RightX + RelZ * RightZ;
+            const double                     WakeLen     = std::max(4.0, W.WakeLengthMeters);
+            const double                     HalfW       = std::max(0.4, W.HalfWidthMeters);
+            const double                     WakeH       = std::max(0.8, W.WakeHeightMeters);
+            if (TrailDist >= -0.5 * HalfW && TrailDist <= 2.2 * WakeLen && RelY >= 0.0 && RelY <= 2.4 * WakeH)
+            {
+                const double Spread     = 1.0 + 0.85 * std::max(0.0, TrailDist) / WakeLen;
+                const double EffHalfW   = HalfW * Spread;
+                const double EffWakeH   = WakeH * Spread;
+                const double LongEnv    = Smooth01((TrailDist + 0.5 * HalfW) / HalfW) * std::exp(-std::max(0.0, TrailDist) / WakeLen);
+                const double LatNorm    = LateralDist / EffHalfW;
+                const double LatEnv     = std::exp(-0.5 * LatNorm * LatNorm);
+                const double VertEnv    = 1.0 - Smooth01(RelY / (1.8 * EffWakeH));
+                const double WakeWeight = Env * LongEnv * LatEnv * VertEnv;
+
+                // Forward slipstream tow + counter-rotating wingtip/wheel-arch upwash & inward roll
+                const double Upwash     = (1.0 - 0.8 * LatNorm * LatNorm) * W.TrailingCirculationMps;
+                const double InwardRoll = -LatNorm * 0.65 * W.TrailingCirculationMps;
+                Out.AirVelocityMps.X += WakeWeight * (FwdX * W.SlipstreamSuctionMps + RightX * InwardRoll);
+                Out.AirVelocityMps.Y += WakeWeight * std::max(0.0, Upwash);
+                Out.AirVelocityMps.Z += WakeWeight * (FwdZ * W.SlipstreamSuctionMps + RightZ * InwardRoll);
+
+                const double σWake = WakeWeight * W.RoosterTailExtinctionM;
+                Out.ParticulateExtinctionPerM += σWake;
+                WeightedAlbedo.R += σWake * W.SprayDustAlbedoRgb.R;
+                WeightedAlbedo.G += σWake * W.SprayDustAlbedoRgb.G;
+                WeightedAlbedo.B += σWake * W.SprayDustAlbedoRgb.B;
+                WeightAlbedoSum += σWake;
+            }
+        }
+        else if (Source.Kind == ForceSourceKind::ThermalUpdraftPlume)
+        {
+            const ThermalUpdraftParameters& T    = Source.Thermal;
+            const double                    RelY = WorldPointMeters.Y - T.BaseAnchorMeters.Y;
+            const double                    ColH = std::max(15.0, T.ColumnHeightMeters);
+            if (RelY >= 0.0 && RelY <= ColH * 1.35)
+            {
+                const double HNorm   = std::clamp(RelY / ColH, 0.0, 1.35);
+                const double Dx      = WorldPointMeters.X - T.BaseAnchorMeters.X;
+                const double Dz      = WorldPointMeters.Z - T.BaseAnchorMeters.Z;
+                const double Rad     = std::hypot(Dx, Dz);
+                const double PlumeR  = std::max(2.0, T.CoreRadiusMeters * (1.0 + 0.45 * HNorm));
+                const double ρNorm   = Rad / PlumeR;
+                if (ρNorm < 3.5)
+                {
+                    const double CoreEnv = Env * std::exp(-0.5 * ρNorm * ρNorm) *
+                                           Smooth01(RelY / 10.0 + 0.15) * (1.0 - Smooth01((HNorm - 1.0) / 0.35));
+                    // Lower entrainment inflow (< 0.35 H) transitioning to upper anvil divergence (> 0.75 H)
+                    const double RadialMode = -Smooth01(0.35 - HNorm) + 0.55 * Smooth01((HNorm - 0.72) / 0.28);
+                    const double InvR       = (Rad > 1.0e-4) ? (1.0 / Rad) : 0.0;
+                    const double vRad       = Env * T.EntrainmentInflowMps * RadialMode *
+                                              (2.0 * ρNorm / (1.0 + ρNorm * ρNorm));
+
+                    Out.AirVelocityMps.X += (Dx * InvR) * vRad;
+                    Out.AirVelocityMps.Y += T.PeakUpdraftSpeedMps * CoreEnv;
+                    Out.AirVelocityMps.Z += (Dz * InvR) * vRad;
+
+                    if (HNorm > 0.65)
+                    {
+                        Out.FunnelCondensationDensity = std::max(
+                            Out.FunnelCondensationDensity,
+                            CoreEnv * T.CumulusBoostStrength * Smooth01((HNorm - 0.65) / 0.30));
+                    }
+
+                    const double σPlume = CoreEnv * T.PlumeDustExtinctionM;
+                    Out.ParticulateExtinctionPerM += σPlume;
+                    WeightedAlbedo.R += σPlume * T.PlumeAlbedoRgb.R;
+                    WeightedAlbedo.G += σPlume * T.PlumeAlbedoRgb.G;
+                    WeightedAlbedo.B += σPlume * T.PlumeAlbedoRgb.B;
+                    WeightAlbedoSum += σPlume;
+                }
+            }
+        }
+        else if (Source.Kind == ForceSourceKind::DirectionalJetCorridor)
+        {
+            const DirectionalJetParameters& J      = Source.Jet;
+            const double                    AxLen  = std::sqrt(J.AxisDirectionUnit.X * J.AxisDirectionUnit.X +
+                                                               J.AxisDirectionUnit.Y * J.AxisDirectionUnit.Y +
+                                                               J.AxisDirectionUnit.Z * J.AxisDirectionUnit.Z);
+            const SpatialVector             Axis   = (AxLen > 1.0e-6)
+                                                         ? SpatialVector{J.AxisDirectionUnit.X / AxLen,
+                                                                         J.AxisDirectionUnit.Y / AxLen,
+                                                                         J.AxisDirectionUnit.Z / AxLen}
+                                                         : SpatialVector{1.0, 0.0, 0.0};
+            const SpatialVector             Rel    = {WorldPointMeters.X - J.OriginMeters.X,
+                                                      WorldPointMeters.Y - J.OriginMeters.Y,
+                                                      WorldPointMeters.Z - J.OriginMeters.Z};
+            const double                    AxialS = Rel.X * Axis.X + Rel.Y * Axis.Y + Rel.Z * Axis.Z;
+            const double                    LenM   = std::max(2.0, J.CorridorLengthMeters);
+            const double                    BaseR  = std::max(0.5, J.CorridorRadiusMeters);
+            if (AxialS >= -0.2 * BaseR && AxialS <= 1.25 * LenM)
+            {
+                const SpatialVector Perp  = {Rel.X - Axis.X * AxialS, Rel.Y - Axis.Y * AxialS, Rel.Z - Axis.Z * AxialS};
+                const double        RadSq = Perp.X * Perp.X + Perp.Y * Perp.Y + Perp.Z * Perp.Z;
+                const double        JetR  = BaseR * (1.0 + 0.35 * std::max(0.0, AxialS) / LenM);
+                if (RadSq < 9.0 * JetR * JetR)
+                {
+                    const double AxialEnv  = Smooth01((AxialS + 0.2 * BaseR) / (0.4 * BaseR)) *
+                                             (1.0 - Smooth01((AxialS - 0.85 * LenM) / (0.40 * LenM)));
+                    const double RadialEnv = std::exp(-0.5 * RadSq / (JetR * JetR));
+                    const double JetGain   = Env * AxialEnv * RadialEnv;
+                    Out.AirVelocityMps.X += Axis.X * (J.CoreJetSpeedMps * JetGain);
+                    Out.AirVelocityMps.Y += Axis.Y * (J.CoreJetSpeedMps * JetGain);
+                    Out.AirVelocityMps.Z += Axis.Z * (J.CoreJetSpeedMps * JetGain);
+
+                    const double σJet = JetGain * J.JetParticulateExtM;
+                    Out.ParticulateExtinctionPerM += σJet;
+                    WeightedAlbedo.R += σJet * J.JetAlbedoRgb.R;
+                    WeightedAlbedo.G += σJet * J.JetAlbedoRgb.G;
+                    WeightedAlbedo.B += σJet * J.JetAlbedoRgb.B;
+                    WeightAlbedoSum += σJet;
+                }
+            }
+        }
+        else if (Source.Kind == ForceSourceKind::SphericalImpulseShell)
+        {
+            const SphericalImpulseParameters& S      = Source.Impulse;
+            const double                      R0     = std::max(0.5, S.InitialRadiusMeters);
+            const double                      RFront = R0 + std::max(0.0, S.ExpansionSpeedMps) * Source.AgeSeconds;
+            const double                      Thick  = std::max(0.5, S.ShellThicknessMeters);
+            const double                      Dx     = WorldPointMeters.X - S.EpicenterMeters.X;
+            const double                      Dy     = WorldPointMeters.Y - S.EpicenterMeters.Y;
+            const double                      Dz     = WorldPointMeters.Z - S.EpicenterMeters.Z;
+            const double                      Dist   = std::sqrt(Dx * Dx + Dy * Dy + Dz * Dz);
+            const double                      ShellD = (Dist - RFront) / Thick;
+            if (std::abs(ShellD) < 3.2 && Dist > 1.0e-4)
+            {
+                const double GeomAtten = std::pow(R0 / std::max(R0, RFront), 0.65);
+                const double ShellWave = Env * GeomAtten * std::exp(-0.5 * ShellD * ShellD);
+                const double InvDist   = 1.0 / Dist;
+                const double vOut      = S.PeakRadialSpeedMps * ShellWave;
+                Out.AirVelocityMps.X += (Dx * InvDist) * vOut;
+                Out.AirVelocityMps.Y += (Dy * InvDist) * vOut;
+                Out.AirVelocityMps.Z += (Dz * InvDist) * vOut;
+
+                const double σShock = ShellWave * S.ShockDustExtinctionM;
+                Out.ParticulateExtinctionPerM += σShock;
+                WeightedAlbedo.R += σShock * S.ShockAlbedoRgb.R;
+                WeightedAlbedo.G += σShock * S.ShockAlbedoRgb.G;
+                WeightedAlbedo.B += σShock * S.ShockAlbedoRgb.B;
+                WeightAlbedoSum += σShock;
+            }
+        }
     }
 
     if (WeightAlbedoSum > 1.0e-7)
@@ -684,6 +940,120 @@ uint32_t ForceFieldSpace::AppendGpuForceRecords(std::vector<std::array<float, 4>
                                       48.0f,
                                       Env * static_cast<float>(M.LoftedDustExtinctionM),
                                       0.38f});
+            ++Written;
+        }
+        else if (Source.Kind == ForceSourceKind::LocalizedGustPuff)
+        {
+            const GustPuffParameters& P = Source.GustPuff;
+            OutFloat4Table.push_back({static_cast<float>(P.CenterMeters.X),
+                                      static_cast<float>(P.CenterMeters.Y),
+                                      static_cast<float>(P.CenterMeters.Z),
+                                      4.0f});
+            OutFloat4Table.push_back({static_cast<float>(P.RadiusXZMeters),
+                                      static_cast<float>(P.RadiusYMeters),
+                                      static_cast<float>(P.SurgeVelocityMps.X) * Env,
+                                      static_cast<float>(P.SurgeVelocityMps.Z) * Env});
+            OutFloat4Table.push_back({static_cast<float>(P.SurgeVelocityMps.Y) * Env,
+                                      static_cast<float>(P.DustAlbedoRgb.R),
+                                      static_cast<float>(P.DustAlbedoRgb.G),
+                                      static_cast<float>(P.DustAlbedoRgb.B)});
+            OutFloat4Table.push_back({0.0f,
+                                      static_cast<float>(P.RadiusYMeters),
+                                      Env * static_cast<float>(P.WispDustExtinctionM),
+                                      static_cast<float>(Source.AgeSeconds)});
+            ++Written;
+        }
+        else if (Source.Kind == ForceSourceKind::AerodynamicWake)
+        {
+            const AerodynamicWakeParameters& W     = Source.Wake;
+            const double                     SpdXZ = std::hypot(W.EmitterVelocityMps.X, W.EmitterVelocityMps.Z);
+            const float                      FwdX  = (SpdXZ > 1.0e-5) ? static_cast<float>(W.EmitterVelocityMps.X / SpdXZ) : 0.0f;
+            const float                      FwdZ  = (SpdXZ > 1.0e-5) ? static_cast<float>(W.EmitterVelocityMps.Z / SpdXZ) : 1.0f;
+            OutFloat4Table.push_back({static_cast<float>(W.EmitterOriginMeters.X),
+                                      static_cast<float>(GroundPlaneYMeters_),
+                                      static_cast<float>(W.EmitterOriginMeters.Z),
+                                      5.0f});
+            OutFloat4Table.push_back({FwdX,
+                                      FwdZ,
+                                      static_cast<float>(W.HalfWidthMeters),
+                                      static_cast<float>(W.WakeLengthMeters)});
+            OutFloat4Table.push_back({static_cast<float>(W.WakeHeightMeters),
+                                      static_cast<float>(W.SlipstreamSuctionMps) * Env,
+                                      static_cast<float>(W.SprayDustAlbedoRgb.R),
+                                      static_cast<float>(W.SprayDustAlbedoRgb.G)});
+            OutFloat4Table.push_back({static_cast<float>(W.TrailingCirculationMps) * Env,
+                                      static_cast<float>(W.WakeHeightMeters),
+                                      Env * static_cast<float>(W.RoosterTailExtinctionM),
+                                      static_cast<float>(W.SprayDustAlbedoRgb.B)});
+            ++Written;
+        }
+        else if (Source.Kind == ForceSourceKind::ThermalUpdraftPlume)
+        {
+            const ThermalUpdraftParameters& T = Source.Thermal;
+            OutFloat4Table.push_back({static_cast<float>(T.BaseAnchorMeters.X),
+                                      static_cast<float>(T.BaseAnchorMeters.Y),
+                                      static_cast<float>(T.BaseAnchorMeters.Z),
+                                      6.0f});
+            OutFloat4Table.push_back({static_cast<float>(T.ColumnHeightMeters),
+                                      static_cast<float>(T.CoreRadiusMeters),
+                                      static_cast<float>(T.PeakUpdraftSpeedMps) * Env,
+                                      static_cast<float>(T.EntrainmentInflowMps) * Env});
+            OutFloat4Table.push_back({Env * static_cast<float>(T.CumulusBoostStrength),
+                                      static_cast<float>(T.PlumeAlbedoRgb.R),
+                                      static_cast<float>(T.PlumeAlbedoRgb.G),
+                                      static_cast<float>(T.PlumeAlbedoRgb.B)});
+            OutFloat4Table.push_back({Env * static_cast<float>(T.CumulusBoostStrength),
+                                      static_cast<float>(T.ColumnHeightMeters),
+                                      Env * static_cast<float>(T.PlumeDustExtinctionM),
+                                      static_cast<float>(Source.AgeSeconds)});
+            ++Written;
+        }
+        else if (Source.Kind == ForceSourceKind::DirectionalJetCorridor)
+        {
+            const DirectionalJetParameters& J     = Source.Jet;
+            const double                    AxLen = std::sqrt(J.AxisDirectionUnit.X * J.AxisDirectionUnit.X +
+                                                              J.AxisDirectionUnit.Y * J.AxisDirectionUnit.Y +
+                                                              J.AxisDirectionUnit.Z * J.AxisDirectionUnit.Z);
+            const float                     AxX   = (AxLen > 1.0e-6) ? static_cast<float>(J.AxisDirectionUnit.X / AxLen) : 1.0f;
+            const float                     AxY   = (AxLen > 1.0e-6) ? static_cast<float>(J.AxisDirectionUnit.Y / AxLen) : 0.0f;
+            const float                     AxZ   = (AxLen > 1.0e-6) ? static_cast<float>(J.AxisDirectionUnit.Z / AxLen) : 0.0f;
+            OutFloat4Table.push_back({static_cast<float>(J.OriginMeters.X),
+                                      static_cast<float>(J.OriginMeters.Y),
+                                      static_cast<float>(J.OriginMeters.Z),
+                                      7.0f});
+            OutFloat4Table.push_back({AxX, AxY, AxZ, static_cast<float>(J.CorridorLengthMeters)});
+            OutFloat4Table.push_back({static_cast<float>(J.CorridorRadiusMeters),
+                                      static_cast<float>(J.CoreJetSpeedMps) * Env,
+                                      static_cast<float>(J.JetAlbedoRgb.R),
+                                      static_cast<float>(J.JetAlbedoRgb.G)});
+            OutFloat4Table.push_back({0.0f,
+                                      static_cast<float>(J.CorridorRadiusMeters * 2.0),
+                                      Env * static_cast<float>(J.JetParticulateExtM),
+                                      static_cast<float>(J.JetAlbedoRgb.B)});
+            ++Written;
+        }
+        else if (Source.Kind == ForceSourceKind::SphericalImpulseShell)
+        {
+            const SphericalImpulseParameters& S      = Source.Impulse;
+            const double                      R0     = std::max(0.5, S.InitialRadiusMeters);
+            const double                      RFront = R0 + std::max(0.0, S.ExpansionSpeedMps) * Source.AgeSeconds;
+            const double                      Atten  = std::pow(R0 / std::max(R0, RFront), 0.65);
+            OutFloat4Table.push_back({static_cast<float>(S.EpicenterMeters.X),
+                                      static_cast<float>(S.EpicenterMeters.Y),
+                                      static_cast<float>(S.EpicenterMeters.Z),
+                                      8.0f});
+            OutFloat4Table.push_back({static_cast<float>(RFront),
+                                      static_cast<float>(S.ShellThicknessMeters),
+                                      static_cast<float>(S.PeakRadialSpeedMps * Atten) * Env,
+                                      0.0f});
+            OutFloat4Table.push_back({static_cast<float>(S.ShockAlbedoRgb.R),
+                                      static_cast<float>(S.ShockAlbedoRgb.G),
+                                      static_cast<float>(S.ShockAlbedoRgb.B),
+                                      0.0f});
+            OutFloat4Table.push_back({0.0f,
+                                      static_cast<float>(RFront + S.ShellThicknessMeters),
+                                      Env * static_cast<float>(S.ShockDustExtinctionM * Atten),
+                                      static_cast<float>(Source.AgeSeconds)});
             ++Written;
         }
     }

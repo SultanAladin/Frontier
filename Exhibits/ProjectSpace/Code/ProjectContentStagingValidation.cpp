@@ -2,10 +2,12 @@
                                          PROJECT CONTENT STAGING VALIDATION
 ==========================================================================================================================================*/
 // Verifies compile-time automatic EngineContent/ -> <Project>/Content/ staging and standalone runtime execution
-// in an isolated directory tree where NO EngineContent/ folder exists anywhere on disk.
+// in an isolated directory tree where NO EngineContent/ folder exists anywhere on disk (including fonts, icons,
+// 6-body 2K celestial maps, Hipparcos stars, ControlVehicle .facet geometry, AND pre-baked .sdfspace SDF volumes).
 
 #include "Engine/ContentInterchange/ProjectSpaceCodec.h"
-#include "Engine/GeometricRaster/ProceduralShapes.h"
+#include "Engine/Geometry/GeometryProcessing/VolumeDistanceArchive.h"
+#include "Engine/Geometry/PrimitiveGeometryGenerator.h"
 #include "Engine/Interface/ContentDirectory.h"
 #include "Engine/Interface/ProjectContent.h"
 #include "Engine/PlanetaryAtmosphere/PlanetaryProjection.h"
@@ -57,7 +59,7 @@ int main(int Argc, char** Argv)
                 ("ProjectSpaceCodec::Decode failed: " + Diag).c_str());
     const std::vector<std::string> Imports = ProjectSpaceCodec::QueryEngineContentImports(Doc);
     REQUIRE_STG(Imports.size() >= 6u,
-                "Everest.projectspace must declare fonts, icons, celestial maps, vehicle geometry, and material imports");
+                "Everest.projectspace must declare fonts, icons, celestial maps, vehicle geometry/SDFs, and material imports");
 
     const std::filesystem::path StagedManifest = EverestRoot / "Content/.staged_manifest.json";
     REQUIRE_STG(std::filesystem::is_regular_file(StagedManifest),
@@ -65,9 +67,12 @@ int main(int Argc, char** Argv)
     REQUIRE_STG(std::filesystem::is_regular_file(EverestRoot / "Content/FontArchives/Inter/Inter-Regular.otf") &&
                     std::filesystem::is_regular_file(EverestRoot / "Content/FontArchives/DMSans/DMSans-Regular.ttf") &&
                     std::filesystem::is_regular_file(EverestRoot / "Content/EnvironmentArchives/ControlVehicle/ControlVehicleBody.facet") &&
+                    std::filesystem::is_regular_file(EverestRoot / "Content/EnvironmentArchives/ControlVehicle/ControlVehicleBody.sdfspace") &&
+                    std::filesystem::is_regular_file(EverestRoot / "Content/EnvironmentArchives/ControlVehicle/ControlVehicleRim.sdfspace") &&
+                    std::filesystem::is_regular_file(EverestRoot / "Content/EnvironmentArchives/ControlVehicle/ControlVehicleTyre.sdfspace") &&
                     std::filesystem::is_regular_file(EverestRoot / "Content/EnvironmentArchives/CelestialMaps/MoonAlbedoSource2048.jpg") &&
                     std::filesystem::is_directory(EverestRoot / "Content/Icons"),
-                "Compile-time staging must automatically populate <Project>/Content/ with declared EngineContent fonts, icons, celestial maps, and vehicle geometry");
+                "Compile-time staging must automatically populate <Project>/Content/ with fonts, icons, celestial maps, .facet geometry, AND pre-baked .sdfspace SDFs");
 
     // 2. Construct an Isolated Sandbox Outside Repo Root (ZERO EngineContent/ in Sandbox or Any Parent Directory!)
     std::cout << "[2/4] Copying Staged Project Into Isolated EngineContent-Free Sandbox (" << SandboxBase << ")...\n";
@@ -84,7 +89,6 @@ int main(int Argc, char** Argv)
                           Ec);
     REQUIRE_STG(!Ec, "Failed copying staged Content/ directory into standalone sandbox");
 
-    // Confirm ZERO EngineContent exists anywhere in SandboxBase
     REQUIRE_STG(!std::filesystem::exists(SandboxBase / "EngineContent") &&
                     !std::filesystem::exists(StandaloneProj / "EngineContent"),
                 "Standalone sandbox must contain ZERO EngineContent directories");
@@ -110,8 +114,8 @@ int main(int Argc, char** Argv)
                     ResolvedIconsDir.generic_string().find("EverestStandalone/Content/Icons") != std::string::npos,
                 "ResolveContentDirectory must seamlessly redirect EngineContent/{FontArchives,Icons} to staged <Project>/Content/");
 
-    // 4. Verify Standalone Celestial Maps, Hipparcos Stars, & ControlVehicle .facet Loading Without EngineContent!
-    std::cout << "[4/4] Verifying Standalone 6-Moon Atlas, Hipparcos Stars, & ControlVehicle .facet Loading...\n";
+    // 4. Verify Standalone Celestial Maps, Hipparcos Stars, ControlVehicle .facet, & Pre-Baked .sdfspace SDF Loading!
+    std::cout << "[4/4] Verifying Standalone 6-Moon Atlas, Hipparcos Stars, .facet Geometry, & .sdfspace SDF Loading...\n";
     PlanetaryDomeProjection StandaloneDome{};
     REQUIRE_STG(StandaloneDome.LoadLunarAtlas(StandaloneProj.string(), 256u, 128u),
                 "LoadLunarAtlas must load staged 6-body moon textures from <Project>/Content/ without EngineContent");
@@ -125,6 +129,11 @@ int main(int Argc, char** Argv)
     REQUIRE_STG(AssembleControlVehicle(StandaloneVehicle, StandalonePlace, &Diag) &&
                     StandaloneVehicle.Classification.size() > 14000u,
                 ("Standalone AssembleControlVehicle failed without EngineContent: " + Diag).c_str());
+
+    VolumeDistanceField StandaloneVehicleSdf{};
+    REQUIRE_STG(ComposeControlVehicleDistanceVolume(StandaloneVehicleSdf, StandalonePlace, {48u, 28u, 64u}, true, &Diag) &&
+                    StandaloneVehicleSdf.Distances.size() == 48u * 28u * 64u,
+                ("Standalone ComposeControlVehicleDistanceVolume (.sdfspace) failed without EngineContent: " + Diag).c_str());
 
     std::filesystem::remove_all(SandboxBase, Ec);
     std::cout << "[ProjectContentStagingValidation] ALL COMPILE-TIME STAGING & ENGINECONTENT-FREE RUNTIME CHECKS PASSED.\n";

@@ -14,6 +14,7 @@ function(frontier_stage_project_content TARGET_NAME PROJECTSPACE_FILE ENGINE_CON
     set(_STAMP_FILE "${CMAKE_BINARY_DIR}/ContentStaging/${_PROJ_STEM}.stamp")
 
     if(NOT TARGET "${_STAMP_TARGET}")
+        file(GLOB_RECURSE _ENGINE_CONTENT_INPUTS CONFIGURE_DEPENDS "${ENGINE_CONTENT_ROOT}/*")
         add_custom_command(
             OUTPUT "${_STAMP_FILE}"
             COMMAND "${Python3_EXECUTABLE}" "${_STAGE_SCRIPT}"
@@ -21,7 +22,7 @@ function(frontier_stage_project_content TARGET_NAME PROJECTSPACE_FILE ENGINE_CON
                 --engine-content "${ENGINE_CONTENT_ROOT}"
                 --project-content "${PROJECT_CONTENT_ROOT}"
                 --stamp "${_STAMP_FILE}"
-            DEPENDS "${PROJECTSPACE_FILE}" "${_STAGE_SCRIPT}"
+            DEPENDS "${PROJECTSPACE_FILE}" "${_STAGE_SCRIPT}" ${_ENGINE_CONTENT_INPUTS}
             COMMENT "Staging declared EngineContent imports into ${PROJECT_CONTENT_ROOT}"
             VERBATIM)
         add_custom_target("${_STAMP_TARGET}" ALL DEPENDS "${_STAMP_FILE}")

@@ -56,6 +56,42 @@ void EvaluateForceFieldCloudDomain(StructuredBuffer<float4> Ensemble,
         uint   FOffset = ForceSourceSlotOffset(Ensemble, ForceFirst + Idx);
         float4 F0      = Ensemble[FOffset + 0u];
         uint   Kind    = uint(F0.w + 0.5f);
+        if (Kind == 4u) // LocalizedGustPuff scud/cloud shear
+        {
+            float4 F1  = Ensemble[FOffset + 1u];
+            float4 F2  = Ensemble[FOffset + 2u];
+            float4 F3  = Ensemble[FOffset + 3u];
+            float  Rxz = max(1.5f, F1.x);
+            float  Ry  = max(1.0f, F1.y);
+            float3 D   = float3((PointMeters.x - F0.x) / Rxz, (PointMeters.y - F0.y) / Ry, (PointMeters.z - F0.z) / Rxz);
+            float  D2  = dot(D, D);
+            if (D2 < 9.0f)
+            {
+                float Gauss = exp(-0.5f * D2);
+                InOutAdvectedMeters -= float3(F1.z, F2.x, F1.w) * (Gauss * min(F3.w, 6.0f) * 0.45f);
+            }
+            continue;
+        }
+        if (Kind == 6u) // ThermalUpdraftPlume localized cumulus turret boost
+        {
+            float4 F1   = Ensemble[FOffset + 1u];
+            float4 F3   = Ensemble[FOffset + 3u];
+            float  RelY = PointMeters.y - F0.y;
+            float  ColH = max(F1.x, 15.0f);
+            if (RelY >= 0.0f && RelY <= ColH * 1.45f)
+            {
+                float HNorm  = saturate(RelY / ColH);
+                float PlumeR = max(2.0f, F1.y * (1.0f + 0.45f * HNorm));
+                float ρNorm  = length(PointMeters.xz - F0.xz) / PlumeR;
+                if (ρNorm < 3.5f)
+                {
+                    float CoreEnv = exp(-0.5f * ρNorm * ρNorm) * (1.0f - smoothstep(1.0f, 1.40f, RelY / ColH));
+                    InOutAdvectedMeters.y -= F1.z * CoreEnv * 0.8f;
+                    OutWallCollarBoost = max(OutWallCollarBoost, F3.x * CoreEnv * smoothstep(0.55f, 0.95f, HNorm));
+                }
+            }
+            continue;
+        }
         if (Kind != 1u)
         {
             continue;
@@ -267,6 +303,96 @@ float EvaluateForceFieldParticulateExtinction(StructuredBuffer<float4> Ensemble,
                 float σLocal = F3.z * Ring * exp(-RelY / max(F3.y * 0.45f, 4.0f));
                 Totalσ      += σLocal;
                 WeightedCol += σLocal * float3(F2.z, F2.w, F3.w);
+            }
+        }
+        else if (Kind == 4u) // LocalizedGustPuff drifting dust/mist wisp
+        {
+            float  Rxz = max(1.5f, F1.x);
+            float  Ry  = max(1.0f, F1.y);
+            float3 D   = float3((PointMeters.x - F0.x) / Rxz, (PointMeters.y - F0.y) / Ry, (PointMeters.z - F0.z) / Rxz);
+            float  D2  = dot(D, D);
+            if (D2 < 9.0f)
+            {
+                float Wisp   = 0.55f + 0.65f * FbmRotated3D(PointMeters * 0.08f, 3, 733u);
+                float σLocal = F3.z * exp(-0.5f * D2) * Wisp;
+                Totalσ      += σLocal;
+                WeightedCol += σLocal * F2.yzw;
+            }
+        }
+        else if (Kind == 5u) // AerodynamicWake vehicle/body rooster-tail dust & spray plume
+        {
+            float2 FwdXZ       = F1.xy;
+            float2 RightXZ     = float2(FwdXZ.y, -FwdXZ.x);
+            float2 RelXZ       = PointMeters.xz - F0.xz;
+            float  RelY        = PointMeters.y - F0.y;
+            float  TrailDist   = -dot(RelXZ, FwdXZ);
+            float  LateralDist = dot(RelXZ, RightXZ);
+            float  HalfW       = max(0.4f, F1.z);
+            float  WakeLen     = max(4.0f, F1.w);
+            float  WakeH       = max(0.8f, F2.x);
+            if (TrailDist >= -0.5f * HalfW && TrailDist <= 2.2f * WakeLen && RelY >= 0.0f && RelY <= 2.4f * WakeH)
+            {
+                float Spread   = 1.0f + 0.85f * max(0.0f, TrailDist) / WakeLen;
+                float LatNorm  = LateralDist / (HalfW * Spread);
+                float LongEnv  = smoothstep(-0.5f * HalfW, 0.5f * HalfW, TrailDist) * exp(-max(0.0f, TrailDist) / WakeLen);
+                float LatEnv   = exp(-0.5f * LatNorm * LatNorm);
+                float VertEnv  = 1.0f - smoothstep(0.15f * WakeH * Spread, 1.8f * WakeH * Spread, RelY);
+                float Billow   = 0.50f + 0.70f * FbmRotated3D(PointMeters * 0.22f, 3, 811u);
+                float σLocal   = F3.z * LongEnv * LatEnv * VertEnv * Billow;
+                Totalσ        += σLocal;
+                WeightedCol   += σLocal * float3(F2.z, F2.w, F3.w);
+            }
+        }
+        else if (Kind == 6u) // ThermalUpdraftPlume dust/ash column
+        {
+            float RelY = PointMeters.y - F0.y;
+            float ColH = max(F1.x, 15.0f);
+            if (RelY >= 0.0f && RelY <= ColH * 1.25f)
+            {
+                float HNorm  = saturate(RelY / ColH);
+                float PlumeR = max(2.0f, F1.y * (1.0f + 0.45f * HNorm));
+                float ρNorm  = length(PointMeters.xz - F0.xz) / PlumeR;
+                if (ρNorm < 3.2f)
+                {
+                    float Billow = 0.55f + 0.65f * FbmRotated3D(float3(PointMeters.xz * 0.05f, RelY * 0.04f - TimeSeconds * 0.6f), 3, 919u);
+                    float σLocal = F3.z * exp(-0.5f * ρNorm * ρNorm) * (1.0f - smoothstep(0.85f, 1.25f, RelY / ColH)) * Billow;
+                    Totalσ      += σLocal;
+                    WeightedCol += σLocal * F2.yzw;
+                }
+            }
+        }
+        else if (Kind == 7u) // DirectionalJetCorridor particulate stream
+        {
+            float3 Axis   = F1.xyz;
+            float  LenM   = max(2.0f, F1.w);
+            float  BaseR  = max(0.5f, F2.x);
+            float3 Rel    = PointMeters - F0.xyz;
+            float  AxialS = dot(Rel, Axis);
+            if (AxialS >= -0.2f * BaseR && AxialS <= 1.25f * LenM)
+            {
+                float3 Perp   = Rel - Axis * AxialS;
+                float  JetR   = BaseR * (1.0f + 0.35f * max(0.0f, AxialS) / LenM);
+                float  RadSq  = dot(Perp, Perp);
+                if (RadSq < 9.0f * JetR * JetR)
+                {
+                    float AxialEnv = smoothstep(-0.2f * BaseR, 0.2f * BaseR, AxialS) * (1.0f - smoothstep(0.85f * LenM, 1.25f * LenM, AxialS));
+                    float σLocal   = F3.z * AxialEnv * exp(-0.5f * RadSq / (JetR * JetR));
+                    Totalσ        += σLocal;
+                    WeightedCol   += σLocal * float3(F2.z, F2.w, F3.w);
+                }
+            }
+        }
+        else if (Kind == 8u) // SphericalImpulseShell expanding dust/condensation shock shell
+        {
+            float RFront = F1.x;
+            float Thick  = max(0.5f, F1.y);
+            float Dist   = length(PointMeters - F0.xyz);
+            float ShellD = (Dist - RFront) / Thick;
+            if (abs(ShellD) < 3.0f)
+            {
+                float σLocal = F3.z * exp(-0.5f * ShellD * ShellD);
+                Totalσ      += σLocal;
+                WeightedCol += σLocal * F2.xyz;
             }
         }
     }

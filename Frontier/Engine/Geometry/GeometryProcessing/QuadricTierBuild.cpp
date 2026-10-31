@@ -3,7 +3,7 @@
 ====================================================================================================================================*/
 // 🧩 Implementation of the quadric simplification, cluster grouping and tier sequence declared in QuadricTierBuild.h.
 
-#include "Engine/GeometricRaster/QuadricTierBuild.h"
+#include "Engine/Geometry/GeometryProcessing/QuadricTierBuild.h"
 
 #include <algorithm>
 #include <array>

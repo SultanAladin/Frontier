@@ -167,8 +167,18 @@ or project-specific types belong in `Engine/` or `UI/Editor/`.
   (`μ`, `θ`, `σ*`, `τ`, `Δτ`, `Δs`, `𝑔`, `ρ`, `λ`, `Φ` per `SKILL-formatting.md` §4) across C++20 and `.slang` shaders
   with full geometric PascalCase vector names, and organize engine rendering domains following `SultanAladin/Frontier-`
   (`DeviceExchange/`, `GeometricRaster/`, `PlanetaryAtmosphere/`, `Shaders/`).
-- **Container file extensions (`*space` family):** Use `.projectspace`, `.levelspace`, and `.worldspace` for project,
-  level, and world containers — never compound `.toml` suffixes such as `.level.toml` even when serialized as TOML.
+- **Container file extensions (`*space` family):** Use `.projectspace`, `.levelspace`, `.worldspace`, and `.sdfspace`
+  for project, level, world, and headless-baked Float16 signed distance field containers — never compound `.toml`
+  suffixes such as `.level.toml` even when serialized as TOML.
+- **Geometry, Modular Preview Shadows, & GTX-First Illumination Taxonomy:**
+  - `Frontier/Engine/Geometry/PrimitiveGeometryGenerator.{h,cpp}` and
+    `Frontier/Engine/Geometry/GeometryProcessing/{FacetTierBuild,QuadricTierBuild,ScreenSpaceClusterRefinement,VolumeDistanceArchive,BoundingVolumeAtlas}.{h,cpp}`.
+  - `Frontier/Engine/GeometricRaster/{VisibilityProjection,PreviewRaster,ThemeCardPalette}` where `PreviewRaster`
+    (with selectable `PreviewShadowMode`: `None`, `ContactEllipsoid`, `OrthoClusterDepth`, `SignedDistanceCone`,
+    `HybridOrthoAndDistance`) is strictly guarded under `#if FRONTIER_EDITOR` (zero symbols in Shipping).
+  - `Frontier/Engine/Rendering/{SurfaceScatteringAtlas,SpatiotemporalIllumination}` delivers GTX-first Vulkan 1.3
+    compute ReSTIR + `.sdfspace` SDF GI/AO + software SAH-BVH raytracing (zero hardware RTX dependency), reusing
+    `TextureWorkspace` (`ScatteringSequence.h` + `AutomotivePaint.h`) materials.
 - **Project creation auto-scaffolding (`ProjectGenerator`):** Creating a new project via `ProjectBrowserPanel`
   auto-generates C++ source scaffolding (`Source/<Identifier>Application.{h,cpp}` with main loop and `SceneWorld`
   integration), a buildable `CMakeLists.txt`, and a default scene (`Content/Levels/Default.levelspace`).

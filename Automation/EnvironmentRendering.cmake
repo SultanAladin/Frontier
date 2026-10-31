@@ -1,16 +1,21 @@
 #============================================================================================================================================
 #                                                     ENVIRONMENTRENDERING.CMAKE
 #============================================================================================================================================
-# 🧩 Multi-instance PlanetaryAtmosphere + ForceField + GeometricRaster Cluster-DAG + (#if FRONTIER_EDITOR) DiagnosticRaster + Slang SPIR-V.
+# 🧩 Multi-instance PlanetaryAtmosphere + 8-Trigger ForceField + GeometryProcessing (QEM Cluster Refinement, Headless .sdfspace
+#    VolumeDistanceArchive, Software SAH BoundingVolumeAtlas) + (#if FRONTIER_EDITOR) PreviewRaster + Stage 3B GTX-First
+#    SpatiotemporalIllumination (ReSTIR + SDF GI + Software BVH + TextureWorkspace ScatteringSequence).
 
 add_library(FrontierEnvironmentRendering STATIC
+    Engine/ContentInterchange/VolumeDistanceField.cpp
     Frontier/Engine/DeviceExchange/VulkanComputeExchange.cpp
+    Frontier/Engine/Geometry/PrimitiveGeometryGenerator.cpp
+    Frontier/Engine/Geometry/GeometryProcessing/FacetTierBuild.cpp
+    Frontier/Engine/Geometry/GeometryProcessing/QuadricTierBuild.cpp
+    Frontier/Engine/Geometry/GeometryProcessing/ScreenSpaceClusterRefinement.cpp
+    Frontier/Engine/Geometry/GeometryProcessing/VolumeDistanceArchive.cpp
+    Frontier/Engine/Geometry/GeometryProcessing/BoundingVolumeAtlas.cpp
     Frontier/Engine/GeometricRaster/VisibilityProjection.cpp
-    Frontier/Engine/GeometricRaster/FacetTierBuild.cpp
-    Frontier/Engine/GeometricRaster/QuadricTierBuild.cpp
-    Frontier/Engine/GeometricRaster/ProceduralShapes.cpp
-    Frontier/Engine/GeometricRaster/ClusterHierarchy.cpp
-    Frontier/Engine/GeometricRaster/DiagnosticRaster.cpp
+    Frontier/Engine/GeometricRaster/PreviewRaster.cpp
     Frontier/Engine/PhysicalDynamics/ForceField.cpp
     Frontier/Engine/PlanetaryAtmosphere/AtmosphereScattering.cpp
     Frontier/Engine/PlanetaryAtmosphere/AstronomicalEphemeris.cpp
@@ -25,7 +30,9 @@ add_library(FrontierEnvironmentRendering STATIC
     Frontier/Engine/Rendering/EnvironmentUnits.cpp
     Frontier/Engine/Rendering/SubmissionOrder.cpp
     Frontier/Engine/Rendering/TransientTargetAtlas.cpp
-    Frontier/Engine/Rendering/BarrierDerivation.cpp)
+    Frontier/Engine/Rendering/BarrierDerivation.cpp
+    Frontier/Engine/Rendering/SurfaceScatteringAtlas.cpp
+    Frontier/Engine/Rendering/SpatiotemporalIllumination.cpp)
 
 target_include_directories(FrontierEnvironmentRendering PUBLIC
     "${CMAKE_SOURCE_DIR}"
@@ -37,20 +44,25 @@ target_include_directories(FrontierEnvironmentRendering PRIVATE
 target_compile_definitions(FrontierEnvironmentRendering PUBLIC VK_NO_PROTOTYPES)
 target_link_libraries(FrontierEnvironmentRendering PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
 
-# Shipping-profile compile-time verification target: compiles DiagnosticRaster.cpp + DiagnosticShippingExclusionCheck.cpp
+# Shipping-profile compile-time verification target: compiles PreviewRaster.cpp + DiagnosticShippingExclusionCheck.cpp
 # strictly under FRONTIER_SHIPPING_PROFILE=1 / FRONTIER_EDITOR=0 so Shipping builds never include debug/preview rasterizers.
-add_library(FrontierDiagnosticShippingCheck STATIC
-    Frontier/Engine/GeometricRaster/DiagnosticRaster.cpp
+add_library(FrontierPreviewShippingCheck STATIC
+    Frontier/Engine/GeometricRaster/PreviewRaster.cpp
     Exhibits/ClusterDiagnostic/Code/DiagnosticShippingExclusionCheck.cpp)
-target_include_directories(FrontierDiagnosticShippingCheck PRIVATE
+target_include_directories(FrontierPreviewShippingCheck PRIVATE
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/Frontier"
     "${CMAKE_SOURCE_DIR}/Engine/Interface"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
-target_compile_definitions(FrontierDiagnosticShippingCheck PRIVATE
+target_compile_definitions(FrontierPreviewShippingCheck PRIVATE
     VK_NO_PROTOTYPES
     FRONTIER_SHIPPING_PROFILE=1
     FRONTIER_EDITOR=0)
+
+# Headless CLI baker converting binary FCT1 .facet geometry into compact IEEE-754 Float16 .sdfspace SDF volumes.
+add_executable(FrontierBakeSdfSpace
+    Exhibits/SpatiotemporalIllumination/Code/BakeSdfSpaceTool.cpp)
+target_link_libraries(FrontierBakeSdfSpace PRIVATE FrontierEnvironmentRendering)
 
 find_program(FRONTIER_ENV_SLANGC
     NAMES slangc
@@ -62,7 +74,10 @@ set(FRONTIER_ENV_COMMON_SLANG
     "${FRONTIER_ENV_SHADER_SRC}/PlanetaryRecords.slang"
     "${FRONTIER_ENV_SHADER_SRC}/ForceField.slang"
     "${FRONTIER_ENV_SHADER_SRC}/AtmosphereScattering.slang"
-    "${FRONTIER_ENV_SHADER_SRC}/CloudSynthesis.slang")
+    "${FRONTIER_ENV_SHADER_SRC}/CloudSynthesis.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/VolumeDistanceSampling.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/BoundingVolumeSearch.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/SurfaceScatteringEvaluation.slang")
 
 # Module:EntryPoint:OutputStem:ExtraDefineFlag
 set(FRONTIER_ENV_SHADER_SPECS
@@ -77,8 +92,14 @@ set(FRONTIER_ENV_SHADER_SPECS
     "FogSpace:IntegrateFogSpaceMain:IntegrateFogSpace:"
     "OpticalLensFlare:EvaluateFlareVisibilityMain:EvaluateFlareVisibility:"
     "OpticalLensFlare:CompositeFlareApertureMain:CompositeFlareAperture:"
-    "DiagnosticRaster:BinDiagnosticTilesMain:BinDiagnosticTiles:"
-    "DiagnosticRaster:ResolveDiagnosticViewMain:ResolveDiagnosticView:")
+    "PreviewRaster:ClearPreviewShadowMain:ClearPreviewShadow:"
+    "PreviewRaster:ProjectPreviewShadowMain:ProjectPreviewShadow:"
+    "PreviewRaster:BinPreviewTilesMain:BinPreviewTiles:"
+    "PreviewRaster:ResolvePreviewViewMain:ResolvePreviewView:"
+    "SpatiotemporalIllumination:TracePrimarySurfaceMain:TracePrimarySurface:"
+    "SpatiotemporalIllumination:SampleDirectReservoirsMain:SampleDirectReservoirs:"
+    "SpatiotemporalIllumination:ReuseSpatialReservoirsMain:ReuseSpatialReservoirs:"
+    "SpatiotemporalIllumination:FilterSpatiotemporalAtrousMain:FilterSpatiotemporalAtrous:")
 
 set(FRONTIER_ENV_SPV_OUTPUTS)
 if(FRONTIER_ENV_SLANGC)
@@ -131,6 +152,20 @@ if(BUILD_TESTING)
         "${CMAKE_BINARY_DIR}/environment-realm-exhibits")
     set_tests_properties(EnvironmentRealmValidation PROPERTIES RUN_SERIAL TRUE)
 
+    add_executable(ForceFieldTriggerValidation
+        Exhibits/EnvironmentRealm/Code/ForceFieldTriggerValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(ForceFieldTriggerValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(ForceFieldTriggerValidation PRIVATE FrontierEnvironmentRendering)
+    if(TARGET FrontierEnvironmentShaders)
+        add_dependencies(ForceFieldTriggerValidation FrontierEnvironmentShaders)
+    endif()
+    add_test(NAME ForceFieldTriggerValidation COMMAND ForceFieldTriggerValidation
+        "${CMAKE_SOURCE_DIR}"
+        "${FRONTIER_ENV_SHADER_OUT}"
+        "${CMAKE_BINARY_DIR}/environment-realm-exhibits")
+    set_tests_properties(ForceFieldTriggerValidation PROPERTIES RUN_SERIAL TRUE)
+
     add_executable(ClusterDiagnosticValidation
         Exhibits/ClusterDiagnostic/Code/ClusterDiagnosticValidation.cpp
         Engine/Render/StbImageWriteImplementation.cpp)
@@ -138,7 +173,7 @@ if(BUILD_TESTING)
     target_compile_definitions(ClusterDiagnosticValidation PRIVATE FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
     target_link_libraries(ClusterDiagnosticValidation PRIVATE
         FrontierEnvironmentRendering
-        FrontierDiagnosticShippingCheck
+        FrontierPreviewShippingCheck
         FrontierInterface)
     if(TARGET FrontierEnvironmentShaders)
         add_dependencies(ClusterDiagnosticValidation FrontierEnvironmentShaders)
@@ -148,6 +183,20 @@ if(BUILD_TESTING)
         "${FRONTIER_ENV_SHADER_OUT}"
         "${CMAKE_BINARY_DIR}/cluster-diagnostic-exhibits")
     set_tests_properties(ClusterDiagnosticValidation PROPERTIES RUN_SERIAL TRUE)
+
+    add_executable(SpatiotemporalIlluminationValidation
+        Exhibits/SpatiotemporalIllumination/Code/SpatiotemporalIlluminationValidation.cpp
+        Engine/Render/StbImageWriteImplementation.cpp)
+    target_include_directories(SpatiotemporalIlluminationValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+    target_link_libraries(SpatiotemporalIlluminationValidation PRIVATE FrontierEnvironmentRendering)
+    if(TARGET FrontierEnvironmentShaders)
+        add_dependencies(SpatiotemporalIlluminationValidation FrontierEnvironmentShaders)
+    endif()
+    add_test(NAME SpatiotemporalIlluminationValidation COMMAND SpatiotemporalIlluminationValidation
+        "${CMAKE_SOURCE_DIR}"
+        "${FRONTIER_ENV_SHADER_OUT}"
+        "${CMAKE_BINARY_DIR}/spatiotemporal-illumination-exhibits")
+    set_tests_properties(SpatiotemporalIlluminationValidation PROPERTIES RUN_SERIAL TRUE)
 
     add_executable(ProjectContentStagingValidation
         Exhibits/ProjectSpace/Code/ProjectContentStagingValidation.cpp)

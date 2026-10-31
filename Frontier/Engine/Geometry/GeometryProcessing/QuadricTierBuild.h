@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "Engine/GeometricRaster/FacetTierBuild.h"
+#include "Engine/Geometry/GeometryProcessing/FacetTierBuild.h"
 
 #include <cstdint>
 #include <string>

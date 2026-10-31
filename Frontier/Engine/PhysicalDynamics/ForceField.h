@@ -58,10 +58,15 @@ struct BeaufortWindClassification
 
 enum class ForceSourceKind : uint8_t
 {
-    None               = 0,
-    VortexColumn       = 1, // Tornado, waterspout, or dust devil (Burgers-Rott + cyclostrophic Δp funnel)
-    TravelingGustFront = 2, // Propagating gust / haboob sand & dust wall
-    RadialMicroburst   = 3, // Convective downdraft column + radial surface outflow ring
+    None                   = 0,
+    VortexColumn           = 1, // Tornado, waterspout, or dust devil (Burgers-Rott + cyclostrophic Δp funnel)
+    TravelingGustFront     = 2, // Propagating gust / haboob sand & dust wall
+    RadialMicroburst       = 3, // Convective downdraft column + radial surface outflow ring
+    LocalizedGustPuff      = 4, // Drifting 3D ellipsoidal wind gust packet riding on global Ekman wind
+    AerodynamicWake        = 5, // Counter-rotating trailing vortex pair + slipstream behind moving vehicle/body
+    ThermalUpdraftPlume    = 6, // Buoyant rising warm-air chimney + entrainment inflow + cumulus turret boost
+    DirectionalJetCorridor = 7, // Oriented 3D Venturi canyon corridor / tunnel draft / nozzle jet
+    SphericalImpulseShell  = 8, // Expanding radial pressure/shock wave shell r(t) = r_0 + c_s * t
 };
 
 struct VortexColumnParameters
@@ -105,6 +110,64 @@ struct MicroburstParameters
     double        LoftedDustExtinctionM   = 0.028;
 };
 
+struct GustPuffParameters
+{
+    SpatialVector CenterMeters            = {0.0, 12.0, 40.0};
+    SpatialVector SurgeVelocityMps        = {11.0, 0.8, 4.5}; // Additive local gust surge [m/s]
+    double        RadiusXZMeters          = 28.0;             // Horizontal Gaussian core radius [m]
+    double        RadiusYMeters           = 14.0;             // Vertical Gaussian core radius [m]
+    double        GlobalWindDriftCoupling = 0.92;             // [0..1.5] Fraction of local global wind advecting the puff
+    double        WispDustExtinctionM     = 0.008;            // Optional surface dust/mist wisp extinction [1/m]
+    SpectrumRgb   DustAlbedoRgb           = {0.68, 0.58, 0.44};
+};
+
+struct AerodynamicWakeParameters
+{
+    SpatialVector EmitterOriginMeters     = {0.0, 0.65, 0.0};  // Rear axle / trailing edge world anchor [m]
+    SpatialVector EmitterVelocityMps      = {0.0, 0.0, 22.0};  // Moving body velocity (wake trails behind -hat(V)) [m/s]
+    double        HalfWidthMeters         = 1.15;              // Half-track / wingtip half-span [m]
+    double        WakeLengthMeters        = 36.0;              // Downstream wake decay length [m]
+    double        WakeHeightMeters        = 3.4;               // Vertical rooster-tail plume height [m]
+    double        SlipstreamSuctionMps    = 13.5;              // Forward slipstream tow velocity behind body [m/s]
+    double        TrailingCirculationMps  = 7.5;               // Counter-rotating wingtip/pillar swirl + lift [m/s]
+    double        RoosterTailExtinctionM  = 0.035;             // Lofted road dust / rain spray extinction [1/m]
+    SpectrumRgb   SprayDustAlbedoRgb      = {0.66, 0.56, 0.42};
+};
+
+struct ThermalUpdraftParameters
+{
+    SpatialVector BaseAnchorMeters        = {0.0, 0.0, 120.0};
+    double        ColumnHeightMeters      = 620.0;             // Thermal chimney vertical span [m]
+    double        CoreRadiusMeters        = 48.0;              // Warm core radius [m]
+    double        PeakUpdraftSpeedMps     = 14.5;              // Buoyant vertical velocity [m/s]
+    double        EntrainmentInflowMps    = 4.8;               // Lower-layer inward entrainment speed [m/s]
+    double        CumulusBoostStrength    = 0.45;              // [0..1] Localized cloud condensation boost at top
+    double        PlumeDustExtinctionM    = 0.010;             // Optional thermal dust/ash haze [1/m]
+    SpectrumRgb   PlumeAlbedoRgb          = {0.62, 0.54, 0.44};
+};
+
+struct DirectionalJetParameters
+{
+    SpatialVector OriginMeters            = {0.0, 4.0, 0.0};
+    SpatialVector AxisDirectionUnit       = {1.0, 0.0, 0.0};   // Arbitrary 3D jet / canyon Venturi direction
+    double        CorridorLengthMeters    = 95.0;              // Axial reach along AxisDirectionUnit [m]
+    double        CorridorRadiusMeters    = 12.0;              // Cross-sectional core radius [m]
+    double        CoreJetSpeedMps         = 24.0;              // Peak axial flow speed [m/s]
+    double        JetParticulateExtM      = 0.012;             // Optional channel dust/steam extinction [1/m]
+    SpectrumRgb   JetAlbedoRgb            = {0.70, 0.66, 0.60};
+};
+
+struct SphericalImpulseParameters
+{
+    SpatialVector EpicenterMeters         = {0.0, 2.0, 60.0};
+    double        InitialRadiusMeters     = 3.0;               // Starting shell radius r_0 [m]
+    double        ExpansionSpeedMps       = 110.0;             // Wavefront celerity c_s [m/s]
+    double        ShellThicknessMeters    = 14.0;              // Gaussian shock shell half-thickness [m]
+    double        PeakRadialSpeedMps      = 42.0;              // Peak outward air impulse at r_0 [m/s]
+    double        ShockDustExtinctionM    = 0.032;             // Transient dust/condensation shell extinction [1/m]
+    SpectrumRgb   ShockAlbedoRgb          = {0.66, 0.56, 0.44};
+};
+
 struct TriggerEnvelopeTiming
 {
     double RampInSeconds  = 1.25;
@@ -114,17 +177,22 @@ struct TriggerEnvelopeTiming
 
 struct ActiveForceSource
 {
-    ForceSourceHandle     Handle             = 0u;
-    ForceSourceKind       Kind               = ForceSourceKind::None;
-    double                AgeSeconds         = 0.0;
-    bool                  ReleaseRequested   = false;
-    double                ReleaseStartAgeS   = 0.0;
-    double                ActivationEnvelope = 0.0; // Smooth [0..1] envelope
-    double                SwirlPhaseRadians  = 0.0; // Accumulated angular twist [rad]
-    TriggerEnvelopeTiming Timing{};
-    VortexColumnParameters Vortex{};
-    GustFrontParameters    GustFront{};
-    MicroburstParameters   Microburst{};
+    ForceSourceHandle          Handle             = 0u;
+    ForceSourceKind            Kind               = ForceSourceKind::None;
+    double                     AgeSeconds         = 0.0;
+    bool                       ReleaseRequested   = false;
+    double                     ReleaseStartAgeS   = 0.0;
+    double                     ActivationEnvelope = 0.0; // Smooth [0..1] envelope
+    double                     SwirlPhaseRadians  = 0.0; // Accumulated angular twist [rad]
+    TriggerEnvelopeTiming      Timing{};
+    VortexColumnParameters     Vortex{};
+    GustFrontParameters        GustFront{};
+    MicroburstParameters       Microburst{};
+    GustPuffParameters         GustPuff{};
+    AerodynamicWakeParameters  Wake{};
+    ThermalUpdraftParameters   Thermal{};
+    DirectionalJetParameters   Jet{};
+    SphericalImpulseParameters Impulse{};
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -132,7 +200,7 @@ struct ActiveForceSource
 //------------------------------------------------------------------------------------------------------------------------
 
 inline constexpr uint32_t kForceSourceFloat4Stride = 4u;
-inline constexpr uint32_t kMaxGpuForceSourcesRealm = 8u;
+inline constexpr uint32_t kMaxGpuForceSourcesRealm = 16u;
 
 struct ForceFieldSample
 {
@@ -186,7 +254,7 @@ class ForceFieldSpace
     [[nodiscard]] double ElapsedSeconds() const noexcept { return ElapsedSeconds_; }
     void                 SetElapsedSeconds(double Seconds) noexcept { ElapsedSeconds_ = Seconds; }
 
-    // Explicit event triggers (tornadoes, dust devils, gust fronts / haboobs, convective microbursts)
+    // Explicit event triggers (all 8 coherent 3D force sources superposed onto global Ekman wind)
     ForceSourceHandle TriggerTornado(const VortexColumnParameters& Parameters,
                                      TriggerEnvelopeTiming         Timing = {1.25, 45.0, 2.00});
     ForceSourceHandle TriggerDustDevil(SpatialVector GroundAnchorMeters,
@@ -197,6 +265,16 @@ class ForceFieldSpace
                                        TriggerEnvelopeTiming      Timing = {0.60, 30.0, 1.50});
     ForceSourceHandle TriggerMicroburst(const MicroburstParameters& Parameters,
                                         TriggerEnvelopeTiming       Timing = {0.80, 18.0, 1.80});
+    ForceSourceHandle TriggerGustPuff(const GustPuffParameters& Parameters,
+                                      TriggerEnvelopeTiming     Timing = {0.45, 12.0, 1.20});
+    ForceSourceHandle TriggerAerodynamicWake(const AerodynamicWakeParameters& Parameters,
+                                             TriggerEnvelopeTiming            Timing = {0.20, 20.0, 0.80});
+    ForceSourceHandle TriggerThermalUpdraft(const ThermalUpdraftParameters& Parameters,
+                                            TriggerEnvelopeTiming           Timing = {1.50, 60.0, 2.50});
+    ForceSourceHandle TriggerDirectionalJet(const DirectionalJetParameters& Parameters,
+                                            TriggerEnvelopeTiming           Timing = {0.35, 30.0, 1.00});
+    ForceSourceHandle TriggerSphericalImpulse(const SphericalImpulseParameters& Parameters,
+                                              TriggerEnvelopeTiming             Timing = {0.04, 2.50, 0.80});
 
     bool ReleaseTrigger(ForceSourceHandle Handle) noexcept;
     void ClearSources() noexcept { Sources_.clear(); }

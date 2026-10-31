@@ -1,17 +1,17 @@
 /*==========================================================================================================================================
-                                                   CLUSTER HIERARCHY
+                                                   SCREEN-SPACE CLUSTER REFINEMENT
                                      ------------------------------------------------------------------
-             Nanite-like virtualized Cluster-DAG: locked-border Garland-Heckbert QEM tier hierarchy,
+             Nanite-like virtualized Cluster-DAG: locked-border Garland-Heckbert QEM tier refinement sequence,
              curved-glass IOR optical deviation boost, Karis group-atomic antichain cut, two-phase
              Hi-Z occlusion (glass exempt from depth occlusion writes & backface cone cull), 64 KB
              pinned-root LRU streaming pages, 3-tier virtualized material LODs (Full / Toksvig / Proxy),
                            distance-curve detail controls, and RAM + VRAM byte telemetry.
 ==========================================================================================================================================*/
-// 🧩 Virtualized cluster-DAG hierarchy, material LOD virtualization, 64 KB page residency, and memory telemetry.
+// 🧩 Virtualized screen-space cluster-DAG refinement, material LOD virtualization, 64 KB page residency, and memory telemetry.
 
 #pragma once
 
-#include "Engine/GeometricRaster/QuadricTierBuild.h"
+#include "Engine/Geometry/GeometryProcessing/QuadricTierBuild.h"
 
 #include <array>
 #include <cstdint>
@@ -68,7 +68,7 @@ struct EvaluatedClusterMaterial
 //                  2. CLUSTER RECORD, 64 KB STREAMING PAGES, DISTANCE CONTROLS & TELEMETRY
 //------------------------------------------------------------------------------------------------------------------------
 
-struct ClusterHierarchyRecord
+struct ClusterRefinementRecord
 {
     uint32_t              TierIndex                  = 0u; // 0 = finest leaf .. N-1 = coarsest root
     uint32_t              ClusterIndexInTier         = 0u;
@@ -147,10 +147,10 @@ struct ClusterMemoryTelemetry
 {
     uint64_t                RawUnindexedRamBytes      = 0u;
     uint64_t                WeldedLeafRamBytes        = 0u;
-    uint64_t                HierarchyDagRamBytes      = 0u;
+    uint64_t                RefinementDagRamBytes      = 0u;
     uint64_t                ClusterMetadataRamBytes   = 0u;
     uint64_t                TotalHostRamBytes         = 0u;
-    uint32_t                HierarchyTierCount        = 0u;
+    uint32_t                RefinementTierCount        = 0u;
     uint32_t                TotalClusterCount         = 0u;
     uint32_t                TotalStreamingPages       = 0u;
     uint32_t                PinnedRootPages           = 0u;
@@ -167,15 +167,15 @@ struct ClusterMemoryTelemetry
 };
 
 //------------------------------------------------------------------------------------------------------------------------
-//                                      3. CLUSTER HIERARCHY COORDINATOR
+//                                      3. SCREEN-SPACE CLUSTER REFINEMENT COORDINATOR
 //------------------------------------------------------------------------------------------------------------------------
 
-class ClusterHierarchy
+class ScreenSpaceClusterRefinement
 {
   public:
     static constexpr uint32_t StreamingPageCapacityBytes = 65536u; // Fixed 64 KB virtualized geometry page size
 
-    ClusterHierarchy() = default;
+    ScreenSpaceClusterRefinement() = default;
 
     void RegisterMaterialProfile(const ClusterMaterialProfile& Profile);
     void RegisterControlVehicleMaterials();
@@ -199,7 +199,7 @@ class ClusterHierarchy
         uint32_t                         ConfiguredVramBudgetBytes) const noexcept;
 
     [[nodiscard]] const ClusterTierSequence&                     TierSequence() const noexcept { return Sequence_; }
-    [[nodiscard]] const std::vector<ClusterHierarchyRecord>&     ClusterRecords() const noexcept { return Records_; }
+    [[nodiscard]] const std::vector<ClusterRefinementRecord>&     ClusterRecords() const noexcept { return Records_; }
     [[nodiscard]] const std::vector<ClusterStreamingPage>&       StreamingPages() const noexcept { return Pages_; }
     [[nodiscard]] const std::vector<ClusterMaterialProfile>&     MaterialProfiles() const noexcept { return Materials_; }
     [[nodiscard]] const ClusterMaterialProfile&                  FindMaterial(uint32_t ClassificationId) const noexcept;
@@ -209,7 +209,7 @@ class ClusterHierarchy
     std::vector<ClusterMaterialProfile>  Materials_{};
     ClusterMaterialProfile               DefaultMaterial_{};
     ClusterTierSequence                  Sequence_{};
-    std::vector<ClusterHierarchyRecord>  Records_{};
+    std::vector<ClusterRefinementRecord>  Records_{};
     std::vector<std::vector<uint32_t>>   TierClusterToGlobal_{};
     std::vector<ClusterStreamingPage>    Pages_{};
 };

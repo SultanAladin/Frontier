@@ -4,10 +4,12 @@ End-to-end CPU oracle and Vulkan 1.3 Slang/SPIR-V compute verification for Front
 Planetary Atmosphere, Celestial Ephemeris, Volumetric Clouds, Cloud Shadows, Fog, and Optical Lens Flare stack across:
 
 - `Frontier/Engine/DeviceExchange/` (`VulkanComputeExchange`, `DeviceMemorySpan`, `DeviceImageArraySlot`)
-- `Frontier/Engine/GeometricRaster/` (`VisibilityProjection`, `FacetTierBuild`, `QuadricTierBuild`, `ProceduralShapes`, `ClusterHierarchy`, and `#if FRONTIER_EDITOR` `DiagnosticRaster`)
-- `Frontier/Engine/PhysicalDynamics/` (`ForceField`)
+- `Frontier/Engine/Geometry/` (`PrimitiveGeometryGenerator`) & `Frontier/Engine/Geometry/GeometryProcessing/` (`FacetTierBuild`, `QuadricTierBuild`, `ScreenSpaceClusterRefinement`, `VolumeDistanceArchive`, `BoundingVolumeAtlas`)
+- `Frontier/Engine/GeometricRaster/` (`VisibilityProjection`, `ThemeCardPalette`, and `#if FRONTIER_EDITOR` `PreviewRaster` with 5 modular `PreviewShadowMode`s)
+- `Frontier/Engine/PhysicalDynamics/` (`ForceField` — complete 8-trigger dynamic system layered over global wind)
 - `Frontier/Engine/PlanetaryAtmosphere/` (`AtmosphereScattering`, `AstronomicalEphemeris`, `AtmosphereProjection`, `PlanetaryProjection`, `CloudSpace`, `VolumetricClouds`, `FogSpace`, `OpticalLensFlare`, `PlanetaryEnsemble`, `WeatherEffects`)
-- `Frontier/Engine/Shaders/` (`PlanetaryRecords.slang`, `ForceField.slang`, `AtmosphereScattering.slang`, `AtmosphereProjection.slang`, `CloudSynthesis.slang`, `CloudShadowProjection.slang`, `VolumetricClouds.slang`, `VisibilityProjection.slang`, `PlanetaryProjection.slang`, `FogSpace.slang`, `OpticalLensFlare.slang`, `DisplayPresent.slang`, `SurfaceRaster.slang`, `DiagnosticRaster.slang`)
+- `Frontier/Engine/Rendering/` (`SurfaceScatteringAtlas`, `SpatiotemporalIllumination`)
+- `Frontier/Engine/Shaders/` (`PlanetaryRecords.slang`, `ForceField.slang`, `AtmosphereScattering.slang`, `AtmosphereProjection.slang`, `CloudSynthesis.slang`, `CloudShadowProjection.slang`, `VolumetricClouds.slang`, `VisibilityProjection.slang`, `PlanetaryProjection.slang`, `FogSpace.slang`, `OpticalLensFlare.slang`, `DisplayPresent.slang`, `SurfaceRaster.slang`, `VolumeDistanceSampling.slang`, `BoundingVolumeSearch.slang`, `SurfaceScatteringEvaluation.slang`, `PreviewRaster.slang`, `SpatiotemporalIllumination.slang`)
 
 ## Reproduction
 
@@ -51,3 +53,4 @@ ctest --test-dir build --output-on-failure
 | ![Binary Sun Exoplanet Ensemble](Images/BinarySunExoplanetEnsemble.png) | **Binary-Sun Exoplanet Ensemble (`BinarySunExoplanetEnsemble.png`)**: Non-Earth violet Rayleigh atmosphere (`Realm 2`) illuminated simultaneously by two suns (8-blade warm star + 5-blade blue star) with dual pentagonal/octagonal chromatic lens flares, ringed methane ice giant, and real `2048x1024` `Glacier` & `Sulfur` moons. |
 | ![Lunar Six Body Roster](Images/LunarSixBodyRoster.png) | **Complete 6-Body Real 2K Lunar Roster (`LunarSixBodyRoster.png`)**: All 6 real `2048x1024` equirectangular lunar surface maps (`Luna`, `Ember`, `Glacier`, `Sulfur`, `Shroud`, `Shard`) rendered side by side with oblique Lommel-Seeliger crater relief, limb darkening, atmospheric limb/corona haze (`Shroud`, `Sulfur`, `Ember`, `Glacier`), and earthshine. |
 | ![Tornado Supercell and Dust Vortex](Images/TornadoSupercellAndDustVortex.png) | **Triggered Tornado Supercell & Lofted Dust Vortex (`TornadoSupercellAndDustVortex.png`)**: Unified 3D `ForceField` coupling curved-spine Burgers-Rott tornado inflow/updraft, cyclostrophic `Δp` condensation funnel descending from the rotating supercell wall cloud, ortho ground shadow, and rust-ochre dust/debris collar in `FogSpace`. |
+| ![ForceField Multi-Trigger Showcase](Images/ForceFieldMultiTriggerShowcase.png) | **Complete 8-Trigger `ForceField` Showcase (`ForceFieldMultiTriggerShowcase.png`)**: Simultaneous expanding hollow `SphericalImpulseShell` shock dust ring (`R(t)`), foreground `AerodynamicWake` rooster-tail spray streak, and `ThermalUpdraftPlume` cumulus turret layered additively onto global wind. |

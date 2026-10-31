@@ -1,10 +1,10 @@
 /*==========================================================================================================================================
-                                              CLUSTER HIERARCHY DEFINITION
+                                              SCREEN-SPACE CLUSTER REFINEMENT DEFINITION
 ==========================================================================================================================================*/
 // 🧩 Locked-border Garland-Heckbert QEM Cluster-DAG, curved-glass IOR error boost, Karis group-atomic antichain cut,
 //    two-phase Hi-Z occlusion, 64 KB pinned-root LRU pages, 3-tier Toksvig/proxy material virtualization, & RAM/VRAM stats.
 
-#include "Engine/GeometricRaster/ClusterHierarchy.h"
+#include "Engine/Geometry/GeometryProcessing/ScreenSpaceClusterRefinement.h"
 
 #include <algorithm>
 #include <cmath>
@@ -116,7 +116,7 @@ float EvaluateDistanceQualityFactor(float DistanceMeters, const ClusterDetailPar
     return std::clamp(1.0f - (1.0f - Retention) * std::pow(NormPos, Power), Retention, 1.0f);
 }
 
-void ClusterHierarchy::RegisterMaterialProfile(const ClusterMaterialProfile& Profile)
+void ScreenSpaceClusterRefinement::RegisterMaterialProfile(const ClusterMaterialProfile& Profile)
 {
     for (ClusterMaterialProfile& Existing : Materials_)
     {
@@ -129,7 +129,7 @@ void ClusterHierarchy::RegisterMaterialProfile(const ClusterMaterialProfile& Pro
     Materials_.push_back(Profile);
 }
 
-void ClusterHierarchy::RegisterControlVehicleMaterials()
+void ScreenSpaceClusterRefinement::RegisterControlVehicleMaterials()
 {
     // Ground & architectural proving-ground materials (0..5)
     RegisterMaterialProfile({0u, false, 1.50f, {}, {0.23f, 0.25f, 0.28f}, 0.68f, 0.0f, 0.0f, 0.2f, {}, 0.22f});
@@ -162,7 +162,7 @@ void ClusterHierarchy::RegisterControlVehicleMaterials()
     RegisterMaterialProfile({16u, false, 1.50f, {}, {0.68f, 0.48f, 0.30f}, 0.62f, 0.0f, 0.0f, 0.25f, {}, 0.20f});
 }
 
-const ClusterMaterialProfile& ClusterHierarchy::FindMaterial(uint32_t ClassificationId) const noexcept
+const ClusterMaterialProfile& ScreenSpaceClusterRefinement::FindMaterial(uint32_t ClassificationId) const noexcept
 {
     for (const ClusterMaterialProfile& Mat : Materials_)
     {
@@ -174,7 +174,7 @@ const ClusterMaterialProfile& ClusterHierarchy::FindMaterial(uint32_t Classifica
     return DefaultMaterial_;
 }
 
-bool ClusterHierarchy::BuildFromFacetField(const FacetField&             SourceFacets,
+bool ScreenSpaceClusterRefinement::BuildFromFacetField(const FacetField&             SourceFacets,
                                            const TierBuildSpecification& Specification)
 {
     Records_.clear();
@@ -217,7 +217,7 @@ bool ClusterHierarchy::BuildFromFacetField(const FacetField&             SourceF
             const FacetCluster&           Fc  = Tier.Clusters[ClIdx];
             const ClusterMaterialProfile& Mat = FindMaterial(Fc.Classification);
 
-            ClusterHierarchyRecord Rec{};
+            ClusterRefinementRecord Rec{};
             Rec.TierIndex          = static_cast<uint32_t>(TierIdx);
             Rec.ClusterIndexInTier = static_cast<uint32_t>(ClIdx);
             Rec.GlobalClusterId    = static_cast<uint32_t>(Records_.size());
@@ -342,7 +342,7 @@ bool ClusterHierarchy::BuildFromFacetField(const FacetField&             SourceF
     return true;
 }
 
-void ClusterHierarchy::EnforcePageResidencyBudget(uint32_t                 MaxResidentBytes,
+void ScreenSpaceClusterRefinement::EnforcePageResidencyBudget(uint32_t                 MaxResidentBytes,
                                                   const ClusterCameraView& Camera,
                                                   uint64_t                 FrameTick)
 {
@@ -399,7 +399,7 @@ void ClusterHierarchy::EnforcePageResidencyBudget(uint32_t                 MaxRe
     }
 }
 
-EvaluatedClusterMaterial ClusterHierarchy::EvaluateClusterMaterial(
+EvaluatedClusterMaterial ScreenSpaceClusterRefinement::EvaluateClusterMaterial(
     uint32_t                       GlobalClusterId,
     float                          DistanceMeters,
     float                          ProjectedErrorPx,
@@ -411,7 +411,7 @@ EvaluatedClusterMaterial ClusterHierarchy::EvaluateClusterMaterial(
         return Out;
     }
 
-    const ClusterHierarchyRecord& Rec = Records_[GlobalClusterId];
+    const ClusterRefinementRecord& Rec = Records_[GlobalClusterId];
     const ClusterMaterialProfile& Mat = FindMaterial(Rec.ClassificationId);
     const float Quality = EvaluateDistanceQualityFactor(DistanceMeters, Detail) * std::clamp(Detail.MaterialQualityScale, 0.05f, 1.0f);
 
@@ -460,7 +460,7 @@ EvaluatedClusterMaterial ClusterHierarchy::EvaluateClusterMaterial(
     return Out;
 }
 
-ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const ClusterCameraView& Camera) const
+ClusterRuntimeFrameReport ScreenSpaceClusterRefinement::ExecuteCutAndTwoPhaseHiZ(const ClusterCameraView& Camera) const
 {
     ClusterRuntimeFrameReport Report{};
     Report.SourceLeafTriangles = Sequence_.SourceTriangleCount;
@@ -474,7 +474,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
     const double BaseThresh = std::max(0.05, static_cast<double>(Camera.Detail.BaseErrorThresholdPixels));
 
     std::vector<uint32_t> FrontierStack;
-    for (const ClusterHierarchyRecord& Rec : Records_)
+    for (const ClusterRefinementRecord& Rec : Records_)
     {
         if (Rec.CoarserDeviationMeters > 1.0e11)
         {
@@ -487,7 +487,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
     }
 
     std::vector<std::vector<uint32_t>> FinerToCoarser(Records_.size());
-    for (const ClusterHierarchyRecord& Rec : Records_)
+    for (const ClusterRefinementRecord& Rec : Records_)
     {
         for (uint32_t FinerGid : Rec.EnclosedFinerGlobals)
         {
@@ -510,7 +510,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
             continue;
         }
 
-        const ClusterHierarchyRecord& SeedRec = Records_[SeedGid];
+        const ClusterRefinementRecord& SeedRec = Records_[SeedGid];
         if (SeedRec.EnclosedFinerGlobals.empty())
         {
             Visited.insert(SeedGid);
@@ -518,14 +518,14 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
             continue;
         }
 
-        std::vector<uint32_t>        GroupSiblings = {SeedGid};
+        std::vector<uint32_t>        SameTierGroup = {SeedGid};
         std::unordered_set<uint32_t> GroupFinerSet;
         Visited.insert(SeedGid);
 
-        for (size_t Idx = 0u; Idx < GroupSiblings.size(); ++Idx)
+        for (size_t Idx = 0u; Idx < SameTierGroup.size(); ++Idx)
         {
-            const uint32_t SibGid = GroupSiblings[Idx];
-            for (uint32_t FinerGid : Records_[SibGid].EnclosedFinerGlobals)
+            const uint32_t PeerGid = SameTierGroup[Idx];
+            for (uint32_t FinerGid : Records_[PeerGid].EnclosedFinerGlobals)
             {
                 if (GroupFinerSet.insert(FinerGid).second && FinerGid < FinerToCoarser.size())
                 {
@@ -533,7 +533,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
                     {
                         if (Records_[OtherCoarser].TierIndex == SeedRec.TierIndex && Visited.insert(OtherCoarser).second)
                         {
-                            GroupSiblings.push_back(OtherCoarser);
+                            SameTierGroup.push_back(OtherCoarser);
                         }
                     }
                 }
@@ -543,9 +543,9 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
         double GroupMaxPx       = 0.0;
         double GroupMinDistM    = 1.0e12;
         bool   AllFinerResident = true;
-        for (uint32_t SibGid : GroupSiblings)
+        for (uint32_t PeerGid : SameTierGroup)
         {
-            const ClusterHierarchyRecord& Rec = Records_[SibGid];
+            const ClusterRefinementRecord& Rec = Records_[PeerGid];
             GroupMinDistM = std::min(GroupMinDistM, ClusterSurfaceDistance(Rec.SphereCentre, Rec.SphereRadiusMeters, Camera.CameraOrigin));
             GroupMaxPx    = std::max(
                 GroupMaxPx,
@@ -573,19 +573,19 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
 
         if (GroupMaxPx <= EffectiveThresh)
         {
-            for (uint32_t SibGid : GroupSiblings)
+            for (uint32_t PeerGid : SameTierGroup)
             {
-                CutGlobals.push_back(SibGid);
+                CutGlobals.push_back(PeerGid);
             }
             continue;
         }
 
         if (!AllFinerResident)
         {
-            Report.FallbackToResidentCoarser += static_cast<uint32_t>(GroupSiblings.size());
-            for (uint32_t SibGid : GroupSiblings)
+            Report.FallbackToResidentCoarser += static_cast<uint32_t>(SameTierGroup.size());
+            for (uint32_t PeerGid : SameTierGroup)
             {
-                CutGlobals.push_back(SibGid);
+                CutGlobals.push_back(PeerGid);
             }
             continue;
         }
@@ -615,7 +615,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
 
     for (uint32_t Gid : CutGlobals)
     {
-        const ClusterHierarchyRecord& Rec    = Records_[Gid];
+        const ClusterRefinementRecord& Rec    = Records_[Gid];
         const ClusterFloat3           Centre = ToFloat3(Rec.SphereCentre);
         const float                   Radius = static_cast<float>(Rec.SphereRadiusMeters);
         const ClusterFloat3           ToCam  = Sub3(Centre, Camera.CameraOrigin);
@@ -731,7 +731,7 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
     }
 
     auto RasterClusterIntoCoarseHiZ = [&](uint32_t Gid) {
-        const ClusterHierarchyRecord& Rec  = Records_[Gid];
+        const ClusterRefinementRecord& Rec  = Records_[Gid];
         const ClusterTier&            Tier = Sequence_.Tiers[Rec.TierIndex];
         const FacetCluster&           Fc   = Tier.Clusters[Rec.ClusterIndexInTier];
         for (uint32_t Tri : Fc.Triangles)
@@ -852,13 +852,13 @@ ClusterRuntimeFrameReport ClusterHierarchy::ExecuteCutAndTwoPhaseHiZ(const Clust
     return Report;
 }
 
-ClusterMemoryTelemetry ClusterHierarchy::QueryMemoryTelemetry(
+ClusterMemoryTelemetry ScreenSpaceClusterRefinement::QueryMemoryTelemetry(
     const ClusterRuntimeFrameReport& LastFrameReport,
     uint32_t                         ConfiguredVramBudgetBytes) const noexcept
 {
     ClusterMemoryTelemetry Out{};
     Out.RawUnindexedRamBytes      = RawUnindexedRamBytes_;
-    Out.HierarchyTierCount        = static_cast<uint32_t>(Sequence_.Tiers.size());
+    Out.RefinementTierCount        = static_cast<uint32_t>(Sequence_.Tiers.size());
     Out.TotalClusterCount         = static_cast<uint32_t>(Records_.size());
     Out.TotalStreamingPages       = static_cast<uint32_t>(Pages_.size());
     Out.ConfiguredVramBudgetBytes = ConfiguredVramBudgetBytes;
@@ -882,15 +882,15 @@ ClusterMemoryTelemetry ClusterHierarchy::QueryMemoryTelemetry(
         {
             Out.WeldedLeafRamBytes = TierBytes;
         }
-        Out.HierarchyDagRamBytes += TierBytes;
+        Out.RefinementDagRamBytes += TierBytes;
     }
 
-    Out.ClusterMetadataRamBytes = Records_.size() * sizeof(ClusterHierarchyRecord);
-    for (const ClusterHierarchyRecord& Rec : Records_)
+    Out.ClusterMetadataRamBytes = Records_.size() * sizeof(ClusterRefinementRecord);
+    for (const ClusterRefinementRecord& Rec : Records_)
     {
         Out.ClusterMetadataRamBytes += Rec.EnclosedFinerGlobals.size() * sizeof(uint32_t);
     }
-    Out.TotalHostRamBytes = Out.HierarchyDagRamBytes + Out.ClusterMetadataRamBytes;
+    Out.TotalHostRamBytes = Out.RefinementDagRamBytes + Out.ClusterMetadataRamBytes;
 
     for (const ClusterStreamingPage& Page : Pages_)
     {

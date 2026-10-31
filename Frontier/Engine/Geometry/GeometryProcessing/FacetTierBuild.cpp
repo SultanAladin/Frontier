@@ -3,7 +3,7 @@
 ====================================================================================================================================*/
 // 🧩 Implementation of the facet weld, edge-incidence classification, cluster partition and validation declared in FacetTierBuild.h.
 
-#include "Engine/GeometricRaster/FacetTierBuild.h"
+#include "Engine/Geometry/GeometryProcessing/FacetTierBuild.h"
 
 #include <algorithm>
 #include <bit>
