@@ -1,0 +1,25 @@
+{
+  "checks": "passed",
+  "renderer": "Chromium WebGL2 / SwiftShader",
+  "nearTriangles": 14160,
+  "farTriangles": 1680,
+  "fullTriangles": 14160,
+  "higherRetentionTriangles": 6888,
+  "materialPixelDifference": 6109,
+  "topologyPixelDifference": 53707,
+  "distanceLag": {
+    "Target": 140,
+    "Current": 5.014045180714733
+  },
+  "orbitLag": {
+    "Target": 0.14999999999999997,
+    "Current": -0.45
+  },
+  "compact": {
+    "width": 758,
+    "height": 548,
+    "dockX": 428,
+    "dockWidth": 330
+  },
+  "browserErrors": []
+}

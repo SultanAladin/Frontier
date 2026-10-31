@@ -1,0 +1,42 @@
+{
+  "renderer": "Chromium WebGL2 / SwiftShader",
+  "width": 1070,
+  "height": 900,
+  "checks": "passed",
+  "cameraLag": {
+    "Target": 0.6,
+    "Current": 0
+  },
+  "physicalProbe": {
+    "Transmission": [
+      0.9450980392156862,
+      0.8745098039215686,
+      0.7725490196078432
+    ],
+    "Shadowed": true
+  },
+  "analyticTransmission": [
+    0.9413434276249808,
+    0.8691935310359729,
+    0.7651805682498524
+  ],
+  "pixelDifferences": {
+    "SunElevation": 260738,
+    "Rayleigh": 74882,
+    "Mie": 887,
+    "Ozone": 25320,
+    "Exposure": 242608,
+    "Disabled": 198054,
+    "CloudLayer": 53969,
+    "CloudCoverage": 53969,
+    "Limb": 3333,
+    "Orbit": 317303,
+    "Mars": 300201,
+    "MarsOzone": 15360,
+    "Venus": 326410,
+    "Surface": 1667747,
+    "SurfaceMie": 270868,
+    "Twilight": 1884144
+  },
+  "browserErrors": []
+}

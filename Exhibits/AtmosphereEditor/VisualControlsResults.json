@@ -1,0 +1,69 @@
+{
+  "checks": "passed",
+  "browser": "Chromium / WebGL2 / SwiftShader",
+  "tested": [
+    "SunElevation",
+    "Rayleigh",
+    "Mie",
+    "Ozone",
+    "Exposure",
+    "CloudCoverage",
+    "GeometryDistance",
+    "GeometryNear",
+    "GeometryFar",
+    "GeometryRetention",
+    "GeometryCurvePower",
+    "GeometryMaterial"
+  ],
+  "distinctVisuals": [
+    {
+      "kind": "solar-arc",
+      "color": "#ffca77"
+    },
+    {
+      "kind": "molecular-bars",
+      "color": "#83c8fb"
+    },
+    {
+      "kind": "aerosol-particles",
+      "color": "#b6dcb3"
+    },
+    {
+      "kind": "ozone-band",
+      "color": "#cfb2ff"
+    },
+    {
+      "kind": "exposure-aperture",
+      "color": "#ffbd82"
+    },
+    {
+      "kind": "cloud-cells",
+      "color": "#9fdddc"
+    },
+    {
+      "kind": "distance-curve",
+      "color": "#c7ec82"
+    },
+    {
+      "kind": "near-boundary",
+      "color": "#8bdfc1"
+    },
+    {
+      "kind": "far-boundary",
+      "color": "#b6adff"
+    },
+    {
+      "kind": "triangle-retention",
+      "color": "#f4bd84"
+    },
+    {
+      "kind": "falloff-family",
+      "color": "#8dc9f5"
+    },
+    {
+      "kind": "material-pattern",
+      "color": "#f2a6bc"
+    }
+  ],
+  "browserErrors": []
+}

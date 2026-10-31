@@ -571,3 +571,25 @@ if(BUILD_TESTING)
     add_test(NAME EverestShippingValidation COMMAND EverestShippingValidation
         "${CMAKE_SOURCE_DIR}/Projects/Everest")
 endif()
+
+# Isolated prototype; no production inspector or renderer is changed by this option.
+option(FRONTIER_EXPERIMENTAL_ENVIRONMENT "Build experimental environment inspectors" OFF)
+if(FRONTIER_EXPERIMENTAL_ENVIRONMENT)
+    add_library(ExperimentalEnvironmentInspectors STATIC
+        Experimental/EnvironmentInspectors/EnvironmentControls.cpp
+        Experimental/EnvironmentInspectors/CloudDiagnostic.cpp
+        Experimental/EnvironmentInspectors/CloudInspector.cpp
+        Experimental/EnvironmentInspectors/AtmosphereInspector.cpp
+        Experimental/EnvironmentInspectors/FlareInspector.cpp
+        Experimental/EnvironmentInspectors/LensFlare.cpp
+        Experimental/EnvironmentInspectors/SolarInspector.cpp)
+    target_link_libraries(ExperimentalEnvironmentInspectors PUBLIC FrontierSceneEditorUI)
+    if(BUILD_TESTING)
+        add_executable(ExperimentalEnvironmentValidation
+            Exhibits/SunInspector/NativeValidation.cpp Engine/Render/StbImageWriteImplementation.cpp)
+        target_include_directories(ExperimentalEnvironmentValidation PRIVATE "${CMAKE_SOURCE_DIR}/ExternalPackages/stb")
+        target_link_libraries(ExperimentalEnvironmentValidation PRIVATE ExperimentalEnvironmentInspectors)
+        add_test(NAME ExperimentalEnvironmentValidation COMMAND ExperimentalEnvironmentValidation
+            "${CMAKE_SOURCE_DIR}/EngineContent" "${CMAKE_BINARY_DIR}/experimental-environment-evidence")
+    endif()
+endif()

@@ -580,3 +580,34 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - Verified 58/58 root CTests (including `ProjectBrowserValidation`, `EverestShippingValidation` with `FRONTIER_EDITOR=0`,
   and `EverestInterfaceValidation` with 6 visually inspected 1920x1080 PNG exhibits) plus standalone
   `SceneDirectoryValidation`.
+
+## Experimental environment inspectors (2026-10-31)
+
+- Reference-led Sun, Clouds, Atmosphere and Lens Flare authoring prototypes live in
+  `Experimental/EnvironmentInspectors/`; production inspectors and renderer are unchanged.
+  The cloud density atlas, solar position, atmospheric transmission and optical flare are
+  derived from the reference algorithms. Host callbacks allow real GPU previews, baking and
+  HDR export without faking an integrated renderer. The latest pass adds scrolled reference/native
+  captures, a solar spectrum readout, atmospheric phase shape and horizon drawer, the cloud
+  layer-stack editor, and focused diagram/slider keyboard tests. Browser tab semantics and native
+  widget styling are not yet 1:1.
+- Visual parity, complete reference behavior, scene persistence and renderer integration remain
+  unfinished. See the [evidence](../Exhibits/SunInspector/README.md) for side-by-side reference
+  and native captures and 5 selected Linux host checks. Windows and GPU presentation are untested.
+
+## Experimental environment editor workspace (2026-10-31)
+
+- A new standalone HTML design in `Experimental/AtmosphereEditor/` follows the supplied dark telemetry aesthetic.
+  Two switchable right-docked cards share a split workspace, restyled as a charcoal dashboard using the three supplied
+  General UI references. Twelve accessible range inputs have individual coloured interactive
+  infographic treatments; the distance plot reflects the simulated retention curve, while several other graphics
+  are schematic value indicators, not physical measurements. The Atmosphere card has a WebGL 2 Rayleigh/Mie
+  single-scattering preview, orbital and surface views, an infographic, Earth/Mars/Venus approximation presets,
+  camera lag, a static baked cloud atlas and an optional enhanced rim. These are not measured planet/weather models.
+- The Geometry detail card visualizes manual distance-based triangle reduction on a procedural WebGL mesh, with an
+  actual drawn-triangle count, quality curve, shaded/topology views, eased camera and separate material detail.
+  This is illustrative only, not production engine LOD, mesh import, streaming or persistence.
+- Chromium/SwiftShader interaction, pixel reads, lag/convergence, compact split layout and Earth vertical-transmission
+  sanity checks passed. All 12 infographic controls passed pointer, keyboard, marker and reset checks. See
+  [Atmosphere evidence](../Exhibits/AtmosphereEditor/README.md) and [Geometry evidence](../Exhibits/GeometryDetail/README.md). Hardware GPU, other browsers and production
+  renderer integration remain untested.
