@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frontier · Editor Workspace</title>
+    <link rel="stylesheet" href="styles/WorkspaceTheme.css" />
+</head>
+<body>
+
+<!------------------------------------------------------------------------------------------------------------------------
+                                                ICON SYMBOL DEFINITIONS
+----------------------------------------------------------------------------------------------------------------------->
+<svg aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+    <defs>
+        <symbol id="IconMark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="4.2" r="1.75" fill="currentColor" stroke="none"/>
+            <circle cx="18.2" cy="8.6" r="2.05" fill="currentColor" stroke="none"/>
+            <circle cx="18.6" cy="15.7" r="1.55" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="19.6" r="2.15" fill="currentColor" stroke="none"/>
+            <circle cx="5.6" cy="15.4" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="5.6" cy="8.2" r="1.9" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="12" r="1.25" fill="currentColor" stroke="none"/>
+        </symbol>
+        <symbol id="IconUndo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 9.5h9.2a4.8 4.8 0 0 1 0 9.6H8.4"/>
+            <path d="M4.5 9.5 8.8 5.2M4.5 9.5l4.3 4.3"/>
+        </symbol>
+        <symbol id="IconRedo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19.5 9.5h-9.2a4.8 4.8 0 0 0 0 9.6h5.3"/>
+            <path d="M19.5 9.5 15.2 5.2M19.5 9.5l-4.3 4.3"/>
+        </symbol>
+        <symbol id="IconSearch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10.8" cy="10.8" r="6.4"/>
+            <path d="M15.6 15.6 20.5 20.5"/>
+        </symbol>
+        <symbol id="IconChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6.5 9.5 12 15l5.5-5.5"/>
+        </symbol>
+        <symbol id="IconMore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="12" r="1.35" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="12" r="1.35" fill="currentColor" stroke="none"/>
+            <circle cx="18" cy="12" r="1.35" fill="currentColor" stroke="none"/>
+        </symbol>
+        <symbol id="IconCollapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.5 5.5 9 12l6.5 6.5"/>
+            <path d="M19.5 5.5v13"/>
+        </symbol>
+        <symbol id="IconExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 5.5 15 12l-6.5 6.5"/>
+            <path d="M4.5 5.5v13"/>
+        </symbol>
+        <symbol id="IconCube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.2 19.6 7.6v8.8L12 20.8 4.4 16.4V7.6z"/>
+            <path d="M4.4 7.6 12 12l7.6-4.4M12 12v8.8"/>
+        </symbol>
+        <symbol id="IconSphere" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="8.4"/>
+            <ellipse cx="12" cy="12" rx="3.6" ry="8.4"/>
+            <path d="M3.9 9.2h16.2M3.9 14.8h16.2"/>
+        </symbol>
+        <symbol id="IconRing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="12" rx="8.5" ry="3.9" transform="rotate(-24 12 12)"/>
+            <ellipse cx="12" cy="12" rx="3.9" ry="8.5" transform="rotate(-24 12 12)" opacity="0.45"/>
+        </symbol>
+        <symbol id="IconCylinder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="6.2" rx="6.4" ry="2.6"/>
+            <path d="M5.6 6.2v11.6c0 1.4 2.9 2.6 6.4 2.6s6.4-1.2 6.4-2.6V6.2"/>
+        </symbol>
+        <symbol id="IconLight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.2a6.1 6.1 0 0 0-3.6 11v2.4h7.2V14.2A6.1 6.1 0 0 0 12 3.2z"/>
+            <path d="M9.6 19.4h4.8M10.6 21.6h2.8"/>
+        </symbol>
+        <symbol id="IconCamera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2.8" y="7.2" width="18.4" height="12.2" rx="3"/>
+            <path d="M8.2 7.2 9.7 4.4h4.6l1.5 2.8"/>
+            <circle cx="12" cy="13.2" r="3.4"/>
+        </symbol>
+        <symbol id="IconGrid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2.6"/>
+            <path d="M3.4 9.3h17.2M3.4 14.7h17.2M9.3 3.4v17.2M14.7 3.4v17.2"/>
+        </symbol>
+        <symbol id="IconEye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2.6 12S6.4 6.2 12 6.2 21.4 12 21.4 12 17.6 17.8 12 17.8 2.6 12 2.6 12z"/>
+            <circle cx="12" cy="12" r="2.7"/>
+        </symbol>
+        <symbol id="IconEyeOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.2 8.4C3.2 9.6 2.6 12 2.6 12s3.8 5.8 9.4 5.8c1.7 0 3.2-.5 4.5-1.3"/>
+            <path d="M9.4 6.7A8.6 8.6 0 0 1 12 6.2c5.6 0 9.4 5.8 9.4 5.8a17 17 0 0 1-2.6 3.2"/>
+            <path d="M4 4 20 20"/>
+        </symbol>
+        <symbol id="IconPlus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5.4v13.2M5.4 12h13.2"/>
+        </symbol>
+        <symbol id="IconCursor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6.2 3.4 19.4 11.6l-5.6 1.7-2.6 6z"/>
+        </symbol>
+        <symbol id="IconMove" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.2v17.6M3.2 12h17.6"/>
+            <path d="M12 3.2 9.4 5.9M12 3.2l2.6 2.7M12 20.8l-2.6-2.7M12 20.8l2.6-2.7"/>
+            <path d="M3.2 12l2.7-2.6M3.2 12l2.7 2.6M20.8 12l-2.7-2.6M20.8 12l-2.7 2.6"/>
+        </symbol>
+        <symbol id="IconRotate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.2 12a8.2 8.2 0 1 1-2.6-6"/>
+            <path d="M20.4 4.2v4.6h-4.6"/>
+        </symbol>
+        <symbol id="IconScale" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.6 20.4V8.2M3.6 20.4h12.2"/>
+            <rect x="13.2" y="3.2" width="7.6" height="7.6" rx="1.6"/>
+            <path d="M3.6 20.4 10.8 13.2"/>
+        </symbol>
+        <symbol id="IconFrame" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.6 8.4V3.6h4.8M20.4 8.4V3.6h-4.8M3.6 15.6v4.8h4.8M20.4 15.6v4.8h-4.8"/>
+        </symbol>
+        <symbol id="IconPlay" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.4 5.4 18.6 12 8.4 18.6z" fill="currentColor" stroke="none"/>
+        </symbol>
+        <symbol id="IconPause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 5.4v13.2M15 5.4v13.2"/>
+        </symbol>
+        <symbol id="IconSkipBack" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18.6 6.2v11.6L9.6 12z" fill="currentColor" stroke="none"/>
+            <path d="M6.2 5.6v12.8"/>
+        </symbol>
+        <symbol id="IconSkipForward" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.4 6.2v11.6L14.4 12z" fill="currentColor" stroke="none"/>
+            <path d="M17.8 5.6v12.8"/>
+        </symbol>
+        <symbol id="IconArrowUpRight" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 17 17 7M9.4 7H17v7.6"/>
+        </symbol>
+        <symbol id="IconDuplicate" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="11.4" height="11.4" rx="2.4"/>
+            <path d="M5 15V6.4A2.4 2.4 0 0 1 7.4 4H16"/>
+        </symbol>
+        <symbol id="IconReset" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.4 12a8.6 8.6 0 1 0 2.7-6.3"/>
+            <path d="M3.2 3.8v5h5"/>
+        </symbol>
+        <symbol id="IconScan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 8V5.4A1.4 1.4 0 0 1 5.4 4H8M16 4h2.6A1.4 1.4 0 0 1 20 5.4V8M20 16v2.6a1.4 1.4 0 0 1-1.4 1.4H16M8 20H5.4A1.4 1.4 0 0 1 4 18.6V16"/>
+            <path d="M4 12h16"/>
+        </symbol>
+        <symbol id="IconBreadcrumb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 6l6 6-6 6"/>
+        </symbol>
+    </defs>
+</svg>
+
+<div class="workspace-host" id="WorkspaceHost">
+
+    <!--------------------------------------------------------------------------------------------------------------------
+                                                    COMMAND BAR
+    ------------------------------------------------------------------------------------------------------------------->
+    <header class="command-bar">
+        <div class="identity">
+            <span class="identity-mark"><svg width="20" height="20"><use href="#IconMark"/></svg></span>
+            <span class="identity-text">
+                <span class="identity-name">Frontier</span>
+                <span class="identity-context">Editor workspace · Sculpture study</span>
+            </span>
+        </div>
+
+        <nav class="workspace-switch" aria-label="Workspace modes">
+            <button class="switch-pill is-active" data-workspace-mode="layout">Layout</button>
+            <button class="switch-pill" data-workspace-mode="model">Model</button>
+            <button class="switch-pill" data-workspace-mode="surface">Surface</button>
+            <button class="switch-pill" data-workspace-mode="rig">Rig</button>
+            <button class="switch-pill" data-workspace-mode="render">Render</button>
+        </nav>
+
+        <div class="command-actions">
+            <button class="icon-button" title="Undo (Ctrl+Z)"><svg width="16" height="16"><use href="#IconUndo"/></svg></button>
+            <button class="icon-button" title="Redo (Ctrl+Shift+Z)"><svg width="16" height="16"><use href="#IconRedo"/></svg></button>
+            <span class="action-divider"></span>
+            <span class="ghost-pill"><span class="status-dot"></span>All changes retained</span>
+            <button class="avatar-button" title="Workspace owner">SM</button>
+        </div>
+    </header>
+
+    <!--------------------------------------------------------------------------------------------------------------------
+                                                    DOCK ROW
+    ------------------------------------------------------------------------------------------------------------------->
+    <main class="dock-row" id="DockRow">
+
+        <!-- ============================== OUTLINER ============================== -->
+        <aside class="panel outliner-panel" id="OutlinerPanel">
+            <div class="panel-head">
+                <div class="panel-tab-group">
+                    <button class="panel-tab is-active" data-outliner-tab="scene">Outliner</button>
+                    <button class="panel-tab" data-outliner-tab="library">Library</button>
+                </div>
+                <div class="panel-head-actions">
+                    <button class="icon-button small" title="Outliner options"><svg width="14" height="14"><use href="#IconMore"/></svg></button>
+                    <button class="icon-button small" data-panel-action="collapse" data-target="OutlinerPanel" title="Collapse outliner">
+                        <svg width="14" height="14"><use href="#IconCollapse"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-body">
+                <div class="hero-block">
+                    <h1 class="hero-title">Scene<br/>directory</h1>
+                    <p class="hero-meta"><span class="status-dot"></span><b id="HeroRecordCount">5 records</b> · rev 12 · 14:32</p>
+                </div>
+
+                <label class="search-field">
+                    <svg width="14" height="14"><use href="#IconSearch"/></svg>
+                    <input id="OutlinerSearch" type="text" placeholder="Search records" autocomplete="off" spellcheck="false" />
+                    <kbd>⌘K</kbd>
+                </label>
+
+                <div class="filter-row" id="FilterRow">
+                    <button class="filter-pill is-active" data-filter="all">All <span id="FilterCountAll">5</span></button>
+                    <button class="filter-pill" data-filter="geometry">Geometry <span id="FilterCountGeometry">3</span></button>
+                    <button class="filter-pill" data-filter="light">Lights <span id="FilterCountLight">1</span></button>
+                </div>
+
+                <div class="tab-content" id="SceneTabContent">
+                    <div class="tree-scroll">
+                        <div class="tree-group" id="TreeGroupWorld">
+                            <button class="tree-group-head" data-group-toggle="world">
+                                <svg width="10" height="10"><use href="#IconChevron"/></svg>
+                                World
+                                <span class="group-count" id="TreeGroupCount">5</span>
+                            </button>
+                            <div class="tree-rows" id="TreeRows"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="LibraryTabContent" hidden>
+                    <div class="tree-scroll">
+                        <div class="library-grid" id="LibraryGrid">
+                            <button class="library-card" data-primitive="knot">
+                                <svg width="18" height="18"><use href="#IconRing"/></svg>
+                                <strong>Topology Knot</strong><span>2 × 3 winding</span>
+                            </button>
+                            <button class="library-card" data-primitive="sphere">
+                                <svg width="18" height="18"><use href="#IconSphere"/></svg>
+                                <strong>Sphere</strong><span>56 × 36 rings</span>
+                            </button>
+                            <button class="library-card" data-primitive="torus">
+                                <svg width="18" height="18"><use href="#IconRing"/></svg>
+                                <strong>Ring surface</strong><span>110 segments</span>
+                            </button>
+                            <button class="library-card" data-primitive="cube">
+                                <svg width="18" height="18"><use href="#IconCube"/></svg>
+                                <strong>Bounded volume</strong><span>6 faces</span>
+                            </button>
+                            <button class="library-card" data-primitive="cylinder">
+                                <svg width="18" height="18"><use href="#IconCylinder"/></svg>
+                                <strong>Cylinder</strong><span>64 segments</span>
+                            </button>
+                            <button class="library-card" data-primitive="halo">
+                                <svg width="18" height="18"><use href="#IconRing"/></svg>
+                                <strong>Orbit ring</strong><span>160 segments</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="outliner-metrics">
+                <div class="mini-card">
+                    <span class="mini-label">Selection</span>
+                    <strong id="OutlinerSelectionMetric">13.4k</strong>
+                    <em>vertices</em>
+                </div>
+                <div class="mini-card">
+                    <span class="mini-label">Scene</span>
+                    <strong id="OutlinerSceneMetric">25.0k</strong>
+                    <em>vertices</em>
+                </div>
+            </div>
+
+            <div class="panel-foot">
+                <span class="foot-count" id="OutlinerFootCount">5 records · 1 selected</span>
+                <div class="add-wrap">
+                    <button class="primary-pill" id="AddRecordButton">
+                        <svg width="13" height="13"><use href="#IconPlus"/></svg>Add record
+                    </button>
+                    <div class="popover-menu" id="PrimitiveMenu" hidden>
+                        <div class="popover-label">Geometry records</div>
+                        <button data-primitive="knot"><svg width="14" height="14"><use href="#IconRing"/></svg>Topology knot</button>
+                        <button data-primitive="sphere"><svg width="14" height="14"><use href="#IconSphere"/></svg>Sphere</button>
+                        <button data-primitive="torus"><svg width="14" height="14"><use href="#IconRing"/></svg>Ring surface</button>
+                        <button data-primitive="cube"><svg width="14" height="14"><use href="#IconCube"/></svg>Cube</button>
+                        <button data-primitive="cylinder"><svg width="14" height="14"><use href="#IconCylinder"/></svg>Cylinder</button>
+                    </div>
+                </div>
+            </div>
+
+            <button class="collapsed-rail" data-panel-action="expand" data-target="OutlinerPanel">
+                <svg width="16" height="16"><use href="#IconCube"/></svg><span>Outliner</span>
+            </button>
+        </aside>
+
+        <div class="splitter" data-splitter="Outliner" role="separator" aria-orientation="vertical" aria-label="Resize outliner"><span></span></div>
+
+        <!-- ============================== VIEWPORT ============================== -->
+        <section class="panel viewport-panel" id="ViewportPanel">
+            <div class="panel-head">
+                <div class="viewport-title">
+                    <h2>Sculpture study</h2>
+                    <span class="viewport-scene-chip">Real-time</span>
+                </div>
+                <div class="panel-head-actions">
+                    <button class="icon-button small is-active" id="GridToggle" title="Ground grid (G)">
+                        <svg width="14" height="14"><use href="#IconGrid"/></svg>
+                    </button>
+                    <button class="icon-button small" id="AutoOrbitButton" title="Turntable orbit">
+                        <svg width="14" height="14"><use href="#IconRotate"/></svg>
+                    </button>
+                    <button class="icon-button small" id="ResetViewButton" title="Reset view">
+                        <svg width="14" height="14"><use href="#IconReset"/></svg>
+                    </button>
+                    <button class="icon-button small" title="Snapshot viewport"><svg width="14" height="14"><use href="#IconScan"/></svg></button>
+                </div>
+            </div>
+
+            <div class="viewport-stage" id="ViewportStage">
+                <div class="viewport-backdrop"></div>
+                <canvas id="ViewportCanvas"></canvas>
+
+                <svg class="selection-frame" id="SelectionFrame" aria-hidden="true">
+                    <g id="SelectionFrameBrackets"></g>
+                    <line class="frame-leader" id="SelectionLeader" x1="0" y1="0" x2="0" y2="0" />
+                </svg>
+
+                <div class="viewport-overlay">
+                    <div class="view-chip-row">
+                        <button class="chip" id="ViewModeChip">Perspective <svg width="12" height="12"><use href="#IconChevron"/></svg></button>
+                        <button class="chip is-accent" id="SurfaceModeChip">Holographic <svg width="12" height="12"><use href="#IconChevron"/></svg></button>
+                    </div>
+
+                    <div class="tool-ribbon" id="ToolRibbon" role="toolbar" aria-label="Transform tools">
+                        <button class="tool-button is-active" data-tool="select" title="Select (Q)"><svg width="16" height="16"><use href="#IconCursor"/></svg></button>
+                        <button class="tool-button" data-tool="move" title="Move (W)"><svg width="16" height="16"><use href="#IconMove"/></svg></button>
+                        <button class="tool-button" data-tool="rotate" title="Rotate (E)"><svg width="16" height="16"><use href="#IconRotate"/></svg></button>
+                        <button class="tool-button" data-tool="scale" title="Scale (R)"><svg width="16" height="16"><use href="#IconScale"/></svg></button>
+                        <span class="tool-divider"></span>
+                        <button class="tool-button" id="FrameButton" title="Frame selection (F)"><svg width="16" height="16"><use href="#IconFrame"/></svg></button>
+                        <button class="tool-button" id="DuplicateButton" title="Duplicate (Ctrl+D)"><svg width="16" height="16"><use href="#IconDuplicate"/></svg></button>
+                    </div>
+
+                    <div class="telemetry-stack">
+                        <div class="telemetry-card">
+                            <header><span>Viewport<br/>vertices</span><svg width="11" height="11"><use href="#IconArrowUpRight"/></svg></header>
+                            <div class="telemetry-spark" id="TelemetrySpark"></div>
+                            <div class="telemetry-value"><b id="TelemetryVertices">17 280</b><i>verts</i></div>
+                        </div>
+                        <div class="telemetry-card">
+                            <header><span>Raster<br/>records</span><svg width="11" height="11"><use href="#IconArrowUpRight"/></svg></header>
+                            <div class="telemetry-spark" id="TelemetrySparkRecords"></div>
+                            <div class="telemetry-value"><b id="TelemetryRecords">3</b><i>surfaces</i></div>
+                        </div>
+                    </div>
+
+                    <div class="selection-annotation" id="SelectionAnnotation" style="opacity:0">
+                        <span class="annotation-dot"></span>
+                        <strong id="AnnotationName">Knot study</strong>
+                        <em id="AnnotationMeta">17 280 v</em>
+                    </div>
+
+                    <div class="axis-gadget" aria-hidden="true">
+                        <svg viewBox="0 0 52 52">
+                            <circle cx="26" cy="27" r="1.6" fill="rgba(236,238,230,0.75)"/>
+                            <line x1="26" y1="27" x2="43" y2="34" stroke="rgba(143,230,174,0.9)" stroke-width="1.2"/>
+                            <line x1="26" y1="27" x2="26" y2="9" stroke="rgba(230,198,127,0.9)" stroke-width="1.2"/>
+                            <line x1="26" y1="27" x2="9" y2="34" stroke="rgba(143,178,255,0.9)" stroke-width="1.2"/>
+                            <text x="46" y="39">X</text>
+                            <text x="23" y="7">Y</text>
+                            <text x="5" y="39">Z</text>
+                        </svg>
+                    </div>
+
+                    <div class="view-scale-chips">
+                        <span class="is-active">1×</span><span>2×</span><span>5×</span>
+                    </div>
+
+                    <button class="view-hint" id="ViewHint" style="pointer-events:none;background:none">Drag to orbit · scroll to dolly</button>
+
+                    <div class="timeline-strip">
+                        <div class="timeline-label">
+                            <span>Scan timeline</span>
+                            <b id="TimelineTime">00:07 / 00:20</b>
+                        </div>
+                        <div class="transport-group">
+                            <button class="transport-button" id="TimelineRestart" title="Restart scan"><svg width="13" height="13"><use href="#IconSkipBack"/></svg></button>
+                            <button class="transport-button is-playing" id="TimelinePlay" title="Play / pause scan (Space)"><svg width="13" height="13"><use href="#IconPause"/></svg></button>
+                            <button class="transport-button" id="TimelineAdvance" title="Advance scan"><svg width="13" height="13"><use href="#IconSkipForward"/></svg></button>
+                        </div>
+                        <div class="timeline-track" id="TimelineTrack">
+                            <div class="timeline-ruler" id="TimelineRuler"></div>
+                            <div class="timeline-rail"><div class="timeline-progress" id="TimelineProgress"></div></div>
+                            <div class="timeline-playhead" id="TimelinePlayhead"></div>
+                        </div>
+                        <div class="timeline-scale" id="TimelineRate">
+                            <span data-rate="0.5">½×</span><span class="is-active" data-rate="1">1×</span><span data-rate="2">2×</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="splitter" data-splitter="Inspector" role="separator" aria-orientation="vertical" aria-label="Resize inspector"><span></span></div>
+
+        <!-- ============================== INSPECTOR ============================== -->
+        <aside class="panel inspector-panel" id="InspectorPanel">
+            <div class="panel-head">
+                <div class="panel-tab-group">
+                    <button class="panel-tab is-active" data-inspector-tab="object">Inspect</button>
+                    <button class="panel-tab" data-inspector-tab="surface">Surface</button>
+                    <button class="panel-tab" data-inspector-tab="view">View</button>
+                </div>
+                <div class="panel-head-actions">
+                    <button class="icon-button small" data-panel-action="collapse" data-target="InspectorPanel" title="Collapse inspector">
+                        <svg width="14" height="14"><use href="#IconExpand"/></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-body">
+                <div class="inspector-scroll">
+                    <div class="record-summary">
+                        <span class="record-glyph" id="InspectorGlyph"><svg width="18" height="18"><use href="#IconRing"/></svg></span>
+                        <span class="record-identity">
+                            <span class="record-name" id="InspectorName">Knot study</span>
+                            <span class="record-type" id="InspectorType">Topology knot</span>
+                        </span>
+                        <button class="record-link" id="InspectorFocus">Frame <svg width="10" height="10"><use href="#IconArrowUpRight"/></svg></button>
+                    </div>
+
+                    <!-- OBJECT TAB -->
+                    <section class="inspector-section" data-inspector-section="object" id="PlacementSection">
+                        <div class="section-header"><h3>Placement</h3><span id="PlacementUnits">metres</span></div>
+
+                        <div class="field-group">
+                            <div class="field-group-label"><span>Position</span><button data-zero-field="Position">Zero</button></div>
+                            <div class="axis-row">
+                                <label class="numeric-field" data-axis="0"><span class="axis-token">X</span><input class="numeric-input" id="PositionX" data-placement="Position" data-axis="0" value="0.00" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="1"><span class="axis-token">Y</span><input class="numeric-input" id="PositionY" data-placement="Position" data-axis="1" value="0.55" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="2"><span class="axis-token">Z</span><input class="numeric-input" id="PositionZ" data-placement="Position" data-axis="2" value="0.00" inputmode="decimal" /></label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="field-group-label"><span>Rotation</span><button data-zero-field="Rotation">Zero</button></div>
+                            <div class="axis-row">
+                                <label class="numeric-field" data-axis="0"><span class="axis-token">X</span><input class="numeric-input" id="RotationX" data-placement="Rotation" data-axis="0" value="0" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="1"><span class="axis-token">Y</span><input class="numeric-input" id="RotationY" data-placement="Rotation" data-axis="1" value="0" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="2"><span class="axis-token">Z</span><input class="numeric-input" id="RotationZ" data-placement="Rotation" data-axis="2" value="0" inputmode="decimal" /></label>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="field-group-label"><span>Scale</span><button data-zero-field="Scaling">Reset</button></div>
+                            <div class="axis-row">
+                                <label class="numeric-field" data-axis="0"><span class="axis-token">X</span><input class="numeric-input" id="ScaleX" data-placement="Scaling" data-axis="0" value="1.00" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="1"><span class="axis-token">Y</span><input class="numeric-input" id="ScaleY" data-placement="Scaling" data-axis="1" value="1.00" inputmode="decimal" /></label>
+                                <label class="numeric-field" data-axis="2"><span class="axis-token">Z</span><input class="numeric-input" id="ScaleZ" data-placement="Scaling" data-axis="2" value="1.00" inputmode="decimal" /></label>
+                            </div>
+                        </div>
+
+                        <div class="toggle-row">
+                            <span>Uniform scale</span>
+                            <button class="switch is-on" data-toggle="UniformScale" aria-pressed="true"></button>
+                        </div>
+
+                        <div class="status-card">
+                            <div class="status-card-line"><span>Vertex records</span><b id="PlacementVertexCount">17 280</b></div>
+                            <div class="status-card-line"><span>Triangle records</span><b id="PlacementTriangleCount">11 400</b></div>
+                            <div class="status-card-line"><span>Record token</span><b id="PlacementToken">#01</b></div>
+                        </div>
+
+                        <div class="section-header"><h3>Bounds</h3><span id="BoundsUnits">metres</span></div>
+                        <div class="status-card">
+                            <div class="status-card-line"><span>Extent X</span><b id="BoundsExtentX">3.45</b></div>
+                            <div class="status-card-line"><span>Extent Y</span><b id="BoundsExtentY">3.61</b></div>
+                            <div class="status-card-line"><span>Extent Z</span><b id="BoundsExtentZ">1.68</b></div>
+                            <div class="status-card-line"><span>Classification</span><b id="BoundsClassification">Geometry</b></div>
+                        </div>
+                    </section>
+
+                    <!-- SURFACE TAB -->
+                    <section class="inspector-section" data-inspector-section="surface" id="SurfaceSection" hidden>
+                        <div class="section-header"><h3>Surface optics</h3><span id="SurfaceIdentityLabel">holographic</span></div>
+
+                        <div class="preset-row" id="SurfacePresetRow" role="group" aria-label="Surface presets">
+                            <button class="preset-pill is-active" data-surface-preset="0">Holographic</button>
+                            <button class="preset-pill" data-surface-preset="1">Wireframe</button>
+                            <button class="preset-pill" data-surface-preset="2">Solid</button>
+                        </div>
+
+                        <div class="color-row">
+                            <span class="color-label">Volume tint</span>
+                            <label class="color-swatch">
+                                <input type="color" id="BaseColorInput" data-surface-color="BaseColor" value="#1e5a41" />
+                                <code id="BaseColorCode">#1E5A41</code>
+                            </label>
+                        </div>
+                        <div class="color-row">
+                            <span class="color-label">Rim radiance</span>
+                            <label class="color-swatch">
+                                <input type="color" id="RimColorInput" data-surface-color="RimColor" value="#8fe6ae" />
+                                <code id="RimColorCode">#8FE6AE</code>
+                            </label>
+                        </div>
+
+                        <div class="slider-row" data-surface-property="RimStrength" data-min="0" data-max="2.4">
+                            <span class="slider-label">Rim glow</span>
+                            <div class="slider-track"><div class="slider-fill"></div><div class="slider-thumb"></div></div>
+                            <span class="slider-value">1.15</span>
+                        </div>
+                        <div class="slider-row" data-surface-property="WireStrength" data-min="0" data-max="1">
+                            <span class="slider-label">Topology wire</span>
+                            <div class="slider-track"><div class="slider-fill"></div><div class="slider-thumb"></div></div>
+                            <span class="slider-value">0.34</span>
+                        </div>
+                        <div class="slider-row" data-surface-property="SweepStrength" data-min="0" data-max="2">
+                            <span class="slider-label">Scan band</span>
+                            <div class="slider-track"><div class="slider-fill"></div><div class="slider-thumb"></div></div>
+                            <span class="slider-value">0.90</span>
+                        </div>
+
+                        <div class="toggle-row">
+                            <span>Scan sweep active</span>
+                            <button class="switch is-on" id="SweepSwitch" aria-pressed="true"></button>
+                        </div>
+
+                        <div class="status-card">
+                            <div class="status-card-line"><span><span class="status-dot" style="display:inline-block;margin-right:5px"></span>Shader</span><b>Holographic surface</b></div>
+                            <div class="status-card-line"><span>Rasterization</span><b id="RasterizationTag">WebGL2</b></div>
+                            <div class="status-card-line"><span>Frame rate</span><b id="SurfaceFrameRate">60 fps</b></div>
+                        </div>
+
+                        <div class="section-header"><h3>Tessellation</h3><span id="TessellationLabel">topology knot</span></div>
+                        <div class="status-card">
+                            <div class="status-card-line"><span>Segments</span><b id="TessellationSegments">140</b></div>
+                            <div class="status-card-line"><span>Radial rings</span><b id="TessellationRings">16</b></div>
+                            <div class="status-card-line"><span>Triangles</span><b id="TessellationTriangles">4 480</b></div>
+                            <div class="status-card-line"><span>Vertex layout</span><b>Non-indexed</b></div>
+                        </div>
+                    </section>
+
+                    <!-- VIEW TAB -->
+                    <section class="inspector-section" data-inspector-section="view" id="ViewSection" hidden>
+                        <div class="section-header"><h3>Viewport</h3><span>perspective</span></div>
+
+                        <div class="slider-row" data-camera-property="FieldOfView" data-min="18" data-max="72">
+                            <span class="slider-label">Field of view</span>
+                            <div class="slider-track"><div class="slider-fill"></div><div class="slider-thumb"></div></div>
+                            <span class="slider-value">34°</span>
+                        </div>
+                        <div class="slider-row" data-camera-property="Distance" data-min="2" data-max="18">
+                            <span class="slider-label">Orbit radius</span>
+                            <div class="slider-track"><div class="slider-fill"></div><div class="slider-thumb"></div></div>
+                            <span class="slider-value">7.1 m</span>
+                        </div>
+
+                        <div class="toggle-row"><span>Ground grid</span><button class="switch is-on" data-view-toggle="GridEnabled" aria-pressed="true"></button></div>
+                        <div class="toggle-row"><span>Turntable orbit</span><button class="switch" data-view-toggle="AutoOrbit" aria-pressed="false"></button></div>
+                        <div class="toggle-row"><span>Selection axes</span><button class="switch is-on" data-view-toggle="SelectionAxes" aria-pressed="true"></button></div>
+
+                        <div class="status-card">
+                            <div class="status-card-line"><span>Camera</span><b id="CameraSummary">yaw 0.68 · pitch 0.26</b></div>
+                            <div class="status-card-line"><span>Selection</span><b id="SelectionSummary">1 record</b></div>
+                            <div class="status-card-line"><span>Rendering</span><b id="RenderSummary">WebGL2 · 60 fps</b></div>
+                        </div>
+
+                        <div class="inspector-hint">
+                            <span>LMB orbit</span><span>MMB pan</span><span>Wheel dolly</span><span>F frame</span>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <div class="panel-foot">
+                <button class="ghost-pill" id="ResetSelectionButton">
+                    <svg width="13" height="13"><use href="#IconReset"/></svg>Reset record
+                </button>
+                <button class="primary-pill" id="DuplicateRecordButton">
+                    <svg width="13" height="13"><use href="#IconDuplicate"/></svg>Duplicate
+                </button>
+            </div>
+
+            <button class="collapsed-rail" data-panel-action="expand" data-target="InspectorPanel">
+                <svg width="16" height="16"><use href="#IconScan"/></svg><span>Inspector</span>
+            </button>
+        </aside>
+    </main>
+
+    <!--------------------------------------------------------------------------------------------------------------------
+                                                    STATUS BAR
+    ------------------------------------------------------------------------------------------------------------------->
+    <footer class="status-bar">
+        <div class="breadcrumb">
+            <span>World</span>
+            <svg width="9" height="9"><use href="#IconBreadcrumb"/></svg>
+            <span>Geometry</span>
+            <svg width="9" height="9"><use href="#IconBreadcrumb"/></svg>
+            <b id="BreadcrumbRecord">Knot study</b>
+        </div>
+        <div class="status-metrics">
+            <span class="metric-tag"><b id="MetricVertices">17 280</b> verts</span>
+            <span class="metric-tag"><b id="MetricRecords">5</b> records</span>
+            <span class="metric-tag"><span class="status-dot"></span><b id="MetricFrameRate">60</b> fps</span>
+            <span class="raster-tag" id="RasterTag">WebGL2</span>
+        </div>
+    </footer>
+</div>
+
+<div class="diagnostic-toast" id="DiagnosticToast" hidden></div>
+
+<script type="module" src="scripts/WorkspaceHost.js"></script>
+</body>
+</html>
