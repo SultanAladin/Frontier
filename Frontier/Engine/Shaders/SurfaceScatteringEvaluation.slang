@@ -107,56 +107,175 @@ void ResolveAuthoredMaterialAtHit(inout UnpackedSurfaceMaterial Mat,
                    : normalize(cross(abs(N.y) < 0.99f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f), N));
     float3 B = cross(N, T);
 
-    float2 TiledUv = frac(SurfaceUv * Mat.UvTilingScale);
+    float2 TiledUv = SurfaceUv * Mat.UvTilingScale;
+    float  AnalyticMip = clamp(log2(max(1.0f, HitDistanceM * 0.16f * Mat.UvTilingScale)), 0.0f, 8.0f);
 
     if (Tier <= 1u)
     {
         if (Mat.AlbedoLayer >= 0)
         {
-            float3 SampledAlbedo = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.AlbedoLayer)), 0.0f).rgb;
+            float3 SampledAlbedo = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.AlbedoLayer)), AnalyticMip).rgb;
             Mat.BaseAlbedo       = clamp(Mat.BaseAlbedo * SampledAlbedo, float3(0.0f), float3(0.99f));
         }
         if (Mat.OrmLayer >= 0)
         {
-            float3 Orm           = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.OrmLayer)), 0.0f).rgb;
+            float3 Orm           = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.OrmLayer)), AnalyticMip).rgb;
             Mat.AmbientOcclusion = clamp(Orm.x, 0.15f, 1.0f);
             Mat.BaseRoughness    = clamp(Mat.BaseRoughness * lerp(0.65f, 1.35f, Orm.y), 0.045f, 1.0f);
-            Mat.Metallic         = saturate(Mat.Metallic * Orm.z + ((Mat.Metallic < 0.05f) ? 0.0f : 0.0f));
+            Mat.Metallic         = saturate(Mat.Metallic * Orm.z);
         }
     }
 
     if (Tier == 0u && Mat.NormalLayer >= 0 && Mat.NormalStrength > 1.0e-3f)
     {
-        float3 EncodedN = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.NormalLayer)), 0.0f).rgb;
-        float2 TanXY    = (EncodedN.xy * 2.0f - 1.0f) * Mat.NormalStrength;
+        float3 EncodedN = MaterialMaps.SampleLevel(float3(TiledUv, float(Mat.NormalLayer)), AnalyticMip).rgb;
+        float2 TanXY    = (EncodedN.xy * 2.0f - 1.0f) * Mat.NormalStrength * saturate(1.0f - AnalyticMip * 0.18f);
         float  TanZ     = sqrt(max(0.04f, 1.0f - dot(TanXY, TanXY)));
         N               = normalize(T * TanXY.x + B * TanXY.y + N * TanZ);
         T               = normalize(T - N * dot(N, T));
         B               = cross(N, T);
     }
 
-    // Tier 0 discrete Voronoi micro-flake normal & two-stop metallic sparkle for automotive paint
+    // Distance-filtered Voronoi micro-flake normal for secondary/compute fallback hits
     if (Tier == 0u && Mat.FlakeCoverage > 0.01f)
     {
-        int3  FlakeCell = int3(floor(WorldPos * Mat.FlakeFrequency));
-        uint  H         = uint(FlakeCell.x * 73856093) ^ uint(FlakeCell.y * 19349663) ^ uint(FlakeCell.z * 83492791);
-        H               = (H ^ (H >> 13u)) * 1274126177u;
-        float Sparkle   = float(H & 0xFFFFu) / 65535.0f;
-        Mat.BaseAlbedo *= lerp(0.95f, 1.09f, smoothstep(1.0f - Mat.FlakeCoverage, 1.0f, Sparkle));
-
-        if (Mat.FlakeTiltSpread > 1.0e-3f)
+        float CellsPerCone = HitDistanceM * 0.0022f * Mat.FlakeFrequency;
+        float FlakeResolve = 1.0f - smoothstep(0.45f, 2.25f, CellsPerCone);
+        if (FlakeResolve > 0.02f)
         {
-            float2 Jitter = (float2(float((H >> 8u) & 0xFFu), float((H >> 16u) & 0xFFu)) / 255.0f) * 2.0f - 1.0f;
-            N             = normalize(N + (T * Jitter.x + B * Jitter.y) * Mat.FlakeTiltSpread);
-            T             = normalize(T - N * dot(N, T));
-            B             = cross(N, T);
+            int3  FlakeCell = int3(floor(WorldPos * Mat.FlakeFrequency));
+            uint  H         = uint(FlakeCell.x * 73856093) ^ uint(FlakeCell.y * 19349663) ^ uint(FlakeCell.z * 83492791);
+            H               = (H ^ (H >> 13u)) * 1274126177u;
+            float Sparkle   = float(H & 0xFFFFu) / 65535.0f;
+            Mat.BaseAlbedo *= lerp(1.0f, lerp(0.96f, 1.06f, smoothstep(1.0f - Mat.FlakeCoverage, 1.0f, Sparkle)), FlakeResolve);
+
+            if (Mat.FlakeTiltSpread > 1.0e-3f)
+            {
+                float2 Jitter = (float2(float((H >> 8u) & 0xFFu), float((H >> 16u) & 0xFFu)) / 255.0f) * 2.0f - 1.0f;
+                N             = normalize(N + (T * Jitter.x + B * Jitter.y) * (Mat.FlakeTiltSpread * FlakeResolve));
+                T             = normalize(T - N * dot(N, T));
+                B             = cross(N, T);
+            }
         }
+        float UnresolvedVar = (1.0f - FlakeResolve) * 0.65f * Mat.FlakeTiltSpread * Mat.FlakeTiltSpread;
+        Mat.BaseRoughness   = clamp(sqrt(Mat.BaseRoughness * Mat.BaseRoughness + UnresolvedVar), 0.045f, 1.0f);
     }
     else if (Tier == 2u)
     {
         // Far-tier specular anti-aliasing: widen micro-roughness slightly and suppress sub-pixel anisotropy
         Mat.BaseRoughness = clamp(sqrt(Mat.BaseRoughness * Mat.BaseRoughness + 0.02f), 0.08f, 1.0f);
         Mat.Anisotropy    = 0.0f;
+    }
+
+    float CosR          = cos(Mat.AnisotropyRotation);
+    float SinR          = sin(Mat.AnisotropyRotation);
+    OutShadingNormal    = N;
+    OutRotatedTangent   = CosR * T + SinR * B;
+    OutRotatedBitangent = -SinR * T + CosR * B;
+}
+
+// Hardware fragment quad derivative (ddx/ddy) trilinear mipmap + LEAN/Toksvig micro-flake & curvature specular AA resolver
+void ResolveAuthoredMaterialHardwareDerivatives(inout UnpackedSurfaceMaterial Mat,
+                                                Sampler2DArray                MaterialMaps,
+                                                float3                        WorldPos,
+                                                float3                        WorldPosDdx,
+                                                float3                        WorldPosDdy,
+                                                float2                        SurfaceUv,
+                                                float2                        SurfaceUvDdx,
+                                                float2                        SurfaceUvDdy,
+                                                float                         HitDistanceM,
+                                                float3                        GeoNormal,
+                                                float3                        GeoNormalDdx,
+                                                float3                        GeoNormalDdy,
+                                                float3                        WorldTangent,
+                                                out float                     OutHardwareMipLod,
+                                                out float3                    OutShadingNormal,
+                                                out float3                    OutRotatedTangent,
+                                                out float3                    OutRotatedBitangent)
+{
+    uint Tier           = (HitDistanceM < 18.0f) ? 0u : ((HitDistanceM < 52.0f) ? 1u : 2u);
+    Mat.MaterialLodTier = Tier;
+
+    float3 N = normalize(GeoNormal);
+    float3 T = WorldTangent - N * dot(N, WorldTangent);
+    T        = (length(T) > 1.0e-5f)
+                   ? normalize(T)
+                   : normalize(cross(abs(N.y) < 0.99f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f), N));
+    float3 B = cross(N, T);
+
+    float2 TiledUv  = SurfaceUv * Mat.UvTilingScale;
+    float2 GradX    = SurfaceUvDdx * Mat.UvTilingScale;
+    float2 GradY    = SurfaceUvDdy * Mat.UvTilingScale;
+    float2 TexGradX = GradX * 256.0f;
+    float2 TexGradY = GradY * 256.0f;
+    float  MaxRhoSq = max(dot(TexGradX, TexGradX), dot(TexGradY, TexGradY));
+    OutHardwareMipLod = clamp(0.5f * log2(max(1.0e-8f, MaxRhoSq)), 0.0f, 8.0f);
+
+    if (Mat.AlbedoLayer >= 0)
+    {
+        float3 SampledAlbedo = MaterialMaps.SampleGrad(float3(TiledUv, float(Mat.AlbedoLayer)), GradX, GradY).rgb;
+        Mat.BaseAlbedo       = clamp(Mat.BaseAlbedo * SampledAlbedo, float3(0.0f), float3(0.99f));
+    }
+    if (Mat.OrmLayer >= 0)
+    {
+        float3 Orm           = MaterialMaps.SampleGrad(float3(TiledUv, float(Mat.OrmLayer)), GradX, GradY).rgb;
+        Mat.AmbientOcclusion = clamp(Orm.x, 0.15f, 1.0f);
+        Mat.BaseRoughness    = clamp(Mat.BaseRoughness * lerp(0.65f, 1.35f, Orm.y), 0.045f, 1.0f);
+        Mat.Metallic         = saturate(Mat.Metallic * Orm.z);
+    }
+
+    if (Tier <= 1u && Mat.NormalLayer >= 0 && Mat.NormalStrength > 1.0e-3f)
+    {
+        float3 EncodedN   = MaterialMaps.SampleGrad(float3(TiledUv, float(Mat.NormalLayer)), GradX, GradY).rgb;
+        float  MipFade    = saturate(1.0f - OutHardwareMipLod * 0.16f);
+        float2 TanXY      = (EncodedN.xy * 2.0f - 1.0f) * (Mat.NormalStrength * MipFade);
+        float  NormalLen2 = dot(TanXY, TanXY);
+        float  TanZ       = sqrt(max(0.04f, 1.0f - NormalLen2));
+        N                 = normalize(T * TanXY.x + B * TanXY.y + N * TanZ);
+        T                 = normalize(T - N * dot(N, T));
+        B                 = cross(N, T);
+        // Toksvig mip normal-length variance folding into base roughness
+        float UnresolvedNormalVar = (1.0f - MipFade) * 0.035f * Mat.NormalStrength * Mat.NormalStrength;
+        Mat.BaseRoughness         = clamp(sqrt(Mat.BaseRoughness * Mat.BaseRoughness + UnresolvedNormalVar), 0.045f, 1.0f);
+    }
+
+    // Hardware ddx(WorldPos)/ddy(WorldPos) pixel-extent filtering for discrete Voronoi automotive paint micro-flakes
+    if (Mat.FlakeCoverage > 0.01f)
+    {
+        float PixelExtentM  = max(length(WorldPosDdx), length(WorldPosDdy));
+        float CellsPerPixel = PixelExtentM * Mat.FlakeFrequency;
+        float FlakeResolve  = (Tier == 0u) ? (1.0f - smoothstep(0.42f, 2.15f, CellsPerPixel)) : 0.0f;
+
+        if (FlakeResolve > 0.02f)
+        {
+            int3  FlakeCell = int3(floor(WorldPos * Mat.FlakeFrequency));
+            uint  H         = uint(FlakeCell.x * 73856093) ^ uint(FlakeCell.y * 19349663) ^ uint(FlakeCell.z * 83492791);
+            H               = (H ^ (H >> 13u)) * 1274126177u;
+            float Sparkle   = float(H & 0xFFFFu) / 65535.0f;
+            Mat.BaseAlbedo *= lerp(1.0f, lerp(0.96f, 1.06f, smoothstep(1.0f - Mat.FlakeCoverage, 1.0f, Sparkle)), FlakeResolve);
+
+            if (Mat.FlakeTiltSpread > 1.0e-3f)
+            {
+                float2 Jitter = (float2(float((H >> 8u) & 0xFFu), float((H >> 16u) & 0xFFu)) / 255.0f) * 2.0f - 1.0f;
+                N             = normalize(N + (T * Jitter.x + B * Jitter.y) * (Mat.FlakeTiltSpread * FlakeResolve));
+                T             = normalize(T - N * dot(N, T));
+                B             = cross(N, T);
+            }
+        }
+        float UnresolvedFlakeVar = (1.0f - FlakeResolve) * 0.65f * Mat.FlakeTiltSpread * Mat.FlakeTiltSpread;
+        Mat.BaseRoughness        = clamp(sqrt(Mat.BaseRoughness * Mat.BaseRoughness + UnresolvedFlakeVar), 0.045f, 1.0f);
+    }
+
+    // Kaplanyan-Antonov 2016 geometric normal screen-space derivative specular anti-aliasing
+    float CurvatureVar = 0.20f * min(0.06f, dot(GeoNormalDdx, GeoNormalDdx) + dot(GeoNormalDdy, GeoNormalDdy));
+    Mat.BaseRoughness  = clamp(sqrt(Mat.BaseRoughness * Mat.BaseRoughness + CurvatureVar), 0.045f, 1.0f);
+    if (Mat.CoatCoverage > 0.01f)
+    {
+        Mat.CoatRoughness = clamp(sqrt(Mat.CoatRoughness * Mat.CoatRoughness + 0.45f * CurvatureVar), 0.045f, 1.0f);
+    }
+    if (Tier == 2u)
+    {
+        Mat.Anisotropy = 0.0f;
     }
 
     float CosR          = cos(Mat.AnisotropyRotation);

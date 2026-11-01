@@ -1,15 +1,17 @@
 /*==========================================================================================================================================
                                              SPATIOTEMPORAL ILLUMINATION
                                      ------------------------------------------------------------------
-             GTX-first Vulkan 1.3 compute illumination renderer (zero hardware RTX raytracing cores):
-               1. SolveSurfaceRadiosityMain      - GPU 6-axis surface card multi-bounce radiosity (B = R_0 + rho * F * B)
-               2. TracePrimarySurfaceMain        - Two-level 8-wide OctetVolumeAtlas primary ray + 2-interface Snell/TIR glass + motion UV
-               3. SampleDirectReservoirsMain     - ReSTIR DI over analytic luminaires & LuminousFacetAtlas CDF + motion temporal reuse
-               4. SampleIndirectReservoirsMain   - ReSTIR GI over 4-cascade RangeDistanceAtlas + SurfaceCards + Jacobian spatial/temporal
-               5. ReuseSpatialReservoirsMain     - Direct Jacobian spatial reuse + Heitz VNDF anisotropic/clearcoat reflections + split BRDF
-               6. FilterSpatiotemporalAtrousMain - Split diffuse/specular ping-pong à-trous + 15 inspection modes + zero-copy RGBA8 2D view
+             Dual-Option Vulkan 1.3 Hybrid Raster / Hardware-3D-SDF GI / Raytraced Reflections + Full Raytracing Renderer:
+               0. SolveSurfaceRadiosityMain      - GPU 6-axis surface card multi-bounce radiosity (B = R_0 + rho * F * B)
+               1. SurfaceRaster + ForwardRaster  - Hardware Reversed-Z triangle G-buffer + ddx/ddy mip/flake AA + Snell curved glazing
+               2. ShadowRaster                   - Hardware 3-cascade texel-snapped D32_SFLOAT solar depth rasterizer
+               3. EvaluateDirectRadianceMain     - Zero-noise ShadowRaster PCF + Karis area softboxes (Hybrid) | RIS + BVH Shadow (Full RT)
+               4. TraceIndirectDiffuseMain       - Half-res (1/4 px) 1-ray Hardware Sampler3D SDF clipmaps (Hybrid) | Full-res BVH GI (Full RT)
+               5. TraceSpecularReflectionsMain   - Heitz 2018 VNDF Two-Level 8-Wide CWBVH raytraced reflections + SurfaceCards
+               6. IntegrateTemporalVarianceMain  - SVGF VarianceTemporal motion-reprojected moments (mu1/mu2) + 3x3 disocclusion bootstrap
+               7. FilterSpatiotemporalAtrousMain - SVGF VarianceWavelet 5x5 B3-spline + joint bilateral half-res GI upsample + ACES
 ==========================================================================================================================================*/
-// 🧩 GTX-first Option A (Phase 3C-1 + 3C-2) Vulkan 1.3 ReSTIR DI/GI + 8-wide CWBVH + 4-cascade SDF + Split Denoiser.
+// 🧩 Dual-Mode GTX-First Hybrid (Mode 0, Default) & Full Raytracing (Mode 1, Selectable) Vulkan 1.3 Illumination Pipeline.
 
 #pragma once
 
@@ -76,23 +78,25 @@ struct CoupledEnvironmentParameters
 
 struct SpatiotemporalRenderConfig
 {
-    std::array<float, 3>         ZenithSkyRgb         = {0.11f, 0.24f, 0.56f};
-    std::array<float, 3>         HorizonSkyRgb        = {0.52f, 0.64f, 0.80f};
-    std::array<float, 3>         GroundBounceTintRgb  = {0.22f, 0.23f, 0.25f};
-    uint32_t                     RisCandidateCount    = 8u;
-    uint32_t                     SpatialNeighbors     = 4u;
-    uint32_t                     SdfIndirectRays      = 4u;
-    uint32_t                     AtrousIterations     = 2u;
-    uint32_t                     TemporalHistoryLimit = 20u;
-    uint32_t                     RadiosityBounces     = 3u;
-    float                        SurfaceCardGain      = 1.0f;
-    float                        SurfaceCardSkyWeight = 0.35f;
-    uint32_t                     InspectionMode       = 0u; // [0..14] matches RenderInspectionModes
-    bool                         EnableTemporalReuse  = true;
-    bool                         EnableSpatialReuse   = true;
-    bool                         EnableIndirectGi     = true;
-    bool                         EnableReflections    = true;
-    float                        ExposureScale        = 1.08f;
+    std::array<float, 3>         ZenithSkyRgb            = {0.11f, 0.24f, 0.56f};
+    std::array<float, 3>         HorizonSkyRgb           = {0.52f, 0.64f, 0.80f};
+    std::array<float, 3>         GroundBounceTintRgb     = {0.22f, 0.23f, 0.25f};
+    uint32_t                     RisCandidateCount       = 8u;
+    uint32_t                     SpatialNeighbors        = 4u;
+    uint32_t                     SdfIndirectRays         = 1u;
+    uint32_t                     AtrousIterations        = 3u;
+    uint32_t                     TemporalHistoryLimit    = 24u;
+    uint32_t                     RadiosityBounces        = 3u;
+    float                        SurfaceCardGain         = 1.0f;
+    float                        SurfaceCardSkyWeight    = 0.35f;
+    uint32_t                     InspectionMode          = 0u;     // [0..14] matches RenderInspectionModes
+    bool                         EnableTemporalReuse     = true;
+    bool                         EnableSpatialReuse      = true;
+    bool                         EnableIndirectGi        = true;
+    bool                         EnableReflections       = true;
+    bool                         FullRaytracingMode      = false;  // false = Hybrid SDF-GI + RT Refl (default); true = Option 2 Full Raytracing
+    float                        GroundPlaneHeightMeters = -1.0e4f;// >= -900m enables analytic ground plane in DistanceTraversal
+    float                        ExposureScale           = 1.08f;
     CoupledEnvironmentParameters Environment{};
 };
 
@@ -118,9 +122,13 @@ struct SpatiotemporalFrameTelemetry
     uint32_t AuthoredTextureLayers   = 0u;
     bool     SdfVolumeActive         = false;
     bool     RangeClipmapActive      = false;
+    bool     HardwareRasterActive    = false;
+    bool     FullRaytracingActive    = false;
+    uint32_t GiTraceScale            = 2u;
     uint32_t FrameIndex              = 0u;
     float    RadiosityGpuMs          = 0.0f;
     float    PrimaryGpuMs            = 0.0f;
+    float    ShadowRasterGpuMs       = 0.0f;
     float    DirectRisGpuMs          = 0.0f;
     float    IndirectGiGpuMs         = 0.0f;
     float    SpatialReflectGpuMs     = 0.0f;
@@ -132,6 +140,9 @@ struct SpatiotemporalFrameTelemetry
 class SpatiotemporalIllumination
 {
   public:
+    static constexpr uint32_t ShadowMapResolution = 1024u;
+    static constexpr uint32_t ShadowCascadeCount  = 3u;
+
     bool Initialize(VulkanComputeExchange& Exchange,
                     const std::string&     ShaderBinaryDirectory,
                     std::string*           OutDiagnostic = nullptr);
@@ -143,7 +154,7 @@ class SpatiotemporalIllumination
                                          const SurfaceScatteringAtlas& MaterialAtlas,
                                          const VolumeDistanceField*    DistanceVolume);
 
-    // Full Phase 3C-1 + 3C-2 two-level instanced 8-wide OctetVolumeAtlas + 4-cascade RangeDistanceAtlas + Cards + Luminous CDF
+    // Full two-level instanced 8-wide OctetVolumeAtlas + 4-cascade hardware 3D SDF volume + SurfaceCards + Luminous CDF
     bool UploadTwoLevelScene(VulkanComputeExchange&        Exchange,
                              const OctetVolumeAtlas&       TwoLevelAtlas,
                              const SurfaceScatteringAtlas& MaterialAtlas,
@@ -151,11 +162,11 @@ class SpatiotemporalIllumination
                              const SurfaceRadiosityAtlas*  RadiosityCards,
                              const LuminousFacetAtlas*     LuminousFacets);
 
-    // Fast dynamic instance TLAS refit upload (< 4 KB, preserves all BLASes & temporal history!)
+    // Fast dynamic instance TLAS + raster draw-span refit (< 4 KB, preserves all BLASes & temporal history!)
     bool UpdateDynamicTopLevelInstances(VulkanComputeExchange&  Exchange,
                                         const OctetVolumeAtlas& TwoLevelAtlas);
 
-    // Fast camera-centered 4-cascade SDF clipmap refresh
+    // Fast camera-centered 4-cascade hardware 3D SDF clipmap refresh
     bool UpdateRangeClipmap(VulkanComputeExchange&    Exchange,
                             const RangeDistanceAtlas& RangeClipmap);
 
@@ -186,44 +197,74 @@ class SpatiotemporalIllumination
     bool ReadbackTonemappedSrgb8(VulkanComputeExchange& Exchange,
                                  float                  ExposureScale,
                                  std::vector<uint8_t>&  OutSrgbRgbaBytes);
-    bool DownloadSolvedSurfaceRadiosity(VulkanComputeExchange&              Exchange,
-                                        std::vector<std::array<float, 3>>&  OutSolvedRadiosityRgb) const;
+    bool DownloadSolvedSurfaceRadiosity(VulkanComputeExchange&             Exchange,
+                                        std::vector<std::array<float, 3>>& OutSolvedRadiosityRgb) const;
 
-    [[nodiscard]] const DeviceImageArraySlot&                         OutputImage() const noexcept { return OutputImage_; }
-    [[nodiscard]] std::span<const SpatiotemporalProgramCompileInfo>   ProgramCompileStats() const noexcept { return CompileStats_; }
+    [[nodiscard]] const DeviceImageArraySlot&                       OutputImage() const noexcept { return OutputImage_; }
+    [[nodiscard]] std::span<const SpatiotemporalProgramCompileInfo> ProgramCompileStats() const noexcept { return CompileStats_; }
 
   private:
-    ComputeProgramSlot RadiosityProgram_{};
-    ComputeProgramSlot PrimaryProgram_{};
-    ComputeProgramSlot DirectRisProgram_{};
-    ComputeProgramSlot IndirectGiProgram_{};
-    ComputeProgramSlot SpatialReflectProgram_{};
-    ComputeProgramSlot AtrousProgram_{};
+    struct RecordedSlotCounts
+    {
+        uint32_t RadiosityDispatches = 0u;
+        uint32_t ShadowPasses        = 0u;
+        uint32_t PrimaryPasses       = 0u;
+    };
+
+    void RebuildRasterDrawLists(const OctetVolumeAtlas*       TwoLevelAtlas,
+                                const std::vector<std::array<float, 4>>& SingleLevelTriTable,
+                                const SurfaceScatteringAtlas& MaterialAtlas);
+
+    ComputeProgramSlot        RadiosityProgram_{};
+    ComputeProgramSlot        PrimaryProgram_{};
+    ComputeProgramSlot        DirectRadianceProgram_{};
+    ComputeProgramSlot        IndirectGiProgram_{};
+    ComputeProgramSlot        SpecularReflectProgram_{};
+    ComputeProgramSlot        TemporalVarianceProgram_{};
+    ComputeProgramSlot        AtrousProgram_{};
+
+    VkRenderPass              SurfaceRenderProcedure_ = VK_NULL_HANDLE;
+    VkRenderPass              ShadowRenderProcedure_  = VK_NULL_HANDLE;
+    GraphicsRasterProgramSlot ShadowCascadeProgram_{};
+    GraphicsRasterProgramSlot SurfaceOpaqueProgram_{};
+    GraphicsRasterProgramSlot ForwardGlazingProgram_{};
+    SurfaceFramebufferSet     SurfaceTargets_{};
+    ShadowFramebufferSet      ShadowTargets_{};
+    bool                      HardwareRasterReady_    = false;
 
     DeviceMemorySpan                FrameHeaderSpan_{};
     std::array<DeviceMemorySpan, 4> FrameHeaderRing_{};
     DeviceMemorySpan                BvhOrTopCellSpan_{};
-    DeviceMemorySpan BvhTriangleSpan_{};
-    DeviceMemorySpan MaterialSpan_{};
-    DeviceMemorySpan DistanceOrRangeSpan_{};
-    DeviceMemorySpan OctetInstanceSpan_{};
-    DeviceMemorySpan OctetBlockSpan_{};
-    DeviceMemorySpan LuminousFacetSpan_{};
-    DeviceMemorySpan SurfaceCardSpan_{};
-    DeviceMemorySpan DirectReservoirCurrSpan_{};
-    DeviceMemorySpan DirectReservoirPrevSpan_{};
-    DeviceMemorySpan IndirectReservoirCurrSpan_{};
-    DeviceMemorySpan IndirectReservoirPrevSpan_{};
+    DeviceMemorySpan                BvhTriangleSpan_{};
+    DeviceMemorySpan                MaterialSpan_{};
+    DeviceMemorySpan                DistanceOrRangeSpan_{};
+    DeviceMemorySpan                OctetInstanceSpan_{};
+    DeviceMemorySpan                OctetBlockSpan_{};
+    DeviceMemorySpan                LuminousFacetSpan_{};
+    DeviceMemorySpan                SurfaceCardSpan_{};
+    DeviceMemorySpan                DirectReservoirA_{};
+    DeviceMemorySpan                DirectReservoirB_{};
 
-    DeviceImageArraySlot    MaterialTextureArray_{};
-    DeviceImageArraySlot    SurfaceAndWorkAtlas_{}; // 10 layers rgba16f (GBuffer + Split Diff/Spec Ping-Pong)
-    DeviceImageArraySlot    OutputImage_{};         // 1 layer rgba16f
-    DeviceViewportImageSlot FallbackViewport2D_{};  // 16x16 fallback when no external viewport target is supplied
+    DeviceImageArraySlot            MaterialTextureArray_{};
+    DeviceVolumeTextureSlot         SdfClipmapVolume_{};    // 3D R16_SFLOAT hardware trilinear volume texture
+    DeviceDepthTargetSlot           ShadowDepthArray_{};    // 1024x1024x3 D32_SFLOAT solar cascades
+    DeviceDepthTargetSlot           PrimaryDepthTarget_{};  // W x H x 1 Reversed-Z D32_SFLOAT depth buffer
+    DeviceImageArraySlot            TemporalHistoryA_{};    // 6 layers rgba16f (ping-pong frame A)
+    DeviceImageArraySlot            TemporalHistoryB_{};    // 6 layers rgba16f (ping-pong frame B)
+    DeviceImageArraySlot            SurfaceAndWorkAtlas_{}; // 14 layers rgba16f (G0..G5 + Direct + RawGI + RawSpec + Wavelets + Guide)
+    DeviceImageArraySlot            OutputImage_{};         // 1 layer rgba16f
+    DeviceViewportImageSlot         FallbackViewport2D_{};  // Fallback when no external viewport target is supplied
+
+    std::vector<RasterInstanceDrawSpan> CachedTwoLevelDrawSpans_{};
+    uint32_t                         SingleLevelOpaqueTris_ = 0u;
+    uint32_t                         SingleLevelGlassTris_  = 0u;
+    uint32_t                         SingleLevelGlassOffset_= 0u;
 
     std::array<float, 16> PreviousViewProjRows_{1.0f, 0.0f, 0.0f, 0.0f,
                                                 0.0f, 1.0f, 0.0f, 0.0f,
                                                 0.0f, 0.0f, 1.0f, 0.0f,
                                                 0.0f, 0.0f, 0.0f, 1.0f};
+    std::array<RecordedSlotCounts, 4> ExternalSlotCounts_{};
 
     std::vector<SpatiotemporalProgramCompileInfo> CompileStats_{};
 
@@ -238,6 +279,7 @@ class SpatiotemporalIllumination
     bool     TwoLevelOctetActive_    = false;
     bool     HasSdfVolume_           = false;
     bool     RangeClipmapActive_     = false;
+    bool     LastModeFullRaytracing_ = false;
     bool     HistoryValid_           = false;
     uint32_t FrameCounter_           = 0u;
 };

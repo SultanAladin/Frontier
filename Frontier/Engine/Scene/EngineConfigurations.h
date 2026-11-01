@@ -56,7 +56,7 @@ struct DiagnosticsConfiguration : RevisionCounter
 struct RenderPipelineConfiguration : RevisionCounter
 {
     bool  Enabled                = true;
-    bool  HardwareRayQueryTier   = true;   // true: RTX VK_KHR_ray_query + ReSTIR GI | false: GTX 4-Cascade SDF + SAH-2 BVH
+    bool  HardwareRayQueryTier   = false;  // false: Hybrid Raster + Hardware 3D SDF-GI + RT Refl (default) | true: Option 2 Full Raytracing
     int   QualityTier            = 2;      // 0 Low · 1 Medium · 2 Ultra
     int   InspectionModeIndex    = 0;      // 0..14 viewport inspection buffer modes
     int   InspectionDistanceMode = 2;      // 0 Near · 1 Medium · 2 Far

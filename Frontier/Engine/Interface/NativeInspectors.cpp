@@ -316,10 +316,10 @@ void DiagnosticsInspector::ConstructInspector()
 
 void RenderPipelineInspector::EnumerateSwitches(std::vector<InspectorSwitchEntry>& OutSwitches)
 {
-    OutSwitches.push_back({"RTX Hardware", "RayQuery+ReSTIR", &Parameters.HardwareRayQueryTier});
-    OutSwitches.push_back({"Indirect GI", "Multi-bounce", &Parameters.GlobalIllumination});
-    OutSwitches.push_back({"Temporal AA", "Subpixel jitter", &Parameters.TemporalAntiAliasing});
-    OutSwitches.push_back({"Reflections", "BVH / RayQuery", &Parameters.ScreenSpaceReflections});
+    OutSwitches.push_back({"Full Raytracing", "DI + GI + Refl", &Parameters.HardwareRayQueryTier});
+    OutSwitches.push_back({"Indirect GI", "Half-res SDF / RT", &Parameters.GlobalIllumination});
+    OutSwitches.push_back({"Temporal AA", "SVGF Moments", &Parameters.TemporalAntiAliasing});
+    OutSwitches.push_back({"Reflections", "Raytraced VNDF", &Parameters.ScreenSpaceReflections});
 }
 
 void RenderPipelineInspector::ConstructInspector()
@@ -327,13 +327,13 @@ void RenderPipelineInspector::ConstructInspector()
     const InspectorPalette Palette = InspectorPalette::Resolve();
     const EditorTypefaces  Faces   = EditorTypefaces::Resolve();
 
-    static const char* const TierLabels[2]    = {"GTX · SDF+BVH", "RTX · RayQuery"};
+    static const char* const TierLabels[2]    = {"Hybrid · SDF+RT", "Full Raytracing"};
     static const char* const QualityLabels[3] = {"Low", "Medium", "Ultra"};
 
     int  TierIndex = Parameters.HardwareRayQueryTier ? 1 : 0;
     bool Changed   = false;
-    InspectorControls::ConstructSectionDivider(Palette, Faces, "DUAL-TIER GPU ARCHITECTURE");
-    if (InspectorControls::ConstructSegmentedRow(Palette, Faces, "##GpuTier", "GPU Path", TierIndex, TierLabels, 2))
+    InspectorControls::ConstructSectionDivider(Palette, Faces, "ILLUMINATION ARCHITECTURE");
+    if (InspectorControls::ConstructSegmentedRow(Palette, Faces, "##GpuTier", "Lighting Mode", TierIndex, TierLabels, 2))
     {
         Parameters.HardwareRayQueryTier = (TierIndex == 1);
         Changed                         = true;

@@ -393,16 +393,19 @@ bool EverestWorkspace::EnsureSceneGeometryBuilt()
     Frontier::RangeClipmapBuildSpec ClipSpec{};
     ClipSpec.AnchorWorldMeters = FlightRig.OriginMeters();
     ClipSpec.ActiveRangeCount  = 4u;
-    ClipSpec.AxisResolution    = 28u;
+    ClipSpec.AxisResolution    = 32u;
     ClipSpec.RangeHalfExtentsM = {8.0f, 24.0f, 72.0f, 192.0f};
     std::vector<Frontier::PlacedDistanceVolumeSpec> PlacedVols;
     if (!VehicleDistanceField.Distances.empty())
     {
         PlacedVols.push_back({&VehicleDistanceField, {0.0f, 0.0f, 0.0f}, 1.0f});
     }
-    const std::array<Frontier::AnalyticSolidDistanceSpec, 3> Solids{{
+    const std::array<Frontier::AnalyticSolidDistanceSpec, 6> Solids{{
         {2u, {0.0f, 0.0f, 0.0f}, {100.0f, 0.1f, 100.0f}},
+        {0u, {-4.525f, 1.90f, -5.20f}, {0.325f, 1.90f, 2.10f}},
+        {0u, { 4.525f, 1.90f, -5.20f}, {0.325f, 1.90f, 2.10f}},
         {0u, {-3.0f, 1.0f, 0.0f}, {0.5f, 0.5f, 0.5f}},
+        {0u, { 3.0f, 0.6f, 0.0f}, {0.45f, 0.6f, 0.45f}},
         {1u, {0.0f, 1.8f, -2.5f}, {0.42f, 0.42f, 0.42f}},
     }};
     RangeClipmap.BuildClipmap(ClipSpec, PlacedVols, Solids);
@@ -644,30 +647,40 @@ void EverestWorkspace::SyncDynamicWorldToRenderer(const Frontier::Spatiotemporal
         }
         else if (Type == "RenderPipeline")
         {
-            const auto& C                  = static_cast<const Frontier::RenderPipelineRecord*>(Entry.get())->QueryConfiguration();
-            OutConfig.InspectionMode       = static_cast<uint32_t>(std::clamp(C.InspectionModeIndex, 0, 14));
-            OutConfig.TemporalHistoryLimit = static_cast<uint32_t>(std::clamp(C.RestirTemporalHistory, 1.0f, 32.0f));
-            OutConfig.SpatialNeighbors     = static_cast<uint32_t>(std::clamp(C.RestirSpatialNeighbors, 0.0f, 6.0f));
-            OutConfig.ExposureScale        = std::pow(2.0f, std::clamp(C.ExposureCompensationEv, -4.0f, 4.0f));
-            OutConfig.EnableIndirectGi     = C.GlobalIllumination;
-            OutConfig.EnableReflections    = C.ScreenSpaceReflections;
-            if (C.QualityTier == 0)
+            const auto& C                     = static_cast<const Frontier::RenderPipelineRecord*>(Entry.get())->QueryConfiguration();
+            OutConfig.FullRaytracingMode      = C.HardwareRayQueryTier;
+            OutConfig.GroundPlaneHeightMeters = 0.0f;
+            OutConfig.InspectionMode          = static_cast<uint32_t>(std::clamp(C.InspectionModeIndex, 0, 14));
+            OutConfig.TemporalHistoryLimit    = static_cast<uint32_t>(std::clamp(C.RestirTemporalHistory, 1.0f, 32.0f));
+            OutConfig.SpatialNeighbors        = static_cast<uint32_t>(std::clamp(C.RestirSpatialNeighbors, 0.0f, 6.0f));
+            OutConfig.ExposureScale           = std::pow(2.0f, std::clamp(C.ExposureCompensationEv, -4.0f, 4.0f));
+            OutConfig.EnableIndirectGi        = C.GlobalIllumination;
+            OutConfig.EnableReflections       = C.ScreenSpaceReflections;
+            OutConfig.EnableTemporalReuse     = C.TemporalAntiAliasing;
+            if (!C.HardwareRayQueryTier)
+            {
+                // Default Hybrid Mode: Half-Res (TraceScale=2) 1 cosine ray/px Hardware 3D SDF GI + SVGF Wavelet
+                OutConfig.RisCandidateCount = 4u;
+                OutConfig.SdfIndirectRays   = 1u;
+                OutConfig.AtrousIterations  = (C.QualityTier == 0) ? 2u : 3u;
+            }
+            else if (C.QualityTier == 0)
             {
                 OutConfig.RisCandidateCount = 4u;
                 OutConfig.SdfIndirectRays   = C.GlobalIllumination ? 1u : 0u;
-                OutConfig.AtrousIterations  = 1u;
+                OutConfig.AtrousIterations  = 2u;
             }
             else if (C.QualityTier == 1)
             {
                 OutConfig.RisCandidateCount = 6u;
                 OutConfig.SdfIndirectRays   = C.GlobalIllumination ? 2u : 0u;
-                OutConfig.AtrousIterations  = 2u;
+                OutConfig.AtrousIterations  = 3u;
             }
             else
             {
                 OutConfig.RisCandidateCount = 8u;
-                OutConfig.SdfIndirectRays   = C.GlobalIllumination ? 4u : 0u;
-                OutConfig.AtrousIterations  = 2u;
+                OutConfig.SdfIndirectRays   = C.GlobalIllumination ? 3u : 0u;
+                OutConfig.AtrousIterations  = 3u;
             }
         }
     }
@@ -691,16 +704,19 @@ void EverestWorkspace::SyncDynamicWorldToRenderer(const Frontier::Spatiotemporal
         Frontier::RangeClipmapBuildSpec ClipSpec{};
         ClipSpec.AnchorWorldMeters = Camera.OriginMeters;
         ClipSpec.ActiveRangeCount  = 4u;
-        ClipSpec.AxisResolution    = 28u;
+        ClipSpec.AxisResolution    = 32u;
         ClipSpec.RangeHalfExtentsM = {CascadeZeroM, CascadeZeroM * 3.0f, CascadeZeroM * 9.0f, CascadeZeroM * 24.0f};
         std::vector<Frontier::PlacedDistanceVolumeSpec> PlacedVols;
         if (!VehicleDistanceField.Distances.empty())
         {
             PlacedVols.push_back({&VehicleDistanceField, {0.0f, 0.0f, 0.0f}, 1.0f});
         }
-        const std::array<Frontier::AnalyticSolidDistanceSpec, 3> Solids{{
+        const std::array<Frontier::AnalyticSolidDistanceSpec, 6> Solids{{
             {2u, {0.0f, 0.0f, 0.0f}, {100.0f, 0.1f, 100.0f}},
+            {0u, {-4.525f, 1.90f, -5.20f}, {0.325f, 1.90f, 2.10f}},
+            {0u, { 4.525f, 1.90f, -5.20f}, {0.325f, 1.90f, 2.10f}},
             {0u, {-3.0f, 1.0f, 0.0f}, {0.5f, 0.5f, 0.5f}},
+            {0u, { 3.0f, 0.6f, 0.0f}, {0.45f, 0.6f, 0.45f}},
             {1u, {0.0f, 1.8f, -2.5f}, {0.42f, 0.42f, 0.42f}},
         }};
         RangeClipmap.BuildClipmap(ClipSpec, PlacedVols, Solids);
@@ -1361,9 +1377,13 @@ void EverestWorkspace::ConstructTopToolbar(float Scale)
         }
 
         {
-            const char* TierText = UseFastPreviewRaster_
-                                       ? "TIER: FAST PREVIEW (Cluster-DAG + Hybrid Shadow)"
-                                       : "TIER: GTX COMPUTE (CWBVH + 4-Cascade SDF + ReSTIR)";
+            const auto* PipeBadgeRec   = dynamic_cast<const Frontier::RenderPipelineRecord*>(QuerySceneWorld().FindFirstByType("RenderPipeline"));
+            const bool  FullRtSelected = PipeBadgeRec && PipeBadgeRec->QueryConfiguration().HardwareRayQueryTier;
+            const char* TierText       = UseFastPreviewRaster_
+                                             ? "MODE: FAST PREVIEW (Cluster-DAG + Hybrid Shadow)"
+                                             : (FullRtSelected
+                                                    ? "MODE: FULL RAYTRACING (CWBVH DI + GI + Refl + SVGF)"
+                                                    : "MODE: HYBRID (HW Raster + 3D-SDF GI + RT Refl + SVGF)");
             const ImU32 TierTint = UseFastPreviewRaster_ ? Palette.WarmAmber : Palette.LiveGreen;
             const float PillW    = MeasureLabelWidth(Faces.Monospace, 10.0f, TierText) + 26.0f;
             RightX -= PillW;
@@ -1403,19 +1423,45 @@ void EverestWorkspace::ConstructViewportRibbon(const ImVec2& BarMin, const ImVec
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::ColorConvertU32ToFloat4(Palette.SegmentedActiveBg));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::ColorConvertU32ToFloat4(Palette.SegmentedActiveBg));
 
-    // 1. Renderer mode toggle (ReSTIR GTX vs Editor-only Fast Preview)
+    // 1. Renderer mode toggle (Hybrid SDF+RT vs Option 2 Full Raytracing vs Editor-only Fast Preview)
     {
-        const bool RestirActive = !UseFastPreviewRaster_;
-        if (RestirActive)
+        const bool FullRtSelected = PipeRec && PipeRec->QueryConfiguration().HardwareRayQueryTier;
+        const bool HybridActive   = !UseFastPreviewRaster_ && !FullRtSelected;
+        const bool FullRtActive   = !UseFastPreviewRaster_ && FullRtSelected;
+
+        if (HybridActive)
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(Palette.SegmentedActiveBg));
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Palette.ThemeAccent));
         }
-        if (ImGui::Button("ReSTIR GTX"))
+        if (ImGui::Button("Hybrid"))
         {
             UseFastPreviewRaster_ = false;
+            if (PipeRec)
+            {
+                PipeRec->AccessConfiguration().HardwareRayQueryTier = false;
+            }
         }
-        if (RestirActive)
+        if (HybridActive)
+        {
+            ImGui::PopStyleColor(2);
+        }
+
+        ImGui::SameLine(0.0f, 4.0f * Scale);
+        if (FullRtActive)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(Palette.SegmentedActiveBg));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Palette.ThemeAccent));
+        }
+        if (ImGui::Button("Full RT"))
+        {
+            UseFastPreviewRaster_ = false;
+            if (PipeRec)
+            {
+                PipeRec->AccessConfiguration().HardwareRayQueryTier = true;
+            }
+        }
+        if (FullRtActive)
         {
             ImGui::PopStyleColor(2);
         }

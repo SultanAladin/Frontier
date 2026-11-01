@@ -1,15 +1,18 @@
 /*==========================================================================================================================================
                                           SPATIOTEMPORAL ILLUMINATION DEFINITION
 ==========================================================================================================================================*/
-// 🧩 GTX-first Option A (Phase 3C-1 + 3C-2) Vulkan 1.3 compute orchestrator:
-//    GPU Surface Cards multi-bounce radiosity, Two-level 8-wide OctetVolumeAtlas, 4-cascade RangeDistanceAtlas,
-//    LuminousFacetAtlas CDF, motion-reprojected ReSTIR DI & GI, Heitz VNDF reflections, & Split Diffuse/Specular À-Trous.
+// 🧩 Dual-Option Vulkan 1.3 Hybrid Raster / Hardware-3D-SDF GI / Raytraced Reflections + Selectable Full Raytracing Orchestrator:
+//    - Mode 0 (Default Hybrid): Hardware SurfaceRaster + ForwardRaster (ddx/ddy mip & flake AA), 3-cascade texel-snapped ShadowRaster +
+//      Karis area softboxes (zero DI noise), Half-Res (1/4 px) 1-ray Hardware Sampler3D SDF GI + SurfaceCards, Raytraced CWBVH Reflections,
+//      and SVGF VarianceTemporal + VarianceWavelet + Joint-Bilateral Upsample.
+//    - Mode 1 (Full Raytracing): Hardware SurfaceRaster + ForwardRaster primary G-buffer + Full CWBVH raytraced DI, GI, & Reflections.
 
 #include "Engine/Rendering/SpatiotemporalIllumination.h"
 
 #include "Engine/PlanetaryAtmosphere/PlanetaryEnsemble.h"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <utility>
@@ -19,10 +22,12 @@ namespace Frontier
 namespace
 {
 
+constexpr uint32_t kLuminaireHeaderOffset = 34u;
+
 struct SpatiotemporalPushConstants
 {
-    uint32_t Counts[4]; // {Width, Height, FrameOrIter, StepOrFlags}
-    float    Params[4]; // {Exposure, AtrousStepSize, SpatialRadiusPx, HistoryFlag}
+    uint32_t Counts[4]; // {Width, Height, FrameOrParity, ModeFlag}
+    float    Params[4]; // {Exposure, AtrousStepSize, ColourSigma, HistoryFlag}
 };
 
 std::array<float, 3> SubVec(std::array<float, 3> A, std::array<float, 3> B) noexcept
@@ -43,9 +48,6 @@ std::array<float, 3> NormVec(std::array<float, 3> V) noexcept
     return (L > 1.0e-12f) ? std::array<float, 3>{V[0] / L, V[1] / L, V[2] / L} : std::array<float, 3>{0.0f, 1.0f, 0.0f};
 }
 
-// Builds exact world-to-NDC rows matching GenerateCameraRay:
-//   ViewPos = (dot(Right, P - O), dot(Up, P - O), dot(Fwd, P - O))
-//   NdcX = ViewPos.x / (ViewPos.z * TanHalfH),  NdcY = ViewPos.y / (ViewPos.z * TanHalfV)
 std::array<float, 16> ComputeCameraWorldToNdcRows(const std::array<float, 3>& Origin,
                                                   const std::array<float, 3>& Right,
                                                   const std::array<float, 3>& Up,
@@ -79,6 +81,274 @@ std::array<float, 16> ComputeCameraWorldToNdcRows(const std::array<float, 3>& Or
     };
 }
 
+struct SolarCascadeHeaderPack
+{
+    bool                                                  Active = false;
+    std::array<std::array<float, 4>, 12>                  ViewProjRows{};
+    std::array<float, 3>                                  SplitDistances{12.0f, 36.0f, 110.0f};
+    std::array<float, 3>                                  TexelWorldSizes{0.025f, 0.075f, 0.22f};
+};
+
+SolarCascadeHeaderPack BuildSolarShadowCascades(const std::array<float, 3>&             CamOrigin,
+                                                const std::array<float, 3>&             CamFwd,
+                                                const std::vector<AnalyticalLuminaire>& Luminaires,
+                                                uint32_t                                ShadowResolution,
+                                                bool                                    EnableHardwareShadows) noexcept
+{
+    SolarCascadeHeaderPack Out{};
+    for (uint32_t C = 0u; C < 3u; ++C)
+    {
+        Out.ViewProjRows[C * 4u + 3u] = {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    if (!EnableHardwareShadows || Luminaires.empty())
+    {
+        return Out;
+    }
+
+    const AnalyticalLuminaire* Solar = nullptr;
+    for (const AnalyticalLuminaire& L : Luminaires)
+    {
+        if (L.Kind == AnalyticalLuminaireKind::DirectionalSolar)
+        {
+            Solar = &L;
+            break;
+        }
+    }
+    if (Solar == nullptr)
+    {
+        return Out;
+    }
+
+    const auto SunDir     = NormVec(Solar->DirectionOrPosition);
+    const auto LightFwd   = std::array<float, 3>{-SunDir[0], -SunDir[1], -SunDir[2]};
+    const auto RefUp      = (std::abs(LightFwd[1]) > 0.96f) ? std::array<float, 3>{0.0f, 0.0f, 1.0f} : std::array<float, 3>{0.0f, 1.0f, 0.0f};
+    const auto LightRight = NormVec(CrossVec(LightFwd, RefUp));
+    const auto LightUp    = NormVec(CrossVec(LightRight, LightFwd));
+
+    Out.Active = true;
+    for (uint32_t C = 0u; C < 3u; ++C)
+    {
+        const float Radius     = Out.SplitDistances[C];
+        const float TexelWorld = (2.0f * Radius) / static_cast<float>(std::max(64u, ShadowResolution));
+        Out.TexelWorldSizes[C] = TexelWorld;
+
+        const float LeadDist = 0.42f * Radius;
+        const std::array<float, 3> Focus{
+            CamOrigin[0] + CamFwd[0] * LeadDist,
+            CamOrigin[1] * 0.35f,
+            CamOrigin[2] + CamFwd[2] * LeadDist,
+        };
+
+        // Snap cascade XY origin in light space to exact texel grid so shadows never swim during camera flight
+        const float SnappedX      = std::floor(DotVec(LightRight, Focus) / TexelWorld) * TexelWorld;
+        const float SnappedY      = std::floor(DotVec(LightUp, Focus) / TexelWorld) * TexelWorld;
+        const float DepthHalfSpan = std::max(140.0f, Radius * 2.5f);
+        const float NearLightZ    = DotVec(LightFwd, Focus) - DepthHalfSpan;
+        const float InvRadius     = 1.0f / Radius;
+        const float InvDepthRange = 1.0f / (2.0f * DepthHalfSpan);
+
+        Out.ViewProjRows[C * 4u + 0u] = {
+            LightRight[0] * InvRadius,
+            LightRight[1] * InvRadius,
+            LightRight[2] * InvRadius,
+            -SnappedX * InvRadius,
+        };
+        Out.ViewProjRows[C * 4u + 1u] = {
+            -LightUp[0] * InvRadius,
+            -LightUp[1] * InvRadius,
+            -LightUp[2] * InvRadius,
+            SnappedY * InvRadius,
+        };
+        Out.ViewProjRows[C * 4u + 2u] = {
+            LightFwd[0] * InvDepthRange,
+            LightFwd[1] * InvDepthRange,
+            LightFwd[2] * InvDepthRange,
+            -NearLightZ * InvDepthRange,
+        };
+        Out.ViewProjRows[C * 4u + 3u] = {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    return Out;
+}
+
+void BuildFrameHeaderVector(const SpatiotemporalCamera&             Camera,
+                            uint32_t                                Width,
+                            uint32_t                                Height,
+                            uint32_t                                UploadedBvhCells,
+                            uint32_t                                UploadedLuminousFacets,
+                            uint32_t                                UploadedSurfacePatches,
+                            bool                                    HasSdfVolume,
+                            bool                                    TwoLevelOctetActive,
+                            bool                                    RangeClipmapActive,
+                            const std::array<float, 16>&            PrevRows,
+                            const SolarCascadeHeaderPack&           Cascades,
+                            const std::vector<AnalyticalLuminaire>& Luminaires,
+                            const SpatiotemporalRenderConfig&       Config,
+                            std::array<float, 16>&                  OutCurrentViewProjRows,
+                            std::vector<std::array<float, 4>>&      OutHeader)
+{
+    const auto  CamFwd   = NormVec(SubVec(Camera.TargetMeters, Camera.OriginMeters));
+    const auto  RefUp    = (std::abs(DotVec(CamFwd, Camera.UpUnit)) > 0.98f)
+                               ? std::array<float, 3>{0.0f, 0.0f, 1.0f}
+                               : Camera.UpUnit;
+    const auto  CamRight = NormVec(CrossVec(CamFwd, RefUp));
+    const auto  CamUp    = NormVec(CrossVec(CamRight, CamFwd));
+    const float TanHalfV = std::tan(0.5f * Camera.VerticalFovRad);
+    const float TanHalfH = TanHalfV * (static_cast<float>(Width) / static_cast<float>(Height));
+
+    OutCurrentViewProjRows = ComputeCameraWorldToNdcRows(Camera.OriginMeters, CamRight, CamUp, CamFwd, TanHalfH, TanHalfV);
+
+    const uint32_t LumCount     = static_cast<uint32_t>(std::min<size_t>(Luminaires.size(), 32u));
+    const auto&    Env          = Config.Environment;
+    // Use half-res (TraceScale=2 -> 1/4 pixels) in Hybrid mode whenever a 4-cascade clipmap is active (or >= 320x240)
+    const uint32_t GiTraceScale = (!Config.FullRaytracingMode && HasSdfVolume && Width >= 160u && Height >= 120u) ? 2u : 1u;
+
+    OutHeader.clear();
+    OutHeader.reserve(kLuminaireHeaderOffset + std::max(1u, LumCount) * 4u);
+    OutHeader.push_back({Camera.OriginMeters[0], Camera.OriginMeters[1], Camera.OriginMeters[2], TanHalfV});                                        // [0]
+    OutHeader.push_back({CamRight[0], CamRight[1], CamRight[2], TanHalfH});                                                                         // [1]
+    OutHeader.push_back({CamUp[0], CamUp[1], CamUp[2], static_cast<float>(UploadedBvhCells)});                                                      // [2]
+    OutHeader.push_back({CamFwd[0], CamFwd[1], CamFwd[2], static_cast<float>(LumCount)});                                                           // [3]
+    OutHeader.push_back({Config.ZenithSkyRgb[0], Config.ZenithSkyRgb[1], Config.ZenithSkyRgb[2], static_cast<float>(std::max(1u, Config.RisCandidateCount))}); // [4]
+    OutHeader.push_back({Config.HorizonSkyRgb[0], Config.HorizonSkyRgb[1], Config.HorizonSkyRgb[2], static_cast<float>(Config.SpatialNeighbors)});  // [5]
+    OutHeader.push_back({Config.GroundBounceTintRgb[0], Config.GroundBounceTintRgb[1], Config.GroundBounceTintRgb[2], static_cast<float>(std::max(1u, Config.SdfIndirectRays))}); // [6]
+    OutHeader.push_back({Config.EnableReflections ? 1.0f : 0.0f,
+                         Config.EnableSpatialReuse ? 1.0f : 0.0f,
+                         HasSdfVolume ? 1.0f : 0.0f,
+                         Config.EnableIndirectGi ? 1.0f : 0.0f});                                                                                   // [7]
+    OutHeader.push_back({PrevRows[0], PrevRows[1], PrevRows[2], PrevRows[3]});                                                                      // [8]
+    OutHeader.push_back({PrevRows[4], PrevRows[5], PrevRows[6], PrevRows[7]});                                                                      // [9]
+    OutHeader.push_back({PrevRows[8], PrevRows[9], PrevRows[10], PrevRows[11]});                                                                    // [10]
+    OutHeader.push_back({PrevRows[12], PrevRows[13], PrevRows[14], PrevRows[15]});                                                                  // [11]
+    OutHeader.push_back({TwoLevelOctetActive ? 1.0f : 0.0f,
+                         RangeClipmapActive ? 1.0f : 0.0f,
+                         static_cast<float>(UploadedLuminousFacets),
+                         static_cast<float>(UploadedSurfacePatches)});                                                                              // [12]
+    OutHeader.push_back({static_cast<float>(Config.InspectionMode),
+                         static_cast<float>(std::clamp(Config.TemporalHistoryLimit, 1u, 64u)),
+                         Config.SurfaceCardGain,
+                         Config.SurfaceCardSkyWeight});                                                                                             // [13]
+    OutHeader.push_back({Env.CloudsEnabled ? Env.CloudCoverage : -1.0f,
+                         Env.CloudDensity,
+                         Env.CloudBottomMeters,
+                         Env.LunarEnabled ? Env.DaytimeVeilStrength : -1.0f});                                                                      // [14]
+    OutHeader.push_back({Env.PrimaryMoonDir[0], Env.PrimaryMoonDir[1], Env.PrimaryMoonDir[2], Env.PrimaryMoonRadius});                              // [15]
+    OutHeader.push_back({Env.SecondaryMoonDir[0], Env.SecondaryMoonDir[1], Env.SecondaryMoonDir[2], Env.SecondaryMoonRadius});                      // [16]
+    OutHeader.push_back({Env.FogInscatteringRgb[0], Env.FogInscatteringRgb[1], Env.FogInscatteringRgb[2], Env.FogEnabled ? Env.FogDensity : -1.0f});// [17]
+    OutHeader.push_back({Env.FogHeightFalloff,
+                         static_cast<float>(std::min(Config.RadiosityBounces, 8u)),
+                         Config.FullRaytracingMode ? 1.0f : 0.0f,
+                         static_cast<float>(GiTraceScale)});                                                                                        // [18]
+    OutHeader.push_back({static_cast<float>(SpatiotemporalIllumination::ShadowMapResolution),
+                         static_cast<float>(Cascades.Active ? SpatiotemporalIllumination::ShadowCascadeCount : 0u),
+                         Config.GroundPlaneHeightMeters,
+                         static_cast<float>(kLuminaireHeaderOffset)});                                                                              // [19]
+
+    // Slots [20..31]: 3 Solar Shadow Cascade ViewProj matrices
+    for (uint32_t R = 0u; R < 12u; ++R)
+    {
+        OutHeader.push_back(Cascades.ViewProjRows[R]);
+    }
+    // Slot [32]: {CascadeSplits.xyz, ActiveCascadeCount}
+    OutHeader.push_back({Cascades.SplitDistances[0],
+                         Cascades.SplitDistances[1],
+                         Cascades.SplitDistances[2],
+                         Cascades.Active ? static_cast<float>(SpatiotemporalIllumination::ShadowCascadeCount) : 0.0f});
+    // Slot [33]: {CascadeTexelWorld.xyz, PrimarySunShadowEnabled}
+    OutHeader.push_back({Cascades.TexelWorldSizes[0],
+                         Cascades.TexelWorldSizes[1],
+                         Cascades.TexelWorldSizes[2],
+                         Cascades.Active ? 1.0f : 0.0f});
+
+    // Slots [34 .. 34 + LumCount * 4]: Analytical Luminaires
+    for (uint32_t Idx = 0u; Idx < LumCount; ++Idx)
+    {
+        const AnalyticalLuminaire& L = Luminaires[Idx];
+        OutHeader.push_back({L.DirectionOrPosition[0], L.DirectionOrPosition[1], L.DirectionOrPosition[2], static_cast<float>(L.Kind)});
+        OutHeader.push_back({L.AxisU[0], L.AxisU[1], L.AxisU[2], 0.0f});
+        OutHeader.push_back({L.AxisV[0], L.AxisV[1], L.AxisV[2], 0.0f});
+        OutHeader.push_back({L.EmittedRadianceRgb[0], L.EmittedRadianceRgb[1], L.EmittedRadianceRgb[2], 1.0f});
+    }
+    if (LumCount == 0u)
+    {
+        OutHeader.resize(kLuminaireHeaderOffset + 4u, {0.0f, 0.0f, 0.0f, 0.0f});
+    }
+}
+
+void BuildPerFrameRasterItems(bool                                         TwoLevelActive,
+                              std::span<const RasterInstanceDrawSpan>      TwoLevelSpans,
+                              uint32_t                               SingleOpaqueTris,
+                              uint32_t                               SingleGlassTris,
+                              uint32_t                               SingleGlassOffset,
+                              uint32_t                               Width,
+                              uint32_t                               Height,
+                              uint32_t                               FrameIndex,
+                              std::vector<RasterDrawItem>&           OutOpaqueDraws,
+                              std::vector<RasterDrawItem>&           OutGlassDraws,
+                              std::array<std::vector<RasterDrawItem>, 3>& OutCascadeShadowDraws)
+{
+    OutOpaqueDraws.clear();
+    OutGlassDraws.clear();
+    for (auto& Vec : OutCascadeShadowDraws)
+    {
+        Vec.clear();
+    }
+
+    if (TwoLevelActive)
+    {
+        OutOpaqueDraws.reserve(TwoLevelSpans.size());
+        for (uint32_t C = 0u; C < 3u; ++C)
+        {
+            OutCascadeShadowDraws[C].reserve(TwoLevelSpans.size());
+        }
+        for (const RasterInstanceDrawSpan& Span : TwoLevelSpans)
+        {
+            if (Span.OpaqueTriangleCount > 0u)
+            {
+                RasterDrawItem Item{};
+                Item.VertexCount  = Span.OpaqueTriangleCount * 3u;
+                Item.PushWords    = {Span.OpaqueTriangleOffset, Span.OrderedInstanceIndex, 0u, 1u, Width, Height, FrameIndex, 0u};
+                OutOpaqueDraws.push_back(Item);
+
+                for (uint32_t C = 0u; C < 3u; ++C)
+                {
+                    RasterDrawItem ShadowItem = Item;
+                    ShadowItem.PushWords[2]   = C;
+                    OutCascadeShadowDraws[C].push_back(ShadowItem);
+                }
+            }
+            if (Span.GlassTriangleCount > 0u)
+            {
+                RasterDrawItem GItem{};
+                GItem.VertexCount = Span.GlassTriangleCount * 3u;
+                GItem.PushWords   = {Span.GlassTriangleOffset, Span.OrderedInstanceIndex, 1u, 1u, Width, Height, FrameIndex, 0u};
+                OutGlassDraws.push_back(GItem);
+            }
+        }
+        return;
+    }
+
+    if (SingleOpaqueTris > 0u)
+    {
+        RasterDrawItem Item{};
+        Item.VertexCount = SingleOpaqueTris * 3u;
+        Item.PushWords   = {0u, 0xFFFFFFFFu, 0u, 0u, Width, Height, FrameIndex, 0u};
+        OutOpaqueDraws.push_back(Item);
+        for (uint32_t C = 0u; C < 3u; ++C)
+        {
+            RasterDrawItem ShadowItem = Item;
+            ShadowItem.PushWords[2]   = C;
+            OutCascadeShadowDraws[C].push_back(ShadowItem);
+        }
+    }
+    if (SingleGlassTris > 0u)
+    {
+        RasterDrawItem GItem{};
+        GItem.VertexCount = SingleGlassTris * 3u;
+        GItem.PushWords   = {SingleGlassOffset, 0xFFFFFFFFu, 1u, 0u, Width, Height, FrameIndex, 0u};
+        OutGlassDraws.push_back(GItem);
+    }
+}
+
 } // namespace
 
 bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
@@ -87,7 +357,7 @@ bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
 {
     Shutdown(Exchange);
 
-    const std::array<VkDescriptorType, 17> Bindings{{
+    const std::array<VkDescriptorType, 19> ComputeBindings{{
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 0:  FrameHeader
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 1:  BvhOrTopCells
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 2:  BvhTriangles
@@ -99,12 +369,14 @@ bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 8:  SurfaceCardPack
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 9:  DirectReservoirCurr
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 10: DirectReservoirPrev
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 11: IndirectReservoirCurr
-        VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 12: IndirectReservoirPrev
-        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 13: MaterialMaps (256x256 sRGB/RGBA8 array)
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 14: SurfaceAndWorkAtlas (10 layers rgba16f)
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 15: OutputImage (1 layer rgba16f)
-        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 16: ViewportDisplayTarget (2D rgba8)
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 11: MaterialMaps (mipmapped sRGB8 2DArray)
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 12: SdfClipmapVolume (3D R16_SFLOAT hardware volume)
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 13: ShadowDepthArray (1024x1024x3 D32_SFLOAT)
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 14: TemporalHistoryPrev (6 layers rgba16f)
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 15: TemporalHistoryCurr (6 layers rgba16f)
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 16: SurfaceAndWorkAtlas (14 layers rgba16f)
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 17: OutputImage (1 layer rgba16f)
+        VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          // 18: ViewportDisplayTarget (2D rgba8)
     }};
 
     auto RecordStats = [&](const ComputeProgramSlot& Slot)
@@ -121,37 +393,43 @@ bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
     CompileStats_.clear();
     if (!Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/SolveSurfaceRadiosity.spv",
                                      "SolveSurfaceRadiosityMain",
-                                     Bindings,
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
                                      RadiosityProgram_,
                                      OutDiagnostic) ||
         !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/TracePrimarySurface.spv",
                                      "TracePrimarySurfaceMain",
-                                     Bindings,
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
                                      PrimaryProgram_,
                                      OutDiagnostic) ||
-        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/SampleDirectReservoirs.spv",
-                                     "SampleDirectReservoirsMain",
-                                     Bindings,
+        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/EvaluateDirectRadiance.spv",
+                                     "EvaluateDirectRadianceMain",
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
-                                     DirectRisProgram_,
+                                     DirectRadianceProgram_,
                                      OutDiagnostic) ||
-        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/SampleIndirectReservoirs.spv",
-                                     "SampleIndirectReservoirsMain",
-                                     Bindings,
+        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/TraceIndirectDiffuse.spv",
+                                     "TraceIndirectDiffuseMain",
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
                                      IndirectGiProgram_,
                                      OutDiagnostic) ||
-        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/ReuseSpatialReservoirs.spv",
-                                     "ReuseSpatialReservoirsMain",
-                                     Bindings,
+        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/TraceSpecularReflections.spv",
+                                     "TraceSpecularReflectionsMain",
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
-                                     SpatialReflectProgram_,
+                                     SpecularReflectProgram_,
+                                     OutDiagnostic) ||
+        !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/IntegrateTemporalVariance.spv",
+                                     "IntegrateTemporalVarianceMain",
+                                     ComputeBindings,
+                                     sizeof(SpatiotemporalPushConstants),
+                                     TemporalVarianceProgram_,
                                      OutDiagnostic) ||
         !Exchange.LoadComputeProgram(ShaderBinaryDirectory + "/FilterSpatiotemporalAtrous.spv",
                                      "FilterSpatiotemporalAtrousMain",
-                                     Bindings,
+                                     ComputeBindings,
                                      sizeof(SpatiotemporalPushConstants),
                                      AtrousProgram_,
                                      OutDiagnostic))
@@ -161,17 +439,98 @@ bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
 
     RecordStats(RadiosityProgram_);
     RecordStats(PrimaryProgram_);
-    RecordStats(DirectRisProgram_);
+    RecordStats(DirectRadianceProgram_);
     RecordStats(IndirectGiProgram_);
-    RecordStats(SpatialReflectProgram_);
+    RecordStats(SpecularReflectProgram_);
+    RecordStats(TemporalVarianceProgram_);
     RecordStats(AtrousProgram_);
 
-    // Allocate neutral placeholder spans and fallback textures so every binding is non-null prior to scene upload.
+    // Initialize Hardware Rasterization Pipelines (ShadowRaster + SurfaceRaster + ForwardGlazing) whenever GraphicsSupported!
+    HardwareRasterReady_ = false;
+    if (Exchange.GraphicsSupported())
+    {
+        const std::array<VkDescriptorType, 7> RasterBindings{{
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 0: FrameHeader
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 1: BvhOrTopCells
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 2: BvhTriangles
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 3: MaterialTable
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 4: OctetInstances
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         // 5: OctetBlocks
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, // 6: MaterialMaps
+        }};
+
+        if (Exchange.CreateShadowProcedureOnly(ShadowRenderProcedure_) &&
+            Exchange.CreateSurfaceProcedureOnly(SurfaceRenderProcedure_) &&
+            Exchange.AllocateDepthTargetArray(ShadowMapResolution, ShadowMapResolution, ShadowCascadeCount, ShadowDepthArray_) &&
+            Exchange.CreateShadowFramebufferSet(ShadowRenderProcedure_, ShadowDepthArray_, ShadowTargets_) &&
+            Exchange.LoadGraphicsProgram(ShaderBinaryDirectory + "/ProjectShadowCascadeVertex.spv",
+                                         "ProjectShadowCascadeVertexMain",
+                                         "",
+                                         nullptr,
+                                         RasterBindings,
+                                         32u,
+                                         ShadowRenderProcedure_,
+                                         0u,
+                                         VK_COMPARE_OP_LESS_OR_EQUAL,
+                                         true,
+                                         true,
+                                         ShadowCascadeProgram_,
+                                         OutDiagnostic) &&
+            Exchange.LoadGraphicsProgram(ShaderBinaryDirectory + "/ProjectSurfaceVertex.spv",
+                                         "ProjectSurfaceVertexMain",
+                                         ShaderBinaryDirectory + "/EvaluateSurfaceFragment.spv",
+                                         "EvaluateSurfaceFragmentMain",
+                                         RasterBindings,
+                                         32u,
+                                         SurfaceRenderProcedure_,
+                                         6u,
+                                         VK_COMPARE_OP_GREATER_OR_EQUAL, // Reversed-Z!
+                                         true,
+                                         false,
+                                         SurfaceOpaqueProgram_,
+                                         OutDiagnostic) &&
+            Exchange.LoadGraphicsProgram(ShaderBinaryDirectory + "/ProjectForwardGlazingVertex.spv",
+                                         "ProjectForwardGlazingVertexMain",
+                                         ShaderBinaryDirectory + "/EvaluateForwardGlazingFragment.spv",
+                                         "EvaluateForwardGlazingFragmentMain",
+                                         RasterBindings,
+                                         32u,
+                                         SurfaceRenderProcedure_,
+                                         6u,
+                                         VK_COMPARE_OP_GREATER, // Reversed-Z depth test against opaque, depthWrite=false
+                                         false,
+                                         false,
+                                         ForwardGlazingProgram_,
+                                         OutDiagnostic))
+        {
+            HardwareRasterReady_ = true;
+            CompileStats_.push_back({"ProjectShadowCascadeVertexMain", 0u, ShadowCascadeProgram_.SpirvByteCount, 0.0f, ShadowCascadeProgram_.PipelineCompileMilliseconds});
+            CompileStats_.push_back({"EvaluateSurfaceFragmentMain", 0u, SurfaceOpaqueProgram_.SpirvByteCount, 0.0f, SurfaceOpaqueProgram_.PipelineCompileMilliseconds});
+            CompileStats_.push_back({"EvaluateForwardGlazingFragmentMain", 0u, ForwardGlazingProgram_.SpirvByteCount, 0.0f, ForwardGlazingProgram_.PipelineCompileMilliseconds});
+        }
+    }
+
+    if (ShadowDepthArray_.Image == VK_NULL_HANDLE)
+    {
+        if (!Exchange.AllocateDepthTargetArray(16u, 16u, ShadowCascadeCount, ShadowDepthArray_))
+        {
+            return false;
+        }
+    }
+
+    // Allocate neutral placeholder spans, 3D volume, and fallback textures so every binding is valid prior to scene upload.
     const std::array<float, 36> ZeroFloats{};
     if (!Exchange.UploadMemorySpan(OctetInstanceSpan_, ZeroFloats.data(), sizeof(ZeroFloats)) ||
         !Exchange.UploadMemorySpan(OctetBlockSpan_, ZeroFloats.data(), sizeof(ZeroFloats)) ||
         !Exchange.UploadMemorySpan(LuminousFacetSpan_, ZeroFloats.data(), sizeof(ZeroFloats)) ||
         !Exchange.UploadMemorySpan(SurfaceCardSpan_, ZeroFloats.data(), sizeof(ZeroFloats)))
+    {
+        return false;
+    }
+
+    const std::vector<float> NeutralVolume(4u * 4u * 4u, 10.0f);
+    if (!Exchange.AllocateR16fVolume3D(4u, 4u, 4u, SdfClipmapVolume_) ||
+        !Exchange.UploadR16fVolume3D(SdfClipmapVolume_, NeutralVolume))
     {
         return false;
     }
@@ -183,22 +542,45 @@ bool SpatiotemporalIllumination::Initialize(VulkanComputeExchange& Exchange,
         return false;
     }
 
-    return Exchange.AllocateRgba16fArray(16u, 16u, 10u, SurfaceAndWorkAtlas_) &&
-           Exchange.AllocateRgba16fArray(16u, 16u, 1u, OutputImage_) &&
-           Exchange.AllocateViewportImage2D(16u, 16u, FallbackViewport2D_);
+    if (!Exchange.AllocateRgba16fArray(16u, 16u, 6u, TemporalHistoryA_) ||
+        !Exchange.AllocateRgba16fArray(16u, 16u, 6u, TemporalHistoryB_) ||
+        !Exchange.AllocateRgba16fArray(16u, 16u, 14u, SurfaceAndWorkAtlas_) ||
+        !Exchange.AllocateRgba16fArray(16u, 16u, 1u, OutputImage_) ||
+        !Exchange.AllocateViewportImage2D(16u, 16u, FallbackViewport2D_))
+    {
+        return false;
+    }
+
+    (void)Exchange.ClearRgba16fArray(TemporalHistoryA_);
+    (void)Exchange.ClearRgba16fArray(TemporalHistoryB_);
+    (void)Exchange.ClearRgba16fArray(SurfaceAndWorkAtlas_);
+    (void)Exchange.ClearRgba16fArray(OutputImage_);
+    return true;
 }
 
 void SpatiotemporalIllumination::Shutdown(VulkanComputeExchange& Exchange) noexcept
 {
+    Exchange.ReleaseSurfaceFramebufferSet(SurfaceTargets_);
+    Exchange.ReleaseShadowFramebufferSet(ShadowTargets_);
+    Exchange.ReleaseGraphicsProgram(ForwardGlazingProgram_);
+    Exchange.ReleaseGraphicsProgram(SurfaceOpaqueProgram_);
+    Exchange.ReleaseGraphicsProgram(ShadowCascadeProgram_);
+    Exchange.ReleaseRenderProcedure(SurfaceRenderProcedure_);
+    Exchange.ReleaseRenderProcedure(ShadowRenderProcedure_);
+    HardwareRasterReady_ = false;
+
     Exchange.ReleaseViewportImage2D(FallbackViewport2D_);
     Exchange.ReleaseImage(OutputImage_);
     Exchange.ReleaseImage(SurfaceAndWorkAtlas_);
+    Exchange.ReleaseImage(TemporalHistoryB_);
+    Exchange.ReleaseImage(TemporalHistoryA_);
+    Exchange.ReleaseDepthTarget(PrimaryDepthTarget_);
+    Exchange.ReleaseDepthTarget(ShadowDepthArray_);
+    Exchange.ReleaseVolume3D(SdfClipmapVolume_);
     Exchange.ReleaseImage(MaterialTextureArray_);
 
-    Exchange.ReleaseMemorySpan(IndirectReservoirPrevSpan_);
-    Exchange.ReleaseMemorySpan(IndirectReservoirCurrSpan_);
-    Exchange.ReleaseMemorySpan(DirectReservoirPrevSpan_);
-    Exchange.ReleaseMemorySpan(DirectReservoirCurrSpan_);
+    Exchange.ReleaseMemorySpan(DirectReservoirB_);
+    Exchange.ReleaseMemorySpan(DirectReservoirA_);
     Exchange.ReleaseMemorySpan(SurfaceCardSpan_);
     Exchange.ReleaseMemorySpan(LuminousFacetSpan_);
     Exchange.ReleaseMemorySpan(OctetBlockSpan_);
@@ -214,12 +596,17 @@ void SpatiotemporalIllumination::Shutdown(VulkanComputeExchange& Exchange) noexc
     Exchange.ReleaseMemorySpan(FrameHeaderSpan_);
 
     Exchange.ReleaseProgram(AtrousProgram_);
-    Exchange.ReleaseProgram(SpatialReflectProgram_);
+    Exchange.ReleaseProgram(TemporalVarianceProgram_);
+    Exchange.ReleaseProgram(SpecularReflectProgram_);
     Exchange.ReleaseProgram(IndirectGiProgram_);
-    Exchange.ReleaseProgram(DirectRisProgram_);
+    Exchange.ReleaseProgram(DirectRadianceProgram_);
     Exchange.ReleaseProgram(PrimaryProgram_);
     Exchange.ReleaseProgram(RadiosityProgram_);
 
+    CachedTwoLevelDrawSpans_.clear();
+    SingleLevelOpaqueTris_  = 0u;
+    SingleLevelGlassTris_   = 0u;
+    SingleLevelGlassOffset_ = 0u;
     UploadedBvhCells_       = 0u;
     UploadedBvhTris_        = 0u;
     UploadedBottomArchives_ = 0u;
@@ -240,8 +627,39 @@ bool SpatiotemporalIllumination::UploadSceneGeometryAndMaterials(VulkanComputeEx
                                                                  const VolumeDistanceField*    DistanceVolume)
 {
     std::vector<std::array<float, 4>> CellTable;
-    std::vector<std::array<float, 4>> TriTable;
-    BvhAtlas.PackForGpu(CellTable, TriTable);
+    std::vector<std::array<float, 4>> RawTriTable;
+    BvhAtlas.PackForGpu(CellTable, RawTriTable);
+
+    // For single-level scenes: keep RawTriTable intact for BVH traversal, and check if any transmissive glass exists
+    // (Note: BvhAtlas leaf indices reference RawTriTable indices, so we do NOT reorder RawTriTable; in SurfaceRaster,
+    // ProjectSurfaceVertexMain skips transmissive triangles via IsOctetTransmissiveClass, and ProjectForwardGlazingVertexMain
+    // skips opaque triangles! So passing the full triangle range [0 .. TriCount) to both draws works for arbitrary ordering!)
+    uint32_t AnyOpaqueCount = 0u;
+    uint32_t AnyGlassCount  = 0u;
+    std::vector<PackedRayTriangle> ExtractedTris;
+    ExtractedTris.reserve(BvhAtlas.TriangleCount());
+    for (size_t Base = 0u; Base + 4u < RawTriTable.size(); Base += 5u)
+    {
+        const uint32_t PackedClass = std::bit_cast<uint32_t>(RawTriTable[Base + 2u][3]);
+        if ((PackedClass & 0x80000000u) != 0u)
+        {
+            ++AnyGlassCount;
+        }
+        else
+        {
+            ++AnyOpaqueCount;
+        }
+        PackedRayTriangle T{};
+        T.Vertex0          = {RawTriTable[Base + 0u][0], RawTriTable[Base + 0u][1], RawTriTable[Base + 0u][2]};
+        T.Edge1            = {RawTriTable[Base + 1u][0], RawTriTable[Base + 1u][1], RawTriTable[Base + 1u][2]};
+        T.Edge2            = {RawTriTable[Base + 2u][0], RawTriTable[Base + 2u][1], RawTriTable[Base + 2u][2]};
+        T.ClassificationId = PackedClass & 0x7FFFFFFFu;
+        ExtractedTris.push_back(T);
+    }
+    SingleLevelOpaqueTris_  = (AnyOpaqueCount > 0u) ? BvhAtlas.TriangleCount() : 0u;
+    SingleLevelGlassTris_   = (AnyGlassCount > 0u) ? BvhAtlas.TriangleCount() : 0u;
+    SingleLevelGlassOffset_ = 0u;
+    CachedTwoLevelDrawSpans_.clear();
 
     std::vector<std::array<float, 4>> MatTable;
     MaterialAtlas.PackForGpu(MatTable);
@@ -256,9 +674,16 @@ bool SpatiotemporalIllumination::UploadSceneGeometryAndMaterials(VulkanComputeEx
     }
 
     std::vector<std::array<float, 4>> SdfTable;
-    if (DistanceVolume != nullptr && !DistanceVolume->Distances.empty())
+    if (DistanceVolume != nullptr && !DistanceVolume->Distances.empty() &&
+        DistanceVolume->Dimensions[0] > 0u && DistanceVolume->Dimensions[1] > 0u && DistanceVolume->Dimensions[2] > 0u)
     {
         PackVolumeDistanceForGpu(*DistanceVolume, SdfTable);
+        if (!Exchange.AllocateR16fVolume3D(
+                DistanceVolume->Dimensions[0], DistanceVolume->Dimensions[1], DistanceVolume->Dimensions[2], SdfClipmapVolume_) ||
+            !Exchange.UploadR16fVolume3D(SdfClipmapVolume_, DistanceVolume->Distances))
+        {
+            return false;
+        }
         HasSdfVolume_ = true;
     }
     else
@@ -268,25 +693,13 @@ bool SpatiotemporalIllumination::UploadSceneGeometryAndMaterials(VulkanComputeEx
         HasSdfVolume_ = false;
     }
 
-    // Build luminous triangle CDF automatically from packed BVH triangles so self-radiant softboxes/headlamps participate!
-    std::vector<PackedRayTriangle> ExtractedTris;
-    ExtractedTris.reserve(BvhAtlas.TriangleCount());
-    for (size_t Base = 0u; Base + 4u < TriTable.size(); Base += 5u)
-    {
-        PackedRayTriangle T{};
-        T.Vertex0          = {TriTable[Base + 0u][0], TriTable[Base + 0u][1], TriTable[Base + 0u][2]};
-        T.Edge1            = {TriTable[Base + 1u][0], TriTable[Base + 1u][1], TriTable[Base + 1u][2]};
-        T.Edge2            = {TriTable[Base + 2u][0], TriTable[Base + 2u][1], TriTable[Base + 2u][2]};
-        T.ClassificationId = std::bit_cast<uint32_t>(TriTable[Base + 2u][3]) & 0x7FFFFFFFu;
-        ExtractedTris.push_back(T);
-    }
     LuminousFacetAtlas AutoLuminous{};
     AutoLuminous.BuildFromWorldTriangles(ExtractedTris, MaterialAtlas);
     std::vector<std::array<float, 4>> LumFacetTable;
     AutoLuminous.PackForGpu(LumFacetTable);
 
     if (!Exchange.UploadMemorySpan(BvhOrTopCellSpan_, CellTable.data(), CellTable.size() * sizeof(float) * 4u) ||
-        !Exchange.UploadMemorySpan(BvhTriangleSpan_, TriTable.data(), TriTable.size() * sizeof(float) * 4u) ||
+        !Exchange.UploadMemorySpan(BvhTriangleSpan_, RawTriTable.data(), RawTriTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(MaterialSpan_, MatTable.data(), MatTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(DistanceOrRangeSpan_, SdfTable.data(), SdfTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(LuminousFacetSpan_, LumFacetTable.data(), LumFacetTable.size() * sizeof(float) * 4u))
@@ -320,6 +733,10 @@ bool SpatiotemporalIllumination::UploadTwoLevelScene(VulkanComputeExchange&     
     std::vector<std::array<float, 4>> OctetTable;
     std::vector<std::array<float, 4>> TriTable;
     TwoLevelAtlas.PackForGpu(TopTable, InstTable, OctetTable, TriTable);
+    TwoLevelAtlas.QueryRasterDrawSpans(CachedTwoLevelDrawSpans_);
+    SingleLevelOpaqueTris_  = 0u;
+    SingleLevelGlassTris_   = 0u;
+    SingleLevelGlassOffset_ = 0u;
 
     std::vector<std::array<float, 4>> MatTable;
     MaterialAtlas.PackForGpu(MatTable);
@@ -333,17 +750,35 @@ bool SpatiotemporalIllumination::UploadTwoLevelScene(VulkanComputeExchange&     
         return false;
     }
 
-    std::vector<std::array<float, 4>> RangeTable;
+    std::vector<std::array<float, 4>> RangeMetaTable;
     if (RangeClipmap != nullptr && !RangeClipmap->Empty())
     {
-        RangeClipmap->PackForGpu(RangeTable);
+        uint32_t           VolW = 0u, VolH = 0u, VolD = 0u;
+        std::vector<float> ScalarVolume;
+        RangeClipmap->PackVolume3DForGpu(VolW, VolH, VolD, ScalarVolume);
+        RangeClipmap->PackForGpu(RangeMetaTable);
+        if (RangeMetaTable.size() > 10u)
+        {
+            RangeMetaTable.resize(10u);
+        }
+        if (SdfClipmapVolume_.Width != VolW || SdfClipmapVolume_.Height != VolH || SdfClipmapVolume_.Depth != VolD)
+        {
+            if (!Exchange.AllocateR16fVolume3D(VolW, VolH, VolD, SdfClipmapVolume_))
+            {
+                return false;
+            }
+        }
+        if (!Exchange.UploadR16fVolume3D(SdfClipmapVolume_, ScalarVolume))
+        {
+            return false;
+        }
         RangeClipmapActive_ = true;
         HasSdfVolume_       = true;
     }
     else
     {
         VolumeDistanceField Empty{};
-        PackVolumeDistanceForGpu(Empty, RangeTable);
+        PackVolumeDistanceForGpu(Empty, RangeMetaTable);
         RangeClipmapActive_ = false;
         HasSdfVolume_       = false;
     }
@@ -383,7 +818,7 @@ bool SpatiotemporalIllumination::UploadTwoLevelScene(VulkanComputeExchange&     
         !Exchange.UploadMemorySpan(OctetBlockSpan_, OctetTable.data(), OctetTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(BvhTriangleSpan_, TriTable.data(), TriTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(MaterialSpan_, MatTable.data(), MatTable.size() * sizeof(float) * 4u) ||
-        !Exchange.UploadMemorySpan(DistanceOrRangeSpan_, RangeTable.data(), RangeTable.size() * sizeof(float) * 4u) ||
+        !Exchange.UploadMemorySpan(DistanceOrRangeSpan_, RangeMetaTable.data(), RangeMetaTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(SurfaceCardSpan_, CombinedCardSpan.data(), CombinedCardSpan.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(LuminousFacetSpan_, LumFacetTable.data(), LumFacetTable.size() * sizeof(float) * 4u))
     {
@@ -413,6 +848,7 @@ bool SpatiotemporalIllumination::UpdateDynamicTopLevelInstances(VulkanComputeExc
     std::vector<std::array<float, 4>> UnusedOctet;
     std::vector<std::array<float, 4>> UnusedTri;
     TwoLevelAtlas.PackForGpu(TopTable, InstTable, UnusedOctet, UnusedTri);
+    TwoLevelAtlas.QueryRasterDrawSpans(CachedTwoLevelDrawSpans_);
 
     if (!Exchange.UploadMemorySpan(BvhOrTopCellSpan_, TopTable.data(), TopTable.size() * sizeof(float) * 4u) ||
         !Exchange.UploadMemorySpan(OctetInstanceSpan_, InstTable.data(), InstTable.size() * sizeof(float) * 4u))
@@ -431,9 +867,25 @@ bool SpatiotemporalIllumination::UpdateRangeClipmap(VulkanComputeExchange&    Ex
     {
         return false;
     }
-    std::vector<std::array<float, 4>> RangeTable;
-    RangeClipmap.PackForGpu(RangeTable);
-    if (!Exchange.UploadMemorySpan(DistanceOrRangeSpan_, RangeTable.data(), RangeTable.size() * sizeof(float) * 4u))
+    uint32_t                          VolW = 0u, VolH = 0u, VolD = 0u;
+    std::vector<float>                ScalarVolume;
+    std::vector<std::array<float, 4>> RangeMetaTable;
+    RangeClipmap.PackVolume3DForGpu(VolW, VolH, VolD, ScalarVolume);
+    RangeClipmap.PackForGpu(RangeMetaTable);
+    if (RangeMetaTable.size() > 10u)
+    {
+        RangeMetaTable.resize(10u);
+    }
+
+    if (SdfClipmapVolume_.Width != VolW || SdfClipmapVolume_.Height != VolH || SdfClipmapVolume_.Depth != VolD)
+    {
+        if (!Exchange.AllocateR16fVolume3D(VolW, VolH, VolD, SdfClipmapVolume_))
+        {
+            return false;
+        }
+    }
+    if (!Exchange.UploadR16fVolume3D(SdfClipmapVolume_, ScalarVolume) ||
+        !Exchange.UploadMemorySpan(DistanceOrRangeSpan_, RangeMetaTable.data(), RangeMetaTable.size() * sizeof(float) * 4u))
     {
         return false;
     }
@@ -453,12 +905,33 @@ bool SpatiotemporalIllumination::RenderFrame(VulkanComputeExchange&             
     const uint32_t W             = std::max(1u, Camera.WidthPx);
     const uint32_t H             = std::max(1u, Camera.HeightPx);
 
+    if (Config.FullRaytracingMode != LastModeFullRaytracing_)
+    {
+        HistoryValid_           = false;
+        LastModeFullRaytracing_ = Config.FullRaytracingMode;
+    }
+
     if (OutputImage_.Width != W || OutputImage_.Height != H)
     {
-        if (!Exchange.AllocateRgba16fArray(W, H, 10u, SurfaceAndWorkAtlas_) ||
+        if (!Exchange.AllocateRgba16fArray(W, H, 6u, TemporalHistoryA_) ||
+            !Exchange.AllocateRgba16fArray(W, H, 6u, TemporalHistoryB_) ||
+            !Exchange.AllocateRgba16fArray(W, H, 14u, SurfaceAndWorkAtlas_) ||
             !Exchange.AllocateRgba16fArray(W, H, 1u, OutputImage_))
         {
             return false;
+        }
+        (void)Exchange.ClearRgba16fArray(TemporalHistoryA_);
+        (void)Exchange.ClearRgba16fArray(TemporalHistoryB_);
+        (void)Exchange.ClearRgba16fArray(SurfaceAndWorkAtlas_);
+        (void)Exchange.ClearRgba16fArray(OutputImage_);
+
+        if (HardwareRasterReady_)
+        {
+            if (!Exchange.AllocateDepthTargetArray(W, H, 1u, PrimaryDepthTarget_) ||
+                !Exchange.CreateSurfaceFramebufferSet(SurfaceRenderProcedure_, SurfaceAndWorkAtlas_, PrimaryDepthTarget_, SurfaceTargets_))
+            {
+                return false;
+            }
         }
         HistoryValid_ = false;
     }
@@ -480,85 +953,46 @@ bool SpatiotemporalIllumination::RenderFrame(VulkanComputeExchange&             
         return false;
     }
 
-    // 2 x float4 (= 32 B) per pixel reservoir for BOTH Direct DI and Indirect GI
-    const size_t ReservoirBytes = static_cast<size_t>(W) * H * 2u * sizeof(float) * 4u;
-    if (DirectReservoirCurrSpan_.Capacity < ReservoirBytes || DirectReservoirPrevSpan_.Capacity < ReservoirBytes ||
-        IndirectReservoirCurrSpan_.Capacity < ReservoirBytes || IndirectReservoirPrevSpan_.Capacity < ReservoirBytes)
+    const size_t DirectResBytes = static_cast<size_t>(W) * H * sizeof(float) * 4u;
+    if (DirectReservoirA_.Capacity < DirectResBytes || DirectReservoirB_.Capacity < DirectResBytes)
     {
-        std::vector<float> ZeroRes(static_cast<size_t>(W) * H * 8u, 0.0f);
-        if (!Exchange.UploadMemorySpan(DirectReservoirCurrSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(DirectReservoirPrevSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(IndirectReservoirCurrSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(IndirectReservoirPrevSpan_, ZeroRes.data(), ReservoirBytes))
+        std::vector<float> ZeroRes(static_cast<size_t>(W) * H * 4u, 0.0f);
+        if (!Exchange.UploadMemorySpan(DirectReservoirA_, ZeroRes.data(), DirectResBytes) ||
+            !Exchange.UploadMemorySpan(DirectReservoirB_, ZeroRes.data(), DirectResBytes))
         {
             return false;
         }
         HistoryValid_ = false;
     }
 
-    const auto  CamFwd   = NormVec(SubVec(Camera.TargetMeters, Camera.OriginMeters));
-    const auto  RefUp    = (std::abs(DotVec(CamFwd, Camera.UpUnit)) > 0.98f)
-                               ? std::array<float, 3>{0.0f, 0.0f, 1.0f}
-                               : Camera.UpUnit;
-    const auto  CamRight = NormVec(CrossVec(CamFwd, RefUp));
-    const auto  CamUp    = NormVec(CrossVec(CamRight, CamFwd));
-    const float TanHalfV = std::tan(0.5f * Camera.VerticalFovRad);
-    const float TanHalfH = TanHalfV * (static_cast<float>(W) / static_cast<float>(H));
+    const auto                   CamFwd   = NormVec(SubVec(Camera.TargetMeters, Camera.OriginMeters));
+    const std::array<float, 16>  PrevRows = HistoryValid_ ? PreviousViewProjRows_ : PreviousViewProjRows_;
+    const SolarCascadeHeaderPack Cascades = BuildSolarShadowCascades(
+        Camera.OriginMeters, CamFwd, Luminaires, ShadowMapResolution, HardwareRasterReady_ && !Config.FullRaytracingMode);
 
-    const std::array<float, 16> CurrentViewProjRows =
-        ComputeCameraWorldToNdcRows(Camera.OriginMeters, CamRight, CamUp, CamFwd, TanHalfH, TanHalfV);
-    const std::array<float, 16> PrevRows = HistoryValid_ ? PreviousViewProjRows_ : CurrentViewProjRows;
-
-    const uint32_t LumCount = static_cast<uint32_t>(std::min<size_t>(Luminaires.size(), 32u));
-    const auto&    Env      = Config.Environment;
-
-    // 20-slot fixed header + 4 * LumCount luminaire records
+    std::array<float, 16>             CurrentViewProjRows{};
     std::vector<std::array<float, 4>> Header;
-    Header.reserve(20u + std::max(1u, LumCount) * 4u);
-    Header.push_back({Camera.OriginMeters[0], Camera.OriginMeters[1], Camera.OriginMeters[2], TanHalfV});                  // [0]
-    Header.push_back({CamRight[0], CamRight[1], CamRight[2], TanHalfH});                                                   // [1]
-    Header.push_back({CamUp[0], CamUp[1], CamUp[2], static_cast<float>(UploadedBvhCells_)});                               // [2]
-    Header.push_back({CamFwd[0], CamFwd[1], CamFwd[2], static_cast<float>(LumCount)});                                     // [3]
-    Header.push_back({Config.ZenithSkyRgb[0], Config.ZenithSkyRgb[1], Config.ZenithSkyRgb[2], static_cast<float>(std::max(1u, Config.RisCandidateCount))}); // [4]
-    Header.push_back({Config.HorizonSkyRgb[0], Config.HorizonSkyRgb[1], Config.HorizonSkyRgb[2], static_cast<float>(Config.SpatialNeighbors)});             // [5]
-    Header.push_back({Config.GroundBounceTintRgb[0], Config.GroundBounceTintRgb[1], Config.GroundBounceTintRgb[2], static_cast<float>(Config.SdfIndirectRays)}); // [6]
-    Header.push_back({Config.EnableReflections ? 1.0f : 0.0f,
-                      Config.EnableSpatialReuse ? 1.0f : 0.0f,
-                      HasSdfVolume_ ? 1.0f : 0.0f,
-                      Config.EnableIndirectGi ? 1.0f : 0.0f});                                                             // [7]
-    Header.push_back({PrevRows[0], PrevRows[1], PrevRows[2], PrevRows[3]});                                                // [8]
-    Header.push_back({PrevRows[4], PrevRows[5], PrevRows[6], PrevRows[7]});                                                // [9]
-    Header.push_back({PrevRows[8], PrevRows[9], PrevRows[10], PrevRows[11]});                                              // [10]
-    Header.push_back({PrevRows[12], PrevRows[13], PrevRows[14], PrevRows[15]});                                            // [11]
-    Header.push_back({TwoLevelOctetActive_ ? 1.0f : 0.0f,
-                      RangeClipmapActive_ ? 1.0f : 0.0f,
-                      static_cast<float>(UploadedLuminousFacets_),
-                      static_cast<float>(UploadedSurfacePatches_)});                                                       // [12]
-    Header.push_back({static_cast<float>(Config.InspectionMode),
-                      static_cast<float>(std::clamp(Config.TemporalHistoryLimit, 1u, 64u)),
-                      Config.SurfaceCardGain,
-                      Config.SurfaceCardSkyWeight});                                                                       // [13]
-    Header.push_back({Env.CloudsEnabled ? Env.CloudCoverage : -1.0f,
-                      Env.CloudDensity,
-                      Env.CloudBottomMeters,
-                      Env.LunarEnabled ? Env.DaytimeVeilStrength : -1.0f});                                                // [14]
-    Header.push_back({Env.PrimaryMoonDir[0], Env.PrimaryMoonDir[1], Env.PrimaryMoonDir[2], Env.PrimaryMoonRadius});        // [15]
-    Header.push_back({Env.SecondaryMoonDir[0], Env.SecondaryMoonDir[1], Env.SecondaryMoonDir[2], Env.SecondaryMoonRadius});// [16]
-    Header.push_back({Env.FogInscatteringRgb[0], Env.FogInscatteringRgb[1], Env.FogInscatteringRgb[2], Env.FogEnabled ? Env.FogDensity : -1.0f}); // [17]
-    Header.push_back({Env.FogHeightFalloff, static_cast<float>(std::min(Config.RadiosityBounces, 8u)), 0.0f, 0.0f});       // [18]
-    Header.push_back({0.0f, 0.0f, 0.0f, 0.0f});                                                                            // [19]
-
-    for (uint32_t Idx = 0u; Idx < LumCount; ++Idx)
+    BuildFrameHeaderVector(Camera,
+                           W,
+                           H,
+                           UploadedBvhCells_,
+                           UploadedLuminousFacets_,
+                           UploadedSurfacePatches_,
+                           HasSdfVolume_,
+                           TwoLevelOctetActive_,
+                           RangeClipmapActive_,
+                           HistoryValid_ ? PreviousViewProjRows_ : CurrentViewProjRows,
+                           Cascades,
+                           Luminaires,
+                           Config,
+                           CurrentViewProjRows,
+                           Header);
+    if (!HistoryValid_)
     {
-        const AnalyticalLuminaire& L = Luminaires[Idx];
-        Header.push_back({L.DirectionOrPosition[0], L.DirectionOrPosition[1], L.DirectionOrPosition[2], static_cast<float>(L.Kind)});
-        Header.push_back({L.AxisU[0], L.AxisU[1], L.AxisU[2], 0.0f});
-        Header.push_back({L.AxisV[0], L.AxisV[1], L.AxisV[2], 0.0f});
-        Header.push_back({L.EmittedRadianceRgb[0], L.EmittedRadianceRgb[1], L.EmittedRadianceRgb[2], 1.0f});
-    }
-    if (LumCount == 0u)
-    {
-        Header.resize(24u, {0.0f, 0.0f, 0.0f, 0.0f});
+        Header[8]  = {CurrentViewProjRows[0], CurrentViewProjRows[1], CurrentViewProjRows[2], CurrentViewProjRows[3]};
+        Header[9]  = {CurrentViewProjRows[4], CurrentViewProjRows[5], CurrentViewProjRows[6], CurrentViewProjRows[7]};
+        Header[10] = {CurrentViewProjRows[8], CurrentViewProjRows[9], CurrentViewProjRows[10], CurrentViewProjRows[11]};
+        Header[11] = {CurrentViewProjRows[12], CurrentViewProjRows[13], CurrentViewProjRows[14], CurrentViewProjRows[15]};
     }
 
     if (!Exchange.UploadMemorySpan(FrameHeaderSpan_, Header.data(), Header.size() * sizeof(float) * 4u))
@@ -566,92 +1000,174 @@ bool SpatiotemporalIllumination::RenderFrame(VulkanComputeExchange&             
         return false;
     }
 
-    const bool                                      UseTemporal = Config.EnableTemporalReuse && HistoryValid_;
-    const std::array<ComputeDescriptorArgument, 17> Args{{
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &FrameHeaderSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DistanceOrRangeSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &LuminousFacetSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &SurfaceCardSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirectReservoirCurrSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirectReservoirPrevSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &IndirectReservoirCurrSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &IndirectReservoirPrevSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &SurfaceAndWorkAtlas_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &OutputImage_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, nullptr, ViewportSlot},
+    const bool                  EvenFrame   = ((FrameCounter_ & 1u) == 0u);
+    const DeviceImageArraySlot& HistPrev    = EvenFrame ? TemporalHistoryA_ : TemporalHistoryB_;
+    const DeviceImageArraySlot& HistCurr    = EvenFrame ? TemporalHistoryB_ : TemporalHistoryA_;
+    const DeviceMemorySpan&     DirResPrev  = EvenFrame ? DirectReservoirA_ : DirectReservoirB_;
+    const DeviceMemorySpan&     DirResCurr  = EvenFrame ? DirectReservoirB_ : DirectReservoirA_;
+    const bool                  UseTemporal = Config.EnableTemporalReuse && HistoryValid_;
+
+    const std::array<ComputeDescriptorArgument, 19> ComputeArgs{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &FrameHeaderSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DistanceOrRangeSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &LuminousFacetSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &SurfaceCardSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirResCurr, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirResPrev, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, nullptr, nullptr, &SdfClipmapVolume_, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, nullptr, nullptr, nullptr, &ShadowDepthArray_},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HistPrev, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HistCurr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &SurfaceAndWorkAtlas_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &OutputImage_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, nullptr, ViewportSlot, nullptr, nullptr},
     }};
 
-    const uint32_t GroupsX = (W + 7u) / 8u;
-    const uint32_t GroupsY = (H + 7u) / 8u;
+    const std::array<ComputeDescriptorArgument, 7> RasterArgs{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &FrameHeaderSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr, nullptr, nullptr},
+    }};
+
+    const uint32_t GroupsX      = (W + 7u) / 8u;
+    const uint32_t GroupsY      = (H + 7u) / 8u;
+    const uint32_t GiTraceScale = static_cast<uint32_t>(Header[18][3] + 0.5f);
+    const uint32_t GiGroupsX    = (((W + GiTraceScale - 1u) / GiTraceScale) + 7u) / 8u;
+    const uint32_t GiGroupsY    = (((H + GiTraceScale - 1u) / GiTraceScale) + 7u) / 8u;
 
     const SpatiotemporalPushConstants BasePush{
         {W, H, FrameCounter_, 0u},
-        {Config.ExposureScale, 1.0f, 10.0f, UseTemporal ? 1.0f : 0.0f},
+        {Config.ExposureScale, 1.0f, 3.8f, UseTemporal ? 1.0f : 0.0f},
     };
 
     float RadiosityMs = 0.0f;
     if (UploadedSurfacePatches_ > 0u)
     {
-        if (!Exchange.DispatchCompute(RadiosityProgram_, Args, &BasePush, sizeof(BasePush), 1u, 1u, 1u))
+        if (!Exchange.DispatchCompute(RadiosityProgram_, ComputeArgs, &BasePush, sizeof(BasePush), 1u, 1u, 1u))
         {
             return false;
         }
         RadiosityMs = Exchange.QueryLastDispatchGpuMilliseconds();
     }
 
-    if (!Exchange.DispatchCompute(PrimaryProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
+    float PrimaryMs = 0.0f;
+    float ShadowMs  = 0.0f;
+    if (HardwareRasterReady_)
+    {
+        std::vector<RasterDrawItem>                OpaqueDraws;
+        std::vector<RasterDrawItem>                GlassDraws;
+        std::array<std::vector<RasterDrawItem>, 3> CascadeDraws;
+        BuildPerFrameRasterItems(TwoLevelOctetActive_,
+                                 CachedTwoLevelDrawSpans_,
+                                 SingleLevelOpaqueTris_,
+                                 SingleLevelGlassTris_,
+                                 SingleLevelGlassOffset_,
+                                 W,
+                                 H,
+                                 FrameCounter_,
+                                 OpaqueDraws,
+                                 GlassDraws,
+                                 CascadeDraws);
+
+        if (Cascades.Active)
+        {
+            for (uint32_t C = 0u; C < ShadowCascadeCount; ++C)
+            {
+                if (!Exchange.ExecuteShadowCascadeDraws(
+                        ShadowCascadeProgram_, ShadowTargets_, ShadowDepthArray_, RasterArgs, C, CascadeDraws[C]))
+                {
+                    return false;
+                }
+                ShadowMs += Exchange.QueryLastDispatchGpuMilliseconds();
+            }
+        }
+
+        if (!Exchange.ExecuteSurfaceAndForwardDraws(SurfaceOpaqueProgram_,
+                                                    ForwardGlazingProgram_,
+                                                    SurfaceTargets_,
+                                                    SurfaceAndWorkAtlas_,
+                                                    PrimaryDepthTarget_,
+                                                    RasterArgs,
+                                                    OpaqueDraws,
+                                                    GlassDraws))
+        {
+            return false;
+        }
+        PrimaryMs = Exchange.QueryLastDispatchGpuMilliseconds();
+    }
+    else
+    {
+        if (!Exchange.DispatchCompute(PrimaryProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
+        {
+            return false;
+        }
+        PrimaryMs = Exchange.QueryLastDispatchGpuMilliseconds();
+    }
+
+    if (!Exchange.DispatchCompute(DirectRadianceProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
     {
         return false;
     }
-    const float PrimaryMs = Exchange.QueryLastDispatchGpuMilliseconds();
+    const float DirectMs = ShadowMs + Exchange.QueryLastDispatchGpuMilliseconds();
 
-    if (!Exchange.DispatchCompute(DirectRisProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
-    {
-        return false;
-    }
-    const float DirectRisMs = Exchange.QueryLastDispatchGpuMilliseconds();
-
-    if (!Exchange.DispatchCompute(IndirectGiProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
+    if (!Exchange.DispatchCompute(IndirectGiProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GiGroupsX, GiGroupsY, 1u))
     {
         return false;
     }
     const float IndirectGiMs = Exchange.QueryLastDispatchGpuMilliseconds();
 
-    if (!Exchange.DispatchCompute(SpatialReflectProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
+    if (!Exchange.DispatchCompute(SpecularReflectProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
     {
         return false;
     }
-    const float SpatialReflMs = Exchange.QueryLastDispatchGpuMilliseconds();
+    const float SpecReflMs = Exchange.QueryLastDispatchGpuMilliseconds();
 
-    float          AtrousMs   = 0.0f;
-    const uint32_t Iterations = std::clamp(Config.AtrousIterations, 1u, 4u);
-    for (uint32_t Iter = 0u; Iter < Iterations; ++Iter)
+    if (!Exchange.DispatchCompute(TemporalVarianceProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u))
     {
-        const uint32_t SrcParity = Iter & 1u;
-        const uint32_t FinalIter = (Iter + 1u == Iterations) ? 1u : 0u;
-        const SpatiotemporalPushConstants AtrousPush{
-            {W, H, SrcParity, FinalIter},
-            {Config.ExposureScale, static_cast<float>(1u << Iter), 10.0f, 0.0f},
+        return false;
+    }
+    float AtrousMs = Exchange.QueryLastDispatchGpuMilliseconds();
+
+    const uint32_t WaveletPasses = Config.EnableSpatialReuse ? std::clamp(Config.AtrousIterations, 1u, 4u) : 0u;
+    for (uint32_t Iter = 0u; Iter < WaveletPasses; ++Iter)
+    {
+        const SpatiotemporalPushConstants WaveletPush{
+            {W, H, Iter & 1u, 0u},
+            {Config.ExposureScale, static_cast<float>(1u << Iter), 3.8f, 0.0f},
         };
-        if (!Exchange.DispatchCompute(AtrousProgram_, Args, &AtrousPush, sizeof(AtrousPush), GroupsX, GroupsY, 1u))
+        if (!Exchange.DispatchCompute(AtrousProgram_, ComputeArgs, &WaveletPush, sizeof(WaveletPush), GroupsX, GroupsY, 1u))
         {
             return false;
         }
         AtrousMs += Exchange.QueryLastDispatchGpuMilliseconds();
     }
 
+    // Final joint-bilateral half-res GI upsample + rough reflection EnvBRDF fallback + ACES display compose
+    const SpatiotemporalPushConstants ComposePush{
+        {W, H, WaveletPasses & 1u, 2u},
+        {Config.ExposureScale, 1.0f, 3.8f, 0.0f},
+    };
+    if (!Exchange.DispatchCompute(AtrousProgram_, ComputeArgs, &ComposePush, sizeof(ComposePush), GroupsX, GroupsY, 1u))
+    {
+        return false;
+    }
+    AtrousMs += Exchange.QueryLastDispatchGpuMilliseconds();
+
     if (OptionalViewportTarget != nullptr)
     {
         Exchange.PrepareViewportImageForSampling(*OptionalViewportTarget);
     }
 
-    // Spatial reuse kernel reads *Curr and writes *Prev, so *Prev already holds next frame's temporal history.
     PreviousViewProjRows_ = CurrentViewProjRows;
     HistoryValid_         = true;
     ++FrameCounter_;
@@ -666,20 +1182,24 @@ bool SpatiotemporalIllumination::RenderFrame(VulkanComputeExchange&             
         OutTelemetry->BottomArchiveCount    = UploadedBottomArchives_;
         OutTelemetry->TopInstanceCount      = UploadedInstances_;
         OutTelemetry->OctetBlockCount       = UploadedOctetBlocks_;
-        OutTelemetry->LuminaireCount        = LumCount;
+        OutTelemetry->LuminaireCount        = static_cast<uint32_t>(std::min<size_t>(Luminaires.size(), 32u));
         OutTelemetry->LuminousFacetCount    = UploadedLuminousFacets_;
         OutTelemetry->SurfacePatchCount     = UploadedSurfacePatches_;
         OutTelemetry->AuthoredTextureLayers = UploadedTextureLayers_;
         OutTelemetry->SdfVolumeActive       = HasSdfVolume_;
         OutTelemetry->RangeClipmapActive    = RangeClipmapActive_;
+        OutTelemetry->HardwareRasterActive  = HardwareRasterReady_;
+        OutTelemetry->FullRaytracingActive  = Config.FullRaytracingMode;
+        OutTelemetry->GiTraceScale          = GiTraceScale;
         OutTelemetry->FrameIndex            = FrameCounter_;
         OutTelemetry->RadiosityGpuMs        = RadiosityMs;
         OutTelemetry->PrimaryGpuMs          = PrimaryMs;
-        OutTelemetry->DirectRisGpuMs        = DirectRisMs;
+        OutTelemetry->ShadowRasterGpuMs     = ShadowMs;
+        OutTelemetry->DirectRisGpuMs        = DirectMs;
         OutTelemetry->IndirectGiGpuMs       = IndirectGiMs;
-        OutTelemetry->SpatialReflectGpuMs   = SpatialReflMs;
+        OutTelemetry->SpatialReflectGpuMs   = SpecReflMs;
         OutTelemetry->AtrousResolveGpuMs    = AtrousMs;
-        OutTelemetry->TotalGpuMs = RadiosityMs + PrimaryMs + DirectRisMs + IndirectGiMs + SpatialReflMs + AtrousMs;
+        OutTelemetry->TotalGpuMs            = RadiosityMs + PrimaryMs + DirectMs + IndirectGiMs + SpecReflMs + AtrousMs;
         OutTelemetry->CpuSubmissionMs       = CpuSubmitMs;
     }
     return true;
@@ -704,97 +1224,80 @@ bool SpatiotemporalIllumination::RecordFrameIntoExternalStream(
     const uint32_t H             = std::max(1u, ViewportTarget.Height);
     const uint32_t SlotIdx       = FrameSlotIndex & 3u;
 
-    // Harvest non-blocking GPU timestamp timings from this fence-waited slot's previous execution cycle.
     std::array<float, VulkanComputeExchange::MaxTimedDispatchesSlot> PrevTimings{};
-    const bool HasPrevTimings = Exchange.HarvestExternalSlotTimings(SlotIdx, PrevTimings);
+    const bool               HasPrevTimings = Exchange.HarvestExternalSlotTimings(SlotIdx, PrevTimings);
+    const RecordedSlotCounts PrevCounts     = ExternalSlotCounts_[SlotIdx];
+
+    if (Config.FullRaytracingMode != LastModeFullRaytracing_)
+    {
+        HistoryValid_           = false;
+        LastModeFullRaytracing_ = Config.FullRaytracingMode;
+    }
 
     if (OutputImage_.Width != W || OutputImage_.Height != H)
     {
-        if (!Exchange.AllocateRgba16fArray(W, H, 10u, SurfaceAndWorkAtlas_) ||
+        if (!Exchange.AllocateRgba16fArray(W, H, 6u, TemporalHistoryA_) ||
+            !Exchange.AllocateRgba16fArray(W, H, 6u, TemporalHistoryB_) ||
+            !Exchange.AllocateRgba16fArray(W, H, 14u, SurfaceAndWorkAtlas_) ||
             !Exchange.AllocateRgba16fArray(W, H, 1u, OutputImage_))
         {
             return false;
         }
+        (void)Exchange.ClearRgba16fArray(TemporalHistoryA_);
+        (void)Exchange.ClearRgba16fArray(TemporalHistoryB_);
+        (void)Exchange.ClearRgba16fArray(SurfaceAndWorkAtlas_);
+        (void)Exchange.ClearRgba16fArray(OutputImage_);
+
+        if (HardwareRasterReady_)
+        {
+            if (!Exchange.AllocateDepthTargetArray(W, H, 1u, PrimaryDepthTarget_) ||
+                !Exchange.CreateSurfaceFramebufferSet(SurfaceRenderProcedure_, SurfaceAndWorkAtlas_, PrimaryDepthTarget_, SurfaceTargets_))
+            {
+                return false;
+            }
+        }
         HistoryValid_ = false;
     }
 
-    const size_t ReservoirBytes = static_cast<size_t>(W) * H * 2u * sizeof(float) * 4u;
-    if (DirectReservoirCurrSpan_.Capacity < ReservoirBytes || DirectReservoirPrevSpan_.Capacity < ReservoirBytes ||
-        IndirectReservoirCurrSpan_.Capacity < ReservoirBytes || IndirectReservoirPrevSpan_.Capacity < ReservoirBytes)
+    const size_t DirectResBytes = static_cast<size_t>(W) * H * sizeof(float) * 4u;
+    if (DirectReservoirA_.Capacity < DirectResBytes || DirectReservoirB_.Capacity < DirectResBytes)
     {
-        std::vector<float> ZeroRes(static_cast<size_t>(W) * H * 8u, 0.0f);
-        if (!Exchange.UploadMemorySpan(DirectReservoirCurrSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(DirectReservoirPrevSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(IndirectReservoirCurrSpan_, ZeroRes.data(), ReservoirBytes) ||
-            !Exchange.UploadMemorySpan(IndirectReservoirPrevSpan_, ZeroRes.data(), ReservoirBytes))
+        std::vector<float> ZeroRes(static_cast<size_t>(W) * H * 4u, 0.0f);
+        if (!Exchange.UploadMemorySpan(DirectReservoirA_, ZeroRes.data(), DirectResBytes) ||
+            !Exchange.UploadMemorySpan(DirectReservoirB_, ZeroRes.data(), DirectResBytes))
         {
             return false;
         }
         HistoryValid_ = false;
     }
 
-    const auto  CamFwd   = NormVec(SubVec(Camera.TargetMeters, Camera.OriginMeters));
-    const auto  RefUp    = (std::abs(DotVec(CamFwd, Camera.UpUnit)) > 0.98f)
-                               ? std::array<float, 3>{0.0f, 0.0f, 1.0f}
-                               : Camera.UpUnit;
-    const auto  CamRight = NormVec(CrossVec(CamFwd, RefUp));
-    const auto  CamUp    = NormVec(CrossVec(CamRight, CamFwd));
-    const float TanHalfV = std::tan(0.5f * Camera.VerticalFovRad);
-    const float TanHalfH = TanHalfV * (static_cast<float>(W) / static_cast<float>(H));
+    const auto                   CamFwd   = NormVec(SubVec(Camera.TargetMeters, Camera.OriginMeters));
+    const SolarCascadeHeaderPack Cascades = BuildSolarShadowCascades(
+        Camera.OriginMeters, CamFwd, Luminaires, ShadowMapResolution, HardwareRasterReady_ && !Config.FullRaytracingMode);
 
-    const std::array<float, 16> CurrentViewProjRows =
-        ComputeCameraWorldToNdcRows(Camera.OriginMeters, CamRight, CamUp, CamFwd, TanHalfH, TanHalfV);
-    const std::array<float, 16> PrevRows = HistoryValid_ ? PreviousViewProjRows_ : CurrentViewProjRows;
-
-    const uint32_t LumCount = static_cast<uint32_t>(std::min<size_t>(Luminaires.size(), 32u));
-    const auto&    Env      = Config.Environment;
-
+    std::array<float, 16>             CurrentViewProjRows{};
     std::vector<std::array<float, 4>> Header;
-    Header.reserve(20u + std::max(1u, LumCount) * 4u);
-    Header.push_back({Camera.OriginMeters[0], Camera.OriginMeters[1], Camera.OriginMeters[2], TanHalfV});
-    Header.push_back({CamRight[0], CamRight[1], CamRight[2], TanHalfH});
-    Header.push_back({CamUp[0], CamUp[1], CamUp[2], static_cast<float>(UploadedBvhCells_)});
-    Header.push_back({CamFwd[0], CamFwd[1], CamFwd[2], static_cast<float>(LumCount)});
-    Header.push_back({Config.ZenithSkyRgb[0], Config.ZenithSkyRgb[1], Config.ZenithSkyRgb[2], static_cast<float>(std::max(1u, Config.RisCandidateCount))});
-    Header.push_back({Config.HorizonSkyRgb[0], Config.HorizonSkyRgb[1], Config.HorizonSkyRgb[2], static_cast<float>(Config.SpatialNeighbors)});
-    Header.push_back({Config.GroundBounceTintRgb[0], Config.GroundBounceTintRgb[1], Config.GroundBounceTintRgb[2], static_cast<float>(Config.SdfIndirectRays)});
-    Header.push_back({Config.EnableReflections ? 1.0f : 0.0f,
-                      Config.EnableSpatialReuse ? 1.0f : 0.0f,
-                      HasSdfVolume_ ? 1.0f : 0.0f,
-                      Config.EnableIndirectGi ? 1.0f : 0.0f});
-    Header.push_back({PrevRows[0], PrevRows[1], PrevRows[2], PrevRows[3]});
-    Header.push_back({PrevRows[4], PrevRows[5], PrevRows[6], PrevRows[7]});
-    Header.push_back({PrevRows[8], PrevRows[9], PrevRows[10], PrevRows[11]});
-    Header.push_back({PrevRows[12], PrevRows[13], PrevRows[14], PrevRows[15]});
-    Header.push_back({TwoLevelOctetActive_ ? 1.0f : 0.0f,
-                      RangeClipmapActive_ ? 1.0f : 0.0f,
-                      static_cast<float>(UploadedLuminousFacets_),
-                      static_cast<float>(UploadedSurfacePatches_)});
-    Header.push_back({static_cast<float>(Config.InspectionMode),
-                      static_cast<float>(std::clamp(Config.TemporalHistoryLimit, 1u, 64u)),
-                      Config.SurfaceCardGain,
-                      Config.SurfaceCardSkyWeight});
-    Header.push_back({Env.CloudsEnabled ? Env.CloudCoverage : -1.0f,
-                      Env.CloudDensity,
-                      Env.CloudBottomMeters,
-                      Env.LunarEnabled ? Env.DaytimeVeilStrength : -1.0f});
-    Header.push_back({Env.PrimaryMoonDir[0], Env.PrimaryMoonDir[1], Env.PrimaryMoonDir[2], Env.PrimaryMoonRadius});
-    Header.push_back({Env.SecondaryMoonDir[0], Env.SecondaryMoonDir[1], Env.SecondaryMoonDir[2], Env.SecondaryMoonRadius});
-    Header.push_back({Env.FogInscatteringRgb[0], Env.FogInscatteringRgb[1], Env.FogInscatteringRgb[2], Env.FogEnabled ? Env.FogDensity : -1.0f});
-    Header.push_back({Env.FogHeightFalloff, static_cast<float>(std::min(Config.RadiosityBounces, 8u)), 0.0f, 0.0f});
-    Header.push_back({0.0f, 0.0f, 0.0f, 0.0f});
-
-    for (uint32_t Idx = 0u; Idx < LumCount; ++Idx)
+    BuildFrameHeaderVector(Camera,
+                           W,
+                           H,
+                           UploadedBvhCells_,
+                           UploadedLuminousFacets_,
+                           UploadedSurfacePatches_,
+                           HasSdfVolume_,
+                           TwoLevelOctetActive_,
+                           RangeClipmapActive_,
+                           PreviousViewProjRows_,
+                           Cascades,
+                           Luminaires,
+                           Config,
+                           CurrentViewProjRows,
+                           Header);
+    if (!HistoryValid_)
     {
-        const AnalyticalLuminaire& L = Luminaires[Idx];
-        Header.push_back({L.DirectionOrPosition[0], L.DirectionOrPosition[1], L.DirectionOrPosition[2], static_cast<float>(L.Kind)});
-        Header.push_back({L.AxisU[0], L.AxisU[1], L.AxisU[2], 0.0f});
-        Header.push_back({L.AxisV[0], L.AxisV[1], L.AxisV[2], 0.0f});
-        Header.push_back({L.EmittedRadianceRgb[0], L.EmittedRadianceRgb[1], L.EmittedRadianceRgb[2], 1.0f});
-    }
-    if (LumCount == 0u)
-    {
-        Header.resize(24u, {0.0f, 0.0f, 0.0f, 0.0f});
+        Header[8]  = {CurrentViewProjRows[0], CurrentViewProjRows[1], CurrentViewProjRows[2], CurrentViewProjRows[3]};
+        Header[9]  = {CurrentViewProjRows[4], CurrentViewProjRows[5], CurrentViewProjRows[6], CurrentViewProjRows[7]};
+        Header[10] = {CurrentViewProjRows[8], CurrentViewProjRows[9], CurrentViewProjRows[10], CurrentViewProjRows[11]};
+        Header[11] = {CurrentViewProjRows[12], CurrentViewProjRows[13], CurrentViewProjRows[14], CurrentViewProjRows[15]};
     }
 
     DeviceMemorySpan& RingHeaderSpan = FrameHeaderRing_[SlotIdx];
@@ -803,65 +1306,136 @@ bool SpatiotemporalIllumination::RecordFrameIntoExternalStream(
         return false;
     }
 
-    const bool                                      UseTemporal = Config.EnableTemporalReuse && HistoryValid_;
-    const std::array<ComputeDescriptorArgument, 17> Args{{
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &RingHeaderSpan, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DistanceOrRangeSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &LuminousFacetSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &SurfaceCardSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirectReservoirCurrSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirectReservoirPrevSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &IndirectReservoirCurrSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &IndirectReservoirPrevSpan_, nullptr, nullptr},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &SurfaceAndWorkAtlas_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &OutputImage_, nullptr},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, nullptr, &ViewportTarget},
+    const bool                  EvenFrame   = ((FrameCounter_ & 1u) == 0u);
+    const DeviceImageArraySlot& HistPrev    = EvenFrame ? TemporalHistoryA_ : TemporalHistoryB_;
+    const DeviceImageArraySlot& HistCurr    = EvenFrame ? TemporalHistoryB_ : TemporalHistoryA_;
+    const DeviceMemorySpan&     DirResPrev  = EvenFrame ? DirectReservoirA_ : DirectReservoirB_;
+    const DeviceMemorySpan&     DirResCurr  = EvenFrame ? DirectReservoirB_ : DirectReservoirA_;
+    const bool                  UseTemporal = Config.EnableTemporalReuse && HistoryValid_;
+
+    const std::array<ComputeDescriptorArgument, 19> ComputeArgs{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &RingHeaderSpan, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DistanceOrRangeSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &LuminousFacetSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &SurfaceCardSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirResCurr, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &DirResPrev, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, nullptr, nullptr, &SdfClipmapVolume_, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, nullptr, nullptr, nullptr, &ShadowDepthArray_},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HistPrev, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &HistCurr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &SurfaceAndWorkAtlas_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &OutputImage_, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, nullptr, &ViewportTarget, nullptr, nullptr},
     }};
 
-    const uint32_t GroupsX = (W + 7u) / 8u;
-    const uint32_t GroupsY = (H + 7u) / 8u;
+    const std::array<ComputeDescriptorArgument, 7> RasterArgs{{
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &RingHeaderSpan, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhOrTopCellSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &BvhTriangleSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &MaterialSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetInstanceSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &OctetBlockSpan_, nullptr, nullptr, nullptr, nullptr},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, &MaterialTextureArray_, nullptr, nullptr, nullptr},
+    }};
+
+    const uint32_t GroupsX      = (W + 7u) / 8u;
+    const uint32_t GroupsY      = (H + 7u) / 8u;
+    const uint32_t GiTraceScale = static_cast<uint32_t>(Header[18][3] + 0.5f);
+    const uint32_t GiGroupsX    = (((W + GiTraceScale - 1u) / GiTraceScale) + 7u) / 8u;
+    const uint32_t GiGroupsY    = (((H + GiTraceScale - 1u) / GiTraceScale) + 7u) / 8u;
 
     const SpatiotemporalPushConstants BasePush{
         {W, H, FrameCounter_, 0u},
-        {Config.ExposureScale, 1.0f, 10.0f, UseTemporal ? 1.0f : 0.0f},
+        {Config.ExposureScale, 1.0f, 3.8f, UseTemporal ? 1.0f : 0.0f},
     };
 
+    RecordedSlotCounts CurrCounts{};
     Exchange.BeginExternalCommandStream(ExternalCommandBuffer, SlotIdx);
     (void)Exchange.PrepareViewportImageForCompute(ViewportTarget);
 
     if (UploadedSurfacePatches_ > 0u)
     {
-        (void)Exchange.DispatchCompute(RadiosityProgram_, Args, &BasePush, sizeof(BasePush), 1u, 1u, 1u);
+        (void)Exchange.DispatchCompute(RadiosityProgram_, ComputeArgs, &BasePush, sizeof(BasePush), 1u, 1u, 1u);
+        CurrCounts.RadiosityDispatches = 1u;
     }
-    (void)Exchange.DispatchCompute(PrimaryProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
-    (void)Exchange.DispatchCompute(DirectRisProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
-    (void)Exchange.DispatchCompute(IndirectGiProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
-    (void)Exchange.DispatchCompute(SpatialReflectProgram_, Args, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
 
-    const uint32_t Iterations = std::clamp(Config.AtrousIterations, 1u, 4u);
-    for (uint32_t Iter = 0u; Iter < Iterations; ++Iter)
+    if (HardwareRasterReady_)
     {
-        const uint32_t SrcParity = Iter & 1u;
-        const uint32_t FinalIter = (Iter + 1u == Iterations) ? 1u : 0u;
-        const SpatiotemporalPushConstants AtrousPush{
-            {W, H, SrcParity, FinalIter},
-            {Config.ExposureScale, static_cast<float>(1u << Iter), 10.0f, 0.0f},
-        };
-        (void)Exchange.DispatchCompute(AtrousProgram_, Args, &AtrousPush, sizeof(AtrousPush), GroupsX, GroupsY, 1u);
+        std::vector<RasterDrawItem>                OpaqueDraws;
+        std::vector<RasterDrawItem>                GlassDraws;
+        std::array<std::vector<RasterDrawItem>, 3> CascadeDraws;
+        BuildPerFrameRasterItems(TwoLevelOctetActive_,
+                                 CachedTwoLevelDrawSpans_,
+                                 SingleLevelOpaqueTris_,
+                                 SingleLevelGlassTris_,
+                                 SingleLevelGlassOffset_,
+                                 W,
+                                 H,
+                                 FrameCounter_,
+                                 OpaqueDraws,
+                                 GlassDraws,
+                                 CascadeDraws);
+
+        if (Cascades.Active)
+        {
+            for (uint32_t C = 0u; C < ShadowCascadeCount; ++C)
+            {
+                (void)Exchange.ExecuteShadowCascadeDraws(
+                    ShadowCascadeProgram_, ShadowTargets_, ShadowDepthArray_, RasterArgs, C, CascadeDraws[C]);
+                ++CurrCounts.ShadowPasses;
+            }
+        }
+
+        (void)Exchange.ExecuteSurfaceAndForwardDraws(SurfaceOpaqueProgram_,
+                                                     ForwardGlazingProgram_,
+                                                     SurfaceTargets_,
+                                                     SurfaceAndWorkAtlas_,
+                                                     PrimaryDepthTarget_,
+                                                     RasterArgs,
+                                                     OpaqueDraws,
+                                                     GlassDraws);
+        CurrCounts.PrimaryPasses = 1u;
     }
+    else
+    {
+        (void)Exchange.DispatchCompute(PrimaryProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
+        CurrCounts.PrimaryPasses = 1u;
+    }
+
+    (void)Exchange.DispatchCompute(DirectRadianceProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
+    (void)Exchange.DispatchCompute(IndirectGiProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GiGroupsX, GiGroupsY, 1u);
+    (void)Exchange.DispatchCompute(SpecularReflectProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
+    (void)Exchange.DispatchCompute(TemporalVarianceProgram_, ComputeArgs, &BasePush, sizeof(BasePush), GroupsX, GroupsY, 1u);
+
+    const uint32_t WaveletPasses = Config.EnableSpatialReuse ? std::clamp(Config.AtrousIterations, 1u, 4u) : 0u;
+    for (uint32_t Iter = 0u; Iter < WaveletPasses; ++Iter)
+    {
+        const SpatiotemporalPushConstants WaveletPush{
+            {W, H, Iter & 1u, 0u},
+            {Config.ExposureScale, static_cast<float>(1u << Iter), 3.8f, 0.0f},
+        };
+        (void)Exchange.DispatchCompute(AtrousProgram_, ComputeArgs, &WaveletPush, sizeof(WaveletPush), GroupsX, GroupsY, 1u);
+    }
+
+    const SpatiotemporalPushConstants ComposePush{
+        {W, H, WaveletPasses & 1u, 2u},
+        {Config.ExposureScale, 1.0f, 3.8f, 0.0f},
+    };
+    (void)Exchange.DispatchCompute(AtrousProgram_, ComputeArgs, &ComposePush, sizeof(ComposePush), GroupsX, GroupsY, 1u);
 
     (void)Exchange.PrepareViewportImageForSampling(ViewportTarget);
     Exchange.EndExternalCommandStream();
 
-    // Spatial reuse kernel reads *Curr and writes *Prev, so *Prev already holds next frame's temporal history.
-    PreviousViewProjRows_ = CurrentViewProjRows;
-    HistoryValid_         = true;
+    ExternalSlotCounts_[SlotIdx] = CurrCounts;
+    PreviousViewProjRows_        = CurrentViewProjRows;
+    HistoryValid_                = true;
     ++FrameCounter_;
 
     const float CpuSubmitMs =
@@ -869,42 +1443,54 @@ bool SpatiotemporalIllumination::RecordFrameIntoExternalStream(
 
     if (OutTelemetry)
     {
-        float RadMs = 0.0f, PrimMs = 0.0f, DirMs = 0.0f, IndMs = 0.0f, SpatMs = 0.0f, AtrMs = 0.0f;
+        float RadMs = 0.0f, ShdMs = 0.0f, PrimMs = 0.0f, DirMs = 0.0f, IndMs = 0.0f, SpecMs = 0.0f, AtrMs = 0.0f;
         if (HasPrevTimings)
         {
             size_t Cursor = 0u;
-            if (UploadedSurfacePatches_ > 0u && Cursor < PrevTimings.size())
+            for (uint32_t I = 0u; I < PrevCounts.RadiosityDispatches && Cursor < PrevTimings.size(); ++I)
             {
-                RadMs = PrevTimings[Cursor++];
+                RadMs += PrevTimings[Cursor++];
             }
-            if (Cursor < PrevTimings.size()) PrimMs = PrevTimings[Cursor++];
-            if (Cursor < PrevTimings.size()) DirMs  = PrevTimings[Cursor++];
+            for (uint32_t I = 0u; I < PrevCounts.ShadowPasses && Cursor < PrevTimings.size(); ++I)
+            {
+                ShdMs += PrevTimings[Cursor++];
+            }
+            for (uint32_t I = 0u; I < PrevCounts.PrimaryPasses && Cursor < PrevTimings.size(); ++I)
+            {
+                PrimMs += PrevTimings[Cursor++];
+            }
+            if (Cursor < PrevTimings.size()) DirMs  = ShdMs + PrevTimings[Cursor++];
             if (Cursor < PrevTimings.size()) IndMs  = PrevTimings[Cursor++];
-            if (Cursor < PrevTimings.size()) SpatMs = PrevTimings[Cursor++];
+            if (Cursor < PrevTimings.size()) SpecMs = PrevTimings[Cursor++];
             while (Cursor < PrevTimings.size())
             {
                 AtrMs += PrevTimings[Cursor++];
             }
         }
+
         OutTelemetry->BvhCellCount          = UploadedBvhCells_;
         OutTelemetry->BvhTriangleCount      = UploadedBvhTris_;
         OutTelemetry->BottomArchiveCount    = UploadedBottomArchives_;
         OutTelemetry->TopInstanceCount      = UploadedInstances_;
         OutTelemetry->OctetBlockCount       = UploadedOctetBlocks_;
-        OutTelemetry->LuminaireCount        = LumCount;
+        OutTelemetry->LuminaireCount        = static_cast<uint32_t>(std::min<size_t>(Luminaires.size(), 32u));
         OutTelemetry->LuminousFacetCount    = UploadedLuminousFacets_;
         OutTelemetry->SurfacePatchCount     = UploadedSurfacePatches_;
         OutTelemetry->AuthoredTextureLayers = UploadedTextureLayers_;
         OutTelemetry->SdfVolumeActive       = HasSdfVolume_;
         OutTelemetry->RangeClipmapActive    = RangeClipmapActive_;
+        OutTelemetry->HardwareRasterActive  = HardwareRasterReady_;
+        OutTelemetry->FullRaytracingActive  = Config.FullRaytracingMode;
+        OutTelemetry->GiTraceScale          = GiTraceScale;
         OutTelemetry->FrameIndex            = FrameCounter_;
         OutTelemetry->RadiosityGpuMs        = RadMs;
         OutTelemetry->PrimaryGpuMs          = PrimMs;
+        OutTelemetry->ShadowRasterGpuMs     = ShdMs;
         OutTelemetry->DirectRisGpuMs        = DirMs;
         OutTelemetry->IndirectGiGpuMs       = IndMs;
-        OutTelemetry->SpatialReflectGpuMs   = SpatMs;
+        OutTelemetry->SpatialReflectGpuMs   = SpecMs;
         OutTelemetry->AtrousResolveGpuMs    = AtrMs;
-        OutTelemetry->TotalGpuMs            = RadMs + PrimMs + DirMs + IndMs + SpatMs + AtrMs;
+        OutTelemetry->TotalGpuMs            = RadMs + PrimMs + DirMs + IndMs + SpecMs + AtrMs;
         OutTelemetry->CpuSubmissionMs       = CpuSubmitMs;
     }
     return true;

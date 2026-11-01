@@ -111,9 +111,12 @@ set(FRONTIER_ENV_COMMON_SLANG
     "${FRONTIER_ENV_SHADER_SRC}/OctetVolumeSearch.slang"
     "${FRONTIER_ENV_SHADER_SRC}/SurfaceRadiositySampling.slang"
     "${FRONTIER_ENV_SHADER_SRC}/LuminousFacetSampling.slang"
-    "${FRONTIER_ENV_SHADER_SRC}/SurfaceScatteringEvaluation.slang")
+    "${FRONTIER_ENV_SHADER_SRC}/SurfaceScatteringEvaluation.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/DistanceTraversal.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/DirectRadiance.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/ReflectionTraversal.slang")
 
-# Module:EntryPoint:OutputStem:ExtraDefineFlag
+# Module:EntryPoint:OutputStem:ExtraDefineFlag[:ShaderStage]
 set(FRONTIER_ENV_SHADER_SPECS
     "AtmosphereScattering:BakeTransmittanceLutMain:BakeTransmittanceLut:-DATMOSPHERE_LUT_KERNEL=1"
     "AtmosphereScattering:BakeMultiScatterLutMain:BakeMultiScatterLut:-DATMOSPHERE_LUT_KERNEL=1"
@@ -130,11 +133,17 @@ set(FRONTIER_ENV_SHADER_SPECS
     "PreviewRaster:ProjectPreviewShadowMain:ProjectPreviewShadow:"
     "PreviewRaster:BinPreviewTilesMain:BinPreviewTiles:"
     "PreviewRaster:ResolvePreviewViewMain:ResolvePreviewView:"
+    "ShadowRaster:ProjectShadowCascadeVertexMain:ProjectShadowCascadeVertex::vertex"
+    "SurfaceRaster:ProjectSurfaceVertexMain:ProjectSurfaceVertex::vertex"
+    "SurfaceRaster:EvaluateSurfaceFragmentMain:EvaluateSurfaceFragment::fragment"
+    "SurfaceRaster:ProjectForwardGlazingVertexMain:ProjectForwardGlazingVertex::vertex"
+    "SurfaceRaster:EvaluateForwardGlazingFragmentMain:EvaluateForwardGlazingFragment::fragment"
     "SpatiotemporalIllumination:SolveSurfaceRadiosityMain:SolveSurfaceRadiosity:"
     "SpatiotemporalIllumination:TracePrimarySurfaceMain:TracePrimarySurface:"
-    "SpatiotemporalIllumination:SampleDirectReservoirsMain:SampleDirectReservoirs:"
-    "SpatiotemporalIllumination:SampleIndirectReservoirsMain:SampleIndirectReservoirs:"
-    "SpatiotemporalIllumination:ReuseSpatialReservoirsMain:ReuseSpatialReservoirs:"
+    "SpatiotemporalIllumination:EvaluateDirectRadianceMain:EvaluateDirectRadiance:"
+    "SpatiotemporalIllumination:TraceIndirectDiffuseMain:TraceIndirectDiffuse:"
+    "SpatiotemporalIllumination:TraceSpecularReflectionsMain:TraceSpecularReflections:"
+    "SpatiotemporalIllumination:IntegrateTemporalVarianceMain:IntegrateTemporalVariance:"
     "SpatiotemporalIllumination:FilterSpatiotemporalAtrousMain:FilterSpatiotemporalAtrous:")
 
 set(FRONTIER_ENV_SPV_OUTPUTS)
@@ -146,10 +155,17 @@ if(FRONTIER_ENV_SLANGC)
         list(GET SPEC_PARTS 2 OUT_STEM)
         list(LENGTH SPEC_PARTS SPEC_LEN)
         set(EXTRA_SLANG_ARGS)
+        set(SHADER_STAGE_NAME "compute")
         if(SPEC_LEN GREATER 3)
             list(GET SPEC_PARTS 3 EXTRA_FLAG)
             if(NOT "${EXTRA_FLAG}" STREQUAL "")
                 list(APPEND EXTRA_SLANG_ARGS "${EXTRA_FLAG}")
+            endif()
+        endif()
+        if(SPEC_LEN GREATER 4)
+            list(GET SPEC_PARTS 4 CUSTOM_STAGE)
+            if(NOT "${CUSTOM_STAGE}" STREQUAL "")
+                set(SHADER_STAGE_NAME "${CUSTOM_STAGE}")
             endif()
         endif()
         set(SPV_PATH "${FRONTIER_ENV_SHADER_OUT}/${OUT_STEM}.spv")
@@ -161,7 +177,7 @@ if(FRONTIER_ENV_SLANGC)
                 -I "${FRONTIER_ENV_SHADER_SRC}"
                 ${EXTRA_SLANG_ARGS}
                 -entry "${ENTRY_NAME}"
-                -stage compute
+                -stage "${SHADER_STAGE_NAME}"
                 -target spirv
                 -profile spirv_1_3
                 -emit-spirv-directly

@@ -83,6 +83,12 @@ class RangeDistanceAtlas
     // Packs 16 float4 header slots (4 per range) + all 4 voxel grids into one contiguous GPU float4 table
     void PackForGpu(std::vector<std::array<float, 4>>& OutPackedFloat4Table) const;
 
+    // Packs all 4 cascades along Z (with 1-slice clamp guard borders per cascade) into a single hardware 3D R16F volume
+    void PackVolume3DForGpu(uint32_t&           OutWidth,
+                            uint32_t&           OutHeight,
+                            uint32_t&           OutDepth,
+                            std::vector<float>& OutScalarDistances) const;
+
   private:
     std::array<VolumeDistanceField, MaximumRangeCount> Ranges_{};
     std::array<float, MaximumRangeCount>               HalfExtents_{8.0f, 24.0f, 72.0f, 200.0f};

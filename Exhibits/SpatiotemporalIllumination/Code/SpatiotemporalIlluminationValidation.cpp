@@ -421,8 +421,9 @@ int main(int Argc, char** Argv)
         }
         REQUIRE_STI(TwoLevelTel.OctetBlockCount > 4u && TwoLevelTel.SurfacePatchCount >= 12u &&
                         TwoLevelTel.LuminousFacetCount >= 12u && TwoLevelTel.AuthoredTextureLayers >= 8u &&
-                        TwoLevelTel.RangeClipmapActive,
-                    "SpatiotemporalFrameTelemetry must report active OctetBlocks, SurfaceCards, LuminousFacets, TextureLayers, & RangeClipmap");
+                        TwoLevelTel.RangeClipmapActive && TwoLevelTel.HardwareRasterActive &&
+                        !TwoLevelTel.FullRaytracingActive && TwoLevelTel.GiTraceScale == 2u,
+                    "SpatiotemporalFrameTelemetry must report HardwareRasterActive + Half-Res (TraceScale=2) Hybrid 3D-SDF GI");
 
         std::vector<std::array<float, 3>> GpuCardRadiosity;
         REQUIRE_STI(Renderer.DownloadSolvedSurfaceRadiosity(Exchange, GpuCardRadiosity) &&
@@ -438,7 +439,7 @@ int main(int Argc, char** Argv)
 
         std::vector<uint8_t> OptionAPng;
         REQUIRE_STI(Renderer.ReadbackTonemappedSrgb8(Exchange, FullCfg.ExposureScale, OptionAPng),
-                    "ReadbackTonemappedSrgb8 on Option A two-level render must succeed");
+                    "ReadbackTonemappedSrgb8 on Hybrid SDF-GI + RT Refl render must succeed");
         const auto OutOptA = OutputDir / "ControlVehicleOptionATwoLevelRestirGi.png";
         REQUIRE_STI(stbi_write_png(OutOptA.string().c_str(),
                                    static_cast<int>(HeroCam.WidthPx),
@@ -448,8 +449,46 @@ int main(int Argc, char** Argv)
                                    static_cast<int>(HeroCam.WidthPx * 4u)) != 0,
                     "Writing ControlVehicleOptionATwoLevelRestirGi.png failed");
 
-        // Verify inspection modes (Cascade Index = 5, Material LOD Tier = 13) execute cleanly without NaNs
-        for (uint32_t Mode : {5u, 12u, 13u, 14u})
+        // Verify live runtime switch to Option 2: Full Raytracing (DI + GI + Reflections on CWBVH)
+        SpatiotemporalRenderConfig FullRtCfg = FullCfg;
+        FullRtCfg.FullRaytracingMode         = true;
+        FullRtCfg.SdfIndirectRays            = 2u;
+        SpatiotemporalFrameTelemetry FullRtTel{};
+        for (uint32_t Frame = 0u; Frame < 2u; ++Frame)
+        {
+            REQUIRE_STI(Renderer.RenderFrame(Exchange, HeroCam, {Sun, LeftSoftbox, RightSoftbox}, FullRtCfg, &FullRtTel, &LiveViewport),
+                        "Option 2 Full Raytracing RenderFrame must succeed");
+        }
+        REQUIRE_STI(FullRtTel.FullRaytracingActive && FullRtTel.GiTraceScale == 1u,
+                    "Option 2 Full Raytracing telemetry must report FullRaytracingActive and GiTraceScale == 1");
+
+        std::vector<float> FullRtLinear;
+        REQUIRE_STI(Renderer.ReadbackLinearRgba(Exchange, FullRtLinear) && !FullRtLinear.empty(),
+                    "Option 2 Full Raytracing linear readback must succeed");
+        double FullRtLumaSum = 0.0;
+        for (size_t P = 0u; P + 3u < FullRtLinear.size(); P += 4u)
+        {
+            REQUIRE_STI(std::isfinite(FullRtLinear[P]) && std::isfinite(FullRtLinear[P + 1u]) && std::isfinite(FullRtLinear[P + 2u]),
+                        "Option 2 Full Raytracing output must contain zero NaN/Inf values");
+            FullRtLumaSum += 0.2126 * FullRtLinear[P] + 0.7152 * FullRtLinear[P + 1u] + 0.0722 * FullRtLinear[P + 2u];
+        }
+        REQUIRE_STI((FullRtLumaSum / static_cast<double>(HeroCam.WidthPx * HeroCam.HeightPx)) > 0.02,
+                    "Option 2 Full Raytracing must produce illuminated non-black scene");
+
+        std::vector<uint8_t> FullRtPng;
+        REQUIRE_STI(Renderer.ReadbackTonemappedSrgb8(Exchange, FullRtCfg.ExposureScale, FullRtPng),
+                    "ReadbackTonemappedSrgb8 on Option 2 Full Raytracing render must succeed");
+        const auto OutFullRt = OutputDir / "ControlVehicleFullRaytracingOption.png";
+        REQUIRE_STI(stbi_write_png(OutFullRt.string().c_str(),
+                                   static_cast<int>(HeroCam.WidthPx),
+                                   static_cast<int>(HeroCam.HeightPx),
+                                   4,
+                                   FullRtPng.data(),
+                                   static_cast<int>(HeroCam.WidthPx * 4u)) != 0,
+                    "Writing ControlVehicleFullRaytracingOption.png failed");
+
+        // Verify inspection modes (Cascade Index = 5, Shadow = 10, Moments = 12, Material LOD/Mip = 13, Glazing = 14) execute cleanly
+        for (uint32_t Mode : {5u, 10u, 12u, 13u, 14u})
         {
             SpatiotemporalRenderConfig ModeCfg = FullCfg;
             ModeCfg.InspectionMode             = Mode;

@@ -1,13 +1,15 @@
 //==========================================================================================================================================
 //                                            SPATIOTEMPORAL ILLUMINATION SHADER
 //==========================================================================================================================================
-// 🧩 GTX-first Option A (Phase 3C-1 + 3C-2) Vulkan 1.3 SPIR-V 1.3 Compute Pipeline (zero VK_KHR_ray_query required):
-//    1. SolveSurfaceRadiosityMain   : Single-workgroup multi-bounce GPU Surface Card Jacobi radiosity solver
-//    2. TracePrimarySurfaceMain     : Two-level 8-wide OctetVolume / SAH BVH primary + 2-interface curved glazing peel + 3-tier Material LOD
-//    3. SampleDirectReservoirsMain  : ReSTIR DI (analytic + LuminousFacet CDF mixture) + PrevViewProj motion-reprojected temporal reuse
-//    4. SampleIndirectReservoirsMain: ReSTIR GI (4-cascade RangeDistance clipmap / BVH + SurfaceCard radiosity) + motion temporal reuse
-//    5. ReuseSpatialReservoirsMain  : Race-free ping-pong spatial reuse (DI + Jacobian GI) + Heitz VNDF reflections + split Diff/Spec output
-//    6. FilterSpatiotemporalAtrousMain: Race-free ping-pong split Diffuse/Specular À-Trous + coupled fog + 15 inspection modes + 2D RGBA8
+// 🧩 Unified Dual-Option Vulkan 1.3 Illumination Pipeline (Hardware Raster + Hybrid SDF-GI / Raytraced Reflections + Full Raytracing Option):
+//    0. SolveSurfaceRadiosityMain      : Multi-bounce GPU Surface Card Jacobi radiosity solver
+//    1. SurfaceRaster + ForwardRaster  : Hardware triangle Reversed-Z visibility + ddx/ddy mipmaps & flake AA + Snell glazing (SurfaceRaster.slang)
+//    2. ShadowRaster                   : Hardware 3-cascade D32_SFLOAT solar depth rasterizer (ShadowRaster.slang)
+//    3. EvaluateDirectRadianceMain     : Deterministic ShadowRaster PCF + Karis area softboxes (zero DI noise!) | Option 2: Full-RT RIS + BVH Shadow
+//    4. TraceIndirectDiffuseMain       : Half-Res (TraceScale=2, 1/4 px) 1-ray Hardware Sampler3D SDF Clipmaps + SurfaceCards | Option 2: Full-RT BVH GI
+//    5. TraceSpecularReflectionsMain   : Raytraced Heitz VNDF CWBVH Reflections + SurfaceCards (both modes; full ray-shadowed in Option 2)
+//    6. IntegrateTemporalVarianceMain  : SVGF VarianceTemporal (motion-reprojected 2x2 moments mu1/mu2 + 3x3 disocclusion bootstrap)
+//    7. FilterSpatiotemporalAtrousMain : SVGF VarianceWavelet 5x5 B3-spline + VarianceUpsample joint bilateral half-res GI upsample + ACES
 
 #include "BoundingVolumeSearch.slang"
 #include "OctetVolumeSearch.slang"
@@ -16,6 +18,9 @@
 #include "SurfaceScatteringEvaluation.slang"
 #include "SurfaceRadiositySampling.slang"
 #include "LuminousFacetSampling.slang"
+#include "DistanceTraversal.slang"
+#include "DirectRadiance.slang"
+#include "ReflectionTraversal.slang"
 
 [[vk::binding(0, 0)]]  StructuredBuffer<float4>   FrameHeader;
 [[vk::binding(1, 0)]]  StructuredBuffer<float4>   BvhOrTopCells;
@@ -28,32 +33,54 @@
 [[vk::binding(8, 0)]]  RWStructuredBuffer<float4> SurfaceCardPack;
 [[vk::binding(9, 0)]]  RWStructuredBuffer<float4> DirectReservoirCurr;
 [[vk::binding(10, 0)]] RWStructuredBuffer<float4> DirectReservoirPrev;
-[[vk::binding(11, 0)]] RWStructuredBuffer<float4> IndirectReservoirCurr;
-[[vk::binding(12, 0)]] RWStructuredBuffer<float4> IndirectReservoirPrev;
-[[vk::binding(13, 0)]] Sampler2DArray             MaterialMaps;
+[[vk::binding(11, 0)]] Sampler2DArray             MaterialMaps;
+[[vk::binding(12, 0)]] Sampler3D                  SdfClipmapVolume;
+[[vk::binding(13, 0)]] Sampler2DArray             ShadowDepthArray;
 
-// SurfaceAndWorkAtlas layers (10 x rgba16f):
-//   0: {WorldPos.xyz, SignedHitT}  (>0 opaque/coated, <0 resolved curved glazing at -SignedHitT, 0 sky miss)
-//   1: {ShadingNormal.xyz, BaseRoughness}
-//   2: {SelfRadianceOrGlassOrSky.xyz, float(ClassId)}
-//   3: {Metallic, CoatCoverage, CoatRoughness, EncodedTierAndBlocks}
-//   4: {RotatedTangent.xyz, Anisotropy}
-//   5: {BaseAlbedo.xyz, MaterialAO}
-//   6, 7: Ping-Pong Albedo-Free Diffuse Shading Factor (.rgb) + Scene SDF AO (.a)
-//   8, 9: Ping-Pong Specular Radiance (.rgb) + Reservoir Confidence M (.a)
-[[vk::binding(14, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> SurfaceAndWorkAtlas;
-[[vk::binding(15, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> OutputImage;
-[[vk::binding(16, 0), vk::image_format("rgba8")]]   RWTexture2D<float4>      ViewportDisplayTarget;
+// TemporalHistoryPrev / TemporalHistoryCurr (6 layers x rgba16f, double-buffered across frames -> 100% race-free!):
+//   0: PriorDiffSignal  {IntegratedDiff.rgb, DiffSpread}  (at GI TraceExtent)
+//   1: PriorDiffMoments {MeanLuma, MeanLumaSq, TallyN, SceneAo}
+//   2: PriorDiffGuide   {OctNormal.xy, HitT, ClassIdPlusOne}
+//   3: PriorSpecSignal  {IntegratedSpec.rgb, SpecSpread}  (at Full ScreenExtent)
+//   4: PriorSpecMoments {MeanLuma, MeanLumaSq, TallyN, Roughness}
+//   5: PriorSpecGuide   {OctNormal.xy, HitT, ClassIdPlusOne}
+[[vk::binding(14, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> TemporalHistoryPrev;
+[[vk::binding(15, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> TemporalHistoryCurr;
+
+// SurfaceAndWorkAtlas layers (14 x rgba16f):
+//   0..5 : G-Buffer (written by Hardware SurfaceRaster + ForwardRaster, or TracePrimarySurfaceMain compute fallback)
+//   6    : DirectRadiance (.rgb = linear direct diffuse+specular radiance, .a = primary solar shadow visibility [0..1])
+//   7    : Raw Diffuse GI (.rgb = demodulated diffuse irradiance at TraceExtent, .a = SDF AO)
+//   8    : Raw Specular Reflection (.rgb = specular reflection radiance at ScreenExtent, .a = HitFlag: >0 traced, <0 rough fallback)
+//   9, 10: Diffuse GI Wavelet Ping-Pong (.rgb = filtered GI, .a = variance) at TraceExtent
+//  11, 12: Specular Reflection Wavelet Ping-Pong (.rgb = filtered Spec, .a = variance) at ScreenExtent
+//  13    : Current Half-Res GI Guide {OctNormal.xy, HitT, ClassIdPlusOne}
+[[vk::binding(16, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> SurfaceAndWorkAtlas;
+[[vk::binding(17, 0), vk::image_format("rgba16f")]] RWTexture2DArray<float4> OutputImage;
+[[vk::binding(18, 0), vk::image_format("rgba8")]]   RWTexture2D<float4>      ViewportDisplayTarget;
 
 struct SpatiotemporalPush
 {
     uint4  Counts; // {Width, Height, FrameOrParity, FinalIterFlag}
-    float4 Params; // {ExposureScale, AtrousStepSize, SpatialRadiusPx, UseTemporalHistory}
+    float4 Params; // {ExposureScale, AtrousStepSize, ColourSigma, UseTemporalHistory}
 };
 
 [[vk::push_constant]] ConstantBuffer<SpatiotemporalPush> Push;
 
-static const uint kLuminaireBaseSlot = 20u;
+uint ResolveLuminaireBaseSlot()
+{
+    return max(20u, uint(FrameHeader[19].w + 0.5f));
+}
+
+bool IsFullRaytracingEnabled()
+{
+    return (FrameHeader[18].z > 0.5f);
+}
+
+uint ResolveGiTraceScale()
+{
+    return max(1u, uint(FrameHeader[18].w + 0.5f));
+}
 
 //------------------------------------------------------------------------------------------------------------------------
 // DETERMINISTIC PRNG, OCTAHEDRAL ENCODING, & ACES TONEMAPPING
@@ -116,6 +143,18 @@ float3 ApplyAcesAndSrgbOetf(float3 LinearHdr, float ExposureScale)
     return select(Mapped <= float3(0.0031308f), Lo, Hi);
 }
 
+float3 ReconstructPrimaryRayDirection(uint2 Px, uint Width, uint Height)
+{
+    float2 Uv       = (float2(Px) + 0.5f) / float2(float(Width), float(Height));
+    float2 Ndc      = float2(2.0f * Uv.x - 1.0f, 1.0f - 2.0f * Uv.y);
+    float  TanHalfV = FrameHeader[0].w;
+    float3 CamRight = FrameHeader[1].xyz;
+    float  TanHalfH = FrameHeader[1].w;
+    float3 CamUp    = FrameHeader[2].xyz;
+    float3 CamFwd   = FrameHeader[3].xyz;
+    return normalize(CamFwd + Ndc.x * TanHalfH * CamRight + Ndc.y * TanHalfV * CamUp);
+}
+
 //------------------------------------------------------------------------------------------------------------------------
 // COUPLED PLANETARY SKY, VOLUMETRIC CLOUDS, DUAL MOONS, & EXPONENTIAL HEIGHT FOG
 //------------------------------------------------------------------------------------------------------------------------
@@ -125,7 +164,7 @@ float HashNoise3D(float3 P)
     float3 I = floor(P);
     float3 F = frac(P);
     F        = F * F * (3.0f - 2.0f * F);
-    float N  = dot(I, float3(17.0f, 59.0f, 113.0f));
+    float  N = dot(I, float3(17.0f, 59.0f, 113.0f));
     float4 A = frac(sin(N + float4(0.0f, 17.0f, 59.0f, 76.0f)) * 43758.5453f);
     float4 B = frac(sin(N + 113.0f + float4(0.0f, 17.0f, 59.0f, 76.0f)) * 43758.5453f);
     float4 C = lerp(A, B, F.z);
@@ -139,6 +178,7 @@ float3 EvaluateCoupledEnvironmentSky(float3 RayDir)
     float3 Horizon    = FrameHeader[5].xyz;
     float3 GroundTint = FrameHeader[6].xyz;
     uint   LumCount   = uint(FrameHeader[3].w + 0.5f);
+    uint   LumBase    = ResolveLuminaireBaseSlot();
 
     float3 Sky = (RayDir.y >= 0.0f)
                      ? lerp(Horizon, Zenith, pow(saturate(RayDir.y), 0.58f))
@@ -148,7 +188,7 @@ float3 EvaluateCoupledEnvironmentSky(float3 RayDir)
     float3 PrimarySunRad = float3(0.0f);
     for (uint L = 0u; L < LumCount; ++L)
     {
-        uint   Slot = kLuminaireBaseSlot + L * 4u;
+        uint   Slot = LumBase + L * 4u;
         float4 L0   = FrameHeader[Slot + 0u];
         if (uint(L0.w + 0.5f) == 0u)
         {
@@ -165,7 +205,6 @@ float3 EvaluateCoupledEnvironmentSky(float3 RayDir)
         }
     }
 
-    // Dual-moon planetary discs with solar phase lighting & daytime atmospheric veil
     float4 CloudMoonCfg = FrameHeader[14];
     if (CloudMoonCfg.w >= 0.0f && RayDir.y > -0.02f)
     {
@@ -179,16 +218,15 @@ float3 EvaluateCoupledEnvironmentSky(float3 RayDir)
             float  CosRay   = dot(RayDir, MoonDir);
             if (CosRay >= CosRad)
             {
-                float3 DiskNorm  = normalize(RayDir - MoonDir * CosRay * 0.985f + MoonDir * 0.15f);
-                float  Phase     = 0.12f + 0.88f * saturate(dot(DiskNorm, PrimarySunDir));
-                float3 AlbedoM   = (M == 0u) ? float3(0.76f, 0.78f, 0.84f) : float3(0.84f, 0.73f, 0.65f);
-                float  Limb      = smoothstep(CosRad, min(0.99999f, CosRad + 0.0005f), CosRay);
-                Sky              = lerp(Sky, Sky * (1.0f - 0.65f * Veil) + AlbedoM * Phase * (1.6f * Veil + 0.25f), Limb);
+                float3 DiskNorm = normalize(RayDir - MoonDir * CosRay * 0.985f + MoonDir * 0.15f);
+                float  Phase    = 0.12f + 0.88f * saturate(dot(DiskNorm, PrimarySunDir));
+                float3 AlbedoM  = (M == 0u) ? float3(0.76f, 0.78f, 0.84f) : float3(0.84f, 0.73f, 0.65f);
+                float  Limb     = smoothstep(CosRad, min(0.99999f, CosRad + 0.0005f), CosRay);
+                Sky             = lerp(Sky, Sky * (1.0f - 0.65f * Veil) + AlbedoM * Phase * (1.6f * Veil + 0.25f), Limb);
             }
         }
     }
 
-    // Volumetric cumulus slab (3-octave FBM + Beer-Powder solar forward scatter)
     if (CloudMoonCfg.x > 0.01f && RayDir.y > 0.035f)
     {
         float  Coverage  = saturate(CloudMoonCfg.x);
@@ -218,19 +256,19 @@ float3 ApplyCoupledHeightFog(float3 Radiance, float3 RayOrigin, float3 RayDir, f
     {
         return Radiance;
     }
-    float  Density = Fog0.w;
-    float  Falloff = max(1.0e-4f, FrameHeader[18].x);
-    float  Dist    = min(TravelMeters, 450.0f);
-    float  BaseExp = exp(-clamp(RayOrigin.y * Falloff, -8.0f, 12.0f));
-    float  DeltaH  = RayDir.y * Dist * Falloff;
-    float  LineInt = (abs(DeltaH) > 1.0e-3f) ? ((1.0f - exp(-clamp(DeltaH, -10.0f, 10.0f))) / DeltaH) : 1.0f;
-    float  Tau     = clamp(Density * Dist * BaseExp * LineInt, 0.0f, 12.0f);
-    float  Trans   = exp(-Tau);
+    float Density = Fog0.w;
+    float Falloff = max(1.0e-4f, FrameHeader[18].x);
+    float Dist    = min(TravelMeters, 450.0f);
+    float BaseExp = exp(-clamp(RayOrigin.y * Falloff, -8.0f, 12.0f));
+    float DeltaH  = RayDir.y * Dist * Falloff;
+    float LineInt = (abs(DeltaH) > 1.0e-3f) ? ((1.0f - exp(-clamp(DeltaH, -10.0f, 10.0f))) / DeltaH) : 1.0f;
+    float Tau     = clamp(Density * Dist * BaseExp * LineInt, 0.0f, 12.0f);
+    float Trans   = exp(-Tau);
     return Radiance * Trans + Fog0.xyz * (1.0f - Trans);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-// UNIFIED SCENE GEOMETRY & DISTANCE QUERIES (TWO-LEVEL OCTET + RANGE CLIPMAP OR SINGLE-LEVEL STAGE 3B)
+// UNIFIED SCENE GEOMETRY & DISTANCE QUERIES
 //------------------------------------------------------------------------------------------------------------------------
 
 struct UnifiedOpaqueHit
@@ -260,7 +298,7 @@ UnifiedOpaqueHit TraceSceneOpaque(float3 Origin, float3 RayDir, float MinT, floa
         Out.ClassId              = H.ClassId;
         Out.VisitedBlocks        = H.VisitedBlocks;
         Out.WorldPos             = H.WorldPos;
-        Out.GeoNormal            = H.GeoNormal;
+        Out.GeoNormal            = (dot(H.GeoNormal, RayDir) > 0.0f) ? -H.GeoNormal : H.GeoNormal;
         Out.WorldTangent         = H.WorldTangent;
         Out.TexCoord             = H.TexCoord;
         Out.InstanceTint         = H.InstanceTint;
@@ -299,24 +337,17 @@ float EvaluateSceneDistanceAO(float3 WorldPos, float3 Normal)
     {
         return 1.0f;
     }
-    if (FrameHeader[12].y > 0.5f)
-    {
-        return EvaluateRangeDistanceOcclusion(DistanceOrRangeTable, WorldPos, Normal, 1.55f);
-    }
-    return EvaluateGpuVolumeAmbientOcclusion(DistanceOrRangeTable, WorldPos, Normal, 1.35f);
+    return EvaluateHardwareSdfAmbientOcclusion(
+        SdfClipmapVolume, DistanceOrRangeTable, FrameHeader[12].y > 0.5f, FrameHeader[19].z, WorldPos, Normal);
 }
-
-//------------------------------------------------------------------------------------------------------------------------
-// ANALYTICAL + LUMINOUS FACET DIRECT LUMINAIRE PROPOSAL SAMPLING
-//------------------------------------------------------------------------------------------------------------------------
 
 struct LuminaireProposal
 {
     bool   Valid;
     float3 LightDir;
     float  DistanceM;
-    float3 UnshadowedLi; // EmittedRadiance * GeometricAttenuation
-    float  ProposalPdf;  // Solid-angle PDF or discrete-measure PDF matching UnshadowedLi
+    float3 UnshadowedLi;
+    float  ProposalPdf;
 };
 
 LuminaireProposal SampleAnalyticLuminaire(uint LumIdx, float3 SurfacePos, float2 XiArea)
@@ -328,14 +359,14 @@ LuminaireProposal SampleAnalyticLuminaire(uint LumIdx, float3 SurfacePos, float2
     Out.UnshadowedLi = float3(0.0f);
     Out.ProposalPdf  = 1.0f;
 
-    uint   Slot = kLuminaireBaseSlot + LumIdx * 4u;
+    uint   Slot = ResolveLuminaireBaseSlot() + LumIdx * 4u;
     float4 L0   = FrameHeader[Slot + 0u];
     float4 L1   = FrameHeader[Slot + 1u];
     float4 L2   = FrameHeader[Slot + 2u];
     float4 L3   = FrameHeader[Slot + 3u];
-    uint   Kind = uint(L0.w + 0.5f);
+    uint   Type = uint(L0.w + 0.5f);
 
-    if (Kind == 0u) // Directional Sun
+    if (Type == 0u)
     {
         Out.Valid        = true;
         Out.LightDir     = normalize(L0.xyz);
@@ -343,7 +374,7 @@ LuminaireProposal SampleAnalyticLuminaire(uint LumIdx, float3 SurfacePos, float2
         Out.UnshadowedLi = L3.xyz;
         Out.ProposalPdf  = 1.0f;
     }
-    else if (Kind == 1u) // Point Light
+    else if (Type == 2u)
     {
         float3 ToLight   = L0.xyz - SurfacePos;
         float  DistSq    = max(1.0e-3f, dot(ToLight, ToLight));
@@ -354,7 +385,7 @@ LuminaireProposal SampleAnalyticLuminaire(uint LumIdx, float3 SurfacePos, float2
         Out.UnshadowedLi = L3.xyz / (1.0f + DistSq);
         Out.ProposalPdf  = 1.0f;
     }
-    else // Rectangular Area Softbox
+    else
     {
         float2 Uv      = XiArea * 2.0f - 1.0f;
         float3 SampleP = L0.xyz + Uv.x * L1.xyz + Uv.y * L2.xyz;
@@ -380,11 +411,10 @@ LuminaireProposal SampleAnalyticLuminaire(uint LumIdx, float3 SurfacePos, float2
 
 LuminaireProposal ProposeCombinedDirectSample(float3 SurfacePos, inout uint Rng)
 {
-    uint LumCount   = uint(FrameHeader[3].w + 0.5f);
-    uint FacetCount = uint(FrameHeader[12].z + 0.5f);
-
-    float ProbFacet = (FacetCount > 0u) ? ((LumCount > 0u) ? 0.25f : 1.0f) : 0.0f;
-    float Roll      = SampleUniform01(Rng);
+    uint  LumCount   = uint(FrameHeader[3].w + 0.5f);
+    uint  FacetCount = uint(FrameHeader[12].z + 0.5f);
+    float ProbFacet  = (FacetCount > 0u) ? ((LumCount > 0u) ? 0.25f : 1.0f) : 0.0f;
+    float Roll       = SampleUniform01(Rng);
 
     if (ProbFacet > 0.0f && Roll < ProbFacet)
     {
@@ -412,14 +442,13 @@ LuminaireProposal ProposeCombinedDirectSample(float3 SurfacePos, inout uint Rng)
         return Empty;
     }
 
-    uint  Chosen = min(uint(SampleUniform01(Rng) * float(LumCount)), LumCount - 1u);
-    float2 XiA   = float2(SampleUniform01(Rng), SampleUniform01(Rng));
+    uint   Chosen = min(uint(SampleUniform01(Rng) * float(LumCount)), LumCount - 1u);
+    float2 XiA    = float2(SampleUniform01(Rng), SampleUniform01(Rng));
     LuminaireProposal Out = SampleAnalyticLuminaire(Chosen, SurfacePos, XiA);
     Out.ProposalPdf *= (1.0f - ProbFacet) / float(LumCount);
     return Out;
 }
 
-// Reconstructs UnpackedSurfaceMaterial directly from GBuffer layers 1..5
 UnpackedSurfaceMaterial ReconstructGbufferMaterial(uint2 Px, out float3 OutN, out float3 OutT, out float3 OutB)
 {
     float4 G1 = SurfaceAndWorkAtlas[uint3(Px, 1u)];
@@ -428,16 +457,16 @@ UnpackedSurfaceMaterial ReconstructGbufferMaterial(uint2 Px, out float3 OutN, ou
     float4 G4 = SurfaceAndWorkAtlas[uint3(Px, 4u)];
     float4 G5 = SurfaceAndWorkAtlas[uint3(Px, 5u)];
 
-    uint ClassId            = uint(max(0.0f, G2.w) + 0.5f);
+    uint ClassId                = uint(max(0.0f, G2.w) + 0.5f);
     UnpackedSurfaceMaterial Mat = FetchSurfaceMaterial(MaterialTable, ClassId);
-    Mat.BaseAlbedo          = G5.xyz;
-    Mat.AmbientOcclusion    = G5.w;
-    Mat.BaseRoughness       = clamp(G1.w, 0.045f, 1.0f);
-    Mat.Metallic            = saturate(G3.x);
-    Mat.CoatCoverage        = saturate(G3.y);
-    Mat.CoatRoughness       = clamp(G3.z, 0.045f, 1.0f);
-    Mat.Anisotropy          = clamp(G4.w, -0.9f, 0.9f);
-    Mat.SelfRadiance        = G2.xyz;
+    Mat.BaseAlbedo              = G5.xyz;
+    Mat.AmbientOcclusion        = G5.w;
+    Mat.BaseRoughness           = clamp(G1.w, 0.045f, 1.0f);
+    Mat.Metallic                = saturate(G3.x);
+    Mat.CoatCoverage            = saturate(G3.y);
+    Mat.CoatRoughness           = clamp(G3.z, 0.045f, 1.0f);
+    Mat.Anisotropy              = clamp(G4.w, -0.9f, 0.9f);
+    Mat.SelfRadiance            = G2.xyz;
 
     OutN = normalize(G1.xyz);
     OutT = G4.xyz - OutN * dot(OutN, G4.xyz);
@@ -448,101 +477,73 @@ UnpackedSurfaceMaterial ReconstructGbufferMaterial(uint2 Px, out float3 OutN, ou
     return Mat;
 }
 
-// Evaluates Albedo-Free Diffuse Shading Factor D and Specular BRDF S so D * BaseAlbedo + S == full PBR radiance (zero floor bug!)
-void EvaluateAlbedoFreeSplitBrdf(UnpackedSurfaceMaterial Mat,
-                                 float3                  N,
-                                 float3                  T,
-                                 float3                  B,
-                                 float3                  V,
-                                 float3                  L,
-                                 out float3              OutAlbedoFreeDiffFactor,
-                                 out float3              OutSpecularBrdf)
+bool ProjectToPreviousScreenPosition(float3 WorldPos, uint Width, uint Height, out float2 OutPrevScreenPos, out float2 OutMotionUv, int2 CurrPx)
 {
-    OutAlbedoFreeDiffFactor = float3(0.0f);
-    OutSpecularBrdf         = float3(0.0f);
-
-    float NdotV = dot(N, V);
-    float NdotL = dot(N, L);
-    if (NdotV <= 0.0f || NdotL <= 0.0f)
-    {
-        return;
-    }
-
-    float3 FullDiff, FullSpec;
-    EvaluateSurfaceSplitBrdf(Mat, N, T, B, V, L, FullDiff, FullSpec);
-
-    // Replace Mat.BaseAlbedo in the Lambertian factor cleanly without dividing by near-zero albedo!
-    UnpackedSurfaceMaterial UnitMat = Mat;
-    UnitMat.BaseAlbedo              = float3(1.0f);
-    UnitMat.SheenIntensity          = 0.0f;
-    float3 UnitDiff, UnusedSpec;
-    EvaluateSurfaceSplitBrdf(UnitMat, N, T, B, V, L, UnitDiff, UnusedSpec);
-
-    // Preserve Fresnel F0 dependence on metallic BaseAlbedo by scaling UnitDiff slightly for conductors (1 - Metallic kills conductor diffuse anyway)
-    float3 SheenResidual = float3(0.0f);
-    if (Mat.SheenIntensity > 1.0e-3f)
-    {
-        float3 HalfVec = normalize(V + L);
-        float  Charlie = EvaluateCharlieSheenD(Mat.SheenRoughness, saturate(dot(N, HalfVec)));
-        float  AshVis  = 1.0f / max(1.0e-4f, 4.0f * (NdotL + NdotV - NdotL * NdotV));
-        SheenResidual  = Mat.SheenTint * (Mat.SheenIntensity * Charlie * AshVis);
-    }
-
-    OutAlbedoFreeDiffFactor = UnitDiff;
-    OutSpecularBrdf         = FullSpec + SheenResidual;
-}
-
-// Exact world-to-previous-pixel motion reprojection via PrevViewProj rows (FrameHeader[8..11])
-bool ProjectToPreviousPixel(float3 WorldPos, uint Width, uint Height, out int2 OutPrevPx, out float2 OutMotionUv, int2 CurrPx)
-{
-    float4 R0 = FrameHeader[8];
-    float4 R1 = FrameHeader[9];
-    float4 R2 = FrameHeader[10];
-
-    float ViewZ = dot(R2.xyz, WorldPos) + R2.w;
+    float4 R0    = FrameHeader[8];
+    float4 R1    = FrameHeader[9];
+    float4 R2    = FrameHeader[10];
+    float  ViewZ = dot(R2.xyz, WorldPos) + R2.w;
     if (ViewZ <= 0.05f)
     {
-        OutPrevPx   = CurrPx;
-        OutMotionUv = float2(0.0f);
+        OutPrevScreenPos = float2(CurrPx) + 0.5f;
+        OutMotionUv      = float2(0.0f);
         return false;
     }
-    float NdcX = (dot(R0.xyz, WorldPos) + R0.w) / ViewZ;
-    float NdcY = (dot(R1.xyz, WorldPos) + R1.w) / ViewZ;
-    float PrevU = 0.5f * (NdcX + 1.0f);
-    float PrevV = 0.5f * (1.0f - NdcY);
-
+    float  NdcX   = (dot(R0.xyz, WorldPos) + R0.w) / ViewZ;
+    float  NdcY   = (dot(R1.xyz, WorldPos) + R1.w) / ViewZ;
+    float  PrevU  = 0.5f * (NdcX + 1.0f);
+    float  PrevV  = 0.5f * (1.0f - NdcY);
     float2 CurrUv = (float2(CurrPx) + 0.5f) / float2(float(Width), float(Height));
     OutMotionUv   = float2(PrevU, PrevV) - CurrUv;
-
-    if (PrevU < 0.0f || PrevU >= 1.0f || PrevV < 0.0f || PrevV >= 1.0f)
-    {
-        OutPrevPx = CurrPx;
-        return false;
-    }
-    OutPrevPx = int2(int(PrevU * float(Width)), int(PrevV * float(Height)));
-    return true;
+    OutPrevScreenPos = float2(PrevU * float(Width), PrevV * float(Height));
+    return (PrevU >= 0.0f && PrevU < 1.0f && PrevV >= 0.0f && PrevV < 1.0f);
 }
 
-float3 ShadeSimpleSecondarySurface(float3 HitPos, float3 GeoN, uint ClassId, float3 ViewDirToOrigin, float3 InstanceTint, float InstanceSelfRad)
+float3 ShadeSecondarySurface(float3 HitPos,
+                             float2 HitUv,
+                             float  HitDistM,
+                             float3 GeoN,
+                             uint   ClassId,
+                             float3 ViewDirToOrigin,
+                             float3 InstanceTint,
+                             float  InstanceSelfRad,
+                             bool   UseRaytracedShadow)
 {
     UnpackedSurfaceMaterial Mat = FetchSurfaceMaterial(MaterialTable, ClassId);
+    if (Mat.AlbedoLayer >= 0)
+    {
+        float Mip = clamp(log2(max(1.0f, HitDistM * 0.20f * Mat.UvTilingScale)), 0.0f, 8.0f);
+        Mat.BaseAlbedo *= MaterialMaps.SampleLevel(float3(HitUv * Mat.UvTilingScale, float(Mat.AlbedoLayer)), Mip).rgb;
+    }
     Mat.BaseAlbedo *= InstanceTint;
     float3 OutRad   = Mat.SelfRadiance + Mat.BaseAlbedo * InstanceSelfRad;
 
     uint LumCount = uint(FrameHeader[3].w + 0.5f);
-    for (uint L = 0u; L < min(LumCount, 4u); ++L)
+    for (uint L = 0u; L < min(LumCount, 3u); ++L)
     {
         LuminaireProposal Prop = SampleAnalyticLuminaire(L, HitPos, float2(0.5f, 0.5f));
-        float NdotL            = max(0.0f, dot(GeoN, Prop.LightDir));
+        float             NdotL = max(0.0f, dot(GeoN, Prop.LightDir));
         if (Prop.Valid && NdotL > 0.0f)
         {
-            float3 Vis = (L == 0u) ? TraceSceneShadowTransmittance(HitPos + GeoN * 0.015f, Prop.LightDir, Prop.DistanceM) : float3(1.0f);
+            float3 Vis = float3(1.0f);
+            if (L == 0u)
+            {
+                if (UseRaytracedShadow || FrameHeader[32].w < 0.5f)
+                {
+                    Vis = TraceSceneShadowTransmittance(HitPos + GeoN * 0.015f, Prop.LightDir, Prop.DistanceM);
+                }
+                else
+                {
+                    float CamDist = length(HitPos - FrameHeader[0].xyz);
+                    Vis           = float3(ResolveDeterministicSolarVisibility(ShadowDepthArray, FrameHeader, HitPos, GeoN, CamDist));
+                }
+            }
             OutRad += EvaluateSurfaceScatteringBrdf(Mat, HitPos, GeoN, ViewDirToOrigin, Prop.LightDir) * Prop.UnshadowedLi * Vis * NdotL;
         }
     }
 
     uint PatchCount = uint(FrameHeader[12].w + 0.5f);
-    if (PatchCount > 0u)
+    if (PatchCount > 0u && FrameHeader[13].z > 0.0f)
     {
         float3 CardRad = SampleGpuCombinedSurfaceRadiosity(SurfaceCardPack, PatchCount, HitPos, GeoN);
         OutRad += (1.0f - Mat.Metallic) * Mat.BaseAlbedo * CardRad * FrameHeader[13].z;
@@ -550,13 +551,13 @@ float3 ShadeSimpleSecondarySurface(float3 HitPos, float3 GeoN, uint ClassId, flo
     else
     {
         float3 SkyHemi = lerp(FrameHeader[6].xyz, FrameHeader[4].xyz, 0.5f * GeoN.y + 0.5f);
-        OutRad += (1.0f - Mat.Metallic) * Mat.BaseAlbedo * SkyHemi * 0.35f;
+        OutRad += (1.0f - Mat.Metallic) * Mat.BaseAlbedo * SkyHemi * 0.32f;
     }
     return OutRad;
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-// KERNEL 1: MULTI-BOUNCE GPU SURFACE CARD RADIOSITY SOLVER (SINGLE WORKGROUP, RACE-FREE GROUPSHARED JACOBI)
+// KERNEL 0: MULTI-BOUNCE GPU SURFACE CARD RADIOSITY SOLVER
 //------------------------------------------------------------------------------------------------------------------------
 
 groupshared float3 SharedCardR0[256];
@@ -603,7 +604,6 @@ void SolveSurfaceRadiosityMain(uint3 Tid : SV_DispatchThreadID)
         float  SkyWeight = FrameHeader[13].w;
         float3 SkyIrrad  = lerp(FrameHeader[6].xyz, FrameHeader[4].xyz, 0.5f * Normal.y + 0.5f) * 3.14159265f * SkyWeight * 0.32f;
         Irrad += SkyIrrad * EvaluateSceneDistanceAO(Center, Normal);
-
         Direct = G3.xyz + (Refl * (1.0f / 3.14159265f)) * Irrad;
     }
 
@@ -619,18 +619,12 @@ void SolveSurfaceRadiosityMain(uint3 Tid : SV_DispatchThreadID)
             float3 IndirectIrrad = float3(0.0f);
             for (uint J = 0u; J < PatchCount; ++J)
             {
-                if (J == Idx)
-                {
-                    continue;
-                }
-                float4 GJ   = SurfaceCardPack[J * 4u + 0u];
-                float4 NJ   = SurfaceCardPack[J * 4u + 1u];
-                float3 Vec  = GJ.xyz - Center;
-                float  D2   = dot(Vec, Vec);
-                if (D2 <= 1.0e-4f)
-                {
-                    continue;
-                }
+                if (J == Idx) continue;
+                float4 GJ  = SurfaceCardPack[J * 4u + 0u];
+                float4 NJ  = SurfaceCardPack[J * 4u + 1u];
+                float3 Vec = GJ.xyz - Center;
+                float  D2  = dot(Vec, Vec);
+                if (D2 <= 1.0e-4f) continue;
                 float  InvD = rsqrt(D2);
                 float3 Dir  = Vec * InvD;
                 float  CosI = dot(Normal, Dir);
@@ -655,7 +649,7 @@ void SolveSurfaceRadiosityMain(uint3 Tid : SV_DispatchThreadID)
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-// KERNEL 2: PRIMARY VISIBILITY, 2-INTERFACE CURVED GLAZING REFRACTION/TIR, & 3-TIER AUTHORED MATERIAL LOD
+// EMERGENCY COMPUTE PRIMARY FALLBACK (ONLY USED ON HEADLESS COMPUTE-ONLY QUEUES WITHOUT GRAPHICS BIT)
 //------------------------------------------------------------------------------------------------------------------------
 
 [shader("compute")]
@@ -669,22 +663,14 @@ void TracePrimarySurfaceMain(uint3 DispatchId : SV_DispatchThreadID)
         return;
     }
 
-    uint2  Px       = DispatchId.xy;
-    float2 Uv       = (float2(Px) + 0.5f) / float2(float(Width), float(Height));
-    float2 Ndc      = float2(2.0f * Uv.x - 1.0f, 1.0f - 2.0f * Uv.y);
-    float3 CamOrig  = FrameHeader[0].xyz;
-    float  TanHalfV = FrameHeader[0].w;
-    float3 CamRight = FrameHeader[1].xyz;
-    float  TanHalfH = FrameHeader[1].w;
-    float3 CamUp    = FrameHeader[2].xyz;
-    float3 CamFwd   = FrameHeader[3].xyz;
-    float3 RayDir   = normalize(CamFwd + Ndc.x * TanHalfH * CamRight + Ndc.y * TanHalfV * CamUp);
+    uint2  Px      = DispatchId.xy;
+    float3 CamOrig = FrameHeader[0].xyz;
+    float3 RayDir  = ReconstructPrimaryRayDirection(Px, Width, Height);
 
-    UnifiedOpaqueHit Opaque = TraceSceneOpaque(CamOrig, RayDir, 1.0e-3f, 2000.0f);
+    UnifiedOpaqueHit Opaque    = TraceSceneOpaque(CamOrig, RayDir, 1.0e-3f, 2000.0f);
     float            MaxGlassT = Opaque.Hit ? Opaque.DistanceM : 2000.0f;
     uint             CellCount = uint(FrameHeader[2].w + 0.5f);
 
-    // Check curved automotive/architectural dielectric glazing in front of opaque hit
     bool   HitGlass       = false;
     float  GlassFrontT    = MaxGlassT;
     float  GlassThickness = 0.014f;
@@ -720,42 +706,34 @@ void TracePrimarySurfaceMain(uint3 DispatchId : SV_DispatchThreadID)
 
     if (HitGlass)
     {
-        // Exact 2-interface Air -> Glass -> Air Snell refraction + unpolarized Fresnel + Total Internal Reflection
         float3 FrontPos = CamOrig + RayDir * GlassFrontT;
         float  R1       = 0.04f;
         float3 DirIn    = RayDir;
         bool   Tir1     = false;
         EvaluateExactDielectricBoundary(RayDir, GlassFrontN, 1.0f, GlassIor, R1, DirIn, Tir1);
-
         float3 BackPos  = FrontPos + DirIn * GlassThickness;
         float3 ExitNorm = (dot(-DirIn, GlassBackN) > 0.05f) ? GlassBackN : GlassFrontN;
         float  R2       = 0.04f;
         float3 DirExit  = DirIn;
         bool   Tir2     = false;
         EvaluateExactDielectricBoundary(DirIn, ExitNorm, GlassIor, 1.0f, R2, DirExit, Tir2);
-
         if (Tir2)
         {
-            // Curved-edge internal bounce inside glass shell before exiting
-            float3 InternalRefl = reflect(DirIn, ExitNorm);
-            DirExit             = normalize(lerp(RayDir, InternalRefl, 0.45f));
-            GlassThickness     *= 2.2f;
+            DirExit         = normalize(lerp(RayDir, reflect(DirIn, ExitNorm), 0.45f));
+            GlassThickness *= 2.2f;
         }
-
-        float3 BeerLambert = exp(-GlassAbsorb * GlassThickness * 4.0f);
-        UnifiedOpaqueHit Behind = TraceSceneOpaque(BackPos + DirExit * 0.008f, DirExit, 1.0e-3f, 2000.0f);
-        float3 TransRad = Behind.Hit
-                              ? ApplyCoupledHeightFog(
-                                    ShadeSimpleSecondarySurface(Behind.WorldPos, Behind.GeoNormal, Behind.ClassId, -DirExit, Behind.InstanceTint, Behind.InstanceSelfRadiance),
-                                    BackPos, DirExit, Behind.DistanceM)
-                              : EvaluateCoupledEnvironmentSky(DirExit);
-
-        float3 ReflDir = reflect(RayDir, GlassFrontN);
+        float3           BeerLambert = exp(-GlassAbsorb * GlassThickness * 4.0f);
+        UnifiedOpaqueHit Behind      = TraceSceneOpaque(BackPos + DirExit * 0.008f, DirExit, 1.0e-3f, 2000.0f);
+        float3           TransRad    = Behind.Hit
+                                           ? ApplyCoupledHeightFog(
+                                                 ShadeSecondarySurface(Behind.WorldPos, Behind.TexCoord, Behind.DistanceM, Behind.GeoNormal, Behind.ClassId, -DirExit, Behind.InstanceTint, Behind.InstanceSelfRadiance, true),
+                                                 BackPos, DirExit, Behind.DistanceM)
+                                           : EvaluateCoupledEnvironmentSky(DirExit);
+        float3           ReflDir = reflect(RayDir, GlassFrontN);
         UnifiedOpaqueHit ReflHit = TraceSceneOpaque(FrontPos + GlassFrontN * 0.01f, ReflDir, 1.0e-3f, 1500.0f);
-        float3 ReflRad = ReflHit.Hit
-                             ? ShadeSimpleSecondarySurface(ReflHit.WorldPos, ReflHit.GeoNormal, ReflHit.ClassId, -ReflDir, ReflHit.InstanceTint, ReflHit.InstanceSelfRadiance)
-                             : EvaluateCoupledEnvironmentSky(ReflDir);
-
+        float3           ReflRad = ReflHit.Hit
+                                       ? ShadeSecondarySurface(ReflHit.WorldPos, ReflHit.TexCoord, ReflHit.DistanceM, ReflHit.GeoNormal, ReflHit.ClassId, -ReflDir, ReflHit.InstanceTint, ReflHit.InstanceSelfRadiance, true)
+                                       : EvaluateCoupledEnvironmentSky(ReflDir);
         float  EffectiveR = saturate(R1 + (1.0f - R1) * R2 * 0.65f);
         float3 GlassRad   = ReflRad * EffectiveR + TransRad * BeerLambert * (1.0f - EffectiveR);
 
@@ -770,28 +748,24 @@ void TracePrimarySurfaceMain(uint3 DispatchId : SV_DispatchThreadID)
 
     if (!Opaque.Hit)
     {
-        float3 SkyRad = EvaluateCoupledEnvironmentSky(RayDir);
-        SurfaceAndWorkAtlas[uint3(Px, 0u)] = float4(RayDir, 0.0f);
+        SurfaceAndWorkAtlas[uint3(Px, 0u)] = float4(0.0f);
         SurfaceAndWorkAtlas[uint3(Px, 1u)] = float4(0.0f, 1.0f, 0.0f, 1.0f);
-        SurfaceAndWorkAtlas[uint3(Px, 2u)] = float4(SkyRad, 0.0f);
+        SurfaceAndWorkAtlas[uint3(Px, 2u)] = float4(0.0f);
         SurfaceAndWorkAtlas[uint3(Px, 3u)] = float4(0.0f);
         SurfaceAndWorkAtlas[uint3(Px, 4u)] = float4(1.0f, 0.0f, 0.0f, 0.0f);
         SurfaceAndWorkAtlas[uint3(Px, 5u)] = float4(0.0f, 0.0f, 0.0f, 1.0f);
         return;
     }
 
-    float3 GeoN = (dot(Opaque.GeoNormal, RayDir) > 0.0f) ? -Opaque.GeoNormal : Opaque.GeoNormal;
-    UnpackedSurfaceMaterial Mat = FetchSurfaceMaterial(MaterialTable, Opaque.ClassId);
-
-    float3 ShadingN, RotT, RotB;
+    float3                  GeoN = (dot(Opaque.GeoNormal, RayDir) > 0.0f) ? -Opaque.GeoNormal : Opaque.GeoNormal;
+    UnpackedSurfaceMaterial Mat  = FetchSurfaceMaterial(MaterialTable, Opaque.ClassId);
+    float3                  ShadingN, RotT, RotB;
     ResolveAuthoredMaterialAtHit(
         Mat, MaterialMaps, Opaque.WorldPos, Opaque.TexCoord, Opaque.DistanceM, GeoN, Opaque.WorldTangent, ShadingN, RotT, RotB);
-
-    Mat.BaseAlbedo *= Opaque.InstanceTint;
+    Mat.BaseAlbedo   *= Opaque.InstanceTint;
     Mat.SelfRadiance += Mat.BaseAlbedo * Opaque.InstanceSelfRadiance;
 
-    float EncodedTierBlocks = float(Mat.MaterialLodTier) + 0.01f * float(min(Opaque.VisitedBlocks, 99u));
-
+    float EncodedTierBlocks            = float(Mat.MaterialLodTier) + 0.01f * float(min(Opaque.VisitedBlocks, 99u));
     SurfaceAndWorkAtlas[uint3(Px, 0u)] = float4(Opaque.WorldPos, Opaque.DistanceM);
     SurfaceAndWorkAtlas[uint3(Px, 1u)] = float4(ShadingN, Mat.BaseRoughness);
     SurfaceAndWorkAtlas[uint3(Px, 2u)] = float4(Mat.SelfRadiance, float(Opaque.ClassId));
@@ -801,16 +775,13 @@ void TracePrimarySurfaceMain(uint3 DispatchId : SV_DispatchThreadID)
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-// KERNEL 3: ReSTIR DI (ANALYTIC + LUMINOUS FACET CDF RIS + SHADOW RAY + MOTION-REPROJECTED TEMPORAL REUSE)
+// KERNEL 3: DIRECT RADIANCE (HYBRID: ZERO-NOISE SHADOWRASTER + KARIS AREA LIGHTS | OPTION 2: FULL RAYTRACED DI)
 //------------------------------------------------------------------------------------------------------------------------
 
 float EvaluateDirectTargetPdf(UnpackedSurfaceMaterial Mat, float3 N, float3 T, float3 B, float3 V, float3 L, float3 Li)
 {
     float NdotL = max(0.0f, dot(N, L));
-    if (NdotL <= 0.0f)
-    {
-        return 0.0f;
-    }
+    if (NdotL <= 0.0f) return 0.0f;
     float3 DiffBrdf, SpecBrdf;
     EvaluateSurfaceSplitBrdf(Mat, N, T, B, V, L, DiffBrdf, SpecBrdf);
     return Luminance709((DiffBrdf + SpecBrdf) * Li * NdotL);
@@ -818,7 +789,7 @@ float EvaluateDirectTargetPdf(UnpackedSurfaceMaterial Mat, float3 N, float3 T, f
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void SampleDirectReservoirsMain(uint3 DispatchId : SV_DispatchThreadID)
+void EvaluateDirectRadianceMain(uint3 DispatchId : SV_DispatchThreadID)
 {
     uint Width  = Push.Counts.x;
     uint Height = Push.Counts.y;
@@ -827,272 +798,11 @@ void SampleDirectReservoirsMain(uint3 DispatchId : SV_DispatchThreadID)
         return;
     }
 
-    uint2 Px     = DispatchId.xy;
-    uint  ResIdx = (Px.y * Width + Px.x) * 2u;
-
+    uint2  Px = DispatchId.xy;
     float4 G0 = SurfaceAndWorkAtlas[uint3(Px, 0u)];
     if (G0.w <= 0.0f)
     {
-        DirectReservoirCurr[ResIdx + 0u] = float4(0.0f);
-        DirectReservoirCurr[ResIdx + 1u] = float4(0.0f);
-        return;
-    }
-
-    float3 WorldPos = G0.xyz;
-    float3 ViewDir  = normalize(FrameHeader[0].xyz - WorldPos);
-    float3 N, T, B;
-    UnpackedSurfaceMaterial Mat = ReconstructGbufferMaterial(Px, N, T, B);
-
-    uint   Rng        = SeedPixelStream(Px, Push.Counts.z, 1u);
-    uint   Candidates = max(1u, uint(FrameHeader[4].w + 0.5f));
-    float  WSum       = 0.0f;
-    float  ChosenPdf  = 0.0f;
-    float3 ChosenDir  = float3(0.0f, 1.0f, 0.0f);
-    float  ChosenDist = 1.0f;
-    float3 ChosenLi   = float3(0.0f);
-    float  MCount     = 0.0f;
-
-    for (uint C = 0u; C < Candidates; ++C)
-    {
-        LuminaireProposal Prop = ProposeCombinedDirectSample(WorldPos, Rng);
-        MCount += 1.0f;
-        if (!Prop.Valid || Prop.ProposalPdf <= 1.0e-7f)
-        {
-            continue;
-        }
-        float TargetP = EvaluateDirectTargetPdf(Mat, N, T, B, ViewDir, Prop.LightDir, Prop.UnshadowedLi);
-        float Weight  = TargetP / Prop.ProposalPdf;
-        WSum += Weight;
-        if (SampleUniform01(Rng) * max(WSum, 1.0e-9f) < Weight)
-        {
-            ChosenPdf  = TargetP;
-            ChosenDir  = Prop.LightDir;
-            ChosenDist = Prop.DistanceM;
-            ChosenLi   = Prop.UnshadowedLi;
-        }
-    }
-
-    float WeightW = (ChosenPdf > 1.0e-7f && MCount > 0.0f) ? (WSum / (ChosenPdf * MCount)) : 0.0f;
-
-    // 1 visibility ray per pixel for the winning RIS sample (+ optional SDF soft-penumbra modulation for sun)
-    if (WeightW > 0.0f)
-    {
-        float3 ShadowTrans = TraceSceneShadowTransmittance(WorldPos + N * 0.012f, ChosenDir, ChosenDist);
-        if (FrameHeader[7].z > 0.5f && ChosenDist > 500.0f && FrameHeader[12].y < 0.5f)
-        {
-            float ConeVis = TraceGpuVolumeConeShadow(DistanceOrRangeTable, WorldPos, N, ChosenDir, 8.0f, 16.0f, 12);
-            ShadowTrans   = min(ShadowTrans, float3(lerp(0.35f, 1.0f, ConeVis)));
-        }
-        ChosenLi *= ShadowTrans;
-        if (Luminance709(ChosenLi) <= 1.0e-7f)
-        {
-            WeightW   = 0.0f;
-            ChosenPdf = 0.0f;
-        }
-    }
-
-    // Motion-reprojected Temporal Reuse against DirectReservoirPrev (written by last frame's spatial reuse pass)
-    float MaxHistoryM = max(1.0f, FrameHeader[13].y);
-    if (Push.Params.w > 0.5f)
-    {
-        int2   PrevPx;
-        float2 MotionUv;
-        if (ProjectToPreviousPixel(WorldPos, Width, Height, PrevPx, MotionUv, int2(Px)))
-        {
-            uint   PrevBase = (uint(PrevPx.y) * Width + uint(PrevPx.x)) * 2u;
-            float4 P0       = DirectReservoirPrev[PrevBase + 0u];
-            float4 P1       = DirectReservoirPrev[PrevBase + 1u];
-            float  PrevM    = min(P0.w, MaxHistoryM);
-            if (PrevM > 0.0f && P1.w > 0.0f)
-            {
-                float3 PrevDir = DecodeOctahedral(P0.xy);
-                float  PrevTp  = EvaluateDirectTargetPdf(Mat, N, T, B, ViewDir, PrevDir, P1.xyz);
-                float  PrevW   = PrevTp * P1.w * PrevM;
-                float  CurrW   = ChosenPdf * WeightW * MCount;
-                float  TotalW  = CurrW + PrevW;
-                MCount        += PrevM;
-                if (TotalW > 1.0e-8f && SampleUniform01(Rng) * TotalW < PrevW)
-                {
-                    ChosenDir  = PrevDir;
-                    ChosenDist = P0.z;
-                    ChosenLi   = P1.xyz;
-                    ChosenPdf  = PrevTp;
-                }
-                WeightW = (ChosenPdf > 1.0e-7f && MCount > 0.0f) ? (TotalW / (ChosenPdf * MCount)) : 0.0f;
-            }
-        }
-    }
-
-    DirectReservoirCurr[ResIdx + 0u] = float4(EncodeOctahedral(ChosenDir), ChosenDist, min(MCount, MaxHistoryM));
-    DirectReservoirCurr[ResIdx + 1u] = float4(ChosenLi, clamp(WeightW, 0.0f, 12.0f));
-}
-
-//------------------------------------------------------------------------------------------------------------------------
-// KERNEL 4: ReSTIR GI (4-CASCADE RANGE CLIPMAP / BVH SECONDARY + SURFACE CARD RADIOSITY + TEMPORAL REUSE)
-//------------------------------------------------------------------------------------------------------------------------
-
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void SampleIndirectReservoirsMain(uint3 DispatchId : SV_DispatchThreadID)
-{
-    uint Width  = Push.Counts.x;
-    uint Height = Push.Counts.y;
-    if (DispatchId.x >= Width || DispatchId.y >= Height)
-    {
-        return;
-    }
-
-    uint2 Px     = DispatchId.xy;
-    uint  ResIdx = (Px.y * Width + Px.x) * 2u;
-
-    float4 G0 = SurfaceAndWorkAtlas[uint3(Px, 0u)];
-    if (G0.w <= 0.0f || FrameHeader[7].w < 0.5f)
-    {
-        IndirectReservoirCurr[ResIdx + 0u] = float4(0.0f);
-        IndirectReservoirCurr[ResIdx + 1u] = float4(0.0f);
-        return;
-    }
-
-    float3 WorldPos = G0.xyz;
-    float3 N, T, B;
-    ReconstructGbufferMaterial(Px, N, T, B);
-
-    uint  Rng  = SeedPixelStream(Px, Push.Counts.z, 2u);
-    uint  Rays = clamp(uint(FrameHeader[6].w + 0.5f), 1u, 4u);
-
-    float  WSum       = 0.0f;
-    float  ChosenPdf  = 0.0f;
-    float3 ChosenDir  = N;
-    float  ChosenDist = 20.0f;
-    float3 ChosenLi   = float3(0.0f);
-    float  MCount     = 0.0f;
-
-    for (uint R = 0u; R < Rays; ++R)
-    {
-        // Cosine-weighted hemisphere proposal around N: PDF = cos(theta) / pi, so (Li * cos / pi) / PDF = Li!
-        float  U1     = SampleUniform01(Rng);
-        float  U2     = SampleUniform01(Rng);
-        float  Rad    = sqrt(U1);
-        float  Phi    = 6.2831853f * U2;
-        float3 RayDir = normalize(T * (Rad * cos(Phi)) + B * (Rad * sin(Phi)) + N * sqrt(max(1.0e-4f, 1.0f - U1)));
-
-        float3 SampleLi   = float3(0.0f);
-        float  SampleDist = 80.0f;
-        bool   HitSec     = false;
-
-        // Near-field exact BVH ray up to 16m, with 4-cascade RangeDistance clipmap fallback for fast far-field GI
-        UnifiedOpaqueHit NearHit = TraceSceneOpaque(WorldPos + N * 0.02f, RayDir, 1.0e-2f, 22.0f);
-        if (NearHit.Hit)
-        {
-            HitSec     = true;
-            SampleDist = NearHit.DistanceM;
-            SampleLi   = ShadeSimpleSecondarySurface(
-                NearHit.WorldPos, NearHit.GeoNormal, NearHit.ClassId, -RayDir, NearHit.InstanceTint, NearHit.InstanceSelfRadiance);
-        }
-        else if (FrameHeader[12].y > 0.5f)
-        {
-            float3 RangePos, RangeN;
-            float  RangeT;
-            uint   RangeIdx;
-            if (TraceRangeDistanceSphereRay(DistanceOrRangeTable, WorldPos + N * 0.12f, RayDir, 96.0f, 24, RangePos, RangeN, RangeT, RangeIdx))
-            {
-                HitSec         = true;
-                SampleDist     = RangeT;
-                uint PatchCnt  = uint(FrameHeader[12].w + 0.5f);
-                SampleLi       = (PatchCnt > 0u)
-                                     ? SampleGpuCombinedSurfaceRadiosity(SurfaceCardPack, PatchCnt, RangePos, RangeN) * FrameHeader[13].z
-                                     : lerp(FrameHeader[6].xyz, FrameHeader[4].xyz, 0.5f * RangeN.y + 0.5f) * 0.45f;
-            }
-        }
-
-        if (!HitSec)
-        {
-            SampleLi   = EvaluateCoupledEnvironmentSky(RayDir) * FrameHeader[13].w;
-            SampleDist = 200.0f;
-        }
-
-        // Cosine hemisphere PDF = NdotL / pi => TargetPdf = Luminance(SampleLi * NdotL / pi), ProposalPdf = NdotL / pi => Weight = Luminance(SampleLi)!
-        float TargetP = Luminance709(SampleLi) * max(1.0e-3f, dot(N, RayDir)) * (1.0f / 3.14159265f);
-        float PropP   = max(1.0e-3f, dot(N, RayDir)) * (1.0f / 3.14159265f);
-        float Weight  = TargetP / PropP;
-        WSum   += Weight;
-        MCount += 1.0f;
-        if (SampleUniform01(Rng) * max(WSum, 1.0e-9f) < Weight)
-        {
-            ChosenPdf  = TargetP;
-            ChosenDir  = RayDir;
-            ChosenDist = SampleDist;
-            ChosenLi   = SampleLi;
-        }
-    }
-
-    float WeightW     = (ChosenPdf > 1.0e-7f && MCount > 0.0f) ? (WSum / (ChosenPdf * MCount)) : 0.0f;
-    float MaxHistoryM = min(16.0f, max(1.0f, FrameHeader[13].y));
-
-    if (Push.Params.w > 0.5f)
-    {
-        int2   PrevPx;
-        float2 MotionUv;
-        if (ProjectToPreviousPixel(WorldPos, Width, Height, PrevPx, MotionUv, int2(Px)))
-        {
-            uint   PrevBase = (uint(PrevPx.y) * Width + uint(PrevPx.x)) * 2u;
-            float4 P0       = IndirectReservoirPrev[PrevBase + 0u];
-            float4 P1       = IndirectReservoirPrev[PrevBase + 1u];
-            float  PrevM    = min(P0.w, MaxHistoryM);
-            if (PrevM > 0.0f && P1.w > 0.0f)
-            {
-                float3 PrevDir = DecodeOctahedral(P0.xy);
-                float  NdotL   = max(0.0f, dot(N, PrevDir));
-                float  PrevTp  = Luminance709(P1.xyz) * NdotL * (1.0f / 3.14159265f);
-                float  PrevW   = PrevTp * P1.w * PrevM;
-                float  CurrW   = ChosenPdf * WeightW * MCount;
-                float  TotalW  = CurrW + PrevW;
-                MCount        += PrevM;
-                if (TotalW > 1.0e-8f && SampleUniform01(Rng) * TotalW < PrevW)
-                {
-                    ChosenDir  = PrevDir;
-                    ChosenDist = P0.z;
-                    ChosenLi   = P1.xyz;
-                    ChosenPdf  = PrevTp;
-                }
-                WeightW = (ChosenPdf > 1.0e-7f && MCount > 0.0f) ? (TotalW / (ChosenPdf * MCount)) : 0.0f;
-            }
-        }
-    }
-
-    IndirectReservoirCurr[ResIdx + 0u] = float4(EncodeOctahedral(ChosenDir), ChosenDist, min(MCount, MaxHistoryM));
-    IndirectReservoirCurr[ResIdx + 1u] = float4(ChosenLi, clamp(WeightW, 0.0f, 8.0f));
-}
-
-//------------------------------------------------------------------------------------------------------------------------
-// KERNEL 5: RACE-FREE SPATIAL REUSE (DI + JACOBIAN GI) + HEITZ VNDF REFLECTIONS + SPLIT DIFF/SPEC DEMODULATION
-//------------------------------------------------------------------------------------------------------------------------
-
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void ReuseSpatialReservoirsMain(uint3 DispatchId : SV_DispatchThreadID)
-{
-    uint Width  = Push.Counts.x;
-    uint Height = Push.Counts.y;
-    if (DispatchId.x >= Width || DispatchId.y >= Height)
-    {
-        return;
-    }
-
-    uint2  Px     = DispatchId.xy;
-    uint   ResIdx = (Px.y * Width + Px.x) * 2u;
-    float4 G0     = SurfaceAndWorkAtlas[uint3(Px, 0u)];
-
-    // Sky or resolved curved glazing passes straight into SpecularPing (Layer 8) with zero diffuse blur
-    if (G0.w <= 0.0f)
-    {
-        float3 Passthrough = SurfaceAndWorkAtlas[uint3(Px, 2u)].xyz;
-        DirectReservoirPrev[ResIdx + 0u]   = float4(0.0f);
-        DirectReservoirPrev[ResIdx + 1u]   = float4(0.0f);
-        IndirectReservoirPrev[ResIdx + 0u] = float4(0.0f);
-        IndirectReservoirPrev[ResIdx + 1u] = float4(0.0f);
         SurfaceAndWorkAtlas[uint3(Px, 6u)] = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(Passthrough, 0.0f);
         return;
     }
 
@@ -1102,183 +812,654 @@ void ReuseSpatialReservoirsMain(uint3 DispatchId : SV_DispatchThreadID)
     float3 N, T, B;
     UnpackedSurfaceMaterial Mat = ReconstructGbufferMaterial(Px, N, T, B);
 
-    // Read fresh+temporal reservoirs from *Curr (read-only across all pixels -> 100% race-free!)
-    float4 Di0     = DirectReservoirCurr[ResIdx + 0u];
-    float4 Di1     = DirectReservoirCurr[ResIdx + 1u];
-    float3 DiDir   = DecodeOctahedral(Di0.xy);
-    float  DiDist  = Di0.z;
-    float  DiM     = Di0.w;
-    float3 DiLi    = Di1.xyz;
-    float  DiPdf   = EvaluateDirectTargetPdf(Mat, N, T, B, ViewDir, DiDir, DiLi);
-    float  DiWSum  = DiPdf * Di1.w * DiM;
-
-    float4 Gi0     = IndirectReservoirCurr[ResIdx + 0u];
-    float4 Gi1     = IndirectReservoirCurr[ResIdx + 1u];
-    float3 GiDir   = DecodeOctahedral(Gi0.xy);
-    float  GiDist  = Gi0.z;
-    float  GiM     = Gi0.w;
-    float3 GiLi    = Gi1.xyz;
-    float  GiPdf   = Luminance709(GiLi) * max(0.0f, dot(N, GiDir)) * (1.0f / 3.14159265f);
-    float  GiWSum  = GiPdf * Gi1.w * GiM;
-
-    uint Rng       = SeedPixelStream(Px, Push.Counts.z, 3u);
-    uint Neighbors = (FrameHeader[7].y > 0.5f) ? min(uint(FrameHeader[5].w + 0.5f), 6u) : 0u;
-
-    for (uint K = 0u; K < Neighbors; ++K)
+    // Default Hybrid Mode (or whenever ShadowRaster cascades are populated and FullRaytracingMode == false):
+    // 100% deterministic, zero Monte Carlo noise!
+    if (!IsFullRaytracingEnabled() && FrameHeader[32].w > 0.5f)
     {
-        float Angle  = 6.2831853f * SampleUniform01(Rng);
-        float Radius = Push.Params.z * sqrt(SampleUniform01(Rng));
-        int2  NPx    = int2(Px) + int2(int(round(cos(Angle) * Radius)), int(round(sin(Angle) * Radius)));
-        if (NPx.x < 0 || NPx.y < 0 || NPx.x >= int(Width) || NPx.y >= int(Height))
+        float  PrimaryShadow = 1.0f;
+        float3 DirectRgb     = EvaluateDeterministicDirectRadiance(
+            FrameHeader, ShadowDepthArray, SdfClipmapVolume, DistanceOrRangeTable, Mat, WorldPos, HitT, N, T, B, ViewDir, PrimaryShadow);
+        SurfaceAndWorkAtlas[uint3(Px, 6u)] = float4(DirectRgb, PrimaryShadow);
+        return;
+    }
+
+    // Option 2 (Full Raytracing Mode, or compute-only fallback without ShadowRaster):
+    // Raytraced Beer-Lambert shadow transmittance across solar + area softboxes + luminous facets
+    uint   Rng          = SeedPixelStream(Px, Push.Counts.z, 1u);
+    uint   LumCount     = uint(FrameHeader[3].w + 0.5f);
+    float3 RayDirectSum = float3(0.0f);
+    float  PrimaryVis   = 1.0f;
+
+    for (uint L = 0u; L < LumCount; ++L)
+    {
+        float2            Xi   = SampleR2Sequence(Px, Push.Counts.z, L + 1u);
+        LuminaireProposal Prop = SampleAnalyticLuminaire(L, WorldPos, Xi);
+        float             NdL  = max(0.0f, dot(N, Prop.LightDir));
+        if (Prop.Valid && NdL > 0.0f)
         {
-            continue;
+            float3 Vis = TraceSceneShadowTransmittance(WorldPos + N * 0.012f, Prop.LightDir, Prop.DistanceM);
+            if (L == 0u) PrimaryVis = Luminance709(Vis);
+            float3 DiffB, SpecB;
+            EvaluateSurfaceSplitBrdf(Mat, N, T, B, ViewDir, Prop.LightDir, DiffB, SpecB);
+            RayDirectSum += (DiffB + SpecB) * Prop.UnshadowedLi * Vis * NdL;
         }
+    }
 
-        float4 NG0 = SurfaceAndWorkAtlas[uint3(uint2(NPx), 0u)];
-        float4 NG1 = SurfaceAndWorkAtlas[uint3(uint2(NPx), 1u)];
-        if (NG0.w <= 0.0f || dot(N, normalize(NG1.xyz)) < 0.84f || abs(NG0.w - HitT) > 0.14f * HitT + 0.05f)
+    uint FacetCount = uint(FrameHeader[12].z + 0.5f);
+    if (FacetCount > 0u)
+    {
+        GpuLuminousFacetSample S = SampleGpuLuminousFacet(
+            LuminousFacets, FacetCount, WorldPos, SampleUniform01(Rng), SampleUniform01(Rng), SampleUniform01(Rng));
+        if (S.Valid && S.SolidAnglePdf > 1.0e-5f)
         {
-            continue;
-        }
-
-        uint NBase = (uint(NPx.y) * Width + uint(NPx.x)) * 2u;
-
-        // Spatial DI merge
-        float4 NDi0 = DirectReservoirCurr[NBase + 0u];
-        float4 NDi1 = DirectReservoirCurr[NBase + 1u];
-        if (NDi0.w > 0.0f && NDi1.w > 0.0f)
-        {
-            float3 CandDir  = DecodeOctahedral(NDi0.xy);
-            float  CandDist = NDi0.z;
-            if (NDi0.z < 500.0f)
+            float3 ToF  = S.WorldPoint - WorldPos;
+            float  Dist = max(1.0e-3f, length(ToF));
+            float3 LDir = ToF / Dist;
+            float  NdL  = max(0.0f, dot(N, LDir));
+            if (NdL > 0.0f)
             {
-                float3 SamplePoint = NG0.xyz + CandDir * NDi0.z;
-                float3 Reconn      = SamplePoint - WorldPos;
-                CandDist           = max(1.0e-3f, length(Reconn));
-                CandDir            = Reconn / CandDist;
-            }
-            float CandPdf = EvaluateDirectTargetPdf(Mat, N, T, B, ViewDir, CandDir, NDi1.xyz);
-            float CandW   = CandPdf * NDi1.w * NDi0.w;
-            DiWSum += CandW;
-            DiM    += NDi0.w;
-            if (DiWSum > 1.0e-8f && SampleUniform01(Rng) * DiWSum < CandW)
-            {
-                DiDir  = CandDir;
-                DiDist = CandDist;
-                DiLi   = NDi1.xyz;
-                DiPdf  = CandPdf;
-            }
-        }
-
-        // Spatial GI merge with reconnection solid-angle Jacobian determinant |J_{q -> p}|
-        if (FrameHeader[7].w > 0.5f)
-        {
-            float4 NGi0 = IndirectReservoirCurr[NBase + 0u];
-            float4 NGi1 = IndirectReservoirCurr[NBase + 1u];
-            if (NGi0.w > 0.0f && NGi1.w > 0.0f)
-            {
-                float3 NeighborDir = DecodeOctahedral(NGi0.xy);
-                float3 ReconnDir   = NeighborDir;
-                float  ReconnDist  = NGi0.z;
-                float  Jacobian    = 1.0f;
-
-                if (NGi0.z < 150.0f)
-                {
-                    float3 SampleVertexY = NG0.xyz + NeighborDir * NGi0.z;
-                    float3 VecP          = SampleVertexY - WorldPos;
-                    ReconnDist           = max(0.08f, length(VecP));
-                    ReconnDir            = VecP / ReconnDist;
-                    float DistRatioSq    = clamp((NGi0.z * NGi0.z) / (ReconnDist * ReconnDist), 0.10f, 4.0f);
-                    float CosAlign       = clamp(abs(dot(NeighborDir, ReconnDir)), 0.25f, 1.0f);
-                    Jacobian             = clamp(DistRatioSq * CosAlign, 0.10f, 4.0f);
-                }
-
-                float CandGiPdf = Luminance709(NGi1.xyz) * max(0.0f, dot(N, ReconnDir)) * (1.0f / 3.14159265f) * Jacobian;
-                float CandGiW   = CandGiPdf * NGi1.w * NGi0.w;
-                GiWSum += CandGiW;
-                GiM    += NGi0.w;
-                if (GiWSum > 1.0e-8f && SampleUniform01(Rng) * GiWSum < CandGiW)
-                {
-                    GiDir  = ReconnDir;
-                    GiDist = ReconnDist;
-                    GiLi   = NGi1.xyz;
-                    GiPdf  = max(1.0e-7f, Luminance709(NGi1.xyz) * max(0.0f, dot(N, ReconnDir)) * (1.0f / 3.14159265f));
-                }
+                float3 Vis = TraceSceneShadowTransmittance(WorldPos + N * 0.012f, LDir, max(1.0e-3f, Dist - 0.02f));
+                float3 DiffB, SpecB;
+                EvaluateSurfaceSplitBrdf(Mat, N, T, B, ViewDir, LDir, DiffB, SpecB);
+                RayDirectSum += min((DiffB + SpecB) * S.SelfRadiance * Vis * (NdL / S.SolidAnglePdf), float3(6.0f));
             }
         }
     }
 
-    float MaxHistoryM = max(1.0f, FrameHeader[13].y);
-    float FinalDiW    = (DiPdf > 1.0e-7f && DiM > 0.0f) ? clamp(DiWSum / (DiPdf * DiM), 0.0f, 12.0f) : 0.0f;
-    float FinalGiW    = (GiPdf > 1.0e-7f && GiM > 0.0f) ? clamp(GiWSum / (GiPdf * GiM), 0.0f, 8.0f) : 0.0f;
-
-    // Write post-spatial reservoirs into *Prev (disjoint from *Curr!) so next frame's temporal pass reads them race-free
-    DirectReservoirPrev[ResIdx + 0u]   = float4(EncodeOctahedral(DiDir), DiDist, min(DiM, MaxHistoryM));
-    DirectReservoirPrev[ResIdx + 1u]   = float4(DiLi, FinalDiW);
-    IndirectReservoirPrev[ResIdx + 0u] = float4(EncodeOctahedral(GiDir), GiDist, min(GiM, 16.0f));
-    IndirectReservoirPrev[ResIdx + 1u] = float4(GiLi, FinalGiW);
-
-    // Split Diffuse (Albedo-Free!) & Specular Shading Evaluation
-    float3 AlbedoFreeDiff = float3(0.0f);
-    float3 SpecularRad    = float3(0.0f);
-
-    if (FinalDiW > 0.0f)
+    // Temporal accumulation of Full-RT Direct Radiance in DirectReservoirPrev/Curr
+    uint   ResIdx = Px.y * Width + Px.x;
+    float2 PrevPos, MotionUv;
+    if (Push.Params.w > 0.5f && ProjectToPreviousScreenPosition(WorldPos, Width, Height, PrevPos, MotionUv, int2(Px)))
     {
-        float  NdotL = max(0.0f, dot(N, DiDir));
-        float3 DiffF, SpecF;
-        EvaluateAlbedoFreeSplitBrdf(Mat, N, T, B, ViewDir, DiDir, DiffF, SpecF);
-        AlbedoFreeDiff += DiffF * DiLi * (NdotL * FinalDiW);
-        SpecularRad    += SpecF * DiLi * (NdotL * FinalDiW);
-    }
-
-    float SceneAo = EvaluateSceneDistanceAO(WorldPos, N) * Mat.AmbientOcclusion;
-    if (FrameHeader[7].w > 0.5f && FinalGiW > 0.0f)
-    {
-        float NdotGi    = max(0.0f, dot(N, GiDir));
-        AlbedoFreeDiff += (1.0f - Mat.Metallic) * GiLi * (NdotGi * (1.0f / 3.14159265f) * FinalGiW) * lerp(0.55f, 1.0f, SceneAo);
+        uint2 PrevPx = uint2(clamp(int2(PrevPos), int2(0), int2(int(Width) - 1, int(Height) - 1)));
+        float4 PrevD = DirectReservoirPrev[PrevPx.y * Width + PrevPx.x];
+        if (PrevD.w > 0.5f)
+        {
+            float HistN  = min(PrevD.w + 1.0f, 12.0f);
+            RayDirectSum = lerp(PrevD.xyz, RayDirectSum, 1.0f / HistN);
+            DirectReservoirCurr[ResIdx] = float4(RayDirectSum, HistN);
+        }
+        else
+        {
+            DirectReservoirCurr[ResIdx] = float4(RayDirectSum, 1.0f);
+        }
     }
     else
     {
-        uint   PatchCnt = uint(FrameHeader[12].w + 0.5f);
-        float3 Fallback = (PatchCnt > 0u)
-                              ? SampleGpuCombinedSurfaceRadiosity(SurfaceCardPack, PatchCnt, WorldPos, N) * FrameHeader[13].z
-                              : lerp(FrameHeader[6].xyz, FrameHeader[4].xyz, 0.5f * N.y + 0.5f) * 0.42f;
-        AlbedoFreeDiff += (1.0f - Mat.Metallic) * Fallback * SceneAo;
+        DirectReservoirCurr[ResIdx] = float4(RayDirectSum, 1.0f);
     }
-
-    // Heitz 2018 VNDF Layered Clearcoat + Anisotropic Basecoat Specular Reflection Ray
-    if (FrameHeader[7].x > 0.5f && (Mat.BaseRoughness < 0.72f || Mat.CoatCoverage > 0.05f || Mat.Metallic > 0.15f))
-    {
-        float3 Xi3 = float3(SampleUniform01(Rng), SampleUniform01(Rng), SampleUniform01(Rng));
-        float3 ReflDir, ReflThroughput;
-        float  SelectedRough;
-        if (SampleLayeredSpecularReflection(Mat, ViewDir, N, T, B, Xi3, ReflDir, ReflThroughput, SelectedRough))
-        {
-            UnifiedOpaqueHit ReflHit = TraceSceneOpaque(WorldPos + N * 0.015f, ReflDir, 1.0e-2f, 1200.0f);
-            float3 IncomingSpec      = ReflHit.Hit
-                                           ? ApplyCoupledHeightFog(
-                                                 ShadeSimpleSecondarySurface(ReflHit.WorldPos, ReflHit.GeoNormal, ReflHit.ClassId, -ReflDir, ReflHit.InstanceTint, ReflHit.InstanceSelfRadiance),
-                                                 WorldPos, ReflDir, ReflHit.DistanceM)
-                                           : EvaluateCoupledEnvironmentSky(ReflDir);
-            SpecularRad += IncomingSpec * clamp(ReflThroughput, float3(0.0f), float3(3.0f));
-        }
-    }
-
-    SurfaceAndWorkAtlas[uint3(Px, 6u)] = float4(max(AlbedoFreeDiff, float3(0.0f)), SceneAo);
-    SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(max(SpecularRad, float3(0.0f)), min(DiM, MaxHistoryM) / MaxHistoryM);
+    SurfaceAndWorkAtlas[uint3(Px, 6u)] = float4(RayDirectSum, PrimaryVis);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
-// KERNEL 6: RACE-FREE PING-PONG SPLIT DIFFUSE/SPECULAR À-TROUS, INSPECTION MODES 0..14, & ZERO-COPY 2D RGBA8 OUTPUT
+// KERNEL 4: DIFFUSE GLOBAL ILLUMINATION
+//   - Hybrid Mode (default): Half-Res (TraceScale = 2, 1/4 pixels) + 1 cosine ray/px marching Hardware Sampler3D SDF ONLY + SurfaceCards
+//   - Option 2 (Full Raytracing): Full-Res (TraceScale = 1) cosine rays/px traced against Two-Level 8-Wide CWBVH + SurfaceCards
+//------------------------------------------------------------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void TraceIndirectDiffuseMain(uint3 DispatchId : SV_DispatchThreadID)
+{
+    uint FullW      = Push.Counts.x;
+    uint FullH      = Push.Counts.y;
+    uint TraceScale = ResolveGiTraceScale();
+    uint TraceW     = (FullW + TraceScale - 1u) / TraceScale;
+    uint TraceH     = (FullH + TraceScale - 1u) / TraceScale;
+
+    if (DispatchId.x >= TraceW || DispatchId.y >= TraceH)
+    {
+        return;
+    }
+
+    uint2 TracePx  = DispatchId.xy;
+    uint2 ScreenPx = min(TracePx * TraceScale, uint2(FullW - 1u, FullH - 1u));
+    float4 G0      = SurfaceAndWorkAtlas[uint3(ScreenPx, 0u)];
+
+    // On half-res silhouette quads, pick the first valid opaque sub-pixel if top-left corner hit sky/glass
+    if (G0.w <= 0.0f && TraceScale > 1u)
+    {
+        for (uint Sub = 1u; Sub < 4u; ++Sub)
+        {
+            uint2 CandPx = min(TracePx * TraceScale + uint2(Sub & 1u, Sub >> 1u), uint2(FullW - 1u, FullH - 1u));
+            float4 CG0   = SurfaceAndWorkAtlas[uint3(CandPx, 0u)];
+            if (CG0.w > 0.0f)
+            {
+                ScreenPx = CandPx;
+                G0       = CG0;
+                break;
+            }
+        }
+    }
+
+    if (G0.w <= 0.0f)
+    {
+        SurfaceAndWorkAtlas[uint3(TracePx, 7u)]  = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        SurfaceAndWorkAtlas[uint3(TracePx, 13u)] = float4(0.0f);
+        return;
+    }
+
+    float3 WorldPos = G0.xyz;
+    float  HitT     = G0.w;
+    float3 N, T, B;
+    UnpackedSurfaceMaterial Mat = ReconstructGbufferMaterial(ScreenPx, N, T, B);
+    uint ClassId                = uint(max(0.0f, SurfaceAndWorkAtlas[uint3(ScreenPx, 2u)].w) + 0.5f);
+
+    SurfaceAndWorkAtlas[uint3(TracePx, 13u)] = float4(EncodeOctahedral(N), HitT, float(ClassId + 1u));
+
+    float SceneAo = EvaluateSceneDistanceAO(WorldPos, N) * Mat.AmbientOcclusion;
+    if (FrameHeader[7].w < 0.5f)
+    {
+        SurfaceAndWorkAtlas[uint3(TracePx, 7u)] = float4(0.0f, 0.0f, 0.0f, SceneAo);
+        return;
+    }
+
+    // Coat Beer-Lambert attenuation & metallic diffuse suppression (albedo-demodulated irradiance!)
+    float3 ViewDir   = normalize(FrameHeader[0].xyz - WorldPos);
+    float  NdotV     = max(0.05f, dot(N, ViewDir));
+    float3 CoatTrans = float3(1.0f);
+    if (Mat.CoatCoverage > 0.01f)
+    {
+        float CoatF = EvaluateDielectricFresnelUnpolarized(NdotV, 1.0f, Mat.CoatIor);
+        CoatTrans   = lerp(float3(1.0f), (1.0f - CoatF) * exp(-Mat.CoatOpticalDepth * (1.0f / NdotV)), Mat.CoatCoverage);
+    }
+    float3 DiffModulation = (1.0f - Mat.Metallic) * CoatTrans;
+
+    bool   FullRt        = IsFullRaytracingEnabled();
+    bool   HasSdf        = (FrameHeader[7].z > 0.5f);
+    bool   ClipmapActive = (FrameHeader[12].y > 0.5f);
+    float  GroundHeightM = FrameHeader[19].z;
+    uint   PatchCount    = uint(FrameHeader[12].w + 0.5f);
+    float  CardGain      = FrameHeader[13].z;
+    float  SkyWeight     = FrameHeader[13].w;
+
+    // Default Hybrid Mode: strictly 1 cosine-weighted hemisphere ray/px marching Hardware Sampler3D SDF clipmaps ONLY + SurfaceCards!
+    if (!FullRt && HasSdf)
+    {
+        float2 Xi     = SampleR2Sequence(TracePx, Push.Counts.z, 5u);
+        float3 RayDir = SampleCosineHemisphere(N, T, B, Xi);
+
+        HardwareSdfHit SdfHit = TraverseHardwareSdfClipmap(
+            SdfClipmapVolume, DistanceOrRangeTable, ClipmapActive, GroundHeightM, WorldPos, N, RayDir, 180.0f);
+
+        float3 IncomingLi = float3(0.0f);
+        if (SdfHit.Hit)
+        {
+            if (PatchCount > 0u && CardGain > 0.0f)
+            {
+                IncomingLi = SampleGpuCombinedSurfaceRadiosity(SurfaceCardPack, PatchCount, SdfHit.WorldPos, SdfHit.Normal) * CardGain;
+            }
+            // Add direct sun bounce at SDF hit gated by deterministic solar cascade visibility
+            uint LumCount = uint(FrameHeader[3].w + 0.5f);
+            if (LumCount > 0u)
+            {
+                uint   LumBase = ResolveLuminaireBaseSlot();
+                float4 Sun0    = FrameHeader[LumBase + 0u];
+                if (uint(Sun0.w + 0.5f) == 0u)
+                {
+                    float3 SunDir = normalize(Sun0.xyz);
+                    float  SunNdL = max(0.0f, dot(SdfHit.Normal, SunDir));
+                    if (SunNdL > 0.0f)
+                    {
+                        float CamDist = length(SdfHit.WorldPos - FrameHeader[0].xyz);
+                        float SunVis  = ResolveDeterministicSolarVisibility(ShadowDepthArray, FrameHeader, SdfHit.WorldPos, SdfHit.Normal, CamDist);
+                        IncomingLi   += FrameHeader[LumBase + 3u].xyz * (0.24f * SunVis * SunNdL);
+                    }
+                }
+            }
+        }
+        else
+        {
+            IncomingLi = EvaluateCoupledEnvironmentSky(RayDir) * SkyWeight;
+        }
+
+        // Cosine hemisphere PDF = cos(theta)/pi cancels Lambertian cos(theta)/pi -> estimator is IncomingLi!
+        float3 GiFactor = min(IncomingLi * DiffModulation * SceneAo, float3(8.0f));
+        SurfaceAndWorkAtlas[uint3(TracePx, 7u)] = float4(GiFactor, SceneAo);
+        return;
+    }
+
+    // Option 2 (Full Raytracing Mode): Cosine hemisphere rays traced against Two-Level 8-Wide CWBVH triangles + SurfaceCards
+    uint   RayBudget = clamp(uint(FrameHeader[6].w + 0.5f), 1u, 4u);
+    float3 SumGi     = float3(0.0f);
+    for (uint R = 0u; R < RayBudget; ++R)
+    {
+        float2           Xi     = SampleR2Sequence(TracePx, Push.Counts.z, 11u + R * 7u);
+        float3           RayDir = SampleCosineHemisphere(N, T, B, Xi);
+        UnifiedOpaqueHit Hit    = TraceSceneOpaque(WorldPos + N * 0.015f, RayDir, 1.0e-3f, 220.0f);
+        float3           Li     = Hit.Hit
+                                      ? ShadeSecondarySurface(Hit.WorldPos, Hit.TexCoord, Hit.DistanceM, Hit.GeoNormal, Hit.ClassId, -RayDir, Hit.InstanceTint, Hit.InstanceSelfRadiance, true)
+                                      : (EvaluateCoupledEnvironmentSky(RayDir) * SkyWeight);
+        SumGi += min(Li, float3(8.0f));
+    }
+    float3 FullRtGi = (SumGi / float(RayBudget)) * DiffModulation * SceneAo;
+    SurfaceAndWorkAtlas[uint3(TracePx, 7u)] = float4(FullRtGi, SceneAo);
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+// KERNEL 5: RAYTRACED REFLECTION TRAVERSAL (HEITZ 2018 VNDF CWBVH RAYTRACE + SURFACECARDS)
+//------------------------------------------------------------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void TraceSpecularReflectionsMain(uint3 DispatchId : SV_DispatchThreadID)
+{
+    uint Width  = Push.Counts.x;
+    uint Height = Push.Counts.y;
+    if (DispatchId.x >= Width || DispatchId.y >= Height)
+    {
+        return;
+    }
+
+    uint2  Px = DispatchId.xy;
+    float4 G0 = SurfaceAndWorkAtlas[uint3(Px, 0u)];
+
+    // Sky miss or resolved curved glazing passes straight into Specular layer 8
+    if (G0.w <= 0.0f)
+    {
+        float3 SkyOrGlass = (G0.w == 0.0f)
+                                ? EvaluateCoupledEnvironmentSky(ReconstructPrimaryRayDirection(Px, Width, Height))
+                                : SurfaceAndWorkAtlas[uint3(Px, 2u)].xyz;
+        SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(SkyOrGlass, 0.0f);
+        return;
+    }
+
+    if (FrameHeader[7].x < 0.5f)
+    {
+        SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        return;
+    }
+
+    float3 WorldPos = G0.xyz;
+    float3 ViewDir  = normalize(FrameHeader[0].xyz - WorldPos);
+    float3 N, T, B;
+    UnpackedSurfaceMaterial Mat = ReconstructGbufferMaterial(Px, N, T, B);
+
+    bool  FullRt       = IsFullRaytracingEnabled();
+    float EffRoughness = (Mat.CoatCoverage > 0.25f) ? min(Mat.BaseRoughness, Mat.CoatRoughness) : Mat.BaseRoughness;
+
+    // Hybrid Mode rough-surface optimization (matches ReflectionTraversal.wgsl):
+    // Rough matte surfaces (> 0.52 without clearcoat) reuse upsampled diffuse irradiance * EnvBRDF in the resolve pass!
+    if (!FullRt && Mat.CoatCoverage < 0.02f && Mat.BaseRoughness > 0.52f)
+    {
+        SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(0.0f, 0.0f, 0.0f, -1.0f);
+        return;
+    }
+
+    float  NdotV      = max(1.0e-4f, dot(N, ViewDir));
+    float  DielecF0   = pow((Mat.BaseIor - 1.0f) / (Mat.BaseIor + 1.0f), 2.0f);
+    float3 BaseF0     = lerp(float3(DielecF0), Mat.BaseAlbedo, Mat.Metallic);
+    float  CoatFres   = Mat.CoatCoverage * EvaluateDielectricFresnelUnpolarized(NdotV, 1.0f, Mat.CoatIor);
+    float  BaseWeight = (1.0f - CoatFres) * max(0.08f, Luminance709(BaseF0));
+    float  CoatProb   = (Mat.CoatCoverage > 0.01f) ? clamp(CoatFres / max(1.0e-4f, CoatFres + BaseWeight), 0.15f, 0.90f) : 0.0f;
+
+    uint   Rng        = SeedPixelStream(Px, Push.Counts.z, 19u);
+    bool   SampleCoat = (SampleUniform01(Rng) < CoatProb);
+    float  LobeRough  = SampleCoat ? Mat.CoatRoughness : Mat.BaseRoughness;
+
+    float3 ReflDir;
+    if (LobeRough < 0.055f)
+    {
+        ReflDir = reflect(-ViewDir, N);
+    }
+    else
+    {
+        float2 Xi        = SampleR2Sequence(Px, Push.Counts.z, 23u);
+        float3 HalfWorld = SampleGgxVndfHalfVector(ViewDir, T, B, N, LobeRough, SampleCoat ? 0.0f : Mat.Anisotropy, Xi);
+        ReflDir          = reflect(-ViewDir, HalfWorld);
+    }
+
+    if (dot(N, ReflDir) <= 1.0e-4f)
+    {
+        SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        return;
+    }
+
+    // Raytraced reflection against Two-Level 8-Wide CWBVH triangles (OctetVolumeSearch)
+    UnifiedOpaqueHit ReflHit = TraceSceneOpaque(WorldPos + N * 0.014f, ReflDir, 1.0e-3f, 500.0f);
+    float3           ReflLi  = ReflHit.Hit
+                                   ? ApplyCoupledHeightFog(
+                                         ShadeSecondarySurface(ReflHit.WorldPos, ReflHit.TexCoord, ReflHit.DistanceM, ReflHit.GeoNormal, ReflHit.ClassId, -ReflDir, ReflHit.InstanceTint, ReflHit.InstanceSelfRadiance, FullRt),
+                                         WorldPos, ReflDir, ReflHit.DistanceM)
+                                   : EvaluateCoupledEnvironmentSky(ReflDir);
+
+    float3 HalfR = normalize(ViewDir + ReflDir);
+    float  VdotH = saturate(dot(ViewDir, HalfR));
+    float  NdotL = saturate(dot(N, ReflDir));
+    float3 Throughput;
+    if (SampleCoat)
+    {
+        float Fc   = Mat.CoatCoverage * EvaluateDielectricFresnelUnpolarized(VdotH, 1.0f, Mat.CoatIor);
+        float G1L  = 2.0f * NdotL / max(1.0e-4f, NdotL + sqrt(Mat.CoatRoughness * Mat.CoatRoughness + (1.0f - Mat.CoatRoughness * Mat.CoatRoughness) * NdotL * NdotL));
+        Throughput = float3(Fc * G1L / max(0.15f, CoatProb));
+    }
+    else
+    {
+        float3 Fb   = BaseF0 + (1.0f - BaseF0) * pow(1.0f - VdotH, 5.0f);
+        float  G1L  = 2.0f * NdotL / max(1.0e-4f, NdotL + sqrt(Mat.BaseRoughness * Mat.BaseRoughness + (1.0f - Mat.BaseRoughness * Mat.BaseRoughness) * NdotL * NdotL));
+        float  AttV = 1.0f - CoatFres;
+        float  AttL = 1.0f - Mat.CoatCoverage * EvaluateDielectricFresnelUnpolarized(NdotL, 1.0f, Mat.CoatIor);
+        float3 Beer = (Mat.CoatCoverage > 0.01f)
+                          ? lerp(float3(1.0f), exp(-Mat.CoatOpticalDepth * (1.0f / NdotV + 1.0f / max(0.08f, NdotL))), Mat.CoatCoverage)
+                          : float3(1.0f);
+        Throughput  = Fb * Beer * (AttV * AttL * G1L / max(0.10f, 1.0f - CoatProb));
+    }
+
+    float3 SpecRad  = ReflLi * Throughput * (0.45f + 0.55f * Mat.AmbientOcclusion);
+    float  SpecLuma = Luminance709(SpecRad);
+    if (SpecLuma > 14.0f)
+    {
+        SpecRad *= (14.0f / SpecLuma);
+    }
+    SurfaceAndWorkAtlas[uint3(Px, 8u)] = float4(SpecRad, max(0.05f, ReflHit.Hit ? ReflHit.DistanceM : 200.0f));
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+// KERNEL 6: SVGF VARIANCE TEMPORAL INTEGRATOR (VarianceTemporal.wgsl PARITY FOR HALF-RES GI & FULL-RES REFLECTIONS)
+//------------------------------------------------------------------------------------------------------------------------
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void IntegrateTemporalVarianceMain(uint3 DispatchId : SV_DispatchThreadID)
+{
+    uint Width      = Push.Counts.x;
+    uint Height     = Push.Counts.y;
+    uint TraceScale = ResolveGiTraceScale();
+    uint TraceW     = (Width + TraceScale - 1u) / TraceScale;
+    uint TraceH     = (Height + TraceScale - 1u) / TraceScale;
+
+    if (DispatchId.x >= Width || DispatchId.y >= Height)
+    {
+        return;
+    }
+
+    uint2 Px          = DispatchId.xy;
+    float MaxHistoryM = clamp(FrameHeader[13].y, 1.0f, 64.0f);
+    bool  UseTemporal = (Push.Params.w > 0.5f);
+
+    // 1. Integrate Half-Res (or Full-Res) Diffuse GI + Moments when Px is within TraceExtent
+    if (Px.x < TraceW && Px.y < TraceH)
+    {
+        float4 CurrGuide  = SurfaceAndWorkAtlas[uint3(Px, 13u)];
+        float4 RawDiff    = SurfaceAndWorkAtlas[uint3(Px, 7u)];
+        float3 Signal     = RawDiff.xyz;
+        float  SceneAo    = RawDiff.w;
+        float  Luma       = Luminance709(Signal);
+
+        if (CurrGuide.w < 0.5f)
+        {
+            SurfaceAndWorkAtlas[uint3(Px, 9u)]  = float4(0.0f);
+            TemporalHistoryCurr[uint3(Px, 0u)]  = float4(0.0f);
+            TemporalHistoryCurr[uint3(Px, 1u)]  = float4(0.0f, 0.0f, 0.0f, 1.0f);
+            TemporalHistoryCurr[uint3(Px, 2u)]  = float4(0.0f);
+        }
+        else
+        {
+            float3 CurrN    = DecodeOctahedral(CurrGuide.xy);
+            float  CurrZ    = CurrGuide.z;
+            uint2  ScreenPx = min(Px * TraceScale, uint2(Width - 1u, Height - 1u));
+            float3 WorldPos = SurfaceAndWorkAtlas[uint3(ScreenPx, 0u)].xyz;
+            if (SurfaceAndWorkAtlas[uint3(ScreenPx, 0u)].w <= 0.0f && TraceScale > 1u)
+            {
+                for (uint Sub = 1u; Sub < 4u; ++Sub)
+                {
+                    uint2 Cand = min(Px * TraceScale + uint2(Sub & 1u, Sub >> 1u), uint2(Width - 1u, Height - 1u));
+                    if (SurfaceAndWorkAtlas[uint3(Cand, 0u)].w > 0.0f)
+                    {
+                        WorldPos = SurfaceAndWorkAtlas[uint3(Cand, 0u)].xyz;
+                        break;
+                    }
+                }
+            }
+
+            float2 PrevScreenPos = float2(ScreenPx) + 0.5f;
+            float2 MotionUv      = float2(0.0f);
+            bool   InBounds      = UseTemporal && ProjectToPreviousScreenPosition(WorldPos, Width, Height, PrevScreenPos, MotionUv, int2(ScreenPx));
+            float3 PriorColour = float3(0.0f);
+            float3 PriorMoment = float3(0.0f);
+            float  PriorAo     = 0.0f;
+            float  TotalWeight = 0.0f;
+
+            if (InBounds)
+            {
+                float2 PriorTracePos = PrevScreenPos / float(TraceScale) - 0.5f;
+                int2   Corner        = int2(floor(PriorTracePos));
+                float2 Frac          = PriorTracePos - float2(Corner);
+
+                for (uint Tap = 0u; Tap < 4u; ++Tap)
+                {
+                    int2 Offset = int2(int(Tap & 1u), int(Tap >> 1u));
+                    int2 Texel  = Corner + Offset;
+                    if (Texel.x < 0 || Texel.y < 0 || Texel.x >= int(TraceW) || Texel.y >= int(TraceH))
+                    {
+                        continue;
+                    }
+                    float4 PGuide = TemporalHistoryPrev[uint3(uint2(Texel), 2u)];
+                    bool   BadTap = (PGuide.w < 0.5f) || (dot(DecodeOctahedral(PGuide.xy), CurrN) < 0.85f) ||
+                                    (abs(PGuide.z - CurrZ) > (0.10f * CurrZ + 0.05f));
+                    if (BadTap)
+                    {
+                        continue;
+                    }
+                    float W      = ((Offset.x == 1) ? Frac.x : (1.0f - Frac.x)) * ((Offset.y == 1) ? Frac.y : (1.0f - Frac.y));
+                    PriorColour += TemporalHistoryPrev[uint3(uint2(Texel), 0u)].xyz * W;
+                    float4 PMom  = TemporalHistoryPrev[uint3(uint2(Texel), 1u)];
+                    PriorMoment += PMom.xyz * W;
+                    PriorAo     += PMom.w * W;
+                    TotalWeight += W;
+                }
+            }
+
+            float  Tally   = 1.0f;
+            float3 Colour  = Signal;
+            float2 Moments = float2(Luma, Luma * Luma);
+            float  OutAo   = SceneAo;
+
+            if (TotalWeight > 0.01f)
+            {
+                PriorColour /= TotalWeight;
+                PriorMoment /= TotalWeight;
+                PriorAo     /= TotalWeight;
+                Tally        = min(PriorMoment.z + 1.0f, MaxHistoryM);
+                float Alpha  = max(1.0f / Tally, 0.04f);
+                Colour       = lerp(PriorColour, Signal, Alpha);
+                Moments      = lerp(PriorMoment.xy, Moments, max(Alpha, 0.20f));
+                OutAo        = lerp(PriorAo, SceneAo, Alpha);
+            }
+
+            float Spread = max(0.0f, Moments.y - Moments.x * Moments.x);
+            // SVGF 3x3 spatial moment bootstrap on newly disoccluded pixels (Tally < 4)
+            if (Tally < 4.0f)
+            {
+                float2 SpatMom = float2(0.0f);
+                float  SpatW   = 0.0f;
+                for (int Ky = -1; Ky <= 1; ++Ky)
+                {
+                    for (int Kx = -1; Kx <= 1; ++Kx)
+                    {
+                        int2 TPx = int2(Px) + int2(Kx, Ky);
+                        if (TPx.x < 0 || TPx.y < 0 || TPx.x >= int(TraceW) || TPx.y >= int(TraceH)) continue;
+                        float4 TG = SurfaceAndWorkAtlas[uint3(uint2(TPx), 13u)];
+                        if (TG.w < 0.5f) continue;
+                        float W = pow(max(0.0f, dot(CurrN, DecodeOctahedral(TG.xy))), 32.0f) *
+                                  exp(-abs(TG.z - CurrZ) / (0.08f * CurrZ + 0.02f));
+                        float TL = Luminance709(SurfaceAndWorkAtlas[uint3(uint2(TPx), 7u)].xyz);
+                        SpatMom += float2(TL, TL * TL) * W;
+                        SpatW   += W;
+                    }
+                }
+                if (SpatW > 1.0e-4f)
+                {
+                    SpatMom /= SpatW;
+                    Spread   = max(Spread, max(0.0f, SpatMom.y - SpatMom.x * SpatMom.x)) * (4.0f / max(1.0f, Tally));
+                }
+            }
+
+            SurfaceAndWorkAtlas[uint3(Px, 9u)] = float4(Colour, Spread);
+            TemporalHistoryCurr[uint3(Px, 0u)] = float4(Colour, Spread);
+            TemporalHistoryCurr[uint3(Px, 1u)] = float4(Moments, Tally, OutAo);
+            TemporalHistoryCurr[uint3(Px, 2u)] = CurrGuide;
+        }
+    }
+
+    // 2. Integrate Full-Res Specular Reflections + Moments across ScreenExtent
+    float4 G0   = SurfaceAndWorkAtlas[uint3(Px, 0u)];
+    float4 RawS = SurfaceAndWorkAtlas[uint3(Px, 8u)];
+    if (G0.w <= 0.0f || RawS.w < 0.0f)
+    {
+        // Sky, glazing, or rough-fallback marker passes through cleanly
+        SurfaceAndWorkAtlas[uint3(Px, 11u)] = RawS;
+        TemporalHistoryCurr[uint3(Px, 3u)]  = float4(RawS.xyz, 0.0f);
+        TemporalHistoryCurr[uint3(Px, 4u)]  = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        TemporalHistoryCurr[uint3(Px, 5u)]  = float4(0.0f);
+        return;
+    }
+
+    float4 G1           = SurfaceAndWorkAtlas[uint3(Px, 1u)];
+    float4 G3           = SurfaceAndWorkAtlas[uint3(Px, 3u)];
+    float3 CurrN        = normalize(G1.xyz);
+    float  CurrZ        = G0.w;
+    float  EffRoughness = (G3.y > 0.25f) ? min(G1.w, G3.z) : G1.w;
+    float4 SpecGuide    = float4(EncodeOctahedral(CurrN), CurrZ, 1.0f + EffRoughness);
+    float3 SpecSignal   = RawS.xyz;
+    float  SpecLuma     = Luminance709(SpecSignal);
+
+    float2 PrevScreenPos = float2(Px) + 0.5f;
+    float2 MotionUv      = float2(0.0f);
+    bool   InBounds      = UseTemporal && ProjectToPreviousScreenPosition(G0.xyz, Width, Height, PrevScreenPos, MotionUv, int2(Px));
+    float3 PriorSpec = float3(0.0f);
+    float3 PriorSMom = float3(0.0f);
+    float  SpecWTot  = 0.0f;
+
+    // Limit mirror history on fast camera/object motion so curved car reflections never ghost
+    float MotionPx     = length(MotionUv * float2(float(Width), float(Height)));
+    float SpecMaxTally = lerp(min(MaxHistoryM, 6.0f), MaxHistoryM, saturate(EffRoughness * 3.5f));
+    if (EffRoughness < 0.12f && MotionPx > 1.5f)
+    {
+        SpecMaxTally = min(SpecMaxTally, 3.0f);
+    }
+
+    if (InBounds)
+    {
+        float2 PriorPos = PrevScreenPos - 0.5f;
+        int2   Corner   = int2(floor(PriorPos));
+        float2 Frac     = PriorPos - float2(Corner);
+
+        for (uint Tap = 0u; Tap < 4u; ++Tap)
+        {
+            int2 Offset = int2(int(Tap & 1u), int(Tap >> 1u));
+            int2 Texel  = Corner + Offset;
+            if (Texel.x < 0 || Texel.y < 0 || Texel.x >= int(Width) || Texel.y >= int(Height)) continue;
+            float4 PGuide = TemporalHistoryPrev[uint3(uint2(Texel), 5u)];
+            bool   BadTap = (PGuide.w < 0.5f) || (dot(DecodeOctahedral(PGuide.xy), CurrN) < 0.92f) ||
+                            (abs(PGuide.z - CurrZ) > (0.07f * CurrZ + 0.03f));
+            if (BadTap)
+            {
+                continue;
+            }
+            float W    = ((Offset.x == 1) ? Frac.x : (1.0f - Frac.x)) * ((Offset.y == 1) ? Frac.y : (1.0f - Frac.y));
+            PriorSpec += TemporalHistoryPrev[uint3(uint2(Texel), 3u)].xyz * W;
+            PriorSMom += TemporalHistoryPrev[uint3(uint2(Texel), 4u)].xyz * W;
+            SpecWTot  += W;
+        }
+    }
+
+    float  SpecTally   = 1.0f;
+    float3 SpecColour  = SpecSignal;
+    float2 SpecMoments = float2(SpecLuma, SpecLuma * SpecLuma);
+    if (SpecWTot > 0.01f)
+    {
+        PriorSpec  /= SpecWTot;
+        PriorSMom  /= SpecWTot;
+        SpecTally   = min(PriorSMom.z + 1.0f, SpecMaxTally);
+        float Alpha = max(1.0f / SpecTally, 0.06f);
+        SpecColour  = lerp(PriorSpec, SpecSignal, Alpha);
+        SpecMoments = lerp(PriorSMom.xy, SpecMoments, max(Alpha, 0.25f));
+    }
+    float SpecSpread = max(0.0f, SpecMoments.y - SpecMoments.x * SpecMoments.x) * (4.0f / min(SpecTally, 4.0f));
+
+    SurfaceAndWorkAtlas[uint3(Px, 11u)] = float4(SpecColour, SpecSpread);
+    TemporalHistoryCurr[uint3(Px, 3u)]  = float4(SpecColour, SpecSpread);
+    TemporalHistoryCurr[uint3(Px, 4u)]  = float4(SpecMoments, SpecTally, EffRoughness);
+    TemporalHistoryCurr[uint3(Px, 5u)]  = SpecGuide;
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+// KERNEL 7: SVGF VARIANCE WAVELET + JOINT BILATERAL HALF-RES GI UPSAMPLE + 15 INSPECTION MODES + ACES DISPLAY OUTPUT
 //------------------------------------------------------------------------------------------------------------------------
 
 float3 ColorRampPlasma(float T)
 {
     float X = saturate(T);
     return saturate(float3(
-        0.08f + 2.15f * X - 1.15f * X * X,
-        max(0.0f, 1.75f * X * X - 0.55f * X * X * X),
-        0.55f + 0.95f * sin(3.14159f * (1.0f - X))));
+        0.05f + 2.15f * X - 1.20f * X * X,
+        0.02f + 0.35f * X + 0.95f * X * X * X,
+        0.53f + 1.10f * X - 1.45f * X * X));
+}
+
+float3 UpsampleHalfResDiffuseGi(uint2 ScreenPx, float3 FullNormal, float FullHitT, uint TraceScale, uint TraceW, uint TraceH, uint DiffLayer, out float OutAo, out float OutNormTally)
+{
+    if (TraceScale <= 1u)
+    {
+        float4 Mom   = TemporalHistoryCurr[uint3(ScreenPx, 1u)];
+        OutAo        = Mom.w;
+        OutNormTally = saturate(Mom.z / max(1.0f, FrameHeader[13].y));
+        return SurfaceAndWorkAtlas[uint3(ScreenPx, DiffLayer)].xyz;
+    }
+
+    float2 Pos          = float2(ScreenPx) / float(TraceScale);
+    int2   Corner       = int2(floor(Pos));
+    float2 Frac         = Pos - float2(Corner);
+    float3 Sum          = float3(0.0f);
+    float  AoSum        = 0.0f;
+    float  TallySum     = 0.0f;
+    float  WeightSum    = 0.0f;
+    float3 Nearest      = float3(0.0f);
+    float  NearestAo    = 1.0f;
+    float  NearestTally = 0.0f;
+    float  NearestScore = 1.0e30f;
+
+    for (uint Tap = 0u; Tap < 4u; ++Tap)
+    {
+        int2  Offset = int2(int(Tap & 1u), int(Tap >> 1u));
+        uint2 Texel  = uint2(clamp(Corner + Offset, int2(0), int2(int(TraceW) - 1, int(TraceH) - 1)));
+        float4 Guide = SurfaceAndWorkAtlas[uint3(Texel, 13u)];
+        if (Guide.w < 0.5f)
+        {
+            continue;
+        }
+        float3 Sig      = SurfaceAndWorkAtlas[uint3(Texel, DiffLayer)].xyz;
+        float4 Mom      = TemporalHistoryCurr[uint3(Texel, 1u)];
+        float  DepthRel = abs(Guide.z - FullHitT) / max(FullHitT, 1.0e-3f);
+        float  Facing   = max(0.0f, dot(DecodeOctahedral(Guide.xy), FullNormal));
+        float  Bilinear = ((Offset.x == 1) ? Frac.x : (1.0f - Frac.x)) * ((Offset.y == 1) ? Frac.y : (1.0f - Frac.y));
+        float  Weight   = (Bilinear + 1.0e-3f) * exp(-DepthRel * 36.0f) * pow(Facing, 16.0f);
+
+        Sum       += Sig * Weight;
+        AoSum     += Mom.w * Weight;
+        TallySum  += Mom.z * Weight;
+        WeightSum += Weight;
+
+        float Score = DepthRel + (1.0f - Facing);
+        if (Score < NearestScore)
+        {
+            NearestScore = Score;
+            Nearest      = Sig;
+            NearestAo    = Mom.w;
+            NearestTally = Mom.z;
+        }
+    }
+
+    float MaxHist = max(1.0f, FrameHeader[13].y);
+    if (WeightSum > 1.0e-4f)
+    {
+        OutAo        = AoSum / WeightSum;
+        OutNormTally = saturate((TallySum / WeightSum) / MaxHist);
+        return Sum / WeightSum;
+    }
+    OutAo        = NearestAo;
+    OutNormTally = saturate(NearestTally / MaxHist);
+    return Nearest;
 }
 
 float3 ResolveInspectionOutput(uint2  Px,
@@ -1291,15 +1472,16 @@ float3 ResolveInspectionOutput(uint2  Px,
                                float4 G3,
                                float4 G4,
                                float4 G5,
-                               float3 FilteredDiffFactor,
-                               float3 FilteredSpec,
+                               float4 DirectAndShadow,
+                               float3 UpsampledGi,
+                               float3 ResolvedSpec,
                                float  SceneAo,
                                float  NormHistoryM)
 {
     float3 CamOrig = FrameHeader[0].xyz;
-    if (G0.w == 0.0f) // Sky miss
+    if (G0.w == 0.0f)
     {
-        return (Mode == 0u || Mode == 2u) ? FilteredSpec : (Mode == 9u ? float3(0.02f) : FilteredSpec * 0.15f);
+        return (Mode == 0u || Mode == 2u) ? ResolvedSpec : (Mode == 9u ? float3(0.02f) : ResolvedSpec * 0.15f);
     }
 
     bool   IsGlass   = (G0.w < 0.0f);
@@ -1308,12 +1490,13 @@ float3 ResolveInspectionOutput(uint2  Px,
     float3 ViewRayD  = normalize(WorldPos - CamOrig);
     float3 BaseAlb   = G5.xyz;
     float3 SelfRad   = IsGlass ? float3(0.0f) : G2.xyz;
-    float3 LitLinear = IsGlass ? FilteredSpec : (SelfRad + BaseAlb * FilteredDiffFactor + FilteredSpec);
+    float3 DiffGiRgb = BaseAlb * UpsampledGi;
+    float3 LitLinear = IsGlass ? ResolvedSpec : (SelfRad + DirectAndShadow.xyz + DiffGiRgb + ResolvedSpec);
     LitLinear        = ApplyCoupledHeightFog(LitLinear, CamOrig, ViewRayD, TravelM);
 
     if (Mode == 0u) return LitLinear;
-    if (Mode == 1u) return IsGlass ? float3(0.0f) : BaseAlb * FilteredDiffFactor;
-    if (Mode == 2u) return FilteredSpec;
+    if (Mode == 1u) return IsGlass ? float3(0.0f) : DiffGiRgb + DirectAndShadow.xyz * 0.35f;
+    if (Mode == 2u) return ResolvedSpec;
     if (Mode == 3u) return float3(SceneAo);
     if (Mode == 4u)
     {
@@ -1322,42 +1505,40 @@ float3 ResolveInspectionOutput(uint2  Px,
     }
     if (Mode == 5u)
     {
-        if (FrameHeader[12].y < 0.5f) return float3(0.25f, 0.55f, 0.90f);
+        if (FrameHeader[7].z < 0.5f) return float3(0.25f, 0.55f, 0.90f);
         uint  ActiveR = 0u;
         float VoxStep = 0.25f;
-        SampleRangeDistanceClipmap(DistanceOrRangeTable, WorldPos, ActiveR, VoxStep);
-        float3 CascadePalette[4] = {
+        SampleHardwareSceneDistance(SdfClipmapVolume, DistanceOrRangeTable, FrameHeader[12].y > 0.5f, FrameHeader[19].z, WorldPos, ActiveR, VoxStep);
+        float3 CascadePalette[5] = {
             float3(0.15f, 0.85f, 0.95f),
             float3(0.28f, 0.92f, 0.35f),
             float3(0.96f, 0.72f, 0.16f),
             float3(0.90f, 0.25f, 0.78f),
+            float3(0.45f, 0.48f, 0.55f),
         };
-        return CascadePalette[min(ActiveR, 3u)] * (0.4f + 0.6f * SceneAo);
+        return CascadePalette[min(ActiveR, 4u)] * (0.4f + 0.6f * SceneAo);
     }
     if (Mode == 6u) return 0.5f * normalize(G1.xyz) + 0.5f;
     if (Mode == 7u) return BaseAlb;
     if (Mode == 8u) return float3(G1.w, G3.x, 0.5f * G4.w + 0.5f);
     if (Mode == 9u) return ColorRampPlasma(1.0f - exp(-TravelM * 0.035f));
-    if (Mode == 10u)
-    {
-        float BlocksFrac = frac(G3.w);
-        return ColorRampPlasma(saturate(BlocksFrac * (100.0f / 36.0f)));
-    }
+    if (Mode == 10u) return ColorRampPlasma(1.0f - DirectAndShadow.w);
     if (Mode == 11u)
     {
-        int2   PrevPx;
-        float2 MotionUv;
-        bool   Valid = ProjectToPreviousPixel(WorldPos, Width, Height, PrevPx, MotionUv, int2(Px));
+        float2 PrevPos, MotionUv;
+        bool   Valid = ProjectToPreviousScreenPosition(WorldPos, Width, Height, PrevPos, MotionUv, int2(Px));
         return Valid ? float3(saturate(0.5f + MotionUv.x * 12.0f), saturate(0.5f + MotionUv.y * 12.0f), 0.2f)
                      : float3(0.95f, 0.12f, 0.18f);
     }
     if (Mode == 12u) return ColorRampPlasma(NormHistoryM);
     if (Mode == 13u)
     {
-        uint Tier = uint(floor(G3.w + 1.0e-4f));
-        return (Tier == 0u) ? float3(0.20f, 0.88f, 0.42f) : ((Tier == 1u) ? float3(0.95f, 0.74f, 0.18f) : float3(0.68f, 0.30f, 0.92f));
+        uint  Tier   = uint(floor(G3.w + 1.0e-4f));
+        float MipBar = saturate(frac(G3.w) * (100.0f / 96.0f));
+        float3 BaseC = (Tier == 0u) ? float3(0.20f, 0.88f, 0.42f) : ((Tier == 1u) ? float3(0.95f, 0.74f, 0.18f) : float3(0.68f, 0.30f, 0.92f));
+        return lerp(BaseC, float3(0.95f, 0.22f, 0.28f), MipBar * 0.55f);
     }
-    if (Mode == 14u) return IsGlass ? FilteredSpec : LitLinear * 0.06f;
+    if (Mode == 14u) return IsGlass ? ResolvedSpec : LitLinear * 0.06f;
     return LitLinear;
 }
 
@@ -1365,124 +1546,174 @@ float3 ResolveInspectionOutput(uint2  Px,
 [numthreads(8, 8, 1)]
 void FilterSpatiotemporalAtrousMain(uint3 DispatchId : SV_DispatchThreadID)
 {
-    uint Width  = Push.Counts.x;
-    uint Height = Push.Counts.y;
+    uint Width      = Push.Counts.x;
+    uint Height     = Push.Counts.y;
+    uint TraceScale = ResolveGiTraceScale();
+    uint TraceW     = (Width + TraceScale - 1u) / TraceScale;
+    uint TraceH     = (Height + TraceScale - 1u) / TraceScale;
+
     if (DispatchId.x >= Width || DispatchId.y >= Height)
     {
         return;
     }
 
-    uint2 Px        = DispatchId.xy;
-    uint  SrcParity = Push.Counts.z & 1u;
-    uint  DstParity = 1u - SrcParity;
-    bool  FinalIter = (Push.Counts.w != 0u);
+    uint2 Px          = DispatchId.xy;
+    uint  SrcParity   = Push.Counts.z & 1u;
+    uint  DstParity   = 1u - SrcParity;
+    bool  FinalIter   = (Push.Counts.w != 0u);
+    int   StepSize    = int(Push.Params.y + 0.5f);
+    float ColourSigma = max(0.5f, Push.Params.z);
 
-    uint DiffSrcLayer = 6u + SrcParity;
-    uint DiffDstLayer = 6u + DstParity;
-    uint SpecSrcLayer = 8u + SrcParity;
-    uint SpecDstLayer = 8u + DstParity;
+    uint DiffSrcLayer = 9u + SrcParity;
+    uint DiffDstLayer = 9u + DstParity;
+    uint SpecSrcLayer = 11u + SrcParity;
+    uint SpecDstLayer = 11u + DstParity;
 
-    float4 G0      = SurfaceAndWorkAtlas[uint3(Px, 0u)];
-    float4 CenterD = SurfaceAndWorkAtlas[uint3(Px, DiffSrcLayer)];
-    float4 CenterS = SurfaceAndWorkAtlas[uint3(Px, SpecSrcLayer)];
+    static const float B3Spline[3] = {0.375f, 0.25f, 0.0625f};
 
-    // Sky miss or crisp curved glazing bypasses spatial blur cleanly
-    if (G0.w <= 0.0f)
+    // 1. VarianceWavelet 5x5 B3-spline on Half-Res (or Full-Res) Diffuse GI when !FinalIter
+    //    (Note: when FinalIter == true, we convolve into DiffDstLayer only if Iterations == 1; otherwise we convolve first AND upsample?
+    //     WAIT: another workgroup might read DiffDstLayer during upsample if we wrote and upsampled in the same dispatch!
+    //     So FinalIter == 2u performs the final full-res upsample+compose pass cleanly after all wavelet iterations finish!)
+    if (Push.Counts.w != 2u)
     {
-        SurfaceAndWorkAtlas[uint3(Px, DiffDstLayer)] = CenterD;
-        SurfaceAndWorkAtlas[uint3(Px, SpecDstLayer)] = CenterS;
-        if (FinalIter)
+        if (Px.x < TraceW && Px.y < TraceH)
         {
-            uint   Mode  = uint(FrameHeader[13].x + 0.5f);
-            float4 G1    = SurfaceAndWorkAtlas[uint3(Px, 1u)];
-            float4 G2    = SurfaceAndWorkAtlas[uint3(Px, 2u)];
-            float4 G3    = SurfaceAndWorkAtlas[uint3(Px, 3u)];
-            float4 G4    = SurfaceAndWorkAtlas[uint3(Px, 4u)];
-            float4 G5    = SurfaceAndWorkAtlas[uint3(Px, 5u)];
-            float3 Final = ResolveInspectionOutput(Px, Width, Height, Mode, G0, G1, G2, G3, G4, G5, CenterD.xyz, CenterS.xyz, CenterD.w, CenterS.w);
-            OutputImage[uint3(Px, 0u)]  = float4(Final, 1.0f);
-            ViewportDisplayTarget[Px]   = float4(ApplyAcesAndSrgbOetf(Final, Push.Params.x), 1.0f);
+            float4 Guide  = SurfaceAndWorkAtlas[uint3(Px, 13u)];
+            float4 Centre = SurfaceAndWorkAtlas[uint3(Px, DiffSrcLayer)];
+            if (Guide.w < 0.5f)
+            {
+                SurfaceAndWorkAtlas[uint3(Px, DiffDstLayer)] = Centre;
+            }
+            else
+            {
+                float3 Normal    = DecodeOctahedral(Guide.xy);
+                float  LumaC     = Luminance709(Centre.xyz);
+                float  Deviation = sqrt(max(0.0f, Centre.w));
+                float3 SumRgb    = float3(0.0f);
+                float  WeightSum = 0.0f;
+                float  SpreadSum = 0.0f;
+
+                for (int Ky = -2; Ky <= 2; ++Ky)
+                {
+                    for (int Kx = -2; Kx <= 2; ++Kx)
+                    {
+                        int2 TapPx = int2(Px) + int2(Kx * StepSize, Ky * StepSize);
+                        if (TapPx.x < 0 || TapPx.y < 0 || TapPx.x >= int(TraceW) || TapPx.y >= int(TraceH)) continue;
+                        float4 TapGuide = SurfaceAndWorkAtlas[uint3(uint2(TapPx), 13u)];
+                        if (TapGuide.w < 0.5f) continue;
+                        float4 Tap     = SurfaceAndWorkAtlas[uint3(uint2(TapPx), DiffSrcLayer)];
+                        float  Kernel  = B3Spline[abs(Kx)] * B3Spline[abs(Ky)];
+                        float  WDepth  = exp(-abs(TapGuide.z - Guide.z) / (0.02f * float(StepSize) * Guide.z + 1.0e-3f));
+                        float  WNorm   = pow(max(0.0f, dot(DecodeOctahedral(TapGuide.xy), Normal)), 64.0f);
+                        float  WLuma   = exp(-abs(Luminance709(Tap.xyz) - LumaC) / (ColourSigma * Deviation + 1.0e-2f));
+                        float  W       = Kernel * WDepth * WNorm * WLuma;
+                        SumRgb        += Tap.xyz * W;
+                        SpreadSum     += W * W * Tap.w;
+                        WeightSum     += W;
+                    }
+                }
+                SurfaceAndWorkAtlas[uint3(Px, DiffDstLayer)] =
+                    (WeightSum > 1.0e-6f) ? float4(SumRgb / WeightSum, SpreadSum / (WeightSum * WeightSum)) : Centre;
+            }
         }
+
+        // Roughness-gated VarianceWavelet on Full-Res Specular Reflections (mirror clearcoat < 0.07 bypasses blur!)
+        float4 G0      = SurfaceAndWorkAtlas[uint3(Px, 0u)];
+        float4 CentreS = SurfaceAndWorkAtlas[uint3(Px, SpecSrcLayer)];
+        if (G0.w <= 0.0f || SurfaceAndWorkAtlas[uint3(Px, 8u)].w < 0.0f)
+        {
+            SurfaceAndWorkAtlas[uint3(Px, SpecDstLayer)] = CentreS;
+            return;
+        }
+        float4 G1           = SurfaceAndWorkAtlas[uint3(Px, 1u)];
+        float4 G3           = SurfaceAndWorkAtlas[uint3(Px, 3u)];
+        float  EffRoughness = (G3.y > 0.25f) ? min(G1.w, G3.z) : G1.w;
+        float  SpecGate     = smoothstep(0.065f, 0.34f, EffRoughness);
+        if (SpecGate <= 1.0e-3f)
+        {
+            SurfaceAndWorkAtlas[uint3(Px, SpecDstLayer)] = CentreS;
+            return;
+        }
+
+        float3 NormalS   = normalize(G1.xyz);
+        float  LumaS     = Luminance709(CentreS.xyz);
+        float  DevS      = sqrt(max(0.0f, CentreS.w));
+        float3 SumSpec   = float3(0.0f);
+        float  WSpecSum  = 0.0f;
+        float  VarSpec   = 0.0f;
+
+        for (int Ky = -2; Ky <= 2; ++Ky)
+        {
+            for (int Kx = -2; Kx <= 2; ++Kx)
+            {
+                int2 TapPx = int2(Px) + int2(Kx * StepSize, Ky * StepSize);
+                if (TapPx.x < 0 || TapPx.y < 0 || TapPx.x >= int(Width) || TapPx.y >= int(Height)) continue;
+                float4 TapG0 = SurfaceAndWorkAtlas[uint3(uint2(TapPx), 0u)];
+                if (TapG0.w <= 0.0f || SurfaceAndWorkAtlas[uint3(uint2(TapPx), 8u)].w < 0.0f) continue;
+                float4 TapG1  = SurfaceAndWorkAtlas[uint3(uint2(TapPx), 1u)];
+                float4 TapS   = SurfaceAndWorkAtlas[uint3(uint2(TapPx), SpecSrcLayer)];
+                float  Kernel = B3Spline[abs(Kx)] * B3Spline[abs(Ky)];
+                float  W      = Kernel;
+                if (Kx != 0 || Ky != 0)
+                {
+                    float WDepth = exp(-abs(TapG0.w - G0.w) / (0.015f * float(StepSize) * G0.w + 1.0e-3f));
+                    float WNorm  = pow(max(0.0f, dot(normalize(TapG1.xyz), NormalS)), lerp(256.0f, 64.0f, SpecGate));
+                    float WLuma  = exp(-abs(Luminance709(TapS.xyz) - LumaS) / (ColourSigma * 0.75f * DevS + 2.0e-2f));
+                    W            = Kernel * SpecGate * WDepth * WNorm * WLuma;
+                }
+                SumSpec  += TapS.xyz * W;
+                VarSpec  += W * W * TapS.w;
+                WSpecSum += W;
+            }
+        }
+        SurfaceAndWorkAtlas[uint3(Px, SpecDstLayer)] =
+            (WSpecSum > 1.0e-6f) ? float4(SumSpec / WSpecSum, VarSpec / (WSpecSum * WSpecSum)) : CentreS;
         return;
     }
 
-    float4 G1        = SurfaceAndWorkAtlas[uint3(Px, 1u)];
-    float3 CenterPos = G0.xyz;
-    float3 CenterN   = normalize(G1.xyz);
-    float  Roughness = clamp(G1.w, 0.045f, 1.0f);
-    float  LumaDiffC = Luminance709(CenterD.xyz);
-    float  LumaSpecC = Luminance709(CenterS.xyz);
+    // 2. Final Joint-Bilateral Half-Res GI Upsample (VarianceUpsample) + Rough Specular Fallback + Display Output (Counts.w == 2u)
+    float4 G0 = SurfaceAndWorkAtlas[uint3(Px, 0u)];
+    uint   Mode = uint(FrameHeader[13].x + 0.5f);
 
-    // Mirror-like low-roughness surfaces keep razor-sharp specular lobes while rough surfaces filter wider
-    float SpecBlurGate = smoothstep(0.06f, 0.35f, Roughness);
-    int   StepSize     = int(Push.Params.y + 0.5f);
-    float Kernel1D[5]  = {1.0f / 16.0f, 1.0f / 4.0f, 3.0f / 8.0f, 1.0f / 4.0f, 1.0f / 16.0f};
-
-    float3 SumDiff = float3(0.0f);
-    float  WDiff   = 0.0f;
-    float3 SumSpec = float3(0.0f);
-    float  WSpec   = 0.0f;
-
-    for (int Ky = -2; Ky <= 2; ++Ky)
+    if (G0.w <= 0.0f)
     {
-        for (int Kx = -2; Kx <= 2; ++Kx)
-        {
-            int2 TapPx = int2(Px) + int2(Kx * StepSize, Ky * StepSize);
-            if (TapPx.x < 0 || TapPx.y < 0 || TapPx.x >= int(Width) || TapPx.y >= int(Height))
-            {
-                continue;
-            }
-            float4 TapG0 = SurfaceAndWorkAtlas[uint3(uint2(TapPx), 0u)];
-            if (TapG0.w <= 0.0f)
-            {
-                continue;
-            }
-            float4 TapG1 = SurfaceAndWorkAtlas[uint3(uint2(TapPx), 1u)];
-            float4 TapD  = SurfaceAndWorkAtlas[uint3(uint2(TapPx), DiffSrcLayer)];
-            float4 TapS  = SurfaceAndWorkAtlas[uint3(uint2(TapPx), SpecSrcLayer)];
-
-            float  WKernel = Kernel1D[Kx + 2] * Kernel1D[Ky + 2];
-            float  CosN    = max(0.0f, dot(CenterN, normalize(TapG1.xyz)));
-            float  PlaneD  = abs(dot(CenterN, TapG0.xyz - CenterPos));
-            float  WDepth  = exp(-PlaneD / max(0.04f, 0.06f * G0.w));
-
-            float  WNormD  = pow(CosN, 48.0f);
-            float  WLumaD  = exp(-abs(LumaDiffC - Luminance709(TapD.xyz)) / (1.35f + 0.45f * LumaDiffC));
-            float  TapWD   = WKernel * WNormD * WDepth * WLumaD;
-            SumDiff       += TapD.xyz * TapWD;
-            WDiff         += TapWD;
-
-            if (Kx == 0 && Ky == 0)
-            {
-                SumSpec += TapS.xyz * WKernel;
-                WSpec   += WKernel;
-            }
-            else if (SpecBlurGate > 1.0e-3f)
-            {
-                float WNormS = pow(CosN, lerp(256.0f, 48.0f, SpecBlurGate));
-                float WLumaS = exp(-abs(LumaSpecC - Luminance709(TapS.xyz)) / (0.65f + 0.55f * LumaSpecC));
-                float TapWS  = WKernel * SpecBlurGate * WNormS * WDepth * WLumaS;
-                SumSpec     += TapS.xyz * TapWS;
-                WSpec       += TapWS;
-            }
-        }
-    }
-
-    float3 OutDiff = (WDiff > 1.0e-6f) ? (SumDiff / WDiff) : CenterD.xyz;
-    float3 OutSpec = (WSpec > 1.0e-6f) ? (SumSpec / WSpec) : CenterS.xyz;
-
-    SurfaceAndWorkAtlas[uint3(Px, DiffDstLayer)] = float4(OutDiff, CenterD.w);
-    SurfaceAndWorkAtlas[uint3(Px, SpecDstLayer)] = float4(OutSpec, CenterS.w);
-
-    if (FinalIter)
-    {
-        uint   Mode  = uint(FrameHeader[13].x + 0.5f);
-        float4 G2    = SurfaceAndWorkAtlas[uint3(Px, 2u)];
-        float4 G3    = SurfaceAndWorkAtlas[uint3(Px, 3u)];
-        float4 G4    = SurfaceAndWorkAtlas[uint3(Px, 4u)];
-        float4 G5    = SurfaceAndWorkAtlas[uint3(Px, 5u)];
-        float3 Final = ResolveInspectionOutput(Px, Width, Height, Mode, G0, G1, G2, G3, G4, G5, OutDiff, OutSpec, CenterD.w, CenterS.w);
+        float3 SkyOrGlass = SurfaceAndWorkAtlas[uint3(Px, SpecSrcLayer)].xyz;
+        float4 G1         = SurfaceAndWorkAtlas[uint3(Px, 1u)];
+        float4 G2         = SurfaceAndWorkAtlas[uint3(Px, 2u)];
+        float4 G3         = SurfaceAndWorkAtlas[uint3(Px, 3u)];
+        float4 G4         = SurfaceAndWorkAtlas[uint3(Px, 4u)];
+        float4 G5         = SurfaceAndWorkAtlas[uint3(Px, 5u)];
+        float3 Final      = ResolveInspectionOutput(Px, Width, Height, Mode, G0, G1, G2, G3, G4, G5, float4(0.0f, 0.0f, 0.0f, 1.0f), float3(0.0f), SkyOrGlass, 1.0f, 0.0f);
         OutputImage[uint3(Px, 0u)] = float4(Final, 1.0f);
         ViewportDisplayTarget[Px]  = float4(ApplyAcesAndSrgbOetf(Final, Push.Params.x), 1.0f);
+        return;
     }
+
+    float4 G1           = SurfaceAndWorkAtlas[uint3(Px, 1u)];
+    float4 G2           = SurfaceAndWorkAtlas[uint3(Px, 2u)];
+    float4 G3           = SurfaceAndWorkAtlas[uint3(Px, 3u)];
+    float4 G4           = SurfaceAndWorkAtlas[uint3(Px, 4u)];
+    float4 G5           = SurfaceAndWorkAtlas[uint3(Px, 5u)];
+    float4 DirectShadow = SurfaceAndWorkAtlas[uint3(Px, 6u)];
+    float3 FullN        = normalize(G1.xyz);
+
+    float  SceneAo      = G5.w;
+    float  NormHistoryM = 0.0f;
+    float3 UpsampledGi  = UpsampleHalfResDiffuseGi(Px, FullN, G0.w, TraceScale, TraceW, TraceH, DiffSrcLayer, SceneAo, NormHistoryM);
+
+    float3 ResolvedSpec = SurfaceAndWorkAtlas[uint3(Px, SpecSrcLayer)].xyz;
+    // Rough matte surface reflection substitution (Lumen / ReflectionTraversal.wgsl rough-reflection reuse)
+    if (SurfaceAndWorkAtlas[uint3(Px, 8u)].w < 0.0f && FrameHeader[7].x > 0.5f)
+    {
+        float3 ViewDir = normalize(FrameHeader[0].xyz - G0.xyz);
+        float  NdotV   = max(0.05f, dot(FullN, ViewDir));
+        float3 F0      = lerp(float3(0.04f), G5.xyz, saturate(G3.x));
+        ResolvedSpec   = EvaluateEnvBrdfApprox(F0, clamp(G1.w, 0.045f, 1.0f), NdotV) * UpsampledGi;
+    }
+
+    float3 Final = ResolveInspectionOutput(
+        Px, Width, Height, Mode, G0, G1, G2, G3, G4, G5, DirectShadow, UpsampledGi, ResolvedSpec, SceneAo, NormHistoryM);
+    OutputImage[uint3(Px, 0u)] = float4(Final, 1.0f);
+    ViewportDisplayTarget[Px]  = float4(ApplyAcesAndSrgbOetf(Final, Push.Params.x), 1.0f);
 }

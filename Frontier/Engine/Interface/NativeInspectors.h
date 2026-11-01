@@ -155,7 +155,7 @@ class RenderPipelineInspector final : public RecordInspector
     [[nodiscard]] const char* QueryEyebrowText() const noexcept override { return "RENDER · PIPELINE"; }
     [[nodiscard]] const char* QuerySectionNote() const noexcept override
     {
-        return Parameters.HardwareRayQueryTier ? "RTX · RayQuery + ReSTIR" : "GTX · 4-Cascade SDF + BVH";
+        return Parameters.HardwareRayQueryTier ? "Full Raytracing · CWBVH" : "Hybrid · SDF-GI + RT Refl";
     }
     [[nodiscard]] bool        QueryToggleSupported() const noexcept override { return true; }
     [[nodiscard]] bool        QueryToggleEnabled() const noexcept override { return Parameters.Enabled; }

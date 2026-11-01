@@ -253,4 +253,54 @@ void RangeDistanceAtlas::PackForGpu(std::vector<std::array<float, 4>>& OutPacked
     }
 }
 
+void RangeDistanceAtlas::PackVolume3DForGpu(uint32_t&           OutWidth,
+                                            uint32_t&           OutHeight,
+                                            uint32_t&           OutDepth,
+                                            std::vector<float>& OutScalarDistances) const
+{
+    if (ActiveRanges_ == 0u || Ranges_[0].Distances.empty())
+    {
+        OutWidth  = 4u;
+        OutHeight = 4u;
+        OutDepth  = 4u;
+        OutScalarDistances.assign(64u, 100.0f);
+        return;
+    }
+
+    const uint32_t NX           = std::max(1u, Ranges_[0].Dimensions[0]);
+    const uint32_t NY           = std::max(1u, Ranges_[0].Dimensions[1]);
+    const uint32_t NZ           = std::max(1u, Ranges_[0].Dimensions[2]);
+    const uint32_t PaddedSlices = NZ + 2u;
+    OutWidth                    = NX;
+    OutHeight                   = NY;
+    OutDepth                    = MaximumRangeCount * PaddedSlices;
+
+    const size_t SliceFloats = static_cast<size_t>(NX) * NY;
+    OutScalarDistances.assign(SliceFloats * OutDepth, 1.0e4f);
+
+    for (uint32_t RangeIdx = 0u; RangeIdx < MaximumRangeCount; ++RangeIdx)
+    {
+        if (RangeIdx >= ActiveRanges_)
+        {
+            continue;
+        }
+        const VolumeDistanceField& Grid = Ranges_[RangeIdx];
+        if (Grid.Dimensions[0] != NX || Grid.Dimensions[1] != NY || Grid.Dimensions[2] != NZ ||
+            Grid.Distances.size() < SliceFloats * NZ)
+        {
+            continue;
+        }
+
+        const size_t BaseZ = static_cast<size_t>(RangeIdx) * PaddedSlices;
+        // Guard slice 0 duplicates z = 0
+        std::copy_n(Grid.Distances.data(), SliceFloats, OutScalarDistances.data() + BaseZ * SliceFloats);
+        // Active slices [1 .. NZ]
+        std::copy_n(Grid.Distances.data(), SliceFloats * NZ, OutScalarDistances.data() + (BaseZ + 1u) * SliceFloats);
+        // Guard slice NZ + 1 duplicates z = NZ - 1
+        std::copy_n(Grid.Distances.data() + (NZ - 1u) * SliceFloats,
+                    SliceFloats,
+                    OutScalarDistances.data() + (BaseZ + NZ + 1u) * SliceFloats);
+    }
+}
+
 } // namespace Frontier

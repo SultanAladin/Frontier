@@ -87,6 +87,51 @@ float3 TransformInstanceNormalToWorld(float4 Inv0, float4 Inv1, float4 Inv2, flo
     return (Len > 1.0e-8f) ? (Raw / Len) : float3(0.0f, 1.0f, 0.0f);
 }
 
+// Exact analytical inverse of TransformWorldPointToInstance: P_local = A * P_world + Inv3.xyz => P_world = A^-1 * (P_local - Inv3.xyz)
+float3 TransformInstancePointToWorld(float4 Inv0, float4 Inv1, float4 Inv2, float4 Inv3, float3 LocalP)
+{
+    float3 C0   = Inv0.xyz;
+    float3 C1   = Inv1.xyz;
+    float3 C2   = Inv2.xyz;
+    float3 R0   = cross(C1, C2);
+    float  Det  = dot(C0, R0);
+    if (abs(Det) <= 1.0e-12f)
+    {
+        return LocalP - Inv3.xyz;
+    }
+    float  InvDet = 1.0f / Det;
+    float3 R1     = cross(C2, C0);
+    float3 R2     = cross(C0, C1);
+    float3 D      = LocalP - Inv3.xyz;
+    return float3(dot(R0, D), dot(R1, D), dot(R2, D)) * InvDet;
+}
+
+float3 TransformInstanceDirToWorld(float4 Inv0, float4 Inv1, float4 Inv2, float3 LocalD)
+{
+    float3 C0  = Inv0.xyz;
+    float3 C1  = Inv1.xyz;
+    float3 C2  = Inv2.xyz;
+    float3 R0  = cross(C1, C2);
+    float  Det = dot(C0, R0);
+    if (abs(Det) <= 1.0e-12f)
+    {
+        return LocalD;
+    }
+    float  InvDet = 1.0f / Det;
+    float3 R1     = cross(C2, C0);
+    float3 R2     = cross(C0, C1);
+    return float3(dot(R0, LocalD), dot(R1, LocalD), dot(R2, LocalD)) * InvDet;
+}
+
+bool IsOctetTransmissiveClass(uint ClassPack, uint ClassOver)
+{
+    if (ClassOver != 0xFFFFFFFFu)
+    {
+        return (ClassOver == 7u || ClassOver == 12u || ClassOver == 18u);
+    }
+    return ((ClassPack & 0x80000000u) != 0u);
+}
+
 void EvaluateFourQuantizedSlabs(float3   BlockOrigin,
                                 float3   StepScale,
                                 uint     PackedLoX,
@@ -223,6 +268,7 @@ GpuOctetSurfaceHit SearchOctetInstancesOpaque(StructuredBuffer<float4> TopCells,
             float4 Meta    = Instances[InstBase + 7u];
             uint   BlkBase = asuint(Meta.x);
             uint   TriBase = asuint(Meta.y);
+            uint   ClassOv = asuint(Meta.z);
 
             float3 ObjOrigin = TransformWorldPointToInstance(Inv0, Inv1, Inv2, Inv3, Origin);
             float3 ObjDir    = TransformWorldDirToInstance(Inv0, Inv1, Inv2, RayDir);
@@ -289,7 +335,7 @@ GpuOctetSurfaceHit SearchOctetInstancesOpaque(StructuredBuffer<float4> TopCells,
                                 uint   TAddr     = GlobalTri * OctetTriangleStride;
                                 float4 T2        = Triangles[TAddr + 2u];
                                 uint   ClassPack = asuint(T2.w);
-                                if ((ClassPack & 0x80000000u) != 0u)
+                                if (IsOctetTransmissiveClass(ClassPack, ClassOv))
                                 {
                                     continue;
                                 }
@@ -483,6 +529,7 @@ GpuOctetGlassPeel SearchOctetInstancesGlassPeel(StructuredBuffer<float4> TopCell
             float4 Meta      = Instances[InstBase + 7u];
             uint   BlkBase   = asuint(Meta.x);
             uint   TriBase   = asuint(Meta.y);
+            uint   ClassOv   = asuint(Meta.z);
             float3 ObjOrigin = TransformWorldPointToInstance(Inv0, Inv1, Inv2, Inv3, Origin);
             float3 ObjDir    = TransformWorldDirToInstance(Inv0, Inv1, Inv2, RayDir);
             float3 ObjInvDir = SafeReciprocalRayDir(ObjDir);
@@ -539,7 +586,7 @@ GpuOctetGlassPeel SearchOctetInstancesGlassPeel(StructuredBuffer<float4> TopCell
                                 uint   GlobalTri = SpanStart + TriOff;
                                 uint   TAddr     = GlobalTri * OctetTriangleStride;
                                 float4 T2        = Triangles[TAddr + 2u];
-                                if ((asuint(T2.w) & 0x80000000u) == 0u)
+                                if (!IsOctetTransmissiveClass(asuint(T2.w), ClassOv))
                                 {
                                     continue;
                                 }
@@ -594,22 +641,23 @@ GpuOctetGlassPeel SearchOctetInstancesGlassPeel(StructuredBuffer<float4> TopCell
 
     if (HitTri != 0xFFFFFFFFu)
     {
-        uint   IBase = HitInst * OctetInstanceStride;
-        uint   TAddr = HitTri * OctetTriangleStride;
-        float4 T4    = Triangles[TAddr + 4u];
-        float3 LocN  = normalize(cross(Triangles[TAddr + 1u].xyz, Triangles[TAddr + 2u].xyz));
-        float3 WN    = TransformInstanceNormalToWorld(Instances[IBase + 0u], Instances[IBase + 1u], Instances[IBase + 2u], LocN);
+        uint   IBase     = HitInst * OctetInstanceStride;
+        uint   HitOv     = asuint(Instances[IBase + 7u].z);
+        uint   TAddr     = HitTri * OctetTriangleStride;
+        float4 T4        = Triangles[TAddr + 4u];
+        float3 LocN      = normalize(cross(Triangles[TAddr + 1u].xyz, Triangles[TAddr + 2u].xyz));
+        float3 WN        = TransformInstanceNormalToWorld(Instances[IBase + 0u], Instances[IBase + 1u], Instances[IBase + 2u], LocN);
         if (dot(WN, RayDir) > 0.0f)
         {
             WN = -WN;
         }
         Out.HitGlass       = true;
         Out.FrontT         = FirstT;
-        Out.ThicknessM     = (SecondT > FirstT) ? min(0.24f, SecondT - FirstT) : 0.014f;
+        Out.ThicknessM     = (SecondT > FirstT) ? min(0.28f, SecondT - FirstT) : 0.014f;
         Out.FrontNormal    = WN;
         Out.BackNormal     = -WN;
-        Out.AbsorptionPerM = T4.xyz;
-        Out.Ior            = max(1.01f, T4.w);
+        Out.AbsorptionPerM = (HitOv == 18u) ? float3(0.06f, 0.03f, 0.02f) : ((HitOv == 12u) ? float3(0.15f, 0.12f, 0.08f) : T4.xyz);
+        Out.Ior            = (HitOv == 18u) ? 1.62f : ((HitOv == 12u) ? 1.58f : ((HitOv == 7u) ? 1.52f : max(1.01f, T4.w)));
 
         if (BackTri != 0xFFFFFFFFu)
         {

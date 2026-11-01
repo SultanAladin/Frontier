@@ -16,7 +16,7 @@ type = "RenderPipeline"
 name = "Render Pipeline"
 [records.configuration]
 enabled = true
-hardware_ray_query = true
+hardware_ray_query = false
 quality_tier = 2
 inspection_mode = 0
 exposure_ev = 0.12

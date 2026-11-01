@@ -56,15 +56,44 @@ struct DeviceMemorySpan
 
 struct DeviceImageArraySlot
 {
+    VkImage                  Image         = VK_NULL_HANDLE;
+    VkDeviceMemory           Memory        = VK_NULL_HANDLE;
+    VkImageView              ArrayView     = VK_NULL_HANDLE;
+    std::vector<VkImageView> LayerViews2D{};
+    VkFormat                 Format        = VK_FORMAT_UNDEFINED;
+    uint32_t                 Width         = 0;
+    uint32_t                 Height        = 0;
+    uint32_t                 ArrayLayers   = 0;
+    uint32_t                 MipLevels     = 1;
+    VkDeviceSize             AllocatedSize = 0;
+    VkImageLayout            CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+};
+
+struct DeviceVolumeTextureSlot
+{
     VkImage        Image         = VK_NULL_HANDLE;
     VkDeviceMemory Memory        = VK_NULL_HANDLE;
-    VkImageView    ArrayView     = VK_NULL_HANDLE;
+    VkImageView    View3D        = VK_NULL_HANDLE;
     VkFormat       Format        = VK_FORMAT_UNDEFINED;
     uint32_t       Width         = 0;
     uint32_t       Height        = 0;
-    uint32_t       ArrayLayers   = 0;
+    uint32_t       Depth         = 0;
     VkDeviceSize   AllocatedSize = 0;
     VkImageLayout  CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+};
+
+struct DeviceDepthTargetSlot
+{
+    VkImage                  Image         = VK_NULL_HANDLE;
+    VkDeviceMemory           Memory        = VK_NULL_HANDLE;
+    VkImageView              ArrayView     = VK_NULL_HANDLE;
+    std::vector<VkImageView> SliceViews2D{};
+    VkFormat                 Format        = VK_FORMAT_UNDEFINED;
+    uint32_t                 Width         = 0;
+    uint32_t                 Height        = 0;
+    uint32_t                 ArrayLayers   = 0;
+    VkDeviceSize             AllocatedSize = 0;
+    VkImageLayout            CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 struct DeviceViewportImageSlot
@@ -93,12 +122,48 @@ struct ComputeProgramSlot
     float                         PipelineCompileMilliseconds = 0.0f;
 };
 
+struct GraphicsRasterProgramSlot
+{
+    VkShaderModule                VertexUnit                  = VK_NULL_HANDLE;
+    VkShaderModule                FragmentUnit                = VK_NULL_HANDLE;
+    VkDescriptorSetLayout         SetLayout                   = VK_NULL_HANDLE;
+    VkPipelineLayout              Layout                      = VK_NULL_HANDLE;
+    VkPipeline                    Pipeline                    = VK_NULL_HANDLE;
+    std::vector<VkDescriptorType> BindingTypes{};
+    uint32_t                      SpirvByteCount              = 0u;
+    float                         PipelineCompileMilliseconds = 0.0f;
+};
+
+struct SurfaceFramebufferSet
+{
+    VkRenderPass             SurfaceProcedure  = VK_NULL_HANDLE;
+    VkFramebuffer            SurfaceTarget     = VK_NULL_HANDLE;
+    uint32_t                 Width             = 0u;
+    uint32_t                 Height            = 0u;
+};
+
+struct ShadowFramebufferSet
+{
+    VkRenderPass                 ShadowProcedure = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer>   CascadeTargets{};
+    uint32_t                     Resolution      = 0u;
+    uint32_t                     CascadeCount    = 0u;
+};
+
+struct RasterDrawItem
+{
+    uint32_t             VertexCount = 0u;
+    std::array<uint32_t, 8> PushWords{};
+};
+
 struct ComputeDescriptorArgument
 {
     VkDescriptorType               Type          = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     const DeviceMemorySpan*        MemorySpan    = nullptr;
     const DeviceImageArraySlot*    ImageArray    = nullptr;
     const DeviceViewportImageSlot* ViewportImage = nullptr;
+    const DeviceVolumeTextureSlot* VolumeTexture = nullptr;
+    const DeviceDepthTargetSlot*   DepthTarget   = nullptr;
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -109,7 +174,7 @@ class VulkanComputeExchange
 {
   public:
     static constexpr uint32_t ExternalRingCount      = 4u;
-    static constexpr uint32_t MaxTimedDispatchesSlot = 8u;
+    static constexpr uint32_t MaxTimedDispatchesSlot = 16u;
 
     VulkanComputeExchange() = default;
     ~VulkanComputeExchange();
@@ -131,6 +196,7 @@ class VulkanComputeExchange
 
     [[nodiscard]] bool               Ready() const noexcept { return Device_ != VK_NULL_HANDLE; }
     [[nodiscard]] bool               BorrowedDeviceActive() const noexcept { return BorrowedDeviceEnabled_; }
+    [[nodiscard]] bool               GraphicsSupported() const noexcept { return GraphicsSupported_; }
     [[nodiscard]] const std::string& DeviceName() const noexcept { return DeviceName_; }
     [[nodiscard]] uint32_t           VendorIdentifier() const noexcept { return VendorId_; }
     [[nodiscard]] uint32_t           DeviceIdentifier() const noexcept { return DeviceId_; }
@@ -176,6 +242,63 @@ class VulkanComputeExchange
     bool UploadViewportImageRgba8(DeviceViewportImageSlot& Slot, std::span<const uint8_t> SourceRgbaBytes);
     bool DownloadViewportImageRgba8(DeviceViewportImageSlot& Slot, std::vector<uint8_t>& OutRgbaBytes);
 
+    // 3D hardware trilinear SDF clipmap volume texture (VK_IMAGE_TYPE_3D, VK_FORMAT_R16_SFLOAT)
+    bool AllocateR16fVolume3D(uint32_t Width, uint32_t Height, uint32_t Depth, DeviceVolumeTextureSlot& OutSlot);
+    bool UploadR16fVolume3D(DeviceVolumeTextureSlot& Slot, std::span<const float> ScalarDistances);
+    void ReleaseVolume3D(DeviceVolumeTextureSlot& Slot) noexcept;
+
+    // Hardware D32_SFLOAT depth attachment & sampled cascade shadow array
+    bool AllocateDepthTargetArray(uint32_t Width, uint32_t Height, uint32_t ArrayLayers, DeviceDepthTargetSlot& OutSlot);
+    void ReleaseDepthTarget(DeviceDepthTargetSlot& Slot) noexcept;
+
+    // Hardware MRT surface/forward framebuffer & cascaded shadow framebuffer management
+    bool CreateSurfaceProcedureOnly(VkRenderPass& OutProcedure);
+    bool CreateShadowProcedureOnly(VkRenderPass& OutProcedure);
+    void ReleaseRenderProcedure(VkRenderPass& Procedure) noexcept;
+
+    bool CreateSurfaceFramebufferSet(VkRenderPass                 CompatibleProcedure,
+                                     const DeviceImageArraySlot&  TargetAtlas,
+                                     const DeviceDepthTargetSlot& DepthTarget,
+                                     SurfaceFramebufferSet&       OutSet);
+    void ReleaseSurfaceFramebufferSet(SurfaceFramebufferSet& Set) noexcept;
+
+    bool CreateShadowFramebufferSet(VkRenderPass                 CompatibleProcedure,
+                                    const DeviceDepthTargetSlot& ShadowDepthArray,
+                                    ShadowFramebufferSet&        OutSet);
+    void ReleaseShadowFramebufferSet(ShadowFramebufferSet& Set) noexcept;
+
+    // Hardware SPIR-V vertex/fragment raster pipeline compilation & execution
+    bool LoadGraphicsProgram(const std::string&                VertSpvPath,
+                             const char*                       VertEntryName,
+                             const std::string&                FragSpvPath,
+                             const char*                       FragEntryName,
+                             std::span<const VkDescriptorType> BindingTypes,
+                             uint32_t                          PushConstantBytes,
+                             VkRenderPass                      CompatibleProcedure,
+                             uint32_t                          ColorAttachmentCount,
+                             VkCompareOp                       DepthCompare,
+                             bool                              DepthWrite,
+                             bool                              EnableDepthBias,
+                             GraphicsRasterProgramSlot&        OutProgram,
+                             std::string*                      OutDiagnostic = nullptr);
+    void ReleaseGraphicsProgram(GraphicsRasterProgramSlot& Program) noexcept;
+
+    bool ExecuteShadowCascadeDraws(const GraphicsRasterProgramSlot&           ShadowProgram,
+                                   const ShadowFramebufferSet&                ShadowTargets,
+                                   DeviceDepthTargetSlot&                     ShadowDepthSlot,
+                                   std::span<const ComputeDescriptorArgument> Arguments,
+                                   uint32_t                                   CascadeIndex,
+                                   std::span<const RasterDrawItem>            Draws);
+
+    bool ExecuteSurfaceAndForwardDraws(const GraphicsRasterProgramSlot&           OpaqueProgram,
+                                       const GraphicsRasterProgramSlot&           ForwardGlassProgram,
+                                       const SurfaceFramebufferSet&               SurfaceTargets,
+                                       DeviceImageArraySlot&                      TargetAtlas,
+                                       DeviceDepthTargetSlot&                     DepthTarget,
+                                       std::span<const ComputeDescriptorArgument> Arguments,
+                                       std::span<const RasterDrawItem>            OpaqueDraws,
+                                       std::span<const RasterDrawItem>            ForwardGlassDraws);
+
     // SPIR-V compute program compilation & queue execution
     bool LoadComputeProgram(const std::string&                SpvFilePath,
                             const char*                       EntryPointName,
@@ -198,6 +321,10 @@ class VulkanComputeExchange
                                         const std::string&      PipelineArchivePath,
                                         std::string*            OutDiagnostic);
     bool InitializePipelineArchive(const std::string& ArchivePath);
+    [[nodiscard]] bool AllocateUpdatedDescriptorSet(VkDescriptorSetLayout                      SetLayout,
+                                                    std::span<const VkDescriptorType>          BindingTypes,
+                                                    std::span<const ComputeDescriptorArgument> Arguments,
+                                                    VkDescriptorSet&                           OutSet);
     [[nodiscard]] uint32_t SelectMemoryType(uint32_t TypeBits, VkMemoryPropertyFlags RequiredFlags) const;
     bool TransitionImageLayout(VkCommandBuffer CommandStream, DeviceImageArraySlot& Slot, VkImageLayout TargetLayout);
     bool TransitionViewportLayout(VkCommandBuffer          CommandStream,
@@ -215,11 +342,13 @@ class VulkanComputeExchange
     VkQueue                                               Queue_                       = VK_NULL_HANDLE;
     uint32_t                                              QueueFamily_                 = 0u;
     bool                                                  BorrowedDeviceEnabled_       = false;
+    bool                                                  GraphicsSupported_           = false;
     VkCommandPool                                         CommandPool_                 = VK_NULL_HANDLE;
     VkDescriptorPool                                      DescriptorPool_              = VK_NULL_HANDLE;
     std::array<VkDescriptorPool, ExternalRingCount>       ExternalDescriptorPools_{};
     VkSampler                                             LinearClampSampler_          = VK_NULL_HANDLE;
     VkSampler                                             LinearRepeatSampler_         = VK_NULL_HANDLE;
+    VkSampler                                             NearestClampSampler_         = VK_NULL_HANDLE;
     VkFence                                               SubmitFence_                 = VK_NULL_HANDLE;
     VkPipelineCache                                       PipelineArchiveHandle_       = VK_NULL_HANDLE;
     std::string                                           PipelineArchivePath_{};
@@ -311,6 +440,17 @@ class VulkanComputeExchange
     PFN_vkCmdClearColorImage                     pfnCmdClearColorImage_                     = nullptr;
     PFN_vkCmdCopyBufferToImage                   pfnCmdCopySpanToImage_                     = nullptr;
     PFN_vkCmdCopyImageToBuffer                   pfnCmdCopyImageToSpan_                     = nullptr;
+    PFN_vkCreateRenderPass                       pfnCreateRenderPass_                       = nullptr;
+    PFN_vkDestroyRenderPass                      pfnDestroyRenderPass_                      = nullptr;
+    PFN_vkCreateFramebuffer                      pfnCreateFramebuffer_                      = nullptr;
+    PFN_vkDestroyFramebuffer                     pfnDestroyFramebuffer_                     = nullptr;
+    PFN_vkCreateGraphicsPipelines                pfnCreateGraphicsPipelines_                = nullptr;
+    PFN_vkCmdBeginRenderPass                     pfnCmdBeginRenderPass_                     = nullptr;
+    PFN_vkCmdEndRenderPass                       pfnCmdEndRenderPass_                       = nullptr;
+    PFN_vkCmdSetViewport                         pfnCmdSetViewport_                         = nullptr;
+    PFN_vkCmdSetScissor                          pfnCmdSetScissor_                          = nullptr;
+    PFN_vkCmdSetDepthBias                        pfnCmdSetDepthBias_                        = nullptr;
+    PFN_vkCmdDraw                                pfnCmdDraw_                                = nullptr;
 };
 
 } // namespace Frontier

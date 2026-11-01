@@ -153,7 +153,7 @@ void IlluminationTelemetryJournal::RecordFrameSample(const IlluminationFrameJour
                  S.RenderWidthPx,
                  S.RenderHeightPx,
                  S.ResolutionPercent,
-                 S.PreviewRasterUsed ? "PreviewRaster" : "ReSTIR_GTX",
+                 S.PreviewRasterUsed ? "PreviewRaster" : (S.Config.FullRaytracingMode ? "FullRaytracing" : "HybridSDF_RT"),
                  S.Config.InspectionMode,
                  S.QualityTier,
                  S.Config.RisCandidateCount,

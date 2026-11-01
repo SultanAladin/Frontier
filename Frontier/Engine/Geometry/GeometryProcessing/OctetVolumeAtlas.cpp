@@ -1441,4 +1441,81 @@ void OctetVolumeAtlas::ExtractWorldTriangles(std::vector<PackedRayTriangle>& Out
     }
 }
 
+void OctetVolumeAtlas::QueryRasterDrawSpans(std::vector<RasterInstanceDrawSpan>& OutDrawSpans,
+                                            std::span<const bool>                MaterialSlotIsGlass) const
+{
+    OutDrawSpans.clear();
+    if (Empty())
+    {
+        return;
+    }
+
+    OutDrawSpans.reserve(OrderedInstanceIndices_.size());
+    for (size_t OrderedPos = 0u; OrderedPos < OrderedInstanceIndices_.size(); ++OrderedPos)
+    {
+        const uint32_t               RawIdx  = OrderedInstanceIndices_[OrderedPos];
+        const ResolvedInstanceEntry& Inst    = Instances_[RawIdx];
+        const BottomArchiveEntry&    Archive = Archives_[Inst.Spec.BottomArchiveIndex];
+        const uint32_t               TriCnt  = static_cast<uint32_t>(Archive.Triangles.size());
+        if (TriCnt == 0u)
+        {
+            continue;
+        }
+
+        RasterInstanceDrawSpan Span{};
+        Span.OrderedInstanceIndex   = static_cast<uint32_t>(OrderedPos);
+        Span.ClassificationOverride = Inst.Spec.ClassificationOverride;
+
+        if (Span.ClassificationOverride != 0xFFFFFFFFu)
+        {
+            const bool OverrideGlass =
+                (Span.ClassificationOverride < MaterialSlotIsGlass.size()) && MaterialSlotIsGlass[Span.ClassificationOverride];
+            if (OverrideGlass)
+            {
+                Span.GlassTriangleOffset = Inst.TriangleOffset;
+                Span.GlassTriangleCount  = TriCnt;
+            }
+            else
+            {
+                Span.OpaqueTriangleOffset = Inst.TriangleOffset;
+                Span.OpaqueTriangleCount  = TriCnt;
+            }
+            OutDrawSpans.push_back(Span);
+            continue;
+        }
+
+        uint32_t FirstOpaque = UINT32_MAX, LastOpaque = 0u;
+        uint32_t FirstGlass  = UINT32_MAX, LastGlass  = 0u;
+        for (uint32_t LocalIdx = 0u; LocalIdx < TriCnt; ++LocalIdx)
+        {
+            const PackedRayTriangle& T      = Archive.Triangles[LocalIdx];
+            const uint32_t           SlotId = T.ClassificationId & 0x7FFFFFFFu;
+            const bool               Glass  = T.TransmissiveGlass ||
+                               (SlotId < MaterialSlotIsGlass.size() && MaterialSlotIsGlass[SlotId]);
+            if (Glass)
+            {
+                FirstGlass = std::min(FirstGlass, LocalIdx);
+                LastGlass  = LocalIdx;
+            }
+            else
+            {
+                FirstOpaque = std::min(FirstOpaque, LocalIdx);
+                LastOpaque  = LocalIdx;
+            }
+        }
+
+        if (FirstOpaque != UINT32_MAX)
+        {
+            Span.OpaqueTriangleOffset = Inst.TriangleOffset + FirstOpaque;
+            Span.OpaqueTriangleCount  = (LastOpaque - FirstOpaque) + 1u;
+        }
+        if (FirstGlass != UINT32_MAX)
+        {
+            Span.GlassTriangleOffset = Inst.TriangleOffset + FirstGlass;
+            Span.GlassTriangleCount  = (LastGlass - FirstGlass) + 1u;
+        }
+        OutDrawSpans.push_back(Span);
+    }
+}
+
 } // namespace Frontier

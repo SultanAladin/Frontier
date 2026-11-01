@@ -86,6 +86,16 @@ struct OctetInstanceHit
     std::array<float, 2> TextureCoord{0.0f, 0.0f};             // [-]
 };
 
+struct RasterInstanceDrawSpan
+{
+    uint32_t OrderedInstanceIndex   = 0u;           // [-] - index into GPU OctetInstances table
+    uint32_t OpaqueTriangleOffset   = 0u;           // [-] - first triangle in GPU BvhTriangles for opaque draw
+    uint32_t OpaqueTriangleCount    = 0u;           // [-] - triangle count covering all opaque facets
+    uint32_t GlassTriangleOffset    = 0u;           // [-] - first transmissive glass triangle in GPU BvhTriangles
+    uint32_t GlassTriangleCount     = 0u;           // [-] - triangle count covering all transmissive glass facets
+    uint32_t ClassificationOverride = 0xFFFFFFFFu;  // [-] - instance material override or 0xFFFFFFFFu
+};
+
 //------------------------------------------------------------------------------------------------------------------------
 //                                                   OCTET VOLUME ATLAS
 //------------------------------------------------------------------------------------------------------------------------
@@ -139,6 +149,10 @@ class OctetVolumeAtlas
                     std::vector<std::array<float, 4>>& OutInstanceTable,
                     std::vector<std::array<float, 4>>& OutOctetBlockTable,
                     std::vector<std::array<float, 4>>& OutTriangleTable) const;
+
+    // Queries exact GPU triangle sub-ranges per ordered TLAS instance for hardware SurfaceRaster, ForwardRaster & ShadowRaster
+    void QueryRasterDrawSpans(std::vector<RasterInstanceDrawSpan>& OutDrawSpans,
+                              std::span<const bool>                MaterialSlotIsGlass = {}) const;
 
     // Exposes world-space transformed triangles for luminous CDF extraction or baking
     void ExtractWorldTriangles(std::vector<PackedRayTriangle>& OutWorldTriangles) const;
