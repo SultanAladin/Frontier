@@ -27,6 +27,8 @@ struct VulkanRasterAccess
     PFN_vkGetPhysicalDeviceFormatProperties    QueryFormat   = nullptr;
     PFN_vkGetPhysicalDeviceProperties          QueryLimits   = nullptr;
     VkQueueFlags                              QueueCapabilities = 0;
+    VkQueue                                   Queue         = VK_NULL_HANDLE;
+    uint32_t                                  QueueFamily   = 0;
 };
 
 struct RasterShader

@@ -70,8 +70,10 @@ class HarmonicOscillatorRecord final : public Frontier::SceneRecordBase
   public:
     explicit HarmonicOscillatorRecord(std::string InDisplayName);
 
-    [[nodiscard]] Frontier::SpatialConfiguration&       AccessSpatial() noexcept { return Spatial; }
-    [[nodiscard]] Frontier::PhysicsConfiguration&       AccessPhysics() noexcept { return Physics; }
+    [[nodiscard]] Frontier::SpatialConfiguration&        AccessSpatial() noexcept { return Spatial; }
+    [[nodiscard]] const Frontier::SpatialConfiguration&  QuerySpatial() const noexcept { return Spatial; }
+    [[nodiscard]] Frontier::PhysicsConfiguration&        AccessPhysics() noexcept { return Physics; }
+    [[nodiscard]] const Frontier::PhysicsConfiguration&  QueryPhysics() const noexcept { return Physics; }
     [[nodiscard]] HarmonicOscillatorConfiguration&      AccessOscillator() noexcept { return Oscillator; }
     [[nodiscard]] const HarmonicOscillatorConfiguration& QueryOscillator() const noexcept { return Oscillator; }
 

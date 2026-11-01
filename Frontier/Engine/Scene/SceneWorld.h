@@ -261,6 +261,7 @@ class SceneWorld
     void AdvanceSimulation(float DeltaSeconds);
 
     [[nodiscard]] size_t             QueryRecordCount() const noexcept { return OwnedRecords.size(); }
+    [[nodiscard]] const std::vector<std::unique_ptr<SceneRecordBase>>& QueryRecords() const noexcept { return OwnedRecords; }
     [[nodiscard]] SceneRecordBase*   FindRecord(RecordToken Token) noexcept;
     [[nodiscard]] SceneRecordBase*   FindFirstByType(std::string_view TypeIdentifier) noexcept;
     [[nodiscard]] const std::string& QueryWorldName() const noexcept { return WorldName; }

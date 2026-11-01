@@ -307,11 +307,162 @@ int main(int Argc, char** Argv)
                    {DuskSun, KeyLeft, KeyRight, RimKick},
                    DuskCfg,
                    3u);
+
+        // 6. Phase 3C-1 + 3C-2 (Option A) End-to-End Verification:
+        //    Two-Level 8-Wide OctetVolumeAtlas, 4-Cascade RangeDistanceAtlas, Authored TextureStudio PBR Materials,
+        //    GPU Multi-Bounce SurfaceCard Radiosity, LuminousFacet CDF, Coupled Clouds/Moons/Fog, & 2D RGBA8 Viewport Slot.
+        std::cout << "[6/6] Verifying Phase 3C-1 + 3C-2 Two-Level OctetVolumeAtlas, RangeDistanceAtlas, SurfaceCards, & Authored PBR...\n";
+        SurfaceScatteringAtlas AuthoredMaterials{};
+        AuthoredMaterials.RegisterControlVehicleScatteringPresets();
+        const uint32_t LoadedAuthored = AuthoredMaterials.LoadProvingGroundAuthoredMaterials(RepoRoot.string());
+        REQUIRE_STI(LoadedAuthored >= 8u && AuthoredMaterials.AuthoredTextureLayerCount() >= 8u,
+                    "LoadProvingGroundAuthoredMaterials must load TextureStudio .material TOML + PBR PNG array layers");
+
+        SurfaceScatteringEntry SoftboxMat{};
+        SoftboxMat.ClassificationId                      = 20u;
+        SoftboxMat.Scattering.Configuration              = {1u, 0u, 0u, 0u};
+        SoftboxMat.Scattering.Strata[0].AlbedoRoughness  = {0.95f, 0.95f, 0.95f, 0.25f};
+        SoftboxMat.Scattering.Strata[0].Optics           = {0.0f, 1.50f, 1.0f, 0.0f};
+        SoftboxMat.EmissiveRadianceRgb                   = {16.0f, 15.0f, 13.5f};
+        REQUIRE_STI(AuthoredMaterials.RegisterScatteringEntry(SoftboxMat),
+                    "RegisterScatteringEntry for Class 20 softbox must succeed");
+
+        OctetVolumeAtlas TwoLevel{};
+        const uint32_t   SceneBlasId = TwoLevel.RegisterBottomArchive(SceneFacets);
+        REQUIRE_STI(SceneBlasId == 0u && TwoLevel.TotalOctetBlockCount() > 4u && TwoLevel.TotalTriangleCount() > 500u,
+                    "OctetVolumeAtlas 8-wide quantized BLAS build must succeed on ControlVehicle + proving ground");
+
+        InstancePlacementSpec MainInst{};
+        MainInst.BottomArchiveIndex = SceneBlasId;
+
+        FacetField PillarMesh{};
+        AppendProceduralBox(PillarMesh, {0.45, 1.60, 0.45});
+        const uint32_t PillarBlasId = TwoLevel.RegisterBottomArchive(PillarMesh);
+
+        InstancePlacementSpec LeftPillar{};
+        LeftPillar.BottomArchiveIndex     = PillarBlasId;
+        LeftPillar.ObjectToWorldColumn[12]= -3.4f;
+        LeftPillar.ObjectToWorldColumn[13]= 1.60f;
+        LeftPillar.ObjectToWorldColumn[14]= -2.2f;
+        LeftPillar.ClassificationOverride = 1u;
+        LeftPillar.OverrideOpticsEnabled  = true;
+        LeftPillar.AlbedoMultiplier       = {0.92f, 0.35f, 0.22f};
+
+        InstancePlacementSpec RightPillar  = LeftPillar;
+        RightPillar.ObjectToWorldColumn[12]= 3.4f;
+        RightPillar.AlbedoMultiplier       = {0.22f, 0.62f, 0.94f};
+
+        const std::array<InstancePlacementSpec, 3> Instances{{MainInst, LeftPillar, RightPillar}};
+        REQUIRE_STI(TwoLevel.BuildInstanceScene(Instances) && TwoLevel.TopCellCount() >= 3u,
+                    "OctetVolumeAtlas BuildInstanceScene must construct valid world-space TLAS");
+
+        const OctetInstanceHit CpuOctetHit = TwoLevel.SearchClosestOpaque({0.0f, 2.5f, 3.0f}, {0.0f, -0.65f, -0.7599f}, 1.0e-3f, 50.0f);
+        REQUIRE_STI(CpuOctetHit.Hit && CpuOctetHit.DistanceMeters > 0.5f && CpuOctetHit.DistanceMeters < 20.0f,
+                    "OctetVolumeAtlas CPU ray traversal must hit ControlVehicle / proving ground");
+
+        RangeDistanceAtlas    Clipmap{};
+        RangeClipmapBuildSpec ClipSpec{};
+        ClipSpec.AnchorWorldMeters = HeroCam.OriginMeters;
+        ClipSpec.ActiveRangeCount  = 4u;
+        ClipSpec.AxisResolution    = 20u;
+        ClipSpec.RangeHalfExtentsM = {8.0f, 20.0f, 52.0f, 140.0f};
+        PlacedDistanceVolumeSpec  PlacedVeh{&WorldSdf, {0.0f, 0.0f, 0.0f}, 1.0f};
+        AnalyticSolidDistanceSpec GroundSolid{2u, {0.0f, 0.0f, 0.0f}, {100.0f, 0.1f, 100.0f}};
+        REQUIRE_STI(Clipmap.BuildClipmap(ClipSpec, std::span(&PlacedVeh, 1u), std::span(&GroundSolid, 1u)),
+                    "RangeDistanceAtlas 4-cascade camera-centered clipmap build must succeed");
+        REQUIRE_STI(Clipmap.SampleDistance({0.0f, 1.8f, 0.0f}) > 0.05f,
+                    "RangeDistanceAtlas exterior signed distance must be positive above vehicle roof");
+
+        SurfaceRadiosityAtlas RadiosityCards{};
+        const std::array<SurfaceCardBuildInstance, 3> CardBoxes{{
+            {{-3.85f, 0.0f, -2.65f}, {-2.95f, 3.20f, -1.75f}, {0.82f, 0.30f, 0.18f}, {0.0f, 0.0f, 0.0f}},
+            {{ 2.95f, 0.0f, -2.65f}, { 3.85f, 3.20f, -1.75f}, {0.18f, 0.55f, 0.85f}, {0.0f, 0.0f, 0.0f}},
+            {{-7.0f, -0.20f, -7.0f}, { 7.0f,  0.0f,   7.0f},  {0.28f, 0.29f, 0.31f}, {0.0f, 0.0f, 0.0f}},
+        }};
+        RadiosityCards.BuildPatchesFromInstances(CardBoxes);
+        REQUIRE_STI(RadiosityCards.PatchCount() >= 12u,
+                    "SurfaceRadiosityAtlas must extract 6-axis oriented surface patches");
+
+        std::vector<PackedRayTriangle> WorldTris;
+        TwoLevel.ExtractWorldTriangles(WorldTris);
+        LuminousFacetAtlas LuminousFacets{};
+        LuminousFacets.BuildFromWorldTriangles(WorldTris, AuthoredMaterials);
+        REQUIRE_STI(LuminousFacets.FacetCount() >= 12u,
+                    "LuminousFacetAtlas must extract flux-weighted emissive softbox triangles");
+        const LuminousFacetSample SampledTri = LuminousFacets.SampleFromReceiver({0.0f, 0.8f, 0.0f}, 0.42f, 0.35f, 0.61f);
+        REQUIRE_STI(SampledTri.Valid && SampledTri.SolidAnglePdf > 1.0e-5f,
+                    "LuminousFacetAtlas SampleFromReceiver must produce positive solid-angle PDF");
+
+        REQUIRE_STI(Renderer.UploadTwoLevelScene(Exchange, TwoLevel, AuthoredMaterials, &Clipmap, &RadiosityCards, &LuminousFacets),
+                    "UploadTwoLevelScene must succeed");
+
+        DeviceViewportImageSlot LiveViewport{};
+        REQUIRE_STI(Exchange.AllocateViewportImage2D(HeroCam.WidthPx, HeroCam.HeightPx, LiveViewport),
+                    "AllocateViewportImage2D must allocate RGBA8_UNORM 2D viewport slot");
+
+        SpatiotemporalRenderConfig FullCfg = DayCfg;
+        FullCfg.RadiosityBounces                    = 3u;
+        FullCfg.TemporalHistoryLimit                = 20u;
+        FullCfg.EnableIndirectGi                    = true;
+        FullCfg.Environment.CloudsEnabled           = true;
+        FullCfg.Environment.CloudCoverage           = 0.46f;
+        FullCfg.Environment.CloudDensity            = 0.85f;
+        FullCfg.Environment.LunarEnabled            = true;
+        FullCfg.Environment.FogEnabled              = true;
+        FullCfg.Environment.FogDensity              = 0.0028f;
+
+        SpatiotemporalFrameTelemetry TwoLevelTel{};
+        for (uint32_t Frame = 0u; Frame < 3u; ++Frame)
+        {
+            SpatiotemporalCamera MovingCam = HeroCam;
+            MovingCam.OriginMeters[0] += 0.06f * static_cast<float>(Frame);
+            REQUIRE_STI(Renderer.RenderFrame(Exchange, MovingCam, {Sun, LeftSoftbox, RightSoftbox}, FullCfg, &TwoLevelTel, &LiveViewport),
+                        "Option A two-level RenderFrame with motion reprojection must succeed");
+        }
+        REQUIRE_STI(TwoLevelTel.OctetBlockCount > 4u && TwoLevelTel.SurfacePatchCount >= 12u &&
+                        TwoLevelTel.LuminousFacetCount >= 12u && TwoLevelTel.AuthoredTextureLayers >= 8u &&
+                        TwoLevelTel.RangeClipmapActive,
+                    "SpatiotemporalFrameTelemetry must report active OctetBlocks, SurfaceCards, LuminousFacets, TextureLayers, & RangeClipmap");
+
+        std::vector<std::array<float, 3>> GpuCardRadiosity;
+        REQUIRE_STI(Renderer.DownloadSolvedSurfaceRadiosity(Exchange, GpuCardRadiosity) &&
+                        GpuCardRadiosity.size() == RadiosityCards.PatchCount(),
+                    "DownloadSolvedSurfaceRadiosity must read back GPU multi-bounce surface card exitance");
+        float MaxSolvedExitance = 0.0f;
+        for (const auto& B : GpuCardRadiosity)
+        {
+            MaxSolvedExitance = std::max({MaxSolvedExitance, B[0], B[1], B[2]});
+        }
+        REQUIRE_STI(MaxSolvedExitance > 0.02f && std::isfinite(MaxSolvedExitance),
+                    "GPU SolveSurfaceRadiosityMain must produce finite positive multi-bounce radiosity");
+
+        std::vector<uint8_t> OptionAPng;
+        REQUIRE_STI(Renderer.ReadbackTonemappedSrgb8(Exchange, FullCfg.ExposureScale, OptionAPng),
+                    "ReadbackTonemappedSrgb8 on Option A two-level render must succeed");
+        const auto OutOptA = OutputDir / "ControlVehicleOptionATwoLevelRestirGi.png";
+        REQUIRE_STI(stbi_write_png(OutOptA.string().c_str(),
+                                   static_cast<int>(HeroCam.WidthPx),
+                                   static_cast<int>(HeroCam.HeightPx),
+                                   4,
+                                   OptionAPng.data(),
+                                   static_cast<int>(HeroCam.WidthPx * 4u)) != 0,
+                    "Writing ControlVehicleOptionATwoLevelRestirGi.png failed");
+
+        // Verify inspection modes (Cascade Index = 5, Material LOD Tier = 13) execute cleanly without NaNs
+        for (uint32_t Mode : {5u, 12u, 13u, 14u})
+        {
+            SpatiotemporalRenderConfig ModeCfg = FullCfg;
+            ModeCfg.InspectionMode             = Mode;
+            REQUIRE_STI(Renderer.RenderFrame(Exchange, HeroCam, {Sun, LeftSoftbox, RightSoftbox}, ModeCfg, nullptr, &LiveViewport),
+                        "RenderInspectionMode pass must succeed");
+        }
+
+        Exchange.ReleaseViewportImage2D(LiveViewport);
     }
 
     Renderer.Shutdown(Exchange);
     Exchange.Shutdown();
 
-    std::cout << "[SpatiotemporalIlluminationValidation] ALL STAGE 3B RESTIR, .SDFSPACE SDF GI, & SOFTWARE SAH-BVH CHECKS PASSED.\n";
+    std::cout << "[SpatiotemporalIlluminationValidation] ALL STAGE 3B + OPTION A (3C-1 / 3C-2) GTX-FIRST RESTIR CHECKS PASSED.\n";
     return 0;
 }

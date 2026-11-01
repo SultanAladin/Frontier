@@ -133,6 +133,7 @@ int main()
         Frontier::DiagnosticJournal::Append("BrowserPreviewRefused", std::string(Stage) + ": " + Failure.what());
     };
     GLFWwindow *Window = nullptr;
+    Frontier::VulkanPresentation *ActiveDisplay = nullptr;
     std::filesystem::path Preferences;
     bool ReturnRequested = false;
     Frontier::ApplicationWindowCallbacks Callbacks;
@@ -164,6 +165,7 @@ int main()
     };
     Callbacks.InitializeVulkan = [&](Frontier::VulkanPresentation &Display)
     {
+        ActiveDisplay = &Display;
         std::filesystem::path ShaderDirectory = "EngineContent/ShaderArchives/Surface";
         if (!std::filesystem::exists(ShaderDirectory))
         {
@@ -259,11 +261,18 @@ int main()
             {
                 try
                 {
-                    PreviewRendering->ConstructCommands(Commands, Completed, Serial);
+                    if (EverestSpace)
+                        EverestSpace->ConstructGpuCommands(Commands, Completed, Serial);
+                    else
+                        PreviewRendering->ConstructCommands(Commands, Completed, Serial);
                 }
                 catch (const std::exception &Failure) { NoteFailure("ConstructCommands", Failure); }
             },
-            [&]() { PreviewRendering->ConfirmSubmission(); });
+            [&]()
+            {
+                if (!EverestSpace && PreviewRendering)
+                    PreviewRendering->ConfirmSubmission();
+            });
         Frontier::DiagnosticJournal::Append("Startup", "Browser preview rendering initialized");
     };
     const auto ActivateProject = [&](const std::filesystem::path &Requested)
@@ -291,6 +300,24 @@ int main()
         {
             EverestSpace = std::make_unique<Everest::EverestWorkspace>(*Appearance, Requested.parent_path());
             EverestSpace->EvaluateReturnToBrowser = [&]() { ReturnRequested = true; };
+            if (ActiveDisplay != nullptr)
+            {
+                EverestSpace->AttachVulkanPresentation(
+                    ActiveDisplay->QueryRasterAccess(),
+                    [&](VkImageView V) -> uint64_t { return (uint64_t)Describe(V); },
+                    [&](uint64_t Handle)
+                    {
+                        for (auto It = PreviewDescriptors.begin(); It != PreviewDescriptors.end(); ++It)
+                        {
+                            if ((uint64_t)It->second == Handle)
+                            {
+                                ImGui_ImplVulkan_RemoveTexture(It->second);
+                                PreviewDescriptors.erase(It);
+                                break;
+                            }
+                        }
+                    });
+            }
         }
         else
         {
@@ -354,12 +381,12 @@ int main()
     Callbacks.Finalize = [&]()
     {
         // 📝 The shared application loop has retired all GPU work before this callback.
+        EverestSpace.reset();
         for (const auto &Entry : PreviewDescriptors)
             if (Entry.second) ImGui_ImplVulkan_RemoveTexture(Entry.second);
         PreviewDescriptors.clear();
         if (PreviewRendering) PreviewRendering->Finalize();
         PreviewRendering.reset();
-        EverestSpace.reset();
         Workspace.reset();
         Browser.reset();
         AppearanceOwnership.reset();

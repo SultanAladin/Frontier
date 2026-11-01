@@ -29,7 +29,16 @@ entries = [
     "Icons",
     "EnvironmentArchives/CelestialMaps",
     "EnvironmentArchives/ControlVehicle",
-    "MaterialArchives/TextureStudio",
+    "MaterialArchives/TextureStudio/icelandic-black-sand.material",
+    "MaterialArchives/TextureStudio/board-form-concrete.material",
+    "MaterialArchives/TextureStudio/canyon-banded-sandstone.material",
+    "MaterialArchives/TextureStudio/columnar-olivine-basalt.material",
+    "MaterialArchives/TextureStudio/weathered-karst-limestone.material",
+    "MaterialArchives/TextureStudio/carbon-fiber.material",
+    "MaterialArchives/TextureStudio/brushed-titanium.material",
+    "MaterialArchives/TextureStudio/performance-rubber.material",
+    "MaterialArchives/TextureStudio/bull-grain-saddle-leather.material",
+    "ShaderArchives/Environment",
 ]
 
 [workspace.appearance]

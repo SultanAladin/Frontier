@@ -22,7 +22,8 @@ function(frontier_stage_project_content TARGET_NAME PROJECTSPACE_FILE ENGINE_CON
                 --engine-content "${ENGINE_CONTENT_ROOT}"
                 --project-content "${PROJECT_CONTENT_ROOT}"
                 --stamp "${_STAMP_FILE}"
-            DEPENDS "${PROJECTSPACE_FILE}" "${_STAGE_SCRIPT}" ${_ENGINE_CONTENT_INPUTS}
+                --generated-root "${CMAKE_BINARY_DIR}"
+            DEPENDS "${PROJECTSPACE_FILE}" "${_STAGE_SCRIPT}" ${_ENGINE_CONTENT_INPUTS} ${FRONTIER_ENV_SPV_OUTPUTS}
             COMMENT "Staging declared EngineContent imports into ${PROJECT_CONTENT_ROOT}"
             VERBATIM)
         add_custom_target("${_STAMP_TARGET}" ALL DEPENDS "${_STAMP_FILE}")

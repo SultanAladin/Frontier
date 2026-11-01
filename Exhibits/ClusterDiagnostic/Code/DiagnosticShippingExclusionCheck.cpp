@@ -5,6 +5,7 @@
 // that PreviewRaster and ThemeCardPalette emit zero classes, shaders, or preview rasterization code in Shipping.
 
 #include "Engine/Diagnostics/BuildConfiguration.h"
+#include "Engine/Diagnostics/IlluminationTelemetryJournal.h"
 #include "Engine/GeometricRaster/PreviewRaster.h"
 #include "Engine/GeometricRaster/ThemeCardPalette.h"
 

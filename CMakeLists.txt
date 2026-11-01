@@ -140,6 +140,7 @@ target_include_directories(FrontierSceneEditorUI PUBLIC
 target_compile_definitions(FrontierSceneEditorUI PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
 target_link_libraries(FrontierSceneEditorUI PUBLIC FrontierEditorUI Threads::Threads)
 
+include(Automation/EnvironmentRendering.cmake)
 include(Automation/StageProjectContent.cmake)
 
 add_library(EverestProjectEditor STATIC
@@ -151,7 +152,10 @@ target_include_directories(EverestProjectEditor PUBLIC
     "${CMAKE_SOURCE_DIR}/Frontier"
     "${CMAKE_SOURCE_DIR}/Projects/Everest/Source")
 target_compile_definitions(EverestProjectEditor PUBLIC FRONTIER_WITH_INTERFACE_SDK=1 FRONTIER_EDITOR_PROFILE=1 FRONTIER_EDITOR=1)
-target_link_libraries(EverestProjectEditor PUBLIC FrontierSceneEditorUI)
+target_link_libraries(EverestProjectEditor PUBLIC FrontierSceneEditorUI FrontierEnvironmentRendering)
+if(TARGET FrontierEnvironmentShaders)
+    add_dependencies(EverestProjectEditor FrontierEnvironmentShaders)
+endif()
 frontier_stage_project_content(EverestProjectEditor
     "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
     "${CMAKE_SOURCE_DIR}/EngineContent"
@@ -174,7 +178,10 @@ target_include_directories(EverestProjectRuntime PUBLIC
     "${CMAKE_SOURCE_DIR}/Projects/Everest/Source"
     "${CMAKE_SOURCE_DIR}/ExternalPackages/tomlpp/include")
 target_compile_definitions(EverestProjectRuntime PUBLIC FRONTIER_SHIPPING_PROFILE=1 FRONTIER_EDITOR=0)
-target_link_libraries(EverestProjectRuntime PUBLIC Threads::Threads)
+target_link_libraries(EverestProjectRuntime PUBLIC FrontierEnvironmentRenderingShipping Threads::Threads)
+if(TARGET FrontierEnvironmentShaders)
+    add_dependencies(EverestProjectRuntime FrontierEnvironmentShaders)
+endif()
 frontier_stage_project_content(EverestProjectRuntime
     "${CMAKE_SOURCE_DIR}/Projects/Everest/Everest.projectspace"
     "${CMAKE_SOURCE_DIR}/EngineContent"
@@ -248,6 +255,20 @@ if(WIN32)
     target_compile_definitions(Frontier PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
         FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\")
     target_link_libraries(Frontier PRIVATE FrontierEditorUI EverestProjectEditor FrontierSurfaceRasterization glfw ole32)
+
+    add_executable(Everest Projects/Everest/Source/WindowsEverest.cpp
+        Engine/Interface/WindowsApplication.cpp Engine/Interface/VulkanPresentation.cpp
+        "${IMGUI_ROOT}/backends/imgui_impl_glfw.cpp" "${IMGUI_ROOT}/backends/imgui_impl_vulkan.cpp")
+    target_include_directories(Everest PRIVATE "${IMGUI_ROOT}/backends"
+        "${CMAKE_SOURCE_DIR}/ExternalPackages/vulkan-headers/include")
+    target_compile_definitions(Everest PRIVATE FRONTIER_UI_VULKAN=1 VK_NO_PROTOTYPES GLFW_INCLUDE_NONE
+        NOMINMAX WIN32_LEAN_AND_MEAN FRONTIER_BUILD_COMMIT=\"${FRONTIER_BUILD_COMMIT}\"
+        FRONTIER_BUILD_REVISION="${FRONTIER_BUILD_REVISION}")
+    target_link_libraries(Everest PRIVATE FrontierEditorUI EverestProjectEditor glfw comdlg32 shell32 ole32)
+    if(MSVC)
+        target_link_options(Everest PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+    endif()
+    install(TARGETS Everest RUNTIME DESTINATION Projects/Everest)
     if(MSVC)
         enable_language(RC)
         foreach(WORKSPACE_TARGET Frontier TextureStudio)
@@ -582,4 +603,4 @@ if(BUILD_TESTING)
         "${CMAKE_SOURCE_DIR}/Projects/Everest")
 endif()
 
-include(Automation/EnvironmentRendering.cmake)
+frontier_register_environment_tests()

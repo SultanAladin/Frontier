@@ -67,7 +67,7 @@ GpuSurfaceHit SearchBoundingVolumeOpaque(StructuredBuffer<float4> BvhCells,
     float3 SafeD  = select(abs(RayDir) > 1.0e-8f, RayDir, select(RayDir >= 0.0f, float3(1.0e-8f), float3(-1.0e-8f)));
     float3 InvDir = 1.0f / SafeD;
 
-    uint  Stack[48];
+    uint  Stack[48] = {};
     int   StackTop = 0;
     float RootEntry;
     if (IntersectGpuSlab(BvhCells[0].xyz, BvhCells[1].xyz, Origin, InvDir, MinT, Out.DistanceM, RootEntry))
@@ -214,7 +214,7 @@ GpuGlassPeelHit SearchBoundingVolumeGlassPeel(StructuredBuffer<float4> BvhCells,
     float3 SafeD  = select(abs(RayDir) > 1.0e-8f, RayDir, select(RayDir >= 0.0f, float3(1.0e-8f), float3(-1.0e-8f)));
     float3 InvDir = 1.0f / SafeD;
 
-    uint  Stack[48];
+    uint  Stack[48] = {};
     int   StackTop = 0;
     float RootEntry;
     if (IntersectGpuSlab(BvhCells[0].xyz, BvhCells[1].xyz, Origin, InvDir, MinT, MaxOpaqueT, RootEntry))
@@ -327,7 +327,7 @@ float3 SearchBoundingVolumeShadowTransmittance(StructuredBuffer<float4> BvhCells
     float3 SafeD  = select(abs(RayDir) > 1.0e-8f, RayDir, select(RayDir >= 0.0f, float3(1.0e-8f), float3(-1.0e-8f)));
     float3 InvDir = 1.0f / SafeD;
 
-    uint  Stack[48];
+    uint  Stack[48] = {};
     int   StackTop = 0;
     float RootEntry;
     if (IntersectGpuSlab(BvhCells[0].xyz, BvhCells[1].xyz, Origin, InvDir, MinT, MaxT, RootEntry))

@@ -5,6 +5,8 @@ ExternalPackages/
 Build/
 build/
 Binaries/
+.venv/
+_ClaudeScratch/
 
 # Sample meshes / textures / assets — tracked separately.
 EngineContent/*
@@ -45,6 +47,7 @@ Projects/*/Content/Defaults/
 Projects/*/Content/EnvironmentArchives/
 Projects/*/Content/MaterialArchives/
 Projects/*/Content/PatternArchives/
+Projects/*/Content/ShaderArchives/
 Projects/*/Content/.staged_manifest.json
 
 # Overlay (Frontier/ portable engine) outputs and local state.

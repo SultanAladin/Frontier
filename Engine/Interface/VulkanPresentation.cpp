@@ -288,7 +288,7 @@ VulkanRasterAccess VulkanPresentation::QueryRasterAccess() const
         Resolve<PFN_vkGetDeviceProcAddr>(Display.Instance, "vkGetDeviceProcAddr"),
         Resolve<PFN_vkGetPhysicalDeviceMemoryProperties>(Display.Instance, "vkGetPhysicalDeviceMemoryProperties"),
         Resolve<PFN_vkGetPhysicalDeviceFormatProperties>(Display.Instance, "vkGetPhysicalDeviceFormatProperties"),
-        Display.GetPhysicalDeviceProperties, Display.QueueCapabilities};
+        Display.GetPhysicalDeviceProperties, Display.QueueCapabilities, Display.Queue, Display.QueueFamily};
 }
 void VulkanPresentation::ConfigureRendering(std::function<void(VkCommandBuffer, uint64_t, uint64_t)> Construct,
                                            std::function<void()> Confirm)

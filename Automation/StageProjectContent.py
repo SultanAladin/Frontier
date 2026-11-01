@@ -43,7 +43,13 @@ def copy_if_changed(src_file: Path, dst_file: Path) -> bool:
     return True
 
 
-def stage_imports(projectspace_path: Path, engine_content_dir: Path, project_content_dir: Path, stamp_path: Path) -> int:
+def stage_imports(
+    projectspace_path: Path,
+    engine_content_dir: Path,
+    project_content_dir: Path,
+    stamp_path: Path,
+    generated_root: Path | None = None,
+) -> int:
     raw = projectspace_path.read_bytes()
     doc = tomllib.loads(raw.decode("utf-8"))
 
@@ -63,7 +69,11 @@ def stage_imports(projectspace_path: Path, engine_content_dir: Path, project_con
         if not isinstance(entry, str):
             raise ValueError(f"Non-string entry in [engine.content_imports].entries: {entry!r}")
         rel = validate_relative_locator(entry)
-        src = engine_content_dir / rel
+        source_base = engine_content_dir
+        src = source_base / rel
+        if not src.exists() and generated_root is not None and (generated_root / rel).exists():
+            source_base = generated_root
+            src = source_base / rel
         dst = project_content_dir / rel
 
         if not src.exists():
@@ -75,6 +85,19 @@ def stage_imports(projectspace_path: Path, engine_content_dir: Path, project_con
             if copy_if_changed(src, dst):
                 copied_count += 1
             staged_files.append(rel.as_posix())
+            if src.suffix == ".material":
+                mat_doc = tomllib.loads(src.read_text(encoding="utf-8"))
+                textures_tbl = mat_doc.get("Textures", {})
+                if isinstance(textures_tbl, dict):
+                    for tex_val in textures_tbl.values():
+                        if isinstance(tex_val, str) and tex_val:
+                            tex_rel = validate_relative_locator(tex_val)
+                            tex_src = src.parent / tex_rel
+                            if tex_src.is_file():
+                                tex_sub = tex_src.relative_to(source_base)
+                                if copy_if_changed(tex_src, project_content_dir / tex_sub):
+                                    copied_count += 1
+                                staged_files.append(tex_sub.as_posix())
         elif src.is_dir():
             for root, _dirs, files in os.walk(src):
                 root_path = Path(root)
@@ -82,7 +105,7 @@ def stage_imports(projectspace_path: Path, engine_content_dir: Path, project_con
                     if fname.endswith(".ppm"):
                         continue
                     s_file = root_path / fname
-                    sub_rel = s_file.relative_to(engine_content_dir)
+                    sub_rel = s_file.relative_to(source_base)
                     d_file = project_content_dir / sub_rel
                     if copy_if_changed(s_file, d_file):
                         copied_count += 1
@@ -113,8 +136,9 @@ def main() -> int:
     parser.add_argument("--engine-content", required=True, type=Path)
     parser.add_argument("--project-content", required=True, type=Path)
     parser.add_argument("--stamp", required=True, type=Path)
+    parser.add_argument("--generated-root", required=False, default=None, type=Path)
     args = parser.parse_args()
-    return stage_imports(args.projectspace, args.engine_content, args.project_content, args.stamp)
+    return stage_imports(args.projectspace, args.engine_content, args.project_content, args.stamp, args.generated_root)
 
 
 if __name__ == "__main__":
