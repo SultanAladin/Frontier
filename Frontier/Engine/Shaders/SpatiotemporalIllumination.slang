@@ -17,6 +17,7 @@
 #include "RangeDistanceSampling.slang"
 #include "SurfaceScatteringEvaluation.slang"
 #include "SurfaceRadiositySampling.slang"
+#include "SurfaceReprojection.slang"
 #include "LuminousFacetSampling.slang"
 #include "DistanceTraversal.slang"
 #include "DirectRadiance.slang"
@@ -596,7 +597,29 @@ void SolveSurfaceRadiosityMain(uint3 Tid : SV_DispatchThreadID)
             float             CosT = max(0.0f, dot(Normal, Prop.LightDir));
             if (Prop.Valid && CosT > 0.0f)
             {
-                float3 Vis = TraceSceneShadowTransmittance(Center + Normal * 0.04f, Prop.LightDir, Prop.DistanceM);
+                // 📝 The reference shadows card sunlight with an SDF; its clustered local lights are unshadowed.
+                float3 Vis = float3(1.0f);
+                if (!IsFullRaytracingEnabled() && FrameHeader[7].z > 0.5f)
+                {
+                    uint LuminaireType = uint(FrameHeader[ResolveLuminaireBaseSlot() + L * 4u].w + 0.5f);
+                    if (LuminaireType == 0u)
+                    {
+                        float Visibility = EvaluateHardwareSdfConeVisibility(SdfClipmapVolume,
+                                                                             DistanceOrRangeTable,
+                                                                             FrameHeader[12].y > 0.5f,
+                                                                             FrameHeader[19].z,
+                                                                             Center,
+                                                                             Normal,
+                                                                             Prop.LightDir,
+                                                                             Prop.DistanceM,
+                                                                             0.04f);
+                        Vis = float3(Visibility);
+                    }
+                }
+                else
+                {
+                    Vis = TraceSceneShadowTransmittance(Center + Normal * 0.04f, Prop.LightDir, Prop.DistanceM);
+                }
                 Irrad += Prop.UnshadowedLi * Vis * CosT;
             }
         }
@@ -1206,6 +1229,7 @@ void IntegrateTemporalVarianceMain(uint3 DispatchId : SV_DispatchThreadID)
                     uint2 Cand = min(Px * TraceScale + uint2(Sub & 1u, Sub >> 1u), uint2(Width - 1u, Height - 1u));
                     if (SurfaceAndWorkAtlas[uint3(Cand, 0u)].w > 0.0f)
                     {
+                        ScreenPx = Cand;
                         WorldPos = SurfaceAndWorkAtlas[uint3(Cand, 0u)].xyz;
                         break;
                     }
@@ -1236,7 +1260,7 @@ void IntegrateTemporalVarianceMain(uint3 DispatchId : SV_DispatchThreadID)
                     }
                     float4 PGuide = TemporalHistoryPrev[uint3(uint2(Texel), 2u)];
                     bool   BadTap = (PGuide.w < 0.5f) || (dot(DecodeOctahedral(PGuide.xy), CurrN) < 0.85f) ||
-                                    (abs(PGuide.z - CurrZ) > (0.10f * CurrZ + 0.05f));
+                                    !ClassifyPreviousSurfaceDistance(PGuide.z, ResolvePreviousSurfaceDistance(FrameHeader, WorldPos), CurrZ);
                     if (BadTap)
                     {
                         continue;
@@ -1352,7 +1376,7 @@ void IntegrateTemporalVarianceMain(uint3 DispatchId : SV_DispatchThreadID)
             if (Texel.x < 0 || Texel.y < 0 || Texel.x >= int(Width) || Texel.y >= int(Height)) continue;
             float4 PGuide = TemporalHistoryPrev[uint3(uint2(Texel), 5u)];
             bool   BadTap = (PGuide.w < 0.5f) || (dot(DecodeOctahedral(PGuide.xy), CurrN) < 0.92f) ||
-                            (abs(PGuide.z - CurrZ) > (0.07f * CurrZ + 0.03f));
+                            !ClassifyPreviousSurfaceDistance(PGuide.z, ResolvePreviousSurfaceDistance(FrameHeader, G0.xyz), CurrZ);
             if (BadTap)
             {
                 continue;

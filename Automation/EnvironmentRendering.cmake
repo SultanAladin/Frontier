@@ -110,6 +110,7 @@ set(FRONTIER_ENV_COMMON_SLANG
     "${FRONTIER_ENV_SHADER_SRC}/BoundingVolumeSearch.slang"
     "${FRONTIER_ENV_SHADER_SRC}/OctetVolumeSearch.slang"
     "${FRONTIER_ENV_SHADER_SRC}/SurfaceRadiositySampling.slang"
+    "${FRONTIER_ENV_SHADER_SRC}/SurfaceReprojection.slang"
     "${FRONTIER_ENV_SHADER_SRC}/LuminousFacetSampling.slang"
     "${FRONTIER_ENV_SHADER_SRC}/SurfaceScatteringEvaluation.slang"
     "${FRONTIER_ENV_SHADER_SRC}/DistanceTraversal.slang"
@@ -250,6 +251,19 @@ macro(frontier_register_environment_tests)
         target_link_libraries(SpatiotemporalIlluminationValidation PRIVATE FrontierEnvironmentRendering)
         if(TARGET FrontierEnvironmentShaders)
             add_dependencies(SpatiotemporalIlluminationValidation FrontierEnvironmentShaders)
+        endif()
+        if(FRONTIER_ENV_SLANGC)
+            set(REPROJECTION_VALIDATION_SPV "${CMAKE_BINARY_DIR}/spatiotemporal-illumination-exhibits/SurfaceReprojectionValidation.spv")
+            add_custom_command(OUTPUT "${REPROJECTION_VALIDATION_SPV}"
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/spatiotemporal-illumination-exhibits"
+                COMMAND "${FRONTIER_ENV_SLANGC}" "${CMAKE_SOURCE_DIR}/Exhibits/SpatiotemporalIllumination/Code/SurfaceReprojectionValidation.slang"
+                    -I "${FRONTIER_ENV_SHADER_SRC}" -entry ValidateSurfaceReprojectionMain -stage compute
+                    -target spirv -profile spirv_1_3 -emit-spirv-directly -O0 -o "${REPROJECTION_VALIDATION_SPV}"
+                DEPENDS "${CMAKE_SOURCE_DIR}/Exhibits/SpatiotemporalIllumination/Code/SurfaceReprojectionValidation.slang"
+                        "${FRONTIER_ENV_SHADER_SRC}/SurfaceReprojection.slang"
+                VERBATIM)
+            add_custom_target(SurfaceReprojectionValidationShader DEPENDS "${REPROJECTION_VALIDATION_SPV}")
+            add_dependencies(SpatiotemporalIlluminationValidation SurfaceReprojectionValidationShader)
         endif()
         add_test(NAME SpatiotemporalIlluminationValidation COMMAND SpatiotemporalIlluminationValidation
             "${CMAKE_SOURCE_DIR}"

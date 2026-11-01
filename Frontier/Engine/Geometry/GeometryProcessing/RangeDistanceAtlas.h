@@ -83,6 +83,9 @@ class RangeDistanceAtlas
     // Packs 16 float4 header slots (4 per range) + all 4 voxel grids into one contiguous GPU float4 table
     void PackForGpu(std::vector<std::array<float, 4>>& OutPackedFloat4Table) const;
 
+    // Packs all four headers for hardware 3D texture sampling without the voxel grids.
+    void PackVolumeMetadataForGpu(std::vector<std::array<float, 4>>& OutMetadata) const;
+
     // Packs all 4 cascades along Z (with 1-slice clamp guard borders per cascade) into a single hardware 3D R16F volume
     void PackVolume3DForGpu(uint32_t&           OutWidth,
                             uint32_t&           OutHeight,

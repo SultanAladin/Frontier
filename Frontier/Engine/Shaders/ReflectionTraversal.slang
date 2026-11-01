@@ -23,16 +23,20 @@ float3 EvaluateEnvBrdfApprox(float3 F0, float Roughness, float NdotV)
     return F0 * AB.x + float3(AB.y);
 }
 
-// Spatially decorrelated blue/white hash + Roberts R2 quasi-random temporal Cranley-Patterson rotation
+// 📝 Matches the reference's PCG permutation and independently rotated R2 coordinates.
+uint PermuteSampleIndex(uint Input)
+{
+    uint Advanced = Input * 747796405u + 2891336453u;
+    uint Word     = ((Advanced >> ((Advanced >> 28u) + 4u)) ^ Advanced) * 277803737u;
+    return (Word >> 22u) ^ Word;
+}
+
 float2 SampleR2Sequence(uint2 Pixel, uint FrameIndex, uint Salt)
 {
-    uint H = (Pixel.x * 1973u) ^ (Pixel.y * 9277u) ^ (Salt * 26699u) ^ 0x9E3779B9u;
-    H      = ((H >> 16u) ^ H) * 0x45D9F3Bu;
-    H      = ((H >> 16u) ^ H) * 0x45D9F3Bu;
-    H      = (H >> 16u) ^ H;
-    float2 Spatial = float2(H & 0xFFFFu, H >> 16u) * (1.0f / 65536.0f);
-    float2 Anim    = frac(float(FrameIndex) * float2(0.754877666f, 0.569840291f));
-    return frac(Spatial + Anim);
+    uint First  = PermuteSampleIndex((Pixel.x * 73856093u) ^ (Pixel.y * 19349663u) ^ (Salt * 83492791u));
+    uint Second = PermuteSampleIndex((Pixel.y * 73856093u) ^ (Pixel.x * 19349663u) ^ (Salt * 2654435761u));
+    float2 Start = float2(First >> 8u, Second >> 8u) * (1.0f / 16777216.0f);
+    return frac(Start + float(FrameIndex % 65536u) * float2(0.7548776662466927f, 0.5698402909980532f));
 }
 
 // Malley's disk-to-hemisphere cosine-weighted hemisphere sampler in tangent basis (T, B, N)

@@ -172,6 +172,43 @@ int main(int Argc, char** Argv)
     VulkanComputeExchange Exchange{};
     REQUIRE_STI(Exchange.Initialize("", &Diag), ("VulkanComputeExchange::Initialize failed: " + Diag).c_str());
 
+    {
+        std::array<std::array<float, 4>, 12> CameraTable{};
+        CameraTable[0][3] = 1.0f;
+        CameraTable[1][3] = 1.0f;
+        CameraTable[8]    = {1.0f, 0.0f, 0.0f, 0.0f};
+        CameraTable[9]    = {0.0f, 1.0f, 0.0f, 0.0f};
+        CameraTable[10]   = {0.0f, 0.0f, 1.0f, 0.0f};
+        CameraTable[11]   = {1.0f, 2.0f, 3.0f, 1.0f};
+        DeviceMemorySpan CameraSpan{};
+        DeviceImageArraySlot ResultImage{};
+        ComputeProgramSlot ReprojectionProgram{};
+        const std::array<VkDescriptorType, 2> Types{{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}};
+        REQUIRE_STI(Exchange.UploadMemorySpan(CameraSpan, CameraTable.data(), sizeof(CameraTable)) &&
+                        Exchange.AllocateRgba16fArray(1u, 1u, 1u, ResultImage) &&
+                        Exchange.ClearRgba16fArray(ResultImage),
+                    "Reprojection validation resources must allocate");
+        REQUIRE_STI(Exchange.LoadComputeProgram((OutputDir / "SurfaceReprojectionValidation.spv").string(),
+                                                "ValidateSurfaceReprojectionMain", Types, 0u, ReprojectionProgram, &Diag),
+                    ("Reprojection validation shader failed: " + Diag).c_str());
+        const std::array<ComputeDescriptorArgument, 2> Arguments{{
+            {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &CameraSpan, nullptr, nullptr, nullptr, nullptr},
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &ResultImage, nullptr, nullptr, nullptr},
+        }};
+        REQUIRE_STI(Exchange.DispatchCompute(ReprojectionProgram, Arguments, nullptr, 0u, 1u, 1u, 1u),
+                    "Reprojection validation dispatch must succeed");
+        std::vector<float> Results;
+        REQUIRE_STI(Exchange.DownloadRgba16fLayer(ResultImage, 0u, Results) && Results.size() >= 4u &&
+                        std::abs(Results[0] - 5.0f) < 0.01f && Results[1] > 0.5f &&
+                        Results[2] < 0.5f && Results[3] > 0.5f,
+                    "Prior distance must accept camera motion, reject a mismatch, and retain camera-relative surfaces");
+        std::cout << "      Prior-distance GPU check: " << Results[0] << ", " << Results[1] << ", "
+                  << Results[2] << ", " << Results[3] << "\n";
+        Exchange.ReleaseProgram(ReprojectionProgram);
+        Exchange.ReleaseImage(ResultImage);
+        Exchange.ReleaseMemorySpan(CameraSpan);
+    }
+
     SpatiotemporalIllumination Renderer{};
     REQUIRE_STI(Renderer.Initialize(Exchange, ShaderDir.string(), &Diag),
                 ("SpatiotemporalIllumination::Initialize failed: " + Diag).c_str());
@@ -372,6 +409,20 @@ int main(int Argc, char** Argv)
                     "RangeDistanceAtlas 4-cascade camera-centered clipmap build must succeed");
         REQUIRE_STI(Clipmap.SampleDistance({0.0f, 1.8f, 0.0f}) > 0.05f,
                     "RangeDistanceAtlas exterior signed distance must be positive above vehicle roof");
+        std::vector<std::array<float, 4>> RangeMetadata;
+        std::vector<std::array<float, 4>> RangeTable;
+        Clipmap.PackVolumeMetadataForGpu(RangeMetadata);
+        Clipmap.PackForGpu(RangeTable);
+        REQUIRE_STI(RangeMetadata.size() == 16u && RangeTable.size() >= RangeMetadata.size(),
+                    "The hardware volume metadata must retain all four cascade headers");
+        for (uint32_t RangeIndex = 0u; RangeIndex < 4u; ++RangeIndex)
+        {
+            REQUIRE_STI(RangeMetadata[RangeIndex * 4u + 3u][3] > 0.5f &&
+                            RangeMetadata[RangeIndex * 4u] == RangeTable[RangeIndex * 4u] &&
+                            RangeMetadata[RangeIndex * 4u + 1u] == RangeTable[RangeIndex * 4u + 1u] &&
+                            RangeMetadata[RangeIndex * 4u + 2u] == RangeTable[RangeIndex * 4u + 2u],
+                        "Every hardware cascade must retain its active marker and spatial extent");
+        }
 
         SurfaceRadiosityAtlas RadiosityCards{};
         const std::array<SurfaceCardBuildInstance, 3> CardBoxes{{
@@ -448,6 +499,51 @@ int main(int Argc, char** Argv)
                                    OptionAPng.data(),
                                    static_cast<int>(HeroCam.WidthPx * 4u)) != 0,
                     "Writing ControlVehicleOptionATwoLevelRestirGi.png failed");
+
+        // 📝 A translated camera changes ray distance even on a static surface. The reprojected history must survive.
+        SpatiotemporalCamera HistoryCam = HeroCam;
+        HistoryCam.WidthPx              = 192u;
+        HistoryCam.HeightPx             = 144u;
+        SpatiotemporalRenderConfig HistoryCfg = FullCfg;
+        HistoryCfg.InspectionMode             = 12u;
+        HistoryCfg.Environment.CloudsEnabled  = false;
+        HistoryCfg.Environment.FogEnabled     = false;
+        HistoryCfg.Environment.LunarEnabled   = false;
+        HistoryCfg.AtrousIterations           = 1u;
+        Renderer.ResetTemporalHistory();
+        for (uint32_t Index = 0u; Index < 8u; ++Index)
+        {
+            REQUIRE_STI(Renderer.RenderFrame(Exchange, HistoryCam, {Sun}, HistoryCfg),
+                        "Static history warmup must render");
+        }
+        const std::array<float, 3> CameraShift{-0.75f, -0.15f, -0.95f};
+        for (uint32_t Axis = 0u; Axis < 3u; ++Axis)
+        {
+            HistoryCam.OriginMeters[Axis] += CameraShift[Axis];
+            HistoryCam.TargetMeters[Axis] += CameraShift[Axis];
+        }
+        REQUIRE_STI(Renderer.RenderFrame(Exchange, HistoryCam, {Sun}, HistoryCfg),
+                    "Translated camera history must render");
+        std::vector<float> Reprojected;
+        REQUIRE_STI(Renderer.ReadbackLinearRgba(Exchange, Reprojected), "Reprojected history readback must succeed");
+        Renderer.ResetTemporalHistory();
+        REQUIRE_STI(Renderer.RenderFrame(Exchange, HistoryCam, {Sun}, HistoryCfg),
+                    "Restarted camera history must render");
+        std::vector<float> Restarted;
+        REQUIRE_STI(Renderer.ReadbackLinearRgba(Exchange, Restarted) && Restarted.size() == Reprojected.size(),
+                    "Restarted history readback must succeed");
+        double ReprojectedRed = 0.0;
+        double RestartedRed   = 0.0;
+        for (size_t Pixel = 0u; Pixel + 3u < Reprojected.size(); Pixel += 4u)
+        {
+            ReprojectedRed += Reprojected[Pixel];
+            RestartedRed   += Restarted[Pixel];
+        }
+        const double PixelCount = static_cast<double>(HistoryCam.WidthPx * HistoryCam.HeightPx);
+        std::cout << "      Camera translation history: retained red=" << ReprojectedRed / PixelCount
+                  << ", restarted red=" << RestartedRed / PixelCount << "\n";
+        REQUIRE_STI((ReprojectedRed - RestartedRed) / PixelCount > 0.10,
+                    "Camera translation must retain validated diffuse history rather than restart it everywhere");
 
         // Verify live runtime switch to Option 2: Full Raytracing (DI + GI + Reflections on CWBVH)
         SpatiotemporalRenderConfig FullRtCfg = FullCfg;

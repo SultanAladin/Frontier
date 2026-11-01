@@ -253,6 +253,12 @@ void RangeDistanceAtlas::PackForGpu(std::vector<std::array<float, 4>>& OutPacked
     }
 }
 
+void RangeDistanceAtlas::PackVolumeMetadataForGpu(std::vector<std::array<float, 4>>& OutMetadata) const
+{
+    PackForGpu(OutMetadata);
+    OutMetadata.resize(MaximumRangeCount * 4u);
+}
+
 void RangeDistanceAtlas::PackVolume3DForGpu(uint32_t&           OutWidth,
                                             uint32_t&           OutHeight,
                                             uint32_t&           OutDepth,

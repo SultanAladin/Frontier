@@ -77,7 +77,7 @@ std::array<float, 16> ComputeCameraWorldToNdcRows(const std::array<float, 3>& Or
         R0X, R0Y, R0Z, R0W,
         R1X, R1Y, R1Z, R1W,
         R2X, R2Y, R2Z, R2W,
-        R2X, R2Y, R2Z, R2W,
+        Origin[0], Origin[1], Origin[2], 1.0f,
     };
 }
 
@@ -756,11 +756,7 @@ bool SpatiotemporalIllumination::UploadTwoLevelScene(VulkanComputeExchange&     
         uint32_t           VolW = 0u, VolH = 0u, VolD = 0u;
         std::vector<float> ScalarVolume;
         RangeClipmap->PackVolume3DForGpu(VolW, VolH, VolD, ScalarVolume);
-        RangeClipmap->PackForGpu(RangeMetaTable);
-        if (RangeMetaTable.size() > 10u)
-        {
-            RangeMetaTable.resize(10u);
-        }
+        RangeClipmap->PackVolumeMetadataForGpu(RangeMetaTable);
         if (SdfClipmapVolume_.Width != VolW || SdfClipmapVolume_.Height != VolH || SdfClipmapVolume_.Depth != VolD)
         {
             if (!Exchange.AllocateR16fVolume3D(VolW, VolH, VolD, SdfClipmapVolume_))
@@ -871,11 +867,7 @@ bool SpatiotemporalIllumination::UpdateRangeClipmap(VulkanComputeExchange&    Ex
     std::vector<float>                ScalarVolume;
     std::vector<std::array<float, 4>> RangeMetaTable;
     RangeClipmap.PackVolume3DForGpu(VolW, VolH, VolD, ScalarVolume);
-    RangeClipmap.PackForGpu(RangeMetaTable);
-    if (RangeMetaTable.size() > 10u)
-    {
-        RangeMetaTable.resize(10u);
-    }
+    RangeClipmap.PackVolumeMetadataForGpu(RangeMetaTable);
 
     if (SdfClipmapVolume_.Width != VolW || SdfClipmapVolume_.Height != VolH || SdfClipmapVolume_.Depth != VolD)
     {
