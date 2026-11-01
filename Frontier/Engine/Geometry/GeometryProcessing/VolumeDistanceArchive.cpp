@@ -578,11 +578,11 @@ bool ComposeControlVehicleDistanceVolume(VolumeDistanceField&           OutWorld
         return false;
     }
 
-    constexpr double kTyreOuterRadiusM = 0.50855;
-    constexpr double kFrontAxleZM      = 1.665;
-    constexpr double kRearAxleZM       = -1.705;
-    constexpr double kTrackHalfXM      = 1.045;
-    constexpr double π                 = 3.14159265358979323846;
+    constexpr double TyreOuterRadiusM = 0.50855;
+    constexpr double FrontAxleZM      = 1.665;
+    constexpr double RearAxleZM       = -1.705;
+    constexpr double TrackHalfXM      = 1.045;
+    constexpr double π                = 3.14159265358979323846;
 
     const double cosψ = std::cos(Placement.HeadingYawRadians);
     const double sinψ = std::sin(Placement.HeadingYawRadians);
@@ -596,7 +596,7 @@ bool ComposeControlVehicleDistanceVolume(VolumeDistanceField&           OutWorld
 
     std::vector<PlacedDistanceInstance> Instances;
     Instances.reserve(9u);
-    Instances.push_back({&BodySdf, ToWorld(0.0, kTyreOuterRadiusM, 0.0), Placement.HeadingYawRadians, 1.0});
+    Instances.push_back({&BodySdf, ToWorld(0.0, TyreOuterRadiusM, 0.0), Placement.HeadingYawRadians, 1.0});
 
     struct WheelDesc
     {
@@ -606,16 +606,16 @@ bool ComposeControlVehicleDistanceVolume(VolumeDistanceField&           OutWorld
         bool   RightSide;
     };
     const std::array<WheelDesc, 4> Wheels = {{
-        {-kTrackHalfXM, kFrontAxleZM, true, false},
-        {kTrackHalfXM, kFrontAxleZM, true, true},
-        {-kTrackHalfXM, kRearAxleZM, false, false},
-        {kTrackHalfXM, kRearAxleZM, false, true},
+        {-TrackHalfXM, FrontAxleZM, true, false},
+        {TrackHalfXM, FrontAxleZM, true, true},
+        {-TrackHalfXM, RearAxleZM, false, false},
+        {TrackHalfXM, RearAxleZM, false, true},
     }};
     for (const WheelDesc& W : Wheels)
     {
         const double Steer = W.Front ? Placement.FrontSteerRadians : 0.0;
         const double Flip  = W.RightSide ? π : 0.0;
-        const auto   Pos   = ToWorld(W.Lx, kTyreOuterRadiusM, W.Lz);
+        const auto   Pos   = ToWorld(W.Lx, TyreOuterRadiusM, W.Lz);
         Instances.push_back({&RimSdf, Pos, Placement.HeadingYawRadians + Steer + Flip, 1.0});
         Instances.push_back({&TyreSdf, Pos, Placement.HeadingYawRadians + Steer + Flip, 1.0});
     }
@@ -667,6 +667,322 @@ void PackVolumeDistanceForGpu(const VolumeDistanceField&          Field,
             Quad[Lane] = Field.Distances[Base + Lane];
         }
         OutGpuFloat4Table.push_back(Quad);
+    }
+}
+
+//------------------------------------------------------------------------------------------------------------------------
+//                           FOUR-CASCADE CLIPMAP DISTANCE VOLUME & ANALYTICAL PRIMITIVES
+//------------------------------------------------------------------------------------------------------------------------
+
+float EvaluateAnalyticalPrimitiveDistance(const AnalyticalDistancePrimitive& Primitive,
+                                          float                              WorldX,
+                                          float                              WorldY,
+                                          float                              WorldZ) noexcept
+{
+    const float Dx = WorldX - Primitive.CenterMeters[0];
+    const float Dy = WorldY - Primitive.CenterMeters[1];
+    const float Dz = WorldZ - Primitive.CenterMeters[2];
+
+    if (Primitive.Category == AnalyticalDistanceCategory::Sphere)
+    {
+        const float Radius = std::max(Primitive.HalfExtentsMeters[0], 1.0e-4f);
+        return std::sqrt(Dx * Dx + Dy * Dy + Dz * Dz) - Radius;
+    }
+    if (Primitive.Category == AnalyticalDistanceCategory::Cylinder)
+    {
+        const float Radius     = std::max(Primitive.HalfExtentsMeters[0], 1.0e-4f);
+        const float HalfHeight = std::max(Primitive.HalfExtentsMeters[1], 1.0e-4f);
+        const float Radial     = std::sqrt(Dx * Dx + Dz * Dz) - Radius;
+        const float Vertical   = std::abs(Dy) - HalfHeight;
+        const float OutR       = std::max(Radial, 0.0f);
+        const float OutV       = std::max(Vertical, 0.0f);
+        return std::min(std::max(Radial, Vertical), 0.0f) + std::sqrt(OutR * OutR + OutV * OutV);
+    }
+
+    // Exact signed Axis-Aligned Box distance (Quilez)
+    const float Qx   = std::abs(Dx) - std::max(Primitive.HalfExtentsMeters[0], 1.0e-4f);
+    const float Qy   = std::abs(Dy) - std::max(Primitive.HalfExtentsMeters[1], 1.0e-4f);
+    const float Qz   = std::abs(Dz) - std::max(Primitive.HalfExtentsMeters[2], 1.0e-4f);
+    const float Ex   = std::max(Qx, 0.0f);
+    const float Ey   = std::max(Qy, 0.0f);
+    const float Ez   = std::max(Qz, 0.0f);
+    const float Outs = std::sqrt(Ex * Ex + Ey * Ey + Ez * Ez);
+    const float Ins  = std::min(std::max({Qx, Qy, Qz}), 0.0f);
+    return Outs + Ins;
+}
+
+bool AssembleFourCascadeDistanceVolume(FourCascadeDistanceVolume&                   OutCascadedVolume,
+                                       const ControlVehiclePlacement&               VehiclePlacement,
+                                       std::span<const AnalyticalDistancePrimitive> ScenePrimitives,
+                                       const FourCascadeDistanceParameters&         Parameters,
+                                       std::string*                                 OutDiagnostic)
+{
+    VolumeDistanceField BodySdf{};
+    VolumeDistanceField RimSdf{};
+    VolumeDistanceField TyreSdf{};
+
+    if (!LoadVolumeDistanceSpace(VehiclePlacement.ArchiveDirectory + "/ControlVehicleBody.sdfspace", BodySdf, OutDiagnostic) ||
+        !LoadVolumeDistanceSpace(VehiclePlacement.ArchiveDirectory + "/ControlVehicleRim.sdfspace", RimSdf, OutDiagnostic) ||
+        !LoadVolumeDistanceSpace(VehiclePlacement.ArchiveDirectory + "/ControlVehicleTyre.sdfspace", TyreSdf, OutDiagnostic))
+    {
+        return false;
+    }
+
+    constexpr double TyreOuterRadiusM = 0.50855;
+    constexpr double FrontAxleZM      = 1.665;
+    constexpr double RearAxleZM       = -1.705;
+    constexpr double TrackHalfXM      = 1.045;
+    constexpr double π                = 3.14159265358979323846;
+
+    const double cosψ = std::cos(VehiclePlacement.HeadingYawRadians);
+    const double sinψ = std::sin(VehiclePlacement.HeadingYawRadians);
+    auto ToWorld      = [&](double Lx, double Ly, double Lz) -> FacetPoint3D {
+        return {
+            VehiclePlacement.WorldOriginMeters.X + (Lx * cosψ + Lz * sinψ),
+            VehiclePlacement.WorldOriginMeters.Y + Ly,
+            VehiclePlacement.WorldOriginMeters.Z + (-Lx * sinψ + Lz * cosψ),
+        };
+    };
+
+    std::vector<PlacedDistanceInstance> ArchiveInstances;
+    ArchiveInstances.reserve(9u);
+    ArchiveInstances.push_back({&BodySdf, ToWorld(0.0, TyreOuterRadiusM, 0.0), VehiclePlacement.HeadingYawRadians, 1.0});
+
+    struct WheelPlacementSpec
+    {
+        double Lx;
+        double Lz;
+        bool   Front;
+        bool   RightSide;
+    };
+    const std::array<WheelPlacementSpec, 4> Wheels = {{
+        {-TrackHalfXM, FrontAxleZM, true, false},
+        {TrackHalfXM, FrontAxleZM, true, true},
+        {-TrackHalfXM, RearAxleZM, false, false},
+        {TrackHalfXM, RearAxleZM, false, true},
+    }};
+    for (const WheelPlacementSpec& W : Wheels)
+    {
+        const double Steer = W.Front ? VehiclePlacement.FrontSteerRadians : 0.0;
+        const double Flip  = W.RightSide ? π : 0.0;
+        const auto   Pos   = ToWorld(W.Lx, TyreOuterRadiusM, W.Lz);
+        ArchiveInstances.push_back({&RimSdf, Pos, VehiclePlacement.HeadingYawRadians + Steer + Flip, 1.0});
+        ArchiveInstances.push_back({&TyreSdf, Pos, VehiclePlacement.HeadingYawRadians + Steer + Flip, 1.0});
+    }
+
+    OutCascadedVolume            = FourCascadeDistanceVolume{};
+    OutCascadedVolume.Parameters = Parameters;
+    OutCascadedVolume.Primitives.assign(ScenePrimitives.begin(), ScenePrimitives.end());
+
+    float PrevRadius = 1.0f;
+    for (size_t CascadeIdx = 0u; CascadeIdx < 4u; ++CascadeIdx)
+    {
+        const float RadiusXZ = std::max(Parameters.CascadeRadiiMeters[CascadeIdx], PrevRadius + 1.0f);
+        PrevRadius           = RadiusXZ;
+        const float RadiusY  = std::max(2.5f, RadiusXZ * 0.45f);
+
+        const std::array<float, 3> CascadeMin = {
+            Parameters.FocusCenterMeters[0] - RadiusXZ,
+            std::max(Parameters.GroundPlaneY - 0.8f, Parameters.FocusCenterMeters[1] - RadiusY),
+            Parameters.FocusCenterMeters[2] - RadiusXZ,
+        };
+        const std::array<float, 3> CascadeMax = {
+            Parameters.FocusCenterMeters[0] + RadiusXZ,
+            Parameters.FocusCenterMeters[1] + RadiusY * 1.35f,
+            Parameters.FocusCenterMeters[2] + RadiusXZ,
+        };
+
+        VolumeDistanceField Grid = ComposeWorldDistanceVolume(
+            ArchiveInstances,
+            CascadeMin,
+            CascadeMax,
+            Parameters.VoxelResolutionPerCascade,
+            Parameters.IncludeGroundHalfSpace,
+            Parameters.GroundPlaneY);
+
+        // Bake static scene analytical primitives into coarse cascades as well so distant GI/sky cones see architecture
+        if (!ScenePrimitives.empty())
+        {
+            const uint32_t NX = Grid.Dimensions[0];
+            const uint32_t NY = Grid.Dimensions[1];
+            const uint32_t NZ = Grid.Dimensions[2];
+            for (uint32_t Z = 0u; Z < NZ; ++Z)
+            {
+                const float Wz = Grid.Minimum[2] + (static_cast<float>(Z) + 0.5f) * Grid.Step[2];
+                for (uint32_t Y = 0u; Y < NY; ++Y)
+                {
+                    const float Wy = Grid.Minimum[1] + (static_cast<float>(Y) + 0.5f) * Grid.Step[1];
+                    for (uint32_t X = 0u; X < NX; ++X)
+                    {
+                        const float  Wx   = Grid.Minimum[0] + (static_cast<float>(X) + 0.5f) * Grid.Step[0];
+                        const size_t Slot = (static_cast<size_t>(Z) * NY + Y) * NX + X;
+                        float        Best = Grid.Distances[Slot];
+                        for (const AnalyticalDistancePrimitive& Prim : ScenePrimitives)
+                        {
+                            Best = std::min(Best, EvaluateAnalyticalPrimitiveDistance(Prim, Wx, Wy, Wz));
+                        }
+                        Grid.Distances[Slot] = Best;
+                        Grid.MinimumDistance = std::min(Grid.MinimumDistance, Best);
+                        Grid.MaximumDistance = std::max(Grid.MaximumDistance, Best);
+                    }
+                }
+            }
+        }
+
+        OutCascadedVolume.Cascades[CascadeIdx] = std::move(Grid);
+    }
+
+    return true;
+}
+
+float SampleFourCascadeDistanceMeters(const FourCascadeDistanceVolume& Volume,
+                                      float                            WorldX,
+                                      float                            WorldY,
+                                      float                            WorldZ) noexcept
+{
+    auto InsideCascade = [&](size_t Idx, float& OutNormChebyshev) noexcept -> bool {
+        const VolumeDistanceField& C = Volume.Cascades[Idx];
+        if (C.Distances.empty())
+        {
+            return false;
+        }
+        const float Cx = 0.5f * (C.Minimum[0] + C.Maximum[0]);
+        const float Cy = 0.5f * (C.Minimum[1] + C.Maximum[1]);
+        const float Cz = 0.5f * (C.Minimum[2] + C.Maximum[2]);
+        const float Hx = std::max(0.5f * (C.Maximum[0] - C.Minimum[0]), 1.0e-4f);
+        const float Hy = std::max(0.5f * (C.Maximum[1] - C.Minimum[1]), 1.0e-4f);
+        const float Hz = std::max(0.5f * (C.Maximum[2] - C.Minimum[2]), 1.0e-4f);
+        OutNormChebyshev = std::max({std::abs(WorldX - Cx) / Hx,
+                                     std::abs(WorldY - Cy) / Hy,
+                                     std::abs(WorldZ - Cz) / Hz});
+        return OutNormChebyshev <= 1.0f;
+    };
+
+    float  GridDistance = 1.0e6f;
+    size_t Selected     = 3u;
+    float  NormRadius   = 1.0f;
+    for (size_t C = 0u; C < 4u; ++C)
+    {
+        float R = 1.0f;
+        if (InsideCascade(C, R))
+        {
+            Selected   = C;
+            NormRadius = R;
+            break;
+        }
+    }
+
+    GridDistance = SampleVolumeDistanceMeters(Volume.Cascades[Selected], WorldX, WorldY, WorldZ);
+    if (Volume.Parameters.TrilinearCascadeBlend && Selected < 3u && NormRadius > 0.78f &&
+        !Volume.Cascades[Selected + 1u].Distances.empty())
+    {
+        const float T       = std::clamp((NormRadius - 0.78f) / 0.20f, 0.0f, 1.0f);
+        const float SmoothT = T * T * (3.0f - 2.0f * T);
+        const float CoarseD = SampleVolumeDistanceMeters(Volume.Cascades[Selected + 1u], WorldX, WorldY, WorldZ);
+        GridDistance        = GridDistance * (1.0f - SmoothT) + CoarseD * SmoothT;
+    }
+
+    if (Volume.Parameters.IncludeGroundHalfSpace)
+    {
+        GridDistance = std::min(GridDistance, WorldY - Volume.Parameters.GroundPlaneY);
+    }
+
+    if (Volume.Parameters.AnalyticalPrimitives)
+    {
+        for (const AnalyticalDistancePrimitive& Prim : Volume.Primitives)
+        {
+            GridDistance = std::min(GridDistance, EvaluateAnalyticalPrimitiveDistance(Prim, WorldX, WorldY, WorldZ));
+        }
+    }
+    return GridDistance;
+}
+
+void PackFourCascadeDistanceForGpu(const FourCascadeDistanceVolume&    Volume,
+                                   std::vector<std::array<float, 4>>& OutGpuFloat4Table)
+{
+    OutGpuFloat4Table.clear();
+    if (Volume.Cascades[0].Distances.empty())
+    {
+        PackVolumeDistanceForGpu(Volume.Cascades[0], OutGpuFloat4Table);
+        return;
+    }
+
+    const VolumeDistanceField& C0       = Volume.Cascades[0];
+    const float                InvSpanX = 1.0f / std::max(C0.Maximum[0] - C0.Minimum[0], 1.0e-5f);
+    const float                InvSpanY = 1.0f / std::max(C0.Maximum[1] - C0.Minimum[1], 1.0e-5f);
+    const float                InvSpanZ = 1.0f / std::max(C0.Maximum[2] - C0.Minimum[2], 1.0e-5f);
+
+    // Slots 0..3: Primary header with Slot[3].w == 4.0f signaling 4-cascade clipmap + analytical primitives
+    OutGpuFloat4Table.push_back({C0.Minimum[0], C0.Minimum[1], C0.Minimum[2], static_cast<float>(C0.Dimensions[0])});
+    OutGpuFloat4Table.push_back({C0.Maximum[0], C0.Maximum[1], C0.Maximum[2], static_cast<float>(C0.Dimensions[1])});
+    OutGpuFloat4Table.push_back({C0.Step[0], C0.Step[1], C0.Step[2], static_cast<float>(C0.Dimensions[2])});
+    OutGpuFloat4Table.push_back({InvSpanX, InvSpanY, InvSpanZ, 4.0f});
+
+    const uint32_t PrimCount = Volume.Parameters.AnalyticalPrimitives
+                                   ? std::min<uint32_t>(static_cast<uint32_t>(Volume.Primitives.size()), 64u)
+                                   : 0u;
+
+    // Slots 4..19: 4 cascades × 4 float4 descriptors; Slot 20: global cascade + analytical control header;
+    // Slots 21..(21 + 2*PrimCount - 1): analytical primitives; followed by quad-packed voxel payloads.
+    uint32_t PayloadCursor = 21u + PrimCount * 2u;
+
+    for (size_t Idx = 0u; Idx < 4u; ++Idx)
+    {
+        const VolumeDistanceField& C      = Volume.Cascades[Idx];
+        const size_t               Voxels = static_cast<size_t>(C.Dimensions[0]) * C.Dimensions[1] * C.Dimensions[2];
+        const float                Cx     = 0.5f * (C.Minimum[0] + C.Maximum[0]);
+        const float                Cy     = 0.5f * (C.Minimum[1] + C.Maximum[1]);
+        const float                Cz     = 0.5f * (C.Minimum[2] + C.Maximum[2]);
+
+        OutGpuFloat4Table.push_back({C.Minimum[0], C.Minimum[1], C.Minimum[2], static_cast<float>(C.Dimensions[0])});
+        OutGpuFloat4Table.push_back({C.Maximum[0], C.Maximum[1], C.Maximum[2], static_cast<float>(C.Dimensions[1])});
+        OutGpuFloat4Table.push_back({C.Step[0], C.Step[1], C.Step[2], static_cast<float>(C.Dimensions[2])});
+        OutGpuFloat4Table.push_back({Cx, Cy, Cz, std::bit_cast<float>(PayloadCursor)});
+
+        PayloadCursor += static_cast<uint32_t>((Voxels + 3u) / 4u);
+    }
+
+    // Slot 20: (PrimCount, BlendEnabled ? 1 : 0, ConeStepScale, GroundPlaneFlagAndY)
+    const float EncodedGround = Volume.Parameters.IncludeGroundHalfSpace ? Volume.Parameters.GroundPlaneY : -1.0e6f;
+    OutGpuFloat4Table.push_back({
+        static_cast<float>(PrimCount),
+        Volume.Parameters.TrilinearCascadeBlend ? 1.0f : 0.0f,
+        std::clamp(Volume.Parameters.ConeTraceStepScale, 0.35f, 1.25f),
+        EncodedGround,
+    });
+
+    for (uint32_t P = 0u; P < PrimCount; ++P)
+    {
+        const AnalyticalDistancePrimitive& Prim = Volume.Primitives[P];
+        float                              Code = 0.0f; // 0 = Box, 1 = Sphere, 2 = Cylinder
+        if (Prim.Category == AnalyticalDistanceCategory::Sphere)
+        {
+            Code = 1.0f;
+        }
+        else if (Prim.Category == AnalyticalDistanceCategory::Cylinder)
+        {
+            Code = 2.0f;
+        }
+        OutGpuFloat4Table.push_back({Prim.CenterMeters[0], Prim.CenterMeters[1], Prim.CenterMeters[2], Code});
+        OutGpuFloat4Table.push_back({Prim.HalfExtentsMeters[0],
+                                     Prim.HalfExtentsMeters[1],
+                                     Prim.HalfExtentsMeters[2],
+                                     static_cast<float>(Volume.Parameters.MaxConeSteps)});
+    }
+
+    for (size_t Idx = 0u; Idx < 4u; ++Idx)
+    {
+        const VolumeDistanceField& C      = Volume.Cascades[Idx];
+        const size_t               Voxels = static_cast<size_t>(C.Dimensions[0]) * C.Dimensions[1] * C.Dimensions[2];
+        for (size_t Base = 0u; Base < Voxels; Base += 4u)
+        {
+            std::array<float, 4> Quad{1.0e6f, 1.0e6f, 1.0e6f, 1.0e6f};
+            for (size_t Lane = 0u; Lane < 4u && Base + Lane < Voxels; ++Lane)
+            {
+                Quad[Lane] = C.Distances[Base + Lane];
+            }
+            OutGpuFloat4Table.push_back(Quad);
+        }
     }
 }
 

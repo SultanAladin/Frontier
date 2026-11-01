@@ -179,6 +179,17 @@ or project-specific types belong in `Engine/` or `UI/Editor/`.
   - `Frontier/Engine/Rendering/{SurfaceScatteringAtlas,SpatiotemporalIllumination}` delivers GTX-first Vulkan 1.3
     compute ReSTIR + `.sdfspace` SDF GI/AO + software SAH-BVH raytracing (zero hardware RTX dependency), reusing
     `TextureWorkspace` (`ScatteringSequence.h` + `AutomotivePaint.h`) materials.
+- **Phase 3C illumination architecture (SwiftShader-verified; GTX timing unmeasured):**
+  `Frontier/Engine/Rendering/SpatiotemporalIllumination` drives six low-VGPR Slang kernels
+  (`TracePrimarySurface`, `SampleDirectReservoirs`, `SampleIndirectReservoirs`, `ReuseSpatialReservoirs`,
+  `FilterSpatiotemporalAtrous`, `ResolveSpatiotemporalDisplay`) with frame uniforms in a `StructuredBuffer` so push
+  constants stay at the 16-byte Vulkan minimum. `Frontier/Engine/Rendering/SurfaceCardRadiosity` owns GPU direct-injection
+  plus Jacobi multi-bounce radiosity (`InjectCardDirectIrradiance`, `IterateCardRadiosityBounce`) and the CPU reference
+  solver. `BoundingVolumeAtlas` now emits octahedral crease-smoothed normals, a quantized 8-wide CWBVH BLAS, and an
+  `InstancedBoundingScene` two-level TLAS; `VolumeDistanceArchive` assembles the 4-cascade clipmap with analytic
+  primitives. `VulkanComputeExchange` gained `AttachExistingDevice` (share the editor device), `AllocateDisplayRgba8Target`
+  (zero-copy ImGui presentation), `DispatchTimingSample` (hardware timestamps), persistent `VkPipelineCache`, and VRAM
+  accounting. Known preview limits are recorded in `Exhibits/SpatiotemporalIllumination/README.md`.
 - **Project creation auto-scaffolding (`ProjectGenerator`):** Creating a new project via `ProjectBrowserPanel`
   auto-generates C++ source scaffolding (`Source/<Identifier>Application.{h,cpp}` with main loop and `SceneWorld`
   integration), a buildable `CMakeLists.txt`, and a default scene (`Content/Levels/Default.levelspace`).

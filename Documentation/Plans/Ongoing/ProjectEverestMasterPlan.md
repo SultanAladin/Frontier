@@ -77,7 +77,15 @@ When a user creates a new project via `ProjectBrowserPanel::CreateProject`:
    (`64 KB` pages, two-phase Hi-Z, 3-tier Material LOD virtualization, `ControlVehicle{Body,Rim,Tyre}.facet`),
    theme-bound `Experimental/AtmosphereEditor/` + `ThemeCardPalette.h`, and Editor/Development-only `DiagnosticRaster`
    strictly excluded from Shipping builds (`61/61` CTests passing).
-4. **Phase 3B (Next):** GTX-first compute/raster ReSTIR + SDF + software CWBVH raytracing renderer (zero hardware RTX
-   raytracing cores required) coupled with `TextureBake` / `TextureWorkspace` material evaluation.
+4. **Phase 3B (Completed):** GTX-first compute/raster ReSTIR + SDF + software CWBVH raytracing renderer (zero hardware
+   RTX raytracing cores required) coupled with `TextureBake` / `TextureWorkspace` material evaluation.
+5. **Phase 3C (Completed, SwiftShader-verified):** `SpatiotemporalIllumination` rewritten as six low-VGPR kernels —
+   two-level instanced TLAS + quantized 8-wide CWBVH, exact Fresnel/Snell/TIR dielectric peel, ReSTIR DI over
+   solar/analytical/emissive-CDF lights, true ReSTIR GI over a 4-cascade clipmap SDF shaded by GPU `SurfaceCardRadiositySolver`
+   multi-bounce radiosity, Heitz VNDF base/coat reflections, split diffuse/specular demodulation with a `>= 6/255`
+   representable albedo floor, `AtmosphereProjection`/cloud/fog/flare environment coupling, zero-copy `RGBA8` editor
+   presentation, and per-kernel hardware timestamp telemetry. GTX hardware timing remains unmeasured.
+6. **Phase 3D (Next):** thick-solid dielectric transport with caustics, per-cluster surface cards with GPU capture,
+   convergence beyond 4–6 temporal frames, and the GTX hardware measurement run.
 5. **Phase 4:** Physical, Thermal, Chemical, Weather, Fluid Plume, Fracture, Particle, and Mechanical Simulation Systems
    (including `VehicleInspector` once the GTX ReSTIR + SDF + software BVH renderer is verified on GPU).

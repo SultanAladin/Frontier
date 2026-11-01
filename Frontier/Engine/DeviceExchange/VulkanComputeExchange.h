@@ -44,23 +44,33 @@ struct DeviceMemorySpan
 
 struct DeviceImageArraySlot
 {
-    VkImage       Image         = VK_NULL_HANDLE;
-    VkDeviceMemory Memory       = VK_NULL_HANDLE;
-    VkImageView   ArrayView     = VK_NULL_HANDLE;
-    VkFormat      Format        = VK_FORMAT_UNDEFINED;
-    uint32_t      Width         = 0;
-    uint32_t      Height        = 0;
-    uint32_t      ArrayLayers   = 0;
-    VkImageLayout CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImage        Image         = VK_NULL_HANDLE;
+    VkDeviceMemory Memory        = VK_NULL_HANDLE;
+    VkImageView    ArrayView     = VK_NULL_HANDLE;
+    VkImageView    SampleView2D  = VK_NULL_HANDLE;
+    VkDeviceSize   AllocatedBytes = 0;
+    VkFormat       Format        = VK_FORMAT_UNDEFINED;
+    uint32_t       Width         = 0;
+    uint32_t       Height        = 0;
+    uint32_t       ArrayLayers   = 0;
+    VkImageLayout  CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 struct ComputeProgramSlot
 {
-    VkShaderModule                ShaderUnit    = VK_NULL_HANDLE;
-    VkDescriptorSetLayout         SetLayout     = VK_NULL_HANDLE;
-    VkPipelineLayout              Layout        = VK_NULL_HANDLE;
-    VkPipeline                    Pipeline      = VK_NULL_HANDLE;
+    VkShaderModule                ShaderUnit          = VK_NULL_HANDLE;
+    VkDescriptorSetLayout         SetLayout           = VK_NULL_HANDLE;
+    VkPipelineLayout              Layout              = VK_NULL_HANDLE;
+    VkPipeline                    Pipeline            = VK_NULL_HANDLE;
+    double                        CompileMilliseconds = 0.0;
     std::vector<VkDescriptorType> BindingTypes{};
+};
+
+struct DispatchTimingSample
+{
+    double GpuMilliseconds       = 0.0; // [ms] - Hardware VkQueryPool timestamp span when supported
+    double CpuMilliseconds       = 0.0; // [ms] - Synchronized host steady_clock submission + fence wait
+    bool   GpuTimestampAvailable = false;
 };
 
 struct ComputeDescriptorArgument
@@ -68,6 +78,21 @@ struct ComputeDescriptorArgument
     VkDescriptorType            Type       = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     const DeviceMemorySpan*     MemorySpan = nullptr;
     const DeviceImageArraySlot* ImageArray = nullptr;
+
+    [[nodiscard]] static ComputeDescriptorArgument Span(const DeviceMemorySpan* Source) noexcept
+    {
+        return ComputeDescriptorArgument{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Source, nullptr};
+    }
+
+    [[nodiscard]] static ComputeDescriptorArgument StorageImage(const DeviceImageArraySlot* Source) noexcept
+    {
+        return ComputeDescriptorArgument{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, Source};
+    }
+
+    [[nodiscard]] static ComputeDescriptorArgument SampledImage(const DeviceImageArraySlot* Source) noexcept
+    {
+        return ComputeDescriptorArgument{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, Source};
+    }
 };
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -85,10 +110,26 @@ class VulkanComputeExchange
 
     // Initializes Vulkan instance, physical device, and compute queue from explicit or discovered libvulkan.so.1.
     bool Initialize(const std::string& ExplicitDriverLibraryPath = "", std::string* OutDiagnostic = nullptr);
+
+    // Borrows an existing presentation VkDevice/VkQueue so compute targets bind zero-copy into ImGui swapchain views.
+    bool AttachExistingDevice(VkInstance                ExistingInstance,
+                              VkPhysicalDevice          ExistingPhysicalDevice,
+                              VkDevice                  ExistingDevice,
+                              VkQueue                   ExistingQueue,
+                              uint32_t                  ExistingQueueFamily,
+                              PFN_vkGetInstanceProcAddr ResolveInstanceSymbol,
+                              std::string*              OutDiagnostic = nullptr);
     void Shutdown() noexcept;
+
+    // Optional persistent binary pipeline state file (atomically saved on Shutdown / FlushPipelineArchive).
+    void ConfigurePipelineArchivePath(const std::string& BinaryPath);
+    bool FlushPipelineArchive() const;
 
     [[nodiscard]] bool               Ready() const noexcept { return Device_ != VK_NULL_HANDLE; }
     [[nodiscard]] const std::string& DeviceName() const noexcept { return DeviceName_; }
+    [[nodiscard]] const std::string& DriverSummary() const noexcept { return DriverSummary_; }
+    [[nodiscard]] bool               TimestampsSupported() const noexcept { return TimestampValidBits_ > 0u; }
+    [[nodiscard]] uint64_t           QueryAllocatedDeviceBytes() const noexcept { return AllocatedDeviceBytes_; }
 
     // Contiguous GPU memory span management
     bool AllocateMemorySpan(VkDeviceSize ByteCount, DeviceMemorySpan& OutSlot);
@@ -96,13 +137,18 @@ class VulkanComputeExchange
     bool UploadMemorySpan(DeviceMemorySpan& Slot, const void* SourceBytes, VkDeviceSize ByteCount);
     bool DownloadMemorySpan(const DeviceMemorySpan& Slot, void* DestinationBytes, VkDeviceSize ByteCount) const;
 
-    // 2D-Array image management (VK_FORMAT_R16G16B16A16_SFLOAT storage+sampled or VK_FORMAT_R8G8B8A8_SRGB sampled)
+    // 2D-Array & 2D Presentation image management
     bool AllocateRgba16fArray(uint32_t Width, uint32_t Height, uint32_t ArrayLayers, DeviceImageArraySlot& OutSlot);
     bool AllocateSrgb8Array(uint32_t Width, uint32_t Height, uint32_t ArrayLayers, DeviceImageArraySlot& OutSlot);
+    bool AllocateUnorm8Array(uint32_t Width, uint32_t Height, uint32_t ArrayLayers, DeviceImageArraySlot& OutSlot);
+    bool AllocateDisplayRgba8Target(uint32_t Width, uint32_t Height, DeviceImageArraySlot& OutSlot);
     void ReleaseImage(DeviceImageArraySlot& Slot) noexcept;
 
     bool ClearRgba16fArray(DeviceImageArraySlot& Slot, std::array<float, 4> ClearColour = {0.0f, 0.0f, 0.0f, 0.0f});
     bool UploadSrgb8Array(DeviceImageArraySlot& Slot, std::span<const uint8_t> RgbaBytes);
+    bool UploadUnorm8Array(DeviceImageArraySlot& Slot, std::span<const uint8_t> RgbaBytes);
+    bool TransitionForPresentationSampling(DeviceImageArraySlot& Slot);
+    bool TransitionForComputeStorage(DeviceImageArraySlot& Slot);
     bool UploadRgba16fLayer(DeviceImageArraySlot& Slot, uint32_t LayerIndex, std::span<const float> RgbaFloats);
     bool DownloadRgba16fLayer(DeviceImageArraySlot& Slot, uint32_t LayerIndex, std::vector<float>& OutRgbaFloats);
 
@@ -115,31 +161,41 @@ class VulkanComputeExchange
                             std::string*                      OutDiagnostic = nullptr);
     void ReleaseProgram(ComputeProgramSlot& Program) noexcept;
 
-    bool DispatchCompute(const ComputeProgramSlot&                     Program,
-                         std::span<const ComputeDescriptorArgument>    Arguments,
-                         const void*                                   PushConstants,
-                         uint32_t                                      PushConstantBytes,
-                         uint32_t                                      GroupCountX,
-                         uint32_t                                      GroupCountY = 1u,
-                         uint32_t                                      GroupCountZ = 1u);
+    bool DispatchCompute(const ComputeProgramSlot&                  Program,
+                         std::span<const ComputeDescriptorArgument> Arguments,
+                         const void*                                PushConstants,
+                         uint32_t                                   PushConstantBytes,
+                         uint32_t                                   GroupCountX,
+                         uint32_t                                   GroupCountY   = 1u,
+                         uint32_t                                   GroupCountZ   = 1u,
+                         DispatchTimingSample*                      OutTiming     = nullptr);
 
   private:
+    bool FinalizeDevicePoolsAndSamplers(PFN_vkGetDeviceProcAddr ResolveDevice, std::string* OutDiagnostic);
     [[nodiscard]] uint32_t SelectMemoryType(uint32_t TypeBits, VkMemoryPropertyFlags RequiredFlags) const;
     bool TransitionImageLayout(VkCommandBuffer CommandStream, DeviceImageArraySlot& Slot, VkImageLayout TargetLayout);
 
-    void*                            LibraryHandle_       = nullptr;
-    VkInstance                       Instance_            = VK_NULL_HANDLE;
-    VkPhysicalDevice                 PhysicalDevice_      = VK_NULL_HANDLE;
-    VkDevice                         Device_              = VK_NULL_HANDLE;
-    VkQueue                          Queue_               = VK_NULL_HANDLE;
-    uint32_t                         QueueFamily_         = 0u;
-    VkCommandPool                    CommandPool_         = VK_NULL_HANDLE;
-    VkDescriptorPool                 DescriptorPool_      = VK_NULL_HANDLE;
-    VkSampler                        LinearClampSampler_  = VK_NULL_HANDLE;
-    VkSampler                        LinearRepeatSampler_ = VK_NULL_HANDLE;
-    VkFence                          SubmitFence_         = VK_NULL_HANDLE;
+    void*                            LibraryHandle_         = nullptr;
+    bool                             BorrowedDeviceEnabled_ = false;
+    VkInstance                       Instance_              = VK_NULL_HANDLE;
+    VkPhysicalDevice                 PhysicalDevice_        = VK_NULL_HANDLE;
+    VkDevice                         Device_                = VK_NULL_HANDLE;
+    VkQueue                          Queue_                 = VK_NULL_HANDLE;
+    uint32_t                         QueueFamily_           = 0u;
+    VkCommandPool                    CommandPool_           = VK_NULL_HANDLE;
+    VkDescriptorPool                 DescriptorPool_        = VK_NULL_HANDLE;
+    VkQueryPool                      TimestampQueryPool_    = VK_NULL_HANDLE;
+    VkPipelineCache                  PipelineStateStore_    = VK_NULL_HANDLE;
+    VkSampler                        LinearClampSampler_    = VK_NULL_HANDLE;
+    VkSampler                        LinearRepeatSampler_   = VK_NULL_HANDLE;
+    VkFence                          SubmitFence_           = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties MemoryProperties_{};
+    float                            TimestampPeriodNs_     = 0.0f;
+    uint32_t                         TimestampValidBits_    = 0u;
+    uint64_t                         AllocatedDeviceBytes_  = 0u;
     std::string                      DeviceName_{};
+    std::string                      DriverSummary_{};
+    std::string                      PipelineArchivePath_{};
 
     PFN_vkGetInstanceProcAddr                    pfnGetInstanceProcAddr_                    = nullptr;
     PFN_vkCreateInstance                         pfnCreateInstance_                         = nullptr;
@@ -201,6 +257,14 @@ class VulkanComputeExchange
     PFN_vkCmdClearColorImage                     pfnCmdClearColorImage_                     = nullptr;
     PFN_vkCmdCopyBufferToImage                   pfnCmdCopySpanToImage_                     = nullptr;
     PFN_vkCmdCopyImageToBuffer                   pfnCmdCopyImageToSpan_                     = nullptr;
+    PFN_vkCreateQueryPool                        pfnCreateQueryPool_                        = nullptr;
+    PFN_vkDestroyQueryPool                       pfnDestroyQueryPool_                       = nullptr;
+    PFN_vkCmdResetQueryPool                      pfnCmdResetQueryPool_                      = nullptr;
+    PFN_vkCmdWriteTimestamp                      pfnCmdWriteTimestamp_                      = nullptr;
+    PFN_vkGetQueryPoolResults                    pfnGetQueryPoolResults_                    = nullptr;
+    PFN_vkCreatePipelineCache                    pfnCreatePipelineStateStore_               = nullptr;
+    PFN_vkDestroyPipelineCache                   pfnDestroyPipelineStateStore_              = nullptr;
+    PFN_vkGetPipelineCacheData                   pfnRetrievePipelineStateBytes_             = nullptr;
 };
 
 } // namespace Frontier

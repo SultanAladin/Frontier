@@ -290,6 +290,21 @@ VulkanRasterAccess VulkanPresentation::QueryRasterAccess() const
         Resolve<PFN_vkGetPhysicalDeviceFormatProperties>(Display.Instance, "vkGetPhysicalDeviceFormatProperties"),
         Display.GetPhysicalDeviceProperties, Display.QueueCapabilities};
 }
+static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL ResolveGlfwVulkanSymbol(VkInstance Instance, const char *Name)
+{
+    return reinterpret_cast<PFN_vkVoidFunction>(glfwGetInstanceProcAddress(Instance, Name));
+}
+
+VulkanDeviceBorrowing VulkanPresentation::QueryDeviceBorrowing() const
+{
+    const auto &Display = *Allocation;
+    return {Display.Instance,
+            Display.PhysicalDevice,
+            Display.Device,
+            Display.Queue,
+            Display.QueueFamily,
+            &ResolveGlfwVulkanSymbol};
+}
 void VulkanPresentation::ConfigureRendering(std::function<void(VkCommandBuffer, uint64_t, uint64_t)> Construct,
                                            std::function<void()> Confirm)
 {

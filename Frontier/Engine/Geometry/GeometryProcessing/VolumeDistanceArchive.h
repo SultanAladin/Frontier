@@ -103,4 +103,65 @@ struct PlacedDistanceInstance
 void PackVolumeDistanceForGpu(const VolumeDistanceField&          Field,
                               std::vector<std::array<float, 4>>& OutGpuFloat4Table);
 
+//------------------------------------------------------------------------------------------------------------------------
+//                           FOUR-CASCADE CLIPMAP DISTANCE VOLUME & ANALYTICAL PRIMITIVES
+//------------------------------------------------------------------------------------------------------------------------
+
+enum class AnalyticalDistanceCategory : uint8_t
+{
+    Box      = 0,
+    Sphere   = 1,
+    Cylinder = 2,
+};
+
+struct AnalyticalDistancePrimitive
+{
+    AnalyticalDistanceCategory Category          = AnalyticalDistanceCategory::Box;
+    std::array<float, 3>       CenterMeters      = {0.0f, 0.0f, 0.0f};
+    std::array<float, 3>       HalfExtentsMeters = {0.5f, 0.5f, 0.5f}; // Sphere uses X = radius; Cylinder uses X = radius, Y = halfHeight
+};
+
+struct FourCascadeDistanceParameters
+{
+    std::array<float, 3>    FocusCenterMeters         = {0.0f, 0.8f, 0.0f};
+    std::array<float, 4>    CascadeRadiiMeters        = {8.0f, 24.0f, 72.0f, 220.0f};
+    std::array<uint32_t, 3> VoxelResolutionPerCascade = {32u, 24u, 32u};
+    bool                    TrilinearCascadeBlend     = true;
+    bool                    AnalyticalPrimitives      = true;
+    bool                    IncludeGroundHalfSpace    = true;
+    float                   GroundPlaneY              = 0.0f;
+    uint32_t                MaxConeSteps              = 28u;
+    float                   ConeTraceStepScale        = 0.92f;
+};
+
+struct FourCascadeDistanceVolume
+{
+    std::array<VolumeDistanceField, 4>       Cascades{};
+    std::vector<AnalyticalDistancePrimitive> Primitives{};
+    FourCascadeDistanceParameters            Parameters{};
+};
+
+// Evaluates exact signed distance [m] to an analytical primitive (Box, Sphere, or vertical Cylinder).
+[[nodiscard]] float EvaluateAnalyticalPrimitiveDistance(const AnalyticalDistancePrimitive& Primitive,
+                                                        float                              WorldX,
+                                                        float                              WorldY,
+                                                        float                              WorldZ) noexcept;
+
+// Assembles 4 concentric clipmap SDF cascades around FocusCenterMeters from pre-baked archives + analytical primitives.
+[[nodiscard]] bool AssembleFourCascadeDistanceVolume(FourCascadeDistanceVolume&                        OutCascadedVolume,
+                                                     const ControlVehiclePlacement&                    VehiclePlacement,
+                                                     std::span<const AnalyticalDistancePrimitive>      ScenePrimitives,
+                                                     const FourCascadeDistanceParameters&              Parameters    = {},
+                                                     std::string*                                      OutDiagnostic = nullptr);
+
+// Evaluates seam-blended 4-cascade + analytical signed distance [m] at an arbitrary world coordinate.
+[[nodiscard]] float SampleFourCascadeDistanceMeters(const FourCascadeDistanceVolume& Volume,
+                                                    float                            WorldX,
+                                                    float                            WorldY,
+                                                    float                            WorldZ) noexcept;
+
+// Packs a FourCascadeDistanceVolume into a self-describing GPU StructuredBuffer<float4> (Slot 3.w == 4.0f).
+void PackFourCascadeDistanceForGpu(const FourCascadeDistanceVolume&    Volume,
+                                   std::vector<std::array<float, 4>>& OutGpuFloat4Table);
+
 } // namespace Frontier

@@ -17,6 +17,16 @@ namespace Frontier
 //                                                     VULKAN UI PRESENTATION
 //------------------------------------------------------------------------------------------------------------------------
 
+struct VulkanDeviceBorrowing
+{
+    VkInstance                Instance        = VK_NULL_HANDLE;
+    VkPhysicalDevice          PhysicalDevice  = VK_NULL_HANDLE;
+    VkDevice                  Device          = VK_NULL_HANDLE;
+    VkQueue                   Queue           = VK_NULL_HANDLE;
+    uint32_t                  QueueFamily     = 0;
+    PFN_vkGetInstanceProcAddr ResolveInstance = nullptr;
+};
+
 class VulkanPresentation
 {
   public:
@@ -24,8 +34,9 @@ class VulkanPresentation
     ~VulkanPresentation();
     VulkanPresentation(const VulkanPresentation &)            = delete;
     VulkanPresentation &operator=(const VulkanPresentation &) = delete;
-    void                Initialize(GLFWwindow *Window, bool MaterialRendering = false);
-    VulkanRasterAccess QueryRasterAccess() const;
+    void                  Initialize(GLFWwindow *Window, bool MaterialRendering = false);
+    VulkanRasterAccess    QueryRasterAccess() const;
+    VulkanDeviceBorrowing QueryDeviceBorrowing() const;
     void ConfigureRendering(std::function<void(VkCommandBuffer, uint64_t, uint64_t)> Construct,
                             std::function<void()> Confirm);
     bool                Reconfigure(int Width, int Height);

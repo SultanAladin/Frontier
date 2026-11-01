@@ -32,6 +32,7 @@ add_library(FrontierEnvironmentRendering STATIC
     Frontier/Engine/Rendering/TransientTargetAtlas.cpp
     Frontier/Engine/Rendering/BarrierDerivation.cpp
     Frontier/Engine/Rendering/SurfaceScatteringAtlas.cpp
+    Frontier/Engine/Rendering/SurfaceCardRadiosity.cpp
     Frontier/Engine/Rendering/SpatiotemporalIllumination.cpp)
 
 target_include_directories(FrontierEnvironmentRendering PUBLIC
@@ -99,7 +100,11 @@ set(FRONTIER_ENV_SHADER_SPECS
     "SpatiotemporalIllumination:TracePrimarySurfaceMain:TracePrimarySurface:"
     "SpatiotemporalIllumination:SampleDirectReservoirsMain:SampleDirectReservoirs:"
     "SpatiotemporalIllumination:ReuseSpatialReservoirsMain:ReuseSpatialReservoirs:"
-    "SpatiotemporalIllumination:FilterSpatiotemporalAtrousMain:FilterSpatiotemporalAtrous:")
+    "SpatiotemporalIllumination:SampleIndirectReservoirsMain:SampleIndirectReservoirs:"
+    "SpatiotemporalIllumination:FilterSpatiotemporalAtrousMain:FilterSpatiotemporalAtrous:"
+    "SpatiotemporalIllumination:ResolveSpatiotemporalDisplayMain:ResolveSpatiotemporalDisplay:"
+    "SurfaceCardRadiosity:InjectDirectCardRadianceMain:InjectCardDirectIrradiance:-DRADIOSITY_COMPUTE_ENTRY=1"
+    "SurfaceCardRadiosity:IterateCardRadiosityMain:IterateCardRadiosityBounce:-DRADIOSITY_COMPUTE_ENTRY=1")
 
 set(FRONTIER_ENV_SPV_OUTPUTS)
 if(FRONTIER_ENV_SLANGC)

@@ -6,7 +6,9 @@
 #include "Engine/DeviceExchange/VulkanComputeExchange.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -269,7 +271,18 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
 
     VkPhysicalDeviceProperties Props{};
     pfnGetPhysicalDeviceProperties_(PhysicalDevice_, &Props);
-    DeviceName_ = Props.deviceName;
+    DeviceName_        = Props.deviceName;
+    TimestampPeriodNs_ = Props.limits.timestampPeriod;
+    {
+        char DriverBuf[160]{};
+        std::snprintf(DriverBuf, sizeof(DriverBuf), "vendor=0x%04x device=0x%04x api=%u.%u.%u driver=0x%x",
+                      Props.vendorID, Props.deviceID,
+                      VK_API_VERSION_MAJOR(Props.apiVersion),
+                      VK_API_VERSION_MINOR(Props.apiVersion),
+                      VK_API_VERSION_PATCH(Props.apiVersion),
+                      Props.driverVersion);
+        DriverSummary_ = DriverBuf;
+    }
     pfnGetPhysicalDeviceMemoryProperties_(PhysicalDevice_, &MemoryProperties_);
 
     uint32_t FamilyCount = 0u;
@@ -282,8 +295,9 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
     {
         if ((Families[FamilyIndex].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0u)
         {
-            QueueFamily_ = FamilyIndex;
-            FoundCompute = true;
+            QueueFamily_        = FamilyIndex;
+            TimestampValidBits_ = Families[FamilyIndex].timestampValidBits;
+            FoundCompute        = true;
             break;
         }
     }
@@ -321,7 +335,90 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
         Shutdown();
         return false;
     }
+#undef RESOLVE_VK_INST
 
+    BorrowedDeviceEnabled_ = false;
+    return FinalizeDevicePoolsAndSamplers(GetDeviceProc, OutDiagnostic);
+}
+
+bool VulkanComputeExchange::AttachExistingDevice(VkInstance                ExistingInstance,
+                                                 VkPhysicalDevice          ExistingPhysicalDevice,
+                                                 VkDevice                  ExistingDevice,
+                                                 VkQueue                   ExistingQueue,
+                                                 uint32_t                  ExistingQueueFamily,
+                                                 PFN_vkGetInstanceProcAddr ResolveInstanceSymbol,
+                                                 std::string*              OutDiagnostic)
+{
+    Shutdown();
+    if (ExistingInstance == VK_NULL_HANDLE || ExistingPhysicalDevice == VK_NULL_HANDLE ||
+        ExistingDevice == VK_NULL_HANDLE || ExistingQueue == VK_NULL_HANDLE || !ResolveInstanceSymbol)
+    {
+        if (OutDiagnostic)
+        {
+            *OutDiagnostic = "AttachExistingDevice received null Vulkan handle";
+        }
+        return false;
+    }
+
+    BorrowedDeviceEnabled_  = true;
+    Instance_               = ExistingInstance;
+    PhysicalDevice_         = ExistingPhysicalDevice;
+    Device_                 = ExistingDevice;
+    Queue_                  = ExistingQueue;
+    QueueFamily_            = ExistingQueueFamily;
+    pfnGetInstanceProcAddr_ = ResolveInstanceSymbol;
+
+    pfnGetPhysicalDeviceProperties_ = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+        pfnGetInstanceProcAddr_(Instance_, "vkGetPhysicalDeviceProperties"));
+    pfnGetPhysicalDeviceMemoryProperties_ = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
+        pfnGetInstanceProcAddr_(Instance_, "vkGetPhysicalDeviceMemoryProperties"));
+    pfnGetPhysicalDeviceQueueFamilyProperties_ = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+        pfnGetInstanceProcAddr_(Instance_, "vkGetPhysicalDeviceQueueFamilyProperties"));
+    auto GetDeviceProc = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
+        pfnGetInstanceProcAddr_(Instance_, "vkGetDeviceProcAddr"));
+
+    if (!pfnGetPhysicalDeviceProperties_ || !pfnGetPhysicalDeviceMemoryProperties_ ||
+        !pfnGetPhysicalDeviceQueueFamilyProperties_ || !GetDeviceProc)
+    {
+        if (OutDiagnostic)
+        {
+            *OutDiagnostic = "AttachExistingDevice could not resolve Vulkan instance symbols";
+        }
+        Shutdown();
+        return false;
+    }
+
+    VkPhysicalDeviceProperties Props{};
+    pfnGetPhysicalDeviceProperties_(PhysicalDevice_, &Props);
+    DeviceName_        = Props.deviceName;
+    TimestampPeriodNs_ = Props.limits.timestampPeriod;
+    {
+        char DriverBuf[160]{};
+        std::snprintf(DriverBuf, sizeof(DriverBuf), "vendor=0x%04x device=0x%04x api=%u.%u.%u driver=0x%x",
+                      Props.vendorID, Props.deviceID,
+                      VK_API_VERSION_MAJOR(Props.apiVersion),
+                      VK_API_VERSION_MINOR(Props.apiVersion),
+                      VK_API_VERSION_PATCH(Props.apiVersion),
+                      Props.driverVersion);
+        DriverSummary_ = DriverBuf;
+    }
+    pfnGetPhysicalDeviceMemoryProperties_(PhysicalDevice_, &MemoryProperties_);
+
+    uint32_t FamilyCount = 0u;
+    pfnGetPhysicalDeviceQueueFamilyProperties_(PhysicalDevice_, &FamilyCount, nullptr);
+    if (QueueFamily_ < FamilyCount)
+    {
+        std::vector<VkQueueFamilyProperties> Families(FamilyCount);
+        pfnGetPhysicalDeviceQueueFamilyProperties_(PhysicalDevice_, &FamilyCount, Families.data());
+        TimestampValidBits_ = Families[QueueFamily_].timestampValidBits;
+    }
+
+    return FinalizeDevicePoolsAndSamplers(GetDeviceProc, OutDiagnostic);
+}
+
+bool VulkanComputeExchange::FinalizeDevicePoolsAndSamplers(PFN_vkGetDeviceProcAddr GetDeviceProc,
+                                                           std::string*            OutDiagnostic)
+{
 #define RESOLVE_VK_DEV(Field, Symbol)                                                        \
     Field = reinterpret_cast<decltype(Field)>(GetDeviceProc(Device_, Symbol));               \
     if (!Field)                                                                              \
@@ -331,8 +428,11 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
         return false;                                                                        \
     }
 
-    RESOLVE_VK_DEV(pfnDestroyDevice_, "vkDestroyDevice");
-    RESOLVE_VK_DEV(pfnGetDeviceQueue_, "vkGetDeviceQueue");
+    if (!BorrowedDeviceEnabled_)
+    {
+        RESOLVE_VK_DEV(pfnDestroyDevice_, "vkDestroyDevice");
+        RESOLVE_VK_DEV(pfnGetDeviceQueue_, "vkGetDeviceQueue");
+    }
     RESOLVE_VK_DEV(pfnCreateCommandPool_, "vkCreateCommandPool");
     RESOLVE_VK_DEV(pfnDestroyCommandPool_, "vkDestroyCommandPool");
     RESOLVE_VK_DEV(pfnAllocateCommandStreams_, "vkAllocateCommandBuffers");
@@ -384,10 +484,22 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
     RESOLVE_VK_DEV(pfnCmdCopySpanToImage_, "vkCmdCopyBufferToImage");
     RESOLVE_VK_DEV(pfnCmdCopyImageToSpan_, "vkCmdCopyImageToBuffer");
 
-#undef RESOLVE_VK_INST
+    // Optional timing & pipeline state persistence entry points
+    pfnCreateQueryPool_            = reinterpret_cast<PFN_vkCreateQueryPool>(GetDeviceProc(Device_, "vkCreateQueryPool"));
+    pfnDestroyQueryPool_           = reinterpret_cast<PFN_vkDestroyQueryPool>(GetDeviceProc(Device_, "vkDestroyQueryPool"));
+    pfnCmdResetQueryPool_          = reinterpret_cast<PFN_vkCmdResetQueryPool>(GetDeviceProc(Device_, "vkCmdResetQueryPool"));
+    pfnCmdWriteTimestamp_          = reinterpret_cast<PFN_vkCmdWriteTimestamp>(GetDeviceProc(Device_, "vkCmdWriteTimestamp"));
+    pfnGetQueryPoolResults_        = reinterpret_cast<PFN_vkGetQueryPoolResults>(GetDeviceProc(Device_, "vkGetQueryPoolResults"));
+    pfnCreatePipelineStateStore_   = reinterpret_cast<PFN_vkCreatePipelineCache>(GetDeviceProc(Device_, "vkCreatePipelineCache"));
+    pfnDestroyPipelineStateStore_  = reinterpret_cast<PFN_vkDestroyPipelineCache>(GetDeviceProc(Device_, "vkDestroyPipelineCache"));
+    pfnRetrievePipelineStateBytes_ = reinterpret_cast<PFN_vkGetPipelineCacheData>(GetDeviceProc(Device_, "vkGetPipelineCacheData"));
+
 #undef RESOLVE_VK_DEV
 
-    pfnGetDeviceQueue_(Device_, QueueFamily_, 0u, &Queue_);
+    if (!BorrowedDeviceEnabled_ && pfnGetDeviceQueue_)
+    {
+        pfnGetDeviceQueue_(Device_, QueueFamily_, 0u, &Queue_);
+    }
 
     VkCommandPoolCreateInfo PoolSpec{};
     PoolSpec.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -400,19 +512,65 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
     }
 
     const std::array<VkDescriptorPoolSize, 3> PoolSizes{{
-        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 256u},
-        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256u},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 256u},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 512u},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 512u},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 512u},
     }};
     VkDescriptorPoolCreateInfo DescPoolSpec{};
     DescPoolSpec.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    DescPoolSpec.maxSets       = 64u;
+    DescPoolSpec.maxSets       = 128u;
     DescPoolSpec.poolSizeCount = static_cast<uint32_t>(PoolSizes.size());
     DescPoolSpec.pPoolSizes    = PoolSizes.data();
     if (pfnCreateDescriptorPool_(Device_, &DescPoolSpec, nullptr, &DescriptorPool_) != VK_SUCCESS)
     {
         Shutdown();
         return false;
+    }
+
+    if (TimestampValidBits_ > 0u && TimestampPeriodNs_ > 0.0f &&
+        pfnCreateQueryPool_ && pfnDestroyQueryPool_ && pfnCmdResetQueryPool_ &&
+        pfnCmdWriteTimestamp_ && pfnGetQueryPoolResults_)
+    {
+        VkQueryPoolCreateInfo QuerySpec{};
+        QuerySpec.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        QuerySpec.queryType  = VK_QUERY_TYPE_TIMESTAMP;
+        QuerySpec.queryCount = 2u;
+        if (pfnCreateQueryPool_(Device_, &QuerySpec, nullptr, &TimestampQueryPool_) != VK_SUCCESS)
+        {
+            TimestampQueryPool_ = VK_NULL_HANDLE;
+            TimestampValidBits_ = 0u;
+        }
+    }
+    else
+    {
+        TimestampValidBits_ = 0u;
+    }
+
+    if (pfnCreatePipelineStateStore_ && pfnDestroyPipelineStateStore_)
+    {
+        std::vector<uint8_t> InitialBytes;
+        if (!PipelineArchivePath_.empty())
+        {
+            std::ifstream In(PipelineArchivePath_, std::ios::binary | std::ios::ate);
+            if (In.is_open())
+            {
+                const std::streamsize Sz = In.tellg();
+                if (Sz > 16 && Sz < 256 * 1024 * 1024)
+                {
+                    InitialBytes.resize(static_cast<size_t>(Sz));
+                    In.seekg(0, std::ios::beg);
+                    In.read(reinterpret_cast<char*>(InitialBytes.data()), Sz);
+                }
+            }
+        }
+        VkPipelineCacheCreateInfo StoreSpec{};
+        StoreSpec.sType           = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        StoreSpec.initialDataSize = InitialBytes.size();
+        StoreSpec.pInitialData    = InitialBytes.empty() ? nullptr : InitialBytes.data();
+        if (pfnCreatePipelineStateStore_(Device_, &StoreSpec, nullptr, &PipelineStateStore_) != VK_SUCCESS)
+        {
+            PipelineStateStore_ = VK_NULL_HANDLE;
+        }
     }
 
     VkSamplerCreateInfo SamplerSpec{};
@@ -431,6 +589,7 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
     }
 
     SamplerSpec.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    SamplerSpec.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     if (pfnCreateSampler_(Device_, &SamplerSpec, nullptr, &LinearRepeatSampler_) != VK_SUCCESS)
     {
         Shutdown();
@@ -448,13 +607,63 @@ bool VulkanComputeExchange::Initialize(const std::string& ExplicitDriverLibraryP
     return true;
 }
 
+void VulkanComputeExchange::ConfigurePipelineArchivePath(const std::string& BinaryPath)
+{
+    PipelineArchivePath_ = BinaryPath;
+}
+
+bool VulkanComputeExchange::FlushPipelineArchive() const
+{
+    if (!Ready() || PipelineStateStore_ == VK_NULL_HANDLE || !pfnRetrievePipelineStateBytes_ || PipelineArchivePath_.empty())
+    {
+        return false;
+    }
+    size_t ByteCount = 0u;
+    if (pfnRetrievePipelineStateBytes_(Device_, PipelineStateStore_, &ByteCount, nullptr) != VK_SUCCESS || ByteCount == 0u)
+    {
+        return false;
+    }
+    std::vector<uint8_t> Bytes(ByteCount);
+    if (pfnRetrievePipelineStateBytes_(Device_, PipelineStateStore_, &ByteCount, Bytes.data()) != VK_SUCCESS)
+    {
+        return false;
+    }
+    std::error_code       Ec;
+    std::filesystem::path Dest(PipelineArchivePath_);
+    if (Dest.has_parent_path())
+    {
+        std::filesystem::create_directories(Dest.parent_path(), Ec);
+    }
+    std::filesystem::path TempPath = Dest;
+    TempPath += ".tmp";
+    {
+        std::ofstream Out(TempPath, std::ios::binary | std::ios::trunc);
+        if (!Out.is_open())
+        {
+            return false;
+        }
+        Out.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(ByteCount));
+    }
+    std::filesystem::rename(TempPath, Dest, Ec);
+    return !Ec;
+}
+
 void VulkanComputeExchange::Shutdown() noexcept
 {
     if (Device_ != VK_NULL_HANDLE)
     {
+        (void)FlushPipelineArchive();
         if (pfnQueueWaitIdle_ && Queue_ != VK_NULL_HANDLE)
         {
             pfnQueueWaitIdle_(Queue_);
+        }
+        if (PipelineStateStore_ != VK_NULL_HANDLE && pfnDestroyPipelineStateStore_)
+        {
+            pfnDestroyPipelineStateStore_(Device_, PipelineStateStore_, nullptr);
+        }
+        if (TimestampQueryPool_ != VK_NULL_HANDLE && pfnDestroyQueryPool_)
+        {
+            pfnDestroyQueryPool_(Device_, TimestampQueryPool_, nullptr);
         }
         if (SubmitFence_ != VK_NULL_HANDLE && pfnDestroyFence_)
         {
@@ -476,28 +685,38 @@ void VulkanComputeExchange::Shutdown() noexcept
         {
             pfnDestroyCommandPool_(Device_, CommandPool_, nullptr);
         }
-        if (pfnDestroyDevice_)
+        if (!BorrowedDeviceEnabled_ && pfnDestroyDevice_)
         {
             pfnDestroyDevice_(Device_, nullptr);
         }
     }
-    if (Instance_ != VK_NULL_HANDLE && pfnDestroyInstance_)
+    if (!BorrowedDeviceEnabled_ && Instance_ != VK_NULL_HANDLE && pfnDestroyInstance_)
     {
         pfnDestroyInstance_(Instance_, nullptr);
     }
-    CloseDynamicLibrary(LibraryHandle_);
+    if (!BorrowedDeviceEnabled_)
+    {
+        CloseDynamicLibrary(LibraryHandle_);
+    }
 
-    LibraryHandle_       = nullptr;
-    Instance_            = VK_NULL_HANDLE;
-    PhysicalDevice_      = VK_NULL_HANDLE;
-    Device_              = VK_NULL_HANDLE;
-    Queue_               = VK_NULL_HANDLE;
-    CommandPool_         = VK_NULL_HANDLE;
-    DescriptorPool_      = VK_NULL_HANDLE;
-    LinearClampSampler_  = VK_NULL_HANDLE;
-    LinearRepeatSampler_ = VK_NULL_HANDLE;
-    SubmitFence_         = VK_NULL_HANDLE;
+    LibraryHandle_         = nullptr;
+    BorrowedDeviceEnabled_ = false;
+    Instance_              = VK_NULL_HANDLE;
+    PhysicalDevice_        = VK_NULL_HANDLE;
+    Device_                = VK_NULL_HANDLE;
+    Queue_                 = VK_NULL_HANDLE;
+    CommandPool_           = VK_NULL_HANDLE;
+    DescriptorPool_        = VK_NULL_HANDLE;
+    TimestampQueryPool_    = VK_NULL_HANDLE;
+    PipelineStateStore_    = VK_NULL_HANDLE;
+    LinearClampSampler_    = VK_NULL_HANDLE;
+    LinearRepeatSampler_   = VK_NULL_HANDLE;
+    SubmitFence_           = VK_NULL_HANDLE;
+    TimestampValidBits_    = 0u;
+    TimestampPeriodNs_     = 0.0f;
+    AllocatedDeviceBytes_  = 0u;
     DeviceName_.clear();
+    DriverSummary_.clear();
 }
 
 uint32_t VulkanComputeExchange::SelectMemoryType(uint32_t TypeBits, VkMemoryPropertyFlags RequiredFlags) const
@@ -559,6 +778,7 @@ bool VulkanComputeExchange::AllocateMemorySpan(VkDeviceSize ByteCount, DeviceMem
         return false;
     }
     OutSlot.Capacity = SpanSpec.size;
+    AllocatedDeviceBytes_ += Requirements.size;
     std::memset(OutSlot.MappedBytes, 0, static_cast<size_t>(SpanSpec.size));
     return true;
 }
@@ -569,6 +789,10 @@ void VulkanComputeExchange::ReleaseMemorySpan(DeviceMemorySpan& Slot) noexcept
     {
         Slot = DeviceMemorySpan{};
         return;
+    }
+    if (Slot.Capacity > 0 && AllocatedDeviceBytes_ >= Slot.Capacity)
+    {
+        AllocatedDeviceBytes_ -= Slot.Capacity;
     }
     if (Slot.MappedBytes && Slot.Memory != VK_NULL_HANDLE)
     {
@@ -676,11 +900,13 @@ bool VulkanComputeExchange::AllocateRgba16fArray(uint32_t Width, uint32_t Height
         return false;
     }
 
-    OutSlot.Format        = ImageSpec.format;
-    OutSlot.Width         = Width;
-    OutSlot.Height        = Height;
-    OutSlot.ArrayLayers   = ArrayLayers;
-    OutSlot.CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    OutSlot.AllocatedBytes = Requirements.size;
+    AllocatedDeviceBytes_ += Requirements.size;
+    OutSlot.Format         = ImageSpec.format;
+    OutSlot.Width          = Width;
+    OutSlot.Height         = Height;
+    OutSlot.ArrayLayers    = ArrayLayers;
+    OutSlot.CurrentLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
     return ClearRgba16fArray(OutSlot);
 }
 
@@ -747,12 +973,165 @@ bool VulkanComputeExchange::AllocateSrgb8Array(uint32_t Width, uint32_t Height, 
         return false;
     }
 
-    OutSlot.Format        = ImageSpec.format;
-    OutSlot.Width         = Width;
-    OutSlot.Height        = Height;
-    OutSlot.ArrayLayers   = ArrayLayers;
-    OutSlot.CurrentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    OutSlot.AllocatedBytes = Requirements.size;
+    AllocatedDeviceBytes_ += Requirements.size;
+    OutSlot.Format         = ImageSpec.format;
+    OutSlot.Width          = Width;
+    OutSlot.Height         = Height;
+    OutSlot.ArrayLayers    = ArrayLayers;
+    OutSlot.CurrentLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
     return true;
+}
+
+bool VulkanComputeExchange::AllocateUnorm8Array(uint32_t Width, uint32_t Height, uint32_t ArrayLayers, DeviceImageArraySlot& OutSlot)
+{
+    ReleaseImage(OutSlot);
+    if (!Ready() || Width == 0u || Height == 0u || ArrayLayers == 0u)
+    {
+        return false;
+    }
+
+    VkImageCreateInfo ImageSpec{};
+    ImageSpec.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImageSpec.imageType     = VK_IMAGE_TYPE_2D;
+    ImageSpec.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    ImageSpec.extent        = {Width, Height, 1u};
+    ImageSpec.mipLevels     = 1u;
+    ImageSpec.arrayLayers   = ArrayLayers;
+    ImageSpec.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ImageSpec.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ImageSpec.usage         = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    ImageSpec.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ImageSpec.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (pfnCreateImage_(Device_, &ImageSpec, nullptr, &OutSlot.Image) != VK_SUCCESS)
+    {
+        return false;
+    }
+    VkMemoryRequirements Requirements{};
+    pfnGetImageMemoryRequirements_(Device_, OutSlot.Image, &Requirements);
+    const uint32_t MemoryType = SelectMemoryType(Requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (MemoryType == UINT32_MAX)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    VkMemoryAllocateInfo AllocSpec{};
+    AllocSpec.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    AllocSpec.allocationSize  = Requirements.size;
+    AllocSpec.memoryTypeIndex = MemoryType;
+
+    if (pfnAllocateMemory_(Device_, &AllocSpec, nullptr, &OutSlot.Memory) != VK_SUCCESS ||
+        pfnBindImageMemory_(Device_, OutSlot.Image, OutSlot.Memory, 0) != VK_SUCCESS)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    VkImageViewCreateInfo ViewSpec{};
+    ViewSpec.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ViewSpec.image                           = OutSlot.Image;
+    ViewSpec.viewType                        = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    ViewSpec.format                          = ImageSpec.format;
+    ViewSpec.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    ViewSpec.subresourceRange.baseMipLevel   = 0u;
+    ViewSpec.subresourceRange.levelCount     = 1u;
+    ViewSpec.subresourceRange.baseArrayLayer = 0u;
+    ViewSpec.subresourceRange.layerCount     = ArrayLayers;
+
+    if (pfnCreateImageView_(Device_, &ViewSpec, nullptr, &OutSlot.ArrayView) != VK_SUCCESS)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    OutSlot.AllocatedBytes = Requirements.size;
+    AllocatedDeviceBytes_ += Requirements.size;
+    OutSlot.Format         = ImageSpec.format;
+    OutSlot.Width          = Width;
+    OutSlot.Height         = Height;
+    OutSlot.ArrayLayers    = ArrayLayers;
+    OutSlot.CurrentLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    return true;
+}
+
+bool VulkanComputeExchange::AllocateDisplayRgba8Target(uint32_t Width, uint32_t Height, DeviceImageArraySlot& OutSlot)
+{
+    ReleaseImage(OutSlot);
+    if (!Ready() || Width == 0u || Height == 0u)
+    {
+        return false;
+    }
+
+    VkImageCreateInfo ImageSpec{};
+    ImageSpec.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ImageSpec.imageType     = VK_IMAGE_TYPE_2D;
+    ImageSpec.format        = VK_FORMAT_R8G8B8A8_UNORM;
+    ImageSpec.extent        = {Width, Height, 1u};
+    ImageSpec.mipLevels     = 1u;
+    ImageSpec.arrayLayers   = 1u;
+    ImageSpec.samples       = VK_SAMPLE_COUNT_1_BIT;
+    ImageSpec.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    ImageSpec.usage         = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ImageSpec.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ImageSpec.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (pfnCreateImage_(Device_, &ImageSpec, nullptr, &OutSlot.Image) != VK_SUCCESS)
+    {
+        return false;
+    }
+    VkMemoryRequirements Requirements{};
+    pfnGetImageMemoryRequirements_(Device_, OutSlot.Image, &Requirements);
+    const uint32_t MemoryType = SelectMemoryType(Requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (MemoryType == UINT32_MAX)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    VkMemoryAllocateInfo AllocSpec{};
+    AllocSpec.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    AllocSpec.allocationSize  = Requirements.size;
+    AllocSpec.memoryTypeIndex = MemoryType;
+
+    if (pfnAllocateMemory_(Device_, &AllocSpec, nullptr, &OutSlot.Memory) != VK_SUCCESS ||
+        pfnBindImageMemory_(Device_, OutSlot.Image, OutSlot.Memory, 0) != VK_SUCCESS)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    VkImageViewCreateInfo ArrayViewSpec{};
+    ArrayViewSpec.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ArrayViewSpec.image                           = OutSlot.Image;
+    ArrayViewSpec.viewType                        = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    ArrayViewSpec.format                          = ImageSpec.format;
+    ArrayViewSpec.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    ArrayViewSpec.subresourceRange.baseMipLevel   = 0u;
+    ArrayViewSpec.subresourceRange.levelCount     = 1u;
+    ArrayViewSpec.subresourceRange.baseArrayLayer = 0u;
+    ArrayViewSpec.subresourceRange.layerCount     = 1u;
+
+    VkImageViewCreateInfo SampleViewSpec = ArrayViewSpec;
+    SampleViewSpec.viewType              = VK_IMAGE_VIEW_TYPE_2D;
+
+    if (pfnCreateImageView_(Device_, &ArrayViewSpec, nullptr, &OutSlot.ArrayView) != VK_SUCCESS ||
+        pfnCreateImageView_(Device_, &SampleViewSpec, nullptr, &OutSlot.SampleView2D) != VK_SUCCESS)
+    {
+        ReleaseImage(OutSlot);
+        return false;
+    }
+
+    OutSlot.AllocatedBytes = Requirements.size;
+    AllocatedDeviceBytes_ += Requirements.size;
+    OutSlot.Format         = ImageSpec.format;
+    OutSlot.Width          = Width;
+    OutSlot.Height         = Height;
+    OutSlot.ArrayLayers    = 1u;
+    OutSlot.CurrentLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+    return ClearRgba16fArray(OutSlot, {0.04f, 0.05f, 0.07f, 1.0f});
 }
 
 void VulkanComputeExchange::ReleaseImage(DeviceImageArraySlot& Slot) noexcept
@@ -761,6 +1140,14 @@ void VulkanComputeExchange::ReleaseImage(DeviceImageArraySlot& Slot) noexcept
     {
         Slot = DeviceImageArraySlot{};
         return;
+    }
+    if (Slot.AllocatedBytes > 0 && AllocatedDeviceBytes_ >= Slot.AllocatedBytes)
+    {
+        AllocatedDeviceBytes_ -= Slot.AllocatedBytes;
+    }
+    if (Slot.SampleView2D != VK_NULL_HANDLE)
+    {
+        pfnDestroyImageView_(Device_, Slot.SampleView2D, nullptr);
     }
     if (Slot.ArrayView != VK_NULL_HANDLE)
     {
@@ -911,6 +1298,87 @@ bool VulkanComputeExchange::UploadSrgb8Array(DeviceImageArraySlot& Slot, std::sp
                     (pfnWaitForFences_(Device_, 1u, &SubmitFence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS);
     pfnFreeCommandStreams_(Device_, CommandPool_, 1u, &CommandStream);
     ReleaseMemorySpan(TransferSpan);
+    return Ok;
+}
+
+bool VulkanComputeExchange::UploadUnorm8Array(DeviceImageArraySlot& Slot, std::span<const uint8_t> RgbaBytes)
+{
+    return UploadSrgb8Array(Slot, RgbaBytes);
+}
+
+bool VulkanComputeExchange::TransitionForPresentationSampling(DeviceImageArraySlot& Slot)
+{
+    if (!Ready() || Slot.Image == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+    if (Slot.CurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+    {
+        return true;
+    }
+    VkCommandBufferAllocateInfo StreamAlloc{};
+    StreamAlloc.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    StreamAlloc.commandPool        = CommandPool_;
+    StreamAlloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    StreamAlloc.commandBufferCount = 1u;
+    VkCommandBuffer CommandStream  = VK_NULL_HANDLE;
+    if (pfnAllocateCommandStreams_(Device_, &StreamAlloc, &CommandStream) != VK_SUCCESS)
+    {
+        return false;
+    }
+    VkCommandBufferBeginInfo BeginSpec{};
+    BeginSpec.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    BeginSpec.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    pfnBeginCommandStream_(CommandStream, &BeginSpec);
+    TransitionImageLayout(CommandStream, Slot, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    pfnEndCommandStream_(CommandStream);
+
+    pfnResetFences_(Device_, 1u, &SubmitFence_);
+    VkSubmitInfo SubmitSpec{};
+    SubmitSpec.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    SubmitSpec.commandBufferCount = 1u;
+    SubmitSpec.pCommandBuffers    = &CommandStream;
+    const bool Ok = (pfnQueueSubmit_(Queue_, 1u, &SubmitSpec, SubmitFence_) == VK_SUCCESS) &&
+                    (pfnWaitForFences_(Device_, 1u, &SubmitFence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS);
+    pfnFreeCommandStreams_(Device_, CommandPool_, 1u, &CommandStream);
+    return Ok;
+}
+
+bool VulkanComputeExchange::TransitionForComputeStorage(DeviceImageArraySlot& Slot)
+{
+    if (!Ready() || Slot.Image == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+    if (Slot.CurrentLayout == VK_IMAGE_LAYOUT_GENERAL)
+    {
+        return true;
+    }
+    VkCommandBufferAllocateInfo StreamAlloc{};
+    StreamAlloc.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    StreamAlloc.commandPool        = CommandPool_;
+    StreamAlloc.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    StreamAlloc.commandBufferCount = 1u;
+    VkCommandBuffer CommandStream  = VK_NULL_HANDLE;
+    if (pfnAllocateCommandStreams_(Device_, &StreamAlloc, &CommandStream) != VK_SUCCESS)
+    {
+        return false;
+    }
+    VkCommandBufferBeginInfo BeginSpec{};
+    BeginSpec.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    BeginSpec.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    pfnBeginCommandStream_(CommandStream, &BeginSpec);
+    TransitionImageLayout(CommandStream, Slot, VK_IMAGE_LAYOUT_GENERAL);
+    pfnEndCommandStream_(CommandStream);
+
+    pfnResetFences_(Device_, 1u, &SubmitFence_);
+    VkSubmitInfo SubmitSpec{};
+    SubmitSpec.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    SubmitSpec.commandBufferCount = 1u;
+    SubmitSpec.pCommandBuffers    = &CommandStream;
+    const bool Ok = (pfnQueueSubmit_(Queue_, 1u, &SubmitSpec, SubmitFence_) == VK_SUCCESS) &&
+                    (pfnWaitForFences_(Device_, 1u, &SubmitFence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS);
+    pfnFreeCommandStreams_(Device_, CommandPool_, 1u, &CommandStream);
     return Ok;
 }
 
@@ -1164,7 +1632,8 @@ bool VulkanComputeExchange::LoadComputeProgram(const std::string&               
     PipeSpec.stage.pName  = ResolvedEntryName.c_str();
     PipeSpec.layout       = OutProgram.Layout;
 
-    if (pfnCreateComputePipelines_(Device_, VK_NULL_HANDLE, 1u, &PipeSpec, nullptr, &OutProgram.Pipeline) != VK_SUCCESS)
+    const auto CompileStart = std::chrono::steady_clock::now();
+    if (pfnCreateComputePipelines_(Device_, PipelineStateStore_, 1u, &PipeSpec, nullptr, &OutProgram.Pipeline) != VK_SUCCESS)
     {
         if (OutDiagnostic)
         {
@@ -1173,6 +1642,8 @@ bool VulkanComputeExchange::LoadComputeProgram(const std::string&               
         ReleaseProgram(OutProgram);
         return false;
     }
+    const auto CompileFinish       = std::chrono::steady_clock::now();
+    OutProgram.CompileMilliseconds = std::chrono::duration<double, std::milli>(CompileFinish - CompileStart).count();
 
     OutProgram.BindingTypes.assign(BindingTypes.begin(), BindingTypes.end());
     return true;
@@ -1210,8 +1681,13 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
                                             uint32_t                                   PushConstantBytes,
                                             uint32_t                                   GroupCountX,
                                             uint32_t                                   GroupCountY,
-                                            uint32_t                                   GroupCountZ)
+                                            uint32_t                                   GroupCountZ,
+                                            DispatchTimingSample*                      OutTiming)
 {
+    if (OutTiming)
+    {
+        *OutTiming = DispatchTimingSample{};
+    }
     if (!Ready() || Program.Pipeline == VK_NULL_HANDLE || Arguments.size() != Program.BindingTypes.size())
     {
         return false;
@@ -1220,6 +1696,8 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
     {
         return true;
     }
+
+    const auto HostStart = std::chrono::steady_clock::now();
 
     pfnResetDescriptorPool_(Device_, DescriptorPool_, 0u);
     VkDescriptorSetAllocateInfo SetAlloc{};
@@ -1262,15 +1740,19 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
             {
                 return false;
             }
-            ImageDescriptors[SlotIndex].imageView = Arguments[SlotIndex].ImageArray->ArrayView;
+            const DeviceImageArraySlot& Img       = *Arguments[SlotIndex].ImageArray;
+            ImageDescriptors[SlotIndex].imageView = Img.ArrayView;
             ImageDescriptors[SlotIndex].sampler   = (Program.BindingTypes[SlotIndex] == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
-                                                        ? (Arguments[SlotIndex].ImageArray->Format == VK_FORMAT_R8G8B8A8_SRGB
+                                                        ? ((Img.Format == VK_FORMAT_R8G8B8A8_SRGB ||
+                                                            Img.Format == VK_FORMAT_R8G8B8A8_UNORM)
                                                                ? LinearRepeatSampler_
                                                                : LinearClampSampler_)
                                                         : VK_NULL_HANDLE;
-            ImageDescriptors[SlotIndex].imageLayout = (Arguments[SlotIndex].ImageArray->Format == VK_FORMAT_R8G8B8A8_SRGB)
-                                                          ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                                                          : VK_IMAGE_LAYOUT_GENERAL;
+            ImageDescriptors[SlotIndex].imageLayout = (Program.BindingTypes[SlotIndex] == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                                                          ? VK_IMAGE_LAYOUT_GENERAL
+                                                          : ((Img.CurrentLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                                                                 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                                                 : VK_IMAGE_LAYOUT_GENERAL);
             Writes[SlotIndex].pImageInfo = &ImageDescriptors[SlotIndex];
         }
     }
@@ -1287,10 +1769,19 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
         return false;
     }
 
+    const bool RecordTimestamps = (OutTiming != nullptr) && (TimestampQueryPool_ != VK_NULL_HANDLE) &&
+                                  (TimestampValidBits_ > 0u) && (TimestampPeriodNs_ > 0.0f);
+
     VkCommandBufferBeginInfo BeginSpec{};
     BeginSpec.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     BeginSpec.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     pfnBeginCommandStream_(CommandStream, &BeginSpec);
+
+    if (RecordTimestamps)
+    {
+        pfnCmdResetQueryPool_(CommandStream, TimestampQueryPool_, 0u, 2u);
+        pfnCmdWriteTimestamp_(CommandStream, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, TimestampQueryPool_, 0u);
+    }
 
     pfnCmdBindPipeline_(CommandStream, VK_PIPELINE_BIND_POINT_COMPUTE, Program.Pipeline);
     pfnCmdBindDescriptorSets_(CommandStream, VK_PIPELINE_BIND_POINT_COMPUTE, Program.Layout, 0u, 1u, &DescSet, 0u, nullptr);
@@ -1315,6 +1806,11 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
                            0u,
                            nullptr);
 
+    if (RecordTimestamps)
+    {
+        pfnCmdWriteTimestamp_(CommandStream, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, TimestampQueryPool_, 1u);
+    }
+
     pfnEndCommandStream_(CommandStream);
 
     pfnResetFences_(Device_, 1u, &SubmitFence_);
@@ -1324,6 +1820,27 @@ bool VulkanComputeExchange::DispatchCompute(const ComputeProgramSlot&           
     SubmitSpec.pCommandBuffers    = &CommandStream;
     const bool Ok = (pfnQueueSubmit_(Queue_, 1u, &SubmitSpec, SubmitFence_) == VK_SUCCESS) &&
                     (pfnWaitForFences_(Device_, 1u, &SubmitFence_, VK_TRUE, UINT64_MAX) == VK_SUCCESS);
+
+    const auto HostFinish = std::chrono::steady_clock::now();
+    if (OutTiming)
+    {
+        OutTiming->CpuMilliseconds = std::chrono::duration<double, std::milli>(HostFinish - HostStart).count();
+        if (Ok && RecordTimestamps)
+        {
+            uint64_t Ticks[2] = {0u, 0u};
+            if (pfnGetQueryPoolResults_(Device_, TimestampQueryPool_, 0u, 2u, sizeof(Ticks), Ticks,
+                                        sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS)
+            {
+                const uint64_t Mask  = (TimestampValidBits_ >= 64u) ? UINT64_MAX : ((uint64_t(1) << TimestampValidBits_) - 1u);
+                const uint64_t T0    = Ticks[0] & Mask;
+                const uint64_t T1    = Ticks[1] & Mask;
+                const uint64_t Delta = (T1 >= T0) ? (T1 - T0) : ((Mask - T0) + T1 + 1u);
+                OutTiming->GpuMilliseconds       = static_cast<double>(Delta) * static_cast<double>(TimestampPeriodNs_) * 1.0e-6;
+                OutTiming->GpuTimestampAvailable = true;
+            }
+        }
+    }
+
     pfnFreeCommandStreams_(Device_, CommandPool_, 1u, &CommandStream);
     return Ok;
 }

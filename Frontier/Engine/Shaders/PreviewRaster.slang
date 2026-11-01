@@ -463,19 +463,19 @@ void ResolvePreviewViewMain(uint3 Tid : SV_DispatchThreadID)
         {
             if (NdotL > 0.0f)
             {
-                DirectShadow = TraceGpuVolumeConeShadow(DistanceVolumeTable, HitPos, OpaqueNormal, SunDir, 10.0f, 9.5f, 16);
+                DirectShadow = TraceVolumeConeVisibilityGpu(DistanceVolumeTable, HitPos, SunDir, 10.0f, 9.5f, 16u);
             }
-            AmbientAo = EvaluateGpuVolumeAmbientOcclusion(DistanceVolumeTable, HitPos, OpaqueNormal, 0.85f);
+            AmbientAo = EvaluateVolumeAmbientOcclusionGpu(DistanceVolumeTable, HitPos, OpaqueNormal);
         }
         else if (ShadowMode == 4u) // HybridOrthoAndDistance
         {
             if (NdotL > 0.0f)
             {
                 float OrthoS = SampleOrthoClusterShadow(HitPos, OpaqueNormal, SunDir);
-                float SdfS   = TraceGpuVolumeConeShadow(DistanceVolumeTable, HitPos, OpaqueNormal, SunDir, 8.0f, 16.0f, 10);
+                float SdfS   = TraceVolumeConeVisibilityGpu(DistanceVolumeTable, HitPos, SunDir, 8.0f, 16.0f, 10u);
                 DirectShadow = min(OrthoS, lerp(0.25f, 1.0f, SdfS));
             }
-            AmbientAo = EvaluateGpuVolumeAmbientOcclusion(DistanceVolumeTable, HitPos, OpaqueNormal, 0.85f);
+            AmbientAo = EvaluateVolumeAmbientOcclusionGpu(DistanceVolumeTable, HitPos, OpaqueNormal);
         }
 
         float  Alpha    = Roughness * Roughness;

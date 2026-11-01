@@ -654,3 +654,71 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
   `TornadoSupercellAndDustVortex.png`). Phase 3B (GTX-first ReSTIR + SDF + software CWBVH renderer) queued next.
 
 
+## Phase 3C — GTX-first ReSTIR DI + ReSTIR GI + 8-Wide CWBVH + 4-Cascade SDF + Surface Cards
+
+> Verification environment: Linux x86-64, GCC 12.2.0 (`-std=c++20`), Slang `spirv_1_3`, SwiftShader Vulkan 1.3.
+> **No GTX hardware timing was measured here**; software-Vulkan millisecond figures are not performance indicators.
+
+### Replaced (Phase 3B baseline -> Phase 3C)
+
+| Subsystem | Was | Now |
+|---|---|---|
+| Acceleration | single-level binary SAH BVH | two-level instanced TLAS + quantized 8-wide CWBVH BLAS (`23267` -> `4212` wide cells, same `25532` triangles) |
+| Normals | geometric only | octahedral crease-smoothed vertex normals (58.7° crease lock) |
+| Dielectric | linear `lerp` bend | exact unpolarized Fresnel + Snell vector refract + TIR (`EvaluateDielectricBoundary`) |
+| Light sampling | uniform analytic loop | weighted RIS over solar + analytical + flux-weighted emissive facet CDF, shadow verified |
+| Indirect | one SDF grid + tint | true ReSTIR GI over a 4-cascade clipmap SDF, shaded by GPU SurfaceCard multi-bounce radiosity |
+| Reflections | one jittered ray | Heitz (2018) stretched-ellipsoid VNDF, base/coat mixture PDF, exact throughput |
+| Denoiser | shared diffuse/spec, constant sigma | split demodulation, `>= 6/255` representable albedo floor, real second moment, hit-distance specular taps |
+| Environment | analytic gradient | `AtmosphereProjection` SkyView LUT + lunar corona haze + clouds + ForceField dust fog + lens flare |
+| Presentation | host readback | zero-copy `RGBA8` storage target for `ImGui_ImplVulkan_AddTexture` (ACES + exact sRGB + dither) |
+| Telemetry | counters | per-kernel hardware timestamps (`VkQueryPool`), VRAM accounting, pipeline-compile ms, persistent `VkPipelineCache` |
+
+### New and modified files
+
+- `Frontier/Engine/Rendering/SurfaceCardRadiosity.{h,cpp}` + `Frontier/Engine/Shaders/SurfaceCardRadiosity.slang`
+  — GPU direct injection + Jacobi multi-bounce radiosity, `QuerySurfaceCardExitanceGpu`, and the CPU reference solver.
+- `Frontier/Engine/Rendering/SpatiotemporalIllumination.{h,cpp}` — six-kernel orchestrator, immutable ping-pong history,
+  two-level scene upload, dynamic-instance refresh, RGBA8 display target, per-kernel timing telemetry.
+- `Frontier/Engine/Shaders/SpatiotemporalIllumination.slang` — rewritten as six kernels with frame uniforms moved into a
+  `StructuredBuffer` (keeps push constants at the 16-byte Vulkan minimum).
+- `Frontier/Engine/Shaders/BoundingVolumeSearch.slang` — two-level instanced 8-wide traversal, dielectric peel, emissive CDF.
+- `Frontier/Engine/Shaders/VolumeDistanceSampling.slang` — single-grid **and** 4-cascade clipmap sampling + analytic union.
+- `Frontier/Engine/Shaders/SurfaceScatteringEvaluation.slang` — 8x float4 strata, 2D-array PBR textures, anisotropy,
+  Toksvig flake folding, split diffuse/specular evaluation, VNDF sampling.
+- `Frontier/Engine/Geometry/GeometryProcessing/BoundingVolumeAtlas.{h,cpp}` — CWBVH collapse, octahedral normals,
+  `InstancedBoundingScene`, emissive CDF, two-level CPU oracles.
+- `Frontier/Engine/Geometry/GeometryProcessing/VolumeDistanceArchive.{h,cpp}` — 4-cascade assembly, analytic primitives.
+- `Frontier/Engine/DeviceExchange/VulkanComputeExchange.{h,cpp}` — `AttachExistingDevice`, `AllocateDisplayRgba8Target`,
+  RGBA8/UNORM upload, presentation/storage transitions, `DispatchTimingSample`, persistent pipeline cache, VRAM accounting.
+- `Engine/Interface/VulkanPresentation.{h,cpp}` — `QueryDeviceBorrowing` so the renderer can share the editor's device.
+- `Automation/EnvironmentRendering.cmake` — new sources, `SurfaceCardRadiosity.slang`, and the two extra shader entries.
+
+### Defects found and fixed during verification
+
+1. **NaNs from degenerate facets** propagated through interpolated shading normals and painted whole body panels white in
+   every inspection mode. Added safe normalization in the traversal plus final sanitisation in the resolve.
+2. **Reservoir parity mismatch** — the spatial kernel wrote radiance into parity 1 while à-trous and resolve consumed
+   parity 0, so the first frame silently dropped all direct light.
+3. **Planar parity bug** in the anisotropic GGX Smith term (the same lambda argument was passed twice).
+4. **Refinement profiles overwrote authored albedo**, turning every painted panel the neutral grey profile default.
+5. **TextureStudio swatch lost** — texture-driven `.material` files store colour in the channel swatch and `(1,1,1)` in
+   the albedo field, so carbon-fibre trim and concrete rendered as untextured white panels.
+6. **Class 13 authored as a bright LED emitter** turned the whole front fascia into a glowing slab.
+7. **Unbounded single-sample clearcoat specular** aliased paint into solid white; added the documented firefly bound.
+8. **PreviewRaster referenced removed SDF helpers** (`TraceGpuVolumeConeShadow` / `EvaluateGpuVolumeAmbientOcclusion`).
+
+### Verification
+
+`SpatiotemporalIlluminationValidation` passes: `.sdfspace` round-trip, **256/256** wide-vs-binary traversal agreement,
+dielectric Fresnel/TIR arithmetic, emissive CDF (`5536` facets, `132.6 W`), CPU-vs-GPU radiosity (`max |Δ| = 1.79e-7`),
+VNDF white furnace (`0.977`), 3-tier Material LOD thresholds, and temporal rejection after a camera teleport.
+Six retained captures are documented in `Exhibits/SpatiotemporalIllumination/README.md`.
+
+**Suite status: 60/63.** The three failures (`StampWorkspacePanelConstructionValidation`, `DockCycleRecoveryValidation`,
+`FrameFaultRecoveryValidation`) abort identically with this change set stashed and are not Phase 3C regressions.
+
+### Still open
+
+GTX hardware timing, thick-solid dielectric transport with caustics, per-cluster (rather than 6-axis) surface cards,
+GPU card capture, and convergence beyond 4–6 temporal frames.
