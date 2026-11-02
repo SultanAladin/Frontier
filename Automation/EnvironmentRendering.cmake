@@ -263,7 +263,17 @@ macro(frontier_register_environment_tests)
                         "${FRONTIER_ENV_SHADER_SRC}/SurfaceReprojection.slang"
                 VERBATIM)
             add_custom_target(SurfaceReprojectionValidationShader DEPENDS "${REPROJECTION_VALIDATION_SPV}")
-            add_dependencies(SpatiotemporalIlluminationValidation SurfaceReprojectionValidationShader)
+            set(CARD_SOLAR_VALIDATION_SPV "${CMAKE_BINARY_DIR}/spatiotemporal-illumination-exhibits/CardSolarValidation.spv")
+            add_custom_command(OUTPUT "${CARD_SOLAR_VALIDATION_SPV}"
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/spatiotemporal-illumination-exhibits"
+                COMMAND "${FRONTIER_ENV_SLANGC}" "${CMAKE_SOURCE_DIR}/Exhibits/SpatiotemporalIllumination/Code/CardSolarValidation.slang"
+                    -I "${FRONTIER_ENV_SHADER_SRC}" -entry ValidateCardSolarMain -stage compute
+                    -target spirv -profile spirv_1_3 -emit-spirv-directly -O0 -o "${CARD_SOLAR_VALIDATION_SPV}"
+                DEPENDS "${CMAKE_SOURCE_DIR}/Exhibits/SpatiotemporalIllumination/Code/CardSolarValidation.slang"
+                        "${FRONTIER_ENV_SHADER_SRC}/DistanceTraversal.slang"
+                VERBATIM)
+            add_custom_target(CardSolarValidationShader DEPENDS "${CARD_SOLAR_VALIDATION_SPV}")
+            add_dependencies(SpatiotemporalIlluminationValidation SurfaceReprojectionValidationShader CardSolarValidationShader)
         endif()
         add_test(NAME SpatiotemporalIlluminationValidation COMMAND SpatiotemporalIlluminationValidation
             "${CMAKE_SOURCE_DIR}"

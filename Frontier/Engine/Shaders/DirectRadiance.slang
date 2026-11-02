@@ -4,7 +4,7 @@
 // 🧩 Deterministic direct illumination (ShadowRaster 3-cascade hardware shadow depth + analytic area/clustered luminaires):
 //    - Zero DI Monte Carlo noise in default Hybrid mode (sub-texel 3x3 bilinear-weighted PCF + cascade cross-fade)
 //    - Karis / Frostbite representative-point rectangular studio softboxes (silky smooth clearcoat area highlights on Frame 0)
-//    - Hardware 3D SDF local softbox contact occlusion
+//    - Hybrid local lights remain unshadowed, matching the reference clustered-light path
 
 #pragma once
 
@@ -118,9 +118,6 @@ float3 EvaluateDeterministicDirectRadiance(StructuredBuffer<float4> FrameHeader,
     OutPrimaryShadow     = 1.0f;
     uint   LumCount      = uint(FrameHeader[3].w + 0.5f);
     uint   LumBase       = max(20u, uint(FrameHeader[19].w + 0.5f));
-    bool   HasSdf        = (FrameHeader[7].z > 0.5f);
-    bool   ClipmapActive = (FrameHeader[12].y > 0.5f);
-    float  GroundHeightM = FrameHeader[19].z;
     float3 DirectTotal   = float3(0.0f);
     float3 ReflRay       = reflect(-ViewDir, N);
 
@@ -227,15 +224,7 @@ float3 EvaluateDeterministicDirectRadiance(StructuredBuffer<float4> FrameHeader,
                 SpecTerm = SpecB * Emit * (RepNdotL * min(AreaM2 * RepCosEm / RepDist2, 1.4f)) * (0.35f + 0.65f * SolidAngleNorm);
             }
 
-            float SoftOcc = 1.0f;
-            if (HasSdf)
-            {
-                float3 ToCenter = Center - WorldPos;
-                float  CDist    = max(0.05f, length(ToCenter));
-                SoftOcc         = EvaluateHardwareSdfConeVisibility(
-                    SdfClipmapVolume, DistanceOrRangeTable, ClipmapActive, GroundHeightM, WorldPos, N, ToCenter / CDist, CDist, 0.14f);
-            }
-            DirectTotal += (DiffAccum + SpecTerm) * SoftOcc;
+            DirectTotal += DiffAccum + SpecTerm;
         }
         else // Point / Sphere thermal & dynamic emitter
         {
@@ -246,13 +235,9 @@ float3 EvaluateDeterministicDirectRadiance(StructuredBuffer<float4> FrameHeader,
             float  NdotL   = max(0.0f, dot(N, LDir));
             if (NdotL > 0.0f)
             {
-                float Occ = HasSdf
-                                ? EvaluateHardwareSdfConeVisibility(
-                                      SdfClipmapVolume, DistanceOrRangeTable, ClipmapActive, GroundHeightM, WorldPos, N, LDir, Dist, 0.08f)
-                                : 1.0f;
                 float3 DiffB, SpecB;
                 EvaluateSurfaceSplitBrdf(Mat, N, T, B, ViewDir, LDir, DiffB, SpecB);
-                DirectTotal += (DiffB + SpecB) * (Emit / DistSq) * (NdotL * Occ);
+                DirectTotal += (DiffB + SpecB) * (Emit / DistSq) * NdotL;
             }
         }
     }

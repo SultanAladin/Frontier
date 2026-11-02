@@ -597,28 +597,20 @@ void SolveSurfaceRadiosityMain(uint3 Tid : SV_DispatchThreadID)
             float             CosT = max(0.0f, dot(Normal, Prop.LightDir));
             if (Prop.Valid && CosT > 0.0f)
             {
-                // 📝 The reference shadows card sunlight with an SDF; its clustered local lights are unshadowed.
+                // 📝 The reference shadows card sunlight with its SDF; local lights remain unshadowed.
                 float3 Vis = float3(1.0f);
-                if (!IsFullRaytracingEnabled() && FrameHeader[7].z > 0.5f)
-                {
-                    uint LuminaireType = uint(FrameHeader[ResolveLuminaireBaseSlot() + L * 4u].w + 0.5f);
-                    if (LuminaireType == 0u)
-                    {
-                        float Visibility = EvaluateHardwareSdfConeVisibility(SdfClipmapVolume,
-                                                                             DistanceOrRangeTable,
-                                                                             FrameHeader[12].y > 0.5f,
-                                                                             FrameHeader[19].z,
-                                                                             Center,
-                                                                             Normal,
-                                                                             Prop.LightDir,
-                                                                             Prop.DistanceM,
-                                                                             0.04f);
-                        Vis = float3(Visibility);
-                    }
-                }
-                else
+                uint LuminaireType = uint(FrameHeader[ResolveLuminaireBaseSlot() + L * 4u].w + 0.5f);
+                if (IsFullRaytracingEnabled())
                 {
                     Vis = TraceSceneShadowTransmittance(Center + Normal * 0.04f, Prop.LightDir, Prop.DistanceM);
+                }
+                else if (LuminaireType == 0u && FrameHeader[7].z > 0.5f && FrameHeader[33].w > 0.5f)
+                {
+                    float Visibility = (FrameHeader[12].y > 0.5f)
+                        ? EvaluateCardSolarVisibility(SdfClipmapVolume, DistanceOrRangeTable, Center, Normal, Prop.LightDir, 400.0f)
+                        : EvaluateHardwareSdfConeVisibility(SdfClipmapVolume, DistanceOrRangeTable, false, FrameHeader[19].z,
+                                                            Center, Normal, Prop.LightDir, Prop.DistanceM, 0.04f);
+                    Vis = float3(Visibility);
                 }
                 Irrad += Prop.UnshadowedLi * Vis * CosT;
             }

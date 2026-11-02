@@ -424,6 +424,59 @@ int main(int Argc, char** Argv)
                         "Every hardware cascade must retain its active marker and spatial extent");
         }
 
+        {
+            RangeDistanceAtlas ShadowClipmap{};
+            RangeClipmapBuildSpec ShadowSpec{};
+            ShadowSpec.AnchorWorldMeters = {0.0f, 0.0f, 0.0f};
+            ShadowSpec.AxisResolution = 32u;
+            ShadowSpec.RangeHalfExtentsM = {8.0f, 20.0f, 52.0f, 140.0f};
+            const std::array<AnalyticSolidDistanceSpec, 2> Solids{{
+                {1u, {0.0f, 4.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+                {2u, {0.0f, 0.0f, 0.0f}, {100.0f, 0.1f, 100.0f}},
+            }};
+            REQUIRE_STI(ShadowClipmap.BuildClipmap(ShadowSpec, {}, Solids), "Shadow fixture clipmap must build");
+            std::vector<std::array<float, 4>> Headers;
+            std::vector<float> Distances;
+            uint32_t Width = 0u, Height = 0u, Depth = 0u;
+            ShadowClipmap.PackVolumeMetadataForGpu(Headers);
+            ShadowClipmap.PackVolume3DForGpu(Width, Height, Depth, Distances);
+            DeviceMemorySpan HeaderSpan{};
+            DeviceVolumeTextureSlot Volume{};
+            DeviceImageArraySlot ResultImage{};
+            ComputeProgramSlot ShadowProgram{};
+            REQUIRE_STI(Exchange.UploadMemorySpan(HeaderSpan, Headers.data(), Headers.size() * sizeof(Headers[0])) &&
+                            Exchange.AllocateR16fVolume3D(Width, Height, Depth, Volume) &&
+                            Exchange.UploadR16fVolume3D(Volume, Distances) &&
+                            Exchange.AllocateRgba16fArray(1u, 1u, 1u, ResultImage) &&
+                            Exchange.ClearRgba16fArray(ResultImage),
+                        "Shadow fixture resources must allocate");
+            const std::array<VkDescriptorType, 3> Types{{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}};
+            REQUIRE_STI(Exchange.LoadComputeProgram((OutputDir / "CardSolarValidation.spv").string(),
+                                                     "ValidateCardSolarMain", Types, 0u, ShadowProgram, &Diag),
+                        ("Card solar validation shader failed: " + Diag).c_str());
+            const std::array<ComputeDescriptorArgument, 3> Args{{
+                {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nullptr, nullptr, nullptr, &Volume, nullptr},
+                {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, &HeaderSpan, nullptr, nullptr, nullptr, nullptr},
+                {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, nullptr, &ResultImage, nullptr, nullptr, nullptr},
+            }};
+            REQUIRE_STI(Exchange.DispatchCompute(ShadowProgram, Args, nullptr, 0u, 1u, 1u, 1u),
+                        "Card solar validation dispatch must succeed");
+            std::vector<float> Visibility;
+            REQUIRE_STI(Exchange.DownloadRgba16fLayer(ResultImage, 0u, Visibility) && Visibility.size() >= 4u,
+                        "Card solar validation readback must succeed");
+            std::cout << "      Card solar shadow GPU check: " << Visibility[0] << ", " << Visibility[1] << ", "
+                      << Visibility[2] << ", " << Visibility[3] << "\n";
+            REQUIRE_STI(Visibility[0] < 0.01f && Visibility[1] > 0.9f &&
+                            Visibility[2] < 0.01f && Visibility[3] > 0.99f,
+                        "Sphere, unobstructed and far-field shadow cases must match reference semantics");
+            Exchange.ReleaseProgram(ShadowProgram);
+            Exchange.ReleaseImage(ResultImage);
+            Exchange.ReleaseVolume3D(Volume);
+            Exchange.ReleaseMemorySpan(HeaderSpan);
+        }
+
         SurfaceRadiosityAtlas RadiosityCards{};
         const std::array<SurfaceCardBuildInstance, 3> CardBoxes{{
             {{-3.85f, 0.0f, -2.65f}, {-2.95f, 3.20f, -1.75f}, {0.82f, 0.30f, 0.18f}, {0.0f, 0.0f, 0.0f}},

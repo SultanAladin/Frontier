@@ -221,6 +221,44 @@ float EvaluateHardwareSdfConeVisibility(Sampler3D                SdfVolume,
     return Visibility;
 }
 
+// 📝 Card-sun shadow march from the Webdemo. Everest stores untruncated distances, so the
+//    reference's saturated-band coarser-cascade acceleration is unnecessary here.
+float EvaluateCardSolarVisibility(Sampler3D                SdfVolume,
+                                  StructuredBuffer<float4> RangeTable,
+                                  float3                   SurfacePos,
+                                  float3                   SurfaceNormal,
+                                  float3                   Direction,
+                                  float                    MaximumTravel)
+{
+    uint StartLevel = min(ResolveFinestHardwareClip(RangeTable, SurfacePos, 2.0f), 3u);
+    float Bias      = RangeTable[StartLevel * 4u + 2u].x;
+    float3 Origin   = SurfacePos + SurfaceNormal * Bias;
+    float Travel    = 0.5f * Bias;
+    float Visibility = 1.0f;
+    for (uint Step = 0u; Step < 80u; ++Step)
+    {
+        float3 Position = Origin + Direction * Travel;
+        uint Level = ResolveFinestHardwareClip(RangeTable, Position, 2.0f);
+        if (Level >= 4u)
+        {
+            return (Direction.y < -1.0e-4f) ? 0.0f : Visibility;
+        }
+        float Voxel = RangeTable[Level * 4u + 2u].x;
+        float Sampled = SampleHardwareClipLevel(SdfVolume, RangeTable, Level, Position);
+        if (Sampled < Voxel * 0.2f)
+        {
+            return 0.0f;
+        }
+        Visibility = min(Visibility, 6.0f * Sampled / max(Travel, 1.0e-3f));
+        Travel += max(Sampled, Voxel * 0.125f);
+        if (Travel > MaximumTravel)
+        {
+            break;
+        }
+    }
+    return saturate(Visibility);
+}
+
 HardwareSdfHit TraverseHardwareSdfClipmap(Sampler3D                SdfVolume,
                                           StructuredBuffer<float4> RangeOrSdfTable,
                                           bool                     ClipmapActive,
