@@ -1,8 +1,8 @@
 --- runtime validation ---
-programs compiled        : 23
+programs compiled        : 22
 frames executed          : 40 x 3 models + 30 toggle frames
 draw calls per frame     : 81.0, 24.0, 24.0
-distinct gl entry points : 39
+distinct gl entry points : 38
 draws sampled for texture binding: 6054
 sampler binding problems : none
 spectrum scales          : 2.056e-5, 2.046e-6, 1.363e-7

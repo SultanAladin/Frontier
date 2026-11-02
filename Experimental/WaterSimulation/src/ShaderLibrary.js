@@ -16,7 +16,6 @@ const ChunkFiles =
 
 const ProgramFiles =
 [
-    { Label: 'FullscreenVertex', Vertex: 'Fullscreen.vert' },
     { Label: 'SpectrumInitialize', Vertex: 'Fullscreen.vert', Fragment: 'SpectrumInitialize.frag' },
     { Label: 'SpectrumEvolution', Vertex: 'Fullscreen.vert', Fragment: 'SpectrumEvolution.frag' },
     { Label: 'FftButterfly', Vertex: 'Fullscreen.vert', Fragment: 'FftButterfly.frag' },
@@ -28,7 +27,8 @@ const ProgramFiles =
     { Label: 'WaveFieldImpulse', Vertex: 'Impulse.vert', Fragment: 'Impulse.frag' },
     { Label: 'FoamStep', Vertex: 'Fullscreen.vert', Fragment: 'FoamStep.frag' },
     { Label: 'FoamSplat', Vertex: 'Impulse.vert', Fragment: 'FoamSplat.frag' },
-    { Label: 'SprayUpdate', Vertex: 'SprayUpdate.vert', TransformVaryings: ['vPosition', 'vVelocity', 'vSpray'] },
+    { Label: 'SprayUpdate', Vertex: 'SprayUpdate.vert', Fragment: 'TransformFeedbackIdle.frag',
+      TransformVaryings: ['vPosition', 'vVelocity', 'vSpray'] },
     { Label: 'SprayRasterization', Vertex: 'SprayRasterization.vert', Fragment: 'SprayRasterization.frag' },
     { Label: 'SprayDeposit', Vertex: 'SprayDeposit.vert', Fragment: 'SprayDeposit.frag' },
     { Label: 'OceanSurface', Vertex: 'OceanSurface.vert', Fragment: 'OceanSurface.frag' },

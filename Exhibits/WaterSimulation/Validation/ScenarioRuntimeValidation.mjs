@@ -24,6 +24,7 @@ const SamplersByProgram = new Map();
 const SamplerUnitsByProgram = new Map();
 const UnitTextures = new Map();
 const SamplerProblems = [];
+const AttachedStages = new Map();
 let CurrentProgram = null;
 let CurrentLabel = null;
 const ProgramLabelByHandle = new Map();
@@ -115,7 +116,28 @@ const Overrides =
     getExtension: (Name) => ({ Name: Name }),
     getParameter: () => 16,
     getShaderParameter: () => true,
-    getProgramParameter: () => true,
+    getProgramParameter: (Program, Parameter) =>
+    {
+        const Stages = AttachedStages.get(Program) ?? new Set();
+
+        if (Parameter === ConstantFor('LINK_STATUS'))
+        {
+            // 📝 WebGL2 requires both stages; reproduce that rule rather than always reporting success
+            return Stages.has('vertex') && Stages.has('fragment');
+        }
+
+        if (Parameter === ConstantFor('VALIDATE_STATUS'))
+        {
+            return true;
+        }
+
+        return 0;
+    },
+    attachShader: (Program, Shader) =>
+    {
+        if (!AttachedStages.has(Program)) AttachedStages.set(Program, new Set());
+        AttachedStages.get(Program).add(Shader.Kind ?? 'unknown');
+    },
     getShaderInfoLog: () => '',
     getProgramInfoLog: () => '',
     checkFramebufferStatus: () => 0x8CD5,
@@ -126,7 +148,7 @@ const Overrides =
     createRenderbuffer: () => ({ Kind: 'Renderbuffer' }),
     createBuffer: () => ({ Kind: 'Buffer' }),
     createVertexArray: () => ({ Kind: 'VertexArray' }),
-    createShader: () => ({ Kind: 'Shader' }),
+    createShader: (Category) => ({ Kind: Category === ConstantFor('VERTEX_SHADER') ? 'vertex' : 'fragment' }),
     createProgram: () => ({ Kind: 'Program' }),
     createTransformFeedback: () => ({ Kind: 'TransformFeedback' }),
     getAttribLocation: (Program, Name) =>

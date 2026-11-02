@@ -55,6 +55,14 @@ const MissingChunks = ChunkFiles.filter((Name) => !fs.existsSync(path.join(Sourc
 Check('Every referenced program file exists', MissingPrograms.length === 0, `${ProgramFiles.length} program files checked`);
 Check('Every referenced chunk file exists', MissingChunks.length === 0, `${ChunkFiles.length} chunk files checked`);
 
+// 🔴 WebGL2 cannot link a program that lacks either stage; every descriptor must declare a fragment
+const ProgramDescriptors = [...Library.matchAll(
+    /\{ Label: '([^']+)', Vertex: '([^']+)', Fragment: '([^']+)'/g)].map((Match) => Match[1]);
+const AllLabels = [...Library.matchAll(/\{ Label: '([^']+)', Vertex: /g)].map((Match) => Match[1]);
+const StageLess = AllLabels.filter((Label) => !ProgramDescriptors.includes(Label));
+Check('Every program declares both a vertex and a fragment stage', StageLess.length === 0,
+      `${AllLabels.length} programs${StageLess.length ? `, missing fragment: ${StageLess.join(', ')}` : ', all two-stage'}`);
+
 const DeclaredChunks = new Set(ChunkFiles);
 const IncludeFailures = [];
 const ProgramSources = Walk(path.join(SourceRoot, 'shaders/programs'), '.');

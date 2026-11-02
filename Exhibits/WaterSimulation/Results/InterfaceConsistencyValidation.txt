@@ -3,6 +3,8 @@ PASS  Every referenced program file exists
       44 program files checked
 PASS  Every referenced chunk file exists
       7 chunk files checked
+PASS  Every program declares both a vertex and a fragment stage
+      22 programs, all two-stage
 PASS  Every #include resolves to a registered chunk
       no dangling includes
 PASS  Every queried DOM id exists in index.html

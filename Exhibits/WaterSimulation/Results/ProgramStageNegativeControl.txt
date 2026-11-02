@@ -1,0 +1,28 @@
+--- program stage negative control ---
+
+Purpose: prove the stage checks detect the defect reported from the browser session
+("FullscreenVertex: link failed / The program must contain objects to form both a vertex and a
+fragment shader") instead of passing vacuously.
+
+Defect reported: the shader library registered a vertex-only program. WebGL2 refuses to link a
+program that lacks either stage, so boot aborted before any frame.
+
+Method: temporarily reinserted "{ Label: 'BrokenVertexOnly', Vertex: 'Fullscreen.vert' }" into
+ShaderLibrary.js, ran both checks, then restored the file (git diff confirms only the intended
+two-line change remains).
+
+Observed with the defect reintroduced:
+  static  : FAIL  Every program declares both a vertex and a fragment stage
+  runtime : FAIL  ShaderAssemblyError: BrokenVertexOnly: a fragment shader is required:
+                  WebGL2 cannot link a vertex-only program
+
+Observed after restoring the fix:
+  static  : PASS  22 programs, all two-stage
+  runtime : PASS  22 programs compiled, 6 054 draws audited, no sampler problems
+
+Fix applied to the prototype:
+  - removed the unused vertex-only 'FullscreenVertex' entry;
+  - TransformFeedbackIdle.frag added, because WebGL2 also requires a fragment stage on a
+    transform-feedback program even with RASTERIZER_DISCARD enabled;
+  - CompiledProgram now rejects a descriptor without a fragment stage with an explicit message;
+  - the runtime harness emulates the WebGL2 LINK_STATUS rule so a stage-less program fails offline.

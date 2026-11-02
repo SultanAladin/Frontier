@@ -449,3 +449,9 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
 - 🔴 Not verified: any GPU frame, browser appearance, frame rate, or Windows run. This host has no display and
   no working browser; the prototype and `Launch.bat` remain untested on the user's Windows machine.
 - No engine code, Vulkan/Slang path, or GitHub Actions workflow was modified. No Actions were run.
+- Browser report (2026-11-02): startup aborted at `FullscreenVertex: link failed`. Cause was a vertex-only
+  program entry; WebGL2 requires both stages. The entry was removed, `TransformFeedbackIdle.frag` was added
+  for the transform-feedback program, `CompiledProgram` now rejects stage-less descriptors, and the runtime
+  harness emulates the WebGL2 LINK_STATUS rule. Negative control retained as
+  `Exhibits/WaterSimulation/Results/ProgramStageNegativeControl.txt`. Boot now reaches the frame loop; a
+  GPU/browser confirmation of the rendered result is still outstanding on this host.

@@ -144,6 +144,13 @@ export class CompiledProgram
         this.Label    = Descriptor.Label;
         this.VaryingNames = Descriptor.TransformVaryings ?? null;
 
+        // 🔴 WebGL2 refuses to link a program that lacks either stage, so a missing fragment is rejected here
+        if (!Descriptor.Fragment)
+        {
+            throw new ShaderAssemblyError(Descriptor.Label,
+                'a fragment shader is required: WebGL2 cannot link a vertex-only program');
+        }
+
         const VertexShader   = CompileShader(this.Gl, this.Gl.VERTEX_SHADER, Descriptor.Vertex, `${Descriptor.Label} vertex`);
         const FragmentShader = Descriptor.Fragment
             ? CompileShader(this.Gl, this.Gl.FRAGMENT_SHADER, Descriptor.Fragment, `${Descriptor.Label} fragment`)

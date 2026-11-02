@@ -1,8 +1,7 @@
 --- shader stage validation ---
-programs   : 23
-stages     : 44
+programs   : 21
+stages     : 42
 validator  : /tmp/sdl/third_party/glslang/StandAlone/glslangValidator
-OK    FullscreenVertex.vertex
 OK    SpectrumInitialize.vertex
 OK    SpectrumInitialize.fragment
 OK    SpectrumEvolution.vertex
@@ -25,7 +24,6 @@ OK    FoamStep.vertex
 OK    FoamStep.fragment
 OK    FoamSplat.vertex
 OK    FoamSplat.fragment
-OK    SprayUpdate.vertex
 OK    SprayRasterization.vertex
 OK    SprayRasterization.fragment
 OK    SprayDeposit.vertex

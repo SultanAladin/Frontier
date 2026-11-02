@@ -46,9 +46,9 @@ python3 -m venv /tmp/shadenv && /tmp/shadenv/bin/pip install cmake ninja
 
 | Check | Script | Result | Key numbers |
 |---|---|---|---|
-| GLSL ES 3.00 stage validation | `ShaderStageValidation.mjs` | 🟢 44 / 44 stages | 23 programs, 7 chunks, 0 failures |
+| GLSL ES 3.00 stage validation | `ShaderStageValidation.mjs` | 🟢 44 / 44 stages | 22 programs, 7 chunks, 0 failures |
 | Uniform + varying cross-check | `ShaderUniformAudit.mjs` | 🟢 | 128 uniform names written and declared, 0 mismatches |
-| Include graph, DOM ids, CSS classes, naming | `InterfaceConsistencyValidation.mjs` | 🟢 | 44 program files, 7 chunks, 15 ids, 22 class tokens |
+| Include graph, stage pairs, DOM ids, CSS classes, naming | `InterfaceConsistencyValidation.mjs` | 🟢 | 22 programs (all two-stage), 7 chunks, 15 ids, 22 class tokens |
 | Live frame path in all three models | `ScenarioRuntimeValidation.mjs` | 🟢 | 150 frames, 43 GL entry points, 6 054 draws audited for sampler units, no non-finite state |
 | Wave mathematics | `WaveMathValidation.mjs` | 🟢 6 / 6 | FFT vs DFT 4.7e‑15 relative; RMS ratio 1.19; grids stable |
 | Vessel kinematics | `VesselKinematicsValidation.mjs` | 🟢 7 / 7 | bow alignment error 0.002, heave error 0.14 m |
@@ -68,6 +68,8 @@ dominates) and **24** for the Gerstner and grid models.
 | `FractalNoise` used with no `Noise.glsl` include | `WaveFieldStep.frag` failed validation: no matching overload | Added the include |
 | Chunk keyed without `.glsl` suffix | First runtime boot threw "missing shader chunk" | Registered chunks by full file name |
 | Vessel heading and stern offsets | Boat would travel stern-first and the wake would trail ahead of the hull | Corrected yaw target and local +Z mapping |
+| Vertex-only program `FullscreenVertex` registered | Boot aborted in the browser: WebGL2 cannot link a program without both stages | Entry removed; `CompiledProgram` rejects stage-less descriptors; harness now emulates the LINK_STATUS rule |
+| Transform-feedback program had no fragment stage | Same link failure once the first entry was removed | `TransformFeedbackIdle.frag` attached (never rasterized) |
 | Ripple and sea grids shared texture unit 0 | Both grids would sample the same texture, so ripples or the sea solve would be silently wrong | Sea grid on unit 0, ripple grid on unit 1 |
 | Height atlas never bound the terrain atlas | Spray collision and vessel buoyancy would read whatever texture unit 12 last held | `TerrainAtlas.Bind` added to the height-atlas pass |
 | FFT resolve/slope uniforms set on a stale program | Uniform values belong to the bound program; the spectral model would run with default constants | Every `Use()` now happens immediately before that program's uniform block |
