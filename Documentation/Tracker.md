@@ -22,6 +22,16 @@ Single progress and violation tracker. Detailed evidence belongs in Exhibits, no
 | 014 | Control Centre and quick panel        | CPU checked | Windows interaction validation next.  |
 | 015 | Open fonts and catalogue              | Checked     | Four families, 30 faces, OFL retained. |
 | 016 | Appearance persistence                | Checked     | Reload and invalid-save checks passed.|
+| 017 | Hearth launcher prototype             | Checked     | Owner review in Experimental/HearthLauncher.|
+
+## Launcher prototype
+
+`Experimental/HearthLauncher/` is a standalone launcher prototype requested in the current session.
+It is plain HTML, CSS, and JavaScript with no engine or CMake changes.
+24 of 24 jsdom interaction checks pass; headless Chromium rendered the page at four widths with no console or page errors.
+The three supplied reference images provide key-art crops and palette direction; no new images were generated.
+Fonts are self-hosted under the SIL Open Font License and the page makes no third-party network requests.
+Limits: launches are simulated, playtime history is presentational, and reference-art redistribution remains subject to item 013.
 
 ## Verification
 

@@ -1,0 +1,14 @@
+{
+  "name": "hearth-launcher-prototype",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Hearth — a warm, editorial app launcher prototype with animated shelves and synthesised audio.",
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 5001",
+    "test": "node Code/LauncherInteractionChecks.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

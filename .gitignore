@@ -16,6 +16,7 @@ EngineContent/*
 
 # Agent scratch space.
 _ClaudeScratch/
+node_modules/
 
 # Diagnostic logs dropped beside built exes.
 *.log

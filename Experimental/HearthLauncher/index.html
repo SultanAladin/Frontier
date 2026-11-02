@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en" data-theme="night">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Hearth — a quiet place for loud games</title>
+<meta name="description" content="Hearth is a warm, minimal app and game launcher prototype with animated shelves, a live session stage and synthesised audio.">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2314100e'/%3E%3Cpath d='M16 6c4 4.8 6.4 7.4 6.4 10.7A6.4 6.4 0 0 1 9.6 16.7C9.6 13.4 12 10.8 16 6Z' fill='%23e8b567'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8.2 8.2 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5h3L12 5v14l-5-4.5H4z"/><path d="M16 9a4.5 4.5 0 0 1 0 6"/><path d="M18.7 6.4a8 8 0 0 1 0 11.2"/></symbol>
+  <symbol id="i-volume-off" viewBox="0 0 24 24"><path d="M4 9.5h3L12 5v14l-5-4.5H4z"/><path d="m16.5 9.5 5 5m0-5-5 5"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20Z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-5.5-5.5L19 12l-5.5 5.5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-rail" viewBox="0 0 24 24"><path d="M4 7h16M4 12h11M4 17h7"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-pad" viewBox="0 0 24 24"><path d="M7.5 8h9A4.5 4.5 0 0 1 21 12.5v1a2.5 2.5 0 0 1-4.5 1.5L15 13H9l-1.5 2A2.5 2.5 0 0 1 3 13.5v-1A4.5 4.5 0 0 1 7.5 8Z"/><path d="M8 10.5v2M7 11.5h2M15.5 11h.01M17.5 12.5h.01"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2 2 0 0 1 6 3.5h5V20H6a2 2 0 0 0-2 2z"/><path d="M20 5.5a2 2 0 0 0-2-2h-5V20h5a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-cmd" viewBox="0 0 24 24"><path d="M9 9h6v6H9zM9 9V6.5A2.5 2.5 0 1 0 6.5 9H9Zm6 0V6.5A2.5 2.5 0 1 1 17.5 9H15Zm-6 6v2.5A2.5 2.5 0 1 1 6.5 15H9Zm6 0v2.5A2.5 2.5 0 1 0 17.5 15H15Z"/></symbol>
+</defs></svg>
+
+<!-- Boot --------------------------------------------------------------- -->
+<div class="boot" id="boot">
+  <div class="boot-inner">
+    <span class="ember ember--lg" aria-hidden="true">
+      <svg viewBox="0 0 32 32"><path d="M16 3c5.2 6 8 9.4 8 13.5A8 8 0 0 1 8 16.5C8 12.4 10.8 9 16 3Z"/><path class="ember-core" d="M16 14c2.4 2.7 3.6 4.2 3.6 6a3.6 3.6 0 1 1-7.2 0c0-1.8 1.2-3.3 3.6-6Z"/></svg>
+    </span>
+    <p class="boot-word">hearth</p>
+    <div class="boot-bar"><i></i></div>
+    <p class="boot-meta mono">waking the room · build 0.4</p>
+  </div>
+  <button class="boot-skip mono" id="bootSkip">skip</button>
+</div>
+
+<div class="grain" aria-hidden="true"></div>
+<div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
+
+<!-- Top bar ------------------------------------------------------------ -->
+<header class="topbar">
+  <a class="brand" href="#top" aria-label="Hearth, home">
+    <span class="ember" aria-hidden="true">
+      <svg viewBox="0 0 32 32"><path d="M16 3c5.2 6 8 9.4 8 13.5A8 8 0 0 1 8 16.5C8 12.4 10.8 9 16 3Z"/><path class="ember-core" d="M16 14c2.4 2.7 3.6 4.2 3.6 6a3.6 3.6 0 1 1-7.2 0c0-1.8 1.2-3.3 3.6-6Z"/></svg>
+    </span>
+    <span class="brand-text">hearth</span>
+    <span class="brand-sub mono">launcher</span>
+  </a>
+
+  <nav class="nav" aria-label="Sections">
+    <button class="nav-item is-active" data-nav="shelf">Shelf</button>
+    <button class="nav-item" data-nav="studio">Studio</button>
+    <button class="nav-item" data-nav="work">Work</button>
+    <button class="nav-item" data-nav="updates">Updates</button>
+    <span class="nav-ink" aria-hidden="true"></span>
+  </nav>
+
+  <div class="topbar-right">
+    <button class="search-trigger" id="searchTrigger" aria-label="Search apps">
+      <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+      <span class="search-word">Search</span>
+      <kbd class="mono kbd-mod"><span data-mod>⌘</span><span>K</span></kbd>
+    </button>
+    <button class="icon-btn" id="lampBtn" aria-label="Toggle the lamp" aria-pressed="true" title="Lamp · L">
+      <svg class="i" aria-hidden="true"><use href="#i-moon"/></svg>
+    </button>
+    <button class="icon-btn sound-btn" id="soundBtn" aria-label="Enable audio" aria-pressed="false" title="Sound · M">
+      <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <svg class="i eq-off" aria-hidden="true"><use href="#i-volume-off"/></svg>
+    </button>
+    <span class="clock mono" id="clock">--:--</span>
+    <button class="avatar" aria-label="Profile: Aladin">A</button>
+  </div>
+</header>
+
+<main class="page" id="top">
+  <!-- Stage ----------------------------------------------------------- -->
+  <section class="stage" id="stage" aria-roledescription="carousel" aria-label="Featured apps">
+    <div class="stage-info">
+      <div class="eyebrow">
+        <span class="dot" id="featDot" aria-hidden="true"></span>
+        <span class="mono" id="featIndex">01</span>
+        <span class="rule" aria-hidden="true"></span>
+        <span class="mono" id="featKicker">featured tonight</span>
+      </div>
+      <h1 class="stage-title" id="featTitle"></h1>
+      <div class="chips" id="featChips"></div>
+      <p class="stage-blurb" id="featBlurb"></p>
+      <div class="stage-actions">
+        <button class="btn btn-play" id="featPlay">
+          <span>Play</span>
+          <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg>
+        </button>
+        <button class="btn btn-ghost" id="featDetails">Details</button>
+        <button class="like" id="featLike" aria-pressed="false" aria-label="Save to favourites">
+          <svg class="i" aria-hidden="true"><use href="#i-heart"/></svg>
+          <span class="mono" id="featLikeCount">128</span>
+        </button>
+      </div>
+      <div class="stage-foot">
+        <div class="thumbs" id="featThumbs" role="tablist" aria-label="Featured selection"></div>
+      </div>
+    </div>
+
+    <div class="stage-art" id="stageArt">
+      <div class="stage-art-inner" id="stageArtInner"></div>
+      <div class="stage-caption mono" id="featCaption"></div>
+      <div class="stage-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </div>
+
+    <div class="stage-progress" aria-hidden="true"><i id="stageProgress"></i></div>
+  </section>
+
+  <!-- Below ----------------------------------------------------------- -->
+  <div class="below">
+    <section class="library" id="library">
+      <header class="section-head">
+        <div class="section-title">
+          <p class="eyebrow"><span class="dot"></span><span class="mono">the shelf</span></p>
+          <h2>Everything, <em>arranged.</em></h2>
+        </div>
+        <div class="lib-controls">
+          <div class="filters" id="filters" role="tablist" aria-label="Filter shelf">
+            <button class="filter is-active" data-filter="all" role="tab" aria-selected="true">All</button>
+            <button class="filter" data-filter="game" role="tab" aria-selected="false">Games</button>
+            <button class="filter" data-filter="studio" role="tab" aria-selected="false">Studio</button>
+            <button class="filter" data-filter="work" role="tab" aria-selected="false">Work</button>
+          </div>
+          <div class="view-toggle" id="viewToggle" role="group" aria-label="Shelf view">
+            <button class="is-active" data-view="rail" aria-label="Rail view" aria-pressed="true"><svg class="i"><use href="#i-rail"/></svg></button>
+            <button data-view="grid" aria-label="Grid view" aria-pressed="false"><svg class="i"><use href="#i-grid"/></svg></button>
+          </div>
+        </div>
+      </header>
+
+      <div class="shelf" id="shelf" data-view="rail" aria-live="polite"></div>
+      <div class="shelf-empty" id="shelfEmpty" hidden>
+        <p class="mono">nothing here yet</p>
+        <p>Try another filter, or press <kbd>⌘K</kbd> to search the whole collection.</p>
+      </div>
+    </section>
+
+    <aside class="rail" aria-label="Overview">
+      <article class="panel panel-stats">
+        <header class="panel-head">
+          <p class="eyebrow"><span class="dot"></span><span class="mono">this week</span></p>
+          <button class="more" aria-label="Weekly detail" data-toast="Weekly detail is coming with the next build.">···</button>
+        </header>
+        <p class="stat-big"><span id="statHours">6</span><em>h</em> <span id="statMins">42</span><em>m</em></p>
+        <p class="stat-sub">of play across <span id="statApps">5</span> apps <span class="up mono">+18%</span></p>
+
+        <div class="segbar" id="segbar" aria-hidden="true"></div>
+        <ul class="seglist" id="seglist"></ul>
+
+        <div class="stat-foot">
+          <div><span class="mono">streak</span><strong>12 days</strong></div>
+          <div><span class="mono">avg session</span><strong>34 min</strong></div>
+        </div>
+      </article>
+
+      <article class="panel panel-tone">
+        <header class="panel-head">
+          <p class="eyebrow"><span class="dot"></span><span class="mono">room tone</span></p>
+          <span class="mono panel-count" id="toneState">idle</span>
+        </header>
+        <button class="tone-viz" id="tonePlay" aria-label="Preview the room tone">
+          <span class="tone-bars" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </span>
+          <span class="tone-cta mono" id="toneCta">preview 8s</span>
+        </button>
+        <p class="tone-copy">Four oscillators and a slow filter, generated live in the browser. No samples, no files.</p>
+      </article>
+    </aside>
+  </div>
+
+  <section class="updates-band" id="updatesPanel" aria-label="Product updates">
+    <header class="updates-head">
+      <div class="updates-title">
+        <p class="eyebrow"><span class="dot"></span><span class="mono">updates · 5 open</span></p>
+        <h2>See what we're <em>working on</em>.</h2>
+      </div>
+      <p class="updates-note">A prototype has edges. These are the threads we would pull next — tap a heart to add weight to one.</p>
+    </header>
+    <ol class="timeline timeline--band" id="timeline"></ol>
+    <footer class="updates-foot">
+      <button class="link-btn mono" data-toast="Full roadmap opened — prototype placeholder.">Full roadmap <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+      <span class="mono">powered by you · no accounts, no tracking</span>
+    </footer>
+  </section>
+</main>
+
+<!-- Status bar --------------------------------------------------------- -->
+<footer class="statusbar">
+  <button class="audio-state" id="audioState" aria-label="Toggle sound">
+    <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="mono" id="audioLabel">audio off</span>
+  </button>
+  <p class="hints mono">
+    <span><kbd class="kbd-ico is-back"><svg class="i" aria-hidden="true"><use href="#i-chevron"/></svg></kbd><kbd class="kbd-ico"><svg class="i" aria-hidden="true"><use href="#i-chevron"/></svg></kbd> browse</span>
+    <span><kbd>ENTER</kbd> play</span>
+    <span><kbd class="kbd-mod"><span data-mod>⌘</span><span>K</span></kbd> search</span>
+    <span><kbd>L</kbd> lamp</span>
+    <span><kbd>M</kbd> sound</span>
+  </p>
+  <p class="status-right mono"><span id="statusSession">idle</span><span class="sep">/</span><span>build 0.4</span></p>
+</footer>
+
+<!-- Detail sheet ------------------------------------------------------- -->
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+  <div class="sheet-scrim" data-close="sheet"></div>
+  <div class="sheet-card" tabindex="-1">
+    <button class="sheet-close icon-btn" data-close="sheet" aria-label="Close details"><svg class="i"><use href="#i-close"/></svg></button>
+    <div class="sheet-art" id="sheetArt"></div>
+    <div class="sheet-body">
+      <p class="eyebrow"><span class="dot"></span><span class="mono" id="sheetKicker">01 · platformer</span></p>
+      <h2 id="sheetTitle">Rayman Adventures</h2>
+      <p class="sheet-blurb" id="sheetBlurb"></p>
+      <div class="chips sheet-chips" id="sheetChips"></div>
+      <dl class="sheet-meta">
+        <div><dt class="mono">studio</dt><dd id="sheetStudio"></dd></div>
+        <div><dt class="mono">last played</dt><dd id="sheetPlayed"></dd></div>
+        <div><dt class="mono">size</dt><dd id="sheetSize"></dd></div>
+        <div><dt class="mono">rating</dt><dd id="sheetRating"></dd></div>
+      </dl>
+      <div class="sheet-actions">
+        <button class="btn btn-play" id="sheetPlay"><span>Play now</span><svg class="i"><use href="#i-arrow"/></svg></button>
+        <button class="btn btn-ghost" data-close="sheet">Back to shelf</button>
+      </div>
+      <p class="sheet-note mono">prototype · no real executable is launched</p>
+    </div>
+  </div>
+</div>
+
+<!-- Launch / session --------------------------------------------------- -->
+<div class="launch" id="launch" role="dialog" aria-modal="true" aria-label="Launching app" hidden>
+  <div class="launch-backdrop" id="launchBackdrop"></div>
+  <div class="launch-tint" aria-hidden="true"></div>
+
+  <div class="launch-phase" id="launchPhase">
+    <button class="launch-cancel icon-btn" id="launchCancel" aria-label="Cancel launch"><svg class="i"><use href="#i-close"/></svg></button>
+    <div class="launch-mark" id="launchMark" aria-hidden="true"></div>
+    <p class="launch-eyebrow mono" id="launchLabel">preparing the room</p>
+    <h2 class="launch-title" id="launchTitle">Rayman Adventures</h2>
+    <div class="launch-bar"><i id="launchBar"></i></div>
+    <p class="launch-status mono" id="launchStatus">checking local files</p>
+    <p class="launch-studio mono" id="launchStudio"></p>
+  </div>
+
+  <div class="session" id="session" hidden>
+    <header class="session-head">
+      <div class="session-app">
+        <span class="live mono" id="sessionLive"><span class="pulse"></span><span id="sessionLiveText">live</span></span>
+        <h2 id="sessionTitle">Rayman Adventures</h2>
+      </div>
+      <div class="session-right">
+        <button class="icon-btn" id="sessionSound" aria-label="Mute session"><svg class="i" id="sessionSoundIcon"><use href="#i-volume"/></svg></button>
+        <button class="btn btn-ghost btn-small" id="sessionEnd">End session</button>
+      </div>
+    </header>
+
+    <div class="session-body">
+      <div class="session-bloom" id="sessionBloom" aria-hidden="true">
+        <div class="session-art" id="sessionArt"></div>
+        <div class="bloom-rings" aria-hidden="true"><i></i><i></i><i></i></div>
+      </div>
+      <p class="session-timer mono" id="sessionTimer">00:00</p>
+      <p class="session-note" id="sessionNote">Take your time. Hearth is listening.</p>
+      <div class="session-controls">
+        <button class="round-btn" id="sessionPause" aria-label="Pause session"><svg class="i"><use href="#i-pause"/></svg></button>
+        <div class="session-eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <button class="round-btn" id="sessionHeart" aria-label="Save session highlight"><svg class="i"><use href="#i-heart"/></svg></button>
+      </div>
+      <p class="session-esc mono">esc to end</p>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette ---------------------------------------------------- -->
+<div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="Search launcher" hidden>
+  <div class="palette-scrim" data-close="palette"></div>
+  <div class="palette-card">
+    <div class="palette-input">
+      <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+      <input id="paletteInput" type="text" placeholder="Search apps, genres, studios…" autocomplete="off" spellcheck="false" aria-label="Search apps">
+      <button class="icon-btn" data-close="palette" aria-label="Close search"><svg class="i"><use href="#i-close"/></svg></button>
+    </div>
+    <ul class="palette-results" id="paletteResults" role="listbox" aria-label="Results"></ul>
+    <footer class="palette-foot mono">
+      <span><kbd>UP</kbd><kbd>DOWN</kbd> move</span>
+      <span><kbd>ENTER</kbd> open</span>
+      <span><kbd>ESC</kbd> close</span>
+    </footer>
+  </div>
+</div>
+
+<div class="toast mono" id="toast" role="status" aria-live="polite"></div>
+
+<script src="launcher.js"></script>
+</body>
+</html>
