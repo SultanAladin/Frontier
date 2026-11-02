@@ -1,0 +1,16 @@
+--- interface consistency validation ---
+PASS  Every referenced program file exists
+      44 program files checked
+PASS  Every referenced chunk file exists
+      7 chunk files checked
+PASS  Every #include resolves to a registered chunk
+      no dangling includes
+PASS  Every queried DOM id exists in index.html
+      15 ids queried
+PASS  Every class used by the UI exists in Styles.css
+      22 class tokens
+PASS  No banned vocabulary in prototype source
+      14 terms checked
+PASS  No hard-coded developer drive paths
+      relative module and fetch paths only
+result: PASS

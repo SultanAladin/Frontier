@@ -1,0 +1,14 @@
+--- wave mathematics validation ---
+PASS  FFT butterfly vs direct inverse DFT (16²)
+      max relative error 4.70e-15
+PASS  Spectral RMS matches the requested sea state
+      target 0.435 m, reconstructed 0.517 m (ratio 1.19), peak 1.56 m
+PASS  Reconstructed surface is real (Hermitian symmetry)
+      mean |imaginary| 8.59e-17 m
+PASS  Grid solve stable at 512² constants (celerity 1.0, damping 0.9985)
+      peak |height| 1.464 m after 600 steps
+PASS  Ripple solve stable at 1024² constants (celerity 0.42, damping 0.962)
+      peak |height| 0.343 m after 600 steps
+PASS  Gerstner crest tightness below the self-intersection limit
+      max sum(Q·k·A) = 0.980
+result: PASS

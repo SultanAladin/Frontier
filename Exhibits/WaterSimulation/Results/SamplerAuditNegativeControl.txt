@@ -1,0 +1,17 @@
+--- sampler audit negative control ---
+
+Purpose: prove the runtime validation detects the texture-unit defect class rather than passing vacuously.
+Method: temporarily set uRippleField back to texture unit 0 (colliding with uShallowWaterField), run
+ScenarioRuntimeValidation.mjs, then restore UniformBinders.js.
+
+Observed with the defect reintroduced:
+sampler binding problems : HeightAtlas: uRippleField and uShallowWaterField both read unit 0 | OceanSurface:
+                           uRippleField and uShallowWaterField both read unit 0 | ... (repeated per frame)
+result                   : 1 FAILURES
+
+Observed after restoring the fix:
+sampler binding problems : none
+result                   : PASS
+
+Draws audited in the passing run: 6054. Every sampler on every drawing program resolves to a distinct unit
+that has a texture bound to it.

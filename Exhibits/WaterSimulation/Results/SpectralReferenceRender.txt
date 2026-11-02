@@ -1,0 +1,7 @@
+--- reference render ---
+spectral tile             : 148 m, scale 2.147e-6
+spectral peak |height|    : 0.968 m
+spectral RMS height       : 0.300 m
+grid solve peak |height|  : 3.956 m after 900 steps at 192²
+wrote                     : SpectralSurfaceReference.png 101962 bytes
+wrote                     : GridSolveReference.png 35770 bytes

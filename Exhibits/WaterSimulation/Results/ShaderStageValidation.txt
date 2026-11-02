@@ -1,0 +1,49 @@
+--- shader stage validation ---
+programs   : 23
+stages     : 44
+validator  : /tmp/sdl/third_party/glslang/StandAlone/glslangValidator
+OK    FullscreenVertex.vertex
+OK    SpectrumInitialize.vertex
+OK    SpectrumInitialize.fragment
+OK    SpectrumEvolution.vertex
+OK    SpectrumEvolution.fragment
+OK    FftButterfly.vertex
+OK    FftButterfly.fragment
+OK    SpectralResolve.vertex
+OK    SpectralResolve.fragment
+OK    SpectralSlope.vertex
+OK    SpectralSlope.fragment
+OK    TerrainBake.vertex
+OK    TerrainBake.fragment
+OK    WaveFieldStep.vertex
+OK    WaveFieldStep.fragment
+OK    HeightAtlas.vertex
+OK    HeightAtlas.fragment
+OK    WaveFieldImpulse.vertex
+OK    WaveFieldImpulse.fragment
+OK    FoamStep.vertex
+OK    FoamStep.fragment
+OK    FoamSplat.vertex
+OK    FoamSplat.fragment
+OK    SprayUpdate.vertex
+OK    SprayRasterization.vertex
+OK    SprayRasterization.fragment
+OK    SprayDeposit.vertex
+OK    SprayDeposit.fragment
+OK    OceanSurface.vertex
+OK    OceanSurface.fragment
+OK    ShoreTerrain.vertex
+OK    ShoreTerrain.fragment
+OK    VesselHull.vertex
+OK    VesselHull.fragment
+OK    SkyRadiance.vertex
+OK    SkyRadiance.fragment
+OK    SimulationGridOverlay.vertex
+OK    SimulationGridOverlay.fragment
+OK    BloomPrefilter.vertex
+OK    BloomPrefilter.fragment
+OK    BloomFilter.vertex
+OK    BloomFilter.fragment
+OK    PostResolve.vertex
+OK    PostResolve.fragment
+result     : PASS

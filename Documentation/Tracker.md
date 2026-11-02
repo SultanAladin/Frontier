@@ -434,3 +434,18 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+#### Water simulation prototype (2026-11-02)
+
+- `Experimental/WaterSimulation/` adds the requested water stack as a WebGL2 prototype: global 2.5D ripple grid
+  (1024², 400 m), global grid foam (1024²), GPU transform-feedback spray (65 536 droplets), camera-locked
+  surface grid, shoreline terrain atlas (900 m bake), buoyant vessel with wake emission, and three switchable
+  3D water models (spectral FFT ocean, Gerstner crest sum, global grid wave solve) with live toggles.
+- Validation and evidence: `Exhibits/WaterSimulation/` (seven scripts, transcripts in `Results/`, two CPU
+  reference PNGs). 44/44 GLSL ES 3.00 stages validate with glslang; 128 uniform names cross-checked; wave
+  mathematics, grid stability, and vessel kinematics pass.
+- Repairs found by that validation: spectral normalization (`1/N²` removed), PCG hash and measured variance
+  compensation for the spectrum, ES 3.00-incompatible `bitfieldReverse`, a missing `Noise.glsl` include, chunk
+  registration key, and the vessel heading/stern sign convention.
+- 🔴 Not verified: any GPU frame, browser appearance, frame rate, or Windows run. This host has no display and
+  no working browser; the prototype and `Launch.bat` remain untested on the user's Windows machine.
+- No engine code, Vulkan/Slang path, or GitHub Actions workflow was modified. No Actions were run.

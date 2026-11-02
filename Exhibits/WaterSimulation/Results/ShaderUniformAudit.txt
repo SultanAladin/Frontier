@@ -1,0 +1,6 @@
+--- shader uniform and varying audit ---
+uniform names written from JS : 128
+uniform names declared in GLSL : 128
+program stages inspected       : 44
+no cross-check problems
+result: PASS

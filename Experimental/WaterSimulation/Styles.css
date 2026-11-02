@@ -1,0 +1,561 @@
+:root
+{
+    --Ink:            #e8f1f8;
+    --InkMuted:       #9fb3c4;
+    --Plate:          rgba(11, 17, 23, 0.72);
+    --PlateEdge:      rgba(150, 200, 235, 0.16);
+    --Accent:         #57c4e8;
+    --AccentWarm:     #f2c078;
+    --TrackFill:      #2b3a47;
+}
+
+*
+{
+    box-sizing: border-box;
+}
+
+html,
+body
+{
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #05080b;
+    color: var(--Ink);
+    font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+
+#ViewSurface
+{
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: grab;
+}
+
+#ViewSurface.Dragging
+{
+    cursor: grabbing;
+}
+
+#BrandPlate
+{
+    position: fixed;
+    top: 18px;
+    left: 22px;
+    padding: 12px 18px 12px 18px;
+    background: var(--Plate);
+    border: 1px solid var(--PlateEdge);
+    border-left: 2px solid var(--Accent);
+    border-radius: 3px;
+    backdrop-filter: blur(14px);
+    pointer-events: none;
+    user-select: none;
+}
+
+.BrandMark
+{
+    font-size: 11px;
+    letter-spacing: 0.34em;
+    color: var(--InkMuted);
+}
+
+.BrandSubject
+{
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-top: 2px;
+}
+
+.BrandMode
+{
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--Accent);
+}
+
+#ControlPanel
+{
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 336px;
+    background: linear-gradient(180deg, rgba(9, 14, 19, 0.9), rgba(9, 14, 19, 0.78));
+    border-left: 1px solid var(--PlateEdge);
+    backdrop-filter: blur(18px);
+    display: flex;
+    flex-direction: column;
+    transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+#ControlPanel.Collapsed
+{
+    transform: translateX(304px);
+}
+
+.PanelGrip
+{
+    height: 34px;
+    flex: 0 0 34px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--PlateEdge);
+    color: var(--InkMuted);
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+}
+
+.PanelGrip::before
+{
+    content: "CONTROLS";
+}
+
+#ControlPanel.Collapsed .PanelGrip::before
+{
+    content: "‹";
+    font-size: 14px;
+    letter-spacing: 0;
+}
+
+.PanelScroll
+{
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 0 28px 0;
+    scrollbar-width: thin;
+    scrollbar-color: #2c3a46 transparent;
+}
+
+.PanelScroll::-webkit-scrollbar
+{
+    width: 8px;
+}
+
+.PanelScroll::-webkit-scrollbar-thumb
+{
+    background: #26343f;
+    border-radius: 4px;
+}
+
+.ControlSection
+{
+    border-bottom: 1px solid rgba(150, 200, 235, 0.08);
+    padding: 14px 16px 16px 16px;
+}
+
+.ControlSection > .SectionTitle
+{
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--InkMuted);
+    margin-bottom: 12px;
+}
+
+.ModelChoice
+{
+    display: grid;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.ModelOption
+{
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    grid-template-rows: auto auto;
+    gap: 0 10px;
+    padding: 9px 11px;
+    border: 1px solid rgba(150, 200, 235, 0.14);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.015);
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease;
+}
+
+.ModelOption:hover
+{
+    border-color: rgba(87, 196, 232, 0.45);
+}
+
+.ModelOption.Selected
+{
+    border-color: var(--Accent);
+    background: rgba(87, 196, 232, 0.11);
+}
+
+.ModelOption .ModelIndex
+{
+    grid-row: 1 / span 2;
+    align-self: center;
+    font-size: 15px;
+    color: var(--InkMuted);
+    text-align: center;
+}
+
+.ModelOption.Selected .ModelIndex
+{
+    color: var(--Accent);
+}
+
+.ModelOption .ModelName
+{
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.ModelOption .ModelNote
+{
+    font-size: 11px;
+    color: var(--InkMuted);
+    line-height: 1.35;
+    margin-top: 3px;
+}
+
+.ControlRow
+{
+    margin-bottom: 13px;
+}
+
+.ControlRow:last-child
+{
+    margin-bottom: 0;
+}
+
+.ControlLabel
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 5px;
+    color: var(--Ink);
+}
+
+.ControlLabel .ControlValue
+{
+    font-variant-numeric: tabular-nums;
+    color: var(--Accent);
+    font-size: 11px;
+}
+
+.ControlHint
+{
+    margin-top: 5px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: rgba(159, 179, 196, 0.75);
+}
+
+input[type="range"]
+{
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--TrackFill);
+    outline: none;
+    margin: 0;
+}
+
+input[type="range"]::-webkit-slider-thumb
+{
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--Ink);
+    border: 2px solid var(--Accent);
+    cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb
+{
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--Ink);
+    border: 2px solid var(--Accent);
+    cursor: pointer;
+}
+
+.ToggleSwitch
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    padding: 3px 0;
+}
+
+.ToggleTrack
+{
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: 0 0 34px;
+    border-radius: 9px;
+    background: #232f3a;
+    border: 1px solid rgba(150, 200, 235, 0.2);
+    transition: background 160ms ease, border-color 160ms ease;
+}
+
+.ToggleTrack::after
+{
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #8d9fab;
+    transition: transform 160ms cubic-bezier(0.3, 0.8, 0.4, 1), background 160ms ease;
+}
+
+.ToggleSwitch.On .ToggleTrack
+{
+    background: rgba(87, 196, 232, 0.28);
+    border-color: var(--Accent);
+}
+
+.ToggleSwitch.On .ToggleTrack::after
+{
+    transform: translateX(16px);
+    background: var(--Accent);
+}
+
+.SegmentedRow
+{
+    display: grid;
+    grid-auto-flow: column;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(150, 200, 235, 0.12);
+    border-radius: 3px;
+    padding: 3px;
+}
+
+.SegmentButton
+{
+    padding: 6px 4px;
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--InkMuted);
+    border-radius: 2px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 140ms ease, color 140ms ease;
+}
+
+.SegmentButton:hover
+{
+    color: var(--Ink);
+}
+
+.SegmentButton.Selected
+{
+    background: rgba(87, 196, 232, 0.17);
+    color: var(--Ink);
+    box-shadow: inset 0 0 0 1px rgba(87, 196, 232, 0.5);
+}
+
+.ActionButton
+{
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(150, 200, 235, 0.22);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--Ink);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color 150ms ease, background 150ms ease;
+}
+
+.ActionButton:hover
+{
+    border-color: var(--Accent);
+    background: rgba(87, 196, 232, 0.12);
+}
+
+#TelemetryPlate
+{
+    position: fixed;
+    left: 22px;
+    bottom: 18px;
+    padding: 11px 15px;
+    background: var(--Plate);
+    border: 1px solid var(--PlateEdge);
+    border-radius: 3px;
+    backdrop-filter: blur(14px);
+    font-size: 11.5px;
+    min-width: 246px;
+    user-select: none;
+}
+
+.TelemetryRow
+{
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 2px 0;
+    color: var(--InkMuted);
+}
+
+.TelemetryRow b
+{
+    color: var(--Ink);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.TelemetryHint
+{
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(150, 200, 235, 0.1);
+    color: rgba(159, 179, 196, 0.66);
+    font-size: 10px;
+    line-height: 1.45;
+    max-width: 268px;
+}
+
+#ValidationPlate
+{
+    position: fixed;
+    left: 22px;
+    top: 108px;
+    max-width: 380px;
+    padding: 11px 14px;
+    background: rgba(11, 17, 23, 0.86);
+    border: 1px solid var(--PlateEdge);
+    border-left: 2px solid var(--AccentWarm);
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 1.55;
+    backdrop-filter: blur(12px);
+}
+
+.ValidationHead
+{
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--AccentWarm);
+    margin-bottom: 6px;
+}
+
+.ValidationLine
+{
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--InkMuted);
+}
+
+.ValidationLine b
+{
+    color: var(--Ink);
+    font-weight: 500;
+}
+
+#BootPlate
+{
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: radial-gradient(circle at 50% 45%, #0d1a24 0%, #04070a 78%);
+    transition: opacity 500ms ease;
+    z-index: 20;
+}
+
+#BootPlate.Hidden
+{
+    opacity: 0;
+    pointer-events: none;
+}
+
+.BootTitle
+{
+    font-size: 15px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--Ink);
+}
+
+.BootLine
+{
+    font-size: 11.5px;
+    color: var(--InkMuted);
+    letter-spacing: 0.04em;
+    max-width: 620px;
+    text-align: center;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+#NoticePlate
+{
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(760px, 88vw);
+    max-height: 70vh;
+    overflow: auto;
+    padding: 20px 24px;
+    background: rgba(24, 10, 10, 0.94);
+    border: 1px solid rgba(240, 130, 130, 0.5);
+    border-left: 3px solid #f08282;
+    border-radius: 4px;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    z-index: 30;
+}
+
+#NoticePlate strong
+{
+    display: block;
+    margin-bottom: 8px;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #ffb3b3;
+}
+
+@media (max-width: 860px)
+{
+    #ControlPanel
+    {
+        width: 296px;
+    }
+
+    #TelemetryPlate
+    {
+        display: none;
+    }
+}

@@ -1,0 +1,17 @@
+--- vessel kinematics validation ---
+PASS  Vessel transform stays finite over 900 frames
+      16 matrix elements checked every frame
+PASS  Bow leads along the direction of travel
+      max |1 - bow·travel| = 0.002 over 21 samples
+PASS  Heave tracks the sampled surface
+      max |heave - (surface + 0.16)| = 0.140 m
+PASS  Wake writes into the ripple grid
+      2700 ripple splats queued
+PASS  Wake writes into the foam grid
+      2691 foam splats queued
+PASS  Vessel stays in navigable water
+      bow depth 11.1 m, stern depth 11.0 m
+PASS  Pose matrix translation matches the requested position
+      translation (3.00, 1.00, -2.00)
+course radius        : 36.0 m, speed 4.31 m/s
+result: PASS

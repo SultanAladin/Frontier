@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Frontier — Water Simulation Prototype</title>
+    <link rel="stylesheet" href="./Styles.css">
+</head>
+<body>
+    <canvas id="ViewSurface" aria-label="Water simulation viewport"></canvas>
+
+    <header id="BrandPlate">
+        <div class="BrandMark">FRONTIER</div>
+        <div class="BrandSubject">Water Simulation</div>
+        <div class="BrandMode" id="ModelReadout">—</div>
+    </header>
+
+    <aside id="ControlPanel" aria-label="Simulation controls">
+        <div class="PanelGrip" id="PanelGrip" title="Collapse panel (H)"></div>
+        <div class="PanelScroll" id="PanelScroll"></div>
+    </aside>
+
+    <section id="TelemetryPlate" aria-label="Telemetry">
+        <div class="TelemetryRow"><span>Frame</span><b id="FrameReadout">—</b></div>
+        <div class="TelemetryRow"><span>GPU simulation</span><b id="SolveReadout">—</b></div>
+        <div class="TelemetryRow"><span>Surface grid</span><b id="GridReadout">—</b></div>
+        <div class="TelemetryRow"><span>Spray particles</span><b id="ParticleReadout">—</b></div>
+        <div class="TelemetryRow"><span>Sea state</span><b id="SeaReadout">—</b></div>
+        <div class="TelemetryHint">1 – 2 – 3 switch models · G grid · F foam · P spray · B vessel · H panel · C capture</div>
+    </section>
+
+    <section id="ValidationPlate" hidden aria-label="Validation">
+        <div class="ValidationHead">Runtime validation</div>
+        <div id="ValidationBody"></div>
+    </section>
+
+    <div id="BootPlate">
+        <div class="BootTitle">Preparing water simulation</div>
+        <div class="BootLine" id="BootLine">Assembling shaders…</div>
+    </div>
+
+    <div id="NoticePlate" hidden></div>
+
+    <script type="module" src="./src/Main.js"></script>
+</body>
+</html>
