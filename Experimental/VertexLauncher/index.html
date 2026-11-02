@@ -1,0 +1,303 @@
+<!doctype html>
+<!--====================================================================================================================================
+                                                               INDEX.HTML
+====================================================================================================================================-->
+<!-- 🧩 Frontier launcher storefront, library and transfer queue -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Frontier — Games</title>
+    <link rel="stylesheet" href="styles.css?v=20261102-3">
+    <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+</head>
+<body>
+    <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 8h16l-1 12H5L4 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></symbol>
+        <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M4 17v3h16v-3"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5Z" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+        <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-9.4A4.1 4.1 0 0 1 12 8a4.1 4.1 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20Z"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M9 21h6m-3-4v4"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></symbol>
+        <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+        <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h.01M11 15h.01M3 11h18"/></symbol>
+        <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M5 18a8 8 0 1 1 14 0"/><path d="m12 14 3.5-3.5"/><circle cx="12" cy="14" r="1.4"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4L12 4Z"/><path d="M12 10v4m0 3h.01"/></symbol>
+        <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.2 2.3 2.3 4.7-4.8"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5m0-8h.01"/></symbol>
+        <symbol id="i-tag" viewBox="0 0 24 24"><path d="M4 4h7l9 9-7 7-9-9V4Z"/><circle cx="8.5" cy="8.5" r="1.2"/></symbol>
+        <symbol id="i-compact" viewBox="0 0 24 24"><rect x="4" y="4" width="4" height="4" rx="1"/><rect x="10" y="4" width="4" height="4" rx="1"/><rect x="16" y="4" width="4" height="4" rx="1"/><rect x="4" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="16" y="10" width="4" height="4" rx="1"/><rect x="4" y="16" width="4" height="4" rx="1"/><rect x="10" y="16" width="4" height="4" rx="1"/><rect x="16" y="16" width="4" height="4" rx="1"/></symbol>
+        <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></symbol>
+    </svg>
+
+    <div class="launcher">
+        <aside class="sidebar dock" aria-label="Launcher navigation">
+            <a class="brand dock-brand" href="#store" aria-label="Frontier store">
+                <img src="assets/mark.svg" alt="" width="38" height="38">
+                <span>Frontier</span>
+            </a>
+            <nav class="primary-nav dock-nav">
+                <button class="nav-link dock-link active" data-view="store" aria-current="page">
+                    <svg class="icon"><use href="#i-store"/></svg><span>Store</span>
+                </button>
+                <button class="nav-link dock-link" data-view="library">
+                    <svg class="icon"><use href="#i-library"/></svg><span>Library</span>
+                    <span class="nav-count" id="LibraryCount">3</span>
+                </button>
+                <button class="nav-link dock-link" data-view="downloads">
+                    <svg class="icon"><use href="#i-download"/></svg><span>Downloads</span>
+                    <span class="nav-count" id="DownloadCount">1</span>
+                </button>
+            </nav>
+            <div class="sidebar-bottom dock-bottom">
+                <button class="sidebar-transfer dock-transfer" id="SidebarTransfer" aria-label="Open active download" style="--transfer-progress:64">
+                    <span class="transfer-ring">
+                        <img id="SidebarTransferArt" src="assets/art/alan-wake.jpg" alt="">
+                        <span class="transfer-percent" id="SidebarTransferPercent">64%</span>
+                    </span>
+                    <span class="sidebar-transfer-copy">
+                        <strong id="SidebarTransferTitle">Alan Wake 2</strong>
+                        <span id="SidebarTransferDetail">Downloading · 64%</span>
+                    </span>
+                    <span class="mini-progress"><i id="SidebarTransferBar"></i></span>
+                </button>
+                <button class="nav-link dock-link" id="SettingsButton">
+                    <svg class="icon"><use href="#i-settings"/></svg><span>Settings</span>
+                </button>
+                <div class="profile dock-profile">
+                    <span class="avatar">S</span>
+                    <span><strong>Sultan</strong><small>Local profile</small></span>
+                    <span class="presence" aria-label="Online"></span>
+                </div>
+            </div>
+        </aside>
+
+        <div class="workspace">
+            <header class="topbar">
+                <div class="page-label" id="PageLabel">Store</div>
+                <label class="search">
+                    <svg class="icon"><use href="#i-search"/></svg>
+                    <input id="Search" type="search" placeholder="Search games" autocomplete="off" aria-label="Search games">
+                    <kbd>/</kbd>
+                </label>
+                <button class="icon-button top-settings" id="TopSettings" aria-label="Settings">
+                    <svg class="icon"><use href="#i-settings"/></svg>
+                </button>
+            </header>
+
+            <main id="Main" tabindex="-1">
+                <section class="view active" id="ViewStore" aria-label="Store">
+                    <div class="store-pills" role="tablist" aria-label="Store sections">
+                        <button class="pill active" data-store-tab="discover" role="tab" aria-selected="true">Discover</button>
+                        <button class="pill" data-store-tab="browse" role="tab" aria-selected="false">Browse</button>
+                        <button class="pill" data-store-tab="wishlist" role="tab" aria-selected="false">Wishlist</button>
+                    </div>
+
+                    <section class="hero" id="Hero" aria-label="Featured game">
+                        <img class="hero-art" id="HeroArt" src="assets/art/control-wide.jpg" alt="">
+                        <div class="hero-scrim"></div>
+                        <div class="hero-copy">
+                            <p class="eyebrow" id="HeroEyebrow">Featured</p>
+                            <h1 id="HeroTitle">Control</h1>
+                            <p class="hero-description" id="HeroDescription">A corruptive presence has invaded the Federal Bureau of Control. Only you have the power to stop it.</p>
+                            <div class="hero-actions">
+                                <button class="button primary" id="HeroAction">Install</button>
+                                <button class="icon-button hero-wishlist" id="HeroWishlist" aria-label="Add Control to wishlist" aria-pressed="false">
+                                    <svg class="icon"><use href="#i-heart"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="hero-pagination">
+                            <div class="hero-dots" id="HeroDots" role="tablist" aria-label="Featured games"></div>
+                            <div class="hero-arrows">
+                                <button class="icon-button" id="HeroPrevious" aria-label="Previous featured game"><svg class="icon"><use href="#i-left"/></svg></button>
+                                <button class="icon-button" id="HeroNext" aria-label="Next featured game"><svg class="icon"><use href="#i-right"/></svg></button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="catalogue" aria-labelledby="CatalogueTitle">
+                        <div class="section-heading">
+                            <h2 id="CatalogueTitle">Discover your next game</h2>
+                            <div class="catalogue-tools">
+                                <div class="category-pills" id="CategoryPills" role="group" aria-label="Filter by genre">
+                                    <button class="pill small active" data-category="all">All</button>
+                                    <button class="pill small" data-category="action">Action</button>
+                                    <button class="pill small" data-category="adventure">Adventure</button>
+                                    <button class="pill small" data-category="racing">Racing</button>
+                                </div>
+                                <button class="icon-button" id="StoreDensityToggle" aria-label="Switch to compact grid" aria-pressed="false">
+                                    <svg class="icon"><use href="#i-compact"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="game-grid" id="StoreGrid"></div>
+                        <div class="empty" id="StoreEmpty" hidden>
+                            <h3>No games found</h3>
+                            <p>Try a different search or genre.</p>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="view" id="ViewLibrary" aria-label="Library">
+                    <div class="view-heading">
+                        <div><h1>Your library</h1><p>Ready when you are.</p></div>
+                        <div class="view-tools">
+                            <div class="filter-pills" id="LibraryFilters" role="group" aria-label="Filter library">
+                                <button class="pill small active" data-library-filter="all">All games</button>
+                                <button class="pill small" data-library-filter="installed">Installed</button>
+                                <button class="pill small" data-library-filter="updates">Updates</button>
+                            </div>
+                            <button class="icon-button" id="LibraryViewToggle" aria-label="Switch to list view" aria-pressed="false">
+                                <svg class="icon"><use href="#i-list"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="game-grid library-grid" id="LibraryGrid"></div>
+                    <div class="empty" id="LibraryEmpty" hidden>
+                        <h3>Nothing here yet</h3>
+                        <p>Games you add from the store will appear here.</p>
+                        <button class="button secondary" data-view="store">Browse store</button>
+                    </div>
+                </section>
+
+                <section class="view" id="ViewDownloads" aria-label="Downloads">
+                    <div class="view-heading">
+                        <div><h1>Downloads</h1><p id="DownloadsSummary">1 active download</p></div>
+                        <button class="button secondary" id="PauseAll">Pause all</button>
+                    </div>
+                    <div class="downloads-layout">
+                        <div class="downloads-main">
+                            <div class="insight-grid" aria-label="Download insights">
+                                <article class="insight-card insight-speed">
+                                    <div class="insight-heading"><svg class="icon"><use href="#i-gauge"/></svg><span>Download speed</span></div>
+                                    <div class="insight-value"><strong id="SpeedValue">0.0</strong><span>MB/s</span></div>
+                                    <svg class="speed-graph" id="SpeedGraph" viewBox="0 0 320 72" preserveAspectRatio="none" role="img" aria-label="Recent download speed">
+                                        <defs><linearGradient id="SpeedFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#66b2ff" stop-opacity=".3"/><stop offset="1" stop-color="#66b2ff" stop-opacity="0"/></linearGradient></defs>
+                                        <polygon id="SpeedArea" fill="url(#SpeedFill)" points=""></polygon>
+                                        <polyline id="SpeedLine" fill="none" stroke="#66b2ff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points=""></polyline>
+                                    </svg>
+                                    <div class="insight-foot"><span id="SpeedPeak">Peak 0 MB/s</span><span>Last 24s</span></div>
+                                </article>
+                                <article class="insight-card">
+                                    <div class="insight-heading"><svg class="icon"><use href="#i-clock"/></svg><span>Time left</span></div>
+                                    <div class="insight-value"><strong id="TimeLeftValue">—</strong></div>
+                                    <p class="insight-note" id="TimeLeftNote">Across active and queued transfers</p>
+                                    <div class="insight-meter"><i id="TimeLeftMeter"></i></div>
+                                </article>
+                            </div>
+                            <div class="download-list" id="ActiveDownloads"></div>
+                            <section class="download-section" id="QueuedSection" hidden>
+                                <h2>Queued</h2>
+                                <div class="download-list" id="QueuedDownloads"></div>
+                            </section>
+                            <section class="download-section" id="CompletedSection" hidden>
+                                <h2>Completed</h2>
+                                <div class="download-list" id="CompletedDownloads"></div>
+                            </section>
+                            <div class="empty" id="DownloadsEmpty" hidden>
+                                <svg class="icon empty-icon"><use href="#i-download"/></svg>
+                                <h3>No downloads</h3>
+                                <p>Install a game from the store to start a download.</p>
+                                <button class="button secondary" data-view="store">Browse store</button>
+                            </div>
+                            <p class="prototype-note">Prototype queue — transfers are simulated locally. No game files are downloaded.</p>
+                        </div>
+                        <aside class="downloads-rail" aria-label="Storage and preferences">
+                            <article class="panel-card storage-panel ok" id="StorageCard">
+                                <div class="panel-heading">
+                                    <span class="panel-title"><svg class="icon"><use href="#i-drive"/></svg>Storage</span>
+                                    <svg class="icon panel-status" id="StorageIcon"><use href="#i-check-circle"/></svg>
+                                </div>
+                                <p class="panel-subtitle">Frontier SSD (D:) · 512 GB</p>
+                                <div class="storage-bar" role="img" aria-label="Storage used by games, system and free space">
+                                    <i class="storage-games" id="StorageGamesBar"></i>
+                                    <i class="storage-system" id="StorageSystemBar"></i>
+                                </div>
+                                <ul class="storage-legend">
+                                    <li><span class="legend-dot games"></span><span>Games</span><strong id="StorageGamesValue">0 GB</strong></li>
+                                    <li><span class="legend-dot system"></span><span>System</span><strong id="StorageSystemValue">0 GB</strong></li>
+                                    <li><span class="legend-dot free"></span><span>Free</span><strong><span id="StorageValue">0</span> GB</strong></li>
+                                </ul>
+                                <p class="install-path"><svg class="icon"><use href="#i-folder"/></svg>Installs to <strong>D:\Frontier\Games</strong></p>
+                                <p class="panel-note" id="StorageNote">Enough for queued downloads</p>
+                            </article>
+                            <article class="panel-card preferences-panel">
+                                <div class="panel-heading">
+                                    <span class="panel-title"><svg class="icon"><use href="#i-sliders"/></svg>Preferences</span>
+                                </div>
+                                <label class="pref-row">
+                                    <span><strong>Auto-update games</strong><small>Patch installed titles in the background</small></span>
+                                    <input type="checkbox" id="PrefAutoUpdate" class="switch" checked>
+                                </label>
+                                <div class="pref-block">
+                                    <strong>Bandwidth limit</strong>
+                                    <div class="segmented" id="BandwidthLimit" role="group" aria-label="Bandwidth limit">
+                                        <button data-bandwidth="0" aria-pressed="true">∞</button>
+                                        <button data-bandwidth="50" aria-pressed="false">50</button>
+                                        <button data-bandwidth="25" aria-pressed="false">25</button>
+                                        <button data-bandwidth="10" aria-pressed="false">10</button>
+                                    </div>
+                                    <small id="BandwidthNote">Unlimited — full line speed</small>
+                                </div>
+                            </article>
+                        </aside>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <dialog class="game-dialog" id="GameDialog" aria-labelledby="DialogTitle">
+        <button class="icon-button dialog-close" id="DialogClose" aria-label="Close game details"><svg class="icon"><use href="#i-close"/></svg></button>
+        <div class="dialog-art"><img id="DialogArt" src="" alt=""></div>
+        <div class="dialog-body">
+            <p class="eyebrow" id="DialogGenre"></p>
+            <h2 id="DialogTitle"></h2>
+            <p id="DialogDescription"></p>
+            <div class="dialog-meta" id="DialogMeta"></div>
+            <div class="dialog-actions">
+                <button class="button primary" id="DialogAction"></button>
+                <button class="button secondary" id="DialogWishlist">Add to wishlist</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog class="settings-dialog" id="SettingsDialog" aria-labelledby="SettingsTitle">
+        <div class="dialog-heading">
+            <h2 id="SettingsTitle">Settings</h2>
+            <button class="icon-button" id="SettingsClose" aria-label="Close settings"><svg class="icon"><use href="#i-close"/></svg></button>
+        </div>
+        <label class="setting-row">
+            <span><strong>Automatic updates</strong><small>Keep installed games up to date.</small></span>
+            <input type="checkbox" id="AutoUpdate" checked>
+        </label>
+        <label class="setting-row">
+            <span><strong>Limit download speed</strong><small>Applies to the prototype queue.</small></span>
+            <select id="SpeedLimit">
+                <option value="0">No limit</option>
+                <option value="10">10 MB/s</option>
+                <option value="25">25 MB/s</option>
+                <option value="50">50 MB/s</option>
+            </select>
+        </label>
+        <p class="prototype-note">Frontier launcher prototype. Store, library and transfer behaviour are local simulations.</p>
+    </dialog>
+
+    <div class="toast" id="Toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="launcher.js?v=20261102-3"></script>
+</body>
+</html>

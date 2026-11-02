@@ -1,0 +1,16 @@
+{
+  "name": "frontier-launcher-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontier game launcher, store and download queue UI prototype.",
+  "scripts": {
+    "serve": "node Code/PreviewHttpServer.mjs",
+    "test": "node --test Code/*.test.mjs",
+    "verify": "node Code/LauncherValidation.mjs"
+  },
+  "devDependencies": {
+    "@sparticuz/chromium": "153.0.0",
+    "playwright-core": "1.64.1"
+  }
+}

@@ -1,0 +1,273 @@
+{
+  "Date": "2026-11-02T21:03:52.378Z",
+  "Revision": "working tree on arena/d888bed1-frontier",
+  "Browser": "Chromium (serverless build), headless",
+  "Viewports": [
+    "1440x960",
+    "980x620",
+    "820x620",
+    "780x600",
+    "390x844"
+  ],
+  "Checks": [
+    {
+      "Label": "Launcher document loads",
+      "Passed": true
+    },
+    {
+      "Label": "Preview document disables stale caching",
+      "Passed": true
+    },
+    {
+      "Label": "Stylesheet disables stale caching",
+      "Passed": true
+    },
+    {
+      "Label": "Launcher script disables stale caching",
+      "Passed": true
+    },
+    {
+      "Label": "Stylesheet uses a cache-busting revision",
+      "Passed": true
+    },
+    {
+      "Label": "Launcher script uses a cache-busting revision",
+      "Passed": true
+    },
+    {
+      "Label": "Blue accent replaces the pale lime accent",
+      "Passed": true
+    },
+    {
+      "Label": "Floating dock sidebar renders",
+      "Passed": true
+    },
+    {
+      "Label": "Store is the default destination",
+      "Passed": true
+    },
+    {
+      "Label": "Discover shows one uncluttered row of five games",
+      "Passed": true
+    },
+    {
+      "Label": "Featured artwork and title render",
+      "Passed": true
+    },
+    {
+      "Label": "Persistent download card remains available",
+      "Passed": true
+    },
+    {
+      "Label": "Store cards expose grid icon actions",
+      "Passed": true
+    },
+    {
+      "Label": "Store compact grid toggle works",
+      "Passed": true
+    },
+    {
+      "Label": "Featured carousel advances",
+      "Passed": true
+    },
+    {
+      "Label": "Wishlist toggle persists on featured game",
+      "Passed": true
+    },
+    {
+      "Label": "Wishlist tab filters the catalogue",
+      "Passed": true
+    },
+    {
+      "Label": "Genre pill filters the store",
+      "Passed": true
+    },
+    {
+      "Label": "Search filters visible games",
+      "Passed": true
+    },
+    {
+      "Label": "Library navigation works",
+      "Passed": true
+    },
+    {
+      "Label": "Owned games appear in the library",
+      "Passed": true
+    },
+    {
+      "Label": "Library update filter works",
+      "Passed": true
+    },
+    {
+      "Label": "Library list view works",
+      "Passed": true
+    },
+    {
+      "Label": "Downloads navigation works",
+      "Passed": true
+    },
+    {
+      "Label": "Active download card renders",
+      "Passed": true
+    },
+    {
+      "Label": "Queued update renders separately",
+      "Passed": true
+    },
+    {
+      "Label": "Speed and time insight cards render",
+      "Passed": true
+    },
+    {
+      "Label": "Storage and Preferences rail cards render",
+      "Passed": true
+    },
+    {
+      "Label": "Speed graph has plotted samples",
+      "Passed": true
+    },
+    {
+      "Label": "Storage card exposes red/green status",
+      "Passed": true
+    },
+    {
+      "Label": "Storage breakdown lists games usage",
+      "Passed": true
+    },
+    {
+      "Label": "Storage breakdown lists system reserve",
+      "Passed": true
+    },
+    {
+      "Label": "Bandwidth segmented control selects 25 MB/s",
+      "Passed": true
+    },
+    {
+      "Label": "Bandwidth note reflects the selected limit",
+      "Passed": true
+    },
+    {
+      "Label": "Preferences bandwidth syncs with settings dialog",
+      "Passed": true
+    },
+    {
+      "Label": "Preferences auto-update toggle works",
+      "Passed": true
+    },
+    {
+      "Label": "Speed insight matches the active transfer card",
+      "Passed": true
+    },
+    {
+      "Label": "Time-left and storage insights replace placeholder values",
+      "Passed": true
+    },
+    {
+      "Label": "Insight cards retain their grid and surface styling",
+      "Passed": true
+    },
+    {
+      "Label": "Pause control changes the card",
+      "Passed": true
+    },
+    {
+      "Label": "Paused transfer does not advance",
+      "Passed": true
+    },
+    {
+      "Label": "Resume control restores the card",
+      "Passed": true
+    },
+    {
+      "Label": "Pause all switches to resume all",
+      "Passed": true
+    },
+    {
+      "Label": "Game detail dialog opens",
+      "Passed": true
+    },
+    {
+      "Label": "Game detail dialog shows the selected game",
+      "Passed": true
+    },
+    {
+      "Label": "Store purchase adds the game and starts a transfer",
+      "Passed": true
+    },
+    {
+      "Label": "New install waits behind the active transfer",
+      "Passed": true
+    },
+    {
+      "Label": "Queued transfer can be cancelled",
+      "Passed": true
+    },
+    {
+      "Label": "Settings dialog opens",
+      "Passed": true
+    },
+    {
+      "Label": "Download limit persists across reload",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview downloads at 980px have no horizontal overflow",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview insight cards stay in a readable grid at 980px",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview speed metric stays live at 980px",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview downloads at 820px have no horizontal overflow",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview insight cards stay in a readable grid at 820px",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview speed metric stays live at 820px",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview downloads at 780px have no horizontal overflow",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview insight cards stay in a readable grid at 780px",
+      "Passed": true
+    },
+    {
+      "Label": "Split-preview speed metric stays live at 780px",
+      "Passed": true
+    },
+    {
+      "Label": "Mobile store has no horizontal overflow",
+      "Passed": true
+    },
+    {
+      "Label": "Mobile navigation remains reachable",
+      "Passed": true
+    },
+    {
+      "Label": "Mobile compact game grid has no horizontal overflow",
+      "Passed": true
+    },
+    {
+      "Label": "No browser console errors",
+      "Passed": true
+    },
+    {
+      "Label": "No uncaught page errors",
+      "Passed": true
+    }
+  ],
+  "ConsoleErrors": [],
+  "PageErrors": [],
+  "Passed": true
+}

@@ -434,3 +434,46 @@ The new appearance files use Allman braces, flat namespace indentation, and desc
     unattended full-library pass (risk of silently regressing 100+ shipped pattern designs without
     per-pattern visual verification).
 
+
+## Launcher storefront layout revision (2026-11-02, branch arena/d888bed1-frontier)
+
+- Rebuilt `Experimental/VertexLauncher` as a simple launcher/store/download queue instead of a dashboard. The layout follows
+  the supplied General UI references: charcoal surfaces, rounded cards, pill navigation, Inter typography and artwork-led
+  Store/Library pages. Removed statistics, friends, room-tone and permanent configuration panels.
+- Retained the download-progress card pattern (thumbnail, title, percent, progress bar, speed, pause/cancel) and added a
+  persistent sidebar transfer card. Store, Library, Downloads, wishlist, search, filters, settings and queue controls are
+  interactive local simulations; no real payment, download or executable launch is connected.
+- Verification: 7 transfer-queue unit checks and 32 headless Chromium rendered checks passed. Captures and report:
+  `Exhibits/LauncherStorefront/`. Native Windows build/runtime remains unverified; this deliverable is an HTML prototype.
+
+## Launcher informational card pass (2026-11-02, branch arena/d888bed1-frontier)
+
+- Added Downloads insight cards in the supplied General UI card style: live download-speed trace graph, aggregate time left,
+  and available-space projection with green sufficient / red insufficient status icons. Transfer speed now varies
+  deterministically so the graph reflects the simulated queue.
+- Reworked Store/Library cards as internal grids with icon metadata and a three-icon action row (install/play/update,
+  wishlist, details). Added a Store compact-grid toggle.
+- Verification: 11 unit checks and 37 headless Chromium rendered checks passed. Updated captures and report:
+  `Exhibits/LauncherStorefront/`.
+
+## Launcher preview cache/layout repair (2026-11-02, branch arena/d888bed1-frontier)
+
+- Repaired embedded-preview defect where updated HTML rendered against cached pre-insight CSS/JS: zeroed metrics,
+  unstyled insight cards and missing speed graph. Added revision queries to stylesheet, launcher script and ES-module
+  imports; replaced the preview server with `Code/PreviewHttpServer.mjs` serving `Cache-Control: no-store`.
+- Kept insight cards in a three-column grid at split-preview widths (980/820/780px), seeded the speed trace on load,
+  made single-sample graphs visible, aligned card remaining time with the speed limit, and made Resume all restore one
+  active transfer.
+- Verification: 12 unit checks and 55 headless Chromium checks passed across 1440×960, 980×620, 820×620, 780×600 and
+  390×844. Added `Exhibits/LauncherStorefront/Images/PreviewDownloads.png` and cache/metric-consistency checks.
+
+## Launcher blue accent, floating dock and Downloads rail (2026-11-02, branch arena/d888bed1-frontier)
+
+- Replaced the pale lime accent with blue (`#66b2ff`) across navigation, buttons, progress, graph and brand mark.
+- Replaced the full-height left sidebar with a detached floating dock: stacked icon/label tiles, active blue beacon,
+  circular download-progress ring, settings and profile; mobile keeps a floating bottom dock.
+- Added Downloads rail cards: Storage (games/system/free breakdown, install path, red/green sufficiency) and Preferences
+  (auto-update toggle, bandwidth segmented control). Preferences sync with the settings dialog and persist; enabling
+  auto-update enqueues pending installed-title updates.
+- Verification: 12 unit checks and 64 headless Chromium checks passed. Refreshed captures in
+  `Exhibits/LauncherStorefront/Images/`.
