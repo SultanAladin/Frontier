@@ -1,0 +1,693 @@
+<!doctype html>
+<!--====================================================================================================================================
+                                                               INDEX.HTML
+====================================================================================================================================-->
+<!-- 🧩 Vertex game launcher UI prototype — dark theme, Epic/Steam-style library + store,
+     configured from the reference tablet UI (right-side edition panel, pill toggles, Apply action)
+     and the game store card grid (artwork, Play buttons, star ratings, category chips). -->
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vertex — Game Launcher</title>
+<style>
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        DESIGN TOKENS
+------------------------------------------------------------------------------------------------------------------------*/
+:root{
+  --bg:#0a0b0f;
+  --panel:#11131c;
+  --card:#161924;
+  --card-hover:#1d2230;
+  --card-active:#252c3d;
+  --line:#252a38;
+  --line-hover:#333a4a;
+  --text:#e8eaef;
+  --text-dim:#b9becd;
+  --muted:#7f8696;
+  --faint:#4b5160;
+  --accent:#8b5cf6;
+  --accent-dim:#6d4fd6;
+  --accent-glow:rgba(139,92,246,.40);
+  --accent-text:#ede9fe;
+  --play:#22c55e;
+  --play-glow:rgba(34,197,94,.35);
+  --buy:#f59e0b;
+  --update:#3b82f6;
+  --danger:#ef4444;
+  --overlay:#000000cc;
+  --radius:12px;
+  --radius-sm:8px;
+  --shadow:0 20px 60px rgba(0,0,0,.6);
+  --transition:220ms cubic-bezier(.2,.75,.3,1);
+}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        RESET & BASE
+------------------------------------------------------------------------------------------------------------------------*/
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--bg);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;overflow-y:scroll}
+body{background:var(--bg);color:var(--text);height:100dvh;overflow:hidden}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:inherit;background:transparent}
+ul,ol{list-style:none}
+svg.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+.hidden{display:none!important}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        ART ICONS (inline SVG sprite)
+------------------------------------------------------------------------------------------------------------------------*/
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden">
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="2"/></symbol>
+<symbol id="i-store" viewBox="0 0 24 24"><path d="M3 3v18h18V3H3z"/><path d="M3 9h18v15H3z"/><rect x="8" y="21" width="2" height="3"/><rect x="14" y="17" width="2" height="7"/></symbol>
+<symbol id="i-friends" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.82.33l.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></symbol>
+<symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.2 .9-4.5 4.3 1.1 6.2-5.5-2.9-5.5 2.9 1.1-6.2-4.5-4.3 6.2-.9z"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" x2="3"/></symbol>
+<symbol id="i-update" viewBox="0 0 24 24"><path d="M4 4v5h5"/><path d="M4 14c0-2.21 3.582-4 8-4s8 1.79 8 4-3.582 4-8 4-8-1.79-8-4z"/><path d="M20 20v-5"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="i-tag" viewBox="0 0 24 24"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 16.59a2 2 0 0 1 0-2.83l7.17-7.17a2 2 0 0 1 2.83 0l7.17 7.17a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" x2="7"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="7.5" y1="7.5" x2="7.51" x2="7.5"/><line x1="7.5" y1="16.5" x2="7.51" x2="16.5"/><line x1="16.5" y1="7.5" x2="16.51" x2="7.5"/><line x1="16.5" y1="16.5" x2="16.51" x2="16.5"/></symbol>
+<symbol id="i-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M4.93 8.86c.38-.38.88-.59 1.41-.59H18a9 9 0 0 1 0 18h-3.66c-.53 0-1.03-.21-1.41-.59"/></symbol>
+<symbol id="i-layer" viewBox="0 0 24 24"><polyline points="12 2 2 7 12 12"/><polyline points="12 22 22 17 12 12"/><line x1="12" y1="22" x2="12" x2="12"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" x2="16.65"/></symbol>
+<symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+<symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+<symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M13 7H7v6"/><path d="M10 14l4-4M4 9h16v10"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+</svg>
+
+<style>
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        LAYOUT SHELL
+------------------------------------------------------------------------------------------------------------------------*/
+.shell{display:grid;grid-template-columns:260px 1fr 420px;grid-template-rows:64px 1fr;height:100dvh;overflow:hidden}
+.titlebar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 32px;background:var(--panel);border-bottom:1px solid var(--line);z-index:60}
+.brand{font-weight:800;letter-spacing:-1px;font-size:21px;background:linear-gradient(135deg,var(--accent),#c084fc 60%,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.brand .mark{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:7px;background:var(--accent);color:#000;font-weight:900;font-size:12px;margin-right:10px}
+.shell-nav{display:flex;gap:14px;align-items:center}
+.shell-button{display:flex;align-items:center;gap:9px;padding:8px 14px;border-radius:10px;color:var(--text-dim);font-size:13px;font-weight:600;transition:background var(--transition),color var(--transition),border-color var(--transition);border:1px solid transparent;white-space:nowrap}
+.shell-button svg{width:17px;height:17px}
+.shell-button.active{color:var(--accent-text);background:var(--accent);box-shadow:0 0 22px var(--accent-glow)}
+.shell-button:hover:not(.active){background:var(--card);color:var(--text);border-color:var(--line-hover)}
+.shell-actions{display:flex;align-items:center;gap:10px}
+.search{position:relative;display:flex;align-items:center}
+.search input{width:260px;padding:9px 12px 9px 36px;border-radius:10px;border:1px solid var(--line);background:#0e1018;color:var(--text);font-size:13px;transition:border-color var(--transition),box-shadow var(--transition),width var(--transition)}
+.search input::placeholder{color:var(--faint)}
+.search input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(139,92,246,.15);width:320px}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.avatar{width:32px;height:32px;border-radius:10px;border:1px solid var(--line);background:linear-gradient(135deg,#2dd4bf 0,#8b5cf6 100%);display:grid;place-items:center;font-weight:800;font-size:13px;color:#0010;overflow:hidden;position:relative}
+.avatar:before{content:"";position:absolute;inset:-2px;border-radius:12px;background:linear-gradient(135deg,#2dd4bf,#8b5cf6);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:destination-out;mask-composite:exclude;opacity:.6}
+.library-rail{grid-row:2/3;border-right:1px solid var(--line);background:var(--panel);overflow-y:auto;display:flex;flex-direction:column;z-index:40}
+.rail-heading{padding:20px 24px 10px;display:flex;align-items:center;gap:10px}
+.rail-heading h2{font-size:17px;font-weight:800;letter-spacing:-.4px}
+.rail-heading .badge{font-size:10px;padding:2px 8px;border-radius:10px;background:var(--card);color:var(--muted);border:1px solid var(--line);margin-left:auto}
+.main{grid-row:2/3;overflow-y:auto;background:var(--bg);padding:26px 34px 40px;position:relative}
+.view{display:none;flex-direction:column;gap:24px;max-width:1260px;margin:0 auto;width:100%}
+.view.active{display:flex}
+.game-panel{grid-row:2/3;border-left:1px solid var(--line);background:linear-gradient(180deg,#0f111a 0,#0c0d14 100%);overflow-y:auto;display:none;flex-direction:column;z-index:50}
+.game-panel.open{display:flex}
+@media(max-width:1420px){.game-panel{display:none}.game-panel.open{position:fixed;inset:0;right:auto;left:unset;top:0;width:min(460px,92vw);height:100%;border-left:1px solid var(--line);z-index:70}}
+@media(max-width:1040px){.shell{grid-template-columns:64px 1fr 0}.library-rail{position:fixed;left:0;top:64px;bottom:0;width:260px;transform:translatex(-100%);transition:transform var(--transition);z-index:80}.library-rail.open{transform:translatex(0)}.main{padding:24px 20px 32px}.titlebar{padding:0 20px}.view{width:100%;margin:0}}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        LIBRARY / HERO
+------------------------------------------------------------------------------------------------------------------------*/
+.view-header{display:flex;align-items:center;justify-content:space-between}
+.view-title{font-size:28px;font-weight:800;letter-spacing:-1px}
+.view-sub{color:var(--muted);font-size:13px;margin-top:3px}
+.view-actions{display:flex;gap:10px;align-items:center}
+.hero{position:relative;border-radius:20px;overflow:hidden;background:linear-gradient(160deg,#131623 0,#0f111a 100%);border:1px solid var(--line);height:430px;display:grid;place-items:center;overflow:hidden}
+.hero-art{position:absolute;inset:0;z-index:0;opacity:.9}
+.blob{position:absolute;border-radius:50%;filter:blur(64px);opacity:.55;animation:drift 12s ease-in-out infinite alternate}
+.blob-1{left:10%;top:10%;width:520px;height:520px;background:#8b5cf680}
+.blob-2{right:15%;bottom:5%;width:640px;height:640px;background:#22d3ee4d;animation-duration:16s}
+.blob-3{left:40%;top:25%;width:380px;height:380px;background:#a78bfa33;animation-duration:10s}
+@keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(40px,-60px) scale(1.08)}}
+.hero-content{position:relative;z-index:4;width:100%;max-width:940px;padding:0 40px;text-align:left;color:#fff;display:grid;align-content:center;height:100%}
+.hero-eyebrow{font-size:11px;letter-spacing:2.6px;color:var(--accent-text);text-transform:uppercase;font-weight:800;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.hero-eyebrow .pill{font-size:10px;padding:1px 8px;border-radius:10px;background:rgba(139,92,246,.18);color:var(--accent-text);border:1px solid rgba(139,92,246,.35)}
+.hero h1{font-size:46px;font-weight:900;line-height:1.02;letter-spacing:-1.5px;margin:0 0 14px}
+.hero p{font-size:15px;color:var(--text-dim);max-width:620px;line-height:1.6;margin-bottom:22px}
+.hero-actions{display:flex;gap:12px;align-items:center}
+.btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:46px;padding:0 24px;border-radius:11px;font-weight:800;font-size:15px;letter-spacing:.4px;background:var(--accent);color:#0010;box-shadow:0 0 26px var(--accent-glow);transition:transform var(--transition),box-shadow var(--transition),opacity var(--transition)}
+.btn-primary svg{width:18px;height:18px;stroke:none;fill:#0010}
+.btn-primary:hover{transform:translatey(-2px);opacity:.95}
+.btn-primary:active{transform:translatey(0)}
+.btn-outline{display:inline-flex;align-items:center;gap:8px;height:46px;padding:0 20px;border-radius:11px;border:1px solid var(--line);background:#10131d;color:var(--text);font-weight:700;font-size:14px;transition:all var(--transition)}
+.btn-outline:hover{border-color:var(--line-hover);background:var(--card-hover);color:var(--text)}
+.btn-icon{width:46px;height:46px;border-radius:11px;border:1px solid var(--line);background:#10131d;color:var(--text-dim);display:grid;place-items:center;transition:all var(--transition)}
+.btn-icon:hover{background:var(--card-hover);color:var(--text);border-color:var(--line-hover)}
+.btn-icon svg{width:17px;height:17px}
+.toggles{display:flex;gap:8px;border:1px solid var(--line);background:#0e1018;border-radius:11px;padding:4px;margin-top:6px}
+.toggle{padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;color:var(--muted);border:1px solid transparent;transition:all var(--transition)}
+.toggle.active{background:var(--card);color:var(--accent-text);border-color:var(--accent);box-shadow:0 0 18px var(--accent-glow)}
+.hero-footer{position:absolute;bottom:0;left:0;right:0;padding:26px 40px;background:linear-gradient(to top,rgba(10,11,15,.9),transparent);display:flex;justify-content:space-between;align-items:flex-end;gap:16px;z-index:4}
+.hero-meta{display:flex;gap:14px;align-items:flex-end;color:var(--text-dim);font-size:12px}
+.hero-meta b{font-size:14px;color:var(--text);display:block}
+.tags{display:flex;gap:8px;flex-wrap:wrap}
+.tag{font-size:10px;font-weight:800;padding:4px 10px;border-radius:10px;border:1px solid var(--line);background:#0f1118;color:var(--muted);letter-spacing:.5px}
+.tag.is-installed{color:#22c55e;border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}
+.tag.is-store{color:#f59e0b;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.08)}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        CARDS
+------------------------------------------------------------------------------------------------------------------------*/
+.section-heading{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.section-heading h3{font-size:18px;font-weight:800;letter-spacing:-.4px}
+.section-heading .count{color:var(--muted);font-size:12px;font-weight:600;margin-left:6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:6px 14px;border-radius:10px;border:1px solid var(--line);background:#0f1118;color:var(--muted);font-size:12px;font-weight:700;transition:all var(--transition);white-space:nowrap}
+.chip:hover{border-color:var(--line-hover);color:var(--text)}
+.chip.active{background:var(--accent);color:#0010;border-color:var(--accent);box-shadow:0 0 20px var(--accent-glow)}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,250px));gap:18px;margin-top:16px}
+.card{position:relative;height:340px;border-radius:15px;border:1px solid var(--line);background:var(--card);overflow:hidden;display:flex;flex-direction:column;transition:all var(--transition)}
+.card:hover{border-color:var(--line-hover);transform:translatey(-6px);box-shadow:var(--shadow);background:var(--card-hover)}
+.card:active{transform:translatey(-2px)}
+.card-art{position:relative;height:186px;overflow:hidden;z-index:1}
+.card-art:before{content:"";position:absolute;inset:0;background:linear-gradient(185deg,#161924 0,#0e1018 55%);z-index:2}
+.card-art.is-buy:before{background:linear-gradient(185deg,#5b4a1a 0,#2d230a 55%)}
+.card-art .blob{filter:blur(40px);opacity:.5}
+.card-body{padding:16px 18px 10px;display:flex;flex-direction:column;gap:10px;flex:1}
+.card-eyebrow{font-size:10px;font-weight:800;letter-spacing:1.6px;color:var(--muted);text-transform:uppercase}
+.card-title{font-size:17px;font-weight:800;line-height:1.15;letter-spacing:-.3px}
+.card-sub{color:var(--text-dim);font-size:12.5px;margin-top:2px}
+.card-meta{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:6px}
+.card-stars{display:flex;align-items:center;gap:6px;color:#f59e0b;font-size:13px}
+.card-stars b{color:var(--text-dim);font-weight:800;margin-left:2px}
+.card-meta .chip{font-size:10px;padding:3px 9px}
+.card-footer{display:none;gap:8px;padding:10px 18px 14px;border-top:1px solid var(--line);background:linear-gradient(to top,#10131d,transparent)}
+.btn-play{flex:1;height:40px;border-radius:9px;background:var(--play);color:#0010;font-weight:900;font-size:13px;box-shadow:0 0 20px var(--play-glow);transition:transform var(--transition),opacity var(--transition)}
+.btn-play:hover{transform:translatey(-1px);opacity:.95}
+.btn-play.loading{background:var(--faint);color:var(--text-dim);box-shadow:none;cursor:wait}
+.btn-buy{flex:1;height:40px;border-radius:9px;border:1px solid var(--buy);background:rgba(245,158,11,.1);color:var(--buy);font-weight:900;font-size:13px;transition:all var(--transition)}
+.btn-buy:hover{background:rgba(245,158,11,.25)}
+.btn-update{flex:1;height:40px;border-radius:9px;border:1px solid var(--update);background:rgba(59,130,246,.1);color:var(--update);font-weight:900;font-size:13px;transition:all var(--transition)}
+.btn-update:hover{background:rgba(59,130,246,.25)}
+.btn-install{flex:1;height:40px;border-radius:9px;background:var(--panel);border:1px solid var(--line);color:var(--muted);font-weight:900;font-size:12px;position:relative;overflow:hidden}
+.btn-install:after{content:"";position:absolute;left:0;top:0;height:100%;width:var(--p,0%);background:var(--play);transition:width .4s ease}
+.btn-install span{position:relative;z-index:2}
+.empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:12px;padding:60px 20px;color:var(--muted)}
+.empty svg{width:46px;height:46px;color:var(--faint);opacity:.5}
+.empty h3{font-size:17px;font-weight:800;color:var(--text-dim)}
+.empty p{font-size:13px}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        GAME PANEL (detail drawer)
+------------------------------------------------------------------------------------------------------------------------*/
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:22px 26px 6px;border-bottom:1px solid var(--line)}
+.panel-header h2{font-size:21px;font-weight:800;letter-spacing:-.5px}
+.panel-close{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:#10131d;color:var(--text-dim);display:grid;place-items:center}
+.panel-close:hover{background:var(--card-hover);border-color:var(--line-hover)}
+.panel-art{position:relative;height:210px;border-radius:14px;overflow:hidden;margin:0 -24px 18px;border-bottom:1px solid var(--line);background:#0c0e16}
+.panel-art img{width:100%;height:100%;object-fit:cover;display:none}
+.panel-art .blob{filter:blur(44px);opacity:.55}
+.panel-meta{padding:0 26px 14px;display:flex;flex-direction:column;gap:10px}
+.panel-sub{font-size:13px;color:var(--text-dim);margin-top:2px}
+.panel-stats{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:12px;font-weight:700;margin-top:4px}
+.panel-stars{color:#f59e0b}
+.panel-editions{padding:0 26px 2px}
+.panel-editions .eyebrow{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:8px}
+.segmented{display:flex;border:1px solid var(--line);background:#0e1018;border-radius:10px;overflow:hidden}
+.segment{flex:1;padding:11px 8px;font-size:12px;font-weight:700;color:var(--text-dim);border-right:1px solid var(--line);transition:color var(--transition)}
+.segment:last-child{border-right:none}
+.segment.active{background:var(--accent);color:#0010;box-shadow:0 0 20px var(--accent-glow)}
+.panel-include{padding:0 26px 18px}
+.panel-include .eyebrow{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:8px}
+.include-list{display:flex;flex-direction:column;gap:8px}
+.include-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#0f1118;transition:all var(--transition)}
+.include-item:hover{border-color:var(--line-hover);background:var(--card-hover)}
+.include-item .check{width:20px;height:20px;border-radius:6px;border:1px solid var(--line);background:#0b0d14;display:grid;place-items:center;font-size:11px;color:var(--accent-text)}
+.include-item.active .check{border-color:var(--accent);background:var(--accent);box-shadow:0 0 14px var(--accent-glow)}
+.include-item .label{font-size:13px;font-weight:600}
+.include-item .note{font-size:11px;color:var(--muted);margin-left:auto}
+.panel-footer{padding:20px 26px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.btn-launch{height:52px;border-radius:12px;background:var(--play);color:#0010;font-weight:900;font-size:16px;box-shadow:0 0 32px var(--play-glow);transition:transform var(--transition),opacity var(--transition)}
+.btn-launch:hover{transform:translatey(-2px);opacity:.95}
+.btn-launch:active{transform:translatey(0)}
+.btn-launch.running{background:var(--faint);color:var(--muted);box-shadow:none;cursor:default}
+.btn-apply{height:46px;border-radius:11px;border:1px solid var(--line);background:#10131d;color:var(--text-dim);font-weight:800;font-size:14px;transition:all var(--transition)}
+.btn-apply:hover{border-color:var(--accent);color:var(--accent-text);background:#141022;box-shadow:0 0 20px var(--accent-glow)}
+.toggles-row{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}
+.toggles-row .toggle{font-size:11px;padding:4px 10px}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        FRIENDS & SETTINGS
+------------------------------------------------------------------------------------------------------------------------*/
+.list{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:11px;border:1px solid var(--line);background:var(--card);transition:all var(--transition)}
+.row:hover{border-color:var(--line-hover);background:var(--card-hover)}
+.row-info{display:flex;align-items:center;gap:12px;flex:1}
+.row-avatar{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#6366f1,#a855f7);display:grid;place-items:center;font-weight:900;color:#0010;font-size:15px;position:relative;overflow:hidden}
+.row-avatar.online:after{content:"";position:absolute;right:4px;bottom:4px;width:10px;height:10px;background:var(--play);border:2px solid #0a0b0f;border-radius:50%;box-shadow:0 0 8px var(--play-glow)}
+.row-avatar.away:after{background:#f59e0b;box-shadow:0 0 8px rgba(245,158,11,.4)}
+.row-name{font-weight:700;font-size:14px}
+.row-status{font-size:11.5px;color:var(--muted)}
+.row-actions{display:flex;align-items:center;gap:8px}
+.settings{display:flex;flex-direction:column;gap:20px}
+.settings-card{padding:24px;border-radius:14px;border:1px solid var(--line);background:var(--card)}
+.settings-card h4{font-size:15px;font-weight:800;margin-bottom:14px;letter-spacing:-.4px}
+.setting{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--line)}
+.setting:last-child{border-bottom:none}
+.setting-info .label{font-size:13px;font-weight:600;color:var(--text)}
+.setting-info .sub{font-size:11px;color:var(--muted);margin-top:2px}
+.switch{position:relative;width:44px;height:24px;border-radius:12px;border:1px solid var(--line);background:#0e1018;display:grid;place-items:center;transition:all var(--transition)}
+.switch-thumb{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;left:3px;transition:left var(--transition);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.switch.on{border-color:var(--accent);background:rgba(139,92,246,.2);box-shadow:0 0 16px var(--accent-glow)}
+.switch.on .switch-thumb{left:23px}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        TOAST
+------------------------------------------------------------------------------------------------------------------------*/
+.toasts{position:fixed;left:50%;bottom:28px;transform:translatex(-50%);display:flex;flex-direction:column;gap:10px;z-index:100;width:min(520px,92vw)}
+.toast{display:flex;align-items:center;gap:12px;padding:12px 18px;border-radius:11px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:13px;font-weight:600;box-shadow:0 12px 40px rgba(0,0,0,.7);animation:toastIn var(--transition) both}
+.toast.ok .dot{background:var(--play);box-shadow:0 0 14px var(--play-glow)}
+.toast.warn .dot{background:var(--buy);box-shadow:0 0 14px rgba(245,158,11,.4)}
+.toast .dot{width:10px;height:10px;border-radius:50%}
+@keyframes toastIn{from{opacity:0;transform:translatey(14px) translatex(-50%)}to{opacity:1;transform:translatey(0) translatex(-50%)}}
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        PROTOTYPE BANNER
+------------------------------------------------------------------------------------------------------------------------*/
+.note{position:fixed;top:64px;left:50%;transform:translatex(-50%);z-index:110;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;padding:5px 14px;border-radius:20px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.35);color:#c9b6ff;font-weight:800;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="note">HTML PROTOTYPE · native launcher backend not connected</div>
+
+<div class="shell">
+  <!-- top bar -->
+  <header class="titlebar">
+    <div class="brand"><span class="mark">V</span>VERTEX</div>
+    <nav class="shell-nav">
+      <button class="shell-button active" data-view="library"><svg class="icon"><use href="#i-home"/></svg>Library</button>
+      <button class="shell-button" data-view="store"><svg class="icon"><use href="#i-store"/></svg>Store</button>
+      <button class="shell-button" data-view="friends"><svg class="icon"><use href="#i-friends"/></svg>Friends</button>
+      <button class="shell-button" data-view="settings"><svg class="icon"><use href="#i-settings"/></svg>Settings</button>
+    </nav>
+    <div class="shell-actions">
+      <label class="search"><svg class="icon"><use href="#i-search"/></svg><input id="Search" placeholder="Search games…"><kbd>/</kbd></label>
+      <div class="avatar">VX</div>
+    </div>
+  </header>
+
+  <!-- left rail: library -->
+  <aside class="library-rail" id="LibraryRail">
+    <div class="rail-heading"><h2>Library</h2><span class="badge" id="RailCount">—</span></div>
+    <div style="padding:0 20px 10px;display:flex;flex-direction:column;gap:8px;">
+      <button class="rail-button" data-filter="all"><svg class="icon"><use href="#i-disc"/></svg>All games<span style="font-size:11px;color:var(--muted);margin-left:auto" id="FilterCount">—</span></button>
+      <button class="rail-button" data-filter="installed"><svg class="icon"><use href="#i-check"/></svg>Installed</button>
+      <button class="rail-button" data-filter="updates"><svg class="icon"><use href="#i-update"/></svg>Updates</button>
+      <button class="rail-button" data-filter="store"><svg class="icon"><use href="#i-store"/></svg>Store items</button>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--line);margin-top:auto;">
+      <div style="font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:10px">Settings</div>
+      <button class="rail-button" style="color:var(--accent-text);border-color:var(--accent);background:rgba(139,92,246,.12)" data-view="settings"><svg class="icon"><use href="#i-settings"/></svg>Launcher settings</button>
+    </div>
+  </aside>
+
+  <!-- main -->
+  <main class="main" id="Main">
+    <div class="view active" id="ViewLibrary" data-view="library">
+      <div class="view-header">
+        <div><div class="view-title">Your library</div><div class="view-sub">Launch, update, configure.</div></div>
+        <div class="view-actions">
+          <button class="btn-icon" id="ViewGrid" title="Grid view"><svg class="icon"><use href="#i-disc"/></svg></button>
+          <button class="btn-icon" id="ViewList" title="List view"><svg class="icon"><use href="#i-layer"/></svg></button>
+        </div>
+      </div>
+
+      <!-- hero / featured -->
+      <section class="hero" id="Hero">
+        <div class="hero-art">
+          <div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div>
+          <svg width="100%" height="100%" style="display:block">
+            <defs>
+              <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="45%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#22d3ee"/></linearGradient>
+            </defs>
+            <path d="M0,120 Q400,20 800,120 T1600,120 V430 H0 Z" fill="url(#heroGrad)"/>
+            <path d="M260,170 Q340,130 420,170 T580,170 Q660,210 580,250 T420,170" fill="none" stroke="#fff" stroke-width="14" fill-opacity=".12" opacity=".55"/>
+            <circle cx="500" cy="210" r="16" fill="#fff" opacity=".9"/><circle cx="430" cy="185" r="8" fill="#fff" opacity=".7"/><circle cx="570" cy="235" r="8" fill="#fff" opacity=".7"/>
+          </svg>
+        </div>
+        <div class="hero-content">
+          <div class="hero-eyebrow"><span class="pill">Featured</span><span style="color:var(--text-dim);font-size:11px">· Vertex Run · Action · v2.4.0</span></div>
+          <h1>Vertex Run</h1>
+          <p>A high-velocity action runner through procedurally generated topology. Unlock new traversal modes, beat your split times, and climb the global grid.</p>
+          <div class="hero-actions">
+            <button class="btn-primary" data-game="vertex-run" id="HeroPlay"><svg class="icon"><use href="#i-play"/></svg>Play</button>
+            <button class="btn-outline" data-game="vertex-run"><svg class="icon"><use href="#i-cpu"/></svg>Configure</button>
+            <div class="toggles"><button class="toggle active" id="HeroToggle">Configure</button><button class="toggle">Play now</button></div>
+          </div>
+          <div class="hero-footer">
+            <div class="hero-meta"><b>124 GB</b><span>·</span><span id="HeroProgress">Ready</span></div>
+            <div class="tags"><span class="tag is-installed">Installed</span><span class="tag">Single-player</span><span class="tag">Controller</span><span class="tag">Online co-op</span></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="section-heading"><h3>Installed games</h3><span class="count" id="LibraryCount">—</span></div>
+      <div class="chips" style="margin-bottom:2px">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="installed">Installed</button>
+        <button class="chip" data-filter="updates">Updates</button>
+        <button class="chip" data-filter="store">Store</button>
+      </div>
+      <div class="cards" id="LibraryGrid"></div>
+    </div>
+
+    <div class="view" id="ViewStore" data-view="store">
+      <div class="view-header">
+        <div><div class="view-title">Vertex Store</div><div class="view-sub">Browse and add new games.</div></div>
+        <label class="search" style="width:min(340px,100%);margin-left:auto"><svg class="icon"><use href="#i-search"/></svg><input id="StoreSearch" placeholder="Search store…"></label>
+      </div>
+      <div class="section-heading"><h3>Featured</h3></div>
+      <div class="chips" style="margin-bottom:2px">
+        <button class="chip active" data-category="all">All</button>
+        <button class="chip" data-category="action">Action</button>
+        <button class="chip" data-category="rpg">RPG</button>
+        <button class="chip" data-category="racing">Racing</button>
+        <button class="chip" data-category="strategy">Strategy</button>
+        <button class="chip" data-category="indie">Indie</button>
+      </div>
+      <div class="cards" id="StoreGrid"></div>
+    </div>
+
+    <div class="view" id="ViewFriends" data-view="friends">
+      <div class="view-header">
+        <div><div class="view-title">Friends</div><div class="view-sub">See who is online.</div></div>
+        <button class="btn-outline" style="height:36px;padding:0 14px;font-size:12px">Find friends</button>
+      </div>
+      <div class="list" id="FriendsList"></div>
+    </div>
+
+    <div class="view" id="ViewSettings" data-view="settings">
+      <div class="view-header">
+        <div><div class="view-title">Launcher settings</div><div class="view-sub">Appearance, downloads, notifications.</div></div>
+      </div>
+      <div class="settings">
+        <div class="settings-card">
+          <h4>General</h4>
+          <div class="setting"><div class="setting-info"><div class="label">Auto-update games</div><div class="sub">Keep installed titles current automatically.</div></div><label class="switch on" id="SwAuto"><div class="switch-thumb"></div></label></div>
+          <div class="setting"><div class="setting-info"><div class="label">Overlay in-game</div><div class="sub">Show Vertex overlay while playing.</div></div><label class="switch on" id="SwOverlay"><div class="switch-thumb"></div></label></div>
+          <div class="setting"><div class="setting-info"><div class="label">Beta channel</div><div class="sub">Receive pre-release launcher builds.</div></div><label class="switch" id="SwBeta"><div class="switch-thumb"></div></label></div>
+        </div>
+        <div class="settings-card">
+          <h4>Appearance</h4>
+          <div class="setting"><div class="setting-info"><div class="label">Dark theme</div><div class="sub">Vertex runs dark by default.</div></div><label class="switch on" id="SwDark"><div class="switch-thumb"></div></label></div>
+          <div class="setting"><div class="setting-info"><div class="label">Compact cards</div><div class="sub">Show more games per row.</div></div><label class="switch" id="SwCompact"><div class="switch-thumb"></div></label></div>
+        </div>
+        <div class="settings-card">
+          <h4>Account</div>
+          <div class="setting"><div class="setting-info"><div class="label">user@vertex.dev</div><div class="sub">Premium · 47 games owned</div></div><button class="btn-outline" style="height:34px;padding:0 14px;font-size:12px">Sign out</button></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- right panel: game detail / configuration -->
+  <aside class="game-panel" id="GamePanel">
+    <div class="panel-header">
+      <div><h2 id="PanelTitle">Vertex Run</h2><div class="panel-sub" id="PanelDev">Vertex Studio · Action</div></div>
+      <button class="panel-close" id="PanelClose"><svg class="icon"><use href="#i-chevron-left"/></svg></button>
+    </div>
+    <div class="panel-art">
+      <div class="blob" style="left:-12%;top:-18%;width:460px;height:460px;background:#8b5cf666"></div>
+      <div class="blob" style="right:-10%;bottom:-12%;width:560px;height:560px;background:#3b82f64d"></div>
+    </div>
+    <div class="panel-meta">
+      <div class="panel-stats"><span class="panel-stars"><svg class="icon"><use href="#i-star"/></svg>4.7</span><b>(12.4k)</b><span>·</span><span id="PanelSize">124 GB</span><span>·</span><span id="PanelVersion">v2.4.0</span></div>
+      <div class="panel-editions">
+        <div class="eyebrow">Edition</div>
+        <div class="segmented" id="Editions">
+          <button class="segment active" data-edition="standard">Standard — Free</button>
+          <button class="segment" data-edition="deluxe">Deluxe — $14.99</button>
+          <button class="segment" data-edition="ultimate">Ultimate — $29.99</button>
+        </div>
+      </div>
+      <div class="panel-include">
+        <div class="eyebrow">Included in edition</div>
+        <div class="include-list">
+          <div class="include-item active"><div class="check"><svg class="icon"><use href="#i-check"/></svg></div><div class="label">Base game</div><div class="note">Full release</div></div>
+          <div class="include-item"><div class="check"></div><div class="label">Season pass</div><div class="note">Deluxe / Ultimate</div></div>
+          <div class="include-item"><div class="check"></div><div class="label">Artbook &amp; soundtrack</div><div class="note">Ultimate</div></div>
+          <div class="include-item"><div class="check"></div><div class="label">Exclusive skin pack</div><div class="note">Ultimate</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <div class="toggles-row"><span style="font-size:11px;color:var(--muted)">Background install</span><button class="toggle active" id="PanelToggleBg">On</button><button class="toggle" id="PanelToggleBg2">Off</button></div>
+      <button class="btn-launch" data-game="vertex-run" id="PanelLaunch"><svg class="icon"><use href="#i-play"/></svg>Launch Vertex Run</button>
+      <button class="btn-apply" id="PanelApply"><svg class="icon"><use href="#i-disc"/></svg>Apply changes</button>
+    </div>
+  </aside>
+</div>
+
+<div class="toasts" id="Toasts"></div>
+
+<script>
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        GAME DATA
+------------------------------------------------------------------------------------------------------------------------*/
+const GAMES = [
+  {id:"vertex-run",title:"Vertex Run",studio:"Vertex Studio",category:"action",art:"#8b5cf6",stars:4.7,reviews:"12.4k",state:"installed",size:"124 GB",version:"v2.4.0",featured:true,desc:"High-velocity action runner through procedurally generated topology."},
+  {id:"null-drift",title:"Null Drift",studio:"Apex Drift Co.",category:"racing",art:"#22d3ee",stars:4.9,reviews:"8.1k",state:"installed",size:"68 GB",version:"v1.3.1",desc:"Precision racing on low-friction topology grids."},
+  {id:"echo-protocol",title:"Echo Protocol",studio:"Signal Games",category:"rpg",art:"#a78bfa",stars:4.8,reviews:"15.2k",state:"update",size:"94 GB",version:"v3.1.0→3.2.0",desc:"Narrative RPG with branching signal-layer dialogue."},
+  {id:"surface-tension",title:"Surface Tension",studio:"Flatline Labs",category:"puzzle",art:"#f472b6",stars:4.3,reviews:"3.2k",state:"installed",size:"11 GB",version:"v1.0.2",desc:"Tactile surface-manipulation puzzler."},
+  {id:"plexus",title:"Plexus",studio:"Mesh Foundry",category:"simulation",art:"#34d399",stars:4.1,reviews:"6.7k",state:"installed",size:"210 GB",version:"v2.0.0",desc:"Open-system construction simulation."},
+  {id:"gridlock",title:"Gridlock",studio:"Turn-Based Systems",category:"strategy",art:"#fbbf24",stars:4.6,reviews:"9.4k",state:"install",size:"44 GB",version:"v1.0.0",desc:"Territory control on locked-grid maps."},
+  {id:"flux-point",title:"Flux Point",studio:"Sparks Interactive",category:"action",art:"#ef4444",stars:4.4,reviews:"11k",state:"store",price:"$19.99",size:"—",version:"v1.0.0",desc:"Arena shooter with flux-weapons."},
+  {id:"overlay",title:"Overlay",studio:"Null Softworks",category:"indie",art:"#a855f7",stars:4.9,reviews:"2.1k",state:"store",price:"Free",size:"—",version:"v1.1.0",desc:"Minimalist procedural indie title."}
+];
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        STATE
+------------------------------------------------------------------------------------------------------------------------*/
+let selectedGameId = null;
+let currentFilter = "all";
+let currentCategory = "all";
+
+const VIEW_LIB = document.getElementById("ViewLibrary");
+const VIEW_STORE = document.getElementById("ViewStore");
+const VIEW_FRIENDS = document.getElementById("ViewFriends");
+const VIEW_SETTINGS = document.getElementById("ViewSettings");
+const PANEL = document.getElementById("GamePanel");
+const TOASTS = document.getElementById("Toasts");
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        RENDERERS
+------------------------------------------------------------------------------------------------------------------------*/
+function artSVG(id, color, hover){
+  const grad = `grad-${id}`;
+  return `<svg class="card-art" viewBox="0 0 250 186" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;display:block">
+    <defs><linearGradient id="${grad}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${color}dd"/><stop offset="100%" stop-color="${color}22"/></linearGradient></defs>
+    <rect width="250" height="186" rx="13" fill="url(#${grad})"/>
+    <path d="M40,46 Q125,16 210,46 T380,146" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="16" opacity=".6"/>
+    <circle cx="125" cy="92" r="20" fill="rgba(255,255,255,.9)"/>
+    <circle cx="95" cy="72" r="9" fill="rgba(255,255,255,.75)"/>
+    <circle cx="155" cy="112" r="9" fill="rgba(255,255,255,.75)"/>
+  </svg>`;
+}
+
+function starHtml(stars){
+  const full = Math.floor(stars);
+  let html = "";
+  for(let i=0;i<5;i++) html += `<svg class="icon" style="width:11px;height:11px;color:${i<full?'#f59e0b':'#2d3346'}" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.2 .9-4.5 4.3 1.1 6.2-5.5-2.9-5.5 2.9 1.1-6.2-4.5-4.3 6.2-.9z" fill="currentColor"/></svg>`;
+  return html;
+}
+
+function actionButton(g){
+  switch(g.state){
+    case "installed": return `<button class="btn-play" data-game="${g.id}"><svg class="icon"><use href="#i-play"/></svg>Play</button>`;
+    case "update": return `<button class="btn-update" data-game="${g.id}"><svg class="icon"><use href="#i-update"/></svg>Update</button>`;
+    case "install": return `<button class="btn-install" data-game="${g.id}" style="--p:64%"><span>Installing</span></button>`;
+    case "store": return g.price === "Free" ? `<button class="btn-play" data-game="${g.id}"><svg class="icon"><use href="#i-play"/></svg>Install</button>` : `<button class="btn-buy" data-game="${g.id}">Buy ${g.price}</button>`;
+    default: return `<button class="btn-play" data-game="${g.id}" disabled style="opacity:.5">Play</button>`;
+  }
+}
+
+function cardHtml(g){
+  const buy = g.state === "store";
+  return `<article class="card${buy?' is-buy':''}" data-game="${g.id}" data-category="${g.category}">
+    ${artSVG(g.id, g.art)}
+    <div class="card-body">
+      <div class="card-eyebrow">${g.category.toUpperCase()}</div>
+      <div class="card-title">${g.title}</div>
+      <div class="card-sub">${g.studio}</div>
+      <div class="card-meta">
+        <div class="card-stars">${starHtml(g.stars)}<b>${g.stars}</b></div>
+        <span class="chip ${g.state==='installed'?'is-installed':g.state==='store'?'is-store':''}">${g.state==='installed'?'Installed':g.state==='update'?'Update':g.state==='install'?'Installing':g.state}</span>
+      </div>
+    </div>
+    <div class="card-footer">${actionButton(g)}</div>
+  </article>`;
+}
+
+function renderLibrary(){
+  const grid = document.getElementById("LibraryGrid");
+  const list = GAMES.filter(g => currentFilter==="all" || g.state===currentFilter || (currentFilter==="installed"&&g.state==="installed") || (currentFilter==="updates"&&g.state==="update") || (currentFilter==="store"&&g.state==="store"));
+  grid.innerHTML = list.map(cardHtml).join("");
+  document.getElementById("LibraryCount").textContent = list.length;
+  document.getElementById("FilterCount").textContent = list.length;
+  document.getElementById("RailCount").textContent = GAMES.filter(g=>g.state==="installed").length;
+  bindCards();
+}
+
+function renderStore(){
+  const grid = document.getElementById("StoreGrid");
+  const q = document.getElementById("StoreSearch").value.toLowerCase();
+  const list = GAMES.filter(g => (currentCategory==="all"||g.category===currentCategory) && (q? (g.title+g.studio+g.category).toLowerCase().includes(q) : true));
+  grid.innerHTML = list.map(cardHtml).join("");
+  bindCards();
+}
+
+function bindCards(){
+  document.querySelectorAll(".card").forEach(card=>{
+    card.onclick = (e)=>{
+      if(e.target.closest("button")) return;
+      openGame(card.dataset.game);
+    };
+  });
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        GAME PANEL
+------------------------------------------------------------------------------------------------------------------------*/
+function openGame(id){
+  const g = GAMES.find(x=>x.id===id);
+  if(!g) return;
+  selectedGameId = id;
+  document.getElementById("PanelTitle").textContent = g.title;
+  document.getElementById("PanelDev").textContent = `${g.studio} · ${g.category.charAt(0).toUpperCase()+g.category.slice(1)}`;
+  document.getElementById("PanelSize").textContent = g.size;
+  document.getElementById("PanelVersion").textContent = g.version;
+  const launch = document.getElementById("PanelLaunch");
+  launch.textContent = g.state==="store" && g.price!=="Free" ? `Buy ${g.price}` : `Launch ${g.title}`;
+  launch.className = "btn-launch" + (g.state==="store"&&g.price!=="Free"?"" : "");
+  launch.onclick = () => launchGame(g);
+  PANEL.classList.add("open");
+  renderLibrary();
+}
+
+document.getElementById("PanelClose").onclick = ()=>{ PANEL.classList.remove("open"); selectedGameId=null; };
+document.getElementById("PanelApply").onclick = ()=>{
+  toast("Edition changes applied", "ok");
+};
+
+function launchGame(g){
+  const btn = document.querySelector(`[data-game="${g.id}"].btn-play, [data-game="${g.id}"].btn-update, [data-game="${g.id}"].btn-buy, #PanelLaunch`);
+  const label = btn.textContent;
+  btn.classList.add("loading");
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = `<svg class="icon" style="width:17px;height:17px;animation:spin 1s linear infinite"><use href="#i-disc"/></svg> Loading…`;
+  const panelBtn = document.getElementById("PanelLaunch");
+  if(panelBtn && !panelBtn.classList.contains("loading")){ panelBtn.classList.add("loading"); panelBtn.textContent = "Launching…"; panelBtn.disabled=true; }
+  toast(`Preparing ${g.title}…`, "warn");
+  setTimeout(()=>{
+    btn.classList.remove("loading"); btn.disabled=false; btn.innerHTML = orig;
+    if(panelBtn){ panelBtn.classList.remove("running"); panelBtn.classList.add("running"); panelBtn.textContent = "Running · "+g.title; }
+    toast(`${g.title} is running`, "ok");
+  }, 1700);
+}
+
+function installGridlock(){
+  const g = GAMES.find(x=>x.id==="gridlock");
+  const btn = document.querySelector(`[data-game="gridlock"].btn-install`);
+  let p = 64;
+  const iv = setInterval(()=>{
+    p += Math.random()*9;
+    if(p>=100){ p=100; clearInterval(iv); btn.style.setProperty("--p","100%"); btn.querySelector("span").textContent="Ready"; btn.className="btn-play"; btn.innerHTML=`<svg class="icon"><use href="#i-play"/></svg>Play`; btn.onclick=()=>launchGame(g); toast("Gridlock ready", "ok"); return;
+  }
+  btn.style.setProperty("--p",Math.min(p,100)+"%");
+  btn.querySelector("span").textContent = `Installing ${Math.floor(p)}%`;
+  },300);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        NAVIGATION
+------------------------------------------------------------------------------------------------------------------------*/
+function showView(name){
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  document.querySelectorAll(".shell-button").forEach(b=>{ b.classList.toggle("active", b.dataset.view===name); });
+  const view = document.getElementById("View"+name.charAt(0).toUpperCase()+name.slice(1));
+  if(view) view.classList.add("active");
+  PANEL.classList.remove("open");
+  selectedGameId = null;
+  if(name==="library") renderLibrary();
+  if(name==="store") renderStore();
+}
+
+document.querySelectorAll(".shell-button").forEach(b=>{
+  b.onclick = ()=> showView(b.dataset.view);
+});
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        FILTERS & SEARCH
+------------------------------------------------------------------------------------------------------------------------*/
+document.querySelectorAll(".chip").forEach(chip=>{
+  chip.onclick = ()=>{
+    const parent = chip.closest(".chips");
+    parent.querySelectorAll(".chip").forEach(c=>c.classList.remove("active"));
+    chip.classList.add("active");
+    const view = document.querySelector(".view.active");
+    if(parent.closest("#ViewLibrary") || view.id==="ViewLibrary"){
+      currentFilter = chip.dataset.filter;
+      renderLibrary();
+    } else {
+      currentCategory = chip.dataset.category;
+      renderStore();
+    }
+  };
+});
+
+document.getElementById("Search").oninput = (e)=>{
+  const q = e.target.value.toLowerCase();
+  const grid = document.getElementById("LibraryGrid");
+  Array.from(grid.children).forEach(card=>{
+    const match = !q || (card.textContent||"").toLowerCase().includes(q);
+    card.style.display = match ? "" : "none";
+    card.style.opacity = match ? "1" : ".45";
+  });
+};
+document.getElementById("StoreSearch").oninput = renderStore;
+
+/* shortcuts */
+document.addEventListener("keydown", e=>{
+  if(e.key === "/"){ e.preventDefault(); document.getElementById("Search").focus(); }
+  if(e.key === "Escape"){ PANEL.classList.remove("open"); }
+});
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        TOASTS
+------------------------------------------------------------------------------------------------------------------------*/
+function toast(msg, kind="ok"){
+  const el = document.createElement("div");
+  el.className = "toast "+kind;
+  el.innerHTML = `<div class="dot"></div><div>${msg}</div>`;
+  TOASTS.appendChild(el);
+  setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translatex(-50%) translatey(10px)"; setTimeout(()=>el.remove(),300); }, 2600);
+}
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        SWITCHES
+------------------------------------------------------------------------------------------------------------------------*/
+document.querySelectorAll(".switch").forEach(sw=>{
+  sw.onclick = ()=>{ sw.classList.toggle("on"); };
+});
+
+/*------------------------------------------------------------------------------------------------------------------------
+                                                        INIT
+------------------------------------------------------------------------------------------------------------------------*/
+renderLibrary();
+renderStore();
+const fl = document.getElementById("FriendsList");
+fl.innerHTML = [
+  {name:"A. Rivera",status:"Online",game:"Vertex Run",online:true},
+  {name:"M. Chen",status:"In a match",game:"Null Drift",online:true},
+  {name:"J. Okoro",status:"Away",game:"—",online:false},
+  {name:"S. Dubois",status:"Online",game:"Echo Protocol",online:true}
+].map(f=>`<div class="row"><div class="row-info"><div class="row-avatar${f.online?' online':''}">${f.name.charAt(0)}</div><div><div class="row-name">${f.name}</div><div class="row-status">${f.status}${f.game!=='—'?' · '+f.game:''}</div></div></div><div class="row-actions"><button class="btn-icon"><svg class="icon"><use href="#i-trash"/></svg></button></div></div>`).join("");
+
+setTimeout(installGridlock, 900);
+</script>
+</body>
+</html>
